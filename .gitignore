@@ -1,3 +1,26 @@
+# === Claude Code / planwright local state ===
+#
+# Policy: denylist, not a blanket ignore. Shared project config is committed
+# (.claude/settings.json, .claude/commands/, .claude/agents/, and planwright's
+# tracked default config); only personal/per-machine/transient state is ignored.
+
+# Per-user personal overrides (Claude Code convention).
+.claude/settings.local.json
+
+# planwright per-repo local config — agent-maintained override (design.md D-33:
+# repo-class registry, thresholds). Not committed.
+.claude/*.local.yml
+.claude/*.local.json
+
+# Linked git worktrees created by /orchestrate (design.md D-37). Working copies,
+# not source.
+.claude/worktrees/
+
+# Optional handover brief — transient per-worktree cache (design.md D-2/D-3).
+.claude/handover.md
+
+# === Bootstrap staging ===
+
 # Consumed bootstrap seed — already mined into specs/bootstrap/, kept local only.
 specs/_pending/notes.md
 
