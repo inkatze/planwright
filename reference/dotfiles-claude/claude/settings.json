@@ -1,0 +1,105 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/path-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/tasks-pr-sync.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/worktree-bootstrap.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/tool-discovery.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/inbox-session-start.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/notify-event.sh done"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/inbox-write.sh hook-event idle"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/notify-event.sh permission"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/inbox-write.sh hook-event awaiting-input"
+          }
+        ]
+      },
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/notify-event.sh idle"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/inbox-write.sh hook-event awaiting-input"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": []
+  },
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "lua-lsp@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "rust-analyzer-lsp@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true,
+  "permissions": {
+    "allow": [
+      "Bash(curl * 192.168.1.20:11434*)",
+      "Bash(curl *http://192.168.1.20:11434*)"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+# Pair-flow defaults. Tracked in dotfiles, materialized at ~/.claude/pair-flow.yml.
+# Per-repo overrides live in ~/.claude/pair-flow.local.yml (agent-maintained,
+# host-local, NOT tracked here). See D-19 in specs/pair-flow/design.md.
+
+# Backends used by /panel-review and /panel-pairing when --backends is not set.
+# Per D-6: codex is the tracked default. Personal/alt hosts override to
+# [gemini] via pair-flow.local.yml (user does not fund OpenAI for personal use).
+panel-backends: [codex]
+
+# Orchestrator advisory lockfile timeout. Locks older than this are treated
+# as stale and may be broken by the next runner. Per D-17 (amended: reduced
+# from 1h to 15m post-D-52, since the lock is held only during task selection).
+stale-lock-threshold: 15m
+
+# Refresh cadence for the inbox heartbeat field. Readers treat entries with
+# heartbeat older than 2x this interval (plus a small jitter) as stale. Per D-23.
+inbox-heartbeat-interval: 30s

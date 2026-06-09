@@ -1,0 +1,6 @@
+# Consumed bootstrap seed — already mined into specs/bootstrap/, kept local only.
+specs/_pending/notes.md
+
+# reference/ is tracked for now (bootstrap execution tasks cite it as their
+# migration source). It is transient and SCHEDULED FOR HISTORY PURGE before any
+# public release — it may contain personal/work data. See tasks.md "Deferred".
