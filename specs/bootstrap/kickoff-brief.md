@@ -3,7 +3,7 @@
 **Spec:** `specs/bootstrap`
 **Spec commit:** 64df4248e7ac9f427ba0aabaaa6a3459257e1477
 **Walkthrough started:** 2026-06-10
-**Repo-class:** solo (human-confirmed 2026-06-10; registry write blocked — `pair-flow-config.sh` cannot identify a repo with no git remote; entry to be written once a remote exists)
+**Repo-class:** solo (human-confirmed 2026-06-10; pair-flow harness pre-flight field — obsoleted by the Section 2 decision dropping repo-class from planwright v1; no registry entry will be written for planwright's own concept, which does not exist)
 **Retrofit mode:** no (validator clean: 0 errors, 0 warnings on Draft)
 
 This brief is the durable contract between human and agent for executing the
@@ -29,9 +29,9 @@ brief as contract, four-bucket autonomy gate, stateless orchestration, rigor
 doctrine, engineering builder) into a standalone Claude Code framework with no
 personal-toolchain inheritance.
 
-**Rules out:** auto-merge (permanent), personal scaffolding (fish/mise/tmux/
-Ansible), cross-session awareness in v1, non-GitHub hosts, the commodity review
-workflows.
+**Rules out:** auto-merge (permanent), personal scaffolding
+(fish/mise/tmux/Ansible), cross-session awareness in v1, non-GitHub hosts, the
+commodity review workflows.
 
 **Assumes:** Claude Code is the only runtime (skills + hooks + plugin); GitHub
 via `gh`; adopters accept opinionated doctrine.
@@ -61,9 +61,9 @@ Signed off: 2026-06-10
 ## Section 2 — Requirements walkthrough
 
 All 77 REQs across 11 groups walked in batches. Outcomes below; the consolidated
-spec-edit list is at the end of this section and is applied during the Task-graph
-section (the spec is Draft and unsigned, so these are in-place edits, not
-supersedes).
+spec-edit list is in Section 5 (Task graph reconstruction & spec edits) and is
+applied during that section (the spec is Draft and unsigned, so these are in-place
+edits, not supersedes).
 
 ### REQ-A — format, lifecycle, evolution
 - **Citations (REQ-A1.2) vs. bundle reality:** REQ stays strict (citation per
@@ -71,8 +71,9 @@ supersedes).
   deliverables: citation syntax, lightweight citation kinds for adopters
   ("drafting-session decision" etc.), and backfilling this bundle. Known
   non-conformance until then.
-- **Status lifecycle goes to five** (grounded in a survey of PEP/KEP/IETF/ADR/
-  MADR/TC39/Rust-RFC lifecycles — the two missing concepts appeared in all six
+- **Status lifecycle goes to five** (grounded in a survey of
+  PEP/KEP/IETF/ADR/MADR/TC39/Rust-RFC lifecycles — the two missing concepts
+  appeared in all six
   processes): Draft, Active, Done, **Retired** (terminal: abandoned/withdrawn),
   **Superseded** (terminal: replaced, mandatory `Superseded-by:` pointer).
   Reopen cycle defined: extending a Done bundle flips Done→Draft; scoped
@@ -90,7 +91,7 @@ supersedes).
   `commit_on_draft` / `commit_on_kickoff`. REQ-B1.1 amended.
 - **New REQ-B3.2 — self-healing skills:** every planwright skill ends with a
   maintenance check comparing its instructions to the doctrine/spec version it
-  implements; detected drift is written to the opportunities log (which has a
+  implements; detected drift is written to the observations log (which has a
   canonical reader), riding the existing accumulator machinery.
 
 ### REQ-C — the autonomy gate (largest restructuring of the kickoff)
@@ -183,8 +184,9 @@ merge after. Merge cadence is the autopilot's throttle.
   head of the longest dependent chain; FIFO ties.
 
 ### REQ-G — engineering doctrine & builder
-- **Decision-domains catalog** (D-16 generalized): data-driven, adopter-
-  extensible entries of trigger + considerations checklist + disposition rule.
+- **Decision-domains catalog** (D-16 generalized): data-driven,
+  adopter-extensible entries of trigger + considerations checklist + disposition
+  rule.
   Seed ~10 domains: data storage & modeling, caching, queues/async, API surface
   design, authn/z, secrets & config, concurrency, observability,
   deploy/migration strategy, dependency adoption. Execution hitting an
@@ -214,7 +216,7 @@ Signed off: 2026-06-10
 
 All 37 D-IDs accounted for: 22 confirmed with rationale intact (D-1, D-2, D-3,
 D-7, D-9, D-10, D-11, D-12, D-17, D-18, D-19, D-20, D-21, D-22, D-23, D-24,
-D-26, D-28, D-30, D-31, D-32, D-34); 11 amended by Section 2 decisions (D-4
+D-26, D-28, D-30, D-31, D-32, D-34); 13 amended by Section 2 decisions (D-4
 buckets-as-taxonomy; D-5/D-6 rewritten to act-then-review, repo-class dropped;
 D-13 composition-vs-dispatch precision; D-15/D-16 decision-domains catalog,
 three wiring points; D-25 five statuses; D-27 gate condition (c) reword; D-29
@@ -234,25 +236,26 @@ Signed off: 2026-06-10
 
 ## Section 4 — Verification approach
 
-Coverage mix reviewed: ~21 [test] (validator/parser/hook fixtures, run in
+Coverage mix reviewed: ~30 [test] (validator/parser/hook fixtures, run in
 planwright's own CI), ~17 [design-level] (doctrine artifacts; each names its
-required content), ~21 [manual] + Gherkin.
+required content), ~23 [manual] plus 8 [Gherkin] (both exercised by Task 18's
+manual-verification sweep).
 
 - **Task 18 becomes the explicit manual-verification sweep:** its findings doc
   carries a checklist of every [manual] test-spec entry — exercised, or the gap
   named. The manual tier gains a drain point; release-gate condition (c)
   certifies the manual tier, not just "a run happened".
 - Test-spec deltas ride the Section 5 edit list: entries for new REQs (B3.2,
-  D1.5, D1.6, F1.8, K1.8, decision-domains, observation staleness), rewritten
-  REQ-C entries (act-then-review: checklist generation [test]; declined log and
-  resolution ladder [manual]), repo-class inference tests deleted, five-status
-  validator fixtures (Retired/Superseded, reopen cycle).
+  C1.6, C1.7, D1.5–D1.7, F1.8, G1.8, K1.8, observation staleness), rewritten
+  REQ-C entries (act-then-review: checklist generation [Gherkin]; declined log
+  [manual] and resolution ladder [Gherkin]), repo-class inference tests deleted,
+  five-status validator fixtures (Retired/Superseded, reopen cycle).
 - Verifiability spot-check: E1.2 adaptive-retry is executable (classifier is a
   fixture-testable script); no dead verification paths found.
 
 Signed off: 2026-06-10
 
-## Clarification review (2026-06-10)
+## Section 4b — Clarification review (2026-06-10)
 
 A rendering issue meant the human had not seen the prose explanations behind
 several decisions. All eight clarification-driven decisions were re-presented
@@ -286,10 +289,13 @@ in-session, plus unattended mode. `max_parallel_units` default 3.
 
 ## Section 5 — Task graph reconstruction & spec edits
 
-**Graph:** reconstructs cleanly from `Dependencies:` lines and matches the ASCII
-diagram. Parallel start: T1, T3, T4. Critical path: T4→T5→T6→T13→T18→T19 (T3→
-T15→T16→T18 alongside). Under critical-path-first selection, T4 (the meta-spec)
-dispatches first.
+**Graph:** reconstructs cleanly from `Dependencies:` lines; the layered diagram in
+`tasks.md` is generated from those lines, which stay authoritative. Parallel
+start: T1, T3, T4. Critical path (longest chain by estimated effort, 12.5d):
+T3→T7→T11→T12→T13→T18→T19. Under critical-path-first selection (REQ-F1.2), T3
+(the intelligence migration) dispatches first. *(Corrected 2026-06-10, polish
+review: the brief originally named T4→T5→T6→T13→T18→T19 (9.5d) as critical and
+T4 as first dispatch; the effort-weighted recomputation supersedes that.)*
 
 **Deliberate non-edges (hook-point pattern, recorded so nobody "fixes" them):**
 - T8 (`/spec-draft`) ships the builder/catalog hook point; T16 plugs the builder
@@ -301,9 +307,10 @@ dispatches first.
 **Effort moves:** T3 +0.5d, T4 +0.5d, T13 +1d, T15 +0.5d. Net ≈ +2.5d.
 
 **Edits applied (2026-06-10), all traceable to signed decisions:**
-- `requirements.md`: 17 edits + Changelog section (A1.6, A3.1, B1.1, B2.1,
-  B3.2, C1.3–C1.7 rewrite, D1.2, D1.5–D1.7, E1.5, E2.1, E2.2, F1.1, F1.2, F1.8,
-  G1.1, G1.4, G1.8, H1.4, J1.5c, K1.1, K1.7, K1.8, goal/scope rewords).
+- `requirements.md`: edits touching 28 REQ-IDs + Changelog section (A1.6, A3.1,
+  B1.1, B2.1, B3.2, C1.3–C1.7 rewrite, D1.2, D1.5–D1.7, E1.5, E2.1, E2.2, F1.1,
+  F1.2, F1.8, G1.1, G1.4, G1.8, H1.4, J1.5 condition (c), K1.1, K1.7, K1.8,
+  goal/scope rewords).
 - `design.md`: D-5/D-6 rewritten in place (pre-sign-off Draft edits, not
   supersedes); D-8 reworded (one unit per step); D-13/D-14 precision notes;
   D-37 amended (native worktrees); new D-38 (control-tower dispatch), D-39
@@ -344,13 +351,14 @@ Signed off: 2026-06-10
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
 validator re-run under Active enforcement: 0 errors, 0 warnings. No retrofit
-patches, no D-42 overrides. Walkthrough base commit: 64df4248 (this kickoff's
+patches, no REQ-B2.3 inconsistency overrides. Walkthrough base commit: 64df4248 (this kickoff's
 spec edits are staged on top, committed by the human).
 
 This brief is now the durable contract. Downstream pair-flow skills
 (`/execute-task`, `/orchestrate`) operate from it. Parallel start: T1, T3, T4
-(T4 first under critical-path-first). Human prerequisite before T2: create the
-private GitHub repository and remote, authenticate `gh`.
+(T3 first under critical-path-first; corrected per the Section 5 note). Human
+prerequisite before T2: create the private GitHub repository and remote,
+authenticate `gh`.
 
 ## Amendment 1 — Spec-PR flow (2026-06-10, post-activation, supersede ritual)
 
@@ -388,3 +396,111 @@ Bootstrap-spec note: this very kickoff ran the flow manually minus the remote �
 the bundle sits committed-by-human on a worktree branch; once the private repo
 + remote exist, pushing this branch and opening PR #1 retroactively gives the
 bootstrap spec the same record.
+
+## Amendment 2 — Polish-review hardening + design-gap backlog (2026-06-10)
+
+A `/polish` review pass (nine-lens fan-out, soft-floor validation, all findings
+human-dispositioned via clustered decisions) produced corrections across the
+bundle plus the following normative amendments, human-approved as the
+"amend-critical" subset:
+
+1. **Spec-identifier charset (new REQ-A1.8).** `<spec>` identifiers match
+   `[a-z0-9][a-z0-9-]*`, validator-enforced; no skill or hook interpolates a
+   failing identifier into a path or command. (Tasks 4, 5.)
+2. **Sync-hook branch sanitization (REQ-K1.2).** Parsed branch segments are
+   charset-validated and the resolved path containment-checked under `specs/`;
+   hostile branch names are a clean no-op. (Task 6; hostile fixture in
+   test-spec K1.2.)
+3. **Gate-condition closed grammar (REQ-H1.3).** Gate conditions parse by
+   pattern match against a closed declarative grammar; never `eval`, subshell,
+   or arithmetic expansion; malformed gates surface as errors, never silently
+   skipped. (Task 10; hostile fixtures in test-spec H1.3.)
+4. **Orphaned-In-progress disposition (REQ-F1.1, D-38).** The reconcile sweep
+   moves In-progress tasks with no live worker and no open PR to Awaiting input
+   with an orphan note; never left in place, never auto-re-dispatched.
+   (Task 13; fixture in test-spec F1.1.)
+5. **Validator-absent precedence (REQ-K1.7).** On execution paths a missing
+   validator halts (fail closed, preserving REQ-A2.1's block-execution
+   guarantee); graceful degradation applies to authoring/read-only paths.
+
+Also applied with sign-off, no normative change: recorded Section 3 amendments
+propagated into D-12/D-15/D-16/D-25/D-27/D-33 text; count corrections in this
+brief (13 amended D-IDs, 28 edited REQ-IDs, ~30 [test] coverage); critical path
+recomputed (Section 5 note); REQ-I1.4 restated as a cross-reference to
+REQ-D2.2; F1.8 deliberate-bundling note; work-repo identifiers neutralized per
+REQ-D1.6; traceability and editorial fixes across all four files.
+
+### Deferred design-gap backlog (polish review, 2026-06-10)
+
+Human-dispositioned as "log, address via the spec's amendment process later".
+Grouped by sub-theme; each line is a known underspecification, not a bug in
+shipped code (nothing is implemented yet).
+
+**Locking & state:**
+- `tasks-pr-sync` hook: lock acquisition is named only in risk row 3, not in
+  REQ-K1.2/Task 6; hook lock-failure path (no-op would drop a PR event) needs a
+  named recovery (bookkeeping reconciliation as backstop, or retry).
+- Lock path `specs/<spec>/.orchestrate.lock` is per-checkout; worktree-resident
+  writers must lock the primary checkout's path (canonicalization rule).
+- Stale-lock break needs atomic break-and-reacquire semantics (two concurrent
+  breakers must not both proceed); contention fixture for test-spec F1.3.
+- `--bookkeeping` / `/drain` `tasks.md` writes are not stated to take the
+  advisory lock (D-31/D-17).
+- State-move commits in a shared checkout: stage only the spec's own files;
+  define commit ownership for hook writes; handle `.git/index.lock` contention.
+- D-41 auto-commit opt-out contradicts the parallel-dispatch rationale; define
+  the interaction (opt-out forces single-unit, or unattended ignores it).
+- Observations-log concurrent append vs `/spec-draft` archive/trim race; define
+  append-only discipline + trim-under-lock and the canonical checkout.
+- `max_parallel_units` scope undefined under multiple concurrent towers; derive
+  the live count from In-progress entries, not the local process list.
+- Active→Done flip actor ambiguous (sync hook vs bookkeeping); name one.
+
+**Failure contracts:**
+- D-41 auto-commit failure path (pre-commit hook rejection, dirty index):
+  halt-to-Awaiting-input, never dispatch on uncommitted state.
+- Worker crash/timeout missing from REQ-F1.5's halt enumeration; per-backend
+  post-detection disposition for errored/stuck workers (D-38).
+- Escalation target undefined for REQ-E1.2 (where does "escalate immediately"
+  land in a dispatched worker?); transient-retry exhaustion branch unstated.
+- "Resumable partial brief" (Task 9 Done-when) has no REQ/design/verification
+  home; specify the resumability mechanism or strike it.
+- Unattended-mode outcome contract: a headless run that parks units in
+  Awaiting input needs a surfacing channel (exit code / summary artifact).
+- Rule-doc resolution failure absent from REQ-K1.7's missing-prerequisite
+  enumeration; define fail-closed-or-surface for unresolvable doctrine docs.
+- Re-dispatch into an existing dirty worktree (orphan recovery path) undefined
+  for `/orchestrate` (D-37/D-38; D-44 covers only the spec skills).
+
+**Semantics:**
+- PR-event→section transition map for the sync hook (create vs merge; Completed
+  SHOULD mean merged-to-main, else dependents branch from main without the
+  dependency's code).
+- Never-pushed state commits diverge across clones; define which ref is "main's
+  view" (D-44) and how state commits reach the remote.
+- Non-Active refusal when invoked inside the spec worktree (files say Active,
+  main says Draft) depends on an unstated read-from-ref mechanic; make it
+  explicit + fixture.
+- Gate re-surfacing: target section should be Forward plan / Awaiting input
+  (never In progress); define the Done-spec outcome and re-surface idempotency
+  (a satisfied gate must not re-surface on every pass).
+
+**Security (beyond the amended five):**
+- Worker-settings profile needs a least-privilege requirement: enumerated grant
+  list in the options reference; never pre-approves REQ-C1.4 disqualifier zones.
+- `~/.claude/` writer needs do-not-clobber: show a plan/diff, never silently
+  overwrite user config, confine writes to namespaced paths (REQ-I1.2).
+
+**Bounds:**
+- `--watch` tmux polling: configurable interval (options-reference entry per
+  D-43) + termination condition.
+- Reconcile sweep trigger frequency (it calls `gh`): tower start / recovery,
+  at most once per step — not per watch tick.
+- `/polish` loop needs an iteration cap + convergence criterion (pair-flow had
+  cap 15 / two clean iterations; the planwright bundle dropped both).
+- Worktree pruning policy for unattended mode (fresh worktrees accumulate
+  forever; prune on merge via the sync hook or a bookkeeping sweep).
+- Fold-detection scan input bound (Goal + Scope sections only, not full
+  bundles).
+- Gate sweep excludes terminal (Retired/Superseded) specs; migrate or close
+  open gates at retirement/supersession.
