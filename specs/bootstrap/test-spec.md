@@ -1,7 +1,7 @@
 # planwright Bootstrap — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-06-09
+**Status:** Active
+**Last reviewed:** 2026-06-10
 **Format-version:** 1
 
 Every REQ is pinned to at least one verification path. Types: **test** (automated),
@@ -34,9 +34,11 @@ Validator fixture: a task missing Done when / Dependencies / Citations is flagge
 
 Validator: a REQ with no test-spec entry is flagged.
 
-### REQ-A1.6 — Status declared [test]
+### REQ-A1.6 — Status declared, five statuses [test]
 
-Validator: missing `Status:` warns and defaults to Draft.
+Validator: missing `Status:` warns and defaults to Draft; all five statuses
+accepted; Superseded without `Superseded-by:` is rejected; an unknown status is
+flagged.
 
 ### REQ-A1.7 — Format-version selects rules [test]
 
@@ -54,7 +56,10 @@ Fixtures for each of: missing file, malformed task, REQ↔test-spec gap.
 ### REQ-A3.1 — Lifecycle transitions [Gherkin]
 
 Given a Draft spec, When `/spec-kickoff` signs off, Then Status is Active. Given the last
-task moves to Completed, When bookkeeping runs, Then Status is Done.
+Forward-plan / In-progress / Awaiting-input task moves to Completed, When bookkeeping
+runs, Then Status is Done even with open Deferred gates, And those gates continue to be
+swept. Given a Done spec is extended, Then Status flips to Draft, And scoped kickoff
+returns it to Active.
 
 ### REQ-A3.2 — Stable, never-reused IDs [test]
 
@@ -73,9 +78,10 @@ The rule (four spin-new triggers, partition by functional separation) is documen
 
 ## REQ-B — Authoring & comprehension
 
-### REQ-B1.1 — Draft-only `/spec-draft` [manual]
+### REQ-B1.1 — Draft-only `/spec-draft`, auto-commit [manual]
 
-Run `/spec-draft`; confirm Status=Draft and no commit/push/Active flip.
+Run `/spec-draft`; confirm Status=Draft, the bundle is committed (and not committed
+when `commit_on_draft` is off), and no push or Active flip occurs.
 
 ### REQ-B1.2 — Seed sources cited [manual]
 
@@ -90,9 +96,14 @@ surfaces an extend recommendation for the human to decide (no auto-fold).
 
 Opportunities entries appear as seeds in a draft; consumed entries are archived/trimmed.
 
-### REQ-B2.1 — Kickoff walkthrough → Active [manual]
+### REQ-B2.1 (superseded by REQ-B2.4) / REQ-B2.4 — Kickoff walkthrough → Active + spec PR [manual]
 
-`/spec-kickoff` produces a signed brief and flips the spec Active.
+`/spec-kickoff` produces a signed brief, flips the spec Active, commits the brief +
+flip (skipped when `commit_on_kickoff` is off), pushes the spec branch, and opens a
+draft PR; with no remote or failed `gh` auth, local work completes and a degradation
+note is recorded instead. It never marks the PR ready or merges. Worktree handling:
+launching from main, the spec worktree, or an unrelated worktree each resolves
+gracefully (reuse / locate-and-print / recreate from branch).
 
 ### REQ-B2.2 — Two-brief model + brief structure [manual]
 
@@ -107,6 +118,11 @@ A seeded contradictory spec causes `/spec-kickoff` to halt without a brief.
 
 Rules documented; authoring skills show the progress indicator + selectors.
 
+### REQ-B3.2 — Self-healing maintenance footer [manual]
+
+Each shipped skill ends with the maintenance check; a seeded doctrine change causes a
+skill run to write a drift observation to the opportunities log.
+
 ## REQ-C — Finding categorization & autonomy gate
 
 ### REQ-C1.1 / REQ-C1.2 — Four buckets + predicates [design-level]
@@ -114,19 +130,33 @@ Rules documented; authoring skills show the progress indicator + selectors.
 The categorization doctrine defines all four buckets and the Agent-resolvable
 five-condition predicate.
 
-### REQ-C1.3 — Solo/multi split [Gherkin]
+### REQ-C1.3 — Act-then-review [Gherkin]
 
-Given a solo repo, Then Agent-resolvable auto-applies. Given a multi-reviewer repo, Then it
-surfaces with test + CI + alignment evidence.
+Given a Needs-sign-off finding, When the loop processes it, Then the fix is applied on
+the branch And the finding appears in the draft PR's pending-sign-off checklist. Given
+an Agent-resolvable finding, Then the audit row carries the failing→passing test, CI
+result, and brief-alignment citation.
 
-### REQ-C1.4 — Infer + confirm, multi default [test + manual]
+### REQ-C1.4 — Hard pauses only [Gherkin]
 
-Test: PR-history inference; ambiguous signals → multi-reviewer. Manual: never written
-without confirmation.
+Given a finding in a disqualifier zone (security / migration / CI config / lockfile /
+secrets), Then the loop pauses for the human. Given any other validated finding, Then
+the loop does not interrupt.
 
 ### REQ-C1.5 — Four-table output [manual]
 
-`/polish` emits all four bucket tables including empty ones.
+`/polish` emits all four bucket tables including empty ones, as audit (no mid-loop
+decision prompts).
+
+### REQ-C1.6 — Declined-with-rationale [manual]
+
+A validated-but-declined finding is closed with recorded reasoning in the audit table
+and is visible for re-raise at PR review.
+
+### REQ-C1.7 — Resolution ladder [Gherkin]
+
+Given a fork answerable from the kickoff brief, Then it never reaches the human. Given
+an irreducible product fork, Then it queues at loop end with bespoke options.
 
 ## REQ-D — Rigor doctrine
 
@@ -146,6 +176,23 @@ Doc covers the implementation-mode (low bar) / review-mode (high bar) split, too
 ### REQ-D1.4 — Framework-owned, runtime-resolved [test]
 
 A skill resolves a rule doc via the plugin-relative path in both delivery modes.
+
+### REQ-D1.5 — Research Rigor doc [design-level + manual]
+
+Doc covers triggers, source hierarchy, recency discipline, antipattern check, and
+risk-register recording; an `/execute-task` run hitting a trigger produces a
+risk-register entry with citations.
+
+### REQ-D1.6 — Security posture doc [design-level + test]
+
+Doc covers write-time triggers, artifact data-hygiene, and framework-script security;
+`gitleaks` in CI covers committed artifacts; a seeded secret in a brief fixture is
+caught.
+
+### REQ-D1.7 — Proportionality [design-level]
+
+The rigor docs state the stake/reversibility scaling rule and the declared-scoping
+requirement.
 
 ### REQ-D2.1 — Composability principle [design-level]
 
@@ -178,7 +225,8 @@ test additions.
 
 ### REQ-E2.1 — self-review/polish + observation writing [manual]
 
-`/polish` drains both action buckets; both skills append to the opportunities log.
+`/polish` drains all action dispositions per act-then-review and emits the declined
+log; both skills append to the opportunities log.
 
 ### REQ-E2.2 — In-session composition [design-level]
 
@@ -186,14 +234,16 @@ Nested skill invocation fires hooks once; documented and observed.
 
 ## REQ-F — Orchestration
 
-### REQ-F1.1 — Stateless, one unit/invocation [test]
+### REQ-F1.1 — Stateless, one unit per step [test]
 
-One `/orchestrate` invocation advances exactly one ready unit, updates `tasks.md`, and exits.
+One `/orchestrate` step advances exactly one ready unit and updates `tasks.md`; a
+killed tower loses nothing (the reconcile sweep rebuilds from disk).
 
-### REQ-F1.2 — Ready-task selection [test]
+### REQ-F1.2 — Ready-task selection, critical-path-first [test]
 
 Selection logic picks a task whose deps are all Completed and which is not In progress /
-Awaiting input.
+Awaiting input; among ready units, the head of the longest dependent chain is selected
+first (fixture: T4-like long chain beats T1-like leaf), FIFO on ties.
 
 ### REQ-F1.3 — Advisory lock [test]
 
@@ -215,6 +265,14 @@ The created PR is a draft; no merge path exists in the skill.
 ### REQ-F1.7 — Cohesion-first bundling [manual]
 
 Consecutive cohesive tasks bundle into one PR; non-cohesive ready tasks ship separately.
+
+### REQ-F1.8 — Dispatch backends + unattended mode [manual + test]
+
+Manual: each backend (subagents, tmux, print, in-session) dispatches a worker that
+completes a unit; worker questions reach the tower (subagents) or are detected via
+capture-pane (tmux). Test: unattended mode records would-be prompts as Awaiting-input
+entries; `max_parallel_units` is respected; `tasks.md` state moves are auto-committed
+(and not committed when the toggle is off).
 
 ### REQ-F2.1 — `/resume` read-only + surface uncommitted [manual]
 
@@ -253,6 +311,13 @@ The doctrine advises and weighs tradeoffs rather than rigidly enforcing.
 planwright's own CI runs the prescribed guards; the builder run against planwright reproduces
 that guard set (Task 16 dogfood loop).
 
+### REQ-G1.8 — Decision-domains catalog [design-level + Gherkin]
+
+The catalog exists with ~10 seed entries (trigger + considerations + disposition each).
+Given an implementation about to cross a catalogued domain the brief did not decide,
+Then the drift trigger fires (halt or research per stake). Given an uncatalogued domain
+decision, Then an observation is written.
+
 ## REQ-H — Accumulator taxonomy & drain policy
 
 ### REQ-H1.1 — Accumulator taxonomy [design-level]
@@ -270,7 +335,8 @@ Gate parser: a condition gate vs. a date gate (surface-only) are handled per the
 ### REQ-H1.4 — Bookkeeping drain, no auto-drop; `/drain` [test]
 
 A satisfied gate re-surfaces; nothing is auto-resolved or auto-dropped; `/drain` and
-`--bookkeeping` share the evaluator.
+`--bookkeeping` share the evaluator; the pass reports the observations log's unmined
+count and oldest-entry age.
 
 ### REQ-H1.5 — Confidence levels [manual]
 
@@ -314,15 +380,15 @@ Skills create new commits only and open draft PRs; no history-rewriting path exi
 
 ### REQ-J1.5 — Private start, public gate [design-level]
 
-The release checklist enforces the three gate conditions (incl. Task 18 + the migrated docs +
-the meta-spec).
+The release checklist enforces the three gate conditions (incl. Task 18's
+multi-contributor work-repo run + manual sweep, the migrated docs, and the meta-spec).
 
 ## REQ-K — Operational integration
 
 ### REQ-K1.1 — Config model [manual]
 
-repo-class registry + thresholds live in a tracked default + gitignored local override;
-repo-class is written only on confirmation.
+Thresholds and commit/dispatch toggles live in a tracked default + gitignored local
+override; per-repo entries are written only on human confirmation.
 
 ### REQ-K1.2 — tasks-pr-sync hook [test]
 
@@ -350,5 +416,10 @@ recorded.
 
 ### REQ-K1.7 — Graceful degradation on missing prereqs [test]
 
-Not-a-repo / missing `gh` / missing validator each surface a clear message rather than failing
-opaquely.
+Not-a-repo / no git remote / missing `gh` / missing validator each surface a clear
+message rather than failing opaquely.
+
+### REQ-K1.8 — CI-enforced options reference [test]
+
+A seeded config option with no options-reference entry fails CI; a documented option
+passes.

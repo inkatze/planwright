@@ -1,7 +1,7 @@
 # planwright Bootstrap — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-06-09
+**Status:** Active
+**Last reviewed:** 2026-06-10
 **Format-version:** 1
 
 ## Goal
@@ -16,7 +16,7 @@ making specs as correct as possible *before any code is written*.
 
 planwright extracts the generalizable core of the pair-flow system — the four-file
 spec format, the kickoff brief as durable contract, the four-bucket finding
-categorization with the solo/multi-reviewer autonomy gate, stateless step-machine
+categorization with the act-then-review autonomy gate, stateless step-machine
 orchestration, the discovery/validation/refactor rigor, and an opinionated
 engineering builder — into a standalone, opinionated Claude Code framework that any
 adopter can install without inheriting the author's personal toolchain.
@@ -29,9 +29,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 
 - Versioned four-file spec format and a status-aware validator.
 - Kickoff brief as durable contract (two-brief model).
-- Four-bucket finding categorization with the solo/multi-reviewer autonomy gate.
-- Stateless step-machine orchestration, advisory locks, one-unit-per-invocation,
-  cohesion-first PR bundling.
+- Four-bucket finding categorization with the act-then-review autonomy gate.
+- Stateless step-machine orchestration, advisory locks, one-unit-per-step,
+  control-tower dispatch, cohesion-first PR bundling.
 - Test-first execution and adaptive CI retry.
 - Discovery / Validation / Refactor rigor as framework doctrine.
 - Opinionated engineering doctrine & builder (stake-aware quality guards).
@@ -66,7 +66,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   the defined sections; each task SHALL carry a stable ID, Deliverables, Done when,
   Dependencies, Citations, and Estimated effort.
 - **REQ-A1.5** `test-spec.md` SHALL pin every REQ to at least one verification path.
-- **REQ-A1.6** `requirements.md` SHALL declare a Status of Draft, Active, or Done.
+- **REQ-A1.6** `requirements.md` SHALL declare a Status of Draft, Active, Done,
+  Retired (terminal: abandoned/withdrawn, no replacement), or Superseded
+  (terminal: replaced by another bundle, with a mandatory `Superseded-by:`
+  pointer).
 - **REQ-A1.7** Each spec bundle SHALL declare the format-version it targets; the
   validator keys its rules off that version.
 - **REQ-A2.1** planwright SHALL ship a status-aware validator enforcing the
@@ -75,8 +78,12 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-A2.2** The validator SHALL enforce four-file presence, task structure, and
   REQ↔test-spec coverage.
 - **REQ-A3.1** Status lifecycle: `/spec-draft` writes Draft; `/spec-kickoff` flips
-  Draft→Active on sign-off; a spec flips Active→Done when its last task moves to
-  Completed.
+  Draft→Active on sign-off; a spec flips Active→Done when its last Forward-plan /
+  In-progress / Awaiting-input task moves to Completed. Open Deferred gates do
+  not block Done; the gate evaluator SHALL continue sweeping gates in Done specs.
+  Reopen cycle: extending a Done bundle flips Done→Draft; scoped kickoff of the
+  delta flips back to Active. Retired and Superseded are human-set terminal
+  states.
 - **REQ-A3.2** REQ-IDs and D-IDs SHALL be stable and never reused. A changed-meaning
   requirement or decision is superseded (new ID; old marked `Superseded-by`), never
   silently rewritten.
@@ -93,7 +100,8 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 ## REQ-B — Authoring & comprehension
 
 - **REQ-B1.1** `/spec-draft` SHALL interactively elicit the four-file bundle at
-  Status Draft; it SHALL NOT commit, push, or flip a spec to Active.
+  Status Draft and SHALL commit the completed bundle (config opt-out:
+  `commit_on_draft`); it SHALL NOT push or flip a spec to Active.
 - **REQ-B1.2** `/spec-draft` SHALL accept seed sources (pending notes, the
   observations/opportunities log, transcripts) and cite them.
 - **REQ-B1.3** `/spec-draft` SHALL run fold-detection on every invocation regardless
@@ -103,8 +111,16 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-B1.4** `/spec-draft` SHALL mine the observations/opportunities log as a
   first-class seed source and archive/trim what it consumes.
 - **REQ-B2.1** `/spec-kickoff` SHALL walk the spec section by section to mutual
-  understanding, produce a signed-off `kickoff-brief.md`, and flip Draft→Active on
-  sign-off.
+  understanding, produce a signed-off `kickoff-brief.md`, flip Draft→Active on
+  sign-off, and commit the brief + status flip (config opt-out:
+  `commit_on_kickoff`); it SHALL NOT push. **Superseded-by: REQ-B2.4**
+  (2026-06-10).
+- **REQ-B2.4** (supersedes REQ-B2.1) `/spec-kickoff` SHALL walk the spec section
+  by section to mutual understanding, produce a signed-off `kickoff-brief.md`,
+  flip Draft→Active on sign-off, commit the brief + status flip (config opt-out:
+  `commit_on_kickoff`), push the spec branch, and open a DRAFT PR for the spec
+  bundle. Merge of that PR (human-reserved) makes the Active spec operational
+  for orchestration. It SHALL NOT mark the PR ready or merge it.
 - **REQ-B2.2** The kickoff brief SHALL be the durable contract (two-brief model:
   kickoff = contract, handover = optional cache). Its structure SHALL be specified.
 - **REQ-B2.3** `/spec-kickoff` SHALL halt on genuine spec inconsistency rather than
@@ -113,6 +129,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-B3.1** Spec-authoring skills SHALL follow defined interaction-style rules
   (progress indicator, progressive disclosure, selectors with recommendations,
   running summary, small bites).
+- **REQ-B3.2** Every planwright skill SHALL end with a self-healing maintenance
+  check that compares its instructions against the doctrine/spec version it
+  implements and writes detected drift to the observations/opportunities log.
 
 ## REQ-C — Finding categorization & autonomy gate
 
@@ -121,14 +140,27 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-C1.2** Each bucket SHALL have an explicit predicate. Agent-resolvable's
   predicate SHALL require a failing-then-passing regression test, passing project CI,
   kickoff-brief alignment, and exclusion from the hard-disqualifier zones.
-- **REQ-C1.3** planwright SHALL determine repo-class (solo | multi-reviewer): in solo
-  repos Agent-resolvable auto-applies; in multi-reviewer repos it surfaces for human
-  review with the test + CI + alignment evidence attached.
-- **REQ-C1.4** repo-class SHALL be inferred from repository signals and surfaced for
-  human confirmation; it SHALL NOT be written silently. On ambiguous signals the safe
-  default is multi-reviewer (do not auto-apply).
+- **REQ-C1.3** The gate SHALL be act-then-review, identical in all repos:
+  Auto-applicable and Agent-resolvable findings apply with audit/evidence rows;
+  Needs-sign-off findings SHALL be applied on the branch and listed in a
+  pending-sign-off checklist in the draft PR description. The author's
+  draft→ready flip is the universal review gate (v1 has no repo-class; nothing
+  reaches reviewers before the author marks the PR ready, and any on-branch
+  application is one revert from undone).
+- **REQ-C1.4** Mid-loop hard pauses SHALL be limited to: findings or tasks in
+  hard-disqualifier zones (security-sensitive code, migrations/destructive ops,
+  CI configuration, lockfiles, secrets files) and irreducible
+  Needs-human-judgment forks. Nothing else SHALL interrupt the loop.
 - **REQ-C1.5** Skills that act on findings locally SHALL present the four buckets as
-  four tables, including empty buckets (anti-silent-pruning guard).
+  four tables, including empty buckets (anti-silent-pruning guard); the tables
+  are an audit record, not a decision queue.
+- **REQ-C1.6** Declined-with-rationale SHALL be a first-class disposition: a
+  validated finding may be closed with recorded reasoning in the audit table,
+  re-raisable at PR review.
+- **REQ-C1.7** Before a finding routes to Needs human judgment it SHALL climb
+  the resolution ladder: kickoff-brief/spec citation, then research (REQ-D1.5),
+  then project convention. Only irreducible product/priority forks queue for
+  the human, surfaced at loop end with bespoke options.
 
 ## REQ-D — Rigor doctrine
 
@@ -139,13 +171,31 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-D1.2** planwright SHALL document Validation Rigor: three independent
   validation passes per finding (direct reproduction, orthogonal angle, outside-in),
   plus solution validation (targeted failing test, wider suite/lint/type check,
-  edge/integration).
+  edge/integration, and an altitude check: the fix addresses cause rather than
+  symptom, at the right layer).
 - **REQ-D1.3** planwright SHALL document Refactor Instinct: small continuous
   refactors, tool-grounded over vibes, low bar in implementation mode / high bar in
   review mode.
 - **REQ-D1.4** The rigor docs SHALL be framework documentation reworded from personal
   instructions, owned by planwright (not an adopter's personal global config); skills
   SHALL reference them at runtime via a stable resolution path.
+- **REQ-D1.5** planwright SHALL document Research Rigor: triggers (new dependency,
+  unfamiliar domain, security-touching pattern, version-sensitive API use,
+  mature-project comparison), a source hierarchy (official docs, then the
+  library's own source and tests, then issues/RFCs, then community posts), a
+  recency discipline (current documentation over model memory), an antipattern
+  check before adopting a pattern, and recording of findings in the kickoff
+  brief's risk register. Wired into `/execute-task` and `/spec-draft`.
+- **REQ-D1.6** planwright SHALL document a Security posture: write-time security
+  triggers (a diff touching untrusted input, subprocess/shell construction, path
+  handling, authz, crypto, or serialization gets a focused security pass before
+  PR), artifact data-hygiene (no secrets, credentials, or sensitive operational
+  detail in committed framework artifacts: spec bundles, briefs, risk registers,
+  observation logs, PR bodies), and framework-script security (planwright's own
+  hooks/scripts never execute untrusted input and guard path access).
+- **REQ-D1.7** The rigor docs SHALL state proportionality: rigor scales with
+  stake and reversibility; any skill that scopes a rigor requirement SHALL
+  declare the scoping explicitly.
 - **REQ-D2.1** planwright SHALL document the composability-by-default design principle
   (small data-in/data-out units at the logic layer; framework conventions at the
   boundary).
@@ -164,22 +214,30 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-E1.4** `/execute-task` SHALL run `/polish` as a convergence step before
   opening a PR.
 - **REQ-E1.5** `/execute-task` SHALL open a DRAFT PR referencing the brief, task IDs,
-  REQs satisfied, and test additions.
+  REQs satisfied, and test additions, and carrying the pending-sign-off
+  checklist (REQ-C1.3).
 - **REQ-E2.1** planwright SHALL provide `/self-review` (Discovery + Validation rigor
-  against the feature branch) and `/polish` (autonomous loop applying Auto-applicable
-  items, plus Agent-resolvable in solo repos with an active brief, local-only, until
-  both action buckets are empty). Both SHALL append observations to the opportunities
-  log as seed material.
+  against the feature branch) and `/polish` (autonomous act-then-review loop:
+  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per
+  REQ-C1.3, records declined-with-rationale dispositions, local-only, until only
+  irreducible judgment forks remain). Both SHALL append observations to the
+  opportunities log as seed material.
 - **REQ-E2.2** Skill-to-skill invocation SHALL be in-session (composition as function
-  calls), not separate process launches.
+  calls), not separate process launches. Orchestrator dispatch of execution
+  units (REQ-F1.8) is deliberately session-creating and is not skill
+  composition.
 
 ## REQ-F — Orchestration
 
 - **REQ-F1.1** `/orchestrate` SHALL be a stateless step machine: read `tasks.md`, pick
   the next ready unit, create or reuse a worktree, dispatch `/execute-task`, update
-  `tasks.md`, exit. One unit (single task or one cohesion-bundle) per invocation.
+  `tasks.md`, exit the step. One unit (single task or one cohesion-bundle) per
+  step; a watch loop / control tower MAY take multiple steps per session, each
+  step individually atomic.
 - **REQ-F1.2** A ready task SHALL be one whose dependencies are all Completed and
-  which is not In progress or Awaiting input.
+  which is not In progress or Awaiting input. Among ready units, selection SHALL
+  prefer the head of the longest dependent chain (critical-path-first), FIFO on
+  ties.
 - **REQ-F1.3** `/orchestrate` SHALL use a per-spec advisory lock held only during
   state-changing moves, with a stale-lock break threshold.
 - **REQ-F1.4** `/orchestrate` SHALL refuse to act on a non-Active spec and SHALL NOT
@@ -190,6 +248,22 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-F1.7** `/orchestrate` SHALL bundle consecutive ready tasks only when they form
   one coherent, revertable, single-purpose deliverable (cohesion-first); combined size
   is a guardrail, not the primary signal.
+- **REQ-F1.8** `/orchestrate` SHALL dispatch units via configurable backends:
+  background subagents (default; isolated context and worktree per unit; worker
+  questions funnel back to the dispatching session), tmux windows (opt-in;
+  interactive workers via `claude --worktree`; capture-pane detection only,
+  never prompt impersonation), print (prepare the unit, print the launch
+  command, exit), and in-session. An unattended mode (headless invocation, e.g.
+  cron/CI) SHALL skip confirms and route every would-be prompt to Awaiting
+  input. A shipped worker-settings profile SHALL pre-approve the routine worker
+  toolset. Concurrency SHALL be capped (`max_parallel_units`, default 3). The
+  dispatching session SHALL hold no in-memory state beyond the current step
+  (disposable; a reconcile sweep rebuilds from `tasks.md`, `gh`, and the
+  process/window list). `/orchestrate` SHALL auto-commit its `tasks.md` state
+  moves (config opt-out). Worktrees SHALL be created under
+  `.claude/worktrees/<branch-suffix>` (attachable via `claude --worktree`
+  regardless of launch mechanism); a clean current worktree MAY be reused after
+  a one-line confirm (attended only).
 - **REQ-F2.1** `/resume` SHALL be a read-only context loader (kickoff brief +
   `tasks.md` + git log + PR state + optional handover brief); it SHALL surface
   uncommitted changes and ask before proceeding.
@@ -199,7 +273,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-G1.1** planwright SHALL ship an engineering doctrine doc encoding its
   opinionated decision process: prefer framework/language/stack idioms while keeping
   domain logic composable; defer to tooling and ecosystem standards; research how
-  mature projects solve a problem when no clean best-practice fits.
+  mature projects solve a problem when no clean best-practice fits; and a
+  dependency-adoption checklist (supply chain, maintenance status, license,
+  transitive weight), stake-escalated per the no-flattening rule.
 - **REQ-G1.2** planwright SHALL provide a builder skill that detects a project's stack
   and recommends/applies universal mechanical quality guards from a core catalog
   (formatter, linter, type-checker where applicable, test runner, secret/security
@@ -210,7 +286,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   decisions / Needs-human-judgment and routed into the deferral mechanism, never
   auto-defaulted.
 - **REQ-G1.4** The builder SHALL hook into `/spec-draft` (design phase surfaces
-  standards and flags stake-bearing decisions) and `/execute-task` (applies guards).
+  standards and flags stake-bearing decisions), `/spec-kickoff` (flags catalogued
+  decision domains the spec touches but does not decide, into the risk
+  register), and `/execute-task` (applies guards).
 - **REQ-G1.5** The core catalog SHALL be extensible; breadth dimensions
   (documentation, internationalization, accessibility, architecture guidance) are
   catalog entries the mechanism supports and that grow over time.
@@ -219,6 +297,12 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-G1.7** planwright's own repository SHALL meet the quality bar its engineering
   doctrine prescribes, enforced by CI (dogfooding). The builder, once built, SHALL be
   able to reproduce/audit planwright's own guard set.
+- **REQ-G1.8** planwright SHALL ship an extensible decision-domains catalog
+  (trigger + considerations checklist + disposition rule per domain), seeded
+  with approximately ten high-frequency domains (data storage & modeling,
+  caching, queues/async, API surface design, authn/z, secrets & config,
+  concurrency, observability, deploy/migration strategy, dependency adoption).
+  Execution hitting an uncatalogued domain decision SHALL write an observation.
 
 ## REQ-H — Accumulator taxonomy & drain policy
 
@@ -234,7 +318,8 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   only surface, never hard-fail.
 - **REQ-H1.4** A bookkeeping drain pass SHALL evaluate open gates and re-surface
   satisfied items; it SHALL NOT auto-resolve or auto-drop. The same evaluator SHALL be
-  exposed as an on-demand `/drain` move.
+  exposed as an on-demand `/drain` move. The pass SHALL surface the observations
+  log's unmined count and oldest-entry age (surface only).
 - **REQ-H1.5** Deferred decisions SHALL carry a confidence level so low-confidence items
   resurface first.
 - **REQ-H1.6** The observations/opportunities log SHALL have a canonical reader
@@ -262,14 +347,15 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   new commits only. All framework-created PRs are drafts.
 - **REQ-J1.5** The repository SHALL start private; public release is gated on all three
   of: (a) the CLAUDE.md rules are inlined into planwright's own docs; (b) the four-file
-  format meta-spec exists; (c) at least one clean multi-reviewer end-to-end run has
-  completed.
+  format meta-spec exists; (c) at least one clean end-to-end run on a real
+  multi-contributor work repository has completed.
 
 ## REQ-K — Operational integration
 
 - **REQ-K1.1** planwright SHALL provide a config model: a tracked default config plus a
-  local gitignored override storing per-repo settings (repo-class registry, thresholds),
-  agent-maintained; repo-class entries SHALL NOT be written without human confirmation.
+  local gitignored override storing per-repo settings (thresholds, commit and
+  dispatch toggles), agent-maintained; per-repo entries SHALL NOT be written
+  without human confirmation.
 - **REQ-K1.2** planwright SHALL wire a PostToolUse hook that syncs `tasks.md` sections on
   `gh pr create` / `gh pr merge`, parsing the branch-naming convention.
 - **REQ-K1.3** planwright SHALL wire a SessionStart tool-discovery hook that detects a
@@ -282,7 +368,26 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   operations SHALL degrade gracefully on `gh` auth failure (local work proceeds);
   non-GitHub hosts are out of v1 scope.
 - **REQ-K1.7** Skills SHALL degrade gracefully on missing prerequisites (not a git repo,
-  validator or `gh` absent), surfacing a clear message rather than failing opaquely.
+  no git remote, validator or `gh` absent), surfacing a clear message rather than
+  failing opaquely.
+- **REQ-K1.8** Every config option SHALL be documented in a single canonical
+  options reference (name, default, effect, consuming skill); planwright's own
+  CI SHALL fail when an option in the tracked default config lacks a reference
+  entry.
+
+## Changelog
+
+- 2026-06-10 (post-activation amendment, supersede ritual) — Spec-PR flow:
+  REQ-B2.4 supersedes REQ-B2.1 (`/spec-kickoff` now pushes the spec branch and
+  opens a draft PR after sign-off; merge activates the spec for orchestration).
+  New D-44. Scoped re-sign-off recorded in the kickoff brief.
+- 2026-06-10 — Kickoff revisions (pre-sign-off, in-place; full rationale in
+  `specs/bootstrap/kickoff-brief.md`): five-status lifecycle (A1.6, A3.1);
+  auto-commit (B1.1, B2.1); self-healing B3.2; act-then-review gate rewrite
+  (C1.3–C1.7), repo-class removed; rigor additions (D1.2, D1.5–D1.7); execution
+  updates (E1.5, E2.1, E2.2); dispatch + selection (F1.1, F1.2, F1.8);
+  engineering catalog (G1.1, G1.4, G1.8); observation staleness (H1.4);
+  release-gate reword (J1.5c); config model (K1.1, K1.7, K1.8).
 
 ## Sources
 
