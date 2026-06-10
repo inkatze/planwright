@@ -1,12 +1,12 @@
 # planwright Bootstrap — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-06-09
+**Status:** Active
+**Last reviewed:** 2026-06-10
 **Format-version:** 1
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
-self-hosting CI) comes first; skills layer on the doctrine; the multi-reviewer
-end-to-end run is the public-release gate.
+self-hosting CI) comes first; skills layer on the doctrine; the multi-contributor
+work-repo end-to-end run is the public-release gate.
 
 ## Dependency graph
 
@@ -20,7 +20,7 @@ T4 (meta-spec) ─→ T5 (validator) ─┬─→ T6 (hooks) ─→ T13 (orchest
 T4 ─→ T10 (drain) ─────────────────┘                                  ││
 T9 ─→ T14 (resume) ───────────────────────────────────────────────────┤
 T5,T8,T9 ─→ T17 (lifecycle mechanics) ────────────────────────────────┤
-T13,T14,T16,T17 ─→ T18 (multi-reviewer E2E gate) ─→ T19 (packaging) ◄──┘
+T13,T14,T16,T17 ─→ T18 (work-repo E2E gate) ─────→ T19 (packaging) ◄──┘
 ```
 
 Critical path: T4→T5→T6→T13→T18→T19 (with T3→T15→T16→T18 alongside). T1, T3, T4 have
@@ -32,13 +32,16 @@ no dependencies and are the natural parallel start.
 
 - **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
   plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
-  default + gitignored local override per D-33); MIT `LICENSE`; `README` introducing the
-  autopilot / pilot-in-command model; `.gitignore` entries for the local config + worktrees.
+  default + gitignored local override per D-33, including the commit/dispatch toggles
+  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
+  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
+  for the local config + worktrees.
 - **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
   rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
-  states the human-reserved controls.
+  states the human-reserved controls; every option in the default config has an
+  options-reference entry.
 - **Dependencies:** none
-- **Citations:** D-24, D-27, D-28, D-29, D-33 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1
+- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
 - **Estimated effort:** half day
 
 ### Task 2 — Self-hosting: quality guards & CI
@@ -47,47 +50,62 @@ no dependencies and are the natural parallel start.
   `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
   cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
   runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
-  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI.
-- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard; all
-  subsequent tasks merge only under green CI.
+  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
+  the options-reference drift check (fail on an undocumented config option, D-43).
+- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
+  (including a seeded undocumented config option); all subsequent tasks merge only under
+  green CI.
 - **Dependencies:** 1
-- **Citations:** D-32, D-34 · REQ-G1.7, REQ-K1.5
+- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
 - **Estimated effort:** 1 day
 
 ### Task 3 — Migrate framework intelligence into doctrine docs
 
 - **Deliverables:** Standalone planwright doctrine docs reworded from `CLAUDE.md` into
-  framework documentation: Finding Categorization (four buckets + predicates), Validation
-  Rigor, Discovery Rigor, Refactor Instinct, and the composability-by-default principle.
-  Personal content (fish/mise/tmux, git conventions, the author's repos) is NOT migrated.
+  framework documentation: Finding Categorization (four buckets + predicates, act-then-review
+  dispositions incl. declined-with-rationale and the resolution ladder per D-5), Validation
+  Rigor (incl. the altitude check), Discovery Rigor, Refactor Instinct, **Research Rigor**
+  (triggers, source hierarchy, recency discipline, antipattern check, risk-register
+  recording per REQ-D1.5), **Security posture** (write-time triggers, artifact
+  data-hygiene, framework-script security per REQ-D1.6), the proportionality principle
+  (REQ-D1.7), and the composability-by-default principle. Personal content (fish/mise/tmux,
+  git conventions, the author's repos) is NOT migrated.
 - **Done when:** Each doctrine doc exists as framework prose (no first-person personal
-  instructions); the four buckets, the three-pass validation, the lens checklist, and the
-  refactor bars are all present; skills can reference them via the resolution path (Task 1).
+  instructions); the four buckets, the three-pass validation, the lens checklist, the
+  refactor bars, the research ritual, and the security posture are all present; skills can
+  reference them via the resolution path (Task 1).
 - **Dependencies:** none
-- **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D2.1
-- **Estimated effort:** 2 days
+- **Citations:** D-4, D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.6, REQ-C1.7, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D2.1
+- **Estimated effort:** 2.5 days
 
 ### Task 4 — Four-file format meta-spec
 
 - **Deliverables:** The canonical four-file format meta-spec: required fields per file,
-  REQ-ID / D-ID conventions, the per-task required fields, the status lifecycle, the
-  `Format-version:` declaration, the stable-ID / supersede / changelog rules, the kickoff
-  brief structure, and the validator-enforceable invariants.
-- **Done when:** The meta-spec fully specifies the format this very bundle conforms to; a
-  reader could author a compliant bundle from it alone; the kickoff brief structure is
-  specified.
+  REQ-ID / D-ID conventions, citation syntax and lightweight citation kinds (e.g.
+  "drafting-session decision"), the per-task required fields, the five-status lifecycle
+  with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
+  declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
+  a glossary of framework vocabulary (the three senses of gate, unit, drain, accumulator,
+  adopter, brief, bucket), and the validator-enforceable invariants. Bring this bundle
+  into format conformance (backfill per-REQ citations).
+- **Done when:** The meta-spec fully specifies the format this very bundle conforms to
+  (including backfilled citations); a reader could author a compliant bundle from it
+  alone; the kickoff brief structure and glossary are specified.
 - **Dependencies:** none
-- **Citations:** D-1, D-20, D-25 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-B2.2
-- **Estimated effort:** 1 day
+- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-B2.2
+- **Estimated effort:** 1.5 days
 
 ### Task 5 — Status-aware validator
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
   structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
-  stable-ID/never-reused rule; status-aware (warnings on Draft, errors on Active); keyed off
-  the declared format-version. Unit tests for each check.
+  stable-ID/never-reused rule; status-aware across all five statuses (warnings on Draft,
+  errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
+  Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
+  format-version. Unit tests for each check.
 - **Done when:** The validator passes on a valid bundle, warns on a Draft gap, errors on the
-  same gap when Active, and rejects a reused ID; it runs in planwright's own CI (Task 2).
+  same gap when Active, rejects a reused ID, rejects Superseded without `Superseded-by:`;
+  it runs in planwright's own CI (Task 2).
 - **Dependencies:** 4
 - **Citations:** D-25, D-34 · REQ-A2.1, REQ-A2.2, REQ-A3.2
 - **Estimated effort:** 1 day
@@ -97,8 +115,9 @@ no dependencies and are the natural parallel start.
 - **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
   sections on `gh pr create` / `gh pr merge`, parsing the branch convention); the
   `tool-discovery` SessionStart hook (detects linters/formatters/type-checkers, feeds
-  Discovery Rigor and the builder); the branch-naming and worktree-placement conventions;
-  config-model wiring (read/confirm/write repo-class).
+  Discovery Rigor and the builder); the branch-naming and worktree-placement conventions
+  (including the reserved `planwright/<spec>/spec` namespace the sync hook no-ops on,
+  D-44); config-model wiring.
 - **Done when:** Creating/merging a PR on a convention-named branch moves the matching task
   block to the right section; a session start emits the discovered-tools summary; the hooks
   no-op cleanly on non-matching input.
@@ -106,41 +125,60 @@ no dependencies and are the natural parallel start.
 - **Citations:** D-33, D-36, D-37 · REQ-K1.2, REQ-K1.3, REQ-K1.4
 - **Estimated effort:** 1 day
 
-### Task 7 — Finding categorization & autonomy gate wiring + repo-class detection
+### Task 7 — Finding categorization & act-then-review gate wiring
 
-- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets and
-  applies the solo/multi-reviewer split; repo-class detection (infer from PR history, surface
-  for confirmation, multi-reviewer on ambiguity, write only on confirm) reading/writing the
-  config model.
-- **Done when:** Given a solo repo, Agent-resolvable auto-applies; given a multi-reviewer repo,
-  it surfaces with evidence; ambiguous signals default to multi-reviewer; no repo-class is
-  written without confirmation.
+- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
+  with act-then-review dispositions: on-branch application of Needs-sign-off items,
+  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
+  audit log, the resolution ladder (brief → research → convention) before the judgment
+  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
+- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
+  a declined finding carries its rationale in the audit table; a fork resolvable from the
+  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
+  including empties.
 - **Dependencies:** 3
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
 - **Estimated effort:** 1 day
 
 ### Task 8 — `/spec-draft`
 
 - **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
-  fold-detection (always-scan, surface, human decides) with an extend mode; `_observations`
-  seed mining + archive-on-consume; seed-source citation; interaction-style rules.
-- **Done when:** A run produces a Draft bundle without committing/pushing/flipping Active;
-  fold-detection surfaces an extend recommendation on a differently-named overlap; consumed
-  opportunities are archived.
+  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
+  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
+  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
+  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
+  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
+  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A run produces and commits a Draft bundle on the spec branch without
+  pushing/flipping Active; launching from main, from the spec worktree, and from an
+  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
+  recommendation on a differently-named overlap; consumed opportunities are archived;
+  the maintenance footer writes drift observations.
 - **Dependencies:** 3, 4
-- **Citations:** D-21, D-22, D-23 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-H1.6
+- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
 - **Estimated effort:** 1.5 days
 
 ### Task 9 — `/spec-kickoff`
 
 - **Deliverables:** The `/spec-kickoff` skill: section-by-section walkthrough to mutual
   understanding; incremental kickoff-brief authoring against the specified brief structure
-  (risk register, decisions, task graph, verification); inconsistency halt with the
-  edit-or-override resolution; Draft→Active flip on sign-off; `Last reviewed:` update.
-- **Done when:** A walkthrough produces a signed brief and flips the spec Active; a seeded
-  contradiction halts without a brief; a killed session leaves a resumable partial brief.
+  (risk register, decisions, task graph, verification); the decision-domains gap check
+  (flags catalogued domains the spec touches but does not decide, into the risk register —
+  degrades gracefully until Task 15 lands; no dependency edge by design); inconsistency
+  halt with the edit-or-override resolution; Draft→Active flip on sign-off; auto-commit of
+  brief + flip (`commit_on_kickoff` opt-out, D-41); push of the spec branch + draft PR
+  (REQ-B2.4, D-44), degrading gracefully on no remote / `gh` failure (Awaiting-input note,
+  local work intact); spec-worktree reuse/recreate per D-44 (including recreating a pruned
+  worktree from the spec branch); `Last reviewed:` update; the self-healing maintenance
+  footer (REQ-B3.2).
+- **Done when:** A walkthrough produces a signed brief, flips the spec Active, commits,
+  pushes, and opens a draft PR (or records the degradation note when no remote exists);
+  launching from main, the spec worktree, or an unrelated worktree each resolves
+  gracefully; a seeded contradiction halts without a brief; a killed session leaves a
+  resumable partial brief.
 - **Dependencies:** 4, 5
-- **Citations:** D-3, D-19 · REQ-B2.1, REQ-B2.2, REQ-B2.3, REQ-A3.1
+- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-G1.4, REQ-K1.7
 - **Estimated effort:** 1 day
 
 ### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
@@ -158,50 +196,66 @@ no dependencies and are the natural parallel start.
 ### Task 11 — `/self-review` + `/polish`
 
 - **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
-  four-table output including empties); `/polish` (autonomous loop applying Auto-applicable
-  items, plus Agent-resolvable in solo repos with an active brief, local-only, until both
-  action buckets are empty). Both append observations to the opportunities log.
-- **Done when:** `/polish` drains both action buckets and emits all four tables; the
-  opportunities log gains entries; nested invocation fires hooks once (in-session).
+  four-table output including empties); `/polish` (autonomous act-then-review loop:
+  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
+  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
+  until only irreducible judgment forks remain). Both append observations to the
+  opportunities log and carry the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
+  declined log and pending-sign-off checklist; the opportunities log gains entries; nested
+  invocation fires hooks once (in-session).
 - **Dependencies:** 3, 7
-- **Citations:** D-12, D-13 · REQ-E2.1, REQ-E2.2, REQ-C1.5
+- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
 - **Estimated effort:** 1.5 days
 
 ### Task 12 — `/execute-task`
 
-- **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry; risk-
-  register recording of research/perf/security tradeoffs; in-flight amendment per the axis
-  (D-19); `/polish` convergence; draft PR referencing brief/tasks/REQs/tests; observation
-  writing.
+- **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
+  Research Rigor wiring (triggers fire pre-implementation; findings recorded in the risk
+  register per REQ-D1.5); write-time security passes (REQ-D1.6); decision-domains drift
+  triggers (REQ-G1.8); risk-register recording of research/perf/security tradeoffs;
+  in-flight amendment per the axis (D-19); `/polish` convergence; draft PR referencing
+  brief/tasks/REQs/tests and carrying the pending-sign-off checklist (REQ-E1.5);
+  observation writing; the self-healing maintenance footer (REQ-B3.2).
 - **Done when:** A task is implemented test-first (failing test precedes impl, ends green);
-  transient CI retries and logic failures escalate; a draft PR is opened referencing the brief.
+  transient CI retries and logic failures escalate; a research trigger produces a
+  risk-register entry; a draft PR is opened referencing the brief with the checklist.
 - **Dependencies:** 9, 11
-- **Citations:** D-11, D-19 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3
+- **Citations:** D-11, D-19, D-39, D-42 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2
 - **Estimated effort:** 1.5 days
 
 ### Task 13 — `/orchestrate`
 
-- **Deliverables:** The `/orchestrate` stateless step machine: ready-unit selection; per-spec
-  advisory lock (state-move-only, 15-min stale-break); one-unit-per-invocation; cohesion-first
-  bundling; worktree create/reuse compatible with `claude --worktree`; halt-to-Awaiting-input;
-  draft-PR-only; the `--bookkeeping` drain pass (gate evaluation + out-of-session merge
-  reconciliation); refusal on non-Active specs with no auto-chain.
-- **Done when:** One invocation advances exactly one ready unit and exits; concurrent
-  invocations don't collide; a non-Active spec halts with a kickoff prompt; `--bookkeeping`
-  re-surfaces satisfied gates without auto-dropping.
+- **Deliverables:** The `/orchestrate` stateless step machine: critical-path-first ready-unit
+  selection; per-spec advisory lock (state-move-only, 15-min stale-break); one-unit-per-step;
+  cohesion-first bundling; the control-tower dispatch layer (D-38): subagent backend
+  (default), tmux backend (opt-in, capture-pane detection), print backend, in-session,
+  unattended mode (headless: no confirms, prompts → Awaiting input), the shipped
+  worker-settings profile, `--watch` (event-driven under subagents, polling under tmux),
+  the reconcile sweep, `max_parallel_units` cap; worktree create/reuse via native
+  `claude --worktree` mechanics (D-37); auto-commit of `tasks.md` state moves (D-41);
+  halt-to-Awaiting-input; draft-PR-only; the `--bookkeeping` drain pass (gate evaluation +
+  out-of-session merge reconciliation + observation-staleness surfacing per REQ-H1.4);
+  refusal on non-Active specs with no auto-chain; the self-healing maintenance footer
+  (REQ-B3.2).
+- **Done when:** One step advances exactly one ready unit; concurrent invocations don't
+  collide; a non-Active spec halts with a kickoff prompt; each backend dispatches a worker
+  that completes a unit; the reconcile sweep recovers from a killed tower; unattended mode
+  records prompts as Awaiting-input entries; `--bookkeeping` re-surfaces satisfied gates
+  without auto-dropping.
 - **Dependencies:** 5, 6, 10, 12
-- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-J1.2, REQ-J1.3
-- **Estimated effort:** 2 days
+- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-J1.2, REQ-J1.3, REQ-B3.2
+- **Estimated effort:** 3 days
 
 ### Task 14 — `/resume`
 
 - **Deliverables:** The `/resume` read-only context loader: kickoff brief + `tasks.md` + git
   log + PR state + optional handover brief; surfaces uncommitted changes and asks before
-  proceeding; no auto-stash/commit/clean.
+  proceeding; no auto-stash/commit/clean; the self-healing maintenance footer (REQ-B3.2).
 - **Done when:** A fresh session in an in-flight worktree gets the loaded context and a
   `git status` surfacing with a proceed prompt.
 - **Dependencies:** 9
-- **Citations:** D-30 · REQ-F2.1
+- **Citations:** D-30, D-42 · REQ-F2.1, REQ-B3.2
 - **Estimated effort:** half day
 
 ### Task 15 — Engineering decision-process doctrine doc
@@ -209,21 +263,26 @@ no dependencies and are the natural parallel start.
 - **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
   framework/language/stack idioms while keeping domain logic composable; defer to tooling and
   ecosystem standards; research mature-project solutions when no clean best-practice fits;
-  the stake-awareness rule (escalate load-bearing "mechanical" decisions); priority-balancing
-  nuance.
+  the stake-awareness rule (escalate load-bearing "mechanical" decisions); the
+  dependency-adoption checklist (REQ-G1.1); priority-balancing nuance. Plus the
+  decision-domains catalog doctrine (D-39): the entry format (trigger + considerations +
+  disposition) and the ~10 seed domain entries (REQ-G1.8).
 - **Done when:** The doc specifies the decision process, the ecosystem-research move, and the
-  escalation rule with the auth-class example; it is referenceable via the resolution path.
+  escalation rule with the auth-class example; the catalog format and seed entries exist;
+  it is referenceable via the resolution path.
 - **Dependencies:** 3
-- **Citations:** D-15, D-16 · REQ-G1.1, REQ-G1.3, REQ-G1.6
-- **Estimated effort:** 1 day
+- **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
+- **Estimated effort:** 1.5 days
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
 - **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
-  (formatter, linter, type-checker, test runner, secret/security scan, CI gate, commit hooks)
-  with breadth dimensions (docs, i18n, a11y, architecture) as growable entries; escalation of
-  stake-bearing decisions into the deferral mechanism; hooks into `/spec-draft` (design phase)
-  and `/execute-task` (applies guards).
+  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
+  per the widened tool-grounding decision, CI gate, commit hooks) with breadth dimensions
+  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
+  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
+  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
+  self-healing maintenance footer (REQ-B3.2).
 - **Done when:** The builder detects a project's stack and recommends/applies the core guards;
   an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
   builder, run against planwright itself, reproduces the guard set established in Task 2**
@@ -245,17 +304,20 @@ no dependencies and are the natural parallel start.
 - **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
 - **Estimated effort:** 1 day
 
-### Task 18 — Multi-reviewer end-to-end validation run
+### Task 18 — Multi-contributor work-repo end-to-end validation run
 
-- **Deliverables:** A full planwright pipeline run on a real work (multi-reviewer) repo (private-work-repo
-  qualifies): draft → kickoff → orchestrate → execute → polish → draft PR, confirming
-  Agent-resolvable surfaces for review with evidence (not auto-applied); a findings document
-  covering multi-reviewer behavior, kickoff-brief effectiveness, and cross-session coordination.
-- **Done when:** At least one work-project task is executed via the pipeline; the findings doc
-  covers the multi-reviewer-specific behavior; the public-release gate condition (c) is met.
-  Validating across a second distinct work repo is a deferred stretch (see Deferred).
+- **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
+  (private-work-repo qualifies): draft → kickoff → orchestrate → execute → polish → draft PR,
+  confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
+  log, hard pauses firing where expected); a findings document covering the gate behavior,
+  kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
+  sweep**: a checklist of every [manual] test-spec entry — exercised, or the gap named.
+- **Done when:** At least one work-project task is executed via the pipeline; the findings
+  doc covers the gate behavior and contains the completed manual-sweep checklist; the
+  public-release gate condition (c) is met. Validating across a second distinct work repo
+  is a deferred stretch (see Deferred).
 - **Dependencies:** 13, 14, 16, 17
-- **Citations:** D-5, D-27 · REQ-C1.3, REQ-J1.5
+- **Citations:** D-5, D-27, D-38 · REQ-C1.3, REQ-J1.5
 - **Estimated effort:** 2 days
 
 ### Task 19 — Packaging finalization & onboarding docs
