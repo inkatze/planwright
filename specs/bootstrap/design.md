@@ -5,9 +5,11 @@
 **Format-version:** 1
 
 Decision log for building planwright v1. Each decision carries a Decision,
-Alternatives considered, and Chosen because. **N** = new this drafting session;
-**C** = carried from pair-flow (validated in v1, re-grounded for a standalone
-framework). Carried decisions cite their pair-flow origin.
+Alternatives considered, and Chosen because. **N** = new to planwright (drafting
+session unless annotated otherwise); **C** = carried from pair-flow (validated in
+v1, re-grounded for a standalone framework). Carried decisions cite their
+pair-flow origin. Pair-flow IDs are a foreign namespace: a cited pair-flow D-25
+has no correspondence to this log's D-25.
 
 ## Decision log
 
@@ -41,7 +43,7 @@ work in pair-flow v1.
 
 ### D-3: Two-brief model — kickoff is contract, handover is optional cache  (C, pair-flow D-2)
 
-**Decision:** `specs/{feature}/kickoff-brief.md` is the durable contract;
+**Decision:** `specs/<spec>/kickoff-brief.md` is the durable contract;
 `{worktree}/.claude/handover.md` is an optional cache of in-flight context.
 
 **Alternatives considered:**
@@ -138,7 +140,8 @@ state-changing move by the per-spec lock (D-10). *(Reworded at kickoff
   long-running-state model D-7 avoids.
 
 **Chosen because:** keeps the orchestrator stateless and crash-safe; matches the
-validated tecpan workflow of running parallel workstreams in separate windows.
+validated private-work-repo workflow of running parallel workstreams in separate
+windows.
 
 ### D-9: Cohesion-first PR bundling  (N, replaces pair-flow D-11/D-24 line-count rule)
 
@@ -151,14 +154,14 @@ dependencies). Combined size is a guardrail against bloat, not the primary signa
   Rejected because: it optimizes for diff size rather than PR quality, and the
   retrospective flagged it as unmeasured.
 
-**Chosen because:** grounded in tecpan PR #161 (Tasks 3,4,5 bundled as one "storage
+**Chosen because:** grounded in a private-work-repo PR (Tasks 3,4,5 bundled as one "storage
 substrate" deliverable while single tasks shipped alone). A PR should be a good unit of
 history — revertable, single-concern, right-sized — which is a cohesion property, not a
 length property.
 
 ### D-10: Per-spec advisory lock, held only during state-changing moves  (C, pair-flow D-17/D-37)
 
-**Decision:** A per-spec lockfile at `specs/{feature}/.orchestrate.lock` is held only
+**Decision:** A per-spec lockfile at `specs/<spec>/.orchestrate.lock` is held only
 during task selection + `tasks.md` update, released before `/execute-task` runs.
 Stale-lock break threshold: 15 minutes. Lock-acquire failure is a clean no-op.
 
@@ -169,7 +172,7 @@ Stale-lock break threshold: 15 minutes. Lock-acquire failure is a clean no-op.
 **Chosen because:** cheap, crash-robust, and the short window unblocks parallel
 execution while still serializing concurrent state mutations on the same spec.
 
-### D-11: Test-first execution + adaptive CI retry  (C, pair-flow B1.3/D-25)
+### D-11: Test-first execution + adaptive CI retry  (C, pair-flow REQ-B1.3 / pair-flow D-25)
 
 **Decision:** `/execute-task` writes the failing test first, confirms it fails for the
 right reason, implements to green. CI retry is adaptive: transient failures (network,
@@ -195,7 +198,7 @@ fast-follows.
 
 **Chosen because:** planwright's differentiation lives in the autonomy gate, not the act
 of reviewing. `/self-review` feeds `/polish`, and `/polish` routes findings through the
-four buckets and the solo/multi-reviewer split — that is the distinctive part.
+four buckets and the act-then-review dispositions — that is the distinctive part.
 
 ### D-13: Skill-to-skill invocation is in-session  (C, pair-flow D-39)
 
@@ -231,8 +234,11 @@ tower provides.)*
 
 **Decision:** The opinionated engineering builder is delivered as (a) an engineering
 doctrine doc encoding the decision process, (b) a builder skill that detects the stack
-and applies/recommends guards, and (c) hooks into `/spec-draft` (design phase) and
-`/execute-task` (applies guards).
+and applies/recommends guards, and (c) hooks into the three lifecycle wiring points
+(REQ-G1.4, D-39): `/spec-draft` (design phase), `/spec-kickoff` (gap check — catalogued
+domains the spec touches but does not decide flow into the risk register), and
+`/execute-task` (applies guards). *(Amended at kickoff 2026-06-10: third wiring point
+added per the decision-domains catalog decision.)*
 
 **Alternatives considered:**
 - A standalone skill with embedded opinions. Rejected because: the opinions aren't
@@ -249,11 +255,14 @@ docs, behavior in skills, enforcement in hooks) and Claude Code's native grain.
 decisions that look mechanical yet carry technical + business/domain stakes
 (authentication, data modeling, security posture, integration surface) as design
 decisions / Needs-human-judgment, routed into the deferral mechanism (D-17).
+*(Amended at kickoff 2026-06-10: the fixed four-domain list above is superseded by
+the ten-domain decision-domains catalog, D-39/REQ-G1.8; the escalation behavior
+stands.)*
 
 **Alternatives considered:**
 - Treat all standards as a flat auto-applied checklist. Rejected because: it would
   auto-stamp decisions like auth that are architecture-defining and business
-  differentiators (grounded in the tecpan auth example).
+  differentiators (grounded in a private work repo's auth example).
 
 **Chosen because:** the builder's primary intelligence is recognizing which
 seemingly-mechanical decisions are actually load-bearing and refusing to auto-resolve
@@ -285,8 +294,9 @@ auto-drops on a timer — which also matches planwright's human-reserved-actions
 each with a named drain ritual: self-draining live state (automatic, e.g. the advisory
 lock's release + stale-break); state-machine durable state (drained by skill/hook
 transitions, e.g. `tasks.md` sections on PR create/merge); manually-/condition-drained
-seed accumulators (e.g. `_pending/notes.md`, `_observations/opportunities.md`, drained by
-their canonical reader and the gate/bookkeeping pass).
+seed accumulators (e.g. `_pending/notes.md` (local-only, gitignored),
+`_observations/opportunities.md`, drained by their canonical reader and the
+gate/bookkeeping pass).
 
 **Alternatives considered:**
 - Leave drain disciplines implicit and scattered (the pair-flow status quo). Rejected
@@ -367,7 +377,7 @@ differently-named overlaps while keeping the human in control.
 seed source and archives/trims the entries it consumes.
 
 **Alternatives considered:**
-- Leave the opportunities log as write-only (the pair-flow bug). Rejected because: writers
+- Leave the observations log as write-only (the pair-flow bug). Rejected because: writers
   (`/execute-task`, `/polish`) with no canonical reader is a silent drop.
 
 **Chosen because:** closes the writer-without-reader loop; the observations convention only
@@ -392,7 +402,9 @@ gives the cleanest install story; the writer covers environments without plugin 
 **Decision:** The validator enforces four-file presence, per-task structure (stable ID,
 Done when, Dependencies, Citations), and REQ↔test-spec coverage. Enforcement is
 status-aware (warnings on Draft, errors on Active) and keyed off the declared
-format-version (D-1).
+format-version (D-1). *(Amended at kickoff 2026-06-10: the validator recognizes all
+five statuses — Draft, Active, Done, Retired, Superseded — with Retired/Superseded
+treated as terminal; see D-40 and REQ-A1.6/A3.1.)*
 
 **Alternatives considered:**
 - Always-error enforcement. Rejected because: it blocks iterative drafting.
@@ -417,7 +429,8 @@ irreversible; the user stated they are constraints, not future capabilities.
 
 **Decision:** The repository starts private. Public release is gated on all three of: (a)
 the CLAUDE.md rules are inlined into planwright's own docs; (b) the four-file format
-meta-spec exists; (c) at least one clean multi-reviewer end-to-end run has completed.
+meta-spec exists; (c) at least one clean end-to-end run on a real multi-contributor
+work repository has completed.
 
 **Alternatives considered:**
 - Public from the start. Rejected because: the skills are hollow until the intelligence is
@@ -493,15 +506,16 @@ flow.
 ### D-33: Config model is a tracked default + a local gitignored override  (N)
 
 **Decision:** A tracked default config holds universal defaults (thresholds, gate
-conventions); a local gitignored override (agent-maintained, per-repo) holds the
-repo-class registry and overrides. repo-class entries are written only on human
-confirmation (D-6).
+conventions, the commit and dispatch toggles); a local gitignored override
+(agent-maintained, per-repo) holds per-repo/personal overrides. *(Amended at kickoff
+2026-06-10: the repo-class registry is dropped with the repo-class concept, per the
+rewritten D-6 and REQ-K1.1 — "toggles in / registry out".)*
 
 **Alternatives considered:**
 - Single tracked config with per-repo entries. Rejected because: per-machine/per-repo
   overrides don't belong in a shared tracked file.
-- repo-level metadata inside the spec bundle. Rejected because: repo-class is a property of
-  the repository, not the spec.
+- repo-level metadata inside the spec bundle. Rejected because: per-repo settings are a
+  property of the repository, not the spec.
 
 **Chosen because:** clean separation of universal facts from per-repo/personal settings;
 matches the validated pair-flow two-file config split (pair-flow D-19).
@@ -535,7 +549,7 @@ fast-follow if demand appears.
 
 ### D-36: Branch-naming convention  (C, pair-flow D-32)
 
-**Decision:** Orchestrator-created branches use `planwright/{spec}/task-{id-or-ids}` (single
+**Decision:** Orchestrator-created branches use `planwright/<spec>/task-<id-or-ids>` (single
 `3` / `3.5`, or `3-4` for a bundle). The `tasks-pr-sync` hook parses this to move task
 blocks between `tasks.md` sections.
 
@@ -580,9 +594,12 @@ print the launch command, exit; zero-dependency manual dispatch), and
 skips confirms, always creates fresh worktrees, and routes every would-be prompt
 to Awaiting input. The tower is disposable: no in-memory state beyond the
 current step; a reconcile sweep rebuilds the full picture from `tasks.md`, `gh`,
-and the process/window list. Concurrency capped by `max_parallel_units`
-(default 3). `--watch` is event-driven under subagents, a polling metronome
-under tmux.
+and the process/window list. Orphan disposition *(amended 2026-06-10, polish
+review)*: a task In progress with no live worker and no open PR is moved to
+Awaiting input with an orphan note — never silently left In progress (which
+would deadlock dependents under REQ-F1.2) and never auto-re-dispatched.
+Concurrency capped by `max_parallel_units` (default 3). `--watch` is
+event-driven under subagents, a polling metronome under tmux.
 
 **Alternatives considered:**
 - In-session-only dispatch (pair-flow status quo). Rejected because: the
@@ -668,7 +685,7 @@ jujutsu's always-committed working copy); commit was never a reserved control.
 
 **Decision:** Every planwright skill ends with a maintenance check comparing
 its instructions against the doctrine/spec version it implements; detected
-drift is written to the observations/opportunities log, whose canonical reader
+drift is written to the observations log, whose canonical reader
 (`/spec-draft`) folds it into spec amendments.
 
 **Alternatives considered:**

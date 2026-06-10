@@ -6,25 +6,29 @@
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
 self-hosting CI) comes first; skills layer on the doctrine; the multi-contributor
-work-repo end-to-end run is the public-release gate.
+work-repo end-to-end run is the final public-release gate condition (REQ-J1.5
+condition (c)).
 
 ## Dependency graph
 
+Layered view, generated from the `Dependencies:` lines below (which are
+authoritative); `(←Tn)` lists each task's direct dependencies.
+
 ```
-T1 ─→ T2 (self-hosting CI) ──────────────────────────────────────────┐
-T3 (intelligence) ─┬─→ T7 (gate) ─→ T11 (self-review/polish) ─→ T12 ─┐│
-                   ├─→ T8 (spec-draft) ──────────────┐               ││
-                   └─→ T15 (eng doctrine) ─→ T16 (builder) ──┐        ││
-T4 (meta-spec) ─→ T5 (validator) ─┬─→ T6 (hooks) ─→ T13 (orchestrate)─┤│
-                  └─→ T9 (kickoff) ─┬─→ T12 (execute-task) ───────────┤│
-T4 ─→ T10 (drain) ─────────────────┘                                  ││
-T9 ─→ T14 (resume) ───────────────────────────────────────────────────┤
-T5,T8,T9 ─→ T17 (lifecycle mechanics) ────────────────────────────────┤
-T13,T14,T16,T17 ─→ T18 (work-repo E2E gate) ─────→ T19 (packaging) ◄──┘
+Level 0: T1 (scaffold) · T3 (intelligence) · T4 (meta-spec)
+Level 1: T2 (self-hosting CI ←T1) · T5 (validator ←T4) · T7 (gate ←T3)
+         T8 (spec-draft ←T3,T4) · T10 (drain ←T4) · T15 (eng doctrine ←T3)
+Level 2: T6 (hooks ←T4,T5) · T9 (kickoff ←T4,T5) · T11 (self-review/polish ←T3,T7)
+Level 3: T12 (execute-task ←T9,T11) · T14 (resume ←T9) · T17 (lifecycle ←T5,T8,T9)
+Level 4: T13 (orchestrate ←T5,T6,T10,T12) · T16 (builder ←T7,T8,T10,T12,T15)
+Level 5: T18 (work-repo E2E ←T13,T14,T16,T17)
+Level 6: T19 (packaging ←T16,T17,T18)
 ```
 
-Critical path: T4→T5→T6→T13→T18→T19 (with T3→T15→T16→T18 alongside). T1, T3, T4 have
-no dependencies and are the natural parallel start.
+Critical path (longest chain by estimated effort, 12.5d):
+T3→T7→T11→T12→T13→T18→T19. T1, T3, T4 have no dependencies and are the natural
+parallel start; under critical-path-first selection (REQ-F1.2), T3 (the
+intelligence migration) dispatches first.
 
 ## Forward plan
 
@@ -86,20 +90,26 @@ no dependencies and are the natural parallel start.
   with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
   declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
   a glossary of framework vocabulary (the three senses of gate, unit, drain, accumulator,
-  adopter, brief, bucket), and the validator-enforceable invariants. Bring this bundle
-  into format conformance (backfill per-REQ citations).
+  adopter, brief, bucket, tower / control tower (= the dispatching session), and the
+  observations log — the canonical name for `specs/_observations/opportunities.md`),
+  the spec-identifier charset (REQ-A1.8), the path-placeholder style convention
+  (angle brackets: `<spec>`, `<id>`), the superseding-REQ placement convention (a
+  superseding REQ sits adjacent to the REQ it supersedes, e.g. B2.4 beside B2.1),
+  and the validator-enforceable invariants. Bring this bundle into format
+  conformance (backfill per-REQ citations).
 - **Done when:** The meta-spec fully specifies the format this very bundle conforms to
   (including backfilled citations); a reader could author a compliant bundle from it
   alone; the kickoff brief structure and glossary are specified.
 - **Dependencies:** none
-- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-B2.2
+- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2
 - **Estimated effort:** 1.5 days
 
 ### Task 5 — Status-aware validator
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
   structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
-  stable-ID/never-reused rule; status-aware across all five statuses (warnings on Draft,
+  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8);
+  status-aware across all five statuses (warnings on Draft,
   errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
   Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
   format-version. Unit tests for each check.
@@ -107,7 +117,7 @@ no dependencies and are the natural parallel start.
   same gap when Active, rejects a reused ID, rejects Superseded without `Superseded-by:`;
   it runs in planwright's own CI (Task 2).
 - **Dependencies:** 4
-- **Citations:** D-25, D-34 · REQ-A2.1, REQ-A2.2, REQ-A3.2
+- **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
 - **Estimated effort:** 1 day
 
 ### Task 6 — Hooks & operational integration
@@ -120,9 +130,10 @@ no dependencies and are the natural parallel start.
   D-44); config-model wiring.
 - **Done when:** Creating/merging a PR on a convention-named branch moves the matching task
   block to the right section; a session start emits the discovered-tools summary; the hooks
-  no-op cleanly on non-matching input.
+  no-op cleanly on non-matching input, including hostile branch names (segments failing
+  the REQ-A1.8 charset, `..`, path separators).
 - **Dependencies:** 4, 5
-- **Citations:** D-33, D-36, D-37 · REQ-K1.2, REQ-K1.3, REQ-K1.4
+- **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
 - **Estimated effort:** 1 day
 
 ### Task 7 — Finding categorization & act-then-review gate wiring
@@ -185,12 +196,15 @@ no dependencies and are the natural parallel start.
 
 - **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
   the `GATE(when: …)` convention and a portable-shell gate parser/evaluator (condition gates,
-  date-gates-surface-only, confidence levels); the `/drain` skill front-end over the evaluator.
+  date-gates-surface-only, confidence levels; closed declarative grammar parsed by pattern
+  match, never `eval`, per REQ-H1.3); the `/drain` skill front-end over the evaluator; the
+  self-healing maintenance footer (REQ-B3.2).
 - **Done when:** A satisfied condition gate re-surfaces its item; a date gate only surfaces;
   nothing is auto-resolved or auto-dropped; `/drain` and the bookkeeping pass call the same
-  evaluator.
+  evaluator; a hostile or malformed gate entry is surfaced as an error, never evaluated or
+  silently skipped.
 - **Dependencies:** 4
-- **Citations:** D-17, D-18, D-31 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5
+- **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
 
 ### Task 11 — `/self-review` + `/polish`
@@ -200,9 +214,9 @@ no dependencies and are the natural parallel start.
   applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
   records declined-with-rationale dispositions, walks the resolution ladder, local-only,
   until only irreducible judgment forks remain). Both append observations to the
-  opportunities log and carry the self-healing maintenance footer (REQ-B3.2).
+  observations log and carry the self-healing maintenance footer (REQ-B3.2).
 - **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
-  declined log and pending-sign-off checklist; the opportunities log gains entries; nested
+  declined log and pending-sign-off checklist; the observations log gains entries; nested
   invocation fires hooks once (in-session).
 - **Dependencies:** 3, 7
 - **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
@@ -221,7 +235,7 @@ no dependencies and are the natural parallel start.
   transient CI retries and logic failures escalate; a research trigger produces a
   risk-register entry; a draft PR is opened referencing the brief with the checklist.
 - **Dependencies:** 9, 11
-- **Citations:** D-11, D-19, D-39, D-42 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2
+- **Citations:** D-11, D-19, D-39, D-42 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-G1.8, REQ-J1.4
 - **Estimated effort:** 1.5 days
 
 ### Task 13 — `/orchestrate`
@@ -240,11 +254,12 @@ no dependencies and are the natural parallel start.
   (REQ-B3.2).
 - **Done when:** One step advances exactly one ready unit; concurrent invocations don't
   collide; a non-Active spec halts with a kickoff prompt; each backend dispatches a worker
-  that completes a unit; the reconcile sweep recovers from a killed tower; unattended mode
-  records prompts as Awaiting-input entries; `--bookkeeping` re-surfaces satisfied gates
-  without auto-dropping.
+  that completes a unit; the reconcile sweep recovers from a killed tower and moves an
+  orphaned In-progress task (no live worker, no open PR) to Awaiting input with an orphan
+  note; unattended mode records prompts as Awaiting-input entries; `--bookkeeping`
+  re-surfaces satisfied gates without auto-dropping.
 - **Dependencies:** 5, 6, 10, 12
-- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-J1.2, REQ-J1.3, REQ-B3.2
+- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-B3.2
 - **Estimated effort:** 3 days
 
 ### Task 14 — `/resume`
@@ -278,7 +293,8 @@ no dependencies and are the natural parallel start.
 
 - **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
   (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
-  per the widened tool-grounding decision, CI gate, commit hooks) with breadth dimensions
+  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
+  gate, commit hooks) with breadth dimensions
   (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
   decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
   hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
@@ -307,11 +323,13 @@ no dependencies and are the natural parallel start.
 ### Task 18 — Multi-contributor work-repo end-to-end validation run
 
 - **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
-  (tecpan qualifies): draft → kickoff → orchestrate → execute → polish → draft PR,
+  (a qualifying private work repo exists): draft → kickoff → orchestrate → execute →
+  polish → draft PR,
   confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
   log, hard pauses firing where expected); a findings document covering the gate behavior,
   kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
-  sweep**: a checklist of every [manual] test-spec entry — exercised, or the gap named.
+  sweep**: a checklist of every [manual] and [Gherkin] test-spec entry — exercised, or
+  the gap named.
 - **Done when:** At least one work-project task is executed via the pipeline; the findings
   doc covers the gate behavior and contains the completed manual-sweep checklist; the
   public-release gate condition (c) is met. Validating across a second distinct work repo
@@ -330,7 +348,7 @@ no dependencies and are the natural parallel start.
   onboarding docs let a non-author operate the pilot-in-command model; the release checklist
   enumerates and checks the three gate conditions.
 - **Dependencies:** 16, 17, 18
-- **Citations:** D-24, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-K1.6, REQ-J1.5
+- **Citations:** D-24, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.5
 - **Estimated effort:** 1 day
 
 ## Completed
@@ -347,7 +365,7 @@ no dependencies and are the natural parallel start.
 
 ## Deferred
 
-- **Second multi-reviewer validation repo.** Validating the pipeline across a second distinct
+- **Second multi-contributor validation repo.** Validating the pipeline across a second distinct
   work repo (beyond Task 18's first) is the user's stated ideal. **Gate:** Task 18 completed and
   a second eligible work repo is available. Citations: REQ-J1.5.
 - **Purge `reference/` from main's history.** `reference/` is tracked for now so worktrees can

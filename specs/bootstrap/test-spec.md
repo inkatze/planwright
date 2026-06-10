@@ -7,7 +7,10 @@
 Every REQ is pinned to at least one verification path. Types: **test** (automated),
 **manual** (human-exercised), **design-level** (the artifact's existence + coverage is
 the verification), **Gherkin** (state/trigger/outcome). planwright is mostly skills +
-doctrine + a portable-shell validator, so coverage is a deliberate mix.
+doctrine + a portable-shell validator, so coverage is a deliberate mix. Verification
+ownership: [test] entries run in planwright's own CI; [manual] and [Gherkin] entries
+are exercised by Task 18's manual-verification sweep (each exercised, or the gap
+named).
 
 ## REQ-A — Spec format, lifecycle & evolution
 
@@ -20,7 +23,7 @@ The meta-spec (Task 4) documents the four-file format; this bundle conforms to i
 Validator fixture: a bundle with prose-only REQs warns/errors; a bundle with
 `REQ-<Group><N>.<M>` IDs + citations passes.
 
-### REQ-A1.3 — D-ID convention [test]
+### REQ-A1.3 — D-ID convention [test + manual]
 
 Validator/manual: each D-ID carries Decision, Alternatives considered, Chosen because;
 a D-ID missing a field is flagged.
@@ -45,6 +48,12 @@ flagged.
 Validator fixture: a version-mismatched bundle is handled by the rules for its declared
 version.
 
+### REQ-A1.8 — Spec-identifier charset [test]
+
+Validator fixture: a spec directory whose identifier fails `[a-z0-9][a-z0-9-]*` is
+flagged; hook fixtures (see REQ-K1.2) confirm hostile identifiers never reach a path
+or command.
+
 ### REQ-A2.1 — Status-aware enforcement [test]
 
 Draft fixture with a gap → warning, exit 0; the same gap with Status Active → error, exit 1.
@@ -59,7 +68,8 @@ Given a Draft spec, When `/spec-kickoff` signs off, Then Status is Active. Given
 Forward-plan / In-progress / Awaiting-input task moves to Completed, When bookkeeping
 runs, Then Status is Done even with open Deferred gates, And those gates continue to be
 swept. Given a Done spec is extended, Then Status flips to Draft, And scoped kickoff
-returns it to Active.
+returns it to Active. Given a Retired or Superseded spec, Then no skill-driven
+transition out of the terminal state is accepted (validator fixture).
 
 ### REQ-A3.2 — Stable, never-reused IDs [test]
 
@@ -121,14 +131,14 @@ Rules documented; authoring skills show the progress indicator + selectors.
 ### REQ-B3.2 — Self-healing maintenance footer [manual]
 
 Each shipped skill ends with the maintenance check; a seeded doctrine change causes a
-skill run to write a drift observation to the opportunities log.
+skill run to write a drift observation to the observations log.
 
 ## REQ-C — Finding categorization & autonomy gate
 
 ### REQ-C1.1 / REQ-C1.2 — Four buckets + predicates [design-level]
 
 The categorization doctrine defines all four buckets and the Agent-resolvable
-five-condition predicate.
+predicate (the four conditions enumerated in REQ-C1.2).
 
 ### REQ-C1.3 — Act-then-review [Gherkin]
 
@@ -140,8 +150,10 @@ result, and brief-alignment citation.
 ### REQ-C1.4 — Hard pauses only [Gherkin]
 
 Given a finding in a disqualifier zone (security / migration / CI config / lockfile /
-secrets), Then the loop pauses for the human. Given any other validated finding, Then
-the loop does not interrupt.
+secrets), Then the loop pauses for the human. Given an irreducible
+Needs-human-judgment fork, Then the loop hard-pauses mid-loop (distinct from
+REQ-C1.7's loop-end queuing). Given any other validated finding, Then the loop does
+not interrupt.
 
 ### REQ-C1.5 — Four-table output [manual]
 
@@ -187,7 +199,8 @@ risk-register entry with citations.
 
 Doc covers write-time triggers, artifact data-hygiene, and framework-script security;
 `gitleaks` in CI covers committed artifacts; a seeded secret in a brief fixture is
-caught.
+caught. Script security is exercised by `shellcheck` in CI (Task 2) and the
+hostile-input hook fixtures (REQ-K1.2, REQ-H1.3).
 
 ### REQ-D1.7 — Proportionality [design-level]
 
@@ -220,13 +233,13 @@ Research/perf/security tradeoffs are recorded in the kickoff brief's risk regist
 
 ### REQ-E1.4 / REQ-E1.5 — Polish convergence + draft PR [manual]
 
-`/execute-task` runs `/polish`, then opens a draft PR referencing brief, task IDs, REQs, and
-test additions.
+`/execute-task` runs `/polish`, then opens a draft PR referencing brief, task IDs, REQs,
+test additions, and the pending-sign-off checklist (see REQ-C1.3).
 
 ### REQ-E2.1 — self-review/polish + observation writing [manual]
 
 `/polish` drains all action dispositions per act-then-review and emits the declined
-log; both skills append to the opportunities log.
+log; both skills append to the observations log.
 
 ### REQ-E2.2 — In-session composition [design-level]
 
@@ -237,7 +250,9 @@ Nested skill invocation fires hooks once; documented and observed.
 ### REQ-F1.1 — Stateless, one unit per step [test]
 
 One `/orchestrate` step advances exactly one ready unit and updates `tasks.md`; a
-killed tower loses nothing (the reconcile sweep rebuilds from disk).
+killed tower loses nothing (the reconcile sweep rebuilds from disk). Fixture: a task
+In progress with no live worker and no open PR is moved to Awaiting input with an
+orphan note (never left In progress, never auto-re-dispatched).
 
 ### REQ-F1.2 — Ready-task selection, critical-path-first [test]
 
@@ -272,7 +287,9 @@ Manual: each backend (subagents, tmux, print, in-session) dispatches a worker th
 completes a unit; worker questions reach the tower (subagents) or are detected via
 capture-pane (tmux). Test: unattended mode records would-be prompts as Awaiting-input
 entries; `max_parallel_units` is respected; `tasks.md` state moves are auto-committed
-(and not committed when the toggle is off).
+(and not committed when the toggle is off). Manual: a subagent worker completes a
+routine unit without permission prompts under the shipped worker-settings profile; the
+clean-worktree reuse confirm appears in attended mode only.
 
 ### REQ-F2.1 — `/resume` read-only + surface uncommitted [manual]
 
@@ -296,7 +313,9 @@ Needs-human-judgment and routes a gate (no auto-default).
 
 ### REQ-G1.4 — Lifecycle hooks [manual]
 
-Standards surface in `/spec-draft`'s design phase; guards apply in `/execute-task`.
+Standards surface in `/spec-draft`'s design phase; guards apply in `/execute-task`;
+a kickoff over a spec touching an undecided catalogued domain produces a
+risk-register flag (`/spec-kickoff` gap check).
 
 ### REQ-G1.5 — Extensible catalog [design-level]
 
@@ -331,6 +350,9 @@ Every deferral surface has a named reader and a re-surfacing gate/ritual.
 ### REQ-H1.3 — `GATE(when:)` convention [test]
 
 Gate parser: a condition gate vs. a date gate (surface-only) are handled per the rule.
+Hostile fixtures: a gate containing shell metacharacters / `$(…)` is never evaluated
+(closed grammar, pattern-match parse only); a malformed gate surfaces as an error in
+the drain report, never silently skipped.
 
 ### REQ-H1.4 — Bookkeeping drain, no auto-drop; `/drain` [test]
 
@@ -341,6 +363,10 @@ count and oldest-entry age.
 ### REQ-H1.5 — Confidence levels [manual]
 
 Deferred decisions carry a confidence level; low-confidence items resurface first.
+
+### REQ-H1.6 — see REQ-B1.4 / REQ-H1.6
+
+Verified jointly under REQ-B (mine and archive `_observations`).
 
 ## REQ-I — Packaging, delivery & onboarding
 
@@ -355,6 +381,11 @@ The writer installs on a clean machine with no fish/mise/tmux/Ansible dependency
 ### REQ-I1.3 — Autopilot model docs [manual]
 
 Cold-read: an adopter understands the human-reserved controls from the docs.
+
+### REQ-I1.4 — see REQ-D2.2 / REQ-I1.4
+
+Verified jointly under REQ-D (adopter supplies own rigor); I1.4 is a cross-reference
+to D2.2.
 
 ### REQ-I1.5 — MIT license + contribution model [design-level]
 
@@ -393,7 +424,9 @@ override; per-repo entries are written only on human confirmation.
 ### REQ-K1.2 — tasks-pr-sync hook [test]
 
 `gh pr create` / `gh pr merge` on a convention-named branch moves the matching task block;
-non-matching input is a clean no-op.
+non-matching input is a clean no-op. Hostile fixture: a branch name whose `<spec>` /
+`<id>` segments fail the REQ-A1.8 charset (`..`, `/`, metacharacters) is a clean no-op
+and never reaches a filesystem path.
 
 ### REQ-K1.3 — tool-discovery hook [test]
 
@@ -417,7 +450,9 @@ recorded.
 ### REQ-K1.7 — Graceful degradation on missing prereqs [test]
 
 Not-a-repo / no git remote / missing `gh` / missing validator each surface a clear
-message rather than failing opaquely.
+message rather than failing opaquely. On execution paths (`/orchestrate`,
+`/execute-task`), a missing validator halts (fail closed per the K1.7 amendment);
+authoring/read-only paths degrade with the message.
 
 ### REQ-K1.8 — CI-enforced options reference [test]
 
