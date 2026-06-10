@@ -8,7 +8,7 @@
 .claude/settings.local.json
 
 # planwright per-repo local config — agent-maintained override (design.md D-33:
-# repo-class registry, thresholds). Not committed.
+# per-repo/personal overrides, thresholds). Not committed.
 .claude/*.local.yml
 .claude/*.local.json
 
