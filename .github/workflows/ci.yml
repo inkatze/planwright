@@ -42,12 +42,24 @@ jobs:
       # strict PR-range lint is the dedicated step below.
       - run: mise run check
 
-      # Strict conventional-commit lint over exactly the PR's commits. The
+      # Conventional-commit FORMAT lint over exactly the PR's commits. The
       # local task skips quietly when there is nothing ahead of origin/main;
-      # on a PR an empty or malformed range must fail instead. base_ref is
-      # the target branch in this repo, passed via env per script-injection
-      # hardening practice.
+      # on a PR an empty or malformed range must fail instead. Length is NOT
+      # enforced per-commit: the framework never rewrites history, so an
+      # overlong WIP subject would be permanently unfixable. base_ref is the
+      # target branch, passed via env per script-injection hardening practice.
       - if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/bash scripts/check-commit-msgs.sh "origin/${BASE_REF}..HEAD"
+
+      # Length is enforced on the PR title instead: it becomes the
+      # squash-merge subject and, unlike a pushed commit, stays editable.
+      # The title is passed via env (never interpolated into the shell) per
+      # script-injection hardening practice.
+      - if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" \
+            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --stdin

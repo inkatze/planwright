@@ -26,6 +26,14 @@ lint() {
   printf '%s\n' "$1" | /bin/bash "$CHECKER" --stdin >/dev/null 2>&1
 }
 
+# Length is enforced only with --max-length (used by CI against the PR title,
+# the squash-merge subject); per-commit linting checks format only because the
+# framework never rewrites history (an overlong WIP subject would be
+# permanently unfixable).
+lint_len() {
+  printf '%s\n' "$1" | /bin/bash "$CHECKER" --stdin --max-length 100 >/dev/null 2>&1
+}
+
 # 1. Valid conventional subjects pass.
 lint "feat(scaffold): add the packaging skeleton"
 assert "typed, scoped subject passes" 0 $?
@@ -63,9 +71,31 @@ lint "fix(scope):no space after colon"
 assert "missing space after colon fails" 1 $?
 lint "fix(UPPER): bad scope charset"
 assert "uppercase scope fails" 1 $?
+
+# Length: per-commit (default) checks format only; an overlong but
+# well-formed subject passes. With --max-length 100 the same subject fails.
 long_subject="feat: $(printf 'x%.0s' $(seq 1 120))"
 lint "$long_subject"
-assert "subject over 100 chars fails" 1 $?
+assert "overlong but conventional subject passes without --max-length" 0 $?
+lint_len "$long_subject"
+assert "overlong subject fails with --max-length 100" 1 $?
+out="$(printf '%s\n' "$long_subject" | /bin/bash "$CHECKER" --stdin --max-length 100 2>&1)"
+case "$out" in
+  *"exceeds 100"*) echo "ok: length failure names the limit" ;;
+  *)
+    echo "FAIL: length failure message unclear: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+# A short, well-formed subject still passes under --max-length.
+lint_len "feat(scope): short and tidy"
+assert "short subject passes under --max-length" 0 $?
+# --max-length still enforces format (a malformed subject fails regardless).
+printf 'not conventional at all\n' | /bin/bash "$CHECKER" --stdin --max-length 100 >/dev/null 2>&1
+assert "--max-length still enforces format" 1 $?
+# A non-numeric --max-length value is a usage error, not a silent no-op.
+printf 'feat: x\n' | /bin/bash "$CHECKER" --stdin --max-length abc >/dev/null 2>&1
+assert "non-numeric --max-length is a usage error" 2 $?
 
 # 4. Multiple subjects on stdin: every bad one is named; one bad among good
 #    still fails.

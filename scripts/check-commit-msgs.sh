@@ -3,15 +3,20 @@
 #
 # Subjects must match `type(scope)!: description`: a known lowercase type,
 # an optional lowercase kebab/dotted scope, an optional breaking-change `!`,
-# then `: ` and a non-empty description, at most 100 characters total (the
-# commitlint conventional defaults; types are that config's set). Merge and
-# Revert subjects are skipped — GitHub builds those, and linting them would
-# block the normal merge flow.
+# then `: ` and a non-empty description (the commitlint conventional defaults;
+# types are that config's set). Merge and Revert subjects are skipped — GitHub
+# builds those, and linting them would block the normal merge flow.
+#
+# Subject LENGTH is enforced only with --max-length N. The framework never
+# rewrites history (REQ-J1.4), so a per-commit length rule would make a single
+# overlong WIP subject permanently unfixable; CI instead applies --max-length
+# to the PR title (the squash-merge subject, which is editable) while the
+# per-commit / range path checks conventional format only.
 #
 # Usage:
-#   check-commit-msgs.sh <git-range>   lint `git log <range>` subjects
+#   check-commit-msgs.sh [--max-length N] <git-range>   lint `git log <range>`
 #                                      (CI passes the PR's base..head range)
-#   check-commit-msgs.sh --stdin       lint one subject per line from stdin
+#   check-commit-msgs.sh [--max-length N] --stdin       one subject per line
 #
 # Exit codes: 0 all subjects conform, 1 violation found, 2 usage error
 # (including an empty range/input: an empty PR range upstream should be
@@ -28,16 +33,35 @@ export LC_ALL
 unset CDPATH
 
 usage() {
-  echo "usage: check-commit-msgs.sh <git-range> | --stdin" >&2
+  echo "usage: check-commit-msgs.sh [--max-length N] (<git-range> | --stdin)" >&2
   exit 2
 }
 
-[ "$#" -eq 1 ] || usage
+max_length=""
+source=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --max-length)
+      max_length="${2:-}"
+      case "$max_length" in
+        '' | *[!0-9]*) usage ;; # require a non-empty all-digits value
+      esac
+      shift 2
+      ;;
+    *)
+      [ -n "$source" ] && usage # at most one source argument
+      source="$1"
+      shift
+      ;;
+  esac
+done
 
-if [ "$1" = "--stdin" ]; then
+[ -n "$source" ] || usage
+
+if [ "$source" = "--stdin" ]; then
   subjects="$(cat)"
 else
-  subjects="$(git log --no-merges --format='%s' "$1")" || exit 2
+  subjects="$(git log --no-merges --format='%s' "$source")" || exit 2
 fi
 
 if [ -z "$subjects" ]; then
@@ -60,8 +84,8 @@ while IFS= read -r subject; do
   if [[ ! "$subject" =~ $conventional ]]; then
     echo "check-commit-msgs: not conventional: $subject" >&2
     status=1
-  elif [ "${#subject}" -gt 100 ]; then
-    echo "check-commit-msgs: subject exceeds 100 chars: $subject" >&2
+  elif [ -n "$max_length" ] && [ "${#subject}" -gt "$max_length" ]; then
+    echo "check-commit-msgs: subject exceeds $max_length chars: $subject" >&2
     status=1
   fi
 done <<EOF

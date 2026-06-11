@@ -32,7 +32,7 @@ description = "yamllint on tracked config and workflows"
 run = "yamllint --strict config/ .github/"
 
 [tasks."lint:commits"]
-description = "conventional-commit lint on commits ahead of origin/main (CI lints the PR range)"
+description = "conventional-commit format lint on commits ahead of origin/main (length is enforced on the PR title in CI, not per-commit)"
 run = '''
 if ! git rev-parse --verify --quiet origin/main >/dev/null; then
   echo "lint:commits: origin/main not found; skipping (CI enforces the PR range)"
