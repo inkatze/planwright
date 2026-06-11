@@ -3,7 +3,7 @@
 **Spec:** `specs/bootstrap`
 **Spec commit:** 64df4248e7ac9f427ba0aabaaa6a3459257e1477
 **Walkthrough started:** 2026-06-10
-**Repo-class:** solo (human-confirmed 2026-06-10; pair-flow harness pre-flight field — obsoleted by the Section 2 decision dropping repo-class from planwright v1; no registry entry will be written for planwright's own concept, which does not exist)
+**Repo-class:** solo (human-confirmed 2026-06-10; pair-flow harness pre-flight field — obsoleted by the Section 2 decision dropping repo-class from planwright v1: the registry was dropped along with the concept, so there is no entry to write)
 **Retrofit mode:** no (validator clean: 0 errors, 0 warnings on Draft)
 
 This brief is the durable contract between human and agent for executing the
@@ -73,8 +73,8 @@ edits, not supersedes).
   non-conformance until then.
 - **Status lifecycle goes to five** (grounded in a survey of
   PEP/KEP/IETF/ADR/MADR/TC39/Rust-RFC lifecycles — the two missing concepts
-  appeared in all six
-  processes): Draft, Active, Done, **Retired** (terminal: abandoned/withdrawn),
+  appeared in all six process families, counting ADR/MADR as one): Draft,
+  Active, Done, **Retired** (terminal: abandoned/withdrawn),
   **Superseded** (terminal: replaced, mandatory `Superseded-by:` pointer).
   Reopen cycle defined: extending a Done bundle flips Done→Draft; scoped
   kickoff of the delta flips back to Active; completion → Done.
@@ -215,13 +215,17 @@ Signed off: 2026-06-10
 ## Section 3 — Design walkthrough
 
 All 37 D-IDs accounted for: 22 confirmed with rationale intact (D-1, D-2, D-3,
-D-7, D-9, D-10, D-11, D-12, D-17, D-18, D-19, D-20, D-21, D-22, D-23, D-24,
-D-26, D-28, D-30, D-31, D-32, D-34); 13 amended by Section 2 decisions (D-4
-buckets-as-taxonomy; D-5/D-6 rewritten to act-then-review, repo-class dropped;
+D-7, D-9, D-10, D-11, D-17, D-18, D-19, D-20, D-21, D-22, D-23, D-24,
+D-26, D-28, D-30, D-31, D-32, D-34, D-36); 13 amended by Section 2 decisions
+(D-4 buckets-as-taxonomy; D-5/D-6 rewritten to act-then-review, repo-class
+dropped; D-12 rationale realigned to act-then-review (consequence of D-5/D-6);
 D-13 composition-vs-dispatch precision; D-15/D-16 decision-domains catalog,
 three wiring points; D-25 five statuses; D-27 gate condition (c) reword; D-29
 new contract in docs; D-33 toggles in / registry out; D-35 graceful-degradation
-lessons; D-36/D-37 native `claude --worktree`); 2 precision fixes:
+lessons; D-37 native `claude --worktree`); 2 precision fixes:
+*(Ledger reconciled at self-review 2026-06-10: D-12 moved confirmed→amended,
+D-36 moved amended→confirmed — its only change was editorial placeholder
+normalization; counts unchanged at 22/13/2.)*
 
 - **D-8 reworded:** one unit per **step** (each step atomic, crash-safe); the
   watch loop / control tower take multiple steps per session up to
@@ -237,19 +241,20 @@ Signed off: 2026-06-10
 ## Section 4 — Verification approach
 
 Coverage mix reviewed: ~30 [test] (validator/parser/hook fixtures, run in
-planwright's own CI), ~17 [design-level] (doctrine artifacts; each names its
+planwright's own CI), 16 [design-level] (doctrine artifacts; each names its
 required content), ~23 [manual] plus 8 [Gherkin] (both exercised by Task 18's
-manual-verification sweep).
+manual-verification sweep; counts are pure-tag — mixed-tag entries also sweep).
 
 - **Task 18 becomes the explicit manual-verification sweep:** its findings doc
-  carries a checklist of every [manual] test-spec entry — exercised, or the gap
-  named. The manual tier gains a drain point; release-gate condition (c)
-  certifies the manual tier, not just "a run happened".
+  carries a checklist of every test-spec entry whose tag includes [manual] or
+  [Gherkin] — exercised, or the gap named. The manual tier gains a drain point;
+  release-gate condition (c) certifies the manual tier, not just "a run
+  happened".
 - Test-spec deltas ride the Section 5 edit list: entries for new REQs (B3.2,
-  C1.6, C1.7, D1.5–D1.7, F1.8, G1.8, K1.8, observation staleness), rewritten
-  REQ-C entries (act-then-review: checklist generation [Gherkin]; declined log
-  [manual] and resolution ladder [Gherkin]), repo-class inference tests deleted,
-  five-status validator fixtures (Retired/Superseded, reopen cycle).
+  D1.5–D1.7, F1.8, G1.8, K1.8, observation staleness), rewritten/new REQ-C
+  entries (act-then-review: checklist generation C1.3 [Gherkin]; declined log
+  C1.6 [manual]; resolution ladder C1.7 [Gherkin]), repo-class inference tests
+  deleted, five-status validator fixtures (Retired/Superseded, reopen cycle).
 - Verifiability spot-check: E1.2 adaptive-retry is executable (classifier is a
   fixture-testable script); no dead verification paths found.
 
@@ -287,15 +292,17 @@ Section 2 REQ-F record where they differ):
 Final attended backend lineup: subagents (default) / tmux (opt-in) / print /
 in-session, plus unattended mode. `max_parallel_units` default 3.
 
+Signed off: 2026-06-10
+
 ## Section 5 — Task graph reconstruction & spec edits
 
 **Graph:** reconstructs cleanly from `Dependencies:` lines; the layered diagram in
 `tasks.md` is generated from those lines, which stay authoritative. Parallel
 start: T1, T3, T4. Critical path (longest chain by estimated effort, 12.5d):
 T3→T7→T11→T12→T13→T18→T19. Under critical-path-first selection (REQ-F1.2), T3
-(the intelligence migration) dispatches first. *(Corrected 2026-06-10, polish
-review: the brief originally named T4→T5→T6→T13→T18→T19 (9.5d) as critical and
-T4 as first dispatch; the effort-weighted recomputation supersedes that.)*
+(the intelligence migration) dispatches first. *(Corrected at polish review
+2026-06-10: the brief originally named T4→T5→T6→T13→T18→T19 (9.5d) as critical
+and T4 as first dispatch; the effort-weighted recomputation supersedes that.)*
 
 **Deliberate non-edges (hook-point pattern, recorded so nobody "fixes" them):**
 - T8 (`/spec-draft`) ships the builder/catalog hook point; T16 plugs the builder
@@ -399,10 +406,11 @@ bootstrap spec the same record.
 
 ## Amendment 2 — Polish-review hardening + design-gap backlog (2026-06-10)
 
-A `/polish` review pass (nine-lens fan-out, soft-floor validation, all findings
-human-dispositioned via clustered decisions) produced corrections across the
-bundle plus the following normative amendments, human-approved as the
-"amend-critical" subset:
+A `/polish` review pass (nine-lens fan-out; spot-check validation per the polish
+skill's scoping; all findings human-dispositioned via clustered decisions)
+produced corrections across the bundle plus the following normative amendments.
+The human chose to amend the five highest-stakes gaps immediately and defer the
+remaining 29 to the backlog below ("amend critical, log rest"):
 
 1. **Spec-identifier charset (new REQ-A1.8).** `<spec>` identifiers match
    `[a-z0-9][a-z0-9-]*`, validator-enforced; no skill or hook interpolates a
@@ -424,11 +432,21 @@ bundle plus the following normative amendments, human-approved as the
    guarantee); graceful degradation applies to authoring/read-only paths.
 
 Also applied with sign-off, no normative change: recorded Section 3 amendments
-propagated into D-12/D-15/D-16/D-25/D-27/D-33 text; count corrections in this
-brief (13 amended D-IDs, 28 edited REQ-IDs, ~30 [test] coverage); critical path
-recomputed (Section 5 note); REQ-I1.4 restated as a cross-reference to
-REQ-D2.2; F1.8 deliberate-bundling note; work-repo identifiers neutralized per
-REQ-D1.6; traceability and editorial fixes across all four files.
+propagated into D-15/D-16/D-25/D-27/D-33 text (D-12's edit was a stale-reference
+realignment to D-5/D-6, reclassified in the Section 3 ledger at self-review);
+count corrections in this brief (13 amended D-IDs, 28 edited REQ-IDs, ~30 [test]
+coverage); critical path recomputed (Section 5 note); REQ-I1.4 restated as a
+cross-reference to REQ-D2.2; F1.8 deliberate-bundling note; work-repo
+identifiers neutralized per REQ-D1.6; traceability and editorial fixes across
+all four files.
+
+Edits: requirements.md (A1.8 added; K1.2/H1.3/F1.1/K1.7 amended; changelog),
+design.md (D-38 orphan rule; amendment propagation), tasks.md (T4/T5/T6/T10/T13
+deliverables, Done-whens, Citations), test-spec.md (A1.8 entry; K1.2/H1.3/F1.1
+fixtures), this brief (counts, Section 5 correction, backlog).
+
+**Scoped re-sign-off: 2026-06-10** (clustered decisions, all eight answered by
+the human in session).
 
 ### Deferred design-gap backlog (polish review, 2026-06-10)
 
@@ -504,3 +522,53 @@ shipped code (nothing is implemented yet).
   bundles).
 - Gate sweep excludes terminal (Retired/Superseded) specs; migrate or close
   open gates at retirement/supersession.
+
+## Amendment 3 — Self-review corrections to the polish amendments (2026-06-10)
+
+A `/self-review` pass over the polished bundle (nine-lens fan-out, three-pass
+validation, all findings human-dispositioned) found the polish amendments
+introduced one functional regression and several underspecifications. The human
+approved all 23 recommended fixes and chose "tighten the predicate" for the
+orphan rule. Normative corrections:
+
+1. **Task-id grammar split from REQ-A1.8 (K1.2).** The polish amendment
+   validated branch `<id>` segments against the spec-identifier charset, which
+   rejects D-36's blessed dotted ids (`3.5`) — dotted-id PR events would have
+   silently no-opped. `<id>` now has its own anchored grammar
+   `^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$`; A1.8 governs `<spec>` only.
+   Positive `task-3.5` fixture added.
+2. **A1.8 anchored + bounded.** Full-string `^[a-z0-9][a-z0-9-]*$` (substring
+   matching non-conforming), 64-char max; skill-side hostile-identifier
+   refusal gains a verification path.
+3. **H1.3 grammar pinned.** Atoms (task-ID refs, spec statuses, ISO dates),
+   `and`-of-atoms as the only combinator, a surface-only free-text gate lane
+   (the bundle's own prose gates use it); data-only handling rules; the
+   malformed-gate disposition moved into the REQ as drain-report-level.
+4. **F1.1 orphan predicate tightened.** Dispatch metadata recorded in
+   In-progress entries; PR-state reconciliation precedes orphaning (merged →
+   Completed); grace threshold; observable-backend + positive-evidence-of-death
+   requirements; print-backend exempt until threshold + human confirm. D-17
+   re-surfacing no longer targets In progress (collision resolved).
+5. **K1.7 fail-closed scoped to dispatch steps.** `--bookkeeping`, `/drain`,
+   `/resume` degrade normally; the stale fail-soft doctrine bullet in design.md
+   was aligned.
+6. **F1.2 effort-weighting made explicit** ("longest dependent chain weighted
+   by estimated effort") — the weighting is what makes T3 the critical-path
+   head.
+
+Ledger reconciliation (Section 3): D-12 moved confirmed→amended, D-36 moved
+amended→confirmed (counts stay 22/13/2); kickoff amendments recorded for
+D-4/D-29/D-35 propagated into design.md with annotations. Plus editorial fixes:
+annotation-format unified (`*(Amended at <event> <date>: …)*`, now a Task 4
+convention), sweep scope says "tag includes [manual]/[Gherkin]", design-level
+count corrected to 16, Amendment 2 gained its Edits/re-sign-off block, history-
+purge scope widened to pre-neutralization spec blobs, and small prose repairs.
+
+Edits: requirements.md (A1.8, K1.2, H1.3, F1.1, K1.7, F1.2, F1.8 note,
+changelog), design.md (D-3, D-4, D-17, D-29, D-35, D-38, degradation bullet),
+tasks.md (T4, T10, T12, T13, T18, Deferred purge entry), test-spec.md (header,
+A1.8, K1.2, F1.1, F1.2, F1.8, D1.6, H1.3, K1.7, cross-ref stubs), this brief,
+`.gitignore`, `specs/_observations/opportunities.md`.
+
+**Scoped re-sign-off: 2026-06-10** (workflow: apply-all-23 + tighten-predicate,
+both human-selected in session).
