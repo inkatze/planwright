@@ -31,8 +31,9 @@ leaves open.
    opinion, take it. A choice a tool can enforce is a choice nobody should
    spend judgment on, and tool-grounded conventions transfer between
    contributors in a way personal taste does not. This is the same
-   tool-grounding rule Discovery Rigor and the Refactor Instinct apply to
-   findings, pointed at decisions.
+   tool-grounding rule [Discovery Rigor](discovery-rigor.md) and the
+   [Refactor Instinct](refactor-instinct.md) apply to findings, pointed
+   at decisions.
 
 3. **Research how mature projects solve it.** When no clean best practice
    is apparent from the first two rungs, the question becomes "how do
