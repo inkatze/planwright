@@ -80,21 +80,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
 - **Estimated effort:** 1 day
 
-### Task 7 — Finding categorization & act-then-review gate wiring
-
-- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
-  with act-then-review dispositions: on-branch application of Needs-sign-off items,
-  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
-  audit log, the resolution ladder (brief → research → convention) before the judgment
-  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
-- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
-  a declined finding carries its rationale in the audit table; a fork resolvable from the
-  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
-  including empties.
-- **Dependencies:** 3
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
-- **Estimated effort:** 1 day
-
 ### Task 8 — `/spec-draft`
 
 - **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
@@ -409,6 +394,25 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
   branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
+
+### Task 7 — Finding categorization & act-then-review gate wiring
+
+- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
+  with act-then-review dispositions: on-branch application of Needs-sign-off items,
+  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
+  audit log, the resolution ladder (brief → research → convention) before the judgment
+  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
+- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
+  a declined finding carries its rationale in the audit table; a fork resolvable from the
+  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
+  including empties.
+- **Dependencies:** 3
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
+  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
 
 ## Awaiting input
 

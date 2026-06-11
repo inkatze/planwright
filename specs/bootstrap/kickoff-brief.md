@@ -983,3 +983,21 @@ Anchor: `c47f8b6028b193bd4e87030d95f38f7df06b39b6` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 7 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 7 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-7`, branch `planwright/bootstrap/task-7`). Ready via
+Task 3's completion (PR #2 merged); selected critical-path-first (T7 heads the
+longest remaining chain T7→T11→T12→T13→T18→T19). Slot accounting: draft-pr-ready
+units (T1, T4) hold no active-worker slot; active workers after this dispatch: 1.
+Same orchestration-state-placement rationale as the entries above. Pre-move
+anchor `c47f8b6028b193bd4e87030d95f38f7df06b39b6` verified matching immediately
+before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `a27684b6e23f5d60f4dec51458f567fd8a14f504` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
