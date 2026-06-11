@@ -27,7 +27,13 @@ set -eu
 # corrupt the source-root derivation.
 unset CDPATH
 
-src_root="$(cd "$(dirname "$0")/.." && pwd)"
+# Pin a private umask: a restrictive caller umask (e.g. 0133) would strip
+# directory traversal bits from mkdir -p and break the install; 077 is never
+# less restrictive than the caller intended. File modes are preserved from
+# the source tree by cp -p.
+umask 077
+
+src_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 
 if [ -n "${CLAUDE_DIR:-}" ]; then
   claude_dir="$CLAUDE_DIR"
@@ -41,7 +47,14 @@ dest="$claude_dir/planwright"
 
 # Running the installed copy would copy every file onto itself and cannot
 # restore skills/commands (they live outside this namespace). Refuse clearly.
-if [ "$src_root" = "$dest" ]; then
+# Compare physical paths (pwd -P above; resolve dest when it exists) so a
+# symlinked route to the installed location is still caught.
+if [ -d "$dest" ]; then
+  dest_physical="$(cd "$dest" && pwd -P)"
+else
+  dest_physical="$dest"
+fi
+if [ "$src_root" = "$dest_physical" ]; then
   echo "planwright writer: refusing to run from the installed location ($dest);" >&2
   echo "run the writer from the planwright repo or plugin checkout instead" >&2
   exit 2
@@ -49,8 +62,9 @@ fi
 
 copy_tree() {
   # copy_tree <src-dir> <dest-dir> — refresh dest from src (BSD/GNU-portable).
+  # -p preserves the shipped file modes (notably script executable bits).
   mkdir -p "$2"
-  cp -R "$1/." "$2/"
+  cp -Rp "$1/." "$2/"
 }
 
 echo "planwright writer: installing into $claude_dir"

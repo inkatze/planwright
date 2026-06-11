@@ -114,6 +114,23 @@ case "$out" in
     ;;
 esac
 
+# 6b2. The self-install refusal also holds when the installed location is
+#      reached through a symlink (logical vs physical path).
+ln -s "$tmp/home/.claude/planwright" "$tmp/sym-link"
+/bin/bash -c 'unset CLAUDE_DIR; HOME="$1"; export HOME; exec /bin/bash "$2/scripts/install.sh"' _ "$tmp/home" "$tmp/sym-link" >/dev/null 2>&1
+assert "symlinked self-install refused" 2 $?
+
+# 6b3. Installed scripts keep their executable bit under a restrictive umask.
+mkdir -p "$tmp/umask-home"
+( umask 0133; HOME="$tmp/umask-home" /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1"' _ "$INSTALLER" >/dev/null )
+assert "install under umask 0133 exits 0" 0 $?
+if [ -x "$tmp/umask-home/.claude/planwright/scripts/resolve-rule-doc.sh" ]; then
+  echo "ok: installed resolver is executable under umask 0133"
+else
+  echo "FAIL: installed resolver lost its executable bit under umask 0133" >&2
+  failures=$((failures + 1))
+fi
+
 # 6c. With neither CLAUDE_DIR nor HOME set, the writer refuses with a clear
 #     message (exit 2) instead of a bash unbound-variable error.
 env -u HOME -u CLAUDE_DIR /bin/bash "$INSTALLER" >/dev/null 2>&1

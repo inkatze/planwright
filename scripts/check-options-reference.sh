@@ -19,7 +19,7 @@ set -u
 # corrupt the repo-root derivation.
 unset CDPATH
 
-repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 config="${1:-$repo_root/config/defaults.yml}"
 reference="${2:-$repo_root/docs/options-reference.md}"
 
@@ -32,13 +32,20 @@ if [ ! -f "$reference" ]; then
   exit 2
 fi
 
-# Option keys: top-level "key:" lines in the flat default config.
+# Option keys: top-level "key:" lines in the flat default config. A config
+# that parses to zero keys fails closed: a reformatted defaults.yml must not
+# silently turn this CI check into a no-op.
 config_keys="$(sed -n 's/^\([a-z0-9_]*\):.*/\1/p' "$config")"
+if [ -z "$config_keys" ]; then
+  echo "check-options-reference: no option keys parsed from $config (flat 'key: value' lines expected)" >&2
+  exit 2
+fi
 
 # Documented options: table rows whose first cell is the backticked name.
-# Cell padding is tolerated: the check is coverage, not whitespace style.
+# Cell padding and markdown's up-to-three-space row indentation are
+# tolerated: the check is coverage, not whitespace style.
 # shellcheck disable=SC2016 # the backtick is literal markdown, not expansion
-documented_keys="$(sed -n 's/^|[[:space:]]*`\([a-z0-9_]*\)`[[:space:]]*|.*/\1/p' "$reference")"
+documented_keys="$(sed -n 's/^[[:space:]]*|[[:space:]]*`\([a-z0-9_]*\)`[[:space:]]*|.*/\1/p' "$reference")"
 
 status=0
 
