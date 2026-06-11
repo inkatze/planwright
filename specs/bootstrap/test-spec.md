@@ -52,7 +52,9 @@ version.
 
 Validator fixture: a spec directory whose identifier fails the anchored
 `^[a-z0-9][a-z0-9-]*$` or the 64-char bound is flagged; mixed fixtures (a hostile
-identifier *containing* a valid run, e.g. `good-name/../escape`) confirm full-string
+*proposed-identifier string* containing a valid run, e.g. `good-name/../escape`,
+which is path-like and can never exist as a single on-disk directory name; it is
+validated and refused before any directory or path is formed) confirm full-string
 matching, not substring; an underscore-prefixed accumulator directory
 (`_observations/`) is skipped as a bundle but its name is still screened
 (`^_[a-z0-9][a-z0-9-]*$`; a hostile `_foo;rm` is flagged); a hostile identifier
