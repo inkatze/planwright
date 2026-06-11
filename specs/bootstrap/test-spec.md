@@ -458,7 +458,9 @@ Skills create new commits only and open draft PRs; no history-rewriting path exi
 ### REQ-J1.5 — Private start, public gate [design-level]
 
 The release checklist enforces the three gate conditions (incl. Task 18's
-multi-contributor work-repo run + manual sweep, the migrated docs, and the meta-spec).
+multi-contributor work-repo run + manual sweep, the migrated docs, and the meta-spec)
+and every release-blocking gated Deferred entry (the `reference/` history purge,
+human-reserved per REQ-J1.4; the checklist verifies it happened, it does not perform it).
 
 ## REQ-K — Operational integration
 

@@ -722,3 +722,43 @@ Anchor: `1dee698823e8af3cf1e6af54fb191d74a247ea85` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Amendment 6 — T19 release checklist: purge wiring (2026-06-11, pre-merge class)
+
+Panel review (gemini backend) caught a kickoff-propagation miss: Risk Register
+row 8 (added at kickoff, 2026-06-10) claims the `reference/` history purge is
+"enforced by the T19 release checklist", but Task 19's draft-era wording
+(2026-06-09) and test-spec's REQ-J1.5 entry scoped the checklist to only
+REQ-J1.5's three gate conditions. The purge is not one of the three, so row 8's
+mitigation was hollow until now.
+
+Resolution (human-selected at the panel-review handoff, "Apply here" over a
+`/spec-kickoff` delta re-walkthrough): the checklist's scope is the three gate
+conditions **plus every release-blocking gated Deferred entry** (currently the
+purge, human-reserved per REQ-J1.4 — the checklist verifies it happened, it
+does not perform it). The general "release-blocking Deferred entries" phrasing
+keeps future Deferred entries with a before-any-public-release gate from
+re-opening this same gap.
+
+Writer note: REQ-F1.10 reserves meaning-class entries for `/spec-kickoff`'s
+sign-off flow; this entry is written by the panel-review session under explicit
+human authorization (auditable here, one revert from undone, reviewable at the
+PR — the same recourse F1.10 names for misclassification).
+
+Lens pass (delta-scoped, this review's canonical table): 8 lenses none/n-a;
+cross-file consistency 1 finding (this amendment), validated 3/3 (reproduced in
+all three files; no other purge→T19 wiring exists; git history pins the drift
+to 8739abb vs 9b18d45).
+
+Edits: tasks.md (T19 deliverables + Done-when widened, citations + D-27 /
+REQ-J1.4), test-spec.md (REQ-J1.5 entry aligned), requirements.md (changelog),
+this brief (this section).
+
+Signed off: 2026-06-11 (human, panel-review handoff)
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-11.
+Anchor: `dcb342304ccfe699d266cafea554b8a7bdb04068` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
