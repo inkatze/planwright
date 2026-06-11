@@ -229,22 +229,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-30, D-42 · REQ-F2.1, REQ-B3.2
 - **Estimated effort:** half day
 
-### Task 15 — Engineering decision-process doctrine doc
-
-- **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
-  framework/language/stack idioms while keeping domain logic composable; defer to tooling and
-  ecosystem standards; research mature-project solutions when no clean best-practice fits;
-  the stake-awareness rule (escalate load-bearing "mechanical" decisions); the
-  dependency-adoption checklist (REQ-G1.1); priority-balancing nuance. Plus the
-  decision-domains catalog doctrine (D-39): the entry format (trigger + considerations +
-  disposition) and the ~10 seed domain entries (REQ-G1.8).
-- **Done when:** The doc specifies the decision process, the ecosystem-research move, and the
-  escalation rule with the auth-class example; the catalog format and seed entries exist;
-  it is referenceable via the resolution path.
-- **Dependencies:** 3
-- **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
-- **Estimated effort:** 1.5 days
-
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
 - **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
@@ -413,6 +397,26 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
   branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
+
+### Task 15 — Engineering decision-process doctrine doc
+
+- **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
+  framework/language/stack idioms while keeping domain logic composable; defer to tooling and
+  ecosystem standards; research mature-project solutions when no clean best-practice fits;
+  the stake-awareness rule (escalate load-bearing "mechanical" decisions); the
+  dependency-adoption checklist (REQ-G1.1); priority-balancing nuance. Plus the
+  decision-domains catalog doctrine (D-39): the entry format (trigger + considerations +
+  disposition) and the ~10 seed domain entries (REQ-G1.8).
+- **Done when:** The doc specifies the decision process, the ecosystem-research move, and the
+  escalation rule with the auth-class example; the catalog format and seed entries exist;
+  it is referenceable via the resolution path.
+- **Dependencies:** 3
+- **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
+  branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
 
 ## Awaiting input
 
