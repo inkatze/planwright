@@ -87,8 +87,18 @@ docs/options-reference.md    canonical config options reference
 scripts/                     portable-shell entry points (writer, resolver, checks)
 tests/                       shell tests for the scripts
 specs/                       planwright's own specs (bootstrap = the founding spec)
-reference/                   transient migration source material (purged before any public release)
+reference/                   transient migration sources (purged pre-release)
 ```
+
+## Development
+
+The repo pins its quality toolchain with [mise](https://mise.jdx.dev)
+(`mise.toml`): `mise install` once, then `mise run check` runs everything
+(tests, shellcheck, markdownlint, yamllint, manifest validation, the
+options-reference drift check, and a gitleaks history scan). This is
+dev-tooling only: planwright's runtime scripts stay plain portable bash with
+no mise dependency (REQ-K1.5). The self-hosting CI task wires the same tasks
+into GitHub Actions.
 
 ## License
 
