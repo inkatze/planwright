@@ -558,6 +558,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   graph intro reworded "generated" → "derived" (no generator tooling exists;
   the view is maintained by hand against the authoritative `Dependencies:`
   lines). Self-re-anchor recorded in the kickoff brief.
+- 2026-06-11 (expression-only, Copilot pairing iter 3) — test-spec H1.3
+  fixture reworded "echoed stripped" → "echoed with the control characters
+  stripped", mirroring REQ-H1.3's own phrasing. Self-re-anchor recorded in
+  the kickoff brief.
 
 ## Sources
 
