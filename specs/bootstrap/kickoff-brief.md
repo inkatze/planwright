@@ -1097,3 +1097,18 @@ Anchor: `537f766561128b077646bb573fb73fc98f0404c9` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 2 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #7 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the entries above. Pre-move anchor
+`537f766561128b077646bb573fb73fc98f0404c9` verified matching immediately before
+the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `ceb40c8361ac255ecf32846ec7dc8478c657926b` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
