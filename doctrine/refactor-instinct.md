@@ -11,7 +11,8 @@ Citations: REQ-D1.3.
 
 Before claiming code needs a refactor, check what the repository already
 runs: linters, formatters, type checkers, static analyzers, complexity and
-duplication meters (same discovery channels as Discovery Rigor). If a tool
+duplication meters (same discovery channels as
+[Discovery Rigor](discovery-rigor.md)). If a tool
 flags it, the finding is grounded; cite the tool and rule. If no tool flags
 it but something still feels wrong, that judgment is less reliable, so be
 more conservative, especially in review mode. If the repository has no
