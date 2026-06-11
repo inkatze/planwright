@@ -1,13 +1,15 @@
 # planwright Bootstrap — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-06-09
+**Status:** Active
+**Last reviewed:** 2026-06-11
 **Format-version:** 1
 
 Decision log for building planwright v1. Each decision carries a Decision,
-Alternatives considered, and Chosen because. **N** = new this drafting session;
-**C** = carried from pair-flow (validated in v1, re-grounded for a standalone
-framework). Carried decisions cite their pair-flow origin.
+Alternatives considered, and Chosen because. **N** = new to planwright (drafting
+session unless annotated otherwise); **C** = carried from pair-flow (validated in
+v1, re-grounded for a standalone framework). Carried decisions cite their
+pair-flow origin. Pair-flow IDs are a foreign namespace: a cited pair-flow D-25
+has no correspondence to this log's D-25.
 
 ## Decision log
 
@@ -41,8 +43,8 @@ work in pair-flow v1.
 
 ### D-3: Two-brief model — kickoff is contract, handover is optional cache  (C, pair-flow D-2)
 
-**Decision:** `specs/{feature}/kickoff-brief.md` is the durable contract;
-`{worktree}/.claude/handover.md` is an optional cache of in-flight context.
+**Decision:** `specs/<spec>/kickoff-brief.md` is the durable contract;
+`<worktree>/.claude/handover.md` is an optional cache of in-flight context.
 
 **Alternatives considered:**
 - Single brief that is both contract and scratchpad. Rejected because: it couples
@@ -55,7 +57,9 @@ the handover is best-effort. Survived multi-day work in v1 unmodified.
 
 **Decision:** Findings route into Auto-applicable, Agent-resolvable, Needs sign-off,
 or Needs human judgment, each with an explicit predicate; skills present all four as
-tables (including empties).
+tables (including empties). *(Amended at kickoff 2026-06-10: under the act-then-review
+rewrite (D-5) the buckets serve as audit taxonomy, not a decision queue — see
+REQ-C1.5.)*
 
 **Alternatives considered:**
 - A binary apply/surface split. Rejected because: it collapses the distinct
@@ -65,34 +69,52 @@ tables (including empties).
 distinctive contribution; the four buckets match the honest decision shape a human
 would otherwise have to make.
 
-### D-5: Solo vs multi-reviewer autonomy split; multi-reviewer is the safe default  (C+N, pair-flow D-4/D-20)
+### D-5: Act-then-review autonomy; the draft→ready flip is the universal gate  (N, rewritten at kickoff 2026-06-10; replaces the pair-flow D-4/D-20 split)
 
-**Decision:** In solo repos Agent-resolvable auto-applies; in multi-reviewer repos it
-surfaces for review with evidence. On ambiguous repo-class signals the safe default is
-multi-reviewer.
-
-**Alternatives considered:**
-- Default solo on ambiguity. Rejected because: the cost of guessing solo on a true
-  multi-reviewer repo is auto-applying changes that should have been reviewed — the
-  more dangerous error.
-- Refuse to proceed until confirmed. Rejected because: it blocks zero-config autonomy
-  on first run.
-
-**Chosen because:** safe-by-default; surfacing for confirmation (D-6) catches the
-mistake cheaply while keeping the bootstrap zero-config.
-
-### D-6: repo-class inferred and surfaced for confirmation, never silently written  (C, pair-flow D-20)
-
-**Decision:** On a repo with no config entry, infer repo-class from PR history (a
-non-author human reviewer in recent PRs → multi-reviewer; else → solo), always surface
-for confirmation, and write the entry only on confirm.
+**Decision:** The gate is exception-based and identical in all repos:
+Auto-applicable and Agent-resolvable findings apply with audit/evidence rows;
+Needs-sign-off findings are applied on the branch and listed in a
+pending-sign-off checklist in the draft PR description; declined-with-rationale
+is a first-class disposition; a finding must climb the resolution ladder
+(brief/spec → research → convention) before reaching Needs human judgment.
+Mid-loop pauses are limited to hard-disqualifier zones and irreducible forks.
+The author's draft→ready flip is the single review gate.
 
 **Alternatives considered:**
-- Silent inference + write. Rejected because: a wrong silent guess changes autonomy
-  behavior without the human's knowledge.
+- The original solo/multi-reviewer split (mid-loop surfacing in team repos).
+  Rejected because: pair-flow v1 experience showed the permission-based shape
+  produces a long human queue (`/copilot-pairing`, exception-based, needed
+  near-zero intervention while the bucket skills did not); per-finding sign-off
+  was never a reserved control; and nothing reaches reviewers before the author
+  marks the PR ready, so the protection is identical.
+- Keep gating, batch decisions at loop end. Rejected because: improves
+  ergonomics but keeps the queue.
 
-**Chosen because:** zero-config bootstrap with a human checkpoint at the one decision
-that governs autonomy.
+**Chosen because:** matches the field's converged act-then-review shape (Devin,
+OpenHands, Copilot coding agent: work on a branch, human reviews the PR once)
+while keeping planwright's distinctive evidence discipline and typed pauses.
+Every on-branch action is one revert from undone; merge stays human.
+
+### D-6: No repo-class in v1  (N, rewritten at kickoff 2026-06-10; replaces pair-flow D-20 inference)
+
+**Decision:** v1 has no repo-class concept. No inference, no registry entry, no
+confirmation flow. Team-vs-solo differences, if demonstrated, return as
+per-action config knobs (fast-follow), not a repo classifier.
+
+**Alternatives considered:**
+- Keep the classifier for a presentation nuance (forced checklist
+  acknowledgment in multi-reviewer repos). Rejected because: unenforceable —
+  marking a PR ready is a human GitHub action; the framework has no enforcement
+  point.
+- Keep it config-only (manual setting). Rejected because: with D-5 unified,
+  nothing reads it.
+
+**Chosen because:** the detection machinery has real failure modes (needs `gh`
++ remote + PR history; failed on planwright's own no-remote repo at kickoff
+pre-flight), doubles docs and tests on the first concept an adopter meets, and
+re-adding later is additive and cheap while removing later is expensive. No
+shipped agent classifies repos by sociology; Renovate expresses the difference
+as per-rule config.
 
 ### D-7: Stateless step-machine orchestration  (C, pair-flow D-5)
 
@@ -106,19 +128,22 @@ computes the next move, performs it, updates `tasks.md`, and exits.
 **Chosen because:** the only state is `tasks.md` on disk; any invocation can crash and
 the next re-reads and continues. Compatible with scheduled runners.
 
-### D-8: One unit per invocation; intra-spec parallelism via multiple invocations  (C, pair-flow D-52)
+### D-8: One unit per step; parallelism via the tower and multiple invocations  (C+N, pair-flow D-52, reworded at kickoff 2026-06-10)
 
-**Decision:** Each `/orchestrate` invocation advances exactly one unit (a single task or
-one cohesion-bundle per D-9) and exits. Throughput comes from running it concurrently
-(multiple tmux windows or a scheduler), serialized only during the brief state-changing
-move by the per-spec lock (D-10).
+**Decision:** Each `/orchestrate` step advances exactly one unit (a single task or
+one cohesion-bundle per D-9). A watch loop / control tower (D-38) may take
+multiple steps per session, each step individually atomic; additional throughput
+comes from running it concurrently, serialized only during the brief
+state-changing move by the per-spec lock (D-10). *(Reworded at kickoff
+2026-06-10: the step, not the invocation, is the unit of crash-safety.)*
 
 **Alternatives considered:**
 - Loop through all ready tasks in one run. Rejected because: it rebuilds the fragile
   long-running-state model D-7 avoids.
 
 **Chosen because:** keeps the orchestrator stateless and crash-safe; matches the
-validated private-work-repo workflow of running parallel workstreams in separate windows.
+validated private-work-repo workflow of running parallel workstreams in separate
+windows.
 
 ### D-9: Cohesion-first PR bundling  (N, replaces pair-flow D-11/D-24 line-count rule)
 
@@ -131,14 +156,14 @@ dependencies). Combined size is a guardrail against bloat, not the primary signa
   Rejected because: it optimizes for diff size rather than PR quality, and the
   retrospective flagged it as unmeasured.
 
-**Chosen because:** grounded in private-work-repo PR #161 (Tasks 3,4,5 bundled as one "storage
+**Chosen because:** grounded in a private-work-repo PR (Tasks 3,4,5 bundled as one "storage
 substrate" deliverable while single tasks shipped alone). A PR should be a good unit of
 history — revertable, single-concern, right-sized — which is a cohesion property, not a
 length property.
 
 ### D-10: Per-spec advisory lock, held only during state-changing moves  (C, pair-flow D-17/D-37)
 
-**Decision:** A per-spec lockfile at `specs/{feature}/.orchestrate.lock` is held only
+**Decision:** A per-spec lockfile at `specs/<spec>/.orchestrate.lock` is held only
 during task selection + `tasks.md` update, released before `/execute-task` runs.
 Stale-lock break threshold: 15 minutes. Lock-acquire failure is a clean no-op.
 
@@ -149,7 +174,7 @@ Stale-lock break threshold: 15 minutes. Lock-acquire failure is a clean no-op.
 **Chosen because:** cheap, crash-robust, and the short window unblocks parallel
 execution while still serializing concurrent state mutations on the same spec.
 
-### D-11: Test-first execution + adaptive CI retry  (C, pair-flow B1.3/D-25)
+### D-11: Test-first execution + adaptive CI retry  (C, pair-flow REQ-B1.3 / pair-flow D-25)
 
 **Decision:** `/execute-task` writes the failing test first, confirms it fails for the
 right reason, implements to green. CI retry is adaptive: transient failures (network,
@@ -175,7 +200,7 @@ fast-follows.
 
 **Chosen because:** planwright's differentiation lives in the autonomy gate, not the act
 of reviewing. `/self-review` feeds `/polish`, and `/polish` routes findings through the
-four buckets and the solo/multi-reviewer split — that is the distinctive part.
+four buckets and the act-then-review dispositions — that is the distinctive part.
 
 ### D-13: Skill-to-skill invocation is in-session  (C, pair-flow D-39)
 
@@ -188,6 +213,8 @@ state is owned by the outer skill.
   firings and fragments state ownership.
 
 **Chosen because:** skills compose as functions, not as separate processes.
+*(Precision added at kickoff 2026-06-10: orchestrator dispatch of execution
+units (D-38) is deliberately session-creating and is not skill composition.)*
 
 ### D-14: Cross-session awareness is out of v1 scope  (N)
 
@@ -199,14 +226,21 @@ it is a documented fast-follow.
   most host/tmux-coupled and least-validated layer (retrospective §5).
 
 **Chosen because:** v1 keeps orchestration (core to the autopilot promise) and drops the
-most personal-preference-laden, least-validated layer.
+most personal-preference-laden, least-validated layer. *(Annotated at kickoff
+2026-06-10: the control tower (D-38) already delivers single-host awareness —
+question funneling, live task list, Awaiting-input surfacing. The fast-follow
+shrinks to multi-tower / multi-host awareness and must not rebuild what the
+tower provides.)*
 
 ### D-15: Engineering builder is doctrine doc + skill + lifecycle hooks, stake-aware  (N)
 
 **Decision:** The opinionated engineering builder is delivered as (a) an engineering
 doctrine doc encoding the decision process, (b) a builder skill that detects the stack
-and applies/recommends guards, and (c) hooks into `/spec-draft` (design phase) and
-`/execute-task` (applies guards).
+and applies/recommends guards, and (c) hooks into the three lifecycle wiring points
+(REQ-G1.4, D-39): `/spec-draft` (design phase), `/spec-kickoff` (gap check — catalogued
+domains the spec touches but does not decide flow into the risk register), and
+`/execute-task` (applies guards). *(Amended at kickoff 2026-06-10: third wiring point
+added per the decision-domains catalog decision.)*
 
 **Alternatives considered:**
 - A standalone skill with embedded opinions. Rejected because: the opinions aren't
@@ -223,11 +257,14 @@ docs, behavior in skills, enforcement in hooks) and Claude Code's native grain.
 decisions that look mechanical yet carry technical + business/domain stakes
 (authentication, data modeling, security posture, integration surface) as design
 decisions / Needs-human-judgment, routed into the deferral mechanism (D-17).
+*(Amended at kickoff 2026-06-10: the fixed four-domain list above is superseded by
+the ten-domain decision-domains catalog, D-39/REQ-G1.8; the escalation behavior
+stands.)*
 
 **Alternatives considered:**
 - Treat all standards as a flat auto-applied checklist. Rejected because: it would
   auto-stamp decisions like auth that are architecture-defining and business
-  differentiators (grounded in the private-work-repo auth example).
+  differentiators (grounded in a private work repo's auth example).
 
 **Chosen because:** the builder's primary intelligence is recognizing which
 seemingly-mechanical decisions are actually load-bearing and refusing to auto-resolve
@@ -237,8 +274,10 @@ them. This is what distinguishes it from an "add a linter" scaffolder.
 
 **Decision:** Every deferral is a structured `GATE(when: …)` line written inline where
 the work/decision was deferred. The `/orchestrate --bookkeeping` pass evaluates open
-gates and re-surfaces satisfied items (moving them to Awaiting input / In progress or
-flagging them in the report); the same evaluator is exposed as an on-demand `/drain`
+gates and re-surfaces satisfied items (moving them to Awaiting input or flagging them
+in the report — never to In progress, which is reserved for dispatched units;
+*amended at self-review 2026-06-10* to avoid colliding with the F1.1 orphan
+disposition); the same evaluator is exposed as an on-demand `/drain`
 move. Condition gates (a landed task/dependency) are preferred over date gates; date
 gates only surface, never hard-fail. The pass never auto-resolves or auto-drops.
 Deferred decisions carry a confidence level so low-confidence items resurface first.
@@ -259,8 +298,9 @@ auto-drops on a timer — which also matches planwright's human-reserved-actions
 each with a named drain ritual: self-draining live state (automatic, e.g. the advisory
 lock's release + stale-break); state-machine durable state (drained by skill/hook
 transitions, e.g. `tasks.md` sections on PR create/merge); manually-/condition-drained
-seed accumulators (e.g. `_pending/notes.md`, `_observations/opportunities.md`, drained by
-their canonical reader and the gate/bookkeeping pass).
+seed accumulators (e.g. `_pending/notes.md` (local-only, gitignored),
+`_observations/opportunities.md`, drained by their canonical reader and the
+gate/bookkeeping pass).
 
 **Alternatives considered:**
 - Leave drain disciplines implicit and scattered (the pair-flow status quo). Rejected
@@ -285,6 +325,10 @@ kickoff brief re-synced by diff-review and scoped re-sign-off for only the moved
 
 **Chosen because:** the mandatory changelog is cheap insurance that makes fix-in-place
 safe; supersede is the auditable escape hatch for genuine reversals (RFC/PEP/ADR practice).
+*(Amended at Amendment 5 2026-06-11: "no re-approval" stands, but any spec edit stales
+the F1.9 content anchor; expression-only fixes re-anchor via the marked self-re-anchor
+entry (REQ-F1.10) — machine-written, no human session — so the lightweight path no
+longer freezes dispatch.)*
 
 ### D-20: Stable, never-reused IDs; supersede-don't-mutate  (N)
 
@@ -341,7 +385,7 @@ differently-named overlaps while keeping the human in control.
 seed source and archives/trims the entries it consumes.
 
 **Alternatives considered:**
-- Leave the opportunities log as write-only (the pair-flow bug). Rejected because: writers
+- Leave the observations log as write-only (the pair-flow bug). Rejected because: writers
   (`/execute-task`, `/polish`) with no canonical reader is a silent drop.
 
 **Chosen because:** closes the writer-without-reader loop; the observations convention only
@@ -366,7 +410,9 @@ gives the cleanest install story; the writer covers environments without plugin 
 **Decision:** The validator enforces four-file presence, per-task structure (stable ID,
 Done when, Dependencies, Citations), and REQ↔test-spec coverage. Enforcement is
 status-aware (warnings on Draft, errors on Active) and keyed off the declared
-format-version (D-1).
+format-version (D-1). *(Amended at kickoff 2026-06-10: the validator recognizes all
+five statuses — Draft, Active, Done, Retired, Superseded — with Retired/Superseded
+treated as terminal; see D-40 and REQ-A1.6/A3.1.)*
 
 **Alternatives considered:**
 - Always-error enforcement. Rejected because: it blocks iterative drafting.
@@ -391,7 +437,8 @@ irreversible; the user stated they are constraints, not future capabilities.
 
 **Decision:** The repository starts private. Public release is gated on all three of: (a)
 the CLAUDE.md rules are inlined into planwright's own docs; (b) the four-file format
-meta-spec exists; (c) at least one clean multi-reviewer end-to-end run has completed.
+meta-spec exists; (c) at least one clean end-to-end run on a real multi-contributor
+work repository has completed.
 
 **Alternatives considered:**
 - Public from the start. Rejected because: the skills are hollow until the intelligence is
@@ -422,7 +469,10 @@ model: the human must know how to operate the machine and retains the reserved c
   understand where their control begins and ends.
 
 **Chosen because:** the model makes the human-reserved controls legible and sets correct
-expectations about autonomy being bounded by spec quality.
+expectations about autonomy being bounded by spec quality. *(Amended at kickoff
+2026-06-10: the docs additionally carry the three-phase intervention contract —
+sign-off before, rare hard pauses during, PR review + merge after — recorded in
+the brief's Section 2 REQ-C notes.)*
 
 ### D-30: `/resume` is a read-only context loader  (C, pair-flow D-47)
 
@@ -467,15 +517,16 @@ flow.
 ### D-33: Config model is a tracked default + a local gitignored override  (N)
 
 **Decision:** A tracked default config holds universal defaults (thresholds, gate
-conventions); a local gitignored override (agent-maintained, per-repo) holds the
-repo-class registry and overrides. repo-class entries are written only on human
-confirmation (D-6).
+conventions, the commit and dispatch toggles); a local gitignored override
+(agent-maintained, per-repo) holds per-repo/personal overrides. *(Amended at kickoff
+2026-06-10: the repo-class registry is dropped with the repo-class concept, per the
+rewritten D-6 and REQ-K1.1 — "toggles in / registry out".)*
 
 **Alternatives considered:**
 - Single tracked config with per-repo entries. Rejected because: per-machine/per-repo
   overrides don't belong in a shared tracked file.
-- repo-level metadata inside the spec bundle. Rejected because: repo-class is a property of
-  the repository, not the spec.
+- repo-level metadata inside the spec bundle. Rejected because: per-repo settings are a
+  property of the repository, not the spec.
 
 **Chosen because:** clean separation of universal facts from per-repo/personal settings;
 matches the validated pair-flow two-file config split (pair-flow D-19).
@@ -499,6 +550,9 @@ awkward but tractable in shell + awk.
 **Decision:** v1 targets GitHub through the `gh` CLI for PR operations. PR-related
 operations degrade gracefully on `gh` auth failure (local work proceeds; `/orchestrate`
 records an Awaiting-input entry). Non-GitHub hosts (GitLab, Bitbucket) are out of v1 scope.
+*(Amended at kickoff 2026-06-10: degradation lessons folded in from the kickoff
+pre-flight — `gh`-dependent steps must also survive a repo with no remote at all; see
+REQ-K1.6/K1.7 and the D-44 worktree-handling red-line.)*
 
 **Alternatives considered:**
 - Abstract the git host now. Rejected because: it adds an abstraction layer for hosts that
@@ -509,7 +563,7 @@ fast-follow if demand appears.
 
 ### D-36: Branch-naming convention  (C, pair-flow D-32)
 
-**Decision:** Orchestrator-created branches use `planwright/{spec}/task-{id-or-ids}` (single
+**Decision:** Orchestrator-created branches use `planwright/<spec>/task-<id-or-ids>` (single
 `3` / `3.5`, or `3-4` for a bundle). The `tasks-pr-sync` hook parses this to move task
 blocks between `tasks.md` sections.
 
@@ -519,19 +573,247 @@ blocks between `tasks.md` sections.
 
 **Chosen because:** namespaced, machine-parseable, signals planwright ownership.
 
-### D-37: Worktree placement compatible with `claude --worktree`  (C, pair-flow D-54)
+### D-37: Worktrees created natively, placed for `claude --worktree`  (C+N, pair-flow D-54, amended at kickoff 2026-06-10)
 
-**Decision:** `/orchestrate` reuses the current worktree when clean (after a one-line
-confirm) and otherwise creates fresh worktrees under `<repo>/.claude/worktrees/<branch-suffix>`
-so Claude Code's native worktree tooling discovers them; it prints the re-open command after
-create-or-reuse.
+**Decision:** Worktree creation goes through Claude Code's native mechanisms
+(`claude --worktree` / `EnterWorktree` / the Agent tool's worktree isolation) —
+planwright never shells out to `git worktree`. Placement is always
+`<repo>/.claude/worktrees/<branch-suffix>`, so any worktree is attachable via
+`claude --worktree <name>` regardless of which backend launched the work; the
+placement convention is the contract, the launch mechanism is incidental.
+`/orchestrate` reuses the current worktree when clean (one-line confirm,
+attended only) and prints the re-open command after create-or-reuse.
 
 **Alternatives considered:**
 - Place worktrees in an arbitrary external directory. Rejected because: `claude --worktree`
   and `EnterWorktree` would not discover them.
+- Manage worktrees with raw `git worktree`. Rejected because: duplicates what
+  the native tooling does and risks divergence from its placement rules.
 
-**Chosen because:** places worktrees where the native tooling looks; detect-and-reuse avoids
-redundant worktrees.
+**Chosen because:** places worktrees where the native tooling looks; removes
+planwright code rather than adding it; detect-and-reuse avoids redundant
+worktrees.
+
+### D-38: Control-tower dispatch — four attended backends + unattended mode  (N, kickoff 2026-06-10)
+
+**Decision:** `/orchestrate` dispatches units via configurable backends:
+**subagents** (default: background workers with isolated context + native
+worktree per unit; completion notifies the tower; worker questions funnel to the
+tower's single prompt queue), **tmux** (opt-in: interactive workers in named
+windows via `claude --worktree`; capture-pane *detection* of
+stuck/finished/errored workers — never send-keys impersonation; routine prompts
+eliminated by a shipped worker-settings profile), **print** (prepare the unit,
+print the launch command, exit; zero-dependency manual dispatch), and
+**in-session**. **Unattended mode** (headless invocation via cron/launchd/CI)
+skips confirms, always creates fresh worktrees, and routes every would-be prompt
+to Awaiting input. The tower is disposable: no in-memory state beyond the
+current step; a reconcile sweep rebuilds the full picture from `tasks.md`, `gh`,
+and the process/window list. Orphan disposition *(Amended at polish review
+2026-06-10; predicate tightened at self-review 2026-06-10 — see REQ-F1.1 for the
+normative rule)*: In-progress entries carry dispatch metadata (backend,
+timestamp, worker handle); the sweep reconciles PR state first (merged →
+Completed; open → leave In progress), then orphans a task only past a grace
+threshold, only for backends whose liveness this session can observe, and only
+on positive evidence of death — print-backend units are exempt until the
+threshold plus a human confirm, since no process exists until the human pastes
+the command. An orphan moves to Awaiting input with an orphan note — never
+silently left In progress (which would stall dependents invisibly; Awaiting
+input surfaces the stall for human action) and never auto-re-dispatched.
+Concurrency capped by `max_parallel_units` (default 3). `--watch` is
+event-driven under subagents, a polling metronome under tmux.
+
+**Alternatives considered:**
+- In-session-only dispatch (pair-flow status quo). Rejected because: the
+  orchestrating session absorbs every task's context; parallelism requires
+  manual multi-terminal work.
+- Headless `claude -p` as an attended backend. Rejected because: dominated by
+  subagents on every attended axis (no prompt rendering, no interactivity); it
+  returns as the unattended runtime where those limits are irrelevant.
+- send-keys prompt answering ("the orchestrator types for me"). Rejected
+  because: it is an authorization decision implemented as fragile
+  screen-scraping with no audit trail; the worker-settings profile eliminates
+  routine prompts properly, and the remaining prompts are by-design human
+  questions.
+
+**Chosen because:** isolates context per unit (the real pain), keeps D-7
+statelessness (tower recyclable at any time), funnels parallel workers'
+questions to one place, and delivers the scheduled-autopilot story
+(cron-driven headless tower) without new dependencies.
+
+### D-39: Decision-domains catalog — staff-engineering judgment as triggers  (N, kickoff 2026-06-10)
+
+**Decision:** An extensible, data-driven catalog of stake-bearing decision
+domains, each entry carrying a trigger (what spec language or code change
+signals the domain), a considerations checklist (the questions a principal
+engineer asks), and a disposition rule (covered by spec/brief → proceed citing
+it; uncovered → research per Research Rigor, then recommend or escalate per
+stake). Seeded with ~10 domains: data storage & modeling, caching, queues/async,
+API surface design, authn/z, secrets & config, concurrency, observability,
+deploy/migration strategy, dependency adoption. Wired into `/spec-draft`
+(design phase), `/spec-kickoff` (gap check → risk register), and
+`/execute-task` (drift triggers). Uncatalogued domain hits become observations,
+so the catalog grows through the existing drain loop.
+
+**Alternatives considered:**
+- Enumerate staff-engineering knowledge in doctrine prose. Rejected because:
+  the knowledge is vast and the model already holds most of it latently; the
+  failure mode is not ignorance but failing to stop and apply it.
+- Keep D-16's fixed four-domain list. Rejected because: the list is the seed of
+  something that must grow (the human's data-storage example).
+
+**Chosen because:** triggers activate deliberate judgment at decision moments;
+the catalog mechanism mirrors the builder's guard catalog (D-15) and is
+adopter-extensible without core edits.
+
+### D-40: Five-status lifecycle with reopen cycle  (N, kickoff 2026-06-10)
+
+**Decision:** Statuses are Draft, Active, Done, Retired (terminal:
+abandoned/withdrawn), Superseded (terminal: replaced, mandatory
+`Superseded-by:` pointer). Done requires Forward plan / In progress / Awaiting
+input empty; open Deferred gates do not block Done and continue to be swept.
+Reopen: extending a Done bundle flips Done→Draft; scoped kickoff returns it to
+Active.
+
+**Alternatives considered:**
+- Keep three statuses. Rejected because: a survey of six mature processes
+  (PEP, KEP, IETF, ADR/MADR, TC39, Rust RFC) found terminal-abandoned and
+  terminal-superseded in all six; planwright lacked both.
+- Add a Deferred parking status. Rejected because: Draft + `GATE(when:)`
+  already covers parking.
+
+**Chosen because:** closes the abandoned-spec and replaced-spec gaps with the
+minimum new states; the reopen cycle closes the hole where `/orchestrate`
+could pick up unsigned appended tasks.
+
+### D-41: Auto-commit completed state transitions, never push  (N, kickoff 2026-06-10)
+
+**Decision:** `/spec-draft` commits the Draft bundle; `/spec-kickoff` commits
+the brief + status flip after sign-off; `/orchestrate` commits its `tasks.md`
+state moves with a fixed conventional message. Each has a config opt-out
+(`commit_on_draft`, `commit_on_kickoff`, orchestrate toggle). Push, sign-off,
+and merge remain human.
+
+**Alternatives considered:**
+- No-commit (pair-flow status quo: human commits). Rejected because: an
+  uncommitted draft is the fragile state D-2 warns about, and parallel dispatch
+  requires committed state for clean reconciliation.
+
+**Chosen because:** a finished bundle/brief/state-move is a completed state
+transition (precedent: `npm version`, release tooling, aider's auto-commits,
+jujutsu's always-committed working copy); commit was never a reserved control.
+
+### D-42: Self-healing skills via the observation loop  (N, kickoff 2026-06-10)
+
+**Decision:** Every planwright skill ends with a maintenance check comparing
+its instructions against the doctrine/spec version it implements; detected
+drift is written to the observations log, whose canonical reader
+(`/spec-draft`) folds it into spec amendments.
+
+**Alternatives considered:**
+- Document the pattern without a REQ. Rejected because: nothing would verify
+  skills carry the footer.
+
+**Chosen because:** self-healing rides the existing accumulator machinery
+instead of a side channel; drift becomes seed material automatically.
+
+### D-43: CI-enforced canonical options reference  (N, kickoff 2026-06-10)
+
+**Decision:** One reference doc lists every config option (name, default,
+effect, consuming skill); planwright's CI fails when the tracked default config
+contains an option with no reference entry.
+
+**Alternatives considered:**
+- Aspirational "document options as added". Rejected because: undocumented
+  options accumulate silently; the kickoff alone added six.
+
+**Chosen because:** makes option documentation structural — undocumented
+options break the build (dogfoods D-32).
+
+### D-44: Spec-PR flow — one branch spans draft→kickoff; merge activates  (N, post-activation amendment 2026-06-10)
+
+**Decision:** `/spec-draft` creates the spec worktree + branch
+(`planwright/<spec>/spec`, a reserved namespace the `tasks-pr-sync` hook
+no-ops on) and commits the Draft bundle locally — no push, no PR. `/spec-kickoff`
+reuses that worktree, commits brief + Active flip, pushes the branch, and opens
+a draft PR. The human's merge makes the Active spec operational (`/orchestrate`
+reads main's view, so no new refusal logic is needed). Amendments: in-flight
+amendments ride the task PR that triggered them (D-19); supersede-class
+amendments get their own spec PR; expression-only fixes may commit directly
+with a changelog line plus the marked self-re-anchor entry (REQ-F1.10,
+Amendment 5). Spec authoring is never an orchestration unit (attended
+by nature; J1.3 intact).
+
+**Worktree handling (graceful in every starting state):** both skills detect
+where they are launched and adapt — already in the spec's own worktree: proceed
+(confirm reuse if dirty state is found); in the main checkout or an unrelated
+worktree: locate the spec worktree by convention and print the re-open command,
+or create worktree + branch if none exists (`/spec-kickoff` recreates from the
+spec branch if the worktree was pruned); branch exists but diverged or dirty:
+surface the state and ask, never auto-stash/clean (D-30's principle); not a git
+repo or no remote: degrade per REQ-K1.7 (local work proceeds; the push/PR step
+records an Awaiting-input note instead of failing).
+
+**Alternatives considered:**
+- No PRs for spec work (commit to main directly). Rejected because: loses CI
+  validation of the bundle before main and breaks the uniform
+  everything-via-draft-PR gate.
+- A PR per phase (draft PR + kickoff PR). Rejected because: the draft PR asks
+  for review of a document whose review *is* the kickoff.
+
+**Chosen because:** CI validates bundles before they land on main; the
+universal gate (draft PR + human merge) applies uniformly to specs and tasks;
+sign-off flips the status while merge activates it — a two-key launch where the
+human holds the second key. This decision is itself the first exercise of the
+supersede ritual (REQ-B2.4 supersedes REQ-B2.1).
+
+### D-45: Pre-execution spec-freshness gate  (N, delta re-walkthrough 2026-06-11)
+
+**Decision:** Execution skills refuse to dispatch when the spec bundle has changed
+since the kickoff brief's most recent sign-off. Every sign-off, amendment, and
+re-walkthrough in the brief records a content anchor over the four spec files;
+`/orchestrate` dispatch steps and `/execute-task` recompute and compare at
+pre-flight; a mismatch halts to Awaiting input naming the `/spec-kickoff` delta
+re-walkthrough as the remedy. No bypass flag — same class as the non-Active
+refusal (REQ-F1.4).
+
+**Alternatives considered:**
+- Trust the human to re-run `/spec-kickoff` after spec changes. Rejected because:
+  observed near-miss on 2026-06-11 — post-sign-off amendments could have been
+  dispatched against while still unreviewed; re-validation happened only because
+  the human thought to ask for it.
+- Mandate a full Discovery-Rigor lens fan-out before every dispatch. Rejected
+  because: cost is disproportionate per step; the gate instead forces changed
+  content through the kickoff delta walk, and deeper review passes remain a
+  recommended (brief-recorded) step before first dispatch on a fresh spec.
+- Rely on the structural validator alone (REQ-A2.1). Rejected because: it checks
+  structure, not meaning; the 2026-06-11 findings (a silent clean-no-op
+  regression, a fixture encoding the same wrong belief as the spec) were all
+  structurally clean.
+
+**Chosen because:** execution validates implementation against spec, never spec
+against intent — the two worst spec-bug shapes (silent no-op, self-confirming
+fixture) are invisible to execution feedback. A deterministic anchor comparison
+converts "the human remembers to re-validate" into a machine-enforced halt.
+*(Amended at Amendment 5 2026-06-11: a per-sign-off Discovery-Rigor lens review
+pass (fan-out per Discovery Rigor for non-trivial deltas) is adopted as an
+anchor-validity condition for meaning-class changes — distinct from the
+per-dispatch fan-out rejected above, whose rejection stands. The pass runs
+where the change happens, not where execution happens.)*
+
+**Threat model and scope (Amendment 5, 2026-06-11):** the gate defends against
+*forgetting*, not *forging*. Forging is mitigated, not eliminated: meaning-class
+anchor entries are written only by `/spec-kickoff`'s sign-off flow, entries are
+self-describing (sanctioned command forms only; unknown forms are invalid),
+execution skills' brief writes are confined to named sections, and the brief's
+git history is the audit trail — a forged entry is one revert from undone and
+visible at PR review. Residual forgery by a misbehaving agent with write access
+is an accepted risk. Anchor scope: the brief itself is excluded (it records the
+anchor, so it cannot anchor itself); the compensating rule is that brief
+sections above the amendment log are append-only after sign-off, and contract
+edits travel as amendments. The mid-flight window (a spec amended under an
+already-running worker) is out of scope: the draft-PR-only + human-merge
+invariant backstops it. When several pre-flight halts fire at once (non-Active,
+missing validator, freshness), they are reported together.
 
 ## Cross-cutting concerns
 
@@ -549,6 +831,8 @@ redundant worktrees.
   `~/.claude/` writer. Its own scripts must avoid executing untrusted input, guard path
   access, and be auditable; the dogfooded CI (D-32) includes secret scanning and shellcheck
   over these scripts.
-- **Graceful degradation.** Skills fail soft on missing prerequisites (not a git repo, `gh`
-  or validator absent; D-35, REQ-K1.7), surfacing a clear message and doing whatever local
-  work remains possible rather than failing opaquely.
+- **Graceful degradation.** Skills fail soft on missing prerequisites (not a git repo,
+  `gh` absent; D-35, REQ-K1.7), surfacing a clear message and doing whatever local work
+  remains possible rather than failing opaquely. Exception (K1.7 amendment): a missing
+  validator on a dispatch step fails closed — REQ-A2.1's block-execution guarantee
+  outranks degradation there; non-dispatching modes degrade normally.
