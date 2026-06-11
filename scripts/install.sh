@@ -23,6 +23,9 @@
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 #
+# Exit codes: 0 success, 2 environment/validation error (no usable claude
+# dir, or running from the installed location).
+#
 # Fail-fast: any failed write aborts with a non-zero exit (REQ-K1.7: failures
 # surface clearly, never as a successful-looking partial install).
 set -eu

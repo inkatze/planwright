@@ -133,8 +133,15 @@ fi
 
 # 6c. With neither CLAUDE_DIR nor HOME set, the writer refuses with a clear
 #     message (exit 2) instead of a bash unbound-variable error.
-env -u HOME -u CLAUDE_DIR /bin/bash "$INSTALLER" >/dev/null 2>&1
+out="$(env -u HOME -u CLAUDE_DIR /bin/bash "$INSTALLER" 2>&1)"
 assert "missing CLAUDE_DIR and HOME is a clear usage error" 2 $?
+case "$out" in
+  *CLAUDE_DIR*) echo "ok: usage error names CLAUDE_DIR" ;;
+  *)
+    echo "FAIL: usage error does not name CLAUDE_DIR: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 
 # 6d. A hostile CDPATH must not corrupt the installer's source-root
 #     derivation when invoked via a relative path.

@@ -54,6 +54,31 @@ EOF
 /bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/reference-padded.md" >/dev/null 2>&1
 assert "padded reference row is recognized" 0 $?
 
+# 2c. Fixture: a table row indented per markdown's allowance (up to three
+#     leading spaces) is still recognized.
+cat > "$tmp/reference-indented.md" <<'EOF'
+| Option | Default | Effect | Consumed by |
+| --- | --- | --- | --- |
+  | `documented_option` | `true` | Indented row. | `/example` |
+EOF
+/bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/reference-indented.md" >/dev/null 2>&1
+assert "indented reference row is recognized" 0 $?
+
+# 2d. Fixture: a config that parses to zero option keys is a fail-closed
+#     error, not a silent pass (a reformatted defaults.yml must not turn the
+#     CI drift check into a no-op). The error must be the checker's own
+#     diagnostic, not an incidental failure.
+: > "$tmp/config-empty.yml"
+out="$(/bin/bash "$CHECKER" "$tmp/config-empty.yml" "$tmp/reference.md" 2>&1)"
+assert "zero-key config fails closed" 2 $?
+case "$out" in
+  *"no option keys"*) echo "ok: zero-key failure is the checker's diagnostic" ;;
+  *)
+    echo "FAIL: zero-key message unclear: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 # 3. Fixture: a seeded undocumented option fails and is named in the output
 #    (the REQ-K1.8 seeded-violation fixture).
 cat > "$tmp/config-bad.yml" <<'EOF'
@@ -89,23 +114,6 @@ case "$err" in
     failures=$((failures + 1))
     ;;
 esac
-
-# 2c. Fixture: a table row indented per markdown's allowance (up to three
-#     leading spaces) is still recognized.
-cat > "$tmp/reference-indented.md" <<'EOF'
-| Option | Default | Effect | Consumed by |
-| --- | --- | --- | --- |
-  | `documented_option` | `true` | Indented row. | `/example` |
-EOF
-/bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/reference-indented.md" >/dev/null 2>&1
-assert "indented reference row is recognized" 0 $?
-
-# 2d. Fixture: a config that parses to zero option keys is a fail-closed
-#     error, not a silent pass (a reformatted defaults.yml must not turn the
-#     CI drift check into a no-op).
-: > "$tmp/config-empty.yml"
-/bin/bash "$CHECKER" "$tmp/config-empty.yml" "$tmp/reference.md" >/dev/null 2>&1
-assert "zero-key config fails closed" 2 $?
 
 # 4b. A hostile CDPATH must not corrupt the script's repo-root derivation
 #     (cd resolving through CDPATH echoes the path into the substitution).

@@ -119,9 +119,9 @@ err="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
 rc=$?
 assert "rootless environment exits 1" 1 "$rc"
 case "$err" in
-  *"not found"*) echo "ok: rootless failure is the resolver's own message" ;;
+  *"not found"*"PLANWRIGHT_ROOT"*) echo "ok: rootless failure is the resolver's diagnostic with checked roots" ;;
   *)
-    echo "FAIL: rootless failure is not the resolver's message: $err" >&2
+    echo "FAIL: rootless failure lacks the evaluated-roots diagnostic: $err" >&2
     failures=$((failures + 1))
     ;;
 esac
