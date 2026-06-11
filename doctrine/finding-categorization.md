@@ -11,6 +11,11 @@ backs it, so the human can review the whole record at the draft PR.
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
 REQ-C1.7 · D-4, D-5, D-6.
 
+The operational wiring (routing order, commit discipline, the checklist and
+audit-record formats, the ladder procedure, the pause protocol) is specified
+in [Gate Wiring](gate-wiring.md); this document defines the buckets and
+principles that wiring implements.
+
 ## The principle: honest decision shape
 
 The bucket is determined by what a human would honestly have to decide about
