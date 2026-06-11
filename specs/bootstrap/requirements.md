@@ -528,6 +528,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   meaning-class; human classifies); A1.8 accumulator class closed; F1.5 marked
   non-exhaustive; D-19/D-44/D-45 annotations; Task 4/9/12/13 wiring; test-spec
   F1.9/F1.10/A1.8/A3.3 fixtures.
+- 2026-06-11 (expression-only, panel review) — design.md `Last reviewed:`
+  bumped 2026-06-10 → 2026-06-11 (missed at the Amendment 4–5 header sweep);
+  kickoff-brief.md Amendment 3 hard-wrap repair ("history- / purge" →
+  "history purge"). Self-re-anchor recorded in the kickoff brief per REQ-F1.10.
 
 ## Sources
 
