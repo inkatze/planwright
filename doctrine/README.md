@@ -19,13 +19,16 @@ delivery; the convention is a Task 1 deliverable of the bootstrap spec).
 
 ## How the docs relate
 
-Discovery Rigor produces the finding list. Validation Rigor confirms each
-finding and each fix. Finding Categorization routes confirmed findings through
-the autonomy gate that decides what the agent applies versus what waits for the
-human. Research Rigor and the Security posture fire on their triggers at any
-point in that flow. Refactor Instinct and Composability shape the code being
-written. Proportionality governs how strictly all of the above scale with what
-is at stake.
+[Discovery Rigor](discovery-rigor.md) produces the finding list.
+[Validation Rigor](validation-rigor.md) confirms each finding and each fix.
+[Finding Categorization](finding-categorization.md) routes confirmed findings
+through the autonomy gate that decides what the agent applies versus what
+waits for the human. [Research Rigor](research-rigor.md) and the
+[Security Posture](security-posture.md) fire on their triggers at any point in
+that flow. [Refactor Instinct](refactor-instinct.md) and
+[Composability](composability.md) shape the code being written.
+[Proportionality](proportionality.md) governs how strictly all of the above
+scale with what is at stake.
 
 ## Adopter extension
 

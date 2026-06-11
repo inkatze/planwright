@@ -27,7 +27,7 @@ at every severity in the same pass.
 4. Performance (allocation, IO, complexity, hot paths)
 5. Concurrency / state (race conditions, idempotency, ordering, retries)
 6. Naming, readability, structure (only flag when the change under review
-   worsens it; see Refactor Instinct)
+   worsens it; see [Refactor Instinct](refactor-instinct.md))
 7. Documentation (docstrings, READMEs, specs, ADRs, config docs, doctrine
    and project-memory sections)
 8. Tests / verification (coverage of new behavior, missing failing-case

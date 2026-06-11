@@ -1,7 +1,8 @@
 # Finding Categorization & the Act-Then-Review Gate
 
-After Discovery Rigor produces findings and Validation Rigor confirms them,
-skills that act on findings locally (such as `/self-review`, `/polish`, and the
+After [Discovery Rigor](discovery-rigor.md) produces findings and
+[Validation Rigor](validation-rigor.md) confirms them, skills that act on
+findings locally (such as `/self-review`, `/polish`, and the
 convergence step inside `/execute-task`) categorize each finding into one of
 four buckets. The buckets are an **audit taxonomy, not a decision queue**
 (REQ-C1.5): they record what kind of action the agent took and what evidence
@@ -106,9 +107,9 @@ no". Before a finding may route here it must climb the **resolution ladder**
 
 1. **Brief or spec citation.** Can the fork be answered from the kickoff
    brief or the spec bundle? If yes, proceed, citing the source.
-2. **Research.** Can it be answered by Research Rigor (official docs, the
-   library's own source and tests, issues and RFCs)? If yes, proceed, citing
-   the findings.
+2. **Research.** Can it be answered by [Research Rigor](research-rigor.md)
+   (official docs, the library's own source and tests, issues and RFCs)? If
+   yes, proceed, citing the findings.
 3. **Project convention.** Can it be answered from the project's established
    patterns and sibling implementations? If yes, proceed, citing the
    precedent.
@@ -148,7 +149,7 @@ Exactly two things interrupt a loop mid-flight; nothing else does.
    the unit (forks that do not block continue to loop end and queue there).
 
 Everything else flows through the gate without interrupting: applied,
-resolved with evidence, applied-pending-sign-off, declined with rationale, or
+resolved with evidence, applied pending sign-off, declined with rationale, or
 queued for loop end.
 
 ## Presentation (REQ-C1.5)
