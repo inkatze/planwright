@@ -63,25 +63,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
 - **Estimated effort:** 1 day
 
-### Task 3 — Migrate framework intelligence into doctrine docs
-
-- **Deliverables:** Standalone planwright doctrine docs reworded from `CLAUDE.md` into
-  framework documentation: Finding Categorization (four buckets + predicates, act-then-review
-  dispositions incl. declined-with-rationale and the resolution ladder per D-5), Validation
-  Rigor (incl. the altitude check), Discovery Rigor, Refactor Instinct, **Research Rigor**
-  (triggers, source hierarchy, recency discipline, antipattern check, risk-register
-  recording per REQ-D1.5), **Security posture** (write-time triggers, artifact
-  data-hygiene, framework-script security per REQ-D1.6), the proportionality principle
-  (REQ-D1.7), and the composability-by-default principle. Personal content (fish/mise/tmux,
-  git conventions, the author's repos) is NOT migrated.
-- **Done when:** Each doctrine doc exists as framework prose (no first-person personal
-  instructions); the four buckets, the three-pass validation, the lens checklist, the
-  refactor bars, the research ritual, and the security posture are all present; skills can
-  reference them via the resolution path (Task 1).
-- **Dependencies:** none
-- **Citations:** D-4, D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.6, REQ-C1.7, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D2.1
-- **Estimated effort:** 2.5 days
-
 ### Task 4 — Four-file format meta-spec
 
 - **Deliverables:** The canonical four-file format meta-spec: required fields per file,
@@ -401,7 +382,28 @@ intelligence migration) dispatches first.
 
 ## In progress
 
-(none yet)
+### Task 3 — Migrate framework intelligence into doctrine docs
+
+- **Deliverables:** Standalone planwright doctrine docs reworded from `CLAUDE.md` into
+  framework documentation: Finding Categorization (four buckets + predicates, act-then-review
+  dispositions incl. declined-with-rationale and the resolution ladder per D-5), Validation
+  Rigor (incl. the altitude check), Discovery Rigor, Refactor Instinct, **Research Rigor**
+  (triggers, source hierarchy, recency discipline, antipattern check, risk-register
+  recording per REQ-D1.5), **Security posture** (write-time triggers, artifact
+  data-hygiene, framework-script security per REQ-D1.6), the proportionality principle
+  (REQ-D1.7), and the composability-by-default principle. Personal content (fish/mise/tmux,
+  git conventions, the author's repos) is NOT migrated.
+- **Done when:** Each doctrine doc exists as framework prose (no first-person personal
+  instructions); the four buckets, the three-pass validation, the lens checklist, the
+  refactor bars, the research ritual, and the security posture are all present; skills can
+  reference them via the resolution path (Task 1).
+- **Dependencies:** none
+- **Citations:** D-4, D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.6, REQ-C1.7, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D2.1
+- **Estimated effort:** 2.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
+  branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
 
 ## Awaiting input
 

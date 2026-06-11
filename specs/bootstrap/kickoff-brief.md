@@ -347,6 +347,7 @@ Signed off: 2026-06-10
 | 6 | Bash 3.2 portability for the new shell surface (gate parser, reconcile helpers). | Keep heavy logic in skills, shell thin; shellcheck + shell test runner in CI (T2). |
 | 7 | Known conformance debt: per-REQ citations absent until Task 4. | Gated; Task 4 Done-when closes it. |
 | 8 | `reference/` history purge before public release (human-reserved, easy to forget). | Gated Deferred entry; T19 release checklist enforces it. |
+| 9 | *(Appended at Task 3 execution 2026-06-11.)* T3 landed the doctrine docs at `doctrine/` before T1's rule-doc resolution path convention exists (deliberate parallel start; T3 has no edge to T1). If T1 pins a different home, the docs move or the convention adapts. | T1's resolution-path deliverable must resolve to `doctrine/` from both delivery modes or relocate the files in the same PR; REQ-D1.4's [test] entry verifies the resolved path. |
 
 **Open questions: none.** Every Socratic check resolved to a decision; the
 catalog seed-domain list is finalized by T15 as a deliverable, not an
@@ -864,6 +865,26 @@ requirements.md (changelog). Changelog: requirements.md, entry "2026-06-11
 
 Class: expression-only
 Anchor: `cef5c9c6270e322485c1687786559393550c258f` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 3 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 3 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-3`, branch `planwright/bootstrap/task-3`). This is an
+orchestration-state placement move, content REQ-F1.9 excludes from the anchor
+under the canonical extraction; the interim whole-file form cannot express that
+exclusion, so the state move forces this re-anchor. (The interim form's safety
+note — "no state moves can occur before the dispatch tooling exists" — is
+superseded in practice by this emulated dispatch; recorded here so the gate
+stays coherent.) No task-definition content, requirement, design decision, or
+test-spec entry changed: pre-move anchor `cef5c9c6270e322485c1687786559393550c258f`
+verified matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
