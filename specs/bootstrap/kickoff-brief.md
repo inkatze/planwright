@@ -902,3 +902,19 @@ Anchor: `e469f8f2f23c5aefb193718b4aa225b2982b70aa` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 1 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 1 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-1`, branch `planwright/bootstrap/task-1`). Same
+orchestration-state-placement rationale as the Task 3 dispatch entry above.
+With this dispatch the in-flight unit count reaches `max_parallel_units` (3).
+Pre-move anchor `e469f8f2f23c5aefb193718b4aa225b2982b70aa` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `d623c4a54df920e0b6821e60c9aa9f962511c4c1` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
