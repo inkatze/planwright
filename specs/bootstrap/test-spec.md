@@ -414,7 +414,7 @@ count and oldest-entry age.
 
 Deferred decisions carry a confidence level; low-confidence items resurface first.
 
-### REQ-H1.6 — cross-reference [manual, via the joint entry under REQ-B]
+### REQ-H1.6 — cross-reference [manual]
 
 Verified jointly with REQ-B1.4 (mine and archive `_observations`) above.
 
@@ -432,7 +432,7 @@ The writer installs on a clean machine with no fish/mise/tmux/Ansible dependency
 
 Cold-read: an adopter understands the human-reserved controls from the docs.
 
-### REQ-I1.4 — cross-reference [manual, via the joint entry under REQ-D]
+### REQ-I1.4 — cross-reference [manual]
 
 Verified jointly with REQ-D2.2 (adopter supplies own rigor) above; I1.4 is a
 cross-reference to D2.2.

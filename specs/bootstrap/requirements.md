@@ -549,6 +549,11 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   `good-name/../escape` can never exist as a single on-disk directory name;
   it is validated and refused before any directory or path is formed). No
   verification behavior changed. Self-re-anchor recorded in the kickoff brief.
+- 2026-06-11 (expression-only, Copilot pairing iter 1) — test-spec H1.6 and
+  I1.4 verification tags normalized to pure `[manual]` (prose moved out of the
+  bracket; the entry bodies already state the joint verification), restoring
+  the "tag includes [manual]" sweep convention. Self-re-anchor recorded in the
+  kickoff brief.
 
 ## Sources
 
