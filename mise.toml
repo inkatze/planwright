@@ -6,6 +6,7 @@
 
 [tools]
 shellcheck = "0.11.0"
+shfmt = "3.13.1"
 markdownlint-cli2 = "0.19.0"
 yamllint = "1.37"
 gitleaks = "8.30.0"
@@ -18,13 +19,41 @@ run = 'for t in tests/*.sh; do /bin/bash "$t" || exit 1; done'
 description = "shellcheck on scripts and tests"
 run = "shellcheck scripts/*.sh tests/*.sh"
 
+[tasks."lint:fmt"]
+description = "shfmt diff check (style comes from .editorconfig; shfmt -w to fix)"
+run = "shfmt -d scripts/*.sh tests/*.sh"
+
 [tasks."lint:md"]
-description = "markdownlint on curated prose (doctrine, docs, README; specs excluded until Task 2 sets the config)"
-run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md'"
+description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation)"
+run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'specs/**/*.md'"
 
 [tasks."lint:yaml"]
-description = "yamllint on tracked config"
-run = "yamllint --strict config/"
+description = "yamllint on tracked config and workflows"
+run = "yamllint --strict config/ .github/"
+
+[tasks."lint:commits"]
+description = "conventional-commit lint on commits ahead of origin/main (CI lints the PR range)"
+run = '''
+if [ -n "$(git log --no-merges --format=%s origin/main..HEAD 2>/dev/null)" ]; then
+  /bin/bash scripts/check-commit-msgs.sh origin/main..HEAD
+else
+  echo "lint:commits: no commits ahead of origin/main; nothing to lint"
+fi
+'''
+
+[tasks."check:links"]
+description = "doctrine cross-reference link-check"
+run = "/bin/bash scripts/check-doc-links.sh"
+
+[tasks."check:specs"]
+description = "planwright spec validator over specs/ (activates when Task 5 ships the validator)"
+run = '''
+if [ -x scripts/spec-validate.sh ]; then
+  /bin/bash scripts/spec-validate.sh specs/
+else
+  echo "check:specs: spec validator not yet shipped (Task 5); skipping"
+fi
+'''
 
 [tasks."lint:json"]
 description = "validate the plugin manifest"
@@ -39,5 +68,17 @@ description = "gitleaks over the full git history (redacted so a found secret ne
 run = "gitleaks detect --no-banner --redact --source ."
 
 [tasks.check]
-description = "Everything: the local equivalent of the future CI gate"
-depends = ["test", "lint:shell", "lint:md", "lint:yaml", "lint:json", "check:options", "scan:secrets"]
+description = "Everything: the local equivalent of the CI gate (.github/workflows/ci.yml runs the same tasks)"
+depends = [
+  "test",
+  "lint:shell",
+  "lint:fmt",
+  "lint:md",
+  "lint:yaml",
+  "lint:json",
+  "lint:commits",
+  "check:links",
+  "check:options",
+  "check:specs",
+  "scan:secrets",
+]

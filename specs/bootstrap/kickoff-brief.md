@@ -369,6 +369,20 @@ code.claude.com/docs (plugins, plugins-reference, discover-plugins), consulted
 | 11 | Manifest/layout facts verified current as of 2026-06-11: manifest at `.claude-plugin/plugin.json` (only `name` required, kebab-case); `skills/`, `commands/`, `agents/`, `hooks/hooks.json` auto-discovered at plugin root only; plain `~/.claude/` files remain a supported non-plugin fallback. Plugin format is actively evolving (displayName v2.1.143+, defaultEnabled v2.1.154+), so these facts can drift before T19. | Resolution chain (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` → `<claude-dir>/planwright`) isolates skills from layout drift; T19 re-verifies the manifest schema against current docs before finalization. |
 | 12 | Doctrine gap surfaced at T1's tooling pass, routed here so T15's executor sees it (the observations log feeds `/spec-draft`, not task execution): the engineering doctrine's "defer to tooling and ecosystem standards" needs two companion principles — pin the quality toolchain (reproducibility is what makes tool-grounded discovery trustworthy) and own adopted tools' defaults (review conventions-bearing defaults at adoption, record deviations with rationale; tool defaults are the tool author's context). Fits T15's existing deliverable scope without contract drift. | Two observation entries dated 2026-06-11 carry the full evidence (shim failures pre-pinning; 80-column defaults in two tools; gitleaks `--redact`; shellcheck optional-tier trial: 4 hits, none load-bearing). T16's builder applies the same at guard-adoption time. |
 
+### Risk register additions — Task 2 execution (2026-06-11)
+
+Research Rigor findings recorded per REQ-E1.3/REQ-D1.5 (execution-skill write,
+named-section only; no anchor entry). Triggers: version-sensitive API use
+(GitHub Actions pinning, markdownlint rule semantics). Sources: GitHub API
+(release tags dereferenced to commits, consulted 2026-06-11), markdownlint
+v0.39 rule docs via direct behavioral verification.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 13 | CI actions are pinned to full commit SHAs (checkout v6.0.3 `df4cb1c0`, mise-action v4.1.0 `dba19683`) per supply-chain discipline; SHA pins do not auto-update, so security patches to the actions need a deliberate bump. | Comments beside each pin carry the human-readable version; T19's packaging pass re-verifies pins. Dependabot/renovate adoption is a builder-catalog candidate (T16). |
+| 14 | markdownlint MD013 exempts lines with no whitespace past the limit (the long-URL exception): a guard that "passes" can still admit some over-length content, and a naive seeded violation stays green. Surfaced when Task 2's seeded-red validation used an unbroken character run. | Seeded-red fixtures must use prose with spaces past the limit; recorded here so T18's manual sweep and future guard audits seed correctly. |
+| 15 | The `check:specs` CI step is wired skip-with-notice until Task 5 ships `scripts/spec-validate.sh`; CI prints the skip on every run. If Task 5 lands the validator non-executable or under another path, CI keeps skipping silently-by-notice rather than failing. | Task 5's Done-when already requires the validator running in planwright CI; its executor must flip this step from skip to enforced and confirm the executable bit (observation logged). |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
