@@ -1,7 +1,7 @@
 # planwright Bootstrap — Design
 
 **Status:** Active
-**Last reviewed:** 2026-06-10
+**Last reviewed:** 2026-06-11
 **Format-version:** 1
 
 Decision log for building planwright v1. Each decision carries a Decision,

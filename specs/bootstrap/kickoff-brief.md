@@ -565,7 +565,7 @@ amended→confirmed (counts stay 22/13/2); kickoff amendments recorded for
 D-4/D-29/D-35 propagated into design.md with annotations. Plus editorial fixes:
 annotation-format unified (`*(Amended at <event> <date>: …)*`, now a Task 4
 convention), sweep scope says "tag includes [manual]/[Gherkin]", design-level
-count corrected to 16, Amendment 2 gained its Edits/re-sign-off block, history-
+count corrected to 16, Amendment 2 gained its Edits/re-sign-off block, history
 purge scope widened to pre-neutralization spec blobs, and small prose repairs.
 
 Edits: requirements.md (A1.8, K1.2, H1.3, F1.1, K1.7, F1.2, F1.8 note,
@@ -707,3 +707,18 @@ the dispatch tooling exists).
 
 **Scoped re-sign-off: 2026-06-11** (batch + two design forks human-selected in
 session: definition-content anchor scope; marked expression-only self-re-anchor).
+
+## Expression-only re-anchor (2026-06-11, panel review)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: design.md
+(`Last reviewed:` bump 2026-06-10 → 2026-06-11, missed at the Amendment 4–5
+header sweep), this brief (Amendment 3 hard-wrap repair, "history- / purge" →
+"history purge"). Changelog: requirements.md, entry "2026-06-11
+(expression-only, panel review)". Both fixes human-approved (Apply/Apply) at
+the panel-pairing handoff before application.
+
+Class: expression-only
+Anchor: `1dee698823e8af3cf1e6af54fb191d74a247ea85` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
