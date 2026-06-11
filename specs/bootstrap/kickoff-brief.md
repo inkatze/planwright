@@ -347,6 +347,7 @@ Signed off: 2026-06-10
 | 6 | Bash 3.2 portability for the new shell surface (gate parser, reconcile helpers). | Keep heavy logic in skills, shell thin; shellcheck + shell test runner in CI (T2). |
 | 7 | Known conformance debt: per-REQ citations absent until Task 4. | Gated; Task 4 Done-when closes it. |
 | 8 | `reference/` history purge before public release (human-reserved, easy to forget). | Gated Deferred entry; T19 release checklist enforces it. |
+| 9 | *(Appended at Task 3 execution 2026-06-11.)* T3 landed the doctrine docs at `doctrine/` before T1's rule-doc resolution path convention exists (deliberate parallel start; T3 has no edge to T1). If T1 pins a different home, the docs move or the convention adapts. | T1's resolution-path deliverable must resolve to `doctrine/` from both delivery modes or relocate the files in the same PR; REQ-D1.4's [test] entry verifies the resolved path. |
 
 **Open questions: none.** Every Socratic check resolved to a decision; the
 catalog seed-domain list is finalized by T15 as a deliverable, not an
