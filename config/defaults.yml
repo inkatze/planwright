@@ -1,0 +1,21 @@
+# planwright default configuration — tracked, universal defaults only (D-33).
+#
+# Per-repo/personal overrides live in <repo>/.claude/planwright.local.yml
+# (agent-maintained, gitignored; per-repo entries are written only on human
+# confirmation, REQ-K1.1). Local values win over these defaults.
+#
+# Every option here MUST have a row in docs/options-reference.md (D-43,
+# REQ-K1.8); scripts/check-options-reference.sh enforces it (CI wiring: Task 2).
+
+# Auto-commit toggles for completed state transitions (D-41). Commit only,
+# never push; push, sign-off, and merge remain human-reserved.
+commit_on_draft: true
+commit_on_kickoff: true
+commit_on_state_move: true
+
+# Dispatch layer (D-38, REQ-F1.8).
+dispatch_backend: subagent
+max_parallel_units: 3
+
+# Per-spec advisory lock staleness threshold for /orchestrate (D-10).
+stale_lock_threshold: 15m

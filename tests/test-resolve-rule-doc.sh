@@ -1,0 +1,92 @@
+#!/bin/bash
+# Tests for scripts/resolve-rule-doc.sh — the stable rule-doc resolution path
+# (REQ-I1.1, REQ-I1.2, D-24). Plain bash 3.2, no test framework (the shared
+# runner arrives with Task 2).
+set -u
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+RESOLVER="$REPO_ROOT/scripts/resolve-rule-doc.sh"
+
+failures=0
+assert() {
+  # assert <description> <expected-exit> <actual-exit>
+  if [ "$2" -eq "$3" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 (expected exit $2, got $3)" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+assert_eq() {
+  # assert_eq <description> <expected> <actual>
+  if [ "$2" = "$3" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 (expected '$2', got '$3')" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+if [ ! -f "$RESOLVER" ]; then
+  echo "FAIL: resolver script missing at $RESOLVER" >&2
+  exit 1
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+# Fixture: a fake plugin root and a fake writer-mode claude dir.
+mkdir -p "$tmp/plugin/doctrine" "$tmp/claude/planwright/doctrine" "$tmp/override/doctrine"
+echo "plugin copy" > "$tmp/plugin/doctrine/sample-doc.md"
+echo "writer copy" > "$tmp/claude/planwright/doctrine/sample-doc.md"
+echo "writer only" > "$tmp/claude/planwright/doctrine/writer-only.md"
+echo "override copy" > "$tmp/override/doctrine/sample-doc.md"
+
+# 1. Plugin mode: CLAUDE_PLUGIN_ROOT set resolves to the plugin copy.
+out="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
+  /bin/bash "$RESOLVER" sample-doc)"
+assert "plugin mode resolves" 0 $?
+assert_eq "plugin mode path" "$tmp/plugin/doctrine/sample-doc.md" "$out"
+
+# 2. Writer mode: no plugin root; falls back to <claude-dir>/planwright.
+out="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="$tmp/claude" \
+  /bin/bash "$RESOLVER" writer-only)"
+assert "writer mode resolves" 0 $?
+assert_eq "writer mode path" "$tmp/claude/planwright/doctrine/writer-only.md" "$out"
+
+# 3. Explicit PLANWRIGHT_ROOT override wins over both.
+out="$(PLANWRIGHT_ROOT="$tmp/override" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
+  /bin/bash "$RESOLVER" sample-doc)"
+assert "override mode resolves" 0 $?
+assert_eq "override wins" "$tmp/override/doctrine/sample-doc.md" "$out"
+
+# 4. A '.md' suffix is accepted and normalized to the same path.
+out="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
+  /bin/bash "$RESOLVER" sample-doc.md)"
+assert "md suffix accepted" 0 $?
+assert_eq "md suffix path" "$tmp/plugin/doctrine/sample-doc.md" "$out"
+
+# 5. Missing doc: non-zero exit, message on stderr, nothing on stdout.
+out="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
+  /bin/bash "$RESOLVER" no-such-doc 2>/dev/null)"
+assert "missing doc fails" 1 $?
+assert_eq "missing doc prints nothing on stdout" "" "$out"
+
+# 6. Hostile names are refused before any path is formed (REQ-D1.6
+#    framework-script security; same charset discipline as REQ-A1.8).
+for hostile in "../escape" "a/b" ".hidden" "UPPER" "name with space" "-leading-dash"; do
+  PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
+    /bin/bash "$RESOLVER" "$hostile" >/dev/null 2>&1
+  assert "hostile name refused: $hostile" 2 $?
+done
+
+# 7. No argument: usage error.
+/bin/bash "$RESOLVER" >/dev/null 2>&1
+assert "no argument is a usage error" 2 $?
+
+if [ "$failures" -gt 0 ]; then
+  echo "$failures failure(s)" >&2
+  exit 1
+fi
+echo "all resolve-rule-doc tests passed"
