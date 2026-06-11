@@ -818,3 +818,22 @@ Anchor: `d1f2575e36e8ffa95dfb3ab924dc3a4092d61252` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, Copilot pairing iter 1)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: test-spec.md
+(H1.6 and I1.4 verification tags normalized from `[manual, via the joint entry
+under REQ-B/D]` to pure `[manual]`; the bracket prose duplicated what the entry
+bodies already say and broke the "tag includes [manual]" sweep convention that
+Task 18's manual-verification checklist greps on; surfaced by GitHub Copilot's
+second PR review, both threads validated 3/3 as one root issue),
+requirements.md (changelog). Changelog: requirements.md, entry "2026-06-11
+(expression-only, Copilot pairing iter 1)". Section 4's "~23 [manual]" pure-tag
+count reads 25 after normalization; the recorded tilde-approximation stands as
+a historical statement.
+
+Class: expression-only
+Anchor: `7b8ce0c480c1f203d1732f1b1a41622538bf762f` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
