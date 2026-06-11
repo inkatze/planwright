@@ -801,3 +801,20 @@ Anchor: `6acda5043ac116723def8c3be786a43f747f15e0` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, Copilot review)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: test-spec.md
+(A1.8 mixed fixture reframed as a proposed-identifier string; a path-like input
+like `good-name/../escape` can never exist as a single on-disk directory name,
+so the fixture is implementable only as string validation before any path is
+formed; surfaced by GitHub Copilot's first PR review, thread validated 3/3),
+requirements.md (changelog). Changelog: requirements.md, entry "2026-06-11
+(expression-only, Copilot review)". Human-approved (Apply) at the
+copilot-review handoff before application.
+
+Class: expression-only
+Anchor: `d1f2575e36e8ffa95dfb3ab924dc3a4092d61252` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).

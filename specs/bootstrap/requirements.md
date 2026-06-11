@@ -544,6 +544,11 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   (entry from a non-sanctioned writer); F1.10 gains the writer-side refusal
   fixture (kickoff refuses a meaning-class anchor without a dispositioned
   lens pass). No normative REQ text changed.
+- 2026-06-11 (expression-only, Copilot review) — test-spec A1.8 mixed fixture
+  reframed as a proposed-identifier string (a path-like input such as
+  `good-name/../escape` can never exist as a single on-disk directory name;
+  it is validated and refused before any directory or path is formed). No
+  verification behavior changed. Self-re-anchor recorded in the kickoff brief.
 
 ## Sources
 
