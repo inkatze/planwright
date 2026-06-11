@@ -11,6 +11,14 @@ markdownlint-cli2 = "0.19.0"
 yamllint = "1.37"
 gitleaks = "8.30.0"
 
+[settings]
+# Install pipx tools (yamllint) through uv rather than the system pip.
+# mise 2026.6.x's pip path passes `--uploaded-prior-to`, a flag the GitHub
+# runner's bundled pip rejects, which broke the CI install; uv resolves the
+# same pinned version without that path. Local and CI use the identical
+# route, preserving contributor/CI parity (REQ-K1.5).
+pipx.uvx = true
+
 [tasks.test]
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor)"
 run = 'for t in tests/*.sh; do /bin/bash "$t" || exit 1; done'
