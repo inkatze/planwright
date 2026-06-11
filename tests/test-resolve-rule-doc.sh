@@ -34,7 +34,7 @@ if [ ! -f "$RESOLVER" ]; then
   exit 1
 fi
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # Fixture: a fake plugin root and a fake writer-mode claude dir.

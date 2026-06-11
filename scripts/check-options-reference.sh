@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # check-options-reference.sh — D-43 drift check (REQ-K1.8).
 #
 # Every option in the tracked default config must have a row in the canonical
@@ -10,10 +10,20 @@
 #   Defaults: config/defaults.yml and docs/options-reference.md relative to
 #   the repo root (the script's parent directory).
 #
+# Format constraints this parser relies on: the config must be flat
+# "key: value" lines (nested YAML keys are invisible to it and fail the
+# zero-key guard), and each reference row's first table cell must contain
+# only the backticked option name.
+#
 # Exit codes: 0 fully documented, 1 undocumented option found, 2 usage error.
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 set -u
+
+# Pin the C locale so the bracket expressions below mean exactly their ASCII
+# range on every host (defensive; mirrors resolve-rule-doc.sh).
+LC_ALL=C
+export LC_ALL
 
 # A user CDPATH would make cd echo into the command substitution below and
 # corrupt the repo-root derivation.
@@ -35,7 +45,7 @@ fi
 # Option keys: top-level "key:" lines in the flat default config. A config
 # that parses to zero keys fails closed: a reformatted defaults.yml must not
 # silently turn this CI check into a no-op.
-config_keys="$(sed -n 's/^\([a-z0-9_]*\):.*/\1/p' "$config")"
+config_keys="$(sed -n 's/^\([a-z0-9_][a-z0-9_]*\):.*/\1/p' "$config")"
 if [ -z "$config_keys" ]; then
   echo "check-options-reference: no option keys parsed from $config (flat 'key: value' lines expected)" >&2
   exit 2

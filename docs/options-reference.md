@@ -10,6 +10,12 @@ Every option present in the default config must have a row here.
 `scripts/check-options-reference.sh` enforces that; planwright's CI runs it
 (wired in by the self-hosting CI task) and fails on an undocumented option.
 
+Format constraints the checker relies on: each row's first table cell must
+contain only the backticked option name (annotations go in the Effect
+column), and `config/defaults.yml` must stay flat `key: value` lines (nested
+YAML keys would be invisible to the parser, which fails closed when it
+parses zero keys).
+
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
 | `commit_on_draft` | `true` | Auto-commit the completed Draft bundle after elicitation finishes (D-41). Commit only, never push. | `/spec-draft` |

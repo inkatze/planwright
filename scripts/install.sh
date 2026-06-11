@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # install.sh — the ~/.claude/ writer, planwright's fallback delivery mode
 # (REQ-I1.2, D-24). v1 stub: copies plugin content into namespaced paths.
 #
@@ -17,11 +17,20 @@
 # ships (kickoff brief, REQ-I1.2 risk note). Hook wiring needs a settings.json
 # merge and is deliberately NOT done here; it is printed as a manual step.
 #
+# Known stub limitation: re-installs refresh-copy and never delete, so files
+# removed or renamed in a newer planwright persist as stale copies under the
+# namespace. The packaging-finalization task owns the upgrade/cleanup story.
+#
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 #
 # Fail-fast: any failed write aborts with a non-zero exit (REQ-K1.7: failures
 # surface clearly, never as a successful-looking partial install).
 set -eu
+
+# Pin the C locale for deterministic glob ordering (defensive; mirrors the
+# sibling scripts).
+LC_ALL=C
+export LC_ALL
 
 # A user CDPATH would make cd echo into the command substitution below and
 # corrupt the source-root derivation.

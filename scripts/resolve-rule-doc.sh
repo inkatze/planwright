@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # resolve-rule-doc.sh — print the absolute path of a planwright rule doc.
 #
 # This is the stable rule-doc resolution path (REQ-I1.1, D-24): skills and
@@ -59,5 +59,5 @@ for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$writer_root"; do
   fi
 done
 
-echo "planwright: rule doc '$name' not found (checked PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, ${writer_root:-no writer root: CLAUDE_DIR and HOME unset})" >&2
+echo "planwright: rule doc '$name' not found (checked PLANWRIGHT_ROOT='${PLANWRIGHT_ROOT:-unset}', CLAUDE_PLUGIN_ROOT='${CLAUDE_PLUGIN_ROOT:-unset}', writer root='${writer_root:-unset: CLAUDE_DIR and HOME both missing}')" >&2
 exit 1

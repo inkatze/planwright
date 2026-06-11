@@ -23,7 +23,7 @@ if [ ! -f "$CHECKER" ]; then
   exit 1
 fi
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 # 1. The real repo files pass (Done-when: every option in the default config

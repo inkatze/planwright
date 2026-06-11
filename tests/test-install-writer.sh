@@ -33,7 +33,7 @@ if [ ! -f "$INSTALLER" ]; then
   exit 1
 fi
 
-tmp="$(mktemp -d)"
+tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 
 claude_dir="$tmp/claude"
@@ -145,18 +145,23 @@ assert_file "CDPATH run still installs correctly" "$tmp/home2/.claude/planwright
 
 # 7. Partial failure is surfaced, not swallowed (REQ-K1.7: fail clearly, never
 #    opaquely): an unwritable destination must produce a non-zero exit, not a
-#    cheerful "done" report.
-readonly_dir="$tmp/readonly"
-mkdir -p "$readonly_dir"
-chmod 555 "$readonly_dir"
-CLAUDE_DIR="$readonly_dir/claude" /bin/bash "$INSTALLER" >/dev/null 2>&1
-rc=$?
-chmod 755 "$readonly_dir"
-if [ "$rc" -ne 0 ]; then
-  echo "ok: unwritable destination fails loudly (exit $rc)"
+#    cheerful "done" report. Skipped as root: permission bits do not bind the
+#    superuser, so the fixture cannot create an unwritable destination.
+if [ "$(id -u)" -ne 0 ]; then
+  readonly_dir="$tmp/readonly"
+  mkdir -p "$readonly_dir"
+  chmod 555 "$readonly_dir"
+  CLAUDE_DIR="$readonly_dir/claude" /bin/bash "$INSTALLER" >/dev/null 2>&1
+  rc=$?
+  chmod 755 "$readonly_dir"
+  if [ "$rc" -ne 0 ]; then
+    echo "ok: unwritable destination fails loudly (exit $rc)"
+  else
+    echo "FAIL: install exited 0 despite an unwritable destination" >&2
+    failures=$((failures + 1))
+  fi
 else
-  echo "FAIL: install exited 0 despite an unwritable destination" >&2
-  failures=$((failures + 1))
+  echo "skip: unwritable-destination case (running as root)"
 fi
 
 if [ "$failures" -gt 0 ]; then
