@@ -902,3 +902,25 @@ Anchor: `e469f8f2f23c5aefb193718b4aa225b2982b70aa` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, Task 4 citation backfill + PR state)
+
+Machine-written entry per REQ-F1.10's expression-only lane, on branch
+`planwright/bootstrap/task-4` (PR #4). Edits: requirements.md (per-REQ
+`*(Cites: …)*` annotations backfilled on all 89 live REQs per the meta-spec's
+citation syntax, `doctrine/spec-format.md`; REQ-B2.1 exempt, record frozen by
+supersession; plus the changelog entry), tasks.md (Task 4 Status annotation
+`implementing` → `PR #4 draft`, a state annotation the canonical extraction
+excludes). Changelog: requirements.md, entry "2026-06-11 (expression-only,
+Task 4)". No requirement's normative text changed. Pre-edit anchor
+`e469f8f2f23c5aefb193718b4aa225b2982b70aa` verified matching at task
+pre-flight. Branch-local note: parallel task branches each append anchor
+entries; post-merge reconciliation per the deferred-backlog item (Amendment 5
+addition) applies.
+
+Class: expression-only
+Anchor: `c7196b8d123b96dc05c94bcbd7de90e7d652b0b3` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+(the canonical form this task ships: manifest anchor with tasks.md reduced to
+its definition content, so state annotations like this PR-status move no
+longer contribute).
