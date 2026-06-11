@@ -18,7 +18,10 @@
 # merge and is deliberately NOT done here; it is printed as a manual step.
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
-set -u
+#
+# Fail-fast: any failed write aborts with a non-zero exit (REQ-K1.7: failures
+# surface clearly, never as a successful-looking partial install).
+set -eu
 
 src_root="$(cd "$(dirname "$0")/.." && pwd)"
 claude_dir="${CLAUDE_DIR:-$HOME/.claude}"
