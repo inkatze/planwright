@@ -15,6 +15,10 @@
 # Sanctioned command form recorded in anchor entries:
 #   scripts/spec-anchor.sh <spec-dir>
 #
+# Fails closed (non-zero exit, message on stderr, no anchor printed) on a
+# missing or unreadable spec file, a failed extraction, or duplicate task
+# ids; a successful exit is the only state that yields an anchor (REQ-F1.9).
+#
 # Portable: POSIX sh + awk + git (bash 3.2 / BSD compatible, no eval, input
 # treated as data only).
 set -eu
@@ -26,8 +30,8 @@ fi
 
 dir=$1
 for f in requirements.md design.md tasks.md test-spec.md; do
-  if [ ! -f "$dir/$f" ]; then
-    echo "spec-anchor: missing $dir/$f" >&2
+  if [ ! -f "$dir/$f" ] || [ ! -r "$dir/$f" ]; then
+    echo "spec-anchor: missing or unreadable: $dir/$f" >&2
     exit 1
   fi
 done
@@ -50,6 +54,13 @@ extract_tasks() {
       in_task = 1
       keep = 0
       key = sortkey($3)
+      if (key in buf) {
+        # Two blocks with the same id would silently overwrite each other;
+        # fail closed rather than hash an incomplete stream (REQ-F1.9).
+        print "spec-anchor: duplicate task id " $3 | "cat >&2"
+        dup = 1
+        exit 1
+      }
       nkeys++
       keys[nkeys] = key
       buf[key] = $0 "\n"
@@ -69,6 +80,7 @@ extract_tasks() {
     }
     { keep = 0 }                     # blank line or non-bullet prose ends the bullet
     END {
+      if (dup) exit 1
       # insertion sort of keys (POSIX awk has no asort)
       for (i = 2; i <= nkeys; i++) {
         v = keys[i]
@@ -83,7 +95,17 @@ extract_tasks() {
 
 req_hash=$(git hash-object "$dir/requirements.md")
 des_hash=$(git hash-object "$dir/design.md")
-tsk_hash=$(extract_tasks "$dir/tasks.md" | git hash-object --stdin)
+# Capture the extraction first so an awk failure aborts under set -e (a
+# failure inside `extract | git hash-object` would otherwise be masked by
+# the pipeline's last command and hash an empty stream — fail-open).
+extracted=$(extract_tasks "$dir/tasks.md")
+if [ -n "$extracted" ]; then
+  # printf restores the single trailing newline command substitution strips,
+  # keeping the hashed bytes identical to the raw extraction stream.
+  tsk_hash=$(printf '%s\n' "$extracted" | git hash-object --stdin)
+else
+  tsk_hash=$(printf '' | git hash-object --stdin)
+fi
 tst_hash=$(git hash-object "$dir/test-spec.md")
 
 printf '%s\n%s\n%s\n%s\n' "$req_hash" "$des_hash" "$tsk_hash" "$tst_hash" |

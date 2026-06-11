@@ -147,6 +147,35 @@ printf '%s\n' '# Fixture — Design' 'New decision text.' > "$spec/design.md"
 a_design=$("$anchor" "$spec")
 [ "$a_edited" != "$a_design" ] || fail "design.md edit did not change the anchor"
 
+# --- Duplicate task ids fail closed ---
+# Two blocks claiming the same id would silently overwrite each other in the
+# extraction, hashing an incomplete stream (REQ-F1.9 fail-closed mandate).
+cp "$spec/tasks.md" "$spec/tasks.md.bak"
+cat >> "$spec/tasks.md" <<'EOF'
+
+### Task 2 — Second thing again
+
+- **Deliverables:** A duplicate.
+- **Done when:** Never; this input is invalid.
+- **Dependencies:** none
+- **Citations:** D-2
+- **Estimated effort:** half day
+EOF
+if "$anchor" "$spec" >/dev/null 2>&1; then
+  fail "duplicate task id did not fail"
+fi
+mv "$spec/tasks.md.bak" "$spec/tasks.md"
+
+# --- Unreadable tasks.md fails closed ---
+# An awk open failure inside the extraction pipeline must not degrade into a
+# successful exit with an anchor over an empty task stream.
+chmod 000 "$spec/tasks.md"
+if "$anchor" "$spec" >/dev/null 2>&1; then
+  chmod 644 "$spec/tasks.md"
+  fail "unreadable tasks.md did not fail"
+fi
+chmod 644 "$spec/tasks.md"
+
 # --- Missing file fails closed ---
 rm "$spec/test-spec.md"
 if "$anchor" "$spec" >/dev/null 2>&1; then
