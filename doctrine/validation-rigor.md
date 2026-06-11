@@ -12,8 +12,9 @@ For any workflow that flags issues, run at least **three independent
 validation passes per finding**. Each pass must use a different method or
 perspective, not the same approach repeated; the goal is to expose the blind
 spots any single approach misses. If the three passes do not converge on the
-same conclusion, drop or downgrade the finding (non-convergence also routes a
-surviving finding to Needs human judgment in the categorization; see
+same conclusion, drop the finding or downgrade it: a downgraded finding
+survives only as low-confidence and routes to Needs human judgment in the
+categorization (see
 [finding-categorization.md](finding-categorization.md)).
 
 - **Pass 1: direct reproduction.** When the claim concerns runtime behavior,
@@ -34,8 +35,9 @@ surviving finding to Needs human judgment in the categorization; see
 
 ## Solution validation
 
-For any fix, validate with at least two independent angles, four when
-relevant:
+For any fix, validate with independent angles: angles 1 and 2 are the
+default minimum, angle 3 is added when relevant, and the altitude check (4)
+applies to every fix:
 
 1. **Targeted test.** Write a test that fails on the current code for the
    bug's exact reason. Confirm it fails for the right reason before applying
