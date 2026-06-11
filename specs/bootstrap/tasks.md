@@ -89,14 +89,15 @@ intelligence migration) dispatches first.
   "drafting-session decision"), the per-task required fields, the five-status lifecycle
   with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
   declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
-  a glossary of framework vocabulary (the three senses of gate, unit, drain, accumulator,
-  adopter, brief, bucket, tower / control tower (= the dispatching session), and the
-  observations log — the canonical name for `specs/_observations/opportunities.md`),
-  the spec-identifier charset (REQ-A1.8), the path-placeholder style convention
-  (angle brackets: `<spec>`, `<id>`), the superseding-REQ placement convention (a
-  superseding REQ sits adjacent to the REQ it supersedes, e.g. B2.4 beside B2.1),
-  and the validator-enforceable invariants. Bring this bundle into format
-  conformance (backfill per-REQ citations).
+  a glossary of framework vocabulary covering at minimum: the three senses of gate;
+  unit; drain; accumulator; adopter; brief; bucket; tower (the dispatching session);
+  the observations log (canonical name for `specs/_observations/opportunities.md`).
+  Plus the format conventions: the spec-identifier charset (REQ-A1.8), the
+  path-placeholder style (angle brackets: `<spec>`, `<id>`), the superseding-REQ
+  placement rule (a superseding REQ sits adjacent to the REQ it supersedes, e.g.
+  B2.4 beside B2.1), the amendment-annotation format (`*(Amended at <event>
+  <date>: …)*`), and the validator-enforceable invariants. Bring this bundle into
+  format conformance (backfill per-REQ citations).
 - **Done when:** The meta-spec fully specifies the format this very bundle conforms to
   (including backfilled citations); a reader could author a compliant bundle from it
   alone; the kickoff brief structure and glossary are specified.
@@ -197,7 +198,9 @@ intelligence migration) dispatches first.
 - **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
   the `GATE(when: …)` convention and a portable-shell gate parser/evaluator (condition gates,
   date-gates-surface-only, confidence levels; closed declarative grammar parsed by pattern
-  match, never `eval`, per REQ-H1.3); the `/drain` skill front-end over the evaluator; the
+  match, never `eval`, per REQ-H1.3 — the doctrine doc is the normative home for the
+  grammar productions: atom forms, the `and`-of-atoms combinator, and the surface-only
+  free-text gate class); the `/drain` skill front-end over the evaluator; the
   self-healing maintenance footer (REQ-B3.2).
 - **Done when:** A satisfied condition gate re-surfaces its item; a date gate only surfaces;
   nothing is auto-resolved or auto-dropped; `/drain` and the bookkeeping pass call the same
@@ -235,7 +238,7 @@ intelligence migration) dispatches first.
   transient CI retries and logic failures escalate; a research trigger produces a
   risk-register entry; a draft PR is opened referencing the brief with the checklist.
 - **Dependencies:** 9, 11
-- **Citations:** D-11, D-19, D-39, D-42 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-G1.8, REQ-J1.4
+- **Citations:** D-11, D-19, D-39, D-42 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-G1.8, REQ-J1.4, REQ-K1.7
 - **Estimated effort:** 1.5 days
 
 ### Task 13 — `/orchestrate`
@@ -254,12 +257,15 @@ intelligence migration) dispatches first.
   (REQ-B3.2).
 - **Done when:** One step advances exactly one ready unit; concurrent invocations don't
   collide; a non-Active spec halts with a kickoff prompt; each backend dispatches a worker
-  that completes a unit; the reconcile sweep recovers from a killed tower and moves an
-  orphaned In-progress task (no live worker, no open PR) to Awaiting input with an orphan
-  note; unattended mode records prompts as Awaiting-input entries; `--bookkeeping`
-  re-surfaces satisfied gates without auto-dropping.
+  that completes a unit; the reconcile sweep recovers from a killed tower and orphans an
+  In-progress task per the tightened REQ-F1.1 predicate (PR-state reconciled first;
+  grace threshold; observable backend; positive evidence of death; print-backend
+  exempt) to Awaiting input with an orphan note; a missing validator halts a dispatch
+  step with a clear message (REQ-K1.7); unattended mode records prompts as
+  Awaiting-input entries; `--bookkeeping` re-surfaces satisfied gates without
+  auto-dropping.
 - **Dependencies:** 5, 6, 10, 12
-- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-B3.2
+- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
 - **Estimated effort:** 3 days
 
 ### Task 14 — `/resume`
@@ -328,8 +334,8 @@ intelligence migration) dispatches first.
   confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
   log, hard pauses firing where expected); a findings document covering the gate behavior,
   kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
-  sweep**: a checklist of every [manual] and [Gherkin] test-spec entry — exercised, or
-  the gap named.
+  sweep**: a checklist of every test-spec entry whose tag includes [manual] or
+  [Gherkin] (mixed tags count) — exercised, or the gap named.
 - **Done when:** At least one work-project task is executed via the pipeline; the findings
   doc covers the gate behavior and contains the completed manual-sweep checklist; the
   public-release gate condition (c) is met. Validating across a second distinct work repo
@@ -371,7 +377,10 @@ intelligence migration) dispatches first.
 - **Purge `reference/` from main's history.** `reference/` is tracked for now so worktrees can
   access the migration source material, but it is transient and may contain personal/work data
   that must not persist in history. A deliberate human history rewrite (e.g. `git filter-repo`)
-  removes it. Confidence: high. **Gate:** all `reference/`-citing tasks Completed (notably Task 3)
+  removes it. Confidence: high. Scope widened at self-review 2026-06-10: the purge also
+  covers spec-file blobs in pre-neutralization commits (work-repo identifiers removed from
+  file content on 2026-06-10 survive in this branch's earlier commits). **Gate:** all
+  `reference/`-citing tasks Completed (notably Task 3)
   AND before any public release. Citations: D-27, REQ-J1.5, REQ-J1.4 (human-reserved action, not
   an autopilot one).
 

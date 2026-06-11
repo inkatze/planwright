@@ -8,9 +8,9 @@ Every REQ is pinned to at least one verification path. Types: **test** (automate
 **manual** (human-exercised), **design-level** (the artifact's existence + coverage is
 the verification), **Gherkin** (state/trigger/outcome). planwright is mostly skills +
 doctrine + a portable-shell validator, so coverage is a deliberate mix. Verification
-ownership: [test] entries run in planwright's own CI; [manual] and [Gherkin] entries
-are exercised by Task 18's manual-verification sweep (each exercised, or the gap
-named).
+ownership: [test] entries run in planwright's own CI; every entry whose tag includes
+[manual] or [Gherkin] (mixed tags count) is exercised by Task 18's
+manual-verification sweep (each exercised, or the gap named).
 
 ## REQ-A — Spec format, lifecycle & evolution
 
@@ -48,11 +48,16 @@ flagged.
 Validator fixture: a version-mismatched bundle is handled by the rules for its declared
 version.
 
-### REQ-A1.8 — Spec-identifier charset [test]
+### REQ-A1.8 — Spec-identifier charset [test + manual]
 
-Validator fixture: a spec directory whose identifier fails `[a-z0-9][a-z0-9-]*` is
-flagged; hook fixtures (see REQ-K1.2) confirm hostile identifiers never reach a path
-or command.
+Validator fixture: a spec directory whose identifier fails the anchored
+`^[a-z0-9][a-z0-9-]*$` or the 64-char bound is flagged; mixed fixtures (a hostile
+identifier *containing* a valid run, e.g. `good-name/../escape`) confirm full-string
+matching, not substring. Hook fixtures (see REQ-K1.2) confirm hostile identifiers
+never reach a path or command. Manual: a skill invoked with a hostile identifier
+(`../escape`, `foo;rm`) — `/spec-draft` creating `specs/<spec>/` and its branch,
+`/orchestrate` forming worktree/lock paths or a printed launch command — refuses
+before any path or command is formed.
 
 ### REQ-A2.1 — Status-aware enforcement [test]
 
@@ -200,7 +205,7 @@ risk-register entry with citations.
 Doc covers write-time triggers, artifact data-hygiene, and framework-script security;
 `gitleaks` in CI covers committed artifacts; a seeded secret in a brief fixture is
 caught. Script security is exercised by `shellcheck` in CI (Task 2) and the
-hostile-input hook fixtures (REQ-K1.2, REQ-H1.3).
+hostile-input fixtures (REQ-K1.2 hook, REQ-H1.3 gate parser).
 
 ### REQ-D1.7 — Proportionality [design-level]
 
@@ -250,15 +255,19 @@ Nested skill invocation fires hooks once; documented and observed.
 ### REQ-F1.1 — Stateless, one unit per step [test]
 
 One `/orchestrate` step advances exactly one ready unit and updates `tasks.md`; a
-killed tower loses nothing (the reconcile sweep rebuilds from disk). Fixture: a task
-In progress with no live worker and no open PR is moved to Awaiting input with an
-orphan note (never left In progress, never auto-re-dispatched).
+killed tower loses nothing (the reconcile sweep rebuilds from disk). Orphan fixtures
+(per the tightened REQ-F1.1 predicate): a dead subagent/tmux worker past the grace
+threshold, with PR state reconciled first, moves to Awaiting input with an orphan
+note. Negative fixtures: a just-dispatched worker inside the grace window, a
+print-backend unit awaiting human launch, and a worker dispatched by another tower
+are NOT orphaned; a task whose PR turns out merged moves to Completed, not
+Awaiting input.
 
 ### REQ-F1.2 — Ready-task selection, critical-path-first [test]
 
 Selection logic picks a task whose deps are all Completed and which is not In progress /
-Awaiting input; among ready units, the head of the longest dependent chain is selected
-first (fixture: T4-like long chain beats T1-like leaf), FIFO on ties.
+Awaiting input; among ready units, the head of the effort-weighted longest dependent
+chain is selected first (fixture: T3-like long chain beats T1-like leaf), FIFO on ties.
 
 ### REQ-F1.3 — Advisory lock [test]
 
@@ -289,7 +298,8 @@ capture-pane (tmux). Test: unattended mode records would-be prompts as Awaiting-
 entries; `max_parallel_units` is respected; `tasks.md` state moves are auto-committed
 (and not committed when the toggle is off). Manual: a subagent worker completes a
 routine unit without permission prompts under the shipped worker-settings profile; the
-clean-worktree reuse confirm appears in attended mode only.
+clean-worktree reuse confirm appears in attended mode only; tmux worker prompts are
+detected via capture-pane and never answered via send-keys.
 
 ### REQ-F2.1 — `/resume` read-only + surface uncommitted [manual]
 
@@ -349,10 +359,12 @@ Every deferral surface has a named reader and a re-surfacing gate/ritual.
 
 ### REQ-H1.3 — `GATE(when:)` convention [test]
 
-Gate parser: a condition gate vs. a date gate (surface-only) are handled per the rule.
+Gate parser: a condition gate vs. a date gate (surface-only) are handled per the rule;
+an `and`-of-atoms gate evaluates; a free-text gate surfaces without evaluation.
 Hostile fixtures: a gate containing shell metacharacters / `$(…)` is never evaluated
-(closed grammar, pattern-match parse only); a malformed gate surfaces as an error in
-the drain report, never silently skipped.
+(closed grammar, pattern-match parse only); a gate containing control characters is
+echoed stripped; a malformed gate surfaces as a drain-report-level error (the pass
+completes), never silently skipped.
 
 ### REQ-H1.4 — Bookkeeping drain, no auto-drop; `/drain` [test]
 
@@ -364,9 +376,9 @@ count and oldest-entry age.
 
 Deferred decisions carry a confidence level; low-confidence items resurface first.
 
-### REQ-H1.6 — see REQ-B1.4 / REQ-H1.6
+### REQ-H1.6 — cross-reference [manual, via the joint entry under REQ-B]
 
-Verified jointly under REQ-B (mine and archive `_observations`).
+Verified jointly with REQ-B1.4 (mine and archive `_observations`) above.
 
 ## REQ-I — Packaging, delivery & onboarding
 
@@ -382,10 +394,10 @@ The writer installs on a clean machine with no fish/mise/tmux/Ansible dependency
 
 Cold-read: an adopter understands the human-reserved controls from the docs.
 
-### REQ-I1.4 — see REQ-D2.2 / REQ-I1.4
+### REQ-I1.4 — cross-reference [manual, via the joint entry under REQ-D]
 
-Verified jointly under REQ-D (adopter supplies own rigor); I1.4 is a cross-reference
-to D2.2.
+Verified jointly with REQ-D2.2 (adopter supplies own rigor) above; I1.4 is a
+cross-reference to D2.2.
 
 ### REQ-I1.5 — MIT license + contribution model [design-level]
 
@@ -424,9 +436,13 @@ override; per-repo entries are written only on human confirmation.
 ### REQ-K1.2 — tasks-pr-sync hook [test]
 
 `gh pr create` / `gh pr merge` on a convention-named branch moves the matching task block;
-non-matching input is a clean no-op. Hostile fixture: a branch name whose `<spec>` /
-`<id>` segments fail the REQ-A1.8 charset (`..`, `/`, metacharacters) is a clean no-op
-and never reaches a filesystem path.
+non-matching input is a clean no-op. Positive fixture: `task-3.5` and `task-3-4`
+branches (valid per the D-36 id grammar) move their blocks. Hostile fixtures: a
+branch whose `<spec>` segment fails REQ-A1.8 or whose `<id>` segment fails the
+task-id grammar (`task-3..5`, `task-.5`, `..`, `/`, metacharacters) is a clean no-op
+and never reaches a filesystem path. Containment fixture (unit-level, charset
+validation stubbed out): a resolved `tasks.md` path outside
+`<repo-toplevel>/specs/` is rejected.
 
 ### REQ-K1.3 — tool-discovery hook [test]
 
@@ -450,9 +466,10 @@ recorded.
 ### REQ-K1.7 — Graceful degradation on missing prereqs [test]
 
 Not-a-repo / no git remote / missing `gh` / missing validator each surface a clear
-message rather than failing opaquely. On execution paths (`/orchestrate`,
-`/execute-task`), a missing validator halts (fail closed per the K1.7 amendment);
-authoring/read-only paths degrade with the message.
+message rather than failing opaquely. On dispatch steps (`/orchestrate` step
+execution, `/execute-task`), a missing validator halts (fail closed per the K1.7
+amendment); authoring, read-only, and non-dispatching paths (`--bookkeeping`,
+`/drain`, `/resume`) degrade with the message.
 
 ### REQ-K1.8 — CI-enforced options reference [test]
 

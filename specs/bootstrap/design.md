@@ -44,7 +44,7 @@ work in pair-flow v1.
 ### D-3: Two-brief model — kickoff is contract, handover is optional cache  (C, pair-flow D-2)
 
 **Decision:** `specs/<spec>/kickoff-brief.md` is the durable contract;
-`{worktree}/.claude/handover.md` is an optional cache of in-flight context.
+`<worktree>/.claude/handover.md` is an optional cache of in-flight context.
 
 **Alternatives considered:**
 - Single brief that is both contract and scratchpad. Rejected because: it couples
@@ -57,7 +57,9 @@ the handover is best-effort. Survived multi-day work in v1 unmodified.
 
 **Decision:** Findings route into Auto-applicable, Agent-resolvable, Needs sign-off,
 or Needs human judgment, each with an explicit predicate; skills present all four as
-tables (including empties).
+tables (including empties). *(Amended at kickoff 2026-06-10: under the act-then-review
+rewrite (D-5) the buckets serve as audit taxonomy, not a decision queue — see
+REQ-C1.5.)*
 
 **Alternatives considered:**
 - A binary apply/surface split. Rejected because: it collapses the distinct
@@ -272,8 +274,10 @@ them. This is what distinguishes it from an "add a linter" scaffolder.
 
 **Decision:** Every deferral is a structured `GATE(when: …)` line written inline where
 the work/decision was deferred. The `/orchestrate --bookkeeping` pass evaluates open
-gates and re-surfaces satisfied items (moving them to Awaiting input / In progress or
-flagging them in the report); the same evaluator is exposed as an on-demand `/drain`
+gates and re-surfaces satisfied items (moving them to Awaiting input or flagging them
+in the report — never to In progress, which is reserved for dispatched units;
+*amended at self-review 2026-06-10* to avoid colliding with the F1.1 orphan
+disposition); the same evaluator is exposed as an on-demand `/drain`
 move. Condition gates (a landed task/dependency) are preferred over date gates; date
 gates only surface, never hard-fail. The pass never auto-resolves or auto-drops.
 Deferred decisions carry a confidence level so low-confidence items resurface first.
@@ -461,7 +465,10 @@ model: the human must know how to operate the machine and retains the reserved c
   understand where their control begins and ends.
 
 **Chosen because:** the model makes the human-reserved controls legible and sets correct
-expectations about autonomy being bounded by spec quality.
+expectations about autonomy being bounded by spec quality. *(Amended at kickoff
+2026-06-10: the docs additionally carry the three-phase intervention contract —
+sign-off before, rare hard pauses during, PR review + merge after — recorded in
+the brief's Section 2 REQ-C notes.)*
 
 ### D-30: `/resume` is a read-only context loader  (C, pair-flow D-47)
 
@@ -539,6 +546,9 @@ awkward but tractable in shell + awk.
 **Decision:** v1 targets GitHub through the `gh` CLI for PR operations. PR-related
 operations degrade gracefully on `gh` auth failure (local work proceeds; `/orchestrate`
 records an Awaiting-input entry). Non-GitHub hosts (GitLab, Bitbucket) are out of v1 scope.
+*(Amended at kickoff 2026-06-10: degradation lessons folded in from the kickoff
+pre-flight — `gh`-dependent steps must also survive a repo with no remote at all; see
+REQ-K1.6/K1.7 and the D-44 worktree-handling red-line.)*
 
 **Alternatives considered:**
 - Abstract the git host now. Rejected because: it adds an abstraction layer for hosts that
@@ -594,10 +604,17 @@ print the launch command, exit; zero-dependency manual dispatch), and
 skips confirms, always creates fresh worktrees, and routes every would-be prompt
 to Awaiting input. The tower is disposable: no in-memory state beyond the
 current step; a reconcile sweep rebuilds the full picture from `tasks.md`, `gh`,
-and the process/window list. Orphan disposition *(amended 2026-06-10, polish
-review)*: a task In progress with no live worker and no open PR is moved to
-Awaiting input with an orphan note — never silently left In progress (which
-would deadlock dependents under REQ-F1.2) and never auto-re-dispatched.
+and the process/window list. Orphan disposition *(Amended at polish review
+2026-06-10; predicate tightened at self-review 2026-06-10 — see REQ-F1.1 for the
+normative rule)*: In-progress entries carry dispatch metadata (backend,
+timestamp, worker handle); the sweep reconciles PR state first (merged →
+Completed; open → leave In progress), then orphans a task only past a grace
+threshold, only for backends whose liveness this session can observe, and only
+on positive evidence of death — print-backend units are exempt until the
+threshold plus a human confirm, since no process exists until the human pastes
+the command. An orphan moves to Awaiting input with an orphan note — never
+silently left In progress (which would stall dependents invisibly; Awaiting
+input surfaces the stall for human action) and never auto-re-dispatched.
 Concurrency capped by `max_parallel_units` (default 3). `--watch` is
 event-driven under subagents, a polling metronome under tmux.
 
@@ -760,6 +777,8 @@ supersede ritual (REQ-B2.4 supersedes REQ-B2.1).
   `~/.claude/` writer. Its own scripts must avoid executing untrusted input, guard path
   access, and be auditable; the dogfooded CI (D-32) includes secret scanning and shellcheck
   over these scripts.
-- **Graceful degradation.** Skills fail soft on missing prerequisites (not a git repo, `gh`
-  or validator absent; D-35, REQ-K1.7), surfacing a clear message and doing whatever local
-  work remains possible rather than failing opaquely.
+- **Graceful degradation.** Skills fail soft on missing prerequisites (not a git repo,
+  `gh` absent; D-35, REQ-K1.7), surfacing a clear message and doing whatever local work
+  remains possible rather than failing opaquely. Exception (K1.7 amendment): a missing
+  validator on a dispatch step fails closed — REQ-A2.1's block-execution guarantee
+  outranks degradation there; non-dispatching modes degrade normally.
