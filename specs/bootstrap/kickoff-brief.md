@@ -1001,3 +1001,51 @@ Anchor: `a27684b6e23f5d60f4dec51458f567fd8a14f504` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 15 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 15 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-15`, branch `planwright/bootstrap/task-15`). Ready via
+Task 3's completion; second of the two units that merge unlocked (no cohesion
+bundle with T7: gate wiring vs. doctrine doc). Active workers after this
+dispatch: 2 of 3. Same orchestration-state-placement rationale as the entries
+above. Pre-move anchor `a27684b6e23f5d60f4dec51458f567fd8a14f504` verified
+matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `5f8633a9a5182cdc3dde52117fcd82cd08e03771` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 7 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 7's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #5 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the entries above. Pre-move anchor
+`5f8633a9a5182cdc3dde52117fcd82cd08e03771` verified matching immediately before
+the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `fcf84b3ce2c1f78d5b570d46d10d4c110dcb1a51` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 15 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 15's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #6 (draft)` after the worker opened the draft PR. All in-flight units (T1,
+T4, T7, T15) are now draft-pr-ready; zero active workers; nothing dispatchable
+until a merge. Same orchestration-state-placement rationale as the entries
+above. Pre-move anchor `fcf84b3ce2c1f78d5b570d46d10d4c110dcb1a51` verified
+matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `9bbf9961fb754089a3d5e84312c450bcac313fd4` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
