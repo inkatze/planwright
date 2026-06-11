@@ -63,7 +63,9 @@ both delivery modes:
 ${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CLAUDE_DIR:-$HOME/.claude}/planwright}}/doctrine/<doc>.md
 ```
 
-`scripts/resolve-rule-doc.sh <doc-name>` implements the chain. See
+`scripts/resolve-rule-doc.sh <doc-name>` implements the chain. The writer
+arm requires `CLAUDE_DIR` or `HOME` to be set; in environments with neither
+(minimal containers), resolution uses the first two arms only. See
 [`doctrine/README.md`](doctrine/README.md) for the convention's details.
 
 ## Configuration

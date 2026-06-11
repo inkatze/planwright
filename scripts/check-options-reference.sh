@@ -55,7 +55,7 @@ fi
 # Cell padding and markdown's up-to-three-space row indentation are
 # tolerated: the check is coverage, not whitespace style.
 # shellcheck disable=SC2016 # the backtick is literal markdown, not expansion
-documented_keys="$(sed -n 's/^[[:space:]]*|[[:space:]]*`\([a-z0-9_]*\)`[[:space:]]*|.*/\1/p' "$reference")"
+documented_keys="$(sed -n 's/^[[:space:]]*|[[:space:]]*`\([a-z0-9_][a-z0-9_]*\)`[[:space:]]*|.*/\1/p' "$reference")"
 
 status=0
 

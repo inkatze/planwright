@@ -13,7 +13,9 @@
 #   1. $PLANWRIGHT_ROOT/doctrine/        explicit override (tests, adopters)
 #   2. $CLAUDE_PLUGIN_ROOT/doctrine/     plugin delivery (set by Claude Code)
 #   3. <claude-dir>/planwright/doctrine/ writer delivery
-#      (<claude-dir> is $CLAUDE_DIR when set, else ~/.claude)
+#      (<claude-dir> is $CLAUDE_DIR when set, else ~/.claude; this arm is
+#      skipped entirely when neither CLAUDE_DIR nor HOME is set, so
+#      HOME-less environments resolve via arms 1-2 only)
 #
 # Exit codes: 0 found (path on stdout), 1 not found, 2 usage/invalid name.
 #

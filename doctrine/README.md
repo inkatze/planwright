@@ -33,6 +33,10 @@ ${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CLAUDE_DIR:-$HOME/.claude}/planwright
 - **Override:** `PLANWRIGHT_ROOT` pins an explicit root (tests, adopters
   embedding planwright elsewhere). It wins over both.
 
+The writer arm requires `CLAUDE_DIR` or `HOME`; when neither is set
+(minimal containers), the resolver skips that arm and resolution uses the
+first two arms only.
+
 `scripts/resolve-rule-doc.sh <doc-name>` implements the chain (validating the
 name against the `^[a-z0-9][a-z0-9-]*$` identifier discipline before any path
 is formed) and prints the resolved path; prefer it over hand-building paths.
