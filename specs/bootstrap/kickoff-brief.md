@@ -837,3 +837,18 @@ Anchor: `7b8ce0c480c1f203d1732f1b1a41622538bf762f` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, Copilot pairing iter 2)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md
+(dependency-graph intro reworded "generated" → "derived"; no generator tooling
+exists in-repo, the view is maintained by hand against the authoritative
+`Dependencies:` lines; surfaced by GitHub Copilot's third PR review, thread
+validated 3/3), requirements.md (changelog). Changelog: requirements.md, entry
+"2026-06-11 (expression-only, Copilot pairing iter 2)".
+
+Class: expression-only
+Anchor: `539c3fbafd32259d79956de339d3344e05c9568b` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).

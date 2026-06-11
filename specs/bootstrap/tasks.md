@@ -11,7 +11,7 @@ condition (c)).
 
 ## Dependency graph
 
-Layered view, generated from the `Dependencies:` lines below (which are
+Layered view, derived from the `Dependencies:` lines below (which are
 authoritative); `(←Tn)` lists each task's direct dependencies.
 
 ```
