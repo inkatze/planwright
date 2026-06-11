@@ -1,7 +1,7 @@
 # planwright Bootstrap — Requirements
 
 **Status:** Active
-**Last reviewed:** 2026-06-10
+**Last reviewed:** 2026-06-11
 **Format-version:** 1
 
 ## Goal
@@ -78,7 +78,15 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   commands) SHALL match the anchored, full-string pattern `^[a-z0-9][a-z0-9-]*$`
   (substring matching is non-conforming) with a maximum length of 64; the
   validator SHALL enforce the charset and length, and no skill or hook SHALL
-  interpolate an identifier that fails them into a path or command.
+  interpolate an identifier that fails them into a path or command. Direct
+  children of `specs/` with a leading underscore are reserved non-spec
+  accumulators (`_pending/`, `_observations/`): never validated as bundles, but
+  their names SHALL match `^_[a-z0-9][a-z0-9-]*$` (≤64) — exemption from bundle
+  validation is not exemption from hostile-name screening — and accumulator
+  *contents* used as seeds SHALL be re-validated at consumption before any
+  identifier they propose is interpolated. *(Amended at delta re-walkthrough
+  2026-06-11: exemption added; accumulator class closed at Amendment 5
+  2026-06-11.)*
 - **REQ-A2.1** planwright SHALL ship a status-aware validator enforcing the
   meta-spec's structural invariants: warnings on Draft, errors (block execution) on
   Active.
@@ -96,9 +104,14 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   silently rewritten.
 - **REQ-A3.3** In-flight amendment is axis-driven: expression-only changes (typo,
   ambiguity, gap-fill consistent with accepted decisions) SHALL be fixed in place
-  with a mandatory dated Changelog entry and no re-approval; changes that contradict
+  with a mandatory dated Changelog entry and no re-approval (re-anchoring per
+  REQ-F1.10 still applies before the next dispatch); changes that contradict
   an accepted decision or alter a REQ's meaning SHALL be superseded, with the kickoff
-  brief re-synced by diff-review and scoped re-sign-off.
+  brief re-synced by diff-review and scoped re-sign-off. *(Amended at Amendment 5
+  2026-06-11: the supersede ritual governs post-merge changes; pre-merge
+  corrections on the spec's own PR amend in place with a changelog entry +
+  recorded re-sign-off. Additions (new REQs, D-IDs) count as meaning-class on
+  this axis; the human classifies at sign-off, recorded per REQ-F1.10.)*
 - **REQ-A3.4** Fold-vs-new: a new idea SHALL extend an existing bundle by default
   (append + supersede) unless a spin-new trigger fires (new external interface,
   independently ownable, orthogonal decisions, loss of comprehensibility). Bundles
@@ -263,7 +276,9 @@ This is the bootstrap spec: the founding spec for building planwright v1.
 - **REQ-F1.4** `/orchestrate` SHALL refuse to act on a non-Active spec and SHALL NOT
   auto-chain into `/spec-kickoff`.
 - **REQ-F1.5** `/orchestrate` SHALL halt to Awaiting input on ambiguity, missing
-  dependency, test failure, hard-disqualifier, or contract drift.
+  dependency, test failure, hard-disqualifier, or contract drift (non-exhaustive;
+  pre-flight refusals — non-Active spec, missing validator (K1.7), freshness gate
+  (F1.9) — are defined at their own REQs).
 - **REQ-F1.6** `/orchestrate` SHALL create draft PRs only and SHALL NOT auto-merge.
 - **REQ-F1.7** `/orchestrate` SHALL bundle consecutive ready tasks only when they form
   one coherent, revertable, single-purpose deliverable (cohesion-first); combined size
@@ -286,6 +301,51 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   a one-line confirm (attended only). *(Note, 2026-06-10: this REQ deliberately
   bundles the dispatch-machinery obligations as one ID; sub-clauses are pinned
   across the test-spec F1.8, F1.1, and K1.4 entries.)*
+- **REQ-F1.9** *(Added at delta re-walkthrough 2026-06-11; amended at Amendment 5
+  2026-06-11: anchor method hardened, gate mechanics pinned.)* Execution
+  freshness gate. The **content anchor** is the hash of the per-file digest list
+  (each file hashed with `git hash-object`, the four digests in canonical order
+  — requirements, design, tasks, test-spec — hashed as a stream): boundary-safe,
+  unlike hashing a bare concatenation. `tasks.md` contributes its
+  task-definition content only (task headings + Deliverables / Done when /
+  Dependencies / Citations / Estimated effort), per the canonical extraction the
+  meta-spec defines (Task 4); orchestration-state placement and dispatch
+  metadata are excluded, so `/orchestrate`'s own state moves never trip the
+  gate while meaning edits always do. Until the canonical extraction ships,
+  whole-file hashing is the sanctioned interim form (safe: no state moves can
+  occur before the dispatch tooling exists, which transitively depends on
+  Task 4). Before dispatching, `/orchestrate` (inside the D-10 lock window,
+  immediately before the `tasks.md` update) and `/execute-task` (at pre-flight)
+  SHALL recompute the anchor with the command recorded in the entry and compare
+  it to the brief's most recent anchor entry, both read from the primary
+  checkout's main view (a worker compares its worktree's spec content against
+  main's brief; divergence in either direction halts). Halt conditions, all
+  fail-closed to Awaiting input naming the remedy: anchor mismatch (any
+  anchored content changed since the entry, committed or not → remedy:
+  `/spec-kickoff` delta re-walkthrough); no anchor entry, an unparseable entry,
+  a non-sanctioned computation command, or an entry from a non-sanctioned
+  writer (→ remedy: complete or repair the sign-off record per REQ-F1.10).
+  There is no bypass flag. These conditions apply to anchor entries recorded
+  from Amendment 5 onward; earlier entries are superseded by Amendment 5's own
+  anchor.
+- **REQ-F1.10** *(Added at Amendment 5 2026-06-11.)* Sign-off record format and
+  anchor validity. Every anchor entry is a machine-checkable block carrying:
+  `Class:` (`meaning` or `expression-only`, on the REQ-A3.3 axis — additions
+  count as meaning; the human classifies at sign-off), `Anchor:` plus the exact
+  sanctioned command used (self-describing), and, for meaning-class entries, a
+  `Lens-pass:` reference to the Discovery-Rigor lens review pass recorded in
+  the same brief section (canonical lens-coverage table; fan-out per Discovery
+  Rigor for non-trivial deltas; full bundle at first activation, delta-scoped
+  at re-walkthroughs and amendments) with findings dispositioned. The anchor
+  line SHALL be written last, after the sign-off record and lens-pass
+  disposition, so a killed session fails closed. Writers: meaning-class entries
+  SHALL be written only by `/spec-kickoff`'s sign-off flow; expression-only
+  edits MAY self-re-anchor via a machine-written entry explicitly marked
+  `Class: expression-only` and citing the changelog line (auditable and one
+  revert from undone; misclassification is reviewable at the PR). Execution
+  skills' brief writes are confined to named sections (risk register,
+  observations) and SHALL never produce anchor entries. `/spec-kickoff` SHALL
+  refuse to record a meaning-class anchor without a dispositioned lens pass.
 - **REQ-F2.1** `/resume` SHALL be a read-only context loader (kickoff brief +
   `tasks.md` + git log + PR state + optional handover brief); it SHALL surface
   uncommitted changes and ask before proceeding.
@@ -449,6 +509,25 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   predicate tightened (dispatch metadata, PR-state precedence, grace threshold,
   print-backend exemption, positive evidence of death); K1.7 fail-closed scoped
   to dispatch steps; F1.2 effort-weighted selection made explicit.
+- 2026-06-11 (delta re-walkthrough + Amendment 4 in the kickoff brief) —
+  REQ-A3.3 pre-merge amendment class codified (Task 4 convention); REQ-A1.8
+  underscore-accumulator exemption; new REQ-F1.9 execution freshness gate
+  (sign-off content anchors; `/orchestrate`/`/execute-task` halt on a spec
+  changed since the brief's last sign-off; D-45). Motivated by an observed
+  near-miss: post-sign-off amendments could have been executed against without
+  re-validation had the human not thought to ask.
+- 2026-06-11 (Amendment 5 in the kickoff brief) — the lens-pass mandate plus the
+  corrections its own first run produced (edits across all five files incl.
+  test-spec.md): REQ-F1.9 rewritten (manifest-style boundary-safe anchor;
+  tasks.md contributes definition content only; gate runs under the D-10 lock
+  against the primary checkout's main view; fail-closed on absent/malformed/
+  non-sanctioned entries; grandfather clause); new REQ-F1.10 (machine-checkable
+  sign-off record: Class / self-describing Anchor / Lens-pass; anchor written
+  last; meaning-class entries kickoff-only; expression-only marked
+  self-re-anchor); A3.3 scoped (supersede = post-merge; additions are
+  meaning-class; human classifies); A1.8 accumulator class closed; F1.5 marked
+  non-exhaustive; D-19/D-44/D-45 annotations; Task 4/9/12/13 wiring; test-spec
+  F1.9/F1.10/A1.8/A3.3 fixtures.
 
 ## Sources
 
