@@ -1001,3 +1001,20 @@ Anchor: `a27684b6e23f5d60f4dec51458f567fd8a14f504` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 15 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 15 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-15`, branch `planwright/bootstrap/task-15`). Ready via
+Task 3's completion; second of the two units that merge unlocked (no cohesion
+bundle with T7: gate wiring vs. doctrine doc). Active workers after this
+dispatch: 2 of 3. Same orchestration-state-placement rationale as the entries
+above. Pre-move anchor `a27684b6e23f5d60f4dec51458f567fd8a14f504` verified
+matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `5f8633a9a5182cdc3dde52117fcd82cd08e03771` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
