@@ -16,6 +16,8 @@ delivery; the convention is a Task 1 deliverable of the bootstrap spec).
 | [security-posture.md](security-posture.md) | Write-time security triggers, artifact data-hygiene, framework-script security | REQ-D1.6 |
 | [proportionality.md](proportionality.md) | Rigor scales with stake and reversibility; scoping must be declared | REQ-D1.7 |
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
+| [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference, the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
+| [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
 
 ## How the docs relate
 
@@ -27,8 +29,11 @@ waits for the human. [Research Rigor](research-rigor.md) and the
 [Security Posture](security-posture.md) fire on their triggers at any point in
 that flow. [Refactor Instinct](refactor-instinct.md) and
 [Composability](composability.md) shape the code being written.
-[Proportionality](proportionality.md) governs how strictly all of the above
-scale with what is at stake.
+[Engineering Decisions](engineering-decisions.md) governs the choices made
+while writing it, and the [Decision-Domains Catalog](decision-domains.md)
+supplies the triggers that route load-bearing choices to the human instead
+of a default. [Proportionality](proportionality.md) governs how strictly
+all of the above scale with what is at stake.
 
 ## Adopter extension
 
