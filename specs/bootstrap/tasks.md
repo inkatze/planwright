@@ -63,38 +63,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
 - **Estimated effort:** 1 day
 
-### Task 4 — Four-file format meta-spec
-
-- **Deliverables:** The canonical four-file format meta-spec: required fields per file,
-  REQ-ID / D-ID conventions, citation syntax and lightweight citation kinds (e.g.
-  "drafting-session decision"), the per-task required fields, the five-status lifecycle
-  with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
-  declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
-  a glossary of framework vocabulary covering at minimum: the three senses of gate;
-  unit; drain; accumulator; adopter; brief; bucket; tower (the dispatching session);
-  the observations log (canonical name for `specs/_observations/opportunities.md`);
-  dispatch step; content anchor; execution-valid (anchor); meaning-class vs
-  expression-only (the REQ-A3.3 axis).
-  Plus the format conventions: the spec-identifier charset (REQ-A1.8), the
-  path-placeholder style (angle brackets: `<spec>`, `<id>`), the superseding-REQ
-  placement rule (a superseding REQ sits adjacent to the REQ it supersedes, e.g.
-  B2.4 beside B2.1), the amendment-annotation format (`*(Amended at <event>
-  <date>: …)*`), the amendment-ritual scope rule (pre-merge corrections on the
-  spec's own PR amend in place with a changelog entry + recorded re-sign-off;
-  the REQ-A3.3 supersede ritual governs post-merge changes), the
-  underscore-prefix marker for non-spec accumulator directories (REQ-A1.8),
-  the canonical tasks.md definition-content extraction for the content anchor
-  (REQ-F1.9), the sign-off record format (Class / self-describing Anchor /
-  Lens-pass fields and the sanctioned command forms, REQ-F1.10),
-  and the validator-enforceable invariants. Bring this bundle into
-  format conformance (backfill per-REQ citations).
-- **Done when:** The meta-spec fully specifies the format this very bundle conforms to
-  (including backfilled citations); a reader could author a compliant bundle from it
-  alone; the kickoff brief structure and glossary are specified.
-- **Dependencies:** none
-- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2
-- **Estimated effort:** 1.5 days
-
 ### Task 5 — Status-aware validator
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
@@ -404,6 +372,42 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
   branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
+
+### Task 4 — Four-file format meta-spec
+
+- **Deliverables:** The canonical four-file format meta-spec: required fields per file,
+  REQ-ID / D-ID conventions, citation syntax and lightweight citation kinds (e.g.
+  "drafting-session decision"), the per-task required fields, the five-status lifecycle
+  with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
+  declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
+  a glossary of framework vocabulary covering at minimum: the three senses of gate;
+  unit; drain; accumulator; adopter; brief; bucket; tower (the dispatching session);
+  the observations log (canonical name for `specs/_observations/opportunities.md`);
+  dispatch step; content anchor; execution-valid (anchor); meaning-class vs
+  expression-only (the REQ-A3.3 axis).
+  Plus the format conventions: the spec-identifier charset (REQ-A1.8), the
+  path-placeholder style (angle brackets: `<spec>`, `<id>`), the superseding-REQ
+  placement rule (a superseding REQ sits adjacent to the REQ it supersedes, e.g.
+  B2.4 beside B2.1), the amendment-annotation format (`*(Amended at <event>
+  <date>: …)*`), the amendment-ritual scope rule (pre-merge corrections on the
+  spec's own PR amend in place with a changelog entry + recorded re-sign-off;
+  the REQ-A3.3 supersede ritual governs post-merge changes), the
+  underscore-prefix marker for non-spec accumulator directories (REQ-A1.8),
+  the canonical tasks.md definition-content extraction for the content anchor
+  (REQ-F1.9), the sign-off record format (Class / self-describing Anchor /
+  Lens-pass fields and the sanctioned command forms, REQ-F1.10),
+  and the validator-enforceable invariants. Bring this bundle into
+  format conformance (backfill per-REQ citations).
+- **Done when:** The meta-spec fully specifies the format this very bundle conforms to
+  (including backfilled citations); a reader could author a compliant bundle from it
+  alone; the kickoff brief structure and glossary are specified.
+- **Dependencies:** none
+- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
+  branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
 
 ## Awaiting input
 
