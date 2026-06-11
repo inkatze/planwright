@@ -37,7 +37,7 @@ usually sits on, and why.
 
 ## Lifecycle wiring
 
-The catalog is consulted at three points (REQ-G1.4, D-15):
+The catalog is consulted at three points (REQ-G1.4, D-39):
 
 - **`/spec-draft`, design phase.** Entries whose triggers match the
   feature being drafted are surfaced so the spec decides them instead of
@@ -80,7 +80,7 @@ paths:
 - **Disposition.** Additive changes the brief already decides proceed,
   citing it. New stores and shape changes to existing data escalate: the
   storage model outlives the feature that introduced it, and migrations
-  sit in a hard-pause zone.
+  sit in a hard-disqualifier zone.
 
 ### 2. Caching
 
@@ -198,8 +198,8 @@ paths:
   old and new code coexist; the irreversible step and what is verified
   before it; data-loss windows; whether a flag can decouple deploy from
   release.
-- **Disposition.** Migrations and destructive operations are a hard-pause
-  zone: the rollout plan itself escalates, every time. The agent prepares
+- **Disposition.** Migrations and destructive operations are a
+  hard-disqualifier zone: the rollout plan itself escalates, every time. The agent prepares
   the migration, states the ordering and rollback plan, and stops; a
   human directs the irreversible step.
 
