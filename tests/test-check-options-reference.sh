@@ -43,6 +43,16 @@ EOF
 /bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/reference.md" >/dev/null
 assert "documented option passes" 0 $?
 
+# 2b. Fixture: cosmetic cell padding in the reference table does not break
+#     recognition (the checker tests coverage, not whitespace style).
+cat > "$tmp/reference-padded.md" <<'EOF'
+| Option | Default | Effect | Consumed by |
+| --- | --- | --- | --- |
+|  `documented_option`  | `true` | Padded row. | `/example` |
+EOF
+/bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/reference-padded.md" >/dev/null 2>&1
+assert "padded reference row is recognized" 0 $?
+
 # 3. Fixture: a seeded undocumented option fails and is named in the output
 #    (the REQ-K1.8 seeded-violation fixture).
 cat > "$tmp/config-bad.yml" <<'EOF'

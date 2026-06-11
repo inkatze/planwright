@@ -32,8 +32,9 @@ fi
 config_keys="$(sed -n 's/^\([a-z0-9_]*\):.*/\1/p' "$config")"
 
 # Documented options: table rows whose first cell is the backticked name.
+# Cell padding is tolerated: the check is coverage, not whitespace style.
 # shellcheck disable=SC2016 # the backtick is literal markdown, not expansion
-documented_keys="$(sed -n 's/^| `\([a-z0-9_]*\)` |.*/\1/p' "$reference")"
+documented_keys="$(sed -n 's/^|[[:space:]]*`\([a-z0-9_]*\)`[[:space:]]*|.*/\1/p' "$reference")"
 
 status=0
 
