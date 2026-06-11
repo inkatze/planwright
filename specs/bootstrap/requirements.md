@@ -72,11 +72,13 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   pointer).
 - **REQ-A1.7** Each spec bundle SHALL declare the format-version it targets; the
   validator keys its rules off that version.
-- **REQ-A1.8** *(added 2026-06-10, polish amendment)* Spec directory identifiers
-  (the `<spec>` segment used in `specs/<spec>/`, branch names, worktree paths, lock
-  paths, and printed launch commands) SHALL match `[a-z0-9][a-z0-9-]*`; the
-  validator SHALL enforce the charset, and no skill or hook SHALL interpolate an
-  identifier that fails it into a path or command.
+- **REQ-A1.8** *(Added at polish review 2026-06-10; tightened at self-review
+  2026-06-10.)* Spec directory identifiers (the `<spec>` segment used in
+  `specs/<spec>/`, branch names, worktree paths, lock paths, and printed launch
+  commands) SHALL match the anchored, full-string pattern `^[a-z0-9][a-z0-9-]*$`
+  (substring matching is non-conforming) with a maximum length of 64; the
+  validator SHALL enforce the charset and length, and no skill or hook SHALL
+  interpolate an identifier that fails them into a path or command.
 - **REQ-A2.1** planwright SHALL ship a status-aware validator enforcing the
   meta-spec's structural invariants: warnings on Draft, errors (block execution) on
   Active.
@@ -238,14 +240,24 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   the next ready unit, create or reuse a worktree, dispatch `/execute-task`, update
   `tasks.md`, exit the step. One unit (single task or one cohesion-bundle) per
   step; a watch loop / control tower MAY take multiple steps per session, each
-  step individually atomic. *(Amended 2026-06-10, polish amendment)* The reconcile
-  sweep SHALL move a task that is In progress with no live worker and no open PR
-  to Awaiting input with an orphan note; it SHALL NOT leave it In progress or
-  auto-re-dispatch it.
+  step individually atomic. *(Amended at polish review 2026-06-10; predicate
+  tightened at self-review 2026-06-10.)* In-progress entries SHALL record
+  dispatch metadata (backend, dispatch timestamp, worker handle/window name where
+  the backend has one). The reconcile sweep SHALL first reconcile PR state (a PR
+  in any state for the unit's branch takes precedence: merged → Completed, open →
+  leave In progress); only then MAY it orphan a task, and only when all of: the
+  entry is older than a grace threshold (default: the stale-lock threshold,
+  D-10), the backend's liveness is observable from this session (subagent / tmux
+  / in-session — print-backend units are exempt: their liveness is unknowable
+  until a PR exists, so they age out only via the threshold plus a human
+  confirm), and there is positive evidence of death (the recorded worker
+  handle/window is gone, not merely unobserved). An orphaned task moves to
+  Awaiting input with an orphan note; it SHALL NOT be left In progress silently
+  or auto-re-dispatched.
 - **REQ-F1.2** A ready task SHALL be one whose dependencies are all Completed and
   which is not In progress or Awaiting input. Among ready units, selection SHALL
-  prefer the head of the longest dependent chain (critical-path-first), FIFO on
-  ties.
+  prefer the head of the longest dependent chain weighted by estimated effort
+  (critical-path-first), FIFO on ties.
 - **REQ-F1.3** `/orchestrate` SHALL use a per-spec advisory lock held only during
   state-changing moves, with a stale-lock break threshold.
 - **REQ-F1.4** `/orchestrate` SHALL refuse to act on a non-Active spec and SHALL NOT
@@ -273,7 +285,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   regardless of launch mechanism); a clean current worktree MAY be reused after
   a one-line confirm (attended only). *(Note, 2026-06-10: this REQ deliberately
   bundles the dispatch-machinery obligations as one ID; sub-clauses are pinned
-  individually by the test-spec F1.8 entry.)*
+  across the test-spec F1.8, F1.1, and K1.4 entries.)*
 - **REQ-F2.1** `/resume` SHALL be a read-only context loader (kickoff brief +
   `tasks.md` + git log + PR state + optional handover brief); it SHALL surface
   uncommitted changes and ask before proceeding.
@@ -325,10 +337,18 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   ritual.
 - **REQ-H1.3** Deferrals SHALL be recorded as structured `GATE(when: …)` entries inline
   in the relevant file; condition gates are preferred over date gates; date gates SHALL
-  only surface, never hard-fail. *(Amended 2026-06-10, polish amendment)* Gate
-  conditions SHALL use a closed declarative grammar (task-ID references, spec
-  statuses, and ISO dates only), parsed by pattern match; the evaluator SHALL
-  never pass gate content to `eval`, a subshell, or arithmetic expansion.
+  only surface, never hard-fail. *(Amended at polish review 2026-06-10; grammar
+  pinned at self-review 2026-06-10.)* Gate conditions SHALL use a closed
+  declarative grammar — atoms are task-ID references, spec statuses, and ISO
+  dates; the only combinator is `and` of atoms; any other condition is written as
+  a free-text surface-only gate (same lane as date gates: surfaced, never
+  evaluated). Productions live in the accumulator-taxonomy doctrine doc
+  (Task 10). The evaluator SHALL parse by pattern match and SHALL treat gate
+  content as data only: never passed to `eval`, a subshell, or arithmetic
+  expansion; never used as a pattern, format string, or unquoted argument
+  (`--` discipline); control characters stripped when echoed. A malformed gate
+  surfaces as a drain-report-level error (the pass completes; nothing blocks)
+  and is never silently skipped.
 - **REQ-H1.4** A bookkeeping drain pass SHALL evaluate open gates and re-surface
   satisfied items; it SHALL NOT auto-resolve or auto-drop. The same evaluator SHALL be
   exposed as an on-demand `/drain` move. The pass SHALL surface the observations
@@ -372,10 +392,13 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   without human confirmation.
 - **REQ-K1.2** planwright SHALL wire a PostToolUse hook that syncs `tasks.md` sections on
   `gh pr create` / `gh pr merge`, parsing the branch-naming convention. *(Amended
-  2026-06-10, polish amendment)* Parsed `<spec>` and `<id>` segments SHALL be
-  validated against the REQ-A1.8 charset (no `/`, no `..`) before any path use, and
-  the resolved `tasks.md` path SHALL be containment-checked under `specs/`; a
-  branch failing validation is a clean no-op.
+  at polish review 2026-06-10; id grammar split out at self-review 2026-06-10.)*
+  Before any path use, the parsed `<spec>` segment SHALL be validated against the
+  REQ-A1.8 pattern and the parsed `<id>` segment against the task-id grammar
+  `^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$` (per D-36: `3`, `3.5`, `3-4`); the
+  resolved `tasks.md` path SHALL be containment-checked under
+  `<repo-toplevel>/specs/` after canonicalization (symlink-resolved prefix
+  check); a branch failing validation is a clean no-op.
 - **REQ-K1.3** planwright SHALL wire a SessionStart tool-discovery hook that detects a
   project's linters/formatters/type-checkers and feeds Discovery Rigor and the builder.
 - **REQ-K1.4** planwright SHALL define a branch-naming convention parseable by the sync
@@ -387,11 +410,12 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   non-GitHub hosts are out of v1 scope.
 - **REQ-K1.7** Skills SHALL degrade gracefully on missing prerequisites (not a git repo,
   no git remote, validator or `gh` absent), surfacing a clear message rather than
-  failing opaquely. *(Amended 2026-06-10, polish amendment)* Precedence vs
-  REQ-A2.1: on execution paths (`/orchestrate`, `/execute-task`) a missing
-  validator is a halt with a clear message (fail closed — the block-execution
-  guarantee survives); graceful degradation applies to authoring and read-only
-  paths.
+  failing opaquely. *(Amended at polish review 2026-06-10; scope refined at
+  self-review 2026-06-10.)* Precedence vs REQ-A2.1: on dispatch steps
+  (`/orchestrate` step execution, `/execute-task`) a missing validator is a halt
+  with a clear message (fail closed — the block-execution guarantee survives);
+  graceful degradation applies to authoring and read-only paths and to
+  non-dispatching modes (`/orchestrate --bookkeeping`, `/drain`, `/resume`).
 - **REQ-K1.8** Every config option SHALL be documented in a single canonical
   options reference (name, default, effect, consuming skill); planwright's own
   CI SHALL fail when an option in the tracked default config lacks a reference
@@ -416,6 +440,15 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   closed grammar (H1.3), orphaned-In-progress disposition (F1.1), validator-absent
   fail-closed precedence (K1.7). Plus I1.4 restated as a cross-reference to D2.2
   and an F1.8 deliberate-bundling note (no normative change).
+- 2026-06-10 (post-activation amendment, self-review pass; Amendment 3 in the
+  kickoff brief) — corrections to the polish amendments: A1.8 anchored
+  full-string pattern + 64-char length bound; K1.2 task-id grammar split from
+  A1.8 (dotted ids per D-36 are valid) + canonicalized containment semantics;
+  H1.3 grammar productions pinned (and-of-atoms, surface-only prose lane) +
+  data-only handling + malformed-gate disposition made normative; F1.1 orphan
+  predicate tightened (dispatch metadata, PR-state precedence, grace threshold,
+  print-backend exemption, positive evidence of death); K1.7 fail-closed scoped
+  to dispatch steps; F1.2 effort-weighted selection made explicit.
 
 ## Sources
 
