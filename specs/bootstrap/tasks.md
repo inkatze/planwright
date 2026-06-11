@@ -32,21 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 2 — Self-hosting: quality guards & CI
-
-- **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
-  `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
-  cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
-  runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
-  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
-  the options-reference drift check (fail on an undocumented config option, D-43).
-- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
-  (including a seeded undocumented config option); all subsequent tasks merge only under
-  green CI.
-- **Dependencies:** 1
-- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
-- **Estimated effort:** 1 day
-
 ### Task 5 — Status-aware validator
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
@@ -341,6 +326,25 @@ intelligence migration) dispatches first.
   branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
 
 ## In progress
+
+### Task 2 — Self-hosting: quality guards & CI
+
+- **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
+  `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
+  cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
+  runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
+  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
+  the options-reference drift check (fail on an undocumented config option, D-43).
+- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
+  (including a seeded undocumented config option); all subsequent tasks merge only under
+  green CI.
+- **Dependencies:** 1
+- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
+  branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
 
 ### Task 4 — Four-file format meta-spec
 

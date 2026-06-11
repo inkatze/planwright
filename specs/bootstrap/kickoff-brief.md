@@ -1081,3 +1081,19 @@ Anchor: `13c2af6516317a653052e66003b4b80f6188e432` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 2 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-2`, branch `planwright/bootstrap/task-2`). Ready via
+Task 1's completion (PR #3 merged); the only ready unit. Active workers after
+this dispatch: 1 of 3. Same orchestration-state-placement rationale as the
+entries above. Pre-move anchor `13c2af6516317a653052e66003b4b80f6188e432`
+verified matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `537f766561128b077646bb573fb73fc98f0404c9` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
