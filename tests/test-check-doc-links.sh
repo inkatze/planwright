@@ -103,6 +103,19 @@ assert "existing directory target passes" 0 $?
 /bin/bash "$CHECKER" "$tmp/no-such-input.md" >/dev/null 2>&1
 assert "missing input file is a usage error" 2 $?
 
+# 8b. An unreadable input file is also a usage error: a file the checker
+#     could not scan must not be reported as "all targets resolve".
+#     (Skipped under root, where mode 000 is still readable.)
+if [ "$(id -u)" -ne 0 ]; then
+  cat >"$tmp/unreadable.md" <<'EOF'
+[link](target.md)
+EOF
+  chmod 000 "$tmp/unreadable.md"
+  /bin/bash "$CHECKER" "$tmp/unreadable.md" >/dev/null 2>&1
+  assert "unreadable input file is a usage error" 2 $?
+  chmod 644 "$tmp/unreadable.md"
+fi
+
 # 9. A hostile CDPATH must not corrupt the default-set repo-root derivation
 #    (mirrors the options-reference checker's guard).
 mkdir -p "$tmp/decoy/scripts"

@@ -47,6 +47,11 @@ for f in "${files[@]}"; do
     echo "check-doc-links: input file not found: $f" >&2
     exit 2
   fi
+  # A file the checker cannot scan must not be reported as "all resolve".
+  if [ ! -r "$f" ]; then
+    echo "check-doc-links: input file not readable: $f" >&2
+    exit 2
+  fi
 done
 
 status=0
