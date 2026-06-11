@@ -1,5 +1,5 @@
 # planwright editor/formatter baseline. shfmt reads the [*.sh] keys natively
-# (its sanctioned config channel), so `mise run fmt:shell` needs no flags and
+# (its sanctioned config channel), so `mise run lint:fmt` needs no flags and
 # editors agree with CI. Style: 2-space indent, indented case branches,
 # binary operators (| && ||) lead continuation lines. Redirect spacing
 # follows shfmt's default (no space after the operator) — recorded per the

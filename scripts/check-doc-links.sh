@@ -62,7 +62,9 @@ for f in "${files[@]}"; do
   # Each inline link's target: grep -o isolates every [text](target) on a
   # line, sed keeps the parenthesized part. Targets contain no spaces or
   # nested parens in this repo's prose; both are documented constraints.
-  targets="$(grep -o '\[[^]]*\]([^)]*)' "$f" 2>/dev/null \
+  # -a forces text mode so a stray NUL byte does not make grep emit
+  # "Binary file ... matches" as a bogus target.
+  targets="$(grep -a -o '\[[^]]*\]([^)]*)' "$f" 2>/dev/null \
     | sed 's/^\[[^]]*\](\([^)]*\))$/\1/')"
   [ -z "$targets" ] && continue
   while IFS= read -r target; do

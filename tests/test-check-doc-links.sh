@@ -91,6 +91,19 @@ case "$out" in
     ;;
 esac
 
+# 6b. Fixture: a NUL byte in the file does not turn grep into binary mode and
+#     emit a "Binary file ... matches" pseudo-target. The link still resolves.
+printf '\000[ok](target.md)\000\n' >"$tmp/sub/withnul.md"
+out="$(/bin/bash "$CHECKER" "$tmp/sub/withnul.md" 2>&1)"
+assert "NUL byte does not produce a binary-mode pseudo-target" 0 $?
+case "$out" in
+  *"Binary file"*)
+    echo "FAIL: binary-mode message leaked as a target: $out" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: no binary-mode pseudo-target" ;;
+esac
+
 # 7. A directory target (e.g. a link to a folder) resolves if it exists.
 cat >"$tmp/sub/dirlink.md" <<'EOF'
 See [the directory](../sub).
