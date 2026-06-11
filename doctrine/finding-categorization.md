@@ -149,6 +149,9 @@ Exactly two things interrupt a loop mid-flight; nothing else does.
 2. **Irreducible Needs-human-judgment forks** that block further progress on
    the unit (forks that do not block continue to loop end and queue there).
 
+A pause hands the disposition to the human: a zone finding's recommended fix
+is not applied until the human directs it, however clear the fix looks.
+
 Everything else flows through the gate without interrupting: applied,
 resolved with evidence, applied pending sign-off, declined with rationale, or
 queued for loop end.

@@ -38,8 +38,8 @@ Consult in this order, descending in authority:
    most honest usage examples.
 3. **Issue trackers and RFCs.** Known bugs, design intent, edge-case
    discussions.
-4. **Community posts.** Blog posts, Q&A threads, last: useful for leads,
-   never authoritative alone.
+4. **Community posts.** Blog posts and Q&A threads, last in the hierarchy:
+   useful for leads, never authoritative alone.
 
 ## Recency discipline
 
