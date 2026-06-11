@@ -1,12 +1,20 @@
-# planwright doctrine
+# planwright Doctrine
 
-This directory holds planwright's externalized rule docs: the framework
-doctrine that skills reference at runtime instead of inlining (REQ-D1.4,
-REQ-I1.1). The doctrine docs themselves (Discovery Rigor, Validation Rigor,
-Refactor Instinct, Research Rigor, Security posture, Finding Categorization,
-the composability principle, engineering doctrine) land with the intelligence
-migration and doctrine tasks; this file pins the resolution convention they
-ship under.
+These documents are planwright's framework doctrine: the rules its skills apply
+at runtime. They are owned by planwright, not by any adopter's personal
+configuration (REQ-D1.4). Skills reference them via the stable rule-doc
+resolution path defined below (REQ-I1.1, D-24).
+
+| Doc | Covers | Primary citations |
+| --- | --- | --- |
+| [finding-categorization.md](finding-categorization.md) | The four finding buckets, their predicates, and the act-then-review autonomy gate | REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 |
+| [discovery-rigor.md](discovery-rigor.md) | Making the finding list complete: lens checklist, coverage table, tool-grounded discovery, fan-out, self-critique | REQ-D1.1 |
+| [validation-rigor.md](validation-rigor.md) | Confirming findings are real (three passes) and solutions are right (including the altitude check) | REQ-D1.2 |
+| [refactor-instinct.md](refactor-instinct.md) | Small continuous refactors; low bar in implementation mode, high bar in review mode | REQ-D1.3 |
+| [research-rigor.md](research-rigor.md) | When and how to research: triggers, source hierarchy, recency discipline, antipattern check, risk-register recording | REQ-D1.5 |
+| [security-posture.md](security-posture.md) | Write-time security triggers, artifact data-hygiene, framework-script security | REQ-D1.6 |
+| [proportionality.md](proportionality.md) | Rigor scales with stake and reversibility; scoping must be declared | REQ-D1.7 |
+| [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
 
 ## Resolution convention
 
@@ -32,9 +40,23 @@ is formed) and prints the resolved path; prefer it over hand-building paths.
 Doc names are kebab-case basenames without the `.md` suffix, e.g.
 `discovery-rigor`, `finding-categorization`.
 
-## Adopter extensions
+## How the docs relate
 
-Adopters supply project-specific tooling and rigor without editing these core
-docs (REQ-D2.2): project-level conventions live in the adopting repo (its
-`CLAUDE.md`, config, and local override), not here. Core docs change only
-through planwright's own spec flow.
+[Discovery Rigor](discovery-rigor.md) produces the finding list.
+[Validation Rigor](validation-rigor.md) confirms each finding and each fix.
+[Finding Categorization](finding-categorization.md) routes confirmed findings
+through the autonomy gate that decides what the agent applies versus what
+waits for the human. [Research Rigor](research-rigor.md) and the
+[Security Posture](security-posture.md) fire on their triggers at any point in
+that flow. [Refactor Instinct](refactor-instinct.md) and
+[Composability](composability.md) shape the code being written.
+[Proportionality](proportionality.md) governs how strictly all of the above
+scale with what is at stake.
+
+## Adopter extension
+
+Adopters supply project-specific tooling and rigor through their own project
+configuration (project memory files, the tool-discovery hook's detected
+toolchain, project config for thresholds and toggles), never by editing these
+docs (REQ-D2.2). The docs define the framework's invariant behavior; the
+project supplies the ground the behavior runs on.
