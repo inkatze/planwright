@@ -1,7 +1,7 @@
 # planwright Bootstrap — Test Spec
 
 **Status:** Active
-**Last reviewed:** 2026-06-10
+**Last reviewed:** 2026-06-11
 **Format-version:** 1
 
 Every REQ is pinned to at least one verification path. Types: **test** (automated),
@@ -53,7 +53,11 @@ version.
 Validator fixture: a spec directory whose identifier fails the anchored
 `^[a-z0-9][a-z0-9-]*$` or the 64-char bound is flagged; mixed fixtures (a hostile
 identifier *containing* a valid run, e.g. `good-name/../escape`) confirm full-string
-matching, not substring. Hook fixtures (see REQ-K1.2) confirm hostile identifiers
+matching, not substring; an underscore-prefixed accumulator directory
+(`_observations/`) is skipped as a bundle but its name is still screened
+(`^_[a-z0-9][a-z0-9-]*$`; a hostile `_foo;rm` is flagged); a hostile identifier
+sourced from an accumulator seed (e.g. an `_observations` entry proposing
+`../escape`) is re-validated and refused at consumption before interpolation. Hook fixtures (see REQ-K1.2) confirm hostile identifiers
 never reach a path or command. Manual: a skill invoked with a hostile identifier
 (`../escape`, `foo;rm`) — `/spec-draft` creating `specs/<spec>/` and its branch,
 `/orchestrate` forming worktree/lock paths or a printed launch command — refuses
@@ -83,8 +87,10 @@ old) passes.
 
 ### REQ-A3.3 — Amendment ritual [manual]
 
-An expression-only edit needs only a dated Changelog entry (no re-approval); a
-decision-contradicting edit triggers supersede + scoped kickoff re-sign-off.
+An expression-only edit needs only a dated Changelog entry (no re-approval; plus
+the marked self-re-anchor per REQ-F1.10); a decision-contradicting edit triggers
+supersede + scoped kickoff re-sign-off — post-merge; a pre-merge correction on
+the spec's own PR amends in place with changelog + recorded re-sign-off.
 
 ### REQ-A3.4 — Fold-vs-new rule [design-level]
 
@@ -300,6 +306,34 @@ entries; `max_parallel_units` is respected; `tasks.md` state moves are auto-comm
 routine unit without permission prompts under the shipped worker-settings profile; the
 clean-worktree reuse confirm appears in attended mode only; tmux worker prompts are
 detected via capture-pane and never answered via send-keys.
+
+### REQ-F1.9 — Execution freshness gate [test]
+
+Fixtures: a bundle matching the brief's most recent content anchor → the dispatch
+step proceeds. One spec file modified after the anchor (committed or uncommitted)
+→ `/orchestrate`'s dispatch step and `/execute-task` both halt to Awaiting input
+naming the `/spec-kickoff` delta re-walkthrough as the remedy. An orchestrate
+state move (section membership, dispatch metadata) does NOT change the anchor;
+an edited Done-when does. No anchor entry / an unparseable entry / a
+non-sanctioned computation command → both halt (fail closed) naming the
+REQ-F1.10 repair remedy. A fresh, valid anchor written by a sign-off or
+re-walkthrough → dispatch proceeds again. First-activation sign-off and an
+in-place amendment each write a recomputable anchor. A lagging worktree whose
+self-consistent brief/spec pair diverges from main's halts. Anchor
+recomputation per the entry's recorded command is deterministic.
+
+### REQ-F1.10 — Sign-off record format & anchor validity [test]
+
+Parse fixtures: a meaning-class entry with Class + Anchor + Lens-pass parses as
+execution-valid; a meaning-class entry with no Lens-pass reference is invalid
+(both skills halt as on mismatch); an expression-only entry explicitly marked
+`Class: expression-only` citing a changelog line is valid with no lens pass; an
+entry using a non-sanctioned command form is invalid; an anchor-bearing edit
+from an execution skill's write path (not the kickoff flow or the marked
+expression-only ritual) is rejected/flagged. Manual: a killed `/spec-kickoff`
+session that wrote the sign-off record but not the anchor line leaves a record
+the gate treats as absent-anchor (fail closed) — the anchor-written-last
+ordering is observable.
 
 ### REQ-F2.1 — `/resume` read-only + surface uncommitted [manual]
 

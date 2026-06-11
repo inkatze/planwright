@@ -1,7 +1,7 @@
 # planwright Bootstrap — Tasks
 
 **Status:** Active
-**Last reviewed:** 2026-06-10
+**Last reviewed:** 2026-06-11
 **Format-version:** 1
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
@@ -91,12 +91,21 @@ intelligence migration) dispatches first.
   declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
   a glossary of framework vocabulary covering at minimum: the three senses of gate;
   unit; drain; accumulator; adopter; brief; bucket; tower (the dispatching session);
-  the observations log (canonical name for `specs/_observations/opportunities.md`).
+  the observations log (canonical name for `specs/_observations/opportunities.md`);
+  dispatch step; content anchor; execution-valid (anchor); meaning-class vs
+  expression-only (the REQ-A3.3 axis).
   Plus the format conventions: the spec-identifier charset (REQ-A1.8), the
   path-placeholder style (angle brackets: `<spec>`, `<id>`), the superseding-REQ
   placement rule (a superseding REQ sits adjacent to the REQ it supersedes, e.g.
   B2.4 beside B2.1), the amendment-annotation format (`*(Amended at <event>
-  <date>: …)*`), and the validator-enforceable invariants. Bring this bundle into
+  <date>: …)*`), the amendment-ritual scope rule (pre-merge corrections on the
+  spec's own PR amend in place with a changelog entry + recorded re-sign-off;
+  the REQ-A3.3 supersede ritual governs post-merge changes), the
+  underscore-prefix marker for non-spec accumulator directories (REQ-A1.8),
+  the canonical tasks.md definition-content extraction for the content anchor
+  (REQ-F1.9), the sign-off record format (Class / self-describing Anchor /
+  Lens-pass fields and the sanctioned command forms, REQ-F1.10),
+  and the validator-enforceable invariants. Bring this bundle into
   format conformance (backfill per-REQ citations).
 - **Done when:** The meta-spec fully specifies the format this very bundle conforms to
   (including backfilled citations); a reader could author a compliant bundle from it
@@ -109,7 +118,8 @@ intelligence migration) dispatches first.
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
   structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
-  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8);
+  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8,
+  skipping underscore-prefixed accumulator directories);
   status-aware across all five statuses (warnings on Draft,
   errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
   Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
@@ -182,15 +192,23 @@ intelligence migration) dispatches first.
   brief + flip (`commit_on_kickoff` opt-out, D-41); push of the spec branch + draft PR
   (REQ-B2.4, D-44), degrading gracefully on no remote / `gh` failure (Awaiting-input note,
   local work intact); spec-worktree reuse/recreate per D-44 (including recreating a pruned
-  worktree from the spec branch); `Last reviewed:` update; the self-healing maintenance
-  footer (REQ-B3.2).
+  worktree from the spec branch); `Last reviewed:` update; the sign-off content anchor
+  written on every sign-off, amendment, and re-walkthrough per the REQ-F1.10 record
+  format, anchor line written last (REQ-F1.9, D-45); the Discovery-Rigor lens review
+  pass as part of sign-off (fan-out per Discovery Rigor for non-trivial deltas; full
+  bundle at first activation, delta-scoped at re-walkthroughs and amendments, skipped
+  for expression-only changes per REQ-A3.3), findings dispositioned and the pass
+  recorded in the brief; the self-healing maintenance footer (REQ-B3.2).
 - **Done when:** A walkthrough produces a signed brief, flips the spec Active, commits,
   pushes, and opens a draft PR (or records the degradation note when no remote exists);
-  launching from main, the spec worktree, or an unrelated worktree each resolves
+  every sign-off carries a recomputable content anchor in the REQ-F1.10 format; a
+  meaning-class sign-off without a dispositioned lens pass refuses to record an
+  execution-valid anchor; launching from main, the spec
+  worktree, or an unrelated worktree each resolves
   gracefully; a seeded contradiction halts without a brief; a killed session leaves a
   resumable partial brief.
 - **Dependencies:** 4, 5
-- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-G1.4, REQ-K1.7
+- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
 - **Estimated effort:** 1 day
 
 ### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
@@ -233,12 +251,19 @@ intelligence migration) dispatches first.
   triggers (REQ-G1.8); risk-register recording of research/perf/security tradeoffs;
   in-flight amendment per the axis (D-19); `/polish` convergence; draft PR referencing
   brief/tasks/REQs/tests and carrying the pending-sign-off checklist (REQ-E1.5);
-  observation writing; the self-healing maintenance footer (REQ-B3.2).
+  the execution freshness gate at pre-flight (anchor recompute against main's brief
+  per the entry's recorded command; halt on mismatch or on an absent/unparseable/
+  non-sanctioned entry, REQ-F1.9/F1.10/D-45); the marked expression-only
+  self-re-anchor entry after in-flight expression fixes (REQ-F1.10); observation
+  writing; the self-healing maintenance footer (REQ-B3.2).
 - **Done when:** A task is implemented test-first (failing test precedes impl, ends green);
   transient CI retries and logic failures escalate; a research trigger produces a
-  risk-register entry; a draft PR is opened referencing the brief with the checklist.
+  risk-register entry; a spec changed since the brief's last anchor (or an invalid
+  anchor entry) halts with the REQ-F1.9 remedy named; an in-flight expression-only
+  fix leaves a marked self-re-anchor entry; a draft PR is opened referencing the
+  brief with the checklist.
 - **Dependencies:** 9, 11
-- **Citations:** D-11, D-19, D-39, D-42 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-G1.8, REQ-J1.4, REQ-K1.7
+- **Citations:** D-11, D-19, D-39, D-42, D-45 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-F1.9, REQ-F1.10, REQ-G1.8, REQ-J1.4, REQ-K1.7
 - **Estimated effort:** 1.5 days
 
 ### Task 13 — `/orchestrate`
@@ -253,7 +278,11 @@ intelligence migration) dispatches first.
   `claude --worktree` mechanics (D-37); auto-commit of `tasks.md` state moves (D-41);
   halt-to-Awaiting-input; draft-PR-only; the `--bookkeeping` drain pass (gate evaluation +
   out-of-session merge reconciliation + observation-staleness surfacing per REQ-H1.4);
-  refusal on non-Active specs with no auto-chain; the self-healing maintenance footer
+  refusal on non-Active specs with no auto-chain; the execution freshness gate inside
+  the D-10 lock window immediately before the `tasks.md` update (anchor recompute per
+  the entry's recorded command against the primary checkout's main view; halt to
+  Awaiting input on mismatch or on an absent/unparseable/non-sanctioned entry,
+  REQ-F1.9/F1.10/D-45); the self-healing maintenance footer
   (REQ-B3.2).
 - **Done when:** One step advances exactly one ready unit; concurrent invocations don't
   collide; a non-Active spec halts with a kickoff prompt; each backend dispatches a worker
@@ -262,10 +291,13 @@ intelligence migration) dispatches first.
   grace threshold; observable backend; positive evidence of death; print-backend
   exempt) to Awaiting input with an orphan note; a missing validator halts a dispatch
   step with a clear message (REQ-K1.7); unattended mode records prompts as
-  Awaiting-input entries; `--bookkeeping` re-surfaces satisfied gates without
-  auto-dropping.
+  Awaiting-input entries; a spec changed since the brief's last anchor (or an
+  invalid anchor entry) halts the dispatch step with the REQ-F1.9 remedy named;
+  an orchestrate state move does not change the anchor while an edited Done-when
+  does; `--bookkeeping` re-surfaces satisfied gates
+  without auto-dropping.
 - **Dependencies:** 5, 6, 10, 12
-- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
+- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41, D-45 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-F1.9, REQ-F1.10, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
 - **Estimated effort:** 3 days
 
 ### Task 14 — `/resume`

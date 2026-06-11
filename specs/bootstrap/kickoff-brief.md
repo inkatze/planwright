@@ -522,6 +522,10 @@ shipped code (nothing is implemented yet).
   bundles).
 - Gate sweep excludes terminal (Retired/Superseded) specs; migrate or close
   open gates at retirement/supersession.
+- *(Added at Amendment 5 2026-06-11.)* Parallel in-flight amendment anchors
+  under merge: two branches each appending anchor entries leaves "most recent"
+  merge-order-ambiguous and neither anchor matching merged main; define
+  provisional anchors + a post-merge re-anchor step (bookkeeping prompt).
 
 ## Amendment 3 — Self-review corrections to the polish amendments (2026-06-10)
 
@@ -572,3 +576,134 @@ A1.8, K1.2, F1.1, F1.2, F1.8, D1.6, H1.3, K1.7, cross-ref stubs), this brief,
 
 **Scoped re-sign-off: 2026-06-10** (workflow: apply-all-23 + tighten-predicate,
 both human-selected in session).
+
+## Delta re-walkthrough (2026-06-11)
+
+Scope: `/spec-kickoff` over the post-sign-off amendment delta (commits ed21005,
+3bd60b1 — Amendments 2/3). Pair-flow D-51's literal wholesale trigger fired
+(requirements + design changed in the same commits) but the human chose a delta
+walk: both
+commits co-amended this brief in lockstep with recorded scoped re-sign-offs, so
+the brief was never stale. Validator: 0 errors, 0 warnings on Active, before
+and after. Section 1 unchanged (anchor context).
+
+Decisions taken during the walk:
+
+1. **Amendment-ritual scope (REQ-A3.3 compliance).** The in-place meaning
+   changes in Amendments 2/3 are compliant as **pre-merge corrections**: the
+   spec PR (#1) is unmerged, so the supersede ritual — which governs post-merge
+   changes — does not apply; pre-merge corrections on the spec's own PR amend
+   in place with a changelog entry + recorded re-sign-off. Codified as a Task 4
+   meta-spec convention so the question never recurs.
+2. **Underscore accumulator exemption (REQ-A1.8).** `_pending/` and
+   `_observations/` failed the new charset. Resolved: leading underscore is the
+   reserved non-spec-accumulator marker — exempt from the charset, never
+   validated as bundles. A1.8 amended; Task 5 validator skip rule; test-spec
+   fixture added.
+3. **Grace-threshold coupling accepted.** The orphan grace default stays tied
+   to D-10's 15-min stale-lock threshold (one named knob); accepted risk, T1's
+   options reference can split them if field experience demands.
+
+Per-section outcomes: S2 (8 REQs restated; two red-lines above applied);
+S3 (13 design items; D-17 and D-38 meaning changes confirmed sound — D-17's
+narrowing strengthens its no-write-only-deferral promise); S4 (all amended
+clauses pinned; A1.8 manual fixture defers to T18's sweep by design); S5
+(layered graph re-verified against Dependencies; T3-first effort-weighted
+critical path confirmed; no unstated dependencies); S6 (new accepted risks:
+grace coupling, print-backend orphan latency, In-progress dispatch-metadata
+format is a Task 4 deliverable T13 depends on).
+
+Edits applied during the walk: requirements.md (A1.8 underscore exemption),
+tasks.md (Task 4 conventions: amendment-ritual scope + underscore marker;
+Task 5 skip rule), test-spec.md (A1.8 underscore fixture).
+
+Signed off: 2026-06-11
+
+## Amendment 4 — Execution freshness gate (2026-06-11, pre-merge class)
+
+Trigger: a human near-miss observed today. Post-sign-off amendments (Amendments
+2/3) were re-validated only because the human thought to ask ("would any of
+these have been caught if I just tried to execute?" — answer: the worst ones,
+never). Nothing prevented `/orchestrate` or `/execute-task` from dispatching
+against spec content that changed after the brief's sign-off.
+
+**New REQ-F1.9 + D-45.** Every brief sign-off, amendment, and re-walkthrough
+records a content anchor over the four spec files (canonical order:
+requirements, design, tasks, test-spec; `cat <files> | git hash-object
+--stdin`). `/orchestrate` dispatch steps and `/execute-task` recompute the
+anchor at pre-flight and halt to Awaiting input on mismatch, naming the
+`/spec-kickoff` delta re-walkthrough as the remedy. No bypass flag (same class
+as the non-Active refusal). Semantic re-validation of spec changes stops
+depending on human initiative.
+
+Edits: requirements.md (REQ-F1.9; changelog), design.md (D-45), tasks.md (T9
+writes anchors; T12/T13 gate at pre-flight; Citations), test-spec.md (REQ-F1.9
+fixture entry).
+
+**Reviewed-at anchor (covers the four spec files as of this amendment):**
+`c8a23dd1c5f0995852a7e96571780faf4f4889a5`
+
+**Scoped re-sign-off: 2026-06-11** (amendment requested by the human in
+session; pre-merge in-place class per the ritual-scope rule codified in the
+delta re-walkthrough).
+
+## Amendment 5 — Mandatory lens pass + gate hardening (2026-06-11, pre-merge class)
+
+Trigger: the human asked whether Amendment 4 itself needed a kickoff, and
+whether the deeper lens fan-out (the machinery that caught the dotted-id
+regression) could be forced rather than left to initiative. Resolved: yes to
+both, as one rule — an anchor is execution-valid only if its sign-off included
+the required lens review pass.
+
+**The rule (REQ-F1.9 rewritten, new REQ-F1.10, D-45 extended).** Anchors are
+manifest-style (per-file `git hash-object`, digest list hashed — boundary-safe);
+`tasks.md` contributes task-definition content only (human choice: state moves
+must not trip the gate, meaning edits must); the gate runs inside the D-10 lock
+against the primary checkout's main view; absent/unparseable/non-sanctioned
+entries fail closed. Sign-off records are machine-checkable (Class /
+self-describing Anchor / Lens-pass), written anchor-last; meaning-class entries
+are kickoff-only; expression-only edits self-re-anchor via a marked
+machine-written entry (human choice: the lightweight A3.3/D-19 path must not
+freeze unattended dispatch; misclassification is auditable and one revert from
+undone). A3.3 scoped (supersede = post-merge; additions are meaning-class;
+human classifies at sign-off). A1.8's accumulator class closed. Validity
+conditions apply to anchors recorded from this amendment onward.
+
+**Lens-pass record (first mandatory run, delta-scoped over the staged delta:
+delta-walkthrough edits + Amendments 4–5).** Nine-agent fan-out; 58 raw
+findings, 29 after dedup; all dispositioned (applied via this amendment's
+edits, except one logged to the deferred backlog). Class: meaning.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 9 | remedy mismatch, A3.3 scope/decider, grandfather, underscore class, all applied |
+| Security | 6 | forgeability, anchor scope, boundary collisions, self-attestation — applied (threat model declared in D-45) |
+| Error handling and failure modes | 6 | absent-anchor fail-open risk, write ordering, expression-only halt trap — applied |
+| Performance | 1 | per-dispatch classification leak — applied (class marker) |
+| Concurrency / state | 7 | tasks.md self-invalidation (critical), lock window, frame of reference — applied; merge-edge → backlog |
+| Naming, readability, structure | 6 | annotation drift, glossary, F1.9 split — applied |
+| Documentation | 12 | restatement divergences, command canonicalization, terminology — applied |
+| Tests / verification | 6 | unpinned write paths, validity-halt wiring, record-format determinism — applied |
+| Cross-file consistency | 5 | D-19/D-44 reconciliation, F1.5 list, changelog completeness — applied |
+
+The mid-flight self-demonstration (Amendment 5's spec edits existing before
+this brief section, recorded anchor stale) was the expected ordering — the
+pass had to run before the section recording it could be written; the
+anchor-last rule this amendment introduces makes that ordering normative.
+
+Edits: requirements.md (F1.9 rewrite, new F1.10, A3.3, A1.8, F1.5, changelog),
+design.md (D-45 threat model/scope, D-19, D-44, grammar), tasks.md (T4
+extraction + record format + glossary, T9, T12, T13), test-spec.md (F1.9
+rewrite, new F1.10 entry, A1.8, A3.3), this brief (backlog row, pair-flow D-51
+qualification, this section).
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-11.
+Anchor: `3db417bfa7bd91c1738166272fdd0fe94825f0ad` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships — safe, as no state moves can occur before
+the dispatch tooling exists).
+
+**Scoped re-sign-off: 2026-06-11** (batch + two design forks human-selected in
+session: definition-content anchor scope; marked expression-only self-re-anchor).
