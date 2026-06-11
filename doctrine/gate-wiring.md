@@ -112,8 +112,8 @@ single `none` row (REQ-C1.5). Canonical columns:
 The **Needs human judgment table is the ladder audit**: every finding that
 entered the ladder gets a row, including those a rung resolved. A resolved
 row's Outcome names the rung and the disposition it re-routed to (for
-example: "resolved at rung 1, brief Section 2; re-routed to Auto-applicable
-#3"); its Options column is empty. Only irreducible rows carry bespoke
+example: "resolved at rung 1, brief Section 2; re-routed to
+Auto-applicable #3"); its Options column is empty. Only irreducible rows carry bespoke
 options and queue. This is what makes "a fork answerable from the brief never
 reaches the human" verifiable after the fact rather than asserted.
 
