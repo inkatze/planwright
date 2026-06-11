@@ -538,6 +538,12 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   purge) in addition to REQ-J1.5's three gate conditions; test-spec REQ-J1.5
   entry aligned. Closes the gap where brief Risk Register row 8 claimed T19
   enforcement the task definition did not carry.
+- 2026-06-11 (post-activation amendment, self-review; Amendment 7 in the
+  kickoff brief, pre-merge class) — test-spec fixture coverage completed for
+  the Amendment 5 entries: F1.9 gains the fourth fail-closed halt condition
+  (entry from a non-sanctioned writer); F1.10 gains the writer-side refusal
+  fixture (kickoff refuses a meaning-class anchor without a dispositioned
+  lens pass). No normative REQ text changed.
 
 ## Sources
 

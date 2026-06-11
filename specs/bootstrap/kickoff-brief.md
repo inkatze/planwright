@@ -762,3 +762,42 @@ Anchor: `dcb342304ccfe699d266cafea554b8a7bdb04068` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Amendment 7 — F1.9/F1.10 fixture completion (2026-06-11, pre-merge class)
+
+Self-review (full 8-lens fan-out per Discovery Rigor; performance n/a for a
+doc-only diff) over the whole branch diff. Raw candidates ~30; all but two
+dropped at validation: the error-handling and concurrency candidates
+re-reported this brief's own Amendment 2 design-gap backlog (recorded
+deferrals), the stale Section 2/3 counts ("77 REQs", "37 D-IDs") are
+true-at-signing statements in append-only historical sections, and the
+remaining doc/naming candidates failed pass-1 reproduction.
+
+Lens pass (branch-scoped): 8 lenses none/n-a; tests/verification 2 findings,
+both validated 3/3 and human-approved (Apply/Apply) at the self-review
+handoff:
+
+1. test-spec F1.9 fixtures covered three of the REQ's four fail-closed halt
+   conditions; "entry from a non-sanctioned writer" (dispatch-time gate halt,
+   distinct from F1.10's write-time rejection) added as the fourth.
+2. test-spec F1.10 had no fixture for the REQ's writer-side refusal clause;
+   added: a kickoff flow whose lens-pass findings are absent or undispositioned
+   refuses to write the meaning-class anchor entry.
+
+No normative REQ text changed; the additions tighten verification coverage of
+clauses already normative since Amendment 5. Writer note: as with Amendment 6,
+this meaning-class entry is written by the review session under explicit human
+authorization rather than `/spec-kickoff` (REQ-F1.10's named writer);
+auditable here, one revert from undone, reviewable at the PR.
+
+Edits: test-spec.md (F1.9 fixture list, F1.10 parse fixtures),
+requirements.md (changelog), this brief (this section).
+
+Signed off: 2026-06-11 (human, self-review handoff)
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-11.
+Anchor: `6acda5043ac116723def8c3be786a43f747f15e0` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
