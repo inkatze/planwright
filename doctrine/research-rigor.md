@@ -64,3 +64,13 @@ system-wide implications) and the sources consulted, are recorded in the
 kickoff brief's risk register, appended, never overwriting existing entries.
 The record is what lets the next session, or the human at PR review, see why
 the implementation went the way it did without re-running the research.
+
+## Proportionality
+
+Research depth scales with stake and reversibility (see
+[proportionality.md](proportionality.md)). The triggers above are the floor,
+not the ceiling: a high-stake or hard-to-reverse change deserves deeper
+consultation down the source hierarchy even when only one trigger fires,
+while a low-stake reversible change may stop at the official docs. A skill
+that scopes research depth declares the scoping explicitly; skipping a fired
+trigger silently is non-conforming.

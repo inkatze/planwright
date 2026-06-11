@@ -64,7 +64,8 @@ Before relying on judgment, run what the project ships: linters, formatters,
 type checkers, static analyzers, complexity and duplication meters, dead-code
 detectors, security scanners. Discover them through the project's CI
 workflows, git-hook configuration, language-specific config files, and the
-summary planwright's SessionStart tool-discovery hook injects when present.
+summary that planwright's SessionStart tool-discovery hook injects when
+present.
 Tool output is grounded; vibes are not. Cite the rule when flagging.
 
 ## Parallel lens fan-out (preferred for non-trivial diffs)
