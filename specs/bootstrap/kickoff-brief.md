@@ -967,3 +967,19 @@ Anchor: `a217310efe10a830ae357cae6492e51d4260de77` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 3 Completed)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 3 moved In progress → Completed after PR #2 merged (human-reserved
+action). The full task block is preserved in Completed (definition content
+intact; only the Status annotation changed), so under the canonical extraction
+this remains a placement-only move. Pre-move anchor
+`a217310efe10a830ae357cae6492e51d4260de77` verified matching immediately
+before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `c47f8b6028b193bd4e87030d95f38f7df06b39b6` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
