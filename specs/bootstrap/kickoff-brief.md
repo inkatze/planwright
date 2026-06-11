@@ -867,3 +867,23 @@ Anchor: `cef5c9c6270e322485c1687786559393550c258f` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 3 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 3 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-3`, branch `planwright/bootstrap/task-3`). This is an
+orchestration-state placement move, content REQ-F1.9 excludes from the anchor
+under the canonical extraction; the interim whole-file form cannot express that
+exclusion, so the state move forces this re-anchor. (The interim form's safety
+note — "no state moves can occur before the dispatch tooling exists" — is
+superseded in practice by this emulated dispatch; recorded here so the gate
+stays coherent.) No task-definition content, requirement, design decision, or
+test-spec entry changed: pre-move anchor `cef5c9c6270e322485c1687786559393550c258f`
+verified matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
