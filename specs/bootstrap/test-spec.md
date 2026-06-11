@@ -315,8 +315,8 @@ step proceeds. One spec file modified after the anchor (committed or uncommitted
 naming the `/spec-kickoff` delta re-walkthrough as the remedy. An orchestrate
 state move (section membership, dispatch metadata) does NOT change the anchor;
 an edited Done-when does. No anchor entry / an unparseable entry / a
-non-sanctioned computation command → both halt (fail closed) naming the
-REQ-F1.10 repair remedy. A fresh, valid anchor written by a sign-off or
+non-sanctioned computation command / an entry from a non-sanctioned writer →
+both halt (fail closed) naming the REQ-F1.10 repair remedy. A fresh, valid anchor written by a sign-off or
 re-walkthrough → dispatch proceeds again. First-activation sign-off and an
 in-place amendment each write a recomputable anchor. A lagging worktree whose
 self-consistent brief/spec pair diverges from main's halts. Anchor
@@ -330,7 +330,9 @@ execution-valid; a meaning-class entry with no Lens-pass reference is invalid
 `Class: expression-only` citing a changelog line is valid with no lens pass; an
 entry using a non-sanctioned command form is invalid; an anchor-bearing edit
 from an execution skill's write path (not the kickoff flow or the marked
-expression-only ritual) is rejected/flagged. Manual: a killed `/spec-kickoff`
+expression-only ritual) is rejected/flagged; a kickoff flow whose lens-pass
+findings are absent or undispositioned refuses to write the meaning-class
+anchor entry. Manual: a killed `/spec-kickoff`
 session that wrote the sign-off record but not the anchor line leaves a record
 the gate treats as absent-anchor (fail closed) — the anchor-written-last
 ordering is observable.
