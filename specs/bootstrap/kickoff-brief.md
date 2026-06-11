@@ -888,22 +888,3 @@ Anchor: `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
-
-## Expression-only re-anchor (2026-06-11, execute-task state move: Task 3 PR opened)
-
-Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
-— Task 3's In-progress annotation updated `Status: implementing` →
-`Status: PR #2 draft` after `/execute-task` opened the draft PR
-(REQ-E1.5; branch `planwright/bootstrap/task-3`). This is an
-orchestration-state placement move, content REQ-F1.9 excludes from the anchor
-under the canonical extraction; the interim whole-file form cannot express that
-exclusion, so the state move forces this re-anchor. No task-definition content,
-requirement, design decision, or test-spec entry changed: pre-move anchor
-`2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` verified matching at this run's
-pre-flight (freshness gate, REQ-F1.9).
-
-Class: expression-only
-Anchor: `91da73b191455837a9006ec383c0d23c10c759c4` — computed as
-`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
-(manifest form over whole files; the sanctioned interim form until Task 4's
-canonical tasks.md extraction ships).
