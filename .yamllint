@@ -1,0 +1,8 @@
+---
+# planwright yamllint baseline (consumed by mise run lint:yaml).
+# Mirrors the markdownlint decision: 80 columns is a terminal-era default;
+# 100 keeps comments readable. Task 2 owns evolving this config.
+extends: default
+rules:
+  line-length:
+    max: 100

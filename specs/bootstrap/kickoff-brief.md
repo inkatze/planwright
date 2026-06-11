@@ -347,12 +347,27 @@ Signed off: 2026-06-10
 | 6 | Bash 3.2 portability for the new shell surface (gate parser, reconcile helpers). | Keep heavy logic in skills, shell thin; shellcheck + shell test runner in CI (T2). |
 | 7 | Known conformance debt: per-REQ citations absent until Task 4. | Gated; Task 4 Done-when closes it. |
 | 8 | `reference/` history purge before public release (human-reserved, easy to forget). | Gated Deferred entry; T19 release checklist enforces it. |
+| 9 | *(Appended at Task 3 execution 2026-06-11.)* T3 landed the doctrine docs at `doctrine/` before T1's rule-doc resolution path convention exists (deliberate parallel start; T3 has no edge to T1). If T1 pins a different home, the docs move or the convention adapts. | T1's resolution-path deliverable must resolve to `doctrine/` from both delivery modes or relocate the files in the same PR; REQ-D1.4's [test] entry verifies the resolved path. |
 
 **Open questions: none.** Every Socratic check resolved to a decision; the
 catalog seed-domain list is finalized by T15 as a deliverable, not an
 ambiguity.
 
 Signed off: 2026-06-10
+
+### Risk register additions — Task 1 execution (2026-06-11)
+
+Research Rigor findings recorded per REQ-E1.3/REQ-D1.5 (execution-skill write,
+named-section only; no anchor entry). Trigger: version-sensitive API use (the
+Claude Code plugin format). Sources: official plugin docs at
+code.claude.com/docs (plugins, plugins-reference, discover-plugins), consulted
+2026-06-11.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 10 | `${CLAUDE_PLUGIN_ROOT}` is ephemeral: the path changes on every plugin update (old versions retained ~7 days). Any planwright state written under the plugin root would be silently lost on update. | Convention set at Task 1: plugin root is read-only at runtime; durable runtime state belongs in `${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/<id>/`, update-stable) or repo-local paths. Re-check when T13 places locks and T19 finalizes packaging. |
+| 11 | Manifest/layout facts verified current as of 2026-06-11: manifest at `.claude-plugin/plugin.json` (only `name` required, kebab-case); `skills/`, `commands/`, `agents/`, `hooks/hooks.json` auto-discovered at plugin root only; plain `~/.claude/` files remain a supported non-plugin fallback. Plugin format is actively evolving (displayName v2.1.143+, defaultEnabled v2.1.154+), so these facts can drift before T19. | Resolution chain (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` → `<claude-dir>/planwright`) isolates skills from layout drift; T19 re-verifies the manifest schema against current docs before finalization. |
+| 12 | Doctrine gap surfaced at T1's tooling pass, routed here so T15's executor sees it (the observations log feeds `/spec-draft`, not task execution): the engineering doctrine's "defer to tooling and ecosystem standards" needs two companion principles — pin the quality toolchain (reproducibility is what makes tool-grounded discovery trustworthy) and own adopted tools' defaults (review conventions-bearing defaults at adoption, record deviations with rationale; tool defaults are the tool author's context). Fits T15's existing deliverable scope without contract drift. | Two observation entries dated 2026-06-11 carry the full evidence (shim failures pre-pinning; 80-column defaults in two tools; gitleaks `--redact`; shellcheck optional-tier trial: 4 hits, none load-bearing). T16's builder applies the same at guard-adoption time. |
 
 ## Section 7 — Sign-off
 
@@ -903,6 +918,22 @@ Anchor: `e469f8f2f23c5aefb193718b4aa225b2982b70aa` — computed as
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
 
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 1 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 1 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-1`, branch `planwright/bootstrap/task-1`). Same
+orchestration-state-placement rationale as the Task 3 dispatch entry above.
+With this dispatch the in-flight unit count reaches `max_parallel_units` (3).
+Pre-move anchor `e469f8f2f23c5aefb193718b4aa225b2982b70aa` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `d623c4a54df920e0b6821e60c9aa9f962511c4c1` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
 ## Expression-only re-anchor (2026-06-11, Task 4 citation backfill + PR state)
 
 Machine-written entry per REQ-F1.10's expression-only lane, on branch
@@ -914,13 +945,17 @@ supersession; plus the changelog entry), tasks.md (Task 4 Status annotation
 excludes). Changelog: requirements.md, entry "2026-06-11 (expression-only,
 Task 4)". No requirement's normative text changed. Pre-edit anchor
 `e469f8f2f23c5aefb193718b4aa225b2982b70aa` verified matching at task
-pre-flight. Branch-local note: parallel task branches each append anchor
-entries; post-merge reconciliation per the deferred-backlog item (Amendment 5
-addition) applies.
+pre-flight (the branch forked before the Task 1 dispatch entry above; merge
+reconciliation follows in the next entry). Branch-local note: parallel task
+branches each append anchor entries; post-merge reconciliation per the
+deferred-backlog item (Amendment 5 addition) applies.
 
 Class: expression-only
 Anchor: `c7196b8d123b96dc05c94bcbd7de90e7d652b0b3` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
 (the canonical form this task ships: manifest anchor with tasks.md reduced to
 its definition content, so state annotations like this PR-status move no
-longer contribute).
+longer contribute. Merge note, 2026-06-11: after merging main — whose only
+spec-file divergence was the Task 1/3 dispatch state moves — the recomputed
+canonical anchor still matches this value; no post-merge re-anchor entry was
+needed, which is the canonical form working as designed).
