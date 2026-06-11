@@ -17,14 +17,17 @@
 # ships (kickoff brief, REQ-I1.2 risk note). Hook wiring needs a settings.json
 # merge and is deliberately NOT done here; it is printed as a manual step.
 #
-# Known stub limitation: re-installs refresh-copy and never delete, so files
-# removed or renamed in a newer planwright persist as stale copies under the
-# namespace. The packaging-finalization task owns the upgrade/cleanup story.
+# Known stub limitation: a re-install refresh-copies and never deletes, so
+# files removed or renamed in a newer planwright persist as stale copies under
+# the namespace. The packaging-finalization task owns the upgrade/cleanup
+# story.
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 #
 # Exit codes: 0 success, 2 environment/validation error (no usable claude
-# dir, or running from the installed location).
+# dir, or running from the installed location). Any other non-zero status is
+# a failed write aborting the run: set -e propagates the failing command's
+# own exit code (commonly 1 from mkdir/cp).
 #
 # Fail-fast: any failed write aborts with a non-zero exit (REQ-K1.7: failures
 # surface clearly, never as a successful-looking partial install).
@@ -39,10 +42,10 @@ export LC_ALL
 # corrupt the source-root derivation.
 unset CDPATH
 
-# Pin a private umask: a restrictive caller umask (e.g. 0133) would strip
-# directory traversal bits from mkdir -p and break the install; 077 is never
-# less restrictive than the caller intended. File modes are preserved from
-# the source tree by cp -p.
+# Pin a known umask so mkdir -p always creates owner-traversable directories:
+# a caller umask that strips user bits (e.g. 0133) would otherwise break the
+# install. 077 keeps everything it creates owner-only; file modes are
+# preserved from the source tree by cp -p.
 umask 077
 
 src_root="$(cd "$(dirname "$0")/.." && pwd -P)"

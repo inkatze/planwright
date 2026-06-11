@@ -49,8 +49,8 @@ planwright ships two ways (the plugin is primary):
    (`~/.claude/planwright/`, plus skills and commands when present). It
    depends only on portable shell: no fish, mise, tmux, Ansible, or symlink
    materialization. It never edits `settings.json` or any file outside its
-   namespace. Known stub limitation: re-installs refresh-copy and never
-   delete, so files removed in a newer planwright persist until the
+   namespace. Known stub limitation: a re-install refresh-copies and never
+   deletes, so files removed in a newer planwright persist until the
    packaging-finalization work ships the upgrade story.
 
 ### Rule-doc resolution
