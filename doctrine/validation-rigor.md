@@ -29,8 +29,8 @@ surviving finding to Needs human judgment in the categorization; see
   similar patterns. For text or research-based claims (API correctness, spec
   compliance, deprecated patterns, security claims, library behavior):
   official documentation, the library's own source and tests, issue
-  trackers, RFCs, web search, per Research Rigor's source hierarchy. Note
-  what was consulted in the finding.
+  trackers, RFCs, and community sources surfaced by web search, per Research
+  Rigor's source hierarchy. Note what was consulted in the finding.
 
 ## Solution validation
 

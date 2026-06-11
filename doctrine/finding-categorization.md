@@ -9,7 +9,7 @@ four buckets. The buckets are an **audit taxonomy, not a decision queue**
 backs it, so the human can review the whole record at the draft PR.
 
 Citations: REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6,
-REQ-C1.7 · D-4, D-5.
+REQ-C1.7 · D-4, D-5, D-6.
 
 ## The principle: honest decision shape
 
@@ -86,7 +86,8 @@ high confidence, but the change warrants explicit human review. Under
 act-then-review the fix is **applied on the branch** and listed in a
 **pending-sign-off checklist** in the draft PR description (REQ-C1.3). The
 human approves by leaving it in place and rejects with one revert, at PR
-review. No mid-loop prompt fires.
+review. No mid-loop prompt fires for findings outside the hard-disqualifier
+zones (which pause first; see Hard pauses).
 
 Route here when any of these hold:
 
