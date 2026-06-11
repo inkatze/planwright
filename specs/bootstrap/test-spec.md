@@ -401,8 +401,8 @@ Gate parser: a condition gate vs. a date gate (surface-only) are handled per the
 an `and`-of-atoms gate evaluates; a free-text gate surfaces without evaluation.
 Hostile fixtures: a gate containing shell metacharacters / `$(…)` is never evaluated
 (closed grammar, pattern-match parse only); a gate containing control characters is
-echoed stripped; a malformed gate surfaces as a drain-report-level error (the pass
-completes), never silently skipped.
+echoed with the control characters stripped; a malformed gate surfaces as a
+drain-report-level error (the pass completes), never silently skipped.
 
 ### REQ-H1.4 — Bookkeeping drain, no auto-drop; `/drain` [test]
 
