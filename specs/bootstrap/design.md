@@ -325,6 +325,10 @@ kickoff brief re-synced by diff-review and scoped re-sign-off for only the moved
 
 **Chosen because:** the mandatory changelog is cheap insurance that makes fix-in-place
 safe; supersede is the auditable escape hatch for genuine reversals (RFC/PEP/ADR practice).
+*(Amended at Amendment 5 2026-06-11: "no re-approval" stands, but any spec edit stales
+the F1.9 content anchor; expression-only fixes re-anchor via the marked self-re-anchor
+entry (REQ-F1.10) — machine-written, no human session — so the lightweight path no
+longer freezes dispatch.)*
 
 ### D-20: Stable, never-reused IDs; supersede-don't-mutate  (N)
 
@@ -735,7 +739,8 @@ a draft PR. The human's merge makes the Active spec operational (`/orchestrate`
 reads main's view, so no new refusal logic is needed). Amendments: in-flight
 amendments ride the task PR that triggered them (D-19); supersede-class
 amendments get their own spec PR; expression-only fixes may commit directly
-with a changelog line. Spec authoring is never an orchestration unit (attended
+with a changelog line plus the marked self-re-anchor entry (REQ-F1.10,
+Amendment 5). Spec authoring is never an orchestration unit (attended
 by nature; J1.3 intact).
 
 **Worktree handling (graceful in every starting state):** both skills detect
@@ -760,6 +765,55 @@ universal gate (draft PR + human merge) applies uniformly to specs and tasks;
 sign-off flips the status while merge activates it — a two-key launch where the
 human holds the second key. This decision is itself the first exercise of the
 supersede ritual (REQ-B2.4 supersedes REQ-B2.1).
+
+### D-45: Pre-execution spec-freshness gate  (N, delta re-walkthrough 2026-06-11)
+
+**Decision:** Execution skills refuse to dispatch when the spec bundle has changed
+since the kickoff brief's most recent sign-off. Every sign-off, amendment, and
+re-walkthrough in the brief records a content anchor over the four spec files;
+`/orchestrate` dispatch steps and `/execute-task` recompute and compare at
+pre-flight; a mismatch halts to Awaiting input naming the `/spec-kickoff` delta
+re-walkthrough as the remedy. No bypass flag — same class as the non-Active
+refusal (REQ-F1.4).
+
+**Alternatives considered:**
+- Trust the human to re-run `/spec-kickoff` after spec changes. Rejected because:
+  observed near-miss on 2026-06-11 — post-sign-off amendments could have been
+  dispatched against while still unreviewed; re-validation happened only because
+  the human thought to ask for it.
+- Mandate a full Discovery-Rigor lens fan-out before every dispatch. Rejected
+  because: cost is disproportionate per step; the gate instead forces changed
+  content through the kickoff delta walk, and deeper review passes remain a
+  recommended (brief-recorded) step before first dispatch on a fresh spec.
+- Rely on the structural validator alone (REQ-A2.1). Rejected because: it checks
+  structure, not meaning; the 2026-06-11 findings (a silent clean-no-op
+  regression, a fixture encoding the same wrong belief as the spec) were all
+  structurally clean.
+
+**Chosen because:** execution validates implementation against spec, never spec
+against intent — the two worst spec-bug shapes (silent no-op, self-confirming
+fixture) are invisible to execution feedback. A deterministic anchor comparison
+converts "the human remembers to re-validate" into a machine-enforced halt.
+*(Amended at Amendment 5 2026-06-11: a per-sign-off Discovery-Rigor lens review
+pass (fan-out per Discovery Rigor for non-trivial deltas) is adopted as an
+anchor-validity condition for meaning-class changes — distinct from the
+per-dispatch fan-out rejected above, whose rejection stands. The pass runs
+where the change happens, not where execution happens.)*
+
+**Threat model and scope (Amendment 5, 2026-06-11):** the gate defends against
+*forgetting*, not *forging*. Forging is mitigated, not eliminated: meaning-class
+anchor entries are written only by `/spec-kickoff`'s sign-off flow, entries are
+self-describing (sanctioned command forms only; unknown forms are invalid),
+execution skills' brief writes are confined to named sections, and the brief's
+git history is the audit trail — a forged entry is one revert from undone and
+visible at PR review. Residual forgery by a misbehaving agent with write access
+is an accepted risk. Anchor scope: the brief itself is excluded (it records the
+anchor, so it cannot anchor itself); the compensating rule is that brief
+sections above the amendment log are append-only after sign-off, and contract
+edits travel as amendments. The mid-flight window (a spec amended under an
+already-running worker) is out of scope: the draft-PR-only + human-merge
+invariant backstops it. When several pre-flight halts fire at once (non-Active,
+missing validator, freshness), they are reported together.
 
 ## Cross-cutting concerns
 
