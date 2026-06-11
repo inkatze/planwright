@@ -1,0 +1,16 @@
+{
+  "name": "planwright",
+  "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Diego Romero"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/inkatze/planwright",
+  "keywords": [
+    "spec-driven-development",
+    "orchestration",
+    "autonomy",
+    "workflow"
+  ]
+}

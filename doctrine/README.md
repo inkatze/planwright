@@ -3,8 +3,7 @@
 These documents are planwright's framework doctrine: the rules its skills apply
 at runtime. They are owned by planwright, not by any adopter's personal
 configuration (REQ-D1.4). Skills reference them via the stable rule-doc
-resolution path (plugin-relative in plugin delivery, `~/.claude/` in writer
-delivery; the convention is a Task 1 deliverable of the bootstrap spec).
+resolution path defined below (REQ-I1.1, D-24).
 
 | Doc | Covers | Primary citations |
 | --- | --- | --- |
@@ -18,6 +17,34 @@ delivery; the convention is a Task 1 deliverable of the bootstrap spec).
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
 | [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference, the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
 | [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
+
+## Resolution convention
+
+Skills, hooks, and scripts resolve a rule doc by basename through one stable
+path that works in both delivery modes, with no mode detection:
+
+```text
+${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CLAUDE_DIR:-$HOME/.claude}/planwright}}/doctrine/<doc>.md
+```
+
+- **Plugin delivery (primary, D-24):** Claude Code sets `CLAUDE_PLUGIN_ROOT`
+  to the plugin's install directory; docs resolve plugin-relative.
+- **Writer delivery (fallback):** `scripts/install.sh` copies this directory
+  to `<claude-dir>/planwright/doctrine/` (`<claude-dir>` is `$CLAUDE_DIR` when
+  set, else `~/.claude`); the fallback arm of the chain finds it there.
+- **Override:** `PLANWRIGHT_ROOT` pins an explicit root (tests, adopters
+  embedding planwright elsewhere). It wins over both.
+
+The writer arm requires `CLAUDE_DIR` or `HOME`; when neither is set
+(minimal containers), the resolver skips that arm and resolution uses the
+first two arms only.
+
+`scripts/resolve-rule-doc.sh <doc-name>` implements the chain (validating the
+name against the `^[a-z0-9][a-z0-9-]*$` identifier discipline before any path
+is formed) and prints the resolved path; prefer it over hand-building paths.
+
+Doc names are kebab-case basenames without the `.md` suffix, e.g.
+`discovery-rigor`, `finding-categorization`.
 
 ## How the docs relate
 
@@ -40,5 +67,5 @@ all of the above scale with what is at stake.
 Adopters supply project-specific tooling and rigor through their own project
 configuration (project memory files, the tool-discovery hook's detected
 toolchain, project config for thresholds and toggles), never by editing these
-docs. The docs define the framework's invariant behavior; the project supplies
-the ground the behavior runs on.
+docs (REQ-D2.2). The docs define the framework's invariant behavior; the
+project supplies the ground the behavior runs on.
