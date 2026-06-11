@@ -887,3 +887,18 @@ Anchor: `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 4 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 4 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-4`, branch `planwright/bootstrap/task-4`). Same
+orchestration-state-placement rationale as the Task 3 dispatch entry above.
+Pre-move anchor `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `e469f8f2f23c5aefb193718b4aa225b2982b70aa` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
