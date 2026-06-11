@@ -1,4 +1,4 @@
-# planwright doctrine
+# planwright Doctrine
 
 These documents are planwright's framework doctrine: the rules its skills apply
 at runtime. They are owned by planwright, not by any adopter's personal
