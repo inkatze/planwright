@@ -14,7 +14,7 @@ Skills, hooks, and scripts resolve a rule doc by basename through one stable
 path that works in both delivery modes, with no mode detection:
 
 ```text
-${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/planwright}}/doctrine/<doc>.md
+${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CLAUDE_DIR:-$HOME/.claude}/planwright}}/doctrine/<doc>.md
 ```
 
 - **Plugin delivery (primary, D-24):** Claude Code sets `CLAUDE_PLUGIN_ROOT`

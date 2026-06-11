@@ -85,6 +85,23 @@ done
 /bin/bash "$RESOLVER" >/dev/null 2>&1
 assert "no argument is a usage error" 2 $?
 
+# 8. Fallthrough: a root earlier in the chain that lacks the doc falls
+#    through to the next root instead of failing.
+mkdir -p "$tmp/empty-root/doctrine"
+out="$(PLANWRIGHT_ROOT="$tmp/empty-root" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
+  /bin/bash "$RESOLVER" sample-doc)"
+assert "fallthrough past a doc-less root" 0 $?
+assert_eq "fallthrough lands on the next root" "$tmp/plugin/doctrine/sample-doc.md" "$out"
+
+# 9. HOME fallback: with CLAUDE_DIR unset, the writer-mode root derives from
+#    $HOME/.claude.
+mkdir -p "$tmp/home/.claude/planwright/doctrine"
+echo "home copy" > "$tmp/home/.claude/planwright/doctrine/home-doc.md"
+out="$(HOME="$tmp/home" PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
+  /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1" home-doc' _ "$RESOLVER")"
+assert "HOME fallback resolves" 0 $?
+assert_eq "HOME fallback path" "$tmp/home/.claude/planwright/doctrine/home-doc.md" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

@@ -58,7 +58,7 @@ categorization, engineering doctrine) through one stable path that works in
 both delivery modes:
 
 ```text
-${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/planwright}}/doctrine/<doc>.md
+${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:-${CLAUDE_DIR:-$HOME/.claude}/planwright}}/doctrine/<doc>.md
 ```
 
 `scripts/resolve-rule-doc.sh <doc-name>` implements the chain. See

@@ -81,7 +81,26 @@ CLAUDE_DIR="$claude_dir" /bin/bash "$INSTALLER" >/dev/null
 assert "second install exits 0" 0 $?
 assert_file "default config still present" "$claude_dir/planwright/config/defaults.yml"
 
-# 6. Partial failure is surfaced, not swallowed (REQ-K1.7: fail clearly, never
+# 6. Skills/commands branches and the default claude-dir: build a hermetic
+#    fake source tree (install.sh derives its source root from its own
+#    location), install with CLAUDE_DIR unset and HOME redirected, and check
+#    everything landed under $HOME/.claude.
+src="$tmp/src"
+mkdir -p "$src/scripts" "$src/doctrine" "$src/config" \
+  "$src/skills/sample-skill" "$src/commands"
+cp "$INSTALLER" "$src/scripts/install.sh"
+echo "doc" > "$src/doctrine/sample.md"
+echo "key: value" > "$src/config/defaults.yml"
+echo "skill body" > "$src/skills/sample-skill/SKILL.md"
+echo "command body" > "$src/commands/sample-command.md"
+mkdir -p "$tmp/home"
+HOME="$tmp/home" /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1"' _ "$src/scripts/install.sh" >/dev/null
+assert "install with default claude-dir exits 0" 0 $?
+assert_file "default-dir config installed" "$tmp/home/.claude/planwright/config/defaults.yml"
+assert_file "skill copied" "$tmp/home/.claude/skills/sample-skill/SKILL.md"
+assert_file "command copied" "$tmp/home/.claude/commands/sample-command.md"
+
+# 7. Partial failure is surfaced, not swallowed (REQ-K1.7: fail clearly, never
 #    opaquely): an unwritable destination must produce a non-zero exit, not a
 #    cheerful "done" report.
 readonly_dir="$tmp/readonly"

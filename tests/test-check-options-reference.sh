@@ -60,7 +60,9 @@ case "$out" in
 esac
 
 # 4. Fixture: a reference row with no matching config option is a warning,
-#    not a failure (stale docs surface without blocking).
+#    not a failure (stale docs surface without blocking). The redirect order
+#    below ("2>&1 >/dev/null") captures stderr only: warnings go to stderr,
+#    and stdout is deliberately discarded.
 cat > "$tmp/reference-extra.md" <<'EOF'
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
@@ -80,6 +82,8 @@ esac
 # 5. Missing files are a clear error, not a silent pass.
 /bin/bash "$CHECKER" "$tmp/no-such-config.yml" "$tmp/reference.md" >/dev/null 2>&1
 assert "missing config file is an error" 2 $?
+/bin/bash "$CHECKER" "$tmp/config.yml" "$tmp/no-such-reference.md" >/dev/null 2>&1
+assert "missing reference file is an error" 2 $?
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
