@@ -124,7 +124,7 @@ bodies. The recognized kinds:
 | Source | a named `## Sources` entry, optionally with a foreign ID qualified by its namespace | `pair-flow REQ-B1.5`, `the bootstrap seed (Sources)` |
 | Drafting-session decision | `drafting-session decision (<date>)` — a choice made during `/spec-draft` that did not mint a D-ID | `drafting-session decision (2026-06-08)` |
 | Kickoff / brief | a kickoff-brief section or recorded decision | `kickoff §2 REQ-D (2026-06-10)` |
-| Amendment | a brief amendment entry | `brief Amendment 5 (2026-06-11)` |
+| Amendment / re-walkthrough | a brief amendment or re-walkthrough entry | `brief Amendment 5 (2026-06-11)`, `delta re-walkthrough (2026-06-11)` |
 | Research | an external document, named inline | `research: TC39 process doc` |
 
 The lightweight kinds (drafting-session decision, kickoff, amendment,
