@@ -381,12 +381,18 @@ intelligence migration) dispatches first.
 - **Deliverables:** Finalized plugin manifest + `~/.claude/` writer; adopter onboarding docs
   (autopilot model, how to supply project-specific tooling/rigor without editing core docs,
   the GitHub/`gh` requirement and graceful-degradation behavior); contribution model;
-  public-release readiness checklist enforcing the three gate conditions.
+  public-release readiness checklist enforcing the three gate conditions plus every
+  release-blocking gated Deferred entry (currently the `reference/` history purge,
+  human-reserved per REQ-J1.4: the checklist verifies it happened, it does not perform
+  it). *(Amended at panel review 2026-06-11: checklist scope widened to cover
+  release-blocking Deferred entries; brief Risk Register row 8 already claimed this
+  enforcement.)*
 - **Done when:** A clean machine can install planwright both ways and resolve rule docs; the
   onboarding docs let a non-author operate the pilot-in-command model; the release checklist
-  enumerates and checks the three gate conditions.
+  enumerates and checks the three gate conditions and every release-blocking gated
+  Deferred entry (the `reference/` history purge).
 - **Dependencies:** 16, 17, 18
-- **Citations:** D-24, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.5
+- **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
 
 ## Completed

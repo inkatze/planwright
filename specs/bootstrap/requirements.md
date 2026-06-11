@@ -532,6 +532,12 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   bumped 2026-06-10 → 2026-06-11 (missed at the Amendment 4–5 header sweep);
   kickoff-brief.md Amendment 3 hard-wrap repair ("history- / purge" →
   "history purge"). Self-re-anchor recorded in the kickoff brief per REQ-F1.10.
+- 2026-06-11 (post-activation amendment, panel review; Amendment 6 in the
+  kickoff brief, pre-merge class) — Task 19's release checklist widened to
+  cover release-blocking gated Deferred entries (the `reference/` history
+  purge) in addition to REQ-J1.5's three gate conditions; test-spec REQ-J1.5
+  entry aligned. Closes the gap where brief Risk Register row 8 claimed T19
+  enforcement the task definition did not carry.
 
 ## Sources
 
