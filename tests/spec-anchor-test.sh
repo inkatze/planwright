@@ -147,6 +147,28 @@ printf '%s\n' '# Fixture — Design' 'New decision text.' > "$spec/design.md"
 a_design=$("$anchor" "$spec")
 [ "$a_edited" != "$a_design" ] || fail "design.md edit did not change the anchor"
 
+# --- Property 1b: a non-task H3 section is excluded from the extraction ---
+# A task block ends at the next H2/H3 heading (doctrine/spec-format.md);
+# definition-like bullets under a non-task H3 directly following a task block
+# must not leak into that task's record.
+cp "$spec/tasks.md" "$spec/tasks.md.bak"
+cat >> "$spec/tasks.md" <<'EOF'
+
+### Task 9 — Tail thing
+
+- **Done when:** the tail task exists.
+EOF
+a_tail=$("$anchor" "$spec") || fail "anchor computation failed with tail task"
+cat >> "$spec/tasks.md" <<'EOF'
+
+### Notes
+
+- **Done when:** sneaky bullet that must not join the preceding task block
+EOF
+a_notes=$("$anchor" "$spec") || fail "anchor computation failed with non-task H3 section"
+mv "$spec/tasks.md.bak" "$spec/tasks.md"
+[ "$a_tail" = "$a_notes" ] || fail "non-task H3 section content leaked into the anchor: $a_tail vs $a_notes"
+
 # --- Duplicate task ids fail closed ---
 # Two blocks claiming the same id would silently overwrite each other in the
 # extraction, hashing an incomplete stream (REQ-F1.9 fail-closed mandate).

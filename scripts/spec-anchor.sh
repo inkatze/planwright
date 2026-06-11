@@ -67,6 +67,7 @@ extract_tasks() {
       cur = key
       next
     }
+    /^### / { in_task = 0; keep = 0; next }   # non-task H3 ends the block too
     !in_task { next }
     /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
       keep = 1
