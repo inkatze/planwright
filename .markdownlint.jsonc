@@ -1,7 +1,9 @@
 {
   // planwright markdownlint baseline (consumed by mise run lint:md).
-  // Markdown tables cannot wrap, so they are exempt from line length.
-  // Task 2 (self-hosting CI) owns evolving this config and widening its
-  // target set; keep changes there.
-  "MD013": { "tables": false }
+  // Line length 100: the default 80 is a terminal-era convention that fights
+  // readable prose; 100 keeps diffs reviewable with room to breathe.
+  // Tables cannot wrap and code blocks (commands, paths) often cannot either,
+  // so both are exempt from line length.
+  // Task 2 (self-hosting CI) owns evolving this config; keep changes there.
+  "MD013": { "line_length": 100, "tables": false, "code_blocks": false }
 }
