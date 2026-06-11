@@ -321,6 +321,25 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
   branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
 
+### Task 1 — Repo scaffold & packaging skeleton
+
+- **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
+  plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
+  default + gitignored local override per D-33, including the commit/dispatch toggles
+  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
+  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
+  for the local config + worktrees.
+- **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
+  rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
+  states the human-reserved controls; every option in the default config has an
+  options-reference entry.
+- **Dependencies:** none
+- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
+- **Estimated effort:** half day
+- **Status:** Completed · PR #3 merged 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
+  branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
+
 ## In progress
 
 ### Task 4 — Four-file format meta-spec
@@ -358,26 +377,6 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
-
-### Task 1 — Repo scaffold & packaging skeleton
-
-- **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
-  plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
-  default + gitignored local override per D-33, including the commit/dispatch toggles
-  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
-  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
-  for the local config + worktrees.
-- **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
-  rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
-  states the human-reserved controls; every option in the default config has an
-  options-reference entry.
-- **Dependencies:** none
-- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
-- **Estimated effort:** half day
-- **Status:** draft-pr-ready · PR #3 (draft)
-- **Last activity:** 2026-06-11
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
-  branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
 
 ### Task 7 — Finding categorization & act-then-review gate wiring
 
