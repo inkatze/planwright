@@ -17,7 +17,7 @@ Do not reach for service abstractions, domain-driven-design aggregates, or
 architectural patterns unless the problem genuinely requires coordination
 beyond what function composition provides. Abstractions are added when a
 real requirement demands them, not in anticipation of one (the same rule
-[Refactor Instinct](refactor-instinct.md) applies to review findings).
+that [Refactor Instinct](refactor-instinct.md) applies to review findings).
 
 Citations: REQ-D2.1.
 

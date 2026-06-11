@@ -19,8 +19,8 @@ Severity-based self-pruning ("a bug was already found, the documentation nit
 is not worth mentioning") is the exact failure mode to avoid: report findings
 at every severity in the same pass.
 
-1. Correctness, logic, edge cases (null, empty, max size, concurrency,
-   off-by-one, error paths)
+1. Correctness, logic, edge cases (null, empty, max size, off-by-one,
+   error paths)
 2. Security (injection, auth, data exposure, secret handling, untrusted
    input)
 3. Error handling and failure modes (what happens when this fails partway)
