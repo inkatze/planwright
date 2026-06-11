@@ -34,7 +34,9 @@ run = "yamllint --strict config/ .github/"
 [tasks."lint:commits"]
 description = "conventional-commit lint on commits ahead of origin/main (CI lints the PR range)"
 run = '''
-if [ -n "$(git log --no-merges --format=%s origin/main..HEAD 2>/dev/null)" ]; then
+if ! git rev-parse --verify --quiet origin/main >/dev/null; then
+  echo "lint:commits: origin/main not found; skipping (CI enforces the PR range)"
+elif [ -n "$(git log --no-merges --format=%s origin/main..HEAD)" ]; then
   /bin/bash scripts/check-commit-msgs.sh origin/main..HEAD
 else
   echo "lint:commits: no commits ahead of origin/main; nothing to lint"
