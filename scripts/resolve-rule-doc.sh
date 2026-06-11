@@ -41,9 +41,17 @@ case "$name" in
     ;;
 esac
 
-claude_dir="${CLAUDE_DIR:-$HOME/.claude}"
+# Writer-mode root: derivable only when CLAUDE_DIR or HOME is present.
+# Plugin mode must keep working in HOME-less environments (minimal
+# containers), so the earlier chain arms never depend on this one.
+writer_root=""
+if [ -n "${CLAUDE_DIR:-}" ]; then
+  writer_root="$CLAUDE_DIR/planwright"
+elif [ -n "${HOME:-}" ]; then
+  writer_root="$HOME/.claude/planwright"
+fi
 
-for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$claude_dir/planwright"; do
+for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$writer_root"; do
   [ -n "$root" ] || continue
   if [ -f "$root/doctrine/$name.md" ]; then
     printf '%s\n' "$root/doctrine/$name.md"
@@ -51,5 +59,5 @@ for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" "$claude_dir/planwr
   fi
 done
 
-echo "planwright: rule doc '$name' not found (checked PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, $claude_dir/planwright)" >&2
+echo "planwright: rule doc '$name' not found (checked PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, ${writer_root:-no writer root: CLAUDE_DIR and HOME unset})" >&2
 exit 1

@@ -23,9 +23,29 @@
 # surface clearly, never as a successful-looking partial install).
 set -eu
 
+# A user CDPATH would make cd echo into the command substitution below and
+# corrupt the source-root derivation.
+unset CDPATH
+
 src_root="$(cd "$(dirname "$0")/.." && pwd)"
-claude_dir="${CLAUDE_DIR:-$HOME/.claude}"
+
+if [ -n "${CLAUDE_DIR:-}" ]; then
+  claude_dir="$CLAUDE_DIR"
+elif [ -n "${HOME:-}" ]; then
+  claude_dir="$HOME/.claude"
+else
+  echo "planwright writer: set CLAUDE_DIR (or HOME) to locate the Claude config dir" >&2
+  exit 2
+fi
 dest="$claude_dir/planwright"
+
+# Running the installed copy would copy every file onto itself and cannot
+# restore skills/commands (they live outside this namespace). Refuse clearly.
+if [ "$src_root" = "$dest" ]; then
+  echo "planwright writer: refusing to run from the installed location ($dest);" >&2
+  echo "run the writer from the planwright repo or plugin checkout instead" >&2
+  exit 2
+fi
 
 copy_tree() {
   # copy_tree <src-dir> <dest-dir> — refresh dest from src (BSD/GNU-portable).

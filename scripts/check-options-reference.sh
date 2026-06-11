@@ -15,6 +15,10 @@
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 set -u
 
+# A user CDPATH would make cd echo into the command substitution below and
+# corrupt the repo-root derivation.
+unset CDPATH
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 config="${1:-$repo_root/config/defaults.yml}"
 reference="${2:-$repo_root/docs/options-reference.md}"

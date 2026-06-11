@@ -3,6 +3,7 @@
 # reference coverage check (REQ-K1.8, D-43). Task 2 wires this script into CI;
 # the check itself is part of the config-model skeleton.
 set -u
+unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHECKER="$REPO_ROOT/scripts/check-options-reference.sh"
@@ -88,6 +89,15 @@ case "$err" in
     failures=$((failures + 1))
     ;;
 esac
+
+# 4b. A hostile CDPATH must not corrupt the script's repo-root derivation
+#     (cd resolving through CDPATH echoes the path into the substitution).
+mkdir -p "$tmp/decoy/scripts" "$tmp/work/docs"
+cp -R "$REPO_ROOT/scripts" "$tmp/work/"
+cp -R "$REPO_ROOT/config" "$tmp/work/"
+cp "$REPO_ROOT/docs/options-reference.md" "$tmp/work/docs/"
+(cd "$tmp/work" && CDPATH="$tmp/decoy" /bin/bash scripts/check-options-reference.sh >/dev/null 2>&1)
+assert "CDPATH does not corrupt root derivation" 0 $?
 
 # 5. Missing files are a clear error, not a silent pass.
 /bin/bash "$CHECKER" "$tmp/no-such-config.yml" "$tmp/reference.md" >/dev/null 2>&1

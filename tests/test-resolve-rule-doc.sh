@@ -3,6 +3,7 @@
 # (REQ-I1.1, REQ-I1.2, D-24). Plain bash 3.2, no test framework (the shared
 # runner arrives with Task 2).
 set -u
+unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RESOLVER="$REPO_ROOT/scripts/resolve-rule-doc.sh"
@@ -101,6 +102,29 @@ out="$(HOME="$tmp/home" PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
   /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1" home-doc' _ "$RESOLVER")"
 assert "HOME fallback resolves" 0 $?
 assert_eq "HOME fallback path" "$tmp/home/.claude/planwright/doctrine/home-doc.md" "$out"
+
+# 10. Plugin mode must work without HOME or CLAUDE_DIR in the environment
+#     (minimal containers): the earlier chain arms do not depend on the
+#     writer-mode arm being derivable.
+out="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
+  /bin/bash "$RESOLVER" sample-doc 2>/dev/null)"
+assert "plugin mode resolves without HOME" 0 $?
+assert_eq "HOME-less plugin path" "$tmp/plugin/doctrine/sample-doc.md" "$out"
+
+# 11. With no usable root at all (no override, no plugin root, no CLAUDE_DIR,
+#     no HOME), the resolver reports its own not-found message (exit 1)
+#     rather than crashing with a bash unbound-variable error.
+err="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
+  /bin/bash "$RESOLVER" sample-doc 2>&1 >/dev/null)"
+rc=$?
+assert "rootless environment exits 1" 1 "$rc"
+case "$err" in
+  *"not found"*) echo "ok: rootless failure is the resolver's own message" ;;
+  *)
+    echo "FAIL: rootless failure is not the resolver's message: $err" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

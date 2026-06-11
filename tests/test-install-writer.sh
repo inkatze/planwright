@@ -3,6 +3,7 @@
 # D-24). Verifies namespaced writes only: the writer must never touch user
 # config outside its namespace (kickoff brief, REQ-I1.2 risk note).
 set -u
+unset CDPATH
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALLER="$REPO_ROOT/scripts/install.sh"
@@ -99,6 +100,31 @@ assert "install with default claude-dir exits 0" 0 $?
 assert_file "default-dir config installed" "$tmp/home/.claude/planwright/config/defaults.yml"
 assert_file "skill copied" "$tmp/home/.claude/skills/sample-skill/SKILL.md"
 assert_file "command copied" "$tmp/home/.claude/commands/sample-command.md"
+
+# 6b. Running the installed copy of the writer (source == destination) is
+#     refused with a clear message (exit 2), not a mid-run cp crash that
+#     leaves the install half-touched (REQ-K1.7).
+out="$(/bin/bash -c 'unset CLAUDE_DIR; HOME="$1"; export HOME; exec /bin/bash "$1/.claude/planwright/scripts/install.sh"' _ "$tmp/home" 2>&1)"
+assert "self-install refused" 2 $?
+case "$out" in
+  *"installed location"*) echo "ok: self-install refusal names the cause" ;;
+  *)
+    echo "FAIL: self-install refusal message unclear: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 6c. With neither CLAUDE_DIR nor HOME set, the writer refuses with a clear
+#     message (exit 2) instead of a bash unbound-variable error.
+env -u HOME -u CLAUDE_DIR /bin/bash "$INSTALLER" >/dev/null 2>&1
+assert "missing CLAUDE_DIR and HOME is a clear usage error" 2 $?
+
+# 6d. A hostile CDPATH must not corrupt the installer's source-root
+#     derivation when invoked via a relative path.
+mkdir -p "$tmp/decoy2/scripts" "$tmp/home2"
+(cd "$src" && CDPATH="$tmp/decoy2" HOME="$tmp/home2" /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash scripts/install.sh' >/dev/null 2>&1)
+assert "CDPATH does not corrupt installer source derivation" 0 $?
+assert_file "CDPATH run still installs correctly" "$tmp/home2/.claude/planwright/config/defaults.yml"
 
 # 7. Partial failure is surfaced, not swallowed (REQ-K1.7: fail clearly, never
 #    opaquely): an unwritable destination must produce a non-zero exit, not a
