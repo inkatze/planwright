@@ -33,9 +33,9 @@ observation logs, PR bodies) carry no secrets, credentials, or sensitive
 operational detail. The risk register is the artifact most at risk: it
 exists to record context, and context invites detail. Record the shape of a
 risk and the decision taken; do not record tokens, internal hostnames,
-customer data, or identifying details of private repositories. Secret
-scanning in CI catches token-shaped leaks; prose-shaped leaks are caught
-only by this rule being applied at write time.
+customer data, or identifying details of private repositories. A secret
+scanner catches token-shaped leaks; prose-shaped leaks are caught only by
+this rule being applied at write time.
 
 ## Framework-script security
 
@@ -51,6 +51,6 @@ stricter bar than the code they help review:
 - **Guard path access.** Paths derived from parsed input are validated and
   containment-checked after canonicalization before any read or write.
   Hostile input is a clean refusal, never a path.
-- **Stay auditable.** Scripts are plain portable shell, lint-checked and
-  secret-scanned in planwright's own CI, small enough to read before
-  trusting.
+- **Stay auditable.** Scripts are plain portable shell, small enough to
+  read before trusting, and gated by planwright's self-hosting quality
+  guards (shell lint and secret scan, per the dogfooding decision D-32).
