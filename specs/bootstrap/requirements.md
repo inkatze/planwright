@@ -554,6 +554,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   bracket; the entry bodies already state the joint verification), restoring
   the "tag includes [manual]" sweep convention. Self-re-anchor recorded in the
   kickoff brief.
+- 2026-06-11 (expression-only, Copilot pairing iter 2) — tasks.md dependency
+  graph intro reworded "generated" → "derived" (no generator tooling exists;
+  the view is maintained by hand against the authoritative `Dependencies:`
+  lines). Self-re-anchor recorded in the kickoff brief.
 
 ## Sources
 
