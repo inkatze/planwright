@@ -176,6 +176,13 @@ if "$anchor" "$spec" >/dev/null 2>&1; then
 fi
 chmod 644 "$spec/tasks.md"
 
+# --- Unwritable stdout fails closed ---
+# git hash-object ignores a failed write to a closed stdout and still exits 0;
+# the script must not report success when it could not emit the anchor.
+if "$anchor" "$spec" >&- 2>/dev/null; then
+  fail "closed stdout did not fail"
+fi
+
 # --- Missing file fails closed ---
 rm "$spec/test-spec.md"
 if "$anchor" "$spec" >/dev/null 2>&1; then

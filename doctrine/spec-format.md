@@ -390,7 +390,10 @@ the freshness gate while meaning edits always do.
 1. **Canonical form:** `scripts/spec-anchor.sh <spec-dir>` — the reference
    implementation of the manifest anchor with the canonical `tasks.md`
    extraction, shipped with this meta-spec and unit-tested
-   (`tests/spec-anchor-test.sh`).
+   (`tests/spec-anchor-test.sh`). It fails closed (non-zero exit, message on
+   stderr, no anchor printed) on a missing or unreadable spec file, a failed
+   extraction, or duplicate task ids; a successful exit is the only state
+   that yields an anchor.
 2. **Interim whole-file form:**
    `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
    — the pre-extraction form. Remains sanctioned (existing entries stay
