@@ -355,6 +355,20 @@ ambiguity.
 
 Signed off: 2026-06-10
 
+### Risk register additions — Task 1 execution (2026-06-11)
+
+Research Rigor findings recorded per REQ-E1.3/REQ-D1.5 (execution-skill write,
+named-section only; no anchor entry). Trigger: version-sensitive API use (the
+Claude Code plugin format). Sources: official plugin docs at
+code.claude.com/docs (plugins, plugins-reference, discover-plugins), consulted
+2026-06-11.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 10 | `${CLAUDE_PLUGIN_ROOT}` is ephemeral: the path changes on every plugin update (old versions retained ~7 days). Any planwright state written under the plugin root would be silently lost on update. | Convention set at Task 1: plugin root is read-only at runtime; durable runtime state belongs in `${CLAUDE_PLUGIN_DATA}` (`~/.claude/plugins/data/<id>/`, update-stable) or repo-local paths. Re-check when T13 places locks and T19 finalizes packaging. |
+| 11 | Manifest/layout facts verified current as of 2026-06-11: manifest at `.claude-plugin/plugin.json` (only `name` required, kebab-case); `skills/`, `commands/`, `agents/`, `hooks/hooks.json` auto-discovered at plugin root only; plain `~/.claude/` files remain a supported non-plugin fallback. Plugin format is actively evolving (displayName v2.1.143+, defaultEnabled v2.1.154+), so these facts can drift before T19. | Resolution chain (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` → `<claude-dir>/planwright`) isolates skills from layout drift; T19 re-verifies the manifest schema against current docs before finalization. |
+| 12 | Doctrine gap surfaced at T1's tooling pass, routed here so T15's executor sees it (the observations log feeds `/spec-draft`, not task execution): the engineering doctrine's "defer to tooling and ecosystem standards" needs two companion principles — pin the quality toolchain (reproducibility is what makes tool-grounded discovery trustworthy) and own adopted tools' defaults (review conventions-bearing defaults at adoption, record deviations with rationale; tool defaults are the tool author's context). Fits T15's existing deliverable scope without contract drift. | Two observation entries dated 2026-06-11 carry the full evidence (shim failures pre-pinning; 80-column defaults in two tools; gitleaks `--redact`; shellcheck optional-tier trial: 4 hits, none load-bearing). T16's builder applies the same at guard-adoption time. |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
@@ -885,6 +899,37 @@ verified matching immediately before the move inside the D-10 lock window.
 
 Class: expression-only
 Anchor: `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 4 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 4 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-4`, branch `planwright/bootstrap/task-4`). Same
+orchestration-state-placement rationale as the Task 3 dispatch entry above.
+Pre-move anchor `2fe3ed5046b1de26c8f1c6c8078029d279de4bc3` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `e469f8f2f23c5aefb193718b4aa225b2982b70aa` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 1 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 1 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-1`, branch `planwright/bootstrap/task-1`). Same
+orchestration-state-placement rationale as the Task 3 dispatch entry above.
+With this dispatch the in-flight unit count reaches `max_parallel_units` (3).
+Pre-move anchor `e469f8f2f23c5aefb193718b4aa225b2982b70aa` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `d623c4a54df920e0b6821e60c9aa9f962511c4c1` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
