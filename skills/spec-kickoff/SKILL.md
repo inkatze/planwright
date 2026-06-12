@@ -286,8 +286,11 @@ not walked.
 6. **Push and draft PR** (REQ-B2.4, D-44). Push the spec branch:
    `git push -u origin planwright/<spec>/spec`. Then the PR: if one
    already exists for the branch, update its body; otherwise
-   `gh pr create --draft` with explicit `--title`
-   (`spec: <spec> — kickoff sign-off`) and `--body` carrying the spec
+   `gh pr create --draft` with explicit `--title` and `--body`. The title
+   must pass the project's conventional PR-title lint
+   (`scripts/check-commit-msgs.sh`, enforced on PR titles in CI at 100
+   chars): `feat(spec): <spec> kickoff sign-off` for a first activation,
+   `docs(spec): <spec> <event>` for later events. The body carries the spec
    path, brief path, walkthrough scope (full or delta), validator outcome,
    lens-pass summary, and the anchor. The PR is always a draft; the
    draft→ready flip and the merge are the human's (the second key — merge
