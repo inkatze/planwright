@@ -346,6 +346,13 @@ has "WARN"
 has "citation"
 has "REQ-X1.1"
 
+# A multi-letter group is not a conforming REQ-ID (meta-spec: <Group> is a
+# single capital letter): the bullet is flagged, not silently accepted.
+write_bundle "$root/fixture" Draft
+edit "$root/fixture/requirements.md" 's/^- \*\*REQ-X1.2\*\*/- **REQ-XY1.2**/'
+run_v 0 "$root/fixture"
+has "conforming REQ-ID"
+
 # A reused (duplicate) REQ-ID is rejected even on Draft.
 write_bundle "$root/fixture" Draft
 cat >>"$root/fixture/requirements.md" <<'EOF'

@@ -184,7 +184,7 @@ parse_requirements() {
     !ingroup { next }
     /^- / {
       flush()
-      if (match($0, /^- \*\*REQ-[A-Z]+[0-9]+\.[0-9]+\*\*/)) {
+      if (match($0, /^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*/)) {
         id = substr($0, 5, RLENGTH - 6)
         printf "ALL\t%s\n", id
         if (id in seen) printf "F\thard\tduplicate REQ-ID %s\n", id
@@ -193,7 +193,7 @@ parse_requirements() {
         cites = ($0 ~ /\(Cites:/)
         sup = ($0 ~ /\*\*Superseded-by: REQ-/)
       } else {
-        printf "F\tgap\tprose-only requirement bullet (no REQ-ID) at requirements.md:%d\n", NR
+        printf "F\tgap\tprose-only bullet or non-conforming REQ-ID at requirements.md:%d (expected REQ-<letter><n>.<m>)\n", NR
       }
       next
     }
@@ -329,8 +329,8 @@ baseline_checks() {
         ;;
     esac
     old_ids=$(printf '%s\n' "$old_req" \
-      | grep -oE '^- \*\*REQ-[A-Z]+[0-9]+\.[0-9]+\*\*' \
-      | grep -oE 'REQ-[A-Z]+[0-9]+\.[0-9]+') || old_ids=
+      | grep -oE '^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*' \
+      | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
       set_in "$oid" "$all_req_ids" \
@@ -470,7 +470,7 @@ validate_bundle() {
   # REQ↔test-spec coverage: every live REQ appears in an H3 entry heading,
   # matched as an exact id (REQ-F1.1 is not covered by REQ-F1.10).
   if [ -f "$bdir/test-spec.md" ] && [ -n "$live_req_ids" ]; then
-    heads=$(grep '^### ' "$bdir/test-spec.md" | grep -oE 'REQ-[A-Z]+[0-9]+\.[0-9]+') || heads=
+    heads=$(grep '^### ' "$bdir/test-spec.md" | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || heads=
     printf '%s\n' "$live_req_ids" | while read -r rid; do
       [ -n "$rid" ] || continue
       set_in "$rid" "$heads" \
