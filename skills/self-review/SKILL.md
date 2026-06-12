@@ -31,8 +31,9 @@ definitions govern wherever this skill names a concept:
   discovery, fan-out, self-critique pass
 - `validation-rigor` — the three validation passes; solution validation,
   including the altitude check
-- `finding-categorization` — the four buckets, their predicates, hard-pause
-  zones, declined-with-rationale, the resolution ladder
+- `finding-categorization` — the four buckets, their predicates, hard
+  pauses and the hard-disqualifier zones, declined-with-rationale, the
+  resolution ladder
 - `gate-wiring` — routing order, commit discipline, checklist and audit
   formats, ladder procedure, pause protocol, loop-end handoff
 - `research-rigor` — the resolution ladder's research rung: source

@@ -106,7 +106,7 @@ Finding fixes commit inside the pass per the `gate-wiring` commit
 discipline (loop-level writes, such as observation appends, take their own
 chore commit at the iteration boundary):
 Needs-sign-off items one commit per finding with the `[pending-sign-off]`
-marker, action items batched per iteration, regression tests landing with the
+subject marker, action items batched per iteration, regression tests landing with the
 fix they prove. Polish never amends, squashes, rebases, or force-pushes; each
 iteration's commits stand as the per-iteration audit trail.
 
