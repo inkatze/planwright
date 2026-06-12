@@ -246,6 +246,15 @@ run_v 1 "$root"
 has "ERROR"
 has "design.md"
 
+# Deleting requirements.md must not downgrade an Active bundle's errors to
+# warnings: the severity status is derived from the sibling mirrors when
+# the authoritative file is absent.
+write_bundle "$root/fixture" Active
+rm "$root/fixture/requirements.md"
+run_v 1 "$root"
+has "ERROR"
+has "missing file: requirements.md"
+
 # --- 4. Header block: Status ---
 # Missing Status warns and defaults to Draft: a structural gap in the same
 # bundle stays a warning.
@@ -606,6 +615,23 @@ run_v 1 "$root2"
 has "ERROR"
 lacks "$(printf '\033')"
 rm -rf "${root2:?}/$(printf 'bad\033[31mname')"
+
+# A newline inside a directory name must stay one entry: line-splitting
+# enumeration would fragment it into charset-valid phantom names ("one",
+# "two") that produce warnings instead of the identifier error.
+mkdir -p "$root2/$(printf 'one\ntwo')"
+run_v 1 "$root2"
+has "identifier"
+lacks "phantom"
+lacks "WARN one"
+rm -rf "${root2:?}/$(printf 'one\ntwo')"
+
+# Hidden directories are tooling artifacts (like the root's dotfiles), not
+# candidate bundles: ignored, not flagged.
+mkdir -p "$root2/.cache"
+run_v 0 "$root2"
+has "0 error(s), 0 warning(s)"
+rm -rf "${root2:?}/.cache"
 
 # A symlinked directory under the specs root is a hard error (fail closed:
 # a silently skipped bundle would be one CI never checks), while plain

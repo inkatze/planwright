@@ -36,7 +36,8 @@
 # bundle; any other directory is treated as a specs root and its direct
 # children are screened and validated. A symlinked directory in the root is
 # a hard error (a silent skip would be a bundle CI never checks); plain
-# files and symlinks to files are ignored. The baseline for stable-ID and
+# files, symlinks to files, and hidden entries (tooling artifacts) are
+# ignored. The baseline for stable-ID and
 # terminal-state checks defaults to origin/main when it resolves (it is
 # skipped quietly otherwise: a brand-new repo with no remote degrades
 # gracefully per REQ-K1.7); --baseline makes it explicit and fatal when
@@ -378,6 +379,18 @@ validate_bundle() {
   all_d_ids=
   all_t_ids=
 
+  if [ ! -f "$bdir/requirements.md" ]; then
+    # The authoritative Status home is absent: derive the severity status
+    # from the first sibling mirror that declares one, so deleting
+    # requirements.md cannot downgrade an Active bundle's errors to
+    # warnings (same evasion class as an implicit-Draft mirror).
+    for bf in design.md tasks.md test-spec.md; do
+      [ -f "$bdir/$bf" ] || continue
+      declared_status=$(first_header "$bdir/$bf" Status)
+      [ -n "$declared_status" ] && break
+    done
+  fi
+
   if [ -f "$bdir/requirements.md" ]; then
     declared_status=$(first_header "$bdir/requirements.md" Status)
     if [ -z "$declared_status" ]; then
@@ -516,45 +529,27 @@ if [ -f "$target/requirements.md" ] || [ -f "$target/design.md" ] \
   || [ -f "$target/tasks.md" ] || [ -f "$target/test-spec.md" ]; then
   screen_and_validate "$target"
 else
-  dirs=$(find "$target" -mindepth 1 -maxdepth 1 -type d | sort)
-  if [ -n "$dirs" ]; then
-    oldifs=$IFS
-    IFS='
-'
-    # set -f: the unquoted expansion must split on newlines ONLY — without
-    # it, a glob-metacharacter directory name (e.g. "[g]") would be
-    # pathname-expanded into its siblings and evade the REQ-A1.8 screen.
-    set -f
-    # shellcheck disable=SC2086 # newline-only splitting of the dir list is intended
-    set -- $dirs
-    set +f
-    IFS=$oldifs
-    for d in "$@"; do
-      screen_and_validate "$d"
-    done
-  fi
-
-  # Symlinked directories are a hard error, not a silent skip: `find -type d`
-  # excludes them, so an accepted symlink would be a bundle CI never checks
-  # (fail closed, REQ-A2.1). Symlinks to non-directories stay ignored like
-  # any other plain file in the root.
-  links=$(find "$target" -mindepth 1 -maxdepth 1 -type l | sort)
-  if [ -n "$links" ]; then
-    oldifs=$IFS
-    IFS='
-'
-    set -f
-    # shellcheck disable=SC2086 # newline-only splitting of the link list is intended
-    set -- $links
-    set +f
-    IFS=$oldifs
-    for d in "$@"; do
+  # Glob iteration, not `find | split`: pathname-expansion results arrive
+  # one entry per word, so names containing newlines (or any other
+  # splittable byte) cannot fragment into charset-valid phantom entries,
+  # and expansion results are never re-expanded, so glob-metacharacter
+  # names (e.g. "[g]") are screened literally. Hidden entries are skipped
+  # as tooling artifacts (the root's own dotfiles set the precedent).
+  # Symlinked directories are a hard error, not a silent skip: an accepted
+  # symlink would be a bundle CI never checks (fail closed, REQ-A2.1);
+  # symlinks to non-directories stay ignored like any other plain file.
+  for d in "$target"/*; do
+    { [ -e "$d" ] || [ -L "$d" ]; } || continue # unmatched-glob literal
+    if [ -L "$d" ]; then
       if [ -d "$d" ]; then
         emit_error "$(basename "$d")" \
           "symlinked directory under the specs root; bundles must be real directories"
       fi
-    done
-  fi
+      continue
+    fi
+    [ -d "$d" ] || continue
+    screen_and_validate "$d"
+  done
 fi
 
 printf 'spec-validate: %d error(s), %d warning(s)\n' "$err" "$warn"
