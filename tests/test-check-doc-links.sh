@@ -135,6 +135,36 @@ mkdir -p "$tmp/decoy/scripts"
 (CDPATH="$tmp/decoy" /bin/bash "$CHECKER" >/dev/null 2>&1)
 assert "CDPATH does not corrupt root derivation" 0 $?
 
+# 10. The default scan set covers skills/<name>/*.md: a broken link in a
+#     skill doc must fail the no-arg scan, not rot silently outside it.
+#     Fixture repo layout (the script derives repo root from its own path).
+mkdir -p "$tmp/fixture/scripts" "$tmp/fixture/skills/demo"
+cp "$CHECKER" "$tmp/fixture/scripts/check-doc-links.sh"
+cat >"$tmp/fixture/README.md" <<'EOF'
+# Fixture
+EOF
+cat >"$tmp/fixture/skills/demo/SKILL.md" <<'EOF'
+See [a doctrine doc](../../doctrine/no-such-doc.md).
+EOF
+out="$(/bin/bash "$tmp/fixture/scripts/check-doc-links.sh" 2>&1)"
+assert "broken link in a skill doc fails the default scan" 1 $?
+case "$out" in
+  *no-such-doc.md*) echo "ok: the skill doc's broken target is named" ;;
+  *)
+    echo "FAIL: skill doc's broken target not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 10b. The positive arm: a skill doc whose links resolve passes the
+#      default scan.
+mkdir -p "$tmp/fixture/doctrine"
+cat >"$tmp/fixture/doctrine/no-such-doc.md" <<'EOF'
+# Now it exists
+EOF
+/bin/bash "$tmp/fixture/scripts/check-doc-links.sh" >/dev/null
+assert "resolving skill-doc link passes the default scan" 0 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
