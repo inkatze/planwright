@@ -49,7 +49,9 @@ done
 extract_tasks() {
   awk '
     function sortkey(id,    parts, n, major, minor) {
-      n = split(id, parts, ".")
+      # "\\." (ERE literal dot) rather than "."): a single-char separator is
+      # already literal in POSIX awk, but the escape says so explicitly.
+      n = split(id, parts, "\\.")
       major = parts[1] + 0
       minor = (n > 1) ? parts[2] + 0 : 0
       return sprintf("%08d.%08d", major, minor)
