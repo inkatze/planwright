@@ -40,9 +40,9 @@ claude_dir="$tmp/claude"
 
 # Pre-existing user config that must survive untouched.
 mkdir -p "$claude_dir"
-echo '{"user": "owned"}' > "$claude_dir/settings.json"
+echo '{"user": "owned"}' >"$claude_dir/settings.json"
 mkdir -p "$claude_dir/skills/user-skill"
-echo "user skill" > "$claude_dir/skills/user-skill/SKILL.md"
+echo "user skill" >"$claude_dir/skills/user-skill/SKILL.md"
 
 # 1. Install succeeds into an overridden claude dir.
 CLAUDE_DIR="$claude_dir" /bin/bash "$INSTALLER" >/dev/null
@@ -58,7 +58,7 @@ assert_file "resolver installed" "$claude_dir/planwright/scripts/resolve-rule-do
 #    modes). Rule docs land with the doctrine task, so plant a kebab-case
 #    fixture doc in the exact directory the installer writes to: this proves
 #    the resolver searches where the writer installs.
-echo "fixture" > "$claude_dir/planwright/doctrine/fixture-doc.md"
+echo "fixture" >"$claude_dir/planwright/doctrine/fixture-doc.md"
 PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="$claude_dir" \
   /bin/bash "$RESOLVER" fixture-doc >/dev/null
 assert "writer-mode resolution works post-install" 0 $?
@@ -90,10 +90,10 @@ src="$tmp/src"
 mkdir -p "$src/scripts" "$src/doctrine" "$src/config" \
   "$src/skills/sample-skill" "$src/commands"
 cp "$INSTALLER" "$src/scripts/install.sh"
-echo "doc" > "$src/doctrine/sample.md"
-echo "key: value" > "$src/config/defaults.yml"
-echo "skill body" > "$src/skills/sample-skill/SKILL.md"
-echo "command body" > "$src/commands/sample-command.md"
+echo "doc" >"$src/doctrine/sample.md"
+echo "key: value" >"$src/config/defaults.yml"
+echo "skill body" >"$src/skills/sample-skill/SKILL.md"
+echo "command body" >"$src/commands/sample-command.md"
 mkdir -p "$tmp/home"
 HOME="$tmp/home" /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1"' _ "$src/scripts/install.sh" >/dev/null
 assert "install with default claude-dir exits 0" 0 $?
@@ -122,7 +122,10 @@ assert "symlinked self-install refused" 2 $?
 
 # 6b3. Installed scripts keep their executable bit under a restrictive umask.
 mkdir -p "$tmp/umask-home"
-( umask 0133; HOME="$tmp/umask-home" /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1"' _ "$INSTALLER" >/dev/null )
+(
+  umask 0133
+  HOME="$tmp/umask-home" /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1"' _ "$INSTALLER" >/dev/null
+)
 assert "install under umask 0133 exits 0" 0 $?
 if [ -x "$tmp/umask-home/.claude/planwright/scripts/resolve-rule-doc.sh" ]; then
   echo "ok: installed resolver is executable under umask 0133"
