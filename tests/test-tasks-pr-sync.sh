@@ -428,4 +428,20 @@ run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" \
 assert_unchanged "stale_lock_threshold override" "$repo/specs/demo/tasks.md" "$pristine7"
 echo "ok: local stale_lock_threshold override is honored"
 
+# 15. A malformed stale_lock_threshold falls back to the tracked default
+#     with a warning (config-model fallback rule): the 2020 lock is stale at
+#     the default 15m, so the move proceeds.
+printf 'stale_lock_threshold: banana\n' >"$repo/.claude/planwright.local.yml"
+mkdir -p "$repo/specs/demo/.orchestrate.lock"
+touch -t 202001010000 "$repo/specs/demo/.orchestrate.lock"
+err=$( (run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12") 2>&1 >/dev/null) \
+  || fail "malformed threshold: non-zero exit"
+[ "$(section_of "$repo/specs/demo/tasks.md" 3)" = "In progress" ] \
+  || fail "malformed threshold: default fallback did not break the stale lock"
+case $err in
+  *"malformed stale_lock_threshold"*) ;;
+  *) fail "malformed threshold: no fallback warning on stderr" ;;
+esac
+echo "ok: malformed stale_lock_threshold warns and falls back to the default"
+
 echo "PASS: all tasks-pr-sync tests passed"

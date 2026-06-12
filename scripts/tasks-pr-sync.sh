@@ -187,7 +187,12 @@ if [ -f "$local_cfg" ]; then
     | head -1 | sed 's/[[:space:]]*#.*$//' | tr -d '"' | tr -d "'")
   v=${v%m}
   case $v in
-    '' | *[!0-9]*) ;;
+    '') ;; # key absent: tracked default applies silently
+    *[!0-9]*)
+      # Malformed value: fall back to the tracked default and surface a
+      # warning (config-model fallback rule, docs/options-reference.md).
+      log "ignoring malformed stale_lock_threshold in $local_cfg; using ${threshold_min}m"
+      ;;
     *) threshold_min=$v ;;
   esac
 fi
