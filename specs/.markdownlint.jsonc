@@ -1,0 +1,26 @@
+{
+  // Scoped relaxation for specs/ (Task 2 sets this config; the lint:md task
+  // includes specs through it). Spec bundles are machine-maintained state
+  // records plus append-only signed history (kickoff briefs, amendment
+  // records): reflowing them would change the REQ-F1.9 content anchor or
+  // rewrite signed sections, so style rules that demand reflow are off here.
+  // Structural rules (broken headings, reversed/empty links, bad fences)
+  // stay on — those catch real authoring mistakes.
+  "extends": "../.markdownlint.jsonc",
+
+  // Anchored/append-only content cannot be rewrapped to a column limit.
+  "MD013": false,
+  // Table whitespace style would force rewrites of signed tables.
+  "MD060": false,
+  // Historical sections wrap prose so a line can begin "- " or "+ ";
+  // markdown then sees a list. Blank-line and marker-style policing of
+  // that content is noise.
+  "MD032": false,
+  "MD004": false,
+  // The tasks.md dependency-graph block is a plain-text diagram with no
+  // meaningful language tag.
+  "MD040": false,
+  // Signed walkthrough sections open prose directly under their headings;
+  // keep requiring the blank line above (real structure) but not below.
+  "MD022": { "lines_below": 0 }
+}
