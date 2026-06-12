@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-doc-links.sh — doctrine cross-reference link-check (Task 2, REQ-G1.7).
+# check-doc-links.sh — prose cross-reference link-check (Task 2, REQ-G1.7).
 #
 # The doctrine docs reference each other by relative markdown links; a renamed
 # or deleted target must fail CI rather than rot silently. Each inline
@@ -41,8 +41,9 @@ else
   for f in "$repo_root"/doctrine/*.md "$repo_root"/docs/*.md; do
     [ -f "$f" ] && files=("${files[@]}" "$f")
   done
-  # Recursive to match lint:md's skills/**/*.md scope (nested skill docs
-  # must not be linted-but-unlinked).
+  # skills/ is scanned recursively (find, since bash 3.2 has no globstar)
+  # to match lint:md's skills/**/*.md scope at any depth: nested skill
+  # docs must not be linted-but-unlinked.
   if [ -d "$repo_root/skills" ]; then
     while IFS= read -r f; do
       files=("${files[@]}" "$f")
