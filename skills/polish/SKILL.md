@@ -78,7 +78,9 @@ Each iteration:
 2. **Fold the pass into the ledger.** Add every new disposition. Count the
    iteration's **new action dispositions**: findings newly applied
    (Auto-applicable), resolved with evidence (Agent-resolvable), applied
-   pending sign-off, or declined with rationale.
+   pending sign-off, or declined with rationale. "New" means not already in
+   the ledger: a re-discovered, already-dispositioned finding never counts,
+   however it was dispositioned.
 3. **Check the safety conditions** (below). Any trigger: stop per its row.
 4. **Converged?** If the pass produced zero new action dispositions and
    nothing newly queued (everything found was already in the ledger, or
