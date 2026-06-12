@@ -144,6 +144,9 @@ On exit (converged or safety-stopped), emit the loop-end handoff in the
 5. The queued irreducible forks with their bespoke options: the only items
    that ask the human a question. Bespoke options are the actual decision
    branches, never timing labels, per the categorization doctrine.
+6. The final iteration's pass summary (the per-iteration summaries cover
+   the rest), so a parent skill assembling a PR body has the tooling and
+   wider-suite evidence without re-deriving it.
 
 Standalone, present all of it to the human and put the queued forks to them
 directly. Nested, hand the record to the parent skill, which folds the

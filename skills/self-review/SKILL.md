@@ -180,7 +180,9 @@ routing order or masquerading as a held fix.
 
 ## The audit record
 
-The pass produces, in this order (the wiring doc's loop-end handoff):
+The pass produces, in this order (the wiring doc's loop-end handoff,
+extended with the lens-coverage table at the front and the pass summary at
+the end):
 
 1. The lens-coverage table.
 2. The four bucket tables in fixed order, an empty bucket as a single `none`
