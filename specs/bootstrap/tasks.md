@@ -131,21 +131,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
 
-### Task 11 — `/self-review` + `/polish`
-
-- **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
-  four-table output including empties); `/polish` (autonomous act-then-review loop:
-  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
-  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
-  until only irreducible judgment forks remain). Both append observations to the
-  observations log and carry the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
-  declined log and pending-sign-off checklist; the observations log gains entries; nested
-  invocation fires hooks once (in-session).
-- **Dependencies:** 3, 7
-- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
-- **Estimated effort:** 1.5 days
-
 ### Task 12 — `/execute-task`
 
 - **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
@@ -418,6 +403,25 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
+
+### Task 11 — `/self-review` + `/polish`
+
+- **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
+  four-table output including empties); `/polish` (autonomous act-then-review loop:
+  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
+  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
+  until only irreducible judgment forks remain). Both append observations to the
+  observations log and carry the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
+  declined log and pending-sign-off checklist; the observations log gains entries; nested
+  invocation fires hooks once (in-session).
+- **Dependencies:** 3, 7
+- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
+  branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
 
 ## Awaiting input
 
