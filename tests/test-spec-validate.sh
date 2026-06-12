@@ -300,6 +300,18 @@ run_v 0 "$root/fixture"
 has "WARN"
 has "Format-version"
 
+# Format-version mirrors are checked like Status mirrors: a sibling that
+# omits or diverges from requirements.md's declared version is flagged.
+write_bundle "$root/fixture" Draft
+edit "$root/fixture/tasks.md" 's/^\*\*Format-version:\*\* 1$/**Format-version:** 2/'
+run_v 0 "$root/fixture"
+has "tasks.md: Format-version mirror mismatch"
+
+write_bundle "$root/fixture" Draft
+edit "$root/fixture/design.md" '/^\*\*Format-version:\*\*/d'
+run_v 0 "$root/fixture"
+has "design.md: missing Format-version"
+
 write_bundle "$root/fixture" Draft
 edit "$root/fixture/requirements.md" \
   's/^\*\*Format-version:\*\* 1$/**Format-version:** 2/'
@@ -586,6 +598,14 @@ run_v 1 "$root2"
 has "ERROR _[g]: accumulator"
 has "1 error(s)"
 rm -rf "$root2/_[g]" "$root2/_g"
+
+# A hostile directory name with control bytes is flagged without the raw
+# bytes reaching the output (REQ-H1.3 echo discipline applied to names).
+mkdir -p "$root2/$(printf 'bad\033[31mname')"
+run_v 1 "$root2"
+has "ERROR"
+lacks "$(printf '\033')"
+rm -rf "${root2:?}/$(printf 'bad\033[31mname')"
 
 # A symlinked directory under the specs root is a hard error (fail closed:
 # a silently skipped bundle would be one CI never checks), while plain

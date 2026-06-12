@@ -47,8 +47,10 @@
 # Exit codes: 0 no errors (warnings allowed), 1 errors found (or an invalid
 # --check-id identifier), 2 usage or environment error.
 #
-# Portable: POSIX sh + awk + grep + git (bash 3.2 / BSD compatible, no
-# eval, input treated as data only).
+# Portable: /bin/sh + awk + grep + git as shipped on macOS (bash 3.2, BSD
+# userland) and Linux (GNU userland) — the REQ-K1.5 envelope. Two utilities
+# used here sit outside strict POSIX but ship on every targeted platform:
+# mktemp(1) and grep -o. No eval; input treated as data only.
 set -eu
 
 # Pin the C locale: charset checks and awk/grep ranges must not vary by
@@ -134,8 +136,14 @@ err=0
 warn=0
 tab=$(printf '\t')
 
+# emit_error <name> <msg> — report a root-level screening error and count
+# it. The name is repo-controlled input that failed (or never reached) the
+# charset screen, so non-printables are stripped before echoing (REQ-H1.3
+# echo discipline), with a placeholder when nothing printable remains.
 emit_error() {
-  printf 'spec-validate: ERROR %s: %s\n' "$1" "$2"
+  en=$(printf '%s' "$1" | tr -d '\000-\037\177')
+  [ -n "$en" ] || en="(unprintable name)"
+  printf 'spec-validate: ERROR %s: %s\n' "$en" "$2"
   err=$((err + 1))
 }
 
@@ -402,6 +410,9 @@ validate_bundle() {
     all_req_ids=$(awk -F'\t' '$1 == "ALL" { print $2 }' "$gtmp/tagged")
 
     # Status mirrors, compared against the declared-or-defaulted status.
+    # Format-version mirrors likewise (meta-spec: all four files carry the
+    # same header block), compared only when requirements.md declares one —
+    # unlike Status it has no specified default to mirror against.
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
       mst=$(first_header "$bdir/$bf" Status)
@@ -410,6 +421,15 @@ validate_bundle() {
       elif [ "$mst" != "$declared_status" ]; then
         printf 'gap\t%s: Status mirror mismatch: %s (requirements.md resolves %s)\n' \
           "$bf" "$mst" "$declared_status" >>"$fnd"
+      fi
+      if [ -n "$fver" ]; then
+        mfv=$(first_header "$bdir/$bf" Format-version)
+        if [ -z "$mfv" ]; then
+          printf 'gap\t%s: missing Format-version: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
+        elif [ "$mfv" != "$fver" ]; then
+          printf 'gap\t%s: Format-version mirror mismatch: %s (requirements.md declares %s)\n' \
+            "$bf" "$mfv" "$fver" >>"$fnd"
+        fi
       fi
     done
   fi
