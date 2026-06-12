@@ -32,52 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 6 — Hooks & operational integration
-
-- **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
-  sections on `gh pr create` / `gh pr merge`, parsing the branch convention); the
-  `tool-discovery` SessionStart hook (detects linters/formatters/type-checkers, feeds
-  Discovery Rigor and the builder); the branch-naming and worktree-placement conventions
-  (including the reserved `planwright/<spec>/spec` namespace the sync hook no-ops on,
-  D-44); config-model wiring.
-- **Done when:** Creating/merging a PR on a convention-named branch moves the matching task
-  block to the right section; a session start emits the discovered-tools summary; the hooks
-  no-op cleanly on non-matching input, including hostile branch names (segments failing
-  the REQ-A1.8 charset, `..`, path separators).
-- **Dependencies:** 4, 5
-- **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
-- **Estimated effort:** 1 day
-
-### Task 9 — `/spec-kickoff`
-
-- **Deliverables:** The `/spec-kickoff` skill: section-by-section walkthrough to mutual
-  understanding; incremental kickoff-brief authoring against the specified brief structure
-  (risk register, decisions, task graph, verification); the decision-domains gap check
-  (flags catalogued domains the spec touches but does not decide, into the risk register —
-  degrades gracefully until Task 15 lands; no dependency edge by design); inconsistency
-  halt with the edit-or-override resolution; Draft→Active flip on sign-off; auto-commit of
-  brief + flip (`commit_on_kickoff` opt-out, D-41); push of the spec branch + draft PR
-  (REQ-B2.4, D-44), degrading gracefully on no remote / `gh` failure (Awaiting-input note,
-  local work intact); spec-worktree reuse/recreate per D-44 (including recreating a pruned
-  worktree from the spec branch); `Last reviewed:` update; the sign-off content anchor
-  written on every sign-off, amendment, and re-walkthrough per the REQ-F1.10 record
-  format, anchor line written last (REQ-F1.9, D-45); the Discovery-Rigor lens review
-  pass as part of sign-off (fan-out per Discovery Rigor for non-trivial deltas; full
-  bundle at first activation, delta-scoped at re-walkthroughs and amendments, skipped
-  for expression-only changes per REQ-A3.3), findings dispositioned and the pass
-  recorded in the brief; the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A walkthrough produces a signed brief, flips the spec Active, commits,
-  pushes, and opens a draft PR (or records the degradation note when no remote exists);
-  every sign-off carries a recomputable content anchor in the REQ-F1.10 format; a
-  meaning-class sign-off without a dispositioned lens pass refuses to record an
-  execution-valid anchor; launching from main, the spec
-  worktree, or an unrelated worktree each resolves
-  gracefully; a seeded contradiction halts without a brief; a killed session leaves a
-  resumable partial brief.
-- **Dependencies:** 4, 5
-- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
-- **Estimated effort:** 1 day
-
 ### Task 12 — `/execute-task`
 
 - **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
@@ -368,8 +322,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
   branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
 
-## In progress
-
 ### Task 5 — Status-aware validator
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
@@ -386,10 +338,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4
 - **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
 - **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #9 (draft)
+- **Status:** Completed · PR #9 merged 2026-06-12
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
+
+## In progress
 
 ### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
 
@@ -434,6 +388,60 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
   branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
+
+### Task 6 — Hooks & operational integration
+
+- **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
+  sections on `gh pr create` / `gh pr merge`, parsing the branch convention); the
+  `tool-discovery` SessionStart hook (detects linters/formatters/type-checkers, feeds
+  Discovery Rigor and the builder); the branch-naming and worktree-placement conventions
+  (including the reserved `planwright/<spec>/spec` namespace the sync hook no-ops on,
+  D-44); config-model wiring.
+- **Done when:** Creating/merging a PR on a convention-named branch moves the matching task
+  block to the right section; a session start emits the discovered-tools summary; the hooks
+  no-op cleanly on non-matching input, including hostile branch names (segments failing
+  the REQ-A1.8 charset, `..`, path separators).
+- **Dependencies:** 4, 5
+- **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
+  branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
+
+### Task 9 — `/spec-kickoff`
+
+- **Deliverables:** The `/spec-kickoff` skill: section-by-section walkthrough to mutual
+  understanding; incremental kickoff-brief authoring against the specified brief structure
+  (risk register, decisions, task graph, verification); the decision-domains gap check
+  (flags catalogued domains the spec touches but does not decide, into the risk register —
+  degrades gracefully until Task 15 lands; no dependency edge by design); inconsistency
+  halt with the edit-or-override resolution; Draft→Active flip on sign-off; auto-commit of
+  brief + flip (`commit_on_kickoff` opt-out, D-41); push of the spec branch + draft PR
+  (REQ-B2.4, D-44), degrading gracefully on no remote / `gh` failure (Awaiting-input note,
+  local work intact); spec-worktree reuse/recreate per D-44 (including recreating a pruned
+  worktree from the spec branch); `Last reviewed:` update; the sign-off content anchor
+  written on every sign-off, amendment, and re-walkthrough per the REQ-F1.10 record
+  format, anchor line written last (REQ-F1.9, D-45); the Discovery-Rigor lens review
+  pass as part of sign-off (fan-out per Discovery Rigor for non-trivial deltas; full
+  bundle at first activation, delta-scoped at re-walkthroughs and amendments, skipped
+  for expression-only changes per REQ-A3.3), findings dispositioned and the pass
+  recorded in the brief; the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A walkthrough produces a signed brief, flips the spec Active, commits,
+  pushes, and opens a draft PR (or records the degradation note when no remote exists);
+  every sign-off carries a recomputable content anchor in the REQ-F1.10 format; a
+  meaning-class sign-off without a dispositioned lens pass refuses to record an
+  execution-valid anchor; launching from main, the spec
+  worktree, or an unrelated worktree each resolves
+  gracefully; a seeded contradiction halts without a brief; a killed session leaves a
+  resumable partial brief.
+- **Dependencies:** 4, 5
+- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-9` · dispatched 2026-06-12T23:35Z ·
+  branch `planwright/bootstrap/task-9` · worktree `.claude/worktrees/task-9`
 
 ## Awaiting input
 
