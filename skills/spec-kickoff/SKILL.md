@@ -337,7 +337,8 @@ domain), append one line per item to
 `specs/_observations/opportunities.md` — format
 `- <YYYY-MM-DD> [<repo>] <observation>` — and commit the append (with the
 sign-off commit, or as its own chore commit). Do not act on observations
-during the kickoff; `/spec-draft` is the log's canonical reader.
+during the kickoff; they are seed material for `/spec-draft`, the log's
+canonical reader.
 
 ## Maintenance
 
