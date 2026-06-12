@@ -77,7 +77,7 @@ atom        = task-atom / status-atom / date-atom
 task-atom   = "task " task-id " completed"    ; a task in the same bundle,
 task-id     = 1*DIGIT ["." 1*DIGIT]           ; by its stable id
 
-status-atom = "spec " spec-id " " status      ; another bundle's status,
+status-atom = "spec " spec-id " " status      ; a bundle's status,
 spec-id     = lowercase / digit, then         ; identifier per REQ-A1.8
               lowercase / digit / "-", max 64
 status      = "draft" / "active" / "done" / "retired" / "superseded"
@@ -93,8 +93,8 @@ malformed, not ignored. Whitespace around the condition is insignificant
 *reached* on or after the named day, inclusive. A condition that cannot be
 said in this grammar is written as a **free-text gate** instead: plain
 prose after `**Gate:**`, surfaced verbatim and never evaluated (the same
-lane as date gates in evaluation terms — the machine reports it; a human
-judges it). One gate per deferral entry.
+posture as date gates — the machine reports it; a human judges it). One
+gate per deferral entry.
 
 ### Lanes and evaluation semantics
 
@@ -143,7 +143,8 @@ Gate content is untrusted data (REQ-H1.3). The evaluator parses by pattern
 match against the closed grammar and treats gate text as data only: never
 passed to `eval`, a subshell, or arithmetic expansion; never used as a
 pattern, format string, or unquoted argument (`--` discipline); control
-characters stripped when echoed — C0, DEL, and the C1 range 0x80-0x9F
+characters stripped when echoed — C0 (minus newline), DEL, and the C1
+range 0x80-0x9F
 (8-bit CSI), accepting that a multibyte character using C1 continuation
 bytes degrades rather than reaching the terminal as a control sequence. A
 hostile gate is at worst malformed or
@@ -174,16 +175,22 @@ The pass:
   unmined entry count and the oldest entry's age. Mining the log remains
   its canonical reader's job (`/spec-draft`, REQ-H1.6).
 - **Completes regardless of malformed gates**: a malformed entry is report
-  content, not a failure. The evaluator exits non-zero only when it cannot
-  run at all (unusable specs root, usage error).
+  content tallied under the `malformed:` summary field (the separate
+  `errors:` field counts unreadable, NUL-carrying, or mid-sweep-changed
+  files). The evaluator exits non-zero when it cannot run (unusable specs
+  root, usage error) or cannot complete the sweep.
 
 Report lines are keyed by lane (`SATISFIED`, `SURFACED`, `PENDING`,
-`DORMANT`, `FREE-TEXT`, `MALFORMED`) with the gate's file and line, the
-entry title, and its confidence, so both a human and a calling skill can act
-on the report without re-parsing gates. A complete report always ends with
-the `== summary ==` section; a sweep that cannot complete exits non-zero
-instead of emitting a partial report, so a report missing its summary is a
-bug, not a result. The evaluator reads each swept file once and flags a
-file that changed under it mid-sweep as a report-level error rather than
-trusting possibly torn rows (the writer-side lock is the orchestration
-layer's concern, not the read-only evaluator's).
+`DORMANT`, `FREE-TEXT`, `MALFORMED`) with the entry's file and first line,
+the entry title, and its confidence, so both a human and a calling skill
+can act on the report without re-parsing gates. A complete report always
+ends with the `== summary ==` section; a sweep that cannot complete exits
+non-zero instead of emitting a partial report, so a report missing its
+summary is a bug, not a result. The evaluator evaluates each swept file
+from a single read, bracketed by digest checks that flag a file whose
+content differs between the start and end of the parse as a report-level
+error rather than trusting possibly torn rows (a rewrite restoring
+identical bytes within the window is below the check's resolution; the
+writer-side lock is the orchestration layer's concern, not the read-only
+evaluator's). Spec-status atoms evaluate against a snapshot taken at sweep
+start.

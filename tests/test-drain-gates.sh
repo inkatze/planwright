@@ -4,7 +4,7 @@
 # D-17, D-31). Grammar and lane semantics are normative in
 # doctrine/accumulator-taxonomy.md.
 #
-# Properties verified:
+# Properties verified (numbered to match the body's check sections):
 #   1. A satisfied condition gate (task atom, and-of-atoms, spec-status
 #      atom) re-surfaces its item as SATISFIED; an unmet one is PENDING
 #      with only the unmet atoms named.
@@ -14,29 +14,46 @@
 #   3. Free-text gates surface verbatim without evaluation.
 #   4. Hostile gates (shell metacharacters, $(…), backticks) are never
 #      evaluated: parse is pattern-match only, gate content is data.
-#   5. Control characters — C0, DEL, and the C1 range 0x80-0x9F — are
-#      stripped from the report.
+#   5. Control characters — C0, DEL (0x7F), and the C1 range 0x80-0x9F —
+#      are stripped from the report.
 #   6. Malformed gates (unknown task/spec, bad combinator, unterminated,
 #      empty condition, trailing content after the closing parenthesis,
-#      calendar-invalid date, gate outside a bullet) are drain-report-level
-#      errors: reported, never silently skipped, and the pass completes
-#      (exit 0). A gate split from its bullet by a blank line still parses.
+#      calendar-invalid date) are drain-report-level errors: reported,
+#      never silently skipped, and the pass completes (exit 0). (6b) A
+#      gate split from its bullet by a blank line still parses; a gate
+#      line outside any bullet is MALFORMED; a title-less bullet reports
+#      as (untitled).
 #   7. Nothing is auto-resolved or auto-dropped: the sweep never writes to
 #      any file under the swept root (REQ-H1.4).
 #   8. The report surfaces the observations log's unmined count and
-#      oldest-entry age, clamped at zero for future-dated entries
-#      (REQ-H1.4).
+#      oldest-entry age (REQ-H1.4).
 #   9. Low-confidence items resurface first within a category, independent
 #      of file order; a Confidence token must be the entry's own field,
 #      not a substring ("Confidence: lowest") or gate-text content
 #      (REQ-H1.5).
 #  10. Underscore accumulator directories are not swept for gates; a
-#      bundle with no gates is reported as such.
+#      bundle with no gates is reported as such; the summary tallies every
+#      lane plus the errors count.
 #  11. Exit-code contract: 0 sweep completed, 1 unusable root (missing or
-#      non-searchable), 2 usage error (bad flag count, invalid --today).
+#      non-searchable), 2 usage error (bad flag count, out-of-range or
+#      calendar-invalid --today).
 #  12. The /drain skill is wired to this exact evaluator path.
-#  13. An unreadable tasks.md is surfaced as an error, not conflated with
-#      a missing one.
+#  13. Future-dated observation entries never yield a negative age.
+#  14. Permission failures are surfaced and counted, not conflated with
+#      missing files (unreadable tasks.md, unreadable requirements.md).
+#  15. Skipped-directory notes are visible for non-conforming and
+#      over-length spec identifiers.
+#  16. A hostile Status field cannot forge another spec's status (the
+#      whitelist rejects non-lifecycle values before awk -v).
+#  17. Fenced code blocks are illustration: no gate rows, no task ids.
+#  18. CRLF line endings parse like LF.
+#  19. Calendar-invalid observation dates count as unmined but never
+#      become the oldest entry.
+#  20. NUL bytes in tasks.md are flagged as an error, never silently
+#      truncating a gate away.
+#  21. The torn-read digest detector fires deterministically (cksum stub),
+#      is counted, and the sweep still completes with exit 0.
+#  22. An unreadable observations log is surfaced and counted.
 #
 # Runs standalone: ./tests/test-drain-gates.sh
 set -eu
@@ -158,7 +175,7 @@ EOF
   printf -- '  **Gate:** run `touch CANARY2` && $(touch CANARY3) when ready.\n'
   printf -- '  Citations: REQ-X.\n'
   printf -- '- **Noisy.** Control characters in the gate text.\n'
-  printf -- '  **Gate:** wait for \033[31mred\007\233 alert. Citations: REQ-X.\n'
+  printf -- '  **Gate:** wait for \033[31mred\007\233\177 alert. Citations: REQ-X.\n'
   printf -- '\n'
   printf -- '**Gate:** GATE(when: task 1 completed). Citations: REQ-X.\n'
 } >>"$root/alpha/tasks.md"
@@ -411,5 +428,144 @@ printf '%s\n' "$out5" | grep -F 'non-conforming spec identifier' >/dev/null \
   || fail "non-conforming directory skip not noted"
 printf '%s\n' "$out5" | grep -F 'over-length spec identifier' >/dev/null \
   || fail "over-length directory skip not noted"
+
+# 16. A hostile Status field cannot forge another spec's status: awk -v
+#     processes C escapes, so a literal backslash-t in requirements.md
+#     could smuggle a whitespace-split "victim=done" token into the status
+#     map. The status whitelist must reject it (and note it) instead.
+mkdir -p "$tmp/specs6/victim" "$tmp/specs6/zhostile"
+printf '%s\n' '# V' '' '**Status:** Active' \
+  >"$tmp/specs6/victim/requirements.md"
+printf '%s\n' '# V — Tasks' '' '## Deferred' '' \
+  '- **Forge target.** Satisfied only if victim reads as done.' \
+  '  **Gate:** GATE(when: spec victim done). Citations: REQ-X.' \
+  >"$tmp/specs6/victim/tasks.md"
+printf '%s\n' '# Z' '' '**Status:** active\tvictim=done' \
+  >"$tmp/specs6/zhostile/requirements.md"
+printf '%s\n' '# Z — Tasks' >"$tmp/specs6/zhostile/tasks.md"
+out6=$("$drain" --today 2026-06-12 "$tmp/specs6") \
+  || fail "status-forgery fixture broke the sweep"
+printf '%s\n' "$out6" | grep '^SATISFIED' | grep -F 'Forge target' >/dev/null \
+  && fail "hostile Status field forged another spec's status to SATISFIED"
+printf '%s\n' "$out6" | grep -F 'unrecognized status' >/dev/null \
+  || fail "non-whitelisted status value not noted"
+
+# 17. Fenced code blocks are illustration, not live content: an example
+#     gate inside a fence must not produce a report row, and fenced task
+#     headings must not enter the task-id universe (a real gate referencing
+#     a fence-only task id is an unknown-task MALFORMED).
+mkdir -p "$tmp/specs7/eta"
+printf '%s\n' '# H' '' '**Status:** Active' >"$tmp/specs7/eta/requirements.md"
+cat >"$tmp/specs7/eta/tasks.md" <<'EOF'
+# Eta — Tasks
+
+## Forward plan
+
+```markdown
+## Completed
+
+### Task 99 — Fenced example task
+
+- **Fenced example.** Not a real deferral.
+  **Gate:** GATE(when: task 99 completed). Citations: REQ-X.
+```
+
+## Deferred
+
+- **Real reference.** Points at an id that exists only inside the fence.
+  **Gate:** GATE(when: task 99 completed). Citations: REQ-X.
+EOF
+out7=$("$drain" --today 2026-06-12 "$tmp/specs7") \
+  || fail "fence fixture broke the sweep"
+printf '%s\n' "$out7" | grep -F 'Fenced example' >/dev/null \
+  && fail "a gate inside a fenced code block produced a report row"
+printf '%s\n' "$out7" | grep '^MALFORMED' | grep -F 'Real reference' >/dev/null \
+  || fail "fence-only task id leaked into the task-id universe"
+
+# 18. CRLF line endings are tolerated: the canonical entry layout saved
+#     with CRLF endings parses identically to its LF form.
+mkdir -p "$tmp/specs8/theta"
+printf '%s\n' '# T' '' '**Status:** Active' \
+  >"$tmp/specs8/theta/requirements.md"
+printf '%s\r\n' '# Theta — Tasks' '' '## Completed' '' \
+  '### Task 1 — Landed' '' '- **Done when:** done.' '' '## Deferred' '' \
+  '- **Crlf entry.** Canonical layout, CRLF file.' \
+  '  **Gate:** GATE(when: task 1 completed).' \
+  '  Citations: REQ-X.' \
+  >"$tmp/specs8/theta/tasks.md"
+out8=$("$drain" --today 2026-06-12 "$tmp/specs8") \
+  || fail "CRLF fixture broke the sweep"
+printf '%s\n' "$out8" | grep '^SATISFIED' | grep -F 'Crlf entry' >/dev/null \
+  || fail "CRLF line endings falsely malform a canonical gate"
+
+# 19. Observations entries with calendar-invalid dates count as unmined
+#     but never become the oldest entry (no fabricated age).
+mkdir -p "$tmp/specs9/_observations"
+printf '%s\n' '- 2026-00-00 [demo] Invalid date.' \
+  '- 2026-06-10 [demo] Real entry.' \
+  >"$tmp/specs9/_observations/opportunities.md"
+out9=$("$drain" --today 2026-06-12 "$tmp/specs9") \
+  || fail "invalid-date observation broke the sweep"
+printf '%s\n' "$out9" | grep -F 'unmined: 2' >/dev/null \
+  || fail "invalid-dated observation not counted as unmined"
+printf '%s\n' "$out9" | grep -F 'oldest: 2026-06-10 (2 days)' >/dev/null \
+  || fail "calendar-invalid observation date polluted the oldest-entry age"
+
+# 20. A NUL byte in tasks.md cannot silently hide a gate: awk truncates
+#     records at NUL, so the file is flagged as an error instead of
+#     trusted (REQ-H1.3: never silently skipped).
+mkdir -p "$tmp/specs10/iota"
+printf '%s\n' '# I' '' '**Status:** Active' \
+  >"$tmp/specs10/iota/requirements.md"
+{
+  printf '%s\n' '# Iota — Tasks' '' '## Completed' '' '### Task 1 — Done' \
+    '' '- **Done when:** done.' '' '## Deferred' ''
+  printf -- '- **Hid\000den.** NUL before the marker. **Gate:** GATE(when: task 1 completed).\n'
+} >"$tmp/specs10/iota/tasks.md"
+out10=$("$drain" --today 2026-06-12 "$tmp/specs10") \
+  || fail "NUL fixture broke the sweep"
+printf '%s\n' "$out10" | grep -i 'NUL' >/dev/null \
+  || fail "NUL bytes in tasks.md not surfaced as an error"
+printf '%s\n' "$out10" | grep -F 'errors: 1' >/dev/null \
+  || fail "NUL-byte error not counted in the summary tally"
+
+# 21. The torn-read detector is exercised deterministically: a cksum stub
+#     returning a fresh digest per call forces every pre/post comparison
+#     to mismatch; the sweep must surface the error, count it, complete,
+#     and exit 0.
+stub="$tmp/stub"
+mkdir -p "$stub"
+cat >"$stub/cksum" <<EOF
+#!/bin/sh
+cat >/dev/null
+n=\$(cat "$stub/n" 2>/dev/null || echo 0)
+n=\$((n + 1))
+echo "\$n" >"$stub/n"
+echo "\$n \$n"
+EOF
+chmod +x "$stub/cksum"
+rm -f "$stub/n"
+out11=$(PATH="$stub:$PATH" "$drain" --today 2026-06-12 "$root") \
+  || fail "digest-mismatch stub run must still exit 0"
+printf '%s\n' "$out11" | grep -F 'changed during the sweep' >/dev/null \
+  || fail "digest mismatch not surfaced as a torn-read error"
+printf '%s\n' "$out11" | grep -F '== summary ==' >/dev/null \
+  || fail "torn-read error prevented the report from completing"
+
+# 22. Permission failure on the observations log is surfaced and counted
+#     (skipped as root, which bypasses permission bits).
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs11/_observations"
+  printf '%s\n' '- 2026-06-10 [demo] Entry.' \
+    >"$tmp/specs11/_observations/opportunities.md"
+  chmod 000 "$tmp/specs11/_observations/opportunities.md"
+  out12=$("$drain" --today 2026-06-12 "$tmp/specs11") \
+    || fail "unreadable observations log must not abort the sweep"
+  chmod 644 "$tmp/specs11/_observations/opportunities.md"
+  printf '%s\n' "$out12" | grep -F 'observations log unreadable' >/dev/null \
+    || fail "unreadable observations log not surfaced"
+  printf '%s\n' "$out12" | grep -F 'errors: 1' >/dev/null \
+    || fail "unreadable observations log not counted in the errors tally"
+fi
 
 echo "PASS: test-drain-gates.sh"
