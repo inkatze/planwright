@@ -117,7 +117,9 @@ protocol: a hard-disqualifier zone finding, or an irreducible
 Needs-human-judgment fork that blocks further progress. Both follow the `gate-wiring` pause protocol
 (attended: stop and present; dispatched or unattended: record the unit to
 `tasks.md` Awaiting input with the finding and recommended fix, end the
-step). Everything else below stops the loop **between** iterations:
+step). Everything else below stops the loop at an iteration boundary (the
+dirty-tree check runs at pre-flight, before iteration one; its handoff
+emits empty `none` tables):
 
 | Condition | Trigger |
 | --- | --- |
