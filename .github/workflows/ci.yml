@@ -1,0 +1,71 @@
+---
+# planwright self-hosting CI (Task 2, REQ-G1.7): every guard the repo
+# prescribes runs on every PR. The single `mise run check` step is the same
+# aggregate gate contributors run locally, with tool versions pinned in
+# mise.toml (contributor/CI parity by construction). Actions are pinned to
+# full commit SHAs (supply-chain discipline per the security posture).
+#
+# "on" is quoted so yamllint's truthy rule (which this repo runs on
+# .github/) does not flag the key.
+name: ci
+
+"on":
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Full history: gitleaks scans all commits and the commit lint walks
+      # the PR range.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          fetch-depth: 0
+
+      # mise pinned: 2026.6.3 regressed the pipx backend (it passes pip an
+      # `--uploaded-prior-to` flag the runner's pip rejects, breaking the
+      # yamllint install). 2026.6.1 installs the same pinned tools cleanly.
+      # Revisit when a later mise fixes the pipx path.
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+
+      # The aggregate gate: shell tests, shellcheck, shfmt, markdownlint,
+      # yamllint, plugin-manifest JSON lint, doctrine link-check, the
+      # options-reference drift check (REQ-K1.8), the spec validator
+      # (skip-with-notice until Task 5 ships it), and the full-history
+      # gitleaks scan. lint:commits inside `check` covers local runs; the
+      # strict PR-range lint is the dedicated step below.
+      - run: mise run check
+
+      # Conventional-commit FORMAT lint over exactly the PR's commits. The
+      # local task skips quietly when there is nothing ahead of origin/main;
+      # on a PR an empty or malformed range must fail instead. Length is NOT
+      # enforced per-commit: the framework never rewrites history, so an
+      # overlong WIP subject would be permanently unfixable. base_ref is the
+      # target branch, passed via env per script-injection hardening practice.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: /bin/bash scripts/check-commit-msgs.sh "origin/${BASE_REF}..HEAD"
+
+      # Length is enforced on the PR title instead: it becomes the
+      # squash-merge subject and, unlike a pushed commit, stays editable.
+      # The title is passed via env (never interpolated into the shell) per
+      # script-injection hardening practice.
+      - if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" \
+            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --stdin

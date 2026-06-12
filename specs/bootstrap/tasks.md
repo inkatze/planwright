@@ -32,21 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 2 — Self-hosting: quality guards & CI
-
-- **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
-  `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
-  cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
-  runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
-  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
-  the options-reference drift check (fail on an undocumented config option, D-43).
-- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
-  (including a seeded undocumented config option); all subsequent tasks merge only under
-  green CI.
-- **Dependencies:** 1
-- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
-- **Estimated effort:** 1 day
-
 ### Task 5 — Status-aware validator
 
 - **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
@@ -321,7 +306,45 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
   branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
 
+### Task 1 — Repo scaffold & packaging skeleton
+
+- **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
+  plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
+  default + gitignored local override per D-33, including the commit/dispatch toggles
+  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
+  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
+  for the local config + worktrees.
+- **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
+  rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
+  states the human-reserved controls; every option in the default config has an
+  options-reference entry.
+- **Dependencies:** none
+- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
+- **Estimated effort:** half day
+- **Status:** Completed · PR #3 merged 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
+  branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
+
 ## In progress
+
+### Task 2 — Self-hosting: quality guards & CI
+
+- **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
+  `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
+  cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
+  runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
+  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
+  the options-reference drift check (fail on an undocumented config option, D-43).
+- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
+  (including a seeded undocumented config option); all subsequent tasks merge only under
+  green CI.
+- **Dependencies:** 1
+- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
+- **Estimated effort:** 1 day
+- **Status:** PR #7 draft
+- **Last activity:** 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
+  branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
 
 ### Task 4 — Four-file format meta-spec
 
@@ -359,26 +382,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
 
-### Task 1 — Repo scaffold & packaging skeleton
-
-- **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
-  plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
-  default + gitignored local override per D-33, including the commit/dispatch toggles
-  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
-  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
-  for the local config + worktrees.
-- **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
-  rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
-  states the human-reserved controls; every option in the default config has an
-  options-reference entry.
-- **Dependencies:** none
-- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
-- **Estimated effort:** half day
-- **Status:** draft-pr-ready · PR #3 (draft)
-- **Last activity:** 2026-06-11
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
-  branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
-
 ### Task 7 — Finding categorization & act-then-review gate wiring
 
 - **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
@@ -393,7 +396,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 3
 - **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #5 (draft)
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
   branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
@@ -413,7 +416,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 3
 - **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
 - **Estimated effort:** 1.5 days
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #6 (draft)
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`

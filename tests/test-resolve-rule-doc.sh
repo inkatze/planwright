@@ -39,10 +39,10 @@ trap 'rm -rf "$tmp"' EXIT
 
 # Fixture: a fake plugin root and a fake writer-mode claude dir.
 mkdir -p "$tmp/plugin/doctrine" "$tmp/claude/planwright/doctrine" "$tmp/override/doctrine"
-echo "plugin copy" > "$tmp/plugin/doctrine/sample-doc.md"
-echo "writer copy" > "$tmp/claude/planwright/doctrine/sample-doc.md"
-echo "writer only" > "$tmp/claude/planwright/doctrine/writer-only.md"
-echo "override copy" > "$tmp/override/doctrine/sample-doc.md"
+echo "plugin copy" >"$tmp/plugin/doctrine/sample-doc.md"
+echo "writer copy" >"$tmp/claude/planwright/doctrine/sample-doc.md"
+echo "writer only" >"$tmp/claude/planwright/doctrine/writer-only.md"
+echo "override copy" >"$tmp/override/doctrine/sample-doc.md"
 
 # 1. Plugin mode: CLAUDE_PLUGIN_ROOT set resolves to the plugin copy.
 out="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="$tmp/plugin" CLAUDE_DIR="$tmp/claude" \
@@ -97,7 +97,7 @@ assert_eq "fallthrough lands on the next root" "$tmp/plugin/doctrine/sample-doc.
 # 9. HOME fallback: with CLAUDE_DIR unset, the writer-mode root derives from
 #    $HOME/.claude.
 mkdir -p "$tmp/home/.claude/planwright/doctrine"
-echo "home copy" > "$tmp/home/.claude/planwright/doctrine/home-doc.md"
+echo "home copy" >"$tmp/home/.claude/planwright/doctrine/home-doc.md"
 out="$(HOME="$tmp/home" PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
   /bin/bash -c 'unset CLAUDE_DIR; exec /bin/bash "$1" home-doc' _ "$RESOLVER")"
 assert "HOME fallback resolves" 0 $?
