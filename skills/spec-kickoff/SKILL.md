@@ -169,7 +169,9 @@ terminal: refuse — no skill-driven transition leaves a terminal state.
 
 Section by section, in the brief's required structure (the `spec-format`
 doc defines it; the brief is written incrementally, one section to disk as
-it is signed). Every exchange follows the interaction-style rules: show
+it is signed). The walkthrough covers components 1–7 of that structure;
+the remaining two — the sign-off section and the amendment log — are
+written by the sign-off flow below, not walked. Every exchange follows the interaction-style rules: show
 the progress indicator (`[section <n>/7]`), work in small bites, present
 decisions as selectors with a recommendation, end each section with the
 running summary of everything decided so far. Each section ends with an
