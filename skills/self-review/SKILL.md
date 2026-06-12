@@ -205,7 +205,9 @@ Skipped entirely in nested mode; the invoking skill owns push and PR.
    (REQ-K1.6, REQ-K1.7): the local work is intact and committed; surface
    what failed and stop.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
-   otherwise `gh pr create --draft`. The body carries the audit record:
+   otherwise `gh pr create --draft` with an explicit `--title` and `--body`
+   (headless `gh` prompts or fails without them). The body carries the
+   audit record:
    the four tables, the declined log, and the pending-sign-off checklist.
    Regenerate the checklist section in place rather than appending, so
    re-runs never duplicate entries. The PR is always a draft; never mark it
