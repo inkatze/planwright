@@ -123,12 +123,12 @@ trap 'rm -rf "$tmp"' EXIT
 (
   cd "$tmp" || exit 1
   git init -q
-  git -c user.name=t -c user.email=t@t commit -q --allow-empty -m "feat: good start"
-  git -c user.name=t -c user.email=t@t commit -q --allow-empty -m "bad subject line"
+  git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "feat: good start"
+  git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "bad subject line"
 ) || exit 1
 (cd "$tmp" && /bin/bash "$CHECKER" "HEAD~1..HEAD" >/dev/null 2>&1)
 assert "range mode catches the bad commit" 1 $?
-(cd "$tmp" && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m "fix: good again" \
+(cd "$tmp" && git -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m "fix: good again" \
   && /bin/bash "$CHECKER" "HEAD~1..HEAD" >/dev/null 2>&1)
 assert "range mode passes a clean range" 0 $?
 
