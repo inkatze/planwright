@@ -37,7 +37,9 @@ move: degrade gracefully, REQ-K1.7).
 
 Exit 0 means the sweep completed — malformed gates are report content, not
 failures. A non-zero exit means the evaluator could not run at all; surface
-the error verbatim and stop.
+the error verbatim and stop. A complete report always ends with the
+`== summary ==` section; treat a report missing it as a failed sweep, not
+a result.
 
 ### 3. Present the report
 

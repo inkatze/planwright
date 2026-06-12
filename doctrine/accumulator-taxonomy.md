@@ -180,4 +180,10 @@ The pass:
 Report lines are keyed by lane (`SATISFIED`, `SURFACED`, `PENDING`,
 `DORMANT`, `FREE-TEXT`, `MALFORMED`) with the gate's file and line, the
 entry title, and its confidence, so both a human and a calling skill can act
-on the report without re-parsing gates.
+on the report without re-parsing gates. A complete report always ends with
+the `== summary ==` section; a sweep that cannot complete exits non-zero
+instead of emitting a partial report, so a report missing its summary is a
+bug, not a result. The evaluator reads each swept file once and flags a
+file that changed under it mid-sweep as a report-level error rather than
+trusting possibly torn rows (the writer-side lock is the orchestration
+layer's concern, not the read-only evaluator's).
