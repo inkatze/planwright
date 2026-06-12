@@ -32,11 +32,11 @@ trap 'rm -rf "$tmp"' EXIT
 assert "repo defaults are fully documented" 0 $?
 
 # 2. Fixture: a documented option passes.
-cat > "$tmp/config.yml" <<'EOF'
+cat >"$tmp/config.yml" <<'EOF'
 # comment line
 documented_option: true
 EOF
-cat > "$tmp/reference.md" <<'EOF'
+cat >"$tmp/reference.md" <<'EOF'
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
 | `documented_option` | `true` | Does a thing. | `/example` |
@@ -46,7 +46,7 @@ assert "documented option passes" 0 $?
 
 # 2b. Fixture: cosmetic cell padding in the reference table does not break
 #     recognition (the checker tests coverage, not whitespace style).
-cat > "$tmp/reference-padded.md" <<'EOF'
+cat >"$tmp/reference-padded.md" <<'EOF'
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
 |  `documented_option`  | `true` | Padded row. | `/example` |
@@ -56,7 +56,7 @@ assert "padded reference row is recognized" 0 $?
 
 # 2c. Fixture: a table row indented per markdown's allowance (up to three
 #     leading spaces) is still recognized.
-cat > "$tmp/reference-indented.md" <<'EOF'
+cat >"$tmp/reference-indented.md" <<'EOF'
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
   | `documented_option` | `true` | Indented row. | `/example` |
@@ -68,7 +68,7 @@ assert "indented reference row is recognized" 0 $?
 #     error, not a silent pass (a reformatted defaults.yml must not turn the
 #     CI drift check into a no-op). The error must be the checker's own
 #     diagnostic, not an incidental failure.
-: > "$tmp/config-empty.yml"
+: >"$tmp/config-empty.yml"
 out="$(/bin/bash "$CHECKER" "$tmp/config-empty.yml" "$tmp/reference.md" 2>&1)"
 assert "zero-key config fails closed" 2 $?
 case "$out" in
@@ -81,7 +81,7 @@ esac
 
 # 3. Fixture: a seeded undocumented option fails and is named in the output
 #    (the REQ-K1.8 seeded-violation fixture).
-cat > "$tmp/config-bad.yml" <<'EOF'
+cat >"$tmp/config-bad.yml" <<'EOF'
 documented_option: true
 bogus_option: 42
 EOF
@@ -99,7 +99,7 @@ esac
 #    not a failure (stale docs surface without blocking). The redirect order
 #    below ("2>&1 >/dev/null") captures stderr only: warnings go to stderr,
 #    and stdout is deliberately discarded.
-cat > "$tmp/reference-extra.md" <<'EOF'
+cat >"$tmp/reference-extra.md" <<'EOF'
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
 | `documented_option` | `true` | Does a thing. | `/example` |
