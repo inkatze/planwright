@@ -77,10 +77,12 @@ Each iteration:
    dispositions per the gate wiring, and returns the audit record. Pass the
    loop ledger in: findings already dispositioned in a previous iteration are
    not re-routed (a declined finding stays declined; a queued fork stays
-   queued; a pending-sign-off item stays pending), with one deliberate
-   exception: a re-discovered finding whose ledger disposition is applied or
-   resolved means the fix did not hold, and it counts toward the Loop
-   detection safety condition instead of being suppressed.
+   queued), with one deliberate exception: a re-discovered finding whose
+   ledger disposition is any on-branch application (applied, resolved, or
+   applied pending sign-off) means the fix did not hold, and it counts
+   toward the Loop detection safety condition instead of being suppressed.
+   The pending-sign-off item's human decision is never re-asked; only the
+   did-the-fix-hold signal escapes suppression.
 2. **Fold the pass into the ledger.** Add every new disposition. Count the
    iteration's **new action dispositions**: findings newly applied
    (Auto-applicable), resolved with evidence (Agent-resolvable), applied
@@ -113,7 +115,7 @@ step). Everything else below stops the loop **between** iterations:
 | Condition | Trigger |
 | --- | --- |
 | Wider-suite failure | The project's full test/lint/type-check suite fails after an iteration's fixes and the failure cannot be resolved within the findings' own scope. The branch may be broken; a human should look before anything else lands. |
-| Loop detection | A finding the ledger records as applied or resolved is re-discovered in a later iteration (same location, same rule or description; the ledger exception above). The fix is not actually resolving it. |
+| Loop detection | A finding the ledger records as applied on the branch (applied, resolved, or applied pending sign-off) is re-discovered in a later iteration (same location, same rule or description; the ledger exception above). The fix is not actually resolving it. |
 | Iteration cap | Ten iterations completed without convergence. A drain that long means discovery keeps producing genuinely new findings; a human should look at why. |
 | Dirty tree | Pre-flight found uncommitted changes (stops before iteration one). |
 

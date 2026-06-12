@@ -59,9 +59,10 @@ Read the literal flag `--nested` from `$ARGUMENTS` at the start of the run:
   already-dispositioned findings: a re-discovered finding that already
   carries a disposition is reported in the audit record but never
   re-routed, re-applied, or re-paused. One exception: surface a
-  re-discovered finding whose ledger disposition is applied or resolved
-  prominently in the handed-back record; it signals the fix did not hold
-  and feeds the invoking skill's loop detection.
+  re-discovered finding whose ledger disposition is any on-branch
+  application (applied, resolved, or applied pending sign-off) prominently
+  in the handed-back record; it signals the fix did not hold and feeds the
+  invoking skill's loop detection.
 
 Nested invocation is in-session skill composition (REQ-E2.2, D-13): the pass
 runs in the invoking skill's session and context, and hooks fire once per
