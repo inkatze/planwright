@@ -231,6 +231,8 @@ After the pass completes (or halts), compare these instructions against the
 resolved doctrine docs listed above (REQ-B3.2, D-42). If a concept this skill
 names has changed meaning, gained or lost a step, or moved between docs,
 append a drift observation to `specs/_observations/opportunities.md` (format
-above, prefixed `skill-drift(self-review):`) and tell the user what drifted.
+above, prefixed `skill-drift(self-review):`; in repositories without
+`specs/`, surface the drift to the user instead of writing the log) and
+tell the user what drifted.
 Do not edit this skill or the doctrine docs to resolve the drift; the
 observation log's reader owns folding drift into spec amendments.
