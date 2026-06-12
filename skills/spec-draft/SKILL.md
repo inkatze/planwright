@@ -63,7 +63,9 @@ point, not a dependency).
 3. **Read the config.** `commit_on_draft` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins). Default
    `true`; an absent, unreadable, or malformed config file falls back to the
-   default with a one-line warning in the handoff (REQ-K1.7).
+   default with a one-line warning surfaced immediately at this step — before
+   any fallback-driven action (such as the auto-commit) can fire — and
+   repeated in the handoff (REQ-K1.7).
 4. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the reserved namespace the
    `tasks-pr-sync` hook no-ops on); the spec worktree is
@@ -136,7 +138,10 @@ hint, not a command. Skipped only when `--extend` already named the target.
 1. Scan every existing spec under `specs/` (any non-terminal status: Draft,
    Active, Done). Read each bundle's `requirements.md` Goal and Scope
    sections — bounded input by design; full-bundle reads don't scale and the
-   overlap signal lives in goal/scope.
+   overlap signal lives in goal/scope. A malformed bundle (missing
+   `requirements.md`, unparseable header) is skipped with a notice naming
+   it; the scan never halts the session over someone else's broken bundle
+   (REQ-K1.7 — the validator owns reporting it).
 2. Judge semantic overlap between the new idea and each scanned spec: same
    problem domain, same external interface, same decision space.
 3. On overlap, check D-21's spin-new triggers: the new idea introduces a new

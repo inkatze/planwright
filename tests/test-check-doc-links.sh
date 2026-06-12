@@ -165,6 +165,22 @@ EOF
 /bin/bash "$tmp/fixture/scripts/check-doc-links.sh" >/dev/null
 assert "resolving skill-doc link passes the default scan" 0 $?
 
+# 10c. A top-level skills/*.md (e.g. a future skills/README.md) is also in
+#      the default scan, matching lint:md's skills/**/*.md coverage at the
+#      depths the layout convention supports.
+cat >"$tmp/fixture/skills/README.md" <<'EOF'
+See [a missing doc](../doctrine/also-missing.md).
+EOF
+out="$(/bin/bash "$tmp/fixture/scripts/check-doc-links.sh" 2>&1)"
+assert "broken link in skills/README.md fails the default scan" 1 $?
+case "$out" in
+  *also-missing.md*) echo "ok: the top-level skill doc's broken target is named" ;;
+  *)
+    echo "FAIL: top-level skill doc's broken target not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
