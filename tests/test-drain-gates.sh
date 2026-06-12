@@ -54,6 +54,9 @@
 #  21. The torn-read digest detector fires deterministically (cksum stub),
 #      is counted, and the sweep still completes with exit 0.
 #  22. An unreadable observations log is surfaced and counted.
+#  23. A bundle without requirements.md leaves a note explaining why its
+#      status atoms cannot evaluate (missing, unreadable, and
+#      unrecognized are all noted, never silent).
 #
 # Runs standalone: ./tests/test-drain-gates.sh
 set -eu
@@ -567,5 +570,22 @@ if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' "$out12" | grep -F 'errors: 1' >/dev/null \
     || fail "unreadable observations log not counted in the errors tally"
 fi
+
+# 23. A bundle with no requirements.md at all: status atoms referencing it
+#     fail as unknown, and a note explains the missing status file.
+mkdir -p "$tmp/specs12/kappa" "$tmp/specs12/lam"
+printf '%s\n' '# K — Tasks' >"$tmp/specs12/kappa/tasks.md"
+printf '%s\n' '# L' '' '**Status:** Active' \
+  >"$tmp/specs12/lam/requirements.md"
+printf '%s\n' '# L — Tasks' '' '## Deferred' '' \
+  '- **Needs kappa.** Blocks on a spec with no requirements.md.' \
+  '  **Gate:** GATE(when: spec kappa done). Citations: REQ-X.' \
+  >"$tmp/specs12/lam/tasks.md"
+out13=$("$drain" --today 2026-06-12 "$tmp/specs12") \
+  || fail "missing-requirements fixture broke the sweep"
+printf '%s\n' "$out13" | grep -F 'requirements.md missing' >/dev/null \
+  || fail "missing requirements.md not noted"
+printf '%s\n' "$out13" | grep '^MALFORMED' | grep -F 'Needs kappa' >/dev/null \
+  || fail "status atom against a status-less spec must stay malformed"
 
 echo "PASS: test-drain-gates.sh"

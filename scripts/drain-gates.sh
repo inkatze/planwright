@@ -142,10 +142,13 @@ done
 statuses=""
 for name in $specs; do
   req="$root/$name/requirements.md"
-  if [ -f "$req" ] && [ ! -r "$req" ]; then
+  if [ ! -f "$req" ]; then
+    notes="${notes}note: spec $name: requirements.md missing; status atoms referencing it will not evaluate
+"
+  elif [ ! -r "$req" ]; then
     notes="${notes}note: spec $name: requirements.md unreadable; status atoms referencing it will not evaluate
 "
-  elif [ -f "$req" ]; then
+  else
     st=$(awk '/^\*\*Status:\*\*/ { print tolower($2); exit }' "$req") || st=""
     case $st in
       draft | active | done | retired | superseded)
