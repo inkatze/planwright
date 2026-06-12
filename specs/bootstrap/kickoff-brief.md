@@ -369,6 +369,20 @@ code.claude.com/docs (plugins, plugins-reference, discover-plugins), consulted
 | 11 | Manifest/layout facts verified current as of 2026-06-11: manifest at `.claude-plugin/plugin.json` (only `name` required, kebab-case); `skills/`, `commands/`, `agents/`, `hooks/hooks.json` auto-discovered at plugin root only; plain `~/.claude/` files remain a supported non-plugin fallback. Plugin format is actively evolving (displayName v2.1.143+, defaultEnabled v2.1.154+), so these facts can drift before T19. | Resolution chain (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` → `<claude-dir>/planwright`) isolates skills from layout drift; T19 re-verifies the manifest schema against current docs before finalization. |
 | 12 | Doctrine gap surfaced at T1's tooling pass, routed here so T15's executor sees it (the observations log feeds `/spec-draft`, not task execution): the engineering doctrine's "defer to tooling and ecosystem standards" needs two companion principles — pin the quality toolchain (reproducibility is what makes tool-grounded discovery trustworthy) and own adopted tools' defaults (review conventions-bearing defaults at adoption, record deviations with rationale; tool defaults are the tool author's context). Fits T15's existing deliverable scope without contract drift. | Two observation entries dated 2026-06-11 carry the full evidence (shim failures pre-pinning; 80-column defaults in two tools; gitleaks `--redact`; shellcheck optional-tier trial: 4 hits, none load-bearing). T16's builder applies the same at guard-adoption time. |
 
+### Risk register additions — Task 2 execution (2026-06-11)
+
+Research Rigor findings recorded per REQ-E1.3/REQ-D1.5 (execution-skill write,
+named-section only; no anchor entry). Triggers: version-sensitive API use
+(GitHub Actions pinning, markdownlint rule semantics). Sources: GitHub API
+(release tags dereferenced to commits, consulted 2026-06-11), markdownlint
+v0.39 rule docs via direct behavioral verification.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 13 | CI actions are pinned to full commit SHAs (checkout v6.0.3 `df4cb1c0`, mise-action v4.1.0 `dba19683`) per supply-chain discipline; SHA pins do not auto-update, so security patches to the actions need a deliberate bump. | Comments beside each pin carry the human-readable version; T19's packaging pass re-verifies pins. Dependabot/renovate adoption is a builder-catalog candidate (T16). |
+| 14 | markdownlint MD013 exempts lines with no whitespace past the limit (the long-URL exception): a guard that "passes" can still admit some over-length content, and a naive seeded violation stays green. Surfaced when Task 2's seeded-red validation used an unbroken character run. | Seeded-red fixtures must use prose with spaces past the limit; recorded here so T18's manual sweep and future guard audits seed correctly. |
+| 15 | The `check:specs` CI step is wired skip-with-notice until Task 5 ships `scripts/spec-validate.sh`; CI prints the skip on every run. If Task 5 lands the validator non-executable or under another path, CI keeps skipping silently-by-notice rather than failing. | Task 5's Done-when already requires the validator running in planwright CI; its executor must flip this step from skip to enforced and confirm the executable bit (observation logged). |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
@@ -934,28 +948,201 @@ Anchor: `d623c4a54df920e0b6821e60c9aa9f962511c4c1` — computed as
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
 
-## Expression-only re-anchor (2026-06-11, Task 4 citation backfill + PR state)
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 3 PR reconcile)
 
-Machine-written entry per REQ-F1.10's expression-only lane, on branch
-`planwright/bootstrap/task-4` (PR #4). Edits: requirements.md (per-REQ
-`*(Cites: …)*` annotations backfilled on all 89 live REQs per the meta-spec's
-citation syntax, `doctrine/spec-format.md`; REQ-B2.1 exempt, record frozen by
-supersession; plus the changelog entry), tasks.md (Task 4 Status annotation
-`implementing` → `PR #4 draft`, a state annotation the canonical extraction
-excludes). Changelog: requirements.md, entry "2026-06-11 (expression-only,
-Task 4)". No requirement's normative text changed. Pre-edit anchor
-`e469f8f2f23c5aefb193718b4aa225b2982b70aa` verified matching at task
-pre-flight (the branch forked before the Task 1 dispatch entry above; merge
-reconciliation follows in the next entry). Branch-local note: parallel task
-branches each append anchor entries; post-merge reconciliation per the
-deferred-backlog item (Amendment 5 addition) applies.
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 3's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #2 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the dispatch entries above.
+Pre-move anchor `d623c4a54df920e0b6821e60c9aa9f962511c4c1` verified matching
+immediately before the move inside the D-10 lock window.
 
 Class: expression-only
-Anchor: `c7196b8d123b96dc05c94bcbd7de90e7d652b0b3` — computed as
-`scripts/spec-anchor.sh specs/bootstrap`
-(the canonical form this task ships: manifest anchor with tasks.md reduced to
-its definition content, so state annotations like this PR-status move no
-longer contribute. Merge note, 2026-06-11: after merging main — whose only
-spec-file divergence was the Task 1/3 dispatch state moves — the recomputed
-canonical anchor still matches this value; no post-merge re-anchor entry was
-needed, which is the canonical form working as designed).
+Anchor: `0e9a573662ec91db2af3ecffd76365026ea64fe2` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 1 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 1's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #3 (draft)` after the worker opened the draft PR (two commits: the status
+move, then this entry's format alignment to the Task 3 sibling annotation).
+Same orchestration-state-placement rationale as the dispatch entries above.
+Pre-move anchor `0e9a573662ec91db2af3ecffd76365026ea64fe2` verified matching
+immediately before the move.
+
+Class: expression-only
+Anchor: `c9336cb51543bf9e528ad5ef389296bf21c0834f` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 4 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 4's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #4 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the entries above. With this move
+all three dispatched units (T1, T3, T4) are draft-pr-ready; no Forward-plan
+task is ready until a merge lands. Pre-move anchor
+`c9336cb51543bf9e528ad5ef389296bf21c0834f` verified matching immediately
+before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `a217310efe10a830ae357cae6492e51d4260de77` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 3 Completed)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 3 moved In progress → Completed after PR #2 merged (human-reserved
+action). The full task block is preserved in Completed (definition content
+intact; only the Status annotation changed), so under the canonical extraction
+this remains a placement-only move. Pre-move anchor
+`a217310efe10a830ae357cae6492e51d4260de77` verified matching immediately
+before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `c47f8b6028b193bd4e87030d95f38f7df06b39b6` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 7 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 7 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-7`, branch `planwright/bootstrap/task-7`). Ready via
+Task 3's completion (PR #2 merged); selected critical-path-first (T7 heads the
+longest remaining chain T7→T11→T12→T13→T18→T19). Slot accounting: draft-pr-ready
+units (T1, T4) hold no active-worker slot; active workers after this dispatch: 1.
+Same orchestration-state-placement rationale as the entries above. Pre-move
+anchor `c47f8b6028b193bd4e87030d95f38f7df06b39b6` verified matching immediately
+before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `a27684b6e23f5d60f4dec51458f567fd8a14f504` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 15 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 15 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-15`, branch `planwright/bootstrap/task-15`). Ready via
+Task 3's completion; second of the two units that merge unlocked (no cohesion
+bundle with T7: gate wiring vs. doctrine doc). Active workers after this
+dispatch: 2 of 3. Same orchestration-state-placement rationale as the entries
+above. Pre-move anchor `a27684b6e23f5d60f4dec51458f567fd8a14f504` verified
+matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `5f8633a9a5182cdc3dde52117fcd82cd08e03771` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 7 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 7's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #5 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the entries above. Pre-move anchor
+`5f8633a9a5182cdc3dde52117fcd82cd08e03771` verified matching immediately before
+the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `fcf84b3ce2c1f78d5b570d46d10d4c110dcb1a51` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 15 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 15's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #6 (draft)` after the worker opened the draft PR. All in-flight units (T1,
+T4, T7, T15) are now draft-pr-ready; zero active workers; nothing dispatchable
+until a merge. Same orchestration-state-placement rationale as the entries
+above. Pre-move anchor `fcf84b3ce2c1f78d5b570d46d10d4c110dcb1a51` verified
+matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `9bbf9961fb754089a3d5e84312c450bcac313fd4` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 1 Completed)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 1 moved In progress → Completed after PR #3 merged (human-reserved
+action). The merge produced conflicts in tasks.md and this brief (the PR branch
+carried dispatch-time snapshots of both); resolved by keeping the primary
+checkout's state (the branch side was a strict subset/stale snapshot — verified
+hunk by hunk before resolving). Full task block preserved in Completed. The
+pre-move anchor `9bbf9961fb754089a3d5e84312c450bcac313fd4` was verified
+matching immediately after the conflict resolution and before this move,
+inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `13c2af6516317a653052e66003b4b80f6188e432` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 2 dispatch)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-2`, branch `planwright/bootstrap/task-2`). Ready via
+Task 1's completion (PR #3 merged); the only ready unit. Active workers after
+this dispatch: 1 of 3. Same orchestration-state-placement rationale as the
+entries above. Pre-move anchor `13c2af6516317a653052e66003b4b80f6188e432`
+verified matching immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `537f766561128b077646bb573fb73fc98f0404c9` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 2 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #7 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the entries above. Pre-move anchor
+`537f766561128b077646bb573fb73fc98f0404c9` verified matching immediately before
+the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `ceb40c8361ac255ecf32846ec7dc8478c657926b` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-12, orchestrate state move: Task 2 Completed)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2 moved In progress → Completed after PR #7 merged (human-reserved
+action). The merge again produced state-file conflicts (PR branch carried
+dispatch-time snapshots); resolved by keeping the primary checkout's state,
+with the observations log union-merged (both sides' appended entries kept).
+Full task block preserved in Completed. With T2 in, the self-hosting CI
+pipeline now runs on every PR; the remaining open PR branches (#4, #5, #6)
+get main merged in so the guards validate them pre-merge (remediation for the
+guard-infrastructure-first selection gap recorded in the observations log).
+Pre-move anchor `ceb40c8361ac255ecf32846ec7dc8478c657926b` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `571a2d366b468074504a7e6aa617f737d261cb82` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
