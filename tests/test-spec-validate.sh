@@ -256,6 +256,16 @@ has "Status"
 has "WARN"
 lacks "ERROR"
 
+# A missing Status still mirrors: the defaulted Draft is compared against
+# the other files' declared statuses, so an explicit Active mirror cannot
+# hide behind an absent authoritative header.
+write_bundle "$root/fixture" Active
+edit "$root/fixture/requirements.md" '/^\*\*Status:\*\*/d'
+run_v 0 "$root/fixture"
+has "WARN"
+has "mirror"
+lacks "ERROR"
+
 # Unknown status is an error.
 write_bundle "$root/fixture" Banana
 run_v 1 "$root/fixture"
@@ -365,6 +375,18 @@ cat >>"$root/fixture/design.md" <<'EOF'
 EOF
 run_v 0 "$root/fixture"
 has "0 error(s), 0 warning(s)"
+
+# A malformed decision heading (D- prefix without the <n>: shape) is
+# flagged, not silently skipped as ordinary prose.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/design.md" <<'EOF'
+
+### D-2 Missing colon
+
+**Decision:** orphan that must be surfaced.
+EOF
+run_v 0 "$root/fixture"
+has "malformed decision heading"
 
 # --- 8. Task structure ---
 # Missing definition fields are flagged per field, each of the five

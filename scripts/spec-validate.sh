@@ -216,6 +216,13 @@ parse_design() {
       hd = ha = hc = 0
       next
     }
+    /^### D-/ {
+      # D- prefix without the <n>: shape: surface it rather than silently
+      # treating a typo as ordinary prose (mirror of the malformed-task rule).
+      flush()
+      printf "F\tgap\tmalformed decision heading at design.md:%d (expected ### D-<n>: <title>)\n", NR
+      next
+    }
     /^## / || /^### / { flush(); next }
     cur != "" {
       if ($0 ~ /^\*\*Decision:\*\*/) hd = 1
@@ -361,6 +368,10 @@ validate_bundle() {
     declared_status=$(first_header "$bdir/requirements.md" Status)
     if [ -z "$declared_status" ]; then
       printf 'gap\tmissing Status: header (defaulting to Draft)\n' >>"$fnd"
+      # The default participates in everything downstream (mirrors, severity,
+      # baseline): an explicit Active mirror must not hide behind an absent
+      # authoritative header.
+      declared_status=Draft
     fi
 
     fver=$(first_header "$bdir/requirements.md" Format-version)
@@ -384,19 +395,17 @@ validate_bundle() {
     live_req_ids=$(awk -F'\t' '$1 == "LIVE" { print $2 }' "$gtmp/tagged")
     all_req_ids=$(awk -F'\t' '$1 == "ALL" { print $2 }' "$gtmp/tagged")
 
-    # Status mirrors (only when requirements.md declares one to mirror).
-    if [ -n "$declared_status" ]; then
-      for bf in design.md tasks.md test-spec.md; do
-        [ -f "$bdir/$bf" ] || continue
-        mst=$(first_header "$bdir/$bf" Status)
-        if [ -z "$mst" ]; then
-          printf 'gap\t%s: missing Status: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
-        elif [ "$mst" != "$declared_status" ]; then
-          printf 'gap\t%s: Status mirror mismatch: %s (requirements.md declares %s)\n' \
-            "$bf" "$mst" "$declared_status" >>"$fnd"
-        fi
-      done
-    fi
+    # Status mirrors, compared against the declared-or-defaulted status.
+    for bf in design.md tasks.md test-spec.md; do
+      [ -f "$bdir/$bf" ] || continue
+      mst=$(first_header "$bdir/$bf" Status)
+      if [ -z "$mst" ]; then
+        printf 'gap\t%s: missing Status: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
+      elif [ "$mst" != "$declared_status" ]; then
+        printf 'gap\t%s: Status mirror mismatch: %s (requirements.md resolves %s)\n' \
+          "$bf" "$mst" "$declared_status" >>"$fnd"
+      fi
+    done
   fi
 
   case $declared_status in
