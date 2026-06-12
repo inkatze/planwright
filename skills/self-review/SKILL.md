@@ -88,7 +88,8 @@ pass summary.
    forming the path; a failing segment is treated as no match, never
    interpolated); otherwise
    a single Active spec (`specs/*/requirements.md` with `Status: Active`)
-   with a sibling `kickoff-brief.md`; otherwise ask when attended. With no
+   with a sibling `kickoff-brief.md`; otherwise ask when attended (unattended
+   or dispatched with no unambiguous match: proceed without a brief). With no
    active brief, the Agent-resolvable bucket is unavailable for this pass
    (its predicate requires brief alignment); record that and proceed with
    the remaining buckets.
