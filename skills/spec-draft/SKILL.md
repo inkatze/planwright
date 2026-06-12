@@ -30,12 +30,15 @@ the bundle must conform to — its conventions govern every file this skill
 writes), `interaction-style` (governs every exchange in the flow),
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
 `security-posture` (artifact data-hygiene for everything committed),
-`decision-domains` (the design phase walks its catalog),
 `engineering-decisions` (governs design-phase recommendations), and
 `proportionality`. Their definitions govern wherever this skill names a
-concept. If a rule doc does not resolve, halt with a clear message naming the
-missing doc and the chain consulted (REQ-K1.7: a clear message is the
-graceful arm; proceeding without doctrine is the opaque failure).
+concept. If one of those does not resolve, halt with a clear message naming
+the missing doc and the chain consulted (REQ-K1.7: a clear message is the
+graceful arm; proceeding without doctrine is the opaque failure). Also
+resolve `decision-domains` (the design phase walks its catalog) — this one
+degrades instead of halting: if absent, the design phase notes the missing
+catalog in one line and proceeds (the builder/catalog wiring is a hook
+point, not a dependency).
 
 ## Pre-flight
 
@@ -46,7 +49,12 @@ graceful arm; proceeding without doctrine is the opaque failure).
    **before** it appears in any path, branch name, or command. A failing name
    is never interpolated anywhere: propose a conforming kebab-case variant
    and ask. No name given: elicit the idea first (seed gathering below) and
-   propose a name from it.
+   propose a name from it. When `--extend <spec>` is present, additionally
+   verify the target: `specs/<spec>/requirements.md` must exist and its
+   Status must be non-terminal. A nonexistent target gets a clear message
+   listing the specs that do exist; a Retired or Superseded target is
+   refused per the extend-mode terminal rule, up front rather than after
+   elicitation starts.
 2. **Detect the git state.** Not a git repository: degrade per REQ-K1.7 —
    say so up front, elicit and write the bundle in place, and skip every
    branch/worktree/commit step below, surfacing at the end what was skipped
@@ -54,7 +62,8 @@ graceful arm; proceeding without doctrine is the opaque failure).
    note it only so the human knows `/spec-kickoff`'s push step will degrade.
 3. **Read the config.** `commit_on_draft` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins). Default
-   `true`.
+   `true`; an absent, unreadable, or malformed config file falls back to the
+   default with a one-line warning in the handoff (REQ-K1.7).
 4. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the reserved namespace the
    `tasks-pr-sync` hook no-ops on); the spec worktree is
@@ -92,6 +101,10 @@ question; seeds answer questions the human would otherwise repeat.
    set pre-marked) so nothing is consumed silently.
 4. **Transcripts and documents** the human offers.
 
+An absent `specs/_pending/`, observations log, or `specs/` directory
+entirely (a first-run repo) is not an error: note what was absent and
+proceed with the seeds that exist.
+
 Every identifier a seed proposes (a spec name, a path segment) is
 re-validated against REQ-A1.8 at consumption, before any interpolation —
 accumulator contents are unscreened input. Record every seed actually used:
@@ -104,9 +117,13 @@ D-ID).
 observations-log entry from `specs/_observations/opportunities.md` to
 `specs/_observations/archive.md` (create with a `# Consumed observations`
 heading if absent), appending the annotation `— consumed-by: specs/<spec>
-(<date>)` (space-separated) to the entry line. Touch only the consumed
-entries; the log is append-only for everyone else, and unconsumed entries
-stay byte-for-byte. The trim rides the
+(<date>)` (space-separated) to the entry line. Before archiving, re-read
+each consumed entry against the data-hygiene rule below: archive.md is a
+committed artifact, so sensitive operational detail a raw entry carries is
+neutralized in the archived copy (the unconsumed original was already
+committed; neutralizing the copy adds no new exposure but stops carrying it
+forward). Touch only the consumed entries; the log is append-only for
+everyone else, and unconsumed entries stay byte-for-byte. The trim rides the
 spec branch and lands on main with the spec PR, keeping it one revert from
 undone. (The accumulator-taxonomy doctrine, when it ships, is the canonical
 home of this drain ritual; until then this section defines it.)

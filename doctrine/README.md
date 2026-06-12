@@ -65,7 +65,10 @@ that flow. [Refactor Instinct](refactor-instinct.md) and
 while writing it, and the [Decision-Domains Catalog](decision-domains.md)
 supplies the triggers that route load-bearing choices to the human instead
 of a default. [Proportionality](proportionality.md) governs how strictly
-all of the above scale with what is at stake.
+all of the above scale with what is at stake. Upstream of execution,
+[Interaction Style](interaction-style.md) governs how the spec-authoring
+skills conduct the interactive sessions that produce the specs everything
+above executes against.
 
 ## Adopter extension
 
