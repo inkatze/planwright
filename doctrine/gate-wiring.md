@@ -60,7 +60,7 @@ five. There is no silent drop.
 
 ## Commit discipline
 
-The gate's review mechanic depends on revertability, so commit granularity is
+The gate's review mechanic depends on reversibility, so commit granularity is
 part of the contract (and history is never rewritten; new commits only).
 
 - **Needs-sign-off items commit one per finding**, never batched. The
@@ -180,7 +180,7 @@ What a pause does depends on who is watching:
   human directs it.
 - **Dispatched or unattended worker.** No human is at the prompt: record the
   unit to `tasks.md` Awaiting input (the halt destination REQ-F1.5
-  defines) with the finding,
+  defines), with the finding,
   the trigger, and the recommended fix or alternatives, then end the step.
   Work already applied in this loop stays on the branch as committed: a
   pause never resets, stashes, or rewrites prior dispositions (each remains
