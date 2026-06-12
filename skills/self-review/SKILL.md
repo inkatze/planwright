@@ -191,6 +191,8 @@ The pass produces, in this order (the wiring doc's loop-end handoff):
 5. Queued irreducible forks with their bespoke options; in an attended
    standalone run these are presented to the human now, as the only
    questions the pass asks.
+6. The pass summary: resolved mode, base used, tooling and wider-suite
+   results (command and outcome), and any reverts or surfaced failures.
 
 Table content lands in a committed PR body: apply `security-posture` artifact
 data-hygiene before emitting (no secrets, credentials, or sensitive
