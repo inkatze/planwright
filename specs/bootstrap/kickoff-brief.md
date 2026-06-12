@@ -1146,3 +1146,22 @@ Anchor: `571a2d366b468074504a7e6aa617f737d261cb82` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-12, merge reconciliation on branch task-4)
+
+Machine-written entry per REQ-F1.10's expression-only lane, on branch
+`planwright/bootstrap/task-4` (PR #4) after merging main twice (post-T1/T3 and
+post-T2). Main's spec-file divergence in both merges was orchestration state
+only (Task 1/2/3 dispatch and completion moves; Task 2's Completed block kept
+its definition fields per the meta-spec's never-collapse rule), so the
+canonical anchor recorded in the "Task 4 citation backfill + PR state" entry
+above is unchanged and re-verified on the merged state. This entry restores
+the most-recent-entry position to a value that matches this branch (the
+interim-form Task 2 reconcile entry above matches main's whole files, not
+this branch's backfilled requirements.md): the parallel-anchor merge
+ambiguity in action, repaired here by the canonical form.
+
+Class: expression-only
+Anchor: `c7196b8d123b96dc05c94bcbd7de90e7d652b0b3` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+(canonical form: manifest anchor with tasks.md reduced to definition content).

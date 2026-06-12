@@ -45,13 +45,13 @@ trap 'rm -rf "$tmp"' EXIT
 spec="$tmp/spec"
 mkdir "$spec"
 
-printf '%s\n' '# Fixture — Requirements' '' '**Status:** Active' > "$spec/requirements.md"
-printf '%s\n' '# Fixture — Design' > "$spec/design.md"
-printf '%s\n' '# Fixture — Test Spec' > "$spec/test-spec.md"
+printf '%s\n' '# Fixture — Requirements' '' '**Status:** Active' >"$spec/requirements.md"
+printf '%s\n' '# Fixture — Design' >"$spec/design.md"
+printf '%s\n' '# Fixture — Test Spec' >"$spec/test-spec.md"
 
 # Baseline: four tasks in Forward plan, with a dotted id, an id >= 10, and a
 # wrapped continuation line.
-cat > "$spec/tasks.md" <<'EOF'
+cat >"$spec/tasks.md" <<'EOF'
 # Fixture — Tasks
 
 **Status:** Active
@@ -113,7 +113,7 @@ a_again=$("$anchor" "$spec")
 # Computed independently of the script: extraction bytes written by hand in
 # numeric id order (a lexicographic sort would place Task 10 between Task 1
 # and Task 2), hashed and folded into the manifest per the meta-spec.
-cat > "$tmp/expected-extraction" <<'EOF'
+cat >"$tmp/expected-extraction" <<'EOF'
 ### Task 1 — First thing
 - **Deliverables:** A widget; plus a wrapped deliverable line that
   continues onto a second line.
@@ -145,13 +145,13 @@ exp_anchor=$(printf '%s\n%s\n%s\n%s\n' \
   "$(git hash-object "$spec/design.md")" \
   "$(git hash-object "$tmp/expected-extraction")" \
   "$(git hash-object "$spec/test-spec.md")" | git hash-object --stdin)
-[ "$a_base" = "$exp_anchor" ] ||
-  fail "anchor deviates from the independently computed golden manifest: $a_base vs $exp_anchor"
+[ "$a_base" = "$exp_anchor" ] \
+  || fail "anchor deviates from the independently computed golden manifest: $a_base vs $exp_anchor"
 
 # --- Property 1: state moves are anchor-invariant ---
 # Task 1 completes, Task 2 dispatches, Task 2.5 awaits input; document order
 # shuffles; annotations appear, including an unknown future annotation bullet.
-cat > "$spec/tasks.md" <<'EOF'
+cat >"$spec/tasks.md" <<'EOF'
 # Fixture — Tasks
 
 **Status:** Active
@@ -212,13 +212,13 @@ a_moved=$("$anchor" "$spec") || fail "anchor computation failed after state move
 [ "$a_base" = "$a_moved" ] || fail "state moves changed the anchor: $a_base vs $a_moved"
 
 # --- Property 2: a meaning edit changes the anchor ---
-sed 's/The gizmo exists./The gizmo exists and is documented./' "$spec/tasks.md" > "$spec/tasks.md.new"
+sed 's/The gizmo exists./The gizmo exists and is documented./' "$spec/tasks.md" >"$spec/tasks.md.new"
 mv "$spec/tasks.md.new" "$spec/tasks.md"
 a_edited=$("$anchor" "$spec") || fail "anchor computation failed after Done-when edit"
 [ "$a_base" != "$a_edited" ] || fail "Done-when edit did not change the anchor"
 
 # --- Property 2b: an edit to a non-tasks file changes the anchor ---
-printf '%s\n' '# Fixture — Design' 'New decision text.' > "$spec/design.md"
+printf '%s\n' '# Fixture — Design' 'New decision text.' >"$spec/design.md"
 a_design=$("$anchor" "$spec")
 [ "$a_edited" != "$a_design" ] || fail "design.md edit did not change the anchor"
 
@@ -227,14 +227,14 @@ a_design=$("$anchor" "$spec")
 # definition-like bullets under a non-task H3 directly following a task block
 # must not leak into that task's record.
 cp "$spec/tasks.md" "$spec/tasks.md.bak"
-cat >> "$spec/tasks.md" <<'EOF'
+cat >>"$spec/tasks.md" <<'EOF'
 
 ### Task 9 — Tail thing
 
 - **Done when:** the tail task exists.
 EOF
 a_tail=$("$anchor" "$spec") || fail "anchor computation failed with tail task"
-cat >> "$spec/tasks.md" <<'EOF'
+cat >>"$spec/tasks.md" <<'EOF'
 
 ### Notes
 
@@ -245,7 +245,7 @@ mv "$spec/tasks.md.bak" "$spec/tasks.md"
 [ "$a_tail" = "$a_notes" ] || fail "non-task H3 section content leaked into the anchor: $a_tail vs $a_notes"
 
 # --- Zero task blocks: succeeds, deterministic, well-formed ---
-cat > "$spec/tasks.md" <<'EOF'
+cat >"$spec/tasks.md" <<'EOF'
 # Fixture — Tasks
 
 **Status:** Active
@@ -264,7 +264,7 @@ a_zero2=$("$anchor" "$spec")
 [ "$a_zero" = "$a_zero2" ] || fail "zero-task anchor non-deterministic"
 
 # --- Duplicate task ids fail closed, with a clear message ---
-cat > "$spec/tasks.md" <<'EOF'
+cat >"$spec/tasks.md" <<'EOF'
 ## Forward plan
 
 ### Task 2 — Second thing
@@ -284,7 +284,7 @@ case $err in
 esac
 
 # Restore a valid tasks.md for the remaining cases.
-cat > "$spec/tasks.md" <<'EOF'
+cat >"$spec/tasks.md" <<'EOF'
 ## Forward plan
 
 ### Task 1 — First thing

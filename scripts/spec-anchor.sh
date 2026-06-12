@@ -117,6 +117,6 @@ tst_hash=$(git hash-object "$dir/test-spec.md")
 # Capture before printing: git hash-object ignores a failed write to an
 # unwritable stdout (still exits 0), but printf's own failure is caught by
 # set -e, so success implies the anchor was actually emitted.
-anchor=$(printf '%s\n%s\n%s\n%s\n' "$req_hash" "$des_hash" "$tsk_hash" "$tst_hash" |
-  git hash-object --stdin)
+anchor=$(printf '%s\n%s\n%s\n%s\n' "$req_hash" "$des_hash" "$tsk_hash" "$tst_hash" \
+  | git hash-object --stdin)
 printf '%s\n' "$anchor"
