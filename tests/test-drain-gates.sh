@@ -332,7 +332,7 @@ printf '%s\n' "$out" | grep '^FREE-TEXT' | grep -F 'Free text' \
 has '(no gates)'
 lacks '_pending'
 lacks 'Planted'
-has 'gates: 25 - satisfied: 6 - surfaced: 2 - pending: 2 - dormant: 2 - free-text: 3 - malformed: 10'
+has 'gates: 25 - satisfied: 6 - surfaced: 2 - pending: 2 - dormant: 2 - free-text: 3 - malformed: 10 - errors: 0'
 
 # 11. Exit-code contract.
 "$drain" >/dev/null 2>&1 && fail "no arguments must be a usage error"
@@ -342,6 +342,9 @@ rc=0
 rc=0
 "$drain" --today 2026-13-01 "$root" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 2 ] || fail "out-of-range --today: expected exit 2, got $rc"
+rc=0
+"$drain" --today 2026-02-30 "$root" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "calendar-invalid --today: expected exit 2, got $rc"
 rc=0
 "$drain" "$tmp/nonexistent" >/dev/null 2>&1 || rc=$?
 [ "$rc" -eq 1 ] || fail "missing root: expected exit 1, got $rc"
@@ -375,6 +378,19 @@ if [ "$(id -u)" -ne 0 ]; then
     || fail "unreadable tasks.md not surfaced as unreadable"
   printf '%s\n' "$out3" | grep -F '(no tasks.md)' >/dev/null \
     && fail "unreadable tasks.md conflated with a missing one"
+  printf '%s\n' "$out3" | grep -F 'errors: 1' >/dev/null \
+    || fail "unreadable tasks.md not counted in the summary errors tally"
+
+  mkdir -p "$tmp/specs3/epsilon"
+  printf '%s\n' '# E' '' '**Status:** Active' \
+    >"$tmp/specs3/epsilon/requirements.md"
+  printf '%s\n' '# E — Tasks' >"$tmp/specs3/epsilon/tasks.md"
+  chmod 000 "$tmp/specs3/epsilon/requirements.md"
+  out3b=$("$drain" --today 2026-06-12 "$tmp/specs3") \
+    || fail "unreadable requirements.md must not abort the sweep"
+  chmod 644 "$tmp/specs3/epsilon/requirements.md"
+  printf '%s\n' "$out3b" | grep -F 'requirements.md unreadable' >/dev/null \
+    || fail "unreadable requirements.md not noted"
 
   mkdir -p "$tmp/specs4/delta"
   chmod 444 "$tmp/specs4"
@@ -383,5 +399,17 @@ if [ "$(id -u)" -ne 0 ]; then
   chmod 755 "$tmp/specs4"
   [ "$rc" -eq 1 ] || fail "non-searchable root: expected exit 1, got $rc"
 fi
+
+# 15. Skipped-directory notes are visible: a non-conforming name and an
+#     over-length name each leave a note rather than vanishing.
+mkdir -p "$tmp/specs5/ok" "$tmp/specs5/Bad_Name" \
+  "$tmp/specs5/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+printf '%s\n' '# Ok — Tasks' >"$tmp/specs5/ok/tasks.md"
+out5=$("$drain" --today 2026-06-12 "$tmp/specs5") \
+  || fail "skipped-directory fixtures broke the sweep"
+printf '%s\n' "$out5" | grep -F 'non-conforming spec identifier' >/dev/null \
+  || fail "non-conforming directory skip not noted"
+printf '%s\n' "$out5" | grep -F 'over-length spec identifier' >/dev/null \
+  || fail "over-length directory skip not noted"
 
 echo "PASS: test-drain-gates.sh"

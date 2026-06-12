@@ -68,22 +68,24 @@ root=$1
 if [ -z "$today" ]; then
   today=$(date +%Y-%m-%d)
 fi
+# Calendar-validate --today with the same leap-aware rule gate date atoms
+# get, so the comparison anchor can never be a date that does not exist.
 case $today in
   [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
-    case ${today#*-} in
-      0[1-9]-* | 1[0-2]-*) ;;
-      *)
-        echo "drain-gates: invalid --today date: $today" >&2
-        exit 2
-        ;;
-    esac
-    case ${today##*-} in
-      0[1-9] | [12][0-9] | 3[01]) ;;
-      *)
-        echo "drain-gates: invalid --today date: $today" >&2
-        exit 2
-        ;;
-    esac
+    ok=$(awk -v d="$today" 'BEGIN {
+      y = substr(d, 1, 4) + 0
+      m = substr(d, 6, 2) + 0
+      dd = substr(d, 9, 2) + 0
+      dim = 31
+      if (m == 4 || m == 6 || m == 9 || m == 11) dim = 30
+      if (m == 2)
+        dim = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 29 : 28
+      print (m >= 1 && m <= 12 && dd >= 1 && dd <= dim) ? 1 : 0
+    }')
+    if [ "$ok" != 1 ]; then
+      echo "drain-gates: invalid --today date: $today" >&2
+      exit 2
+    fi
     ;;
   *)
     echo "drain-gates: invalid --today date: $today" >&2
@@ -152,6 +154,7 @@ report() {
   n_dor=0
   n_free=0
   n_mal=0
+  n_err=0
 
   for name in $specs; do
     tasks="$root/$name/tasks.md"
@@ -162,6 +165,7 @@ report() {
     fi
     if [ ! -r "$tasks" ]; then
       printf 'error: tasks.md unreadable - its gates are unknown\n'
+      n_err=$((n_err + 1))
       continue
     fi
 
@@ -406,6 +410,7 @@ report() {
   obs="$root/_observations/opportunities.md"
   if [ -f "$obs" ] && [ ! -r "$obs" ]; then
     printf 'error: observations log unreadable\n'
+    n_err=$((n_err + 1))
   elif [ -f "$obs" ]; then
     awk -v today="$today" '
       function jdn(y, m, d,  a, yy, mm) {
@@ -436,8 +441,8 @@ report() {
   fi
 
   printf '\n== summary ==\n'
-  printf 'gates: %d - satisfied: %d - surfaced: %d - pending: %d - dormant: %d - free-text: %d - malformed: %d\n' \
-    "$total" "$n_sat" "$n_sur" "$n_pen" "$n_dor" "$n_free" "$n_mal"
+  printf 'gates: %d - satisfied: %d - surfaced: %d - pending: %d - dormant: %d - free-text: %d - malformed: %d - errors: %d\n' \
+    "$total" "$n_sat" "$n_sur" "$n_pen" "$n_dor" "$n_free" "$n_mal" "$n_err"
 }
 
 # Strip control characters from the echoed report (REQ-H1.3): C0 minus
