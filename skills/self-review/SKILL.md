@@ -212,7 +212,9 @@ When the repository has adopted planwright (a `specs/` directory with at
 least one spec bundle exists), append anything noticed during the pass that
 is outside the branch's scope (complexity growth, outdated patterns, tooling
 gaps, doctrine gaps) to `specs/_observations/opportunities.md`, one line per
-observation: `- <YYYY-MM-DD> [<repo>] <observation>`. Do not act on
+observation: `- <YYYY-MM-DD> [<repo>] <observation>`. Commit the append
+within the pass (the action commit, or its own chore commit when nothing
+else landed); never leave the log dirty at a pass boundary. Do not act on
 observations during the pass; they are seed material for `/spec-draft`
 (REQ-E2.1, REQ-H1.6). Skip this step entirely in repositories without
 `specs/`.

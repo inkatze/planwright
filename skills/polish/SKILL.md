@@ -162,8 +162,10 @@ When the repository has adopted planwright (a `specs/` directory with at
 least one spec bundle exists), append anything the loop surfaced that is
 outside the branch's scope (recurring tooling gaps, doctrine gaps, complexity
 trends) to `specs/_observations/opportunities.md`, one line per observation:
-`- <YYYY-MM-DD> [<repo>] <observation>` (REQ-E2.1, REQ-H1.6). Skip this step
-entirely in repositories without `specs/`.
+`- <YYYY-MM-DD> [<repo>] <observation>` (REQ-E2.1, REQ-H1.6). Commit appends
+within the iteration that produced them (its action commit, or a chore
+commit), so the tree returns to clean at every iteration boundary. Skip this
+step entirely in repositories without `specs/`.
 
 ## Maintenance
 
