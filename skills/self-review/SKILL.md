@@ -82,7 +82,11 @@ pass summary.
    injected one. Capture the output; it is shared input for every lens.
 5. **Detect the active kickoff brief.** Walk in order, stopping at the first
    unambiguous match: the branch convention `planwright/<spec>/task-<ids>`
-   names the spec, so the brief is `specs/<spec>/kickoff-brief.md`; otherwise
+   names the spec, so the brief is `specs/<spec>/kickoff-brief.md` (validate
+   the parsed `<spec>` segment against the spec-identifier discipline,
+   `^[a-z0-9][a-z0-9-]*$` and at most 64 characters per REQ-A1.8, before
+   forming the path; a failing segment is treated as no match, never
+   interpolated); otherwise
    a single Active spec (`specs/*/requirements.md` with `Status: Active`)
    with a sibling `kickoff-brief.md`; otherwise ask when attended. With no
    active brief, the Agent-resolvable bucket is unavailable for this pass

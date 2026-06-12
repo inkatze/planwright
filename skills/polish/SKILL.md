@@ -56,9 +56,10 @@ Record the resolved mode in every iteration summary.
    yourself.
 3. **Identify the base and the active kickoff brief** exactly as
    `/self-review` pre-flight does (remote-tracking base first; brief from the
-   `planwright/<spec>/task-<ids>` branch convention, else the single Active
-   spec). Record both; with no active brief the Agent-resolvable bucket is
-   unavailable for the whole run.
+   `planwright/<spec>/task-<ids>` branch convention, with the parsed `<spec>`
+   segment validated against the REQ-A1.8 identifier discipline before any
+   path is formed; else the single Active spec). Record both; with no active
+   brief the Agent-resolvable bucket is unavailable for the whole run.
 4. **Initialize the loop ledger**: iteration counter at zero, plus a
    dispositions ledger carrying every finding the loop has already
    dispositioned (applied, resolved, applied pending sign-off, declined,
