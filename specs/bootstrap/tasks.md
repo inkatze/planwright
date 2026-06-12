@@ -131,21 +131,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
 
-### Task 11 — `/self-review` + `/polish`
-
-- **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
-  four-table output including empties); `/polish` (autonomous act-then-review loop:
-  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
-  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
-  until only irreducible judgment forks remain). Both append observations to the
-  observations log and carry the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
-  declined log and pending-sign-off checklist; the observations log gains entries; nested
-  invocation fires hooks once (in-session).
-- **Dependencies:** 3, 7
-- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
-- **Estimated effort:** 1.5 days
-
 ### Task 12 — `/execute-task`
 
 - **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
@@ -343,6 +328,24 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
   branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
 
+### Task 7 — Finding categorization & act-then-review gate wiring
+
+- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
+  with act-then-review dispositions: on-branch application of Needs-sign-off items,
+  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
+  audit log, the resolution ladder (brief → research → convention) before the judgment
+  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
+- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
+  a declined finding carries its rationale in the audit table; a fork resolvable from the
+  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
+  including empties.
+- **Dependencies:** 3
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #5 merged 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
+  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
+
 ## In progress
 
 ### Task 4 — Four-file format meta-spec
@@ -381,25 +384,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
 
-### Task 7 — Finding categorization & act-then-review gate wiring
-
-- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
-  with act-then-review dispositions: on-branch application of Needs-sign-off items,
-  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
-  audit log, the resolution ladder (brief → research → convention) before the judgment
-  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
-- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
-  a declined finding carries its rationale in the audit table; a fork resolvable from the
-  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
-  including empties.
-- **Dependencies:** 3
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
-- **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #5 (draft)
-- **Last activity:** 2026-06-11
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
-  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
-
 ### Task 15 — Engineering decision-process doctrine doc
 
 - **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
@@ -419,6 +403,25 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
+
+### Task 11 — `/self-review` + `/polish`
+
+- **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
+  four-table output including empties); `/polish` (autonomous act-then-review loop:
+  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
+  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
+  until only irreducible judgment forks remain). Both append observations to the
+  observations log and carry the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
+  declined log and pending-sign-off checklist; the observations log gains entries; nested
+  invocation fires hooks once (in-session).
+- **Dependencies:** 3, 7
+- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
+  branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
 
 ## Awaiting input
 
