@@ -141,8 +141,10 @@ predicates, then disposition by bucket. The wiring doc governs the mechanics
 this skill executes:
 
 - Auto-applicable and Agent-resolvable items are applied or resolved with
-  their audit and evidence rows; their fixes get solution validation per
-  `validation-rigor` (targeted check, wider project suite, altitude check).
+  their audit and evidence rows, and committed per the wiring doc's commit
+  discipline (batched into the pass's action commit); their fixes get
+  solution validation per `validation-rigor` (targeted check, wider project
+  suite, altitude check).
   Regression tests for Agent-resolvable items are written first and confirmed
   to fail for the finding's exact reason before the fix.
 - Needs-sign-off items are applied on the branch, one commit per finding
