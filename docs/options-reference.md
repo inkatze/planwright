@@ -23,4 +23,4 @@ parses zero keys).
 | `commit_on_state_move` | `true` | Auto-commit `tasks.md` orchestration state moves with a fixed conventional message (D-41). | `/orchestrate` |
 | `dispatch_backend` | `subagent` | Which dispatch backend `/orchestrate` uses for execution units: `subagent` (default), `tmux`, `print`, or `in-session` (D-38, REQ-F1.8). | `/orchestrate` |
 | `max_parallel_units` | `3` | Concurrency cap on simultaneously in-flight execution units (REQ-F1.8). | `/orchestrate` |
-| `stale_lock_threshold` | `15m` | Age past which a per-spec advisory lock is treated as stale and may be broken by the next runner (D-10). | `/orchestrate` |
+| `stale_lock_threshold` | `15m` | Age past which a per-spec advisory lock is treated as stale and may be broken by the next runner (D-10). | `/orchestrate`, `tasks-pr-sync` hook |
