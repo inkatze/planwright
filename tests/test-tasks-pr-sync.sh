@@ -177,6 +177,14 @@ anchor_after=$("$ANCHOR" "$repo/specs/demo")
   || fail "create: hook move changed the content anchor (REQ-F1.9 breakage)"
 echo "ok: create moves single-id block to In progress, anchor invariant"
 
+# 1b. A second fire for the same PR event is idempotent (byte-identical).
+cp "$repo/specs/demo/tasks.md" "$tmp/after-create.md"
+run_hook "$repo" "gh pr create --draft --title t --body b" "https://github.com/o/r/pull/12" \
+  || fail "idempotent create: hook exited non-zero"
+cmp -s "$repo/specs/demo/tasks.md" "$tmp/after-create.md" \
+  || fail "idempotent create: second fire changed tasks.md"
+echo "ok: second fire for the same PR event is idempotent"
+
 # 2. `gh pr merge` on the same branch moves the block to Completed.
 run_hook "$repo" "gh pr merge 12 --squash" "Merged pull request #12" \
   || fail "merge: hook exited non-zero"
@@ -229,7 +237,8 @@ block_of "$repo/specs/demo/tasks.md" 4 | grep -qF "worktree \`.claude/worktrees/
 echo "ok: bundle task-3-4 merge moves both blocks"
 
 # 5. Merge from a non-convention branch (e.g. main) resolves the head branch
-#    via gh (graceful: without gh it is a no-op, REQ-K1.6).
+#    via gh (graceful: without gh it is a no-op, REQ-K1.6). Empty stdout also
+#    exercises the explicit-number-argument PR fallback (`gh pr merge 7`).
 repo=$tmp/r3
 make_repo "$repo"
 GH_HEADREF=planwright/demo/task-4 run_hook "$repo" "gh pr merge 7 --squash" "" \
@@ -237,6 +246,21 @@ GH_HEADREF=planwright/demo/task-4 run_hook "$repo" "gh pr merge 7 --squash" "" \
 [ "$(section_of "$repo/specs/demo/tasks.md" 4)" = "Completed" ] \
   || fail "headref: Task 4 not in Completed via gh headRefName"
 echo "ok: merge from main resolves branch via gh headRefName"
+
+# 5b. tool_response delivered as a plain string (not an object) still works.
+repo=$tmp/r3b
+make_repo "$repo"
+git -C "$repo" checkout -qb planwright/demo/task-3
+(
+  cd "$repo" \
+    && printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --draft"},"tool_response":"https://github.com/o/r/pull/21"}' \
+    | PATH="$stub:$PATH" "$HOOK"
+) || fail "string tool_response: hook exited non-zero"
+[ "$(section_of "$repo/specs/demo/tasks.md" 3)" = "In progress" ] \
+  || fail "string tool_response: Task 3 not moved"
+block_of "$repo/specs/demo/tasks.md" 3 | grep -q -- '- \*\*Status:\*\* PR #21 draft' \
+  || fail "string tool_response: PR number not extracted from string response"
+echo "ok: plain-string tool_response is handled"
 
 # ---------------------------------------------------------------------------
 # Hostile / no-op fixtures. Each must leave tasks.md byte-identical.
@@ -299,12 +323,45 @@ for ref in \
   "planwright/../task-3" \
   "planwright/demo/task-3..5" \
   "planwright/demo;rm -rf x/task-3" \
-  "planwright/demo/extra/task-3"; do
+  "planwright/demo/extra/task-3" \
+  "planwright/demo"; do
   GH_HEADREF=$ref run_hook "$repo" "gh pr merge 12 --squash" "" \
     || fail "hostile headref $ref: non-zero exit"
   assert_unchanged "hostile headref $ref" "$tasks" "$pristine"
 done
 echo "ok: hostile gh head refs no-op"
+
+# 11b. A tasks.md missing the target section is a clean no-op.
+nosec=$tmp/r4b
+mkdir -p "$nosec"
+git -C "$nosec" init -q -b main
+git -C "$nosec" config user.email test@example.com
+git -C "$nosec" config user.name test
+git -C "$nosec" config commit.gpgsign false
+mkdir -p "$nosec/specs/demo"
+cat >"$nosec/specs/demo/tasks.md" <<'EOF'
+# Demo — Tasks
+
+## Forward plan
+
+### Task 3 — Widget parser
+
+- **Deliverables:** A widget parser.
+- **Done when:** Parses widgets.
+
+## Completed
+
+(none yet)
+EOF
+git -C "$nosec" add -A
+git -C "$nosec" commit -qm "chore: fixture"
+git -C "$nosec" checkout -qb planwright/demo/task-3
+cp "$nosec/specs/demo/tasks.md" "$tmp/nosec-pristine.md"
+run_hook "$nosec" "gh pr create --draft" "https://github.com/o/r/pull/12" \
+  || fail "missing section: non-zero exit"
+cmp -s "$nosec/specs/demo/tasks.md" "$tmp/nosec-pristine.md" \
+  || fail "missing section: tasks.md changed despite no '## In progress' section"
+echo "ok: missing target section is a clean no-op"
 
 # 12. Containment: a charset-clean spec whose directory symlinks outside
 #     <primary>/specs/ is rejected (symlink-resolved prefix check).

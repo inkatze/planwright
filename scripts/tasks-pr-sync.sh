@@ -56,14 +56,12 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || tool=""
-[ "$tool" = "Bash" ] || exit 0
-
-cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null) || cmd=""
+# One jq pass covers the tool check and the command extraction: this hook
+# runs after every Bash call, so the no-op path stays one process deep.
+cmd=$(printf '%s' "$input" \
+  | jq -r 'if .tool_name == "Bash" then (.tool_input.command // empty) else empty end' \
+    2>/dev/null) || cmd=""
 [ -n "$cmd" ] || exit 0
-out=$(printf '%s' "$input" \
-  | jq -r '.tool_response | if type == "object" then (.stdout // "") else tostring end' \
-    2>/dev/null) || out=""
 
 # Match an actual `gh pr create` / `gh pr merge` invocation (at command
 # start or after a shell separator), not a mere substring mention:
@@ -80,6 +78,13 @@ elif gh_pr merge; then
 else
   exit 0
 fi
+
+# The command's stdout is only needed past this point (PR-number
+# extraction); Bash sends tool_response as an object with .stdout, but stay
+# shape-defensive (risk row 17).
+out=$(printf '%s' "$input" \
+  | jq -r '.tool_response | if type == "object" then (.stdout // "") else tostring end' \
+    2>/dev/null) || out=""
 
 # --- PR number, from (in order): the PR URL in the command's stdout, a
 # "#<n>" in stdout, an explicit number argument, `gh pr view` (REQ-K1.6:
@@ -294,6 +299,15 @@ move_block() {
       exit 0
     }
   ' "$tasks_md" >"$tmpf"; then
+    # A successful rewrite of a non-empty tasks.md is never empty; an empty
+    # temp file means the write itself failed (e.g. ENOSPC some awks do not
+    # report). Refuse to clobber the canonical file with it.
+    if [ ! -s "$tmpf" ]; then
+      rm -f "$tmpf"
+      tmpf=""
+      log "empty rewrite output; $tasks_md unchanged"
+      return 0
+    fi
     mv "$tmpf" "$tasks_md"
     tmpf=""
     log "Task $1 → $target (PR #$pr_num) in $tasks_md"

@@ -64,4 +64,14 @@ out=$(cd "$bare" && CLAUDE_PROJECT_DIR=$bare "$HOOK") || fail "untooled: non-zer
 [ -z "$out" ] || fail "untooled: expected silence, got output"
 echo "ok: untooled repo is silent"
 
+# 5. jq unavailable: silent no-op rather than a malformed payload (the hook
+#    needs only git from PATH; a stub dir without jq simulates its absence).
+nojq=$tmp/nojq-bin
+mkdir -p "$nojq"
+ln -s "$(command -v git)" "$nojq/git"
+out=$(cd "$repo" && CLAUDE_PROJECT_DIR=$repo PATH=$nojq "$HOOK") \
+  || fail "no jq: non-zero exit"
+[ -z "$out" ] || fail "no jq: expected silence, got output"
+echo "ok: missing jq is silent"
+
 echo "PASS: all tool-discovery tests passed"
