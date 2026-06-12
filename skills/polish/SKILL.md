@@ -99,7 +99,9 @@ Each iteration:
    dispositions by bucket, commits created, tooling result), increment the
    iteration counter, and loop.
 
-Commits happen inside the pass per the `gate-wiring` commit discipline:
+Finding fixes commit inside the pass per the `gate-wiring` commit
+discipline (loop-level writes, such as observation appends, take their own
+chore commit at the iteration boundary):
 Needs-sign-off items one commit per finding with the `[pending-sign-off]`
 marker, action items batched per iteration, regression tests landing with the
 fix they prove. Polish never amends, squashes, rebases, or force-pushes; each
@@ -180,6 +182,7 @@ concept this skill names has changed meaning, gained or lost a step, or moved
 between docs, append a drift observation to
 `specs/_observations/opportunities.md` (format above, prefixed
 `skill-drift(polish):`; in repositories without `specs/`, surface the drift
-to the user instead of writing the log) and tell the user what drifted. Do not edit this
+to the user instead of writing the log), commit the append (its own chore
+commit), and tell the user what drifted. Do not edit this
 skill or the doctrine docs to resolve the drift; the observation log's reader
 owns folding drift into spec amendments.
