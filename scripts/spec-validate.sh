@@ -34,7 +34,9 @@
 #
 # A path containing any of the four spec files is validated as a single
 # bundle; any other directory is treated as a specs root and its direct
-# children are screened and validated. The baseline for stable-ID and
+# children are screened and validated. A symlinked directory in the root is
+# a hard error (a silent skip would be a bundle CI never checks); plain
+# files and symlinks to files are ignored. The baseline for stable-ID and
 # terminal-state checks defaults to origin/main when it resolves (it is
 # skipped quietly otherwise: a brand-new repo with no remote degrades
 # gracefully per REQ-K1.7); --baseline makes it explicit and fatal when
@@ -505,6 +507,28 @@ else
     IFS=$oldifs
     for d in "$@"; do
       screen_and_validate "$d"
+    done
+  fi
+
+  # Symlinked directories are a hard error, not a silent skip: `find -type d`
+  # excludes them, so an accepted symlink would be a bundle CI never checks
+  # (fail closed, REQ-A2.1). Symlinks to non-directories stay ignored like
+  # any other plain file in the root.
+  links=$(find "$target" -mindepth 1 -maxdepth 1 -type l | sort)
+  if [ -n "$links" ]; then
+    oldifs=$IFS
+    IFS='
+'
+    set -f
+    # shellcheck disable=SC2086 # newline-only splitting of the link list is intended
+    set -- $links
+    set +f
+    IFS=$oldifs
+    for d in "$@"; do
+      if [ -d "$d" ]; then
+        emit_error "$(basename "$d")" \
+          "symlinked directory under the specs root; bundles must be real directories"
+      fi
     done
   fi
 fi

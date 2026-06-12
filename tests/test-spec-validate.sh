@@ -28,6 +28,7 @@
 #       (vs the baseline) is an error; the Done→Draft reopen cycle is not.
 #   12. Spec-identifier charset (REQ-A1.8): hostile directory names error;
 #       underscore accumulators are skipped as bundles but name-screened;
+#       symlinked directories in the root are a hard error, not a skip;
 #       --check-id validates proposed identifier strings full-string.
 #
 # Runs standalone: ./tests/test-spec-validate.sh
@@ -585,6 +586,16 @@ run_v 1 "$root2"
 has "ERROR _[g]: accumulator"
 has "1 error(s)"
 rm -rf "$root2/_[g]" "$root2/_g"
+
+# A symlinked directory under the specs root is a hard error (fail closed:
+# a silently skipped bundle would be one CI never checks), while plain
+# files and symlinks to files stay ignored like any other non-directory.
+write_bundle "$root2/real" Draft
+ln -s real "$root2/linked"
+run_v 1 "$root2"
+has "ERROR linked: symlinked"
+rm "$root2/linked"
+rm -rf "$root2/real"
 
 # --check-id validates a proposed identifier string, full-string, before
 # any path is formed.
