@@ -53,7 +53,8 @@ point, not a dependency).
    (REQ-A1.8) **before** any such use. When the feature name is not already
    a conforming identifier, propose a conforming kebab-case variant and ask;
    nothing non-conforming is ever interpolated. No name given: elicit the
-   idea first (seed gathering below) and propose a name from it. When `--extend <spec>` is present, additionally
+   idea first (seed gathering below) and propose a name from it. When
+   `--extend <spec>` is present, additionally
    verify the target: `specs/<spec>/requirements.md` must exist and its
    Status must be non-terminal. A nonexistent target gets a clear message
    listing the specs that do exist; a Retired or Superseded target is
