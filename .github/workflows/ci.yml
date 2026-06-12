@@ -43,7 +43,7 @@ jobs:
       # The aggregate gate: shell tests, shellcheck, shfmt, markdownlint,
       # yamllint, plugin-manifest JSON lint, doctrine link-check, the
       # options-reference drift check (REQ-K1.8), the spec validator
-      # (skip-with-notice until Task 5 ships it), and the full-history
+      # (enforced, REQ-A2.1), and the full-history
       # gitleaks scan. lint:commits inside `check` covers local runs; the
       # strict PR-range lint is the dedicated step below.
       - run: mise run check
