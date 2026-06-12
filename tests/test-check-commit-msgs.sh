@@ -118,6 +118,12 @@ assert "empty input is a usage error" 2 $?
 
 # 6. Range mode lints git history: a temp repo with one good and one bad
 #    commit fails over the full range and passes over the good-only range.
+#    The fixture repo must be hermetic: a contributor's global git config
+#    (commit signing through an agent socket, hooks, templates) must not be
+#    able to break fixture commits.
+GIT_CONFIG_GLOBAL=/dev/null
+GIT_CONFIG_SYSTEM=/dev/null
+export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
 tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 (
