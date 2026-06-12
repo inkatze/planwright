@@ -186,11 +186,12 @@ the entry title, and its confidence, so both a human and a calling skill
 can act on the report without re-parsing gates. A complete report always
 ends with the `== summary ==` section; a sweep that cannot complete exits
 non-zero instead of emitting a partial report, so a report missing its
-summary is a bug, not a result. The evaluator evaluates each swept file
-from a single read, bracketed by digest checks that flag a file whose
-content differs between the start and end of the parse as a report-level
-error rather than trusting possibly torn rows (a rewrite restoring
-identical bytes within the window is below the check's resolution; the
-writer-side lock is the orchestration layer's concern, not the read-only
-evaluator's). Spec-status atoms evaluate against a snapshot taken at sweep
-start.
+summary is a bug, not a result. The evaluator parses each swept file in a
+single pass (one awk read, so no two parse phases can see different file
+versions), preceded by a NUL screen and bracketed by digest checks that
+flag a file whose content differs between the start and end of the parse
+as a report-level error rather than trusting possibly torn rows (a rewrite
+restoring identical bytes within the window is below the check's
+resolution; the writer-side lock is the orchestration layer's concern, not
+the read-only evaluator's). Spec-status atoms evaluate against a snapshot
+taken at sweep start.

@@ -197,17 +197,19 @@ report() {
       continue
     fi
 
-    # Single read: the awk program buffers the file once, collecting the
-    # task-id universe (ids defined anywhere outside fenced code blocks;
-    # the Completed subset) while reading, then evaluates gates over the
-    # buffered lines in END. Two separate reads could see different
-    # versions of a file being rewritten concurrently and fabricate
-    # MALFORMED rows for valid gates; one open confines any race to a
-    # torn single read, which the digest bracket around this invocation
-    # bounds (a rewrite restoring identical bytes within the window is
-    # below the check's resolution). Each read is guarded so a file
-    # vanishing mid-sweep degrades to a report-level error for this spec
-    # instead of aborting the whole report.
+    # Single parse pass: the awk program reads the file once, buffering
+    # it and collecting the task-id universe (ids defined anywhere
+    # outside fenced code blocks; the Completed subset) while reading,
+    # then evaluates gates over the buffered lines in END. Two separate
+    # parse reads could see different versions of a file being rewritten
+    # concurrently and fabricate MALFORMED rows for valid gates; one
+    # parse open confines any race to a torn single read, which the
+    # digest bracket around this invocation bounds (a rewrite restoring
+    # identical bytes within the window is below the check's resolution).
+    # The NUL screen above and the digest pair are separate, cheaper
+    # opens; only the parse feeds gate evaluation. Each read is guarded
+    # so a file vanishing mid-sweep degrades to a report-level error for
+    # this spec instead of aborting the whole report.
     if ! pre_digest=$(cksum <"$tasks" 2>/dev/null); then
       printf 'error: tasks.md vanished during the sweep\n'
       n_err=$((n_err + 1))
