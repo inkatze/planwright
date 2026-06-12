@@ -12,6 +12,12 @@
 .claude/*.local.yml
 .claude/*.local.json
 
+# Machine-local environment layer (mise convention). Loaded by mise in this
+# checkout and, via ancestor-directory config loading, in every worktree under
+# .claude/worktrees/. Per-machine paths and session plumbing only.
+mise.local.toml
+.mise.local.toml
+
 # Linked git worktrees created by /orchestrate (design.md D-37). Working copies,
 # not source.
 .claude/worktrees/
