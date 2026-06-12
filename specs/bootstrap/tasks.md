@@ -349,8 +349,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
 
-## In progress
-
 ### Task 11 — `/self-review` + `/polish`
 
 - **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
@@ -365,10 +363,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 3, 7
 - **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
 - **Estimated effort:** 1.5 days
-- **Status:** draft-pr-ready · PR #8 (draft)
+- **Status:** Completed · PR #8 merged 2026-06-12
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
   branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
+
+## In progress
 
 ### Task 5 — Status-aware validator
 
@@ -407,7 +407,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4
 - **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #10 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
@@ -430,7 +430,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 3, 4
 - **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
 - **Estimated effort:** 1.5 days
-- **Status:** PR #11 draft
+- **Status:** draft-pr-ready · PR #11 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
   branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
