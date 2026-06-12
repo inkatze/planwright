@@ -55,7 +55,10 @@ Read the literal flag `--nested` from `$ARGUMENTS` at the start of the run:
 - **Nested** (`--nested`): another planwright skill (typically `/polish`)
   invoked this pass in the same session and owns everything after it. Skip
   pushing and PR handling entirely; end by handing the audit record back to
-  the invoking skill.
+  the invoking skill. The invoking skill may pass its loop ledger of
+  already-dispositioned findings: a re-discovered finding that already
+  carries a disposition is reported in the audit record but never
+  re-routed, re-applied, or re-paused.
 
 Nested invocation is in-session skill composition (REQ-E2.2, D-13): the pass
 runs in the invoking skill's session and context, and hooks fire once per
