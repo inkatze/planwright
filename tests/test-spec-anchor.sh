@@ -14,9 +14,14 @@
 #   6. Failure modes fail closed with a clear stderr message: missing or
 #      unreadable file, duplicate task ids, unemittable output.
 #
-# Runs standalone: ./tests/spec-anchor-test.sh
+# Runs standalone: ./tests/test-spec-anchor.sh
 # (Joins the Task 2 shell test runner's suite when that lands.)
 set -eu
+
+# Pin the C locale: the [!0-9a-f] case glob below is collation-dependent for
+# the letter range under UTF-8 locales.
+LC_ALL=C
+export LC_ALL
 
 here=$(cd "$(dirname "$0")" && pwd)
 anchor="$here/../scripts/spec-anchor.sh"
@@ -322,4 +327,4 @@ case $err in
   *) fail "missing-file failure lacks a clear message: $err" ;;
 esac
 
-echo "PASS: spec-anchor-test"
+echo "PASS: test-spec-anchor"

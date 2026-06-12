@@ -23,6 +23,11 @@
 # treated as data only).
 set -eu
 
+# Pin the C locale: range patterns are collation-dependent under UTF-8
+# locales; anchor bytes and matches must not vary by host locale.
+LC_ALL=C
+export LC_ALL
+
 if [ $# -ne 1 ]; then
   echo "usage: spec-anchor.sh <spec-dir>" >&2
   exit 2
