@@ -69,17 +69,19 @@ state:
 - **First activation.** Status Draft, no signed brief (or a partial one —
   see resumability). The full walkthrough below, ending in the first
   sign-off, the Active flip, push, and draft PR.
-- **Delta re-walkthrough.** Status Active with a signed brief, and the spec
-  content has changed since the brief's most recent anchor entry (this is
-  the remedy REQ-F1.9's freshness gate names), or the human asks for a
-  re-walk. Walk only the delta; the lens pass is delta-scoped; the outcome
-  is an appended amendment-log entry with a fresh anchor.
-- **Amendment.** Status Active; the human brings a specific change during
-  or after a walkthrough. Classified on the REQ-A3.3 axis (the human
-  classifies at sign-off): meaning-class changes get a scoped walk of the
-  affected sections, a delta-scoped lens pass, and a meaning-class entry;
-  expression-only changes get a changelog entry and an expression-only
-  anchor entry with no lens pass.
+- **Delta re-walkthrough.** Status Active with a signed brief, and the
+  freshness comparison in pre-flight step 2 found the spec content changed
+  since the brief's most recent anchor entry (this is the remedy
+  REQ-F1.9's freshness gate names), or the human asks for a re-walk. Walk
+  only the delta identified at pre-flight; the lens pass is delta-scoped;
+  the outcome is an appended amendment-log entry with a fresh anchor.
+- **Amendment.** Status Active; the human declares a specific change they
+  are bringing — this mode is always human-declared, never inferred.
+  Classified on the REQ-A3.3 axis (the human classifies at sign-off):
+  meaning-class changes get a scoped walk of the affected sections, a
+  delta-scoped lens pass, and a meaning-class entry; expression-only
+  changes get a changelog entry and an expression-only anchor entry with
+  no lens pass.
 
 A Done spec with no Draft delta has nothing to kick off: say so and point
 at `/spec-draft --extend` (extending flips Done→Draft; the scoped kickoff
@@ -95,11 +97,24 @@ terminal: refuse — no skill-driven transition leaves a terminal state.
    a failing identifier is never interpolated anywhere. No argument: list
    the bundles under `specs/` (underscore-prefixed accumulators are not
    bundles) and ask.
-2. **Verify the bundle.** All four files must exist (`requirements.md`,
-   `design.md`, `tasks.md`, `test-spec.md`). Read the `**Status:**` line
-   and select the mode above. A missing file or unreadable status is a
-   structural defect: surface it and point at `/spec-draft`; there is
-   nothing to walk.
+2. **Verify the bundle and select the mode.** All four files must exist
+   (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`). A missing
+   file or unreadable status is a structural defect: surface it and point
+   at `/spec-draft`; there is nothing to walk. Read the `**Status:**` line:
+   - **Draft** → first activation (or a resume, per step 6).
+   - **Active with a signed brief** → run the freshness comparison: parse
+     the brief's most recent anchor entry, recompute the anchor with the
+     exact command that entry records, and compare. **Mismatch** → delta
+     re-walkthrough; derive the delta from the git history of the four
+     spec files since the entry was recorded plus any uncommitted changes,
+     and confirm that scope with the human before walking. **Match** →
+     nothing is stale; ask what the human is bringing (a re-walk on
+     request, or an amendment — amendment mode is always human-declared).
+     **Entry absent, unparseable, or non-sanctioned** → the sign-off
+     record needs repair, and this skill's sign-off flow is the repair
+     REQ-F1.9 names: treat it as a delta re-walkthrough scoped to the
+     whole bundle.
+   - **Done / Retired / Superseded** → per the Modes section.
 3. **Run the validator.** `scripts/spec-validate.sh specs/<spec>` when
    present and executable. On a Draft bundle findings are warnings: surface
    them, fix structural ones with the human before walking (a walkthrough
