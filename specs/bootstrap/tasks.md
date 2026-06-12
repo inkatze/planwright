@@ -405,7 +405,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4
 - **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #9 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
