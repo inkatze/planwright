@@ -110,10 +110,13 @@ terminal: refuse — no skill-driven transition leaves a terminal state.
      and confirm that scope with the human before walking. **Match** →
      nothing is stale; ask what the human is bringing (a re-walk on
      request, or an amendment — amendment mode is always human-declared).
-     **Entry absent, unparseable, or non-sanctioned** → the sign-off
-     record needs repair, and this skill's sign-off flow is the repair
-     REQ-F1.9 names: treat it as a delta re-walkthrough scoped to the
-     whole bundle.
+     **Brief or anchor entry absent, unparseable, or non-sanctioned**
+     (including a hand-flipped Active spec that never had a kickoff) → the
+     sign-off record needs creating or repairing, and this skill's
+     sign-off flow is the repair REQ-F1.9 names: walk it as a delta
+     re-walkthrough scoped to the whole bundle (a missing brief gets the
+     full structure, first-activation shape, minus the already-done
+     Active flip).
    - **Done / Retired / Superseded** → per the Modes section.
 3. **Run the validator.** `scripts/spec-validate.sh specs/<spec>` when
    present and executable. On a Draft bundle findings are warnings: surface
