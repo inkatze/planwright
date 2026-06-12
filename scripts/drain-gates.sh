@@ -18,27 +18,30 @@
 #              satisfy and never hard-fail
 #   FREE-TEXT  gate text not in GATE(when: ...) form — surfaced verbatim,
 #              never evaluated
-#   MALFORMED  structured gate failing the grammar — a drain-report-level
-#              error: reported, never evaluated, never silently skipped;
-#              the pass completes
+#   MALFORMED  structured gate failing the grammar, or a gate line outside
+#              any deferral bullet — a drain-report-level error: reported,
+#              never evaluated, never silently skipped; the pass completes
 #
-# Confidence (REQ-H1.5): a bullet's `Confidence: <low|medium|high>` orders
-# the report within each lane, low first, so low-confidence deferrals
-# resurface first.
+# Confidence (REQ-H1.5): a bullet's `Confidence: <low|medium|high>` field
+# (matched as a whole token in the entry text before the gate marker)
+# orders the report within each lane of each spec's section, low first, so
+# low-confidence deferrals resurface first.
 #
 # Also surfaces the observations log's unmined count and oldest-entry age
-# (REQ-H1.4, surface only).
+# (REQ-H1.4, surface only; age clamps at zero for future-dated entries).
 #
 # Usage: drain-gates.sh [--today YYYY-MM-DD] <specs-root>
 #   --today pins the evaluation date (tests); defaults to the system date.
 #
-# Exit codes: 0 sweep completed (malformed gates are report content, not
-# failures), 1 unusable specs root, 2 usage error.
+# Exit codes: 0 sweep completed (malformed gates and unreadable swept files
+# are report content, not failures), 1 unusable specs root (missing,
+# unreadable, or non-searchable), 2 usage error.
 #
 # Security (REQ-H1.3): gate content is data only. The parse is pattern
 # match; nothing is passed to eval, a subshell, or arithmetic expansion;
 # gate text is never used as a pattern, format string, or unquoted
-# argument; control characters are stripped from the echoed report.
+# argument; control characters (C0, DEL, and the C1 range 0x80-0x9F) are
+# stripped from the echoed report.
 # Portable: POSIX sh + awk (bash 3.2 / BSD compatible, mawk-safe — no
 # regex interval expressions).
 set -eu
@@ -66,7 +69,22 @@ if [ -z "$today" ]; then
   today=$(date +%Y-%m-%d)
 fi
 case $today in
-  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9])
+    case ${today#*-} in
+      0[1-9]-* | 1[0-2]-*) ;;
+      *)
+        echo "drain-gates: invalid --today date: $today" >&2
+        exit 2
+        ;;
+    esac
+    case ${today##*-} in
+      0[1-9] | [12][0-9] | 3[01]) ;;
+      *)
+        echo "drain-gates: invalid --today date: $today" >&2
+        exit 2
+        ;;
+    esac
+    ;;
   *)
     echo "drain-gates: invalid --today date: $today" >&2
     exit 2
@@ -74,10 +92,10 @@ case $today in
 esac
 
 case $root in
-  */) root=${root%/} ;;
+  ?*/) root=${root%/} ;;
 esac
-if [ -z "$root" ] || [ ! -d "$root" ] || [ ! -r "$root" ]; then
-  echo "drain-gates: specs root missing or unreadable: $1" >&2
+if [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; then
+  echo "drain-gates: specs root missing, unreadable, or non-searchable: $1" >&2
   exit 1
 fi
 
@@ -107,11 +125,15 @@ for dir in "$root"/*/; do
   specs="$specs $name"
 done
 
-# Spec status map for status atoms: "name=status" pairs, lowercased.
+# Spec status map for status atoms: "name=status" pairs, lowercased. An
+# unreadable requirements.md is noted: its status atoms will not evaluate.
 statuses=""
 for name in $specs; do
   req="$root/$name/requirements.md"
-  if [ -f "$req" ] && [ -r "$req" ]; then
+  if [ -f "$req" ] && [ ! -r "$req" ]; then
+    notes="${notes}note: spec $name: requirements.md unreadable; status atoms referencing it will not evaluate
+"
+  elif [ -f "$req" ]; then
     st=$(awk '/^\*\*Status:\*\*/ { print tolower($2); exit }' "$req")
     [ -n "$st" ] && statuses="$statuses $name=$st"
   fi
@@ -134,8 +156,12 @@ report() {
   for name in $specs; do
     tasks="$root/$name/tasks.md"
     printf '\n== spec: %s ==\n' "$name"
-    if [ ! -f "$tasks" ] || [ ! -r "$tasks" ]; then
+    if [ ! -f "$tasks" ]; then
       printf '(no tasks.md)\n'
+      continue
+    fi
+    if [ ! -r "$tasks" ]; then
+      printf 'error: tasks.md unreadable - its gates are unknown\n'
       continue
     fi
 
@@ -182,11 +208,28 @@ report() {
       }
 
       # Buffer one top-level bullet (with its indented continuations) and
-      # process it as a unit; gate text may wrap lines.
+      # process it as a unit; gate text may wrap lines. Blank lines never
+      # end a bullet (loose markdown list items stay whole); a gate line
+      # outside any bullet is malformed, never dropped.
       /^- / { flush_bullet(); buf = $0; bline = NR; inb = 1; next }
-      /^[ \t]/ { if (inb) { buf = buf " " $0; next } }
-      { flush_bullet() }
+      /^[ \t]*$/ { next }
+      /^[ \t]/ {
+        if (inb) { buf = buf " " $0; next }
+        orphan($0, NR)
+        next
+      }
+      { flush_bullet(); orphan($0, NR) }
       END { flush_bullet(); emit() }
+
+      function orphan(line, nr,  g, k) {
+        if (index(line, "**Gate:**") == 0) return
+        bline = nr
+        g = substr(line, index(line, "**Gate:**") + 9)
+        k = index(g, " Citations:")
+        if (k) g = substr(g, 1, k - 1)
+        add("MALFORMED", "-", "(untitled)", \
+          "gate outside a deferral bullet - gate: " trim(g))
+      }
 
       function flush_bullet(  text, title, conf, g, k) {
         if (!inb) return
@@ -197,7 +240,7 @@ report() {
         if (index(text, "**Gate:**") == 0) return
 
         title = bullet_title(text)
-        conf = bullet_conf(text)
+        conf = bullet_conf(substr(text, 1, index(text, "**Gate:**") - 1))
 
         g = substr(text, index(text, "**Gate:**") + 9)
         k = index(g, " Citations:")
@@ -212,7 +255,7 @@ report() {
 
       function bullet_title(text,  i, rest, j) {
         i = index(text, "**")
-        if (!i) return "(untitled)"
+        if (!i || i == index(text, "**Gate:**")) return "(untitled)"
         rest = substr(text, i + 2)
         j = index(rest, "**")
         if (!j) return "(untitled)"
@@ -221,21 +264,32 @@ report() {
         return rest
       }
 
-      function bullet_conf(text) {
-        if (index(text, "Confidence: low")) return "low"
-        if (index(text, "Confidence: medium")) return "medium"
-        if (index(text, "Confidence: high")) return "high"
+      # The Confidence field is matched as a whole token in the entry text
+      # before the gate marker, so gate-text mentions and longer words
+      # ("Confidence: lowest") never count.
+      function bullet_conf(pre) {
+        if (pre ~ /Confidence: low($|[^a-z])/) return "low"
+        if (pre ~ /Confidence: medium($|[^a-z])/) return "medium"
+        if (pre ~ /Confidence: high($|[^a-z])/) return "high"
         return "-"
       }
 
       # Closed-grammar parse of a structured gate: pattern match only, the
-      # condition is never executed or expanded (REQ-H1.3).
-      function structured(g, title, conf,  cond, p, n, atoms, i, atom, \
-        verdict, hasdate, allmet, unmet, why) {
+      # condition is never executed or expanded (REQ-H1.3). The grammar
+      # ends at the closing parenthesis; anything but a final period after
+      # it is malformed.
+      function structured(g, title, conf,  cond, p, rest, n, atoms, i, \
+        atom, verdict, hasdate, allmet, unmet, why) {
         cond = trim(substr(g, 11))
         p = index(cond, ")")
         if (!p) {
           add("MALFORMED", conf, title, "unterminated GATE(when: ...) - gate: " g)
+          return
+        }
+        rest = trim(substr(cond, p + 1))
+        if (rest != "" && rest != ".") {
+          add("MALFORMED", conf, title, \
+            "trailing content after the closing parenthesis - gate: " g)
           return
         }
         cond = trim(substr(cond, 1, p - 1))
@@ -251,10 +305,9 @@ report() {
         for (i = 1; i <= n; i++) {
           atom = trim(atoms[i])
           verdict = eval_atom(atom)
-          if (verdict == "bad-date") hasdate = 1
           if (verdict ~ /^bad/) {
-            why = atom_error(verdict, atom)
-            break
+            why = why (why == "" ? "" : "; ") atom_error(verdict, atom)
+            continue
           }
           if (verdict == "date-met" || verdict == "date-unmet") hasdate = 1
           if (verdict ~ /unmet$/) {
@@ -293,12 +346,24 @@ report() {
         }
         if (nt == 2 && tk[1] == "after" \
           && tk[2] ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
-          if (substr(tk[2], 6, 2) < "01" || substr(tk[2], 6, 2) > "12" \
-            || substr(tk[2], 9, 2) < "01" || substr(tk[2], 9, 2) > "31")
-            return "bad-date"
+          if (!valid_date(tk[2])) return "bad-date"
+          # A date is reached on or after the named day (inclusive).
           return (tk[2] <= today) ? "date-met" : "date-unmet"
         }
         return "bad-atom"
+      }
+
+      # Calendar validity: real month, real day-of-month, leap-aware.
+      function valid_date(d,  y, m, dd, dim) {
+        y = substr(d, 1, 4) + 0
+        m = substr(d, 6, 2) + 0
+        dd = substr(d, 9, 2) + 0
+        if (m < 1 || m > 12 || dd < 1) return 0
+        dim = 31
+        if (m == 4 || m == 6 || m == 9 || m == 11) dim = 30
+        if (m == 2)
+          dim = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 29 : 28
+        return dd <= dim
       }
 
       function atom_error(verdict, atom) {
@@ -339,7 +404,9 @@ report() {
 
   printf '\n== observations ==\n'
   obs="$root/_observations/opportunities.md"
-  if [ -f "$obs" ] && [ -r "$obs" ]; then
+  if [ -f "$obs" ] && [ ! -r "$obs" ]; then
+    printf 'error: observations log unreadable\n'
+  elif [ -f "$obs" ]; then
     awk -v today="$today" '
       function jdn(y, m, d,  a, yy, mm) {
         a = int((14 - m) / 12)
@@ -361,6 +428,7 @@ report() {
         split(oldest, p, "-")
         split(today, q, "-")
         age = jdn(q[1] + 0, q[2] + 0, q[3] + 0) - jdn(p[1] + 0, p[2] + 0, p[3] + 0)
+        if (age < 0) age = 0
         printf "unmined: %d - oldest: %s (%d days)\n", n, oldest, age
       }' "$obs"
   else
@@ -372,6 +440,8 @@ report() {
     "$total" "$n_sat" "$n_sur" "$n_pen" "$n_dor" "$n_free" "$n_mal"
 }
 
-# Strip control characters from the echoed report (REQ-H1.3); newlines are
-# the only control bytes that belong in it.
-report | tr -d '\000-\011\013-\037\177'
+# Strip control characters from the echoed report (REQ-H1.3): C0 minus
+# newline, DEL, and the C1 range 0x80-0x9F (8-bit CSI and friends; a
+# multibyte character using C1 continuation bytes degrades rather than
+# reaching the terminal as a control sequence).
+report | tr -d '\000-\011\013-\037\177\200-\237'

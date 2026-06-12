@@ -8,8 +8,9 @@
 #
 # Usage: check-doc-links.sh [<file.md>...]
 #   With no arguments, scans the repo's curated prose: README.md,
-#   doctrine/*.md, docs/*.md (the lint:md scope minus specs, whose
-#   cross-references are validated by the spec validator, Task 5).
+#   doctrine/*.md, docs/*.md, skills/*/*.md (the lint:md scope minus
+#   specs, whose cross-references are validated by the spec validator,
+#   Task 5).
 #
 # Skipped link forms: http(s)://, mailto:, and pure-fragment (#...) targets.
 # A #fragment on a file link is stripped before resolution; anchors are not
@@ -37,7 +38,8 @@ if [ "$#" -gt 0 ]; then
   files=("$@")
 else
   files=("$repo_root/README.md")
-  for f in "$repo_root"/doctrine/*.md "$repo_root"/docs/*.md; do
+  for f in "$repo_root"/doctrine/*.md "$repo_root"/docs/*.md \
+    "$repo_root"/skills/*/*.md; do
     [ -f "$f" ] && files=("${files[@]}" "$f")
   done
 fi

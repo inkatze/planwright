@@ -43,8 +43,8 @@ aspirational.
    reader and its re-surfacing ritual. Examples: the observations log
    (`specs/_observations/opportunities.md`; canonical reader `/spec-draft`,
    REQ-H1.6, with the drain pass surfacing its unmined count and age);
-   `_pending/` notes (local-only, gitignored; owner: the human who wrote
-   them); `tasks.md` Deferred entries (re-surfaced by their `GATE(when:)`
+   `_pending/notes.md` (local-only, gitignored; owner: the human who wrote
+   it); `tasks.md` Deferred entries (re-surfaced by their `GATE(when:)`
    conditions through the drain pass). Ritual: the `GATE(when:)` convention
    plus the drain pass, and the canonical reader for seed material.
 
@@ -86,11 +86,15 @@ date-atom   = "after " full-date              ; full-date = YYYY-MM-DD
 ```
 
 `and` of atoms is the only combinator. There is no `or`, no negation, no
-grouping, and no other atom form. A condition that cannot be said in this
-grammar is written as a **free-text gate** instead: plain prose after
-`**Gate:**`, surfaced verbatim and never evaluated (the same lane as date
-gates in evaluation terms — the machine reports it; a human judges it). One
-gate per deferral entry.
+grouping, and no other atom form. The grammar ends at the closing
+parenthesis: apart from a final period, trailing content after it is
+malformed, not ignored. Whitespace around the condition is insignificant
+(the space after `when:` is conventional, not load-bearing). A date atom is
+*reached* on or after the named day, inclusive. A condition that cannot be
+said in this grammar is written as a **free-text gate** instead: plain
+prose after `**Gate:**`, surfaced verbatim and never evaluated (the same
+lane as date gates in evaluation terms — the machine reports it; a human
+judges it). One gate per deferral entry.
 
 ### Lanes and evaluation semantics
 
@@ -111,21 +115,27 @@ The evaluator sorts every gate into exactly one lane:
 - **Free-text gate** — gate text not in the structured form. Surfaced
   verbatim, never evaluated.
 - **Malformed gate** — a structured gate that fails the grammar:
-  unterminated, an empty condition, an unrecognized atom or combinator, an
-  invalid date, or a reference to a task id or spec that does not exist (a
-  condition that can never come true is a write-only deferral in disguise).
-  Malformed gates are **drain-report-level errors**: reported as errors,
-  never evaluated, never silently skipped — and the pass completes; nothing
+  unterminated, an empty condition, trailing content after the closing
+  parenthesis, an unrecognized atom or combinator, a calendar-invalid
+  date, or a reference to a task id or spec that does not exist (a
+  condition that can never come true is a write-only deferral in
+  disguise). A `**Gate:**` line outside any deferral bullet is malformed
+  too — never silently dropped. Malformed gates are **drain-report-level
+  errors**: reported as errors (every defective atom named), never
+  evaluated, never silently skipped — and the pass completes; nothing
   blocks (REQ-H1.3).
 
 ### Confidence levels
 
 A Deferred entry that records a decision carries
 `Confidence: <high|medium|low>` (REQ-H1.5; entry format in the meta-spec).
-The drain report orders items within each lane by confidence — low, then
-medium, then high, then unspecified — so low-confidence deferrals resurface
-first: the less sure the deferral was, the sooner a human should look at it
-again.
+The token is matched as a whole word in the entry text before the gate
+marker — `Confidence: lowest` or a mention inside gate text never counts.
+The drain report orders items within each lane of each spec's section by
+confidence — low, then medium, then high, then unspecified — so
+low-confidence deferrals resurface first: the less sure the deferral was,
+the sooner a human should look at it again. (A consumer merging lanes
+across specs re-sorts by the report's `[confidence]` tag.)
 
 ### Data-only handling
 
@@ -133,7 +143,10 @@ Gate content is untrusted data (REQ-H1.3). The evaluator parses by pattern
 match against the closed grammar and treats gate text as data only: never
 passed to `eval`, a subshell, or arithmetic expansion; never used as a
 pattern, format string, or unquoted argument (`--` discipline); control
-characters stripped when echoed. A hostile gate is at worst malformed or
+characters stripped when echoed — C0, DEL, and the C1 range 0x80-0x9F
+(8-bit CSI), accepting that a multibyte character using C1 continuation
+bytes degrades rather than reaching the terminal as a control sequence. A
+hostile gate is at worst malformed or
 free-text — surfaced inert, never executed. The
 [security posture](security-posture.md) doctrine's framework-script rules
 apply to the evaluator itself.

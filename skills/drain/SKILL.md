@@ -61,8 +61,9 @@ this order:
    the reminder that its canonical reader is `/spec-draft` (mining happens
    there, not here).
 
-Items within each lane arrive ordered low-confidence first; preserve that
-order (REQ-H1.5).
+Items within each lane of each spec's section arrive ordered
+low-confidence first (REQ-H1.5); when merging lanes across specs, re-sort
+by the `[confidence]` tag so low still comes first.
 
 ### 4. Disposition (human-reserved)
 
