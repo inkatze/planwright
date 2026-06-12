@@ -87,15 +87,17 @@ Each iteration:
    PR-review decision; only the did-the-fix-hold signal escapes
    suppression.
 2. **Fold the pass into the ledger.** Add every new disposition. Count the
-   iteration's **new action dispositions**: findings newly applied
+   iteration's **new dispositions** of any kind: findings newly applied
    (Auto-applicable), resolved with evidence (Agent-resolvable), applied
-   pending sign-off, or declined with rationale. "New" means not already in
-   the ledger: a re-discovered, already-dispositioned finding never counts,
-   however it was dispositioned.
+   pending sign-off, declined with rationale, or queued. "New" means not
+   already in the ledger: a re-discovered, already-dispositioned finding
+   never counts, however it was dispositioned. ("Action dispositions"
+   elsewhere in this skill means only the three applied-on-branch kinds;
+   the convergence counter deliberately counts all five.)
 3. **Check the safety conditions** (below). Any trigger: stop per its row.
-4. **Converged?** If the pass produced zero new action dispositions and
-   nothing newly queued (everything found was already in the ledger, or
-   nothing was found), the loop is drained: exit to the handoff. Otherwise
+4. **Converged?** If the pass produced zero new dispositions (everything
+   found was already in the ledger, or nothing was found), the loop is
+   drained: exit to the handoff. Otherwise
    print the iteration summary (iteration number, mode, brief path, new
    dispositions by bucket, commits created, tooling result), increment the
    iteration counter, and loop.
