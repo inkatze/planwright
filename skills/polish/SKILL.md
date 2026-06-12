@@ -15,8 +15,10 @@ argument-hint: "[--nested]"
 The autonomous act-then-review loop (REQ-E2.1, D-12): repeat the `/self-review`
 pass against the feature branch until it drains every action disposition and
 only irreducible Needs-human-judgment forks (if any) remain, then hand off the
-audit record. Polish is **local-only**: it never pushes, never creates or
-touches a PR, and never interacts with a remote. The pending-sign-off
+audit record. Polish is **local-only**: it never pushes and never creates or
+touches a PR; its only remote interaction is the read-only fetch that pins
+the base at pre-flight, and iterations never touch the remote (nested
+`/self-review` passes reuse the pinned base without fetching). The pending-sign-off
 checklist it emits reaches the draft PR through whichever skill owns PR
 creation (`/execute-task` per REQ-E1.5, or a standalone `/self-review`).
 
@@ -140,8 +142,9 @@ everything emitted; the record is bound for a committed PR body.
 
 These hold at every step, in both modes:
 
-- **Never** push, create a PR, or touch a remote. Polish converges the
-  branch; publishing it is the owning skill's job.
+- **Never** push, create a PR, or write to any remote. Remote interaction is
+  limited to the single read-only base-pinning fetch at pre-flight. Polish
+  converges the branch; publishing it is the owning skill's job.
 - **Never** mark any PR ready for review, and never merge. The draft→ready
   flip and merge are the human's reserved controls.
 - **Never** force-push, amend, squash, or rebase; new commits only.

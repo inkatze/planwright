@@ -74,7 +74,9 @@ pass summary.
    `git diff origin/main...HEAD` (substitute the repository's actual default
    branch). Fall back to the local base only when no remote is configured
    (REQ-K1.7); a stale local base in a long-lived worktree inflates the diff
-   with already-merged commits. Not a git repository, or no commits to diff:
+   with already-merged commits. In nested mode, skip the fetch and reuse the
+   base the invoking skill recorded at its own pre-flight; the parent owns
+   remote interaction. Not a git repository, or no commits to diff:
    surface a clear message and stop; there is nothing to review.
 3. **Require a clean working tree.** The gate's commit discipline (one commit
    per Needs-sign-off finding, batched action commits) needs unambiguous
