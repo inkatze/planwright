@@ -353,12 +353,30 @@ has "ERROR"
 has "duplicate"
 has "D-1"
 
-# --- 8. Task structure ---
-# Missing definition fields are flagged per field.
+# A non-D-ID H3 section terminates the preceding decision and its own
+# field-shaped lines are not attributed to it (mirror of the spec-anchor
+# suite's non-task-H3 property).
 write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/design.md" <<'EOF'
+
+### Implementation notes
+
+**Decision:** prose that must not join D-1's record.
+EOF
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# --- 8. Task structure ---
+# Missing definition fields are flagged per field, each of the five
+# independently named.
+write_bundle "$root/fixture" Draft
+edit "$root/fixture/tasks.md" '/^- \*\*Deliverables:\*\*/d'
+edit "$root/fixture/tasks.md" '/^- \*\*Dependencies:\*\*/d'
 edit "$root/fixture/tasks.md" '/^- \*\*Citations:\*\*/d'
 edit "$root/fixture/tasks.md" '/^- \*\*Estimated effort:\*\*/d'
 run_v 0 "$root/fixture"
+has "Deliverables"
+has "Dependencies"
 has "Citations"
 has "Estimated effort"
 

@@ -138,10 +138,14 @@ emit_error() {
 }
 
 # first_header <file> <key> — first "**<key>:** value" header line's value.
+# Non-printable characters are stripped: extracted values are echoed in
+# findings, and hostile file content must not reach the terminal raw (same
+# echo discipline as the REQ-H1.3 gate parser).
 first_header() {
   awk -v key="$2" '
     index($0, "**" key ":**") == 1 {
       sub(/^\*\*[^*]*:\*\*[ \t]*/, "")
+      gsub(/[^[:print:]]/, "")
       print
       exit
     }
@@ -190,7 +194,8 @@ parse_requirements() {
   ' "$1"
 }
 
-# Parse design.md D-ID sections. Same tagged format; ids tagged ALLD.
+# Parse design.md D-ID sections. Same tagged tab-separated format as
+# parse_requirements: F findings, plus every D-ID tagged ALLD.
 parse_design() {
   awk '
     function flush() {
@@ -221,7 +226,8 @@ parse_design() {
   ' "$1"
 }
 
-# Parse tasks.md task blocks. Same tagged format; ids tagged ALLT.
+# Parse tasks.md task blocks. Same tagged tab-separated format as
+# parse_requirements: F findings, plus every well-formed task id tagged ALLT.
 parse_tasks() {
   awk '
     function flush() {
@@ -291,12 +297,12 @@ baseline_checks() {
 
   if [ -n "$old_req" ]; then
     old_status=$(printf '%s\n' "$old_req" \
-      | awk 'index($0, "**Status:**") == 1 { sub(/^\*\*Status:\*\*[ \t]*/, ""); print; exit }')
+      | awk 'index($0, "**Status:**") == 1 { sub(/^\*\*Status:\*\*[ \t]*/, ""); gsub(/[^[:print:]]/, ""); print; exit }')
     case $old_status in
       Retired | Superseded)
         if [ "$declared_status" != "$old_status" ]; then
-          printf 'hard\ttransition out of terminal status %s (was %s at %s, now %s)\n' \
-            "$old_status" "$old_status" "$baseline" "${declared_status:-Draft}" >>"$fnd"
+          printf 'hard\ttransition out of terminal status (was %s at %s, now %s)\n' \
+            "$old_status" "$baseline" "${declared_status:-Draft}" >>"$fnd"
         fi
         ;;
     esac
@@ -331,6 +337,10 @@ baseline_checks() {
   fi
 }
 
+# validate_bundle <dir> <name> — run every bundle check, print the
+# severity-mapped findings, and update the global err/warn counters. Sets
+# the globals declared_status / live_req_ids / all_req_ids / all_d_ids /
+# all_t_ids (reset here on every call; baseline_checks reads them).
 validate_bundle() {
   bdir=$1
   bname=$2
