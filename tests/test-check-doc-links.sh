@@ -135,6 +135,64 @@ mkdir -p "$tmp/decoy/scripts"
 (CDPATH="$tmp/decoy" /bin/bash "$CHECKER" >/dev/null 2>&1)
 assert "CDPATH does not corrupt root derivation" 0 $?
 
+# 10. The default scan set covers skills/<name>/*.md: a broken link in a
+#     skill doc must fail the no-arg scan, not rot silently outside it.
+#     Fixture repo layout (the script derives repo root from its own path).
+mkdir -p "$tmp/fixture/scripts" "$tmp/fixture/skills/demo"
+cp "$CHECKER" "$tmp/fixture/scripts/check-doc-links.sh"
+# README.md stays link-free on purpose: tests 10/10b/10c attribute failures
+# to the skills/ files via their unique targets, so a link added here would
+# let them pass or fail for the wrong reason.
+cat >"$tmp/fixture/README.md" <<'EOF'
+# Fixture
+EOF
+cat >"$tmp/fixture/skills/demo/SKILL.md" <<'EOF'
+See [a doctrine doc](../../doctrine/no-such-doc.md).
+EOF
+out="$(/bin/bash "$tmp/fixture/scripts/check-doc-links.sh" 2>&1)"
+assert "broken link in a skill doc fails the default scan" 1 $?
+case "$out" in
+  *no-such-doc.md*) echo "ok: the skill doc's broken target is named" ;;
+  *)
+    echo "FAIL: skill doc's broken target not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 10b. The positive arm: a skill doc whose links resolve passes the
+#      default scan.
+mkdir -p "$tmp/fixture/doctrine"
+cat >"$tmp/fixture/doctrine/no-such-doc.md" <<'EOF'
+# Now it exists
+EOF
+/bin/bash "$tmp/fixture/scripts/check-doc-links.sh" >/dev/null
+assert "resolving skill-doc link passes the default scan" 0 $?
+
+# 10c. A top-level skills/*.md (e.g. a future skills/README.md) is also in
+#      the default scan, matching lint:md's skills/**/*.md coverage at the
+#      depths the layout convention supports.
+cat >"$tmp/fixture/skills/README.md" <<'EOF'
+See [a missing doc](../doctrine/also-missing.md).
+EOF
+out="$(/bin/bash "$tmp/fixture/scripts/check-doc-links.sh" 2>&1)"
+assert "broken link in skills/README.md fails the default scan" 1 $?
+case "$out" in
+  *also-missing.md*) echo "ok: the top-level skill doc's broken target is named" ;;
+  *)
+    echo "FAIL: top-level skill doc's broken target not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+# The exit 1 must be attributable to the new broken link alone: the link
+# 10b resolved stays resolved.
+case "$out" in
+  *no-such-doc.md*)
+    echo "FAIL: 10b's resolved link regressed into the 10c output: $out" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: 10b's resolved link stays resolved in the 10c scan" ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
