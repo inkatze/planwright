@@ -32,23 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 5 — Status-aware validator
-
-- **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
-  structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
-  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8,
-  skipping underscore-prefixed accumulator directories);
-  status-aware across all five statuses (warnings on Draft,
-  errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
-  Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
-  format-version. Unit tests for each check.
-- **Done when:** The validator passes on a valid bundle, warns on a Draft gap, errors on the
-  same gap when Active, rejects a reused ID, rejects Superseded without `Superseded-by:`;
-  it runs in planwright's own CI (Task 2).
-- **Dependencies:** 4
-- **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
-- **Estimated effort:** 1 day
-
 ### Task 6 — Hooks & operational integration
 
 - **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
@@ -112,23 +95,6 @@ intelligence migration) dispatches first.
   resumable partial brief.
 - **Dependencies:** 4, 5
 - **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
-- **Estimated effort:** 1 day
-
-### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
-
-- **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
-  the `GATE(when: …)` convention and a portable-shell gate parser/evaluator (condition gates,
-  date-gates-surface-only, confidence levels; closed declarative grammar parsed by pattern
-  match, never `eval`, per REQ-H1.3 — the doctrine doc is the normative home for the
-  grammar productions: atom forms, the `and`-of-atoms combinator, and the surface-only
-  free-text gate class); the `/drain` skill front-end over the evaluator; the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A satisfied condition gate re-surfaces its item; a date gate only surfaces;
-  nothing is auto-resolved or auto-dropped; `/drain` and the bookkeeping pass call the same
-  evaluator; a hostile or malformed gate entry is surfaced as an error, never evaluated or
-  silently skipped.
-- **Dependencies:** 4
-- **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
 
 ### Task 12 — `/execute-task`
@@ -422,6 +388,48 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
   branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
+
+### Task 5 — Status-aware validator
+
+- **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
+  structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
+  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8,
+  skipping underscore-prefixed accumulator directories);
+  status-aware across all five statuses (warnings on Draft,
+  errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
+  Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
+  format-version. Unit tests for each check.
+- **Done when:** The validator passes on a valid bundle, warns on a Draft gap, errors on the
+  same gap when Active, rejects a reused ID, rejects Superseded without `Superseded-by:`;
+  it runs in planwright's own CI (Task 2).
+- **Dependencies:** 4
+- **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
+  branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
+
+### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
+
+- **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
+  the `GATE(when: …)` convention and a portable-shell gate parser/evaluator (condition gates,
+  date-gates-surface-only, confidence levels; closed declarative grammar parsed by pattern
+  match, never `eval`, per REQ-H1.3 — the doctrine doc is the normative home for the
+  grammar productions: atom forms, the `and`-of-atoms combinator, and the surface-only
+  free-text gate class); the `/drain` skill front-end over the evaluator; the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A satisfied condition gate re-surfaces its item; a date gate only surfaces;
+  nothing is auto-resolved or auto-dropped; `/drain` and the bookkeeping pass call the same
+  evaluator; a hostile or malformed gate entry is surfaced as an error, never evaluated or
+  silently skipped.
+- **Dependencies:** 4
+- **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
+  branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
 
 ## Awaiting input
 
