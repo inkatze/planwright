@@ -16,6 +16,8 @@ resolution path defined below (REQ-I1.1, D-24).
 | [security-posture.md](security-posture.md) | Write-time security triggers, artifact data-hygiene, framework-script security | REQ-D1.6 |
 | [proportionality.md](proportionality.md) | Rigor scales with stake and reversibility; scoping must be declared | REQ-D1.7 |
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
+| [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference (toolchain pinned, defaults owned), the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
+| [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
 | [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
 
 ## Resolution convention
@@ -58,8 +60,11 @@ procedure (how dispositions are applied, committed, recorded, and surfaced).
 [Security Posture](security-posture.md) fire on their triggers at any point in
 that flow. [Refactor Instinct](refactor-instinct.md) and
 [Composability](composability.md) shape the code being written.
-[Proportionality](proportionality.md) governs how strictly all of the above
-scale with what is at stake.
+[Engineering Decisions](engineering-decisions.md) governs the choices made
+while writing it, and the [Decision-Domains Catalog](decision-domains.md)
+supplies the triggers that route load-bearing choices to the human instead
+of a default. [Proportionality](proportionality.md) governs how strictly
+all of the above scale with what is at stake.
 
 ## Adopter extension
 
