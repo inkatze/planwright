@@ -62,9 +62,10 @@ paths:
   is mined.
 - **By the adopter.** Projects with domains this seed list does not cover
   (payments, ML model lifecycle, firmware rollout) add their own entries
-  in the same format through project configuration, per the config model
-  and options reference; the core seed list below is planwright's, and
-  adopters extend it without editing this doc.
+  in the same format through project configuration; the precise channel
+  is pinned when the builder consumes the catalog (Task 16), and until
+  then the entry format above is the contract. The core seed list below
+  is planwright's, and adopters extend it without editing this doc.
 
 ## Seed catalog
 

@@ -35,6 +35,21 @@ leaves open.
    [Refactor Instinct](refactor-instinct.md) apply to findings, pointed
    at decisions.
 
+   Two companion principles keep the deference honest. **Pin the
+   toolchain.** Tool-grounded discovery is only as trustworthy as the
+   toolchain is reproducible: different tool versions fire different
+   rules, so an unpinned tool is a moving target wearing a green
+   checkmark. Pin quality tools through the ecosystem-native mechanism
+   (the manifest's dev dependencies, a toolchain file, a polyglot pinner
+   where the stack has none), so contributors and CI run the same
+   versions. **Own the defaults you adopt.** A tool's defaults encode the
+   tool author's context, not the project's. At adoption, review the
+   handful of conventions-bearing defaults (line lengths, formatting
+   shapes, output filtering), record deviations with their rationale in
+   tracked config, and accept the rest. Only conventions-bearing defaults
+   surface as decisions; everything else is exactly the kind of choice
+   deference exists to absorb.
+
 3. **Research how mature projects solve it.** When no clean best practice
    is apparent from the first two rungs, the question becomes "how do
    mature projects in this ecosystem solve this" — the ecosystem-research

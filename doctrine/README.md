@@ -15,7 +15,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [security-posture.md](security-posture.md) | Write-time security triggers, artifact data-hygiene, framework-script security | REQ-D1.6 |
 | [proportionality.md](proportionality.md) | Rigor scales with stake and reversibility; scoping must be declared | REQ-D1.7 |
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
-| [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference, the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
+| [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference (toolchain pinned, defaults owned), the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
 | [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
 
 ## Resolution convention
