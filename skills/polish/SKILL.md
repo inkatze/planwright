@@ -55,7 +55,9 @@ Record the resolved mode in every iteration summary.
 2. **Require a clean working tree.** `git status --porcelain` must be empty;
    the loop's commit boundaries (per the `gate-wiring` commit discipline) are
    the audit trail, and uncommitted changes make them ambiguous. Dirty tree:
-   stop and ask the human to commit or stash first; never stash or discard
+   stop and ask the human to commit or stash first (dispatched or
+   unattended: record the unit to `tasks.md` Awaiting input and end the
+   step, the pause protocol's dispatched arm); never stash or discard
    yourself.
 3. **Identify the base and the active kickoff brief** exactly as
    `/self-review` pre-flight does (remote-tracking base first; brief from the

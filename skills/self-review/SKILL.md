@@ -85,7 +85,9 @@ pass summary.
 3. **Require a clean working tree.** The gate's commit discipline (one commit
    per Needs-sign-off finding, batched action commits) needs unambiguous
    boundaries. If `git status --porcelain` is non-empty, surface the dirty
-   state and ask before proceeding; never stash or discard.
+   state and ask before proceeding (dispatched or unattended: record the
+   unit to `tasks.md` Awaiting input and end the step, the pause protocol's
+   dispatched arm); never stash or discard.
 4. **Run the project's tooling once.** Whatever the project ships: linters,
    formatters, type-checkers, static analyzers, security scanners. Discover
    them via the project's task runner and config files, CI workflow
