@@ -325,8 +325,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
   branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
 
-## In progress
-
 ### Task 2 — Self-hosting: quality guards & CI
 
 - **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
@@ -341,10 +339,11 @@ intelligence migration) dispatches first.
 - **Dependencies:** 1
 - **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
 - **Estimated effort:** 1 day
-- **Status:** PR #7 draft
-- **Last activity:** 2026-06-11
+- **Status:** Completed · PR #7 merged 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
   branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
+
+## In progress
 
 ### Task 4 — Four-file format meta-spec
 
