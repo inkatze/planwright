@@ -1147,37 +1147,34 @@ Anchor: `571a2d366b468074504a7e6aa617f737d261cb82` — computed as
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
 
-## Expression-only re-anchor (2026-06-12, merge reconciliation on branch task-4)
+## Expression-only re-anchor (2026-06-12, orchestrate state move: Task 7 Completed)
 
-Machine-written entry per REQ-F1.10's expression-only lane, on branch
-`planwright/bootstrap/task-4` (PR #4) after merging main twice (post-T1/T3 and
-post-T2). Main's spec-file divergence in both merges was orchestration state
-only (Task 1/2/3 dispatch and completion moves; Task 2's Completed block kept
-its definition fields per the meta-spec's never-collapse rule), so the
-canonical anchor recorded in the "Task 4 citation backfill + PR state" entry
-above is unchanged and re-verified on the merged state. This entry restores
-the most-recent-entry position to a value that matches this branch (the
-interim-form Task 2 reconcile entry above matches main's whole files, not
-this branch's backfilled requirements.md): the parallel-anchor merge
-ambiguity in action, repaired here by the canonical form.
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 7 moved In progress → Completed after PR #5 merged (human-reserved
+action). Merge was conflict-free (the pre-merge branch sync had already aligned
+the state files). Full task block preserved in Completed. Task 11
+(`/self-review` + `/polish`, deps 3+7) becomes ready and dispatches this step.
+Pre-move anchor `571a2d366b468074504a7e6aa617f737d261cb82` verified matching
+immediately before the move inside the D-10 lock window.
 
 Class: expression-only
-Anchor: `c7196b8d123b96dc05c94bcbd7de90e7d652b0b3` — computed as
-`scripts/spec-anchor.sh specs/bootstrap`
-(canonical form: manifest anchor with tasks.md reduced to definition content).
+Anchor: `6b39850c50969754aef6f8fb93808413eba1f2a3` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
 
-## Expression-only re-anchor (2026-06-12, Copilot pairing iter 2)
+## Expression-only re-anchor (2026-06-12, orchestrate state move: Task 11 dispatch)
 
-Machine-written entry per REQ-F1.10's expression-only lane, on branch
-`planwright/bootstrap/task-4` (PR #4). Edits: requirements.md (amendment
-citation tokens fully qualified at four sites — A1.8, H1.3, K1.2, K1.7 — so
-every token is a recognized kind per the meta-spec's citation table; surfaced
-by GitHub Copilot's second PR #4 review, one root issue across four threads,
-validated 3/3; plus the changelog entry). Changelog: requirements.md, entry
-"2026-06-12 (expression-only, Copilot pairing iter 2)". No requirement's
-normative text changed.
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 11 moved Forward plan → In progress with dispatch metadata (backend=tmux,
+window `pw-bootstrap-task-11`, branch `planwright/bootstrap/task-11`). Ready via
+Task 7's completion (PR #5 merged); the only newly ready unit (T5/T8/T10 still
+gate on Task 4's merge). Active workers after this dispatch: 1 of 3. Pre-move
+anchor `6b39850c50969754aef6f8fb93808413eba1f2a3` verified matching immediately
+before the move inside the D-10 lock window.
 
 Class: expression-only
-Anchor: `118631b31ce2890a619784dd61c2e91f3a65f43f` — computed as
-`scripts/spec-anchor.sh specs/bootstrap`
-(canonical form: manifest anchor with tasks.md reduced to definition content).
+Anchor: `8256f688ea295ced61aa9d2a19abf4fcdf24ab5d` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
