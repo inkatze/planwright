@@ -343,6 +343,24 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
   branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
 
+### Task 7 — Finding categorization & act-then-review gate wiring
+
+- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
+  with act-then-review dispositions: on-branch application of Needs-sign-off items,
+  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
+  audit log, the resolution ladder (brief → research → convention) before the judgment
+  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
+- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
+  a declined finding carries its rationale in the audit table; a fork resolvable from the
+  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
+  including empties.
+- **Dependencies:** 3
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #5 merged 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
+  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
+
 ## In progress
 
 ### Task 4 — Four-file format meta-spec
@@ -380,25 +398,6 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-11
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
-
-### Task 7 — Finding categorization & act-then-review gate wiring
-
-- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
-  with act-then-review dispositions: on-branch application of Needs-sign-off items,
-  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
-  audit log, the resolution ladder (brief → research → convention) before the judgment
-  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
-- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
-  a declined finding carries its rationale in the audit table; a fork resolvable from the
-  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
-  including empties.
-- **Dependencies:** 3
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
-- **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #5 (draft)
-- **Last activity:** 2026-06-11
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
-  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
 
 ### Task 15 — Engineering decision-process doctrine doc
 
