@@ -495,8 +495,13 @@ else
     oldifs=$IFS
     IFS='
 '
+    # set -f: the unquoted expansion must split on newlines ONLY — without
+    # it, a glob-metacharacter directory name (e.g. "[g]") would be
+    # pathname-expanded into its siblings and evade the REQ-A1.8 screen.
+    set -f
     # shellcheck disable=SC2086 # newline-only splitting of the dir list is intended
     set -- $dirs
+    set +f
     IFS=$oldifs
     for d in "$@"; do
       screen_and_validate "$d"

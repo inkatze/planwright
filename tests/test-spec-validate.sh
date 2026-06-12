@@ -556,6 +556,17 @@ has "ERROR"
 has "accumulator"
 rm -rf "$root2/_foo;rm"
 
+# A glob-metacharacter directory name must be screened literally, not
+# pathname-expanded into its siblings (an unguarded expansion would make
+# "[g]" disappear into the existing "g" and evade REQ-A1.8 screening).
+mkdir -p "$root2/g"
+write_bundle "$root2/g" Draft
+mkdir -p "$root2/[g]"
+run_v 1 "$root2"
+has "ERROR"
+has "identifier"
+rm -rf "$root2/[g]" "$root2/g"
+
 # --check-id validates a proposed identifier string, full-string, before
 # any path is formed.
 run_v 0 --check-id good-name
