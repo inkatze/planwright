@@ -13,8 +13,8 @@ REQ-C1.7 · D-4, D-5, D-6.
 
 The operational wiring (routing order, commit discipline, the checklist and
 audit-record formats, the ladder procedure, the pause protocol) is specified
-in [Gate Wiring](gate-wiring.md); this document defines the buckets and
-principles that wiring implements.
+in [Gate Wiring](gate-wiring.md), which implements the buckets and
+principles defined here.
 
 ## The principle: honest decision shape
 

@@ -38,10 +38,11 @@ which bucket the finding would otherwise land in.
 3. **Disposition by bucket:**
    - *Auto-applicable* → apply now, audit row with the rule citation.
    - *Agent-resolvable* → resolve with the evidence row (failing-then-passing
-     test, CI result, brief-alignment citation).
+     test, CI result, and a brief-alignment citation naming the brief
+     section or REQ/D-ID the fix aligns with).
    - *Needs sign-off* → apply on the branch in its own commit, add a
      pending-sign-off checklist entry (see below).
-   - *Needs human judgment candidate* → climb the resolution ladder (see
+   - *Needs-human-judgment candidate* → climb the resolution ladder (see
      below). A rung that answers re-routes the finding to the disposition the
      answer implies, with the rung's citation recorded. Only an irreducible
      fork stays in the bucket: it queues for loop end, or hard-pauses if it
@@ -51,9 +52,11 @@ which bucket the finding would otherwise land in.
    in the declined log. Declining is a disposition, not an exemption from
    recording.
 
-Every routed finding ends in exactly one of six terminal dispositions:
+Every routed finding ends in exactly one of five terminal dispositions:
 applied, resolved with evidence, applied pending sign-off, declined with
-rationale, queued for loop end, or paused. There is no silent drop.
+rationale, or queued for loop end. A finding at a hard pause is not a sixth
+ending: it stands suspended until the human directs it into one of the
+five. There is no silent drop.
 
 ## Commit discipline
 
@@ -79,9 +82,11 @@ part of the contract (and history is never rewritten; new commits only).
 The canonical format for the draft PR description (REQ-C1.3). Generated, not
 hand-edited; a loop exit regenerates the whole section in place, so re-runs
 never duplicate entries. The branch is the source of truth for
-regeneration: the section is rebuilt from the branch's
-`[pending-sign-off]`-marked commits (minus any the human has reverted),
-never from a side state file.
+regeneration, scoped to the PR's commit range: the section is rebuilt from
+the `[pending-sign-off]`-marked commits ahead of the base branch, minus any
+commit a revert inside the same range has undone, never from a side state
+file. Marked commits that arrive through a merge from the base branch were
+approved when their own PR merged; they never re-enter the checklist.
 
 ```markdown
 ## Pending sign-off
@@ -133,7 +138,10 @@ Declined findings remain visible at PR review and are re-raisable there
 Both the tables and the declined log emit twice: in the loop's handoff
 summary, and in the draft PR body as the audit record review works from
 (assembling the PR body is the parent skill's job per REQ-E1.5; this
-document defines the formats it assembles).
+document defines the formats it assembles). Table content is a committed
+artifact: finding text and captured output must respect artifact
+data-hygiene ([Security Posture](security-posture.md)) before they land in
+a PR body.
 
 ## Resolution ladder procedure
 
@@ -171,7 +179,8 @@ What a pause does depends on who is watching:
   alternatives. Wait for direction; apply nothing in the zone until the
   human directs it.
 - **Dispatched or unattended worker.** No human is at the prompt: record the
-  unit to `tasks.md` Awaiting input (the REQ-F1.5 lane) with the finding,
+  unit to `tasks.md` Awaiting input (the halt destination REQ-F1.5
+  defines) with the finding,
   the trigger, and the recommended fix or alternatives, then end the step.
   Work already applied in this loop stays on the branch as committed: a
   pause never resets, stashes, or rewrites prior dispositions (each remains
