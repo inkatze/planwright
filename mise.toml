@@ -48,13 +48,13 @@ description = "doctrine cross-reference link-check"
 run = "/bin/bash scripts/check-doc-links.sh"
 
 [tasks."check:specs"]
-description = "planwright spec validator over specs/ (activates when Task 5 ships the validator)"
+description = "planwright spec validator over specs/ (enforced; REQ-A2.1)"
 run = '''
-if [ -x scripts/spec-validate.sh ]; then
-  /bin/bash scripts/spec-validate.sh specs/
-else
-  echo "check:specs: spec validator not yet shipped (Task 5); skipping"
+if [ ! -x scripts/spec-validate.sh ]; then
+  echo "check:specs: scripts/spec-validate.sh missing or not executable" >&2
+  exit 1
 fi
+/bin/bash scripts/spec-validate.sh specs/
 '''
 
 [tasks."lint:json"]
