@@ -79,7 +79,11 @@ pass summary.
    formatters, type-checkers, static analyzers, security scanners. Discover
    them via the project's task runner and config files, CI workflow
    definitions, and the tool-discovery summary when a SessionStart hook has
-   injected one. Capture the output; it is shared input for every lens.
+   injected one. Capture the output; it is shared input for every lens. A
+   tool whose runner itself errors out (as opposed to reporting rule
+   violations) is surfaced in the pass summary and noted as degraded
+   grounding for the lenses that rely on it; never treat a crashed tool as a
+   clean pass.
 5. **Detect the active kickoff brief.** Walk in order, stopping at the first
    unambiguous match: the branch convention `planwright/<spec>/task-<ids>`
    names the spec, so the brief is `specs/<spec>/kickoff-brief.md` (validate
