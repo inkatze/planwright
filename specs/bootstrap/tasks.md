@@ -407,7 +407,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4
 - **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #10 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
