@@ -169,29 +169,16 @@ report() {
       continue
     fi
 
-    # Task-id universe for task atoms: ids defined anywhere in the file,
-    # and the subset whose block sits in the Completed section.
-    ids=$(awk '
-      /^## / { sec = $0 }
-      /^### Task / {
-        id = $3
-        all = all id " "
-        if (sec ~ /^## Completed/) comp = comp id " "
-      }
-      END {
-        print "ALL " all
-        print "COMP " comp
-      }' "$tasks")
-    allids=$(printf '%s\n' "$ids" | awk '/^ALL / { sub(/^ALL /, ""); print }')
-    compids=$(printf '%s\n' "$ids" | awk '/^COMP / { sub(/^COMP /, ""); print }')
-
-    lines=$(awk -v fname="$tasks" -v today="$today" \
-      -v allids="$allids" -v compids="$compids" -v statuses="$statuses" '
+    # Single read: the awk program buffers the file once, collecting the
+    # task-id universe (ids defined anywhere; the Completed subset) while
+    # reading, then evaluates gates over the buffered lines in END. Two
+    # separate reads could see different versions of a file being
+    # rewritten concurrently and fabricate MALFORMED rows for valid gates;
+    # one open confines any race to a torn single read, which the digest
+    # check around this invocation detects.
+    pre_digest=$(cksum <"$tasks")
+    lines=$(awk -v fname="$tasks" -v today="$today" -v statuses="$statuses" '
       BEGIN {
-        n = split(allids, a, " ")
-        for (i = 1; i <= n; i++) if (a[i] != "") ALL[a[i]] = 1
-        n = split(compids, a, " ")
-        for (i = 1; i <= n; i++) if (a[i] != "") COMP[a[i]] = 1
         n = split(statuses, a, " ")
         for (i = 1; i <= n; i++) {
           eq = index(a[i], "=")
@@ -205,6 +192,18 @@ report() {
         buf = ""; inb = 0
       }
 
+      { L[NR] = $0 }
+      /^## / { sec = $0 }
+      /^### Task / {
+        ALL[$3] = 1
+        if (sec ~ /^## Completed/) COMP[$3] = 1
+      }
+      END {
+        for (i = 1; i <= NR; i++) scan(L[i], i)
+        flush_bullet()
+        emit()
+      }
+
       function trim(s) {
         sub(/^[ \t]+/, "", s)
         sub(/[ \t]+$/, "", s)
@@ -215,15 +214,23 @@ report() {
       # process it as a unit; gate text may wrap lines. Blank lines never
       # end a bullet (loose markdown list items stay whole); a gate line
       # outside any bullet is malformed, never dropped.
-      /^- / { flush_bullet(); buf = $0; bline = NR; inb = 1; next }
-      /^[ \t]*$/ { next }
-      /^[ \t]/ {
-        if (inb) { buf = buf " " $0; next }
-        orphan($0, NR)
-        next
+      function scan(line, nr) {
+        if (line ~ /^- /) {
+          flush_bullet()
+          buf = line
+          bline = nr
+          inb = 1
+          return
+        }
+        if (line ~ /^[ \t]*$/) return
+        if (line ~ /^[ \t]/) {
+          if (inb) { buf = buf " " line; return }
+          orphan(line, nr)
+          return
+        }
+        flush_bullet()
+        orphan(line, nr)
       }
-      { flush_bullet(); orphan($0, NR) }
-      END { flush_bullet(); emit() }
 
       function orphan(line, nr,  g, k) {
         if (index(line, "**Gate:**") == 0) return
@@ -392,6 +399,12 @@ report() {
       }
     ' "$tasks")
 
+    post_digest=$(cksum <"$tasks")
+    if [ "$pre_digest" != "$post_digest" ]; then
+      printf 'error: tasks.md changed during the sweep - rows below may be torn; re-run\n'
+      n_err=$((n_err + 1))
+    fi
+
     if [ -n "$lines" ]; then
       printf '%s\n' "$lines"
       total=$((total + $(printf '%s\n' "$lines" | grep -c .)))
@@ -445,8 +458,14 @@ report() {
     "$total" "$n_sat" "$n_sur" "$n_pen" "$n_dor" "$n_free" "$n_mal" "$n_err"
 }
 
+# Capture the report before stripping: a failure inside report() then
+# fails this assignment and aborts with the real status under set -e,
+# instead of a pipeline emitting a truncated report with tr's exit 0. A
+# complete report always ends with the "== summary ==" section.
+out=$(report)
+
 # Strip control characters from the echoed report (REQ-H1.3): C0 minus
 # newline, DEL, and the C1 range 0x80-0x9F (8-bit CSI and friends; a
 # multibyte character using C1 continuation bytes degrades rather than
 # reaching the terminal as a control sequence).
-report | tr -d '\000-\011\013-\037\177\200-\237'
+printf '%s\n' "$out" | tr -d '\000-\011\013-\037\177\200-\237'
