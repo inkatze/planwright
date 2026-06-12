@@ -1111,3 +1111,38 @@ Anchor: `537f766561128b077646bb573fb73fc98f0404c9` — computed as
 `git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
 (manifest form over whole files; the sanctioned interim form until Task 4's
 canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-11, orchestrate state move: Task 2 PR reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2's In-progress annotation updated `implementing` → `draft-pr-ready ·
+PR #7 (draft)` after the worker opened the draft PR. Same
+orchestration-state-placement rationale as the entries above. Pre-move anchor
+`537f766561128b077646bb573fb73fc98f0404c9` verified matching immediately before
+the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `ceb40c8361ac255ecf32846ec7dc8478c657926b` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
+
+## Expression-only re-anchor (2026-06-12, orchestrate state move: Task 2 Completed)
+
+Machine-written entry per REQ-F1.10's expression-only lane. Edits: tasks.md only
+— Task 2 moved In progress → Completed after PR #7 merged (human-reserved
+action). The merge again produced state-file conflicts (PR branch carried
+dispatch-time snapshots); resolved by keeping the primary checkout's state,
+with the observations log union-merged (both sides' appended entries kept).
+Full task block preserved in Completed. With T2 in, the self-hosting CI
+pipeline now runs on every PR; the remaining open PR branches (#4, #5, #6)
+get main merged in so the guards validate them pre-merge (remediation for the
+guard-infrastructure-first selection gap recorded in the observations log).
+Pre-move anchor `ceb40c8361ac255ecf32846ec7dc8478c657926b` verified matching
+immediately before the move inside the D-10 lock window.
+
+Class: expression-only
+Anchor: `571a2d366b468074504a7e6aa617f737d261cb82` — computed as
+`git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin`
+(manifest form over whole files; the sanctioned interim form until Task 4's
+canonical tasks.md extraction ships).
