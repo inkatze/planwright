@@ -213,7 +213,7 @@ and are excluded from the content anchor:
   unit is dispatched (REQ-F1.1), in the form
   `backend=<subagents|tmux|print|in-session> · <handle> · dispatched
   <ISO-8601 UTC> · branch <branch> · worktree <path>`, where `<handle>` is
-  the backend's worker handle (`window=`name`` for tmux, an agent id for
+  the backend's worker handle (`window=<name>` for tmux, an agent id for
   subagents; omitted for print, which has no process until the human launches
   one).
 

@@ -62,7 +62,7 @@ extract_tasks() {
       if (key in buf) {
         # Two blocks with the same id would silently overwrite each other;
         # fail closed rather than hash an incomplete stream (REQ-F1.9).
-        print "spec-anchor: duplicate task id " $3 | "cat >&2"
+        print "spec-anchor: duplicate task id " $3 > "/dev/stderr"
         dup = 1
         exit 1
       }
