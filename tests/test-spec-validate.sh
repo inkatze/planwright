@@ -16,7 +16,7 @@
 #   6.  REQ convention: prose-only bullets flagged; citation per live REQ
 #       (superseded records exempt); duplicate REQ-IDs rejected.
 #   7.  D-ID structure: Decision / Alternatives considered / Chosen because
-#       all required; duplicate D-IDs rejected.
+#       all required; duplicate D-IDs rejected; malformed D- headings flagged.
 #   8.  Task structure: five definition fields per block; malformed task ids
 #       flagged; duplicate task ids rejected.
 #   9.  REQ↔test-spec coverage with exact-id matching (REQ-X1.1 is not
@@ -388,6 +388,17 @@ EOF
 run_v 0 "$root/fixture"
 has "malformed decision heading"
 
+# Same for a non-numeric D id: the colon alone does not make it well-formed.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/design.md" <<'EOF'
+
+### D-abc: Non-numeric id
+
+**Decision:** also surfaced.
+EOF
+run_v 0 "$root/fixture"
+has "malformed decision heading"
+
 # --- 8. Task structure ---
 # Missing definition fields are flagged per field, each of the five
 # independently named.
@@ -567,6 +578,14 @@ has "ERROR"
 has "identifier"
 rm -rf "$root2/[g]" "$root2/g"
 
+# The same literal screening covers accumulator names: "_[g]" must fail the
+# accumulator charset, not glob-expand into a sibling "_g".
+mkdir -p "$root2/_g" "$root2/_[g]"
+run_v 1 "$root2"
+has "ERROR _[g]: accumulator"
+has "1 error(s)"
+rm -rf "$root2/_[g]" "$root2/_g"
+
 # --check-id validates a proposed identifier string, full-string, before
 # any path is formed.
 run_v 0 --check-id good-name
@@ -578,6 +597,15 @@ run_v 1 --check-id "-leading-hyphen"
 run_v 0 --check-id "$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 \
   17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 \
   42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64)"
+
+# --- explicit-baseline fatal paths (REQ-K1.7: explicit prerequisites fail
+# closed with exit 2, unlike the default baseline's quiet skip) ---
+write_bundle "$tmp/nogit/specs/myspec" Draft
+run_v 2 --baseline HEAD "$tmp/nogit/specs"
+has "not in a git work tree"
+
+run_v 2 --baseline no-such-ref "$repo/specs"
+has "baseline ref does not resolve"
 
 # --- usage errors ---
 run_v 2
