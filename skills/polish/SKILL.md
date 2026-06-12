@@ -2,9 +2,9 @@
 name: polish
 description: >
   Autonomous act-then-review convergence loop: iterate /self-review passes,
-  draining every action disposition (Auto-applicable, Agent-resolvable,
-  Needs sign-off on-branch) until only irreducible judgment forks remain,
-  then hand off the full audit record. Local-only: never pushes, never
+  draining every action disposition (Auto-applicable and Agent-resolvable
+  applied, Needs-sign-off applied on the branch) until only irreducible
+  Needs-human-judgment forks remain, then hand off the full audit record. Local-only: never pushes, never
   creates a PR. Pass --nested when invoked from a parent skill (such as
   /execute-task) that owns the handoff.
 argument-hint: "[--nested]"
@@ -60,11 +60,10 @@ Record the resolved mode in every iteration summary.
    segment validated against the REQ-A1.8 identifier discipline before any
    path is formed; else the single Active spec). Record both; with no active
    brief the Agent-resolvable bucket is unavailable for the whole run.
-4. **Initialize the loop ledger**: iteration counter at zero, plus a
-   dispositions ledger carrying every finding the loop has already
-   dispositioned (applied, resolved, applied pending sign-off, declined,
-   queued). The ledger is what makes convergence and loop detection
-   decidable.
+4. **Initialize the loop ledger**: an iteration counter at zero, plus the
+   record of every finding the loop has already dispositioned (applied,
+   resolved, applied pending sign-off, declined, queued). The loop ledger is
+   what makes convergence and loop detection decidable.
 
 ## Iteration loop
 
@@ -96,8 +95,8 @@ iteration's commits stand as the per-iteration audit trail.
 ## Safety conditions (mandatory handoff)
 
 Exactly two things interrupt mid-iteration, per the doctrine's pause
-protocol: a hard-disqualifier zone finding, or an irreducible judgment fork
-that blocks further progress. Both follow the `gate-wiring` pause protocol
+protocol: a hard-disqualifier zone finding, or an irreducible
+Needs-human-judgment fork that blocks further progress. Both follow the `gate-wiring` pause protocol
 (attended: stop and present; dispatched or unattended: record the unit to
 `tasks.md` Awaiting input with the finding and recommended fix, end the
 step). Everything else below stops the loop **between** iterations:
