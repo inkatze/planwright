@@ -26,7 +26,8 @@ Resolve and read the same rule docs as `/self-review` at run start via the
 rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or
 the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain):
 `discovery-rigor`, `validation-rigor`, `finding-categorization`,
-`gate-wiring`, `refactor-instinct`, `security-posture`, `proportionality`.
+`gate-wiring`, `research-rigor`, `refactor-instinct`, `security-posture`,
+`proportionality`.
 Their definitions govern wherever this skill names a concept. If a rule doc
 does not resolve, halt with a clear message naming the missing doc and the
 chain consulted.

@@ -35,6 +35,8 @@ definitions govern wherever this skill names a concept:
   zones, declined-with-rationale, the resolution ladder
 - `gate-wiring` — routing order, commit discipline, checklist and audit
   formats, ladder procedure, pause protocol, loop-end handoff
+- `research-rigor` — the resolution ladder's research rung: source
+  hierarchy, recency discipline, antipattern check
 - `refactor-instinct` (review mode), `security-posture` (artifact
   data-hygiene), `proportionality` (declared scoping)
 
