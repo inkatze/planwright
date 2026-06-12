@@ -169,8 +169,11 @@ this skill executes:
 
 If any applied fix breaks the wider project suite and the breakage cannot be
 resolved within the finding's own scope, revert that finding's change (new
-commit, never history rewrite), record the outcome in its row, and surface
-the failure in the pass summary.
+commit, never history rewrite) and surface the failure in the pass summary.
+The reverted finding's terminal disposition is declined-with-rationale
+("fix attempted, broke the wider suite, reverted"), recorded in the
+declined log: it stays visible and re-raisable without re-entering the
+routing order or masquerading as a held fix.
 
 ## The audit record
 
