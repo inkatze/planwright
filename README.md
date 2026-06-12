@@ -97,8 +97,8 @@ The repo pins its quality toolchain with [mise](https://mise.jdx.dev)
 (`mise.toml`): `mise install` once, then `mise run check` runs everything
 (shell tests, shellcheck, shfmt, markdownlint, yamllint, manifest validation,
 the doctrine link-check, conventional-commit lint, the options-reference drift
-check, the spec validator once Task 5 ships it (until then `check:specs`
-prints a skip notice), and a gitleaks history scan). This is dev-tooling
+check, the spec validator (`scripts/spec-validate.sh` over `specs/`,
+REQ-A2.1), and a gitleaks history scan). This is dev-tooling
 only: planwright's runtime scripts stay plain portable bash with no mise
 dependency (REQ-K1.5). GitHub Actions (`.github/workflows/ci.yml`) runs the
 same `mise run check` gate on every pull request.
