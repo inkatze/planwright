@@ -84,6 +84,7 @@ reference fails planwright's own CI.
 config/defaults.yml          tracked default config
 doctrine/                    externalized rule docs (the framework doctrine)
 docs/options-reference.md    canonical config options reference
+skills/                      planwright skills (one directory per skill)
 scripts/                     portable-shell entry points (writer, resolver, checks)
 tests/                       shell tests for the scripts
 specs/                       planwright's own specs (bootstrap = the founding spec)

@@ -48,25 +48,6 @@ intelligence migration) dispatches first.
 - **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
 - **Estimated effort:** 1 day
 
-### Task 8 — `/spec-draft`
-
-- **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
-  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
-  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
-  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
-  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
-  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
-  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A run produces and commits a Draft bundle on the spec branch without
-  pushing/flipping Active; launching from main, from the spec worktree, and from an
-  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
-  recommendation on a differently-named overlap; consumed opportunities are archived;
-  the maintenance footer writes drift observations.
-- **Dependencies:** 3, 4
-- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
-- **Estimated effort:** 1.5 days
-
 ### Task 9 — `/spec-kickoff`
 
 - **Deliverables:** The `/spec-kickoff` skill: section-by-section walkthrough to mutual
@@ -368,8 +349,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
 
-## In progress
-
 ### Task 11 — `/self-review` + `/polish`
 
 - **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
@@ -384,10 +363,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 3, 7
 - **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
 - **Estimated effort:** 1.5 days
-- **Status:** implementing
+- **Status:** Completed · PR #8 merged 2026-06-12
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
   branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
+
+## In progress
 
 ### Task 5 — Status-aware validator
 
@@ -426,10 +407,33 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4
 - **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #10 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
+
+### Task 8 — `/spec-draft`
+
+- **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
+  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
+  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
+  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
+  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
+  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
+  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A run produces and commits a Draft bundle on the spec branch without
+  pushing/flipping Active; launching from main, from the spec worktree, and from an
+  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
+  recommendation on a differently-named overlap; consumed opportunities are archived;
+  the maintenance footer writes drift observations.
+- **Dependencies:** 3, 4
+- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
+- **Estimated effort:** 1.5 days
+- **Status:** draft-pr-ready · PR #11 (draft)
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
+  branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
 
 ## Awaiting input
 

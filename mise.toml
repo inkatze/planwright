@@ -25,7 +25,7 @@ run = "shfmt -d scripts/*.sh tests/*.sh"
 
 [tasks."lint:md"]
 description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation)"
-run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'specs/**/*.md'"
+run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md'"
 
 [tasks."lint:yaml"]
 description = "yamllint on tracked config and workflows"
