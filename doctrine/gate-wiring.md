@@ -63,7 +63,8 @@ part of the contract (and history is never rewritten; new commits only).
 - **Needs-sign-off items commit one per finding**, never batched. The
   checklist entry names the commit, so "approve by leaving it, reject with
   one revert" is literally true per item: `git revert <sha>` undoes exactly
-  one finding.
+  one finding. The commit subject ends with the `[pending-sign-off]`
+  marker, so the branch itself identifies these commits.
 - **Auto-applicable and Agent-resolvable items may batch** into one commit
   per loop iteration. Their audit rows record the commit they landed in.
   Declared scoping (per [Proportionality](proportionality.md)): these items
@@ -76,8 +77,11 @@ part of the contract (and history is never rewritten; new commits only).
 ## Pending-sign-off checklist
 
 The canonical format for the draft PR description (REQ-C1.3). Generated, not
-hand-edited; a loop exit regenerates the whole section in place from the
-branch's accumulated pending items, so re-runs never duplicate entries.
+hand-edited; a loop exit regenerates the whole section in place, so re-runs
+never duplicate entries. The branch is the source of truth for
+regeneration: the section is rebuilt from the branch's
+`[pending-sign-off]`-marked commits (minus any the human has reverted),
+never from a side state file.
 
 ```markdown
 ## Pending sign-off
@@ -113,15 +117,15 @@ The **Needs human judgment table is the ladder audit**: every finding that
 entered the ladder gets a row, including those a rung resolved. A resolved
 row's Outcome names the rung and the disposition it re-routed to (for
 example: "resolved at rung 1, brief Section 2; re-routed to
-Auto-applicable #3"); its Options column is empty. Only irreducible rows carry bespoke
+Needs sign-off #2"); its Options column is empty. Only irreducible rows carry bespoke
 options and queue. This is what makes "a fork answerable from the brief never
 reaches the human" verifiable after the fact rather than asserted.
 
 The **declined log** accompanies the tables wherever they emit:
 
-| Declined log | Columns |
+| Table | Columns |
 | --- | --- |
-| | # · Finding · Validation summary · Rationale · Where re-raisable |
+| Declined log | # · Finding · Validation summary · Rationale · Where re-raisable |
 
 Declined findings remain visible at PR review and are re-raisable there
 (REQ-C1.6); the log in the PR body is what makes the re-raise possible.
@@ -169,14 +173,19 @@ What a pause does depends on who is watching:
 - **Dispatched or unattended worker.** No human is at the prompt: record the
   unit to `tasks.md` Awaiting input (the REQ-F1.5 lane) with the finding,
   the trigger, and the recommended fix or alternatives, then end the step.
+  Work already applied in this loop stays on the branch as committed: a
+  pause never resets, stashes, or rewrites prior dispositions (each remains
+  one revert from undone at review).
   The pause content must respect artifact data-hygiene
   ([Security Posture](security-posture.md)): describe the zone finding
   without reproducing secrets or sensitive operational detail.
 
-After the human directs, the finding re-enters routing with the direction as
-its disposition authority, recorded in the corresponding table row. A
-directed application in a zone still follows the commit discipline above
-(its own commit when the human routed it as Needs sign-off).
+The human's direction is the finding's disposition: the finding does not
+re-enter the routing order and the zone screen does not fire again. The
+agent carries the direction out with the directed disposition's own
+mechanics and records it in the corresponding table row. A directed
+application in a zone still follows the commit discipline above (its own
+commit when the direction is to apply it pending sign-off).
 
 ## Loop-end handoff
 
