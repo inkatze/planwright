@@ -383,6 +383,17 @@ v0.39 rule docs via direct behavioral verification.
 | 14 | markdownlint MD013 exempts lines with no whitespace past the limit (the long-URL exception): a guard that "passes" can still admit some over-length content, and a naive seeded violation stays green. Surfaced when Task 2's seeded-red validation used an unbroken character run. | Seeded-red fixtures must use prose with spaces past the limit; recorded here so T18's manual sweep and future guard audits seed correctly. |
 | 15 | The `check:specs` CI step is wired skip-with-notice until Task 5 ships `scripts/spec-validate.sh`; CI prints the skip on every run. If Task 5 lands the validator non-executable or under another path, CI keeps skipping silently-by-notice rather than failing. | Task 5's Done-when already requires the validator running in planwright CI; its executor must flip this step from skip to enforced and confirm the executable bit (observation logged). |
 
+### Risk register additions — Task 11 execution (2026-06-12)
+
+Research Rigor findings recorded per REQ-E1.3/REQ-D1.5 (execution-skill write,
+named-section only; no anchor entry). Trigger: version-sensitive API use (the
+Claude Code skill file format). Sources: official docs at code.claude.com/docs
+(skills, plugins-reference), consulted 2026-06-12.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 16 | Skill format facts verified current as of 2026-06-12: plugin skills live at `skills/<name>/SKILL.md` with the **directory name** authoritative for the command name (the frontmatter `name` field is display-only there); all frontmatter fields are optional, `description` drives model auto-invocation (truncated at 1,536 chars with `when_to_use`); `commands/*.md` still works but is legacy, with the directory layout recommended. `~/.claude/skills/<name>/SKILL.md` (writer fallback) uses the identical format. The skill surface is evolving (commands merged into skills in v2.1.x), so these facts can drift before T19. | T11's skills keep frontmatter minimal (`name`, `description`, `argument-hint`) to limit drift exposure; T19's packaging pass re-verifies the skill schema against current docs. Skills reference doctrine only via the resolution path, never relative links, because the two delivery modes place skills and doctrine in different relative positions (observation logged). |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
