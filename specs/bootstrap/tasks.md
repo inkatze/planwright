@@ -346,8 +346,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
   branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
 
-## In progress
-
 ### Task 4 — Four-file format meta-spec
 
 - **Deliverables:** The canonical four-file format meta-spec: required fields per file,
@@ -379,10 +377,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** none
 - **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2
 - **Estimated effort:** 1.5 days
-- **Status:** draft-pr-ready · PR #4 (draft)
-- **Last activity:** 2026-06-11
+- **Status:** Completed · PR #4 merged 2026-06-12
+- **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
+
+## In progress
 
 ### Task 15 — Engineering decision-process doctrine doc
 
