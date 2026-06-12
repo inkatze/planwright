@@ -92,7 +92,8 @@ Each iteration:
    nothing newly queued (everything found was already in the ledger, or
    nothing was found), the loop is drained: exit to the handoff. Otherwise
    print the iteration summary (iteration number, mode, brief path, new
-   dispositions by bucket, commits created, tooling result) and loop.
+   dispositions by bucket, commits created, tooling result), increment the
+   iteration counter, and loop.
 
 Commits happen inside the pass per the `gate-wiring` commit discipline:
 Needs-sign-off items one commit per finding with the `[pending-sign-off]`
