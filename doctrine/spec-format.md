@@ -206,8 +206,13 @@ the PR; the block stays the durable definition record.
 **State annotations.** Annotation bullets appear after the definition fields
 and are excluded from the content anchor:
 
-- `- **Status:** <phase>` — `implementing`, `polish iter <n>`,
-  `PR #<n> draft`, `awaiting input — <reason>`, `merged in PR #<n>`.
+- `- **Status:** <phase>` — a short free-form phase descriptor. Conventional
+  values: `implementing`, `polish iter <n>`, `PR #<n> draft`,
+  `draft-pr-ready · PR #<n> (draft)`, `awaiting input — <reason>`,
+  `Completed · PR #<n> merged <YYYY-MM-DD>`. The list is illustrative, not
+  exhaustive: the canonical extraction excludes all annotations, so new phase
+  vocabulary never affects the anchor; exact values are the dispatch and
+  sync-hook tooling's concern.
 - `- **Last activity:** <YYYY-MM-DD>`
 - `- **Dispatch:**` — dispatch metadata, recorded by `/orchestrate` when a
   unit is dispatched (REQ-F1.1), in the form

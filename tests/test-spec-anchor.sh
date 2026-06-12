@@ -23,6 +23,10 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
+# A CDPATH-resolved cd echoes the destination into the command substitution
+# below, corrupting the derived script path (house pattern, see sibling tests).
+unset CDPATH
+
 here=$(cd "$(dirname "$0")" && pwd)
 anchor="$here/../scripts/spec-anchor.sh"
 

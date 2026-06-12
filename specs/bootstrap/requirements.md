@@ -94,7 +94,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   identifier they propose is interpolated. *(Amended at delta re-walkthrough
   2026-06-11: exemption added; accumulator class closed at Amendment 5
   2026-06-11.)*
-  *(Cites: brief Amendment 2, Amendment 3 (2026-06-10); delta re-walkthrough (2026-06-11).)*
+  *(Cites: brief Amendment 2 (2026-06-10), brief Amendment 3 (2026-06-10); delta re-walkthrough (2026-06-11).)*
 - **REQ-A2.1** planwright SHALL ship a status-aware validator enforcing the
   meta-spec's structural invariants: warnings on Draft, errors (block execution) on
   Active.
@@ -476,7 +476,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   (`--` discipline); control characters stripped when echoed. A malformed gate
   surfaces as a drain-report-level error (the pass completes; nothing blocks)
   and is never silently skipped.
-  *(Cites: D-17; brief Amendment 2, Amendment 3 (2026-06-10).)*
+  *(Cites: D-17; brief Amendment 2 (2026-06-10), brief Amendment 3 (2026-06-10).)*
 - **REQ-H1.4** A bookkeeping drain pass SHALL evaluate open gates and re-surface
   satisfied items; it SHALL NOT auto-resolve or auto-drop. The same evaluator SHALL be
   exposed as an on-demand `/drain` move. The pass SHALL surface the observations
@@ -541,7 +541,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   resolved `tasks.md` path SHALL be containment-checked under
   `<repo-toplevel>/specs/` after canonicalization (symlink-resolved prefix
   check); a branch failing validation is a clean no-op.
-  *(Cites: D-36; brief Amendment 2, Amendment 3 (2026-06-10).)*
+  *(Cites: D-36; brief Amendment 2 (2026-06-10), brief Amendment 3 (2026-06-10).)*
 - **REQ-K1.3** planwright SHALL wire a SessionStart tool-discovery hook that detects a
   project's linters/formatters/type-checkers and feeds Discovery Rigor and the builder.
   *(Cites: D-15; carried, dotfiles tool-discovery hook (Sources).)*
@@ -563,7 +563,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   with a clear message (fail closed — the block-execution guarantee survives);
   graceful degradation applies to authoring and read-only paths and to
   non-dispatching modes (`/orchestrate --bookkeeping`, `/drain`, `/resume`).
-  *(Cites: D-35; brief Amendment 2, Amendment 3 (2026-06-10).)*
+  *(Cites: D-35; brief Amendment 2 (2026-06-10), brief Amendment 3 (2026-06-10).)*
 - **REQ-K1.8** Every config option SHALL be documented in a single canonical
   options reference (name, default, effect, consuming skill); planwright's own
   CI SHALL fail when an option in the tracked default config lacks a reference
@@ -658,6 +658,14 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   record was frozen by supersession before the citation convention applied
   (D-20, body never edited). No requirement's normative text changed.
   Self-re-anchor recorded in the kickoff brief.
+- 2026-06-12 (expression-only, Copilot pairing iter 2) — amendment citation
+  tokens fully qualified at four sites (A1.8, H1.3, K1.2, K1.7):
+  `brief Amendment 2, Amendment 3 (<date>)` → `brief Amendment 2 (<date>),
+  brief Amendment 3 (<date>)`, so every token is a recognized kind per the
+  meta-spec's citation table; surfaced by GitHub Copilot's second PR #4
+  review, one root issue across four threads, validated 3/3. No
+  requirement's normative text changed. Self-re-anchor recorded in the
+  kickoff brief.
 
 ## Sources
 

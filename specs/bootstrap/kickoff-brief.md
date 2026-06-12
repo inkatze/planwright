@@ -1165,3 +1165,19 @@ Class: expression-only
 Anchor: `c7196b8d123b96dc05c94bcbd7de90e7d652b0b3` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
 (canonical form: manifest anchor with tasks.md reduced to definition content).
+
+## Expression-only re-anchor (2026-06-12, Copilot pairing iter 2)
+
+Machine-written entry per REQ-F1.10's expression-only lane, on branch
+`planwright/bootstrap/task-4` (PR #4). Edits: requirements.md (amendment
+citation tokens fully qualified at four sites — A1.8, H1.3, K1.2, K1.7 — so
+every token is a recognized kind per the meta-spec's citation table; surfaced
+by GitHub Copilot's second PR #4 review, one root issue across four threads,
+validated 3/3; plus the changelog entry). Changelog: requirements.md, entry
+"2026-06-12 (expression-only, Copilot pairing iter 2)". No requirement's
+normative text changed.
+
+Class: expression-only
+Anchor: `118631b31ce2890a619784dd61c2e91f3a65f43f` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+(canonical form: manifest anchor with tasks.md reduced to definition content).
