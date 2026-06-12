@@ -96,8 +96,12 @@ approved when their own PR merged; they never re-enter the checklist.
   - Reject with: `git revert <sha>`
 ```
 
-- IDs are `PS-<n>`, assigned in first-applied order, stable across
-  regenerations, never reused on the branch.
+- IDs are `PS-<n>`, a pure function of the branch: every
+  `[pending-sign-off]` commit in the range is numbered in commit order,
+  *including* commits a later revert undid — a reverted item drops out of
+  the rendered checklist but keeps its number as a gap. That makes IDs
+  first-applied order, stable across regenerations, and never reused on the
+  branch, with no side state persisted.
 - The operative semantics are the doctrine's: the human approves an item by
   leaving its commit in place and rejects it with the named revert, at PR
   review. The draft→ready flip with the commit still present is the
