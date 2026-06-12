@@ -83,9 +83,9 @@ Each iteration:
    ledger disposition is any on-branch application (applied, resolved, or
    applied pending sign-off) means the fix did not hold, and it counts
    toward the Loop detection safety condition instead of being suppressed.
-   A re-discovered pending-sign-off item keeps its checklist entry and its
-   PR-review decision; only the did-the-fix-hold signal escapes
-   suppression.
+   The signal never re-opens the item itself: a re-discovered
+   pending-sign-off item keeps its checklist entry and its PR-review
+   decision, and only the did-the-fix-hold signal escapes suppression.
 2. **Fold the pass into the ledger.** Add every new disposition. Count the
    iteration's **new dispositions** of any kind: findings newly applied
    (Auto-applicable), resolved with evidence (Agent-resolvable), applied
