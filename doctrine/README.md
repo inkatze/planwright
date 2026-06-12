@@ -16,6 +16,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [security-posture.md](security-posture.md) | Write-time security triggers, artifact data-hygiene, framework-script security | REQ-D1.6 |
 | [proportionality.md](proportionality.md) | Rigor scales with stake and reversibility; scoping must be declared | REQ-D1.7 |
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
+| [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
 
 ## Resolution convention
 
