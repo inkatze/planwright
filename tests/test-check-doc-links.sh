@@ -140,6 +140,9 @@ assert "CDPATH does not corrupt root derivation" 0 $?
 #     Fixture repo layout (the script derives repo root from its own path).
 mkdir -p "$tmp/fixture/scripts" "$tmp/fixture/skills/demo"
 cp "$CHECKER" "$tmp/fixture/scripts/check-doc-links.sh"
+# README.md stays link-free on purpose: tests 10/10b/10c attribute failures
+# to the skills/ files via their unique targets, so a link added here would
+# let them pass or fail for the wrong reason.
 cat >"$tmp/fixture/README.md" <<'EOF'
 # Fixture
 EOF
@@ -179,6 +182,15 @@ case "$out" in
     echo "FAIL: top-level skill doc's broken target not named: $out" >&2
     failures=$((failures + 1))
     ;;
+esac
+# The exit 1 must be attributable to the new broken link alone: the link
+# 10b resolved stays resolved.
+case "$out" in
+  *no-such-doc.md*)
+    echo "FAIL: 10b's resolved link regressed into the 10c output: $out" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: 10b's resolved link stays resolved in the 10c scan" ;;
 esac
 
 if [ "$failures" -gt 0 ]; then

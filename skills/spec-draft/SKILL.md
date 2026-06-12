@@ -124,8 +124,12 @@ each consumed entry against the data-hygiene rule below: archive.md is a
 committed artifact, so sensitive operational detail a raw entry carries is
 neutralized in the archived copy (the unconsumed original was already
 committed; neutralizing the copy adds no new exposure but stops carrying it
-forward). Touch only the consumed entries; the log is append-only for
-everyone else, and unconsumed entries stay byte-for-byte. The trim rides the
+forward). Order the move so a failure cannot lose entries: append to
+`archive.md` first, trim `opportunities.md` second (the same crash-safe
+ordering REQ-F1.10 uses for anchor lines); if the archive append fails,
+surface it and leave the log untouched. Touch only the consumed entries;
+the log is append-only for everyone else, and unconsumed entries stay
+byte-for-byte. The trim rides the
 spec branch and lands on main with the spec PR, keeping it one revert from
 undone. (The accumulator-taxonomy doctrine, when it ships, is the canonical
 home of this drain ritual; until then this section defines it.)
@@ -171,7 +175,7 @@ Operates on the existing bundle per the meta-spec's stable-ID discipline:
   **append a dated Changelog entry** describing the extension.
 - **Reopen cycle (REQ-A3.1):** extending a Done bundle flips its Status
   Done→Draft (all four headers); the scoped kickoff of the delta flips it
-  back. Extending an Active bundle leaves it Active — the delta is Draft
+  back to Active. Extending an Active bundle leaves it Active — the delta is Draft
   content inside an Active bundle, and `/spec-kickoff`'s delta re-walkthrough
   is the sign-off path; say so in the handoff. Retired and Superseded are
   terminal: refuse, suggesting a new bundle citing the old as a Source.

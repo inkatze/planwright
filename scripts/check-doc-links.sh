@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-doc-links.sh — doctrine cross-reference link-check (Task 2, REQ-G1.7).
+# check-doc-links.sh — prose cross-reference link-check (Task 2, REQ-G1.7).
 #
 # The doctrine docs reference each other by relative markdown links; a renamed
 # or deleted target must fail CI rather than rot silently. Each inline
