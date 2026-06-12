@@ -42,14 +42,18 @@ point, not a dependency).
 
 ## Pre-flight
 
-1. **Parse arguments.** `$ARGUMENTS` carries the proposed feature name and
-   optionally `--extend <spec>` (jump straight to extend mode on an existing
-   bundle). Validate every proposed `<spec>` identifier against the anchored,
-   full-string pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64 (REQ-A1.8)
-   **before** it appears in any path, branch name, or command. A failing name
-   is never interpolated anywhere: propose a conforming kebab-case variant
-   and ask. No name given: elicit the idea first (seed gathering below) and
-   propose a name from it. When `--extend <spec>` is present, additionally
+1. **Parse arguments.** `$ARGUMENTS` carries the proposed feature name —
+   free-form idea text by design (the name is a hint, D-22) — and optionally
+   `--extend <spec>` (jump straight to extend mode on an existing bundle).
+   The feature name is not used directly: the skill derives the **spec
+   identifier** (`<spec>`) from it, and that derived identifier is what
+   appears in paths, branch names, and commands. Validate the derived
+   identifier (and any identifier a seed or `--extend` proposes) against the
+   anchored, full-string pattern `^[a-z0-9][a-z0-9-]*$`, maximum length 64
+   (REQ-A1.8) **before** any such use. When the feature name is not already
+   a conforming identifier, propose a conforming kebab-case variant and ask;
+   nothing non-conforming is ever interpolated. No name given: elicit the
+   idea first (seed gathering below) and propose a name from it. When `--extend <spec>` is present, additionally
    verify the target: `specs/<spec>/requirements.md` must exist and its
    Status must be non-terminal. A nonexistent target gets a clear message
    listing the specs that do exist; a Retired or Superseded target is
