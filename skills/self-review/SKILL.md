@@ -201,6 +201,9 @@ operational detail in finding text or captured output).
 ## Publishing the audit record (standalone only)
 
 Skipped entirely in nested mode; the invoking skill owns push and PR.
+Publishing is the pass's final action: the Observations and Maintenance
+steps below run first, so their chore commits land before the push and
+nothing is left behind unpushed.
 
 1. **Push:** `git push origin <branch>` (with `-u` on first push). Never
    force-push. On push or authentication failure, degrade gracefully
@@ -209,10 +212,11 @@ Skipped entirely in nested mode; the invoking skill owns push and PR.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
    otherwise `gh pr create --draft` with an explicit `--title` and `--body`
    (headless `gh` prompts or fails without them). The body carries the
-   audit record:
-   the four tables, the declined log, and the pending-sign-off checklist.
-   Regenerate the checklist section in place rather than appending, so
-   re-runs never duplicate entries. The PR is always a draft; never mark it
+   audit-record sections above (lens-coverage table, four tables, declined
+   log, pending-sign-off checklist, pass summary). On update, regenerate
+   those sections in place rather than appending, and never overwrite body
+   content outside them (handwritten notes survive); re-runs never
+   duplicate entries. The PR is always a draft; never mark it
    ready and never merge (the draft→ready flip is the human's universal
    review gate).
 
