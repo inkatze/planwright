@@ -348,8 +348,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
 
-## In progress
-
 ### Task 15 — Engineering decision-process doctrine doc
 
 - **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
@@ -365,10 +363,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 3
 - **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
 - **Estimated effort:** 1.5 days
-- **Status:** draft-pr-ready · PR #6 (draft)
-- **Last activity:** 2026-06-11
+- **Status:** Completed · PR #6 merged 2026-06-12
+- **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
   branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
+
+## In progress
 
 ### Task 11 — `/self-review` + `/polish`
 
