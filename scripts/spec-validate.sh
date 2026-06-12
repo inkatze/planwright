@@ -292,7 +292,11 @@ baseline_checks() {
     fi
     return 0
   fi
-  if ! git -C "$bdir" rev-parse --verify --quiet "$baseline^{commit}" >/dev/null; then
+  # 2>/dev/null as well as --quiet: --quiet silences the missing-ref case
+  # but a failed ^{commit} peel (ref exists, wrong object type) still prints
+  # "error: ..." — the probe is a yes/no check and must stay quiet on the
+  # default-baseline skip path.
+  if ! git -C "$bdir" rev-parse --verify --quiet "$baseline^{commit}" >/dev/null 2>&1; then
     if [ "$explicit_baseline" -eq 1 ]; then
       echo "spec-validate: baseline ref does not resolve: $baseline" >&2
       exit 2

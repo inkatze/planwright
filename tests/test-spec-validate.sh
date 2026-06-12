@@ -609,6 +609,22 @@ run_v 0 --check-id "$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 \
   17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 \
   42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64)"
 
+# The default-baseline quiet skip stays quiet even when the ref exists but
+# fails the commit peel (a blob-pointing origin/main): git's --quiet covers
+# missing refs but not peel failures, which leak "error: ... expected
+# commit type" unless stderr is silenced at the probe.
+repo2="$tmp/repo2"
+mkdir -p "$repo2"
+git -C "$repo2" init -q
+write_bundle "$repo2/specs/ok" Draft
+git -C "$repo2" add -A
+git -C "$repo2" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm fixture
+git -C "$repo2" update-ref refs/remotes/origin/main \
+  "$(git -C "$repo2" rev-parse HEAD:specs/ok/requirements.md)"
+run_v 0 "$repo2/specs"
+has "0 error(s), 0 warning(s)"
+lacks "expected commit type"
+
 # --- explicit-baseline fatal paths (REQ-K1.7: explicit prerequisites fail
 # closed with exit 2, unlike the default baseline's quiet skip) ---
 write_bundle "$tmp/nogit/specs/myspec" Draft
