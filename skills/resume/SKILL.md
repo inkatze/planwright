@@ -65,27 +65,34 @@ fails is treated as no match. The `<spec>` segment names the spec bundle
 (`specs/<spec>/`); the `<id-or-ids>` segment names the task or bundle being
 executed. If the branch does not match the convention or `<spec>` fails
 validation (e.g. a spec branch `planwright/<spec>/spec`, a hostile branch
-name, or an unrelated branch), say which branch you are on and load what you
-can from the repository's `specs/` without assuming a task; do not invent a
-unit.
+name, or an unrelated branch), do not guess a task: say which branch you are
+on and try to resolve `<spec>` only when it is unambiguous — a single spec
+bundle under `specs/`, or a single `Status: Active` bundle that has a kickoff
+brief. If that inference is unambiguous, continue with the resolved `<spec>`;
+if several bundles remain candidates, list them and proceed with no resolved
+`<spec>` (Steps 3-4 below degrade to a spec-less partial load) rather than
+inventing a unit.
 
 ### 3. Load the kickoff brief (the contract)
 
-Read `specs/<spec>/kickoff-brief.md` — the durable contract downstream work
-executes against. Surface the signed-off goal restatement, the task-graph
-slice for the in-flight unit, and the risk-register entries that touch it
-(when unsure whether an entry is relevant, include it rather than omit it).
-If the brief is absent or has no final sign-off section, note that the work
-predates a signed brief (or the brief is partial) and continue with the
-rest of the load; do not stop.
+If Step 2 resolved a `<spec>`, read `specs/<spec>/kickoff-brief.md` — the
+durable contract downstream work executes against. Surface the signed-off
+goal restatement, the task-graph slice for the in-flight unit, and the
+risk-register entries that touch it (when unsure whether an entry is
+relevant, include it rather than omit it). If the brief is absent or has no
+final sign-off section, note that the work predates a signed brief (or the
+brief is partial) and continue with the rest of the load; do not stop. If no
+`<spec>` was resolved, note that and move on — Steps 5-8 still produce a
+useful spec-less partial load.
 
 ### 4. Load tasks.md state
 
-Read `specs/<spec>/tasks.md`. Surface the in-flight unit's block (its
-section — In progress / Awaiting input / etc., its `Status:` and
-`Last activity:` annotations, `Done when:`, and `Dependencies:`), and note
-whether each dependency sits in `Completed`. This is the canonical
-orchestration state record; report it as found, without editing it.
+If a `<spec>` was resolved, read `specs/<spec>/tasks.md`. Surface the
+in-flight unit's block (its section — In progress / Awaiting input / etc.,
+its `Status:` and `Last activity:` annotations, `Done when:`, and
+`Dependencies:`), and note whether each dependency sits in `Completed`. This
+is the canonical orchestration state record; report it as found, without
+editing it. With no resolved `<spec>`, skip this step.
 
 ### 5. Load the git log
 
