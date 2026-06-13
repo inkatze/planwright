@@ -340,7 +340,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 5, 8, 9
 - **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** PR #16 draft (re-scoped: ships the supersede→changelog validator rule only; other clauses pre-delivered / Task 12's — see scoping note; awaiting Diego's re-scope confirmation)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-17` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-17` · worktree `.claude/worktrees/task-17`
