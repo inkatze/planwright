@@ -45,7 +45,9 @@ while [ $# -gt 0 ]; do
       ;;
     --catalog=*) catalog="${1#--catalog=}" ;;
     -h | --help)
-      sed -n '2,30p' "$0"
+      # Print the comment header (from line 2 to the first non-comment line),
+      # stripping the leading "# " — robust to the header's length.
+      awk 'NR>=2 { if ($0 ~ /^#/) { sub(/^# ?/, ""); print } else exit }' "$0"
       exit 0
       ;;
     -*)

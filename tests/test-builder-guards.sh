@@ -267,6 +267,22 @@ else
 fi
 rm -rf "$tmp_jf"
 
+# ---------------------------------------------------------------------------
+# 9. --help prints the usage block only, never leaking source code lines.
+# ---------------------------------------------------------------------------
+help_out="$(/bin/bash "$SCRIPT" --help 2>&1)"
+assert_exit "--help exits clean" 0 $?
+if printf '%s\n' "$help_out" | grep -q "Usage: builder-guards.sh"; then
+  pass "--help shows the usage line"
+else
+  fail "--help missing the usage line"
+fi
+if printf '%s\n' "$help_out" | grep -qx "set -u"; then
+  fail "--help leaks source code past the comment header"
+else
+  pass "--help does not leak source code"
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "all builder-guards tests passed"
   exit 0
