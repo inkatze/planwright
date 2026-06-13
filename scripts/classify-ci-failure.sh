@@ -13,7 +13,8 @@
 #   Reads CI output from <file>, or from stdin when no file is given.
 #
 # Output: prints `transient` or `logic` on stdout.
-# Exit codes: 0 transient, 1 logic, 2 usage error (a named-but-missing file).
+# Exit codes: 0 transient, 1 logic, 2 usage or environment error (too many
+#   arguments, an unreadable named file, or a temp-file creation failure).
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 # Input is treated as data only: it is matched against a fixed set of
