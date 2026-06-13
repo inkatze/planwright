@@ -70,13 +70,15 @@ Run once per invocation, in order. Any halt records the unit to the spec's
 present the reason and wait instead.
 
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or
-   `5 6` for a bundle) and an optional spec path. Validate each `<id>`
-   against the task-id grammar `^[0-9]+(\.[0-9]+)?$` and the `<spec>`
-   segment against the anchored identifier pattern `^[a-z0-9][a-z0-9-]*$`
-   (≤64 chars, REQ-A1.8) **before** either appears in any path or command; a
-   failing token is never interpolated. No task ID: halt and ask which task
-   to execute.
-2. **Resolve the spec path**, trying in order: (a) an explicit path argument;
+   `5 6` for a bundle) and an optional spec path, given as either `specs/<spec>`
+   or the bare `<spec>` (the same two forms `/spec-kickoff` accepts). Validate
+   each `<id>` against the task-id grammar `^[0-9]+(\.[0-9]+)?$`, and extract
+   the `<spec>` segment from whichever form was given and validate it against
+   the anchored identifier pattern `^[a-z0-9][a-z0-9-]*$` (≤64 chars,
+   REQ-A1.8) **before** it appears in any path or command; a failing token is
+   never interpolated. No task ID: halt and ask which task to execute.
+2. **Resolve the spec path**, trying in order: (a) an explicit spec-path
+   argument (`specs/<spec>` or bare `<spec>`, validated in step 1);
    (b) the branch name parsed against `planwright/<spec>/task-<ids>` (D-36),
    giving `specs/<spec>/`; (c) the current checkout when it holds exactly one
    `specs/*/` bundle with `Status: Active`; (d) ask, listing the available

@@ -16,8 +16,9 @@
 # Exit codes: 0 transient, 1 logic, 2 usage error (a named-but-missing file).
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
-# Input is treated as data only: it is matched with fixed grep patterns,
-# never evaluated, so shell metacharacters in the log are inert.
+# Input is treated as data only: it is matched against a fixed set of
+# extended-regex patterns (grep -E, constant in this source, never built from
+# the input and never evaluated), so shell metacharacters in the log are inert.
 set -u
 
 # Pin the C locale so the case-insensitive ASCII matching below means exactly
