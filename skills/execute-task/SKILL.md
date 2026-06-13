@@ -51,7 +51,7 @@ definitions govern wherever this skill names a concept:
 - `proportionality` — rigor and research depth scale with stake and
   reversibility; scoping is declared, never silent.
 
-If any of those does not resolve, halt with a clear message naming the
+If any of those do not resolve, halt with a clear message naming the
 missing doc and the resolution chain consulted. `/execute-task` runs only on a
 dispatch path, where a missing prerequisite fails closed (REQ-K1.7):
 implementing against a contract whose defining rules cannot be read is the
