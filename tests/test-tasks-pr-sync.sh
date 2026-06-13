@@ -54,6 +54,13 @@ case "$*" in
     fi
     exit 1
     ;;
+  *"--json number"*)
+    if [ -n "${GH_PRNUM:-}" ]; then
+      printf '%s\n' "$GH_PRNUM"
+      exit 0
+    fi
+    exit 1
+    ;;
   *) exit 1 ;;
 esac
 EOF
@@ -289,6 +296,16 @@ run_hook "$repo" "gh pr create --draft" "" || fail "no-pr-num: non-zero exit"
 assert_unchanged "no PR number" "$tasks" "$pristine"
 echo "ok: missing PR number no-ops"
 
+# 8b. The last-resort `gh pr view --json number` fallback supplies the PR
+#     number when neither stdout nor the command carries one.
+GH_PRNUM=33 run_hook "$repo" "gh pr create --draft" "" \
+  || fail "gh number fallback: non-zero exit"
+block_of "$tasks" 3 | grep -q -- '- \*\*Status:\*\* PR #33 draft' \
+  || fail "gh number fallback: PR #33 not picked up from gh pr view"
+git -C "$repo" checkout -q -- specs/demo/tasks.md
+assert_unchanged "post-fallback restore" "$tasks" "$pristine"
+echo "ok: gh pr view number fallback works"
+
 # 9. Reserved spec namespace planwright/<spec>/spec no-ops (D-44).
 git -C "$repo" checkout -qb planwright/demo/spec
 run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" \
@@ -443,5 +460,24 @@ case $err in
   *) fail "malformed threshold: no fallback warning on stderr" ;;
 esac
 echo "ok: malformed stale_lock_threshold warns and falls back to the default"
+
+# 16. A space-padded threshold value parses cleanly (no false malformed
+#     warning): the huge override holds, so the 2020 lock stays busy.
+repo=$tmp/r8
+make_repo "$repo"
+pristine8=$tmp/pristine8.md
+cp "$repo/specs/demo/tasks.md" "$pristine8"
+git -C "$repo" checkout -qb planwright/demo/task-3
+mkdir -p "$repo/.claude"
+printf 'stale_lock_threshold: 99999999m \n' >"$repo/.claude/planwright.local.yml"
+mkdir "$repo/specs/demo/.orchestrate.lock"
+touch -t 202001010000 "$repo/specs/demo/.orchestrate.lock"
+err=$( (run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12") 2>&1 >/dev/null) \
+  || fail "padded threshold: non-zero exit"
+assert_unchanged "space-padded threshold override" "$repo/specs/demo/tasks.md" "$pristine8"
+case $err in
+  *"malformed stale_lock_threshold"*) fail "padded threshold: false malformed warning" ;;
+esac
+echo "ok: space-padded stale_lock_threshold parses without a false warning"
 
 echo "PASS: all tasks-pr-sync tests passed"

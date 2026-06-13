@@ -184,7 +184,7 @@ threshold_min=15
 local_cfg="$primary/.claude/planwright.local.yml"
 if [ -f "$local_cfg" ]; then
   v=$(sed -n 's/^stale_lock_threshold:[[:space:]]*//p' "$local_cfg" \
-    | head -1 | sed 's/[[:space:]]*#.*$//' | tr -d '"' | tr -d "'")
+    | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' | tr -d '"' | tr -d "'")
   v=${v%m}
   case $v in
     '') ;; # key absent: tracked default applies silently
@@ -212,6 +212,10 @@ if ! mkdir "$lock" 2>/dev/null; then
 fi
 tmpf=""
 trap 'rmdir "$lock" 2>/dev/null || true; [ -n "$tmpf" ] && rm -f "$tmpf"' EXIT
+# An explicit exit on a fatal signal makes the EXIT cleanup run under
+# shells (dash) that skip EXIT traps on signal-default termination; SIGKILL
+# remains unrecoverable and falls to the stale-break (D-10).
+trap 'exit 130' HUP INT TERM
 
 today=$(date -u +%Y-%m-%d)
 if [ "$action" = create ]; then

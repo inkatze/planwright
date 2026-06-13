@@ -26,8 +26,10 @@ mise.local.toml
 .claude/handover.md
 
 # Per-spec advisory lock (design.md D-10) — transient runtime state taken by
-# /orchestrate and the tasks-pr-sync hook around tasks.md writes.
+# /orchestrate and the tasks-pr-sync hook around tasks.md writes, plus the
+# hook's atomic-write temp files (orphaned only by an unclean kill).
 specs/*/.orchestrate.lock
+specs/*/.tasks-pr-sync.*
 
 # === Bootstrap staging ===
 
