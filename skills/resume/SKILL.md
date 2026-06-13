@@ -4,8 +4,9 @@ description: >-
   Load context for a fresh session in a worktree with in-flight pair-flow
   work. Reads the kickoff brief (the contract), tasks.md state, recent git
   log, the open PR state, and an optional handover brief, then surfaces
-  uncommitted changes and asks before proceeding. Read-only: it never
-  stashes, commits, cleans, pushes, or merges.
+  uncommitted changes and asks before proceeding. Read-only over your
+  in-flight work: no stash, clean, push, merge, or commit of it; its one
+  write is the standard self-healing drift-log note.
 ---
 
 # /resume — read-only context loader
@@ -56,12 +57,17 @@ or of the `gh` CLI; those only narrow the PR-state step below.
 ### 2. Identify the in-flight unit
 
 Read the current branch name and parse it against the convention
-`planwright/<spec>/task-<id-or-ids>`. The `<spec>` segment names the spec
-bundle (`specs/<spec>/`); the `<id-or-ids>` segment names the task or
-bundle being executed. If the branch does not match the convention (e.g. a
-spec branch `planwright/<spec>/spec`, or an unrelated branch), say which
-branch you are on and load what you can from the repository's `specs/`
-without assuming a task; do not invent a unit.
+`planwright/<spec>/task-<id-or-ids>`. Before interpolating the parsed
+`<spec>` into any path, validate it against the REQ-A1.8 spec-identifier
+charset (`^[a-z0-9][a-z0-9-]*$`, max 64 chars); no skill interpolates a
+failing identifier into a path or command (REQ-A1.8), so a segment that
+fails is treated as no match. The `<spec>` segment names the spec bundle
+(`specs/<spec>/`); the `<id-or-ids>` segment names the task or bundle being
+executed. If the branch does not match the convention or `<spec>` fails
+validation (e.g. a spec branch `planwright/<spec>/spec`, a hostile branch
+name, or an unrelated branch), say which branch you are on and load what you
+can from the repository's `specs/` without assuming a task; do not invent a
+unit.
 
 ### 3. Load the kickoff brief (the contract)
 
@@ -115,25 +121,34 @@ continuing the work is a separate, human-initiated step.
 
 ## Invariants
 
-These hold at every step:
+These hold at every step. The skill's one and only write is the REQ-B3.2
+self-healing drift-log note (Maintenance section): appending a line to
+`specs/_observations/opportunities.md` and committing it as its own chore
+commit. That chore never touches the resumed work; every invariant below
+describes the read-only guarantee over that work, and the drift-log note is
+the sole carved-out exception.
 
-- **Never** modify the working tree: no stash, commit, clean, checkout, or
-  reset. `/resume` only reads (REQ-F2.1); D-30 specifically forbids
-  auto-resolving uncommitted state.
-- **Never** push, create or update a PR, or merge. `/resume` only reads.
-- **Never** edit `tasks.md`, the brief, or any spec file. State moves belong
-  to `/orchestrate` and `/execute-task`, not to a context loader.
-- **Never** hard-fail on a missing prerequisite. Degrade with a clear note
-  and load what is available (REQ-K1.7); this is a read-only path.
+- **Never** modify the working tree of the resumed work: no stash, clean,
+  checkout, reset, or commit of in-flight changes. `/resume` only reads it
+  (REQ-F2.1); D-30 specifically forbids auto-resolving uncommitted state.
+- **Never** push, create or update a PR, or merge.
+- **Never** edit `tasks.md`, the brief, or any spec bundle file. The
+  observations log under `specs/_observations/` is the carved-out drift-log
+  exception above, not a spec file. State moves belong to `/orchestrate` and
+  `/execute-task`, not to a context loader.
+- **Never** hard-fail opaquely on a missing prerequisite: outside a git repo,
+  stop with a clear message (Step 1); for every other missing prerequisite,
+  degrade with a clear note and load what is available (REQ-K1.7).
 
 ## Maintenance
 
 After each run, compare these instructions against the doctrine and spec
 they implement: REQ-F2.1 (the read-only loader contract), D-30 (surface,
-do not auto-resolve), and the `spec-format` doc's two-brief model, brief
+do not auto-resolve), REQ-A1.8 (the spec-identifier charset gate on `<spec>`
+before path use), and the `spec-format` doc's two-brief model, brief
 structure, and branch convention. If the brief structure, the handover-brief
-location, or the branch convention have drifted from what this skill
-describes, append a one-line drift observation to
+location, the identifier charset, or the branch convention have drifted from
+what this skill describes, append a one-line drift observation to
 `specs/_observations/opportunities.md` in the standard format
 (`- <YYYY-MM-DD> [<repo>] skill-drift(resume): <what>`) and commit the
 append as its own chore commit, per REQ-B3.2 / D-42. In repositories
