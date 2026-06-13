@@ -157,6 +157,32 @@ code=$?
 assert_exit "leading-hyphen filename is read, not parsed as an option" 0 "$code"
 assert_word "leading-hyphen filename" "transient" "$word"
 
+# 11. A `:latest` image-pull failure is transient: the logic word "test failed"
+#     must not substring-match inside "latest failed" and suppress the retry.
+classify 'pulling ubuntu:latest failed: connection refused'
+assert_exit "':latest failed' stays transient" 0 "$code"
+assert_word "':latest failed'" "transient" "$word"
+
+# 11b. A genuine test-runner "tests failed" summary still classifies logic
+#      (the boundary-anchored pattern keeps the real case).
+classify 'Summary
+tests failed'
+assert_exit "'tests failed' summary classifies logic" 1 "$code"
+assert_word "'tests failed' summary" "logic" "$word"
+
+# 12. A benign "timeout_test" token in an otherwise-unrecognized failure must
+#     not create a false transient (the bare word "timeout" was over-matching
+#     adjacent identifiers), so the doomed build escalates instead of retrying.
+classify 'ran timeout_test.go
+some unrecognized build failure'
+assert_exit "benign timeout_test token defaults to logic" 1 "$code"
+assert_word "benign timeout_test token" "logic" "$word"
+
+# 12b. A real bounded "timeout" word is still a transient indicator.
+classify 'fetch error: read timeout'
+assert_exit "bounded 'timeout' word stays transient" 0 "$code"
+assert_word "bounded 'timeout' word" "transient" "$word"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

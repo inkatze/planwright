@@ -54,7 +54,10 @@ fi
 # Transient indicators: infrastructure and network failures that a retry can
 # plausibly clear. Fixed extended-regex alternation, matched case-insensitively.
 transient_re='connection (timed out|refused|reset)'
-transient_re="$transient_re|timed out|timeout"
+# Bound the bare word so it does not match adjacent identifiers
+# ("timeout_test", "express-timeout"); the specific phrases below stay
+# unbounded. `timed out` covers the spaced form.
+transient_re="$transient_re|timed out|(^|[[:space:]])timeout([[:space:]:]|$)"
 transient_re="$transient_re|network is unreachable|network error|no route to host"
 transient_re="$transient_re|could not resolve host|temporary failure in name resolution"
 transient_re="$transient_re|name or service not known|eai_again"
@@ -77,7 +80,9 @@ logic_re="$logic_re|type ?error|error ts[0-9]+|syntax ?error|parse error"
 logic_re="$logic_re|compile error|compilation (error|failed)"
 logic_re="$logic_re|undefined (method|reference|variable|symbol)|unresolved reference"
 logic_re="$logic_re|name ?error|panic:|traceback \(most recent call last\)"
-logic_re="$logic_re|[0-9]+ (failing|failed)|tests? failed"
+# Anchor "tests? failed" to a word boundary so it does not substring-match
+# "latest failed" (a transient ":latest" image-pull failure).
+logic_re="$logic_re|[0-9]+ (failing|failed)|(^|[[:space:]])tests? failed"
 logic_re="$logic_re|would reformat|lint (error|violation)|sc[0-9]{4}"
 
 has_transient=0
