@@ -58,8 +58,11 @@ fi
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin manifest"
-run = "jq . .claude-plugin/plugin.json >/dev/null && echo plugin.json valid"
+description = "validate the plugin manifest and hook registration"
+run = '''
+jq . .claude-plugin/plugin.json >/dev/null && echo plugin.json valid
+jq . hooks/hooks.json >/dev/null && echo hooks.json valid
+'''
 
 [tasks."check:options"]
 description = "options-reference coverage drift check (D-43)"
