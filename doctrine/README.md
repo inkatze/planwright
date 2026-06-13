@@ -18,6 +18,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
 | [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference (toolchain pinned, defaults owned), the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
 | [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
+| [guard-catalog.md](guard-catalog.md) | The builder's core guard catalog: guard categories, entry format, breadth dimensions, the extension model, the dogfood contract | REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 |
 | [accumulator-taxonomy.md](accumulator-taxonomy.md) | The three accumulator classes and their drain rituals, the `GATE(when:)` convention and its closed grammar (normative home), the shared drain pass behind `/drain` and `--bookkeeping` | REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18, D-31 |
 | [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
 | [interaction-style.md](interaction-style.md) | How spec-authoring skills conduct interactive sessions: progress indicator, progressive disclosure, selectors with recommendations, running summary, small bites | REQ-B3.1 |
@@ -65,7 +66,10 @@ that flow. [Refactor Instinct](refactor-instinct.md) and
 [Engineering Decisions](engineering-decisions.md) governs the choices made
 while writing it, and the [Decision-Domains Catalog](decision-domains.md)
 supplies the triggers that route load-bearing choices to the human instead
-of a default. What any of these defer instead of deciding lands in an
+of a default. The [Core Guard Catalog](guard-catalog.md) is the mechanical
+counterpart: the universal quality guards the builder applies to a detected
+stack, with the same no-flattening rule keeping it from auto-defaulting a
+load-bearing decision. What any of these defer instead of deciding lands in an
 accumulator, and the [Accumulator Taxonomy](accumulator-taxonomy.md)
 guarantees it re-surfaces (no write-only deferral).
 [Proportionality](proportionality.md) governs how strictly
