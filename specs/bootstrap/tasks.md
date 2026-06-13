@@ -32,40 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 13 — `/orchestrate`
-
-- **Deliverables:** The `/orchestrate` stateless step machine: critical-path-first ready-unit
-  selection; per-spec advisory lock (state-move-only, 15-min stale-break); one-unit-per-step;
-  cohesion-first bundling; the control-tower dispatch layer (D-38): subagent backend
-  (default), tmux backend (opt-in, capture-pane detection), print backend, in-session,
-  unattended mode (headless: no confirms, prompts → Awaiting input), the shipped
-  worker-settings profile, `--watch` (event-driven under subagents, polling under tmux),
-  the reconcile sweep, `max_parallel_units` cap; worktree create/reuse via native
-  `claude --worktree` mechanics (D-37); auto-commit of `tasks.md` state moves (D-41);
-  halt-to-Awaiting-input; draft-PR-only; the `--bookkeeping` drain pass (gate evaluation +
-  out-of-session merge reconciliation + observation-staleness surfacing per REQ-H1.4);
-  refusal on non-Active specs with no auto-chain; the execution freshness gate inside
-  the D-10 lock window immediately before the `tasks.md` update (anchor recompute per
-  the entry's recorded command against the primary checkout's main view; halt to
-  Awaiting input on mismatch or on an absent/unparseable/non-sanctioned entry,
-  REQ-F1.9/F1.10/D-45); the self-healing maintenance footer
-  (REQ-B3.2).
-- **Done when:** One step advances exactly one ready unit; concurrent invocations don't
-  collide; a non-Active spec halts with a kickoff prompt; each backend dispatches a worker
-  that completes a unit; the reconcile sweep recovers from a killed tower and orphans an
-  In-progress task per the tightened REQ-F1.1 predicate (PR-state reconciled first;
-  grace threshold; observable backend; positive evidence of death; print-backend
-  exempt) to Awaiting input with an orphan note; a missing validator halts a dispatch
-  step with a clear message (REQ-K1.7); unattended mode records prompts as
-  Awaiting-input entries; a spec changed since the brief's last anchor (or an
-  invalid anchor entry) halts the dispatch step with the REQ-F1.9 remedy named;
-  an orchestrate state move does not change the anchor while an edited Done-when
-  does; `--bookkeeping` re-surfaces satisfied gates
-  without auto-dropping.
-- **Dependencies:** 5, 6, 10, 12
-- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41, D-45 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-F1.9, REQ-F1.10, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
-- **Estimated effort:** 3 days
-
 ### Task 15 — Engineering decision-process doctrine doc
 
 - **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
@@ -233,8 +199,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
 
-## In progress
-
 ### Task 12 — `/execute-task`
 
 - **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
@@ -257,10 +221,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 9, 11
 - **Citations:** D-11, D-19, D-39, D-42, D-45 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-F1.9, REQ-F1.10, REQ-G1.8, REQ-J1.4, REQ-K1.7
 - **Estimated effort:** 1.5 days
-- **Status:** draft-pr-ready · PR #15 (draft)
+- **Status:** Completed · PR #15 merged 2026-06-12
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-12` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-12` · worktree `.claude/worktrees/task-12`
+
+## In progress
 
 ### Task 14 — `/resume`
 
@@ -463,6 +429,44 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-17` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-17` · worktree `.claude/worktrees/task-17`
+
+### Task 13 — `/orchestrate`
+
+- **Deliverables:** The `/orchestrate` stateless step machine: critical-path-first ready-unit
+  selection; per-spec advisory lock (state-move-only, 15-min stale-break); one-unit-per-step;
+  cohesion-first bundling; the control-tower dispatch layer (D-38): subagent backend
+  (default), tmux backend (opt-in, capture-pane detection), print backend, in-session,
+  unattended mode (headless: no confirms, prompts → Awaiting input), the shipped
+  worker-settings profile, `--watch` (event-driven under subagents, polling under tmux),
+  the reconcile sweep, `max_parallel_units` cap; worktree create/reuse via native
+  `claude --worktree` mechanics (D-37); auto-commit of `tasks.md` state moves (D-41);
+  halt-to-Awaiting-input; draft-PR-only; the `--bookkeeping` drain pass (gate evaluation +
+  out-of-session merge reconciliation + observation-staleness surfacing per REQ-H1.4);
+  refusal on non-Active specs with no auto-chain; the execution freshness gate inside
+  the D-10 lock window immediately before the `tasks.md` update (anchor recompute per
+  the entry's recorded command against the primary checkout's main view; halt to
+  Awaiting input on mismatch or on an absent/unparseable/non-sanctioned entry,
+  REQ-F1.9/F1.10/D-45); the self-healing maintenance footer
+  (REQ-B3.2).
+- **Done when:** One step advances exactly one ready unit; concurrent invocations don't
+  collide; a non-Active spec halts with a kickoff prompt; each backend dispatches a worker
+  that completes a unit; the reconcile sweep recovers from a killed tower and orphans an
+  In-progress task per the tightened REQ-F1.1 predicate (PR-state reconciled first;
+  grace threshold; observable backend; positive evidence of death; print-backend
+  exempt) to Awaiting input with an orphan note; a missing validator halts a dispatch
+  step with a clear message (REQ-K1.7); unattended mode records prompts as
+  Awaiting-input entries; a spec changed since the brief's last anchor (or an
+  invalid anchor entry) halts the dispatch step with the REQ-F1.9 remedy named;
+  an orchestrate state move does not change the anchor while an edited Done-when
+  does; `--bookkeeping` re-surfaces satisfied gates
+  without auto-dropping.
+- **Dependencies:** 5, 6, 10, 12
+- **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41, D-45 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-F1.9, REQ-F1.10, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
+- **Estimated effort:** 3 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-13` · dispatched 2026-06-12T23:25Z ·
+  branch `planwright/bootstrap/task-13` · worktree `.claude/worktrees/task-13`
 
 ## Awaiting input
 
