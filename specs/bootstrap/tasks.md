@@ -226,8 +226,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-12` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-12` · worktree `.claude/worktrees/task-12`
 
-## In progress
-
 ### Task 14 — `/resume`
 
 - **Deliverables:** The `/resume` read-only context loader: kickoff brief + `tasks.md` + git
@@ -238,6 +236,8 @@ intelligence migration) dispatches first.
 - **Dependencies:** 9
 - **Citations:** D-30, D-42 · REQ-F2.1, REQ-B3.2
 - **Estimated effort:** half day
+
+## In progress
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
