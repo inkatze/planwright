@@ -328,6 +328,33 @@ intelligence migration) dispatches first.
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
 
+### Task 17 — Spec lifecycle & evolution mechanics
+
+- **Deliverables:** The amendment ritual (fix-in-place + mandatory changelog vs. supersede +
+  scoped re-sign-off) wired into `/execute-task` and `/spec-kickoff`; the fold-vs-new rule and
+  extend mechanics wired into `/spec-draft`; supersede / changelog / never-reused-ID
+  enforcement added to the validator.
+- **Done when:** An expression-only edit needs only a changelog; a decision-contradicting edit
+  triggers supersede + scoped re-sign-off; the validator rejects a reused ID and accepts a
+  supersede; `/spec-draft` extend mode appends without renumbering.
+- **Dependencies:** 5, 8, 9
+- **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-17` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-17` · worktree `.claude/worktrees/task-17`
+- **Scoping note (2026-06-12, `/execute-task`, Diego-approved re-scope):** Three of the four
+  deliverable clauses were already delivered by merged dependencies — the amendment ritual is
+  in `doctrine/spec-format.md` + `/spec-kickoff` (PR #12, Task 9), fold-vs-new + extend in
+  `/spec-draft` (PR #11, Task 8), and supersede + never-reused-ID validator enforcement in
+  `scripts/spec-validate.sh` (PR #9, Task 5). The `/execute-task` wiring clause is **Task
+  12's** deliverable (parallel worktree, not a dependency of 17); it is not duplicated here.
+  This task ships the one genuinely-unbuilt clause: the **supersede→changelog validator
+  invariant** (a supersede newly introduced vs the baseline must carry a dated `## Changelog`
+  entry naming it; REQ-A3.3). Task-definition fields unchanged (no spec amendment; the
+  content anchor is preserved).
+
 ## Completed
 
 ### Task 3 — Migrate framework intelligence into doctrine docs
@@ -446,23 +473,6 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-14` · dispatched 2026-06-12T19:30Z ·
   branch `planwright/bootstrap/task-14` · worktree `.claude/worktrees/task-14`
-
-### Task 17 — Spec lifecycle & evolution mechanics
-
-- **Deliverables:** The amendment ritual (fix-in-place + mandatory changelog vs. supersede +
-  scoped re-sign-off) wired into `/execute-task` and `/spec-kickoff`; the fold-vs-new rule and
-  extend mechanics wired into `/spec-draft`; supersede / changelog / never-reused-ID
-  enforcement added to the validator.
-- **Done when:** An expression-only edit needs only a changelog; a decision-contradicting edit
-  triggers supersede + scoped re-sign-off; the validator rejects a reused ID and accepts a
-  supersede; `/spec-draft` extend mode appends without renumbering.
-- **Dependencies:** 5, 8, 9
-- **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
-- **Estimated effort:** 1 day
-- **Status:** implementing
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-17` · dispatched 2026-06-12T19:30Z ·
-  branch `planwright/bootstrap/task-17` · worktree `.claude/worktrees/task-17`
 
 ## Awaiting input
 

@@ -17,7 +17,9 @@
 #   6. Task structure: well-formed stable ID plus the five definition fields.
 #   7. REQ↔test-spec coverage (exact-id matching, never substring).
 #   8. Stable-ID discipline: duplicates rejected; against the baseline ref,
-#      a vanished (renumbered/removed) ID is flagged; a supersede passes.
+#      a vanished (renumbered/removed) ID is flagged; a supersede passes,
+#      and a supersede newly introduced since the baseline must carry a
+#      dated Changelog entry naming the superseded ID (REQ-A3.3).
 #   9. Terminal-state discipline: no transition out of Retired/Superseded
 #      relative to the baseline ref.
 #
@@ -336,6 +338,32 @@ baseline_checks() {
       set_in "$oid" "$all_req_ids" \
         || printf 'gap\t%s renumbered or removed since %s (stable IDs are never reused; supersede instead)\n' \
           "$oid" "$baseline" >>"$fnd"
+    done
+
+    # Changelog-on-supersede (REQ-A3.3, D-20): a REQ newly marked
+    # `Superseded-by` since the baseline must be named in a dated Changelog
+    # entry — the supersede pointer records the lineage, the changelog records
+    # the why-it-changed. The current superseded set is diffed against the
+    # baseline's so a supersede already recorded upstream is not re-flagged.
+    # Status-scoped like the other stable-ID findings (warn on Draft, error on
+    # Active/Done). REQ supersedes only: that is the parseable, marked case.
+    printf '%s\n' "$old_req" >"$gtmp/old_req"
+    old_sup=$(parse_requirements "$gtmp/old_req" | awk -F"$tab" '$1 == "SUP" { print $2 }')
+    cur_sup=$(parse_requirements "$bdir/requirements.md" | awk -F"$tab" '$1 == "SUP" { print $2 }')
+    clog=$(awk '
+      tolower($0) ~ /^## changelog/ { f = 1; next }
+      /^## / { f = 0 }
+      f
+    ' "$bdir/requirements.md")
+    printf '%s\n' "$cur_sup" | while read -r sid; do
+      [ -n "$sid" ] || continue
+      if set_in "$sid" "$old_sup"; then continue; fi
+      # Match the bare id (REQ- stripped): the changelog convention names ids
+      # either bare ("X1.2") or prefixed ("REQ-X1.2"); -w keeps "X1.2" from
+      # matching inside "X1.20".
+      printf '%s' "$clog" | grep -qwF "${sid#REQ-}" \
+        || printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
+          "$sid" "$baseline" >>"$fnd"
     done
   fi
   if [ -n "$old_des" ]; then
