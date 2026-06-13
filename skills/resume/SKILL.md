@@ -5,8 +5,8 @@ description: >-
   work. Reads the kickoff brief (the contract), tasks.md state, recent git
   log, the open PR state, and an optional handover brief, then surfaces
   uncommitted changes and asks before proceeding. Read-only over your
-  in-flight work: no stash, clean, push, merge, or commit of it; its one
-  write is the standard self-healing drift-log note.
+  in-flight work: no stash, clean, push, merge, or commit of it. The skill's
+  only write is the standard self-healing drift-log note.
 ---
 
 # /resume — read-only context loader
@@ -98,8 +98,8 @@ observable). This is what reconstructs what the prior session actually did.
 If a remote and the `gh` CLI are available, read the PR for this branch
 (`gh pr view` on the current branch): its number, draft/ready state, title,
 and review/CI status. If `gh` is absent or unauthenticated, or there is no
-remote, record that the PR state could not be read and proceed — local
-context is still complete (REQ-K1.6, REQ-K1.7).
+remote, record that the PR state could not be read and proceed with a partial
+load: everything except the PR state is still available (REQ-K1.6, REQ-K1.7).
 
 ### 7. Load the optional handover brief
 
