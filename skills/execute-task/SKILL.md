@@ -58,9 +58,9 @@ implementing against a contract whose defining rules cannot be read is the
 opaque failure. One doc resolves with graceful degradation instead:
 
 - `decision-domains` — the catalog behind the drift triggers below. Absent
-  (it lands with Task 15, a deliberate non-edge): note the missing catalog in
-  one line, skip the drift check, and rely on the engineering judgment the
-  catalog would otherwise structure.
+  (an adopter who has not installed the catalog, or a resolution failure):
+  note the missing catalog in one line, skip the drift check, and rely on the
+  engineering judgment the catalog would otherwise structure.
 
 ## Pre-flight
 
@@ -300,8 +300,8 @@ amendment axis:
    The PR is always a draft. Never mark it ready and never merge.
 3. **Annotate the unit.** Update the task block's annotations to
    `- **Status:** PR #<N> draft` and `- **Last activity:** <today>`. Section
-   moves on `gh pr create`/`merge` are the `tasks-pr-sync` hook's job
-   (Task 6); these annotations are anchor-excluded.
+   moves on `gh pr create`/`merge` are the `tasks-pr-sync` hook's job; these
+   annotations are anchor-excluded.
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, the tests
 written and CI outcome, Polish's convergence summary, the verified anchor, the

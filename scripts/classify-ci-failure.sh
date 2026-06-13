@@ -43,7 +43,7 @@ else
   # CI log would spike memory, and command substitution silently drops NUL
   # bytes (binary build artifacts) with a stderr warning. grep streams the
   # file instead.
-  log_file="$(mktemp)" || {
+  log_file="$(mktemp "${TMPDIR:-/tmp}/classify-ci.XXXXXX")" || {
     echo "classify-ci-failure: could not create a temp file" >&2
     exit 2
   }
