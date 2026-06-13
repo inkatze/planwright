@@ -21,9 +21,12 @@ to the human: it never auto-stashes, auto-commits, or auto-cleans (D-30),
 and as a read-only loader it never pushes or merges (REQ-F2.1). The point is
 to make the situation legible, not to act on it.
 
-This is a read-only, non-dispatching path: missing prerequisites (not a git
-repo, no remote, `gh` absent, a brief that is not there yet) degrade with a
-clear note and a still-useful partial load, never a hard halt (REQ-K1.7).
+This is a read-only, non-dispatching path. Outside a git repository there is
+nothing to resume, so it stops with a clear message (Step 1); every other
+missing prerequisite (no remote, `gh` absent, a brief that is not there yet)
+degrades with a clear note and a still-useful partial load rather than a hard
+halt. Both arms are graceful per REQ-K1.7: a clear message, never an opaque
+failure.
 
 ## Doctrine
 
@@ -137,4 +140,3 @@ append as its own chore commit, per REQ-B3.2 / D-42. In repositories
 without `specs/`, surface the drift to the user instead of writing the log.
 Do not edit this skill or the doctrine docs to resolve the drift; the
 observation log's reader owns folding drift into spec amendments.
-</content>
