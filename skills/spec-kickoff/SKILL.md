@@ -318,9 +318,10 @@ not walked.
 5. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` containing the brief, the four spec files,
    and the observations-log append when one rode this run —
-   first activation: `feat(spec): kickoff specs/<spec>, brief + Active
-   flip`; later events: `docs(spec): <event> specs/<spec>` (e.g.
-   `delta re-walkthrough`, `amendment`). New commits only — never
+   first activation: `feat(spec): <spec> kickoff, brief + Active flip`;
+   later events: `docs(spec): <spec> <event>` (e.g.
+   `delta re-walkthrough`, `amendment`), the same shapes the PR titles
+   below use. New commits only — never
    force-push, amend, squash, or rebase (REQ-J1.4). Opt-out set: leave the
    work uncommitted, say so explicitly, and skip push/PR (an unpushed
    commit is recoverable; pushing uncommitted state is not a thing).
