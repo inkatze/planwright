@@ -832,6 +832,54 @@ edit "$repo5/specs/myspec/requirements.md" 's|^- 2026-06-12 — created\.$|- 202
 run_v 0 --baseline HEAD "$repo5/specs"
 has "0 error(s), 0 warning(s)"
 
+# The mention must live in a DATED changelog entry (REQ-A3.3). An undated
+# bullet that names the id does not satisfy the check; a dated entry whose
+# continuation line names it does (entries span multiple lines).
+repo6="$tmp/repo6"
+mkdir -p "$repo6"
+git -C "$repo6" init -q
+write_bundle "$repo6/specs/myspec" Active
+git -C "$repo6" add -A
+git -C "$repo6" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+cat >"$repo6/specs/myspec/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Active
+**Last reviewed:** 2026-06-12
+**Format-version:** 1
+
+## Goal
+
+A fixture bundle.
+
+## REQ-X — fixture group
+
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X1.2** The gadget SHALL exist. **Superseded-by: REQ-X1.3** (2026-06-12)
+- **REQ-X1.3** (supersedes REQ-X1.2) The gadget SHALL exist and hum.
+  *(Cites: D-1.)*
+
+## Changelog
+
+- 2026-06-12 — created.
+- REQ-X1.2 placeholder, undated.
+
+## Sources
+
+- the fixture seed.
+EOF
+edit "$repo6/specs/myspec/test-spec.md" 's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X1.3 — gadget hums [manual]/'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "REQ-X1.2"
+has "Changelog"
+
+# A dated entry naming the supersede on its continuation line clears it.
+edit "$repo6/specs/myspec/requirements.md" 's|^- REQ-X1.2 placeholder, undated\.$|- 2026-06-12 — supersession note:\
+  retired REQ-X1.2 in favor of REQ-X1.3.|'
+run_v 0 --baseline HEAD "$repo6/specs"
+has "0 error(s), 0 warning(s)"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"

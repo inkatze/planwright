@@ -363,15 +363,21 @@ baseline_checks() {
       printf '%s\n' "$cur_sup" | while read -r sid; do
         [ -n "$sid" ] || continue
         if set_in "$sid" "$old_sup"; then continue; fi
-        # Name the bare id (REQ- stripped) as a whole token. awk tokenizes each
-        # changelog line on non-id characters and compares exactly, so the
-        # convention's bare "X1.2", a prefixed "REQ-X1.2", and a sentence-final
-        # "X1.2." all match, while a longer id it only prefixes ("X1.20",
-        # "X1.2.alpha") does not. This stays in awk rather than grep -E because
-        # anchors inside an alternation (`(^|…)` / `($|…)`) match unreliably on
-        # BSD grep. Exact string compare, so the id needs no regex-escaping.
+        # Name the bare id (REQ- stripped) as a whole token, inside a dated
+        # Changelog entry (REQ-A3.3). awk tracks whether the current line is
+        # part of a dated bullet entry — a `- <YYYY-MM-DD> …` bullet, or one of
+        # its continuation lines, since entries span multiple lines and the id
+        # often sits on a continuation (e.g. "REQ-B2.4 supersedes REQ-B2.1") —
+        # and only scans those, so an undated bullet that names the id does not
+        # satisfy the check. On a dated line it tokenizes on non-id characters
+        # and compares exactly: the bare "X1.2", a prefixed "REQ-X1.2", and a
+        # sentence-final "X1.2." match, while a longer id it only prefixes
+        # ("X1.20", "X1.2.alpha") does not. awk, not grep -E, because anchors
+        # inside an alternation (`(^|…)` / `($|…)`) match unreliably on BSD
+        # grep; exact compare, so the id needs no regex-escaping.
         if printf '%s\n' "$clog" | awk -v id="${sid#REQ-}" '
-          {
+          /^- / { dated = ($0 ~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) }
+          dated {
             line = $0
             gsub(/[^A-Za-z0-9.]/, " ", line)
             n = split(line, t, " ")
