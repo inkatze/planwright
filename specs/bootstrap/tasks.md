@@ -438,10 +438,19 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4, 5
 - **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
 - **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #12 (draft)
+- **Status:** draft-pr-ready · PR #12 (draft) · review gauntlet complete
+  (panel-pairing converged iter 2 · self-review clean · copilot-pairing converged
+  review 4, 5 threads addressed)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-9` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-9` · worktree `.claude/worktrees/task-9`
+- **Parked notes (non-blocking; Diego triages on return):** 1Password SSH signing
+  went down mid-gauntlet — commits from f6b286e onward are unsigned (agent
+  authorization unanswered; pushes via HTTPS/gh token). Three test-spec coverage
+  additions proposed by the T9 self-review are meaning-class amendments needing
+  authorization; logged in the observations log for the pending fence-grammar
+  delta re-walkthrough. The task itself is not blocked: the review gauntlet ran
+  to completion (task state stays In progress / draft-pr-ready).
 
 ## Awaiting input
 
