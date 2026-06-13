@@ -32,29 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 12 — `/execute-task`
-
-- **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
-  Research Rigor wiring (triggers fire pre-implementation; findings recorded in the risk
-  register per REQ-D1.5); write-time security passes (REQ-D1.6); decision-domains drift
-  triggers (REQ-G1.8); risk-register recording of research/perf/security tradeoffs;
-  in-flight amendment per the axis (D-19); `/polish` convergence; draft PR referencing
-  brief/tasks/REQs/tests and carrying the pending-sign-off checklist (REQ-E1.5);
-  the execution freshness gate at pre-flight (anchor recompute against main's brief
-  per the entry's recorded command; halt on mismatch or on an absent/unparseable/
-  non-sanctioned entry, REQ-F1.9/F1.10/D-45); the marked expression-only
-  self-re-anchor entry after in-flight expression fixes (REQ-F1.10); observation
-  writing; the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A task is implemented test-first (failing test precedes impl, ends green);
-  transient CI retries and logic failures escalate; a research trigger produces a
-  risk-register entry; a spec changed since the brief's last anchor (or an invalid
-  anchor entry) halts with the REQ-F1.9 remedy named; an in-flight expression-only
-  fix leaves a marked self-re-anchor entry; a draft PR is opened referencing the
-  brief with the checklist.
-- **Dependencies:** 9, 11
-- **Citations:** D-11, D-19, D-39, D-42, D-45 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-F1.9, REQ-F1.10, REQ-G1.8, REQ-J1.4, REQ-K1.7
-- **Estimated effort:** 1.5 days
-
 ### Task 13 — `/orchestrate`
 
 - **Deliverables:** The `/orchestrate` stateless step machine: critical-path-first ready-unit
@@ -89,6 +66,202 @@ intelligence migration) dispatches first.
 - **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41, D-45 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-F1.9, REQ-F1.10, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
 - **Estimated effort:** 3 days
 
+### Task 15 — Engineering decision-process doctrine doc
+
+- **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
+  framework/language/stack idioms while keeping domain logic composable; defer to tooling and
+  ecosystem standards; research mature-project solutions when no clean best-practice fits;
+  the stake-awareness rule (escalate load-bearing "mechanical" decisions); the
+  dependency-adoption checklist (REQ-G1.1); priority-balancing nuance. Plus the
+  decision-domains catalog doctrine (D-39): the entry format (trigger + considerations +
+  disposition) and the ~10 seed domain entries (REQ-G1.8).
+- **Done when:** The doc specifies the decision process, the ecosystem-research move, and the
+  escalation rule with the auth-class example; the catalog format and seed entries exist;
+  it is referenceable via the resolution path.
+- **Dependencies:** 3
+- **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
+- **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #6 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
+  branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
+
+### Task 11 — `/self-review` + `/polish`
+
+- **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
+  four-table output including empties); `/polish` (autonomous act-then-review loop:
+  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
+  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
+  until only irreducible judgment forks remain). Both append observations to the
+  observations log and carry the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
+  declined log and pending-sign-off checklist; the observations log gains entries; nested
+  invocation fires hooks once (in-session).
+- **Dependencies:** 3, 7
+- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
+- **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #8 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
+  branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
+
+### Task 5 — Status-aware validator
+
+- **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
+  structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
+  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8,
+  skipping underscore-prefixed accumulator directories);
+  status-aware across all five statuses (warnings on Draft,
+  errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
+  Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
+  format-version. Unit tests for each check.
+- **Done when:** The validator passes on a valid bundle, warns on a Draft gap, errors on the
+  same gap when Active, rejects a reused ID, rejects Superseded without `Superseded-by:`;
+  it runs in planwright's own CI (Task 2).
+- **Dependencies:** 4
+- **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #9 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
+  branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
+
+### Task 8 — `/spec-draft`
+
+- **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
+  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
+  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
+  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
+  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
+  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
+  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A run produces and commits a Draft bundle on the spec branch without
+  pushing/flipping Active; launching from main, from the spec worktree, and from an
+  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
+  recommendation on a differently-named overlap; consumed opportunities are archived;
+  the maintenance footer writes drift observations.
+- **Dependencies:** 3, 4
+- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
+- **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #11 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
+  branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
+
+### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
+
+- **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
+  the `GATE(when: …)` convention and a portable-shell gate parser/evaluator (condition gates,
+  date-gates-surface-only, confidence levels; closed declarative grammar parsed by pattern
+  match, never `eval`, per REQ-H1.3 — the doctrine doc is the normative home for the
+  grammar productions: atom forms, the `and`-of-atoms combinator, and the surface-only
+  free-text gate class); the `/drain` skill front-end over the evaluator; the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A satisfied condition gate re-surfaces its item; a date gate only surfaces;
+  nothing is auto-resolved or auto-dropped; `/drain` and the bookkeeping pass call the same
+  evaluator; a hostile or malformed gate entry is surfaced as an error, never evaluated or
+  silently skipped.
+- **Dependencies:** 4
+- **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #10 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
+  branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
+
+### Task 9 — `/spec-kickoff`
+
+- **Deliverables:** The `/spec-kickoff` skill: section-by-section walkthrough to mutual
+  understanding; incremental kickoff-brief authoring against the specified brief structure
+  (risk register, decisions, task graph, verification); the decision-domains gap check
+  (flags catalogued domains the spec touches but does not decide, into the risk register —
+  degrades gracefully until Task 15 lands; no dependency edge by design); inconsistency
+  halt with the edit-or-override resolution; Draft→Active flip on sign-off; auto-commit of
+  brief + flip (`commit_on_kickoff` opt-out, D-41); push of the spec branch + draft PR
+  (REQ-B2.4, D-44), degrading gracefully on no remote / `gh` failure (Awaiting-input note,
+  local work intact); spec-worktree reuse/recreate per D-44 (including recreating a pruned
+  worktree from the spec branch); `Last reviewed:` update; the sign-off content anchor
+  written on every sign-off, amendment, and re-walkthrough per the REQ-F1.10 record
+  format, anchor line written last (REQ-F1.9, D-45); the Discovery-Rigor lens review
+  pass as part of sign-off (fan-out per Discovery Rigor for non-trivial deltas; full
+  bundle at first activation, delta-scoped at re-walkthroughs and amendments, skipped
+  for expression-only changes per REQ-A3.3), findings dispositioned and the pass
+  recorded in the brief; the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A walkthrough produces a signed brief, flips the spec Active, commits,
+  pushes, and opens a draft PR (or records the degradation note when no remote exists);
+  every sign-off carries a recomputable content anchor in the REQ-F1.10 format; a
+  meaning-class sign-off without a dispositioned lens pass refuses to record an
+  execution-valid anchor; launching from main, the spec
+  worktree, or an unrelated worktree each resolves
+  gracefully; a seeded contradiction halts without a brief; a killed session leaves a
+  resumable partial brief.
+- **Dependencies:** 4, 5
+- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #12 merged 2026-06-12 · review gauntlet complete
+  (panel-pairing converged iter 2 · self-review clean · copilot-pairing converged
+  review 4, 5 threads addressed)
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-9` · dispatched 2026-06-12T23:35Z ·
+  branch `planwright/bootstrap/task-9` · worktree `.claude/worktrees/task-9`
+- **Parked notes (non-blocking; Diego triages on return):** 1Password SSH signing
+  went down mid-gauntlet — commits from f6b286e onward are unsigned (agent
+  authorization unanswered; pushes via HTTPS/gh token). Three test-spec coverage
+  additions proposed by the T9 self-review are meaning-class amendments needing
+  authorization; logged in the observations log for the pending fence-grammar
+  delta re-walkthrough. The task itself is not blocked: the review gauntlet ran
+  to completion (task state stays In progress / draft-pr-ready).
+
+## In progress
+
+### Task 6 — Hooks & operational integration
+
+- **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
+  sections on `gh pr create` / `gh pr merge`, parsing the branch convention); the
+  `tool-discovery` SessionStart hook (detects linters/formatters/type-checkers, feeds
+  Discovery Rigor and the builder); the branch-naming and worktree-placement conventions
+  (including the reserved `planwright/<spec>/spec` namespace the sync hook no-ops on,
+  D-44); config-model wiring.
+- **Done when:** Creating/merging a PR on a convention-named branch moves the matching task
+  block to the right section; a session start emits the discovered-tools summary; the hooks
+  no-op cleanly on non-matching input, including hostile branch names (segments failing
+  the REQ-A1.8 charset, `..`, path separators).
+- **Dependencies:** 4, 5
+- **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
+- **Estimated effort:** 1 day
+- **Status:** draft-pr-ready · PR #13 (draft)
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
+  branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
+
+### Task 12 — `/execute-task`
+
+- **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
+  Research Rigor wiring (triggers fire pre-implementation; findings recorded in the risk
+  register per REQ-D1.5); write-time security passes (REQ-D1.6); decision-domains drift
+  triggers (REQ-G1.8); risk-register recording of research/perf/security tradeoffs;
+  in-flight amendment per the axis (D-19); `/polish` convergence; draft PR referencing
+  brief/tasks/REQs/tests and carrying the pending-sign-off checklist (REQ-E1.5);
+  the execution freshness gate at pre-flight (anchor recompute against main's brief
+  per the entry's recorded command; halt on mismatch or on an absent/unparseable/
+  non-sanctioned entry, REQ-F1.9/F1.10/D-45); the marked expression-only
+  self-re-anchor entry after in-flight expression fixes (REQ-F1.10); observation
+  writing; the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A task is implemented test-first (failing test precedes impl, ends green);
+  transient CI retries and logic failures escalate; a research trigger produces a
+  risk-register entry; a spec changed since the brief's last anchor (or an invalid
+  anchor entry) halts with the REQ-F1.9 remedy named; an in-flight expression-only
+  fix leaves a marked self-re-anchor entry; a draft PR is opened referencing the
+  brief with the checklist.
+- **Dependencies:** 9, 11
+- **Citations:** D-11, D-19, D-39, D-42, D-45 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-F1.9, REQ-F1.10, REQ-G1.8, REQ-J1.4, REQ-K1.7
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-12` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-12` · worktree `.claude/worktrees/task-12`
+
 ### Task 14 — `/resume`
 
 - **Deliverables:** The `/resume` read-only context loader: kickoff brief + `tasks.md` + git
@@ -117,19 +290,6 @@ intelligence migration) dispatches first.
 - **Dependencies:** 7, 8, 10, 12, 15
 - **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
 - **Estimated effort:** 1.5 days
-
-### Task 17 — Spec lifecycle & evolution mechanics
-
-- **Deliverables:** The amendment ritual (fix-in-place + mandatory changelog vs. supersede +
-  scoped re-sign-off) wired into `/execute-task` and `/spec-kickoff`; the fold-vs-new rule and
-  extend mechanics wired into `/spec-draft`; supersede / changelog / never-reused-ID
-  enforcement added to the validator.
-- **Done when:** An expression-only edit needs only a changelog; a decision-contradicting edit
-  triggers supersede + scoped re-sign-off; the validator rejects a reused ID and accepts a
-  supersede; `/spec-draft` extend mode appends without renumbering.
-- **Dependencies:** 5, 8, 9
-- **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
-- **Estimated effort:** 1 day
 
 ### Task 18 — Multi-contributor work-repo end-to-end validation run
 
@@ -282,175 +442,27 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
   branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
-
-### Task 15 — Engineering decision-process doctrine doc
-
-- **Deliverables:** The engineering doctrine doc encoding the decision process: prefer
-  framework/language/stack idioms while keeping domain logic composable; defer to tooling and
-  ecosystem standards; research mature-project solutions when no clean best-practice fits;
-  the stake-awareness rule (escalate load-bearing "mechanical" decisions); the
-  dependency-adoption checklist (REQ-G1.1); priority-balancing nuance. Plus the
-  decision-domains catalog doctrine (D-39): the entry format (trigger + considerations +
-  disposition) and the ~10 seed domain entries (REQ-G1.8).
-- **Done when:** The doc specifies the decision process, the ecosystem-research move, and the
-  escalation rule with the auth-class example; the catalog format and seed entries exist;
-  it is referenceable via the resolution path.
-- **Dependencies:** 3
-- **Citations:** D-15, D-16, D-39 · REQ-G1.1, REQ-G1.3, REQ-G1.6, REQ-G1.8
-- **Estimated effort:** 1.5 days
-- **Status:** Completed · PR #6 merged 2026-06-12
+- **Status:** implementing
 - **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-15` · dispatched 2026-06-11T22:16Z ·
-  branch `planwright/bootstrap/task-15` · worktree `.claude/worktrees/task-15`
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-14` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-14` · worktree `.claude/worktrees/task-14`
 
-### Task 11 — `/self-review` + `/polish`
+### Task 17 — Spec lifecycle & evolution mechanics
 
-- **Deliverables:** `/self-review` (Discovery + Validation rigor against the feature branch,
-  four-table output including empties); `/polish` (autonomous act-then-review loop:
-  applies Auto-applicable, Agent-resolvable, and Needs-sign-off items per REQ-C1.3,
-  records declined-with-rationale dispositions, walks the resolution ladder, local-only,
-  until only irreducible judgment forks remain). Both append observations to the
-  observations log and carry the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** `/polish` drains all action dispositions, emits all four tables plus the
-  declined log and pending-sign-off checklist; the observations log gains entries; nested
-  invocation fires hooks once (in-session).
-- **Dependencies:** 3, 7
-- **Citations:** D-12, D-13, D-42 · REQ-E2.1, REQ-E2.2, REQ-C1.5, REQ-C1.6, REQ-C1.7, REQ-B3.2
-- **Estimated effort:** 1.5 days
-- **Status:** Completed · PR #8 merged 2026-06-12
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-11` · dispatched 2026-06-12T19:35Z ·
-  branch `planwright/bootstrap/task-11` · worktree `.claude/worktrees/task-11`
-
-### Task 5 — Status-aware validator
-
-- **Deliverables:** A portable-shell validator enforcing four-file presence, per-task
-  structure (stable ID, Done when, Dependencies, Citations), REQ↔test-spec coverage, and the
-  stable-ID/never-reused rule; the spec-identifier charset check (REQ-A1.8,
-  skipping underscore-prefixed accumulator directories);
-  status-aware across all five statuses (warnings on Draft,
-  errors on Active; Retired/Superseded treated as terminal — `Superseded-by:` required on
-  Superseded; reopen-cycle transitions accepted per D-40); keyed off the declared
-  format-version. Unit tests for each check.
-- **Done when:** The validator passes on a valid bundle, warns on a Draft gap, errors on the
-  same gap when Active, rejects a reused ID, rejects Superseded without `Superseded-by:`;
-  it runs in planwright's own CI (Task 2).
-- **Dependencies:** 4
-- **Citations:** D-25, D-34 · REQ-A1.8, REQ-A2.1, REQ-A2.2, REQ-A3.2
-- **Estimated effort:** 1 day
-- **Status:** Completed · PR #9 merged 2026-06-12
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
-  branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
-
-### Task 8 — `/spec-draft`
-
-- **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
-  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
-  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
-  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
-  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
-  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
-  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A run produces and commits a Draft bundle on the spec branch without
-  pushing/flipping Active; launching from main, from the spec worktree, and from an
-  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
-  recommendation on a differently-named overlap; consumed opportunities are archived;
-  the maintenance footer writes drift observations.
-- **Dependencies:** 3, 4
-- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
-- **Estimated effort:** 1.5 days
-- **Status:** Completed · PR #11 merged 2026-06-12
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
-  branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
-
-## In progress
-
-### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
-
-- **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
-  the `GATE(when: …)` convention and a portable-shell gate parser/evaluator (condition gates,
-  date-gates-surface-only, confidence levels; closed declarative grammar parsed by pattern
-  match, never `eval`, per REQ-H1.3 — the doctrine doc is the normative home for the
-  grammar productions: atom forms, the `and`-of-atoms combinator, and the surface-only
-  free-text gate class); the `/drain` skill front-end over the evaluator; the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A satisfied condition gate re-surfaces its item; a date gate only surfaces;
-  nothing is auto-resolved or auto-dropped; `/drain` and the bookkeeping pass call the same
-  evaluator; a hostile or malformed gate entry is surfaced as an error, never evaluated or
-  silently skipped.
-- **Dependencies:** 4
-- **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
-- **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #10 (draft)
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
-  branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
-
-### Task 6 — Hooks & operational integration
-
-- **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
-  sections on `gh pr create` / `gh pr merge`, parsing the branch convention); the
-  `tool-discovery` SessionStart hook (detects linters/formatters/type-checkers, feeds
-  Discovery Rigor and the builder); the branch-naming and worktree-placement conventions
-  (including the reserved `planwright/<spec>/spec` namespace the sync hook no-ops on,
-  D-44); config-model wiring.
-- **Done when:** Creating/merging a PR on a convention-named branch moves the matching task
-  block to the right section; a session start emits the discovered-tools summary; the hooks
-  no-op cleanly on non-matching input, including hostile branch names (segments failing
-  the REQ-A1.8 charset, `..`, path separators).
-- **Dependencies:** 4, 5
-- **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
+- **Deliverables:** The amendment ritual (fix-in-place + mandatory changelog vs. supersede +
+  scoped re-sign-off) wired into `/execute-task` and `/spec-kickoff`; the fold-vs-new rule and
+  extend mechanics wired into `/spec-draft`; supersede / changelog / never-reused-ID
+  enforcement added to the validator.
+- **Done when:** An expression-only edit needs only a changelog; a decision-contradicting edit
+  triggers supersede + scoped re-sign-off; the validator rejects a reused ID and accepts a
+  supersede; `/spec-draft` extend mode appends without renumbering.
+- **Dependencies:** 5, 8, 9
+- **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
 - **Estimated effort:** 1 day
 - **Status:** implementing
 - **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
-  branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
-
-### Task 9 — `/spec-kickoff`
-
-- **Deliverables:** The `/spec-kickoff` skill: section-by-section walkthrough to mutual
-  understanding; incremental kickoff-brief authoring against the specified brief structure
-  (risk register, decisions, task graph, verification); the decision-domains gap check
-  (flags catalogued domains the spec touches but does not decide, into the risk register —
-  degrades gracefully until Task 15 lands; no dependency edge by design); inconsistency
-  halt with the edit-or-override resolution; Draft→Active flip on sign-off; auto-commit of
-  brief + flip (`commit_on_kickoff` opt-out, D-41); push of the spec branch + draft PR
-  (REQ-B2.4, D-44), degrading gracefully on no remote / `gh` failure (Awaiting-input note,
-  local work intact); spec-worktree reuse/recreate per D-44 (including recreating a pruned
-  worktree from the spec branch); `Last reviewed:` update; the sign-off content anchor
-  written on every sign-off, amendment, and re-walkthrough per the REQ-F1.10 record
-  format, anchor line written last (REQ-F1.9, D-45); the Discovery-Rigor lens review
-  pass as part of sign-off (fan-out per Discovery Rigor for non-trivial deltas; full
-  bundle at first activation, delta-scoped at re-walkthroughs and amendments, skipped
-  for expression-only changes per REQ-A3.3), findings dispositioned and the pass
-  recorded in the brief; the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A walkthrough produces a signed brief, flips the spec Active, commits,
-  pushes, and opens a draft PR (or records the degradation note when no remote exists);
-  every sign-off carries a recomputable content anchor in the REQ-F1.10 format; a
-  meaning-class sign-off without a dispositioned lens pass refuses to record an
-  execution-valid anchor; launching from main, the spec
-  worktree, or an unrelated worktree each resolves
-  gracefully; a seeded contradiction halts without a brief; a killed session leaves a
-  resumable partial brief.
-- **Dependencies:** 4, 5
-- **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
-- **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #12 (draft) · review gauntlet complete
-  (panel-pairing converged iter 2 · self-review clean · copilot-pairing converged
-  review 4, 5 threads addressed)
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-9` · dispatched 2026-06-12T23:35Z ·
-  branch `planwright/bootstrap/task-9` · worktree `.claude/worktrees/task-9`
-- **Parked notes (non-blocking; Diego triages on return):** 1Password SSH signing
-  went down mid-gauntlet — commits from f6b286e onward are unsigned (agent
-  authorization unanswered; pushes via HTTPS/gh token). Three test-spec coverage
-  additions proposed by the T9 self-review are meaning-class amendments needing
-  authorization; logged in the observations log for the pending fence-grammar
-  delta re-walkthrough. The task itself is not blocked: the review gauntlet ran
-  to completion (task state stays In progress / draft-pr-ready).
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-17` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-17` · worktree `.claude/worktrees/task-17`
 
 ## Awaiting input
 

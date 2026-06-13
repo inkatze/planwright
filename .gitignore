@@ -25,6 +25,12 @@ mise.local.toml
 # Optional handover brief — transient per-worktree cache (design.md D-2/D-3).
 .claude/handover.md
 
+# Per-spec advisory lock (design.md D-10) — transient runtime state taken by
+# /orchestrate and the tasks-pr-sync hook around tasks.md writes, plus the
+# hook's atomic-write temp files (orphaned only by an unclean kill).
+specs/*/.orchestrate.lock
+specs/*/.tasks-pr-sync.*
+
 # === Bootstrap staging ===
 
 # Consumed bootstrap seed — already mined into specs/bootstrap/, kept local only.
