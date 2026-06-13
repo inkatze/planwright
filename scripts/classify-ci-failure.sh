@@ -61,6 +61,9 @@ transient_re="$transient_re|timed out|(^|[[:space:]])timeout([[:space:]:]|$)"
 transient_re="$transient_re|network is unreachable|network error|no route to host"
 transient_re="$transient_re|could not resolve host|temporary failure in name resolution"
 transient_re="$transient_re|name or service not known|eai_again"
+# POSIX/Node socket+DNS errno names (npm/node/go CI logs surface these instead
+# of the spelled-out phrases): unambiguous network failures, always transient.
+transient_re="$transient_re|enotfound|econnreset|econnrefused|econnaborted|etimedout|ehostunreach"
 transient_re="$transient_re|tls handshake timeout|i/o timeout"
 transient_re="$transient_re|503 service unavailable|service unavailable"
 transient_re="$transient_re|502 bad gateway|504 gateway|gateway time-?out"

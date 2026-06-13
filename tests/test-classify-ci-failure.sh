@@ -64,7 +64,14 @@ HTTP 503 Service Unavailable
 remote: 429 Too Many Requests
 dial tcp: connection refused
 TLS handshake timeout
-The remote end hung up unexpectedly'
+The remote end hung up unexpectedly
+npm ERR! request to https://registry.npmjs.org failed, reason: getaddrinfo ENOTFOUND registry.npmjs.org
+Error: connect ECONNREFUSED 140.82.112.3:443
+Error: read ECONNRESET
+Error: connect ETIMEDOUT 140.82.112.3:443
+ping: connect: Network is unreachable
+HTTP 502 Bad Gateway
+ssh: connect to host github.com port 22: No route to host'
 ts_n=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -84,7 +91,10 @@ SyntaxError: Unexpected token
 mymod.rb:9: undefined method `frobnicate'"'"' for nil:NilClass
 Traceback (most recent call last):
 12 failing
-would reformat scripts/foo.sh'
+would reformat scripts/foo.sh
+panic: runtime error: index out of range [3] with length 2
+bash: line 4: parse error near unexpected token
+In scripts/foo.sh line 9: SC2086: Double quote to prevent globbing'
 ls_n=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue

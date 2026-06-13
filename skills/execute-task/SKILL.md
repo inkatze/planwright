@@ -214,7 +214,7 @@ does not cover yet writes an **observation** (the catalog grows through the
 drain loop). When `decision-domains` did not resolve, note the skipped check
 and lean on engineering judgment for the same calls.
 
-### Run the full project CI (REQ-B1.6)
+### Run the full project CI (REQ-E1.2)
 
 Run the command derived in pre-flight step 9. The full suite must pass before
 convergence. Capture its output.
