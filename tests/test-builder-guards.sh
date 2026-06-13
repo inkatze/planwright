@@ -178,6 +178,53 @@ fi
 PLANWRIGHT_GUARD_CATALOG="/no/such/catalog.yaml" /bin/bash "$SCRIPT" --core "$REPO_ROOT" >/dev/null 2>&1
 assert_exit "missing catalog file errors (non-zero)" 1 $?
 
+# ---------------------------------------------------------------------------
+# 8. Malformed catalog entry (missing/empty detect) degrades gracefully
+#    (REQ-K1.7, REQ-G1.5): skip the bad entry with a warning, never crash the
+#    whole run, and still emit the valid guards. A bare empty-array expansion
+#    under `set -u` on the bash 3.2 floor would otherwise abort the script.
+# ---------------------------------------------------------------------------
+tmp_bad="$(mktemp -d)"
+cat >"$tmp_bad/catalog.yaml" <<'YAML'
+---
+guards:
+  - id: missing-detect
+    category: linter
+    tool: footool
+    core: true
+  - id: empty-detect
+    category: linter
+    tool: bartool
+    detect: ""
+    core: true
+  - id: good-shell
+    category: linter
+    tool: shellcheck
+    detect: "*.sh"
+    core: true
+YAML
+: >"$tmp_bad/x.sh"
+bad_out="$(PLANWRIGHT_GUARD_CATALOG="$tmp_bad/catalog.yaml" \
+  /bin/bash "$SCRIPT" --core "$tmp_bad" 2>"$tmp_bad/err.txt")"
+bad_rc=$?
+assert_exit "malformed-detect entry does not crash the run" 0 "$bad_rc"
+if printf '%s\n' "$bad_out" | tools_of | grep -qx "shellcheck"; then
+  pass "valid guards still emitted past a malformed entry"
+else
+  fail "valid guard dropped by a malformed sibling entry"
+fi
+if printf '%s\n' "$bad_out" | tools_of | grep -qxE "footool|bartool"; then
+  fail "malformed (detect-less) entry was wrongly emitted"
+else
+  pass "malformed (detect-less) entry omitted, not emitted"
+fi
+if grep -q "missing-detect" "$tmp_bad/err.txt" && grep -q "empty-detect" "$tmp_bad/err.txt"; then
+  pass "skipped entries are named in a stderr warning (not silent)"
+else
+  fail "malformed entries skipped silently (no stderr warning naming them)"
+fi
+rm -rf "$tmp_bad"
+
 if [ "$failures" -eq 0 ]; then
   echo "all builder-guards tests passed"
   exit 0

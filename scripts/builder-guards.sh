@@ -77,6 +77,10 @@ detect_match() {
   local t="$1" detect="$2" sig
   local -a signals
   read -ra signals <<<"$detect"
+  # Guard the empty-array case: on the bash 3.2 floor, expanding "${arr[@]}"
+  # of an empty array under `set -u` aborts the script (REQ-K1.5). An empty
+  # detect simply matches nothing.
+  [ "${#signals[@]}" -gt 0 ] || return 1
   for sig in "${signals[@]}"; do
     case "$sig" in
       git)
@@ -130,6 +134,15 @@ parse_catalog() {
 emit=""
 while IFS='|' read -r id cat tool detect core section; do
   [ -n "$id" ] || continue
+  # A non-breadth guard with no detect signal is a malformed catalog entry
+  # (most often an adopter omitting `detect:`). Skip it with a warning rather
+  # than dropping it silently or aborting the run (REQ-K1.7 graceful
+  # degradation; the catalog is adopter-extensible, REQ-G1.5).
+  if [ "$section" != "breadth" ] \
+    && [ -z "$(printf '%s' "$detect" | tr -d '[:space:]')" ]; then
+    echo "builder-guards: catalog entry '$id' has no detect signal; skipping" >&2
+    continue
+  fi
   if [ "$core_only" -eq 1 ]; then
     [ "$core" = "true" ] || continue
     if detect_match "$target" "$detect"; then
