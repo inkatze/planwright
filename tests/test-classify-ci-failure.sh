@@ -161,7 +161,9 @@ assert_exit "benign expected-to phrasing stays transient" 0 "$code"
 assert_word "benign expected-to phrasing" "transient" "$word"
 
 # 10. A filename beginning with a hyphen is read as a file, never parsed as a
-#     command option (the file argument is passed after `--`).
+#     command option: the classifier takes a single file argument (no `--`
+#     separator on its own CLI) and guards it internally when it hands the path
+#     to grep (`grep ... -- "$file"`).
 printf '%s\n' 'connection refused' >"$tmp/-dash.log"
 word="$(cd "$tmp" && /bin/bash "$CLASSIFIER" -dash.log 2>/dev/null)"
 code=$?
