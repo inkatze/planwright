@@ -394,6 +394,18 @@ Claude Code skill file format). Sources: official docs at code.claude.com/docs
 |---|---|---|
 | 16 | Skill format facts verified current as of 2026-06-12: plugin skills live at `skills/<name>/SKILL.md` with the **directory name** authoritative for the command name (the frontmatter `name` field is display-only there); all frontmatter fields are optional, `description` drives model auto-invocation (truncated at 1,536 chars with `when_to_use`); `commands/*.md` still works but is legacy, with the directory layout recommended. `~/.claude/skills/<name>/SKILL.md` (writer fallback) uses the identical format. The skill surface is evolving (commands merged into skills in v2.1.x), so these facts can drift before T19. | T11's skills keep frontmatter minimal (`name`, `description`, `argument-hint`) to limit drift exposure; T19's packaging pass re-verifies the skill schema against current docs. Skills reference doctrine only via the resolution path, never relative links, because the two delivery modes place skills and doctrine in different relative positions (observation logged). |
 
+### Risk register additions — Task 6 execution (2026-06-12)
+
+Research Rigor findings recorded per REQ-E1.3/REQ-D1.5 (execution-skill write,
+named-section only; no anchor entry). Trigger: version-sensitive API use (the
+Claude Code plugin hooks surface). Sources: official docs at
+code.claude.com/docs (plugins-reference, hooks), consulted 2026-06-12.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 17 | Hook-surface facts verified current as of 2026-06-12: plugin hooks live at `hooks/hooks.json` in the plugin root (auto-discovered; inline `plugin.json` also supported), commands reference scripts via `"${CLAUDE_PLUGIN_ROOT}"`; SessionStart context is injected via the `hookSpecificOutput.additionalContext` payload; PostToolUse receives `tool_name` / `tool_input.command` / `tool_response` on stdin, with `tool_response` documented loosely ("the tool's output") while Bash in practice sends an object with `stdout`. The hook surface is evolving (the event list has grown substantially), so these facts can drift before T19. | `tasks-pr-sync.sh` reads `tool_response` shape-defensively (object's `.stdout` or the raw string); T19's packaging pass re-verifies `hooks.json` against current docs. The writer fallback keeps hook wiring a printed manual step (`install.sh` never edits `settings.json`). |
+| 18 | Task 6 forward-implements the D-10 advisory lock ahead of T13: `tasks-pr-sync.sh` takes a `mkdir`-based lock at `specs/<spec>/.orchestrate.lock` in the primary checkout, breaks it past `stale_lock_threshold` (mtime via `find -mmin`), and drops the event cleanly when busy (`--bookkeeping` reconciles, the interim answer to the deferred lock-failure-recovery backlog item). If T13's `/orchestrate` lock uses a different path or protocol, the two writers will not exclude each other. | T13's executor must adopt the same lock path and mkdir protocol (or migrate both in one PR); the deferred-backlog canonicalization rule (worktree writers lock the primary checkout's path) is already honored here. |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
