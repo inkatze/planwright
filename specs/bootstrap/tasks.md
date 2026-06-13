@@ -366,8 +366,6 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
   branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
 
-## In progress
-
 ### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
 
 - **Deliverables:** The accumulator-taxonomy doctrine doc (three classes + drain ritual each);
@@ -384,10 +382,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4
 - **Citations:** D-17, D-18, D-31, D-42 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5, REQ-B3.2
 - **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #10 (draft)
+- **Status:** Completed · PR #10 merged 2026-06-12
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
+
+## In progress
 
 ### Task 6 — Hooks & operational integration
 
@@ -404,7 +404,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4, 5
 - **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
 - **Estimated effort:** 1 day
-- **Status:** PR #13 draft
+- **Status:** draft-pr-ready · PR #13 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
