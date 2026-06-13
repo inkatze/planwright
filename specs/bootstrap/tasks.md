@@ -32,29 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-### Task 12 — `/execute-task`
-
-- **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
-  Research Rigor wiring (triggers fire pre-implementation; findings recorded in the risk
-  register per REQ-D1.5); write-time security passes (REQ-D1.6); decision-domains drift
-  triggers (REQ-G1.8); risk-register recording of research/perf/security tradeoffs;
-  in-flight amendment per the axis (D-19); `/polish` convergence; draft PR referencing
-  brief/tasks/REQs/tests and carrying the pending-sign-off checklist (REQ-E1.5);
-  the execution freshness gate at pre-flight (anchor recompute against main's brief
-  per the entry's recorded command; halt on mismatch or on an absent/unparseable/
-  non-sanctioned entry, REQ-F1.9/F1.10/D-45); the marked expression-only
-  self-re-anchor entry after in-flight expression fixes (REQ-F1.10); observation
-  writing; the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A task is implemented test-first (failing test precedes impl, ends green);
-  transient CI retries and logic failures escalate; a research trigger produces a
-  risk-register entry; a spec changed since the brief's last anchor (or an invalid
-  anchor entry) halts with the REQ-F1.9 remedy named; an in-flight expression-only
-  fix leaves a marked self-re-anchor entry; a draft PR is opened referencing the
-  brief with the checklist.
-- **Dependencies:** 9, 11
-- **Citations:** D-11, D-19, D-39, D-42, D-45 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-F1.9, REQ-F1.10, REQ-G1.8, REQ-J1.4, REQ-K1.7
-- **Estimated effort:** 1.5 days
-
 ### Task 13 — `/orchestrate`
 
 - **Deliverables:** The `/orchestrate` stateless step machine: critical-path-first ready-unit
@@ -88,200 +65,6 @@ intelligence migration) dispatches first.
 - **Dependencies:** 5, 6, 10, 12
 - **Citations:** D-7, D-8, D-9, D-10, D-31, D-36, D-37, D-38, D-41, D-45 · REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-F1.6, REQ-F1.7, REQ-F1.8, REQ-F1.9, REQ-F1.10, REQ-H1.4, REQ-J1.1, REQ-J1.2, REQ-J1.3, REQ-J1.4, REQ-K1.7, REQ-B3.2
 - **Estimated effort:** 3 days
-
-### Task 14 — `/resume`
-
-- **Deliverables:** The `/resume` read-only context loader: kickoff brief + `tasks.md` + git
-  log + PR state + optional handover brief; surfaces uncommitted changes and asks before
-  proceeding; no auto-stash/commit/clean; the self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A fresh session in an in-flight worktree gets the loaded context and a
-  `git status` surfacing with a proceed prompt.
-- **Dependencies:** 9
-- **Citations:** D-30, D-42 · REQ-F2.1, REQ-B3.2
-- **Estimated effort:** half day
-
-### Task 16 — Builder skill + core catalog + lifecycle hooks
-
-- **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
-  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
-  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
-  gate, commit hooks) with breadth dimensions
-  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
-  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
-  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** The builder detects a project's stack and recommends/applies the core guards;
-  an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
-  builder, run against planwright itself, reproduces the guard set established in Task 2**
-  (dogfood loop).
-- **Dependencies:** 7, 8, 10, 12, 15
-- **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
-- **Estimated effort:** 1.5 days
-
-### Task 17 — Spec lifecycle & evolution mechanics
-
-- **Deliverables:** The amendment ritual (fix-in-place + mandatory changelog vs. supersede +
-  scoped re-sign-off) wired into `/execute-task` and `/spec-kickoff`; the fold-vs-new rule and
-  extend mechanics wired into `/spec-draft`; supersede / changelog / never-reused-ID
-  enforcement added to the validator.
-- **Done when:** An expression-only edit needs only a changelog; a decision-contradicting edit
-  triggers supersede + scoped re-sign-off; the validator rejects a reused ID and accepts a
-  supersede; `/spec-draft` extend mode appends without renumbering.
-- **Dependencies:** 5, 8, 9
-- **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
-- **Estimated effort:** 1 day
-
-### Task 18 — Multi-contributor work-repo end-to-end validation run
-
-- **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
-  (a qualifying private work repo exists): draft → kickoff → orchestrate → execute →
-  polish → draft PR,
-  confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
-  log, hard pauses firing where expected); a findings document covering the gate behavior,
-  kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
-  sweep**: a checklist of every test-spec entry whose tag includes [manual] or
-  [Gherkin] (mixed tags count) — exercised, or the gap named.
-- **Done when:** At least one work-project task is executed via the pipeline; the findings
-  doc covers the gate behavior and contains the completed manual-sweep checklist; the
-  public-release gate condition (c) is met. Validating across a second distinct work repo
-  is a deferred stretch (see Deferred).
-- **Dependencies:** 13, 14, 16, 17
-- **Citations:** D-5, D-27, D-38 · REQ-C1.3, REQ-J1.5
-- **Estimated effort:** 2 days
-
-### Task 19 — Packaging finalization & onboarding docs
-
-- **Deliverables:** Finalized plugin manifest + `~/.claude/` writer; adopter onboarding docs
-  (autopilot model, how to supply project-specific tooling/rigor without editing core docs,
-  the GitHub/`gh` requirement and graceful-degradation behavior); contribution model;
-  public-release readiness checklist enforcing the three gate conditions plus every
-  release-blocking gated Deferred entry (currently the `reference/` history purge,
-  human-reserved per REQ-J1.4: the checklist verifies it happened, it does not perform
-  it). *(Amended at panel review 2026-06-11: checklist scope widened to cover
-  release-blocking Deferred entries; brief Risk Register row 8 already claimed this
-  enforcement.)*
-- **Done when:** A clean machine can install planwright both ways and resolve rule docs; the
-  onboarding docs let a non-author operate the pilot-in-command model; the release checklist
-  enumerates and checks the three gate conditions and every release-blocking gated
-  Deferred entry (the `reference/` history purge).
-- **Dependencies:** 16, 17, 18
-- **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
-- **Estimated effort:** 1 day
-
-## Completed
-
-### Task 3 — Migrate framework intelligence into doctrine docs
-
-- **Deliverables:** Standalone planwright doctrine docs reworded from `CLAUDE.md` into
-  framework documentation: Finding Categorization (four buckets + predicates, act-then-review
-  dispositions incl. declined-with-rationale and the resolution ladder per D-5), Validation
-  Rigor (incl. the altitude check), Discovery Rigor, Refactor Instinct, **Research Rigor**
-  (triggers, source hierarchy, recency discipline, antipattern check, risk-register
-  recording per REQ-D1.5), **Security posture** (write-time triggers, artifact
-  data-hygiene, framework-script security per REQ-D1.6), the proportionality principle
-  (REQ-D1.7), and the composability-by-default principle. Personal content (fish/mise/tmux,
-  git conventions, the author's repos) is NOT migrated.
-- **Done when:** Each doctrine doc exists as framework prose (no first-person personal
-  instructions); the four buckets, the three-pass validation, the lens checklist, the
-  refactor bars, the research ritual, and the security posture are all present; skills can
-  reference them via the resolution path (Task 1).
-- **Dependencies:** none
-- **Citations:** D-4, D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.6, REQ-C1.7, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D2.1
-- **Estimated effort:** 2.5 days
-- **Status:** Completed · PR #2 merged 2026-06-11
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
-  branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
-
-### Task 1 — Repo scaffold & packaging skeleton
-
-- **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
-  plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
-  default + gitignored local override per D-33, including the commit/dispatch toggles
-  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
-  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
-  for the local config + worktrees.
-- **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
-  rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
-  states the human-reserved controls; every option in the default config has an
-  options-reference entry.
-- **Dependencies:** none
-- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
-- **Estimated effort:** half day
-- **Status:** Completed · PR #3 merged 2026-06-11
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
-  branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
-
-### Task 2 — Self-hosting: quality guards & CI
-
-- **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
-  `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
-  cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
-  runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
-  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
-  the options-reference drift check (fail on an undocumented config option, D-43).
-- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
-  (including a seeded undocumented config option); all subsequent tasks merge only under
-  green CI.
-- **Dependencies:** 1
-- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
-- **Estimated effort:** 1 day
-- **Status:** Completed · PR #7 merged 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
-  branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
-
-### Task 7 — Finding categorization & act-then-review gate wiring
-
-- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
-  with act-then-review dispositions: on-branch application of Needs-sign-off items,
-  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
-  audit log, the resolution ladder (brief → research → convention) before the judgment
-  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
-- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
-  a declined finding carries its rationale in the audit table; a fork resolvable from the
-  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
-  including empties.
-- **Dependencies:** 3
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
-- **Estimated effort:** 1 day
-- **Status:** Completed · PR #5 merged 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
-  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
-
-### Task 4 — Four-file format meta-spec
-
-- **Deliverables:** The canonical four-file format meta-spec: required fields per file,
-  REQ-ID / D-ID conventions, citation syntax and lightweight citation kinds (e.g.
-  "drafting-session decision"), the per-task required fields, the five-status lifecycle
-  with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
-  declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
-  a glossary of framework vocabulary covering at minimum: the three senses of gate;
-  unit; drain; accumulator; adopter; brief; bucket; tower (the dispatching session);
-  the observations log (canonical name for `specs/_observations/opportunities.md`);
-  dispatch step; content anchor; execution-valid (anchor); meaning-class vs
-  expression-only (the REQ-A3.3 axis).
-  Plus the format conventions: the spec-identifier charset (REQ-A1.8), the
-  path-placeholder style (angle brackets: `<spec>`, `<id>`), the superseding-REQ
-  placement rule (a superseding REQ sits adjacent to the REQ it supersedes, e.g.
-  B2.4 beside B2.1), the amendment-annotation format (`*(Amended at <event>
-  <date>: …)*`), the amendment-ritual scope rule (pre-merge corrections on the
-  spec's own PR amend in place with a changelog entry + recorded re-sign-off;
-  the REQ-A3.3 supersede ritual governs post-merge changes), the
-  underscore-prefix marker for non-spec accumulator directories (REQ-A1.8),
-  the canonical tasks.md definition-content extraction for the content anchor
-  (REQ-F1.9), the sign-off record format (Class / self-describing Anchor /
-  Lens-pass fields and the sanctioned command forms, REQ-F1.10),
-  and the validator-enforceable invariants. Bring this bundle into
-  format conformance (backfill per-REQ citations).
-- **Done when:** The meta-spec fully specifies the format this very bundle conforms to
-  (including backfilled citations); a reader could author a compliant bundle from it
-  alone; the kickoff brief structure and glossary are specified.
-- **Dependencies:** none
-- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2
-- **Estimated effort:** 1.5 days
-- **Status:** Completed · PR #4 merged 2026-06-12
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
-  branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
 
 ### Task 15 — Engineering decision-process doctrine doc
 
@@ -451,6 +234,235 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
+
+### Task 12 — `/execute-task`
+
+- **Deliverables:** The `/execute-task` skill: test-first discipline; adaptive CI retry;
+  Research Rigor wiring (triggers fire pre-implementation; findings recorded in the risk
+  register per REQ-D1.5); write-time security passes (REQ-D1.6); decision-domains drift
+  triggers (REQ-G1.8); risk-register recording of research/perf/security tradeoffs;
+  in-flight amendment per the axis (D-19); `/polish` convergence; draft PR referencing
+  brief/tasks/REQs/tests and carrying the pending-sign-off checklist (REQ-E1.5);
+  the execution freshness gate at pre-flight (anchor recompute against main's brief
+  per the entry's recorded command; halt on mismatch or on an absent/unparseable/
+  non-sanctioned entry, REQ-F1.9/F1.10/D-45); the marked expression-only
+  self-re-anchor entry after in-flight expression fixes (REQ-F1.10); observation
+  writing; the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A task is implemented test-first (failing test precedes impl, ends green);
+  transient CI retries and logic failures escalate; a research trigger produces a
+  risk-register entry; a spec changed since the brief's last anchor (or an invalid
+  anchor entry) halts with the REQ-F1.9 remedy named; an in-flight expression-only
+  fix leaves a marked self-re-anchor entry; a draft PR is opened referencing the
+  brief with the checklist.
+- **Dependencies:** 9, 11
+- **Citations:** D-11, D-19, D-39, D-42, D-45 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-E1.5, REQ-A3.3, REQ-D1.5, REQ-D1.6, REQ-B3.2, REQ-F1.9, REQ-F1.10, REQ-G1.8, REQ-J1.4, REQ-K1.7
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-12` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-12` · worktree `.claude/worktrees/task-12`
+
+### Task 14 — `/resume`
+
+- **Deliverables:** The `/resume` read-only context loader: kickoff brief + `tasks.md` + git
+  log + PR state + optional handover brief; surfaces uncommitted changes and asks before
+  proceeding; no auto-stash/commit/clean; the self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A fresh session in an in-flight worktree gets the loaded context and a
+  `git status` surfacing with a proceed prompt.
+- **Dependencies:** 9
+- **Citations:** D-30, D-42 · REQ-F2.1, REQ-B3.2
+- **Estimated effort:** half day
+
+### Task 16 — Builder skill + core catalog + lifecycle hooks
+
+- **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
+  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
+  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
+  gate, commit hooks) with breadth dimensions
+  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
+  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
+  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** The builder detects a project's stack and recommends/applies the core guards;
+  an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
+  builder, run against planwright itself, reproduces the guard set established in Task 2**
+  (dogfood loop).
+- **Dependencies:** 7, 8, 10, 12, 15
+- **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
+- **Estimated effort:** 1.5 days
+
+### Task 18 — Multi-contributor work-repo end-to-end validation run
+
+- **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
+  (a qualifying private work repo exists): draft → kickoff → orchestrate → execute →
+  polish → draft PR,
+  confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
+  log, hard pauses firing where expected); a findings document covering the gate behavior,
+  kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
+  sweep**: a checklist of every test-spec entry whose tag includes [manual] or
+  [Gherkin] (mixed tags count) — exercised, or the gap named.
+- **Done when:** At least one work-project task is executed via the pipeline; the findings
+  doc covers the gate behavior and contains the completed manual-sweep checklist; the
+  public-release gate condition (c) is met. Validating across a second distinct work repo
+  is a deferred stretch (see Deferred).
+- **Dependencies:** 13, 14, 16, 17
+- **Citations:** D-5, D-27, D-38 · REQ-C1.3, REQ-J1.5
+- **Estimated effort:** 2 days
+
+### Task 19 — Packaging finalization & onboarding docs
+
+- **Deliverables:** Finalized plugin manifest + `~/.claude/` writer; adopter onboarding docs
+  (autopilot model, how to supply project-specific tooling/rigor without editing core docs,
+  the GitHub/`gh` requirement and graceful-degradation behavior); contribution model;
+  public-release readiness checklist enforcing the three gate conditions plus every
+  release-blocking gated Deferred entry (currently the `reference/` history purge,
+  human-reserved per REQ-J1.4: the checklist verifies it happened, it does not perform
+  it). *(Amended at panel review 2026-06-11: checklist scope widened to cover
+  release-blocking Deferred entries; brief Risk Register row 8 already claimed this
+  enforcement.)*
+- **Done when:** A clean machine can install planwright both ways and resolve rule docs; the
+  onboarding docs let a non-author operate the pilot-in-command model; the release checklist
+  enumerates and checks the three gate conditions and every release-blocking gated
+  Deferred entry (the `reference/` history purge).
+- **Dependencies:** 16, 17, 18
+- **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
+- **Estimated effort:** 1 day
+
+## Completed
+
+### Task 3 — Migrate framework intelligence into doctrine docs
+
+- **Deliverables:** Standalone planwright doctrine docs reworded from `CLAUDE.md` into
+  framework documentation: Finding Categorization (four buckets + predicates, act-then-review
+  dispositions incl. declined-with-rationale and the resolution ladder per D-5), Validation
+  Rigor (incl. the altitude check), Discovery Rigor, Refactor Instinct, **Research Rigor**
+  (triggers, source hierarchy, recency discipline, antipattern check, risk-register
+  recording per REQ-D1.5), **Security posture** (write-time triggers, artifact
+  data-hygiene, framework-script security per REQ-D1.6), the proportionality principle
+  (REQ-D1.7), and the composability-by-default principle. Personal content (fish/mise/tmux,
+  git conventions, the author's repos) is NOT migrated.
+- **Done when:** Each doctrine doc exists as framework prose (no first-person personal
+  instructions); the four buckets, the three-pass validation, the lens checklist, the
+  refactor bars, the research ritual, and the security posture are all present; skills can
+  reference them via the resolution path (Task 1).
+- **Dependencies:** none
+- **Citations:** D-4, D-5 · REQ-C1.1, REQ-C1.2, REQ-C1.6, REQ-C1.7, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D2.1
+- **Estimated effort:** 2.5 days
+- **Status:** Completed · PR #2 merged 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-3` · dispatched 2026-06-11T20:42Z ·
+  branch `planwright/bootstrap/task-3` · worktree `.claude/worktrees/task-3`
+
+### Task 1 — Repo scaffold & packaging skeleton
+
+- **Deliverables:** Plugin manifest skeleton; `~/.claude/` writer stub; the stable
+  plugin-relative rule-doc resolution path convention; config-model skeleton (tracked
+  default + gitignored local override per D-33, including the commit/dispatch toggles
+  per D-41/D-38); the canonical options-reference skeleton (D-43); MIT `LICENSE`;
+  `README` introducing the autopilot / pilot-in-command model; `.gitignore` entries
+  for the local config + worktrees.
+- **Done when:** A fresh checkout exposes the plugin manifest and writer entry points; the
+  rule-doc resolution path resolves from both delivery modes; `LICENSE` is MIT; the README
+  states the human-reserved controls; every option in the default config has an
+  options-reference entry.
+- **Dependencies:** none
+- **Citations:** D-24, D-27, D-28, D-29, D-33, D-41, D-43 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.5, REQ-K1.1, REQ-K1.8
+- **Estimated effort:** half day
+- **Status:** Completed · PR #3 merged 2026-06-11
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-1` · dispatched 2026-06-11T20:57Z ·
+  branch `planwright/bootstrap/task-1` · worktree `.claude/worktrees/task-1`
+
+### Task 2 — Self-hosting: quality guards & CI
+
+- **Deliverables:** planwright's own quality guards and CI — `markdownlint` (doctrine/docs),
+  `shellcheck` + `shfmt` (scripts/hooks), JSON/YAML lint (manifest/config), a doctrine
+  cross-reference link-check, `gitleaks` secret scan, conventional-commit lint, a shell test
+  runner for validator/parser/lock unit tests, and a GitHub Actions CI pipeline running all of
+  it on every PR; the planwright spec validator runs against planwright's own `specs/` in CI;
+  the options-reference drift check (fail on an undocumented config option, D-43).
+- **Done when:** CI is green on a trivial PR and red on a seeded violation of each guard
+  (including a seeded undocumented config option); all subsequent tasks merge only under
+  green CI.
+- **Dependencies:** 1
+- **Citations:** D-32, D-34, D-43 · REQ-G1.7, REQ-K1.5, REQ-K1.8
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #7 merged 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-2` · dispatched 2026-06-11T23:55Z ·
+  branch `planwright/bootstrap/task-2` · worktree `.claude/worktrees/task-2`
+
+### Task 7 — Finding categorization & act-then-review gate wiring
+
+- **Deliverables:** The autonomy-gate wiring that routes findings through the four buckets
+  with act-then-review dispositions: on-branch application of Needs-sign-off items,
+  pending-sign-off checklist generation for the draft PR body, the declined-with-rationale
+  audit log, the resolution ladder (brief → research → convention) before the judgment
+  bucket, and the hard-pause triggers (disqualifier zones + irreducible forks).
+- **Done when:** A Needs-sign-off finding is applied on-branch and appears in the checklist;
+  a declined finding carries its rationale in the audit table; a fork resolvable from the
+  brief never reaches the human; a disqualifier-zone finding pauses; all four tables emit
+  including empties.
+- **Dependencies:** 3
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #5 merged 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-7` · dispatched 2026-06-11T22:14Z ·
+  branch `planwright/bootstrap/task-7` · worktree `.claude/worktrees/task-7`
+
+### Task 4 — Four-file format meta-spec
+
+- **Deliverables:** The canonical four-file format meta-spec: required fields per file,
+  REQ-ID / D-ID conventions, citation syntax and lightweight citation kinds (e.g.
+  "drafting-session decision"), the per-task required fields, the five-status lifecycle
+  with the reopen cycle (D-40), the Changelog section location, the `Format-version:`
+  declaration, the stable-ID / supersede / changelog rules, the kickoff brief structure,
+  a glossary of framework vocabulary covering at minimum: the three senses of gate;
+  unit; drain; accumulator; adopter; brief; bucket; tower (the dispatching session);
+  the observations log (canonical name for `specs/_observations/opportunities.md`);
+  dispatch step; content anchor; execution-valid (anchor); meaning-class vs
+  expression-only (the REQ-A3.3 axis).
+  Plus the format conventions: the spec-identifier charset (REQ-A1.8), the
+  path-placeholder style (angle brackets: `<spec>`, `<id>`), the superseding-REQ
+  placement rule (a superseding REQ sits adjacent to the REQ it supersedes, e.g.
+  B2.4 beside B2.1), the amendment-annotation format (`*(Amended at <event>
+  <date>: …)*`), the amendment-ritual scope rule (pre-merge corrections on the
+  spec's own PR amend in place with a changelog entry + recorded re-sign-off;
+  the REQ-A3.3 supersede ritual governs post-merge changes), the
+  underscore-prefix marker for non-spec accumulator directories (REQ-A1.8),
+  the canonical tasks.md definition-content extraction for the content anchor
+  (REQ-F1.9), the sign-off record format (Class / self-describing Anchor /
+  Lens-pass fields and the sanctioned command forms, REQ-F1.10),
+  and the validator-enforceable invariants. Bring this bundle into
+  format conformance (backfill per-REQ citations).
+- **Done when:** The meta-spec fully specifies the format this very bundle conforms to
+  (including backfilled citations); a reader could author a compliant bundle from it
+  alone; the kickoff brief structure and glossary are specified.
+- **Dependencies:** none
+- **Citations:** D-1, D-20, D-25, D-40 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2
+- **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #4 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-4` · dispatched 2026-06-11T20:55Z ·
+  branch `planwright/bootstrap/task-4` · worktree `.claude/worktrees/task-4`
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-14` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-14` · worktree `.claude/worktrees/task-14`
+
+### Task 17 — Spec lifecycle & evolution mechanics
+
+- **Deliverables:** The amendment ritual (fix-in-place + mandatory changelog vs. supersede +
+  scoped re-sign-off) wired into `/execute-task` and `/spec-kickoff`; the fold-vs-new rule and
+  extend mechanics wired into `/spec-draft`; supersede / changelog / never-reused-ID
+  enforcement added to the validator.
+- **Done when:** An expression-only edit needs only a changelog; a decision-contradicting edit
+  triggers supersede + scoped re-sign-off; the validator rejects a reused ID and accepts a
+  supersede; `/spec-draft` extend mode appends without renumbering.
+- **Dependencies:** 5, 8, 9
+- **Citations:** D-19, D-20, D-21 · REQ-A3.2, REQ-A3.3, REQ-A3.4
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-17` · dispatched 2026-06-12T19:30Z ·
+  branch `planwright/bootstrap/task-17` · worktree `.claude/worktrees/task-17`
 
 ## Awaiting input
 
