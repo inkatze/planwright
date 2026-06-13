@@ -347,24 +347,30 @@ baseline_checks() {
     # baseline's so a supersede already recorded upstream is not re-flagged.
     # Status-scoped like the other stable-ID findings (warn on Draft, error on
     # Active/Done). REQ supersedes only: that is the parseable, marked case.
-    printf '%s\n' "$old_req" >"$gtmp/old_req"
-    old_sup=$(parse_requirements "$gtmp/old_req" | awk -F"$tab" '$1 == "SUP" { print $2 }')
-    cur_sup=$(parse_requirements "$bdir/requirements.md" | awk -F"$tab" '$1 == "SUP" { print $2 }')
-    clog=$(awk '
-      tolower($0) ~ /^## changelog/ { f = 1; next }
-      /^## / { f = 0 }
-      f
-    ' "$bdir/requirements.md")
-    printf '%s\n' "$cur_sup" | while read -r sid; do
-      [ -n "$sid" ] || continue
-      if set_in "$sid" "$old_sup"; then continue; fi
-      # Match the bare id (REQ- stripped): the changelog convention names ids
-      # either bare ("X1.2") or prefixed ("REQ-X1.2"); -w keeps "X1.2" from
-      # matching inside "X1.20".
-      printf '%s' "$clog" | grep -qwF "${sid#REQ-}" \
-        || printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
-          "$sid" "$baseline" >>"$fnd"
-    done
+    # Guarded on the current file existing: a bundle that deletes
+    # requirements.md still has a non-empty baseline `$old_req`, and parsing a
+    # now-missing file would leak raw awk errors and abort under set -eu — the
+    # missing-file gap already covers that case (REQ-K1.7 graceful degradation).
+    if [ -f "$bdir/requirements.md" ]; then
+      printf '%s\n' "$old_req" >"$gtmp/old_req"
+      old_sup=$(parse_requirements "$gtmp/old_req" | awk -F"$tab" '$1 == "SUP" { print $2 }')
+      cur_sup=$(parse_requirements "$bdir/requirements.md" | awk -F"$tab" '$1 == "SUP" { print $2 }')
+      clog=$(awk '
+        tolower($0) ~ /^## changelog/ { f = 1; next }
+        /^## / { f = 0 }
+        f
+      ' "$bdir/requirements.md")
+      printf '%s\n' "$cur_sup" | while read -r sid; do
+        [ -n "$sid" ] || continue
+        if set_in "$sid" "$old_sup"; then continue; fi
+        # Match the bare id (REQ- stripped): the changelog convention names
+        # ids either bare ("X1.2") or prefixed ("REQ-X1.2"); -w keeps "X1.2"
+        # from matching inside "X1.20".
+        printf '%s\n' "$clog" | grep -qwF "${sid#REQ-}" \
+          || printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
+            "$sid" "$baseline" >>"$fnd"
+      done
+    fi
   fi
   if [ -n "$old_des" ]; then
     old_ids=$(printf '%s\n' "$old_des" | grep -oE '^### D-[0-9]+:' | grep -oE 'D-[0-9]+') || old_ids=

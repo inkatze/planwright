@@ -766,6 +766,23 @@ edit "$repo3/specs/myspec/requirements.md" 's/^- 2026-06-12 — REQ-X1.2 superse
 run_v 0 --baseline HEAD "$repo3/specs"
 has "0 error(s), 0 warning(s)"
 
+# Deleting requirements.md while the baseline still has it must not crash the
+# changelog-on-supersede check: the current-file reads are guarded, so the
+# run degrades gracefully (the missing-file gap is reported, no raw awk
+# "can't open" leaks to stderr, and the summary line is still printed) rather
+# than aborting under set -eu (REQ-K1.7).
+repo4="$tmp/repo4"
+mkdir -p "$repo4"
+git -C "$repo4" init -q
+write_bundle "$repo4/specs/myspec" Active
+git -C "$repo4" add -A
+git -C "$repo4" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+rm "$repo4/specs/myspec/requirements.md"
+run_v 1 --baseline HEAD "$repo4/specs"
+has "missing file: requirements.md"
+has "error(s)"
+lacks "can't open"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"
