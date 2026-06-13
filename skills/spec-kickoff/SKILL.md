@@ -249,11 +249,15 @@ is open. Its steps are ordered so that a session killed at any point fails
 closed: the most recent anchor entry never describes spec content that was
 not walked.
 
-1. **The lens review pass.** A Discovery-Rigor review of the bundle —
-   the spec is the artifact under review, and spec bugs (a silent
-   clean-no-op, a fixture encoding the spec's own wrong belief) are
-   invisible to execution feedback, so this pass is the last line of
-   defense (D-45). Scope: the **full bundle at first activation**,
+1. **The lens review pass.** On a re-walkthrough or amendment, open the
+   sign-off by asking the human to classify the delta on the REQ-A3.3
+   axis — the class is recorded later in the `Class:` line, but it is
+   needed now because it sets this pass's scope. Then the pass itself: a
+   Discovery-Rigor review of the bundle — the spec is the artifact under
+   review, and spec bugs (a silent clean-no-op, a fixture encoding the
+   spec's own wrong belief) are invisible to execution feedback, so this
+   pass is the last line of defense (D-45). Scope: the **full bundle at
+   first activation**,
    **delta-scoped at re-walkthroughs and amendments**, **skipped entirely
    for expression-only changes** (REQ-A3.3). Fan out one read-only
    sub-agent per canonical lens for any non-trivial delta per the
