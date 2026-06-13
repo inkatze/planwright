@@ -50,7 +50,13 @@ else
     exit 2
   }
   trap 'rm -f "$log_file"' EXIT
-  cat >"$log_file"
+  # Fail closed on a stdin-read or temp-file-write failure (e.g. disk full):
+  # proceeding on a truncated buffer would silently misclassify, contradicting
+  # the exit-2 environment-error contract.
+  if ! cat >"$log_file"; then
+    echo "classify-ci-failure: failed to buffer stdin to the temp file" >&2
+    exit 2
+  fi
 fi
 
 # Transient indicators: infrastructure and network failures that a retry can
