@@ -274,8 +274,12 @@ not walked.
    `**Status:**` Draft→Active and `**Last reviewed:**` to today on all
    four spec files. Re-walkthroughs and amendments: bump `Last reviewed:`
    on the files the delta touched. Then re-run the validator under Active
-   enforcement: errors now block — fix them with the human or revert the
-   flip and halt; never sign off over an erroring Active bundle.
+   enforcement: errors now block — fix them with the human, or halt
+   without recording the sign-off entry (on a first activation or reopen,
+   also revert the flip so the bundle does not sit Active and erroring;
+   on an already-Active spec there is no flip to revert, and the stale
+   anchor keeps dispatch blocked). Never sign off over an erroring Active
+   bundle.
 4. **The sign-off record** (format per `spec-format`; REQ-F1.10). Write
    the record into the brief's sign-off section (first activation) or as
    an appended amendment-log entry (everything later) — sections above the
