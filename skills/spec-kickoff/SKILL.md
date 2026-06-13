@@ -307,7 +307,8 @@ not walked.
    writes an expression-only entry (no lens pass, citing the changelog
    line) only when the human classified the entire delta expression-only.
 5. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
-   `planwright/<spec>/spec` containing the brief and the four spec files —
+   `planwright/<spec>/spec` containing the brief, the four spec files,
+   and the observations-log append when one rode this run —
    first activation: `feat(spec): kickoff specs/<spec>, brief + Active
    flip`; later events: `docs(spec): <event> specs/<spec>` (e.g.
    `delta re-walkthrough`, `amendment`). New commits only — never
