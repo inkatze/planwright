@@ -783,6 +783,55 @@ has "missing file: requirements.md"
 has "error(s)"
 lacks "can't open"
 
+# The matcher names the superseded id as a whole token: a changelog that only
+# mentions a longer dotted token ("X1.2.alpha") does not count as naming
+# REQ-X1.2, so an un-logged supersede is still flagged.
+repo5="$tmp/repo5"
+mkdir -p "$repo5"
+git -C "$repo5" init -q
+write_bundle "$repo5/specs/myspec" Active
+git -C "$repo5" add -A
+git -C "$repo5" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+cat >"$repo5/specs/myspec/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Active
+**Last reviewed:** 2026-06-12
+**Format-version:** 1
+
+## Goal
+
+A fixture bundle.
+
+## REQ-X — fixture group
+
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X1.2** The gadget SHALL exist. **Superseded-by: REQ-X1.3** (2026-06-12)
+- **REQ-X1.3** (supersedes REQ-X1.2) The gadget SHALL exist and hum.
+  *(Cites: D-1.)*
+
+## Changelog
+
+- 2026-06-12 — created.
+- 2026-06-12 — renamed the X1.2.alpha prototype flag.
+
+## Sources
+
+- the fixture seed.
+EOF
+edit "$repo5/specs/myspec/test-spec.md" 's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X1.3 — gadget hums [manual]/'
+run_v 1 --baseline HEAD "$repo5/specs"
+has "REQ-X1.2"
+has "Changelog"
+
+# A sentence-final mention ("superseded REQ-X1.2.") still counts as naming it
+# (the trailing period is not part of the id), so the finding clears.
+edit "$repo5/specs/myspec/requirements.md" 's|^- 2026-06-12 — created\.$|- 2026-06-12 — created.\
+- 2026-06-12 — superseded REQ-X1.2.|'
+run_v 0 --baseline HEAD "$repo5/specs"
+has "0 error(s), 0 warning(s)"
+
 # --- usage errors ---
 run_v 2
 run_v 2 "$tmp/does-not-exist"

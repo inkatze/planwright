@@ -363,10 +363,15 @@ baseline_checks() {
       printf '%s\n' "$cur_sup" | while read -r sid; do
         [ -n "$sid" ] || continue
         if set_in "$sid" "$old_sup"; then continue; fi
-        # Match the bare id (REQ- stripped): the changelog convention names
-        # ids either bare ("X1.2") or prefixed ("REQ-X1.2"); -w keeps "X1.2"
-        # from matching inside "X1.20".
-        printf '%s\n' "$clog" | grep -qwF "${sid#REQ-}" \
+        # Name the bare id (REQ- stripped) as a whole token: the changelog
+        # convention writes it bare ("X1.2") or prefixed ("REQ-X1.2"), so the
+        # match must accept those and a sentence-final "X1.2." while rejecting
+        # a longer id it only prefixes ("X1.20", "X1.2.alpha"). The id charset
+        # is [A-Z][0-9.]+, so escaping the dot makes the ERE injection-safe (no
+        # other metacharacter can appear).
+        bre=$(printf '%s' "${sid#REQ-}" | sed 's/[.]/\\./g')
+        printf '%s\n' "$clog" \
+          | grep -qE "(^|[^0-9A-Za-z.])${bre}(\$|[^0-9.]|\\.(\$|[^0-9A-Za-z]))" \
           || printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
             "$sid" "$baseline" >>"$fnd"
       done
