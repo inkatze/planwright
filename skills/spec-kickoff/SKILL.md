@@ -325,8 +325,11 @@ not walked.
    force-push, amend, squash, or rebase (REQ-J1.4). Opt-out set: leave the
    work uncommitted, say so explicitly, and skip push/PR (an unpushed
    commit is recoverable; pushing uncommitted state is not a thing).
-6. **Push and draft PR** (REQ-B2.4, D-44). Push the spec branch:
-   `git push -u origin planwright/<spec>/spec`. Then the PR: if one
+6. **Push and draft PR** (REQ-B2.4, D-44). Publishing is the run's final
+   action: run the Observations and Maintenance steps below first, so
+   their chore commits land before the push and nothing is left behind
+   unpushed (the same ordering `/self-review` uses). Then push the spec
+   branch: `git push -u origin planwright/<spec>/spec`. Then the PR: if one
    already exists for the branch, update its body; otherwise
    `gh pr create --draft` with explicit `--title` and `--body`. The title
    must pass the project's conventional PR-title lint
@@ -367,7 +370,9 @@ canonical reader.
 
 ## Maintenance
 
-After the run completes (or halts), compare these instructions against the
+Before the push step on a run that reaches sign-off (so the chore commit
+lands pushed), or at the halt point otherwise, compare these instructions
+against the
 resolved doctrine docs listed above (REQ-B3.2, D-42) — especially
 `spec-format` (brief structure, sign-off record format, sanctioned anchor
 command forms, amendment ritual) and `decision-domains` (lifecycle wiring).
