@@ -290,8 +290,9 @@ not walked.
    revert, and the stale anchor keeps dispatch blocked). Never sign off
    over an erroring Active bundle. When the validator is absent (the
    pre-flight consent path — re-ask on a resumed session that never saw
-   pre-flight step 3), record "flipped Active unvalidated
-   (validator absent, human-consented)" in the sign-off section so the
+   pre-flight step 3), record "signed off unvalidated (validator absent,
+   human-consented)" in the sign-off section — adding "including the
+   Draft→Active flip" only when this run actually flipped — so the
    degradation is auditable rather than silent.
 4. **The sign-off record** (format per `spec-format`; REQ-F1.10). Write
    the record into the brief's sign-off section (first activation) or as
