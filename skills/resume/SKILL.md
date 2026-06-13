@@ -17,9 +17,9 @@ git log, the PR state, and an optional handover brief — surfaces the
 working tree's uncommitted state, and asks before any work continues.
 
 It is strictly read-only. It surfaces information and defers every decision
-to the human (D-30): it never auto-stashes, auto-commits, auto-cleans,
-pushes, or merges. The point is to make the situation legible, not to act
-on it.
+to the human: it never auto-stashes, auto-commits, or auto-cleans (D-30),
+and as a read-only loader it never pushes or merges (REQ-F2.1). The point is
+to make the situation legible, not to act on it.
 
 This is a read-only, non-dispatching path: missing prerequisites (not a git
 repo, no remote, `gh` absent, a brief that is not there yet) degrade with a
@@ -64,7 +64,8 @@ without assuming a task; do not invent a unit.
 
 Read `specs/<spec>/kickoff-brief.md` — the durable contract downstream work
 executes against. Surface the signed-off goal restatement, the task-graph
-slice for the in-flight unit, and the risk-register entries relevant to it.
+slice for the in-flight unit, and the risk-register entries that touch it
+(when unsure whether an entry is relevant, include it rather than omit it).
 If the brief is absent or has no final sign-off section, note that the work
 predates a signed brief (or the brief is partial) and continue with the
 rest of the load; do not stop.
@@ -114,7 +115,8 @@ continuing the work is a separate, human-initiated step.
 These hold at every step:
 
 - **Never** modify the working tree: no stash, commit, clean, checkout, or
-  reset (D-30).
+  reset. `/resume` only reads (REQ-F2.1); D-30 specifically forbids
+  auto-resolving uncommitted state.
 - **Never** push, create or update a PR, or merge. `/resume` only reads.
 - **Never** edit `tasks.md`, the brief, or any spec file. State moves belong
   to `/orchestrate` and `/execute-task`, not to a context loader.
