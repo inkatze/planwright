@@ -133,7 +133,8 @@ state.
    kickoff is an authoring path, so this degrades rather than halts
    (REQ-K1.7) — but the flip to Active is what arms execution, so say
    plainly that the bundle will go Active unvalidated and ask the human
-   whether to proceed or install the validator first.
+   whether to proceed anyway or stop here, install the validator, and
+   re-run `/spec-kickoff specs/<spec>`.
 4. **Read the config.** `commit_on_kickoff` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins).
    Default `true`; an absent, unreadable, or malformed config file falls
