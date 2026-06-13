@@ -225,6 +225,48 @@ else
 fi
 rm -rf "$tmp_bad"
 
+# A guards entry missing category or tool is equally malformed: skip it with a
+# warning rather than emitting a junk line with an empty field.
+tmp_jf="$(mktemp -d)"
+cat >"$tmp_jf/catalog.yaml" <<'YAML'
+---
+guards:
+  - id: no-tool
+    category: linter
+    detect: "*.sh"
+    core: true
+  - id: no-category
+    tool: sometool
+    detect: "*.sh"
+    core: true
+  - id: good-shell
+    category: linter
+    tool: shellcheck
+    detect: "*.sh"
+    core: true
+YAML
+: >"$tmp_jf/x.sh"
+jf_out="$(PLANWRIGHT_GUARD_CATALOG="$tmp_jf/catalog.yaml" \
+  /bin/bash "$SCRIPT" --core "$tmp_jf" 2>"$tmp_jf/err.txt")"
+assert_exit "missing category/tool does not crash" 0 $?
+# No emitted line may have an empty category or tool column.
+if printf '%s\n' "$jf_out" | awk -F'\t' 'NF<3 || $2=="" || $3=="" {bad=1} END{exit bad?0:1}'; then
+  fail "a malformed entry emitted a line with an empty column"
+else
+  pass "no emitted guard line has an empty category/tool column"
+fi
+if printf '%s\n' "$jf_out" | tools_of | grep -qx "shellcheck"; then
+  pass "valid guard still emitted past category/tool-less entries"
+else
+  fail "valid guard dropped by a category/tool-less sibling"
+fi
+if grep -q "no-tool" "$tmp_jf/err.txt" && grep -q "no-category" "$tmp_jf/err.txt"; then
+  pass "category/tool-less entries named in a stderr warning"
+else
+  fail "category/tool-less entries skipped silently"
+fi
+rm -rf "$tmp_jf"
+
 if [ "$failures" -eq 0 ]; then
   echo "all builder-guards tests passed"
   exit 0

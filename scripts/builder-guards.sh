@@ -134,14 +134,21 @@ parse_catalog() {
 emit=""
 while IFS='|' read -r id cat tool detect core section; do
   [ -n "$id" ] || continue
-  # A non-breadth guard with no detect signal is a malformed catalog entry
-  # (most often an adopter omitting `detect:`). Skip it with a warning rather
-  # than dropping it silently or aborting the run (REQ-K1.7 graceful
-  # degradation; the catalog is adopter-extensible, REQ-G1.5).
-  if [ "$section" != "breadth" ] \
-    && [ -z "$(printf '%s' "$detect" | tr -d '[:space:]')" ]; then
-    echo "builder-guards: catalog entry '$id' has no detect signal; skipping" >&2
-    continue
+  # A non-breadth guard missing any required field (category, tool, or a
+  # detect signal) is a malformed catalog entry — most often an adopter slip.
+  # Skip it with a warning rather than emitting a junk line, dropping it
+  # silently, or aborting the run (REQ-K1.7 graceful degradation; the catalog
+  # is adopter-extensible, REQ-G1.5).
+  if [ "$section" != "breadth" ]; then
+    missing=""
+    [ -n "$cat" ] || missing="category"
+    [ -n "$tool" ] || missing="${missing:+$missing, }tool"
+    [ -n "$(printf '%s' "$detect" | tr -d '[:space:]')" ] \
+      || missing="${missing:+$missing, }detect"
+    if [ -n "$missing" ]; then
+      echo "builder-guards: catalog entry '$id' missing $missing; skipping" >&2
+      continue
+    fi
   fi
   if [ "$core_only" -eq 1 ]; then
     [ "$core" = "true" ] || continue
