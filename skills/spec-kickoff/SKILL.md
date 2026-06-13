@@ -306,7 +306,11 @@ not walked.
    script fails closed (non-zero exit, no anchor printed) on a defective
    bundle: surface its stderr and stop without an anchor line — never
    substitute a hand-rolled computation, and never reach for the interim
-   whole-file form when the script is present. Meaning-class anchor
+   whole-file form when the script is present. When the script is absent
+   (an environment without the planwright scripts), fall back to the
+   meta-spec's other sanctioned form — the interim whole-file
+   computation — and record that exact command in the entry so
+   recomputation stays deterministic. Meaning-class anchor
    entries are written by this sign-off flow and nowhere else; this skill
    writes an expression-only entry (no lens pass, citing the changelog
    line) only when the human classified the entire delta expression-only.
