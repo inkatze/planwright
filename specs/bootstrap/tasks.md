@@ -442,12 +442,13 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-9` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-9` · worktree `.claude/worktrees/task-9`
-- **Awaiting input:** (parked, non-blocking; Diego triages on return) 1Password SSH
-  signing went down mid-gauntlet — commits from f6b286e onward are unsigned (agent
+- **Parked notes (non-blocking; Diego triages on return):** 1Password SSH signing
+  went down mid-gauntlet — commits from f6b286e onward are unsigned (agent
   authorization unanswered; pushes via HTTPS/gh token). Three test-spec coverage
   additions proposed by the T9 self-review are meaning-class amendments needing
   authorization; logged in the observations log for the pending fence-grammar
-  delta re-walkthrough.
+  delta re-walkthrough. The task itself is not blocked: the review gauntlet ran
+  to completion (task state stays In progress / draft-pr-ready).
 
 ## Awaiting input
 
