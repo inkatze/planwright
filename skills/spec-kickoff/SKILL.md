@@ -83,10 +83,15 @@ state:
   changes get a changelog entry and an expression-only anchor entry with
   no lens pass.
 
-A Done spec with no Draft delta has nothing to kick off: say so and point
-at `/spec-draft --extend` (extending flips Done→Draft; the scoped kickoff
-of the delta flips it back to Active, REQ-A3.1). Retired and Superseded are
-terminal: refuse — no skill-driven transition leaves a terminal state.
+A **reopened bundle** (Status Draft with a complete signed brief — the
+REQ-A3.1 reopen cycle, entered when `/spec-draft --extend` flips a Done
+spec back to Draft) is a scoped kickoff of the delta, not a first
+activation: walk the extension delta in the delta re-walkthrough shape,
+and the sign-off flips Draft→Active again. A Done spec has nothing to
+kick off regardless of stray edits: say so and point at
+`/spec-draft --extend` (the reopen path above). Retired and Superseded
+are terminal: refuse — no skill-driven transition leaves a terminal
+state.
 
 ## Pre-flight
 
@@ -101,7 +106,9 @@ terminal: refuse — no skill-driven transition leaves a terminal state.
    (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`). A missing
    file or unreadable status is a structural defect: surface it and point
    at `/spec-draft`; there is nothing to walk. Read the `**Status:**` line:
-   - **Draft** → first activation (or a resume, per step 6).
+   - **Draft** → first activation; a resume when step 6 finds a partial
+     brief; a reopened-bundle delta kickoff when the brief is complete
+     and signed (per the Modes section).
    - **Active with a signed brief** → run the freshness comparison: parse
      the brief's most recent anchor entry, recompute the anchor with the
      exact command that entry records, and compare. **Mismatch** → delta
