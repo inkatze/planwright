@@ -129,7 +129,11 @@ state.
    present and executable. On a Draft bundle findings are warnings: surface
    them, fix structural ones with the human before walking (a walkthrough
    over a malformed bundle wastes the human's attention), and record the
-   outcome for the brief header. Validator absent or not executable:
+   outcome for the brief header. On an Active bundle findings are errors
+   (the validator is status-aware): surface them now and carry each into
+   the walk as a must-fix item — the delta walk is where they get fixed
+   with the human, and sign-off step 3's re-validation refuses to record
+   while any remain. Validator absent or not executable:
    kickoff is an authoring path, so this degrades rather than halts
    (REQ-K1.7) — but the flip to Active is what arms execution, so say
    plainly that the bundle will go Active unvalidated and ask the human
@@ -278,13 +282,17 @@ not walked.
 3. **Status flip and `Last reviewed:`.** First activation: flip
    `**Status:**` Draft→Active and `**Last reviewed:**` to today on all
    four spec files. Re-walkthroughs and amendments: bump `Last reviewed:`
-   on the files the delta touched. Then re-run the validator under Active
-   enforcement: errors now block — fix them with the human, or halt
-   without recording the sign-off entry (on a first activation or reopen,
-   also revert the flip so the bundle does not sit Active and erroring;
-   on an already-Active spec there is no flip to revert, and the stale
-   anchor keeps dispatch blocked). Never sign off over an erroring Active
-   bundle.
+   on the files the delta touched. Then, when the validator is present,
+   re-run it under Active enforcement: errors now block — fix them with
+   the human, or halt without recording the sign-off entry (on a first
+   activation or reopen, also revert the flip so the bundle does not sit
+   Active and erroring; on an already-Active spec there is no flip to
+   revert, and the stale anchor keeps dispatch blocked). Never sign off
+   over an erroring Active bundle. When the validator is absent (the
+   pre-flight consent path — re-ask on a resumed session that never saw
+   pre-flight step 3), record "flipped Active unvalidated
+   (validator absent, human-consented)" in the sign-off section so the
+   degradation is auditable rather than silent.
 4. **The sign-off record** (format per `spec-format`; REQ-F1.10). Write
    the record into the brief's sign-off section (first activation) or as
    an appended amendment-log entry (everything later) — sections above the
