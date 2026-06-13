@@ -68,7 +68,7 @@ transient_re="$transient_re|tls handshake timeout|i/o timeout"
 transient_re="$transient_re|503 service unavailable|service unavailable"
 transient_re="$transient_re|502 bad gateway|504 gateway|gateway time-?out"
 transient_re="$transient_re|429 too many requests|too many requests|rate limit"
-transient_re="$transient_re|failed to pull|error pulling image|manifest unknown"
+transient_re="$transient_re|failed to pull|error pulling image"
 transient_re="$transient_re|the remote end hung up"
 
 # Logic indicators: deterministic, reproducible failures a retry cannot clear
@@ -87,6 +87,10 @@ logic_re="$logic_re|name ?error|panic:|traceback \(most recent call last\)"
 # "latest failed" (a transient ":latest" image-pull failure).
 logic_re="$logic_re|[0-9]+ (failing|failed)|(^|[[:space:]])tests? failed"
 logic_re="$logic_re|would reformat|lint (error|violation)|sc[0-9]{4}"
+# A registry "manifest unknown" means the image:tag does not exist — a
+# deterministic config error, not retryable. It overrides the transient
+# `failed to pull` it usually accompanies (logic wins).
+logic_re="$logic_re|manifest unknown"
 
 has_transient=0
 has_logic=0

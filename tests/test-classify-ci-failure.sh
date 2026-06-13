@@ -59,7 +59,7 @@ classify() {
 #    indicator family the classifier recognizes.
 transient_samples='curl: (28) Operation timed out after 30000 ms
 fatal: unable to access: Could not resolve host: github.com
-Error response from daemon: failed to pull image "node:20": manifest unknown
+Error response from daemon: failed to pull image "node:20"
 HTTP 503 Service Unavailable
 remote: 429 Too Many Requests
 dial tcp: connection refused
@@ -94,7 +94,8 @@ Traceback (most recent call last):
 would reformat scripts/foo.sh
 panic: runtime error: index out of range [3] with length 2
 bash: line 4: parse error near unexpected token
-In scripts/foo.sh line 9: SC2086: Double quote to prevent globbing'
+In scripts/foo.sh line 9: SC2086: Double quote to prevent globbing
+Error response from daemon: failed to pull image "node:99": manifest unknown'
 ls_n=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
