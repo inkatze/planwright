@@ -69,8 +69,11 @@ name, or an unrelated branch), do not guess a task: say which branch you are
 on and try to resolve `<spec>` only when it is unambiguous — a single spec
 bundle under `specs/` (a direct child whose name passes the REQ-A1.8 charset;
 the reserved underscore-prefixed accumulators `_pending/` and `_observations/`
-are not bundles and are skipped), or a single `Status: Active` bundle that has
-a kickoff brief. If that inference is unambiguous, continue with the resolved
+are not bundles and are skipped), or a single bundle whose `requirements.md`
+declares `Status: Active` and that has a kickoff brief. Both arms consider
+only directory names that pass REQ-A1.8 (an Active bundle has already passed
+validation, so its name conforms). If that inference is unambiguous, continue
+with the resolved
 `<spec>`;
 if several bundles remain candidates, list them and proceed with no resolved
 `<spec>` (Steps 3-4 below degrade to a spec-less partial load) rather than
@@ -109,9 +112,11 @@ observable). This is what reconstructs what the prior session actually did.
 
 If a remote and the `gh` CLI are available, read the PR for this branch
 (`gh pr view` on the current branch): its number, draft/ready state, title,
-and review/CI status. If `gh` is absent or unauthenticated, or there is no
-remote, record that the PR state could not be read and proceed with a partial
-load: everything except the PR state is still available (REQ-K1.6, REQ-K1.7).
+and review/CI status. If `gh` is absent or unauthenticated, there is no
+remote, or the branch simply has no PR yet, record that no PR state is
+available and proceed with a partial load: everything except the PR state is
+still available (REQ-K1.6, REQ-K1.7). A branch with no PR is a normal pre-PR
+state, not an error.
 
 ### 7. Load the optional handover brief
 
