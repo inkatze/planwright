@@ -140,6 +140,23 @@ classify '$(rm -rf /); `reboot`; transient? connection refused'
 assert_exit "metacharacter input is scanned, not evaluated" 0 "$code"
 assert_word "metacharacter input" "transient" "$word"
 
+# 9. A benign log containing "expected … to …" prose alongside a real
+#    transient indicator must stay transient: the logic patterns must not
+#    over-match common infrastructure phrasing and suppress the retry (logic
+#    wins over transient, so an over-broad logic match defeats adaptive retry).
+classify 'Waiting for expected service to start
+connection refused'
+assert_exit "benign expected-to phrasing stays transient" 0 "$code"
+assert_word "benign expected-to phrasing" "transient" "$word"
+
+# 10. A filename beginning with a hyphen is read as a file, never parsed as a
+#     command option (the file argument is passed after `--`).
+printf '%s\n' 'connection refused' >"$tmp/-dash.log"
+word="$(cd "$tmp" && /bin/bash "$CLASSIFIER" -dash.log 2>/dev/null)"
+code=$?
+assert_exit "leading-hyphen filename is read, not parsed as an option" 0 "$code"
+assert_word "leading-hyphen filename" "transient" "$word"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

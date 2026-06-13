@@ -37,9 +37,18 @@ if [ "$#" -eq 1 ]; then
     echo "classify-ci-failure: file not found or unreadable: $1" >&2
     exit 2
   fi
-  input="$(cat "$1")"
+  log_file="$1"
 else
-  input="$(cat)"
+  # Buffer stdin to a temp file rather than slurping into a variable: a large
+  # CI log would spike memory, and command substitution silently drops NUL
+  # bytes (binary build artifacts) with a stderr warning. grep streams the
+  # file instead.
+  log_file="$(mktemp)" || {
+    echo "classify-ci-failure: could not create a temp file" >&2
+    exit 2
+  }
+  trap 'rm -f "$log_file"' EXIT
+  cat >"$log_file"
 fi
 
 # Transient indicators: infrastructure and network failures that a retry can
@@ -60,7 +69,10 @@ transient_re="$transient_re|the remote end hung up"
 # (assertion/expectation mismatches, type/compile/syntax errors, lint/format
 # violations, test-runner failure summaries). These override a transient match.
 logic_re='assertion ?(error|failed)|assert_'
-logic_re="$logic_re|expected .* (but|to|got)|expected:"
+# `expected … but got` and a label-form `expected:` are unambiguous assertion
+# idioms; a bare `expected … to`/`… got` would over-match benign infra prose
+# ("expected service to start") and, since logic wins, suppress a real retry.
+logic_re="$logic_re|expected .* but got|expected:"
 logic_re="$logic_re|type ?error|error ts[0-9]+|syntax ?error|parse error"
 logic_re="$logic_re|compile error|compilation (error|failed)"
 logic_re="$logic_re|undefined (method|reference|variable|symbol)|unresolved reference"
@@ -70,8 +82,10 @@ logic_re="$logic_re|would reformat|lint (error|violation)|sc[0-9]{4}"
 
 has_transient=0
 has_logic=0
-printf '%s\n' "$input" | grep -iqE "$transient_re" && has_transient=1
-printf '%s\n' "$input" | grep -iqE "$logic_re" && has_logic=1
+# `-e` makes each regex an explicit operand and `--` guards a log path that
+# begins with a hyphen; the log is matched as data, never evaluated.
+grep -iqE -e "$transient_re" -- "$log_file" && has_transient=1
+grep -iqE -e "$logic_re" -- "$log_file" && has_logic=1
 
 if [ "$has_transient" -eq 1 ] && [ "$has_logic" -eq 0 ]; then
   echo transient
