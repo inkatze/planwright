@@ -91,9 +91,11 @@ useful spec-less partial load.
 ### 4. Load tasks.md state
 
 If a `<spec>` was resolved, read `specs/<spec>/tasks.md`. Surface the
-in-flight unit's block (its section — In progress / Awaiting input / etc.,
-its `Status:` and `Last activity:` annotations, `Done when:`, and
-`Dependencies:`), and note whether each dependency sits in `Completed`. This
+in-flight unit's block — and when the branch encodes a cohesion bundle
+(`task-<id-or-ids>`, e.g. `task-3-4`), every task block the bundle covers,
+not just one — including each block's section (In progress / Awaiting input /
+etc.), its `Status:` and `Last activity:` annotations, `Done when:`, and
+`Dependencies:`, and note whether each dependency sits in `Completed`. This
 is the canonical orchestration state record; report it as found, without
 editing it. With no resolved `<spec>`, skip this step.
 
