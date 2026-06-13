@@ -213,8 +213,6 @@ intelligence migration) dispatches first.
   delta re-walkthrough. The task itself is not blocked: the review gauntlet ran
   to completion (task state stays In progress / draft-pr-ready).
 
-## In progress
-
 ### Task 6 — Hooks & operational integration
 
 - **Deliverables:** The `tasks-pr-sync` PostToolUse hook (moves task blocks between `tasks.md`
@@ -230,10 +228,12 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4, 5
 - **Citations:** D-33, D-36, D-37, D-44 · REQ-K1.2, REQ-K1.3, REQ-K1.4
 - **Estimated effort:** 1 day
-- **Status:** draft-pr-ready · PR #13 (draft)
+- **Status:** Completed · PR #13 merged 2026-06-12
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-6` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-6` · worktree `.claude/worktrees/task-6`
+
+## In progress
 
 ### Task 12 — `/execute-task`
 
