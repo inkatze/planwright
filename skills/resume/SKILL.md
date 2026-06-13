@@ -67,8 +67,11 @@ executed. If the branch does not match the convention or `<spec>` fails
 validation (e.g. a spec branch `planwright/<spec>/spec`, a hostile branch
 name, or an unrelated branch), do not guess a task: say which branch you are
 on and try to resolve `<spec>` only when it is unambiguous — a single spec
-bundle under `specs/`, or a single `Status: Active` bundle that has a kickoff
-brief. If that inference is unambiguous, continue with the resolved `<spec>`;
+bundle under `specs/` (a direct child whose name passes the REQ-A1.8 charset;
+the reserved underscore-prefixed accumulators `_pending/` and `_observations/`
+are not bundles and are skipped), or a single `Status: Active` bundle that has
+a kickoff brief. If that inference is unambiguous, continue with the resolved
+`<spec>`;
 if several bundles remain candidates, list them and proceed with no resolved
 `<spec>` (Steps 3-4 below degrade to a spec-less partial load) rather than
 inventing a unit.
