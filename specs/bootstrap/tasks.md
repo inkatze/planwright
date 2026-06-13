@@ -343,6 +343,29 @@ intelligence migration) dispatches first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-5` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-5` · worktree `.claude/worktrees/task-5`
 
+### Task 8 — `/spec-draft`
+
+- **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
+  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
+  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
+  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
+  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
+  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
+  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** A run produces and commits a Draft bundle on the spec branch without
+  pushing/flipping Active; launching from main, from the spec worktree, and from an
+  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
+  recommendation on a differently-named overlap; consumed opportunities are archived;
+  the maintenance footer writes drift observations.
+- **Dependencies:** 3, 4
+- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
+- **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #11 merged 2026-06-12
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
+  branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
+
 ## In progress
 
 ### Task 10 — Accumulator taxonomy & `GATE(when:)` convention + `/drain`
@@ -365,29 +388,6 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-10` · dispatched 2026-06-12T20:30Z ·
   branch `planwright/bootstrap/task-10` · worktree `.claude/worktrees/task-10`
-
-### Task 8 — `/spec-draft`
-
-- **Deliverables:** The `/spec-draft` skill: interactive four-file elicitation at Status Draft;
-  auto-commit of the completed bundle (`commit_on_draft` opt-out, D-41); fold-detection
-  (always-scan, surface, human decides) with an extend mode; `_observations` seed mining +
-  archive-on-consume; seed-source citation; interaction-style rules; the builder/catalog
-  hook point (the builder plugs in via Task 16 — no dependency edge by design); spec
-  worktree + branch creation (`planwright/<spec>/spec`) with graceful handling of every
-  starting state per D-44 (reuse, locate-and-print, create, degrade on no-repo); the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** A run produces and commits a Draft bundle on the spec branch without
-  pushing/flipping Active; launching from main, from the spec worktree, and from an
-  unrelated worktree each resolves gracefully; fold-detection surfaces an extend
-  recommendation on a differently-named overlap; consumed opportunities are archived;
-  the maintenance footer writes drift observations.
-- **Dependencies:** 3, 4
-- **Citations:** D-21, D-22, D-23, D-41, D-42, D-44 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B3.1, REQ-B3.2, REQ-H1.6
-- **Estimated effort:** 1.5 days
-- **Status:** draft-pr-ready · PR #11 (draft)
-- **Last activity:** 2026-06-12
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-8` · dispatched 2026-06-12T21:55Z ·
-  branch `planwright/bootstrap/task-8` · worktree `.claude/worktrees/task-8`
 
 ### Task 6 — Hooks & operational integration
 
@@ -438,7 +438,7 @@ intelligence migration) dispatches first.
 - **Dependencies:** 4, 5
 - **Citations:** D-3, D-19, D-39, D-41, D-42, D-44, D-45 · REQ-B2.4, REQ-B2.2, REQ-B2.3, REQ-B3.2, REQ-A3.1, REQ-F1.9, REQ-F1.10, REQ-G1.4, REQ-K1.7
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #12 (draft)
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-9` · dispatched 2026-06-12T23:35Z ·
   branch `planwright/bootstrap/task-9` · worktree `.claude/worktrees/task-9`
