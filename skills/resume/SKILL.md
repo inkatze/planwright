@@ -70,14 +70,14 @@ on and try to resolve `<spec>` only when it is unambiguous — a single spec
 bundle under `specs/` (a direct child whose name passes the REQ-A1.8 charset;
 the reserved underscore-prefixed accumulators `_pending/` and `_observations/`
 are not bundles and are skipped), or a single bundle whose `requirements.md`
-declares `Status: Active` and that has a kickoff brief. Both arms consider
-only directory names that pass REQ-A1.8 (an Active bundle has already passed
-validation, so its name conforms). If that inference is unambiguous, continue
-with the resolved
-`<spec>`;
-if several bundles remain candidates, list them and proceed with no resolved
-`<spec>` (Steps 3-4 below degrade to a spec-less partial load) rather than
-inventing a unit.
+carries the literal `**Status:** Active` marker and that has a kickoff brief.
+Both arms consider only directory names that pass REQ-A1.8 (an Active bundle
+has already passed validation, so its name conforms). If that inference is
+unambiguous, continue with the resolved `<spec>`. If it is not — zero
+candidates (no `specs/` directory, or no bundle directory passes REQ-A1.8) or
+several candidates — say so plainly and proceed with no resolved `<spec>`
+(Steps 3-4 below degrade to a spec-less partial load, a clear message rather
+than an opaque failure per REQ-K1.7) rather than inventing a unit.
 
 ### 3. Load the kickoff brief (the contract)
 
