@@ -363,17 +363,31 @@ baseline_checks() {
       printf '%s\n' "$cur_sup" | while read -r sid; do
         [ -n "$sid" ] || continue
         if set_in "$sid" "$old_sup"; then continue; fi
-        # Name the bare id (REQ- stripped) as a whole token: the changelog
-        # convention writes it bare ("X1.2") or prefixed ("REQ-X1.2"), so the
-        # match must accept those and a sentence-final "X1.2." while rejecting
-        # a longer id it only prefixes ("X1.20", "X1.2.alpha"). The id charset
-        # is [A-Z][0-9.]+, so escaping the dot makes the ERE injection-safe (no
-        # other metacharacter can appear).
-        bre=$(printf '%s' "${sid#REQ-}" | sed 's/[.]/\\./g')
-        printf '%s\n' "$clog" \
-          | grep -qE "(^|[^0-9A-Za-z.])${bre}(\$|[^0-9.]|\\.(\$|[^0-9A-Za-z]))" \
-          || printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
+        # Name the bare id (REQ- stripped) as a whole token. awk tokenizes each
+        # changelog line on non-id characters and compares exactly, so the
+        # convention's bare "X1.2", a prefixed "REQ-X1.2", and a sentence-final
+        # "X1.2." all match, while a longer id it only prefixes ("X1.20",
+        # "X1.2.alpha") does not. This stays in awk rather than grep -E because
+        # anchors inside an alternation (`(^|…)` / `($|…)`) match unreliably on
+        # BSD grep. Exact string compare, so the id needs no regex-escaping.
+        if printf '%s\n' "$clog" | awk -v id="${sid#REQ-}" '
+          {
+            line = $0
+            gsub(/[^A-Za-z0-9.]/, " ", line)
+            n = split(line, t, " ")
+            for (i = 1; i <= n; i++) {
+              tok = t[i]
+              sub(/\.$/, "", tok)
+              if (tok == id) { found = 1; exit }
+            }
+          }
+          END { exit(found ? 0 : 1) }
+        '; then
+          :
+        else
+          printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
             "$sid" "$baseline" >>"$fnd"
+        fi
       done
     fi
   fi
