@@ -406,6 +406,19 @@ code.claude.com/docs (plugins-reference, hooks), consulted 2026-06-12.
 | 17 | Hook-surface facts verified current as of 2026-06-12: plugin hooks live at `hooks/hooks.json` in the plugin root (auto-discovered; inline `plugin.json` also supported), commands reference scripts via `"${CLAUDE_PLUGIN_ROOT}"`; SessionStart context is injected via the `hookSpecificOutput.additionalContext` payload; PostToolUse receives `tool_name` / `tool_input.command` / `tool_response` on stdin, with `tool_response` documented loosely ("the tool's output") while Bash in practice sends an object with `stdout`. The hook surface is evolving (the event list has grown substantially), so these facts can drift before T19. | `tasks-pr-sync.sh` reads `tool_response` shape-defensively (object's `.stdout` or the raw string); T19's packaging pass re-verifies `hooks.json` against current docs. The writer fallback keeps hook wiring a printed manual step (`install.sh` never edits `settings.json`). |
 | 18 | Task 6 forward-implements the D-10 advisory lock ahead of T13: `tasks-pr-sync.sh` takes a `mkdir`-based lock at `specs/<spec>/.orchestrate.lock` in the primary checkout, breaks it past `stale_lock_threshold` (mtime via `find -mmin`), and drops the event cleanly when busy (`--bookkeeping` reconciles, the interim answer to the deferred lock-failure-recovery backlog item). If T13's `/orchestrate` lock uses a different path or protocol, the two writers will not exclude each other. | T13's executor must adopt the same lock path and mkdir protocol (or migrate both in one PR); the deferred-backlog canonicalization rule (worktree writers lock the primary checkout's path) is already honored here. |
 
+### Risk register additions — Task 16 execution (2026-06-12)
+
+Findings recorded per REQ-E1.3 (execution-skill write, named-section only; no
+anchor entry). No new dependency was adopted (the builder's detection core is
+plain bash + awk over the existing toolchain), so Research Rigor's
+new-dependency trigger did not fire; the note below is the framework-script
+security pass (REQ-D1.6) over the new shell surface.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 19 | `scripts/builder-guards.sh` is a new framework script that reads a catalog file and runs `find` / `git -C` against a target project. Catalog `detect` values reach `find -name` / `-path` as glob patterns and `PLANWRIGHT_GUARD_CATALOG` reaches the filesystem as a path. | Treated as data throughout: no `eval`, subshell, or arithmetic expansion on catalog content (the same data-only discipline as the gate parser, REQ-H1.3); glob values are quoted pattern arguments to `find`, never code; the catalog is parsed by a constrained awk reader, not sourced. The dogfood test (`tests/test-builder-guards.sh`) covers a missing-catalog error path; shellcheck + shfmt gate the script in CI. The catalog is config data, not a secrets surface (gitleaks still scans it). |
+| 20 | Dogfood reproduction is scoped to the **universal core** guard set; planwright's project-bespoke guards (spec validator, doc-link check, options-reference drift check) are deliberately excluded as project extensions, not universal categories. A future reader could mistake the scoping for under-coverage. | Scoping declared per the proportionality rule in both `doctrine/guard-catalog.md` (dogfood note) and the builder skill; the dogfood test asserts the core set against the repo's actual wiring, so a dropped core guard breaks CI. |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;

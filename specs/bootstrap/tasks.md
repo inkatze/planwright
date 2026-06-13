@@ -256,6 +256,10 @@ intelligence migration) dispatches first.
 - **Dependencies:** 7, 8, 10, 12, 15
 - **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
 - **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-12T23:42Z ·
+  branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
 
 ### Task 18 — Multi-contributor work-repo end-to-end validation run
 
