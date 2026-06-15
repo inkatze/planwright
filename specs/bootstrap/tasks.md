@@ -88,9 +88,13 @@ intelligence migration) dispatches first.
 - **Dependencies:** 7, 8, 10, 12, 15
 - **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
 - **Estimated effort:** 1.5 days
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-12T23:42Z ·
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-15T20:02Z ·
   branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
-- **Status:** draft-pr-ready · PR #17 (draft) · UNSIGNED commits from signing outage; squash-merge to clean
+- **Status:** implementing · clean redo on a fresh signed branch (PR #17 closed; superseded — it
+  carried unsigned outage-era commits and never ran the gauntlet; content preserved at tag
+  `pw/t16-salvage`). Re-landing reviewed deliverables, then gauntlet (panel-pairing →
+  self-review → copilot-pairing) → `gh pr ready`.
+- **Last activity:** 2026-06-15
 
 ## Awaiting input
 
