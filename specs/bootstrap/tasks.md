@@ -71,6 +71,41 @@ intelligence migration) dispatches first.
 
 ## In progress
 
+### Task 16 — Builder skill + core catalog + lifecycle hooks
+
+- **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
+  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
+  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
+  gate, commit hooks) with breadth dimensions
+  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
+  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
+  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** The builder detects a project's stack and recommends/applies the core guards;
+  an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
+  builder, run against planwright itself, reproduces the guard set established in Task 2**
+  (dogfood loop).
+- **Dependencies:** 7, 8, 10, 12, 15
+- **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
+- **Estimated effort:** 1.5 days
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-12T23:42Z ·
+  branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
+- **Status:** draft-pr-ready · PR #17 (draft) · UNSIGNED commits from signing outage; squash-merge to clean
+
+## Awaiting input
+
+- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
+  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
+  human policy call before it is relied on. Both self-review and Copilot flagged that the
+  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
+  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
+  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
+  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
+  branch only (the real question: should a worker be able to push to `main` at all?). Also
+  surfaced in the PR body's "Needs sign-off" section.
+
+## Completed
+
 ### Task 13 — `/orchestrate`
 
 - **Deliverables:** The `/orchestrate` stateless step machine: critical-path-first ready-unit
@@ -106,42 +141,7 @@ intelligence migration) dispatches first.
 - **Estimated effort:** 3 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-13` · dispatched 2026-06-12T23:25Z ·
   branch `planwright/bootstrap/task-13` · worktree `.claude/worktrees/task-13`
-- **Status:** draft-pr-ready · PR #18 (draft)
-
-### Task 16 — Builder skill + core catalog + lifecycle hooks
-
-- **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
-  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
-  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
-  gate, commit hooks) with breadth dimensions
-  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
-  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
-  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** The builder detects a project's stack and recommends/applies the core guards;
-  an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
-  builder, run against planwright itself, reproduces the guard set established in Task 2**
-  (dogfood loop).
-- **Dependencies:** 7, 8, 10, 12, 15
-- **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
-- **Estimated effort:** 1.5 days
-- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-12T23:42Z ·
-  branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
-- **Status:** draft-pr-ready · PR #17 (draft) · UNSIGNED commits from signing outage; squash-merge to clean
-
-## Awaiting input
-
-- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
-  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
-  human policy call before it is relied on. Both self-review and Copilot flagged that the
-  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
-  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
-  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
-  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
-  branch only (the real question: should a worker be able to push to `main` at all?). Also
-  surfaced in the PR body's "Needs sign-off" section.
-
-## Completed
+- **Status:** Completed · PR #18 merged 2026-06-15
 
 ### Task 1 — Repo scaffold & packaging skeleton
 
