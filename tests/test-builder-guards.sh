@@ -273,6 +273,43 @@ else
 fi
 rm -rf "$tmp_jf"
 
+# A breadth entry is emitted unconditionally with category/tool columns, so it
+# needs the same required-field guard as a guards entry: a breadth entry
+# missing category or tool must be skipped with a warning, never emitted as a
+# line with an empty column (REQ-K1.7, REQ-G1.5). Breadth entries legitimately
+# carry no real detect signal, so detect is the one field not required of them.
+tmp_bb="$(mktemp -d)"
+cat >"$tmp_bb/catalog.yaml" <<'YAML'
+---
+breadth:
+  - id: doc-coverage
+    category: breadth
+    tool: manual-doc-review
+    detect: "manual"
+  - id: broken-breadth
+    category: breadth
+    detect: "manual"
+YAML
+bb_out="$(PLANWRIGHT_GUARD_CATALOG="$tmp_bb/catalog.yaml" \
+  /bin/bash "$SCRIPT" "$tmp_bb" 2>"$tmp_bb/err.txt")"
+assert_exit "malformed breadth entry does not crash the run" 0 $?
+if printf '%s\n' "$bb_out" | awk -F'\t' 'NF<3 || $2=="" || $3=="" {bad=1} END{exit bad?0:1}'; then
+  fail "a malformed breadth entry emitted a line with an empty column"
+else
+  pass "no emitted breadth line has an empty category/tool column"
+fi
+if printf '%s\n' "$bb_out" | tools_of | grep -qx "manual-doc-review"; then
+  pass "valid breadth entry still emitted past a malformed sibling"
+else
+  fail "valid breadth entry dropped by a malformed sibling"
+fi
+if grep -q "broken-breadth" "$tmp_bb/err.txt"; then
+  pass "malformed breadth entry named in a stderr warning (not silent)"
+else
+  fail "malformed breadth entry skipped silently (no stderr warning)"
+fi
+rm -rf "$tmp_bb"
+
 # ---------------------------------------------------------------------------
 # 9. --help prints the usage block only, never leaking source code lines.
 # ---------------------------------------------------------------------------

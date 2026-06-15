@@ -136,21 +136,25 @@ parse_catalog() {
 emit=""
 while IFS='|' read -r id cat tool detect core section; do
   [ -n "$id" ] || continue
-  # A non-breadth guard missing any required field (category, tool, or a
-  # detect signal) is a malformed catalog entry — most often an adopter slip.
-  # Skip it with a warning rather than emitting a junk line, dropping it
-  # silently, or aborting the run (REQ-K1.7 graceful degradation; the catalog
-  # is adopter-extensible, REQ-G1.5).
+  # A guard missing any required field is a malformed catalog entry — most
+  # often an adopter slip. Skip it with a warning rather than emitting a junk
+  # line, dropping it silently, or aborting the run (REQ-K1.7 graceful
+  # degradation; the catalog is adopter-extensible, REQ-G1.5). category and
+  # tool are required of every entry, breadth included: breadth entries are
+  # emitted with the same `<id>\t<category>\t<tool>` columns, so a breadth
+  # entry missing either would otherwise emit a contract-violating empty
+  # column. A detect signal is required only of non-breadth guards; breadth
+  # entries are advisory and carry no real detect.
+  missing=""
+  [ -n "$cat" ] || missing="category"
+  [ -n "$tool" ] || missing="${missing:+$missing, }tool"
   if [ "$section" != "breadth" ]; then
-    missing=""
-    [ -n "$cat" ] || missing="category"
-    [ -n "$tool" ] || missing="${missing:+$missing, }tool"
     [ -n "$(printf '%s' "$detect" | tr -d '[:space:]')" ] \
       || missing="${missing:+$missing, }detect"
-    if [ -n "$missing" ]; then
-      echo "builder-guards: catalog entry '$id' missing $missing; skipping" >&2
-      continue
-    fi
+  fi
+  if [ -n "$missing" ]; then
+    echo "builder-guards: catalog entry '$id' missing $missing; skipping" >&2
+    continue
   fi
   if [ "$core_only" -eq 1 ]; then
     [ "$core" = "true" ] || continue
