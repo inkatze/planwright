@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first.",
+  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment that a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first.",
   "permissions": {
     "defaultMode": "default",
     "allow": [
