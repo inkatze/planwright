@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment that a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first.",
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Grep",
+      "Glob",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push origin:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(mise run:*)",
+      "Bash(mise tasks:*)"
+    ],
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr ready:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push -f:*)",
+      "Bash(git commit --amend:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git filter-repo:*)"
+    ]
+  }
+}
