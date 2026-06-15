@@ -1,0 +1,166 @@
+---
+# planwright builder core guard catalog (Task 16, REQ-G1.2/G1.5; D-15).
+#
+# Data, not code: the builder skill and scripts/builder-guards.sh read this
+# file to recommend the universal mechanical quality guards a detected stack
+# warrants. Adding a guard is adding an entry here — no edit to the consuming
+# script (the extensibility contract, REQ-G1.5). Adopters extend the list the
+# same way (or point a project copy at it via PLANWRIGHT_GUARD_CATALOG).
+#
+# doctrine/guard-catalog.md is the normative prose home: the guard categories,
+# the breadth dimensions, and the stake-escalation rule that keeps the builder
+# from flattening load-bearing decisions (D-16). This file is its machine view.
+#
+# Per-guard fields (all scalar, one mapping per sequence item):
+#   id        stable identifier for the guard (kebab-case)
+#   category  formatter | linter | type-checker | test-runner |
+#             security | commit-hook | ci | breadth
+#   tool      the concrete tool the guard recommends
+#   detect    space-separated detection signals: a glob (matched by file name,
+#             or by relative path when it contains "/"), or the literal "git"
+#             (matches inside a git work tree). The guard fires if ANY signal
+#             matches.
+#   core      true for the universal core catalog (REQ-G1.2); false/absent for
+#             breadth dimensions that are catalogued and growable but advisory.
+
+guards:
+  # --- Shell -------------------------------------------------------------
+  - id: format-shell
+    category: formatter
+    tool: shfmt
+    detect: "*.sh"
+    core: true
+  - id: lint-shell
+    category: linter
+    tool: shellcheck
+    detect: "*.sh"
+    core: true
+  - id: test-shell
+    category: test-runner
+    tool: shell-test-runner
+    detect: "tests/*.sh"
+    core: true
+
+  # --- Prose / data formats ---------------------------------------------
+  - id: lint-prose
+    category: linter
+    tool: markdownlint
+    detect: "*.md"
+    core: true
+  - id: lint-yaml
+    category: linter
+    tool: yamllint
+    detect: "*.yml *.yaml .yamllint"
+    core: true
+  - id: lint-json
+    category: linter
+    tool: jq
+    detect: "*.json"
+    core: true
+
+  # --- Python ------------------------------------------------------------
+  - id: format-python
+    category: formatter
+    tool: ruff-format
+    detect: "*.py pyproject.toml"
+    core: true
+  - id: lint-python
+    category: linter
+    tool: ruff
+    detect: "*.py pyproject.toml"
+    core: true
+  - id: typecheck-python
+    category: type-checker
+    tool: mypy
+    detect: "*.py"
+    core: true
+  - id: test-python
+    category: test-runner
+    tool: pytest
+    detect: "*.py pyproject.toml"
+    core: true
+
+  # --- JavaScript / TypeScript ------------------------------------------
+  - id: format-js
+    category: formatter
+    tool: prettier
+    detect: "*.js *.jsx *.ts *.tsx package.json"
+    core: true
+  - id: lint-js
+    category: linter
+    tool: eslint
+    detect: "*.js *.jsx *.ts *.tsx"
+    core: true
+  - id: typecheck-ts
+    category: type-checker
+    tool: tsc
+    detect: "tsconfig.json *.ts *.tsx"
+    core: true
+  - id: test-node
+    category: test-runner
+    tool: package-json-test
+    detect: "package.json"
+    core: true
+
+  # --- Go ----------------------------------------------------------------
+  - id: format-go
+    category: formatter
+    tool: gofmt
+    detect: "*.go"
+    core: true
+  - id: lint-go
+    category: linter
+    tool: go-vet
+    detect: "*.go go.mod"
+    core: true
+
+  # --- Rust --------------------------------------------------------------
+  - id: format-rust
+    category: formatter
+    tool: rustfmt
+    detect: "*.rs Cargo.toml"
+    core: true
+  - id: lint-rust
+    category: linter
+    tool: clippy
+    detect: "*.rs Cargo.toml"
+    core: true
+
+  # --- Repo-wide (git-signalled) ----------------------------------------
+  - id: secret-scan
+    category: security
+    tool: gitleaks
+    detect: "git"
+    core: true
+  - id: commit-lint
+    category: commit-hook
+    tool: conventional-commits
+    detect: "git"
+    core: true
+  - id: ci-gate
+    category: ci
+    tool: github-actions
+    detect: "git"
+    core: true
+
+# Breadth dimensions (REQ-G1.5): catalogued, growable, advisory. The builder
+# surfaces these as dimensions to consider rather than auto-applying a tool;
+# entries gain a concrete `tool` and `core: true` as the dimension matures and
+# the project opts in. They never participate in the mechanical dogfood set.
+breadth:
+  - id: documentation
+    category: breadth
+    tool: doc-coverage
+    detect: "manual"
+  - id: internationalization
+    category: breadth
+    tool: i18n-lint
+    detect: "manual"
+  - id: accessibility
+    category: breadth
+    tool: a11y-audit
+    detect: "manual"
+  - id: architecture
+    category: breadth
+    tool: arch-guidance
+    detect: "manual"

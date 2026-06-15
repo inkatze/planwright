@@ -62,9 +62,11 @@ paths:
   is mined.
 - **By the adopter.** Projects with domains this seed list does not cover
   (payments, ML model lifecycle, firmware rollout) add their own entries
-  in the same format through project configuration; the precise channel
-  is pinned when the builder consumes the catalog (Task 16), and until
-  then the entry format above is the contract. The core seed list below
+  in the same format through project configuration — the same channel the
+  builder's [guard catalog](guard-catalog.md) uses for adopter extension:
+  project-specific decision and guard data lives in project config (the
+  guard catalog's `PLANWRIGHT_GUARD_CATALOG` override is the concrete
+  mechanism), leaving this shipped doc unedited. The core seed list below
   is planwright's, and adopters extend it without editing this doc.
 
 ## Seed catalog
