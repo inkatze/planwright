@@ -60,6 +60,28 @@ consuming script. Each entry is one mapping with scalar fields:
 - **`core`** — `true` for the universal core catalog; absent or `false` for
   advisory breadth dimensions.
 
+### Supported format (the reader is constrained, not a full YAML parser)
+
+`scripts/builder-guards.sh` reads the catalog with a deliberately minimal awk
+reader — it never sources or evaluates the file (the data-not-code discipline,
+REQ-H1.3). It recognizes the exact shape planwright's own catalog uses, and
+only that shape:
+
+- **Indentation is fixed:** list items at two-space indentation (the `- id:`
+  line), their fields at four spaces (`category:`, `tool:`, and so on).
+  Reflowed indentation is not parsed.
+- **Scalars are unquoted or double-quoted.** Single-quoted scalars (`'*.sh'`)
+  and inline `# ...` comments after a value are not stripped, so they would be
+  kept verbatim in the value and detection would not match.
+
+An entry written outside this shape is silently skipped. To keep that from
+becoming an invisible failure for adopter extensions (REQ-G1.5), the reader
+warns on stderr when a `guards:` or `breadth:` section is present but no
+entries parsed — the signal that the format, not the content, is the problem.
+A section-less catalog legitimately yields zero guards and is not flagged.
+Broader YAML tolerance is an intentional non-goal: extend the catalog by
+following the shape above.
+
 ## Breadth dimensions
 
 The catalog reaches past the mechanical core into dimensions that matter but

@@ -155,8 +155,10 @@ parse_catalog() {
 }
 
 emit=""
+parsed=0
 while IFS='|' read -r id cat tool detect core section; do
   [ -n "$id" ] || continue
+  parsed=$((parsed + 1))
   # A guard missing any required field is a malformed catalog entry — most
   # often an adopter slip. Skip it with a warning rather than emitting a junk
   # line, dropping it silently, or aborting the run (REQ-K1.7 graceful
@@ -195,6 +197,17 @@ while IFS='|' read -r id cat tool detect core section; do
 done <<EOF
 $(parse_catalog)
 EOF
+
+# Zero parsed entries despite a declared guards:/breadth: section almost always
+# means the entries did not match the constrained reader's expected shape
+# (2-space list items, 4-space fields, unquoted or double-quoted scalars; no
+# single quotes, inline comments, or reflowed indentation). A silent empty
+# result is the worst failure mode for an adopter extending the catalog, so
+# warn loudly. A section-less catalog legitimately yields zero and is not
+# flagged. (Stays non-fatal per REQ-K1.7 graceful degradation.)
+if [ "$parsed" -eq 0 ] && grep -Eq '^(guards|breadth):[[:blank:]]*$' "$catalog"; then
+  echo "builder-guards: catalog '$catalog' declares a guards:/breadth: section but no entries parsed — check 2-space list / 4-space field indentation and that scalars are unquoted or double-quoted (single quotes and inline # comments are not supported). See doctrine/guard-catalog.md." >&2
+fi
 
 [ -n "$emit" ] || exit 0
 printf '%s' "$emit" | sort

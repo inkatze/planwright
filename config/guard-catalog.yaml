@@ -22,6 +22,12 @@
 #             matches.
 #   core      true for the universal core catalog (REQ-G1.2); false/absent for
 #             breadth dimensions that are catalogued and growable but advisory.
+#
+# The reader is a constrained awk parser, not full YAML: keep list items at
+# two-space and fields at four-space indentation, and values unquoted or
+# double-quoted (single quotes and inline "# ..." comments are not supported).
+# An entry outside that shape is skipped; if a whole section parses to nothing
+# the reader warns. See doctrine/guard-catalog.md for the full format contract.
 
 guards:
   # --- Shell -------------------------------------------------------------

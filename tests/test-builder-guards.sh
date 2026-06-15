@@ -99,8 +99,8 @@ done
 # fault on an unset var and mask the original failure. Empty values are inert
 # under `rm -rf` with `-f`.
 tmp_py="$(mktemp -d)"
-tmp_md="" tmp_git="" tmp_ext="" tmp_bad="" tmp_jf="" tmp_bb=""
-trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext" "$tmp_bad" "$tmp_jf" "$tmp_bb"' EXIT
+tmp_md="" tmp_git="" tmp_ext="" tmp_bad="" tmp_jf="" tmp_bb="" tmp_zp="" tmp_empty=""
+trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext" "$tmp_bad" "$tmp_jf" "$tmp_bb" "$tmp_zp" "$tmp_empty"' EXIT
 : >"$tmp_py/app.py"
 : >"$tmp_py/pyproject.toml"
 py_tools="$(/bin/bash "$SCRIPT" --core "$tmp_py" 2>/dev/null | tools_of)"
@@ -309,6 +309,42 @@ else
   fail "malformed breadth entry skipped silently (no stderr warning)"
 fi
 rm -rf "$tmp_bb"
+
+# A guards:/breadth: section whose entries do not parse (reflowed indentation,
+# single-quoted scalars, inline comments — none of which the constrained reader
+# supports) yields zero guards. That is almost always an adopter format mistake,
+# so the reader warns loudly rather than emitting nothing silently (REQ-G1.5
+# extensibility: a silent empty result is the worst failure mode for an adopter).
+tmp_zp="$(mktemp -d)"
+cat >"$tmp_zp/catalog.yaml" <<'YAML'
+---
+guards:
+    - id: over-indented
+      category: linter
+      tool: shellcheck
+      detect: "*.sh"
+      core: true
+YAML
+: >"$tmp_zp/x.sh"
+zp_err="$(PLANWRIGHT_GUARD_CATALOG="$tmp_zp/catalog.yaml" \
+  /bin/bash "$SCRIPT" --core "$tmp_zp" 2>&1 >/dev/null)"
+if printf '%s\n' "$zp_err" | grep -q "no entries parsed"; then
+  pass "a guards section that parsed zero entries warns (not a silent empty result)"
+else
+  fail "zero-parse section produced no warning"
+fi
+# A genuinely empty catalog (no guards:/breadth: section at all) must NOT warn:
+# zero guards is the correct answer there, not a format mistake.
+tmp_empty="$(mktemp -d)"
+printf -- '---\n' >"$tmp_empty/catalog.yaml"
+ze_err="$(PLANWRIGHT_GUARD_CATALOG="$tmp_empty/catalog.yaml" \
+  /bin/bash "$SCRIPT" --core "$tmp_zp" 2>&1 >/dev/null)"
+if printf '%s\n' "$ze_err" | grep -q "no entries parsed"; then
+  fail "a section-less catalog wrongly warned about zero entries"
+else
+  pass "a section-less catalog does not warn (zero guards is correct there)"
+fi
+rm -rf "$tmp_zp" "$tmp_empty"
 
 # ---------------------------------------------------------------------------
 # 9. --help prints the usage block only, never leaking source code lines.
