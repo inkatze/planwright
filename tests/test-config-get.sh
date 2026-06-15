@@ -84,6 +84,13 @@ PLANWRIGHT_CONFIG_DEFAULTS="$defaults" PLANWRIGHT_LOCAL_CONFIG="$tmp/nope.yml" \
   || fail "absent local file: wrong default value"
 echo "ok: an absent local override file degrades to the default"
 
+# 5b. Only a surrounding quote pair is stripped; quotes inside the value are
+#     preserved (the docstring promises "surrounding quotes", not all quotes).
+printf "token: \"a'b\"\n" >"$local_cfg"
+[ "$(run token)" = "a'b" ] \
+  || fail "internal single quote was stripped (expected a'b, got '$(run token)')"
+echo "ok: internal quotes are preserved (only surrounding pair stripped)"
+
 # 6. Invalid key rejected before use.
 for bad in '../etc' 'a b' 'key;rm' 'Key' ''; do
   rc=0

@@ -96,7 +96,7 @@ extract() {
   sed -n "s/^${ek}:[[:space:]]*//p" "$ef" \
     | head -1 \
     | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-    | tr -d '"' | tr -d "'"
+      -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
   return 0
 }
 
