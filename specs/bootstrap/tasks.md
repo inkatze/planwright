@@ -32,8 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-## Forward plan
-
 ### Task 18 — Multi-contributor work-repo end-to-end validation run
 
 - **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
