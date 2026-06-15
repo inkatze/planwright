@@ -203,9 +203,13 @@ EOF
 # (2-space list items, 4-space fields, unquoted or double-quoted scalars; no
 # single quotes, inline comments, or reflowed indentation). A silent empty
 # result is the worst failure mode for an adopter extending the catalog, so
-# warn loudly. A section-less catalog legitimately yields zero and is not
-# flagged. (Stays non-fatal per REQ-K1.7 graceful degradation.)
-if [ "$parsed" -eq 0 ] && grep -Eq '^(guards|breadth):[[:blank:]]*$' "$catalog"; then
+# warn loudly. The section-detection here is deliberately looser than the
+# parser's exact `^guards:$` match: it also catches a header with a trailing
+# inline comment or leading indentation (`guards:  # ...`), the very variants
+# the strict parser drops — so the warning still fires instead of the section
+# slipping through silently. A section-less catalog legitimately yields zero
+# and is not flagged. (Stays non-fatal per REQ-K1.7 graceful degradation.)
+if [ "$parsed" -eq 0 ] && grep -Eq '^[[:blank:]]*(guards|breadth):' "$catalog"; then
   echo "builder-guards: catalog '$catalog' declares a guards:/breadth: section but no entries parsed — check 2-space list / 4-space field indentation and that scalars are unquoted or double-quoted (single quotes and inline # comments are not supported). See doctrine/guard-catalog.md." >&2
 fi
 

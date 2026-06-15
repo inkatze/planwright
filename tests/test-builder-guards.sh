@@ -99,8 +99,8 @@ done
 # fault on an unset var and mask the original failure. Empty values are inert
 # under `rm -rf` with `-f`.
 tmp_py="$(mktemp -d)"
-tmp_md="" tmp_git="" tmp_ext="" tmp_bad="" tmp_jf="" tmp_bb="" tmp_zp="" tmp_empty=""
-trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext" "$tmp_bad" "$tmp_jf" "$tmp_bb" "$tmp_zp" "$tmp_empty"' EXIT
+tmp_md="" tmp_git="" tmp_ext="" tmp_bad="" tmp_jf="" tmp_bb="" tmp_zp="" tmp_empty="" tmp_zc=""
+trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext" "$tmp_bad" "$tmp_jf" "$tmp_bb" "$tmp_zp" "$tmp_empty" "$tmp_zc"' EXIT
 : >"$tmp_py/app.py"
 : >"$tmp_py/pyproject.toml"
 py_tools="$(/bin/bash "$SCRIPT" --core "$tmp_py" 2>/dev/null | tools_of)"
@@ -113,6 +113,19 @@ if printf '%s\n' "$py_tools" | grep -qx "mypy"; then
   pass "python project detects a type-checker (mypy)"
 else
   fail "python project missing type-checker"
+fi
+# The full Python guard set, not just the linter/type-checker: the formatter
+# (ruff-format) and the test runner (pytest) must fire too, so a regression
+# that drops either is caught.
+if printf '%s\n' "$py_tools" | grep -qx "ruff-format"; then
+  pass "python project detects a formatter (ruff-format)"
+else
+  fail "python project missing formatter (ruff-format)"
+fi
+if printf '%s\n' "$py_tools" | grep -qx "pytest"; then
+  pass "python project detects a test runner (pytest)"
+else
+  fail "python project missing test runner (pytest)"
 fi
 # A python-only dir has no shell, so shellcheck must NOT fire.
 if printf '%s\n' "$py_tools" | grep -qx "shellcheck"; then
@@ -345,6 +358,30 @@ else
   pass "a section-less catalog does not warn (zero guards is correct there)"
 fi
 rm -rf "$tmp_zp" "$tmp_empty"
+
+# The zero-parse warning must catch the section header even when it carries a
+# trailing inline comment (valid YAML the strict reader does not treat as a
+# section start): the warning's detection is deliberately looser than the
+# parser's so this silent-empty case still surfaces.
+tmp_zc="$(mktemp -d)"
+cat >"$tmp_zc/catalog.yaml" <<'YAML'
+---
+guards:  # an adopter left a comment on the section header
+  - id: shell
+    category: linter
+    tool: shellcheck
+    detect: "*.sh"
+    core: true
+YAML
+: >"$tmp_zc/x.sh"
+zc_err="$(PLANWRIGHT_GUARD_CATALOG="$tmp_zc/catalog.yaml" \
+  /bin/bash "$SCRIPT" --core "$tmp_zc" 2>&1 >/dev/null)"
+if printf '%s\n' "$zc_err" | grep -q "no entries parsed"; then
+  pass "zero-parse warning fires even when the section header has an inline comment"
+else
+  fail "zero-parse warning missed a commented section header (silent empty)"
+fi
+rm -rf "$tmp_zc"
 
 # ---------------------------------------------------------------------------
 # 9. --help prints the usage block only, never leaking source code lines.
