@@ -3,12 +3,15 @@
 # during a tasks.md state move (Task 13, REQ-F1.3, D-10).
 #
 # The lock is a directory at <spec-dir>/.orchestrate.lock, taken with an
-# atomic mkdir and broken when older than stale_lock_threshold. The path and
-# protocol are IDENTICAL to scripts/tasks-pr-sync.sh's inline lock (kickoff
-# brief risk row 18) so the orchestrator and the PR-sync hook — which may run
-# concurrently against the same primary checkout — exclude each other. The
-# lock is held only across the brief state-changing move and released before
-# /execute-task runs, so it never serializes execution (D-10).
+# atomic mkdir and broken when older than stale_lock_threshold. The lock path
+# and the mkdir acquisition protocol match scripts/tasks-pr-sync.sh's inline
+# lock (kickoff brief risk row 18) so the orchestrator and the PR-sync hook —
+# which may run concurrently against the same primary checkout — exclude each
+# other. The failure handling differs by design: this dispatch-path primitive
+# fails closed (exit 2) on a non-contention mkdir error, whereas the hook is
+# fail-soft (a failed mkdir is a clean skip that --bookkeeping reconciles).
+# The lock is held only across the brief state-changing move and released
+# before /execute-task runs, so it never serializes execution (D-10).
 #
 # Usage: orchestrate-lock.sh acquire|release <spec-dir>
 #   acquire  mkdir the lock; break + re-acquire a stale one. Exit 0 on a held
@@ -91,6 +94,12 @@ if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$threshold_min" 2>/dev/null)" ]; the
   rm -rf "$lock"
   if mkdir "$lock" 2>/dev/null; then
     exit 0
+  fi
+  # Same distinction as the initial mkdir: no lock dir means a real error
+  # (fail closed), a present one means another holder won the post-break race.
+  if [ ! -d "$lock" ]; then
+    echo "orchestrate-lock: cannot create $lock after stale break (spec dir unwritable or filesystem error)" >&2
+    exit 2
   fi
   echo "orchestrate-lock: contention after stale break; skipping ($lock)" >&2
   exit 1

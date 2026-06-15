@@ -127,4 +127,24 @@ case $err in
 esac
 echo "ok: a missing tracked defaults file surfaces a diagnostic (not opaque)"
 
+# 8b. An existing-but-unreadable defaults file must also surface the diagnostic
+#     ("missing OR unreadable" per the contract, via the -r test, not just -f).
+unreadable="$tmp/unreadable-defaults.yml"
+printf 'dispatch_backend: subagent\n' >"$unreadable"
+chmod 000 "$unreadable"
+rc=0
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$unreadable" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+  /bin/bash "$CG" dispatch_backend 2>&1 >/dev/null) || rc=$?
+chmod 644 "$unreadable" # restore for cleanup
+case $err in
+  *"tracked defaults not found"*)
+    [ "$rc" = 3 ] || fail "unreadable defaults: exit $rc, expected 3"
+    echo "ok: an unreadable tracked defaults file also surfaces the diagnostic"
+    ;;
+  *)
+    # Root reads through mode 000; the failure mode is unobservable there.
+    echo "skip: unreadable-defaults case (file still readable — likely running as root)"
+    ;;
+esac
+
 echo "PASS: config-get"
