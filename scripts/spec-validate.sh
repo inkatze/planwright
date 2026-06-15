@@ -17,7 +17,9 @@
 #   6. Task structure: well-formed stable ID plus the five definition fields.
 #   7. REQ↔test-spec coverage (exact-id matching, never substring).
 #   8. Stable-ID discipline: duplicates rejected; against the baseline ref,
-#      a vanished (renumbered/removed) ID is flagged; a supersede passes.
+#      a vanished (renumbered/removed) ID is flagged; a supersede passes,
+#      and a supersede newly introduced since the baseline must carry a
+#      dated Changelog entry naming the superseded ID (REQ-A3.3).
 #   9. Terminal-state discipline: no transition out of Retired/Superseded
 #      relative to the baseline ref.
 #
@@ -337,6 +339,63 @@ baseline_checks() {
         || printf 'gap\t%s renumbered or removed since %s (stable IDs are never reused; supersede instead)\n' \
           "$oid" "$baseline" >>"$fnd"
     done
+
+    # Changelog-on-supersede (REQ-A3.3, D-20): a REQ newly marked
+    # `Superseded-by` since the baseline must be named in a dated Changelog
+    # entry — the supersede pointer records the lineage, the changelog records
+    # the why-it-changed. The current superseded set is diffed against the
+    # baseline's so a supersede already recorded upstream is not re-flagged.
+    # Status-scoped like the other stable-ID findings (warn on Draft, error on
+    # Active/Done). REQ supersedes only: that is the parseable, marked case.
+    # Guarded on the current file existing: a bundle that deletes
+    # requirements.md still has a non-empty baseline `$old_req`, and parsing a
+    # now-missing file would leak raw awk errors and abort under set -eu — the
+    # missing-file gap already covers that case (REQ-K1.7 graceful degradation).
+    if [ -f "$bdir/requirements.md" ]; then
+      printf '%s\n' "$old_req" >"$gtmp/old_req"
+      old_sup=$(parse_requirements "$gtmp/old_req" | awk -F"$tab" '$1 == "SUP" { print $2 }')
+      cur_sup=$(parse_requirements "$bdir/requirements.md" | awk -F"$tab" '$1 == "SUP" { print $2 }')
+      clog=$(awk '
+        tolower($0) ~ /^## changelog/ { f = 1; next }
+        /^## / { f = 0 }
+        f
+      ' "$bdir/requirements.md")
+      printf '%s\n' "$cur_sup" | while read -r sid; do
+        [ -n "$sid" ] || continue
+        if set_in "$sid" "$old_sup"; then continue; fi
+        # Name the bare id (REQ- stripped) as a whole token, inside a dated
+        # Changelog entry (REQ-A3.3). awk tracks whether the current line is
+        # part of a dated bullet entry — a `- <YYYY-MM-DD> …` bullet, or one of
+        # its continuation lines, since entries span multiple lines and the id
+        # often sits on a continuation (e.g. "REQ-B2.4 supersedes REQ-B2.1") —
+        # and only scans those, so an undated bullet that names the id does not
+        # satisfy the check. On a dated line it tokenizes on non-id characters
+        # and compares exactly: the bare "X1.2", a prefixed "REQ-X1.2", and a
+        # sentence-final "X1.2." match, while a longer id it only prefixes
+        # ("X1.20", "X1.2.alpha") does not. awk, not grep -E, because anchors
+        # inside an alternation (`(^|…)` / `($|…)`) match unreliably on BSD
+        # grep; exact compare, so the id needs no regex-escaping.
+        if printf '%s\n' "$clog" | awk -v id="${sid#REQ-}" '
+          /^- / { dated = ($0 ~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) }
+          dated {
+            line = $0
+            gsub(/[^A-Za-z0-9.]/, " ", line)
+            n = split(line, t, " ")
+            for (i = 1; i <= n; i++) {
+              tok = t[i]
+              sub(/\.$/, "", tok)
+              if (tok == id) { found = 1; exit }
+            }
+          }
+          END { exit(found ? 0 : 1) }
+        '; then
+          :
+        else
+          printf 'gap\t%s newly superseded since %s without a matching Changelog entry (REQ-A3.3: a supersede needs a dated Changelog entry naming it)\n' \
+            "$sid" "$baseline" >>"$fnd"
+        fi
+      done
+    fi
   fi
   if [ -n "$old_des" ]; then
     old_ids=$(printf '%s\n' "$old_des" | grep -oE '^### D-[0-9]+:' | grep -oE 'D-[0-9]+') || old_ids=

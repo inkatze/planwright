@@ -30,6 +30,10 @@
 #       underscore accumulators are skipped as bundles but name-screened;
 #       symlinked directories in the root are a hard error, not a skip;
 #       --check-id validates proposed identifier strings full-string.
+#   13. Changelog-on-supersede (REQ-A3.3): a supersede newly introduced since
+#       the baseline must be named in a dated Changelog entry (status-scoped:
+#       error on Active, warning on Draft); a supersede already in the
+#       baseline, or one named in the changelog, is not flagged.
 #
 # Runs standalone: ./tests/test-spec-validate.sh
 set -eu
@@ -686,6 +690,195 @@ has "not in a git work tree"
 
 run_v 2 --baseline no-such-ref "$repo/specs"
 has "baseline ref does not resolve"
+
+# --- 13. Changelog-on-supersede (REQ-A3.3) ---
+# A supersede newly introduced since the baseline must be accompanied by a
+# dated Changelog entry naming the superseded ID; absent one it is flagged,
+# status-scoped (error on Active, warning on Draft). A supersede already
+# present in the baseline is not re-flagged.
+repo3="$tmp/repo3"
+mkdir -p "$repo3"
+git -C "$repo3" init -q
+write_bundle "$repo3/specs/myspec" Active
+git -C "$repo3" add -A
+git -C "$repo3" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+
+# Supersede REQ-X1.2 with REQ-X1.3, leaving the Changelog at "created." — no
+# entry names the supersede.
+cat >"$repo3/specs/myspec/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Active
+**Last reviewed:** 2026-06-12
+**Format-version:** 1
+
+## Goal
+
+A fixture bundle.
+
+## REQ-X — fixture group
+
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X1.2** The gadget SHALL exist. **Superseded-by: REQ-X1.3** (2026-06-12)
+- **REQ-X1.3** (supersedes REQ-X1.2) The gadget SHALL exist and hum.
+  *(Cites: D-1.)*
+
+## Changelog
+
+- 2026-06-12 — created.
+
+## Sources
+
+- the fixture seed.
+EOF
+edit "$repo3/specs/myspec/test-spec.md" 's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X1.3 — gadget hums [manual]/'
+run_v 1 --baseline HEAD "$repo3/specs"
+has "ERROR"
+has "REQ-X1.2"
+has "Changelog"
+
+# The same un-logged supersede on Draft warns rather than blocks.
+edit "$repo3/specs/myspec/requirements.md" 's/^\*\*Status:\*\* Active$/**Status:** Draft/'
+edit "$repo3/specs/myspec/design.md" 's/^\*\*Status:\*\* Active$/**Status:** Draft/'
+edit "$repo3/specs/myspec/tasks.md" 's/^\*\*Status:\*\* Active$/**Status:** Draft/'
+edit "$repo3/specs/myspec/test-spec.md" 's/^\*\*Status:\*\* Active$/**Status:** Draft/'
+run_v 0 --baseline HEAD "$repo3/specs"
+has "WARN"
+has "Changelog"
+
+# Adding a dated Changelog entry naming the supersede clears the finding
+# (back on Active).
+edit "$repo3/specs/myspec/requirements.md" 's/^\*\*Status:\*\* Draft$/**Status:** Active/'
+edit "$repo3/specs/myspec/design.md" 's/^\*\*Status:\*\* Draft$/**Status:** Active/'
+edit "$repo3/specs/myspec/tasks.md" 's/^\*\*Status:\*\* Draft$/**Status:** Active/'
+edit "$repo3/specs/myspec/test-spec.md" 's/^\*\*Status:\*\* Draft$/**Status:** Active/'
+edit "$repo3/specs/myspec/requirements.md" 's|^- 2026-06-12 — created\.$|- 2026-06-12 — created.\
+- 2026-06-12 — REQ-X1.2 superseded by REQ-X1.3.|'
+run_v 0 --baseline HEAD "$repo3/specs"
+has "0 error(s), 0 warning(s)"
+
+# A supersede already present in the baseline is not re-flagged (only newly
+# introduced supersedes require a fresh Changelog entry).
+git -C "$repo3" add -A
+git -C "$repo3" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm superseded
+edit "$repo3/specs/myspec/requirements.md" 's/^- 2026-06-12 — REQ-X1.2 superseded by REQ-X1.3\.$//'
+run_v 0 --baseline HEAD "$repo3/specs"
+has "0 error(s), 0 warning(s)"
+
+# Deleting requirements.md while the baseline still has it must not crash the
+# changelog-on-supersede check: the current-file reads are guarded, so the
+# run degrades gracefully (the missing-file gap is reported, no raw awk
+# "can't open" leaks to stderr, and the summary line is still printed) rather
+# than aborting under set -eu (REQ-K1.7).
+repo4="$tmp/repo4"
+mkdir -p "$repo4"
+git -C "$repo4" init -q
+write_bundle "$repo4/specs/myspec" Active
+git -C "$repo4" add -A
+git -C "$repo4" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+rm "$repo4/specs/myspec/requirements.md"
+run_v 1 --baseline HEAD "$repo4/specs"
+has "missing file: requirements.md"
+has "error(s)"
+lacks "can't open"
+
+# The matcher names the superseded id as a whole token: a changelog that only
+# mentions a longer dotted token ("X1.2.alpha") does not count as naming
+# REQ-X1.2, so an un-logged supersede is still flagged.
+repo5="$tmp/repo5"
+mkdir -p "$repo5"
+git -C "$repo5" init -q
+write_bundle "$repo5/specs/myspec" Active
+git -C "$repo5" add -A
+git -C "$repo5" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+cat >"$repo5/specs/myspec/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Active
+**Last reviewed:** 2026-06-12
+**Format-version:** 1
+
+## Goal
+
+A fixture bundle.
+
+## REQ-X — fixture group
+
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X1.2** The gadget SHALL exist. **Superseded-by: REQ-X1.3** (2026-06-12)
+- **REQ-X1.3** (supersedes REQ-X1.2) The gadget SHALL exist and hum.
+  *(Cites: D-1.)*
+
+## Changelog
+
+- 2026-06-12 — created.
+- 2026-06-12 — renamed the X1.2.alpha prototype flag.
+
+## Sources
+
+- the fixture seed.
+EOF
+edit "$repo5/specs/myspec/test-spec.md" 's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X1.3 — gadget hums [manual]/'
+run_v 1 --baseline HEAD "$repo5/specs"
+has "REQ-X1.2"
+has "Changelog"
+
+# A sentence-final mention ("superseded REQ-X1.2.") still counts as naming it
+# (the trailing period is not part of the id), so the finding clears.
+edit "$repo5/specs/myspec/requirements.md" 's|^- 2026-06-12 — created\.$|- 2026-06-12 — created.\
+- 2026-06-12 — superseded REQ-X1.2.|'
+run_v 0 --baseline HEAD "$repo5/specs"
+has "0 error(s), 0 warning(s)"
+
+# The mention must live in a DATED changelog entry (REQ-A3.3). An undated
+# bullet that names the id does not satisfy the check; a dated entry whose
+# continuation line names it does (entries span multiple lines).
+repo6="$tmp/repo6"
+mkdir -p "$repo6"
+git -C "$repo6" init -q
+write_bundle "$repo6/specs/myspec" Active
+git -C "$repo6" add -A
+git -C "$repo6" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+cat >"$repo6/specs/myspec/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Active
+**Last reviewed:** 2026-06-12
+**Format-version:** 1
+
+## Goal
+
+A fixture bundle.
+
+## REQ-X — fixture group
+
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X1.2** The gadget SHALL exist. **Superseded-by: REQ-X1.3** (2026-06-12)
+- **REQ-X1.3** (supersedes REQ-X1.2) The gadget SHALL exist and hum.
+  *(Cites: D-1.)*
+
+## Changelog
+
+- 2026-06-12 — created.
+- REQ-X1.2 placeholder, undated.
+
+## Sources
+
+- the fixture seed.
+EOF
+edit "$repo6/specs/myspec/test-spec.md" 's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X1.3 — gadget hums [manual]/'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "REQ-X1.2"
+has "Changelog"
+
+# A dated entry naming the supersede on its continuation line clears it.
+edit "$repo6/specs/myspec/requirements.md" 's|^- REQ-X1.2 placeholder, undated\.$|- 2026-06-12 — supersession note:\
+  retired REQ-X1.2 in favor of REQ-X1.3.|'
+run_v 0 --baseline HEAD "$repo6/specs"
+has "0 error(s), 0 warning(s)"
 
 # --- usage errors ---
 run_v 2
