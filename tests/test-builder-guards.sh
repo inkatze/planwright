@@ -99,8 +99,8 @@ done
 # fault on an unset var and mask the original failure. Empty values are inert
 # under `rm -rf` with `-f`.
 tmp_py="$(mktemp -d)"
-tmp_md="" tmp_git="" tmp_ext=""
-trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext"' EXIT
+tmp_md="" tmp_git="" tmp_ext="" tmp_bad="" tmp_jf="" tmp_bb=""
+trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext" "$tmp_bad" "$tmp_jf" "$tmp_bb"' EXIT
 : >"$tmp_py/app.py"
 : >"$tmp_py/pyproject.toml"
 py_tools="$(/bin/bash "$SCRIPT" --core "$tmp_py" 2>/dev/null | tools_of)"
