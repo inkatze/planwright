@@ -1,5 +1,5 @@
 ---
-# planwright builder core guard catalog (Task 16, REQ-G1.2/G1.5; D-15).
+# planwright builder core guard catalog (Task 16, REQ-G1.2/G1.5/G1.7; D-15, D-16, D-32).
 #
 # Data, not code: the builder skill and scripts/builder-guards.sh read this
 # file to recommend the universal mechanical quality guards a detected stack
