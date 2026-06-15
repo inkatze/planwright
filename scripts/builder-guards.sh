@@ -31,19 +31,29 @@ unset CDPATH
 core_only=0
 catalog="${PLANWRIGHT_GUARD_CATALOG:-}"
 target="."
+target_set=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --core) core_only=1 ;;
     --catalog)
       shift
-      [ $# -gt 0 ] || {
-        echo "builder-guards: --catalog needs a path" >&2
+      # A non-empty path is required: an empty value (e.g. --catalog "$VAR"
+      # with VAR unset) would otherwise fall back to the default catalog
+      # silently. Short-circuit guards the unbound "$1" under set -u.
+      { [ $# -gt 0 ] && [ -n "$1" ]; } || {
+        echo "builder-guards: --catalog needs a non-empty path" >&2
         exit 2
       }
       catalog="$1"
       ;;
-    --catalog=*) catalog="${1#--catalog=}" ;;
+    --catalog=*)
+      catalog="${1#--catalog=}"
+      [ -n "$catalog" ] || {
+        echo "builder-guards: --catalog needs a non-empty path" >&2
+        exit 2
+      }
+      ;;
     -h | --help)
       # Print the comment header (from line 2 to the first non-comment line),
       # stripping the leading "# " — robust to the header's length.
@@ -54,7 +64,16 @@ while [ $# -gt 0 ]; do
       echo "builder-guards: unknown option '$1'" >&2
       exit 2
       ;;
-    *) target="$1" ;;
+    *)
+      # Reject a second positional rather than silently using the last one
+      # (the repo convention, cf. scripts/spec-validate.sh).
+      [ "$target_set" -eq 0 ] || {
+        echo "builder-guards: unexpected extra argument '$1'" >&2
+        exit 2
+      }
+      target="$1"
+      target_set=1
+      ;;
   esac
   shift
 done

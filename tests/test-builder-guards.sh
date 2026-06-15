@@ -337,6 +337,16 @@ assert_exit "unknown option is a usage error" 2 $?
 assert_exit "--catalog with no argument is a usage error" 2 $?
 PLANWRIGHT_GUARD_CATALOG="$CATALOG" /bin/bash "$SCRIPT" --core /no/such/target/dir >/dev/null 2>&1
 assert_exit "missing target directory is a usage error" 2 $?
+# A second positional argument is a caller mistake, not a silent last-wins
+# (matches the repo convention, e.g. scripts/spec-validate.sh).
+/bin/bash "$SCRIPT" /tmp /tmp >/dev/null 2>&1
+assert_exit "a second positional argument is a usage error" 2 $?
+# The flag form must carry a non-empty path: an empty value would otherwise
+# fall back to the default catalog silently (e.g. --catalog "$UNSET_VAR").
+/bin/bash "$SCRIPT" --catalog "" /tmp >/dev/null 2>&1
+assert_exit "an empty --catalog path is a usage error" 2 $?
+/bin/bash "$SCRIPT" --catalog= /tmp >/dev/null 2>&1
+assert_exit "an empty --catalog= path is a usage error" 2 $?
 
 if [ "$failures" -eq 0 ]; then
   echo "all builder-guards tests passed"
