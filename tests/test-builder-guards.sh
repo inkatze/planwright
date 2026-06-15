@@ -127,7 +127,7 @@ if printf '%s\n' "$md_tools" | grep -qx "markdownlint"; then
 else
   fail "docs-only project missing markdownlint"
 fi
-for t in shellcheck shfmt ruff gitleaks github-actions; do
+for t in shellcheck shfmt ruff gitleaks github-actions conventional-commits; do
   if printf '%s\n' "$md_tools" | grep -qx "$t"; then
     fail "docs-only non-git project wrongly recommends $t"
   else
@@ -282,6 +282,18 @@ if printf '%s\n' "$help_out" | grep -qx "set -u"; then
 else
   pass "--help does not leak source code"
 fi
+
+# ---------------------------------------------------------------------------
+# 10. Usage faults exit 2 (the script header's exit contract: 0 success,
+#     1 missing/unreadable catalog, 2 usage error). Distinct from the exit-1
+#     path in section 7, these are caller mistakes, not runtime failures.
+# ---------------------------------------------------------------------------
+/bin/bash "$SCRIPT" --bogus-flag >/dev/null 2>&1
+assert_exit "unknown option is a usage error" 2 $?
+/bin/bash "$SCRIPT" --catalog >/dev/null 2>&1
+assert_exit "--catalog with no argument is a usage error" 2 $?
+PLANWRIGHT_GUARD_CATALOG="$CATALOG" /bin/bash "$SCRIPT" --core /no/such/target/dir >/dev/null 2>&1
+assert_exit "missing target directory is a usage error" 2 $?
 
 if [ "$failures" -eq 0 ]; then
   echo "all builder-guards tests passed"
