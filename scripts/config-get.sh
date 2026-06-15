@@ -57,7 +57,7 @@ case "$key" in
     ;;
 esac
 
-script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # Resolve the tracked defaults file: an explicit override, then the
 # planwright root chain (env-set in plugin/test delivery), then the

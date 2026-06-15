@@ -59,8 +59,8 @@ esac
 # Resolve stale_lock_threshold (minutes). The local override lives at the
 # repo root (<spec-dir>/../..), the layout the lock protocol assumes.
 threshold_min=15
-script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
-repo_root=$(cd -- "$spec_dir/../.." 2>/dev/null && pwd) || repo_root=""
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+repo_root=$(cd "$spec_dir/../.." 2>/dev/null && pwd) || repo_root=""
 local_cfg=""
 [ -n "$repo_root" ] && local_cfg="$repo_root/.claude/planwright.local.yml"
 
