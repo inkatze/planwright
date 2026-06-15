@@ -489,7 +489,11 @@ format-version:
 6. Task structure: stable ID and the five definition fields per task block.
 7. REQ↔test-spec coverage: every REQ has at least one test-spec entry.
 8. Stable-ID discipline: a reused or renumbered ID is rejected; a supersede
-   (new ID plus `Superseded-by` on the old) passes.
+   (new ID plus `Superseded-by` on the old) passes. A supersede newly
+   introduced since the baseline ref must be named in a dated `## Changelog`
+   entry (REQ-A3.3: the supersede pointer records lineage, the changelog
+   records the why-it-changed); a supersede already recorded in the baseline
+   is not re-flagged.
 9. Terminal-state discipline: no transition out of Retired/Superseded.
 
 ## Glossary
