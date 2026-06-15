@@ -200,8 +200,9 @@ got=$(/bin/bash "$SEL" "$d7") || fail "dotted fixture: non-zero exit"
 [ "$got" = 3.5 ] || fail "dotted fixture: selected '$got', expected 3.5"
 echo "ok: dotted task ids parse and select"
 
-# 7. A Forward-plan task with no Dependencies bullet at all is depless and
-#    therefore ready (the absent-deps path, distinct from "Dependencies: none").
+# 7. A Forward-plan task with no effective dependencies ("Dependencies: none",
+#    the canonical depless form per spec-format's required task fields) is ready
+#    and selectable.
 d8="$tmp/nodeps"
 mkdir -p "$d8"
 cat >"$d8/tasks.md" <<'EOF'
@@ -211,11 +212,12 @@ cat >"$d8/tasks.md" <<'EOF'
 
 ### Task 1 — depless root
 
+- **Dependencies:** none
 - **Estimated effort:** 1 day
 EOF
 got=$(/bin/bash "$SEL" "$d8") || fail "depless fixture: non-zero exit"
 [ "$got" = 1 ] || fail "depless fixture: selected '$got', expected 1"
-echo "ok: a task with no Dependencies bullet is ready"
+echo "ok: a task with 'Dependencies: none' is ready"
 
 # 8. A task whose dependency does not exist as a task record is NOT ready
 #    (a dangling id is never in ## Completed, so it fails closed to blocked) —

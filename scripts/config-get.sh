@@ -106,4 +106,11 @@ fi
 if [ -n "$defaults" ] && extract "$defaults" "$key"; then
   exit 0
 fi
+# Key not found. If the tracked defaults file itself could not be located or
+# read, that is a broken install (mis-set PLANWRIGHT_ROOT, partial delivery),
+# not a normal absent key — surface it rather than failing opaquely. The exit
+# code stays 3 so callers still pick their own fallback.
+if [ -z "$defaults" ] || [ ! -f "$defaults" ]; then
+  echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS / PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / script dir); '$key' unresolved" >&2
+fi
 exit 3

@@ -113,4 +113,18 @@ got=$(PLANWRIGHT_ROOT="$root" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
   || fail "defaults via PLANWRIGHT_ROOT: got '$got', expected tmux"
 echo "ok: defaults resolve via the PLANWRIGHT_ROOT chain when no explicit file is set"
 
+# 8. A missing/unreadable tracked defaults file is a broken install, not a
+#    normal absent key: it still exits 3 (callers pick their fallback) but must
+#    surface a diagnostic rather than failing opaquely (the docstring contract).
+rc=0
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$tmp/no-defaults.yml" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+  /bin/bash "$CG" dispatch_backend 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 3 ] || fail "missing defaults: exit $rc, expected 3"
+case $err in
+  *"tracked defaults not found"*) ;;
+  *) fail "missing defaults: no diagnostic (got: '$err')" ;;
+esac
+echo "ok: a missing tracked defaults file surfaces a diagnostic (not opaque)"
+
 echo "PASS: config-get"
