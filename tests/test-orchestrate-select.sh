@@ -80,12 +80,12 @@ cat >"$d2/tasks.md" <<'EOF'
 
 ## Forward plan
 
-### Task 7 — second leaf
+### Task 7 — earlier-in-file leaf
 
 - **Dependencies:** 1
 - **Estimated effort:** 1 day
 
-### Task 6 — first leaf
+### Task 6 — later-in-file leaf
 
 - **Dependencies:** 1
 - **Estimated effort:** 1 day
@@ -216,5 +216,45 @@ EOF
 got=$(/bin/bash "$SEL" "$d8") || fail "depless fixture: non-zero exit"
 [ "$got" = 1 ] || fail "depless fixture: selected '$got', expected 1"
 echo "ok: a task with no Dependencies bullet is ready"
+
+# 8. A task whose dependency does not exist as a task record is NOT ready
+#    (a dangling id is never in ## Completed, so it fails closed to blocked) —
+#    selection must skip it and pick the genuinely-ready task instead.
+d9="$tmp/dangling"
+mkdir -p "$d9"
+cat >"$d9/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 3 — depends on a non-existent task
+
+- **Dependencies:** 99
+- **Estimated effort:** 3 days
+
+### Task 2 — genuinely ready
+
+- **Dependencies:** none
+- **Estimated effort:** half day
+EOF
+got=$(/bin/bash "$SEL" "$d9") || fail "dangling-dep fixture: non-zero exit"
+[ "$got" = 2 ] || fail "dangling-dep fixture: selected '$got', expected 2 (task 3 is blocked)"
+# And when the dangling-dep task is the only candidate, nothing is ready.
+d9b="$tmp/dangling-only"
+mkdir -p "$d9b"
+cat >"$d9b/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 3 — depends on a non-existent task
+
+- **Dependencies:** 99
+- **Estimated effort:** 3 days
+EOF
+rc=0
+/bin/bash "$SEL" "$d9b" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "dangling-only fixture: exit $rc, expected 1 (no ready task)"
+echo "ok: a task with a non-existent dependency is treated as blocked"
 
 echo "PASS: orchestrate-select"

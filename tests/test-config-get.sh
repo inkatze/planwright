@@ -100,4 +100,17 @@ for bad in '../etc' 'a b' 'key;rm' 'Key' ''; do
 done
 echo "ok: invalid keys are rejected with exit 2"
 
+# 7. Defaults resolution chain: with no explicit PLANWRIGHT_CONFIG_DEFAULTS,
+#    the defaults file is found under PLANWRIGHT_ROOT/config/ (the plugin/test
+#    delivery arm of the D-33 resolution chain).
+root="$tmp/root"
+mkdir -p "$root/config"
+printf 'dispatch_backend: tmux\n' >"$root/config/defaults.yml"
+got=$(PLANWRIGHT_ROOT="$root" PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+  /bin/bash "$CG" dispatch_backend) \
+  || fail "defaults via PLANWRIGHT_ROOT: non-zero exit"
+[ "$got" = tmux ] \
+  || fail "defaults via PLANWRIGHT_ROOT: got '$got', expected tmux"
+echo "ok: defaults resolve via the PLANWRIGHT_ROOT chain when no explicit file is set"
+
 echo "PASS: config-get"

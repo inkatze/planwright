@@ -101,7 +101,12 @@ awk '
     next
   }
   END {
-    if (ntasks == 0) exit 2
+    if (ntasks == 0) {
+      # Fail closed with a diagnostic, matching the shell-level missing-file
+      # message above (a present-but-taskless tasks.md is still malformed).
+      print "orchestrate-select: no task records in " FILENAME | "cat 1>&2"
+      exit 2
+    }
 
     # Normalize dependency lists (drop bare "." or empty tokens, keep ids).
     for (t in sec) {
