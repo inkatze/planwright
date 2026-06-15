@@ -67,8 +67,12 @@ repo_root=$(cd "$spec_dir/../.." 2>/dev/null && pwd) || repo_root=""
 local_cfg=""
 [ -n "$repo_root" ] && local_cfg="$repo_root/.claude/planwright.local.yml"
 
+# config-get's stderr is NOT suppressed: it is silent on a found/absent key,
+# and the one thing it does emit — the broken-install diagnostic when the
+# tracked defaults are missing/unreadable — is exactly what should surface
+# rather than be swallowed into a silent 15m fallback.
 v=$(PLANWRIGHT_LOCAL_CONFIG="$local_cfg" \
-  "$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || v=""
+  "$script_dir/config-get.sh" stale_lock_threshold) || v=""
 v=${v%m}
 case "$v" in
   '') ;; # key absent everywhere: the tracked default (15) stands
