@@ -93,7 +93,13 @@ done
 # ---------------------------------------------------------------------------
 # 3. Stack detection (REQ-G1.2): a Python project gets the Python guard set.
 # ---------------------------------------------------------------------------
+# Bind every path the EXIT trap references before registering it: under
+# `set -u` an early exit (signal, or a future unbound-variable abort) between
+# here and the later mktemp assignments would otherwise make the trap itself
+# fault on an unset var and mask the original failure. Empty values are inert
+# under `rm -rf` with `-f`.
 tmp_py="$(mktemp -d)"
+tmp_md="" tmp_git="" tmp_ext=""
 trap 'rm -rf "$tmp_py" "$tmp_md" "$tmp_git" "$tmp_ext"' EXIT
 : >"$tmp_py/app.py"
 : >"$tmp_py/pyproject.toml"
