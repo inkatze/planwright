@@ -71,6 +71,20 @@ intelligence migration) dispatches first.
 
 ## In progress
 
+## Awaiting input
+
+- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
+  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
+  human policy call before it is relied on. Both self-review and Copilot flagged that the
+  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
+  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
+  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
+  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
+  branch only (the real question: should a worker be able to push to `main` at all?). Also
+  surfaced in the PR body's "Needs sign-off" section.
+
+## Completed
+
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
 - **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
@@ -90,25 +104,7 @@ intelligence migration) dispatches first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-15T20:02Z ·
   branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
-- **Status:** implementing · clean redo on a fresh signed branch (PR #17 closed; superseded — it
-  carried unsigned outage-era commits and never ran the gauntlet; content preserved at tag
-  `pw/t16-salvage`). Re-landing reviewed deliverables, then gauntlet (panel-pairing →
-  self-review → copilot-pairing) → `gh pr ready`.
-- **Last activity:** 2026-06-15
-
-## Awaiting input
-
-- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
-  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
-  human policy call before it is relied on. Both self-review and Copilot flagged that the
-  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
-  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
-  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
-  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
-  branch only (the real question: should a worker be able to push to `main` at all?). Also
-  surfaced in the PR body's "Needs sign-off" section.
-
-## Completed
+- **Status:** Completed · PR #20 merged 2026-06-15 (clean redo on a fresh signed branch; PR #17 closed/superseded, content preserved at tag `pw/t16-salvage`; gauntlet panel-pairing → self-review → copilot-pairing converged, constrained-reader scope fork resolved before merge)
 
 ### Task 13 — `/orchestrate`
 
