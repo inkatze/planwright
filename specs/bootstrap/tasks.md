@@ -239,24 +239,6 @@ intelligence migration) dispatches first.
 
 ## In progress
 
-### Task 16 — Builder skill + core catalog + lifecycle hooks
-
-- **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
-  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
-  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
-  gate, commit hooks) with breadth dimensions
-  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
-  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
-  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
-  self-healing maintenance footer (REQ-B3.2).
-- **Done when:** The builder detects a project's stack and recommends/applies the core guards;
-  an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
-  builder, run against planwright itself, reproduces the guard set established in Task 2**
-  (dogfood loop).
-- **Dependencies:** 7, 8, 10, 12, 15
-- **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
-- **Estimated effort:** 1.5 days
-
 ### Task 18 — Multi-contributor work-repo end-to-end validation run
 
 - **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
@@ -467,6 +449,28 @@ intelligence migration) dispatches first.
 - **Last activity:** 2026-06-12
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-13` · dispatched 2026-06-12T23:25Z ·
   branch `planwright/bootstrap/task-13` · worktree `.claude/worktrees/task-13`
+
+### Task 16 — Builder skill + core catalog + lifecycle hooks
+
+- **Deliverables:** The builder skill: stack detection; the extensible core guard catalog
+  (formatter, linter, type-checker, test runner, secret/security scan, prose/doc linters
+  per the widened tool-grounding amendment to D-15/D-39 (kickoff brief, Section 3), CI
+  gate, commit hooks) with breadth dimensions
+  (docs, i18n, a11y, architecture) as growable entries; escalation of stake-bearing
+  decisions into the deferral mechanism (consuming the decision-domains catalog, D-39);
+  hooks into `/spec-draft` (design phase) and `/execute-task` (applies guards); the
+  self-healing maintenance footer (REQ-B3.2).
+- **Done when:** The builder detects a project's stack and recommends/applies the core guards;
+  an auth-class decision is escalated (not auto-defaulted) and routed into a gate; **the
+  builder, run against planwright itself, reproduces the guard set established in Task 2**
+  (dogfood loop).
+- **Dependencies:** 7, 8, 10, 12, 15
+- **Citations:** D-15, D-16, D-32 · REQ-G1.2, REQ-G1.4, REQ-G1.5, REQ-G1.7
+- **Estimated effort:** 1.5 days
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-12T23:42Z ·
+  branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
 
 ## Awaiting input
 
