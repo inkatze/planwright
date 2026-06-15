@@ -266,8 +266,9 @@ scheduled-autopilot path; a human drains the Awaiting-input queue later.
 ## --watch
 
 Loop the full step (pre-flight → reconcile → select → state move → dispatch)
-until selection reports no ready unit or a halt fires. Event-driven under
-subagents (wake on a worker-completion event), a polling metronome under tmux.
+until selection reports no ready unit or a halt fires. Event-driven under the
+subagent backend (wake on a worker-completion event), a polling metronome
+under tmux.
 Each iteration is independent and atomic; the loop holds no state between
 iterations beyond what is on disk. A halt in any iteration ends the loop and
 surfaces the reason.

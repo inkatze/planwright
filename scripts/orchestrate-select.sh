@@ -1,6 +1,6 @@
 #!/bin/sh
-# orchestrate-select.sh — pick the next ready unit for /orchestrate, critical
-# -path-first (Task 13, REQ-F1.2, D-7, D-8).
+# orchestrate-select.sh — pick the next ready unit for /orchestrate,
+# critical-path-first (Task 13, REQ-F1.2, D-7, D-8).
 #
 # A ready task is one in the `## Forward plan` section whose every dependency
 # sits in `## Completed` (a task that is In progress, Awaiting input, or in a
