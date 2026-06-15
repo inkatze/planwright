@@ -32,8 +32,6 @@ intelligence migration) dispatches first.
 
 ## Forward plan
 
-## Forward plan
-
 ### Task 18 — Multi-contributor work-repo end-to-end validation run
 
 - **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
@@ -133,7 +131,15 @@ intelligence migration) dispatches first.
 
 ## Awaiting input
 
-(none)
+- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
+  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
+  human policy call before it is relied on. Both self-review and Copilot flagged that the
+  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
+  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
+  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
+  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
+  branch only (the real question: should a worker be able to push to `main` at all?). Also
+  surfaced in the PR body's "Needs sign-off" section.
 
 ## Completed
 
