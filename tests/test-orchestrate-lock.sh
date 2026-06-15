@@ -87,4 +87,27 @@ case $err in
 esac
 echo "ok: a malformed threshold warns and falls back to the default"
 
+# 7. A non-contention mkdir failure (unwritable spec dir / filesystem error)
+#    must fail closed (exit 2 + diagnostic), NOT be masked as a clean "busy"
+#    no-op (exit 1) — otherwise /orchestrate silently skips the spec forever.
+rorepo="$tmp/ro"
+rospec="$rorepo/specs/demo"
+mkdir -p "$rospec"
+chmod u-w "$rospec"
+rc=0
+err=$(/bin/bash "$LOCK" acquire "$rospec" 2>&1 >/dev/null) || rc=$?
+chmod u+w "$rospec" # restore so the trap cleanup can remove it
+if [ "$rc" = 0 ]; then
+  # Running as root bypasses the directory-write check; the failure mode is
+  # unobservable, so skip rather than assert a false negative.
+  echo "skip: unwritable-dir case (mkdir succeeded — likely running as root)"
+else
+  [ "$rc" = 2 ] || fail "unwritable spec dir: exit $rc, expected 2 (real error, not busy)"
+  case $err in
+    *"cannot create"*) ;;
+    *) fail "unwritable spec dir: missing diagnostic (got: $err)" ;;
+  esac
+  echo "ok: a non-contention mkdir failure fails closed (exit 2) with a diagnostic"
+fi
+
 echo "PASS: orchestrate-lock"

@@ -79,6 +79,14 @@ esac
 if mkdir "$lock" 2>/dev/null; then
   exit 0
 fi
+# mkdir failed. Distinguish real contention (the lock dir now exists, held by
+# another holder) from a genuine error (unwritable spec dir, filesystem fault)
+# where the lock never got created. Masking the latter as a clean "busy" no-op
+# would make /orchestrate skip the spec forever; fail closed instead.
+if [ ! -d "$lock" ]; then
+  echo "orchestrate-lock: cannot create $lock (spec dir unwritable or filesystem error)" >&2
+  exit 2
+fi
 if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$threshold_min" 2>/dev/null)" ]; then
   rm -rf "$lock"
   if mkdir "$lock" 2>/dev/null; then
