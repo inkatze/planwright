@@ -104,8 +104,10 @@ detect_match() {
   return 1
 }
 
-# Parse the catalog's guards: / breadth: sequences into tab-separated records:
-# id, category, tool, detect, core, section.
+# Parse the catalog's guards: / breadth: sequences into pipe-delimited records
+# (id|category|tool|detect|core|section), read back below with IFS='|'. (The
+# script's final stdout is the tab-separated `<id><TAB><category><TAB><tool>`
+# contract; this intermediate record format is separate.)
 parse_catalog() {
   awk '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
