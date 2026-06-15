@@ -108,7 +108,7 @@ intelligence migration) dispatches first.
 - **Estimated effort:** 3 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-13` · dispatched 2026-06-12T23:25Z ·
   branch `planwright/bootstrap/task-13` · worktree `.claude/worktrees/task-13`
-- **Status:** implementing
+- **Status:** draft-pr-ready · PR #18 (draft)
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
