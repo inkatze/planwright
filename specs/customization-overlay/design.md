@@ -268,8 +268,9 @@ of them. The override still resolves: the operator owns their fork, but a
 shadow of a framework-guarantee doc is never silent.
 
 **This decision (D-11) is the single normative source of the protected set**:
-the resolver reads the list from this one named place, REQ-B1.7 references it
-rather than re-listing it authoritatively, and the REQ-B1.7 test asserts each
+the resolver reads the list from this one named place, REQ-B1.7 mirrors it for
+readability while deferring to this decision as the authoritative source (its
+inline copy tracks D-11, never supersedes it), and the REQ-B1.7 test asserts each
 named protected doc actually resolves (so a renamed or removed core doc that
 silently fell out of protection fails the test — the R3 mitigation).
 
