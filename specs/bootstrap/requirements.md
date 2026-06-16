@@ -739,7 +739,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   T16). REQ-J1.5 condition (c) is unchanged normatively — the
   release gate stays in force, now satisfied organically rather than by a synthetic task;
   the test-spec coverage-mix intro and the REQ-J1.5 entry re-point the run/sweep owner from
-  Task 18 to the organic work-fork run. No REQ or D-ID text changed. Recorded in the kickoff
+  Task 18 to the organic work fork run. No REQ or D-ID text changed. Recorded in the kickoff
   brief's amendment log with a dispositioned delta-scoped lens pass.
 - 2026-06-16 (expression-only, panel review on this branch) — doc-consistency
   sweep of the meaning-class T18 re-sequencing entry directly above, no

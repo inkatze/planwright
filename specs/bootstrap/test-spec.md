@@ -10,7 +10,7 @@ the verification), **Gherkin** (state/trigger/outcome). planwright is mostly ski
 doctrine + a portable-shell validator, so coverage is a deliberate mix. Verification
 ownership: [test] entries run in planwright's own CI; every entry whose tag includes
 [manual] or [Gherkin] (mixed tags count) is exercised by the manual-verification sweep
-the work fork's first real multi-contributor run carries (each exercised, or the gap named).
+that the work fork's first real multi-contributor run carries (each exercised, or the gap named).
 
 ## REQ-A — Spec format, lifecycle & evolution
 

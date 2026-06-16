@@ -1482,7 +1482,7 @@ proportionality rule.
 | Concurrency / state | none | Anchor moves (T19 dep field + requirements/test-spec hashes); expected for meaning-class; anchor written last. T18's definition unchanged → its anchor contribution is unchanged. |
 | Naming, readability, structure | 1 | `### Task 18` retained in Deferred (id stable, never reused); annotation explains why the block is not a bullet. |
 | Documentation | 1 | T18 framing recurred across tasks.md intro, dep-graph, T19 deps, the "second repo" gate, test-spec intro + REQ-J1.5 entry, Changelog — all moved together (grep-swept, not just thread-pointed lines). |
-| Tests / verification | 1 | Manual-verification sweep ownership transferred Task 18 → organic work-fork run in the Deferred block + both test-spec surfaces; Task 19's release checklist still enforces condition (c), so ownership does not go dark. |
+| Tests / verification | 1 | Manual-verification sweep ownership transferred Task 18 → organic work fork run in the Deferred block + both test-spec surfaces; Task 19's release checklist still enforces condition (c), so ownership does not go dark. |
 | Cross-file consistency | 1 | Brief's historical §6 / risk-register rows naming T18 are append-only history, left intact; this entry re-points their validation owner to the organic run. |
 
 **Validation:** findings confirmed by re-running the validator (Active enforcement, 0 errors —

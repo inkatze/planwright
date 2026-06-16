@@ -510,7 +510,7 @@ first.
 - **Citations:** D-5, D-27, D-38 · REQ-C1.3, REQ-J1.5
 - **Estimated effort:** 2 days
 - **Status:** Deferred — organically satisfied, not pipeline-dispatched. The first full
-  pipeline run on a real multi-contributor work repo is satisfied by the work fork's first
+  pipeline run on a real multi-contributor work repo is the work fork's first
   real multi-contributor run, not a synthetic dispatch; this is what meets public-release
   gate condition (c) (REQ-J1.5), and Task 19's release checklist verifies it happened.
   Re-sequenced off the dispatch path at the 2026-06-16 delta re-walkthrough (this block
