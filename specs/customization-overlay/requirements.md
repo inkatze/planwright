@@ -132,10 +132,13 @@ core.
   warning when an overlay shadows a protected core governance or security doc
   (the protected set is defined normatively in D-11: `spec-format`,
   `security-posture`, `validation-rigor`, `discovery-rigor`,
-  `finding-categorization`), naming the shadowed doc and the risk; the override
-  still resolves (warn-but-allow), so a legitimate fork keeps full control
-  while a shadow of a framework-guarantee doc is never silent.
+  `finding-categorization`, `gate-wiring`), naming the shadowed doc and the
+  risk; the override still resolves (warn-but-allow), so a legitimate fork
+  keeps full control while a shadow of a framework-guarantee doc is never
+  silent.
   *(Cites: D-11; kickoff §3 REQ-B (2026-06-16).)*
+  *(Amended at delta re-walkthrough 2026-06-16: added `gate-wiring` to the
+  mirrored set, tracking D-11.)*
 
 ## REQ-C — Capability-vs-style boundary doctrine
 
@@ -240,6 +243,15 @@ core.
   reworded the malformed-config definition (REQ-E1.4) to admit list-valued
   options such as `review_sequence`; added the four missing REQ→task citations
   (A1.2, A1.3, D1.2, E1.1); fixed a test-spec line-break rendering nit.
+- 2026-06-16: Delta re-walkthrough amendment (post-activation, meaning-class):
+  added `gate-wiring` to the D-11 protected-doc set (mirrored in REQ-B1.7) as
+  the operational twin of `finding-categorization`, and stated the set
+  boundary in D-11 (guarantee-removing docs in; advisory/methodology docs such
+  as `research-rigor` out). Reconciled the kickoff brief's content anchor,
+  which had gone stale across the prior post-activation
+  panel-review/panel-pairing edits that committed without re-anchoring; the
+  brief amendment-log entry records the delta-scoped lens pass and the fresh
+  anchor.
 
 ## Sources
 

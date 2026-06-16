@@ -333,3 +333,68 @@ Anchor: `8ad2842279bb146b78a67d61923a581b2aebc04c` — computed as
 `scripts/spec-anchor.sh specs/customization-overlay`
 
 Signed off: 2026-06-16
+
+## 9. Amendment log
+
+### Amendment — protected-doc set + anchor reconcile (delta re-walkthrough, 2026-06-16)
+
+**Mode:** delta re-walkthrough (Active spec; human-declared amendment).
+
+**Triggers:**
+1. **Freshness-gate mismatch.** The §8 kickoff anchor
+   (`8ad2842…`) had gone stale: five post-activation commits (`1c33c87`,
+   `610387a`, `49de44c`, `31cb0da`, `d8a8c51` — panel-review / panel-pairing
+   refinements: D-3 writer-mode manifest source, D-4 `doctrine.local` /
+   `catalogs.local` collision split, REQ-E1.4 reword to admit list-valued
+   options, four added REQ→task citations, brief cross-ref fixes) committed
+   without re-anchoring the brief. The current bundle hashed to `433def6b…`.
+2. **Human-declared change.** Add `gate-wiring` to the D-11 protected-doc set
+   (surfaced by a `/self-review` pass: gate-wiring is the operational twin of
+   the already-protected `finding-categorization`).
+
+**Class:** meaning (addition to the protected set).
+
+**Delta-scoped lens pass (inline).** The new delta is a two-site addition of
+one doc name plus its boundary rationale — small and narrow per
+`discovery-rigor`, so walked inline. The accumulated panel edits were already
+lens-reviewed in their own panel passes and re-validated clean by the
+immediately-prior `/self-review` fan-out (traceability + cross-file
+consistency), so they are *reconciled* into the fresh anchor, not
+re-litigated.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | none | `gate-wiring` resolves via `resolve-rule-doc.sh`; adding it creates no conflict. |
+| Security | none | The addition tightens, not loosens, the shadow-warning surface. |
+| Error handling / failure modes | none | warn-but-allow semantics unchanged. |
+| Performance | n/a | prose. |
+| Concurrency / state | n/a | prose. |
+| Naming, readability, structure | none | doc name `gate-wiring` matches the resolver target. |
+| Documentation | 1 (applied) | Stated the D-11 set boundary (guarantee-removing docs in; advisory/methodology docs — `research-rigor`, `proportionality`, `refactor-instinct` — out) so the in/out line is principled and not re-flagged next pass. |
+| Tests / verification | none | test-spec REQ-B1.7 iterates "the normative D-11 protected-doc list" and asserts each resolves — it now covers `gate-wiring` automatically; no test-spec edit needed; validator 0/0. |
+| Cross-file consistency | none | D-11 (normative) and REQ-B1.7 (mirror) both updated; test-spec auto-tracks the list. |
+
+**Dispositions:**
+- **Applied:** added `gate-wiring` to D-11's protected set and REQ-B1.7's
+  mirror list; stated the set boundary in D-11; Changelog entry added; both
+  amended records carry the in-place amendment annotation.
+- **Declined with rationale (held out):** `research-rigor` — an advisory
+  ladder methodology, not a doc whose silent shadow removes a framework
+  guarantee; including it (and the other rigor docs) would dilute the warning
+  signal. Re-raisable: the boundary is now documented in D-11, so the line is
+  principled rather than arbitrary.
+
+**Validator (Active enforcement) after edits:** 0 errors, 0 warnings;
+doc-links resolve (69/69); markdownlint 0; options documented.
+
+**Observation logged** (not acted on here): the panel-* skills applied
+post-activation bundle edits and committed them without re-anchoring the
+brief, which left the freshness gate stale until this pass. Seed for
+`/spec-draft`.
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-16.
+Anchor: `7db415d9e61f671fd11d473a04ebb2aab96425cd` — computed as
+`scripts/spec-anchor.sh specs/customization-overlay`
+
+Signed off: 2026-06-16

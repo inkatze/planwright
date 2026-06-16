@@ -261,7 +261,8 @@ own resolvable doc rather than bloating an adjacent one.
 
 **Decision:** Doctrine-overlay resolution recognizes a protected set of core
 governance/security docs — `spec-format`, `security-posture`,
-`validation-rigor`, `discovery-rigor`, `finding-categorization` — and emits a
+`validation-rigor`, `discovery-rigor`, `finding-categorization`,
+`gate-wiring` — and emits a
 loud stderr warning, naming the doc and the risk, when an overlay shadows one
 of them. The override still resolves: the operator owns their fork, but a
 shadow of a framework-guarantee doc is never silent.
@@ -271,6 +272,20 @@ the resolver reads the list from this one named place, REQ-B1.7 references it
 rather than re-listing it authoritatively, and the REQ-B1.7 test asserts each
 named protected doc actually resolves (so a renamed or removed core doc that
 silently fell out of protection fails the test — the R3 mitigation).
+
+**Set boundary:** the protected set is the docs whose silent shadow would
+remove a framework *guarantee*: the meta-spec (`spec-format`), the security
+posture, the finding-gating rigor docs (`validation-rigor`,
+`discovery-rigor`), and the act-then-review gate in both halves —
+`finding-categorization` (the principles) and its operational twin
+`gate-wiring` (the mechanics: routing order, commit discipline, the pause
+protocol, checklist regeneration), one contract split across two docs, so
+shadowing the wiring silently rewrites the gate just as shadowing the
+principles would. Advisory or methodology docs whose shadow changes how work
+is done but removes no guarantee — `research-rigor`, `proportionality`,
+`refactor-instinct` — stay out, so the warning keeps its signal.
+*(Amended at delta re-walkthrough 2026-06-16: added `gate-wiring`; set
+boundary stated.)*
 
 **Alternatives considered:**
 - Hard-refuse the shadow (protect the set absolutely). Rejected because: it
