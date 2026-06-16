@@ -100,14 +100,14 @@ the human (decisions below); no inconsistency halt was triggered.
    mode (`<claude-dir>/planwright/<name>/overlay/`), charset-validated. Does
    not contradict D-3's rejected uniform alternative (that rejection was about
    plugin mode, where `CLAUDE_PLUGIN_DATA` supplies the namespace free).
-2. **Protected-doc shadow (REQ-B1.2):** warn-but-allow. Shadowing a protected
+2. **Protected-doc shadow (REQ-B1.7):** warn-but-allow. Shadowing a protected
    core governance/security doc (`spec-format`, `security-posture`,
    `validation-rigor`, `discovery-rigor`, `finding-categorization`) resolves
    but emits a loud stderr warning. New REQ-B1.7 + D-11.
 3. **Catalog supersede-by-id syntax (REQ-B1.3):** defined here in Task 5 (the
    overlay entry carries target id + supersede marker); bootstrap Task 16's
    builder consumes the contract. Guard-catalog *consumer wiring* is contingent
-   on Task 16's catalog existing at Task 5 execution time (risk row R4); the
+   on Task 16's catalog existing at Task 5 execution time (risk row R2); the
    merge mechanism and decision-domains consumer ship regardless.
 4. **Bad `review_sequence` value (REQ-D1.3):** a name that is unknown or not a
    nestable review skill is treated as a malformed overlay value under the
@@ -189,7 +189,7 @@ honors the ordering") is skill-driven and not unit-testable. Tightened to
 "runs in order" outcome is design-level (convergence-phase instructions read
 the knob) + a one-time manual exercise (human decision, 2026-06-16). The
 guard-catalog `[test]` (REQ-D1.1 / B1.3) is legitimately deferred until
-bootstrap Task 16 exists (Task 5 contingency / risk R4), not dead.
+bootstrap Task 16 exists (Task 5 contingency / risk R2), not dead.
 
 Signed off: 2026-06-16
 
@@ -228,7 +228,7 @@ the join of T3/T4/T5/T6. No cycles.
 
 **Cross-spec note (not an intra-spec edge).** Task 5's guard-catalog *consumer
 wiring* depends on bootstrap Task 16's guard catalog existing at execution time
-(risk R4). This is a soft cross-spec contingency, not a dependency edge in this
+(risk R2). This is a soft cross-spec contingency, not a dependency edge in this
 bundle's graph; the merge mechanism and decision-domains consumer ship
 regardless.
 
