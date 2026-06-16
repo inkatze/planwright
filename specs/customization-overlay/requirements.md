@@ -252,6 +252,15 @@ core.
   panel-review/panel-pairing edits that committed without re-anchoring; the
   brief amendment-log entry records the delta-scoped lens pass and the fresh
   anchor.
+- 2026-06-16: Expression-only wording fix (post-activation copilot iteration,
+  no contract change): reworded D-11's account of its relationship to REQ-B1.7
+  — from "REQ-B1.7 references it rather than re-listing it authoritatively" to
+  "REQ-B1.7 mirrors it for readability while deferring to D-11 as the
+  authoritative source (its inline copy tracks D-11, never supersedes it)". The
+  normative contract (D-11 is the single source of the protected set; REQ-B1.7
+  is a non-authoritative mirror) is unchanged; the reword only makes the mirror
+  relationship explicit. Re-anchored the kickoff brief, which the reword had
+  left stale (committed in `fa4410e` without a changelog entry or re-anchor).
 
 ## Sources
 

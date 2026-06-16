@@ -400,3 +400,50 @@ Anchor: `7db415d9e61f671fd11d473a04ebb2aab96425cd` — computed as
 `scripts/spec-anchor.sh specs/customization-overlay`
 
 Signed off: 2026-06-16
+
+### Amendment — expression-only re-anchor (D-11 mirror wording, 2026-06-16)
+
+**Mode:** delta re-walkthrough (Active spec; freshness-gate mismatch). The
+prior anchor (`7db415d9…`) had gone stale: two post-activation
+`chore(copilot)` commits landed after the gate-wiring amendment re-anchored
+the brief —
+
+1. `fa4410e` — **design.md (spec content):** reworded D-11's account of its
+   relationship to REQ-B1.7 (from "REQ-B1.7 references it rather than
+   re-listing it authoritatively" to "REQ-B1.7 mirrors it for readability
+   while deferring to D-11 as the authoritative source; its inline copy tracks
+   D-11, never supersedes it"). This is the only spec-file change since the
+   prior anchor and is what moved the bundle hash.
+2. `e339277` — **brief only:** added `gate-wiring` to §3 "Decisions taken"
+   item 2's protected-set list, with a cross-reference to this Amendment log.
+   A brief-internal consistency fix mirroring the gate-wiring amendment above;
+   the brief is not part of the anchor, so this commit did not move it.
+
+**Class:** expression-only. The reword makes the D-11 ↔ REQ-B1.7 mirror
+relationship explicit; the normative contract (D-11 is the single source of
+the protected set, REQ-B1.7 a non-authoritative mirror) is unchanged. The
+human classified the delta expression-only at sign-off (2026-06-16).
+
+**Compliance note (the trigger for this run).** The `fa4410e` reword committed
+without a changelog entry and without re-anchoring the brief — the same drift
+pattern the prior amendment's observation already flagged. Content was
+compliant throughout (D-11 and REQ-B1.7 carry the identical six-doc protected
+set — `spec-format`, `security-posture`, `validation-rigor`, `discovery-rigor`,
+`finding-categorization`, `gate-wiring` — and B1.7 defers to D-11 as
+normative; validator 0/0). This entry closes the process gap: a dated
+changelog line was added and the anchor reconciled.
+
+**No lens pass** (expression-only, per REQ-A3.3): the contract is unchanged, so
+the bundle is reconciled rather than re-reviewed. Cross-file consistency was
+spot-checked during pre-flight (D-11's six-doc set == REQ-B1.7's mirror; B1.7
+defers to D-11). Validator (Active enforcement) after the changelog edit:
+0 errors, 0 warnings.
+
+Class: expression-only
+Changelog: requirements.md `## Changelog` entry dated 2026-06-16
+("Expression-only wording fix … reworded D-11's account of its relationship to
+REQ-B1.7").
+Anchor: `69b89ff1f4119d9e5b08b79c7f1a6edd088c4e02` — computed as
+`scripts/spec-anchor.sh specs/customization-overlay`
+
+Signed off: 2026-06-16
