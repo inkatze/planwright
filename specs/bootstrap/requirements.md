@@ -700,7 +700,8 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   REQ-D1.8 / REQ-D1.9. Seeded by the `/spec-draft validation-thoroughness`
   invocation and the consumed 2026-06-11 observation (REQ-D1.2's
   non-convergence rule has no decision tree), now archived. Classed
-  core-capability-not-personal-style per customization-overlay D-10. Clarified
+  core-capability-not-personal-style per the planned customization-overlay spec
+  (its core-vs-personal classification rule, TBD there). Clarified
   during the `/spec-kickoff` delta re-walkthrough (same date): REQ-D1.8 / D-46
   specify single-sweep termination (reclassifications final for the pass, not
   iterated to a fixpoint) to foreclose oscillation; the unscoped decline-set
@@ -729,6 +730,7 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   validation-thoroughness` invocation proposing two general validation-rigor
   capabilities — adversarial bi-directional re-validation, and surface-relative
   whole-system end-to-end reproduction — classed as core capabilities rather
-  than personal style per customization-overlay D-10. Incorporates the consumed
+  than personal style per the planned customization-overlay spec (its
+  core-vs-personal classification rule, TBD there). Incorporates the consumed
   2026-06-11 observation (REQ-D1.2's "drop or downgrade" non-convergence rule
   has no decision tree), moved to `specs/_observations/archive.md`.
