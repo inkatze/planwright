@@ -406,6 +406,19 @@ code.claude.com/docs (plugins-reference, hooks), consulted 2026-06-12.
 | 17 | Hook-surface facts verified current as of 2026-06-12: plugin hooks live at `hooks/hooks.json` in the plugin root (auto-discovered; inline `plugin.json` also supported), commands reference scripts via `"${CLAUDE_PLUGIN_ROOT}"`; SessionStart context is injected via the `hookSpecificOutput.additionalContext` payload; PostToolUse receives `tool_name` / `tool_input.command` / `tool_response` on stdin, with `tool_response` documented loosely ("the tool's output") while Bash in practice sends an object with `stdout`. The hook surface is evolving (the event list has grown substantially), so these facts can drift before T19. | `tasks-pr-sync.sh` reads `tool_response` shape-defensively (object's `.stdout` or the raw string); T19's packaging pass re-verifies `hooks.json` against current docs. The writer fallback keeps hook wiring a printed manual step (`install.sh` never edits `settings.json`). |
 | 18 | Task 6 forward-implements the D-10 advisory lock ahead of T13: `tasks-pr-sync.sh` takes a `mkdir`-based lock at `specs/<spec>/.orchestrate.lock` in the primary checkout, breaks it past `stale_lock_threshold` (mtime via `find -mmin`), and drops the event cleanly when busy (`--bookkeeping` reconciles, the interim answer to the deferred lock-failure-recovery backlog item). If T13's `/orchestrate` lock uses a different path or protocol, the two writers will not exclude each other. | T13's executor must adopt the same lock path and mkdir protocol (or migrate both in one PR); the deferred-backlog canonicalization rule (worktree writers lock the primary checkout's path) is already honored here. |
 
+### Risk register additions — Task 16 execution (2026-06-12)
+
+Findings recorded per REQ-E1.3 (execution-skill write, named-section only; no
+anchor entry). No new dependency was adopted (the builder's detection core is
+plain bash + awk over the existing toolchain), so Research Rigor's
+new-dependency trigger did not fire; the note below is the framework-script
+security pass (REQ-D1.6) over the new shell surface.
+
+| # | Risk | Mitigation / early signal |
+|---|---|---|
+| 19 | `scripts/builder-guards.sh` is a new framework script that reads a catalog file and runs `find` / `git -C` against a target project. Catalog `detect` values reach `find -name` / `-path` as glob patterns and `PLANWRIGHT_GUARD_CATALOG` reaches the filesystem as a path. | Treated as data throughout: no `eval`, subshell, or arithmetic expansion on catalog content (the same data-only discipline as the gate parser, REQ-H1.3); glob values are quoted pattern arguments to `find`, never code; the catalog is parsed by a constrained awk reader, not sourced. The dogfood test (`tests/test-builder-guards.sh`) covers a missing-catalog error path; shellcheck + shfmt gate the script in CI. The catalog is config data, not a secrets surface (gitleaks still scans it). |
+| 20 | Dogfood reproduction is scoped to the **universal core** guard set; planwright's project-bespoke guards (spec validator, doc-link check, options-reference drift check) are deliberately excluded as project extensions, not universal categories. A future reader could mistake the scoping for under-coverage. | Scoping declared per the proportionality rule in both `doctrine/guard-catalog.md` (dogfood note) and the builder skill; the dogfood test asserts the core set against the repo's actual wiring, so a dropped core guard breaks CI. |
+
 ## Section 7 — Sign-off
 
 **Signed off: 2026-06-10.** Status flipped Draft→Active on all four spec files;
@@ -1242,4 +1255,167 @@ re-anchor-per-state-move churn.
 
 Class: expression-only
 Anchor: `118631b31ce2890a619784dd61c2e91f3a65f43f` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+
+## Delta re-walkthrough (2026-06-16, Validation-Rigor extension — meaning-class)
+
+Scope: `/spec-kickoff` over the extend-mode delta in commit a304206 — two
+general Validation-Rigor capabilities added as a Draft delta inside the Active
+spec: REQ-D1.8 / D-46 (adversarial bi-directional re-validation over the keep
+set + decline set) and REQ-D1.9 / D-47 (surface-relative whole-system
+end-to-end reproduction as the preferred confirming angle), plus Task 20 (amend
+`doctrine/validation-rigor.md`) and test-spec entries REQ-D1.8 / REQ-D1.9.
+Freshness gate fired: brief's prior anchor `118631b3…` ≠ recomputed
+`fd02c678…`, the remedy being this re-walkthrough. Validator: 0 errors,
+0 warnings on Active, before and after. Section 1 (Goal/glossary) unchanged
+except for new vocabulary (keep set / decline set, refute / resurrect,
+surface-relative whole-system reproduction).
+
+Decisions taken during the walk:
+
+1. **Bi-directional pass terminates as a single sweep (REQ-D1.8 / D-46).** The
+   spec text left the termination open (run once vs iterate to a fixpoint),
+   admitting an oscillation reading. Resolved: the pass is a **single sweep**
+   over each set; the keep→decline and decline→keep reclassifications it
+   produces are final for that pass, not re-challenged to a fixpoint, so it
+   terminates deterministically. Applied as a clarifying edit to REQ-D1.8,
+   D-46, Task 20's deliverables/Done-when, and the REQ-D1.8 test-spec entry.
+2. **Decline-set re-examination cost stays per-skill-scoped (no doctrine
+   floor).** Unscoped, REQ-D1.8 re-examines every declined/dropped finding,
+   which can be heavy when Discovery Rigor surfaces many declines. Resolved:
+   keep the default as the full pass and rely on each skill's declared scoping
+   per REQ-D1.7 proportionality (same pattern as the three-pass rule); no
+   default floor added to the doctrine. Recorded as accepted risk R-D1.8-cost
+   below.
+3. **Adoption is doc + by-reference; no per-skill wiring tasks added.**
+   REQ-D1.8 / REQ-D1.9 are design-level: satisfied by Task 20 amending
+   `doctrine/validation-rigor.md` and aligning any rigor-citing skill prose so it does
+   not contradict the amended passes. Skills then pick up the new passes by
+   referencing the doc at runtime (REQ-D1.4). Confirmed as the intended scope
+   boundary; no new skill-wiring tasks created in this delta.
+
+Lens review pass (delta-scoped, walked **inline** — small, narrow, doc-level
+delta, fan-out not warranted). Artifact under review: the a304206 delta plus
+the three clarification edits above. Canonical lens-coverage table:
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | none | D1.8 adds a pass *after* the three identification passes (not 3→4); D1.9 additive to unit tests; no contradiction with REQ-D1.2's drop/downgrade (the decline set is what D1.8 resurrects from); termination edge closed (single sweep). |
+| Security | n/a | Validation doctrine; no untrusted input, secrets, or sensitive operational detail in the delta, brief, or PR text. |
+| Error handling and failure modes | none | Task 20's Done-when is satisfiable (doc + test-spec + `mise check` + non-contradiction); no dead Done-when. |
+| Performance | none | Decline-set cost surfaced and dispositioned as per-skill-scoped (accepted risk R-D1.8-cost), not a spec defect. |
+| Concurrency / state | n/a | Doc-level spec text; no shared state, ordering, or idempotency claims. |
+| Naming, readability, structure | none | D-46/D-47 follow Decision/Alternatives/Chosen-because; REQ IDs sequential after D1.7; Task 20 well-formed. |
+| Documentation | none | Changelog + Sources + test-spec + dependency-graph view updated consistently. |
+| Tests / verification | none | REQ-D1.8/D1.9 are `[design-level]`, same pattern as REQ-D1.1–D1.7; paths runnable, no dead path. |
+| Cross-file consistency | none | No stale count labels; `three-pass` references remain accurate; T20 graph placement (independent, off the 12.5d critical path) consistent. |
+
+Validation rigor: zero findings to validate. Self-critique pass: re-scanned for
+under-representation. One non-blocking note recorded as guidance for Task 20's
+executor (not a finding, does not block the anchor): REQ-D1.9's reproduction
+angle spans solution-validation angle 1 (targeted test) and angle 3
+(integration/manual), so Task 20 should place the whole-system preference
+across both, not only angle 1. Findings dispositioned: none outstanding.
+
+Decision-domains gap check: walked the catalog against the delta. The catalog
+covers engineering domains (storage, caching, queues, API surface, auth,
+secrets, concurrency, observability, deploy/migration, dependency adoption);
+this delta is validation *doctrine* and introduces no persistent store,
+external surface, auth, concurrency, or migration. No catalogued domain is
+touched-but-undecided → no gap-check rows.
+
+Risk register addition:
+
+- **R-D1.8-cost (accepted).** Unscoped, REQ-D1.8's decline-set re-examination
+  re-challenges every declined/dropped finding; with a large decline set the
+  default pass is heavy. Mitigation: per-skill declared scoping under REQ-D1.7
+  proportionality (the established pattern); early signal: a skill's
+  bi-directional pass dominating its runtime. Accepted, no doctrine floor.
+
+Per-section outcomes: S1 (glossary terms added; anchor context otherwise
+unchanged); S2 (REQ-D1.8 / REQ-D1.9 restated and confirmed; termination red-line
+applied to D1.8); S3 (D-46 / D-47 accounted for — both confirmed sound,
+rationale intact; D-46 amended with the single-sweep termination clause); S4
+(REQ-D1.8 / REQ-D1.9 design-level verification confirmed runnable, no dead path;
+Task 20 guidance note recorded); S5 (T20 reconstructed from Dependencies: ←T3
+only, independent and off the 12.5d critical path — deliberate non-edge: no
+dependency on the rigor-consuming skills because skills reference the doctrine
+doc at runtime); S6 (accepted risk R-D1.8-cost added).
+
+Edits applied during the walk: requirements.md (REQ-D1.8 single-sweep clause;
+Changelog kickoff-clarification note), design.md (D-46 single-sweep clause),
+tasks.md (Task 20 deliverables + Done-when single-sweep), test-spec.md
+(REQ-D1.8 single-sweep clause).
+
+Signed off: 2026-06-16
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-16 (none outstanding).
+Anchor: `74b3cb130ebf2397b7b4fca34a9f224d8c4b5ded` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, citation fix d04bcb4: drop fabricated customization-overlay D-10)
+
+Machine-written entry per REQ-F1.10's expression-only lane (human-declared
+amendment, scope confirmed at kickoff: re-anchor d04bcb4 only). After the
+2026-06-16 Validation-Rigor delta re-walkthrough signed off at anchor
+`74b3cb13…`, the out-of-flow commit d04bcb4 reworded requirements.md's
+2026-06-16 Validation-Rigor changelog entry and the validation-thoroughness
+Sources entry to drop a fabricated `customization-overlay D-10` citation — no
+customization-overlay spec exists yet (planned post-bootstrap), and bootstrap's
+own D-10 is the unrelated per-spec advisory lock — replacing it with a plain
+forward-reference to the planned spec's (TBD) core-vs-personal rule. That
+prose-only edit left the brief's last anchor stale against current content
+(`e0ce72d4…`), which would false-halt `/orchestrate` / `/execute-task` at the
+freshness gate for a pure citation fix (self-observed 2026-06-16, commit
+2db6b78). This run adds the mandatory dated Changelog entry the expression-only
+fix lacked (requirements.md Changelog: the `2026-06-16 (expression-only,
+citation fix; commit d04bcb4)` line) and re-anchors.
+
+The change is provenance-citation wording only: no REQ, design decision, task,
+or test semantics changed, so no lens pass (REQ-A3.3 expression-only). The
+validator passes under Active enforcement (0 errors, 0 warnings). Anchor
+recomputed after the Changelog edit is on disk; this entry, citing the
+Changelog line above, restores brief↔content anchor agreement and clears the
+false-halt.
+
+Class: expression-only
+Anchor: `27dfb7435fb74c03c2f04c338976f22451f7be27` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, Copilot review on PR #23: doc-consistency sweep)
+
+Machine-written entry per REQ-F1.10's expression-only lane. GitHub Copilot's
+review on PR #23 surfaced six doc-consistency findings, all validated (three
+passes converging) as real, in-scope, and non-normative:
+
+1. `tasks.md` dependency-graph view: the T20 line read `Independent (←T3,
+   done)`, a misleading "done" on a forward-plan task that no other level row
+   carries — de-annotated to `(←T3)`. (Graph view is outside task-definition
+   blocks, so this edit does not move the anchor.)
+2. `requirements.md` Changelog: the 2026-06-16 Validation Rigor entry header
+   said "sign-off pending `/spec-kickoff` delta re-walkthrough" while the same
+   entry's body — and this brief — already record the completed sign-off;
+   corrected to "signed off via the delta re-walkthrough, same date".
+3. `requirements.md` paired cross-references `REQ-D1.8 / D1.9` (two of them)
+   normalized to the canonical full form `REQ-D1.8 / REQ-D1.9` (10 standalone
+   `REQ-D1.9` uses already dominate the bundle).
+4. This brief (delta re-walkthrough record): doctrine path made precise
+   (`validation-rigor.md` → `doctrine/validation-rigor.md`, matching Task 20's
+   deliverable and five other bundle references) and a paired cross-reference
+   normalized.
+5. This brief: a second paired cross-reference normalized to the full form.
+
+No REQ, design decision, task definition, or test semantics changed
+(REQ-A3.3 expression-only), so no lens pass. Informal lens-table prose in the
+signed re-walkthrough record (`D1.8 adds a pass`, `REQ-D1.8/D1.9` slash-joined)
+is a different surface pattern and was deliberately left unedited. The full
+local check gate (`mise run check` — spec validator, markdownlint, link-check,
+shell suites) passes (0 failures). The mandatory dated Changelog entry for this
+sweep is recorded in `requirements.md` (`2026-06-16 (expression-only, Copilot
+review on PR #23)`). Anchor recomputed after all `requirements.md` edits are on
+disk.
+
+Class: expression-only
+Anchor: `d6e7b33c08d7070e5c29301e71aa3a83f5aabe5d` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`

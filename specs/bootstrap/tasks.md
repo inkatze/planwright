@@ -1,7 +1,7 @@
 # planwright Bootstrap — Tasks
 
 **Status:** Active
-**Last reviewed:** 2026-06-11
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
@@ -23,6 +23,7 @@ Level 3: T12 (execute-task ←T9,T11) · T14 (resume ←T9) · T17 (lifecycle �
 Level 4: T13 (orchestrate ←T5,T6,T10,T12) · T16 (builder ←T7,T8,T10,T12,T15)
 Level 5: T18 (work-repo E2E ←T13,T14,T16,T17)
 Level 6: T19 (packaging ←T16,T17,T18)
+Independent (←T3): T20 (validation-rigor amendment)
 ```
 
 Critical path (longest chain by estimated effort, 12.5d):
@@ -69,7 +70,43 @@ intelligence migration) dispatches first.
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
 
+### Task 20 — Validation Rigor amendment: bi-directional re-validation + whole-system reproduction
+
+- **Deliverables:** Amend `doctrine/validation-rigor.md` to add (a) an adversarial
+  bi-directional re-validation pass (refute the keep set, resurrect the decline set;
+  proportional depth; declared scoping; single-sweep termination — reclassifications final
+  for the pass, not iterated to a fixpoint; positioned after the three identification passes)
+  and (b) surface-relative whole-system end-to-end reproduction as the preferred confirming
+  angle for both the issue-identification reproduction pass and solution validation
+  (CLI / web UI / desktop surface→mechanism mapping; additive to unit tests; recorded
+  fallback when no surface mechanism exists). Update the doc's own `Citations:` line to
+  reference REQ-D1.8 and REQ-D1.9, and align any rigor-citing skill prose that summarizes
+  the validation passes so it does not contradict the amended doctrine.
+- **Done when:** `doctrine/validation-rigor.md` documents both capabilities (the
+  bi-directional pass with its proportionality scoping and single-sweep termination, and
+  the whole-system reproduction
+  preference with its surface→mechanism mapping and fallback); the test-spec entries for
+  REQ-D1.8 and REQ-D1.9 are satisfied; `mise run check` passes over the doc; no
+  rigor-citing skill prose contradicts the amended passes.
+- **Dependencies:** 3
+- **Citations:** D-46, D-47 · REQ-D1.8, REQ-D1.9
+- **Estimated effort:** half day
+
 ## In progress
+
+## Awaiting input
+
+- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
+  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
+  human policy call before it is relied on. Both self-review and Copilot flagged that the
+  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
+  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
+  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
+  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
+  branch only (the real question: should a worker be able to push to `main` at all?). Also
+  surfaced in the PR body's "Needs sign-off" section.
+
+## Completed
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
@@ -90,25 +127,7 @@ intelligence migration) dispatches first.
 - **Estimated effort:** 1.5 days
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-16` · dispatched 2026-06-15T20:02Z ·
   branch `planwright/bootstrap/task-16` · worktree `.claude/worktrees/task-16`
-- **Status:** implementing · clean redo on a fresh signed branch (PR #17 closed; superseded — it
-  carried unsigned outage-era commits and never ran the gauntlet; content preserved at tag
-  `pw/t16-salvage`). Re-landing reviewed deliverables, then gauntlet (panel-pairing →
-  self-review → copilot-pairing) → `gh pr ready`.
-- **Last activity:** 2026-06-15
-
-## Awaiting input
-
-- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
-  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
-  human policy call before it is relied on. Both self-review and Copilot flagged that the
-  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
-  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
-  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
-  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
-  branch only (the real question: should a worker be able to push to `main` at all?). Also
-  surfaced in the PR body's "Needs sign-off" section.
-
-## Completed
+- **Status:** Completed · PR #20 merged 2026-06-15 (clean redo on a fresh signed branch; PR #17 closed/superseded, content preserved at tag `pw/t16-salvage`; gauntlet panel-pairing → self-review → copilot-pairing converged, constrained-reader scope fork resolved before merge)
 
 ### Task 13 — `/orchestrate`
 
