@@ -1,7 +1,7 @@
 # planwright Bootstrap — Design
 
 **Status:** Active
-**Last reviewed:** 2026-06-11
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Decision log for building planwright v1. Each decision carries a Decision,
@@ -814,6 +814,66 @@ edits travel as amendments. The mid-flight window (a spec amended under an
 already-running worker) is out of scope: the draft-PR-only + human-merge
 invariant backstops it. When several pre-flight halts fire at once (non-Active,
 missing validator, freshness), they are reported together.
+
+### D-46: Adversarial bi-directional re-validation (keep set + decline set)  (N, drafting-session 2026-06-16)
+
+**Decision:** Add an adversarial, bi-directional re-validation pass to Validation
+Rigor that runs after the three identification passes and before findings are
+reported or acted on: each kept finding is challenged to *refute* it (treat it as
+a false positive and try to break the case), and each declined or dropped finding
+is re-examined to *resurrect* it (treat the decline as premature and try to
+rebuild the case). The pass covers both the keep set and the decline set; its
+depth scales with stake and reversibility (proportionality), and a skill that
+scopes it must declare the scoping. The pass is a **single sweep** over each
+set: the keep→decline and decline→keep reclassifications it produces are final
+for that pass, not iterated to a fixpoint, so it terminates deterministically
+and cannot oscillate (a finding refuted then re-resurrected within one pass).
+
+**Alternatives considered:**
+- Keep the uni-directional three-pass convergence only (validate that findings
+  are real; drop or downgrade the non-converging). Rejected because: it defends
+  against false positives in the keep set but never re-examines the decline set,
+  so a wrongly-dropped finding disappears silently — the false-negative direction
+  is invisible to the existing doctrine.
+- Refute-only adversarial voting on the keep set (the "N skeptics try to refute"
+  pattern). Rejected because: it strengthens the false-positive defense but, like
+  the three-pass rule, never resurrects the decline set; it is one half of the
+  bi-directional pass, not a substitute for it.
+
+**Chosen because:** the two error directions — false positive in the keep set,
+false negative in the decline set — are independent, and the existing doctrine
+only guards one. Re-validating both directions adversarially is the cheap,
+symmetric guard, and making it proportional keeps cost matched to stake. It also
+gives REQ-D1.2's open non-convergence question (the consumed 2026-06-11
+observation) a concrete home: a non-converging finding is re-challenged in both
+directions rather than silently dropped.
+
+### D-47: Surface-relative whole-system reproduction as the preferred confirming angle  (N, drafting-session 2026-06-16)
+
+**Decision:** Elevate whole-system, surface-relative end-to-end reproduction to
+the preferred form of Validation Rigor's reproduction angle, in both issue
+identification (pass 1) and solution validation: exercise the change through the
+surface's own mechanism — CLI (run the real command; observe outputs, exit codes,
+side effects), web UI (browser automation), desktop (UI automation) — additive to
+unit tests, with an explicit recorded fallback when no surface mechanism exists.
+
+**Alternatives considered:**
+- Leave reproduction specified only as "write a failing test / run the code /
+  trace concrete inputs" (the current pass-1 text). Rejected because: it admits
+  unit-level-only reproduction as sufficient, and validation rigor under-fires by
+  default — a unit test can pass while the real surface (the command a user runs,
+  the page they click) still fails; the whole-system path catches integration and
+  wiring defects that unit pieces miss.
+- Mandate whole-system reproduction for every finding. Rejected because: not
+  every surface has an automatable end-to-end mechanism, and forcing it where none
+  exists is disproportionate; "preferred, with a recorded fallback" matches the
+  proportionality doctrine and stays honest about coverage.
+
+**Chosen because:** confirming a behavior through the surface's own mechanism is
+the highest-fidelity reproduction available and the closest analogue to how the
+defect manifests to a user; preferring it (rather than mandating it) raises the
+validation floor without imposing impossible automation, and naming the
+surface→mechanism mapping makes the preference concrete rather than aspirational.
 
 ## Cross-cutting concerns
 
