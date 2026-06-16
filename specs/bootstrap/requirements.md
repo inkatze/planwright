@@ -261,7 +261,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   resurrect it (treat the decline as premature and try to rebuild the case).
   The pass SHALL cover both the keep set and the decline set; its depth scales
   with stake and reversibility per the proportionality doctrine, and any skill
-  that scopes it SHALL declare the scoping.
+  that scopes it SHALL declare the scoping. The pass is a single sweep over
+  each set — the keep→decline and decline→keep moves it produces are final for
+  that pass, not re-challenged to a fixpoint — so it terminates deterministically
+  rather than oscillating.
   *(Cites: D-46; the validation-thoroughness seed (Sources).)*
 - **REQ-D1.9** Validation Rigor's reproduction angle (issue-identification
   pass 1 and solution validation) SHALL prefer surface-relative whole-system
@@ -697,7 +700,13 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   REQ-D1.8 / REQ-D1.9. Seeded by the `/spec-draft validation-thoroughness`
   invocation and the consumed 2026-06-11 observation (REQ-D1.2's
   non-convergence rule has no decision tree), now archived. Classed
-  core-capability-not-personal-style per customization-overlay D-10.
+  core-capability-not-personal-style per customization-overlay D-10. Clarified
+  during the `/spec-kickoff` delta re-walkthrough (same date): REQ-D1.8 / D-46
+  specify single-sweep termination (reclassifications final for the pass, not
+  iterated to a fixpoint) to foreclose oscillation; the unscoped decline-set
+  cost stays per-skill-scoped (no doctrine floor) and is recorded as an accepted
+  risk in the kickoff brief; REQ-D1.8 / D1.9 adoption is by-reference via Task 20's
+  doc amendment, with no per-skill wiring tasks added.
 
 ## Sources
 

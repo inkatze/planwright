@@ -74,7 +74,8 @@ intelligence migration) dispatches first.
 
 - **Deliverables:** Amend `doctrine/validation-rigor.md` to add (a) an adversarial
   bi-directional re-validation pass (refute the keep set, resurrect the decline set;
-  proportional depth; declared scoping; positioned after the three identification passes)
+  proportional depth; declared scoping; single-sweep termination — reclassifications final
+  for the pass, not iterated to a fixpoint; positioned after the three identification passes)
   and (b) surface-relative whole-system end-to-end reproduction as the preferred confirming
   angle for both the issue-identification reproduction pass and solution validation
   (CLI / web UI / desktop surface→mechanism mapping; additive to unit tests; recorded
@@ -82,7 +83,8 @@ intelligence migration) dispatches first.
   reference REQ-D1.8 and REQ-D1.9, and align any rigor-citing skill prose that summarizes
   the validation passes so it does not contradict the amended doctrine.
 - **Done when:** `doctrine/validation-rigor.md` documents both capabilities (the
-  bi-directional pass with its proportionality scoping, and the whole-system reproduction
+  bi-directional pass with its proportionality scoping and single-sweep termination, and
+  the whole-system reproduction
   preference with its surface→mechanism mapping and fallback); the test-spec entries for
   REQ-D1.8 and REQ-D1.9 are satisfied; `mise run check` passes over the doc; no
   rigor-citing skill prose contradicts the amended passes.

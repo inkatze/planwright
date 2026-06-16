@@ -824,7 +824,10 @@ a false positive and try to break the case), and each declined or dropped findin
 is re-examined to *resurrect* it (treat the decline as premature and try to
 rebuild the case). The pass covers both the keep set and the decline set; its
 depth scales with stake and reversibility (proportionality), and a skill that
-scopes it must declare the scoping.
+scopes it must declare the scoping. The pass is a **single sweep** over each
+set: the keep→decline and decline→keep reclassifications it produces are final
+for that pass, not iterated to a fixpoint, so it terminates deterministically
+and cannot oscillate (a finding refuted then re-resurrected within one pass).
 
 **Alternatives considered:**
 - Keep the uni-directional three-pass convergence only (validate that findings

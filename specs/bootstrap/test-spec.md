@@ -224,7 +224,8 @@ requirement.
 
 `doctrine/validation-rigor.md` documents the adversarial re-validation pass over both the
 keep set (refute) and the decline set (resurrect), its position after the three
-identification passes, its proportional depth, and the declare-the-scoping rule.
+identification passes, its proportional depth, the declare-the-scoping rule, and its
+single-sweep termination (reclassifications final for the pass, not iterated to a fixpoint).
 
 ### REQ-D1.9 — Surface-relative whole-system reproduction doc [design-level]
 
