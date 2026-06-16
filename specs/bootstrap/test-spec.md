@@ -9,8 +9,8 @@ Every REQ is pinned to at least one verification path. Types: **test** (automate
 the verification), **Gherkin** (state/trigger/outcome). planwright is mostly skills +
 doctrine + a portable-shell validator, so coverage is a deliberate mix. Verification
 ownership: [test] entries run in planwright's own CI; every entry whose tag includes
-[manual] or [Gherkin] (mixed tags count) is exercised by Task 18's
-manual-verification sweep (each exercised, or the gap named).
+[manual] or [Gherkin] (mixed tags count) is exercised by the manual-verification sweep
+the work fork's first real multi-contributor run carries (each exercised, or the gap named).
 
 ## REQ-A — Spec format, lifecycle & evolution
 
@@ -475,8 +475,8 @@ Skills create new commits only and open draft PRs; no history-rewriting path exi
 
 ### REQ-J1.5 — Private start, public gate [design-level]
 
-The release checklist enforces the three gate conditions (incl. Task 18's
-multi-contributor work-repo run + manual sweep, the migrated docs, and the meta-spec)
+The release checklist enforces the three gate conditions (incl. the work fork's first
+multi-contributor work-repo run + its manual sweep, the migrated docs, and the meta-spec)
 and every release-blocking gated Deferred entry (the `reference/` history purge,
 human-reserved per REQ-J1.4; the checklist verifies it happened, it does not perform it).
 

@@ -728,6 +728,18 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   forward-plan task; brief doctrine path made precise
   (`validation-rigor.md` → `doctrine/validation-rigor.md`). Re-anchored via the
   kickoff brief's expression-only lane.
+- 2026-06-16 (post-activation amendment, delta re-walkthrough — meaning-class) —
+  the multi-contributor work-repo end-to-end validation run (orig. Task 18) re-sequenced
+  off the synthetic critical path: Task 18 retired as a dispatchable task and moved to a
+  `## Deferred` organic-gate bullet (satisfied by the work fork's first real
+  multi-contributor pipeline run, not a synthetic dispatch; it carries the
+  manual-verification sweep). Task 19's dependencies drop 18 (now 16, 17). The tasks.md
+  dependency-graph view and critical-path note were redrawn (T13 is now terminal; the path
+  to T19 reroutes through T16). REQ-J1.5 condition (c) is unchanged normatively — the
+  release gate stays in force, now satisfied organically rather than by a synthetic task;
+  the test-spec coverage-mix intro and the REQ-J1.5 entry re-point the run/sweep owner from
+  Task 18 to the organic work-fork run. No REQ or D-ID text changed. Recorded in the kickoff
+  brief's amendment log with a dispositioned delta-scoped lens pass.
 
 ## Sources
 
