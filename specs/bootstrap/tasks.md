@@ -81,7 +81,7 @@ first.
 - **Dependencies:** 3
 - **Citations:** D-46, D-47 · REQ-D1.8, REQ-D1.9
 - **Estimated effort:** half day
-- **Status:** implementing
+- **Status:** PR #25 draft
 - **Last activity:** 2026-06-16
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-20` · dispatched 2026-06-16T23:36Z ·
   branch `planwright/bootstrap/task-20` · worktree `.claude/worktrees/task-20`
