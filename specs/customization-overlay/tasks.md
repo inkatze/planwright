@@ -32,7 +32,9 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   `$CLAUDE_PLUGIN_DATA/overlay/` → `<claude-dir>/planwright/<name>/overlay/`
   chain, where writer mode's `<name>` is the plugin manifest `name`),
   repo-tracked, and machine-local — with identifier/namespace validation and a
-  shared canonicalize-then-contain path-confinement helper. Unit tests under
+  shared canonicalize-then-contain path-confinement helper. In writer mode the
+  manifest `name` is read from `<claude-dir>/planwright/plugin.json`, so
+  `install.sh` copies that manifest into place (D-3). Unit tests under
   `tests/`.
 - **Done when:** the script resolves each layer root in both delivery modes;
   distinct `CLAUDE_PLUGIN_DATA` ids resolve to distinct adopter roots; writer
@@ -41,8 +43,8 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   and traversing/escaping paths are rejected with a clear message and nonzero
   exit; tests pass under `mise run check`.
 - **Dependencies:** none
-- **Citations:** D-1, D-3, D-4, D-8 · REQ-A1.1, REQ-A1.4, REQ-A1.5, REQ-A1.6,
-  REQ-E1.2, REQ-E1.5
+- **Citations:** D-1, D-3, D-4, D-8 · REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5,
+  REQ-A1.6, REQ-E1.2, REQ-E1.5
 - **Estimated effort:** 1 day
 
 ### Task 3 — Four-layer config resolution
@@ -59,14 +61,16 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   nonzero; `--explain` names the winning layer per key; `check-options-reference.sh`
   passes; tests pass under `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-5, D-7, D-9 · REQ-B1.1, REQ-B1.4, REQ-B1.5, REQ-B1.6,
-  REQ-E1.4
+- **Citations:** D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
+  REQ-B1.6, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 4 — Doctrine-overlay resolution
 
-- **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter and
-  repo-tracked `doctrine/` roots into its precedence chain (whole-doc shadow),
+- **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
+  repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
+  repo-tracked, `doctrine.local/` for machine-local, per D-4) into its
+  precedence chain (whole-doc shadow),
   with path-traversal confinement, the malformed-by-layer policy, the
   protected-doc warn-but-allow behavior (loud stderr warning when an overlay
   shadows a protected core governance/security doc), and a `--explain`
@@ -78,8 +82,8 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   non-protected shadow is silent; `--explain` names the supplying layer; tests
   pass under `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-5, D-8, D-9, D-11 · REQ-B1.2, REQ-B1.4, REQ-B1.7, REQ-E1.4,
-  REQ-E1.5
+- **Citations:** D-5, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4, REQ-B1.7,
+  REQ-D1.2, REQ-E1.4, REQ-E1.5
 - **Estimated effort:** 1 day
 
 ### Task 5 — Catalog-overlay resolution
@@ -103,7 +107,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   still ship); `--explain` names each entry's layer; tests pass under
   `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-2, D-5, D-9 · REQ-B1.3, REQ-B1.5, REQ-D1.1
+- **Citations:** D-2, D-5, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.5, REQ-D1.1
 - **Estimated effort:** 1 day
 
 ### Task 6 — `review_sequence` config knob
@@ -139,7 +143,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   warning is present; the bootstrap Task 19 hand-off is recorded;
   `check-doc-links.sh` and the doc linters pass.
 - **Dependencies:** 3, 4, 5, 6
-- **Citations:** D-1, D-4 · REQ-E1.3, REQ-C1.3
+- **Citations:** D-1, D-4 · REQ-C1.3, REQ-E1.1, REQ-E1.3
 - **Estimated effort:** half day
 
 ## In progress

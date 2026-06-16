@@ -68,11 +68,13 @@ specified for each kind — is paid once in D-5.
 updates) → `<claude-dir>/planwright/<name>/overlay/` (writer mode). In plugin
 mode namespace separation is automatic, so a public install and a work fork
 resolve to distinct adopter overlays; writer mode (no `$CLAUDE_PLUGIN_DATA`)
-derives the `<name>` namespace segment from the plugin manifest `name` field —
+derives the `<name>` namespace segment from the `name` field of the plugin
+manifest at `<claude-dir>/planwright/plugin.json` (which `install.sh` copies
+into place at install time, so writer mode always has a manifest to read) —
 the same identifier plugin mode's `<id>` carries — validated against the
-identifier charset (REQ-E1.2) before any path use. If `name` is absent or
-unresolvable, the adopter layer is treated as absent and resolution degrades
-to the next lower layer (REQ-A1.4, REQ-A1.5), never erroring.
+identifier charset (REQ-E1.2) before any path use. If the manifest is missing
+or `name` is absent or unresolvable, the adopter layer is treated as absent and
+resolution degrades to the next lower layer (REQ-A1.4, REQ-A1.5), never erroring.
 
 **Alternatives considered:**
 - A uniform `<claude-dir>/planwright/<namespace>/overlay/` for both modes,
@@ -97,10 +99,14 @@ holds in both delivery modes.
 order. Config: `config/defaults.yml` < adopter `planwright.yml` (under the
 D-3 adopter root) < `<repo>/.claude/planwright.yml` (tracked team file) <
 `<repo>/.claude/planwright.local.yml` (gitignored machine-local). Doctrine: a
-`doctrine/` directory under each overlay root, inserted into the
-`resolve-rule-doc.sh` chain at the right precedence. Catalog: a per-catalog
-discovery convention under each overlay root. There is no single overlay-root
-directory per layer.
+`doctrine/` directory under the adopter and repo-tracked roots and a
+`doctrine.local/` directory for the machine-local layer — the two repo-side
+layers share `<repo>/.claude/`, so the `.local` suffix mirrors the
+`planwright.yml` / `planwright.local.yml` config split and keeps the directory
+kinds from colliding — each inserted into the `resolve-rule-doc.sh` chain at the
+right precedence. Catalog: the same split (`catalogs/` for adopter and
+repo-tracked, `catalogs.local/` for machine-local) under a per-catalog discovery
+convention. There is no single overlay-root directory per layer.
 
 **Alternatives considered:**
 - One overlay-root directory per layer with a fixed internal layout

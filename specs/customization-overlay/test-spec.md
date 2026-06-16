@@ -4,8 +4,8 @@
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
-Coverage mix: predominantly `[test]` — the resolvers are portable shell, unit
--testable in `tests/` under `mise run check` / CI. `[design-level]` covers the
+Coverage mix: predominantly `[test]` — the resolvers are portable shell,
+unit-testable in `tests/` under `mise run check` / CI. `[design-level]` covers the
 boundary doctrine doc (existence plus coverage is the verification). A few
 `[manual]` / `[Gherkin]` entries cover skill behavior and data-hygiene that do
 not unit-test cleanly. Every REQ is pinned to at least one path below.

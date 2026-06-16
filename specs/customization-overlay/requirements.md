@@ -196,7 +196,9 @@ core.
   *(Cites: bootstrap D-43; bootstrap REQ-K1.8.)*
 - **REQ-E1.4** A malformed overlay SHALL be handled by layer (malformed =
   unreadable, or unparseable / structurally invalid for the kind's reader — for
-  config, not flat `key: value`; for a catalog, not parseable into entries): a
+  config, not a well-formed YAML mapping of keys to scalar or list values (a
+  list-valued option such as `review_sequence` is well-formed); for a catalog,
+  not parseable into entries): a
   malformed adopter or machine-local overlay degrades to the next lower layer
   with a loud warning; a malformed repo-tracked (team-shared) overlay
   hard-fails, so a broken shared config never silently runs unintended behavior
@@ -229,6 +231,15 @@ core.
   fragment/section merge from Out-of-scope to Deferred-gated; noted Task 5 must
   pin supersede-of-nonexistent-target; added the uncommitted-overlay secret
   warning to Task 7; noted doctrine's exclusion from the determinism test.
+- 2026-06-16: Panel-review refinements (gemini backend, post-activation):
+  pinned the writer-mode adopter manifest source to
+  `<claude-dir>/planwright/plugin.json` placed by `install.sh` (D-3, Task 2);
+  gave the directory kinds distinct repo-side locations — `doctrine/` /
+  `catalogs/` (repo-tracked) vs `doctrine.local/` / `catalogs.local/`
+  (machine-local) — to resolve the overlay-root collision (D-4, Task 4);
+  reworded the malformed-config definition (REQ-E1.4) to admit list-valued
+  options such as `review_sequence`; added the four missing REQ→task citations
+  (A1.2, A1.3, D1.2, E1.1); fixed a test-spec line-break rendering nit.
 
 ## Sources
 
