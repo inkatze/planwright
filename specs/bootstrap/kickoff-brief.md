@@ -1419,3 +1419,152 @@ disk.
 Class: expression-only
 Anchor: `d6e7b33c08d7070e5c29301e71aa3a83f5aabe5d` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
+
+## Amendment — Task 18 re-sequenced off the dispatch path (delta re-walkthrough, 2026-06-16)
+
+**Mode:** Amendment (meaning-class, human-declared). Status stays Active (no re-flip). The
+freshness anchor matched at pre-flight (`d6e7b33c…`), so nothing was stale; this is a
+declared change, not a staleness-driven re-walk.
+
+**Intent (delta):** re-sequence the multi-contributor work-repo end-to-end validation run
+(Task 18) out of the synthetic critical path. The run is no longer a dispatchable pipeline
+task; the REQ-J1.5 condition (c) release gate stays in force but is satisfied **organically**
+by the work fork's first real multi-contributor run. After this lands the dispatchable
+remainder is T20 (←T3) and T19 (←16,17).
+
+**Edits applied (3 spec files; design.md untouched — no D-ID changed):**
+
+- `tasks.md`: (1) intro reworded to organic framing; (2) Task 18 moved from `## Forward plan`
+  to `## Deferred` as a **retained `### Task 18` block** with definition fields unchanged and
+  a `Status` annotation marking it organic / not-dispatched; (3) Task 19 `Dependencies`
+  `16, 17, 18` → `16, 17`; (4) dependency-graph view + critical-path note redrawn; (5) the
+  "Second multi-contributor validation repo" Deferred gate reworded off "Task 18 completed".
+- `requirements.md`: dated meaning-class Changelog entry. **REQ-J1.5(c) normative text is
+  unchanged** — it already reads "one clean end-to-end run on a real multi-contributor work
+  repository" with no reference to Task 18 or synthetic execution; the synthetic framing lived
+  only in `tasks.md`. No REQ supersession (stable-ID discipline preserved).
+- `test-spec.md`: coverage-mix intro and the REQ-J1.5 entry re-point the run / manual-sweep
+  owner from Task 18 to the work fork's first multi-contributor run.
+
+**Representation decision (validator-forced).** The first-chosen representation (collapse
+Task 18 to a Deferred *bullet*) was **rejected by the validator's task stable-ID rule**: a
+`### Task` id present on `origin/main` cannot be removed, and the task check has no
+changelog-named escape (unlike REQ-ID supersession). Resolved by **keeping the `### Task 18`
+block** in `## Deferred`, definition fields intact, with the organic / not-dispatched state in
+its `Status` annotation (annotations are excluded from the content anchor). This honors
+never-delete + stable-ID and is more traceable than a bullet. Surfaced to the human, who
+confirmed the analysis. An observation is logged that the validator lacks a changelog-named
+task-retirement path (a parity gap with REQ supersession) as a possible future doctrine
+improvement; not actioned in this amendment.
+
+**Critical-path precision.** Because the retained Task 18 block keeps `Dependencies: 13,14,16,17`,
+T13 still structurally feeds the deferred gate, so T13 is **not** a pure terminal. The note
+states it precisely: the longest *dispatchable* chain to deliverable T19 reroutes through T16
+(`T3→T7→T11→T12→T16→T19`, 9.0d); T13's chain (9.5d) stays the longest in the full graph but
+now feeds only the deferred organic gate, not packaging.
+
+**Decision-domains gap check:** walked the 10-domain catalog (storage, caching, queues, API
+surface, auth, secrets, concurrency, observability, deploy/migration, dependency adoption);
+this re-sequencing touches none. No gap-check rows.
+
+### Lens review pass (delta-scoped; walked inline)
+
+Path declared: **inline**, not fanned out — the delta is small, narrow, and docs-only (spec
+re-sequencing across three files, no code or behavior change), per the discovery-rigor
+proportionality rule.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 1 | Critical path splits rather than merely losing the T18 hop; with T18's deps retained, T13 feeds only the deferred gate. Note drawn precisely (not "…→T13→T19", not "T13 terminal"). |
+| Security | 1 | Data-hygiene: organic-run wording kept generic ("a real multi-contributor work repo"); no private repo identifier introduced. |
+| Error handling and failure modes | none | Task 18 deferred (not in Forward plan) → orchestrate's ready-unit selection never picks it; no orphan / dispatch-of-nothing. |
+| Performance | n/a | Spec-text amendment. |
+| Concurrency / state | none | Anchor moves (T19 dep field + requirements/test-spec hashes); expected for meaning-class; anchor written last. T18's definition unchanged → its anchor contribution is unchanged. |
+| Naming, readability, structure | 1 | `### Task 18` retained in Deferred (id stable, never reused); annotation explains why the block is not a bullet. |
+| Documentation | 1 | T18 framing recurred across tasks.md intro, dep-graph, T19 deps, the "second repo" gate, test-spec intro + REQ-J1.5 entry, Changelog — all moved together (grep-swept, not just thread-pointed lines). |
+| Tests / verification | 1 | Manual-verification sweep ownership transferred Task 18 → organic work fork run in the Deferred block + both test-spec surfaces; Task 19's release checklist still enforces condition (c), so ownership does not go dark. |
+| Cross-file consistency | 1 | Brief's historical §6 / risk-register rows naming T18 are append-only history, left intact; this entry re-points their validation owner to the organic run. |
+
+**Validation:** findings confirmed by re-running the validator (Active enforcement, 0 errors —
+which itself caught the stable-ID violation and forced the representation fix) and the full
+`mise run check` gate (0 failures), plus a repo-wide grep sweep for residual dispatchable-T18
+references (only the intentional `orig. Task 18` / Deferred-block references remain).
+
+**Dispositions:** every finding **applied** — they constitute the amendment. No declines, no
+deferrals, no new Needs-human-judgment forks beyond the two decided at the walkthrough (T18
+representation, forced to block-in-Deferred by the validator; REQ-J1.5 text, left unchanged).
+
+Signed off: 2026-06-16
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-16 (all applied).
+Anchor: `9057194398269e007c524c4682e0545261e79c2e` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, panel review on this branch: doc-consistency sweep)
+
+Machine-written entry per REQ-F1.10's expression-only lane. A `/panel-pairing`
+pass over this branch surfaced two doc-consistency findings in the meaning-class
+T18 re-sequencing Changelog entry directly above its own. Both validated (three
+passes converging), in-scope (lines this branch introduced), and non-normative:
+
+1. `requirements.md` Changelog: the meaning-class entry described Task 18 as
+   "moved to a `## Deferred` organic-gate bullet" — but the bullet form was
+   validator-rejected and the `### Task 18` block was retained, as `tasks.md`,
+   this brief (`Representation decision (validator-forced)`), and the
+   observations log all record. Corrected to "moved to `## Deferred` as a
+   retained `### Task 18` block, marked an organically-satisfied gate".
+2. `requirements.md` Changelog: the same entry read "T13 is now terminal", which
+   this brief's `Critical-path precision` paragraph explicitly forbids — T13 is
+   *not* a pure terminal; it still structurally feeds the deferred Task 18
+   (deps `13,14,16,17`). Corrected to "T13 now feeds only the deferred organic
+   gate, not packaging", matching the precise framing in `tasks.md` and the lens
+   table above.
+
+No REQ, design decision, task definition, or test semantics changed
+(REQ-A3.3 expression-only), so no lens pass. The full local check gate
+(`mise run check` — spec validator, markdownlint, link-check, options drift,
+shell suites) passes (0 failures). The mandatory dated Changelog entry for this
+sweep is recorded in `requirements.md` (`2026-06-16 (expression-only, panel
+review on this branch)`). Anchor recomputed after all `requirements.md` edits
+are on disk.
+
+Class: expression-only
+Anchor: `3d1c3e2015f0dd7500020dda0a6af94f18c2391b` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, Copilot pairing on this branch: doc-consistency sweep)
+
+Machine-written entry per REQ-F1.10's expression-only lane. A `/copilot-pairing`
+pass over this branch's draft PR surfaced five prose findings in Copilot's first
+review; all five validated (three passes converging), all on lines this branch
+introduced. The first cycle's five fixes reduced to three spec-file edits plus a
+brief-prose fix; a second Copilot cycle returned a single debatable nitpick on the
+already-touched Task 18 Status annotation, which was left unresolved as diminishing
+returns (the human's call) rather than reworded into an outlier against four sibling
+lines. The three spec-file edits, all non-normative:
+
+1. `requirements.md` (T18 re-sequence Changelog narrative) and `kickoff-brief.md`
+   (the meaning-class T18 sign-off entry's lens-table row, amended in place under
+   the pre-merge correction lane): "work-fork" → "work fork", standardizing to the
+   spaced form that already dominated the bundle 10:2 (grep-confirmed, zero
+   stragglers remain).
+2. `tasks.md` Task 18 **Status** annotation: "is satisfied by the work fork's
+   first … run" → "is the work fork's first … run", dropping a run-satisfied-by-a-
+   run subject/object mismatch. (Status annotations are excluded from the anchor
+   extraction, so this edit alone does not move the hash; recorded for audit.)
+3. `test-spec.md` coverage-mix intro: added the relative pronoun
+   ("the manual-verification sweep *that* the work fork's first … run carries").
+
+No REQ, design decision, task definition, or test semantics changed
+(REQ-A3.3 expression-only), so no lens pass. The full local check gate
+(`mise run check` — spec validator under Active enforcement, markdownlint,
+link-check, options drift, shell suites) passes (0 failures, 0 errors).
+The mandatory dated Changelog entry for this sweep is recorded in
+`requirements.md` (`2026-06-16 (expression-only, Copilot pairing on this
+branch)`). Anchor recomputed after all `requirements.md` / `tasks.md` /
+`test-spec.md` edits are on disk.
+
+Class: expression-only
+Anchor: `b331a686a00e8382964070602789504768d9c237` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`

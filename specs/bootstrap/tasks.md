@@ -5,9 +5,10 @@
 **Format-version:** 1
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
-self-hosting CI) comes first; skills layer on the doctrine; the multi-contributor
-work-repo end-to-end run is the final public-release gate condition (REQ-J1.5
-condition (c)).
+self-hosting CI) comes first; skills layer on the doctrine. The final public-release gate
+(REQ-J1.5 condition (c)) is satisfied **organically** by the work fork's first real
+multi-contributor pipeline run, not by a synthetic task the pipeline dispatches (see
+`## Deferred`).
 
 ## Dependency graph
 
@@ -21,35 +22,22 @@ Level 1: T2 (self-hosting CI ←T1) · T5 (validator ←T4) · T7 (gate ←T3)
 Level 2: T6 (hooks ←T4,T5) · T9 (kickoff ←T4,T5) · T11 (self-review/polish ←T3,T7)
 Level 3: T12 (execute-task ←T9,T11) · T14 (resume ←T9) · T17 (lifecycle ←T5,T8,T9)
 Level 4: T13 (orchestrate ←T5,T6,T10,T12) · T16 (builder ←T7,T8,T10,T12,T15)
-Level 5: T18 (work-repo E2E ←T13,T14,T16,T17)
-Level 6: T19 (packaging ←T16,T17,T18)
+Level 5: T19 (packaging ←T16,T17)
 Independent (←T3): T20 (validation-rigor amendment)
+Organic (release gate, not dispatched): the multi-contributor work-repo E2E run
+  (orig. T18 ←T13,T14,T16,T17) — deferred; satisfies REQ-J1.5(c) organically; see `## Deferred`.
 ```
 
-Critical path (longest chain by estimated effort, 12.5d):
-T3→T7→T11→T12→T13→T18→T19. T1, T3, T4 have no dependencies and are the natural
-parallel start; under critical-path-first selection (REQ-F1.2), T3 (the
-intelligence migration) dispatches first.
+Critical path: the work-repo E2E run (orig. T18) is retired from the dispatch flow
+(deferred, satisfied organically), so it no longer feeds T19. The longest dispatchable
+chain to the final deliverable T19 reroutes through T16: T3→T7→T11→T12→T16→T19 (9.0d).
+T13's chain T3→T7→T11→T12→T13 (9.5d) stays the longest in the full graph but now
+terminates at the orchestration layer — it feeds only the deferred organic gate (orig.
+T18), not packaging. T1, T3, T4 have no dependencies and are the natural parallel start;
+under critical-path-first selection (REQ-F1.2), T3 (the intelligence migration) dispatches
+first.
 
 ## Forward plan
-
-### Task 18 — Multi-contributor work-repo end-to-end validation run
-
-- **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
-  (a qualifying private work repo exists): draft → kickoff → orchestrate → execute →
-  polish → draft PR,
-  confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
-  log, hard pauses firing where expected); a findings document covering the gate behavior,
-  kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
-  sweep**: a checklist of every test-spec entry whose tag includes [manual] or
-  [Gherkin] (mixed tags count) — exercised, or the gap named.
-- **Done when:** At least one work-project task is executed via the pipeline; the findings
-  doc covers the gate behavior and contains the completed manual-sweep checklist; the
-  public-release gate condition (c) is met. Validating across a second distinct work repo
-  is a deferred stretch (see Deferred).
-- **Dependencies:** 13, 14, 16, 17
-- **Citations:** D-5, D-27, D-38 · REQ-C1.3, REQ-J1.5
-- **Estimated effort:** 2 days
 
 ### Task 19 — Packaging finalization & onboarding docs
 
@@ -66,7 +54,7 @@ intelligence migration) dispatches first.
   onboarding docs let a non-author operate the pilot-in-command model; the release checklist
   enumerates and checks the three gate conditions and every release-blocking gated
   Deferred entry (the `reference/` history purge).
-- **Dependencies:** 16, 17, 18
+- **Dependencies:** 16, 17
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
 
@@ -504,9 +492,35 @@ intelligence migration) dispatches first.
 
 ## Deferred
 
+### Task 18 — Multi-contributor work-repo end-to-end validation run
+
+- **Deliverables:** A full planwright pipeline run on a real multi-contributor work repo
+  (a qualifying private work repo exists): draft → kickoff → orchestrate → execute →
+  polish → draft PR,
+  confirming the act-then-review flow (pending-sign-off checklist in the PR body, declined
+  log, hard pauses firing where expected); a findings document covering the gate behavior,
+  kickoff-brief effectiveness, dispatch-backend behavior, and the **manual-verification
+  sweep**: a checklist of every test-spec entry whose tag includes [manual] or
+  [Gherkin] (mixed tags count) — exercised, or the gap named.
+- **Done when:** At least one work-project task is executed via the pipeline; the findings
+  doc covers the gate behavior and contains the completed manual-sweep checklist; the
+  public-release gate condition (c) is met. Validating across a second distinct work repo
+  is a deferred stretch (see below).
+- **Dependencies:** 13, 14, 16, 17
+- **Citations:** D-5, D-27, D-38 · REQ-C1.3, REQ-J1.5
+- **Estimated effort:** 2 days
+- **Status:** Deferred — organically satisfied, not pipeline-dispatched. The first full
+  pipeline run on a real multi-contributor work repo is the work fork's first
+  real multi-contributor run, not a synthetic dispatch; this is what meets public-release
+  gate condition (c) (REQ-J1.5), and Task 19's release checklist verifies it happened.
+  Re-sequenced off the dispatch path at the 2026-06-16 delta re-walkthrough (this block
+  is retained, not collapsed to a bullet, per the stable-ID / never-delete rule).
+- **Last activity:** 2026-06-16
+
 - **Second multi-contributor validation repo.** Validating the pipeline across a second distinct
-  work repo (beyond Task 18's first) is the user's stated ideal. **Gate:** Task 18 completed and
-  a second eligible work repo is available. Citations: REQ-J1.5.
+  work repo (beyond the work fork's first run) is the user's stated ideal. **Gate:** the work
+  fork's first multi-contributor run completed and a second eligible work repo is available.
+  Citations: REQ-J1.5.
 - **Purge `reference/` from main's history.** `reference/` is tracked for now so worktrees can
   access the migration source material, but it is transient and may contain personal/work data
   that must not persist in history. A deliberate human history rewrite (e.g. `git filter-repo`)
