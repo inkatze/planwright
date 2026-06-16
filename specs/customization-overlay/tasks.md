@@ -62,7 +62,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   passes; tests pass under `mise run check`.
 - **Dependencies:** 2
 - **Citations:** D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
-  REQ-B1.6, REQ-E1.4
+  REQ-B1.6, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 4 — Doctrine-overlay resolution
@@ -82,15 +82,18 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   non-protected shadow is silent; `--explain` names the supplying layer; tests
   pass under `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-5, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4, REQ-B1.7,
-  REQ-D1.2, REQ-E1.4, REQ-E1.5
+- **Citations:** D-5, D-7, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4,
+  REQ-B1.6, REQ-B1.7, REQ-D1.2, REQ-E1.4, REQ-E1.5
 - **Estimated effort:** 1 day
 
 ### Task 5 — Catalog-overlay resolution
 
 - **Deliverables:** A catalog discovery path that unions core seed entries
   with overlay entries (append/union, supersede-by-id) for the decision-domains
-  catalog and the guard catalog, with a `--explain` provenance mode, and the
+  catalog and the guard catalog, with a `--explain` provenance mode, the
+  malformed-by-layer policy for catalog parsing (a catalog overlay not
+  parseable into entries degrades+warns for adopter/machine-local and
+  hard-fails for repo-tracked, per D-7/REQ-E1.4), and the
   consuming skills wired to read the merged catalog through it. This task
   **pins the supersede-by-id syntax** (overlay entry carries the target id plus
   a supersede marker) as the merge contract bootstrap Task 16 consumes. Tests
@@ -104,10 +107,14 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   hardcoding; the guard-catalog consumer is wired the same way *if* bootstrap
   Task 16's guard catalog exists at execution time (else that wiring defers per
   the risk-register row, and the merge mechanism plus decision-domains consumer
-  still ship); `--explain` names each entry's layer; tests pass under
+  still ship); a malformed (unparseable) adopter or machine-local catalog
+  overlay degrades to the next lower layer with a stderr warning and a
+  malformed repo-tracked catalog overlay exits nonzero (REQ-E1.4 by-layer
+  policy); `--explain` names each entry's layer; tests pass under
   `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-2, D-5, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.5, REQ-D1.1
+- **Citations:** D-2, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.5, REQ-B1.6,
+  REQ-D1.1, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 6 — `review_sequence` config knob
@@ -125,7 +132,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   by-layer policy; `check-options-reference.sh` passes; the ordering scenario
   is verified.
 - **Dependencies:** 3
-- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.4
+- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 7 — Adopter docs & onboarding
@@ -143,7 +150,8 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   warning is present; the bootstrap Task 19 hand-off is recorded;
   `check-doc-links.sh` and the doc linters pass.
 - **Dependencies:** 3, 4, 5, 6
-- **Citations:** D-1, D-4 · REQ-C1.3, REQ-E1.1, REQ-E1.3
+- **Citations:** D-1, D-4, D-5, D-7, D-9 · REQ-B1.6, REQ-C1.3, REQ-E1.1,
+  REQ-E1.3, REQ-E1.4
 - **Estimated effort:** half day
 
 ## In progress

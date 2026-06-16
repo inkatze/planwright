@@ -43,7 +43,10 @@ value (or empty for the lowest) with a zero exit and no error.
 `resolve-overlay-root.sh` tests: plugin mode with two distinct
 `CLAUDE_PLUGIN_DATA` ids resolves to two distinct adopter roots (no collision);
 writer mode resolves a namespace directory; the explicit
-`$PLANWRIGHT_ADOPTER_OVERLAY` override arm wins when set.
+`$PLANWRIGHT_ADOPTER_OVERLAY` override arm wins when set; and an absent or
+unresolvable writer-mode manifest `name` degrades the adopter layer to absent
+(resolution falls through to the next lower layer with a zero exit, never an
+error) per REQ-A1.5/REQ-A1.4.
 
 ### REQ-A1.6 — Tracked team vs gitignored machine-local [test + design-level]
 
@@ -69,7 +72,9 @@ merge occurs (a core-only section absent from the overlay doc does not appear).
 
 Catalog discovery unions core seed entries with overlay entries; a test with an
 overlay supersede-by-id entry asserts it replaces its target while other core
-entries survive.
+entries survive. A further arm asserts that a supersede-by-id entry naming a
+non-existent target behaves per the contract pinned in Task 5 (not left
+implementation-defined).
 
 ### REQ-B1.4 — Stable per-kind resolution path [design-level]
 
@@ -96,7 +101,10 @@ per key, `resolve-rule-doc --explain` for the resolved doc, catalog discovery
 `security-posture`) returns the overlay doc AND emits a stderr warning naming
 the doc and the risk; shadowing a non-protected doc resolves with no warning.
 Asserts warn-but-allow: the resolved path is the overlay's, exit is zero, and
-the warning fires only for the protected set.
+the warning fires only for the protected set. The test MUST also iterate the
+normative D-11 protected-doc list and assert each named protected doc actually
+resolves, so a renamed or removed core doc that silently fell out of protection
+fails the test (the R3 mitigation).
 
 ## REQ-C — Capability-vs-style boundary doctrine
 
