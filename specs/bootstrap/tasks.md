@@ -23,7 +23,7 @@ Level 3: T12 (execute-task ←T9,T11) · T14 (resume ←T9) · T17 (lifecycle �
 Level 4: T13 (orchestrate ←T5,T6,T10,T12) · T16 (builder ←T7,T8,T10,T12,T15)
 Level 5: T18 (work-repo E2E ←T13,T14,T16,T17)
 Level 6: T19 (packaging ←T16,T17,T18)
-Independent (←T3, done): T20 (validation-rigor amendment)
+Independent (←T3): T20 (validation-rigor amendment)
 ```
 
 Critical path (longest chain by estimated effort, 12.5d):

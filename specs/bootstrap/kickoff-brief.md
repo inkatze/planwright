@@ -1288,8 +1288,8 @@ Decisions taken during the walk:
    default floor added to the doctrine. Recorded as accepted risk R-D1.8-cost
    below.
 3. **Adoption is doc + by-reference; no per-skill wiring tasks added.**
-   REQ-D1.8 / D1.9 are design-level: satisfied by Task 20 amending
-   `validation-rigor.md` and aligning any rigor-citing skill prose so it does
+   REQ-D1.8 / REQ-D1.9 are design-level: satisfied by Task 20 amending
+   `doctrine/validation-rigor.md` and aligning any rigor-citing skill prose so it does
    not contradict the amended passes. Skills then pick up the new passes by
    referencing the doc at runtime (REQ-D1.4). Confirmed as the intended scope
    boundary; no new skill-wiring tasks created in this delta.
@@ -1333,10 +1333,10 @@ Risk register addition:
   bi-directional pass dominating its runtime. Accepted, no doctrine floor.
 
 Per-section outcomes: S1 (glossary terms added; anchor context otherwise
-unchanged); S2 (REQ-D1.8 / D1.9 restated and confirmed; termination red-line
+unchanged); S2 (REQ-D1.8 / REQ-D1.9 restated and confirmed; termination red-line
 applied to D1.8); S3 (D-46 / D-47 accounted for — both confirmed sound,
 rationale intact; D-46 amended with the single-sweep termination clause); S4
-(REQ-D1.8 / D1.9 design-level verification confirmed runnable, no dead path;
+(REQ-D1.8 / REQ-D1.9 design-level verification confirmed runnable, no dead path;
 Task 20 guidance note recorded); S5 (T20 reconstructed from Dependencies: ←T3
 only, independent and off the 12.5d critical path — deliberate non-edge: no
 dependency on the rigor-consuming skills because skills reference the doctrine
@@ -1381,4 +1381,41 @@ false-halt.
 
 Class: expression-only
 Anchor: `27dfb7435fb74c03c2f04c338976f22451f7be27` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, Copilot review on PR #23: doc-consistency sweep)
+
+Machine-written entry per REQ-F1.10's expression-only lane. GitHub Copilot's
+review on PR #23 surfaced six doc-consistency findings, all validated (three
+passes converging) as real, in-scope, and non-normative:
+
+1. `tasks.md` dependency-graph view: the T20 line read `Independent (←T3,
+   done)`, a misleading "done" on a forward-plan task that no other level row
+   carries — de-annotated to `(←T3)`. (Graph view is outside task-definition
+   blocks, so this edit does not move the anchor.)
+2. `requirements.md` Changelog: the 2026-06-16 Validation Rigor entry header
+   said "sign-off pending `/spec-kickoff` delta re-walkthrough" while the same
+   entry's body — and this brief — already record the completed sign-off;
+   corrected to "signed off via the delta re-walkthrough, same date".
+3. `requirements.md` paired cross-references `REQ-D1.8 / D1.9` (two of them)
+   normalized to the canonical full form `REQ-D1.8 / REQ-D1.9` (10 standalone
+   `REQ-D1.9` uses already dominate the bundle).
+4. This brief (delta re-walkthrough record): doctrine path made precise
+   (`validation-rigor.md` → `doctrine/validation-rigor.md`, matching Task 20's
+   deliverable and five other bundle references) and a paired cross-reference
+   normalized.
+5. This brief: a second paired cross-reference normalized to the full form.
+
+No REQ, design decision, task definition, or test semantics changed
+(REQ-A3.3 expression-only), so no lens pass. Informal lens-table prose in the
+signed re-walkthrough record (`D1.8 adds a pass`, `REQ-D1.8/D1.9` slash-joined)
+is a different surface pattern and was deliberately left unedited. The full
+local check gate (`mise run check` — spec validator, markdownlint, link-check,
+shell suites) passes (0 failures). The mandatory dated Changelog entry for this
+sweep is recorded in `requirements.md` (`2026-06-16 (expression-only, Copilot
+review on PR #23)`). Anchor recomputed after all `requirements.md` edits are on
+disk.
+
+Class: expression-only
+Anchor: `d6e7b33c08d7070e5c29301e71aa3a83f5aabe5d` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`

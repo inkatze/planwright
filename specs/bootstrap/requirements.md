@@ -689,8 +689,8 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   review, one root issue across four threads, validated 3/3. No
   requirement's normative text changed. Self-re-anchor recorded in the
   kickoff brief.
-- 2026-06-16 (draft delta, extend mode — meaning-class, sign-off pending
-  `/spec-kickoff` delta re-walkthrough) — Validation Rigor deepened with two
+- 2026-06-16 (draft delta, extend mode — meaning-class; signed off via the
+  `/spec-kickoff` delta re-walkthrough, same date) — Validation Rigor deepened with two
   general rigor capabilities: new REQ-D1.8 (adversarial bi-directional
   re-validation over the keep set and the decline set; proportional depth;
   scoping declared) and REQ-D1.9 (surface-relative whole-system end-to-end
@@ -706,10 +706,10 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   specify single-sweep termination (reclassifications final for the pass, not
   iterated to a fixpoint) to foreclose oscillation; the unscoped decline-set
   cost stays per-skill-scoped (no doctrine floor) and is recorded as an accepted
-  risk in the kickoff brief; REQ-D1.8 / D1.9 adoption is by-reference via Task 20's
+  risk in the kickoff brief; REQ-D1.8 / REQ-D1.9 adoption is by-reference via Task 20's
   doc amendment, with no per-skill wiring tasks added.
 - 2026-06-16 (expression-only, citation fix; commit d04bcb4) — dropped the
-  fabricated `customization-overlay D-10` citation backing REQ-D1.8 / D1.9's
+  fabricated `customization-overlay D-10` citation backing REQ-D1.8 / REQ-D1.9's
   core-capability-not-personal-style classification (no customization-overlay
   spec exists yet — it is planned post-bootstrap — and bootstrap's own D-10 is
   the unrelated per-spec advisory lock), rewording the 2026-06-16 Validation
@@ -717,6 +717,17 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   plain forward-reference to the planned spec's (TBD) core-vs-personal rule. No
   REQ / D / test meaning changed; re-anchored via the kickoff brief's
   expression-only lane.
+- 2026-06-16 (expression-only, Copilot review on PR #23) — doc-consistency
+  sweep, no normative change: the 2026-06-16 Validation Rigor entry header
+  corrected from "sign-off pending" to "signed off via the delta
+  re-walkthrough" (the entry body and the kickoff brief already record the
+  completed sign-off); paired cross-references normalized to the canonical full
+  REQ-ID form (`REQ-D1.8 / D1.9` → `REQ-D1.8 / REQ-D1.9`) here and in the brief;
+  the `tasks.md` dependency-graph view's T20 line de-annotated (`(←T3, done)` →
+  `(←T3)`) to match the other level rows and drop a misleading "done" on a
+  forward-plan task; brief doctrine path made precise
+  (`validation-rigor.md` → `doctrine/validation-rigor.md`). Re-anchored via the
+  kickoff brief's expression-only lane.
 
 ## Sources
 
