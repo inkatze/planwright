@@ -1353,3 +1353,32 @@ Class: meaning
 Lens-pass: recorded above (this section), findings dispositioned 2026-06-16 (none outstanding).
 Anchor: `74b3cb130ebf2397b7b4fca34a9f224d8c4b5ded` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, citation fix d04bcb4: drop fabricated customization-overlay D-10)
+
+Machine-written entry per REQ-F1.10's expression-only lane (human-declared
+amendment, scope confirmed at kickoff: re-anchor d04bcb4 only). After the
+2026-06-16 Validation-Rigor delta re-walkthrough signed off at anchor
+`74b3cb13…`, the out-of-flow commit d04bcb4 reworded requirements.md's
+2026-06-16 Validation-Rigor changelog entry and the validation-thoroughness
+Sources entry to drop a fabricated `customization-overlay D-10` citation — no
+customization-overlay spec exists yet (planned post-bootstrap), and bootstrap's
+own D-10 is the unrelated per-spec advisory lock — replacing it with a plain
+forward-reference to the planned spec's (TBD) core-vs-personal rule. That
+prose-only edit left the brief's last anchor stale against current content
+(`e0ce72d4…`), which would false-halt `/orchestrate` / `/execute-task` at the
+freshness gate for a pure citation fix (self-observed 2026-06-16, commit
+2db6b78). This run adds the mandatory dated Changelog entry the expression-only
+fix lacked (requirements.md Changelog: the `2026-06-16 (expression-only,
+citation fix; commit d04bcb4)` line) and re-anchors.
+
+The change is provenance-citation wording only: no REQ, design decision, task,
+or test semantics changed, so no lens pass (REQ-A3.3 expression-only). The
+validator passes under Active enforcement (0 errors, 0 warnings). Anchor
+recomputed after the Changelog edit is on disk; this entry, citing the
+Changelog line above, restores brief↔content anchor agreement and clears the
+false-halt.
+
+Class: expression-only
+Anchor: `27dfb7435fb74c03c2f04c338976f22451f7be27` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`

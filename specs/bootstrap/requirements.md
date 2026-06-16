@@ -708,6 +708,15 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   cost stays per-skill-scoped (no doctrine floor) and is recorded as an accepted
   risk in the kickoff brief; REQ-D1.8 / D1.9 adoption is by-reference via Task 20's
   doc amendment, with no per-skill wiring tasks added.
+- 2026-06-16 (expression-only, citation fix; commit d04bcb4) — dropped the
+  fabricated `customization-overlay D-10` citation backing REQ-D1.8 / D1.9's
+  core-capability-not-personal-style classification (no customization-overlay
+  spec exists yet — it is planned post-bootstrap — and bootstrap's own D-10 is
+  the unrelated per-spec advisory lock), rewording the 2026-06-16 Validation
+  Rigor changelog entry and the validation-thoroughness Sources entry to a
+  plain forward-reference to the planned spec's (TBD) core-vs-personal rule. No
+  REQ / D / test meaning changed; re-anchored via the kickoff brief's
+  expression-only lane.
 
 ## Sources
 
