@@ -29,8 +29,9 @@ definitions govern wherever this skill names a concept:
 
 - `discovery-rigor` — lens checklist, lens-coverage table, tool-grounded
   discovery, fan-out, self-critique pass
-- `validation-rigor` — the three validation passes; solution validation,
-  including the altitude check
+- `validation-rigor` — the three identification passes plus the adversarial
+  bi-directional re-validation; solution validation, including the altitude
+  check; surface-relative whole-system reproduction preferred for both
 - `finding-categorization` — the four buckets, their predicates, hard
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder
