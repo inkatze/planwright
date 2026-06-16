@@ -58,6 +58,8 @@ first.
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
 
+## In progress
+
 ### Task 20 — Validation Rigor amendment: bi-directional re-validation + whole-system reproduction
 
 - **Deliverables:** Amend `doctrine/validation-rigor.md` to add (a) an adversarial
@@ -79,8 +81,10 @@ first.
 - **Dependencies:** 3
 - **Citations:** D-46, D-47 · REQ-D1.8, REQ-D1.9
 - **Estimated effort:** half day
-
-## In progress
+- **Status:** implementing
+- **Last activity:** 2026-06-16
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-20` · dispatched 2026-06-16T23:36Z ·
+  branch `planwright/bootstrap/task-20` · worktree `.claude/worktrees/task-20`
 
 ## Awaiting input
 
