@@ -213,5 +213,6 @@ tables, and declined log into the draft PR body it owns (REQ-E1.5).
 `/self-review` and `/polish` (Task 11) and `/execute-task`'s convergence
 step (Task 12) implement this wiring. The conformance scenarios live in the
 bootstrap test-spec's REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
-(state/trigger/outcome), exercised by the manual-verification sweep
-(Task 18) together with the REQ-C1.5 and REQ-C1.6 manual entries.
+(state/trigger/outcome), exercised by the manual-verification sweep the work
+fork's first multi-contributor run carries, together with the REQ-C1.5 and
+REQ-C1.6 manual entries.
