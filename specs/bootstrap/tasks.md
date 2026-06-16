@@ -1,7 +1,7 @@
 # planwright Bootstrap — Tasks
 
 **Status:** Active
-**Last reviewed:** 2026-06-11
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
@@ -23,6 +23,7 @@ Level 3: T12 (execute-task ←T9,T11) · T14 (resume ←T9) · T17 (lifecycle �
 Level 4: T13 (orchestrate ←T5,T6,T10,T12) · T16 (builder ←T7,T8,T10,T12,T15)
 Level 5: T18 (work-repo E2E ←T13,T14,T16,T17)
 Level 6: T19 (packaging ←T16,T17,T18)
+Independent (←T3, done): T20 (validation-rigor amendment)
 ```
 
 Critical path (longest chain by estimated effort, 12.5d):
@@ -68,6 +69,26 @@ intelligence migration) dispatches first.
 - **Dependencies:** 16, 17, 18
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
+
+### Task 20 — Validation Rigor amendment: bi-directional re-validation + whole-system reproduction
+
+- **Deliverables:** Amend `doctrine/validation-rigor.md` to add (a) an adversarial
+  bi-directional re-validation pass (refute the keep set, resurrect the decline set;
+  proportional depth; declared scoping; positioned after the three identification passes)
+  and (b) surface-relative whole-system end-to-end reproduction as the preferred confirming
+  angle for both the issue-identification reproduction pass and solution validation
+  (CLI / web UI / desktop surface→mechanism mapping; additive to unit tests; recorded
+  fallback when no surface mechanism exists). Update the doc's own `Citations:` line to
+  reference REQ-D1.8 and REQ-D1.9, and align any rigor-citing skill prose that summarizes
+  the validation passes so it does not contradict the amended doctrine.
+- **Done when:** `doctrine/validation-rigor.md` documents both capabilities (the
+  bi-directional pass with its proportionality scoping, and the whole-system reproduction
+  preference with its surface→mechanism mapping and fallback); the test-spec entries for
+  REQ-D1.8 and REQ-D1.9 are satisfied; `mise run check` passes over the doc; no
+  rigor-citing skill prose contradicts the amended passes.
+- **Dependencies:** 3
+- **Citations:** D-46, D-47 · REQ-D1.8, REQ-D1.9
+- **Estimated effort:** half day
 
 ## In progress
 

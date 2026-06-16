@@ -1,7 +1,7 @@
 # planwright Bootstrap — Test Spec
 
 **Status:** Active
-**Last reviewed:** 2026-06-11
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Every REQ is pinned to at least one verification path. Types: **test** (automated),
@@ -219,6 +219,19 @@ hostile-input fixtures (REQ-K1.2 hook, REQ-H1.3 gate parser).
 
 The rigor docs state the stake/reversibility scaling rule and the declared-scoping
 requirement.
+
+### REQ-D1.8 — Adversarial bi-directional re-validation doc [design-level]
+
+`doctrine/validation-rigor.md` documents the adversarial re-validation pass over both the
+keep set (refute) and the decline set (resurrect), its position after the three
+identification passes, its proportional depth, and the declare-the-scoping rule.
+
+### REQ-D1.9 — Surface-relative whole-system reproduction doc [design-level]
+
+`doctrine/validation-rigor.md` documents whole-system end-to-end reproduction as the
+preferred confirming angle for the reproduction pass and solution validation, the
+CLI / web UI / desktop surface→mechanism mapping, its additivity to unit tests, and the
+recorded fallback when no surface mechanism exists.
 
 ### REQ-D2.1 — Composability principle [design-level]
 
