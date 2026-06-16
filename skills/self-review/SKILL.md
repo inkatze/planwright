@@ -2,7 +2,7 @@
 name: self-review
 description: >
   Gate-wired review pass of the current feature branch: Discovery Rigor
-  fan-out, three-pass validation, act-then-review dispositions per the finding
+  fan-out, multi-pass validation, act-then-review dispositions per the finding
   categorization, full audit record (lens-coverage table, four bucket tables,
   declined log, pending-sign-off checklist). Standalone runs push and open or
   update a draft PR; pass --nested to stay local and return the audit record
