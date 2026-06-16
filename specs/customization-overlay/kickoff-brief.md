@@ -102,8 +102,10 @@ the human (decisions below); no inconsistency halt was triggered.
    plugin mode, where `CLAUDE_PLUGIN_DATA` supplies the namespace free).
 2. **Protected-doc shadow (REQ-B1.7):** warn-but-allow. Shadowing a protected
    core governance/security doc (`spec-format`, `security-posture`,
-   `validation-rigor`, `discovery-rigor`, `finding-categorization`) resolves
-   but emits a loud stderr warning. New REQ-B1.7 + D-11.
+   `validation-rigor`, `discovery-rigor`, `finding-categorization`,
+   `gate-wiring`) resolves but emits a loud stderr warning. New REQ-B1.7 + D-11.
+   (`gate-wiring` added at the 2026-06-16 delta re-walkthrough; see the
+   Amendment log below. D-11 remains the normative source.)
 3. **Catalog supersede-by-id syntax (REQ-B1.3):** defined here in Task 5 (the
    overlay entry carries target id + supersede marker); bootstrap Task 16's
    builder consumes the contract. Guard-catalog *consumer wiring* is contingent
