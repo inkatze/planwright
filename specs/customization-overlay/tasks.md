@@ -113,8 +113,8 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   policy); `--explain` names each entry's layer; tests pass under
   `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-2, D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.5, REQ-B1.6,
-  REQ-D1.1, REQ-E1.4
+- **Citations:** D-2, D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
+  REQ-B1.6, REQ-D1.1, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 6 — `review_sequence` config knob

@@ -102,8 +102,9 @@ D-3 adopter root) < `<repo>/.claude/planwright.yml` (tracked team file) <
 `doctrine/` directory under the adopter and repo-tracked roots and a
 `doctrine.local/` directory for the machine-local layer — the two repo-side
 layers share `<repo>/.claude/`, so the `.local` suffix mirrors the
-`planwright.yml` / `planwright.local.yml` config split and keeps the directory
-kinds from colliding — each inserted into the `resolve-rule-doc.sh` chain at the
+`planwright.yml` / `planwright.local.yml` config split and keeps the
+repo-tracked and machine-local layers' directories from colliding — each
+inserted into the `resolve-rule-doc.sh` chain at the
 right precedence. Catalog: the same split (`catalogs/` for adopter and
 repo-tracked, `catalogs.local/` for machine-local) under a per-catalog discovery
 convention. There is no single overlay-root directory per layer.
