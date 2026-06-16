@@ -1532,3 +1532,39 @@ are on disk.
 Class: expression-only
 Anchor: `3d1c3e2015f0dd7500020dda0a6af94f18c2391b` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, Copilot pairing on this branch: doc-consistency sweep)
+
+Machine-written entry per REQ-F1.10's expression-only lane. A `/copilot-pairing`
+pass over this branch's draft PR surfaced five prose findings in Copilot's first
+review; all five validated (three passes converging), all on lines this branch
+introduced. The first cycle's five fixes reduced to three spec-file edits plus a
+brief-prose fix; a second Copilot cycle returned a single debatable nitpick on the
+already-touched Task 18 Status annotation, which was left unresolved as diminishing
+returns (the human's call) rather than reworded into an outlier against four sibling
+lines. The three spec-file edits, all non-normative:
+
+1. `requirements.md` (T18 re-sequence Changelog narrative) and `kickoff-brief.md`
+   (the meaning-class T18 sign-off entry's lens-table row, amended in place under
+   the pre-merge correction lane): "work-fork" → "work fork", standardizing to the
+   spaced form that already dominated the bundle 10:2 (grep-confirmed, zero
+   stragglers remain).
+2. `tasks.md` Task 18 **Status** annotation: "is satisfied by the work fork's
+   first … run" → "is the work fork's first … run", dropping a run-satisfied-by-a-
+   run subject/object mismatch. (Status annotations are excluded from the anchor
+   extraction, so this edit alone does not move the hash; recorded for audit.)
+3. `test-spec.md` coverage-mix intro: added the relative pronoun
+   ("the manual-verification sweep *that* the work fork's first … run carries").
+
+No REQ, design decision, task definition, or test semantics changed
+(REQ-A3.3 expression-only), so no lens pass. The full local check gate
+(`mise run check` — spec validator under Active enforcement, markdownlint,
+link-check, options drift, shell suites) passes (0 failures, 0 errors).
+The mandatory dated Changelog entry for this sweep is recorded in
+`requirements.md` (`2026-06-16 (expression-only, Copilot pairing on this
+branch)`). Anchor recomputed after all `requirements.md` / `tasks.md` /
+`test-spec.md` edits are on disk.
+
+Class: expression-only
+Anchor: `b331a686a00e8382964070602789504768d9c237` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`

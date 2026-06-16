@@ -752,6 +752,17 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   packaging" — the brief states T13 is *not* a pure terminal (it still feeds the
   deferred Task 18, deps `13,14,16,17`). No REQ / D / task-definition / test
   meaning changed; re-anchored via the kickoff brief's expression-only lane.
+- 2026-06-16 (expression-only, Copilot pairing on this branch) — doc-consistency
+  sweep of three prose stragglers Copilot's review surfaced, all on lines this
+  branch introduced, none normative: (1) `requirements.md` + this Changelog's
+  T18 re-sequence narrative and `kickoff-brief.md`'s lens-table row standardized
+  "work-fork" → "work fork" (the spaced form already dominated the bundle 10:2);
+  (2) `tasks.md` Task 18 **Status** annotation reworded "is satisfied by the work
+  fork's first … run" → "is the work fork's first … run" (drops a run-satisfied-by-
+  a-run mismatch); (3) `test-spec.md` coverage-mix intro added a relative pronoun
+  ("the manual-verification sweep *that* the work fork's first … run carries").
+  No REQ / D / task-definition / test meaning changed; re-anchored via the kickoff
+  brief's expression-only lane.
 
 ## Sources
 
