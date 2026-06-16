@@ -1,7 +1,7 @@
 # Customization & Overlay Mechanism — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-06-15
+**Status:** Active
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Dependency view (derived; the `Dependencies:` lines are authoritative): T2 is
@@ -29,15 +29,17 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 - **Deliverables:** `scripts/resolve-overlay-root.sh` resolving the four layer
   roots — core, adopter (via the `$PLANWRIGHT_ADOPTER_OVERLAY` →
-  `$CLAUDE_PLUGIN_DATA/overlay/` → `<claude-dir>/planwright/overlay/` chain),
+  `$CLAUDE_PLUGIN_DATA/overlay/` → `<claude-dir>/planwright/<name>/overlay/`
+  chain, where writer mode's `<name>` is the plugin manifest `name`),
   repo-tracked, and machine-local — with identifier/namespace validation and a
   shared canonicalize-then-contain path-confinement helper. Unit tests under
   `tests/`.
 - **Done when:** the script resolves each layer root in both delivery modes;
-  distinct `CLAUDE_PLUGIN_DATA` ids resolve to distinct adopter roots; absent
-  layers resolve to empty/next-lower without error; hostile identifiers and
-  traversing/escaping paths are rejected with a clear message and nonzero exit;
-  tests pass under `mise run check`.
+  distinct `CLAUDE_PLUGIN_DATA` ids resolve to distinct adopter roots; writer
+  mode derives the adopter namespace from the manifest `name` (charset-validated);
+  absent layers resolve to empty/next-lower without error; hostile identifiers
+  and traversing/escaping paths are rejected with a clear message and nonzero
+  exit; tests pass under `mise run check`.
 - **Dependencies:** none
 - **Citations:** D-1, D-3, D-4, D-8 · REQ-A1.1, REQ-A1.4, REQ-A1.5, REQ-A1.6,
   REQ-E1.2, REQ-E1.5
@@ -65,14 +67,19 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 - **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter and
   repo-tracked `doctrine/` roots into its precedence chain (whole-doc shadow),
-  with path-traversal confinement, the malformed-by-layer policy, and a
-  `--explain` provenance mode. Tests under `tests/`.
+  with path-traversal confinement, the malformed-by-layer policy, the
+  protected-doc warn-but-allow behavior (loud stderr warning when an overlay
+  shadows a protected core governance/security doc), and a `--explain`
+  provenance mode. Tests under `tests/`.
 - **Done when:** the highest-precedence overlay doc of a name wins in full;
   no fragment merge occurs; a path escaping the overlay root (`../`, absolute,
   symlink-escape) is rejected with a clear message; malformed-by-layer matches
-  D-7; `--explain` names the supplying layer; tests pass under `mise run check`.
+  D-7; shadowing a protected core doc resolves *and* emits the warning while a
+  non-protected shadow is silent; `--explain` names the supplying layer; tests
+  pass under `mise run check`.
 - **Dependencies:** 2
-- **Citations:** D-5, D-8, D-9 · REQ-B1.2, REQ-B1.4, REQ-E1.4, REQ-E1.5
+- **Citations:** D-5, D-8, D-9, D-11 · REQ-B1.2, REQ-B1.4, REQ-B1.7, REQ-E1.4,
+  REQ-E1.5
 - **Estimated effort:** 1 day
 
 ### Task 5 — Catalog-overlay resolution
@@ -80,13 +87,21 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Deliverables:** A catalog discovery path that unions core seed entries
   with overlay entries (append/union, supersede-by-id) for the decision-domains
   catalog and the guard catalog, with a `--explain` provenance mode, and the
-  consuming skills wired to read the merged catalog through it. Tests under
-  `tests/`.
+  consuming skills wired to read the merged catalog through it. This task
+  **pins the supersede-by-id syntax** (overlay entry carries the target id plus
+  a supersede marker) as the merge contract bootstrap Task 16 consumes. Tests
+  under `tests/`.
 - **Done when:** overlay entries append to the core seed; a supersede-by-id
-  entry replaces its target; resolution is order-independent of filesystem
-  enumeration; the decision-domains and guard-catalog consumers read the merged
-  path with no single-layer hardcoding; `--explain` names each entry's layer;
-  tests pass under `mise run check`.
+  entry replaces its target; the supersede-by-id syntax is documented as the
+  contract, including the behavior when a supersede-by-id entry names a
+  non-existent target (pinned, not left implementation-defined); resolution is
+  order-independent of filesystem enumeration; the
+  decision-domains consumer reads the merged path with no single-layer
+  hardcoding; the guard-catalog consumer is wired the same way *if* bootstrap
+  Task 16's guard catalog exists at execution time (else that wiring defers per
+  the risk-register row, and the merge mechanism plus decision-domains consumer
+  still ship); `--explain` names each entry's layer; tests pass under
+  `mise run check`.
 - **Dependencies:** 2
 - **Citations:** D-2, D-5, D-9 · REQ-B1.3, REQ-B1.5, REQ-D1.1
 - **Estimated effort:** 1 day
@@ -101,22 +116,28 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   scenario.
 - **Done when:** `review_sequence` resolves through all four layers; the
   default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
-  is honored in order by the convergence phase; `check-options-reference.sh`
-  passes; the ordering scenario is verified.
+  is honored in order by the convergence phase; an entry naming an unknown or
+  non-nestable review skill is handled as a malformed value under the REQ-E1.4
+  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
+  is verified.
 - **Dependencies:** 3
-- **Citations:** D-6 · REQ-C1.3, REQ-D1.3
+- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 7 — Adopter docs & onboarding
 
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
   four layers, each kind's per-layer locations, the merge rules, the
-  malformed-by-layer policy, the `--explain` affordance, and the two worked
-  examples (dispatch-isolation and the `review_sequence` gauntlet). Hand-off
-  note for bootstrap Task 19 onboarding.
+  malformed-by-layer policy, the `--explain` affordance, the two worked
+  examples (dispatch-isolation and the `review_sequence` gauntlet), and an
+  explicit warning that secrets in adopter and machine-local (uncommitted)
+  overlays are NOT covered by the secret scanner (which scans committed files
+  only) — the data-hygiene rule is the only guard there. Hand-off note for
+  bootstrap Task 19 onboarding.
 - **Done when:** the overlay mechanism and per-layer locations are documented
-  for adopters; the worked examples appear; the bootstrap Task 19 hand-off is
-  recorded; `check-doc-links.sh` and the doc linters pass.
+  for adopters; the worked examples appear; the uncommitted-overlay secret
+  warning is present; the bootstrap Task 19 hand-off is recorded;
+  `check-doc-links.sh` and the doc linters pass.
 - **Dependencies:** 3, 4, 5, 6
 - **Citations:** D-1, D-4 · REQ-E1.3, REQ-C1.3
 - **Estimated effort:** half day

@@ -1,7 +1,7 @@
 # Customization & Overlay Mechanism — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-06-15
+**Status:** Active
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Coverage mix: predominantly `[test]` — the resolvers are portable shell, unit
@@ -80,13 +80,23 @@ discovery); design-level audit confirms no skill re-implements layer merging.
 
 Resolution is invariant under shuffled filesystem enumeration order: a test
 that randomizes discovery order asserts the same resolved result for config and
-catalog kinds.
+catalog kinds. Doctrine resolution is excluded by design: it is single-doc
+first-hit by fixed layer order (no within-layer enumeration choice and no
+merge), so it is inherently order-independent.
 
 ### REQ-B1.6 — Provenance `--explain` [test]
 
 Each resolver's `--explain` mode names the winning layer: `config-get --explain`
 per key, `resolve-rule-doc --explain` for the resolved doc, catalog discovery
 `--explain` per merged entry.
+
+### REQ-B1.7 — Protected-doc shadow warns [test]
+
+`resolve-rule-doc` with an overlay shadowing a protected core doc (for example
+`security-posture`) returns the overlay doc AND emits a stderr warning naming
+the doc and the risk; shadowing a non-protected doc resolves with no warning.
+Asserts warn-but-allow: the resolved path is the overlay's, exit is zero, and
+the warning fires only for the protected set.
 
 ## REQ-C — Capability-vs-style boundary doctrine
 
@@ -119,13 +129,21 @@ hardcodes a single-layer read.
 Existing `resolve-rule-doc.sh` callers gain overlay resolution through the
 resolver change alone; design-level confirms no per-skill wiring was added.
 
-### REQ-D1.3 — `review_sequence` expressible and honored [test + Gherkin]
+### REQ-D1.3 — `review_sequence` expressible and honored [test + Gherkin + manual]
 
-Test: `review_sequence` resolves across all four layers via `config-get`.
-Gherkin: given an overlay sets `review_sequence` to an ordering, when
+Test: `review_sequence` resolves across all four layers via `config-get`
+(the resolution half is fully automated). The behavioral half — that
+`/execute-task`'s convergence phase *honors* the ordering — is skill-driven
+and not unit-testable: it is verified design-level (the convergence-phase
+instructions read the knob and iterate the list in order) plus a manual
+exercise once. Gherkin: given an overlay sets `review_sequence` to an
+ordering, when
 `/execute-task` reaches its convergence phase, then it runs the named review
 skills in that order; and given no overlay, the default reproduces today's
-convergence behavior.
+convergence behavior; and given an overlay names an unknown or non-nestable
+review skill, then the value is treated as malformed under the REQ-E1.4
+by-layer policy (degrade+warn for adopter/machine-local, hard-fail for
+repo-tracked).
 
 ## REQ-E — Data hygiene, validation, security & documentation
 

@@ -1,7 +1,7 @@
 # Customization & Overlay Mechanism — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-06-15
+**Status:** Active
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 ## Goal
@@ -58,8 +58,9 @@ core.
   distinct layer.
 - Executable plugin or code-injection extensions: overlays stay declarative
   (config values, doctrine-doc overrides, catalog data), not arbitrary code.
-- Doctrine fragment/section merge: deferred as drift-prone; v1 is whole-doc
-  shadow only.
+- Doctrine fragment/section merge: **deferred** for v1 (whole-doc shadow
+  only), gated in `tasks.md` under `## Deferred` — listed here to mark the v1
+  scope boundary, not as a permanent exclusion (D-5).
 
 ## REQ-A — Overlay model, layers & precedence
 
@@ -85,12 +86,16 @@ core.
 - **REQ-A1.5** The adopter overlay SHALL be scoped per plugin namespace, so a
   public planwright install and a divergent work fork never share one adopter
   overlay, and SHALL be resolvable in both delivery modes (plugin and writer).
+  When the writer-mode namespace cannot be derived (the plugin manifest `name`
+  is absent or unresolvable), the adopter layer SHALL be treated as absent and
+  resolution degrades per REQ-A1.4 — never an error.
   *(Cites: D-3; the multi-install coexistence seed (Sources).)*
 - **REQ-A1.6** The mechanism SHALL distinguish the tracked team overlay from
   the gitignored machine-local overlay: `<repo>/.claude/planwright.local.yml`
   IS the machine-local layer (gitignored, per-machine, highest precedence),
-  and the team overlay SHALL be a separate tracked file. The malformed-overlay
-  policy (REQ-E1.4) depends on this distinction.
+  and the team overlay SHALL be a separate tracked file
+  (`<repo>/.claude/planwright.yml`). The malformed-overlay policy (REQ-E1.4)
+  depends on this distinction.
   *(Cites: D-1, D-4; the machine-local env observation (Sources); orchestrator
   review (2026-06-15).)*
 
@@ -109,7 +114,8 @@ core.
 - **REQ-B1.3** Data catalogs SHALL resolve by append/union: overlay entries
   add to the core seed list, additive unless an entry explicitly supersedes a
   prior entry by id. This SHALL apply to both growable catalogs — the
-  decision-domains catalog and the engineering-builder guard catalog.
+  decision-domains catalog and the guard catalog (the engineering-builder
+  guard catalog from bootstrap Task 16).
   *(Cites: D-5; the decision-domains adopter seed (Sources).)*
 - **REQ-B1.4** Effective configuration SHALL be computable by a skill or hook
   through a stable per-kind resolution path (`config-get`, `resolve-rule-doc`,
@@ -122,6 +128,14 @@ core.
   that names which layer set each effective config value and which layer
   supplied each resolved doc or catalog entry.
   *(Cites: D-9; orchestrator review (2026-06-15).)*
+- **REQ-B1.7** Doctrine/process overlay resolution SHALL emit a loud stderr
+  warning when an overlay shadows a protected core governance or security doc
+  (the protected set is defined normatively in D-11: `spec-format`,
+  `security-posture`, `validation-rigor`, `discovery-rigor`,
+  `finding-categorization`), naming the shadowed doc and the risk; the override
+  still resolves (warn-but-allow), so a legitimate fork keeps full control
+  while a shadow of a framework-guarantee doc is never silent.
+  *(Cites: D-11; kickoff §3 REQ-B (2026-06-16).)*
 
 ## REQ-C — Capability-vs-style boundary doctrine
 
@@ -155,10 +169,16 @@ core.
   *(Cites: D-2; bootstrap REQ-I1.1.)*
 - **REQ-D1.3** The review-gauntlet ordering SHALL be expressible as a config
   list-knob (`review_sequence`, an ordered list of nestable review-skill
-  names), resolved through all four layers, and honored by `/execute-task`'s
+  names — a *nestable* review skill is one invocable with `--nested`, e.g.
+  `/polish`, `/self-review`), resolved through all four layers, and honored by
+  `/execute-task`'s
   convergence phase, default-preserving (the default reproduces today's
-  behavior).
-  *(Cites: D-6; the customization-overlay seed (Sources).)*
+  behavior). A `review_sequence` entry naming an unknown or non-nestable
+  review skill SHALL be treated as a malformed overlay value under the
+  REQ-E1.4 by-layer policy (degrade+warn for adopter/machine-local, hard-fail
+  for repo-tracked).
+  *(Cites: D-6; the customization-overlay seed (Sources); kickoff §3 REQ-D
+  (2026-06-16).)*
 
 ## REQ-E — Data hygiene, validation, security & documentation
 
@@ -174,11 +194,13 @@ core.
   canonical options reference, and the overlay mechanism plus its per-layer
   locations SHALL be documented for adopters (bootstrap Task 19 onboarding).
   *(Cites: bootstrap D-43; bootstrap REQ-K1.8.)*
-- **REQ-E1.4** A malformed overlay SHALL be handled by layer: a malformed
-  adopter or machine-local overlay degrades to the next lower layer with a
-  loud warning; a malformed repo-tracked (team-shared) overlay hard-fails, so
-  a broken shared config never silently runs unintended behavior across a
-  team.
+- **REQ-E1.4** A malformed overlay SHALL be handled by layer (malformed =
+  unreadable, or unparseable / structurally invalid for the kind's reader — for
+  config, not flat `key: value`; for a catalog, not parseable into entries): a
+  malformed adopter or machine-local overlay degrades to the next lower layer
+  with a loud warning; a malformed repo-tracked (team-shared) overlay
+  hard-fails, so a broken shared config never silently runs unintended behavior
+  across a team.
   *(Cites: D-7; orchestrator review (2026-06-15).)*
 - **REQ-E1.5** Doctrine-overlay resolution SHALL confine resolved override
   paths under the overlay root: a path escaping the root (`../`, absolute, or
@@ -192,6 +214,21 @@ core.
   precedence model, kind-native resolution, capability-vs-style boundary
   doctrine, and the security and provenance requirements established from the
   seed material and the orchestrator-relayed requirements review.
+- 2026-06-16: Kickoff first-activation refinements (brief §3, still Draft):
+  writer-mode adopter-overlay namespace pinned to the plugin manifest `name`
+  (D-3); protected-doc shadow warn-but-allow added as REQ-B1.7 / D-11;
+  catalog supersede-by-id syntax assigned to Task 5, with guard-catalog
+  consumer wiring made contingent on bootstrap Task 16 (D-5); unknown or
+  non-nestable `review_sequence` names routed through the REQ-E1.4
+  malformed-by-layer policy (REQ-D1.3).
+- 2026-06-16: Kickoff lens-pass refinements (brief §8, still Draft): defined
+  "nestable" review skill (REQ-D1.3); defined "malformed" (REQ-E1.4); named the
+  team overlay file and the absent-writer-namespace degrade (REQ-A1.5/A1.6,
+  D-3); made D-11 the normative home of the protected-doc set (REQ-B1.7);
+  standardized "guard catalog" naming (REQ-B1.3); reclassified doctrine
+  fragment/section merge from Out-of-scope to Deferred-gated; noted Task 5 must
+  pin supersede-of-nonexistent-target; added the uncommitted-overlay secret
+  warning to Task 7; noted doctrine's exclusion from the determinism test.
 
 ## Sources
 

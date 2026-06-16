@@ -1,7 +1,7 @@
 # Customization & Overlay Mechanism — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-06-15
+**Status:** Active
+**Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 Origin-tag legend: `N` = new decision minted in this bundle; `N (extends
@@ -65,21 +65,31 @@ specified for each kind — is paid once in D-5.
 `resolve-rule-doc.sh`: `$PLANWRIGHT_ADOPTER_OVERLAY` (explicit override) →
 `$CLAUDE_PLUGIN_DATA/overlay/` (plugin mode; the `<id>` segment of
 `CLAUDE_PLUGIN_DATA` is the plugin namespace and persists across plugin
-updates) → `<claude-dir>/planwright/overlay/` (writer mode). In plugin mode
-namespace separation is automatic, so a public install and a work fork resolve
-to distinct adopter overlays; writer mode derives a namespace directory.
+updates) → `<claude-dir>/planwright/<name>/overlay/` (writer mode). In plugin
+mode namespace separation is automatic, so a public install and a work fork
+resolve to distinct adopter overlays; writer mode (no `$CLAUDE_PLUGIN_DATA`)
+derives the `<name>` namespace segment from the plugin manifest `name` field —
+the same identifier plugin mode's `<id>` carries — validated against the
+identifier charset (REQ-E1.2) before any path use. If `name` is absent or
+unresolvable, the adopter layer is treated as absent and resolution degrades
+to the next lower layer (REQ-A1.4, REQ-A1.5), never erroring.
 
 **Alternatives considered:**
 - A uniform `<claude-dir>/planwright/<namespace>/overlay/` for both modes,
   with `<namespace>` derived from the plugin manifest name. Rejected because:
   it reinvents the per-plugin separation `CLAUDE_PLUGIN_DATA` already provides
   for free in plugin mode and adds an explicit namespace-derivation and
-  storage rule.
+  storage rule. (Manifest-name derivation is still used in *writer* mode,
+  where no `$CLAUDE_PLUGIN_DATA` exists to provide the namespace; the
+  rejection is of applying it *uniformly*, not of the writer-mode fallback —
+  kickoff §3 REQ-A, 2026-06-16.)
 
 **Chosen because:** it reuses the durable, already-researched plugin-data
 location (the `<id>` segment IS the namespace, satisfying REQ-A1.5's
 multi-install requirement at no cost), parallels the existing rule-doc
-resolver, and keeps an explicit override arm for tests and adopters.
+resolver, and keeps an explicit override arm for tests and adopters. Writer
+mode reuses the manifest `name` as its namespace so multi-install coexistence
+holds in both delivery modes.
 
 ### D-4: Kind-native per-layer overlay locations  (N)
 
@@ -112,7 +122,13 @@ Doctrine/process overlays merge by whole-doc shadow: the highest-precedence
 doc of a name wins in full (no fragment or section merge). Data catalogs merge
 by append/union: overlay entries add to the core seed list, additive unless an
 entry explicitly supersedes a prior entry by id; this applies to both the
-decision-domains catalog and the guard catalog.
+decision-domains catalog and the guard catalog. **Task 5 pins the
+supersede-by-id syntax** (an overlay entry carries the target entry id and a
+supersede marker) as the merge contract; bootstrap Task 16's builder consumes
+that contract for the guard catalog rather than re-deciding it. Guard-catalog
+*consumer wiring* is contingent on Task 16's catalog existing at Task 5
+execution time (risk-register row); the merge mechanism and the
+decision-domains consumer ship regardless.
 
 **Alternatives considered:**
 - Doctrine fragment/section merge (splice overlay sections into a core doc).
@@ -233,6 +249,38 @@ dispatch-isolation default as core capability).
 **Chosen because:** the boundary rule is a distinct, citable doctrine consumed
 at a specific lifecycle point (the `/spec-draft` design phase), so it earns its
 own resolvable doc rather than bloating an adjacent one.
+
+### D-11: Warn-but-allow on protected-doc shadow  (N)
+
+**Decision:** Doctrine-overlay resolution recognizes a protected set of core
+governance/security docs — `spec-format`, `security-posture`,
+`validation-rigor`, `discovery-rigor`, `finding-categorization` — and emits a
+loud stderr warning, naming the doc and the risk, when an overlay shadows one
+of them. The override still resolves: the operator owns their fork, but a
+shadow of a framework-guarantee doc is never silent.
+
+**This decision (D-11) is the single normative source of the protected set**:
+the resolver reads the list from this one named place, REQ-B1.7 references it
+rather than re-listing it authoritatively, and the REQ-B1.7 test asserts each
+named protected doc actually resolves (so a renamed or removed core doc that
+silently fell out of protection fails the test — the R3 mitigation).
+
+**Alternatives considered:**
+- Hard-refuse the shadow (protect the set absolutely). Rejected because: it
+  breaks the no-fork-needed promise for a legitimate fork that must adapt even
+  its own governance, and planwright cannot anticipate every adopter's needs;
+  a hard block trades the operator's autonomy for the framework's — the wrong
+  default for a customization mechanism.
+- Allow silently (no carve-out). Rejected because: silently replacing the
+  meta-spec, the rigor docs, or the security posture removes the framework's
+  own guarantees with no signal; a misconfigured or hostile overlay could
+  weaken rigor invisibly.
+
+**Chosen because:** warn-but-allow matches planwright's posture elsewhere
+(loud-over-silent, the operator stays in control) while making the
+highest-stakes override — replacing a framework-guarantee doc — visible at
+resolution time. It is the doctrine analogue of the malformed-by-layer
+degrade+warn arm (D-7).
 
 ## Cross-cutting concerns
 
