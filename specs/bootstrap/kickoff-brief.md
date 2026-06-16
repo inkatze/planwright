@@ -1500,3 +1500,35 @@ Class: meaning
 Lens-pass: recorded above (this section), findings dispositioned 2026-06-16 (all applied).
 Anchor: `9057194398269e007c524c4682e0545261e79c2e` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
+
+## Expression-only re-anchor (2026-06-16, panel review on this branch: doc-consistency sweep)
+
+Machine-written entry per REQ-F1.10's expression-only lane. A `/panel-pairing`
+pass over this branch surfaced two doc-consistency findings in the meaning-class
+T18 re-sequencing Changelog entry directly above its own. Both validated (three
+passes converging), in-scope (lines this branch introduced), and non-normative:
+
+1. `requirements.md` Changelog: the meaning-class entry described Task 18 as
+   "moved to a `## Deferred` organic-gate bullet" — but the bullet form was
+   validator-rejected and the `### Task 18` block was retained, as `tasks.md`,
+   this brief (`Representation decision (validator-forced)`), and the
+   observations log all record. Corrected to "moved to `## Deferred` as a
+   retained `### Task 18` block, marked an organically-satisfied gate".
+2. `requirements.md` Changelog: the same entry read "T13 is now terminal", which
+   this brief's `Critical-path precision` paragraph explicitly forbids — T13 is
+   *not* a pure terminal; it still structurally feeds the deferred Task 18
+   (deps `13,14,16,17`). Corrected to "T13 now feeds only the deferred organic
+   gate, not packaging", matching the precise framing in `tasks.md` and the lens
+   table above.
+
+No REQ, design decision, task definition, or test semantics changed
+(REQ-A3.3 expression-only), so no lens pass. The full local check gate
+(`mise run check` — spec validator, markdownlint, link-check, options drift,
+shell suites) passes (0 failures). The mandatory dated Changelog entry for this
+sweep is recorded in `requirements.md` (`2026-06-16 (expression-only, panel
+review on this branch)`). Anchor recomputed after all `requirements.md` edits
+are on disk.
+
+Class: expression-only
+Anchor: `3d1c3e2015f0dd7500020dda0a6af94f18c2391b` — computed as
+`scripts/spec-anchor.sh specs/bootstrap`
