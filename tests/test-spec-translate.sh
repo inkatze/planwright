@@ -42,6 +42,12 @@
 #       modal-extension coverage (MUST NOT / SHOULD NOT as one token).
 #   12. Threshold precision (REQ-C1.7): a decimal comparator threshold
 #       (≥ 0.95, <= 2.5) is marked in full, never truncated to its integer part.
+#   13. Word-boundary scrub (REQ-C1.1 regression): an identifier pattern embedded
+#       in an ordinary word (UUID-123, FREQ-A, STANDARD-7) is content, not a
+#       back-pointer, and survives verbatim; only standalone tokens are scrubbed.
+#   14. Normative-token boundary (REQ-C1.7 regression): a modal embedded in an
+#       alphanumeric word (MUST1, SHALL2) is not a normative token and is not
+#       marked; only the standalone modal is.
 #
 # Runs standalone: ./tests/test-spec-translate.sh
 set -eu
@@ -214,7 +220,10 @@ case $d2dec_src in
   *) fail "decision source dropped the restorable wording REQ-C1.7: $d2dec_src" ;;
 esac
 # Each TEXT ref's base element (strip #field and task- prefix) is a model id.
-printf '%s\n' "$out" | awk -F"$tab" -v RS_OK=0 '
+# Key the assertion off awk's exit status (the house pattern in this file), not
+# its stdout: a `grep -q . && fail || true` pipeline would silently pass if awk
+# itself errored out (portability/syntax) and emitted no unresolved-ref lines.
+printf '%s\n' "$out" | awk -F"$tab" '
   $1 == "TEXT" {
     base = $2
     sub(/#.*/, "", base)
@@ -228,7 +237,7 @@ printf '%s\n' "$out" | awk -F"$tab" -v RS_OK=0 '
     for (r in refs) if (!(r in ids)) { print "unresolved ref: " r; bad = 1 }
     exit(bad ? 1 : 0)
   }
-' | grep -q . && fail "a TEXT ref does not resolve to a model element" || true
+' || fail "a TEXT ref does not resolve to a model element"
 
 # ---------------------------------------------------------------------------
 # 5. Decision and task fields translated with structured refs.
