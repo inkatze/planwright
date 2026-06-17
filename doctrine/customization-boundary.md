@@ -91,10 +91,11 @@ mechanism beneath it.
 
 ### Review-gauntlet ordering — capability in core, ordering in an overlay
 
-An operator runs a specific sequence of review skills at convergence (one
-gauntlet might be `/polish` → `/panel-pairing` → `/self-review` →
-`/copilot-pairing`; another operator's is shorter or differently ordered). The
-boundary runs straight through this feature:
+An operator runs a specific sequence of *nestable* review skills at convergence
+(the default is today's single `/polish` pass; one operator might run
+`/self-review` then `/polish`, another a longer in-house ordering of the
+nestable review skills available). The boundary runs straight through this
+feature:
 
 - The **capability** — expressing a review ordering and having
   `/execute-task`'s convergence phase honor it — is general: any operator
