@@ -31,7 +31,8 @@ definitions govern wherever this skill names a concept:
   discovery, fan-out, self-critique pass
 - `validation-rigor` — the three identification passes plus the adversarial
   bi-directional re-validation; solution validation, including the altitude
-  check; surface-relative whole-system reproduction preferred for both
+  check; surface-relative whole-system end-to-end reproduction preferred for
+  both
 - `finding-categorization` — the four buckets, their predicates, hard
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder
