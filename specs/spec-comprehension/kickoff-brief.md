@@ -311,6 +311,62 @@ drift recorded as a 2026-06-17 observation; no operational-data-hygiene risk
 (the model emits no secrets — it echoes only bundle content, which the
 artifact-layer data-hygiene check, REQ-E1.4, scans).
 
+### Task 3 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 3 (the plain-language translation layer,
+`scripts/spec-translate.sh`) consumes untrusted input (the model record stream,
+which carries bundle content) and re-serializes it into a tagged tab-separated
+stream — the `security-posture` write-time untrusted-input and serialization
+trigger classes. Light pass: the in-repo canonical posture, not a new pattern.
+No new dependency (the portability envelope is unchanged: `/bin/sh` + `awk`,
+the REQ-K1.5 floor); no new research trigger beyond the cross-audience
+layered-view research already recorded under D-2 / §2.
+
+**Sources consulted.** `scripts/spec-model.sh` (the upstream substrate and the
+`clean()` / C-locale record-hygiene discipline this layer inherits),
+`scripts/spec-walkthrough.sh` (the REQ-A1.6 identifier/path gate this layer
+trusts rather than re-implements), the `security-posture` doctrine doc, and
+REQ-C1.1 / REQ-C1.7 / REQ-D1.3 / REQ-E1.7.
+
+**Pass applied (no new risk surfaced).** The translator treats all input as
+data: no `eval`, and no shell or path is constructed from record *content* —
+the only path it touches is its own sibling `spec-model.sh`, resolved from the
+script's own directory (`dirname "$0"`), with the spec-directory argument
+flowing through to the model unchanged (the identifier-charset and
+path-containment gate stays the command scaffold's job, REQ-A1.6). In
+`<spec-dir>` mode the model's exit code is captured and propagated so an
+absent/unreadable bundle fails closed (exit 2), never a silent empty
+translation. The TEXT/NORM stream stays tab-clean: the upstream model already
+folded control bytes (including the delimiter) to spaces under the pinned C
+locale, and this layer only removes identifier substrings and maps file names,
+introducing no new tabs or newlines (the test asserts every TEXT record has
+exactly five fields). The translator does **not** HTML/SVG-escape its text:
+that is Task 6's artifact-assembly job (REQ-E1.7) downstream of this layer;
+escaping here would corrupt the lossless verbatim text the reveal view restores
+(D-2). Read-only: it writes nothing but its stdout stream (REQ-A1.3).
+
+**Declared scoping (`proportionality`).** Two within-task scoping calls, both
+low-stake and reversible, recorded rather than escalated:
+
+- *Internal-vocabulary scrub (REQ-C1.1)* targets the contract's stated set —
+  the four-file *names* and the REQ/D/task identifier *schemes* — not every
+  filename or jargon term a bundle's prose may contain. Other artifact
+  filenames a spec legitimately names (e.g. a doctrine doc) are content the
+  `[manual]` readability half of REQ-C1.1 judges, not mechanical internal
+  vocabulary. The test scopes its leak assertion to exactly the four bundle
+  file names accordingly.
+- *Normative-token marking (REQ-C1.7)* mechanically detects and marks the
+  reliably-detectable classes: the RFC-2119 uppercase modals (MUST / SHALL /
+  SHOULD / MAY, extended to `... NOT`) and a comparator-governed threshold
+  (`≤ 64`). The *verbatim-survival* guarantee — the core guardrail — holds for
+  **all** normative classes including enumerated states, because the
+  conservative translation never softens text it does not scrub. The marking of
+  the open-ended "enumerated state" class has no mechanical detector and is
+  logged as an observation (below) for a future spec decision; it is a marking
+  gap, not a verbatim-preservation gap.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)
