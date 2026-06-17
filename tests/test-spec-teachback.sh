@@ -335,4 +335,78 @@ for spec in spec-comprehension bootstrap; do
     || fail "$spec claim set differs from the model live-req+decision set"
 done
 
+# ---------------------------------------------------------------------------
+# 11. Verbatim claim text (REQ-D1.1/REQ-C1.5, the independence firewall): the
+# view copies each claim's plain and source columns from the upstream
+# translation unchanged — it injects no content of its own, so no verdict,
+# score, or decoration can ride in the claim text. Every CLAIM's plain/source
+# must equal the upstream TEXT record's plain/source for that element.
+# ---------------------------------------------------------------------------
+tstream=$(printf '%s' "$MODEL" | "$translate")
+tbout=$(printf '%s' "$tstream" | "$teachback")
+printf '%s\n@@@SEP@@@\n%s\n' "$tstream" "$tbout" | awk -F"$tab" '
+  $0 == "@@@SEP@@@" { sep = 1; next }
+  !sep && $1 == "TEXT" && $3 == "requirement" { plain["REQ:" $2] = $4; src["REQ:" $2] = $5 }
+  !sep && $1 == "TEXT" && $3 == "decision-decision" {
+    b = $2; sub(/#.*/, "", b); plain["DEC:" b] = $4; src["DEC:" b] = $5
+  }
+  sep && $1 == "CLAIM" {
+    key = ($2 ~ /^D-/) ? "DEC:" $2 : "REQ:" $2
+    if ($5 != plain[key]) { print "plain mismatch: " $2; bad = 1 }
+    if ($6 != src[key]) { print "source mismatch: " $2; bad = 1 }
+  }
+  END { exit(bad ? 1 : 0) }
+' || fail "a CLAIM column is not a verbatim copy of the upstream translation (the view injected content into a claim)"
+
+# ---------------------------------------------------------------------------
+# 12. Decisions sort last, structurally (Done-when #1 reading order): even when
+# a decision claim is seen before any requirement in the stream, the decision
+# section still sorts after every requirement section. Fed directly to the view
+# (not through translate, which always emits requirements first) so the view's
+# own ordering is what is under test.
+# ---------------------------------------------------------------------------
+DSTREAM="TEXT$(t)D-1#decision$(t)decision-decision$(t)A decided thing$(t)A decided thing (D-1)
+REQ$(t)REQ-A1.1$(t)A$(t)live$(t)A requirement
+TEXT$(t)REQ-A1.1$(t)requirement$(t)A requirement$(t)A requirement"
+out=$(printf '%s' "$DSTREAM" | "$teachback" 2>&1) || fail "direct-stream teach-back failed"
+rec CLAIM REQ-A1.1 req-A 1
+rec CLAIM D-1 decisions 1
+printf '%s\n' "$out" | awk -F"$tab" '
+  $1 == "SECTION" && $2 == "decisions" { dord = $3 }
+  $1 == "SECTION" && $2 ~ /^req-/ { if ($3 > maxreq) maxreq = $3 }
+  END { exit(dord > maxreq ? 0 : 1) }
+' || fail "a decision seen before any requirement must still sort the decisions section last"
+
+# ---------------------------------------------------------------------------
+# 13. A requirement group with no live requirements yields no section and no
+# claims (all-superseded edge): the section registers only when a live claim
+# files under it.
+# ---------------------------------------------------------------------------
+MODEL="BUNDLE$(t)demo$(t)Active
+FILE$(t)requirements$(t)present
+REQ$(t)REQ-A1.1$(t)A$(t)live$(t)A live requirement.
+REQ$(t)REQ-C1.1$(t)C$(t)superseded$(t)A retired requirement.
+REQ$(t)REQ-C1.2$(t)C$(t)superseded$(t)Another retired requirement."
+run_stream 0
+rec SECTION req-A 1
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "SECTION" && $2 == "req-C" { f = 1 } END { exit(f ? 1 : 0) }' \
+  || fail "an all-superseded requirement group should produce no section"
+norec_claim REQ-C1.1
+norec_claim REQ-C1.2
+
+# ---------------------------------------------------------------------------
+# 14. Field-count integrity with empty claim text: a claim whose plain and
+# source are empty still emits a six-field CLAIM record (the trailing tabs are
+# present), so the "no column for a verdict" structural guarantee holds even at
+# the empty edge.
+# ---------------------------------------------------------------------------
+ESTREAM="REQ$(t)REQ-A1.1$(t)A$(t)live$(t)x
+TEXT$(t)REQ-A1.1$(t)requirement$(t)$(t)"
+out=$(printf '%s' "$ESTREAM" | "$teachback" 2>&1) || fail "empty-text direct stream failed"
+rec CLAIM REQ-A1.1 req-A 1
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "CLAIM" && NF != 6 { bad = 1 } END { exit(bad ? 1 : 0) }' \
+  || fail "a CLAIM with empty plain/source does not have six fields"
+
 echo "PASS: test-spec-teachback.sh"

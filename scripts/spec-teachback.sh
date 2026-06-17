@@ -122,17 +122,28 @@ awk_prog='
   # Emit section by section: the neutral response model once, the section list in
   # reading order, then the claims grouped under their section with per-section
   # ordinals. A stream with no claims emits nothing (empty in, empty out).
+  #
+  # The reading order is the requirement groups (in first-seen order) followed by
+  # the decisions, enforced here rather than left to the upstream emit order: the
+  # real translation stream always carries requirements before decisions, but
+  # filing decisions last is the documented invariant, so it is made structural
+  # (a decision claim seen before any requirement still sorts last).
   END {
     if (nc == 0) exit 0
+    fn = 0
+    for (o = 1; o <= secn; o++) {
+      if (order2sec[o] != "decisions") final[++fn] = order2sec[o]
+    }
+    if ("decisions" in secorder) final[++fn] = "decisions"
     print "RESPONSE", "agree"
     print "RESPONSE", "disagree"
     print "RESPONSE", "unsure"
-    for (o = 1; o <= secn; o++) {
-      sec = order2sec[o]
+    for (o = 1; o <= fn; o++) {
+      sec = final[o]
       print "SECTION", sec, o, seclabel[sec]
     }
-    for (o = 1; o <= secn; o++) {
-      sec = order2sec[o]
+    for (o = 1; o <= fn; o++) {
+      sec = final[o]
       ord = 0
       for (i = 1; i <= nc; i++) {
         if (csec[i] != sec) continue
