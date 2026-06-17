@@ -83,7 +83,16 @@ canon_path() {
     cp_t=$(readlink -- "$cp_p") || return 1
     case $cp_t in
       /*) cp_p=$cp_t ;;
-      *) cp_p=$(dirname -- "$cp_p")/$cp_t ;;
+      *)
+        # Resolve a relative target against the link's directory. Strip a
+        # trailing slash from that directory so a link directly under "/"
+        # (dirname "/") joins to "/target", not "//target" — a leading "//" is
+        # implementation-defined in POSIX and some platforms preserve it
+        # through pwd -P (e.g. /bin -> usr/bin on usr-merged Linux yielded
+        # "//usr/bin"). Mirrors the %/-strip the file-fallback and repo arms use.
+        cp_d=$(dirname -- "$cp_p")
+        cp_p="${cp_d%/}/$cp_t"
+        ;;
     esac
   done
   if [ -d "$cp_p" ]; then

@@ -294,10 +294,22 @@ assert_eq "dangling in-root symlink canonicalizes to its target" \
 # A path under the filesystem root resolves correctly when the overlay root is
 # "/" itself: pwd -P returns "/" (the one canonical root carrying a trailing
 # slash), so the containment prefix must not become "//*" and reject real
-# children. Everything absolute is under "/".
+# children. Everything absolute is under "/". The expected value is derived
+# with an independent cd+pwd -P oracle rather than hardcoded: on a usr-merged
+# Linux box /bin is a symlink to usr/bin (canonical /usr/bin), while on macOS
+# /bin is a real directory (canonical /bin) — both must be accepted and must
+# canonicalize without a "//" double slash (the relative-symlink-under-"/" join).
+fsroot_child="$(cd /bin && pwd -P)"
 out="$(base /bin/bash "$RESOLVER" --contain / /bin)"
 assert "filesystem-root containment accepts a real child" 0 $?
-assert_eq "filesystem-root child canonicalized" "/bin" "$out"
+assert_eq "filesystem-root child canonicalized" "$fsroot_child" "$out"
+case "$out" in
+  //*)
+    echo "FAIL: filesystem-root child has a leading double slash: $out" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: filesystem-root child has no leading double slash" ;;
+esac
 
 # A *nonexistent* leaf directly under the filesystem root exercises canon_path's
 # file-fallback concatenation (the /bin case above takes the directory branch and
