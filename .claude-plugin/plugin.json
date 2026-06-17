@@ -1,16 +1,21 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "planwright",
+  "displayName": "Planwright",
   "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
   "version": "0.1.0",
   "author": {
-    "name": "Diego Romero"
+    "name": "Diego Romero",
+    "email": "jd@inkatze.com"
   },
   "license": "MIT",
+  "homepage": "https://github.com/inkatze/planwright",
   "repository": "https://github.com/inkatze/planwright",
   "keywords": [
     "spec-driven-development",
     "orchestration",
     "autonomy",
     "workflow"
-  ]
+  ],
+  "defaultEnabled": true
 }

@@ -58,11 +58,16 @@ fi
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin manifest and hook registration"
+description = "validate the plugin + marketplace manifests and hook registration"
 run = '''
 jq . .claude-plugin/plugin.json >/dev/null && echo plugin.json valid
+jq . .claude-plugin/marketplace.json >/dev/null && echo marketplace.json valid
 jq . hooks/hooks.json >/dev/null && echo hooks.json valid
 '''
+
+[tasks."lint:plugin-schema"]
+description = "schema-deep plugin + marketplace manifest validation via `claude plugin validate` (the layer beneath lint:json's jq syntax check; degrades to a clean skip when the claude CLI is absent)"
+run = "/bin/bash scripts/check-plugin-schema.sh"
 
 [tasks."check:options"]
 description = "options-reference coverage drift check (D-43)"
@@ -81,6 +86,7 @@ depends = [
   "lint:md",
   "lint:yaml",
   "lint:json",
+  "lint:plugin-schema",
   "lint:commits",
   "check:links",
   "check:options",

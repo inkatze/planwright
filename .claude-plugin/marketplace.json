@@ -1,0 +1,15 @@
+{
+  "name": "planwright",
+  "description": "The planwright marketplace: the planwright autopilot plugin, installable from this repo.",
+  "owner": {
+    "name": "Diego Romero"
+  },
+  "plugins": [
+    {
+      "name": "planwright",
+      "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}
