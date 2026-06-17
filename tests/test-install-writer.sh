@@ -58,12 +58,13 @@ assert_file "overlay-root resolver installed" "$claude_dir/planwright/scripts/re
 #     can derive its namespace from the manifest `name` (D-3, REQ-A1.5). The
 #     copy lands at the path resolve-overlay-root.sh reads in writer mode.
 assert_file "plugin manifest copied for writer-mode namespace" "$claude_dir/planwright/plugin.json"
-if grep -q '"name"' "$claude_dir/planwright/plugin.json" 2>/dev/null; then
-  echo "ok: copied manifest carries a name field"
-else
-  echo "FAIL: copied manifest lacks a name field" >&2
-  failures=$((failures + 1))
-fi
+# Whether the copy carries a *usable* top-level `name` — and not merely some
+# nested "name" such as author.name — is asserted end-to-end in step 3b below,
+# which resolves the writer-mode adopter namespace through the installed
+# resolver and checks it against the exact expected path. A loose
+# `grep '"name"'` here would match the nested author.name and risk a misleading
+# pass, so the file-copied check above plus 3b's exact-namespace assertion stand
+# in for it.
 
 # 3. The resolution path resolves in writer mode against the installed tree
 #    (Done-when: the rule-doc resolution path resolves from both delivery
