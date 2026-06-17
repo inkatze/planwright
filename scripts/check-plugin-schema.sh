@@ -33,7 +33,7 @@ if [ -n "$repo_arg" ]; then
     echo "check-plugin-schema: no such directory: $repo_arg" >&2
     exit 2
   fi
-  repo_root="$(cd "$repo_arg" && pwd -P)"
+  repo_root="$(cd "$repo_arg" && pwd -P)" || exit 2
 else
   repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 fi
@@ -69,7 +69,7 @@ if [ "$rc" -ne 0 ]; then
   exit 1
 fi
 if [ "$validated" -eq 0 ]; then
-  echo "check-plugin-schema: no .claude-plugin manifests under $repo_root; nothing to validate" >&2
+  echo "check-plugin-schema: no .claude-plugin manifests under $repo_root; nothing to validate"
   exit 0
 fi
 echo "check-plugin-schema: manifests passed schema validation (claude plugin validate --strict)"

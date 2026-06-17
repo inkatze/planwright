@@ -66,7 +66,7 @@ jq . hooks/hooks.json >/dev/null && echo hooks.json valid
 '''
 
 [tasks."lint:plugin-schema"]
-description = "schema-deep plugin + marketplace manifest validation via `claude plugin validate` (the layer beneath lint:json's jq syntax check; degrades to a clean skip when the claude CLI is absent, e.g. CI)"
+description = "schema-deep plugin + marketplace manifest validation via `claude plugin validate` (the layer beneath lint:json's jq syntax check; degrades to a clean skip when the claude CLI is absent)"
 run = "/bin/bash scripts/check-plugin-schema.sh"
 
 [tasks."check:options"]

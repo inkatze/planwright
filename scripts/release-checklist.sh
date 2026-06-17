@@ -95,7 +95,7 @@ if [ -n "$repo_arg" ]; then
     echo "release-checklist: no such directory: $repo_arg" >&2
     exit 2
   fi
-  repo_root="$(cd "$repo_arg" && pwd -P)"
+  repo_root="$(cd "$repo_arg" && pwd -P)" || exit 2
 else
   repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 fi
@@ -140,7 +140,7 @@ fi
 
 # --- REQ-J1.5 gate (c): clean multi-contributor work-repo E2E run ---
 # Not detectable from this repo; human attestation per the doc.
-if [ -n "$confirm_workrepo_run" ]; then
+if [ "$confirm_workrepo_run" = "1" ]; then
   add_row PASS "(c) clean multi-contributor work-repo run" "attested (--confirm-workrepo-run)"
 else
   add_row MANUAL "(c) clean multi-contributor work-repo run" \

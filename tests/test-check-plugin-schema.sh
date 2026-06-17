@@ -91,6 +91,15 @@ out="$(PATH="$pass_bin:$PATH" /bin/bash "$SCRIPT" "$tmp/does-not-exist" 2>&1)"
 rc=$?
 assert_exit "missing repo-dir is a usage error" 2 "$rc"
 
+# 5. Zero positional args → the repo defaults to dirname "$0"/.. (the repo the
+#    script ships in). With claude present this validates the real manifests and
+#    passes, proving the default-path fallback resolves rather than running
+#    against an empty/garbage root.
+out="$(PATH="$pass_bin:$PATH" /bin/bash "$SCRIPT" 2>&1)"
+rc=$?
+assert_exit "no-arg default path resolves and passes" 0 "$rc"
+assert_contains "no-arg run reports schema validation ran" "passed schema validation" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

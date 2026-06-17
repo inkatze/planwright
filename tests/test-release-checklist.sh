@@ -108,6 +108,17 @@ rc=$?
 assert_exit "env-var attestation is honored" 0 "$rc"
 assert_contains "env-var attestation reaches READY" "READY FOR PUBLIC RELEASE" "$out"
 
+# 3b-i. The attestation accepts only an explicit "1": a falsy
+#       RELEASE_WORKREPO_RUN_CONFIRMED (0, false, "") must NOT register as
+#       attested, so a mis-set env var cannot silently clear the human gate.
+out="$(RELEASE_WORKREPO_RUN_CONFIRMED=0 "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+rc=$?
+assert_exit "falsy RELEASE_WORKREPO_RUN_CONFIRMED=0 does not attest" 1 "$rc"
+assert_contains "falsy =0 still asks for attestation" "HUMAN ATTESTATION" "$out"
+out="$(RELEASE_WORKREPO_RUN_CONFIRMED=false "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+rc=$?
+assert_exit "falsy RELEASE_WORKREPO_RUN_CONFIRMED=false does not attest" 1 "$rc"
+
 # 3c. Gate (a) requires the engineering-doctrine doc too: removing it BLOCKS and
 #     the gate is named (the gate is a faithful proxy for all three doc
 #     categories it documents, not just two).
@@ -167,6 +178,7 @@ mkdir -p "$fx4/scripts" "$fx4/doctrine"
 cp "$SCRIPT" "$fx4/scripts/release-checklist.sh"
 echo "# v" >"$fx4/doctrine/validation-rigor.md"
 echo "# f" >"$fx4/doctrine/finding-categorization.md"
+echo "# e" >"$fx4/doctrine/engineering-decisions.md"
 echo "# s" >"$fx4/doctrine/spec-format.md"
 out="$("$fx4/scripts/release-checklist.sh" --confirm-workrepo-run "$fx4" 2>&1)"
 rc=$?
