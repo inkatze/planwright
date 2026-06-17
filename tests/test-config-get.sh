@@ -2,7 +2,8 @@
 # Tests for scripts/config-get.sh — the shared config reader behind
 # /orchestrate's threshold/backend/toggle reads (Task 13, D-33, REQ-K1.1).
 #
-# Properties verified (the defaults + local-override precedence model):
+# Two suites live here. The first verifies the original two-layer base
+# (defaults + local-override precedence model):
 #   1. A key present only in the tracked defaults reads from the defaults.
 #   2. A local override wins over the tracked default for the same key.
 #   3. A key absent from both exits 3 (caller picks its own fallback).
@@ -10,6 +11,16 @@
 #   5. The local file is consulted via PLANWRIGHT_LOCAL_CONFIG; an absent
 #      local file degrades to the default (no error).
 #   6. An invalid key (path/metachar) is rejected (exit 2) before any use.
+#
+# The second suite (the "Four-layer overlay resolution" section below) verifies
+# the customization-overlay extension (Task 3: D-1, D-4, D-5, D-7, D-9):
+#   7. The core < adopter < repo-tracked < machine-local precedence ladder,
+#      per-key last-layer-wins, and clean absent-layer degrade.
+#   8. The malformed-overlay policy by layer: adopter/machine-local degrade with
+#      a warning, repo-tracked hard-fails (exit 4); "malformed" tracks flat-vs-
+#      nested structure, not the key charset.
+#   9. The --explain provenance mode (pinned "<layer>TAB<value>" contract) and
+#      deterministic resolution across repeated runs.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor): ./tests/test-config-get.sh
 set -eu
