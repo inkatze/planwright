@@ -15,6 +15,11 @@ is making specs as correct as possible before any code is written.
 > founding spec (`specs/bootstrap/`). The skills and doctrine docs land task
 > by task; this scaffold is the packaging skeleton they land on.
 
+**New here?** [docs/getting-started.md](docs/getting-started.md) walks a
+non-author from a clean machine through installing planwright, confirming
+rule-doc resolution, operating the pilot-in-command model, and supplying your
+own tooling and rigor without editing core.
+
 ## The pilot-in-command model
 
 planwright is an autopilot, not a replacement crew. Two controls are
@@ -49,9 +54,10 @@ planwright ships two ways (the plugin is primary):
    (`~/.claude/planwright/`, plus skills and commands when present). It
    depends only on portable shell: no fish, mise, tmux, Ansible, or symlink
    materialization. It never edits `settings.json` or any file outside its
-   namespace. Known stub limitation: a re-install refresh-copies and never
-   deletes, so files removed in a newer planwright persist until the
-   packaging-finalization work ships the upgrade story.
+   namespace. To upgrade cleanly, delete `~/.claude/planwright/` first, then
+   re-run the writer (a re-install refresh-copies but never deletes); see
+   [docs/getting-started.md](docs/getting-started.md) for the full install and
+   upgrade walkthrough.
 
 ### Rule-doc resolution
 
@@ -81,6 +87,7 @@ reference fails planwright's own CI.
 
 ```text
 .claude-plugin/plugin.json   plugin manifest
+.claude-plugin/marketplace.json  marketplace manifest (the GitHub install path)
 config/defaults.yml          tracked default config
 doctrine/                    externalized rule docs (the framework doctrine)
 docs/options-reference.md    canonical config options reference
@@ -105,4 +112,6 @@ same `mise run check` gate on every pull request.
 
 ## License
 
-[MIT](LICENSE). Contribution model lands with the packaging task.
+[MIT](LICENSE). See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for the
+contribution model and [docs/release-checklist.md](docs/release-checklist.md)
+for the public-release readiness gate.
