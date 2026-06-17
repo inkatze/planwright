@@ -144,11 +144,15 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   REQ-A1.6, REQ-E1.2, REQ-E1.5
 - **Estimated effort:** 1 day
 
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 1 — Capability-vs-style boundary doctrine
 
-- **Status:** PR #28 draft
-- **Last activity:** 2026-06-16
-- **Dispatch:** tmux backend; dispatched 2026-06-16 22:50 PDT; worker window `co-task-1` (branch `planwright/customization-overlay/task-1`, worktree `.claude/worktrees/customization-overlay-task-1`).
+- **Status:** Completed — PR #28 merged 2026-06-17 (merge commit `480cf64`).
 - **Deliverables:** A new doctrine doc `customization-boundary.md` defining the
   capability-vs-style rule, its decision-time criteria, the default tilt toward
   overlay, and the two worked examples (review-gauntlet ordering as style;
@@ -161,14 +165,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Dependencies:** none
 - **Citations:** D-10 · REQ-C1.1, REQ-C1.2, REQ-C1.3
 - **Estimated effort:** half day
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 
