@@ -136,7 +136,7 @@ view tasks they cover.
 
 ### Task 5 — Teach-back challenge
 
-- **Status:** dispatched
+- **Status:** implementing
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t5` · worktree `.claude/worktrees/planwright+spec-comprehension+task-5` · branch `planwright/spec-comprehension/task-5`
 - **Deliverables:** claim extraction from the bundle's own assertions; the
