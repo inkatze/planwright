@@ -1568,3 +1568,20 @@ branch)`). Anchor recomputed after all `requirements.md` / `tasks.md` /
 Class: expression-only
 Anchor: `b331a686a00e8382964070602789504768d9c237` — computed as
 `scripts/spec-anchor.sh specs/bootstrap`
+
+## T19 execution notes — packaging research & decisions (2026-06-16)
+
+Risk-register addendum (named section, append-only per `research-rigor`; not an
+anchor entry — the anchor hashes the four spec files, not this brief). Records
+the research consulted and the implementation decisions taken for the
+packaging-finalization capstone (Task 19). No new release-blocking risk
+surfaced; the one forward-looking risk (overlay seam documented provisionally)
+is row 12 below.
+
+| # | Risk / decision | Resolution / source |
+|---|---|---|
+| 10 | Plugin manifest "finalization" must match the real Claude Code plugin schema, not model memory (Research Rigor trigger: version-sensitive packaging). | Consulted current Claude Code plugin docs (plugins-reference, plugins, discover-plugins) via the claude-code-guide. Findings: only `name` is required; `skills/`, `hooks/hooks.json`, `commands/` auto-discover from the plugin root with no manifest declaration; `${CLAUDE_PLUGIN_ROOT}` is the correct hook-script base (already used in `hooks/hooks.json`). Decision: finalize the manifest by adding the recommended distribution fields (`$schema`, `displayName`, `homepage`, author `email`, `defaultEnabled`) and keep the existing layout. **Version stays `0.1.0`** — bumping to 1.0.0 would signal a public release that REQ-J1.5's gate has not cleared; the release process owns the bump. |
+| 11 | Release checklist shape: doc-only vs enforced. Done-when says the checklist "enumerates and checks"; Risk row 8 says it "enforces"; the dispatch brief says it "VERIFIES it happened". | Decision: ship both — `docs/release-checklist.md` (human-facing, enumerates all conditions incl. the human-attested ones) **and** `scripts/release-checklist.sh` (mechanically verifies what is checkable: the inlined-doctrine and meta-spec gate conditions, and the `reference/` purge against both the working tree and history; surfaces the human-attested condition (c) work-repo run as MANUAL). The script is the planwright idiom (executable guards) and gives test-first grounding. It is a **release-time** gate, deliberately NOT wired into `mise run check` (it correctly fails today: `reference/` is still present), but its unit test runs in CI. The script VERIFIES, never performs, the purge (REQ-J1.4 / REQ-J1.5). |
+| 12 | The "supply project-specific tooling/rigor without editing core docs" seam (REQ-D2.2 / REQ-I1.4) is the four-layer **customization-overlay** spec, which is Active but **0 tasks built** this run. | Documented **provisionally**: onboarding forward-references `specs/customization-overlay/` and the `config/planwright.local.yml` override that exists today, rather than describing a shipped overlay mechanism. **Touch-up risk:** the onboarding "supply your own rigor" section needs a revisit once the overlay lands (flagged in the PR body and `specs/_observations/opportunities.md`). Does not block this task (Diego's explicit sequencing decision this run). |
+| 13 | `~/.claude/` writer upgrade/cleanup story was deferred to "the packaging-finalization task" (placeholder in `install.sh` and README). | Decision: resolve the placeholder by **documenting** the clean-reinstall upgrade procedure (delete `~/.claude/planwright/` then re-run the writer) in onboarding + README + the `install.sh` header, rather than adding delete logic to the writer (deleting under `~/.claude` is a mild destructive op; a documented manual clean-reinstall is the honest, proportionate v1 resolution). Plugin installs get upgrades natively via the marketplace. |
+| 14 | Contribution doc placement vs planwright's own lint coverage. | GitHub recognizes `CONTRIBUTING.md` in repo root, `.github/`, **or `docs/`**. Placed at `docs/CONTRIBUTING.md` so it inherits planwright's `lint:md` + `check-doc-links` coverage (both scan `docs/*.md`) without touching shared lint config — a contribution doc that planwright's own guards do not lint would be exactly the gap planwright exists to prevent. |
