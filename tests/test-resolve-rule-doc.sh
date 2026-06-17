@@ -148,10 +148,16 @@ esac
 # assertions are used where a path comparison would be brittle.
 ovbase="$(cd "$tmp" && pwd -P)"
 
-# The normative D-11 protected-doc set (mirrors scripts/resolve-rule-doc.sh's
-# PROTECTED_DOCS, which is the operative copy; D-11 is the single normative
-# source). Iterated below for the R3 mitigation.
-PROTECTED_DOCS="spec-format security-posture validation-rigor discovery-rigor finding-categorization gate-wiring"
+# The normative D-11 protected-doc set. Extracted from the resolver's own
+# PROTECTED_DOCS line (the operative copy; D-11 is the single normative source)
+# rather than re-hardcoded here, so the R3-mitigation loop below verifies the
+# resolver's actual set resolves in core — a doc added to the script's list but
+# missing from core fails the test, with no chance for the two lists to drift.
+PROTECTED_DOCS="$(sed -n 's/^PROTECTED_DOCS="\(.*\)"$/\1/p' "$RESOLVER")"
+if [ -z "$PROTECTED_DOCS" ]; then
+  echo "FAIL: could not extract PROTECTED_DOCS from the resolver" >&2
+  failures=$((failures + 1))
+fi
 
 # Overlay fixture roots. core is an explicit PLANWRIGHT_ROOT; adopter is the
 # explicit $PLANWRIGHT_ADOPTER_OVERLAY arm; the two repo-side layers share
@@ -215,20 +221,26 @@ out="$(ov layered)"
 assert "all overlays absent: resolves" 0 $?
 assert_eq "core wins last" "CORE BODY" "$(printf '%s' "$(cat "$out" 2>/dev/null)" | head -1)"
 
-# 17. Path-traversal confinement (REQ-E1.5, D-8): a symlink under the overlay
-#     doctrine dir that escapes the overlay root is rejected and never read.
+# 17. Path-traversal confinement (REQ-E1.5, D-8). The doc name is charset-
+#     validated (no `/`, no `..`), so `../` and absolute paths cannot enter via
+#     the name; the live escape surface at this layer is a symlink at
+#     doctrine/<name>.md whose target escapes the root. Both target shapes the
+#     REQ names — an absolute target and a `../` relative target — are exercised;
+#     each must be rejected (exit 2) and its target content never read.
 mkdir -p "$ovrepo/.claude/doctrine"
 printf 'SECRET OUTSIDE ROOT\n' >"$ovbase/outside-secret.md"
+
+# 17a. Absolute-target escaping symlink.
 ln -s "$ovbase/outside-secret.md" "$ovrepo/.claude/doctrine/escaper.md"
 out="$(ov escaper 2>/dev/null)"
 rc=$?
-assert "escaping symlink rejected" 2 "$rc"
+assert "absolute-target escaping symlink rejected" 2 "$rc"
 case "$out" in
   *"SECRET OUTSIDE ROOT"*)
     echo "FAIL: escaping symlink target was read (containment breach)" >&2
     failures=$((failures + 1))
     ;;
-  *) echo "ok: escaping symlink target never read" ;;
+  *) echo "ok: absolute-target escaping symlink never read" ;;
 esac
 err="$(ov escaper 2>&1 >/dev/null)"
 case "$err" in
@@ -240,35 +252,94 @@ case "$err" in
 esac
 rm "$ovrepo/.claude/doctrine/escaper.md"
 
-# 18. Malformed-by-layer (REQ-E1.4, D-7). A doc path that exists but is not a
-#     readable regular file (a directory stands in) is malformed for the
-#     doctrine kind. adopter/machine-local degrade+warn; repo-tracked hard-fails.
+# 17b. Relative `../`-target escaping symlink: a symlink whose relative target
+#      climbs out of the overlay root with `..`. Must be rejected the same way.
+ln -s "../../../outside-secret.md" "$ovrepo/.claude/doctrine/escaper2.md"
+out="$(ov escaper2 2>/dev/null)"
+rc=$?
+assert "relative ../ escaping symlink rejected" 2 "$rc"
+case "$out" in
+  *"SECRET OUTSIDE ROOT"*)
+    echo "FAIL: relative ../ symlink target was read (containment breach)" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: relative ../ symlink target never read" ;;
+esac
+rm "$ovrepo/.claude/doctrine/escaper2.md"
 
-# 18a. Malformed adopter overlay degrades to the next lower layer (core) with a
-#      stderr warning and a zero exit.
+# 18. Malformed-by-layer (REQ-E1.4, D-7). A doc path that exists but is not a
+#     readable regular file is malformed for the doctrine kind. Two shapes are
+#     exercised: a directory standing in for the file (fails the regular-file
+#     check) and a present-but-unreadable file (fails the readability check —
+#     the `-r` arm). adopter/machine-local degrade+warn; repo-tracked hard-fails.
+
+# warns_malformed <stderr> <layer> — assert the captured stderr is a degrade
+# WARNING for <layer> (must carry a warning marker, the layer, and "malformed";
+# a bare "<layer> ... malformed" with no severity is not accepted).
+warns_malformed() {
+  case "$1" in
+    *[Ww][Aa][Rr][Nn]*"$2"*malformed* | *[Ww][Aa][Rr][Nn]*malformed*"$2"* | \
+      *"$2"*[Ww][Aa][Rr][Nn]*malformed* | *malformed*[Ww][Aa][Rr][Nn]*"$2"*)
+      echo "ok: malformed $2 emits a degrade warning"
+      ;;
+    *)
+      echo "FAIL: malformed $2 lacks a severity-marked degrade warning: $1" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+}
+
+# 18a. Malformed adopter overlay (directory) degrades to the next lower layer
+#      (core) with a stderr warning and a zero exit.
 printf 'CORE FALLBACK\n' >"$ovcore/doctrine/malf.md"
 mkdir -p "$ovadopter/doctrine/malf.md"
 out="$(ov malf 2>/dev/null)"
 assert "malformed adopter: degrades, zero exit" 0 $?
 assert_eq "malformed adopter: lands on core" "CORE FALLBACK" "$(cat "$out" 2>/dev/null)"
-err="$(ov malf 2>&1 >/dev/null)"
-case "$err" in
-  *[Ww]arn*adopter*malformed* | *adopter*malformed*[Ww]arn*) echo "ok: malformed adopter warns" ;;
-  *adopter*malformed*) echo "ok: malformed adopter warns (names layer)" ;;
-  *)
-    echo "FAIL: malformed adopter lacks a degrade warning: $err" >&2
-    failures=$((failures + 1))
-    ;;
-esac
+warns_malformed "$(ov malf 2>&1 >/dev/null)" adopter
 rmdir "$ovadopter/doctrine/malf.md"
 
-# 18b. Malformed machine-local overlay degrades to repo-tracked with a warning.
+# 18b. Malformed machine-local overlay (directory) degrades to repo-tracked
+#      with a stderr warning and a zero exit.
 printf 'REPO FALLBACK\n' >"$ovrepo/.claude/doctrine/malf.md"
 mkdir -p "$ovrepo/.claude/doctrine.local/malf.md"
 out="$(ov malf 2>/dev/null)"
 assert "malformed machine-local: degrades, zero exit" 0 $?
 assert_eq "malformed machine-local: lands on repo-tracked" "REPO FALLBACK" "$(cat "$out" 2>/dev/null)"
+warns_malformed "$(ov malf 2>&1 >/dev/null)" machine-local
 rmdir "$ovrepo/.claude/doctrine.local/malf.md"
+
+# 18a'. The unreadable-regular-file shape (mode 000) exercises the `-r` arm of
+#       the malformed check, which the directory fixtures above never reach.
+#       Skipped under root, where mode 000 is still readable and the file would
+#       resolve as a normal doc rather than degrade.
+if [ "$(id -u 2>/dev/null)" != "0" ]; then
+  printf 'CORE FALLBACK 2\n' >"$ovcore/doctrine/unread.md"
+  printf 'unreadable\n' >"$ovadopter/doctrine/unread.md"
+  chmod 000 "$ovadopter/doctrine/unread.md"
+  out="$(ov unread 2>/dev/null)"
+  assert "unreadable adopter file: degrades, zero exit" 0 $?
+  assert_eq "unreadable adopter file: lands on core" "CORE FALLBACK 2" "$(cat "$out" 2>/dev/null)"
+  warns_malformed "$(ov unread 2>&1 >/dev/null)" adopter
+  chmod 644 "$ovadopter/doctrine/unread.md"
+  rm "$ovadopter/doctrine/unread.md"
+
+  # And the repo-tracked unreadable file hard-fails, like the directory shape.
+  printf 'unreadable\n' >"$ovrepo/.claude/doctrine/unread2.md"
+  chmod 000 "$ovrepo/.claude/doctrine/unread2.md"
+  ov unread2 >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "ok: unreadable repo-tracked file hard-fails (exit $rc)"
+  else
+    echo "FAIL: unreadable repo-tracked file did not hard-fail (exit 0)" >&2
+    failures=$((failures + 1))
+  fi
+  chmod 644 "$ovrepo/.claude/doctrine/unread2.md"
+  rm "$ovrepo/.claude/doctrine/unread2.md"
+else
+  echo "ok: unreadable-file malformed cases skipped under root (mode 000 is readable)"
+fi
 
 # 18c. Malformed repo-tracked overlay hard-fails with a nonzero exit (a broken
 #      team-shared overlay must not silently degrade).
@@ -352,6 +423,31 @@ assert_eq "explain names machine-local" "machine-local" "$layer"
 # 20b. --explain still emits the resolved path as the second field.
 path="$(ov --explain provdoc | cut -f2)"
 assert_eq "explain emits the resolved path" "MLOCAL ONLY" "$(cat "$path" 2>/dev/null)"
+
+# 21. Graceful degrade when the overlay helper is missing (REQ-K1.6). A copy of
+#     the resolver run from a dir with no sibling resolve-overlay-root.sh warns
+#     once and resolves core only — overlays are unavailable but core still
+#     works (a partial/broken install must not fail opaquely). The overlay arms
+#     are wired to fixtures that WOULD win if the helper were present, proving
+#     the fallback skips them rather than honoring them.
+solo_dir="$ovbase/solo-script"
+mkdir -p "$solo_dir"
+cp "$RESOLVER" "$solo_dir/resolve-rule-doc.sh"
+out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
+  /bin/bash "$solo_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
+assert "helper missing: resolves core, zero exit" 0 $?
+assert_eq "helper missing: lands on core (overlays skipped)" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
+err="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
+  /bin/bash "$solo_dir/resolve-rule-doc.sh" provdoc 2>&1 >/dev/null)"
+case "$err" in
+  *[Ww][Aa][Rr][Nn]*helper*) echo "ok: helper-missing warns once" ;;
+  *)
+    echo "FAIL: helper-missing lacks a warning: $err" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
