@@ -12,10 +12,17 @@
 # Usage:
 #   resolve-overlay-root.sh <layer>
 #     <layer> is one of: core | adopter | repo-tracked | machine-local
-#     Prints the resolved absolute root path on stdout and exits 0. When the
-#     layer is legitimately absent (adopter namespace underivable; no repo for
-#     the repo-side layers), prints nothing and exits 0 — an absent overlay
-#     layer is a normal state, never an error (REQ-A1.4).
+#     Prints the resolved root path on stdout and exits 0. A root the script
+#     derives is absolute (core canonicalizes via pwd -P; the repo-side layers
+#     use `git rev-parse --show-toplevel`, which is always absolute). An
+#     explicit override ($PLANWRIGHT_REPO_ROOT, $PLANWRIGHT_ADOPTER_OVERLAY,
+#     $CLAUDE_PLUGIN_DATA) is used verbatim and trusted: it is echoed as given
+#     (joined to the layer's suffix), so a caller that needs an absolute result
+#     must pass an absolute override — a relative override yields a relative,
+#     CWD-dependent path by design. When the layer is legitimately absent
+#     (adopter namespace underivable; no repo for the repo-side layers), prints
+#     nothing and exits 0 — an absent overlay layer is a normal state, never an
+#     error (REQ-A1.4).
 #
 #   resolve-overlay-root.sh --contain <root> <relpath>
 #     Join <relpath> (a path relative to <root>) onto <root>, canonicalize, and
@@ -190,6 +197,9 @@ fi
 
 # <repo> for the two repo-side layers: an explicit override (tests, adopters,
 # worktree callers), else the cwd's git toplevel. Absent → repo layers absent.
+# The override is used verbatim and trusted (mirrors the adopter arm): the git
+# toplevel is always absolute, but a relative override is echoed as given, so a
+# caller needing an absolute root must pass one (documented in the usage block).
 repo_root=""
 if [ -n "${PLANWRIGHT_REPO_ROOT:-}" ]; then
   repo_root="$PLANWRIGHT_REPO_ROOT"
