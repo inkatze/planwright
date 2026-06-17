@@ -147,7 +147,7 @@ view tasks they cover.
 
 ### Task 3 — Plain-language translation layer
 
-- **Status:** implementing
+- **Status:** PR #38 draft
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t3` · worktree `.claude/worktrees/planwright+spec-comprehension+task-3` · branch `planwright/spec-comprehension/task-3`
 - **Deliverables:** the lossless layered-view translator (plain rendering with
