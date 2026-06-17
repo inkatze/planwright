@@ -78,13 +78,17 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
-if [ "$#" -gt 0 ]; then
+# Consume any positionals that followed a `--` separator under the same
+# one-repo-dir contract the in-loop arm enforces: the first sets repo_arg, a
+# second is a usage error (never silently dropped).
+while [ "$#" -gt 0 ]; do
   if [ -n "$repo_arg" ]; then
     echo "release-checklist: unexpected extra argument: $1" >&2
     exit 2
   fi
   repo_arg="$1"
-fi
+  shift
+done
 
 if [ -n "$repo_arg" ]; then
   if [ ! -d "$repo_arg" ]; then
@@ -115,7 +119,7 @@ add_row() {
 # doctrine docs. Require the load-bearing rule docs to be present and
 # non-empty; their absence means the intelligence was never inlined.
 missing_doctrine=""
-for doc in validation-rigor finding-categorization; do
+for doc in validation-rigor finding-categorization engineering-decisions; do
   f="$repo_root/doctrine/$doc.md"
   if [ ! -s "$f" ]; then
     missing_doctrine="$missing_doctrine $doc.md"
@@ -154,12 +158,19 @@ fi
 # History absence. Requires a git repo; if the target is not one, the purge
 # cannot be verified, so the release is not ready (degrade clearly, REQ-K1.7).
 if git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1; then
-  hist="$(git -C "$repo_root" log --all --oneline -- reference 'reference/*' 2>/dev/null | head -1)"
-  if [ -n "$hist" ]; then
-    add_row BLOCK "reference/ purge — git history" \
-      "reference/ survives in history (a history rewrite, e.g. git filter-repo, is required — git rm is not enough)"
+  # Capture the full log and the command's own status: a git failure must
+  # fail closed (BLOCK), never read as an empty result that PASSes blind —
+  # this is a release gate, so an unverifiable history is not a clean one.
+  if hist="$(git -C "$repo_root" log --all --oneline -- reference 'reference/*' 2>/dev/null)"; then
+    if [ -n "$hist" ]; then
+      add_row BLOCK "reference/ purge — git history" \
+        "reference/ survives in history (a history rewrite, e.g. git filter-repo, is required — git rm is not enough)"
+    else
+      add_row PASS "reference/ purge — git history" "no reachable history touches reference/"
+    fi
   else
-    add_row PASS "reference/ purge — git history" "no reachable history touches reference/"
+    add_row BLOCK "reference/ purge — git history" \
+      "cannot verify: git log failed in $repo_root"
   fi
 else
   add_row BLOCK "reference/ purge — git history" \

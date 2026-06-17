@@ -42,9 +42,12 @@ correctly fails pre-release); its unit test is.
       [`doctrine/`](../doctrine/) (the rigor docs, finding categorization,
       engineering doctrine), not as an external dependency.
 
-**Verified by:** the script confirms the load-bearing rule docs exist and are
-non-empty. **Why it gates release:** the skills are hollow until the
-intelligence they cite is inlined and resolvable in both delivery modes.
+**Verified by:** the script confirms one load-bearing doc from each named
+category exists and is non-empty — `validation-rigor.md` (rigor),
+`finding-categorization.md`, and `engineering-decisions.md` (engineering
+doctrine) — as a representative proxy that the migration landed. **Why it
+gates release:** the skills are hollow until the intelligence they cite is
+inlined and resolvable in both delivery modes.
 
 ### (b) The four-file format meta-spec exists
 

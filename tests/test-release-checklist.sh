@@ -65,9 +65,12 @@ make_fixture() {
   d="$1"
   mkdir -p "$d/scripts" "$d/doctrine"
   cp "$SCRIPT" "$d/scripts/release-checklist.sh"
-  # Gate (a): framework intelligence inlined into planwright's own doctrine.
+  # Gate (a): framework intelligence inlined into planwright's own doctrine —
+  # one representative doc per category the gate names (a rigor doc, finding
+  # categorization, the engineering doctrine).
   echo "# validation rigor" >"$d/doctrine/validation-rigor.md"
   echo "# finding categorization" >"$d/doctrine/finding-categorization.md"
+  echo "# engineering decisions" >"$d/doctrine/engineering-decisions.md"
   # Gate (b): the four-file format meta-spec.
   echo "# spec format meta-spec" >"$d/doctrine/spec-format.md"
   git -C "$d" init -q
@@ -89,11 +92,46 @@ assert_exit "satisfied + attested fixture is READY" 0 "$rc"
 assert_contains "READY output says READY" "READY FOR PUBLIC RELEASE" "$out"
 
 # 3. Same fixture, condition (c) NOT attested → blocked, and the work-repo run
-#    is named as the outstanding human attestation.
+#    is named as the outstanding human attestation. The needle is specific
+#    ("work-repo run", not the generic "work" which also matches "working
+#    tree") so the assertion cannot pass for the wrong row.
 out="$("$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
 rc=$?
 assert_exit "unattested work-repo run blocks release" 1 "$rc"
-assert_contains "unattested run is named" "work" "$out"
+assert_contains "unattested run is named" "work-repo run" "$out"
+assert_contains "unattested run asks for attestation" "HUMAN ATTESTATION" "$out"
+
+# 3b. Condition (c) is equally attestable via the environment variable, not
+#     only the flag.
+out="$(RELEASE_WORKREPO_RUN_CONFIRMED=1 "$fx/scripts/release-checklist.sh" "$fx" 2>&1)"
+rc=$?
+assert_exit "env-var attestation is honored" 0 "$rc"
+assert_contains "env-var attestation reaches READY" "READY FOR PUBLIC RELEASE" "$out"
+
+# 3c. Gate (a) requires the engineering-doctrine doc too: removing it BLOCKS and
+#     the gate is named (the gate is a faithful proxy for all three doc
+#     categories it documents, not just two).
+fxa="$tmp/noeng"
+make_fixture "$fxa"
+rm "$fxa/doctrine/engineering-decisions.md"
+git -C "$fxa" add -A
+git -C "$fxa" commit -qm "drop engineering doctrine"
+out="$("$fxa/scripts/release-checklist.sh" --confirm-workrepo-run "$fxa" 2>&1)"
+rc=$?
+assert_exit "missing engineering doctrine blocks gate (a)" 1 "$rc"
+assert_contains "missing engineering doctrine is named" "engineering-decisions.md" "$out"
+
+# 3d. Gate (a) treats an empty (0-byte) rule doc as not-inlined (BLOCK), not a
+#     pass — presence alone is not enough.
+fxe="$tmp/emptydoc"
+make_fixture "$fxe"
+: >"$fxe/doctrine/validation-rigor.md"
+git -C "$fxe" add -A
+git -C "$fxe" commit -qm "empty a rule doc" --allow-empty
+out="$("$fxe/scripts/release-checklist.sh" --confirm-workrepo-run "$fxe" 2>&1)"
+rc=$?
+assert_exit "empty rule doc blocks gate (a)" 1 "$rc"
+assert_contains "empty rule doc is named" "validation-rigor.md" "$out"
 
 # 4. Missing meta-spec (gate b) blocks and is named.
 fx2="$tmp/nometa"
@@ -134,6 +172,23 @@ out="$("$fx4/scripts/release-checklist.sh" --confirm-workrepo-run "$fx4" 2>&1)"
 rc=$?
 assert_exit "non-git target does not pass blind" 1 "$rc"
 assert_contains "non-git target says so clearly" "not a git repository" "$out"
+
+# 7. Usage errors exit 2 (distinct from "not ready", exit 1), so a
+#    mis-invocation is never mistaken for a clean release verdict.
+"$SCRIPT" --bogus-flag >/dev/null 2>&1
+assert_exit "unknown flag is a usage error" 2 $?
+
+"$SCRIPT" "$REPO_ROOT" "$REPO_ROOT" >/dev/null 2>&1
+assert_exit "a second positional is a usage error" 2 $?
+
+# A second positional after the -- separator must be rejected too (not
+# silently dropped) — the -- arm shares the one-repo-dir contract.
+"$SCRIPT" -- "$REPO_ROOT" extra >/dev/null 2>&1
+assert_exit "extra positional after -- is a usage error" 2 $?
+
+# A lone repo-dir after -- is still accepted (the separator itself is fine).
+"$SCRIPT" -- "$REPO_ROOT" >/dev/null 2>&1
+assert_exit "single positional after -- is accepted (exit 1, not ready)" 1 $?
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
