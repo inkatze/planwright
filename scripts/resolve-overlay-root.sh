@@ -154,7 +154,7 @@ if [ "${1:-}" = "--contain" ]; then
   # of "/" joins to "/leaf", not "//leaf" (a leading "//" is implementation-
   # defined in POSIX), mirroring canon_path's own join.
   canon_cand=$(canon_path "${root%/}/$cand") || {
-    echo "planwright: cannot resolve path '$cand' under overlay root '$root' (no such parent directory)" >&2
+    echo "planwright: cannot resolve path '$cand' under overlay root '$root' (its parent directory could not be resolved, or a symlink chain ran away)" >&2
     exit 2
   }
   # Contained iff canon_cand equals canon_root or sits under it. Build the
