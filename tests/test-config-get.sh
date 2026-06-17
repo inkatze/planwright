@@ -191,6 +191,7 @@ run4() {
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
     /bin/bash "$CG" "$@"
 }
 
