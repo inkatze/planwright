@@ -389,6 +389,36 @@ run2=$("$script" "$fix")
 [ "$run1" = "$run2" ] || fail "model output is not deterministic across runs"
 
 # ---------------------------------------------------------------------------
+# 11. Inline citation annotation: a requirement whose `*(Cites: ...)*`
+# annotation sits on the bullet line (a meta-spec-valid form) keeps its plain
+# text and does not emit a self-citation edge. The citation tokens are still
+# extracted; the requirement's own id is never one of them.
+# ---------------------------------------------------------------------------
+inline="$tmp/inline/demo"
+mkdir -p "$inline"
+cat >"$inline/requirements.md" <<'EOF'
+# Inline — Requirements
+
+**Status:** Active
+**Format-version:** 1
+
+## REQ-A — group
+
+- **REQ-A1.1** The thing SHALL exist. *(Cites: D-1, D-2.)*
+EOF
+run_m 0 "$inline"
+# The text survives even though the citation rode the same line.
+rec REQ REQ-A1.1 A live "The thing SHALL exist."
+# The citations are still edges...
+rec REQCITE REQ-A1.1 D-1
+rec REQCITE REQ-A1.1 D-2
+# ...but the requirement never cites itself.
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "REQCITE" && $2 == "REQ-A1.1" && $3 == "REQ-A1.1" { f = 1 }
+    END { exit(f ? 1 : 0) }' \
+  || fail "inline-Cites requirement emitted a self-citation edge"
+
+# ---------------------------------------------------------------------------
 # 1. Real-bundle round-trip (bootstrap): the model's record counts equal an
 # independent grep of the source, and every dependency edge is reachable.
 # This is the Done-when condition exercised against a real bundle.

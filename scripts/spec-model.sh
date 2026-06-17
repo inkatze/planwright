@@ -132,13 +132,16 @@ awk_clean='
     # Extract every D-id and REQ-id token from a Cites/Citations annotation and
     # emit one edge per token. A consumer scopes to the bundle by intersecting
     # with the emitted id set; cross-spec carry references are recorded, not
-    # silently dropped (losslessness, D-2).
+    # silently dropped (losslessness, D-2). The owners own id is skipped: a
+    # requirement bullet carries its id on the same line as an inline citation,
+    # and an element never cites itself.
     gsub(/[^A-Za-z0-9.-]+/, " ", line)
     n = split(line, t, " ")
     for (i = 1; i <= n; i++) {
       tok = t[i]
       sub(/\.$/, "", tok)
-      if (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z]+[0-9]+\.[0-9]+$/)
+      if (tok == owner) continue
+      if (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/)
         printf "%s\t%s\t%s\n", tag, owner, tok
     }
   }
@@ -151,9 +154,20 @@ awk_clean='
 # internal vocabulary (REQ-C1.1) and the back-pointer is separable (REQ-D1.3).
 parse_requirements() {
   awk "$awk_clean"'
+    # Drop the trailing `*(Cites: ...)*` annotation (always the final element of
+    # a requirement, by convention) and any `**Superseded-by: ...**` marker from
+    # the plain text: the citation tokens and the superseded state are carried as
+    # separate columns/edges, so the text column stays free of internal
+    # vocabulary (REQ-C1.1) whether the annotation rides its own line or the
+    # bullet line.
+    function strip_annot(s) {
+      sub(/\*\(Cites:.*/, "", s)
+      gsub(/\*\*Superseded-by:[^*]*\*\*/, "", s)
+      return s
+    }
     function flush(   g) {
       if (cur == "") return
-      if (match(cur, /^REQ-[A-Z]+/)) g = substr(cur, 5, RLENGTH - 4)
+      if (match(cur, /^REQ-[A-Z]/)) g = substr(cur, 5, RLENGTH - 4)
       else g = ""
       printf "REQ\t%s\t%s\t%s\t%s\n", cur, g, (sup ? "superseded" : "live"), clean(text)
       cur = ""
@@ -162,12 +176,11 @@ parse_requirements() {
     !ingroup { next }
     /^- / {
       flush()
-      if (match($0, /^- \*\*REQ-[A-Z]+[0-9]+\.[0-9]+\*\*/)) {
+      if (match($0, /^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*/)) {
         cur = substr($0, 5, RLENGTH - 6)
-        text = substr($0, RLENGTH + 1)
-        sup = 0
-        if ($0 ~ /\*\*Superseded-by: REQ-/) sup = 1
-        if ($0 ~ /\(Cites:/) { emit_cites(cur, "REQCITE", $0); text = "" }
+        sup = ($0 ~ /\*\*Superseded-by: REQ-/) ? 1 : 0
+        if ($0 ~ /\(Cites:/) emit_cites(cur, "REQCITE", $0)
+        text = strip_annot(substr($0, RLENGTH + 1))
         next
       }
       # A non-REQ bullet inside a REQ group ends any open record; its prose is
@@ -175,9 +188,10 @@ parse_requirements() {
       next
     }
     cur != "" {
-      if ($0 ~ /\*\*Superseded-by: REQ-/) { sup = 1; next }
-      if ($0 ~ /\(Cites:/) { emit_cites(cur, "REQCITE", $0); next }
-      text = text " " $0
+      if ($0 ~ /\*\*Superseded-by: REQ-/) sup = 1
+      if ($0 ~ /\(Cites:/) emit_cites(cur, "REQCITE", $0)
+      r = strip_annot($0)
+      if (r != "") text = text " " r
     }
     END { flush() }
   ' "$1"
@@ -195,7 +209,7 @@ parse_design() {
       fld = ""
       fbuf = ""
     }
-    function flush_dec(   line, origin, title) {
+    function flush_dec() {
       flush_field()
       cur = ""
     }
@@ -308,7 +322,7 @@ parse_tasks() {
 parse_test_spec() {
   awk '
     /^### / {
-      if (match($0, /REQ-[A-Z]+[0-9]+\.[0-9]+/))
+      if (match($0, /REQ-[A-Z][0-9]+\.[0-9]+/))
         printf "TEST\t%s\n", substr($0, RSTART, RLENGTH)
     }
   ' "$1"
