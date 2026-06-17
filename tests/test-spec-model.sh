@@ -467,4 +467,109 @@ model:
 $model_edges"
 fi
 
+# ---------------------------------------------------------------------------
+# 12. Status auto-detection edges (graceful, never a refusal). When
+# requirements.md is absent, the first sibling that declares a Status stands
+# in; when requirements.md is present but declares no Status, the value is
+# reported "(undeclared)" rather than masked or borrowed from a sibling.
+# ---------------------------------------------------------------------------
+# requirements.md absent: a sibling's Status stands in. design.md here carries
+# no Status, so the fallback walks on to tasks.md (the first sibling that
+# declares one), proving the loop does not stop at a Status-less sibling.
+sfb="$tmp/statusfallback/demo"
+mkdir -p "$sfb"
+cat >"$sfb/design.md" <<'EOF'
+# Fallback — Design
+
+**Format-version:** 1
+
+### D-1: Only decision  (N)
+
+**Decision:** stand up the thing.
+EOF
+cat >"$sfb/tasks.md" <<'EOF'
+# Fallback — Tasks
+
+**Status:** Draft
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — only
+
+- **Done when:** the thing exists.
+EOF
+run_m 0 "$sfb"
+rec FILE requirements absent
+rec BUNDLE demo Draft
+# The records from the files that are present still emit.
+rec DEC D-1 N
+rec TASK 1 "Forward plan"
+
+# requirements.md present but declaring no Status: reported "(undeclared)",
+# never borrowed from a sibling (design.md here says Active) and never masked.
+undec="$tmp/undeclared/demo"
+mkdir -p "$undec"
+cat >"$undec/requirements.md" <<'EOF'
+# Undeclared — Requirements
+
+**Format-version:** 1
+
+## REQ-A — group
+
+- **REQ-A1.1** The thing SHALL exist.
+EOF
+cat >"$undec/design.md" <<'EOF'
+# Undeclared — Design
+
+**Status:** Active
+**Format-version:** 1
+
+### D-1: A decision  (N)
+
+**Decision:** do it.
+EOF
+run_m 0 "$undec"
+rec BUNDLE demo "(undeclared)"
+rec REQ REQ-A1.1 A live
+
+# ---------------------------------------------------------------------------
+# 13. Task-id grammar edges: a dotted task id (and a dotted dependency token)
+# round-trip, and a non-numeric "### Task" heading is skipped (no TASK record)
+# without breaking section tracking for the next valid task.
+# ---------------------------------------------------------------------------
+tid="$tmp/taskids/demo"
+mkdir -p "$tid"
+cat >"$tid/tasks.md" <<'EOF'
+# Task-ids — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 3.5 — dotted
+
+- **Dependencies:** 2.1
+- **Done when:** the dotted task exists.
+
+### Task Orphan — not a numeric id
+
+- **Done when:** never modelled.
+
+### Task 4 — after the orphan
+
+- **Done when:** the section survived.
+EOF
+run_m 0 "$tid"
+# Dotted id and dotted dependency token both round-trip.
+rec TASK 3.5 "Forward plan" dotted
+rec TASKDEP 3.5 2.1
+# The non-numeric heading emits no TASK record, and the following valid task
+# still carries its section (the section context survived the skipped task).
+[ "$(count_tag TASK)" -eq 2 ] \
+  || fail "non-numeric task heading should not emit a TASK record: got $(count_tag TASK)"
+rec TASK 4 "Forward plan" "after the orphan"
+lacks Orphan
+
 echo "PASS: test-spec-model.sh"
