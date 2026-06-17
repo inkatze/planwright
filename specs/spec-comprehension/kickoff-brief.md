@@ -173,7 +173,7 @@ Signed off: 2026-06-16
 - **REQ-E1.4 (fixed).** Was a latent dead path: the artifact is gitignored and
   CI-absent, so the repo-wide gitleaks scan never sees it. Test-spec entry
   sharpened to generate an artifact and scan that path directly
-  (`gitleaks --no-git <path>`); Changelog entry recorded. Binds Task 11.
+  (`gitleaks detect --no-git --source <path>`); Changelog entry recorded. Binds Task 11.
 - **REQ-C1.1 (note, not dead).** The "no internal vocabulary" test must scope to
   the *default* (non-revealed) view; the reveal view legitimately contains IDs.
   Recorded for Task 3 / Task 11.

@@ -243,7 +243,7 @@ builds on. It is read-only and never advances the pipeline.
   changed.
 - 2026-06-16: `/spec-kickoff` first-activation walkthrough. Sharpened the
   REQ-E1.4 test-spec entry to scan the generated artifact directly
-  (`gitleaks --no-git <path>`), since the gitignored artifact is invisible to
+  (`gitleaks detect --no-git --source <path>`), since the gitignored artifact is invisible to
   the repo-wide scan (was a latent dead path). No requirement meaning changed.
 - 2026-06-16: `/spec-kickoff` first-activation walkthrough. Clarified D-7: the
   "used CSS" subset is curated/built at plugin-ship time and inlined as a static
