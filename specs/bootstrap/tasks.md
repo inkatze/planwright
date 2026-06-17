@@ -39,6 +39,8 @@ first.
 
 ## Forward plan
 
+## In progress
+
 ### Task 19 — Packaging finalization & onboarding docs
 
 - **Deliverables:** Finalized plugin manifest + `~/.claude/` writer; adopter onboarding docs
@@ -57,8 +59,10 @@ first.
 - **Dependencies:** 16, 17
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
-
-## In progress
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-19` · dispatched 2026-06-17T03:21Z ·
+  branch `planwright/bootstrap/task-19` · worktree `.claude/worktrees/task-19`
 
 ## Awaiting input
 
