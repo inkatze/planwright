@@ -255,6 +255,28 @@ No open questions remain unresolved.
 
 Signed off: 2026-06-16
 
+### Task 1 — execution research & security pass (2026-06-16)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 1 handles untrusted input (the spec-path argument) and path
+handling (resolving `specs/<spec>`) — the `security-posture` write-time trigger
+classes. Light research: the canonical in-repo posture, not a new pattern.
+
+**Sources consulted.** `scripts/spec-validate.sh` (the canonical
+framework-script: `check_spec_id`, the echo-discipline `first_header`,
+C-locale pinning), the `security-posture` doctrine doc, and REQ-A1.6.
+
+**Pass applied (no new risk surfaced).** Identifier charset-validated
+(`^[a-z0-9][a-z0-9-]*$`, ≤64) **before** the string is ever used as a path;
+the slash a multi-component or traversal path carries is outside the charset,
+so the same check rejects `../x`, `a/b`, and `specs/a/b`. The resolved bundle
+path is containment-checked against the real `specs/` tree (a symlink escaping
+specs/ is refused). Hostile input is never echoed back and never becomes a
+path (refusal is exit 2, distinct from content-level degradation at exit 1).
+The scaffold writes nothing (read-only, REQ-A1.3). No risk beyond what the
+register and REQ-A1.6 already anticipate; recorded for the audit trail.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)
