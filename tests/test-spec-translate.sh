@@ -332,6 +332,26 @@ printf '%s\n' "$out" \
 rec NORM "D-2#chosen" 1 SHALL
 
 # ---------------------------------------------------------------------------
+# 12. Threshold precision (REQ-C1.7): a comparator threshold is a normative
+# token that SHALL be preserved verbatim and marked. A decimal threshold
+# (≥ 0.95, ≤ 2.5) must be marked in full — truncating the fractional part to a
+# bare integer (≥ 0) softens the very precision the mark exists to anchor, and
+# diverges from the sibling [0-9]+(\.[0-9]+)? numeric convention in
+# scripts/spec-model.sh. The plain column keeps the decimal verbatim regardless
+# (the scrub never touches digits); this guards the NORM mark itself.
+# ---------------------------------------------------------------------------
+IN="REQ$(t)REQ-A1.4$(t)A$(t)live$(t)Coverage MUST be ≥ 0.95 and latency SHALL stay <= 2.5 seconds."
+run_stdin 0
+rec NORM REQ-A1.4 1 MUST
+rec NORM REQ-A1.4 2 SHALL
+# The decimal thresholds are marked in full, not truncated to the integer part.
+rec NORM REQ-A1.4 3 "≥ 0.95"
+rec NORM REQ-A1.4 4 "<= 2.5"
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "NORM" && $2 == "REQ-A1.4" && ($4 == "≥ 0" || $4 == "<= 2") { f = 1 } END { exit(f ? 1 : 0) }' \
+  || fail "a decimal threshold was truncated to its integer part in the NORM mark"
+
+# ---------------------------------------------------------------------------
 # 8. Graceful degradation.
 # ---------------------------------------------------------------------------
 IN=""

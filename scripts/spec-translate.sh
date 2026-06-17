@@ -124,7 +124,7 @@ awk_prog='
       rest = substr(rest, adv)
     }
     rest = s
-    while (match(rest, /(<=|>=|≤|≥|<|>)[ ]*[0-9]+/)) {
+    while (match(rest, /(<=|>=|≤|≥|<|>)[ ]*[0-9]+(\.[0-9]+)?/)) {
       ord++
       printf "NORM\t%s\t%d\t%s\n", ref, ord, substr(rest, RSTART, RLENGTH)
       rest = substr(rest, RSTART + RLENGTH)
