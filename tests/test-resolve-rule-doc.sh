@@ -328,30 +328,18 @@ if [ "$(id -u 2>/dev/null)" != "0" ]; then
   printf 'unreadable\n' >"$ovrepo/.claude/doctrine/unread2.md"
   chmod 000 "$ovrepo/.claude/doctrine/unread2.md"
   ov unread2 >/dev/null 2>&1
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    echo "ok: unreadable repo-tracked file hard-fails (exit $rc)"
-  else
-    echo "FAIL: unreadable repo-tracked file did not hard-fail (exit 0)" >&2
-    failures=$((failures + 1))
-  fi
+  assert "unreadable repo-tracked file hard-fails (exit 3)" 3 $?
   chmod 644 "$ovrepo/.claude/doctrine/unread2.md"
   rm "$ovrepo/.claude/doctrine/unread2.md"
 else
   echo "ok: unreadable-file malformed cases skipped under root (mode 000 is readable)"
 fi
 
-# 18c. Malformed repo-tracked overlay hard-fails with a nonzero exit (a broken
+# 18c. Malformed repo-tracked overlay hard-fails with exit 3 (a broken
 #      team-shared overlay must not silently degrade).
 mkdir -p "$ovrepo/.claude/doctrine/malf2.md"
 ov malf2 >/dev/null 2>&1
-rc=$?
-if [ "$rc" -ne 0 ]; then
-  echo "ok: malformed repo-tracked hard-fails (exit $rc)"
-else
-  echo "FAIL: malformed repo-tracked did not hard-fail (exit 0)" >&2
-  failures=$((failures + 1))
-fi
+assert "malformed repo-tracked hard-fails (exit 3)" 3 $?
 err="$(ov malf2 2>&1 >/dev/null)"
 case "$err" in
   *repo-tracked*malformed*) echo "ok: repo-tracked hard-fail names the layer and cause" ;;
