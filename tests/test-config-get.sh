@@ -504,11 +504,31 @@ rc=0
 err=$(run_broken dispatch_backend 2>&1 >/dev/null) || rc=$?
 out=$(run_broken dispatch_backend 2>/dev/null)
 nwarn=$(printf '%s\n' "$err" | grep -c 'overlay resolver' || true)
-rm -rf "$bin"
 [ "$rc" = 0 ] || fail "broken resolver: exit $rc, expected 0 (degrade to core)"
 [ "$out" = core_v ] || fail "broken resolver: did not degrade to core (got '$out')"
 [ "$nwarn" = 1 ] \
   || fail "broken resolver: expected exactly 1 'overlay resolver' warning, got $nwarn (per-call noise?)"
 echo "ok: a missing/non-executable overlay resolver warns once and degrades to core"
+
+# REQ-K1.6 — the warn-once message claims only the *resolver-derived* layers are
+# unavailable; the legacy PLANWRIGHT_LOCAL_CONFIG override is an explicit path
+# that never goes through the resolver, so it must still be honored when the
+# resolver is missing. (Guards against a future "fix" that disables the override
+# to make the older, broader wording true.)
+legacy_local="$ov/legacy-local.yml"
+printf 'dispatch_backend: legacy_v\n' >"$legacy_local"
+run_broken_legacy() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="$legacy_local" \
+    /bin/bash "$bin/scripts/config-get.sh" "$@"
+}
+got=$(run_broken_legacy dispatch_backend 2>/dev/null)
+rm -f "$legacy_local"
+rm -rf "$bin"
+[ "$got" = legacy_v ] \
+  || fail "broken resolver + PLANWRIGHT_LOCAL_CONFIG: legacy override not honored (got '$got', expected legacy_v)"
+echo "ok: a missing resolver still honors an explicit PLANWRIGHT_LOCAL_CONFIG override"
 
 echo "PASS: config-get"

@@ -122,17 +122,22 @@ else
   done
 fi
 
-# The Task 2 primitive is the single source of overlay-layer locations and must
+# The Task 2 primitive is the single source of overlay-layer *locations* and must
 # be present and executable. If it is missing or non-executable (a broken or
-# partial install), warn ONCE here and treat every overlay layer as unavailable,
-# degrading to the core defaults — rather than emitting the same shell error on
-# each of the three overlay_root calls below (REQ-K1.6 graceful degradation;
-# mirrors the warn-once `-x` guard in resolve-rule-doc.sh). We test -x, not -f,
-# so a present-but-non-executable helper takes the warn-and-degrade path too.
+# partial install), warn ONCE here and treat every resolver-derived overlay layer
+# as unavailable, degrading toward the core defaults — rather than emitting the
+# same shell error on each of the three overlay_root calls below (REQ-K1.6
+# graceful degradation; mirrors the warn-once `-x` guard in resolve-rule-doc.sh).
+# We test -x, not -f, so a present-but-non-executable helper takes the same
+# warn-and-degrade path. Note this disables only the layers the resolver locates
+# (adopter, repo-tracked, and the *derived* machine-local path); the legacy
+# PLANWRIGHT_LOCAL_CONFIG override is an explicit path that never goes through the
+# resolver, so a caller that sets it still gets its machine-local layer (the
+# message says so, to avoid misleading an operator who relies on it).
 overlay_resolver="$script_dir/resolve-overlay-root.sh"
 overlay_resolver_ok=1
 if [ ! -x "$overlay_resolver" ]; then
-  echo "config-get: warning: overlay resolver '$overlay_resolver' is missing or not executable; treating all overlay layers as absent (resolving from core defaults only)" >&2
+  echo "config-get: warning: overlay resolver '$overlay_resolver' is missing or not executable; resolver-derived overlay layers (adopter, repo-tracked, machine-local) are unavailable, resolving from core defaults (an explicit PLANWRIGHT_LOCAL_CONFIG override, if set, is still honored)" >&2
   overlay_resolver_ok=0
 fi
 
