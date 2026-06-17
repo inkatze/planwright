@@ -91,6 +91,16 @@ first_header() {
   ' "$1"
 }
 
+# sanitize_echo <string> — strip control characters before echoing untrusted
+# content (the spec-validate echo discipline: a hostile value must not reach the
+# terminal raw, where escape sequences could manipulate it), with a placeholder
+# when nothing printable remains. Display only; logic uses the raw value.
+sanitize_echo() {
+  se=$(printf '%s' "$1" | tr -d '\000-\037\177')
+  [ -n "$se" ] || se="(unprintable)"
+  printf '%s' "$se"
+}
+
 # join_lines — read a newline list on stdin, print it ", "-joined on one line.
 join_lines() {
   awk '{ if (seen) printf ", "; printf "%s", $0; seen = 1 } END { if (seen) printf "\n" }'
@@ -133,7 +143,7 @@ case $spec in
   specs/*) spec=${spec#specs/} ;;
 esac
 if ! check_spec_id "$spec"; then
-  echo "spec-walkthrough: invalid spec identifier (must match ^[a-z0-9][a-z0-9-]\$, max length 64); refused before any read" >&2
+  echo "spec-walkthrough: invalid spec identifier (must match ^[a-z0-9][a-z0-9-]*\$, max length 64); refused before any read" >&2
   exit 2
 fi
 
@@ -182,12 +192,14 @@ if [ -z "$present" ]; then
 fi
 
 # Status (auto-detected; status-agnostic, never a refusal). Authoritative home
-# is requirements.md; fall back to the first sibling mirror that declares one.
+# is requirements.md; only when it is absent does a sibling mirror stand in.
 status=
 if [ -f "$bundle_dir/requirements.md" ]; then
+  # requirements.md is the authoritative Status home; an empty value there is
+  # reported as undeclared rather than masked by a sibling mirror.
   status=$(first_header "$bundle_dir/requirements.md" Status)
-fi
-if [ -z "$status" ]; then
+else
+  # Authoritative home absent: derive from the first sibling that declares one.
   for f in design.md tasks.md test-spec.md; do
     [ -f "$bundle_dir/$f" ] || continue
     status=$(first_header "$bundle_dir/$f" Status)
@@ -213,6 +225,10 @@ decision_ids() {
 }
 
 scope_label=
+# The raw selector is echoed back in degradation messages; sanitize the display
+# copy so a hostile --scope value cannot reach the terminal raw. Logic below
+# still matches on the raw $scope.
+scope_safe=$(sanitize_echo "$scope")
 case ${scope:-whole} in
   whole | "")
     scope_label="whole bundle"
@@ -225,12 +241,12 @@ case ${scope:-whole} in
         if [ -f "$bundle_dir/$name.md" ]; then
           scope_label="file $name.md"
         else
-          echo "spec-walkthrough: scope '$scope' names a file absent from specs/$spec; available files: $present" >&2
+          echo "spec-walkthrough: scope '$scope_safe' names a file absent from specs/$spec; available files: $present" >&2
           exit 1
         fi
         ;;
       *)
-        echo "spec-walkthrough: scope '$scope' names no source file; available files: $present" >&2
+        echo "spec-walkthrough: scope '$scope_safe' names no source file; available files: $present" >&2
         exit 1
         ;;
     esac
@@ -239,14 +255,14 @@ case ${scope:-whole} in
     group=${scope#reqs:}
     case $group in
       "" | *[!A-Z]*)
-        echo "spec-walkthrough: scope '$scope' is not a requirement group (expected reqs:<GROUP>); available groups: $(req_groups)" >&2
+        echo "spec-walkthrough: scope '$scope_safe' is not a requirement group (expected reqs:<GROUP>); available groups: $(req_groups)" >&2
         exit 1
         ;;
     esac
     if grep -qE "^## REQ-$group( |\$)" "$bundle_dir/requirements.md" 2>/dev/null; then
       scope_label="requirement group $group"
     else
-      echo "spec-walkthrough: scope '$scope' resolves to no requirement group in specs/$spec; available groups: $(req_groups)" >&2
+      echo "spec-walkthrough: scope '$scope_safe' resolves to no requirement group in specs/$spec; available groups: $(req_groups)" >&2
       exit 1
     fi
     ;;
@@ -272,19 +288,19 @@ case ${scope:-whole} in
     did=${did#d-}
     case $did in
       "" | *[!0-9]*)
-        echo "spec-walkthrough: scope '$scope' is not a decision id (expected decision:<id>); available decisions: $(decision_ids)" >&2
+        echo "spec-walkthrough: scope '$scope_safe' is not a decision id (expected decision:<id>); available decisions: $(decision_ids)" >&2
         exit 1
         ;;
     esac
     if grep -qE "^### D-$did:" "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision D-$did"
     else
-      echo "spec-walkthrough: scope '$scope' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
+      echo "spec-walkthrough: scope '$scope_safe' resolves to no decision in specs/$spec; available decisions: $(decision_ids)" >&2
       exit 1
     fi
     ;;
   *)
-    echo "spec-walkthrough: unknown scope '$scope'; valid scopes: whole, file:<name>, reqs:<group>, decisions, tasks, decision:<id>" >&2
+    echo "spec-walkthrough: unknown scope '$scope_safe'; valid scopes: whole, file:<name>, reqs:<group>, decisions, tasks, decision:<id>" >&2
     exit 1
     ;;
 esac

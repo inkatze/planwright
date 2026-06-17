@@ -174,7 +174,7 @@ has "requirements.md"
 has "design.md"
 has "tasks.md"
 has "test-spec.md"
-has "reveal"
+has "reveal: off"
 
 # The `specs/<spec>` invocation form is accepted identically.
 run_w 0 "$ws" specs/demo
@@ -190,6 +190,32 @@ for st in Draft Active Done Retired Superseded; do
   run_w 0 "$wsx" demo
   has "$st"
 done
+
+# When requirements.md is absent, the status falls back to a sibling mirror
+# that declares one.
+fbws="$tmp/fallback"
+mkdir -p "$fbws/specs/demo"
+make_bundle "$fbws/specs" demo Done
+rm "$fbws/specs/demo/requirements.md"
+run_w 0 "$fbws" demo
+has "Done"
+has "missing"
+
+# requirements.md present but its Status value is empty: reported as undeclared,
+# not masked by a sibling mirror (requirements.md is authoritative).
+emws="$tmp/emptystatus"
+mkdir -p "$emws/specs/demo"
+make_bundle "$emws/specs" demo Active
+# Blank out only the requirements.md Status value; design.md still says Active.
+{
+  printf '# Fixture — Requirements\n\n'
+  printf '**Status:**\n'
+  printf '**Format-version:** 1\n\n'
+  printf '## REQ-A — group\n\n- **REQ-A1.1** A thing SHALL exist. *(Cites: D-1.)*\n'
+} >"$emws/specs/demo/requirements.md"
+run_w 0 "$emws" demo
+has "undeclared"
+lacks "status: Active"
 
 # ---------------------------------------------------------------------------
 # 3. Strictly read-only: the git work tree stays clean after a run.
@@ -221,6 +247,8 @@ run_w 2 "$ws"
 run_w 2 "$ws" --bogus demo
 # A scope flag with no value is a usage refusal.
 run_w 2 "$ws" --scope
+# A scope flag with a value but no spec-path is a usage refusal.
+run_w 2 "$ws" --scope reqs:A
 # Two positional spec-paths is a usage refusal.
 run_w 2 "$ws" demo demo
 
@@ -271,22 +299,33 @@ cat >"$pws/specs/half/design.md" <<'EOF'
 **Chosen because:** needed.
 EOF
 run_w 0 "$pws" half
-has "requirements.md"
-has "design.md"
-# tasks.md and test-spec.md are named as missing.
-has "tasks.md"
-has "test-spec.md"
-has "missing"
+has "partial"
+# Structure-aware: the present files and the missing files land in their own
+# labeled lists, not merely somewhere in the output.
+has "files present: requirements.md, design.md"
+has "files missing: tasks.md, test-spec.md"
+
+# An empty bundle directory (present, but none of the four files) degrades with
+# a clear message rather than rendering nothing.
+ews="$tmp/empty"
+mkdir -p "$ews/specs/hollow"
+run_w 1 "$ews" hollow
+has "hollow"
+has "none of the four"
 
 # ---------------------------------------------------------------------------
 # 7. Scope selectors parse, resolve, and degrade with available scopes.
 # ---------------------------------------------------------------------------
 run_w 0 "$ws" --scope file:design demo
+# The .md suffix on a file selector is accepted (normalized away).
+run_w 0 "$ws" --scope file:requirements.md demo
 run_w 0 "$ws" --scope reqs:A demo
 run_w 0 "$ws" --scope decisions demo
 run_w 0 "$ws" --scope tasks demo
 run_w 0 "$ws" --scope decision:1 demo
 run_w 0 "$ws" --scope decision:D-2 demo
+# A lowercase d- prefix on a decision selector resolves the same as D-.
+run_w 0 "$ws" --scope decision:d-1 demo
 
 # A charset-valid scope that resolves to nothing names the available scopes.
 run_w 1 "$ws" --scope file:nope demo
@@ -312,6 +351,10 @@ run_w 2 "$ws" foo/bar
 lacks "foo/bar"
 run_w 2 "$ws" specs/foo/bar
 lacks "foo/bar"
+# A leading dash that reaches the charset check (via the specs/ form) is a clean
+# refusal, not echoed back.
+run_w 2 "$ws" specs/-leadingdash
+lacks "leadingdash"
 big=$(printf 'a%.0s' $(seq 1 65))
 run_w 2 "$ws" "$big"
 
@@ -323,5 +366,15 @@ if command -v ln >/dev/null 2>&1; then
   ln -s "$tmp/outside/escapee" "$sws/specs/escapee"
   run_w 2 "$sws" escapee
 fi
+
+# ---------------------------------------------------------------------------
+# 9. Echo discipline: a hostile --scope value is sanitized before it is echoed
+# back, so control characters cannot reach the terminal raw. The ctrl byte
+# between "wat" and "x" is stripped, so the sanitized "watx" appears as a
+# contiguous token only if sanitization ran.
+# ---------------------------------------------------------------------------
+ctrl=$(printf 'wat\001x')
+run_w 1 "$ws" --scope "$ctrl" demo
+has "watx"
 
 echo "PASS: test-spec-walkthrough.sh"
