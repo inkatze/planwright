@@ -184,6 +184,12 @@ out="$(base PLANWRIGHT_REPO_ROOT="$tmp/repo" /bin/bash "$RESOLVER" machine-local
 assert "machine-local resolves" 0 $?
 assert_eq "machine-local root" "$tmp/repo/.claude" "$out"
 
+# A repo root of exactly "/" must yield "/.claude", not "//.claude" (a leading
+# "//" is implementation-defined in POSIX) — F3.
+out="$(base PLANWRIGHT_REPO_ROOT=/ /bin/bash "$RESOLVER" repo-tracked)"
+assert "repo-tracked at filesystem root resolves" 0 $?
+assert_eq "repo-tracked '/' root has no double slash" "/.claude" "$out"
+
 # Outside any git repo and with no override: both degrade to absent.
 out="$(cd "$tmp" && base /bin/bash "$RESOLVER" repo-tracked)"
 assert "repo-tracked outside a repo degrades (zero exit)" 0 $?

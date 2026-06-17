@@ -230,9 +230,11 @@ case $layer in
 
   repo-tracked | machine-local)
     # Both repo-side layers live under <repo>/.claude (D-4); the kind resolver
-    # selects the tracked vs .local-suffixed file/dir within it.
+    # selects the tracked vs .local-suffixed file/dir within it. Strip a trailing
+    # slash so a repo root of "/" yields "/.claude", not "//.claude" (a leading
+    # "//" is implementation-defined in POSIX), mirroring canon_path's join.
     if [ -n "$repo_root" ]; then
-      printf '%s\n' "$repo_root/.claude"
+      printf '%s\n' "${repo_root%/}/.claude"
     fi
     exit 0
     ;;

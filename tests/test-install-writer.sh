@@ -81,16 +81,20 @@ assert "writer-mode resolution works post-install" 0 $?
 #     deliverables — install.sh copies the manifest, resolve-overlay-root.sh
 #     reads its `name`.
 OVERLAY_RESOLVER="$claude_dir/planwright/scripts/resolve-overlay-root.sh"
-manifest_name="$(tr ',' '\n' <"$claude_dir/planwright/plugin.json" | tr '{' '\n' \
-  | sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
 out="$(env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA \
   -u PLANWRIGHT_ADOPTER_OVERLAY CLAUDE_DIR="$claude_dir" \
   /bin/bash "$OVERLAY_RESOLVER" adopter)"
 assert "writer-mode adopter root resolves post-install" 0 $?
-if [ "$out" = "$claude_dir/planwright/$manifest_name/overlay" ]; then
+# Assert against the manifest's top-level "name" ("planwright") as a hardcoded
+# constant — do NOT re-derive it with the resolver's own tr|tr|sed pipeline:
+# computing the expected value the same way would mask a shared parsing bug. The
+# real manifest also carries a nested author."name", which the resolver must NOT
+# pick; the hardcoded constant catches such a regression. Update if the manifest
+# `name` changes.
+if [ "$out" = "$claude_dir/planwright/planwright/overlay" ]; then
   echo "ok: installed manifest drives the writer-mode adopter namespace"
 else
-  echo "FAIL: writer-mode adopter root '$out' != '$claude_dir/planwright/$manifest_name/overlay'" >&2
+  echo "FAIL: writer-mode adopter root '$out' != '$claude_dir/planwright/planwright/overlay'" >&2
   failures=$((failures + 1))
 fi
 
