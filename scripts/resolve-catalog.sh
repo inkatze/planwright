@@ -136,16 +136,28 @@ esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 overlay_root="$script_dir/resolve-overlay-root.sh"
-if [ ! -x "$overlay_root" ] && [ ! -r "$overlay_root" ]; then
-  echo "resolve-catalog: overlay-root primitive not found at $overlay_root" >&2
+# /bin/sh runs the primitive, so readability (not the execute bit) is what it
+# needs.
+if [ ! -r "$overlay_root" ]; then
+  echo "resolve-catalog: overlay-root primitive not found or unreadable at $overlay_root" >&2
   exit 1
 fi
-root_of() { /bin/sh "$overlay_root" "$1" 2>/dev/null; }
 
-core_root=$(root_of core)
-adopter_root=$(root_of adopter)
-repo_root=$(root_of repo-tracked)
-local_root=$(root_of machine-local)
+# Resolve one layer root via the Task 2 primitive. Its stderr (e.g. an invalid
+# adopter-manifest-name warning) flows to the user rather than being swallowed;
+# a nonzero exit is a real fault in the primitive (its own usage/path-escape, or
+# corruption) — never a normal absent layer, which it reports as empty stdout
+# with exit 0 — so surface it loudly instead of silently degrading the layer.
+fail_layer() {
+  echo "resolve-catalog: $name: overlay-root resolution failed for layer '$1'" >&2
+  exit 1
+}
+root_of() { /bin/sh "$overlay_root" "$1"; }
+
+core_root=$(root_of core) || fail_layer core
+adopter_root=$(root_of adopter) || fail_layer adopter
+repo_root=$(root_of repo-tracked) || fail_layer repo-tracked
+local_root=$(root_of machine-local) || fail_layer machine-local
 
 # Per-layer catalog file path (empty when the layer root is absent).
 core_file="${core_root:+$core_root/config/$name.yaml}"
