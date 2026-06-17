@@ -40,6 +40,15 @@
 #       spec directory fails closed (exit 2) like the upstream chain.
 #  10.  Stream hygiene + determinism: every ONEPAGER record has exactly seven
 #       tab-separated fields and the frame eight; two runs are byte-identical.
+#  11.  Tie-break stability (REQ-C1.2 ranking): two requirements with equal
+#       load-bearing scores keep document order, so the ranking is canonical and
+#       deterministic — an unstable sort that reordered ties would be caught.
+#  12.  Killer-set correctness on a real bundle (REQ-C1.2): the foregrounded
+#       killer set equals the top-scored live requirements computed independently
+#       from the same stream, not merely "some items are marked killer."
+#  13.  Ordinal integrity: the ONEPAGER ordinals are exactly 1..shown with no
+#       gap, duplicate, or reversal; and no killer item carries a zero score (the
+#       score >= 1 foregrounding threshold holds, not just the fixture's layout).
 #
 # Runs standalone: ./tests/test-spec-onepager.sh
 set -eu
@@ -368,5 +377,122 @@ printf '%s\n' "$out" | awk -F"$tab" '
 run1=$("$script" "$specs/demo")
 run2=$("$script" "$specs/demo")
 [ "$run1" = "$run2" ] || fail "one-pager output is not deterministic"
+
+# ---------------------------------------------------------------------------
+# 11. Tie-break stability: equal-score requirements keep document order. Two
+# requirements each cited by exactly one task share score 1; the document-
+# earlier one must rank first. An unstable sort (shifting on <= instead of <)
+# would let the later one overtake — this fixture is the guard against that.
+# ---------------------------------------------------------------------------
+tiews="$tmp/ties"
+mkdir -p "$tiews/specs/demo"
+cat >"$tiews/specs/demo/requirements.md" <<'EOF'
+# Tie — Requirements
+
+**Status:** Active
+**Format-version:** 1
+
+## REQ-A — group
+
+- **REQ-A1.1** The earlier thing SHALL exist. *(Cites: D-1.)*
+- **REQ-A1.2** The later thing SHALL exist. *(Cites: D-1.)*
+EOF
+cat >"$tiews/specs/demo/design.md" <<'EOF'
+# Tie — Design
+
+**Status:** Active
+**Format-version:** 1
+
+### D-1: A decision  (N)
+
+**Decision:** Decide.
+
+**Alternatives considered:**
+- Nothing. Rejected because: nothing.
+
+**Chosen because:** needed.
+EOF
+cat >"$tiews/specs/demo/tasks.md" <<'EOF'
+# Tie — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — cites the earlier
+
+- **Deliverables:** a thing.
+- **Done when:** the thing exists.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-A1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — cites the later
+
+- **Deliverables:** a thing.
+- **Done when:** the thing exists.
+- **Dependencies:** 1
+- **Citations:** D-1 · REQ-A1.2
+- **Estimated effort:** 1 day
+EOF
+cat >"$tiews/specs/demo/test-spec.md" <<'EOF'
+# Tie — Test Spec
+
+**Status:** Active
+**Format-version:** 1
+
+### REQ-A1.1 — exists [test]
+
+Assert it exists.
+EOF
+run_dir 0 "$tiews/specs/demo"
+# Both score 1; A1.1 (document-earlier) must take the lower ordinal.
+ord_a11=$(onepager_field REQ-A1.1 2)
+ord_a12=$(onepager_field REQ-A1.2 2)
+[ "$(onepager_field REQ-A1.1 5)" = "1" ] || fail "tie fixture: REQ-A1.1 score not 1: $out"
+[ "$(onepager_field REQ-A1.2 5)" = "1" ] || fail "tie fixture: REQ-A1.2 score not 1: $out"
+[ -n "$ord_a11" ] && [ -n "$ord_a12" ] && [ "$ord_a11" -lt "$ord_a12" ] \
+  || fail "tie-break did not preserve document order (A1.1 ord $ord_a11, A1.2 ord $ord_a12): $out"
+
+# ---------------------------------------------------------------------------
+# 12. Killer-set correctness on a real bundle: the marked killer set equals the
+# top KILLER_MAX live requirements by load-bearing score, computed independently
+# from the same upstream stream. This verifies the foregrounded items are the
+# *right* ones, not merely that some items are marked killer.
+# ---------------------------------------------------------------------------
+run_dir 0 "$repo_root/specs/spec-comprehension"
+# Independent expectation: rank live REQs by (score desc, document order asc)
+# straight from the translate stream the script consumes, take the top KILLER_MAX.
+expected=$("$repo_root/scripts/spec-translate.sh" "$repo_root/specs/spec-comprehension" | awk -F"$tab" -v k="$KILLER_MAX" '
+  $1=="REQ" && $4=="live" { order[++n]=$2; pos[$2]=n }
+  $1=="REQCITE" || $1=="TASKCITE" { s[$3]++ }
+  END {
+    for (i = 1; i <= n; i++) { id[i] = order[i]; sc[i] = s[order[i]] + 0 }
+    for (i = 2; i <= n; i++) {
+      ki = id[i]; ks = sc[i]; j = i - 1
+      while (j >= 1 && sc[j] < ks) { id[j+1] = id[j]; sc[j+1] = sc[j]; j-- }
+      id[j+1] = ki; sc[j+1] = ks
+    }
+    for (i = 1; i <= k && i <= n; i++) printf "%s\n", id[i]
+  }')
+# Actual killer refs in one-pager order.
+actual=$(printf '%s\n' "$out" | awk -F"$tab" '$1=="ONEPAGER" && $3=="killer"{print $4}')
+[ "$expected" = "$actual" ] \
+  || fail "killer set is not the top-scored claims; expected [$expected] got [$actual]"
+
+# ---------------------------------------------------------------------------
+# 13. Ordinal integrity + the killer score threshold.
+# ---------------------------------------------------------------------------
+run_dir 0 "$specs/demo"
+# Ordinals are exactly 1..shown: sorted numerically they form a gapless,
+# duplicate-free run starting at 1.
+printf '%s\n' "$out" | awk -F"$tab" '$1=="ONEPAGER"{print $2}' | sort -n | awk '
+  { if ($1 != NR) { print "ordinal " $1 " at position " NR; bad=1 } }
+  END { exit(bad?1:0) }
+' || fail "ONEPAGER ordinals are not the gapless sequence 1..shown: $out"
+# No killer item carries a zero score (the score >= 1 foregrounding threshold).
+zerokiller=$(printf '%s\n' "$out" | awk -F"$tab" '$1=="ONEPAGER" && $3=="killer" && $5+0==0{print $4; bad=1} END{exit(bad?1:0)}') \
+  || fail "a zero-score requirement was foregrounded as killer: [$zerokiller]"
 
 echo "PASS: test-spec-onepager.sh"
