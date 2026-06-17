@@ -85,19 +85,6 @@ run_dir() {
     || fail "dir mode: expected exit $rexp, got $rc for $2 — output: $out"
 }
 
-has() {
-  case $out in
-    *"$1"*) ;;
-    *) fail "output lacks \"$1\": $out" ;;
-  esac
-}
-
-lacks() {
-  case $out in
-    *"$1"*) fail "output unexpectedly contains \"$1\": $out" ;;
-  esac
-}
-
 # rec <field1> ... — assert a record whose leading fields match the given
 # tab-separated values exists in $out (exact per column; trailing fields
 # unconstrained). Up to five fields.
@@ -114,10 +101,6 @@ rec() {
     }
     END { exit(found ? 0 : 1) }
   ' || fail "no record matching [$*] in: $out"
-}
-
-count_tag() {
-  printf '%s\n' "$out" | awk -F"$tab" -v t="$1" '$1 == t { n++ } END { print n + 0 }'
 }
 
 # field <tag> <ref> <col> — print column <col> of the first record whose tag and
@@ -170,7 +153,7 @@ esac
 # the identifier schemes; other filenames a spec names are content the [manual]
 # readability half judges, not mechanical internal vocabulary).
 plain_leaks=$(printf '%s\n' "$out" | awk -F"$tab" '$1 == "TEXT" { print $4 }' \
-  | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+|REQ-[A-Z][^A-Za-z0-9]|D-[0-9]+|(requirements|design|tasks|test-spec)\.md|Task [0-9]+' || true)
+  | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+|REQ-[A-Z]([^A-Za-z0-9]|$)|D-[0-9]+|(requirements|design|tasks|test-spec)\.md|Task [0-9]+' || true)
 [ -z "$plain_leaks" ] || fail "fixture plain columns leak internal vocabulary: $plain_leaks"
 
 # ---------------------------------------------------------------------------
