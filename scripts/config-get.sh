@@ -198,6 +198,17 @@ malformed_config() {
   mf="$1"
   [ -f "$mf" ] || return 0
   [ -r "$mf" ] || return 0
+  # A YAML block-sequence item — a line whose first non-blank content is "- "
+  # (or a bare "-") — makes the document (or a value) a sequence, not the flat
+  # mapping this reader requires (REQ-E1.4: a mapping of keys to scalar or *inline*
+  # list values, not a top-level or block sequence). It is malformed regardless of
+  # any colon it carries, so it is checked before the structural test below (the
+  # bare colon-bearing-line rule there would otherwise accept "- key: value"). An
+  # inline flow list (`key: [a, b]`) is a normal key: value line and is unaffected
+  # — it has no leading "- ".
+  if grep -Eq '^[[:space:]]*-([[:space:]]|$)' "$mf" 2>/dev/null; then
+    return 0
+  fi
   if grep -Eqv \
     '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*(#.*)?$|^[^[:space:]].*:' \
     "$mf" 2>/dev/null; then

@@ -321,6 +321,38 @@ got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
   || fail "doc marker with trailing comment: expected repo_v, got '$got' (spurious hard-fail?)"
 echo "ok: a document marker with a trailing comment is not treated as malformed"
 
+# E1.4 — a top-level YAML sequence item (`- key: value`, a list-of-maps) makes
+# the document a sequence, not the flat mapping this reader requires; it must be
+# malformed even though the line carries a colon (REQ-E1.4: a mapping, not a
+# sequence). For a repo-tracked overlay that means the exit-4 hard-fail.
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
+printf -- '- key: value\n' >"$tracked_cfg"
+rc=0
+err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 4 ] \
+  || fail "top-level list item in repo-tracked: exit $rc, expected 4 (sequence, not flat mapping)"
+case $err in
+  *repo-tracked*) ;;
+  *) fail "top-level list item: stderr does not name the repo-tracked layer (got: '$err')" ;;
+esac
+echo "ok: a top-level YAML sequence item is treated as malformed (not a flat mapping)"
+
+# E1.4 — but an INLINE (flow) list value stays well-formed (REQ-E1.4 explicitly:
+# a list-valued option such as review_sequence is well-formed). The block form is
+# what is malformed; the inline form is a normal flat key: value line.
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf 'review_sequence: [polish, panel]\ndispatch_backend: repo_v\n' >"$tracked_cfg"
+rc=0
+got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] \
+  || fail "inline list value in repo-tracked: exit $rc, expected 0 (inline list is well-formed)"
+[ "$got" = repo_v ] \
+  || fail "inline list value: expected repo_v, got '$got' (spurious hard-fail on a flow list?)"
+echo "ok: an inline (flow) list value is well-formed, not malformed"
+
 # E1.4 — an unreadable repo-tracked overlay counts as malformed and hard-fails
 # (the hard-fail arm of the by-layer policy, the team-shared blast radius).
 if [ "$(id -u)" != 0 ]; then
