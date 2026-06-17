@@ -313,4 +313,3 @@ Anchor: `eaebcebe874c7d2aa981326e1cbf28f83476e3cc` — computed as
 ## 9. Amendment log
 
 (none yet)
-
