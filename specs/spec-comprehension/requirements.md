@@ -216,6 +216,14 @@ builds on. It is read-only and never advances the pipeline.
 
 ## Changelog
 
+- 2026-06-16: `/panel-review` correction. Corrected the derived effort-weighted
+  critical path in the build-order note (`tasks.md`) and the kickoff brief to run
+  through Task 11 (≈12.5 days): Task 11 depends on Task 7, so the prior note
+  stopping at Task 7 (≈10.5 days) was inconsistent with the authoritative
+  dependency graph and with Task 7's reused `orchestrate-select.sh` critical-path
+  computation. Dropped the REQ-F1.3 citation from Task 10 (D-11 → REQ-F1.2 per
+  the brief ledger; REQ-F1.3 maps to D-10). Derived prose and citations only; no
+  requirement meaning changed.
 - 2026-06-16: `/spec-kickoff` first-activation sign-off lens pass. Added
   REQ-E1.7 (all rendered bundle content HTML/SVG-escaped/sanitized, so bundle
   text — including the angle-bracket placeholder convention — cannot inject

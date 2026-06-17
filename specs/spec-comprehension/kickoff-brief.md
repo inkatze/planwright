@@ -202,9 +202,10 @@ T1 (none, 1d)
                                  └─ T12 docs (deps 6,7,9; 0.5d)
 ```
 
-- **Effort-weighted critical path:** T1 → T2 → T3 → **T5** → T6 → **T7** ≈
-  **10.5 days** (through T5, the heavier predecessor of T6, out to the heaviest
-  post-core view).
+- **Effort-weighted critical path:** T1 → T2 → T3 → **T5** → T6 → **T7** →
+  **T11** ≈ **12.5 days** (through T5, the heavier predecessor of T6, out to the
+  heaviest post-core view T7, then the tests/coverage gate T11 that depends on
+  it).
 - **MVP slice:** T1 → T2 → T3 → {T4, T5} → T6 (first usable walkthrough).
 - **Parallelism:** T4 ∥ T5 off T3; T7/T8/T9/T10/T11/T12 fan out after T6.
 

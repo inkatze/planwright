@@ -9,9 +9,10 @@ note (regenerate if dependencies change): the independence core is the MVP
 slice — Task 1 → Task 2 → Task 3 → {Task 4, Task 5} → Task 6 produces the first
 usable walkthrough (one-pager plus teach-back in a self-contained HTML
 artifact). Tasks 4 and 5 parallelize off Task 3. The effort-weighted critical
-path runs Task 1 → Task 2 → Task 3 → Task 5 → Task 6 → Task 7 (≈10.5 days),
-through Task 5 (the heavier of Task 6's two predecessors) and out to the
-heaviest post-core view. The dependency-graph, decision-map, and partial-scope
+path runs Task 1 → Task 2 → Task 3 → Task 5 → Task 6 → Task 7 → Task 11
+(≈12.5 days), through Task 5 (the heavier of Task 6's two predecessors), out to
+the heaviest post-core view (Task 7), and on to the tests/coverage gate
+(Task 11) that depends on it. The dependency-graph, decision-map, and partial-scope
 views (Tasks 7, 8, 9) and the sibling touchpoints (Task 10) layer on after the
 core ships; the tests/coverage gate (Task 11) and docs (Task 12) depend on the
 view tasks they cover.
@@ -154,7 +155,7 @@ view tasks they cover.
   right place, none invokes the command, and the wording frames it as an
   optional independent pass.
 - **Dependencies:** 6
-- **Citations:** D-11 · REQ-F1.1, REQ-F1.2, REQ-F1.3
+- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
 - **Estimated effort:** half day
 
 ### Task 11 — Tests and test-spec coverage
