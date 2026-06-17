@@ -87,6 +87,7 @@ reference fails planwright's own CI.
 
 ```text
 .claude-plugin/plugin.json   plugin manifest
+.claude-plugin/marketplace.json  marketplace manifest (the GitHub install path)
 config/defaults.yml          tracked default config
 doctrine/                    externalized rule docs (the framework doctrine)
 docs/options-reference.md    canonical config options reference

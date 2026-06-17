@@ -58,9 +58,10 @@ fi
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin manifest and hook registration"
+description = "validate the plugin + marketplace manifests and hook registration"
 run = '''
 jq . .claude-plugin/plugin.json >/dev/null && echo plugin.json valid
+jq . .claude-plugin/marketplace.json >/dev/null && echo marketplace.json valid
 jq . hooks/hooks.json >/dev/null && echo hooks.json valid
 '''
 

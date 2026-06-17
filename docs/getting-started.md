@@ -19,8 +19,12 @@ for environments without plugin support.
 
 The repository root *is* the plugin: the manifest is at
 [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json), and skills,
-hooks, and doctrine docs resolve plugin-relative at runtime. Install it through
-Claude Code's plugin machinery — add the repo as a marketplace, then install:
+hooks, and doctrine docs resolve plugin-relative at runtime. The repo also
+ships a marketplace manifest
+([`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json)) so it
+installs through Claude Code's standard marketplace flow — add the repo as a
+marketplace, then install the plugin (`<plugin>@<marketplace>`, both named
+`planwright`):
 
 ```text
 /plugin marketplace add inkatze/planwright
