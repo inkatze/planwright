@@ -90,7 +90,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 5 — Catalog-overlay resolution
 
-- **Status:** implementing
+- **Status:** PR #40 draft
 - **Last activity:** 2026-06-17
 - **Deliverables:** A catalog discovery path that unions core seed entries
   with overlay entries (append/union, supersede-by-id) for the decision-domains
