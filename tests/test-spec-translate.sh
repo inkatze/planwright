@@ -36,6 +36,12 @@
 #   9.  Stream hygiene: every TEXT record has exactly five tab-separated fields
 #       (the translation never injects a phantom column).
 #   10. Determinism: two runs over the same input are byte-identical.
+#   11. Identifier-parenthetical scrub is precise (REQ-C1.1 regression): an
+#       all-identifier parenthetical is removed, but one carrying non-identifier
+#       content ((UTF-8), (SHA-256)) survives verbatim (D-2 losslessness); plus
+#       modal-extension coverage (MUST NOT / SHOULD NOT as one token).
+#   12. Threshold precision (REQ-C1.7): a decimal comparator threshold
+#       (≥ 0.95, <= 2.5) is marked in full, never truncated to its integer part.
 #
 # Runs standalone: ./tests/test-spec-translate.sh
 set -eu
