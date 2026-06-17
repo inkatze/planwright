@@ -1,6 +1,6 @@
 # Spec Comprehension Walkthrough — Requirements
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
@@ -83,8 +83,11 @@ builds on. It is read-only and never advances the pipeline.
   bundles remain valuable for archaeology. *(Cites: D-10.)*
 - **REQ-A1.5** The command SHALL degrade gracefully on a missing, malformed, or
   partial bundle: a clear message, rendering what is present and naming what is
-  missing, rather than halting opaquely.
-  *(Cites: the bootstrap graceful-degradation posture (Sources).)*
+  missing, rather than halting opaquely. A charset-valid scope selector that
+  resolves to no part of the bundle (a requirement group, decision, or file not
+  present) SHALL likewise yield a clear message naming the available scopes,
+  never an opaque failure or a silent empty render.
+  *(Cites: the bootstrap graceful-degradation posture (Sources); kickoff sign-off lens pass (2026-06-16).)*
 - **REQ-A1.6** The command SHALL validate the spec identifier and path against
   the identifier charset and containment-check the resolved path before any
   read. Hostile input SHALL be a clean refusal, never a path.
@@ -149,9 +152,14 @@ builds on. It is read-only and never advances the pipeline.
   human's first read is unanchored by the tool.
   *(Cites: D-3; cold-read research (Sources).)*
 - **REQ-D1.3** An off-by-default reveal toggle SHALL surface the underlying
-  identifiers and artifact mapping, and restore any precise token the plain
-  view softened; the default output SHALL NOT show them.
-  *(Cites: D-2, REQ-C1.7; cross-audience research (Sources).)*
+  identifiers and artifact mapping; the default output SHALL NOT show them. The
+  three rendered categories are distinct: identifiers are *hidden* by default
+  and shown on reveal; normative tokens (REQ-C1.7) are *never* softened — they
+  appear verbatim in both views, with reveal surfacing their toggle-anchored
+  source mapping; and any non-normative precise phrasing the plain view
+  *rephrased* SHALL be restorable to its source wording on reveal. "Softened"
+  refers only to that last category, never to normative tokens.
+  *(Cites: D-2, REQ-C1.7; cross-audience research (Sources); kickoff sign-off lens pass (2026-06-16).)*
 - **REQ-D1.4** The teach-back SHALL record the human's own responses without
   supplying the "right" answer; it MAY surface divergences between a
   restatement and the spec text, but adjudication SHALL stay with the human.
@@ -168,8 +176,10 @@ builds on. It is read-only and never advances the pipeline.
   *(Cites: D-4; rendering research (Sources).)*
 - **REQ-E1.3** Artifact generation SHALL NOT require a heavyweight runtime or a
   hard dependency on a browser engine or an uncommon binary; an optional
-  renderer that is absent SHALL degrade cleanly to the self-contained path.
-  *(Cites: D-5; rendering research (Sources).)*
+  renderer that is absent — or that is present but fails to execute (non-zero
+  exit, timeout, or invalid output) — SHALL degrade cleanly to the
+  self-contained path.
+  *(Cites: D-5; rendering research (Sources); kickoff sign-off lens pass (2026-06-16).)*
 - **REQ-E1.4** The artifact SHALL carry no secrets, credentials, or sensitive
   operational detail, and SHALL remain gitignored regardless of content.
   *(Cites: the security-posture data-hygiene rule (Sources).)*
@@ -180,6 +190,12 @@ builds on. It is read-only and never advances the pipeline.
   primitives, inlined for offline rendering, so the generated artifact ships
   cleanly under planwright's installed-by-adopters model.
   *(Cites: D-7; the engineering dependency-adoption license check (Sources).)*
+- **REQ-E1.7** All bundle content rendered into the artifact SHALL be HTML- and
+  SVG-escaped (or sanitized) so that no bundle content — including the
+  angle-bracket placeholder convention (`<spec>`, `<id>`), ampersands, code
+  fences, or authored markup — can inject executable script or structural markup
+  into the artifact, and so that such characters display as their literal text.
+  *(Cites: D-4; the security-posture data-hygiene rule (Sources); kickoff sign-off lens pass (2026-06-16).)*
 
 ## REQ-F — Lifecycle & pipeline integration
 
@@ -200,6 +216,31 @@ builds on. It is read-only and never advances the pipeline.
 
 ## Changelog
 
+- 2026-06-16: `/spec-kickoff` first-activation sign-off lens pass. Added
+  REQ-E1.7 (all rendered bundle content HTML/SVG-escaped/sanitized, so bundle
+  text — including the angle-bracket placeholder convention — cannot inject
+  markup), with a `[test]` entry and wiring into Tasks 6 and 11 (meaning-class
+  addition). Clarified REQ-A1.5 (a well-formed but unresolvable scope selector
+  degrades with a clear message), REQ-E1.3 + D-5 (a present-but-failing Graphviz
+  probe degrades like absence), REQ-D1.3 (the "softened" category is
+  non-normative rephrasing only; normative tokens are never softened), and the
+  REQ-C1.3 test-spec entry (assert the highlighted critical path matches the
+  reused `orchestrate-select.sh` computation).
+- 2026-06-16: `/spec-kickoff` first-activation walkthrough. Completed task
+  dependencies: Task 11 (coverage gate) now depends on 6,7,8,9 (it tests the
+  graph/decision-map/scope views T7/T8/T9) and Task 12 (docs) on 6,7,9 (it
+  documents the Graphviz enhancement T7 and scope selectors T9); these did not
+  previously appear in their dependency lines. Tightened the derived build-order
+  note (MVP slice vs effort-weighted critical path). No requirement meaning
+  changed.
+- 2026-06-16: `/spec-kickoff` first-activation walkthrough. Sharpened the
+  REQ-E1.4 test-spec entry to scan the generated artifact directly
+  (`gitleaks --no-git <path>`), since the gitignored artifact is invisible to
+  the repo-wide scan (was a latent dead path). No requirement meaning changed.
+- 2026-06-16: `/spec-kickoff` first-activation walkthrough. Clarified D-7: the
+  "used CSS" subset is curated/built at plugin-ship time and inlined as a static
+  stylesheet at render (no adopter runtime build), resolving the D-7 vs
+  D-5/REQ-E1.3 feasibility tension. No requirement meaning changed.
 - 2026-06-16: Bundle drafted at Status Draft via `/spec-draft`. Spun as a new
   bundle (no fold against `bootstrap` or `customization-overlay`). Design
   decisions D-1 through D-11 recorded; four didactic views, the independence

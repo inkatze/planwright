@@ -1,16 +1,20 @@
 # Spec Comprehension Walkthrough — Tasks
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
 The `Dependencies:` lines below are the authoritative graph. Derived build-order
-note (regenerate if dependencies change): the independence core is the critical
-path — Task 1 → Task 2 → Task 3 → Task 6 produces the first usable walkthrough
-(one-pager plus teach-back in a self-contained HTML artifact); the
-dependency-graph, decision-map, and partial-scope views (Tasks 7, 8, 9) and the
-sibling touchpoints (Task 10) layer on after the core ships. Tasks 4 and 5
-parallelize off Task 3.
+note (regenerate if dependencies change): the independence core is the MVP
+slice — Task 1 → Task 2 → Task 3 → {Task 4, Task 5} → Task 6 produces the first
+usable walkthrough (one-pager plus teach-back in a self-contained HTML
+artifact). Tasks 4 and 5 parallelize off Task 3. The effort-weighted critical
+path runs Task 1 → Task 2 → Task 3 → Task 5 → Task 6 → Task 7 (≈10.5 days),
+through Task 5 (the heavier of Task 6's two predecessors) and out to the
+heaviest post-core view. The dependency-graph, decision-map, and partial-scope
+views (Tasks 7, 8, 9) and the sibling touchpoints (Task 10) layer on after the
+core ships; the tests/coverage gate (Task 11) and docs (Task 12) depend on the
+view tasks they cover.
 
 ## Forward plan
 
@@ -88,13 +92,17 @@ parallelize off Task 3.
   artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
   inlined and the MIT notice included; the reveal toggle; the silent-read-first
   ordering; the gitignored `.claude/walkthroughs/<spec>/` location with a
-  `.gitignore` entry; the bundle-and-commit provenance stamp.
+  `.gitignore` entry; the bundle-and-commit provenance stamp; HTML/SVG-escaping
+  (or sanitization) of all rendered bundle content so no bundle text can inject
+  executable or structural markup into the artifact.
 - **Done when:** running the command produces one HTML file that opens offline
   in a browser with no installed dependency, defaults to the no-identifier view
   with a working reveal toggle, presents the full read before any prompt, is
-  gitignored, and is stamped with the bundle and commit.
+  gitignored, is stamped with the bundle and commit, and escapes/sanitizes all
+  rendered bundle content (markup in bundle text displays as literal, never
+  executes).
 - **Dependencies:** 4, 5
-- **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6
+- **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
 - **Estimated effort:** 2 days
 
 ### Task 7 — Dependency-graph and critical-path view
@@ -154,12 +162,14 @@ parallelize off Task 3.
 - **Deliverables:** automated fixtures across the views (model, translation,
   one-pager, teach-back, graph, decision-map, scope); an offline
   self-containment check (the artifact opens with no network and no installed
-  dependency); a data-hygiene check; CI wiring under `mise run check`.
+  dependency); a data-hygiene check; a content-escaping / injection-safety check
+  (a markup-bearing fixture renders escaped, never executable); CI wiring under
+  `mise run check`.
 - **Done when:** the fixtures run green in CI, the self-containment and
   data-hygiene checks pass, and every REQ with a `[test]` path in `test-spec.md`
   has an executing test.
-- **Dependencies:** 6
-- **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-C1.7, REQ-D1.1
+- **Dependencies:** 6, 7, 8, 9
+- **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-E1.7, REQ-C1.7, REQ-D1.1
 - **Estimated effort:** 2 days
 
 ### Task 12 — Docs and maintenance
@@ -170,7 +180,7 @@ parallelize off Task 3.
 - **Done when:** the command is documented for an adopter, any new config option
   has an options-reference row, and the skill appends a drift observation on
   completion like its siblings.
-- **Dependencies:** 6
+- **Dependencies:** 6, 7, 9
 - **Citations:** D-5 · REQ-F1.4, REQ-E1.3
 - **Estimated effort:** half day
 

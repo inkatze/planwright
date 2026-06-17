@@ -1,6 +1,6 @@
 # Spec Comprehension Walkthrough — Test Spec
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
@@ -86,8 +86,10 @@ clarity is `[manual]`.
 
 ### REQ-C1.3 — Dependency graph integrated, not ASCII [test + manual]
 
-Assert the graph is inline SVG with the critical path highlighted and adjacent
-to its explaining text `[test]`; the visual legibility is `[manual]`.
+Assert the graph is inline SVG with the critical path highlighted, that the
+highlighted path matches the reused `scripts/orchestrate-select.sh` critical-path
+computation (D-6) for the same bundle, and that the diagram is adjacent to its
+explaining text `[test]`; the visual legibility is `[manual]`.
 
 ### REQ-C1.4 — Decision map four-beat [test]
 
@@ -153,8 +155,10 @@ the self-contained path, with the degradation note present.
 
 ### REQ-E1.4 — Data hygiene [test]
 
-The secret scanner runs over the artifact and finds no secrets; the artifact
-stays gitignored.
+The test generates an artifact and runs the secret scanner (gitleaks) directly
+over that artifact path — `--no-git`, since the artifact is gitignored and
+therefore invisible to the repo-wide scan — and asserts no secrets are found;
+the artifact stays gitignored.
 
 ### REQ-E1.5 — Provenance stamp [test]
 
@@ -165,6 +169,14 @@ generated from.
 
 Assert the artifact inlines its CSS (no external stylesheet reference) and
 carries the MIT notice; the styling-system choice is recorded at design level.
+
+### REQ-E1.7 — Content escaping / injection safety [test]
+
+A fixture bundle whose text contains HTML/SVG metacharacters and markup (e.g.
+`<script>`, `<img onerror=…>`, raw `<` and `&`, angle-bracket placeholders such
+as `<spec>`) renders into the artifact escaped or sanitized; assert no
+executable or structural markup originating from bundle content survives in the
+output and that the literal characters display correctly.
 
 ## REQ-F — Lifecycle & pipeline integration
 

@@ -1,6 +1,6 @@
 # Spec Comprehension Walkthrough — Design
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
@@ -91,8 +91,11 @@ targets. It is also the gap no existing spec tool fills.
 
 **Decision:** diagram generation requires no hard dependency. The skill emits
 inline SVG it computes directly for the (small) task graphs; when `dot`
-(Graphviz) is detected at runtime it is used for a richer layout; when absent,
-the built-in path renders and a one-line note in the artifact says so.
+(Graphviz) is detected at runtime it is used for a richer layout; when absent —
+or detected but failing to execute (non-zero exit, timeout, or invalid output) —
+the built-in path renders and a one-line note in the artifact says so. The
+runtime probe treats a failed invocation identically to absence; Graphviz is
+never on a path that can fail the render.
 
 **Alternatives considered:**
 - Hard-depend on Graphviz, D2, or `mermaid-cli`. Rejected because: a required
@@ -127,7 +130,10 @@ that could disagree.
 
 **Decision:** the HTML artifact is styled with redistributable, MIT-licensed
 primitives (Tailwind CSS plus DaisyUI), with only the used CSS inlined for
-offline rendering and the MIT notice included in the artifact. Concrete
+offline rendering and the MIT notice included in the artifact. The "used CSS"
+subset is curated and built once at plugin-ship time and committed to the
+plugin; the skill inlines that static stylesheet at render, so no adopter
+runtime build step is required (staying within D-5 / REQ-E1.3). Concrete
 theme/component curation happens at implementation.
 
 **Alternatives considered:**
