@@ -277,6 +277,40 @@ path (refusal is exit 2, distinct from content-level degradation at exit 1).
 The scaffold writes nothing (read-only, REQ-A1.3). No risk beyond what the
 register and REQ-A1.6 already anticipate; recorded for the audit trail.
 
+### Task 2 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 2 (the bundle reader model, `scripts/spec-model.sh`) reads
+untrusted input (bundle file content) and produces a record stream downstream
+views render into an HTML artifact — the `security-posture` write-time
+untrusted-input and serialization trigger classes. Light pass: the in-repo
+canonical posture, not a new pattern. No new dependency (the portability
+envelope is unchanged: `/bin/sh` + `awk`).
+
+**Sources consulted.** `scripts/spec-validate.sh` (the canonical format
+parsers and the echo/locale discipline), `scripts/orchestrate-select.sh` (the
+dependency-token extraction grammar), the `security-posture` doctrine doc, and
+REQ-C1.7 / REQ-E1.7.
+
+**Pass applied (no new risk surfaced).** The model treats all input as data:
+no `eval`, no shell or path constructed from file *content* (only the four
+fixed filenames under the already-gated spec directory are read), and the
+identifier/path safety gate stays the command scaffold's job (REQ-A1.6). The
+tab-separated record stream is hardened against content injecting phantom
+columns or lines: every emitted field passes through `clean()`, which folds
+control characters — including a literal tab (the delimiter) and any joined
+continuation newline — to spaces under the pinned C locale, while bytes
+≥ 0x80 are not `[[:cntrl:]]`, so multibyte UTF-8 (a `≤` threshold, an em dash)
+survives verbatim (REQ-C1.7). The model carries text verbatim and does **not**
+HTML/SVG-escape it: that is Task 6's artifact-assembly job (REQ-E1.7); the
+model is the upstream substrate, and escaping at this layer would corrupt the
+lossless text the reveal view restores. Read-only: the model writes nothing
+(REQ-A1.3). The risk this adds to the register is the model↔validator grammar
+drift recorded as a 2026-06-17 observation; no operational-data-hygiene risk
+(the model emits no secrets — it echoes only bundle content, which the
+artifact-layer data-hygiene check, REQ-E1.4, scans).
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)
