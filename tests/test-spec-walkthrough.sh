@@ -230,7 +230,9 @@ if command -v git >/dev/null 2>&1; then
     git config user.email t@e.x
     git config user.name t
     git add -A
-    git commit -qm init
+    # The baseline only needs to exist to diff against; disable signing so the
+    # test does not depend on the host's commit-signing being configured.
+    git -c commit.gpgsign=false commit -qm init
   )
   run_w 0 "$gws" demo
   status_after=$(cd "$gws" && git status --porcelain)
