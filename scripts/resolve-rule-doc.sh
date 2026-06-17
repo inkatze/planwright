@@ -106,11 +106,14 @@ is_protected() {
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 overlay_helper="$script_dir/resolve-overlay-root.sh"
-# The overlay helper ships beside this script. If it is somehow missing (a
-# broken/partial install), resolve core doctrine only rather than dropping
-# overlays opaquely: warn once and continue (REQ-K1.6 graceful degradation).
-if [ ! -f "$overlay_helper" ]; then
-  echo "planwright: WARNING overlay helper '$overlay_helper' not found; resolving core doctrine only (overlays unavailable)" >&2
+# The overlay helper ships beside this script and is invoked directly (below),
+# so it must be executable. If it is missing or not executable (a broken/partial
+# install), resolve core doctrine only rather than dropping overlays opaquely:
+# warn once and continue (REQ-K1.6 graceful degradation). We test -x, not -f, so
+# a present-but-non-executable helper takes the warn-and-degrade path instead of
+# being treated as available and then silently failing every invocation below.
+if [ ! -x "$overlay_helper" ]; then
+  echo "planwright: WARNING overlay helper '$overlay_helper' not found or not executable; resolving core doctrine only (overlays unavailable)" >&2
   overlay_helper=""
 fi
 
@@ -140,7 +143,14 @@ try_overlay() {
   to_layer=$1
   to_subdir=$2
   [ -n "$overlay_helper" ] || return 0
-  to_root=$("$overlay_helper" "$to_layer" 2>/dev/null) || to_root=""
+  # Let the helper's own stderr through: it explains why a layer is absent (e.g.
+  # an invalid plugin-manifest name dropping the adopter layer) or that the
+  # helper itself failed (bad interpreter, lost permissions). An empty stdout is
+  # the helper's normal "layer absent" signal, and a non-zero exit (a broken
+  # helper) degrades this layer to absent rather than hard-failing the resolver
+  # (REQ-K1.6 graceful degradation) — but never silently, now that the diagnostic
+  # is visible.
+  to_root=$("$overlay_helper" "$to_layer") || to_root=""
   [ -n "$to_root" ] || return 0 # layer absent (namespace/repo underivable)
   [ -d "$to_root" ] || return 0 # overlay root dir does not exist → layer absent
   to_rel="$to_subdir/$name.md"

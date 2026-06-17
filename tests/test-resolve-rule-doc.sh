@@ -437,6 +437,64 @@ case "$err" in
     ;;
 esac
 
+# 22. Present-but-non-executable overlay helper degrades like a missing one
+#     (REQ-K1.6). The resolver invokes the helper directly, so it needs the
+#     execute bit; a present-but-non-executable helper is a broken/partial
+#     install that the `-x` guard (not `-f`) must catch — warn and resolve core
+#     only rather than silently dropping every overlay. The adopter/mlocal/repo
+#     fixtures would win if the helper ran, proving the fallback skips them.
+#     Skipped as root, which bypasses the execute-permission check (mirrors the
+#     unreadable-file tests above).
+if [ "$(id -u 2>/dev/null)" != "0" ]; then
+  nox_dir="$ovbase/nox-helper"
+  mkdir -p "$nox_dir"
+  cp "$RESOLVER" "$nox_dir/resolve-rule-doc.sh"
+  cp "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$nox_dir/resolve-overlay-root.sh"
+  chmod 000 "$nox_dir/resolve-overlay-root.sh"
+  out="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
+    /bin/bash "$nox_dir/resolve-rule-doc.sh" provdoc 2>/dev/null)"
+  assert "non-executable helper: resolves core, zero exit" 0 $?
+  assert_eq "non-executable helper: lands on core (overlays skipped)" "CORE ONLY" "$(cat "$out" 2>/dev/null)"
+  err="$(PLANWRIGHT_ROOT="$ovcore" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="" HOME="" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$ovadopter" PLANWRIGHT_REPO_ROOT="$ovrepo" \
+    /bin/bash "$nox_dir/resolve-rule-doc.sh" provdoc 2>&1 >/dev/null)"
+  case "$err" in
+    *[Ww][Aa][Rr][Nn]*helper*) echo "ok: non-executable helper warns once" ;;
+    *)
+      echo "FAIL: non-executable helper lacks a warning: $err" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+  chmod 644 "$nox_dir/resolve-overlay-root.sh"
+else
+  echo "skip: non-executable helper test (running as root bypasses -x)"
+fi
+
+# 23. The resolver surfaces the overlay helper's own diagnostics rather than
+#     swallowing them (the layer-root call must not use 2>/dev/null). When the
+#     writer-mode plugin manifest name is not a valid identifier, the helper
+#     warns and treats the adopter layer as absent; that warning must reach the
+#     user so a misconfigured manifest is not a silent overlay drop. Helper
+#     runtime failures (bad interpreter, permissions) surface the same way while
+#     resolution still degrades gracefully (REQ-K1.6) — a helper error is never
+#     a hard resolver failure.
+wdir="$ovbase/writer-badname"
+mkdir -p "$wdir/planwright/doctrine"
+printf 'WRITER CORE\n' >"$wdir/planwright/doctrine/badname-doc.md"
+printf '{ "name": "Bad Name!" }\n' >"$wdir/planwright/plugin.json"
+err="$(PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" \
+  CLAUDE_DIR="$wdir" HOME="" PLANWRIGHT_ADOPTER_OVERLAY="" \
+  PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+  /bin/bash "$RESOLVER" badname-doc 2>&1 >/dev/null)"
+case "$err" in
+  *"not a valid identifier"*) echo "ok: resolver surfaces helper diagnostics (invalid manifest name)" ;;
+  *)
+    echo "FAIL: resolver suppressed the helper's invalid-manifest warning: $err" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
