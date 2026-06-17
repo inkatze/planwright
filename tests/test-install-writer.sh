@@ -52,6 +52,18 @@ assert "install exits 0" 0 $?
 assert_file "default config installed" "$claude_dir/planwright/config/defaults.yml"
 assert_file "doctrine installed" "$claude_dir/planwright/doctrine/README.md"
 assert_file "resolver installed" "$claude_dir/planwright/scripts/resolve-rule-doc.sh"
+assert_file "overlay-root resolver installed" "$claude_dir/planwright/scripts/resolve-overlay-root.sh"
+
+# 2b. The plugin manifest is copied so writer-mode adopter-overlay resolution
+#     can derive its namespace from the manifest `name` (D-3, REQ-A1.5). The
+#     copy lands at the path resolve-overlay-root.sh reads in writer mode.
+assert_file "plugin manifest copied for writer-mode namespace" "$claude_dir/planwright/plugin.json"
+if grep -q '"name"' "$claude_dir/planwright/plugin.json" 2>/dev/null; then
+  echo "ok: copied manifest carries a name field"
+else
+  echo "FAIL: copied manifest lacks a name field" >&2
+  failures=$((failures + 1))
+fi
 
 # 3. The resolution path resolves in writer mode against the installed tree
 #    (Done-when: the rule-doc resolution path resolves from both delivery
@@ -62,6 +74,25 @@ echo "fixture" >"$claude_dir/planwright/doctrine/fixture-doc.md"
 PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" CLAUDE_DIR="$claude_dir" \
   /bin/bash "$RESOLVER" fixture-doc >/dev/null
 assert "writer-mode resolution works post-install" 0 $?
+
+# 3b. End-to-end D-3 contract: the installed overlay-root resolver derives the
+#     adopter namespace from the manifest the installer just copied (writer
+#     mode, no $CLAUDE_PLUGIN_DATA / override). This crosses both Task 2
+#     deliverables — install.sh copies the manifest, resolve-overlay-root.sh
+#     reads its `name`.
+OVERLAY_RESOLVER="$claude_dir/planwright/scripts/resolve-overlay-root.sh"
+manifest_name="$(tr ',' '\n' <"$claude_dir/planwright/plugin.json" | tr '{' '\n' \
+  | sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+out="$(env -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT -u CLAUDE_PLUGIN_DATA \
+  -u PLANWRIGHT_ADOPTER_OVERLAY CLAUDE_DIR="$claude_dir" \
+  /bin/bash "$OVERLAY_RESOLVER" adopter)"
+assert "writer-mode adopter root resolves post-install" 0 $?
+if [ "$out" = "$claude_dir/planwright/$manifest_name/overlay" ]; then
+  echo "ok: installed manifest drives the writer-mode adopter namespace"
+else
+  echo "FAIL: writer-mode adopter root '$out' != '$claude_dir/planwright/$manifest_name/overlay'" >&2
+  failures=$((failures + 1))
+fi
 
 # 4. User config outside the namespace is untouched.
 if [ "$(cat "$claude_dir/settings.json")" = '{"user": "owned"}' ]; then

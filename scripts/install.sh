@@ -9,6 +9,8 @@
 #   <claude-dir>/planwright/doctrine/   rule docs
 #   <claude-dir>/planwright/scripts/    helper scripts (incl. the resolver)
 #   <claude-dir>/planwright/config/     tracked default config
+#   <claude-dir>/planwright/plugin.json plugin manifest (writer-mode namespace
+#                                       source for adopter-overlay resolution)
 #   <claude-dir>/skills/<name>/         planwright skills, when present
 #   <claude-dir>/commands/<name>.md     planwright commands, when present
 #
@@ -89,6 +91,15 @@ echo "planwright writer: installing into $claude_dir"
 copy_tree "$src_root/doctrine" "$dest/doctrine"
 copy_tree "$src_root/scripts" "$dest/scripts"
 copy_tree "$src_root/config" "$dest/config"
+
+# Copy the plugin manifest into the namespace root so writer-mode
+# adopter-overlay resolution can derive its namespace from the manifest `name`
+# (D-3, REQ-A1.5). Plugin mode reads the namespace from $CLAUDE_PLUGIN_DATA and
+# never needs this; writer mode has no such variable, so the manifest is its
+# only namespace source.
+if [ -f "$src_root/.claude-plugin/plugin.json" ]; then
+  cp -p "$src_root/.claude-plugin/plugin.json" "$dest/plugin.json"
+fi
 
 if [ -d "$src_root/skills" ]; then
   for skill in "$src_root"/skills/*/; do
