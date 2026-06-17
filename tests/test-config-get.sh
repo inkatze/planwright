@@ -480,4 +480,35 @@ case $err in
 esac
 echo "ok: the reader surfaces the Task 2 primitive's stderr (no blanket 2>/dev/null)"
 
+# REQ-K1.6 — the Task 2 overlay resolver is required infrastructure. A missing
+# or non-executable resolver (a broken/partial install) is reported ONCE and
+# degrades to core defaults, not once per overlay layer (three overlay_root
+# calls would otherwise each emit the same shell error). Mirrors the warn-once
+# `-x` guard in resolve-rule-doc.sh. Run a copy of the reader from a scripts dir
+# whose resolver is present-but-non-executable so the `-x` guard fires.
+bin=$(mktemp -d)
+mkdir -p "$bin/scripts"
+cp "$CG" "$bin/scripts/config-get.sh"
+printf '#!/bin/sh\nprintf "%%s\\n" stub\n' >"$bin/scripts/resolve-overlay-root.sh"
+chmod 644 "$bin/scripts/resolve-overlay-root.sh"
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+run_broken() {
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$bin/scripts/config-get.sh" "$@"
+}
+rc=0
+err=$(run_broken dispatch_backend 2>&1 >/dev/null) || rc=$?
+out=$(run_broken dispatch_backend 2>/dev/null)
+nwarn=$(printf '%s\n' "$err" | grep -c 'overlay resolver' || true)
+rm -rf "$bin"
+[ "$rc" = 0 ] || fail "broken resolver: exit $rc, expected 0 (degrade to core)"
+[ "$out" = core_v ] || fail "broken resolver: did not degrade to core (got '$out')"
+[ "$nwarn" = 1 ] \
+  || fail "broken resolver: expected exactly 1 'overlay resolver' warning, got $nwarn (per-call noise?)"
+echo "ok: a missing/non-executable overlay resolver warns once and degrades to core"
+
 echo "PASS: config-get"

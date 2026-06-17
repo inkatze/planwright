@@ -122,17 +122,32 @@ else
   done
 fi
 
-# overlay_root <layer> -> the layer's root path (empty when the layer is
-# absent), resolved through the Task 2 primitive. Its stderr is deliberately NOT
-# suppressed: an absent layer is a normal state and resolves to empty stdout with
-# a clean stderr, but the primitive can still emit a legitimate warning (e.g. a
-# plugin manifest whose `name` is not a valid identifier degrades the adopter
-# layer with a stderr warning), and a missing or non-executable primitive must
-# surface its error rather than masquerade as "every overlay absent". A blanket
-# 2>/dev/null would swallow both, defeating this reader's "never fails opaquely"
-# contract.
+# The Task 2 primitive is the single source of overlay-layer locations and must
+# be present and executable. If it is missing or non-executable (a broken or
+# partial install), warn ONCE here and treat every overlay layer as unavailable,
+# degrading to the core defaults — rather than emitting the same shell error on
+# each of the three overlay_root calls below (REQ-K1.6 graceful degradation;
+# mirrors the warn-once `-x` guard in resolve-rule-doc.sh). We test -x, not -f,
+# so a present-but-non-executable helper takes the warn-and-degrade path too.
+overlay_resolver="$script_dir/resolve-overlay-root.sh"
+overlay_resolver_ok=1
+if [ ! -x "$overlay_resolver" ]; then
+  echo "config-get: warning: overlay resolver '$overlay_resolver' is missing or not executable; treating all overlay layers as absent (resolving from core defaults only)" >&2
+  overlay_resolver_ok=0
+fi
+
+# overlay_root <layer> -> the layer's root path (empty when the layer is absent
+# or the resolver is unavailable), resolved through the Task 2 primitive. Its
+# stderr is deliberately NOT suppressed: an absent layer is a normal state and
+# resolves to empty stdout with a clean stderr, but the primitive can still emit
+# a legitimate warning (e.g. a plugin manifest whose `name` is not a valid
+# identifier degrades the adopter layer with a stderr warning). The upfront -x
+# guard above means a missing/non-executable resolver is reported once, not once
+# per call; a blanket 2>/dev/null would instead swallow the legitimate warnings,
+# defeating this reader's "never fails opaquely" contract.
 overlay_root() {
-  "$script_dir/resolve-overlay-root.sh" "$1"
+  [ "$overlay_resolver_ok" -eq 1 ] || return 0
+  "$overlay_resolver" "$1"
 }
 
 # Adopter and repo-tracked config files (kind-native names under each layer
