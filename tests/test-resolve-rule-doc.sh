@@ -235,13 +235,11 @@ ln -s "$ovbase/outside-secret.md" "$ovrepo/.claude/doctrine/escaper.md"
 out="$(ov escaper 2>/dev/null)"
 rc=$?
 assert "absolute-target escaping symlink rejected" 2 "$rc"
-case "$out" in
-  *"SECRET OUTSIDE ROOT"*)
-    echo "FAIL: escaping symlink target was read (containment breach)" >&2
-    failures=$((failures + 1))
-    ;;
-  *) echo "ok: absolute-target escaping symlink never read" ;;
-esac
+# The resolver only ever prints a resolved PATH on stdout, never file content,
+# so a content match for the secret could never fire. A containment breach would
+# instead emit the escaping path on stdout (with exit 0); assert stdout is empty
+# so a leaked path is what trips the check.
+assert_eq "absolute-target escaping symlink: no path leaked on stdout" "" "$out"
 err="$(ov escaper 2>&1 >/dev/null)"
 case "$err" in
   *escape*) echo "ok: escape rejection names the cause" ;;
@@ -258,13 +256,9 @@ ln -s "../../../outside-secret.md" "$ovrepo/.claude/doctrine/escaper2.md"
 out="$(ov escaper2 2>/dev/null)"
 rc=$?
 assert "relative ../ escaping symlink rejected" 2 "$rc"
-case "$out" in
-  *"SECRET OUTSIDE ROOT"*)
-    echo "FAIL: relative ../ symlink target was read (containment breach)" >&2
-    failures=$((failures + 1))
-    ;;
-  *) echo "ok: relative ../ symlink target never read" ;;
-esac
+# Same as 17a: stdout carries a path, never content, so assert it stays empty —
+# a breach would leak the escaping path here (with exit 0).
+assert_eq "relative ../ escaping symlink: no path leaked on stdout" "" "$out"
 rm "$ovrepo/.claude/doctrine/escaper2.md"
 
 # 18. Malformed-by-layer (REQ-E1.4, D-7). A doc path that exists but is not a
@@ -390,26 +384,32 @@ for d in $PROTECTED_DOCS; do
 done
 
 # 20. Provenance --explain names the supplying layer (REQ-B1.6, D-9). Format:
-#     "<layer>\t<path>" on stdout, exit 0.
+#     "<layer>\t<path>" on stdout, exit 0. Capture the resolver's output, assert
+#     its own exit status, then parse fields — piping straight into `cut` and
+#     checking $? would test cut's exit (≈always 0), masking a failing resolver.
 printf 'CORE ONLY\n' >"$ovcore/doctrine/provdoc.md"
-layer="$(ov --explain provdoc | cut -f1)"
+exp="$(ov --explain provdoc)"
 assert "explain core: resolves" 0 $?
-assert_eq "explain names core" "core" "$layer"
+assert_eq "explain names core" "core" "$(printf '%s' "$exp" | cut -f1)"
 
 printf 'ADOPTER ONLY\n' >"$ovadopter/doctrine/provdoc.md"
-layer="$(ov --explain provdoc | cut -f1)"
-assert_eq "explain names adopter" "adopter" "$layer"
+exp="$(ov --explain provdoc)"
+assert "explain adopter: resolves" 0 $?
+assert_eq "explain names adopter" "adopter" "$(printf '%s' "$exp" | cut -f1)"
 
 printf 'REPO ONLY\n' >"$ovrepo/.claude/doctrine/provdoc.md"
-layer="$(ov --explain provdoc | cut -f1)"
-assert_eq "explain names repo-tracked" "repo-tracked" "$layer"
+exp="$(ov --explain provdoc)"
+assert "explain repo-tracked: resolves" 0 $?
+assert_eq "explain names repo-tracked" "repo-tracked" "$(printf '%s' "$exp" | cut -f1)"
 
 printf 'MLOCAL ONLY\n' >"$ovrepo/.claude/doctrine.local/provdoc.md"
-layer="$(ov --explain provdoc | cut -f1)"
-assert_eq "explain names machine-local" "machine-local" "$layer"
+exp="$(ov --explain provdoc)"
+assert "explain machine-local: resolves" 0 $?
+assert_eq "explain names machine-local" "machine-local" "$(printf '%s' "$exp" | cut -f1)"
 
-# 20b. --explain still emits the resolved path as the second field.
-path="$(ov --explain provdoc | cut -f2)"
+# 20b. --explain still emits the resolved path as the second field. Reuse the
+#      machine-local capture above (the highest-precedence layer).
+path="$(printf '%s' "$exp" | cut -f2)"
 assert_eq "explain emits the resolved path" "MLOCAL ONLY" "$(cat "$path" 2>/dev/null)"
 
 # 21. Graceful degrade when the overlay helper is missing (REQ-K1.6). A copy of
