@@ -80,6 +80,24 @@ out="$(base PLANWRIGHT_ROOT="$tmp/no-such-core" CLAUDE_PLUGIN_ROOT="$tmp/plugin"
 assert "core skips a nonexistent PLANWRIGHT_ROOT" 0 $?
 assert_eq "core falls through to the plugin root" "$tmp/plugin" "$out"
 
+# core position 3: with the first two arms unset, the writer-mode arm
+# (<claude-dir>/planwright) resolves core. CLAUDE_DIR derives the claude dir.
+mkdir -p "$tmp/cdir/planwright/config"
+out="$(base CLAUDE_DIR="$tmp/cdir" /bin/bash "$RESOLVER" core)"
+assert "core resolves via the writer-mode claude dir" 0 $?
+assert_eq "core root is <claude-dir>/planwright" "$tmp/cdir/planwright" "$out"
+
+# core position 4: with no env arm derivable (no PLANWRIGHT_ROOT, no plugin
+# root, and no CLAUDE_DIR/HOME so the writer-mode arm is skipped), core falls
+# through to the script's own parent — the install root holding this resolver.
+# It always exists, so core never degrades to absent on a sane checkout. HOME
+# is unset explicitly: base keeps it, and a real ~/.claude/planwright would
+# otherwise satisfy the writer-mode arm before the fall-through is reached.
+script_parent="$(cd "$(dirname "$RESOLVER")/.." && pwd -P)"
+out="$(base env -u HOME /bin/bash "$RESOLVER" core)"
+assert "core falls through to the script-dir parent" 0 $?
+assert_eq "core root is the resolver's install root" "$script_parent" "$out"
+
 # ---------------------------------------------------------------------------
 # adopter layer
 # ---------------------------------------------------------------------------
@@ -143,6 +161,16 @@ echo '{"version": "1.0.0"}' >"$tmp/claude-noname/planwright/plugin.json"
 out="$(base CLAUDE_DIR="$tmp/claude-noname" /bin/bash "$RESOLVER" adopter)"
 assert "manifest without name degrades to absent" 0 $?
 assert_eq "name-less manifest yields empty adopter root" "" "$out"
+
+# Manifest with the name key and its value hand-split across lines: the parser
+# anchors "name": "value" on one line (every JSON serializer emits this), so a
+# split key/value reads as no name and degrades to absent — never a misparse.
+# Locks the one-line-key/value assumption documented in the resolver.
+mkdir -p "$tmp/claude-split/planwright"
+printf '{\n"name":\n"splitname"\n}\n' >"$tmp/claude-split/planwright/plugin.json"
+out="$(base CLAUDE_DIR="$tmp/claude-split" /bin/bash "$RESOLVER" adopter)"
+assert "split-line manifest name degrades to absent" 0 $?
+assert_eq "split-line manifest yields empty adopter root" "" "$out"
 
 # Hostile manifest name: never interpolated into a path; degrade to absent
 # with a stderr warning (REQ-E1.2 charset validation, F9 degrade).
@@ -251,6 +279,17 @@ ln -s "$tmp/root/doctrine/ok.md" "$tmp/root/doctrine/alias.md"
 out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/alias.md")"
 assert "contained symlink accepted" 0 $?
 assert_eq "contained symlink resolves to its target" "$tmp/root/doctrine/ok.md" "$out"
+
+# A symlink within the root whose target does not yet exist but stays inside the
+# root is accepted: canon_path resolves the link, then canonicalizes the
+# (existing) parent of the not-yet-existing target. Exercises the symlink branch
+# feeding the file-fallback branch together — confinement is checked before the
+# read, so the target need not exist.
+ln -s "$tmp/root/doctrine/not-created-yet.md" "$tmp/root/doctrine/dangling.md"
+out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/dangling.md")"
+assert "contained symlink to nonexistent in-root target accepted" 0 $?
+assert_eq "dangling in-root symlink canonicalizes to its target" \
+  "$tmp/root/doctrine/not-created-yet.md" "$out"
 
 # A path under the filesystem root resolves correctly when the overlay root is
 # "/" itself: pwd -P returns "/" (the one canonical root carrying a trailing
