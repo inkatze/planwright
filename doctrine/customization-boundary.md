@@ -76,7 +76,7 @@ usually settles it.
 one-operator-specific, unproven, or whose generality you cannot yet argue
 belongs in an overlay, not in core. The cost of a wrong overlay call is one
 operator's file; the cost of a wrong core call is a less-general framework and a
-polluted upstream stream.
+polluted upstream observation stream.
 
 A preference **graduates** from overlay to core only when it generalizes, and
 only with evidence — the same growth model as the decision-domains and guard
