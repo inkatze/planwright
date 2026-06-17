@@ -119,8 +119,14 @@ if [ "${1:-}" = "--contain" ]; then
     echo "planwright: cannot resolve path '$cand' (no such parent directory)" >&2
     exit 2
   }
+  # Contained iff canon_cand equals canon_root or sits under it. Build the
+  # "under" prefix as "${canon_root%/}/" so the filesystem root "/" (the one
+  # pwd -P value carrying a trailing slash) yields "/" rather than a "//*"
+  # pattern that would reject real children; for any other root it strips no
+  # slash and the boundary "/" still guards against a prefix-sharing sibling.
+  under="${canon_root%/}/"
   case $canon_cand in
-    "$canon_root" | "$canon_root"/*)
+    "$canon_root" | "$under"*)
       printf '%s\n' "$canon_cand"
       exit 0
       ;;

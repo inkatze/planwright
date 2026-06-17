@@ -246,6 +246,21 @@ out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/alia
 assert "contained symlink accepted" 0 $?
 assert_eq "contained symlink resolves to its target" "$tmp/root/doctrine/ok.md" "$out"
 
+# A path under the filesystem root resolves correctly when the overlay root is
+# "/" itself: pwd -P returns "/" (the one canonical root carrying a trailing
+# slash), so the containment prefix must not become "//*" and reject real
+# children. Everything absolute is under "/".
+out="$(base /bin/bash "$RESOLVER" --contain / /bin)"
+assert "filesystem-root containment accepts a real child" 0 $?
+assert_eq "filesystem-root child canonicalized" "/bin" "$out"
+
+# A sibling dir that merely shares the root's string prefix is NOT contained:
+# the prefix match is boundary-aware (root + "/"), not a bare string prefix.
+mkdir -p "$tmp/root-sibling"
+echo "x" >"$tmp/root-sibling/evil.md"
+base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root-sibling/evil.md" >/dev/null 2>&1
+assert "prefix-sharing sibling dir is rejected" 2 $?
+
 # --contain with a missing argument is a usage error.
 base /bin/bash "$RESOLVER" --contain "$tmp/root" >/dev/null 2>&1
 assert "--contain missing path is a usage error" 2 $?
