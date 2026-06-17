@@ -54,6 +54,13 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
+# Neutralize a user CDPATH: the path-containment check resolves real paths via
+# `$(cd <dir> && pwd -P)`, and with CDPATH set `cd` echoes the resolved
+# destination into the command substitution, prepending a stray line that
+# breaks the containment comparison and spuriously refuses a valid bundle (the
+# house pattern every sibling script follows).
+unset CDPATH
+
 usage() {
   echo "usage: spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>" >&2
   exit 2

@@ -380,4 +380,24 @@ ctrl=$(printf 'wat\001x\177y')
 run_w 1 "$ws" --scope "$ctrl" demo
 has "watxy"
 
+# ---------------------------------------------------------------------------
+# 10. CDPATH robustness: a user CDPATH must not corrupt the path-containment
+# check. The check resolves the real specs/ and bundle paths via
+# `$(cd <dir> && pwd -P)`; with CDPATH set, `cd` echoes the resolved
+# destination into the command substitution, prepending a stray line that
+# breaks the containment comparison and turns a valid bundle into a spurious
+# "escapes the specs/ tree" refusal. The script must neutralize CDPATH (the
+# house pattern every sibling script follows) so a valid bundle still loads.
+# This test sets CDPATH in the child environment explicitly: the suite unsets
+# it globally above, which would otherwise mask the regression.
+# ---------------------------------------------------------------------------
+cdrc=0
+cdout=$(cd "$ws" && CDPATH="." "$script" demo 2>&1) || cdrc=$?
+[ "$cdrc" -eq 0 ] \
+  || fail "CDPATH=. broke a valid load (exit $cdrc) — output: $cdout"
+case $cdout in
+  *"loaded bundle 'demo'"*) ;;
+  *) fail "CDPATH=. corrupted the load report: $cdout" ;;
+esac
+
 echo "PASS: test-spec-walkthrough.sh"
