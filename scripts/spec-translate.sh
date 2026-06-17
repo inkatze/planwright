@@ -14,7 +14,7 @@
 # vocabulary — the requirement/decision/task identifier schemes and the
 # four-file names — is scrubbed so a cross-functional reader sees no IDs by
 # default (REQ-C1.1). <source> is the element's text verbatim, the reveal seam
-# (D-3/REQ-D1.3): the identifiers the plain view hid and any non-normative
+# (D-2/REQ-D1.3): the identifiers the plain view hid and any non-normative
 # phrasing it rephrased are restorable from it. <ref> is the element's
 # back-pointer — the requirement/decision/task identifier (with a `#field`
 # suffix for a decision/task sub-field) — so every plain sentence resolves back
