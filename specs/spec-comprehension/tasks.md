@@ -173,11 +173,17 @@ view tasks they cover.
 
 ## In progress
 
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 1 — Command scaffold
 
-- **Status:** PR #30 draft
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-16 · window `pw-sc-t1` · worktree `.claude/worktrees/planwright+spec-comprehension+task-1` · branch `planwright/spec-comprehension/task-1`
+- **Status:** Completed — merged via PR #30 (merge commit `bd7860d`) on 2026-06-17
 - **Deliverables:** the `/spec-walkthrough` skill entry point; argument and flag
   parsing (spec path, scope selector, reveal flag); spec-identifier charset
   validation and path containment check; read-only and status-agnostic bundle
@@ -189,14 +195,6 @@ view tasks they cover.
 - **Dependencies:** none
 - **Citations:** D-1, D-10 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-B1.4
 - **Estimated effort:** 1 day
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 
