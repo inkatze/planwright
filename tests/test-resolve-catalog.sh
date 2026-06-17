@@ -418,9 +418,36 @@ err="$(rc "$sb" testcat 2>&1 1>/dev/null)"
 rc "$sb" testcat >/dev/null 2>&1
 assert "symlink-escape adopter: exit 0 (degrade)" 0 $?
 out="$(rc "$sb" testcat 2>/dev/null)"
-assert_contains "symlink-escape adopter: warns about the escape" "outside its overlay root" "$err"
+# The containment primitive's precise diagnostic must reach the user, not be
+# swallowed: add_layer no longer redirects --contain's stderr to /dev/null, so
+# the "escapes overlay root" message naming the exact cause surfaces.
+assert_contains "symlink-escape adopter: surfaces the primitive's escape diagnostic" "escapes overlay root" "$err"
+assert_contains "symlink-escape adopter: flags the layer malformed" "malformed" "$err"
 assert_absent "symlink-escape adopter: outside content not emitted" "OUTSIDE-ROOT" "$out"
 assert_contains "symlink-escape adopter: core survives" "core-a" "$out"
+
+# A DANGLING overlay symlink (target missing) is present-but-broken, not absent:
+# `-e` alone is false for it, so without the `-L` guard add_layer would silently
+# skip it as an absent layer. It must instead be classified malformed for its
+# layer (hard-fail for repo-tracked, degrade+warn for adopter/machine-local),
+# matching the documented present-but-unreadable policy.
+sb="$tmp/dangling-repo"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(repo_cat "$sb" testcat)")"
+ln -s "$sb/repo/.claude/catalogs/does-not-exist.yaml" "$(repo_cat "$sb" testcat)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "dangling-symlink repo-tracked: hard-fail nonzero (not silently skipped)" 1 $?
+
+sb="$tmp/dangling-adopter"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+ln -s "$sb/adopter/catalogs/does-not-exist.yaml" "$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>/dev/null)"
+err="$(rc "$sb" testcat 2>&1 1>/dev/null)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "dangling-symlink adopter: exit 0 (degrade, not silent skip)" 0 $?
+assert_contains "dangling-symlink adopter: warns it is malformed" "malformed" "$err"
+assert_contains "dangling-symlink adopter: core survives" "core-a" "$out"
 
 # within-root symlink → resolves normally (not over-rejected).
 sb="$tmp/symlink-inside"

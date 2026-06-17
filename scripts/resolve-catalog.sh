@@ -192,8 +192,9 @@ policies=""
 # repo-tracked overlay pointing outside `.claude/` — is treated as malformed for
 # its layer (hard-fail for core/repo-tracked, degrade+warn for adopter/machine-
 # local), never read. The name is already charset-validated, so this closes the
-# residual symlink vector. The containment check runs only for a present file
-# (`-e` first), so a normal absent layer or missing `catalogs/` dir is untouched.
+# residual symlink vector. The containment check runs only for a present file or a
+# symlink (`-e`/`-L` first), so a normal absent layer or missing `catalogs/` dir
+# is untouched, while a dangling symlink is still seen and classified malformed.
 add_layer() {
   al_root="$1"
   al_rel="$2"
@@ -201,14 +202,26 @@ add_layer() {
   al_policy="$4"
   [ -n "$al_root" ] || return 0
   al_file="$al_root/$al_rel"
-  [ -e "$al_file" ] || return 0
-  # Contain: a nonzero exit means the resolved path escapes the overlay root.
-  if ! al_canon=$(/bin/sh "$overlay_root" --contain "$al_root" "$al_rel" 2>/dev/null); then
+  # Presence test: `-e` alone is false for a DANGLING symlink (one whose target
+  # is missing), which would wrongly classify a present-but-broken overlay file
+  # as an absent layer and skip it silently. `-L` catches that case so it flows
+  # into the containment / readability checks below and is classified malformed
+  # for its layer (hard-fail or degrade) per the documented present-but-
+  # unreadable policy, instead of vanishing.
+  { [ -e "$al_file" ] || [ -L "$al_file" ]; } || return 0
+  # Contain before reading. A nonzero exit means the path could not be confined
+  # under the overlay root: an escaping `../`, absolute, or symlink target, but
+  # ALSO a non-escape resolution failure (an unresolvable parent, a runaway
+  # symlink chain, a dangling link). Let the primitive's own stderr — which names
+  # the precise cause — flow through rather than swallowing it with 2>/dev/null;
+  # the message here stays cause-agnostic ("not confined") so a non-escape
+  # failure is never misreported as an escape.
+  if ! al_canon=$(/bin/sh "$overlay_root" --contain "$al_root" "$al_rel"); then
     if [ "$al_policy" = "hardfail" ]; then
-      echo "resolve-catalog: $name: $al_label catalog '$al_file' resolves outside its overlay root (hard-fail)" >&2
+      echo "resolve-catalog: $name: $al_label catalog '$al_file' is not confined under its overlay root (malformed, hard-fail)" >&2
       exit 1
     fi
-    echo "resolve-catalog: $name: $al_label overlay '$al_file' resolves outside its overlay root (malformed); degrading to the next lower layer" >&2
+    echo "resolve-catalog: $name: $al_label overlay '$al_file' is not confined under its overlay root (malformed); degrading to the next lower layer" >&2
     return 0
   fi
   if [ -r "$al_canon" ] && [ ! -d "$al_canon" ]; then

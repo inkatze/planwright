@@ -88,8 +88,23 @@ if [ -z "$catalog" ]; then
   script_dir="$(cd "$(dirname "$0")" && pwd)"
   resolver="$script_dir/resolve-catalog.sh"
   seed="$script_dir/../config/guard-catalog.yaml"
+  # The shipped seed must exist: a missing core seed is a broken install, not a
+  # normal absent overlay layer (REQ-A1.4 governs the overlay layers above core,
+  # not the framework's own seed). resolve-catalog treats a missing core file as
+  # an absent layer (empty output, exit 0), so without this check a broken
+  # install would silently emit zero guards instead of hard-failing the way the
+  # pre-overlay single-layer read did (D-7: a broken core seed is surfaced as
+  # such). The --catalog / PLANWRIGHT_GUARD_CATALOG override bypasses this whole
+  # block and keeps its own found-or-readable check below.
+  if [ ! -r "$seed" ]; then
+    echo "builder-guards: shipped guard catalog seed not found or unreadable: $seed" >&2
+    exit 1
+  fi
   if [ -r "$resolver" ]; then
-    merged="$(mktemp)" || {
+    # Explicit template (repo convention, cf. classify-ci-failure.sh): keeps the
+    # temp file in $TMPDIR and stays portable across the bash-3.2/BSD floor the
+    # header claims, rather than relying on a bare-mktemp default template.
+    merged="$(mktemp "${TMPDIR:-/tmp}/builder-guards-merged.XXXXXX")" || {
       echo "builder-guards: cannot create temp file for the merged guard catalog" >&2
       exit 1
     }

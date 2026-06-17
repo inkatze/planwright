@@ -225,6 +225,32 @@ fi
 rm -rf "$tmp_ovl"
 
 # ---------------------------------------------------------------------------
+# 6c. Broken install (missing shipped seed): the default overlay path must
+#     hard-fail loudly, not silently emit zero guards. resolve-catalog treats a
+#     missing CORE seed as an absent layer (empty output, exit 0) — REQ-A1.4
+#     governs overlays above core, not the framework's own seed — so without an
+#     explicit seed check builder-guards would mask a broken install that the
+#     pre-overlay single-layer read used to hard-fail (D-7).
+# ---------------------------------------------------------------------------
+tmp_seed="$(mktemp -d)"
+mkdir -p "$tmp_seed/scripts"
+cp "$REPO_ROOT/scripts/builder-guards.sh" "$REPO_ROOT/scripts/resolve-catalog.sh" \
+  "$REPO_ROOT/scripts/resolve-overlay-root.sh" "$tmp_seed/scripts/"
+# Deliberately omit config/guard-catalog.yaml (the shipped seed): a broken
+# install. Pin every overlay layer to an absent location so the merge has no
+# layer at all and resolve-catalog returns its empty/exit-0 result.
+seed_err="$(PLANWRIGHT_ADOPTER_OVERLAY="$tmp_seed/no-adopter" \
+  PLANWRIGHT_REPO_ROOT="$tmp_seed/no-repo" \
+  /bin/bash "$tmp_seed/scripts/builder-guards.sh" --core "$tmp_seed" 2>&1 >/dev/null)"
+seed_rc=$?
+assert_exit "missing shipped seed hard-fails (broken install, not silent zero guards)" 1 "$seed_rc"
+case "$seed_err" in
+  *seed*) pass "broken install surfaces a clear stderr error naming the seed" ;;
+  *) fail "broken install did not surface a clear seed error (got: $seed_err)" ;;
+esac
+rm -rf "$tmp_seed"
+
+# ---------------------------------------------------------------------------
 # 7. Usage hygiene: bad catalog path fails clean, not silently.
 # ---------------------------------------------------------------------------
 PLANWRIGHT_GUARD_CATALOG="/no/such/catalog.yaml" /bin/bash "$SCRIPT" --core "$REPO_ROOT" >/dev/null 2>&1
