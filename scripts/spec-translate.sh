@@ -63,6 +63,30 @@ unset CDPATH
 awk_prog='
   BEGIN { FS = "\t"; OFS = "\t" }
 
+  # strip_tok(re, s) — remove every *standalone* occurrence of an identifier
+  # pattern from s. awk POSIX ERE has no word-boundary anchor, so a bare
+  # gsub(/D-[0-9]+/, "", s) also eats the pattern inside ordinary words
+  # (UUID-123 -> UUI, FREQ-A -> F, STANDARD-7 -> STANDAR), corrupting content
+  # that carries no back-pointer. We walk matches with match() and drop one only
+  # when neither flank is alphanumeric — the same boundary discipline emit_norm
+  # uses for modals. A pattern embedded in a larger word is content, left
+  # verbatim (D-2 losslessness).
+  function strip_tok(re, s,   out, before, after) {
+    out = ""
+    while (match(s, re)) {
+      before = (RSTART > 1) ? substr(s, RSTART - 1, 1) \
+                            : (out == "" ? "" : substr(out, length(out), 1))
+      after = substr(s, RSTART + RLENGTH, 1)
+      if ((before == "" || before !~ /[A-Za-z0-9]/) && (after == "" || after !~ /[A-Za-z0-9]/)) {
+        out = out substr(s, 1, RSTART - 1)
+      } else {
+        out = out substr(s, 1, RSTART + RLENGTH - 1)
+      }
+      s = substr(s, RSTART + RLENGTH)
+    }
+    return out s
+  }
+
   # scrub(s) — the default-view rendering of a source text: strip planwright
   # internal vocabulary (REQ-C1.1) while leaving everything else (notably the
   # normative tokens, REQ-C1.7) verbatim.
@@ -81,10 +105,12 @@ awk_prog='
     # content; only the ids inside it go, and the tidy below collapses what is
     # left empty. The text the plain view drops always survives in <source>
     # (D-2 losslessness): the scrub never deletes content that has no back-pointer.
-    gsub(/REQ-[A-Z][0-9]+\.[0-9]+/, "", t)
-    gsub(/D-[0-9]+/, "", t)
-    gsub(/REQ-[A-Z]/, "", t)
-    gsub(/Task [0-9]+(\.[0-9]+)?/, "", t)
+    # strip_tok anchors each removal to token boundaries so an id pattern living
+    # inside an ordinary word (UUID-123, FREQ-A) is kept as content.
+    t = strip_tok("REQ-[A-Z][0-9]+\\.[0-9]+", t)
+    t = strip_tok("D-[0-9]+", t)
+    t = strip_tok("REQ-[A-Z]", t)
+    t = strip_tok("Task [0-9]+(\\.[0-9]+)?", t)
     # Tidy: parentheses the id removal emptied to only spaces/separators
     # ("()", "( / )", "( , )"), spaces before punctuation, and collapsed
     # whitespace. A parenthetical with surviving content is left intact.
@@ -99,10 +125,15 @@ awk_prog='
     return t
   }
 
-  # emit_norm(ref, s) — one NORM record per normative token in s, in source
-  # order, marking it toggle-anchored (REQ-C1.7). Two classes: the RFC-2119
-  # uppercase modals (extended to "... NOT" when it follows) and a comparator
-  # threshold (a comparator governing a number).
+  # emit_norm(ref, s) — one NORM record per normative token in s, marking it
+  # toggle-anchored (REQ-C1.7). Two classes scanned in two passes: first the
+  # RFC-2119 uppercase modals (extended to "... NOT" when it follows) in source
+  # order, then the comparator thresholds (a comparator governing a number) in
+  # source order. Ordinals therefore run modals-before-thresholds, not strict
+  # whole-string source order, when both classes co-occur; the per-class order is
+  # stable and deterministic, and consumers key off the (ref, token) pair. The
+  # token-boundary guard treats digits as word characters (MUST1 / SHALL2 are not
+  # normative tokens), the same alphanumeric flank rule strip_tok uses.
   function emit_norm(ref, s,   rest, tok, before, after, ord, adv) {
     ord = 0
     rest = s
@@ -111,10 +142,10 @@ awk_prog='
       before = (RSTART == 1) ? "" : substr(rest, RSTART - 1, 1)
       after = substr(rest, RSTART + RLENGTH, 1)
       adv = RSTART + RLENGTH
-      if ((before == "" || before !~ /[A-Za-z]/) && (after == "" || after !~ /[A-Za-z]/)) {
+      if ((before == "" || before !~ /[A-Za-z0-9]/) && (after == "" || after !~ /[A-Za-z0-9]/)) {
         # Extend a bare modal to "<modal> NOT" so the negation is one verbatim
         # token, regardless of the regex engine longest-match behavior.
-        if (tok ~ /^(MUST|SHALL|SHOULD)$/ && substr(rest, adv, 5) ~ /^ NOT([^A-Za-z]|$)/) {
+        if (tok ~ /^(MUST|SHALL|SHOULD)$/ && substr(rest, adv, 5) ~ /^ NOT([^A-Za-z0-9]|$)/) {
           tok = tok " NOT"
           adv = adv + 4
         }

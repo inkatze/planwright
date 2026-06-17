@@ -341,6 +341,47 @@ printf '%s\n' "$out" \
   || fail "a decimal threshold was truncated to its integer part in the NORM mark"
 
 # ---------------------------------------------------------------------------
+# 13. Word-boundary scrub (REQ-C1.1 regression): identifier removal is anchored
+# to token boundaries, so an id pattern embedded inside an ordinary word
+# (UUID-123, FREQ-A, STANDARD-7) is content, not a back-pointer, and survives
+# verbatim (D-2 losslessness: the scrub never corrupts text that carries no
+# standalone identifier). Only standalone back-pointer tokens are scrubbed.
+# ---------------------------------------------------------------------------
+IN="REQ$(t)REQ-A1.5$(t)A$(t)live$(t)The UUID-123 token, the FREQ-A signal, and STANDARD-7 stay intact; cite (D-2) and REQ-C1.7."
+run_stdin 0
+a15=$(field TEXT REQ-A1.5 4)
+case $a15 in
+  *"UUID-123"*) ;;
+  *) fail "scrub corrupted UUID-123 (unbounded D-[0-9]+ match): $a15" ;;
+esac
+case $a15 in
+  *"FREQ-A"*) ;;
+  *) fail "scrub corrupted FREQ-A (unbounded REQ-[A-Z] match): $a15" ;;
+esac
+case $a15 in
+  *"STANDARD-7"*) ;;
+  *) fail "scrub corrupted STANDARD-7 (unbounded D-[0-9]+ match): $a15" ;;
+esac
+# The genuine standalone back-pointers are still scrubbed (hidden, not destroyed).
+case $a15 in
+  *D-2*) fail "standalone D-2 back-pointer leaked into plain: $a15" ;;
+  *REQ-C1.7*) fail "standalone REQ-C1.7 leaked into plain: $a15" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# 14. Normative-token boundary (REQ-C1.7 regression): a modal embedded in an
+# alphanumeric word (MUST1, SHALL2) is NOT a normative token and is not marked;
+# digits count as word characters for the token-boundary check, exactly like
+# letters. Only the standalone modal is marked.
+# ---------------------------------------------------------------------------
+IN="REQ$(t)REQ-A1.6$(t)A$(t)live$(t)The MUST1 path and SHALL2 path differ; the system MUST stop."
+run_stdin 0
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "NORM" && $2 == "REQ-A1.6" { n++ } END { exit(n == 1 ? 0 : 1) }' \
+  || fail "REQ-A1.6 should mark exactly one normative token (standalone MUST), not MUST1/SHALL2"
+rec NORM REQ-A1.6 1 MUST
+
+# ---------------------------------------------------------------------------
 # 8. Graceful degradation.
 # ---------------------------------------------------------------------------
 IN=""
@@ -359,9 +400,12 @@ for spec in spec-comprehension bootstrap; do
   run_dir 0 "$bundle"
 
   # No TEXT plain column leaks an identifier token or one of the four bundle
-  # file names (the REQ-C1.1 scope).
+  # file names (the REQ-C1.1 scope). The pattern mirrors the fixture guard above:
+  # full REQ ids, bare REQ-[A-Z] group refs, D ids, the four file names, and task
+  # ids including the dotted form (Task 3.1) — the full scrub scope, so this
+  # real-bundle assertion is no weaker than the synthetic-fixture one.
   real_leaks=$(printf '%s\n' "$out" | awk -F"$tab" '$1 == "TEXT" { print $4 }' \
-    | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+|D-[0-9]+|(requirements|design|tasks|test-spec)\.md|Task [0-9]+' || true)
+    | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+|REQ-[A-Z]([^A-Za-z0-9]|$)|D-[0-9]+|(requirements|design|tasks|test-spec)\.md|Task [0-9]+(\.[0-9]+)?' || true)
   [ -z "$real_leaks" ] \
     || fail "$spec default view leaks internal vocabulary: $real_leaks"
 
