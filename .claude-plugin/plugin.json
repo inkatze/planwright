@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "planwright",
   "displayName": "Planwright",
   "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
