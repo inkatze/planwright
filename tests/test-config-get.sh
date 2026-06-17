@@ -281,12 +281,13 @@ printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
 printf 'review_sequence:\n  - polish\n' >"$tracked_cfg"
 rc=0
 err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
-[ "$rc" != 0 ] || fail "malformed repo-tracked: exit 0, expected nonzero hard-fail"
+[ "$rc" = 4 ] \
+  || fail "malformed repo-tracked: exit $rc, expected 4 (documented hard-fail code)"
 case $err in
   *repo-tracked*) ;;
   *) fail "malformed repo-tracked: stderr does not name the layer (got: '$err')" ;;
 esac
-echo "ok: malformed repo-tracked overlay hard-fails nonzero (no silent degrade)"
+echo "ok: malformed repo-tracked overlay hard-fails with exit 4 (no silent degrade)"
 
 # E1.4 — "malformed" tracks the flat-vs-nested structure, not the key charset:
 # a flat key the reader does not query (a non-snake key such as one with a dash)
