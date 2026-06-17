@@ -254,6 +254,15 @@ out="$(base /bin/bash "$RESOLVER" --contain / /bin)"
 assert "filesystem-root containment accepts a real child" 0 $?
 assert_eq "filesystem-root child canonicalized" "/bin" "$out"
 
+# A *nonexistent* leaf directly under the filesystem root exercises canon_path's
+# file-fallback concatenation (the /bin case above takes the directory branch and
+# never reaches it). Its parent canonicalizes to "/", so the concatenation must
+# not emit a "//leaf" double slash (F2/F3).
+out="$(base /bin/bash "$RESOLVER" --contain / /planwright-nonexist-leaf.md)"
+assert "filesystem-root nonexistent child accepted" 0 $?
+assert_eq "filesystem-root nonexistent child has no double slash" \
+  "/planwright-nonexist-leaf.md" "$out"
+
 # A sibling dir that merely shares the root's string prefix is NOT contained:
 # the prefix match is boundary-aware (root + "/"), not a bare string prefix.
 mkdir -p "$tmp/root-sibling"
@@ -268,6 +277,43 @@ assert "--contain missing path is a usage error" 2 $?
 # --contain against a nonexistent root is an error (the root must exist).
 base /bin/bash "$RESOLVER" --contain "$tmp/no-such-root" "$tmp/no-such-root/x" >/dev/null 2>&1
 assert "--contain nonexistent root errors" 2 $?
+
+# ---------------------------------------------------------------------------
+# core: a candidate that exists but cannot be entered must be skipped
+# ---------------------------------------------------------------------------
+# An existing-but-unsearchable candidate (e.g. chmod 000) must not be treated as
+# the resolved core root: the loop falls through to the next usable candidate
+# rather than degrading core to absent (F1). Skipped as root, whose access is
+# not bound by the search bit.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/core-noexec" "$tmp/core-fallback/config"
+  chmod 000 "$tmp/core-noexec"
+  out="$(base PLANWRIGHT_ROOT="$tmp/core-noexec" CLAUDE_PLUGIN_ROOT="$tmp/core-fallback" \
+    /bin/bash "$RESOLVER" core 2>/dev/null)"
+  rc=$?
+  chmod 755 "$tmp/core-noexec"
+  assert "core skips an unsearchable candidate (zero exit)" 0 "$rc"
+  assert_eq "core falls through past an unsearchable dir" "$tmp/core-fallback" "$out"
+else
+  echo "skip: core unsearchable-candidate case (running as root)"
+fi
+
+# ---------------------------------------------------------------------------
+# --contain: a candidate beginning with '-' is handled lexically
+# ---------------------------------------------------------------------------
+# A path beginning with '-' must be canonicalized lexically (cd/dirname/basename
+# use the '--' option terminator), so it is rejected as an escape WITHOUT leaking
+# an "illegal option" / "invalid option" error from the canonicalizer (F5).
+err="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "-dashleading/x" 2>&1 >/dev/null)"
+rc=$?
+assert "dash-leading candidate is rejected" 2 "$rc"
+case "$err" in
+  *"illegal option"* | *"invalid option"*)
+    echo "FAIL: dash-leading path leaked an option-parsing error: $err" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: dash-leading path handled without an option-parsing error" ;;
+esac
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

@@ -80,21 +80,24 @@ canon_path() {
     if [ "$cp_n" -gt 40 ]; then
       return 1
     fi
-    cp_t=$(readlink "$cp_p") || return 1
+    cp_t=$(readlink -- "$cp_p") || return 1
     case $cp_t in
       /*) cp_p=$cp_t ;;
-      *) cp_p=$(dirname "$cp_p")/$cp_t ;;
+      *) cp_p=$(dirname -- "$cp_p")/$cp_t ;;
     esac
   done
   if [ -d "$cp_p" ]; then
-    (cd "$cp_p" 2>/dev/null && pwd -P)
+    (cd -- "$cp_p" 2>/dev/null && pwd -P)
     return
   fi
   # A file (resolved above if it was a symlink) or a not-yet-existing leaf:
   # canonicalize the parent (which resolves any symlinks in the dir path) and
-  # re-attach the basename.
-  cp_d=$(cd "$(dirname "$cp_p")" 2>/dev/null && pwd -P) || return 1
-  printf '%s/%s\n' "$cp_d" "$(basename "$cp_p")"
+  # re-attach the basename. Strip a trailing slash from the canonical parent so a
+  # parent resolving to "/" yields "/leaf", not "//leaf" (a leading "//" is
+  # implementation-defined in POSIX). The '--' terminators keep a path beginning
+  # with '-' from being read as a tool option.
+  cp_d=$(cd -- "$(dirname -- "$cp_p")" 2>/dev/null && pwd -P) || return 1
+  printf '%s/%s\n' "${cp_d%/}" "$(basename -- "$cp_p")"
 }
 
 # ---------------------------------------------------------------------------
@@ -171,13 +174,16 @@ case $layer in
     for root in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
       "${claude_dir:+$claude_dir/planwright}" "$script_dir/.."; do
       [ -n "$root" ] || continue
-      if [ -d "$root" ]; then
-        (cd "$root" && pwd -P)
+      # Only a usable root wins: a candidate that exists but cannot be entered
+      # (e.g. an unsearchable dir) is skipped so the loop falls through to the
+      # next candidate rather than degrading core to absent.
+      if [ -d "$root" ] && core_root=$(cd -- "$root" 2>/dev/null && pwd -P); then
+        printf '%s\n' "$core_root"
         exit 0
       fi
     done
-    # No core root exists — a broken install. Degrade to absent rather than
-    # erroring; the kind resolver surfaces the missing core file.
+    # No usable core root exists — a broken install. Degrade to absent rather
+    # than erroring; the kind resolver surfaces the missing core file.
     exit 0
     ;;
 
