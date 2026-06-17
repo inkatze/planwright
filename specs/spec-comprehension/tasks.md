@@ -175,8 +175,8 @@ view tasks they cover.
 
 ### Task 1 — Command scaffold
 
-- **Status:** implementing
-- **Last activity:** 2026-06-16
+- **Status:** PR #30 draft
+- **Last activity:** 2026-06-17
 - **Dispatch:** tmux · 2026-06-16 · window `pw-sc-t1` · worktree `.claude/worktrees/planwright+spec-comprehension+task-1` · branch `planwright/spec-comprehension/task-1`
 - **Deliverables:** the `/spec-walkthrough` skill entry point; argument and flag
   parsing (spec path, scope selector, reveal flag); spec-identifier charset
