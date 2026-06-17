@@ -192,6 +192,39 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# 6b. Overlay merge (Task 5, REQ-D1.1 / REQ-B1.3): with NO explicit --catalog
+#     override, the default path reads the guard catalog THROUGH the overlay
+#     merge resolver (scripts/resolve-catalog.sh), so a repo-tracked overlay
+#     guard (<repo>/.claude/catalogs/guard-catalog.yaml) is unioned onto the
+#     shipped core seed rather than replacing it.
+# ---------------------------------------------------------------------------
+tmp_ovl="$(mktemp -d)"
+mkdir -p "$tmp_ovl/.claude/catalogs"
+cat >"$tmp_ovl/.claude/catalogs/guard-catalog.yaml" <<'YAML'
+guards:
+  - id: overlay-extra
+    category: linter
+    tool: overlay-tool
+    detect: "overlay-marker"
+    core: true
+YAML
+: >"$tmp_ovl/overlay-marker"
+: >"$tmp_ovl/probe.sh" # triggers the core shfmt guard so the union is observable
+ovl_tools="$(PLANWRIGHT_REPO_ROOT="$tmp_ovl" \
+  /bin/bash "$SCRIPT" --core "$tmp_ovl" 2>/dev/null | tools_of)"
+if printf '%s\n' "$ovl_tools" | grep -qx "overlay-tool"; then
+  pass "repo-tracked overlay guard merges through resolve-catalog (default path)"
+else
+  fail "repo-tracked overlay guard did not merge through the default path"
+fi
+if printf '%s\n' "$ovl_tools" | grep -qx "shfmt"; then
+  pass "overlay merge unions onto the core seed (shfmt still present)"
+else
+  fail "overlay merge dropped the core seed (shfmt missing)"
+fi
+rm -rf "$tmp_ovl"
+
+# ---------------------------------------------------------------------------
 # 7. Usage hygiene: bad catalog path fails clean, not silently.
 # ---------------------------------------------------------------------------
 PLANWRIGHT_GUARD_CATALOG="/no/such/catalog.yaml" /bin/bash "$SCRIPT" --core "$REPO_ROOT" >/dev/null 2>&1

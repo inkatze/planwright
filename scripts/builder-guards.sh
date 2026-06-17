@@ -78,11 +78,44 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Default catalog: planwright's own, resolved relative to this script (the
-# framework ships it; the target project does not have to).
+# Default catalog: planwright's own, read THROUGH the overlay merge path
+# (Task 5, scripts/resolve-catalog.sh) so adopter / repo-tracked / machine-local
+# overlay catalogs apply automatically — the guard catalog is one of the two
+# growable catalogs the overlay mechanism unions (REQ-B1.3, REQ-D1.1). An
+# explicit --catalog / PLANWRIGHT_GUARD_CATALOG override still wins and bypasses
+# the merge (the catalog the operator names is used verbatim).
 if [ -z "$catalog" ]; then
   script_dir="$(cd "$(dirname "$0")" && pwd)"
-  catalog="$script_dir/../config/guard-catalog.yaml"
+  resolver="$script_dir/resolve-catalog.sh"
+  seed="$script_dir/../config/guard-catalog.yaml"
+  if [ -r "$resolver" ]; then
+    merged="$(mktemp)" || {
+      echo "builder-guards: cannot create temp file for the merged guard catalog" >&2
+      exit 1
+    }
+    trap 'rm -f "$merged"' EXIT
+    # resolve-catalog prints the merged catalog on stdout and surfaces overlay
+    # warnings on stderr (let them flow). A nonzero exit is a hard-fail — e.g. a
+    # malformed repo-tracked overlay — and must NOT silently fall back to the
+    # unmerged seed, or a team-shared misconfiguration would run unintended
+    # guards (D-7). The framework seed itself never triggers this path.
+    #
+    # Pin the core seed to this script's own sibling root (PLANWRIGHT_ROOT): the
+    # guard catalog builder-guards ships with is always config/guard-catalog.yaml
+    # next to it, so the merge layers overlays on top of THAT seed rather than an
+    # unrelated installed copy the global resolution chain might find first. In a
+    # real install the sibling root IS the install root, so this is a no-op there.
+    if PLANWRIGHT_ROOT="$script_dir/.." /bin/bash "$resolver" guard-catalog >"$merged"; then
+      catalog="$merged"
+    else
+      echo "builder-guards: guard-catalog overlay resolution failed; refusing to fall back to the unmerged seed" >&2
+      exit 1
+    fi
+  else
+    # The overlay resolver is unavailable: degrade gracefully to the shipped
+    # seed (REQ-K1.7) — a single-layer read, but never a hard failure.
+    catalog="$seed"
+  fi
 fi
 if [ ! -f "$catalog" ] || [ ! -r "$catalog" ]; then
   echo "builder-guards: guard catalog not found or unreadable: $catalog" >&2
