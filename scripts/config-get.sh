@@ -114,11 +114,16 @@ else
 fi
 
 # overlay_root <layer> -> the layer's root path (empty when the layer is
-# absent), resolved through the Task 2 primitive. Its stderr is suppressed: an
-# absent layer is a normal state and the primitive only writes on usage error,
-# which cannot happen for these fixed layer names.
+# absent), resolved through the Task 2 primitive. Its stderr is deliberately NOT
+# suppressed: an absent layer is a normal state and resolves to empty stdout with
+# a clean stderr, but the primitive can still emit a legitimate warning (e.g. a
+# plugin manifest whose `name` is not a valid identifier degrades the adopter
+# layer with a stderr warning), and a missing or non-executable primitive must
+# surface its error rather than masquerade as "every overlay absent". A blanket
+# 2>/dev/null would swallow both, defeating this reader's "never fails opaquely"
+# contract.
 overlay_root() {
-  "$script_dir/resolve-overlay-root.sh" "$1" 2>/dev/null
+  "$script_dir/resolve-overlay-root.sh" "$1"
 }
 
 # Adopter and repo-tracked config files (kind-native names under each layer

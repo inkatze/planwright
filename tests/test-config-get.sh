@@ -392,4 +392,40 @@ d=$(run4 --explain dispatch_backend)
   || fail "resolution is not deterministic across repeated runs"
 echo "ok: resolution is deterministic across repeated runs (fixed layer order)"
 
+# F9/REQ-E1.2 — the reader must not swallow the Task 2 primitive's stderr. The
+# primitive can emit a legitimate warning while still resolving exit 0 (here, a
+# plugin manifest whose `name` is not a valid identifier degrades the adopter
+# layer with a stderr warning). A blanket 2>/dev/null on the overlay_root helper
+# would hide that warning (and would equally mask a missing/non-executable
+# primitive as "every overlay absent"), defeating the reader's "never fails
+# opaquely" contract. Drive writer-mode adopter resolution hermetically: no
+# PLANWRIGHT_ADOPTER_OVERLAY / CLAUDE_PLUGIN_DATA, CLAUDE_DIR pointing at an
+# invalid-manifest fixture, repo-side layers pinned absent so only the adopter
+# layer drives stderr. The adopter layer must still degrade to core (exit 0).
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+wm_claude=$(mktemp -d)
+mkdir -p "$wm_claude/planwright"
+printf '{"name": "Bad Name!"}\n' >"$wm_claude/planwright/plugin.json"
+run_wm() {
+  env -u PLANWRIGHT_ADOPTER_OVERLAY -u CLAUDE_PLUGIN_DATA \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    CLAUDE_DIR="$wm_claude" \
+    /bin/bash "$CG" "$@"
+}
+rc=0
+err=$(run_wm dispatch_backend 2>&1 >/dev/null) || rc=$?
+out=$(run_wm dispatch_backend 2>/dev/null)
+rm -rf "$wm_claude"
+[ "$rc" = 0 ] || fail "primitive-warning passthrough: exit $rc, expected 0 (adopter degrades)"
+[ "$out" = core_v ] \
+  || fail "primitive-warning passthrough: did not degrade to core (got '$out')"
+case $err in
+  *"not a valid identifier"*) ;;
+  *) fail "primitive-warning passthrough: reader swallowed the primitive's stderr (got: '$err')" ;;
+esac
+echo "ok: the reader surfaces the Task 2 primitive's stderr (no blanket 2>/dev/null)"
+
 echo "PASS: config-get"
