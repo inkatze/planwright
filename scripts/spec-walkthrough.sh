@@ -156,21 +156,26 @@ fi
 
 bundle_dir="specs/$spec"
 
-# Path containment (REQ-A1.6): when the bundle directory resolves, its real
-# path must sit inside the real specs/ tree. A symlink whose target escapes
-# specs/ is refused before any file is read; the resolved path is never echoed.
+# Path containment (REQ-A1.6): when the bundle directory exists, its real path
+# must sit inside the real specs/ tree. A symlink whose target escapes specs/ is
+# refused before any file is read; the resolved path is never echoed. The gate
+# fails closed: if either real path cannot be resolved, the containment decision
+# cannot be made, so we refuse before any read rather than fall through to the
+# file load with the check silently skipped.
 if [ -d "$bundle_dir" ]; then
   specs_real=$(cd specs 2>/dev/null && pwd -P) || specs_real=
   bundle_real=$(cd "$bundle_dir" 2>/dev/null && pwd -P) || bundle_real=
-  if [ -n "$specs_real" ] && [ -n "$bundle_real" ]; then
-    case "$bundle_real/" in
-      "$specs_real/"*) ;;
-      *)
-        echo "spec-walkthrough: resolved bundle path escapes the specs/ tree; refused before any read" >&2
-        exit 2
-        ;;
-    esac
+  if [ -z "$specs_real" ] || [ -z "$bundle_real" ]; then
+    echo "spec-walkthrough: could not resolve the bundle's real path for the containment check; refused before any read" >&2
+    exit 2
   fi
+  case "$bundle_real/" in
+    "$specs_real/"*) ;;
+    *)
+      echo "spec-walkthrough: resolved bundle path escapes the specs/ tree; refused before any read" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 # Missing bundle: a clear, non-opaque degradation naming the expected location
@@ -266,6 +271,10 @@ case ${scope:-whole} in
         exit 1
         ;;
     esac
+    if [ ! -f "$bundle_dir/requirements.md" ]; then
+      echo "spec-walkthrough: scope '$scope_safe' names a requirement group, but requirements.md is absent from specs/$spec" >&2
+      exit 1
+    fi
     if grep -qE "^## REQ-$group( |\$)" "$bundle_dir/requirements.md" 2>/dev/null; then
       scope_label="requirement group $group"
     else
@@ -299,6 +308,10 @@ case ${scope:-whole} in
         exit 1
         ;;
     esac
+    if [ ! -f "$bundle_dir/design.md" ]; then
+      echo "spec-walkthrough: scope '$scope_safe' names a decision, but design.md is absent from specs/$spec" >&2
+      exit 1
+    fi
     if grep -qE "^### D-$did:" "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision D-$did"
     else

@@ -52,7 +52,9 @@ fail() {
 [ -x "$script" ] || fail "scripts/spec-walkthrough.sh missing or not executable"
 
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+# Restore search/write permission before rm: section 11 deliberately chmod 000's
+# a bundle dir, which would otherwise block cleanup if that test aborts early.
+trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 # run_w <expected-exit> <workspace> <args...> — run the scaffold with the
 # workspace as CWD (the command resolves specs/ relative to the working
@@ -399,5 +401,49 @@ case $cdout in
   *"loaded bundle 'demo'"*) ;;
   *) fail "CDPATH=. corrupted the load report: $cdout" ;;
 esac
+
+# ---------------------------------------------------------------------------
+# 11. Path-containment fails closed (REQ-A1.6). When the bundle directory
+# exists ([ -d ] true) but its real path cannot be resolved — `cd … && pwd -P`
+# fails — the containment gate must refuse before any read, not fall through to
+# the file reads with the gate silently bypassed. A directory with no search
+# (execute) permission makes [ -d ] succeed (the parent is searchable) while
+# `cd` into it fails. Skipped as root, where permission bits are ignored.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  uws="$tmp/unresolvable"
+  mkdir -p "$uws/specs"
+  # Real files inside, so a fall-through past the gate would actually read them.
+  make_bundle "$uws/specs" locked Active
+  chmod 000 "$uws/specs/locked"
+  run_w 2 "$uws" locked
+  # Restore search permission immediately so the EXIT trap can clean up and the
+  # captured $out is still asserted below.
+  chmod 755 "$uws/specs/locked"
+  has "could not resolve"
+  has "before any read"
+fi
+
+# ---------------------------------------------------------------------------
+# 12. Partial-bundle scope degradation names the absent source file, matching
+# the `decisions`/`tasks`/`file:` branches (REQ-A1.5). Without this, a missing
+# requirements.md or design.md degrades with an empty "available …:" list that
+# never names what is absent.
+# ---------------------------------------------------------------------------
+# reqs:<group> with requirements.md absent names the missing file.
+nrws="$tmp/noreqs"
+mkdir -p "$nrws/specs"
+make_bundle "$nrws/specs" demo Active
+rm "$nrws/specs/demo/requirements.md"
+run_w 1 "$nrws" --scope reqs:A demo
+has "requirements.md"
+
+# decision:<id> with design.md absent names the missing file.
+ndws="$tmp/nodesign"
+mkdir -p "$ndws/specs"
+make_bundle "$ndws/specs" demo Active
+rm "$ndws/specs/demo/design.md"
+run_w 1 "$ndws" --scope decision:1 demo
+has "design.md"
 
 echo "PASS: test-spec-walkthrough.sh"

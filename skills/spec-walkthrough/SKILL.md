@@ -7,7 +7,7 @@ description: >
   finished or abandoned spec. Standalone and strictly read-only: it renders any
   status, never edits, signs off, mutates the pipeline, or delivers a verdict of
   its own. The independent complement to /spec-kickoff's guided dialogue.
-argument-hint: "<spec-path> [--scope <selector>] [--reveal]"
+argument-hint: "[--scope <selector>] [--reveal] <spec-path>"
 ---
 
 # /spec-walkthrough
