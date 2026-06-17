@@ -1,9 +1,9 @@
-# Kickoff Brief — spec-comprehension
+# Spec Comprehension Walkthrough — Kickoff Brief
 
 ## 1. Header
 
 - **Spec path:** `specs/spec-comprehension`
-- **Spec commit at walkthrough start:** `d4ba72f`
+- **Spec commit at walkthrough start:** `d4ba72f854ee3a6d8a8742125e3b522e3c9ced8e`
 - **Walkthrough date:** 2026-06-16
 - **Mode:** first activation
 - **Validator outcome (pre-flight, Draft):** 0 errors, 0 warnings (clean)
