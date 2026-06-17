@@ -485,4 +485,22 @@ EOF
 run_w 1 "$omws" --scope decisions demo
 has "no decisions"
 
+# ---------------------------------------------------------------------------
+# 14. Scope-probe grep noise discipline: the `decisions` scope guard redirects
+# grep's stderr like the sibling probes (`reqs:`, `decision:`, and the two
+# listers all use `2>/dev/null`), so an unreadable design.md degrades cleanly
+# through the script's own message rather than leaking grep's "Permission
+# denied" diagnostic into the output. Skipped as root (permission bits ignored).
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  grws="$tmp/grep-noise"
+  mkdir -p "$grws/specs"
+  make_bundle "$grws/specs" demo Active
+  chmod 000 "$grws/specs/demo/design.md"
+  run_w 1 "$grws" --scope decisions demo
+  chmod 644 "$grws/specs/demo/design.md"
+  lacks "Permission denied"
+  has "no decision set"
+fi
+
 echo "PASS: test-spec-walkthrough.sh"

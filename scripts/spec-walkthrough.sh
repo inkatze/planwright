@@ -45,8 +45,9 @@
 #      refused before any read, never echoed back, and never becomes a path
 #      (REQ-A1.6).
 #
-# Portable: /bin/sh + awk + grep as shipped on macOS (bash 3.2, BSD userland)
-# and Linux (the REQ-K1.5 envelope). No eval; input treated as data only.
+# Portable: /bin/sh + awk + sed + grep (incl. grep -o) + tr as shipped on macOS
+# (bash 3.2, BSD userland) and Linux (the REQ-K1.5 envelope). No eval; input
+# treated as data only.
 set -eu
 
 # Pin the C locale: charset checks and awk/grep ranges must not vary by host
@@ -288,7 +289,7 @@ case ${scope:-whole} in
     fi
     ;;
   decisions)
-    if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+:' "$bundle_dir/design.md"; then
+    if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+:' "$bundle_dir/design.md" 2>/dev/null; then
       scope_label="decision set"
     else
       echo "spec-walkthrough: scope 'decisions' resolves to no decision set in specs/$spec; design.md is absent or holds no decisions" >&2
