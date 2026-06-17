@@ -31,8 +31,10 @@ writes), `interaction-style` (governs every exchange in the flow),
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
 `security-posture` (artifact data-hygiene for everything committed),
 `engineering-decisions` (governs design-phase recommendations), and
-`proportionality`. Their definitions govern wherever this skill names a
-concept. If one of those does not resolve, halt with a clear message naming
+`proportionality`, plus `customization-boundary` (the capability-vs-style
+scoping call the design phase applies when a candidate feature looks like a
+packaged preference — see Design step 3). Their definitions govern wherever this
+skill names a concept. If one of those does not resolve, halt with a clear message naming
 the missing doc and the chain consulted (REQ-K1.7: a clear message is the
 graceful arm; proceeding without doctrine is the opaque failure). Also
 resolve `decision-domains` (the design phase walks its catalog) — this one
@@ -208,6 +210,12 @@ the validator the first time.
    Research Rigor triggers (new dependency, unfamiliar domain,
    security-touching pattern, version-sensitive API, mature-project
    comparison): research before recommending, cite what was consulted.
+   **Capability-vs-style call:** when a choice is whether a preference belongs
+   in core or in an adopter/team overlay, apply `customization-boundary` — does
+   the general *capability* land in core as an opt-in, default-preserving config
+   knob, while the specific *value/style* stays in an overlay? Default tilt is
+   overlay when in doubt; a preference graduates to a core knob only with
+   drain-loop evidence that it generalizes.
    **Builder hook point:** walk the decision-domains catalog for domains the
    feature touches; flag any the spec touches but does not decide, and
    escalate stake-bearing decisions (authn/z, data modeling, security

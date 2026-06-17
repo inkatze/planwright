@@ -17,6 +17,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [proportionality.md](proportionality.md) | Rigor scales with stake and reversibility; scoping must be declared | REQ-D1.7 |
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
 | [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference (toolchain pinned, defaults owned), the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
+| [customization-boundary.md](customization-boundary.md) | The capability-vs-style boundary: when a preference belongs in core (as an opt-in config knob) vs an overlay; decision-time criteria, the default tilt to overlay, two worked examples | REQ-C1.1–C1.3 · D-10 (customization-overlay) |
 | [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
 | [guard-catalog.md](guard-catalog.md) | The builder's core guard catalog: guard categories, entry format, breadth dimensions, the extension model, the dogfood contract | REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 |
 | [accumulator-taxonomy.md](accumulator-taxonomy.md) | The three accumulator classes and their drain rituals, the `GATE(when:)` convention and its closed grammar (normative home), the shared drain pass behind `/drain` and `--bookkeeping` | REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18, D-31 |
@@ -76,7 +77,10 @@ guarantees it re-surfaces (no write-only deferral).
 all of the above scale with what is at stake. Upstream of execution,
 [Interaction Style](interaction-style.md) governs how the spec-authoring
 skills conduct the interactive sessions that produce the specs everything
-above executes against.
+above executes against, and the
+[Customization Boundary](customization-boundary.md) governs a scoping call made
+in those sessions: whether a candidate preference belongs in core (as an opt-in
+config knob) or in an adopter/team overlay.
 
 ## Adopter extension
 
