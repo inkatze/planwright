@@ -38,8 +38,13 @@
 #   - a malformed repo-tracked (team-shared) overlay hard-fails with exit 4,
 #     because silently degrading a broken shared config means a whole team runs
 #     unintended behavior — surfaced loudly regardless of the queried key;
-#   - a malformed core defaults file is a broken install, surfaced as such (the
-#     original behavior: the broken-install diagnostic below).
+#   - the core defaults file is the tracked, tested install base, not a
+#     user-supplied overlay, so the structural malformed test above is NOT
+#     applied to it (REQ-E1.4 scopes that test to the overlay layers; D-7 keeps
+#     core on the existing behavior). The broken install this reader surfaces
+#     for core is a *missing or unreadable* defaults file — via the
+#     broken-install diagnostic below; a readable-but-non-flat defaults file
+#     simply misses keys and exits 3, the same as the original two-layer reader.
 #
 # Usage: config-get.sh [--explain] <key>
 #   <key> matches ^[a-z][a-z0-9_]*$ and is validated before it is ever
