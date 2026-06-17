@@ -10,45 +10,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
-### Task 3 — Four-layer config resolution
-
-- **Deliverables:** `config-get.sh` extended to read the adopter and
-  repo-tracked layers through the Task 2 primitive (four-layer
-  last-layer-wins), the malformed-by-layer policy (degrade+warn for
-  adopter/machine-local, hard-fail for repo-tracked), and a `--explain`
-  provenance mode. Any new option documented in `docs/options-reference.md`.
-  Tests under `tests/`.
-- **Done when:** a key set in all four layers resolves to the highest-precedence
-  value; absent layers degrade; a malformed adopter/machine-local file
-  degrades with a stderr warning and the malformed repo-tracked file exits
-  nonzero; `--explain` names the winning layer per key; `check-options-reference.sh`
-  passes; tests pass under `mise run check`.
-- **Dependencies:** 2
-- **Citations:** D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
-  REQ-B1.6, REQ-E1.3, REQ-E1.4
-- **Estimated effort:** 1 day
-
-### Task 4 — Doctrine-overlay resolution
-
-- **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
-  repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
-  repo-tracked, `doctrine.local/` for machine-local, per D-4) into its
-  precedence chain (whole-doc shadow),
-  with path-traversal confinement, the malformed-by-layer policy, the
-  protected-doc warn-but-allow behavior (loud stderr warning when an overlay
-  shadows a protected core governance/security doc), and a `--explain`
-  provenance mode. Tests under `tests/`.
-- **Done when:** the highest-precedence overlay doc of a name wins in full;
-  no fragment merge occurs; a path escaping the overlay root (`../`, absolute,
-  symlink-escape) is rejected with a clear message; malformed-by-layer matches
-  D-7; shadowing a protected core doc resolves *and* emits the warning while a
-  non-protected shadow is silent; `--explain` names the supplying layer; tests
-  pass under `mise run check`.
-- **Dependencies:** 2
-- **Citations:** D-4, D-5, D-7, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4,
-  REQ-B1.6, REQ-B1.7, REQ-D1.2, REQ-E1.4, REQ-E1.5
-- **Estimated effort:** 1 day
-
 ### Task 6 — `review_sequence` config knob
 
 - **Deliverables:** The `review_sequence` config option (an ordered list of
@@ -88,10 +49,56 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## In progress
 
+### Task 3 — Four-layer config resolution
+
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-3` (branch `planwright/customization-overlay/task-3`, worktree `.claude/worktrees/customization-overlay-task-3`, branched off origin/main `6a26164`).
+- **Deliverables:** `config-get.sh` extended to read the adopter and
+  repo-tracked layers through the Task 2 primitive (four-layer
+  last-layer-wins), the malformed-by-layer policy (degrade+warn for
+  adopter/machine-local, hard-fail for repo-tracked), and a `--explain`
+  provenance mode. Any new option documented in `docs/options-reference.md`.
+  Tests under `tests/`.
+- **Done when:** a key set in all four layers resolves to the highest-precedence
+  value; absent layers degrade; a malformed adopter/machine-local file
+  degrades with a stderr warning and the malformed repo-tracked file exits
+  nonzero; `--explain` names the winning layer per key; `check-options-reference.sh`
+  passes; tests pass under `mise run check`.
+- **Dependencies:** 2
+- **Citations:** D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
+  REQ-B1.6, REQ-E1.3, REQ-E1.4
+- **Estimated effort:** 1 day
+
+### Task 4 — Doctrine-overlay resolution
+
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-4` (branch `planwright/customization-overlay/task-4`, worktree `.claude/worktrees/customization-overlay-task-4`, branched off origin/main `6a26164`).
+- **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
+  repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
+  repo-tracked, `doctrine.local/` for machine-local, per D-4) into its
+  precedence chain (whole-doc shadow),
+  with path-traversal confinement, the malformed-by-layer policy, the
+  protected-doc warn-but-allow behavior (loud stderr warning when an overlay
+  shadows a protected core governance/security doc), and a `--explain`
+  provenance mode. Tests under `tests/`.
+- **Done when:** the highest-precedence overlay doc of a name wins in full;
+  no fragment merge occurs; a path escaping the overlay root (`../`, absolute,
+  symlink-escape) is rejected with a clear message; malformed-by-layer matches
+  D-7; shadowing a protected core doc resolves *and* emits the warning while a
+  non-protected shadow is silent; `--explain` names the supplying layer; tests
+  pass under `mise run check`.
+- **Dependencies:** 2
+- **Citations:** D-4, D-5, D-7, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4,
+  REQ-B1.6, REQ-B1.7, REQ-D1.2, REQ-E1.4, REQ-E1.5
+- **Estimated effort:** 1 day
+
 ### Task 5 — Catalog-overlay resolution
 
 - **Status:** PR #40 draft
 - **Last activity:** 2026-06-17
+- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-5` (branch `planwright/customization-overlay/task-5`, worktree `.claude/worktrees/customization-overlay-task-5`, branched off origin/main `6a26164`).
 - **Deliverables:** A catalog discovery path that unions core seed entries
   with overlay entries (append/union, supersede-by-id) for the decision-domains
   catalog and the guard catalog, with a `--explain` provenance mode, the
