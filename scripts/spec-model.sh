@@ -44,11 +44,13 @@
 #
 # Exit codes:
 #   0  the model was emitted (a partial bundle still emits what is present;
-#      an absent file is marked FILE ... absent and its records are skipped —
-#      graceful degradation, REQ-A1.5).
-#   2  usage or environment error: no argument, or the spec directory is
+#      an absent — or present-but-unreadable — file is marked FILE ... absent
+#      and its records are skipped, degrading the same as absence rather than
+#      halting opaquely — graceful degradation, REQ-A1.5).
+#   2  usage or environment error: no argument, or the spec directory itself is
 #      absent or unreadable (fail closed — a model over a non-bundle must not
-#      silently report an empty model).
+#      silently report an empty model). An unreadable individual bundle file is
+#      not an error: it degrades like absence (exit 0) per the line above.
 #
 # Portable: /bin/sh + awk as shipped on macOS (bash 3.2, BSD userland) and
 # Linux (the REQ-K1.5 envelope). No gawk-only constructs (3-arg match,
@@ -76,6 +78,17 @@ fi
 
 spec=$(basename "$spec_dir")
 
+# readable_file <path> — true iff a readable regular file. The present/parse
+# gate: an exists-but-unreadable file degrades the same as absence (REQ-A1.5;
+# the kickoff degrade-vs-refuse boundary — a valid path with broken content
+# degrades, naming what is missing, rather than halting opaquely). Without
+# this, a present-but-unreadable file is marked "present" yet crashes the awk
+# parse under set -e. Mirrors the read gate in scripts/spec-anchor.sh and
+# scripts/orchestrate-select.sh, and the directory-level -r check above.
+readable_file() {
+  [ -f "$1" ] && [ -r "$1" ]
+}
+
 # first_header <file> <key> — first "**<key>:** value" header line's value,
 # non-printables stripped (header values are ASCII; the echo discipline keeps
 # hostile file content from reaching the terminal raw, matching spec-validate).
@@ -94,11 +107,11 @@ first_header() {
 # only when it is absent does the first sibling mirror that declares one stand
 # in. An empty value is reported as undeclared rather than masked.
 status=
-if [ -f "$spec_dir/requirements.md" ]; then
+if readable_file "$spec_dir/requirements.md"; then
   status=$(first_header "$spec_dir/requirements.md" Status)
 else
   for f in design.md tasks.md test-spec.md; do
-    [ -f "$spec_dir/$f" ] || continue
+    readable_file "$spec_dir/$f" || continue
     status=$(first_header "$spec_dir/$f" Status)
     [ -n "$status" ] && break
   done
@@ -107,7 +120,7 @@ fi
 
 printf 'BUNDLE\t%s\t%s\n' "$spec" "$status"
 for f in requirements design tasks test-spec; do
-  if [ -f "$spec_dir/$f.md" ]; then
+  if readable_file "$spec_dir/$f.md"; then
     printf 'FILE\t%s\tpresent\n' "$f"
   else
     printf 'FILE\t%s\tabsent\n' "$f"
@@ -328,9 +341,9 @@ parse_test_spec() {
   ' "$1"
 }
 
-[ -f "$spec_dir/requirements.md" ] && parse_requirements "$spec_dir/requirements.md"
-[ -f "$spec_dir/design.md" ] && parse_design "$spec_dir/design.md"
-[ -f "$spec_dir/tasks.md" ] && parse_tasks "$spec_dir/tasks.md"
-[ -f "$spec_dir/test-spec.md" ] && parse_test_spec "$spec_dir/test-spec.md"
+readable_file "$spec_dir/requirements.md" && parse_requirements "$spec_dir/requirements.md"
+readable_file "$spec_dir/design.md" && parse_design "$spec_dir/design.md"
+readable_file "$spec_dir/tasks.md" && parse_tasks "$spec_dir/tasks.md"
+readable_file "$spec_dir/test-spec.md" && parse_test_spec "$spec_dir/test-spec.md"
 
 exit 0

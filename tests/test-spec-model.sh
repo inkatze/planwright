@@ -572,4 +572,41 @@ rec TASKDEP 3.5 2.1
 rec TASK 4 "Forward plan" "after the orphan"
 lacks Orphan
 
+# ---------------------------------------------------------------------------
+# 14. An exists-but-unreadable bundle file degrades the same as absence
+# (REQ-A1.5; the kickoff degrade-vs-refuse boundary: a valid path with broken
+# content degrades, naming what is missing, rather than halting opaquely). It
+# must never crash the awk parse under set -e or leak a raw "can't open file"
+# error, and it must be reported absent — "present" means the model can read
+# it. Mirrors scripts/spec-anchor.sh and scripts/orchestrate-select.sh, which
+# gate reads on -r, not -f. The EXIT trap restores u+rwx so cleanup succeeds.
+# ---------------------------------------------------------------------------
+# requirements.md present but unreadable: status auto-detection must not crash
+# in the command substitution; it falls back to a readable sibling and the file
+# is reported absent.
+unreq="$tmp/unreadable-req/demo"
+make_bundle "$unreq" Active
+chmod 000 "$unreq/requirements.md"
+run_m 0 "$unreq"
+lacks "can't open"
+rec FILE requirements absent
+# The readable siblings still parse, and the status falls back to one of them.
+rec BUNDLE demo Active
+[ "$(count_tag DEC)" -gt 0 ] || fail "unreadable requirements.md should not suppress readable siblings"
+[ "$(count_tag REQ)" -eq 0 ] || fail "unreadable requirements.md should yield no REQ records"
+chmod u+rwx "$unreq/requirements.md"
+
+# A readable requirements.md with an unreadable sibling: the parse gate must
+# skip the unreadable sibling instead of crashing mid-stream, and the sibling
+# is reported absent (not present-but-unparsed).
+unsib="$tmp/unreadable-sibling/demo"
+make_bundle "$unsib" Active
+chmod 000 "$unsib/design.md"
+run_m 0 "$unsib"
+lacks "can't open"
+rec FILE design absent
+rec REQ REQ-A1.1 A live
+[ "$(count_tag DEC)" -eq 0 ] || fail "unreadable design.md should yield no DEC records"
+chmod u+rwx "$unsib/design.md"
+
 echo "PASS: test-spec-model.sh"
