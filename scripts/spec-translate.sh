@@ -73,22 +73,21 @@ awk_prog='
     gsub(/design\.md/, "the design", t)
     gsub(/test-spec\.md/, "the test plan", t)
     gsub(/tasks\.md/, "the task list", t)
-    # Identifier-only parentheticals: an interior with no lowercase letter that
-    # carries an id signature (a "-" before an uppercase letter or digit) — e.g.
-    # "(REQ-C1.7)", "(D-3 / REQ-D1.3)". Prose parentheticals (lowercase present)
-    # and non-id uppercase parentheticals like "(HTML)"/"(N)" are left intact.
-    while (match(t, /\([^a-z()]*-[A-Z0-9][^a-z()]*\)/)) {
-      t = substr(t, 1, RSTART - 1) substr(t, RSTART + RLENGTH)
-    }
-    # Any remaining standalone identifiers, each a back-pointer carried in the
-    # ref/source columns: full REQ ids first, then D ids, then leftover REQ
-    # group refs, then task-id-scheme tokens.
+    # Remove the identifier tokens themselves, each a back-pointer carried in the
+    # ref/source columns: full REQ ids first, then D ids, then leftover REQ group
+    # refs, then task-id-scheme tokens. Removing the tokens directly (rather than
+    # matching whole parentheticals by shape) means a parenthetical carrying
+    # non-identifier content — "(UTF-8)", "(SHA-256)", "(MUST-HAVE)" — keeps its
+    # content; only the ids inside it go, and the tidy below collapses what is
+    # left empty. The text the plain view drops always survives in <source>
+    # (D-2 losslessness): the scrub never deletes content that has no back-pointer.
     gsub(/REQ-[A-Z][0-9]+\.[0-9]+/, "", t)
     gsub(/D-[0-9]+/, "", t)
     gsub(/REQ-[A-Z]/, "", t)
     gsub(/Task [0-9]+(\.[0-9]+)?/, "", t)
-    # Tidy: empty/separator-only parentheses left by the removals, spaces before
-    # punctuation, and collapsed whitespace.
+    # Tidy: parentheses the id removal emptied to only spaces/separators
+    # ("()", "( / )", "( , )"), spaces before punctuation, and collapsed
+    # whitespace. A parenthetical with surviving content is left intact.
     gsub(/\([ \t]*[\/,;.&-]*[ \t]*\)/, "", t)
     gsub(/ +,/, ",", t)
     gsub(/ +\./, ".", t)

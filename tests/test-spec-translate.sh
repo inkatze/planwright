@@ -283,6 +283,55 @@ run2=$(printf '%s' "$IN" | "$script")
 [ "$run1" = "$run2" ] || fail "translation output is not deterministic"
 
 # ---------------------------------------------------------------------------
+# 11. Identifier-parenthetical scrub is precise (regression): a parenthetical
+# composed only of identifiers is removed, but a parenthetical carrying
+# non-identifier uppercase/hyphenated content (e.g. (UTF-8), (SHA-256)) is
+# content, not internal vocabulary, and survives verbatim (D-2 losslessness;
+# the scrub must not delete what has no back-pointer). Plus normative-modal
+# extension coverage (MUST NOT / SHOULD NOT as one token; a non-extended modal)
+# and a normative token inside a decision field carrying the field ref.
+# ---------------------------------------------------------------------------
+IN="REQ$(t)REQ-A1.1$(t)A$(t)live$(t)Encode as (UTF-8) and (SHA-256); cite (REQ-C1.7) and (D-2 / REQ-D1.3).
+REQ$(t)REQ-A1.3$(t)A$(t)live$(t)The system MUST NOT fail and SHOULD NOT stall; logging is OPTIONAL.
+DEC$(t)D-2$(t)N$(t)Lossless layered view
+DECFIELD$(t)D-2$(t)chosen$(t)The plain view SHALL remain lossless and traceable."
+run_stdin 0
+
+a11=$(field TEXT REQ-A1.1 4)
+case $a11 in
+  *"UTF-8"*) ;;
+  *) fail "scrub wrongly removed the non-identifier parenthetical (UTF-8): $a11" ;;
+esac
+case $a11 in
+  *"SHA-256"*) ;;
+  *) fail "scrub wrongly removed the non-identifier parenthetical (SHA-256): $a11" ;;
+esac
+case $a11 in
+  *REQ-C1.7*) fail "identifier parenthetical (REQ-C1.7) leaked into plain: $a11" ;;
+  *REQ-D1.3*) fail "identifier parenthetical (REQ-D1.3) leaked into plain: $a11" ;;
+  *D-2*) fail "identifier parenthetical (D-2) leaked into plain: $a11" ;;
+esac
+case $a11 in
+  *"()"* | *"( )"* | *"( / )"*) fail "empty-paren residue left after id removal: $a11" ;;
+esac
+
+# Modal extension: MUST NOT and SHOULD NOT are single verbatim tokens, marked in
+# source order; OPTIONAL is marked but not extended; no bare modal split.
+rec NORM REQ-A1.3 1 "MUST NOT"
+rec NORM REQ-A1.3 2 "SHOULD NOT"
+rec NORM REQ-A1.3 3 OPTIONAL
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "NORM" && $2 == "REQ-A1.3" && ($4 == "MUST" || $4 == "SHOULD") { f = 1 } END { exit(f ? 1 : 0) }' \
+  || fail "MUST NOT / SHOULD NOT was wrongly split into a bare modal mark"
+printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "NORM" && $2 == "REQ-A1.3" { n++ } END { exit(n == 3 ? 0 : 1) }' \
+  || fail "REQ-A1.3 should mark exactly three normative tokens"
+
+# A normative token inside a decision field is marked against the field ref
+# (emit_norm runs for decision/task fields, not only requirements).
+rec NORM "D-2#chosen" 1 SHALL
+
+# ---------------------------------------------------------------------------
 # 8. Graceful degradation.
 # ---------------------------------------------------------------------------
 IN=""
