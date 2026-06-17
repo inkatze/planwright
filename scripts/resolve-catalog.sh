@@ -120,12 +120,20 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-# Any trailing positional after `--`.
-if [ "$name_set" -eq 0 ] && [ $# -gt 0 ]; then
+# Consume any positionals that followed a `--` separator under the same
+# one-name contract the in-loop arm enforces: the first sets <name>, and a
+# second (or any positional when <name> was already given before `--`) is a
+# usage error, never silently dropped (mirrors scripts/release-checklist.sh and
+# keeps the post-`--` path consistent with the no-`--` path).
+while [ $# -gt 0 ]; do
+  if [ "$name_set" -eq 1 ]; then
+    echo "resolve-catalog: unexpected extra argument '$1'" >&2
+    usage
+  fi
   name="$1"
   name_set=1
   shift
-fi
+done
 
 [ "$name_set" -eq 1 ] || usage
 

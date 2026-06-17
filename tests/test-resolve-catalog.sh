@@ -317,6 +317,21 @@ rc "$sb" "Bad_Name" >/dev/null 2>&1
 assert "invalid name (uppercase/underscore): usage error" 2 $?
 base /bin/bash "$RESOLVER" >/dev/null 2>&1
 assert "missing name: usage error" 2 $?
+# A second positional must be a usage error, not silently dropped — and that
+# contract must hold across a `--` separator too, matching the no-`--` path and
+# the sibling convention (scripts/release-checklist.sh). Both arms reject:
+rc "$sb" testcat extra >/dev/null 2>&1
+assert "second positional (no --): usage error" 2 $?
+rc "$sb" testcat -- extra >/dev/null 2>&1
+assert "extra positional after -- (name already set): usage error" 2 $?
+rc "$sb" -- testcat extra >/dev/null 2>&1
+assert "second positional after -- (name from after --): usage error" 2 $?
+# A single positional after `--` is still valid (the name may legitimately
+# follow the separator), and `--` with the name before it stays valid too.
+out="$(rc "$sb" -- testcat 2>/dev/null)"
+assert "single positional after -- is valid" 0 $?
+out="$(rc "$sb" testcat -- 2>/dev/null)"
+assert "trailing bare -- after the name is valid" 0 $?
 
 # ---------------------------------------------------------------------------
 # 11. real decision-domains seed resolves to the ten domains (smoke)
