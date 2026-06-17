@@ -121,7 +121,7 @@ view tasks they cover.
 
 ### Task 4 — Spec-at-a-glance one-pager renderer
 
-- **Status:** dispatched
+- **Status:** implementing
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t4` · worktree `.claude/worktrees/planwright+spec-comprehension+task-4` · branch `planwright/spec-comprehension/task-4`
 - **Deliverables:** the narrative one-pager view (prose, length-bounded), each
