@@ -97,7 +97,7 @@ if [ -n "$repo_arg" ]; then
   fi
   repo_root="$(cd "$repo_arg" && pwd -P)" || exit 2
 else
-  repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+  repo_root="$(cd "$(dirname "$0")/.." && pwd -P)" || exit 2
 fi
 
 # Accumulators: each check appends one table row and flips not_ready on a block.

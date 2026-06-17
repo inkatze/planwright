@@ -35,7 +35,7 @@ if [ -n "$repo_arg" ]; then
   fi
   repo_root="$(cd "$repo_arg" && pwd -P)" || exit 2
 else
-  repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+  repo_root="$(cd "$(dirname "$0")/.." && pwd -P)" || exit 2
 fi
 
 if ! command -v claude >/dev/null 2>&1; then
