@@ -343,6 +343,58 @@ if [ "$(id -u)" != 0 ]; then
   fi
 fi
 
+# E1.4 — a path that EXISTS at the overlay location but is not a regular file
+# (e.g. a directory, a botched mkdir, a merge artifact) is "present but not
+# parseable as flat key: value YAML" — malformed for the kind, not absent. The
+# by-layer policy applies: repo-tracked hard-fails (exit 4, the team-shared
+# blast radius is never silently degraded), adopter and machine-local
+# degrade+warn. The earlier `-f` gate routed these to "absent", silently
+# bypassing the policy; the gate is now `-e`.
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
+mkdir "$tracked_cfg"
+rc=0
+err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
+rmdir "$tracked_cfg"
+[ "$rc" = 4 ] \
+  || fail "directory at repo-tracked path: exit $rc, expected 4 (hard-fail, not silent absent)"
+case $err in
+  *repo-tracked*) ;;
+  *) fail "directory at repo-tracked path: stderr does not name the layer (got: '$err')" ;;
+esac
+echo "ok: a non-regular-file (directory) at the repo-tracked path hard-fails (exit 4)"
+
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+mkdir "$mlocal_cfg"
+rc=0
+err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
+out=$(run4 dispatch_backend 2>/dev/null)
+rmdir "$mlocal_cfg"
+[ "$rc" = 0 ] || fail "directory at machine-local path: exit $rc, expected 0 (degrade)"
+[ "$out" = core_v ] || fail "directory at machine-local path: did not degrade to core"
+case $err in
+  *machine-local*malformed* | *malformed*machine-local*) ;;
+  *) fail "directory at machine-local path: no degrade+warn (got: '$err')" ;;
+esac
+echo "ok: a non-regular-file (directory) at the machine-local path degrades+warns"
+
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+mkdir "$adopter_cfg"
+rc=0
+err=$(run4 dispatch_backend 2>&1 >/dev/null) || rc=$?
+out=$(run4 dispatch_backend 2>/dev/null)
+rmdir "$adopter_cfg"
+[ "$rc" = 0 ] || fail "directory at adopter path: exit $rc, expected 0 (degrade)"
+[ "$out" = core_v ] || fail "directory at adopter path: did not degrade to core"
+case $err in
+  *adopter*malformed* | *malformed*adopter*) ;;
+  *) fail "directory at adopter path: no degrade+warn (got: '$err')" ;;
+esac
+echo "ok: a non-regular-file (directory) at the adopter path degrades+warns"
+
 # B1.6 — --explain names the winning layer (and value) for the key. Pinned
 # output contract: a single stdout line "<layer>\t<value>".
 reset_layers

@@ -23,10 +23,14 @@
 # `m`, a backend name is an enum, etc.).
 #
 # Malformed-overlay policy by layer (D-7, REQ-E1.4). "Malformed" for this kind
-# means an overlay file that exists but is unreadable, or is not parseable as
-# the flat `key: value` YAML the reader expects — a structural test, not a
+# means a path that exists at the overlay location but cannot serve as a flat
+# `key: value` config: it is present but not a regular file (a directory or any
+# non-file occupying the path), or is unreadable, or is not parseable as the
+# flat `key: value` YAML the reader expects — a structural test, not a
 # key-charset test: an indented (nested map/list) line, a bare list item, or
 # any non-comment, non-marker line that is not an unindented `key: value` entry.
+# A path that does not exist at all (including a dangling symlink, which `-e`
+# reports absent) is simply an absent layer, not malformed.
 # A flat entry whose key falls outside the queryable charset is simply ignored
 # (like a comment), not malformed:
 #   - a malformed adopter or machine-local overlay degrades to the next lower
@@ -148,19 +152,24 @@ else
 fi
 
 # malformed_config <file> -> 0 (malformed) / 1 (well-formed). The caller has
-# already established the file exists (-f). Malformed means unreadable, or not
-# parseable as flat one-level `key: value` YAML. The test is structural, not a
-# key-charset test: the flat reader silently ignores any line it does not match
-# (a comment, a key it is not asked for), so a flat entry whose key falls
-# outside the queryable charset is still parseable-for-the-kind, not malformed.
-# An offending line is one carrying structure the flat reader cannot represent:
-# a non-blank, non-comment, non-document-marker (--- / ...) line that is either
-# indented (a nested map/list value) or has no colon (a bare list item or junk
-# line) — i.e. not an unindented `key: value` entry. The file's content is
-# grepped against a fixed pattern — it is never executed, expanded, or used as
-# a pattern itself (framework-script security: data is not code).
+# already established something exists at the path (-e). Malformed means present
+# but not a regular file (a directory, a botched mkdir, a merge artifact, any
+# non-file occupying the overlay path), unreadable, or not parseable as flat
+# one-level `key: value` YAML. The not-a-regular-file check comes first so the
+# grep below is never handed a directory (grep without -r errors on one). The
+# parse test is structural, not a key-charset test: the flat reader silently
+# ignores any line it does not match (a comment, a key it is not asked for), so
+# a flat entry whose key falls outside the queryable charset is still
+# parseable-for-the-kind, not malformed. An offending line is one carrying
+# structure the flat reader cannot represent: a non-blank, non-comment,
+# non-document-marker (--- / ...) line that is either indented (a nested map/list
+# value) or has no colon (a bare list item or junk line) — i.e. not an unindented
+# `key: value` entry. The file's content is grepped against a fixed pattern — it
+# is never executed, expanded, or used as a pattern itself (framework-script
+# security: data is not code).
 malformed_config() {
   mf="$1"
+  [ -f "$mf" ] || return 0
   [ -r "$mf" ] || return 0
   if grep -Eqv \
     '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*$|^[^[:space:]].*:' \
@@ -201,7 +210,7 @@ emit() {
 # silently degraded — surface it loudly regardless of which layer would win the
 # queried key (D-7). Checked before resolution so a broken shared config cannot
 # hide behind a higher layer happening to set the key.
-if [ -n "$tracked_cfg" ] && [ -f "$tracked_cfg" ] && malformed_config "$tracked_cfg"; then
+if [ -n "$tracked_cfg" ] && [ -e "$tracked_cfg" ] && malformed_config "$tracked_cfg"; then
   echo "config-get: repo-tracked overlay '$tracked_cfg' is malformed (not flat 'key: value' YAML, or unreadable); refusing to silently degrade a shared team config" >&2
   exit 4
 fi
@@ -209,7 +218,7 @@ fi
 # Resolve highest precedence first; the first present, well-formed layer that
 # sets the key wins (last-layer-wins, D-5). A malformed adopter or machine-local
 # overlay degrades to the next lower layer with a loud warning (D-7).
-if [ -n "$mlocal_cfg" ] && [ -f "$mlocal_cfg" ]; then
+if [ -n "$mlocal_cfg" ] && [ -e "$mlocal_cfg" ]; then
   if malformed_config "$mlocal_cfg"; then
     echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
   elif get_value "$mlocal_cfg" "$key"; then
@@ -220,7 +229,7 @@ fi
 if [ -n "$tracked_cfg" ] && get_value "$tracked_cfg" "$key"; then
   emit repo-tracked
 fi
-if [ -n "$adopter_cfg" ] && [ -f "$adopter_cfg" ]; then
+if [ -n "$adopter_cfg" ] && [ -e "$adopter_cfg" ]; then
   if malformed_config "$adopter_cfg"; then
     echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
   elif get_value "$adopter_cfg" "$key"; then
