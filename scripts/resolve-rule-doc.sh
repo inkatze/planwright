@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # resolve-rule-doc.sh — print the absolute path of a planwright rule doc,
 # resolved through the four-layer overlay precedence (REQ-I1.1, D-24; the
-# doctrine-overlay arm: REQ-A1.2, REQ-B1.2, REQ-E1.4, REQ-E1.5; D-4, D-5, D-7,
-# D-8, D-9, D-11).
+# doctrine-overlay arm: REQ-A1.2, REQ-B1.2, REQ-B1.4, REQ-B1.6, REQ-B1.7,
+# REQ-D1.2, REQ-E1.4, REQ-E1.5; D-4, D-5, D-7, D-8, D-9, D-11).
 #
 # This is the stable rule-doc resolution path: skills and hooks resolve
 # externalized doctrine docs through one convention that works in both delivery
