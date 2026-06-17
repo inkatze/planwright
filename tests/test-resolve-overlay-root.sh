@@ -335,6 +335,21 @@ echo "x" >"$tmp/root-sibling/evil.md"
 base /bin/bash "$RESOLVER" --contain "$tmp/root" "../root-sibling/evil.md" >/dev/null 2>&1
 assert "prefix-sharing sibling dir is rejected" 2 $?
 
+# A root whose name contains glob metacharacters ([ ] ? *) must still enforce
+# containment as a LITERAL prefix. The containment `case` quotes "$canon_root"
+# and "$under", so bash matches their contents literally and only the explicit
+# trailing '*' is a wildcard; without that quoting, a root named "g[x]r" could
+# glob-match an escaping sibling "gxr". Security boundary — locked here on the
+# bash 3.2 floor so a future rewrite cannot silently reintroduce a glob match.
+mkdir -p "$tmp/g[x]r" "$tmp/gxr"
+echo "ok" >"$tmp/g[x]r/in.md"
+echo "evil" >"$tmp/gxr/evil.md"
+out="$(base /bin/bash "$RESOLVER" --contain "$tmp/g[x]r" "in.md")"
+assert "glob-metachar root accepts a real child" 0 $?
+assert_eq "glob-metachar root child canonicalized" "$tmp/g[x]r/in.md" "$out"
+base /bin/bash "$RESOLVER" --contain "$tmp/g[x]r" "../gxr/evil.md" >/dev/null 2>&1
+assert "glob-metachar root rejects an escape to a glob-matching sibling" 2 $?
+
 # --contain with a missing argument is a usage error.
 base /bin/bash "$RESOLVER" --contain "$tmp/root" >/dev/null 2>&1
 assert "--contain missing path is a usage error" 2 $?
