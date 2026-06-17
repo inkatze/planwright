@@ -149,6 +149,7 @@ view tasks they cover.
 
 - **Status:** implementing
 - **Last activity:** 2026-06-17
+- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t3` · worktree `.claude/worktrees/planwright+spec-comprehension+task-3` · branch `planwright/spec-comprehension/task-3`
 - **Deliverables:** the lossless layered-view translator (plain rendering with
   retained back-pointers), the precision-preservation guardrail that never
   softens a normative token, and the reveal mapping that exposes identifiers and
@@ -159,23 +160,6 @@ view tasks they cover.
   each plain sentence back to its source element.
 - **Dependencies:** 2
 - **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
-- **Estimated effort:** 2 days
-
-### Task 2 — Bundle reader model
-
-- **Status:** implementing
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t2` · worktree `.claude/worktrees/planwright+spec-comprehension+task-2` · branch `planwright/spec-comprehension/task-2`
-- **Deliverables:** a parser that reads the four files into a normalized
-  in-memory model preserving every identifier as a hidden back-pointer (the
-  substrate every view renders from), reusing the existing format parsers where
-  practical; the task-graph edges and the decision and requirement records
-  exposed to downstream views.
-- **Done when:** the model round-trips a real bundle (bootstrap or
-  customization-overlay) with every REQ, decision, task, and dependency edge
-  reachable and each carrying its source identifier as a back-pointer.
-- **Dependencies:** 1
-- **Citations:** D-2 · REQ-C1.1, REQ-D1.3, REQ-B1.2
 - **Estimated effort:** 2 days
 
 ## Awaiting input
@@ -198,6 +182,21 @@ view tasks they cover.
 - **Dependencies:** none
 - **Citations:** D-1, D-10 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-B1.4
 - **Estimated effort:** 1 day
+
+### Task 2 — Bundle reader model
+
+- **Status:** Completed — merged via PR #32 (merge commit `6ca54c4`) on 2026-06-17
+- **Deliverables:** a parser that reads the four files into a normalized
+  in-memory model preserving every identifier as a hidden back-pointer (the
+  substrate every view renders from), reusing the existing format parsers where
+  practical; the task-graph edges and the decision and requirement records
+  exposed to downstream views.
+- **Done when:** the model round-trips a real bundle (bootstrap or
+  customization-overlay) with every REQ, decision, task, and dependency edge
+  reachable and each carrying its source identifier as a back-pointer.
+- **Dependencies:** 1
+- **Citations:** D-2 · REQ-C1.1, REQ-D1.3, REQ-B1.2
+- **Estimated effort:** 2 days
 
 ## Deferred
 

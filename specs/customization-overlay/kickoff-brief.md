@@ -261,6 +261,25 @@ remains. Human cold-review (2026-06-16): register complete as drafted, no
 additions. R9 added at the sign-off lens pass (uncommitted-overlay secret
 surface).
 
+**Research log — Task 2 execution (2026-06-16).**
+- **R1 re-verification (`$CLAUDE_PLUGIN_DATA` / `$CLAUDE_PLUGIN_ROOT`
+  semantics).** Re-checked against the current Claude Code plugin + hooks
+  reference docs (code.claude.com/docs `plugins-reference` and `hooks`). Verdict:
+  `CLAUDE_PLUGIN_DATA` is confirmed — exported to plugin hooks/scripts, points
+  to `~/.claude/plugins/data/<id>/` (the `<id>` is the plugin identifier with
+  non-`[A-Za-z0-9_-]` chars hyphenated), is **update-stable** (persists across
+  plugin updates, unlike `CLAUDE_PLUGIN_ROOT` which is ephemeral), and yields a
+  **distinct per-plugin namespace** so a public install and a work fork never
+  collide. `CLAUDE_PLUGIN_ROOT` confirmed as the (ephemeral) install dir.
+  Tradeoff weighed: `resolve-overlay-root.sh` treats `$CLAUDE_PLUGIN_DATA` as
+  **opaque** (reads the var, appends `/overlay`; never reconstructs the
+  `~/.claude/plugins/data/<id>` path), so future path-format drift cannot break
+  it; the `$PLANWRIGHT_ADOPTER_OVERLAY` override arm remains the explicit
+  fallback. R1 closed: relying on `$CLAUDE_PLUGIN_DATA` is sound. Sources:
+  code.claude.com/docs/en/plugins-reference, code.claude.com/docs/en/hooks
+  (consulted 2026-06-16). Proportionality: a single targeted doc re-verification,
+  matched to R1's "version-sensitive API" stake.
+
 Signed off: 2026-06-16
 
 ## 8. Sign-off — lens review pass
