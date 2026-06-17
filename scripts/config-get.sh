@@ -1,33 +1,61 @@
 #!/bin/sh
-# config-get.sh — read one planwright config value with the defaults +
-# local-override precedence the config model defines (D-33, REQ-K1.1).
+# config-get.sh — read one planwright config value with the four-layer overlay
+# precedence the customization mechanism defines (D-1, D-4, D-5; REQ-A1.1,
+# REQ-B1.1). Extends the original two-layer (defaults + machine-local) model.
 #
-# The tracked defaults (config/defaults.yml) supply the base; a per-repo
-# gitignored override (<repo>/.claude/planwright.local.yml) wins when it
-# sets the key. The planwright config model is intentionally flat one-level
-# `key: value` YAML, so a line-oriented reader is sufficient and keeps the
-# runtime dependency-free (REQ-K1.5). The raw value is printed verbatim with
-# a trailing `# comment` and surrounding quotes stripped; type and range
-# validation stay with the caller, since they are key-specific (the lock
-# threshold normalizes `m`, a backend name is an enum, etc.).
+# The four layers, lowest to highest precedence (an absent layer degrades to
+# the next lower; it is never an error, REQ-A1.4):
+#   core          config/defaults.yml                    (tracked install base)
+#   adopter       <adopter-root>/planwright.yml          (per-operator, cross-repo)
+#   repo-tracked  <repo>/.claude/planwright.yml          (team-shared, committed)
+#   machine-local <repo>/.claude/planwright.local.yml    (gitignored, per-machine)
+# The three overlay-layer roots are resolved through the Task 2 primitive
+# (scripts/resolve-overlay-root.sh), so this reader does not re-implement layer
+# location logic. Config merges by last-layer-wins per key (D-5): the
+# highest-precedence layer that sets the key wins; a lower layer still supplies
+# any key the higher layers leave unset.
 #
-# This is the shared reader the dispatch layer reads through, instead of a
-# fourth ad-hoc `sed` of the flat config (the consolidation the 2026-06-12
-# observation called for).
+# The planwright config model is intentionally flat one-level `key: value`
+# YAML, so a line-oriented reader is sufficient and keeps the runtime
+# dependency-free (REQ-K1.5). The raw value is printed verbatim with a trailing
+# `# comment` and surrounding quotes stripped; type and range validation stay
+# with the caller, since they are key-specific (the lock threshold normalizes
+# `m`, a backend name is an enum, etc.).
 #
-# Usage: config-get.sh <key>
+# Malformed-overlay policy by layer (D-7, REQ-E1.4). "Malformed" for this kind
+# means an overlay file that exists but is unreadable, or is not parseable as
+# the flat `key: value` YAML the reader expects (a nested/indented line, a list
+# item, or any non-comment, non-marker line that is not a top-level key):
+#   - a malformed adopter or machine-local overlay degrades to the next lower
+#     layer with a loud stderr warning (blast radius is one operator/machine);
+#   - a malformed repo-tracked (team-shared) overlay hard-fails with exit 4,
+#     because silently degrading a broken shared config means a whole team runs
+#     unintended behavior — surfaced loudly regardless of the queried key;
+#   - a malformed core defaults file is a broken install, surfaced as such (the
+#     original behavior: the broken-install diagnostic below).
+#
+# Usage: config-get.sh [--explain] <key>
 #   <key> matches ^[a-z][a-z0-9_]*$ and is validated before it is ever
 #   interpolated into a pattern (framework-script security, REQ-D1.6).
+#   --explain (D-9, REQ-B1.6): instead of the bare value, print provenance —
+#   the winning layer and value as a single tab-separated line on stdout:
+#       <layer>\t<value>
+#   where <layer> is one of core | adopter | repo-tracked | machine-local. The
+#   exit codes are unchanged from the bare read. This line format is the pinned
+#   provenance contract skills/humans may parse (risk R6).
 #
 # Environment overrides (tests, adopters, worktree callers that know the
 # primary checkout's paths):
-#   PLANWRIGHT_CONFIG_DEFAULTS  explicit tracked-defaults file
-#   PLANWRIGHT_LOCAL_CONFIG     explicit per-repo override file
+#   PLANWRIGHT_CONFIG_DEFAULTS  explicit tracked-defaults (core) file
+#   PLANWRIGHT_LOCAL_CONFIG     explicit machine-local file (legacy two-layer
+#                               override; wins over the derived machine-local path)
 #   PLANWRIGHT_ROOT             planwright root holding config/defaults.yml
 #   CLAUDE_PLUGIN_ROOT          plugin-delivery root (set by Claude Code)
+# The adopter and repo-side layer roots honor resolve-overlay-root.sh's own
+# overrides (PLANWRIGHT_ADOPTER_OVERLAY, CLAUDE_PLUGIN_DATA, PLANWRIGHT_REPO_ROOT).
 #
-# Exit: 0 value printed (from the local override or the defaults); 3 key
-# absent in both; 2 usage / invalid key. Never fails opaquely.
+# Exit: 0 value printed; 3 key absent in every layer; 2 usage / invalid key;
+# 4 malformed repo-tracked overlay (hard-fail). Never fails opaquely.
 set -u
 
 # Pin the C locale: the [a-z] range checks below are collation-dependent and
@@ -38,9 +66,16 @@ export LC_ALL
 # substitution that derives the script dir (house pattern).
 unset CDPATH
 
+# --explain is an optional leading flag; the bare <key> form is unchanged.
+explain=0
+if [ "${1:-}" = "--explain" ]; then
+  explain=1
+  shift
+fi
+
 key="${1:-}"
 if [ -z "$key" ]; then
-  echo "usage: config-get.sh <key>" >&2
+  echo "usage: config-get.sh [--explain] <key>" >&2
   exit 2
 fi
 case "$key" in
@@ -59,7 +94,7 @@ esac
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
-# Resolve the tracked defaults file: an explicit override, then the
+# Resolve the tracked defaults (core) file: an explicit override, then the
 # planwright root chain (env-set in plugin/test delivery), then the
 # script-relative layout (scripts/ sibling config/). First existing wins.
 defaults=""
@@ -75,41 +110,118 @@ else
   done
 fi
 
-# Resolve the per-repo local override: an explicit path, else the
-# cwd's git toplevel. A missing local file is normal (the defaults stand).
-local_cfg=""
+# overlay_root <layer> -> the layer's root path (empty when the layer is
+# absent), resolved through the Task 2 primitive. Its stderr is suppressed: an
+# absent layer is a normal state and the primitive only writes on usage error,
+# which cannot happen for these fixed layer names.
+overlay_root() {
+  "$script_dir/resolve-overlay-root.sh" "$1" 2>/dev/null
+}
+
+# Adopter and repo-tracked config files (kind-native names under each layer
+# root, D-4). An empty root means the layer is absent.
+adopter_root=$(overlay_root adopter)
+adopter_cfg=""
+[ -n "$adopter_root" ] && adopter_cfg="$adopter_root/planwright.yml"
+
+tracked_root=$(overlay_root repo-tracked)
+tracked_cfg=""
+[ -n "$tracked_root" ] && tracked_cfg="$tracked_root/planwright.yml"
+
+# Machine-local config file: an explicit PLANWRIGHT_LOCAL_CONFIG (the legacy
+# two-layer override, preserved) wins; otherwise it is derived from the
+# machine-local overlay root.
+mlocal_cfg=""
 if [ -n "${PLANWRIGHT_LOCAL_CONFIG:-}" ]; then
-  local_cfg="$PLANWRIGHT_LOCAL_CONFIG"
+  mlocal_cfg="$PLANWRIGHT_LOCAL_CONFIG"
 else
-  top=$(git rev-parse --show-toplevel 2>/dev/null) || top=""
-  [ -n "$top" ] && local_cfg="$top/.claude/planwright.local.yml"
+  mlocal_root=$(overlay_root machine-local)
+  [ -n "$mlocal_root" ] && mlocal_cfg="$mlocal_root/planwright.local.yml"
 fi
 
-# extract <file> <key>: print the cleaned value and return 0 when the key is
-# present; return 1 when the file is absent or the key is not set. The key is
-# pre-validated to the flat-identifier charset, so it is regex-safe here.
-extract() {
-  ef="$1"
-  ek="$2"
-  [ -f "$ef" ] || return 1
-  grep -q "^${ek}:" "$ef" 2>/dev/null || return 1
-  sed -n "s/^${ek}:[[:space:]]*//p" "$ef" \
+# malformed_config <file> -> 0 (malformed) / 1 (well-formed). The caller has
+# already established the file exists (-f). Malformed means unreadable, or not
+# parseable as flat one-level `key: value` YAML: any line that is not blank,
+# not a `#` comment, not a YAML document marker (--- / ...), and not a
+# top-level `key:` entry is offending. The file's content is grepped against a
+# fixed pattern — it is never executed, expanded, or used as a pattern itself
+# (framework-script security: data is not code).
+malformed_config() {
+  mf="$1"
+  [ -r "$mf" ] || return 0
+  if grep -Eqv \
+    '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*$|^[A-Za-z0-9_]+:' \
+    "$mf" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+# get_value <file> <key>: on success set VALUE and return 0; return 1 when the
+# file is absent or the key is not set. The key is pre-validated to the flat
+# identifier charset, so it is regex-safe in the patterns below.
+VALUE=""
+get_value() {
+  gf="$1"
+  gk="$2"
+  [ -f "$gf" ] || return 1
+  grep -q "^${gk}:" "$gf" 2>/dev/null || return 1
+  VALUE=$(sed -n "s/^${gk}:[[:space:]]*//p" "$gf" \
     | head -1 \
     | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
-      -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+      -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")
   return 0
 }
 
-if [ -n "$local_cfg" ] && extract "$local_cfg" "$key"; then
+# emit <layer>: print the resolved value (bare) or its provenance (--explain),
+# then exit 0. Called once a layer has supplied the key.
+emit() {
+  if [ "$explain" -eq 1 ]; then
+    printf '%s\t%s\n' "$1" "$VALUE"
+  else
+    printf '%s\n' "$VALUE"
+  fi
   exit 0
+}
+
+# Eager hard-fail: a malformed repo-tracked (team-shared) overlay is never
+# silently degraded — surface it loudly regardless of which layer would win the
+# queried key (D-7). Checked before resolution so a broken shared config cannot
+# hide behind a higher layer happening to set the key.
+if [ -n "$tracked_cfg" ] && [ -f "$tracked_cfg" ] && malformed_config "$tracked_cfg"; then
+  echo "config-get: repo-tracked overlay '$tracked_cfg' is malformed (not flat 'key: value' YAML, or unreadable); refusing to silently degrade a shared team config" >&2
+  exit 4
 fi
-if [ -n "$defaults" ] && extract "$defaults" "$key"; then
-  exit 0
+
+# Resolve highest precedence first; the first present, well-formed layer that
+# sets the key wins (last-layer-wins, D-5). A malformed adopter or machine-local
+# overlay degrades to the next lower layer with a loud warning (D-7).
+if [ -n "$mlocal_cfg" ] && [ -f "$mlocal_cfg" ]; then
+  if malformed_config "$mlocal_cfg"; then
+    echo "config-get: warning: machine-local overlay '$mlocal_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+  elif get_value "$mlocal_cfg" "$key"; then
+    emit machine-local
+  fi
 fi
-# Key not found. If the tracked defaults file itself could not be located or
-# read, that is a broken install (mis-set PLANWRIGHT_ROOT, partial delivery),
-# not a normal absent key — surface it rather than failing opaquely. The exit
-# code stays 3 so callers still pick their own fallback.
+# repo-tracked is guaranteed well-formed here (eager-checked above if present).
+if [ -n "$tracked_cfg" ] && get_value "$tracked_cfg" "$key"; then
+  emit repo-tracked
+fi
+if [ -n "$adopter_cfg" ] && [ -f "$adopter_cfg" ]; then
+  if malformed_config "$adopter_cfg"; then
+    echo "config-get: warning: adopter overlay '$adopter_cfg' is malformed (not flat 'key: value' YAML, or unreadable); skipping (degraded to next lower layer)" >&2
+  elif get_value "$adopter_cfg" "$key"; then
+    emit adopter
+  fi
+fi
+if [ -n "$defaults" ] && get_value "$defaults" "$key"; then
+  emit core
+fi
+
+# Key not found in any layer. If the tracked defaults file itself could not be
+# located or read, that is a broken install (mis-set PLANWRIGHT_ROOT, partial
+# delivery), not a normal absent key — surface it rather than failing opaquely.
+# The exit code stays 3 so callers still pick their own fallback.
 if [ -z "$defaults" ] || [ ! -r "$defaults" ]; then
   echo "config-get: tracked defaults not found (looked via PLANWRIGHT_CONFIG_DEFAULTS / PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / script dir); '$key' unresolved" >&2
 fi
