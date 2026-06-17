@@ -70,30 +70,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
   REQ-B1.6, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
-### Task 4 — Doctrine-overlay resolution
-
-- **Status:** PR #39 draft
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-4` (branch `planwright/customization-overlay/task-4`, worktree `.claude/worktrees/customization-overlay-task-4`, branched off origin/main `6a26164`).
-- **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
-  repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
-  repo-tracked, `doctrine.local/` for machine-local, per D-4) into its
-  precedence chain (whole-doc shadow),
-  with path-traversal confinement, the malformed-by-layer policy, the
-  protected-doc warn-but-allow behavior (loud stderr warning when an overlay
-  shadows a protected core governance/security doc), and a `--explain`
-  provenance mode. Tests under `tests/`.
-- **Done when:** the highest-precedence overlay doc of a name wins in full;
-  no fragment merge occurs; a path escaping the overlay root (`../`, absolute,
-  symlink-escape) is rejected with a clear message; malformed-by-layer matches
-  D-7; shadowing a protected core doc resolves *and* emits the warning while a
-  non-protected shadow is silent; `--explain` names the supplying layer; tests
-  pass under `mise run check`.
-- **Dependencies:** 2
-- **Citations:** D-4, D-5, D-7, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4,
-  REQ-B1.6, REQ-B1.7, REQ-D1.2, REQ-E1.4, REQ-E1.5
-- **Estimated effort:** 1 day
-
 ### Task 5 — Catalog-overlay resolution
 
 - **Status:** implementing
@@ -171,6 +147,28 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Dependencies:** none
 - **Citations:** D-1, D-3, D-4, D-8 · REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5,
   REQ-A1.6, REQ-E1.2, REQ-E1.5
+- **Estimated effort:** 1 day
+
+### Task 4 — Doctrine-overlay resolution
+
+- **Status:** Completed — PR #39 merged 2026-06-17 (merge commit `49b6226`).
+- **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
+  repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
+  repo-tracked, `doctrine.local/` for machine-local, per D-4) into its
+  precedence chain (whole-doc shadow),
+  with path-traversal confinement, the malformed-by-layer policy, the
+  protected-doc warn-but-allow behavior (loud stderr warning when an overlay
+  shadows a protected core governance/security doc), and a `--explain`
+  provenance mode. Tests under `tests/`.
+- **Done when:** the highest-precedence overlay doc of a name wins in full;
+  no fragment merge occurs; a path escaping the overlay root (`../`, absolute,
+  symlink-escape) is rejected with a clear message; malformed-by-layer matches
+  D-7; shadowing a protected core doc resolves *and* emits the warning while a
+  non-protected shadow is silent; `--explain` names the supplying layer; tests
+  pass under `mise run check`.
+- **Dependencies:** 2
+- **Citations:** D-4, D-5, D-7, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4,
+  REQ-B1.6, REQ-B1.7, REQ-D1.2, REQ-E1.4, REQ-E1.5
 - **Estimated effort:** 1 day
 
 ## Deferred
