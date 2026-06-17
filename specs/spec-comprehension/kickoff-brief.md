@@ -367,6 +367,68 @@ low-stake and reversible, recorded rather than escalated:
   logged as an observation (below) for a future spec decision; it is a marking
   gap, not a verbatim-preservation gap.
 
+### Task 4 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 4 (the spec-at-a-glance one-pager view,
+`scripts/spec-onepager.sh`) consumes untrusted input (the translate record
+stream, which carries bundle content) and re-serializes a subset of it into a
+tagged tab-separated stream — the `security-posture` write-time untrusted-input
+and serialization trigger classes. Light pass: the in-repo canonical posture,
+not a new pattern. No new dependency (the portability envelope is unchanged:
+`/bin/sh` + `awk`, the REQ-K1.5 floor); no new research trigger beyond the
+cross-audience layered-view and cold-read research already recorded under D-2 /
+the one-pager→appendix sources in §2 (the "killer items" framing).
+
+**Sources consulted.** `scripts/spec-translate.sh` (the upstream substrate and
+the `clean()` / C-locale record-hygiene discipline this layer inherits, and the
+sibling-script resolution pattern for `<spec-dir>` mode),
+`scripts/spec-model.sh` (the REQ / REQCITE / TASKCITE record vocabulary the
+load-bearing score reads), the `security-posture` doctrine doc, and REQ-C1.2 /
+REQ-C1.1 / REQ-D1.3.
+
+**Pass applied (no new risk surfaced).** The renderer treats all input as data:
+no `eval`, and no shell or path is constructed from record *content* — the only
+path it touches is its own sibling `spec-translate.sh`, resolved from the
+script's own directory (`dirname "$0"`), with the spec-directory argument
+flowing through to the upstream chain unchanged (the identifier-charset and
+path-containment gate stays the command scaffold's job, REQ-A1.6). In
+`<spec-dir>` mode the upstream exit code is captured and propagated so an
+absent/unreadable bundle fails closed (exit 2), never a silent empty render.
+The one-pager stream stays tab-clean: the plain and source columns are carried
+verbatim from the upstream TEXT/REQ records, which the model already folded
+control bytes (including the delimiter) to spaces under the pinned C locale;
+this layer introduces no new tabs or newlines (the test asserts every ONEPAGER
+record has exactly seven fields and the frame eight). The view does **not**
+HTML/SVG-escape its text: that is Task 6's artifact-assembly job (REQ-E1.7)
+downstream of this layer; escaping here would corrupt the lossless verbatim text
+the reveal view restores (D-2). The default plain column carries the
+translation layer's audience-neutral rendering (internal vocabulary scrubbed,
+REQ-C1.1), with the verbatim source retained as the reveal seam (REQ-D1.3).
+Read-only: it writes nothing but its stdout stream (REQ-A1.3).
+
+**Declared scoping (`proportionality`).** Two within-task scoping calls, both
+low-stake and reversible, recorded rather than escalated:
+
+- *Killer-item selection (REQ-C1.2)* uses one declared heuristic — **inbound
+  citation/dependency-edge count** as the load-bearing proxy: the more of the
+  bundle's own `TASKCITE`/`REQCITE` edges point at a requirement, the more
+  structurally load-bearing it is. On the real bundles this surfaces the right
+  claims (spec-comprehension's top three are the reveal toggle REQ-D1.3, the
+  scope/blast-radius REQ-B1.2, and the precision guardrail REQ-C1.7). The
+  *quality* of the selection is the `[manual]` half of REQ-C1.2's verification;
+  a richer killer-item signal is logged as a drain-loop observation. This is a
+  decision in the uncatalogued human-comprehension / information-UX domain (the
+  catalog gap already recorded 2026-06-16), so it is an observation, not an
+  escalation.
+- *The at-a-glance length bound (REQ-C1.2)* — `KILLER_MAX=3` foregrounded items,
+  `SHOWN_MAX=9` total claims — is a sensible default, not a contract number:
+  the brief (§2) records the bound as "deliberately unquantified, manual-judged."
+  The frame surfaces `shown`-of-`live` so the omitted long tail is never a
+  silent truncation. Claims are the bundle's *live* requirements; superseded
+  requirements are not current claims, and decisions/tasks have their own views.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)
