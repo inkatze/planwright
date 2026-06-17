@@ -19,20 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 2 — Bundle reader model
-
-- **Deliverables:** a parser that reads the four files into a normalized
-  in-memory model preserving every identifier as a hidden back-pointer (the
-  substrate every view renders from), reusing the existing format parsers where
-  practical; the task-graph edges and the decision and requirement records
-  exposed to downstream views.
-- **Done when:** the model round-trips a real bundle (bootstrap or
-  customization-overlay) with every REQ, decision, task, and dependency edge
-  reachable and each carrying its source identifier as a back-pointer.
-- **Dependencies:** 1
-- **Citations:** D-2 · REQ-C1.1, REQ-D1.3, REQ-B1.2
-- **Estimated effort:** 2 days
-
 ### Task 3 — Plain-language translation layer
 
 - **Deliverables:** the lossless layered-view translator (plain rendering with
@@ -173,11 +159,32 @@ view tasks they cover.
 
 ## In progress
 
-### Task 1 — Command scaffold
+### Task 2 — Bundle reader model
 
 - **Status:** implementing
-- **Last activity:** 2026-06-16
-- **Dispatch:** tmux · 2026-06-16 · window `pw-sc-t1` · worktree `.claude/worktrees/planwright+spec-comprehension+task-1` · branch `planwright/spec-comprehension/task-1`
+- **Last activity:** 2026-06-17
+- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t2` · worktree `.claude/worktrees/planwright+spec-comprehension+task-2` · branch `planwright/spec-comprehension/task-2`
+- **Deliverables:** a parser that reads the four files into a normalized
+  in-memory model preserving every identifier as a hidden back-pointer (the
+  substrate every view renders from), reusing the existing format parsers where
+  practical; the task-graph edges and the decision and requirement records
+  exposed to downstream views.
+- **Done when:** the model round-trips a real bundle (bootstrap or
+  customization-overlay) with every REQ, decision, task, and dependency edge
+  reachable and each carrying its source identifier as a back-pointer.
+- **Dependencies:** 1
+- **Citations:** D-2 · REQ-C1.1, REQ-D1.3, REQ-B1.2
+- **Estimated effort:** 2 days
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
+### Task 1 — Command scaffold
+
+- **Status:** Completed — merged via PR #30 (merge commit `bd7860d`) on 2026-06-17
 - **Deliverables:** the `/spec-walkthrough` skill entry point; argument and flag
   parsing (spec path, scope selector, reveal flag); spec-identifier charset
   validation and path containment check; read-only and status-agnostic bundle
@@ -189,14 +196,6 @@ view tasks they cover.
 - **Dependencies:** none
 - **Citations:** D-1, D-10 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-B1.4
 - **Estimated effort:** 1 day
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 
