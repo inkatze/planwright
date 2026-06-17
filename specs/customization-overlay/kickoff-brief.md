@@ -280,6 +280,26 @@ surface).
   (consulted 2026-06-16). Proportionality: a single targeted doc re-verification,
   matched to R1's "version-sensitive API" stake.
 
+**Security pass — Task 4 execution (2026-06-17, doctrine-overlay resolver).**
+- **R8 (path-handling / untrusted repo-tracked overlays).** The
+  doctrine-overlay arm of `resolve-rule-doc.sh` derives file paths from overlay
+  roots, including the repo-tracked layer that an untrusted multi-contributor
+  repo can supply. Posture applied (no new research; R8 already pins the
+  approach and Task 2 supplies the audited primitive): (1) every overlay doc
+  path is routed through `resolve-overlay-root.sh --contain` — the Task 2
+  canonicalize-then-contain helper — before any read, so a `../`, absolute, or
+  escaping-symlink path is rejected (exit 2) and never read (D-8, REQ-E1.5);
+  the resolver does not reimplement path confinement. (2) The doc name keeps
+  its `^[a-z0-9][a-z0-9-]*$` charset validation before interpolation, so the
+  name itself cannot traverse; the only escape surface is an overlay symlink,
+  which the containment check covers. (3) No overlay content is ever evaluated
+  — the resolver returns a path; consumers read the doc as data. (4) A
+  malformed repo-tracked overlay hard-fails (exit 3) rather than silently
+  degrading, matching D-7's by-layer blast-radius policy for a team-shared
+  file. Proportionality: reuse of an already-researched primitive plus a
+  focused confinement/by-layer review, matched to R8's stake; no external
+  research trigger fired (no new dependency or version-sensitive API).
+
 **Research / decision log — Task 5 execution (2026-06-17).**
 - **R2 resolved (guard-catalog consumer wiring).** Re-checked the guard
   catalog's existence at Task 5 dispatch: `config/guard-catalog.yaml` and
