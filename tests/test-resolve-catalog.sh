@@ -133,6 +133,26 @@ assert_contains "supersede: beta survives" "core-b" "$out"
 assert_absent "supersede: marker stripped from output" "supersede:" "$out"
 
 # ---------------------------------------------------------------------------
+# 2b. `supersede: false` (or any non-`true` value) is NOT a supersede marker
+#     (value-equality, like the guard catalog's `core: true`): the entry is a
+#     plain append, not an attempt to replace a target.
+# ---------------------------------------------------------------------------
+sb="$tmp/supersede-false"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+cat >"$(adopter_cat "$sb" testcat)" <<'YAML'
+entries:
+  - id: beta
+    supersede: false
+    note: "appended"
+YAML
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert "supersede:false: exit 0 (append, not supersede)" 0 $?
+assert_contains "supersede:false: new id appended" "appended" "$out"
+assert_contains "supersede:false: core survives" "core-a" "$out"
+assert_absent "supersede:false: marker not re-emitted" "supersede:" "$out"
+
+# ---------------------------------------------------------------------------
 # 3. supersede-of-nonexistent-target, adopter layer → degrade+warn, exit 0,
 #    offending entry skipped, core entries intact (pinned by-layer policy)
 # ---------------------------------------------------------------------------

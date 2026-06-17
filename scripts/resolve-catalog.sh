@@ -230,9 +230,8 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     id = cur_id
     if (id == "") return                 # entry without an id: skip (lenient)
     if (cur_supersede) {
-      if (id in seen) {                  # supersede an existing entry in place
-        section_of[id] = cur_section
-        fields_of[id] = cur_fields
+      if (id in seen) {                  # replace the payload in place, keeping
+        fields_of[id] = cur_fields       # the original section and position
         layer_of[id] = cur_label
         return
       }
@@ -311,7 +310,16 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     key = raw
     sub(/:.*/, "", key)
     if (key == "supersede") {
-      cur_supersede = 1
+      # `supersede: true` is the merge directive (value-equality, like the guard
+      # catalog reader treats `core: true`). Any other value (false, empty, ...)
+      # is NOT a supersede; either way the directive is never re-emitted as
+      # catalog data.
+      val = raw
+      sub(/^[^:]*:[ \t]*/, "", val)
+      sub(/[ \t]*$/, "", val)
+      sub(/^"/, "", val)
+      sub(/"$/, "", val)
+      if (val == "true") cur_supersede = 1
     } else {
       cur_fields = cur_fields (cur_fields == "" ? "" : "\n") raw
     }
