@@ -250,33 +250,41 @@ mkdir -p "$tmp/root/doctrine" "$tmp/outside"
 echo "inside" >"$tmp/root/doctrine/ok.md"
 echo "outside" >"$tmp/outside/evil.md"
 
-# A path inside the root is accepted and the canonical path is printed.
-out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/ok.md")"
+# The candidate is relative to the root by contract (D-8, REQ-E1.5): --contain
+# joins it onto the root, canonicalizes, and confirms containment.
+out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "doctrine/ok.md")"
 assert "contained path accepted" 0 $?
 assert_eq "contained path canonicalized" "$tmp/root/doctrine/ok.md" "$out"
 
 # A not-yet-existing file whose parent is inside the root is accepted
 # (confinement is checked before the read, the file need not exist yet).
-out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/new.md")"
+out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "doctrine/new.md")"
 assert "contained nonexistent path accepted" 0 $?
 assert_eq "contained nonexistent path canonicalized" "$tmp/root/doctrine/new.md" "$out"
 
 # A ../ traversal escaping the root is rejected.
-base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/../outside/evil.md" >/dev/null 2>&1
+base /bin/bash "$RESOLVER" --contain "$tmp/root" "../outside/evil.md" >/dev/null 2>&1
 assert "dotdot traversal rejected" 2 $?
 
-# An absolute path outside the root is rejected.
+# An absolute candidate is rejected outright — the contract requires a path
+# relative to the root, and an absolute path bypasses the root join entirely.
 base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/outside/evil.md" >/dev/null 2>&1
-assert "absolute escape rejected" 2 $?
+assert "absolute path outside root rejected" 2 $?
+
+# An absolute candidate that *would* resolve inside the root is ALSO rejected:
+# the rejection is categorical (absolute paths are not permitted), not a mere
+# containment check. This is the strict-contract guard (D-8 / REQ-E1.5).
+base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/ok.md" >/dev/null 2>&1
+assert "absolute path inside root rejected" 2 $?
 
 # A symlink that escapes the root after canonicalization is rejected.
 ln -s "$tmp/outside/evil.md" "$tmp/root/doctrine/escape.md"
-base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/escape.md" >/dev/null 2>&1
+base /bin/bash "$RESOLVER" --contain "$tmp/root" "doctrine/escape.md" >/dev/null 2>&1
 assert "symlink escape rejected" 2 $?
 
 # A symlink that stays within the root is accepted.
 ln -s "$tmp/root/doctrine/ok.md" "$tmp/root/doctrine/alias.md"
-out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/alias.md")"
+out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "doctrine/alias.md")"
 assert "contained symlink accepted" 0 $?
 assert_eq "contained symlink resolves to its target" "$tmp/root/doctrine/ok.md" "$out"
 
@@ -286,7 +294,7 @@ assert_eq "contained symlink resolves to its target" "$tmp/root/doctrine/ok.md" 
 # feeding the file-fallback branch together — confinement is checked before the
 # read, so the target need not exist.
 ln -s "$tmp/root/doctrine/not-created-yet.md" "$tmp/root/doctrine/dangling.md"
-out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root/doctrine/dangling.md")"
+out="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "doctrine/dangling.md")"
 assert "contained symlink to nonexistent in-root target accepted" 0 $?
 assert_eq "dangling in-root symlink canonicalizes to its target" \
   "$tmp/root/doctrine/not-created-yet.md" "$out"
@@ -300,7 +308,7 @@ assert_eq "dangling in-root symlink canonicalizes to its target" \
 # /bin is a real directory (canonical /bin) — both must be accepted and must
 # canonicalize without a "//" double slash (the relative-symlink-under-"/" join).
 fsroot_child="$(cd /bin && pwd -P)"
-out="$(base /bin/bash "$RESOLVER" --contain / /bin)"
+out="$(base /bin/bash "$RESOLVER" --contain / bin)"
 assert "filesystem-root containment accepts a real child" 0 $?
 assert_eq "filesystem-root child canonicalized" "$fsroot_child" "$out"
 case "$out" in
@@ -315,7 +323,7 @@ esac
 # file-fallback concatenation (the /bin case above takes the directory branch and
 # never reaches it). Its parent canonicalizes to "/", so the concatenation must
 # not emit a "//leaf" double slash (F2/F3).
-out="$(base /bin/bash "$RESOLVER" --contain / /planwright-nonexist-leaf.md)"
+out="$(base /bin/bash "$RESOLVER" --contain / planwright-nonexist-leaf.md)"
 assert "filesystem-root nonexistent child accepted" 0 $?
 assert_eq "filesystem-root nonexistent child has no double slash" \
   "/planwright-nonexist-leaf.md" "$out"
@@ -324,7 +332,7 @@ assert_eq "filesystem-root nonexistent child has no double slash" \
 # the prefix match is boundary-aware (root + "/"), not a bare string prefix.
 mkdir -p "$tmp/root-sibling"
 echo "x" >"$tmp/root-sibling/evil.md"
-base /bin/bash "$RESOLVER" --contain "$tmp/root" "$tmp/root-sibling/evil.md" >/dev/null 2>&1
+base /bin/bash "$RESOLVER" --contain "$tmp/root" "../root-sibling/evil.md" >/dev/null 2>&1
 assert "prefix-sharing sibling dir is rejected" 2 $?
 
 # --contain with a missing argument is a usage error.
@@ -332,7 +340,7 @@ base /bin/bash "$RESOLVER" --contain "$tmp/root" >/dev/null 2>&1
 assert "--contain missing path is a usage error" 2 $?
 
 # --contain against a nonexistent root is an error (the root must exist).
-base /bin/bash "$RESOLVER" --contain "$tmp/no-such-root" "$tmp/no-such-root/x" >/dev/null 2>&1
+base /bin/bash "$RESOLVER" --contain "$tmp/no-such-root" "x" >/dev/null 2>&1
 assert "--contain nonexistent root errors" 2 $?
 
 # ---------------------------------------------------------------------------
@@ -358,9 +366,12 @@ fi
 # ---------------------------------------------------------------------------
 # --contain: a candidate beginning with '-' is handled lexically
 # ---------------------------------------------------------------------------
-# A path beginning with '-' must be canonicalized lexically (cd/dirname/basename
-# use the '--' option terminator), so it is rejected as an escape WITHOUT leaking
-# an "illegal option" / "invalid option" error from the canonicalizer (F5).
+# A relative candidate beginning with '-' is joined onto the root before
+# canonicalization, so the dash segment is interior to an absolute path and
+# cd/dirname/basename (which carry the '--' option terminator) never read it as
+# an option. It is rejected here because its parent does not exist under the
+# root, and crucially WITHOUT leaking an "illegal option" / "invalid option"
+# error from the canonicalizer (F5).
 err="$(base /bin/bash "$RESOLVER" --contain "$tmp/root" "-dashleading/x" 2>&1 >/dev/null)"
 rc=$?
 assert "dash-leading candidate is rejected" 2 "$rc"

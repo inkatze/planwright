@@ -17,12 +17,15 @@
 #     the repo-side layers), prints nothing and exits 0 — an absent overlay
 #     layer is a normal state, never an error (REQ-A1.4).
 #
-#   resolve-overlay-root.sh --contain <root> <path>
-#     Canonicalize <path> and confirm it resolves under <root> (D-8, REQ-E1.5).
-#     Prints the canonical path and exits 0 when contained; rejects a path
-#     escaping the root (../, absolute, or symlink-escape) with a clear message
-#     and exit 2. The shared canonicalize-then-contain helper the doctrine
-#     resolver (Task 4) calls before any overlay read.
+#   resolve-overlay-root.sh --contain <root> <relpath>
+#     Join <relpath> (a path relative to <root>) onto <root>, canonicalize, and
+#     confirm it resolves under <root> (D-8, REQ-E1.5). Prints the canonical path
+#     and exits 0 when contained; rejects an escaping path — an absolute <relpath>,
+#     a ../ traversal, or a symlink that escapes after canonicalization — with a
+#     clear message and exit 2. An absolute candidate is rejected up front (it
+#     bypasses the root join entirely) even when it would resolve inside the root.
+#     The shared canonicalize-then-contain helper the doctrine resolver (Task 4)
+#     calls before any overlay read.
 #
 # Layer roots (D-3, D-4):
 #   core           the planwright install root holding config/, doctrine/,
@@ -116,19 +119,35 @@ if [ "${1:-}" = "--contain" ]; then
   root="${2:-}"
   cand="${3:-}"
   if [ -z "$root" ] || [ -z "$cand" ]; then
-    echo "usage: resolve-overlay-root.sh --contain <root> <path>" >&2
+    echo "usage: resolve-overlay-root.sh --contain <root> <relpath>" >&2
     exit 2
   fi
   if [ ! -d "$root" ]; then
     echo "planwright: overlay root '$root' is not a directory" >&2
     exit 2
   fi
+  # An override path is relative to the overlay root by contract (D-8,
+  # REQ-E1.5): the helper owns the root join so a caller cannot supply a path
+  # that bypasses confinement. An absolute candidate ignores the root entirely,
+  # so it is rejected up front as a path-escape — even one that would happen to
+  # resolve inside the root.
+  case $cand in
+    /*)
+      echo "planwright: path '$cand' is absolute; --contain requires a path relative to overlay root '$root'" >&2
+      exit 2
+      ;;
+  esac
   canon_root=$(canon_path "$root") || {
     echo "planwright: cannot resolve overlay root '$root'" >&2
     exit 2
   }
-  canon_cand=$(canon_path "$cand") || {
-    echo "planwright: cannot resolve path '$cand' (no such parent directory)" >&2
+  # Join the relative candidate onto the root before canonicalizing, so a ../
+  # traversal or an escaping symlink resolves against the root and is caught by
+  # the containment check below. Strip a trailing slash from the root so a root
+  # of "/" joins to "/leaf", not "//leaf" (a leading "//" is implementation-
+  # defined in POSIX), mirroring canon_path's own join.
+  canon_cand=$(canon_path "${root%/}/$cand") || {
+    echo "planwright: cannot resolve path '$cand' under overlay root '$root' (no such parent directory)" >&2
     exit 2
   }
   # Contained iff canon_cand equals canon_root or sits under it. Build the
