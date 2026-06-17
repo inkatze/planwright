@@ -19,32 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 4 — Spec-at-a-glance one-pager renderer
-
-- **Deliverables:** the narrative one-pager view (prose, length-bounded), each
-  load-bearing claim carrying its back-pointer, with the load-bearing "killer
-  items" foregrounded.
-- **Done when:** the one-pager renders a real bundle as bounded narrative prose
-  in which every claim resolves to a source element and the killer items are
-  visually distinct from routine content.
-- **Dependencies:** 3
-- **Citations:** D-2 · REQ-C1.2
-- **Estimated effort:** 1 day
-
-### Task 5 — Teach-back challenge
-
-- **Deliverables:** claim extraction from the bundle's own assertions; the
-  in-artifact agree / disagree / unsure self-paced checklist; the optional
-  in-session walk through the same claims; response recording that never
-  supplies the answer and surfaces restatement divergences for the human to
-  adjudicate.
-- **Done when:** the teach-back presents the spec's claims section by section,
-  records the human's own responses, supplies no verdict, and the in-artifact
-  and in-session paths cover the same claim set.
-- **Dependencies:** 3
-- **Citations:** D-3, D-9 · REQ-C1.5, REQ-D1.1, REQ-D1.4
-- **Estimated effort:** 1.5 days
-
 ### Task 6 — HTML assembly and styling
 
 - **Deliverables:** assembly of the rendered views into one self-contained HTML
@@ -145,22 +119,37 @@ view tasks they cover.
 
 ## In progress
 
-### Task 3 — Plain-language translation layer
+### Task 4 — Spec-at-a-glance one-pager renderer
 
-- **Status:** PR #38 draft
+- **Status:** dispatched
 - **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t3` · worktree `.claude/worktrees/planwright+spec-comprehension+task-3` · branch `planwright/spec-comprehension/task-3`
-- **Deliverables:** the lossless layered-view translator (plain rendering with
-  retained back-pointers), the precision-preservation guardrail that never
-  softens a normative token, and the reveal mapping that exposes identifiers and
-  restores softened tokens on demand.
-- **Done when:** a bundle renders to plain audience-neutral text with no
-  internal vocabulary by default; every normative token (MUST/SHALL/SHALL NOT,
-  thresholds, enumerated states) survives verbatim; the reveal mapping resolves
-  each plain sentence back to its source element.
-- **Dependencies:** 2
-- **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
-- **Estimated effort:** 2 days
+- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t4` · worktree `.claude/worktrees/planwright+spec-comprehension+task-4` · branch `planwright/spec-comprehension/task-4`
+- **Deliverables:** the narrative one-pager view (prose, length-bounded), each
+  load-bearing claim carrying its back-pointer, with the load-bearing "killer
+  items" foregrounded.
+- **Done when:** the one-pager renders a real bundle as bounded narrative prose
+  in which every claim resolves to a source element and the killer items are
+  visually distinct from routine content.
+- **Dependencies:** 3
+- **Citations:** D-2 · REQ-C1.2
+- **Estimated effort:** 1 day
+
+### Task 5 — Teach-back challenge
+
+- **Status:** dispatched
+- **Last activity:** 2026-06-17
+- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t5` · worktree `.claude/worktrees/planwright+spec-comprehension+task-5` · branch `planwright/spec-comprehension/task-5`
+- **Deliverables:** claim extraction from the bundle's own assertions; the
+  in-artifact agree / disagree / unsure self-paced checklist; the optional
+  in-session walk through the same claims; response recording that never
+  supplies the answer and surfaces restatement divergences for the human to
+  adjudicate.
+- **Done when:** the teach-back presents the spec's claims section by section,
+  records the human's own responses, supplies no verdict, and the in-artifact
+  and in-session paths cover the same claim set.
+- **Dependencies:** 3
+- **Citations:** D-3, D-9 · REQ-C1.5, REQ-D1.1, REQ-D1.4
+- **Estimated effort:** 1.5 days
 
 ## Awaiting input
 
@@ -196,6 +185,21 @@ view tasks they cover.
   reachable and each carrying its source identifier as a back-pointer.
 - **Dependencies:** 1
 - **Citations:** D-2 · REQ-C1.1, REQ-D1.3, REQ-B1.2
+- **Estimated effort:** 2 days
+
+### Task 3 — Plain-language translation layer
+
+- **Status:** Completed — merged via PR #38 (merge commit `36ec2ce`) on 2026-06-17
+- **Deliverables:** the lossless layered-view translator (plain rendering with
+  retained back-pointers), the precision-preservation guardrail that never
+  softens a normative token, and the reveal mapping that exposes identifiers and
+  restores softened tokens on demand.
+- **Done when:** a bundle renders to plain audience-neutral text with no
+  internal vocabulary by default; every normative token (MUST/SHALL/SHALL NOT,
+  thresholds, enumerated states) survives verbatim; the reveal mapping resolves
+  each plain sentence back to its source element.
+- **Dependencies:** 2
+- **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
 - **Estimated effort:** 2 days
 
 ## Deferred
