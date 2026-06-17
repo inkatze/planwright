@@ -54,7 +54,10 @@ fail() {
 tmp=$(mktemp -d)
 # Restore search/write permission before rm: section 11 deliberately chmod 000's
 # a bundle dir, which would otherwise block cleanup if that test aborts early.
-trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
+# The chmod is best-effort (`|| true`): its only job is to let `rm` proceed, and
+# under `set -e` a non-zero chmod in this `;`-list would otherwise abort the trap
+# before `rm` ever runs, leaking the temp tree.
+trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # run_w <expected-exit> <workspace> <args...> — run the scaffold with the
 # workspace as CWD (the command resolves specs/ relative to the working
