@@ -194,7 +194,14 @@ if [ -n "$spec_dir" ] && [ "$spec_dir" != "-" ]; then
   # Capture the model first so its exit code propagates (fail closed on an
   # absent/unreadable spec directory); /bin/sh has no portable pipefail.
   model_stream=$("$model" "$spec_dir") || exit $?
-  printf '%s\n' "$model_stream" | awk "$awk_prog"
+  # printf '%s' (no trailing newline): command substitution already stripped the
+  # model's trailing newline, and awk reads a final unterminated record fine. A
+  # '%s\n' here would inject a stray blank line — a phantom record not present in
+  # the model — if the stream were ever empty, breaking the "empty in, empty out"
+  # contract. (The model floors at five records for any existing dir and fails
+  # closed otherwise, so the empty case is unreachable today; this keeps the pipe
+  # lossless regardless.)
+  printf '%s' "$model_stream" | awk "$awk_prog"
 else
   awk "$awk_prog"
 fi

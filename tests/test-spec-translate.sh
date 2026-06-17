@@ -173,7 +173,16 @@ plain_leaks=$(printf '%s\n' "$out" | awk -F"$tab" '$1 == "TEXT" { print $4 }' \
 # ---------------------------------------------------------------------------
 case $a11_plain in
   *"the design"*) ;;
-  *) fail "design.md / tasks.md not mapped to a plain phrase: $a11_plain" ;;
+  *) fail "design reference not rendered as a plain phrase: $a11_plain" ;;
+esac
+# The tasks.md four-file name is the mapping this fixture actually exercises
+# (its source carries the bare `tasks.md`): assert it maps to its plain phrase,
+# so a regression that dropped or unmapped the filename would fail here, not
+# slip through. The bare `.md` filename never survives — section 1's leak guard
+# covers that — so this asserts the positive half the header promises.
+case $a11_plain in
+  *"the task list"*) ;;
+  *) fail "tasks.md not mapped to its plain phrase 'the task list': $a11_plain" ;;
 esac
 
 # ---------------------------------------------------------------------------
