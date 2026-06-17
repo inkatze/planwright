@@ -10,7 +10,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [finding-categorization.md](finding-categorization.md) | The four finding buckets, their predicates, and the act-then-review autonomy gate | REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 |
 | [gate-wiring.md](gate-wiring.md) | The gate's operational wiring: routing order, commit discipline, checklist and audit formats, ladder procedure, pause protocol | REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 |
 | [discovery-rigor.md](discovery-rigor.md) | Making the finding list complete: lens checklist, coverage table, tool-grounded discovery, fan-out, self-critique | REQ-D1.1 |
-| [validation-rigor.md](validation-rigor.md) | Confirming findings are real (three passes) and solutions are right (including the altitude check) | REQ-D1.2 |
+| [validation-rigor.md](validation-rigor.md) | Confirming findings are real (three passes plus adversarial bi-directional re-validation) and solutions are right (including the altitude check and surface-relative whole-system reproduction) | REQ-D1.2, REQ-D1.8, REQ-D1.9 |
 | [refactor-instinct.md](refactor-instinct.md) | Small continuous refactors; low bar in implementation mode, high bar in review mode | REQ-D1.3 |
 | [research-rigor.md](research-rigor.md) | When and how to research: triggers, source hierarchy, recency discipline, antipattern check, risk-register recording | REQ-D1.5 |
 | [security-posture.md](security-posture.md) | Write-time security triggers, artifact data-hygiene, framework-script security | REQ-D1.6 |

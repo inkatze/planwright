@@ -2,7 +2,7 @@
 name: self-review
 description: >
   Gate-wired review pass of the current feature branch: Discovery Rigor
-  fan-out, three-pass validation, act-then-review dispositions per the finding
+  fan-out, multi-pass validation, act-then-review dispositions per the finding
   categorization, full audit record (lens-coverage table, four bucket tables,
   declined log, pending-sign-off checklist). Standalone runs push and open or
   update a draft PR; pass --nested to stay local and return the audit record
@@ -29,8 +29,10 @@ definitions govern wherever this skill names a concept:
 
 - `discovery-rigor` — lens checklist, lens-coverage table, tool-grounded
   discovery, fan-out, self-critique pass
-- `validation-rigor` — the three validation passes; solution validation,
-  including the altitude check
+- `validation-rigor` — the three identification passes plus the adversarial
+  bi-directional re-validation; solution validation, including the altitude
+  check; surface-relative whole-system end-to-end reproduction preferred for
+  both issue identification and solution validation
 - `finding-categorization` — the four buckets, their predicates, hard
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder
