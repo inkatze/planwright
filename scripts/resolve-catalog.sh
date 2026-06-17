@@ -204,7 +204,25 @@ fi
 # Fast path: yaml mode with only the core seed present (no overlays) → emit the
 # seed verbatim. Guarantees byte-identical output to the raw seed for the common
 # no-overlay case, so existing single-layer consumers see no change.
+#
+# A malformed core seed is still a broken install that must hard-fail (the
+# documented contract), so validate that the seed parses to at least one entry
+# before the verbatim emit — the awk merge path enforces the same zero-entry
+# check, this keeps the fast path honest without reflowing a valid seed. The
+# entry test mirrors the merge reader exactly: a `  - id:` line at two-space
+# indent while inside a `<section>:` header (comments ignored).
 if [ "$mode" = "yaml" ] && [ "${#files[@]}" -eq 1 ] && [ "$labels" = "core" ]; then
+  core_entries=$(awk '
+    /^[ \t]*#/ { next }
+    /^[A-Za-z][A-Za-z0-9_-]*:[ \t]*$/ { sec = 1; next }
+    /^[^ \t]/ { sec = 0; next }
+    sec && /^  -[ \t]+id:/ { c++ }
+    END { print c + 0 }
+  ' "${files[0]}")
+  if [ "$core_entries" -eq 0 ]; then
+    echo "resolve-catalog: $name: core catalog parsed no entries (malformed): ${files[0]} (hard-fail)" >&2
+    exit 1
+  fi
   cat "${files[0]}"
   exit 0
 fi
@@ -240,7 +258,10 @@ awk -v name="$name" -v mode="$mode" -v labels="$labels" -v policies="$policies" 
     if (!have_entry) return
     have_entry = 0
     id = cur_id
-    if (id == "") return                 # entry without an id: skip (lenient)
+    if (id == "") {                      # entry with an empty id: a slip (most
+      warn(cur_label " entry with an empty id; skipping")  # often an adopter
+      return                             # typo). Warn so it does not vanish
+    }                                    # silently, then skip it.
     if (cur_supersede) {
       if (id in seen) {                  # replace the payload in place, keeping
         fields_of[id] = cur_fields       # the original section and position

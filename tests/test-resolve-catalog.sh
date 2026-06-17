@@ -314,6 +314,63 @@ exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
 assert_eq "real decision-domains: ten core entries via --explain" "10" "$exp"
 
 # ---------------------------------------------------------------------------
+# 12. fast-path is byte-identical to the core seed (REQ-B1.2): with only the
+#     core layer present, yaml mode emits the seed verbatim — comments and
+#     blank lines preserved, NOT reflowed through the awk merge path.
+# ---------------------------------------------------------------------------
+sb="$tmp/fastpath"
+mkdir -p "$(dirname "$(core_seed "$sb" testcat)")"
+cat >"$(core_seed "$sb" testcat)" <<'YAML'
+---
+# a leading comment the awk path would strip
+entries:
+  - id: alpha
+    note: "core-a"
+
+  - id: beta
+    note: "core-b"
+YAML
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert "fast-path: exit 0" 0 $?
+assert_eq "fast-path: byte-identical to the core seed" \
+  "$(cat "$(core_seed "$sb" testcat)")" "$out"
+
+# ---------------------------------------------------------------------------
+# 13. an overlay entry with an empty id warns and is skipped (F3): the typo'd
+#     entry vanishes from the merge but the operator sees it, and surrounding
+#     entries survive.
+# ---------------------------------------------------------------------------
+sb="$tmp/emptyid"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+cat >"$(adopter_cat "$sb" testcat)" <<'YAML'
+entries:
+  - id:
+    note: "orphan"
+  - id: gamma
+    note: "adopter-g"
+YAML
+err="$(rc "$sb" testcat 2>&1 1>/dev/null)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "empty-id: exit 0 (degrade)" 0 $?
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert_contains "empty-id: warns about the empty id" "empty id" "$err"
+assert_absent "empty-id: orphan note dropped" "orphan" "$out"
+assert_contains "empty-id: core survives" "core-a" "$out"
+assert_contains "empty-id: sibling entry survives" "adopter-g" "$out"
+
+# ---------------------------------------------------------------------------
+# 14. a malformed CORE-only seed hard-fails on the fast path too (F2): the
+#     documented "malformed core is a broken install" contract holds even when
+#     no overlay forces the awk path.
+# ---------------------------------------------------------------------------
+sb="$tmp/malformed-core-fastpath"
+mkdir -p "$(dirname "$(core_seed "$sb" testcat)")"
+printf 'this is not a catalog\n' >"$(core_seed "$sb" testcat)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "malformed core (fast path): hard-fail nonzero" 1 $?
+
+# ---------------------------------------------------------------------------
 echo
 if [ "$failures" -eq 0 ]; then
   echo "All resolve-catalog tests passed."
