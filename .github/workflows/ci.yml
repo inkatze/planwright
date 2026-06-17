@@ -40,6 +40,21 @@ jobs:
         with:
           version: 2026.6.1
 
+      # Install the Claude Code CLI so `mise run check`'s lint:plugin-schema
+      # step ENFORCES the manifest schema (claude plugin validate) instead of
+      # degrading to a skip. `claude plugin validate` is a purely local schema
+      # check: it needs no authentication or API key, so no secret is wired
+      # here. Pinned to an exact version for CI/local parity, the same
+      # discipline mise.toml applies to its other tools; keep the pin at or
+      # above 2.1.154 (the release that added the defaultEnabled manifest field
+      # this repo sets). npm installs the same native binary as the standalone
+      # installer and puts `claude` on PATH; `claude --version` then fails the
+      # step loudly if the install did not work, so the schema gate can never
+      # silently fall back to its skip path.
+      - run: |
+          npm install -g @anthropic-ai/claude-code@2.1.179
+          claude --version
+
       # The aggregate gate: shell tests, shellcheck, shfmt, markdownlint,
       # yamllint, plugin-manifest JSON lint, plugin/marketplace schema
       # validation (claude plugin validate; degrades to a clean skip here
