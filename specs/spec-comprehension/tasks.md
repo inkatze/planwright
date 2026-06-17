@@ -19,20 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 3 — Plain-language translation layer
-
-- **Deliverables:** the lossless layered-view translator (plain rendering with
-  retained back-pointers), the precision-preservation guardrail that never
-  softens a normative token, and the reveal mapping that exposes identifiers and
-  restores softened tokens on demand.
-- **Done when:** a bundle renders to plain audience-neutral text with no
-  internal vocabulary by default; every normative token (MUST/SHALL/SHALL NOT,
-  thresholds, enumerated states) survives verbatim; the reveal mapping resolves
-  each plain sentence back to its source element.
-- **Dependencies:** 2
-- **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
-- **Estimated effort:** 2 days
-
 ### Task 4 — Spec-at-a-glance one-pager renderer
 
 - **Deliverables:** the narrative one-pager view (prose, length-bounded), each
@@ -158,6 +144,22 @@ view tasks they cover.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 3 — Plain-language translation layer
+
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Deliverables:** the lossless layered-view translator (plain rendering with
+  retained back-pointers), the precision-preservation guardrail that never
+  softens a normative token, and the reveal mapping that exposes identifiers and
+  restores softened tokens on demand.
+- **Done when:** a bundle renders to plain audience-neutral text with no
+  internal vocabulary by default; every normative token (MUST/SHALL/SHALL NOT,
+  thresholds, enumerated states) survives verbatim; the reveal mapping resolves
+  each plain sentence back to its source element.
+- **Dependencies:** 2
+- **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
+- **Estimated effort:** 2 days
 
 ### Task 2 — Bundle reader model
 
