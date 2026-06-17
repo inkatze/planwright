@@ -276,6 +276,40 @@ case $err in
 esac
 echo "ok: malformed repo-tracked overlay hard-fails nonzero (no silent degrade)"
 
+# E1.4 — "malformed" tracks the flat-vs-nested structure, not the key charset:
+# a flat key the reader does not query (a non-snake key such as one with a dash)
+# is parseable-for-the-kind (silently ignored, like a comment), NOT malformed.
+# A repo-tracked overlay carrying such a key must therefore resolve normally,
+# never spuriously hard-fail a whole team on an ignored line.
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf 'backend-service: ignored\ndispatch_backend: repo_v\n' >"$tracked_cfg"
+rc=0
+got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "flat non-snake key in repo-tracked: exit $rc, expected 0 (not malformed)"
+[ "$got" = repo_v ] \
+  || fail "flat non-snake key in repo-tracked: expected repo_v, got '$got' (spurious hard-fail?)"
+echo "ok: a flat non-snake (e.g. dashed) key is ignored, not treated as malformed"
+
+# E1.4 — an unreadable repo-tracked overlay counts as malformed and hard-fails
+# (the hard-fail arm of the by-layer policy, the team-shared blast radius).
+if [ "$(id -u)" != 0 ]; then
+  reset_layers
+  printf 'dispatch_backend: core_v\n' >"$core_cfg"
+  printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
+  printf 'dispatch_backend: repo_v\n' >"$tracked_cfg"
+  chmod 000 "$tracked_cfg"
+  rc=0
+  out=$(run4 dispatch_backend 2>/dev/null) || rc=$?
+  chmod 644 "$tracked_cfg"
+  if [ "$out" = local_v ] && [ "$rc" = 0 ]; then
+    echo "skip: unreadable repo-tracked readable anyway (likely root)"
+  else
+    [ "$rc" = 4 ] || fail "unreadable repo-tracked: exit $rc, expected 4 (hard-fail)"
+    echo "ok: an unreadable repo-tracked overlay hard-fails (exit 4)"
+  fi
+fi
+
 # E1.4 — an unreadable overlay file counts as malformed for its layer
 # (degrade+warn for machine-local).
 if [ "$(id -u)" != 0 ]; then

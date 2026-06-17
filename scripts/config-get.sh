@@ -24,8 +24,11 @@
 #
 # Malformed-overlay policy by layer (D-7, REQ-E1.4). "Malformed" for this kind
 # means an overlay file that exists but is unreadable, or is not parseable as
-# the flat `key: value` YAML the reader expects (a nested/indented line, a list
-# item, or any non-comment, non-marker line that is not a top-level key):
+# the flat `key: value` YAML the reader expects — a structural test, not a
+# key-charset test: an indented (nested map/list) line, a bare list item, or
+# any non-comment, non-marker line that is not an unindented `key: value` entry.
+# A flat entry whose key falls outside the queryable charset is simply ignored
+# (like a comment), not malformed:
 #   - a malformed adopter or machine-local overlay degrades to the next lower
 #     layer with a loud stderr warning (blast radius is one operator/machine);
 #   - a malformed repo-tracked (team-shared) overlay hard-fails with exit 4,
@@ -141,16 +144,21 @@ fi
 
 # malformed_config <file> -> 0 (malformed) / 1 (well-formed). The caller has
 # already established the file exists (-f). Malformed means unreadable, or not
-# parseable as flat one-level `key: value` YAML: any line that is not blank,
-# not a `#` comment, not a YAML document marker (--- / ...), and not a
-# top-level `key:` entry is offending. The file's content is grepped against a
-# fixed pattern — it is never executed, expanded, or used as a pattern itself
-# (framework-script security: data is not code).
+# parseable as flat one-level `key: value` YAML. The test is structural, not a
+# key-charset test: the flat reader silently ignores any line it does not match
+# (a comment, a key it is not asked for), so a flat entry whose key falls
+# outside the queryable charset is still parseable-for-the-kind, not malformed.
+# An offending line is one carrying structure the flat reader cannot represent:
+# a non-blank, non-comment, non-document-marker (--- / ...) line that is either
+# indented (a nested map/list value) or has no colon (a bare list item or junk
+# line) — i.e. not an unindented `key: value` entry. The file's content is
+# grepped against a fixed pattern — it is never executed, expanded, or used as
+# a pattern itself (framework-script security: data is not code).
 malformed_config() {
   mf="$1"
   [ -r "$mf" ] || return 0
   if grep -Eqv \
-    '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*$|^[A-Za-z0-9_]+:' \
+    '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*$|^[^[:space:]].*:' \
     "$mf" 2>/dev/null; then
     return 0
   fi
