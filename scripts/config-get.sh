@@ -187,9 +187,11 @@ fi
 # a flat entry whose key falls outside the queryable charset is still
 # parseable-for-the-kind, not malformed. An offending line is one carrying
 # structure the flat reader cannot represent: a non-blank, non-comment,
-# non-document-marker (--- / ...) line that is either indented (a nested map/list
-# value) or has no colon (a bare list item or junk line) — i.e. not an unindented
-# `key: value` entry. The file's content is grepped against a fixed pattern — it
+# non-document-marker line that is either indented (a nested map/list value) or
+# has no colon (a bare list item or junk line) — i.e. not an unindented
+# `key: value` entry. A document marker (--- / ...) may carry a trailing comment
+# (`--- # note`), tolerated like a comment on any other line. The file's content
+# is grepped against a fixed pattern — it
 # is never executed, expanded, or used as a pattern itself (framework-script
 # security: data is not code).
 malformed_config() {
@@ -197,7 +199,7 @@ malformed_config() {
   [ -f "$mf" ] || return 0
   [ -r "$mf" ] || return 0
   if grep -Eqv \
-    '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*$|^[^[:space:]].*:' \
+    '^[[:space:]]*(#.*)?$|^(---|\.\.\.)[[:space:]]*(#.*)?$|^[^[:space:]].*:' \
     "$mf" 2>/dev/null; then
     return 0
   fi

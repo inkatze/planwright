@@ -208,8 +208,9 @@ printf 'dispatch_backend: core_v\n' >"$core_cfg"
 printf 'dispatch_backend: adopter_v\n' >"$adopter_cfg"
 printf 'dispatch_backend: repo_v\n' >"$tracked_cfg"
 printf 'dispatch_backend: local_v\n' >"$mlocal_cfg"
-[ "$(run4 dispatch_backend)" = local_v ] \
-  || fail "four layers set: machine-local did not win (got '$(run4 dispatch_backend)')"
+got=$(run4 dispatch_backend)
+[ "$got" = local_v ] \
+  || fail "four layers set: machine-local did not win (got '$got')"
 rm -f "$mlocal_cfg"
 [ "$(run4 dispatch_backend)" = repo_v ] \
   || fail "machine-local absent: repo-tracked did not win"
@@ -304,6 +305,21 @@ got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
 [ "$got" = repo_v ] \
   || fail "flat non-snake key in repo-tracked: expected repo_v, got '$got' (spurious hard-fail?)"
 echo "ok: a flat non-snake (e.g. dashed) key is ignored, not treated as malformed"
+
+# E1.4 — a YAML document marker may carry a trailing comment (`--- # note`,
+# `... # done`), which is well-formed YAML the flat reader tolerates the same as
+# a comment on any other line. It must NOT be classified malformed (which for a
+# repo-tracked overlay would spuriously hard-fail a whole team with exit 4).
+reset_layers
+printf 'dispatch_backend: core_v\n' >"$core_cfg"
+printf -- '--- # config doc\ndispatch_backend: repo_v\n' >"$tracked_cfg"
+rc=0
+got=$(run4 dispatch_backend 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] \
+  || fail "doc marker with trailing comment in repo-tracked: exit $rc, expected 0 (not malformed)"
+[ "$got" = repo_v ] \
+  || fail "doc marker with trailing comment: expected repo_v, got '$got' (spurious hard-fail?)"
+echo "ok: a document marker with a trailing comment is not treated as malformed"
 
 # E1.4 — an unreadable repo-tracked overlay counts as malformed and hard-fails
 # (the hard-fail arm of the by-layer policy, the team-shared blast radius).
