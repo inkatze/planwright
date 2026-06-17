@@ -186,8 +186,8 @@ view tasks they cover.
 - **Dependencies:** none
 - **Citations:** D-1, D-10 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-B1.4
 - **Estimated effort:** 1 day
-- **Status:** implementing
-- **Last activity:** 2026-06-16
+- **Status:** PR #30 draft
+- **Last activity:** 2026-06-17
 
 ## Awaiting input
 
