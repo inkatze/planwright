@@ -371,12 +371,13 @@ fi
 
 # ---------------------------------------------------------------------------
 # 9. Echo discipline: a hostile --scope value is sanitized before it is echoed
-# back, so control characters cannot reach the terminal raw. The ctrl byte
-# between "wat" and "x" is stripped, so the sanitized "watx" appears as a
-# contiguous token only if sanitization ran.
+# back, so control characters cannot reach the terminal raw. Two ctrl bytes at
+# the boundaries of the strip range — \001 (SOH, low end) and \177 (DEL, high
+# end) — are stripped, so the sanitized "watxy" appears as a contiguous token
+# only if sanitization covers the whole \000-\037\177 range.
 # ---------------------------------------------------------------------------
-ctrl=$(printf 'wat\001x')
+ctrl=$(printf 'wat\001x\177y')
 run_w 1 "$ws" --scope "$ctrl" demo
-has "watx"
+has "watxy"
 
 echo "PASS: test-spec-walkthrough.sh"
