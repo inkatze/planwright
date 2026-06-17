@@ -232,8 +232,13 @@ req_groups() {
 }
 decision_ids() {
   [ -f "$bundle_dir/design.md" ] || return 0
-  grep -oE '^### D-[0-9]+' "$bundle_dir/design.md" 2>/dev/null \
-    | sed 's/^### //' | join_lines
+  # Only the spec-conforming `### D-<n>:` form (doctrine/spec-format.md; the
+  # colon is required and the validator flags a colon-less `### D-` as
+  # malformed). This is the same form the decision:<id> resolver matches, so a
+  # listed decision is always one the resolver can resolve. Strip the trailing
+  # colon before joining.
+  grep -oE '^### D-[0-9]+:' "$bundle_dir/design.md" 2>/dev/null \
+    | sed 's/^### //; s/:$//' | join_lines
 }
 
 scope_label=
@@ -283,7 +288,7 @@ case ${scope:-whole} in
     fi
     ;;
   decisions)
-    if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+' "$bundle_dir/design.md"; then
+    if [ -f "$bundle_dir/design.md" ] && grep -qE '^### D-[0-9]+:' "$bundle_dir/design.md"; then
       scope_label="decision set"
     else
       echo "spec-walkthrough: scope 'decisions' resolves to no decision set in specs/$spec; design.md is absent or holds no decisions" >&2

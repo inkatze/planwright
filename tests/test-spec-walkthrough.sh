@@ -446,4 +446,43 @@ rm "$ndws/specs/demo/design.md"
 run_w 1 "$ndws" --scope decision:1 demo
 has "design.md"
 
+# ---------------------------------------------------------------------------
+# 13. Decision-heading conformance (doctrine/spec-format.md: `### D-<n>:`, the
+# colon is required; the validator flags a colon-less `### D-` as malformed).
+# The decision lister and the `decisions` scope guard must match only the
+# conforming form, the same form the `decision:<id>` resolver uses — otherwise
+# a malformed heading is listed as an "available decision" the resolver can
+# never resolve, and an all-malformed design.md reports a bogus decision set.
+# ---------------------------------------------------------------------------
+# A malformed `### D-<n>` (no colon) is not listed among available decisions.
+mdws="$tmp/malformed-decisions"
+mkdir -p "$mdws/specs"
+make_bundle "$mdws/specs" demo Active
+cat >>"$mdws/specs/demo/design.md" <<'EOF'
+
+### D-9 Malformed heading with no colon  (N)
+
+**Decision:** Should not be listed as an available decision.
+EOF
+run_w 1 "$mdws" --scope decision:99 demo
+has "D-1"
+lacks "D-9"
+
+# A design.md whose only decision headings are malformed yields no decision
+# set, degrading rather than reporting a bogus "decision set" scope.
+omws="$tmp/only-malformed"
+mkdir -p "$omws/specs/demo"
+cat >"$omws/specs/demo/design.md" <<'EOF'
+# Fixture — Design
+
+**Status:** Active
+**Format-version:** 1
+
+### D-1 Malformed, no colon  (N)
+
+**Decision:** Not a conforming decision heading.
+EOF
+run_w 1 "$omws" --scope decisions demo
+has "no decisions"
+
 echo "PASS: test-spec-walkthrough.sh"
