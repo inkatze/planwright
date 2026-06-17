@@ -25,28 +25,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Citations:** D-10 · REQ-C1.1, REQ-C1.2, REQ-C1.3
 - **Estimated effort:** half day
 
-### Task 2 — Overlay-root resolution primitive
-
-- **Deliverables:** `scripts/resolve-overlay-root.sh` resolving the four layer
-  roots — core, adopter (via the `$PLANWRIGHT_ADOPTER_OVERLAY` →
-  `$CLAUDE_PLUGIN_DATA/overlay/` → `<claude-dir>/planwright/<name>/overlay/`
-  chain, where writer mode's `<name>` is the plugin manifest `name`),
-  repo-tracked, and machine-local — with identifier/namespace validation and a
-  shared canonicalize-then-contain path-confinement helper. In writer mode the
-  manifest `name` is read from `<claude-dir>/planwright/plugin.json`, so
-  `install.sh` copies that manifest into place (D-3). Unit tests under
-  `tests/`.
-- **Done when:** the script resolves each layer root in both delivery modes;
-  distinct `CLAUDE_PLUGIN_DATA` ids resolve to distinct adopter roots; writer
-  mode derives the adopter namespace from the manifest `name` (charset-validated);
-  absent layers resolve to empty/next-lower without error; hostile identifiers
-  and traversing/escaping paths are rejected with a clear message and nonzero
-  exit; tests pass under `mise run check`.
-- **Dependencies:** none
-- **Citations:** D-1, D-3, D-4, D-8 · REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5,
-  REQ-A1.6, REQ-E1.2, REQ-E1.5
-- **Estimated effort:** 1 day
-
 ### Task 3 — Four-layer config resolution
 
 - **Deliverables:** `config-get.sh` extended to read the adopter and
@@ -156,7 +134,30 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## In progress
 
-(none yet)
+### Task 2 — Overlay-root resolution primitive
+
+- **Status:** implementing
+- **Last activity:** 2026-06-16
+- **Dispatch:** tmux backend; dispatched 2026-06-16 22:48 PDT; worker window `co-task-2` (branch `planwright/customization-overlay/task-2`, worktree `.claude/worktrees/customization-overlay-task-2`).
+- **Deliverables:** `scripts/resolve-overlay-root.sh` resolving the four layer
+  roots — core, adopter (via the `$PLANWRIGHT_ADOPTER_OVERLAY` →
+  `$CLAUDE_PLUGIN_DATA/overlay/` → `<claude-dir>/planwright/<name>/overlay/`
+  chain, where writer mode's `<name>` is the plugin manifest `name`),
+  repo-tracked, and machine-local — with identifier/namespace validation and a
+  shared canonicalize-then-contain path-confinement helper. In writer mode the
+  manifest `name` is read from `<claude-dir>/planwright/plugin.json`, so
+  `install.sh` copies that manifest into place (D-3). Unit tests under
+  `tests/`.
+- **Done when:** the script resolves each layer root in both delivery modes;
+  distinct `CLAUDE_PLUGIN_DATA` ids resolve to distinct adopter roots; writer
+  mode derives the adopter namespace from the manifest `name` (charset-validated);
+  absent layers resolve to empty/next-lower without error; hostile identifiers
+  and traversing/escaping paths are rejected with a clear message and nonzero
+  exit; tests pass under `mise run check`.
+- **Dependencies:** none
+- **Citations:** D-1, D-3, D-4, D-8 · REQ-A1.1, REQ-A1.3, REQ-A1.4, REQ-A1.5,
+  REQ-A1.6, REQ-E1.2, REQ-E1.5
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 
