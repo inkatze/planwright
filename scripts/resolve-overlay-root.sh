@@ -174,7 +174,7 @@ fi
 layer="${1:-}"
 if [ -z "$layer" ]; then
   echo "usage: resolve-overlay-root.sh <layer>   (core|adopter|repo-tracked|machine-local)" >&2
-  echo "       resolve-overlay-root.sh --contain <root> <path>" >&2
+  echo "       resolve-overlay-root.sh --contain <root> <relpath>" >&2
   exit 2
 fi
 
