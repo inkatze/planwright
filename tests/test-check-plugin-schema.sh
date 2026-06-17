@@ -100,6 +100,17 @@ rc=$?
 assert_exit "no-arg default path resolves and passes" 0 "$rc"
 assert_contains "no-arg run reports schema validation ran" "passed schema validation" "$out"
 
+# 6. claude present but the target has NO .claude-plugin manifests → the script
+#    has nothing to validate and exits 0 with a clear note (distinct from both a
+#    schema pass and the absent-claude skip). Guards the "validated=0" branch so
+#    an empty target is never silently read as a clean schema gate.
+nomanifest="$tmp/nomanifest"
+mkdir -p "$nomanifest"
+out="$(PATH="$pass_bin:$PATH" /bin/bash "$SCRIPT" "$nomanifest" 2>&1)"
+rc=$?
+assert_exit "manifest-less target with claude present exits 0" 0 "$rc"
+assert_contains "manifest-less run says there is nothing to validate" "nothing to validate" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
