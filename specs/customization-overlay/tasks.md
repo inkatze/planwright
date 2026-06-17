@@ -100,7 +100,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 4 — Doctrine-overlay resolution
 
-- **Status:** implementing
+- **Status:** PR #39 draft
 - **Last activity:** 2026-06-17
 - **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
   repo-tracked, and machine-local doctrine roots (`doctrine/` for adopter and
