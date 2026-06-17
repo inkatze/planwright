@@ -153,6 +153,27 @@ assert_contains "supersede:false: core survives" "core-a" "$out"
 assert_absent "supersede:false: marker not re-emitted" "supersede:" "$out"
 
 # ---------------------------------------------------------------------------
+# 2c. a duplicate id WITHOUT a supersede marker is a slip: the merge warns and
+#     skips the duplicate (the established lower-precedence entry wins), exit 0.
+#     The only sanctioned override is `supersede: true` (covered by case 2).
+# ---------------------------------------------------------------------------
+sb="$tmp/dup-no-supersede"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+cat >"$(adopter_cat "$sb" testcat)" <<'YAML'
+entries:
+  - id: alpha
+    note: "overlay-dup"
+YAML
+err="$(rc "$sb" testcat 2>&1 1>/dev/null)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "dup-no-supersede: exit 0 (slip, degrade)" 0 $?
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert_contains "dup-no-supersede: warns about the duplicate" "alpha" "$err"
+assert_contains "dup-no-supersede: established core entry wins" "core-a" "$out"
+assert_absent "dup-no-supersede: overlay duplicate dropped" "overlay-dup" "$out"
+
+# ---------------------------------------------------------------------------
 # 3. supersede-of-nonexistent-target, adopter layer → degrade+warn, exit 0,
 #    offending entry skipped, core entries intact (pinned by-layer policy)
 # ---------------------------------------------------------------------------
