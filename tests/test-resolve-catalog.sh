@@ -392,6 +392,47 @@ rc "$sb" testcat >/dev/null 2>&1
 assert "malformed core (fast path): hard-fail nonzero" 1 $?
 
 # ---------------------------------------------------------------------------
+# 15. canonicalize-then-contain (D-8, REQ-E1.5, R8): an overlay catalog file
+#     that is a symlink escaping its overlay root is treated as malformed for
+#     its layer and NEVER read. A symlink that stays under the root resolves
+#     normally (containment rejects escapes, not symlinks per se).
+# ---------------------------------------------------------------------------
+# repo-tracked symlink escape → hard-fail, no outside content emitted.
+sb="$tmp/symlink-escape-repo"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+printf 'entries:\n  - id: leaked\n    note: "OUTSIDE-ROOT"\n' >"$sb/secret.yaml"
+mkdir -p "$(dirname "$(repo_cat "$sb" testcat)")"
+ln -s "$sb/secret.yaml" "$(repo_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>/dev/null)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "symlink-escape repo-tracked: hard-fail nonzero" 1 $?
+assert_absent "symlink-escape repo-tracked: outside content not emitted" "OUTSIDE-ROOT" "$out"
+
+# adopter symlink escape → degrade+warn, exit 0, core survives, no leak.
+sb="$tmp/symlink-escape-adopter"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+printf 'entries:\n  - id: leaked\n    note: "OUTSIDE-ROOT"\n' >"$sb/secret.yaml"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+ln -s "$sb/secret.yaml" "$(adopter_cat "$sb" testcat)"
+err="$(rc "$sb" testcat 2>&1 1>/dev/null)"
+rc "$sb" testcat >/dev/null 2>&1
+assert "symlink-escape adopter: exit 0 (degrade)" 0 $?
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert_contains "symlink-escape adopter: warns about the escape" "outside its overlay root" "$err"
+assert_absent "symlink-escape adopter: outside content not emitted" "OUTSIDE-ROOT" "$out"
+assert_contains "symlink-escape adopter: core survives" "core-a" "$out"
+
+# within-root symlink → resolves normally (not over-rejected).
+sb="$tmp/symlink-inside"
+write_cat "$(core_seed "$sb" testcat)" alpha "core-a"
+mkdir -p "$(dirname "$(adopter_cat "$sb" testcat)")"
+write_cat "$(dirname "$(adopter_cat "$sb" testcat)")/real.yaml" gamma "adopter-g"
+ln -s "real.yaml" "$(adopter_cat "$sb" testcat)"
+out="$(rc "$sb" testcat 2>/dev/null)"
+assert "within-root symlink: exit 0" 0 $?
+assert_contains "within-root symlink: target read" "adopter-g" "$out"
+
+# ---------------------------------------------------------------------------
 echo
 if [ "$failures" -eq 0 ]; then
   echo "All resolve-catalog tests passed."

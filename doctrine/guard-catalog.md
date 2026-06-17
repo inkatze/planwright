@@ -141,6 +141,11 @@ for the machine-local layer — lowest precedence to highest (D-4). The contract
   offending entry (degrade). A malformed overlay (unreadable, or present but
   parsing to zero entries) follows the same split; an absent layer degrades
   silently (REQ-A1.4).
+- **Path confinement.** Each present overlay file is canonicalized and
+  containment-checked under its layer root before any read (D-8, REQ-E1.5): an
+  overlay file that escapes its root — e.g. a repo-tracked catalog symlinked
+  outside `.claude/` — is malformed for its layer (the same by-layer split) and
+  is never read.
 - **Provenance.** `resolve-catalog.sh guard-catalog --explain` names the layer
   that supplied each merged entry (D-9, REQ-B1.6).
 

@@ -62,9 +62,18 @@
 # single quotes, no inline `# ...` comments, no block scalars). The reader is
 # not full YAML — it stays dependency-free under the bash 3.2 floor (REQ-K1.5).
 #
+# Path confinement (D-8, REQ-E1.5, risk R8): each present overlay file is routed
+# through resolve-overlay-root.sh --contain, which canonicalizes the joined path
+# (resolving symlinks and `..`) and confirms it stays under the layer root. A
+# file that escapes — e.g. a repo-tracked overlay symlinked outside `.claude/` —
+# is malformed for its layer (hard-fail for core/repo-tracked, degrade+warn for
+# adopter/machine-local) and is never read. Combined with the name charset check,
+# this closes both the traversal and the symlink-escape vectors.
+#
 # Exit codes: 0 merged (or empty/absent catalog); 1 hard-fail (malformed
-# repo-tracked/core overlay, or a repo-tracked supersede of a non-existent
-# target); 2 usage / invalid catalog name.
+# repo-tracked/core overlay, a repo-tracked overlay file escaping its root, or a
+# repo-tracked supersede of a non-existent target); 2 usage / invalid catalog
+# name.
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 set -u
@@ -159,11 +168,13 @@ adopter_root=$(root_of adopter) || fail_layer adopter
 repo_root=$(root_of repo-tracked) || fail_layer repo-tracked
 local_root=$(root_of machine-local) || fail_layer machine-local
 
-# Per-layer catalog file path (empty when the layer root is absent).
-core_file="${core_root:+$core_root/config/$name.yaml}"
-adopter_file="${adopter_root:+$adopter_root/catalogs/$name.yaml}"
-repo_file="${repo_root:+$repo_root/catalogs/$name.yaml}"
-local_file="${local_root:+$local_root/catalogs.local/$name.yaml}"
+# Per-layer catalog file location, expressed as (layer-root, path relative to
+# that root). The relative half is what canonicalize-then-contain joins onto the
+# root; keeping it separate is what lets the containment check reject an escape.
+core_rel="config/$name.yaml"
+adopter_rel="catalogs/$name.yaml"
+repo_rel="catalogs/$name.yaml"
+local_rel="catalogs.local/$name.yaml"
 
 # Build the ordered list of present+readable layer files with their labels and
 # malformed-policy. A present-but-unreadable file is malformed: degrade (warn)
@@ -171,14 +182,37 @@ local_file="${local_root:+$local_root/catalogs.local/$name.yaml}"
 files=()
 labels=""
 policies=""
+# add_layer <layer-root> <relpath> <label> <hardfail|degrade>
+#
+# Canonicalize-then-contain before reading (D-8, REQ-E1.5, risk R8): the catalog
+# resolver reads overlay files whose content is operator/team-authored, so a
+# present file is routed through resolve-overlay-root.sh --contain, which joins
+# the relpath onto the root, resolves symlinks and `..`, and confirms the result
+# stays under the root. A file that escapes — most realistically a symlink in a
+# repo-tracked overlay pointing outside `.claude/` — is treated as malformed for
+# its layer (hard-fail for core/repo-tracked, degrade+warn for adopter/machine-
+# local), never read. The name is already charset-validated, so this closes the
+# residual symlink vector. The containment check runs only for a present file
+# (`-e` first), so a normal absent layer or missing `catalogs/` dir is untouched.
 add_layer() {
-  al_file="$1"
-  al_label="$2"
-  al_policy="$3"
-  [ -n "$al_file" ] || return 0
+  al_root="$1"
+  al_rel="$2"
+  al_label="$3"
+  al_policy="$4"
+  [ -n "$al_root" ] || return 0
+  al_file="$al_root/$al_rel"
   [ -e "$al_file" ] || return 0
-  if [ -r "$al_file" ] && [ ! -d "$al_file" ]; then
-    files+=("$al_file")
+  # Contain: a nonzero exit means the resolved path escapes the overlay root.
+  if ! al_canon=$(/bin/sh "$overlay_root" --contain "$al_root" "$al_rel" 2>/dev/null); then
+    if [ "$al_policy" = "hardfail" ]; then
+      echo "resolve-catalog: $name: $al_label catalog '$al_file' resolves outside its overlay root (hard-fail)" >&2
+      exit 1
+    fi
+    echo "resolve-catalog: $name: $al_label overlay '$al_file' resolves outside its overlay root (malformed); degrading to the next lower layer" >&2
+    return 0
+  fi
+  if [ -r "$al_canon" ] && [ ! -d "$al_canon" ]; then
+    files+=("$al_canon")
     labels="${labels:+$labels,}$al_label"
     policies="${policies:+$policies,}$al_policy"
     return 0
@@ -191,10 +225,10 @@ add_layer() {
   echo "resolve-catalog: $name: $al_label overlay '$al_file' is unreadable (malformed); degrading to the next lower layer" >&2
 }
 
-add_layer "$core_file" core hardfail
-add_layer "$adopter_file" adopter degrade
-add_layer "$repo_file" repo-tracked hardfail
-add_layer "$local_file" machine-local degrade
+add_layer "$core_root" "$core_rel" core hardfail
+add_layer "$adopter_root" "$adopter_rel" adopter degrade
+add_layer "$repo_root" "$repo_rel" repo-tracked hardfail
+add_layer "$local_root" "$local_rel" machine-local degrade
 
 # No layer present → an absent catalog is a normal empty result (REQ-A1.4).
 if [ "${#files[@]}" -eq 0 ]; then
