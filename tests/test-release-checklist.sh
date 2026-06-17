@@ -90,6 +90,9 @@ out="$("$fx/scripts/release-checklist.sh" --confirm-workrepo-run "$fx" 2>&1)"
 rc=$?
 assert_exit "satisfied + attested fixture is READY" 0 "$rc"
 assert_contains "READY output says READY" "READY FOR PUBLIC RELEASE" "$out"
+# The PASS detail must name the actual attestation source. Via the flag, it
+# names the flag (and not the env var).
+assert_contains "flag attestation names the flag as the source" "attested (--confirm-workrepo-run)" "$out"
 
 # 3. Same fixture, condition (c) NOT attested → blocked, and the work-repo run
 #    is named as the outstanding human attestation. The needle is specific
@@ -107,6 +110,10 @@ out="$(RELEASE_WORKREPO_RUN_CONFIRMED=1 "$fx/scripts/release-checklist.sh" "$fx"
 rc=$?
 assert_exit "env-var attestation is honored" 0 "$rc"
 assert_contains "env-var attestation reaches READY" "READY FOR PUBLIC RELEASE" "$out"
+# The PASS detail must reflect the env-var path, not falsely claim the flag was
+# used — the env-var and flag paths are equally valid attestations and the
+# output should not misreport which one cleared the gate.
+assert_contains "env-var attestation names the env var as the source" "attested (RELEASE_WORKREPO_RUN_CONFIRMED=1)" "$out"
 
 # 3b-i. The attestation accepts only an explicit "1": a falsy
 #       RELEASE_WORKREPO_RUN_CONFIRMED (0, false, "") must NOT register as

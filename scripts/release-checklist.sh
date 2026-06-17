@@ -52,12 +52,23 @@ export LC_ALL
 unset CDPATH
 
 confirm_workrepo_run="${RELEASE_WORKREPO_RUN_CONFIRMED:-}"
+# Track HOW condition (c) was attested so the PASS detail reports the path the
+# operator actually used (the flag and the env var are equally valid; the
+# output must not claim the flag when the env var cleared the gate). Seeded
+# from the env var; the flag arm below overrides it when --confirm-workrepo-run
+# is passed.
+if [ "$confirm_workrepo_run" = "1" ]; then
+  attest_source="RELEASE_WORKREPO_RUN_CONFIRMED=1"
+else
+  attest_source=""
+fi
 repo_arg=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --confirm-workrepo-run)
       confirm_workrepo_run=1
+      attest_source="--confirm-workrepo-run"
       ;;
     --)
       shift
@@ -141,7 +152,7 @@ fi
 # --- REQ-J1.5 gate (c): clean multi-contributor work-repo E2E run ---
 # Not detectable from this repo; human attestation per the doc.
 if [ "$confirm_workrepo_run" = "1" ]; then
-  add_row PASS "(c) clean multi-contributor work-repo run" "attested (--confirm-workrepo-run)"
+  add_row PASS "(c) clean multi-contributor work-repo run" "attested ($attest_source)"
 else
   add_row MANUAL "(c) clean multi-contributor work-repo run" \
     "HUMAN ATTESTATION REQUIRED — re-run with --confirm-workrepo-run once the work-repo E2E run + findings doc exist"
