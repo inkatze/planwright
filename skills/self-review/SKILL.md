@@ -32,7 +32,7 @@ definitions govern wherever this skill names a concept:
 - `validation-rigor` — the three identification passes plus the adversarial
   bi-directional re-validation; solution validation, including the altitude
   check; surface-relative whole-system end-to-end reproduction preferred for
-  both
+  both issue identification and solution validation
 - `finding-categorization` — the four buckets, their predicates, hard
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder

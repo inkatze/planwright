@@ -77,8 +77,10 @@ oscillate.
 Its depth scales with stake and reversibility (see
 [proportionality.md](proportionality.md)); a skill that scopes the pass (for
 example, refuting only the findings it will act on autonomously and
-resurrecting only the most load-bearing declines) must declare the scoping,
-the same discipline the three-pass requirement follows.
+resurrecting only the most load-bearing declines) must declare the scoping.
+The default for any skill that does not declare otherwise is the full
+bi-directional pass over both sets, the same discipline the three-pass
+requirement follows.
 
 ## Solution validation
 
