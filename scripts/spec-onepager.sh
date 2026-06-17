@@ -100,7 +100,6 @@ awk_prog='
       live++
       liveid[live] = $2
       rsrc[$2] = $5
-      seen_live[$2] = 1
     }
     next
   }
