@@ -185,8 +185,9 @@ adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
-# run4 wires all four layers via env and leaves PLANWRIGHT_LOCAL_CONFIG unset so
-# the machine-local file is derived through the Task 2 primitive (the real path).
+# run4 wires all four layers via env and pins PLANWRIGHT_LOCAL_CONFIG empty (not
+# merely unset, so an ambient value in the runner's environment cannot leak in)
+# so the machine-local file is derived through the Task 2 primitive (the real path).
 run4() {
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
