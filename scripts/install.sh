@@ -17,10 +17,12 @@
 # ships (kickoff brief, REQ-I1.2 risk note). Hook wiring needs a settings.json
 # merge and is deliberately NOT done here; it is printed as a manual step.
 #
-# Known stub limitation: a re-install refresh-copies and never deletes, so
-# files removed or renamed in a newer planwright persist as stale copies under
-# the namespace. The packaging-finalization task owns the upgrade/cleanup
-# story.
+# Upgrade/cleanup: a re-install refresh-copies and never deletes, so files
+# removed or renamed in a newer planwright would persist as stale copies under
+# the namespace. To upgrade cleanly, delete <claude-dir>/planwright/ first and
+# re-run the writer (a clean reinstall). The writer deletes nothing on its own:
+# removing files under ~/.claude is the operator's deliberate step, not an
+# autopilot one. See docs/getting-started.md ("Upgrading and cleaning up").
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 #

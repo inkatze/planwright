@@ -39,6 +39,22 @@ first.
 
 ## Forward plan
 
+## In progress
+
+## Awaiting input
+
+- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
+  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
+  human policy call before it is relied on. Both self-review and Copilot flagged that the
+  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
+  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
+  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
+  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
+  branch only (the real question: should a worker be able to push to `main` at all?). Also
+  surfaced in the PR body's "Needs sign-off" section.
+
+## Completed
+
 ### Task 19 — Packaging finalization & onboarding docs
 
 - **Deliverables:** Finalized plugin manifest + `~/.claude/` writer; adopter onboarding docs
@@ -57,6 +73,9 @@ first.
 - **Dependencies:** 16, 17
 - **Citations:** D-24, D-27, D-29, D-35 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-D2.2, REQ-K1.6, REQ-J1.4, REQ-J1.5
 - **Estimated effort:** 1 day
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-19` · dispatched 2026-06-17T03:21Z ·
+  branch `planwright/bootstrap/task-19` · worktree `.claude/worktrees/task-19`
+- **Status:** Completed · PR #27 merged 2026-06-17 (gauntlet panel-pairing → self-review → copilot-pairing converged; Diego-directed `$schema` + CI `claude plugin validate` enforcement; 2 pending-sign-off items applied on-branch [`a3e5d3c` repo_root fail-closed guard, `17d2702` schema-gate test], Copilot zero unresolved threads, author.email Keep; anchor intact `b331a686` → no /spec-kickoff. **Bootstrap v1 feature-complete** — Forward plan empty.)
 
 ### Task 20 — Validation Rigor amendment: bi-directional re-validation + whole-system reproduction
 
@@ -79,22 +98,9 @@ first.
 - **Dependencies:** 3
 - **Citations:** D-46, D-47 · REQ-D1.8, REQ-D1.9
 - **Estimated effort:** half day
-
-## In progress
-
-## Awaiting input
-
-- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
-  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
-  human policy call before it is relied on. Both self-review and Copilot flagged that the
-  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
-  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
-  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
-  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
-  branch only (the real question: should a worker be able to push to `main` at all?). Also
-  surfaced in the PR body's "Needs sign-off" section.
-
-## Completed
+- **Dispatch:** backend=tmux · window=`pw-bootstrap-task-20` · dispatched 2026-06-16T23:36Z ·
+  branch `planwright/bootstrap/task-20` · worktree `.claude/worktrees/task-20`
+- **Status:** Completed · PR #25 merged 2026-06-16 (gauntlet panel-pairing → self-review → copilot-pairing converged; panel sign-off fix + Copilot threads addressed, all signed; content anchor intact `b331a686` → no /spec-kickoff needed)
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
