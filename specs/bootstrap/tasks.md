@@ -60,6 +60,20 @@ first.
 
 ## In progress
 
+## Awaiting input
+
+- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
+  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
+  human policy call before it is relied on. Both self-review and Copilot flagged that the
+  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
+  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
+  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
+  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
+  branch only (the real question: should a worker be able to push to `main` at all?). Also
+  surfaced in the PR body's "Needs sign-off" section.
+
+## Completed
+
 ### Task 20 — Validation Rigor amendment: bi-directional re-validation + whole-system reproduction
 
 - **Deliverables:** Amend `doctrine/validation-rigor.md` to add (a) an adversarial
@@ -81,24 +95,9 @@ first.
 - **Dependencies:** 3
 - **Citations:** D-46, D-47 · REQ-D1.8, REQ-D1.9
 - **Estimated effort:** half day
-- **Status:** PR #25 ready
-- **Last activity:** 2026-06-16
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-20` · dispatched 2026-06-16T23:36Z ·
   branch `planwright/bootstrap/task-20` · worktree `.claude/worktrees/task-20`
-
-## Awaiting input
-
-- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
-  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
-  human policy call before it is relied on. Both self-review and Copilot flagged that the
-  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
-  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
-  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
-  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
-  branch only (the real question: should a worker be able to push to `main` at all?). Also
-  surfaced in the PR body's "Needs sign-off" section.
-
-## Completed
+- **Status:** Completed · PR #25 merged 2026-06-16 (gauntlet panel-pairing → self-review → copilot-pairing converged; panel sign-off fix + Copilot threads addressed, all signed; content anchor intact `b331a686` → no /spec-kickoff needed)
 
 ### Task 16 — Builder skill + core catalog + lifecycle hooks
 
