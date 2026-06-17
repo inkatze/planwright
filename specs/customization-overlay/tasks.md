@@ -146,7 +146,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 1 — Capability-vs-style boundary doctrine
 
-- **Status:** implementing
+- **Status:** PR #28 draft
 - **Last activity:** 2026-06-16
 - **Dispatch:** tmux backend; dispatched 2026-06-16 22:50 PDT; worker window `co-task-1` (branch `planwright/customization-overlay/task-1`, worktree `.claude/worktrees/customization-overlay-task-1`).
 - **Deliverables:** A new doctrine doc `customization-boundary.md` defining the
