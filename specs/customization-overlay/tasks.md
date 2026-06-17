@@ -72,7 +72,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 4 — Doctrine-overlay resolution
 
-- **Status:** implementing
+- **Status:** PR #39 draft
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-4` (branch `planwright/customization-overlay/task-4`, worktree `.claude/worktrees/customization-overlay-task-4`, branched off origin/main `6a26164`).
 - **Deliverables:** `resolve-rule-doc.sh` extended to insert the adopter,
