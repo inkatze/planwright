@@ -40,7 +40,10 @@ refusal.
 
 Missing-file, malformed-header, and partial-bundle fixtures each yield a clear
 message that names what is absent and render what is present, with no opaque
-halt.
+halt. A charset-valid scope selector that resolves to no part of the bundle (a
+requirement group, decision, or file not present) likewise yields a clear
+message naming the available scopes — never an opaque failure or a silent empty
+render.
 
 ### REQ-A1.6 — Identifier and path safety [test]
 
@@ -151,7 +154,10 @@ installed dependency `[test]`; a manual open in a browser confirms it renders
 ### REQ-E1.3 — No hard renderer dependency [test]
 
 Run generation with Graphviz absent and assert the artifact still renders via
-the self-contained path, with the degradation note present.
+the self-contained path, with the degradation note present. Also run generation
+with Graphviz present but failing (non-zero exit, timeout, or invalid output)
+and assert it degrades to the self-contained path the same as the absent case,
+with the degradation note present.
 
 ### REQ-E1.4 — Data hygiene [test]
 

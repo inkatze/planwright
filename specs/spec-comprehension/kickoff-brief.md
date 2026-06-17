@@ -313,4 +313,46 @@ Anchor: `eaebcebe874c7d2aa981326e1cbf28f83476e3cc` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### 2026-06-16 — delta re-walkthrough (meaning)
+
+**Trigger.** Freshness gate mismatch: the first-activation anchor
+(`eaebcebe874c7d2aa981326e1cbf28f83476e3cc`) no longer matched the bundle.
+Delta derived from the four spec files' git history since sign-off plus the
+two deferred `/copilot-pairing` review threads on PR #26.
+
+**Delta walked (scope confirmed with the human):**
+
+- *Already committed, derived-prose / citation only (no requirement meaning
+  changed):* the effort-weighted critical path extended `… → T7 (≈10.5d)` →
+  `… → T7 → T11 (≈12.5d)` in `tasks.md` + brief (T11 depends on T7);
+  the `REQ-F1.3` citation dropped from Task 10 (`tasks.md`: D-11 → REQ-F1.2
+  per the decision-map ledger; REQ-F1.3 maps to D-10) — both from the
+  `/panel-review` correction (`1f7ff2a`); and the `gitleaks` example in the
+  `requirements.md` changelog corrected to the valid
+  `gitleaks detect --no-git --source <path>` form (`/copilot-pairing` iter 2,
+  `97819fd`).
+- *Applied this re-walkthrough (meaning-class additions):* `test-spec.md`
+  synced to two REQ meanings the first-activation lens pass had extended
+  (brief findings F3, F2) but never mirrored into verification —
+  **REQ-A1.5** now covers a charset-valid scope selector that resolves to
+  nothing (clear message naming available scopes, never opaque/empty), and
+  **REQ-E1.3** now covers a present-but-failing renderer (non-zero exit,
+  timeout, or invalid output) degrading the same as absence. Bundle
+  changelog entry recorded.
+
+**Lens pass (delta-scoped, walked inline — small narrow delta).** Canonical
+lens table emitted in the run; all dispositioned. Applied: 2 test-spec
+coverage additions (REQ-A1.5, REQ-E1.3) + 1 changelog entry. Confirmed: the
+three already-committed derived/citation corrections (critical-path
+arithmetic 10.5+2=12.5 and Task 11 deps incl. 7 verified; REQ-F1.3 drop
+internally consistent with the ledger). Dead-path sweep: all 32 defined REQs
+have a `test-spec.md` entry; no remaining dead paths. No inconsistency halt.
+
+**Validation.** Validator (Active enforcement): 0 errors, 0 warnings.
+markdownlint: 0 errors. `Last reviewed:` already 2026-06-16 on all four files
+(same-day re-walk).
+
+Class: meaning
+Lens-pass: recorded above (this entry), delta-scoped, findings dispositioned 2026-06-16.
+Anchor: `613e19c554bda9704aa0b6878f65fc50d7d59d18` — computed as
+`scripts/spec-anchor.sh specs/spec-comprehension`

@@ -216,6 +216,14 @@ builds on. It is read-only and never advances the pipeline.
 
 ## Changelog
 
+- 2026-06-16: `/spec-kickoff` delta re-walkthrough. Synced `test-spec.md` to the
+  REQ-A1.5 and REQ-E1.3 meanings the first-activation lens pass had extended
+  (brief findings F3, F2) but never mirrored into verification: the REQ-A1.5
+  entry now covers a charset-valid scope selector that resolves to nothing
+  (clear message naming available scopes), and the REQ-E1.3 entry now covers a
+  present-but-failing renderer (non-zero exit, timeout, or invalid output)
+  degrading the same as absence. Closes two dead paths; mirrors existing
+  requirement meaning, no requirement text changed.
 - 2026-06-16: `/panel-review` correction. Corrected the derived effort-weighted
   critical path in the build-order note (`tasks.md`) and the kickoff brief to run
   through Task 11 (≈12.5 days): Task 11 depends on Task 7, so the prior note
