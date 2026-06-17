@@ -240,17 +240,33 @@ case $layer in
     if [ -n "$claude_dir" ]; then
       manifest="$claude_dir/planwright/plugin.json"
       if [ -r "$manifest" ]; then
-        # Read the top-level "name" string. Split on JSON structural commas and
-        # braces first so each "key": value sits on its own line, then anchor
-        # "name" at line start — this matches both pretty-printed and compact
-        # manifests while never matching a key like "displayName". Assumes the
-        # key and its value sit on one line (every JSON serializer emits this);
-        # a hand-split "name":\n"value" reads as no name and degrades to absent,
-        # which is safe (never a misparse). Full JSON parsing is out of scope —
-        # the runtime stays dependency-free (no jq), REQ-K1.5.
-        name=$(tr ',' '\n' <"$manifest" | tr '{' '\n' \
-          | sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-          | head -1)
+        # Read the TOP-LEVEL "name" string. Scan the manifest tracking brace
+        # depth and take the first `"name": "value"` that sits at depth 1, so a
+        # nested object's name (e.g. author.name) is never mistaken for the
+        # plugin name even when it appears earlier in the file. Matches both
+        # pretty-printed and compact manifests and never matches a key like
+        # "displayName" (the `"name"` token is quote-anchored). Assumes the key
+        # and its value sit on one line (every JSON serializer emits this) and
+        # that string values carry no literal braces — true for this manifest;
+        # full JSON parsing stays out of scope, the runtime is dependency-free
+        # (no jq), REQ-K1.5.
+        name=$(awk '
+          {
+            line = $0
+            while (match(line, /[{}]|"name"[ \t]*:[ \t]*"[^"]*"/)) {
+              tok = substr(line, RSTART, RLENGTH)
+              if (tok == "{") depth++
+              else if (tok == "}") depth--
+              else if (depth == 1 && val == "") {
+                val = tok
+                sub(/^"name"[ \t]*:[ \t]*"/, "", val)
+                sub(/".*$/, "", val)
+              }
+              line = substr(line, RSTART + RLENGTH)
+            }
+          }
+          END { if (val != "") print val }
+        ' "$manifest")
         if [ -n "$name" ]; then
           if valid_identifier "$name"; then
             printf '%s\n' "$claude_dir/planwright/$name/overlay"

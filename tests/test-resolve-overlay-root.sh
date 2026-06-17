@@ -148,6 +148,32 @@ assert "adopter writer-mode resolves with displayName present" 0 $?
 assert_eq "manifest name not confused by displayName" \
   "$tmp/claude2/planwright/workfork/overlay" "$out"
 
+# The parser must select the TOP-LEVEL name even when a nested object's "name"
+# (e.g. author.name) appears earlier in the manifest and is itself a valid
+# identifier. A non-depth-aware parser would pick the first "name" it sees
+# (the nested one) and resolve the wrong adopter namespace — an isolation bug.
+mkdir -p "$tmp/claude-nested/planwright"
+cat >"$tmp/claude-nested/planwright/plugin.json" <<'JSON'
+{
+  "author": { "name": "diego" },
+  "name": "workfork",
+  "version": "0.1.0"
+}
+JSON
+out="$(base CLAUDE_DIR="$tmp/claude-nested" /bin/bash "$RESOLVER" adopter)"
+assert "adopter writer-mode ignores an earlier nested name" 0 $?
+assert_eq "top-level name wins over an earlier nested author.name" \
+  "$tmp/claude-nested/planwright/workfork/overlay" "$out"
+
+# Same, compact single-line manifest with the nested name first.
+mkdir -p "$tmp/claude-nested-compact/planwright"
+printf '{"author":{"name":"diego"},"name":"workfork"}\n' \
+  >"$tmp/claude-nested-compact/planwright/plugin.json"
+out="$(base CLAUDE_DIR="$tmp/claude-nested-compact" /bin/bash "$RESOLVER" adopter)"
+assert "adopter writer-mode ignores nested name (compact manifest)" 0 $?
+assert_eq "top-level name wins over nested name (compact)" \
+  "$tmp/claude-nested-compact/planwright/workfork/overlay" "$out"
+
 # Absent manifest: adopter layer degrades to absent (empty, zero exit) —
 # REQ-A1.5 / REQ-A1.4 / F9.
 mkdir -p "$tmp/claude-nomanifest/planwright"
