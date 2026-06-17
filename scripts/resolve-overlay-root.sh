@@ -193,7 +193,11 @@ case $layer in
         # Read the top-level "name" string. Split on JSON structural commas and
         # braces first so each "key": value sits on its own line, then anchor
         # "name" at line start — this matches both pretty-printed and compact
-        # manifests while never matching a key like "displayName".
+        # manifests while never matching a key like "displayName". Assumes the
+        # key and its value sit on one line (every JSON serializer emits this);
+        # a hand-split "name":\n"value" reads as no name and degrades to absent,
+        # which is safe (never a misparse). Full JSON parsing is out of scope —
+        # the runtime stays dependency-free (no jq), REQ-K1.5.
         name=$(tr ',' '\n' <"$manifest" | tr '{' '\n' \
           | sed -n 's/^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
           | head -1)

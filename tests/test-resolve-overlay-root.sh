@@ -74,6 +74,12 @@ out="$(base CLAUDE_PLUGIN_ROOT="$tmp/plugin" /bin/bash "$RESOLVER" core)"
 assert "core resolves via CLAUDE_PLUGIN_ROOT" 0 $?
 assert_eq "core root is the plugin root" "$tmp/plugin" "$out"
 
+# core skips a set-but-nonexistent root and falls through to the next arm.
+out="$(base PLANWRIGHT_ROOT="$tmp/no-such-core" CLAUDE_PLUGIN_ROOT="$tmp/plugin" \
+  /bin/bash "$RESOLVER" core)"
+assert "core skips a nonexistent PLANWRIGHT_ROOT" 0 $?
+assert_eq "core falls through to the plugin root" "$tmp/plugin" "$out"
+
 # ---------------------------------------------------------------------------
 # adopter layer
 # ---------------------------------------------------------------------------
@@ -154,6 +160,11 @@ case "$err" in
     failures=$((failures + 1))
     ;;
 esac
+
+# A set-but-nonexistent CLAUDE_DIR has no readable manifest: degrade to absent.
+out="$(base CLAUDE_DIR="$tmp/no-such-claude" /bin/bash "$RESOLVER" adopter)"
+assert "nonexistent CLAUDE_DIR degrades adopter to absent" 0 $?
+assert_eq "nonexistent CLAUDE_DIR yields empty adopter root" "" "$out"
 
 # No adopter arm derivable at all (no override, no plugin data, no HOME/CLAUDE_DIR):
 # absent, zero exit.
