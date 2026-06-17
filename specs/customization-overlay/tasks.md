@@ -10,21 +10,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
-### Task 1 — Capability-vs-style boundary doctrine
-
-- **Deliverables:** A new doctrine doc `customization-boundary.md` defining the
-  capability-vs-style rule, its decision-time criteria, the default tilt toward
-  overlay, and the two worked examples (review-gauntlet ordering as style;
-  dispatch-isolation default as core capability). Cite-wiring so `/spec-draft`'s
-  design phase consults it.
-- **Done when:** `customization-boundary.md` resolves via
-  `resolve-rule-doc.sh`; it states the criteria, the default tilt, and both
-  worked examples; `/spec-draft`'s design-phase instructions reference it;
-  `check-doc-links.sh` and the doc linters pass.
-- **Dependencies:** none
-- **Citations:** D-10 · REQ-C1.1, REQ-C1.2, REQ-C1.3
-- **Estimated effort:** half day
-
 ### Task 3 — Four-layer config resolution
 
 - **Deliverables:** `config-get.sh` extended to read the adopter and
@@ -165,7 +150,21 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Completed
 
-(none yet)
+### Task 1 — Capability-vs-style boundary doctrine
+
+- **Status:** Completed — PR #28 merged 2026-06-17 (merge commit `480cf64`).
+- **Deliverables:** A new doctrine doc `customization-boundary.md` defining the
+  capability-vs-style rule, its decision-time criteria, the default tilt toward
+  overlay, and the two worked examples (review-gauntlet ordering as style;
+  dispatch-isolation default as core capability). Cite-wiring so `/spec-draft`'s
+  design phase consults it.
+- **Done when:** `customization-boundary.md` resolves via
+  `resolve-rule-doc.sh`; it states the criteria, the default tilt, and both
+  worked examples; `/spec-draft`'s design-phase instructions reference it;
+  `check-doc-links.sh` and the doc linters pass.
+- **Dependencies:** none
+- **Citations:** D-10 · REQ-C1.1, REQ-C1.2, REQ-C1.3
+- **Estimated effort:** half day
 
 ## Deferred
 
