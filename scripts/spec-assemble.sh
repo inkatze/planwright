@@ -275,8 +275,10 @@ graph_prog='
     print "<h2 class=\"section-title\">How the work fits together</h2>"
     print "<p class=\"graph-intro\">Each box is a piece of work. An arrow runs from a piece to the work that depends on it, so the diagram flows left to right from the earliest work to the last. The highlighted chain is the longest path through the plan &mdash; the run of work that paces the whole effort. Boxes sharing a column have no dependency between them and can move ahead in parallel.</p>"
     if (nn == 0) {
-      print "<p class=\"graph-empty\">This bundle has no task graph to draw.</p>"
-      print "<p class=\"graph-note\">" esc(note) "</p>"
+      # The empty-graph GRAPHNOTE carries this same sentence, so it is the single
+      # source for the message and is not also echoed as a graph-note (printing
+      # both rendered the identical line twice).
+      print "<p class=\"graph-empty\">" esc(note) "</p>"
       print "</section>"
       exit
     }

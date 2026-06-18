@@ -72,6 +72,14 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# The optional `dot` run uses two TMPDIR temp files; declare them up front so the
+# EXIT trap can always reference them (set -u safe) and clean them up on an
+# interrupt or error exit too, not only the normal path (the builder-guards.sh /
+# spec-validate.sh house pattern). They stay empty unless the Graphviz probe runs.
+gv_in=
+gv_out=
+trap 'rm -f "$gv_in" "$gv_out" 2>/dev/null || :' EXIT
+
 spec_dir="${1:-}"
 if [ -z "$spec_dir" ] || [ "$spec_dir" = "-" ]; then
   echo "usage: spec-graph.sh <spec-dir>" >&2
@@ -154,6 +162,8 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
     kill "$gv_watch" 2>/dev/null || :
     wait "$gv_watch" 2>/dev/null || :
   fi
+  # Prompt cleanup on the normal path (keeps the temps' lifetime to the probe);
+  # the EXIT trap above is the backstop for an interrupt or error exit.
   rm -f "$gv_in" "$gv_out" 2>/dev/null || :
   # Accept the layout only if it carries the `graph <scale> <w> <h>` header and a
   # numeric x,y for every node id; any gap means degrade to built-in.

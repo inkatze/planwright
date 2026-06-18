@@ -12,7 +12,7 @@
 # path with an in-artifact note (D-5, REQ-E1.3).
 #
 # Record vocabulary (tab-separated, column 1 the tag):
-#   GRAPHMETA  <width>  <height>  <layout:builtin|graphviz>
+#   GRAPHMETA  <width>  <height>  <layout:builtin|graphviz>  <node-w>  <node-h>
 #   GRAPHNOTE  <text>
 #   GRAPHCRIT  <space-joined critical-path ids>
 #   GRAPHNODE  <id>  <x>  <y>  <crit:0|1>  <title verbatim>
