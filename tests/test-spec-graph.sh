@@ -302,6 +302,32 @@ out=$(SPEC_WALKTHROUGH_DOT="$garbage/dot" "$script" "$bundle" 2>&1) \
 [ "$(field GRAPHMETA 4)" = builtin ] \
   || fail "garbage dot output must degrade to layout=builtin (REQ-E1.3)"
 
+# 8c. Graphviz present but slow past the bound (REQ-E1.3 "timeout"): a dot that
+#     would emit a VALID layout but only after sleeping longer than the bound is
+#     killed by the watchdog and degrades to the built-in layout. The stub sleeps
+#     2s and then prints a valid -Tplain; with a 1s bound it must never reach the
+#     graphviz layout. (Without the watchdog this would wait 2s and pick
+#     layout=graphviz — the assertion below is what catches a missing bound.)
+slow="$tmp/gv-slow"
+mkdir -p "$slow"
+cat >"$slow/dot" <<'STUB'
+#!/bin/sh
+sleep 2
+cat <<'PLAIN'
+graph 1.0 6.0 2.0
+node 1 0.5 1.0 1.2 0.5 t1 solid box black lightgrey
+node 2 2.5 1.5 1.2 0.5 t2 solid box black lightgrey
+node 3 2.5 0.5 1.2 0.5 t3 solid box black lightgrey
+node 4 4.5 1.0 1.2 0.5 t4 solid box black lightgrey
+stop
+PLAIN
+STUB
+chmod +x "$slow/dot"
+out=$(SPEC_WALKTHROUGH_DOT="$slow/dot" SPEC_WALKTHROUGH_DOT_TIMEOUT=1 "$script" "$bundle" 2>&1) \
+  || fail "graphviz-slow run should still succeed (degrade)"
+[ "$(field GRAPHMETA 4)" = builtin ] \
+  || fail "a dot exceeding the time bound must degrade to layout=builtin (REQ-E1.3 timeout)"
+
 # Restore the force-builtin override for the remaining cases.
 SPEC_WALKTHROUGH_DOT=dot-not-installed-xyz
 export SPEC_WALKTHROUGH_DOT

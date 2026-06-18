@@ -43,10 +43,18 @@
 # Usage: spec-graph.sh <spec-dir>
 #
 # Environment:
-#   SPEC_WALKTHROUGH_DOT  the Graphviz binary used for the optional layout
-#                         enhancement (default: dot); point it at a missing name
-#                         to force the built-in layout. A test/override seam,
-#                         mirroring SPEC_WALKTHROUGH_COMMIT in the assembler.
+#   SPEC_WALKTHROUGH_DOT          the Graphviz binary used for the optional
+#                                 layout enhancement (default: dot); point it at
+#                                 a missing name to force the built-in layout. A
+#                                 test/override seam, mirroring
+#                                 SPEC_WALKTHROUGH_COMMIT in the assembler.
+#   SPEC_WALKTHROUGH_DOT_TIMEOUT  seconds to allow `dot` before a watchdog kills
+#                                 it and the layout degrades to built-in
+#                                 (default: 5; D-5 / REQ-E1.3 "timeout").
+#
+# Read-only to the repository (REQ-A1.3): it writes nothing but its stdout
+# stream. The optional bounded `dot` run uses two short-lived TMPDIR temp files
+# (the DOT input and the layout output), never the tracked tree.
 #
 # Exit codes:
 #   0  the record stream was emitted (a bundle with no task graph still emits a
@@ -107,6 +115,7 @@ note="Built-in layout (Graphviz not detected; install \`dot\` for a richer graph
 gvcoords=
 gvheight=
 dot_bin=${SPEC_WALKTHROUGH_DOT:-dot}
+gv_timeout=${SPEC_WALKTHROUGH_DOT_TIMEOUT:-5}
 if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
   # Build a DOT graph from numeric ids only — no bundle text reaches dot, so no
   # title can inject DOT syntax.
@@ -120,7 +129,30 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
     done
     printf '}\n'
   )
-  plain=$(printf '%s\n' "$dot_src" | "$dot_bin" -Tplain 2>/dev/null) || plain=
+  # Run dot under a wall-clock watchdog so a hung or pathologically slow
+  # invocation degrades to the built-in layout instead of stalling the render
+  # (D-5 / REQ-E1.3 "timeout"). dot reads the DOT source from a temp file (not a
+  # pipe) so $! is unambiguously dot's pid for the watchdog to kill; both temps
+  # live under TMPDIR, never the tracked tree, so the view stays repo-read-only.
+  plain=
+  gv_in=$(mktemp 2>/dev/null) || gv_in=
+  gv_out=$(mktemp 2>/dev/null) || gv_out=
+  if [ -n "$gv_in" ] && [ -n "$gv_out" ]; then
+    printf '%s\n' "$dot_src" >"$gv_in"
+    "$dot_bin" -Tplain "$gv_in" >"$gv_out" 2>/dev/null &
+    gv_pid=$!
+    (
+      sleep "$gv_timeout"
+      kill "$gv_pid" 2>/dev/null
+    ) >/dev/null 2>&1 &
+    gv_watch=$!
+    if wait "$gv_pid" 2>/dev/null; then
+      plain=$(cat "$gv_out")
+    fi
+    kill "$gv_watch" 2>/dev/null || :
+    wait "$gv_watch" 2>/dev/null || :
+  fi
+  rm -f "$gv_in" "$gv_out" 2>/dev/null || :
   # Accept the layout only if it carries the `graph <scale> <w> <h>` header and a
   # numeric x,y for every node id; any gap means degrade to built-in.
   if printf '%s\n' "$plain" | head -1 | grep -q '^graph '; then
@@ -153,7 +185,7 @@ printf '%s\n' "$model" | awk \
   BEGIN {
     FS = "\t"; OFS = "\t"
     NODEW = 180; NODEH = 44; COLGAP = 54; ROWGAP = 22; MARGIN = 22; SCALE = 72
-    nnodes = 0
+    nnodes = 0; ne = 0
     ncp = split(crit, cp, " ")
     for (i = 1; i <= ncp; i++)
       if (cp[i] != "") critpos[cp[i]] = i
