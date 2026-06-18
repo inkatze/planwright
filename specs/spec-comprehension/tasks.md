@@ -50,7 +50,7 @@ view tasks they cover.
 
 ### Task 9 — Scope selection and stage-aware framing
 
-- **Status:** PR #63 draft
+- **Status:** In progress — dispatched 2026-06-18 (no PR yet)
 - **Last activity:** 2026-06-18
 - **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t9` · worktree `.claude/worktrees/planwright+spec-comprehension+task-9` · branch `planwright/spec-comprehension/task-9`
 - **Deliverables:** the whole-bundle default plus partial selectors (one file,
@@ -63,21 +63,6 @@ view tasks they cover.
 - **Dependencies:** 2, 6
 - **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
 - **Estimated effort:** 1.5 days
-
-### Task 10 — Sibling discoverability touchpoints
-
-- **Status:** In progress — dispatched 2026-06-18 (no PR yet)
-- **Last activity:** 2026-06-18
-- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t10` · worktree `.claude/worktrees/planwright+spec-comprehension+task-10` · branch `planwright/spec-comprehension/task-10`
-- **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
-  `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
-  `/spec-walkthrough` as an independent human step, none auto-invoking it.
-- **Done when:** the three sibling skills each surface the recommendation in the
-  right place, none invokes the command, and the wording frames it as an
-  optional independent pass.
-- **Dependencies:** 6
-- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
-- **Estimated effort:** half day
 
 ## Awaiting input
 
@@ -206,6 +191,19 @@ view tasks they cover.
 - **Dependencies:** 2, 6
 - **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
 - **Estimated effort:** 2 days
+
+### Task 10 — Sibling discoverability touchpoints
+
+- **Status:** Completed — merged via PR #61 (merge commit `c7451c0`) on 2026-06-18
+- **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
+  `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
+  `/spec-walkthrough` as an independent human step, none auto-invoking it.
+- **Done when:** the three sibling skills each surface the recommendation in the
+  right place, none invokes the command, and the wording frames it as an
+  optional independent pass.
+- **Dependencies:** 6
+- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
+- **Estimated effort:** half day
 
 ## Deferred
 
