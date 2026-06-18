@@ -26,8 +26,8 @@
 # scoped stream is a strict subset of the full model.
 #
 # Usage:
-#   spec-scope.sh --scope <selector> <spec-dir>   # run the model then filter
-#   spec-model.sh <spec-dir> | spec-scope.sh --scope <selector>   # filter a stream
+#   spec-scope.sh [--scope <selector>] <spec-dir>   # run the model then filter
+#   spec-model.sh <spec-dir> | spec-scope.sh [--scope <selector>]   # filter a stream
 #
 # With a <spec-dir> argument it runs scripts/spec-model.sh (a sibling) over the
 # directory and filters the result; with no argument it reads a model stream on

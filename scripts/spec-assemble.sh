@@ -668,7 +668,7 @@ verify_prog='
     gsub(/\047/, "\\&#39;", s)
     return s
   }
-  BEGIN { FS = "\t"; ntest = 0 }
+  BEGIN { FS = "\t" }
   $1 == "TEST" { tested[$2] = 1; next }
   $1 == "TEXT" && $3 == "requirement" { plain[$2] = $4; ord[++norder] = $2; next }
   END {
