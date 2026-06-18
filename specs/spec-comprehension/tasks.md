@@ -19,21 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 7 — Dependency-graph and critical-path view
-
-- **Deliverables:** the drawn dependency-graph view as inline SVG with the
-  critical path and parallelism visible and plain labels, reusing
-  `scripts/orchestrate-select.sh`'s critical-path computation; the optional
-  Graphviz enhancement via runtime probe with clean degradation and an
-  in-artifact note; the diagram integrated with its explaining text.
-- **Done when:** the graph renders as inline SVG (not ASCII) with the critical
-  path highlighted, matches the reused critical-path computation, renders the
-  same offline whether or not Graphviz is present, and sits adjacent to its
-  explaining text.
-- **Dependencies:** 2, 6
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
-- **Estimated effort:** 2 days
-
 ### Task 8 — Decision-map view
 
 - **Deliverables:** the ADR-shaped decision-map view rendering each decision as
@@ -100,7 +85,22 @@ view tasks they cover.
 
 ## In progress
 
-(none)
+### Task 7 — Dependency-graph and critical-path view
+
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Deliverables:** the drawn dependency-graph view as inline SVG with the
+  critical path and parallelism visible and plain labels, reusing
+  `scripts/orchestrate-select.sh`'s critical-path computation; the optional
+  Graphviz enhancement via runtime probe with clean degradation and an
+  in-artifact note; the diagram integrated with its explaining text.
+- **Done when:** the graph renders as inline SVG (not ASCII) with the critical
+  path highlighted, matches the reused critical-path computation, renders the
+  same offline whether or not Graphviz is present, and sits adjacent to its
+  explaining text.
+- **Dependencies:** 2, 6
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
+- **Estimated effort:** 2 days
 
 ## Awaiting input
 
