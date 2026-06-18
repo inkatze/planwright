@@ -90,7 +90,7 @@ view tasks they cover.
 
 ### Task 8 — Decision-map view
 
-- **Status:** implementing
+- **Status:** PR #55 draft
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux · 2026-06-17 · worktree `.claude/worktrees/planwright+spec-comprehension+task-8` · branch `planwright/spec-comprehension/task-8`
 - **Deliverables:** the ADR-shaped decision-map view rendering each decision as
