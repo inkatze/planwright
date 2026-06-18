@@ -19,25 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 6 — HTML assembly and styling
-
-- **Deliverables:** assembly of the rendered views into one self-contained HTML
-  artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
-  inlined and the MIT notice included; the reveal toggle; the silent-read-first
-  ordering; the gitignored `.claude/walkthroughs/<spec>/` location with a
-  `.gitignore` entry; the bundle-and-commit provenance stamp; HTML/SVG-escaping
-  (or sanitization) of all rendered bundle content so no bundle text can inject
-  executable or structural markup into the artifact.
-- **Done when:** running the command produces one HTML file that opens offline
-  in a browser with no installed dependency, defaults to the no-identifier view
-  with a working reveal toggle, presents the full read before any prompt, is
-  gitignored, is stamped with the bundle and commit, and escapes/sanitizes all
-  rendered bundle content (markup in bundle text displays as literal, never
-  executes).
-- **Dependencies:** 4, 5
-- **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
-- **Estimated effort:** 2 days
-
 ### Task 7 — Dependency-graph and critical-path view
 
 - **Deliverables:** the drawn dependency-graph view as inline SVG with the
@@ -119,20 +100,26 @@ view tasks they cover.
 
 ## In progress
 
-### Task 4 — Spec-at-a-glance one-pager renderer
+### Task 6 — HTML assembly and styling
 
-- **Status:** PR #43 draft
+- **Status:** implementing
 - **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t4` · worktree `.claude/worktrees/planwright+spec-comprehension+task-4` · branch `planwright/spec-comprehension/task-4`
-- **Deliverables:** the narrative one-pager view (prose, length-bounded), each
-  load-bearing claim carrying its back-pointer, with the load-bearing "killer
-  items" foregrounded.
-- **Done when:** the one-pager renders a real bundle as bounded narrative prose
-  in which every claim resolves to a source element and the killer items are
-  visually distinct from routine content.
-- **Dependencies:** 3
-- **Citations:** D-2 · REQ-C1.2
-- **Estimated effort:** 1 day
+- **Deliverables:** assembly of the rendered views into one self-contained HTML
+  artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
+  inlined and the MIT notice included; the reveal toggle; the silent-read-first
+  ordering; the gitignored `.claude/walkthroughs/<spec>/` location with a
+  `.gitignore` entry; the bundle-and-commit provenance stamp; HTML/SVG-escaping
+  (or sanitization) of all rendered bundle content so no bundle text can inject
+  executable or structural markup into the artifact.
+- **Done when:** running the command produces one HTML file that opens offline
+  in a browser with no installed dependency, defaults to the no-identifier view
+  with a working reveal toggle, presents the full read before any prompt, is
+  gitignored, is stamped with the bundle and commit, and escapes/sanitizes all
+  rendered bundle content (markup in bundle text displays as literal, never
+  executes).
+- **Dependencies:** 4, 5
+- **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
+- **Estimated effort:** 2 days
 
 ## Awaiting input
 
@@ -184,6 +171,19 @@ view tasks they cover.
 - **Dependencies:** 2
 - **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
 - **Estimated effort:** 2 days
+
+### Task 4 — Spec-at-a-glance one-pager renderer
+
+- **Status:** Completed — merged via PR #43 (merge commit `b285999`) on 2026-06-17
+- **Deliverables:** the narrative one-pager view (prose, length-bounded), each
+  load-bearing claim carrying its back-pointer, with the load-bearing "killer
+  items" foregrounded.
+- **Done when:** the one-pager renders a real bundle as bounded narrative prose
+  in which every claim resolves to a source element and the killer items are
+  visually distinct from routine content.
+- **Dependencies:** 3
+- **Citations:** D-2 · REQ-C1.2
+- **Estimated effort:** 1 day
 
 ### Task 5 — Teach-back challenge
 
