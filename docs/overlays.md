@@ -72,7 +72,7 @@ There is **no single overlay-root directory**. Each of the three overlayable
 obeying the precedence order above (D-2, D-4). `<repo>` is the repository root;
 `<adopter-root>` is the resolved adopter overlay root from §1.
 
-### Config values — `config-get.sh`
+### Config values — `scripts/config-get.sh`
 
 | Layer | Location |
 | --- | --- |
@@ -85,7 +85,7 @@ Every option is listed in the [options reference](options-reference.md); an
 undocumented option fails planwright's own CI. Set an option in any layer with
 a flat `key: value` line.
 
-### Doctrine / process docs — `resolve-rule-doc.sh`
+### Doctrine / process docs — `scripts/resolve-rule-doc.sh`
 
 | Layer | Location |
 | --- | --- |
@@ -98,7 +98,7 @@ The repo-side pair shares `<repo>/.claude/` and is distinguished by the
 `doctrine.local/` versus `doctrine/` subdirectory, mirroring the
 `planwright.local.yml` / `planwright.yml` config split.
 
-### Data catalogs — `resolve-catalog.sh`
+### Data catalogs — `scripts/resolve-catalog.sh`
 
 | Layer | Location |
 | --- | --- |
@@ -154,7 +154,7 @@ loudly instead.
 A small set of core governance/security docs is **protected** (D-11):
 `spec-format`, `security-posture`, `validation-rigor`, `discovery-rigor`,
 `finding-categorization`, and `gate-wiring`. You *may* shadow one with a
-doctrine overlay — you own your fork — but `resolve-rule-doc.sh` emits a loud
+doctrine overlay — you own your fork — but `scripts/resolve-rule-doc.sh` emits a loud
 stderr warning naming the doc and the risk when you do. Shadowing a
 non-protected doc is silent. The warning exists because silently replacing a
 framework-guarantee doc (the meta-spec, the security posture, the rigor gates)
