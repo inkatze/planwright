@@ -202,6 +202,23 @@ run >/dev/null 2>&1 || rc=$?
   || fail "structurally malformed repo-tracked file: exit $rc, expected 4 (propagated hard-fail)"
 echo "ok: a structurally malformed repo-tracked config file hard-fails (exit 4 propagated)"
 
+# 6b. Documented degrade target — the CORE DEFAULT, not a strict per-layer
+#     cascade. When the winning (highest) layer's value is malformed and a LOWER
+#     overlay layer holds a *valid* value, the resolver still degrades to the
+#     core default (config-get exposes only the merged winning value, not
+#     per-layer values; the core default is the always-valid, behavior-preserving
+#     base). This locks the limitation the script header documents so a future
+#     change cannot silently alter it without updating the doc and this test.
+reset_layers
+printf 'review_sequence: [self-review]\n' >"$adopter_cfg"          # valid, lower layer
+printf 'review_sequence: [polish, no-such-skill]\n' >"$mlocal_cfg" # malformed, winning layer
+rc=0
+out=$(run 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "degrade-to-core (valid lower layer): exit $rc, expected 0"
+[ "$out" = polish ] \
+  || fail "degrade target was not the core default (got '$out'; the documented behavior is core, not the valid adopter '[self-review]')"
+echo "ok: a malformed winning layer degrades to the core default (documented, not strict next-lower)"
+
 # 7. A malformed adopter FILE (block sequence) degrades to the core default
 #    (config-get degrades adopter; the resolver still yields a usable gauntlet).
 reset_layers
