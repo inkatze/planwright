@@ -185,10 +185,11 @@ Three customization mechanisms exist, all of which avoid editing core:
   config layers (above) layer on top — set a personal default across all your
   repos in `<adopter-root>/planwright.yml`, a repo-shared override in
   `<repo>/.claude/planwright.yml`, or a machine-local one in
-  `<repo>/.claude/planwright.local.yml` (gitignored, agent-maintained; entries
-  are written only on your confirmation). Every option is documented in the
-  [options reference](options-reference.md); an undocumented option fails
-  planwright's own CI. This covers thresholds and commit/dispatch toggles.
+  `<repo>/.claude/planwright.local.yml` (gitignored where your `.gitignore`
+  covers it, agent-maintained; entries are written only on your confirmation).
+  Every option is documented in the [options reference](options-reference.md); an
+  undocumented option fails planwright's own CI. This covers thresholds and
+  commit/dispatch toggles.
 - **Project tooling discovery.** planwright's SessionStart hook detects your
   project's linters, formatters, and type-checkers and feeds them into
   Discovery Rigor and the builder, so your stack's tools ground reviews without

@@ -211,11 +211,13 @@ one. The rule is the same for every layer: **secrets never go in overlays.**
 ### Keep your machine-local overlays actually uncommitted
 
 The machine-local layer is only uncommitted if your repo's `.gitignore` says so.
-planwright's own denylist ignores the machine-local **config** file by pattern
-(`.claude/*.local.yml`, `.claude/*.local.json`), but that pattern matches files,
-**not directories**. If you place machine-local **doctrine** or **catalog**
-overlays (`.claude/doctrine.local/`, `.claude/catalogs.local/`), add those
-directories to your repo's `.gitignore` yourself:
+planwright's own repo ignores both the machine-local **config** files
+(`.claude/*.local.yml`, `.claude/*.local.json`) and the machine-local **doctrine**
+and **catalog** overlay directories (`.claude/*.local/`, which covers
+`.claude/doctrine.local/` and `.claude/catalogs.local/`). But a repo that adopts
+planwright as a plugin does not inherit those ignore rules, so if you place
+machine-local doctrine or catalog overlays, add those directories to your repo's
+`.gitignore` yourself:
 
 ```gitignore
 .claude/doctrine.local/
