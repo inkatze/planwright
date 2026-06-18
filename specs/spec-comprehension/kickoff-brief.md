@@ -573,6 +573,79 @@ the accepted decisions (no decision-domains escalation):
   scope/stage task's job, recorded so the current whole-bundle behavior is not
   mistaken for a gap.
 
+### Task 8 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 8 (the decision-map view, `scripts/spec-decisionmap.sh`, plus
+its wiring into the `scripts/spec-assemble.sh` artifact section) consumes
+untrusted input (the translate record stream, which carries bundle content) and
+re-serializes a subset of it into a tagged tab-separated stream the assembly
+layer renders into HTML — the `security-posture` write-time untrusted-input and
+serialization trigger classes. Light pass: the in-repo canonical posture, not a
+new pattern. No new dependency (the portability envelope is unchanged: `/bin/sh`
++ `awk`, the REQ-K1.5 floor); no new research trigger beyond the ADR /
+decision-record evidence base already recorded under D-2 / the cross-audience
+ADR sources in §2 (Nygard ADRs).
+
+**Sources consulted.** `scripts/spec-onepager.sh` (the sibling view pattern this
+layer mirrors — pass-through substrate, frame-plus-records, the sibling-script
+`<spec-dir>` resolution, and the `printf '%s'` empty-in/empty-out discipline),
+`scripts/spec-translate.sh` (the upstream TEXT/`decision-*` record vocabulary
+the four beats read and the `clean()`/C-locale record hygiene it inherits),
+`scripts/spec-assemble.sh` (the centralized `esc()` output-encoding boundary the
+new section reuses), the `security-posture` doctrine doc, and REQ-C1.4 /
+REQ-C1.1 / REQ-D1.1 / REQ-D1.3 / REQ-E1.7.
+
+**Pass applied (no new risk surfaced).** The view treats all input as data: no
+`eval`, and no shell or path is constructed from record *content* — the only
+path it touches is its own sibling `spec-translate.sh`, resolved from the
+script's own directory (`dirname "$0"`), with the spec-directory argument flowing
+through to the upstream chain unchanged (the identifier-charset and
+path-containment gate stays the command scaffold's job, REQ-A1.6). In
+`<spec-dir>` mode the upstream exit code is captured and propagated so an
+absent/unreadable bundle fails closed (exit 2), never a silent empty render. The
+DECMAP/DECMAPFRAME stream stays tab-clean: the plain and source columns are
+carried verbatim from the upstream TEXT records, which the model already folded
+control bytes (including the delimiter) to spaces under the pinned C locale; this
+layer introduces no new tabs or newlines (the test asserts every DECMAP record
+has exactly six fields and the frame four). The view does **not** HTML/SVG-escape
+its text: that is the assembly layer's job (REQ-E1.7), and the new decision-map
+section in `spec-assemble.sh` routes every bundle-derived beat field through the
+same centralized `esc()` (`&` first, then `< > " '`) the one-pager and teach-back
+sections use, verified by the existing markup-bearing assembly fixture now
+exercising the decision content (`<b>bold</b>` renders as `&lt;b&gt;bold&lt;/b&gt;`,
+never live). The independence firewall is structural: the four-beat shape
+presents the bundle's own Context/Decision/Alternative/Consequence content and
+has no column where a verdict, score, or "right answer" could live (REQ-D1.1).
+The default plain column carries the translation layer's audience-neutral
+rendering (internal vocabulary scrubbed, REQ-C1.1), with the verbatim source and
+the decision identifier as the reveal seam (REQ-D1.3, in `.rv` elements the CSS
+hides by default). Read-only: the view writes nothing but its stdout stream
+(REQ-A1.3).
+
+**Declared scoping (`proportionality`).** Two within-task scoping calls, both
+low-stake and reversible, recorded rather than escalated, and consistent with the
+accepted decisions (no decision-domains escalation):
+
+- *Four-beat sourcing (REQ-C1.4).* The four beats map onto the three-field D-ID
+  substrate (Decision / Alternatives considered / Chosen because) plus the
+  decision's framing exactly as the brief's REQ-C1.4 four-beat sourcing
+  resolution (§3) directs: **Context** is presented as the decision's framing
+  (its title), **Alternative-rejected** is the Alternatives-considered field
+  (which carries both the rejected option and its "Rejected because" cost
+  verbatim, satisfying "surface the rejected alternative and the cost"), and
+  **Consequence** is the Chosen-because field. This proceeds *citing* the §3
+  decision, not auto-defaulting; the four-beat is a presentation mapping over the
+  substrate, no spec edit.
+- *Field degradation (REQ-A1.5 posture).* A decision missing a source field still
+  emits the full four-beat shape with that beat's columns empty (rendered as a
+  muted "(not stated)" placeholder in the artifact), so the shape is preserved
+  and the gap is visible rather than a silently dropped beat. All decisions in
+  the three real bundles (bootstrap, customization-overlay, spec-comprehension)
+  carry all three fields, so this path is exercised only by a fixture; recorded
+  so the degradation behavior is not mistaken for a gap.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)
