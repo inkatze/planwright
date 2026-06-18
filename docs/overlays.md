@@ -191,9 +191,9 @@ merged entry.
 > **Warning.** planwright's secret scanner (`gitleaks`) scans **committed
 > files only** (`mise run scan:secrets` runs `gitleaks detect` over the git
 > history). Your **adopter** overlay lives outside any repo, and your
-> **machine-local** overlay is gitignored. **Neither is ever seen by the
-> scanner.** A secret you drop into either one will not be caught by any
-> automated guard.
+> **machine-local** overlay is meant to stay uncommitted (gitignored — but see
+> the caveat below). When they are uncommitted, **the scanner never sees
+> them**, so a secret you drop into either one is caught by no automated guard.
 
 The **only** guard for those two uncommitted layers is the artifact
 data-hygiene rule (see [`security-posture`](../doctrine/security-posture.md)),
