@@ -33,7 +33,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 6 — `review_sequence` config knob
 
-- **Status:** implementing
+- **Status:** PR #47 draft
 - **Last activity:** 2026-06-17
 - **Deliverables:** The `review_sequence` config option (an ordered list of
   nestable review-skill names) with a default reproducing today's convergence
