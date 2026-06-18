@@ -85,25 +85,29 @@ for t in "${sc_tests[@]}"; do
 done
 
 # 3. Extract the [test]-tagged REQ ids from test-spec.md. A heading is a [test]
-#    path when its line carries the substring "[test" ([test], [test + manual],
-#    [test + design-level]); [manual]/[design-level]-only paths are excluded.
-test_reqs="$(awk '/^### REQ-/ { if (index($0, "[test") > 0) print $2 }' "$TEST_SPEC")"
+#    path when its tag is exactly "[test]" or a "[test + ...]" compound
+#    ([test + manual], [test + design-level]); the precise forms reject a
+#    near-miss label like [testing] that a bare "[test" substring would catch.
+#    [manual]/[design-level]/[Gherkin]-only paths carry no [test] tag and are
+#    excluded.
+test_reqs="$(awk '/^### REQ-/ { if ($0 ~ /\[test\]/ || $0 ~ /\[test \+/) print $2 }' "$TEST_SPEC")"
 
 if [ -z "$test_reqs" ]; then
   fail "no [test]-tagged REQ found in test-spec.md (parse error or empty spec?)"
 fi
 
 # 4. Each [test] REQ must be labelled in at least one coverage source. The id is
-#    matched with its literal dots and a trailing non-digit boundary so REQ-F1.3
-#    cannot be satisfied by a hypothetical REQ-F1.30 substring; the boundary
-#    stays within the portable BSD-grep floor (no \b word boundary).
+#    matched with its literal dots and a trailing boundary that excludes both a
+#    digit and a dot, so REQ-F1.3 is satisfied by neither a longer id
+#    (REQ-F1.30) nor a sub-id (a hypothetical REQ-F1.3.0); the boundary stays
+#    within the portable BSD-grep floor (no \b word boundary).
 n_reqs=0
 while IFS= read -r req; do
   [ -n "$req" ] || continue
   n_reqs=$((n_reqs + 1))
   esc="$(printf '%s' "$req" | sed 's/[.]/\\./g')"
   if [ "${#present_tests[@]}" -gt 0 ] \
-    && grep -Eq -- "${esc}([^0-9]|\$)" "${present_tests[@]}" 2>/dev/null; then
+    && grep -Eq -- "${esc}([^0-9.]|\$)" "${present_tests[@]}" 2>/dev/null; then
     ok "$req covered"
   else
     fail "$req has a [test] path in test-spec.md but no spec-comprehension test labels it"
