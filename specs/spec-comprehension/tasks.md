@@ -103,28 +103,6 @@ view tasks they cover.
 - **Citations:** D-2 · REQ-C1.4
 - **Estimated effort:** 1 day
 
-### Task 6 — HTML assembly and styling
-
-- **Status:** PR #51 draft
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t6` · worktree `.claude/worktrees/planwright+spec-comprehension+task-6` · branch `planwright/spec-comprehension/task-6`
-- **Deliverables:** assembly of the rendered views into one self-contained HTML
-  artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
-  inlined and the MIT notice included; the reveal toggle; the silent-read-first
-  ordering; the gitignored `.claude/walkthroughs/<spec>/` location with a
-  `.gitignore` entry; the bundle-and-commit provenance stamp; HTML/SVG-escaping
-  (or sanitization) of all rendered bundle content so no bundle text can inject
-  executable or structural markup into the artifact.
-- **Done when:** running the command produces one HTML file that opens offline
-  in a browser with no installed dependency, defaults to the no-identifier view
-  with a working reveal toggle, presents the full read before any prompt, is
-  gitignored, is stamped with the bundle and commit, and escapes/sanitizes all
-  rendered bundle content (markup in bundle text displays as literal, never
-  executes).
-- **Dependencies:** 4, 5
-- **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
-- **Estimated effort:** 2 days
-
 ## Awaiting input
 
 (none yet)
@@ -203,6 +181,26 @@ view tasks they cover.
 - **Dependencies:** 3
 - **Citations:** D-3, D-9 · REQ-C1.5, REQ-D1.1, REQ-D1.4
 - **Estimated effort:** 1.5 days
+
+### Task 6 — HTML assembly and styling
+
+- **Status:** Completed — merged via PR #51 (merge commit `e3d62f7`) on 2026-06-18
+- **Deliverables:** assembly of the rendered views into one self-contained HTML
+  artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
+  inlined and the MIT notice included; the reveal toggle; the silent-read-first
+  ordering; the gitignored `.claude/walkthroughs/<spec>/` location with a
+  `.gitignore` entry; the bundle-and-commit provenance stamp; HTML/SVG-escaping
+  (or sanitization) of all rendered bundle content so no bundle text can inject
+  executable or structural markup into the artifact.
+- **Done when:** running the command produces one HTML file that opens offline
+  in a browser with no installed dependency, defaults to the no-identifier view
+  with a working reveal toggle, presents the full read before any prompt, is
+  gitignored, is stamped with the bundle and commit, and escapes/sanitizes all
+  rendered bundle content (markup in bundle text displays as literal, never
+  executes).
+- **Dependencies:** 4, 5
+- **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
+- **Estimated effort:** 2 days
 
 ## Deferred
 
