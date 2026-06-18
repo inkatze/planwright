@@ -34,7 +34,7 @@ order, lowest to highest (D-1, REQ-A1.1):
 | **core** | planwright | the shipped defaults | tracked in planwright |
 | **adopter** | you, the operator | all your repos | per-operator, outside any repo |
 | **repo-tracked** | the team | one repo, everyone on it | committed to the repo |
-| **machine-local** | you, on one machine | one repo, one machine | gitignored |
+| **machine-local** | you, on one machine | one repo, one machine | gitignored (see §6) |
 
 A higher layer overrides a lower layer for the same setting. **An absent layer
 degrades to the next lower one; it is never an error** (REQ-A1.4) — you only
@@ -206,6 +206,24 @@ The `repo-tracked` overlay (`<repo>/.claude/planwright.yml`,
 `<repo>/.claude/doctrine/`, `<repo>/.claude/catalogs/`) *is* committed, so
 `gitleaks` does cover it — but a committed secret is the worst place to put
 one. The rule is the same for every layer: **secrets never go in overlays.**
+
+### Keep your machine-local overlays actually uncommitted
+
+The machine-local layer is only uncommitted if your repo's `.gitignore` says so.
+planwright's own denylist ignores the machine-local **config** file by pattern
+(`.claude/*.local.yml`, `.claude/*.local.json`), but that pattern matches files,
+**not directories**. If you place machine-local **doctrine** or **catalog**
+overlays (`.claude/doctrine.local/`, `.claude/catalogs.local/`), add those
+directories to your repo's `.gitignore` yourself:
+
+```gitignore
+.claude/doctrine.local/
+.claude/catalogs.local/
+```
+
+Otherwise those "machine-local" overlays get committed — sharing a per-machine
+file you meant to keep private and dropping it into the very git history the
+data-hygiene rule is there to keep clean.
 
 ## 7. Worked example A — dispatch-isolation (the illustrative core-capability shape)
 
