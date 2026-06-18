@@ -77,6 +77,19 @@ usage() {
   exit 2
 }
 
+# sanitize_echo <string> — strip control characters before echoing untrusted
+# content (the spec-validate echo discipline, REQ-H1.3: a hostile value must not
+# reach the terminal raw, where escape sequences could manipulate it), with a
+# placeholder when nothing printable remains. spec-assemble.sh is callable
+# directly, bypassing the scaffold's charset gate, so the selector is sanitized
+# here too (matching the sibling spec-walkthrough.sh). Display only; the
+# classification logic below still matches on the raw $scope.
+sanitize_echo() {
+  se=$(printf '%s' "$1" | tr -d '\000-\037\177')
+  [ -n "$se" ] || se="(unprintable)"
+  printf '%s' "$se"
+}
+
 # Parse the optional --scope selector (Task 9; REQ-B1.1, REQ-B1.2) and the
 # positional spec directory. The whole-bundle default renders every view; a
 # partial selector renders only the sections in its scope. The scaffold
@@ -118,6 +131,9 @@ show_gr=0
 show_tb=0
 show_blast=0
 show_verify=0
+# A control-character-stripped copy of the selector for the error messages below
+# (echo discipline); the case still matches on the raw $scope.
+scope_safe=$(sanitize_echo "$scope")
 case ${scope:-whole} in
   whole | "")
     scope=whole
@@ -150,7 +166,7 @@ case ${scope:-whole} in
         show_verify=1
         ;;
       *)
-        echo "spec-assemble: scope '$scope' names no source file" >&2
+        echo "spec-assemble: scope '$scope_safe' names no source file" >&2
         exit 2
         ;;
     esac
@@ -159,7 +175,7 @@ case ${scope:-whole} in
     rgroup=${scope#reqs:}
     case $rgroup in
       "" | *[!A-Z]*)
-        echo "spec-assemble: scope '$scope' is not a requirement group" >&2
+        echo "spec-assemble: scope '$scope_safe' is not a requirement group" >&2
         exit 2
         ;;
     esac
@@ -182,7 +198,7 @@ case ${scope:-whole} in
     dnum=${dnum#d-}
     case $dnum in
       "" | *[!0-9]*)
-        echo "spec-assemble: scope '$scope' is not a decision id" >&2
+        echo "spec-assemble: scope '$scope_safe' is not a decision id" >&2
         exit 2
         ;;
     esac
@@ -192,7 +208,7 @@ case ${scope:-whole} in
     show_blast=1
     ;;
   *)
-    echo "spec-assemble: unknown scope '$scope'" >&2
+    echo "spec-assemble: unknown scope '$scope_safe'" >&2
     exit 2
     ;;
 esac
@@ -246,8 +262,14 @@ if [ "$scope" = whole ]; then
   [ "$show_op" -eq 1 ] && onepager_stream=$("$onepager_sh" "$spec_dir")
   [ "$show_dm" -eq 1 ] && decisionmap_stream=$("$decisionmap_sh" "$spec_dir")
   [ "$show_tb" -eq 1 ] && teachback_stream=$("$teachback_sh" "$spec_dir")
-else
+elif [ "$show_op" -eq 1 ] || [ "$show_dm" -eq 1 ] || [ "$show_tb" -eq 1 ] \
+  || [ "$show_blast" -eq 1 ] || [ "$show_verify" -eq 1 ]; then
   # Filter then translate once; the text views share the scoped translate stream.
+  # Only run the scope + translate chain when a view actually consumes it: a
+  # graph-only scope (tasks, file:tasks) renders from the on-disk bundle below
+  # and needs neither, so it must not do the work nor inherit a failure from a
+  # stream it never reads (the blast and verification views at the awk step below
+  # also read scoped_translate, hence their flags here).
   # Capture the filter and the translate as separate command substitutions so a
   # mid-pipeline failure fails closed: a single `model | scope | translate`
   # substitution yields only translate's exit status (/bin/sh has no portable

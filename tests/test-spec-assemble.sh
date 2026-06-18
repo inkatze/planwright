@@ -688,8 +688,14 @@ draft_only=$(printf '%s\n' "$draft_frame" | grep 'class="stage-framing"' | head 
 active_only=$(printf '%s\n' "$active_frame" | grep 'class="stage-framing"' | head -1)
 [ -n "$draft_only" ] || fail "no stage-framing line in the Draft artifact"
 [ -n "$active_only" ] || fail "no stage-framing line in the Active artifact"
-[ "$draft_only" != "$active_only" ] \
-  || fail "stage framing did not change between Draft and Active (it must adapt to status)"
+# Compare the framing *prose*, not the data-stage attribute. data-stage already
+# differs by status (asserted above), so comparing the whole <p> line would pass
+# even if the prose were a single constant string. Strip data-stage="..." first
+# so this assertion actually proves the framing prose adapts to the status.
+draft_prose=$(printf '%s' "$draft_only" | sed 's/ data-stage="[^"]*"//')
+active_prose=$(printf '%s' "$active_only" | sed 's/ data-stage="[^"]*"//')
+[ "$draft_prose" != "$active_prose" ] \
+  || fail "stage framing prose did not change between Draft and Active (it must adapt to status)"
 
 # ---------------------------------------------------------------------------
 # 18. Scope selection (Task 9; REQ-B1.1, REQ-B1.2): each partial selector
@@ -810,6 +816,56 @@ lacks '<script>boom'
 # A blast-radius render is still injection-safe: no live script survives.
 [ "$(count_substr '<script')" -eq 0 ] \
   || fail "blast-radius view introduced a live <script> (a bundle label must be escaped)"
+
+# ---------------------------------------------------------------------------
+# 19b. A graph-only scope (tasks, file:tasks) renders from the on-disk bundle and
+#      must not run — nor inherit a failure from — the scope+translate chain that
+#      only the text views consume (Copilot review, PR #63). With the translate
+#      sibling broken, a graph-only render still succeeds; a translate-dependent
+#      scope still fails closed, proving the broken sibling actually bites.
+# ---------------------------------------------------------------------------
+gtmp="$tmp/gtrans"
+mkdir -p "$gtmp"
+cp "$here/../scripts/"*.sh "$gtmp/"
+cat >"$gtmp/spec-translate.sh" <<'EOF'
+#!/bin/sh
+echo "spec-translate: forced failure for the test" >&2
+exit 3
+EOF
+chmod +x "$gtmp/"*.sh
+for goscope in tasks file:tasks; do
+  rc=0
+  gout=$("$gtmp/spec-assemble.sh" --scope "$goscope" "$specs/demo" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] \
+    || fail "graph-only scope ($goscope) must not depend on translate; failed rc=$rc: $gout"
+  case $gout in
+    *'data-section="graph"'*) ;;
+    *) fail "graph-only scope ($goscope) with broken translate did not render the graph" ;;
+  esac
+done
+rc=0
+dout=$("$gtmp/spec-assemble.sh" --scope decisions "$specs/demo" 2>&1) || rc=$?
+[ "$rc" -ne 0 ] \
+  || fail "a translate-dependent scope (decisions) must fail closed when translate is broken: $dout"
+
+# ---------------------------------------------------------------------------
+# 19c. Echo discipline (REQ-H1.3): spec-assemble.sh is callable directly, bypassing
+#      the scaffold's charset gate, so a hostile --scope carrying control characters
+#      is stripped before being echoed to stderr (Copilot review, PR #63; matches
+#      the sibling spec-walkthrough.sh / spec-validate.sh). Each selector lands on a
+#      different malformed-selector error branch (unknown, no-such-file, bad reqs
+#      group, bad decision id); none may echo the raw control byte.
+# ---------------------------------------------------------------------------
+esc=$(printf '\033')
+for hostile in "${esc}[31mbogus" "file:${esc}nope" "reqs:${esc}x" "decision:${esc}9"; do
+  rc=0
+  hout=$("$script" --scope "$hostile" "$specs/demo" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] \
+    || fail "hostile scope must fail closed (exit 2), got $rc"
+  case $hout in
+    *"$esc"*) fail "raw control character reached stderr (echo discipline violated)" ;;
+  esac
+done
 
 # ---------------------------------------------------------------------------
 # 20. Scope is forwarded through the command scaffold (spec-walkthrough.sh): a
