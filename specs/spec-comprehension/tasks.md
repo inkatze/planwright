@@ -19,21 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 7 — Dependency-graph and critical-path view
-
-- **Deliverables:** the drawn dependency-graph view as inline SVG with the
-  critical path and parallelism visible and plain labels, reusing
-  `scripts/orchestrate-select.sh`'s critical-path computation; the optional
-  Graphviz enhancement via runtime probe with clean degradation and an
-  in-artifact note; the diagram integrated with its explaining text.
-- **Done when:** the graph renders as inline SVG (not ASCII) with the critical
-  path highlighted, matches the reused critical-path computation, renders the
-  same offline whether or not Graphviz is present, and sits adjacent to its
-  explaining text.
-- **Dependencies:** 2, 6
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
-- **Estimated effort:** 2 days
-
 ### Task 9 — Scope selection and stage-aware framing
 
 - **Deliverables:** the whole-bundle default plus partial selectors (one file,
@@ -88,20 +73,23 @@ view tasks they cover.
 
 ## In progress
 
-### Task 8 — Decision-map view
+### Task 7 — Dependency-graph and critical-path view
 
-- **Status:** PR #55 draft
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-17 · worktree `.claude/worktrees/planwright+spec-comprehension+task-8` · branch `planwright/spec-comprehension/task-8`
-- **Deliverables:** the ADR-shaped decision-map view rendering each decision as
-  Context → Decision → Alternative-rejected → Consequence in plain language,
-  surfacing the rejected alternative and the cost.
-- **Done when:** every decision in a real bundle renders in the four-beat shape
-  with the rejected alternative and consequence present, in plain language by
-  default.
-- **Dependencies:** 3, 6
-- **Citations:** D-2 · REQ-C1.4
-- **Estimated effort:** 1 day
+- **Status:** PR #56 draft
+- **Last activity:** 2026-06-18
+- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t7` · worktree `.claude/worktrees/planwright+spec-comprehension+task-7` · branch `planwright/spec-comprehension/task-7`
+- **Deliverables:** the drawn dependency-graph view as inline SVG with the
+  critical path and parallelism visible and plain labels, reusing
+  `scripts/orchestrate-select.sh`'s critical-path computation; the optional
+  Graphviz enhancement via runtime probe with clean degradation and an
+  in-artifact note; the diagram integrated with its explaining text.
+- **Done when:** the graph renders as inline SVG (not ASCII) with the critical
+  path highlighted, matches the reused critical-path computation, renders the
+  same offline whether or not Graphviz is present, and sits adjacent to its
+  explaining text.
+- **Dependencies:** 2, 6
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
+- **Estimated effort:** 2 days
 
 ## Awaiting input
 
@@ -201,6 +189,19 @@ view tasks they cover.
 - **Dependencies:** 4, 5
 - **Citations:** D-3, D-4, D-7, D-8 · REQ-C1.6, REQ-D1.2, REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7
 - **Estimated effort:** 2 days
+
+### Task 8 — Decision-map view
+
+- **Status:** Completed — merged via PR #55 (merge commit `d4186d9`) on 2026-06-18
+- **Deliverables:** the ADR-shaped decision-map view rendering each decision as
+  Context → Decision → Alternative-rejected → Consequence in plain language,
+  surfacing the rejected alternative and the cost.
+- **Done when:** every decision in a real bundle renders in the four-beat shape
+  with the rejected alternative and consequence present, in plain language by
+  default.
+- **Dependencies:** 3, 6
+- **Citations:** D-2 · REQ-C1.4
+- **Estimated effort:** 1 day
 
 ## Deferred
 
