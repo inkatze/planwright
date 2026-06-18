@@ -35,7 +35,7 @@ view tasks they cover.
 
 ### Task 11 — Tests and test-spec coverage
 
-- **Status:** implementing
+- **Status:** PR #67 draft
 - **Last activity:** 2026-06-18
 - **Dispatch:** tmux · 2026-06-18 · worktree `.claude/worktrees/planwright+spec-comprehension+task-11` · branch `planwright/spec-comprehension/task-11`
 - **Deliverables:** automated fixtures across the views (model, translation,
