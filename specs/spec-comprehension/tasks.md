@@ -34,18 +34,6 @@ view tasks they cover.
 - **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
 - **Estimated effort:** 2 days
 
-### Task 8 — Decision-map view
-
-- **Deliverables:** the ADR-shaped decision-map view rendering each decision as
-  Context → Decision → Alternative-rejected → Consequence in plain language,
-  surfacing the rejected alternative and the cost.
-- **Done when:** every decision in a real bundle renders in the four-beat shape
-  with the rejected alternative and consequence present, in plain language by
-  default.
-- **Dependencies:** 3, 6
-- **Citations:** D-2 · REQ-C1.4
-- **Estimated effort:** 1 day
-
 ### Task 9 — Scope selection and stage-aware framing
 
 - **Deliverables:** the whole-bundle default plus partial selectors (one file,
@@ -99,6 +87,21 @@ view tasks they cover.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 8 — Decision-map view
+
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Dispatch:** tmux · 2026-06-17 · worktree `.claude/worktrees/planwright+spec-comprehension+task-8` · branch `planwright/spec-comprehension/task-8`
+- **Deliverables:** the ADR-shaped decision-map view rendering each decision as
+  Context → Decision → Alternative-rejected → Consequence in plain language,
+  surfacing the rejected alternative and the cost.
+- **Done when:** every decision in a real bundle renders in the four-beat shape
+  with the rejected alternative and consequence present, in plain language by
+  default.
+- **Dependencies:** 3, 6
+- **Citations:** D-2 · REQ-C1.4
+- **Estimated effort:** 1 day
 
 ### Task 6 — HTML assembly and styling
 
