@@ -183,7 +183,8 @@ Three customization mechanisms exist, all of which avoid editing core:
 - **Config overrides.** Universal defaults live in
   [`config/defaults.yml`](../config/defaults.yml); the overlay mechanism's
   config layers (above) layer on top — set a personal default across all your
-  repos in `<adopter-root>/planwright.yml`, a repo-shared override in
+  repos in `<adopter-root>/planwright.yml` (the adopter overlay root, defined in
+  [overlays.md §1](overlays.md#1-the-four-layers)), a repo-shared override in
   `<repo>/.claude/planwright.yml`, or a machine-local one in
   `<repo>/.claude/planwright.local.yml` (gitignored where your `.gitignore`
   covers it, agent-maintained; entries are written only on your confirmation).

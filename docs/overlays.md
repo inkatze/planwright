@@ -138,9 +138,15 @@ radius (D-7, REQ-E1.4):
 
 | Layer | A malformed overlay there … |
 | --- | --- |
-| **adopter** | degrades to the next lower layer with a **loud stderr warning**, exit 0 |
-| **machine-local** | degrades to the next lower layer with a **loud stderr warning**, exit 0 |
+| **adopter** | degrades to the next lower layer with a **loud stderr warning** |
+| **machine-local** | degrades to the next lower layer with a **loud stderr warning** |
 | **repo-tracked** | **hard-fails** with a nonzero exit |
+
+Degrading never aborts the run, but it does not force a zero exit either: the
+resolver carries on from the lower layers and returns its **normal** resolution
+status. A key or doc still absent in every remaining layer exits with the usual
+not-found code (`scripts/config-get.sh` exits 3, `scripts/resolve-rule-doc.sh`
+exits 1), independent of the degraded overlay.
 
 The asymmetry is deliberate. One operator's broken personal or machine-local
 file should never block their run — a warning is proportionate, the blast
