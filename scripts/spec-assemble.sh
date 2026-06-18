@@ -55,9 +55,10 @@
 #
 # Exit codes:
 #   0  the HTML artifact was emitted.
-#   2  usage or environment error: no argument, a sibling view script could not
-#      be found, or the upstream chain failed (e.g. an absent/unreadable spec
-#      directory — fail closed, propagated from the view scripts).
+#   2  usage or environment error: no argument, a malformed --scope selector, a
+#      sibling view script could not be found, or the upstream chain failed
+#      (e.g. an absent/unreadable spec directory — fail closed, propagated from
+#      the model/view scripts).
 #
 # Portable: /bin/sh + awk as shipped on macOS (bash 3.2, BSD userland) and Linux
 # (the REQ-K1.5 envelope). No gawk-only constructs, no eval; bundle content is
@@ -833,7 +834,13 @@ scope_label_e=$(esc_val "$scope_label")
   printf '<p class="stage-framing" data-stage="%s">%s</p>\n' "$status_e" "$stage_text_e"
   printf '<p class="scope-label" data-scope="%s">Showing: %s.</p>\n' "$scope_e" "$scope_label_e"
   printf '%s\n' '<label for="reveal-toggle" class="reveal-label">Reveal identifiers</label>'
-  printf '%s\n' '<p class="read-hint">Read the whole walkthrough first; the teach-back prompt follows it.</p>'
+  # The read-first hint only promises a teach-back when one is actually rendered
+  # (a partial scope may carry no teach-back); otherwise it just frames the read.
+  if [ "$show_tb" -eq 1 ]; then
+    printf '%s\n' '<p class="read-hint">Read the whole walkthrough first; the teach-back prompt follows it.</p>'
+  else
+    printf '%s\n' '<p class="read-hint">Read the whole walkthrough first.</p>'
+  fi
   printf '%s\n' '</header>'
   [ -n "$onepager_html" ] && printf '%s\n' "$onepager_html"
   [ -n "$decisionmap_html" ] && printf '%s\n' "$decisionmap_html"
