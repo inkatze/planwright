@@ -10,24 +10,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
-### Task 6 — `review_sequence` config knob
-
-- **Deliverables:** The `review_sequence` config option (an ordered list of
-  nestable review-skill names) with a default reproducing today's convergence
-  behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
-  convergence phase rewired to read it through the four-layer config resolution
-  and run the named review skills in order. Verification of the ordering
-  scenario.
-- **Done when:** `review_sequence` resolves through all four layers; the
-  default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
-  is honored in order by the convergence phase; an entry naming an unknown or
-  non-nestable review skill is handled as a malformed value under the REQ-E1.4
-  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
-  is verified.
-- **Dependencies:** 3
-- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
-- **Estimated effort:** 1 day
-
 ### Task 7 — Adopter docs & onboarding
 
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
@@ -48,6 +30,26 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 6 — `review_sequence` config knob
+
+- **Status:** implementing
+- **Last activity:** 2026-06-17
+- **Deliverables:** The `review_sequence` config option (an ordered list of
+  nestable review-skill names) with a default reproducing today's convergence
+  behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
+  convergence phase rewired to read it through the four-layer config resolution
+  and run the named review skills in order. Verification of the ordering
+  scenario.
+- **Done when:** `review_sequence` resolves through all four layers; the
+  default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
+  is honored in order by the convergence phase; an entry naming an unknown or
+  non-nestable review skill is handled as a malformed value under the REQ-E1.4
+  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
+  is verified.
+- **Dependencies:** 3
+- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
+- **Estimated effort:** 1 day
 
 ### Task 3 — Four-layer config resolution
 
