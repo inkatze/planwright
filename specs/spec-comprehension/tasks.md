@@ -19,21 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 11 — Tests and test-spec coverage
-
-- **Deliverables:** automated fixtures across the views (model, translation,
-  one-pager, teach-back, graph, decision-map, scope); an offline
-  self-containment check (the artifact opens with no network and no installed
-  dependency); a data-hygiene check; a content-escaping / injection-safety check
-  (a markup-bearing fixture renders escaped, never executable); CI wiring under
-  `mise run check`.
-- **Done when:** the fixtures run green in CI, the self-containment and
-  data-hygiene checks pass, and every REQ with a `[test]` path in `test-spec.md`
-  has an executing test.
-- **Dependencies:** 6, 7, 8, 9
-- **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-E1.7, REQ-C1.7, REQ-D1.1
-- **Estimated effort:** 2 days
-
 ### Task 12 — Docs and maintenance
 
 - **Deliverables:** command documentation (invocation, scope selectors, reveal
@@ -47,6 +32,24 @@ view tasks they cover.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 11 — Tests and test-spec coverage
+
+- **Status:** implementing
+- **Last activity:** 2026-06-18
+- **Dispatch:** tmux · 2026-06-18 · worktree `.claude/worktrees/planwright+spec-comprehension+task-11` · branch `planwright/spec-comprehension/task-11`
+- **Deliverables:** automated fixtures across the views (model, translation,
+  one-pager, teach-back, graph, decision-map, scope); an offline
+  self-containment check (the artifact opens with no network and no installed
+  dependency); a data-hygiene check; a content-escaping / injection-safety check
+  (a markup-bearing fixture renders escaped, never executable); CI wiring under
+  `mise run check`.
+- **Done when:** the fixtures run green in CI, the self-containment and
+  data-hygiene checks pass, and every REQ with a `[test]` path in `test-spec.md`
+  has an executing test.
+- **Dependencies:** 6, 7, 8, 9
+- **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-E1.7, REQ-C1.7, REQ-D1.1
+- **Estimated effort:** 2 days
 
 ### Task 9 — Scope selection and stage-aware framing
 
