@@ -92,14 +92,13 @@ binary is present it is used for a richer node layout (read-only, for
 coordinates only); when it is absent, exits non-zero, times out, or emits an
 unparseable layout, the view degrades identically to a built-in layout and
 records a one-line in-artifact note saying which path was taken (REQ-E1.3, D-5).
-`dot` is never on a path that can fail the render, so the artifact is
-byte-for-byte the same self-contained file whether or not Graphviz was installed
-when it was generated; only the layout differs. No installation is required —
-Graphviz is an enhancement, not a dependency. Two environment variables tune the
-probe: `SPEC_WALKTHROUGH_DOT` overrides the binary name (default `dot`; point it
-at a name that does not exist to force the built-in layout), and
-`SPEC_WALKTHROUGH_DOT_TIMEOUT` sets the watchdog seconds before a slow `dot` run
-is killed and the layout degrades.
+`dot` is never on a path that can fail the render, so the artifact is fully
+self-contained and offline either way; only the layout differs. No installation
+is required: Graphviz is an enhancement, not a dependency. Two environment
+variables tune the probe: `SPEC_WALKTHROUGH_DOT` overrides the binary name
+(default `dot`; point it at a name that does not exist to force the built-in
+layout), and `SPEC_WALKTHROUGH_DOT_TIMEOUT` sets the watchdog seconds before a
+slow `dot` run is killed and the layout degrades.
 
 ## Teach-back
 
@@ -152,8 +151,8 @@ After each run, compare these instructions against the doctrine and spec they
 implement: the `spec-format` and `security-posture` doctrine docs (the bundle
 file set and identifier discipline this command reads, and the data-hygiene rule
 for the artifact it writes) and REQ-F1.4 (the completion-time drift-observation
-contract). If a concept this skill names — the bundle file set, the identifier
-charset, the path-containment gate, or the artifact data-hygiene rule — has
+contract). If a concept this skill names (the bundle file set, the identifier
+charset, the path-containment gate, or the artifact data-hygiene rule) has
 changed meaning, gained or lost a step, or moved between docs, append a one-line
 drift observation to `specs/_observations/opportunities.md` in the standard
 format (`- <YYYY-MM-DD> [<repo>] skill-drift(spec-walkthrough): <what>`) and
