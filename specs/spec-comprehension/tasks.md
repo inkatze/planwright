@@ -50,7 +50,7 @@ view tasks they cover.
 
 ### Task 9 — Scope selection and stage-aware framing
 
-- **Status:** implementing
+- **Status:** PR #63 draft
 - **Last activity:** 2026-06-18
 - **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t9` · worktree `.claude/worktrees/planwright+spec-comprehension+task-9` · branch `planwright/spec-comprehension/task-9`
 - **Deliverables:** the whole-bundle default plus partial selectors (one file,
