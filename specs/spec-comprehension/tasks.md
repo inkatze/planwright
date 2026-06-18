@@ -19,19 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 9 — Scope selection and stage-aware framing
-
-- **Deliverables:** the whole-bundle default plus partial selectors (one file,
-  one requirement group, the decision set, the task graph, a single decision's
-  blast radius); status-auto-detected framing for Draft, Active, Done, and
-  terminal statuses.
-- **Done when:** each partial selector renders only its scope; a single
-  decision's view shows its blast radius; and the framing changes with the
-  bundle's status without the human specifying it.
-- **Dependencies:** 2, 6
-- **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
-- **Estimated effort:** 1.5 days
-
 ### Task 11 — Tests and test-spec coverage
 
 - **Deliverables:** automated fixtures across the views (model, translation,
@@ -61,10 +48,27 @@ view tasks they cover.
 
 ## In progress
 
+### Task 9 — Scope selection and stage-aware framing
+
+- **Status:** In progress — dispatched 2026-06-18 (no PR yet)
+- **Last activity:** 2026-06-18
+- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t9` · worktree `.claude/worktrees/planwright+spec-comprehension+task-9` · branch `planwright/spec-comprehension/task-9`
+- **Deliverables:** the whole-bundle default plus partial selectors (one file,
+  one requirement group, the decision set, the task graph, a single decision's
+  blast radius); status-auto-detected framing for Draft, Active, Done, and
+  terminal statuses.
+- **Done when:** each partial selector renders only its scope; a single
+  decision's view shows its blast radius; and the framing changes with the
+  bundle's status without the human specifying it.
+- **Dependencies:** 2, 6
+- **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
+- **Estimated effort:** 1.5 days
+
 ### Task 10 — Sibling discoverability touchpoints
 
-- **Status:** PR #61 draft
+- **Status:** In progress — dispatched 2026-06-18 (no PR yet)
 - **Last activity:** 2026-06-18
+- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t10` · worktree `.claude/worktrees/planwright+spec-comprehension+task-10` · branch `planwright/spec-comprehension/task-10`
 - **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
   `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
   `/spec-walkthrough` as an independent human step, none auto-invoking it.
@@ -74,24 +78,6 @@ view tasks they cover.
 - **Dependencies:** 6
 - **Citations:** D-11 · REQ-F1.1, REQ-F1.2
 - **Estimated effort:** half day
-
-### Task 7 — Dependency-graph and critical-path view
-
-- **Status:** PR #56 draft
-- **Last activity:** 2026-06-18
-- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t7` · worktree `.claude/worktrees/planwright+spec-comprehension+task-7` · branch `planwright/spec-comprehension/task-7`
-- **Deliverables:** the drawn dependency-graph view as inline SVG with the
-  critical path and parallelism visible and plain labels, reusing
-  `scripts/orchestrate-select.sh`'s critical-path computation; the optional
-  Graphviz enhancement via runtime probe with clean degradation and an
-  in-artifact note; the diagram integrated with its explaining text.
-- **Done when:** the graph renders as inline SVG (not ASCII) with the critical
-  path highlighted, matches the reused critical-path computation, renders the
-  same offline whether or not Graphviz is present, and sits adjacent to its
-  explaining text.
-- **Dependencies:** 2, 6
-- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
-- **Estimated effort:** 2 days
 
 ## Awaiting input
 
@@ -204,6 +190,22 @@ view tasks they cover.
 - **Dependencies:** 3, 6
 - **Citations:** D-2 · REQ-C1.4
 - **Estimated effort:** 1 day
+
+### Task 7 — Dependency-graph and critical-path view
+
+- **Status:** Completed — merged via PR #56 (merge commit `cf46a2b`) on 2026-06-18
+- **Deliverables:** the drawn dependency-graph view as inline SVG with the
+  critical path and parallelism visible and plain labels, reusing
+  `scripts/orchestrate-select.sh`'s critical-path computation; the optional
+  Graphviz enhancement via runtime probe with clean degradation and an
+  in-artifact note; the diagram integrated with its explaining text.
+- **Done when:** the graph renders as inline SVG (not ASCII) with the critical
+  path highlighted, matches the reused critical-path computation, renders the
+  same offline whether or not Graphviz is present, and sits adjacent to its
+  explaining text.
+- **Dependencies:** 2, 6
+- **Citations:** D-4, D-5, D-6 · REQ-C1.3, REQ-C1.6, REQ-E1.3
+- **Estimated effort:** 2 days
 
 ## Deferred
 
