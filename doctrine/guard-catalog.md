@@ -113,6 +113,45 @@ extensibility contract, REQ-G1.5):
   guard data live in project config, leaving planwright's shipped doctrine
   docs unedited (REQ-D2.2, REQ-I1.4).
 
+### Overlay merge contract (supersede-by-id)
+
+The guard catalog is one of the two growable catalogs the
+customization-overlay mechanism resolves through
+[`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) (REQ-B1.3, D-5);
+this is the merge contract bootstrap Task 16 consumes rather than re-deciding.
+When the builder reads the default catalog (no explicit
+`PLANWRIGHT_GUARD_CATALOG` / `--catalog` override),
+[`scripts/builder-guards.sh`](../scripts/builder-guards.sh) reads it through
+that resolver, which unions the shipped seed
+([`config/guard-catalog.yaml`](../config/guard-catalog.yaml)) with the adopter,
+repo-tracked, and machine-local overlay catalogs — `catalogs/guard-catalog.yaml`
+under the adopter and repo-tracked roots, `catalogs.local/guard-catalog.yaml`
+for the machine-local layer — lowest precedence to highest (D-4). The contract:
+
+- **Append/union.** An overlay entry whose `id` is new is added to the seed.
+- **Supersede-by-id.** To replace a seed (or lower-layer) entry, an overlay
+  entry carries the target `id` plus the marker `supersede: true`; it replaces
+  that entry in place, and the marker is stripped from the merged output. This
+  is the only way to override an existing entry — the merge is additive
+  otherwise.
+- **Supersede of a non-existent target** is an error handled under the
+  malformed-by-layer policy (D-7, REQ-E1.4): a repo-tracked (team-shared)
+  overlay **hard-fails** (nonzero exit), so a broken shared catalog never
+  silently mis-merges; an adopter or machine-local overlay warns and skips the
+  offending entry (degrade). A malformed overlay (unreadable, or present but
+  parsing to zero entries) follows the same split; an absent layer degrades
+  silently (REQ-A1.4).
+- **Path confinement.** Each present overlay file is canonicalized and
+  containment-checked under its layer root before any read (D-8, REQ-E1.5): an
+  overlay file that escapes its root — e.g. a repo-tracked catalog symlinked
+  outside `.claude/` — is malformed for its layer (the same by-layer split) and
+  is never read.
+- **Provenance.** `resolve-catalog.sh guard-catalog --explain` names the layer
+  that supplied each merged entry (D-9, REQ-B1.6).
+
+An explicit `PLANWRIGHT_GUARD_CATALOG` / `--catalog` override still wins and
+bypasses the merge: the catalog the operator names is used verbatim.
+
 ## Stake escalation: the builder does not flatten
 
 The catalog is for decisions a tool can own. The builder's harder job is
