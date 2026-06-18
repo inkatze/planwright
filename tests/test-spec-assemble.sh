@@ -458,6 +458,11 @@ esac
 has 'data-section="onepager"'
 has 'data-section="decisionmap"'
 has 'data-section="teachback"'
+# The partial bundle has no design file, so the decision map has no decisions: it
+# renders the empty-state message, not a "0 decisions, each shown as ..." frame
+# (graceful degradation, REQ-A1.5; matches the sibling views' empty states).
+has 'No decisions to surface.'
+lacks '0 decisions, each shown as'
 
 # ---------------------------------------------------------------------------
 # 12. Composition on a real bundle: full chain renders, escaped, no leak.
