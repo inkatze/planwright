@@ -182,6 +182,14 @@ EOF
 - **Dependencies:** none
 - **Citations:** D-1 · REQ-A1.1, REQ-A1.2
 - **Estimated effort:** 1 day
+
+### Task 2 — tail <script>boom()</script>
+
+- **Deliverables:** a thing.
+- **Done when:** it exists.
+- **Dependencies:** 1
+- **Citations:** D-2 · REQ-B1.1
+- **Estimated effort:** 2 days
 EOF
   cat >"$d/test-spec.md" <<'EOF'
 # Fixture — Test Spec
@@ -292,13 +300,25 @@ leak=$(printf '%s\n' "$out" | grep -o 'class="plain"[^<]*' | grep -E 'REQ-[A-Z][
 op_off=$(printf '%s\n' "$out" | grep -n 'data-section="onepager"' | head -1 | cut -d: -f1)
 dm_off=$(printf '%s\n' "$out" | grep -n 'data-section="decisionmap"' | head -1 | cut -d: -f1)
 tb_off=$(printf '%s\n' "$out" | grep -n 'data-section="teachback"' | head -1 | cut -d: -f1)
+gr_off=$(printf '%s\n' "$out" | grep -n 'data-section="graph"' | head -1 | cut -d: -f1)
 [ -n "$op_off" ] || fail "no one-pager section marker found"
 [ -n "$dm_off" ] || fail "no decision-map section marker found"
 [ -n "$tb_off" ] || fail "no teach-back section marker found"
+[ -n "$gr_off" ] || fail "no graph section marker found"
+[ "$op_off" -lt "$tb_off" ] \
+  || fail "one-pager (line $op_off) must precede teach-back (line $tb_off)"
+# Both foreground views (decision map, graph) are part of the read: each follows
+# the at-a-glance one-pager and precedes the teach-back prompt. Their order
+# relative to each other is not asserted — either arrangement is read-first
+# compliant.
 [ "$op_off" -lt "$dm_off" ] \
   || fail "one-pager (line $op_off) must precede the decision map (line $dm_off)"
 [ "$dm_off" -lt "$tb_off" ] \
   || fail "decision map (line $dm_off) must precede teach-back (line $tb_off)"
+[ "$op_off" -lt "$gr_off" ] \
+  || fail "one-pager (line $op_off) must precede the graph (line $gr_off)"
+[ "$gr_off" -lt "$tb_off" ] \
+  || fail "graph (line $gr_off) must precede teach-back (line $tb_off)"
 
 # ---------------------------------------------------------------------------
 # 5. Provenance stamp (REQ-E1.1, REQ-E1.5): bundle + commit.
@@ -494,5 +514,108 @@ if command -v gitleaks >/dev/null 2>&1; then
   gitleaks detect --no-banner --no-git --source "$art" >/dev/null 2>&1 \
     || fail "gitleaks flagged the generated artifact (REQ-E1.4 data hygiene)"
 fi
+
+# ---------------------------------------------------------------------------
+# 14. Dependency-graph view (Task 7; D-4, D-5, D-6; REQ-C1.3, REQ-C1.6,
+#     REQ-E1.3): the graph renders as an inline SVG (not ASCII) with the
+#     critical path highlighted, adjacent to its explaining text, with a layout
+#     note, and every bundle-derived label escaped.
+# ---------------------------------------------------------------------------
+run_dir 0 "$specs/demo"
+has 'data-section="graph"'
+# Drawn, not ASCII: an inline <svg> is present (REQ-C1.6). The boxart guard in
+# section 8 already proves no ASCII-art diagram.
+has '<svg'
+# The critical path is highlighted: at least one node and one edge carry the
+# critical class. With the fixture graph (1 -> 2, both on the longest chain),
+# the two nodes and the one edge are all critical.
+ncrit=$(count_substr 'graph-node-critical')
+[ "$ncrit" -ge 1 ] || fail "no critical node highlighted in the graph"
+ecrit=$(count_substr 'graph-edge-critical')
+[ "$ecrit" -ge 1 ] || fail "no critical edge highlighted in the graph"
+# Adjacent explaining text (REQ-C1.3): the graph section carries prose that
+# explains the diagram in plain language (no internal vocabulary).
+has 'class="graph-intro"'
+# The layout/degradation note is present in the artifact (D-5, REQ-E1.3). On a
+# host without dot this is the built-in note; the assertion is the note exists.
+has 'class="graph-note"'
+# SVG label escaping (REQ-E1.7 in SVG text context): the markup-bearing task
+# title renders escaped, never as a live element. The node's full label lives in
+# an SVG <title> tooltip, escaped.
+has '&lt;script&gt;boom()&lt;/script&gt;'
+lacks '<script>boom()</script>'
+# The plain node labels carry no internal vocabulary by default: the task ids
+# (a "#N" back-pointer) sit only in reveal-only graph elements, never in the
+# default-visible node label text. (The reveal element uses the shared .rv hook.)
+has 'class="graph-svg"'
+# Still no live <script> anywhere (the bundle's are all escaped, incl. the graph
+# label) — re-assert after adding the graph.
+[ "$(count_substr '<script')" -eq 0 ] \
+  || fail "graph introduced a live <script> (a bundle label must be escaped)"
+
+# ---------------------------------------------------------------------------
+# 15. Graph node labels honor the MAXLABEL budget: a title longer than the
+#     budget renders truncated with an ellipsis, and the visible <text> content
+#     (content + "...") never exceeds MAXLABEL=26. The full, untruncated title
+#     stays in the node's <title> tooltip.
+# ---------------------------------------------------------------------------
+longspecs="$tmp/long"
+make_bundle "$longspecs" demo
+cat >"$longspecs/demo/tasks.md" <<'EOF'
+# Fixture — Tasks
+
+**Status:** Active
+**Last reviewed:** 2026-06-16
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — supercalifragilisticexpialidociousX
+
+- **Deliverables:** a thing.
+- **Done when:** the thing exists.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-A1.1, REQ-A1.2
+- **Estimated effort:** 1 day
+EOF
+run_dir 0 "$longspecs/demo"
+glabel=$(printf '%s\n' "$out" | sed -n 's/.*<text class="graph-label"[^>]*>\(.*\)<\/text>.*/\1/p' | head -1)
+[ -n "$glabel" ] || fail "no graph-label text found for the long-title node"
+glen=${#glabel}
+[ "$glen" -le 26 ] || fail "graph label exceeds MAXLABEL=26: [$glabel] (len=$glen)"
+case $glabel in
+  *...) ;;
+  *) fail "long graph label should end with an ellipsis: [$glabel]" ;;
+esac
+# The full title survives untruncated in the node <title> tooltip.
+has '<title>supercalifragilisticexpialidociousX</title>'
+
+# ---------------------------------------------------------------------------
+# 16. Empty-graph section (REQ-A1.5 graceful degradation): a bundle with no
+#     task graph renders the empty-graph note alone — the graph-intro prose
+#     describes the arrows / critical path / parallel columns of a diagram, so
+#     printing it when no diagram is drawn contradicts the "clear message"
+#     posture. The empty case shows the heading and the empty note, never the
+#     intro and never an <svg>.
+# ---------------------------------------------------------------------------
+emptyspecs="$tmp/empty"
+make_bundle "$emptyspecs" demo
+cat >"$emptyspecs/demo/tasks.md" <<'EOF'
+# Fixture — Tasks
+
+**Status:** Active
+**Last reviewed:** 2026-06-16
+**Format-version:** 1
+
+## Forward plan
+EOF
+run_dir 0 "$emptyspecs/demo"
+has 'data-section="graph"'
+has 'class="graph-empty"'
+# The intro describes a diagram that is not drawn in the empty case, so it must
+# not appear. This is the regression guard for the empty-graph branch.
+lacks 'class="graph-intro"'
+# No diagram is rendered when there is no task graph.
+lacks 'class="graph-svg"'
 
 echo "PASS: test-spec-assemble.sh"
