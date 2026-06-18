@@ -18,6 +18,15 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 - **Status:** implementing
 - **Last activity:** 2026-06-17
+- **Hand-off (bootstrap Task 19 onboarding):** bootstrap Task 19 (Packaging
+  finalization & onboarding docs, PR #27 merged 2026-06-17) shipped
+  `docs/getting-started.md` with a §4 "forward reference (not yet shipped)"
+  placeholder for the overlay mechanism. This task consummates that hand-off:
+  the shipped mechanism is now documented in `docs/overlays.md` (four layers,
+  per-kind locations, merge rules, malformed-by-layer policy, `--explain`,
+  the secret-scanner caveat, two worked examples), and getting-started §4 is
+  reconciled from the placeholder to a shipped-state summary that links to it.
+  No further bootstrap action is needed; Task 19 is already Completed.
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
   four layers, each kind's per-layer locations, the merge rules, the
   malformed-by-layer policy, the `--explain` affordance, the two worked

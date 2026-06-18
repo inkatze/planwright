@@ -165,36 +165,44 @@ be able to add them **without editing planwright's core rule docs** (REQ-D2.2 /
 REQ-I1.4). Editing core would make it less general for everyone and pollute the
 observation stream meant to merge upstream.
 
-Two layers exist today, and a third (the general overlay mechanism) is on the
-way:
+Three customization mechanisms exist, all of which avoid editing core:
 
-- **Config overrides (available now).** Universal defaults live in
-  [`config/defaults.yml`](../config/defaults.yml). Per-repo and personal
-  overrides go in `<repo>/.claude/planwright.local.yml` (gitignored,
-  agent-maintained; per-repo entries are written only on your confirmation).
-  Every option is documented in the
-  [options reference](options-reference.md); an undocumented option fails
+- **The overlay mechanism (the general seam).** A fixed four-layer precedence
+  model — `core defaults < adopter overlay < repo-tracked overlay <
+  machine-local overlay` — lets you layer **config values, doctrine/process
+  docs, and data catalogs** without touching planwright's core. Adding a
+  preference is a **file placement**, never a core edit. Each kind keeps its
+  native shape and merges in the way that fits it (config last-layer-wins,
+  doctrine whole-doc shadow, catalog append/union), and each resolver has an
+  `--explain` mode that names the winning layer. The full reference — per-layer
+  locations, merge rules, the malformed-by-layer policy, the secret-scanner
+  caveat, and worked examples — is in
+  [`docs/overlays.md`](overlays.md). For *what belongs in an overlay versus
+  core*, see
+  [`doctrine/customization-boundary.md`](../doctrine/customization-boundary.md).
+- **Config overrides.** Universal defaults live in
+  [`config/defaults.yml`](../config/defaults.yml); the overlay mechanism's
+  config layers (above) layer on top. Per-repo and personal overrides go in
+  `<repo>/.claude/planwright.local.yml` (gitignored, agent-maintained; per-repo
+  entries are written only on your confirmation). Every option is documented in
+  the [options reference](options-reference.md); an undocumented option fails
   planwright's own CI. This covers thresholds and commit/dispatch toggles.
-- **Project tooling discovery (available now).** planwright's SessionStart hook
-  detects your project's linters, formatters, and type-checkers and feeds them
-  into Discovery Rigor and the builder, so your stack's tools ground reviews
-  without any core edit.
+- **Project tooling discovery.** planwright's SessionStart hook detects your
+  project's linters, formatters, and type-checkers and feeds them into
+  Discovery Rigor and the builder, so your stack's tools ground reviews without
+  any core edit.
 
-> **Forward reference (not yet shipped).** The general seam for layering
-> *doctrine and catalog* preferences — a fixed four-layer precedence model
-> (`core defaults < adopter overlay < repo-tracked overlay < machine-local
-> overlay`), defined overlay locations, and a per-kind merge contract skills
-> read through — is specified in
-> [`specs/customization-overlay/`](../specs/customization-overlay/requirements.md)
-> and is **Active but not yet built** as of this writing. Until it lands, layer
-> *doctrine/catalog* preferences through your project's own conventions and the
-> config overrides above; this section will be revised to describe the shipped
-> overlay mechanism once it ships. Do not edit planwright's core `doctrine/`
-> docs to encode project- or team-specific style.
+> **Secrets never go in overlays.** Your adopter and machine-local overlays are
+> uncommitted, so planwright's secret scanner (`gitleaks`, which scans
+> committed files only) never sees them. The data-hygiene rule is the only
+> guard there — keep secrets in your environment layer and reference them
+> indirectly. See [`docs/overlays.md` §6](overlays.md#6-secrets-and-data-hygiene--read-this).
 
 ## 5. Where to go next
 
 - [`README.md`](../README.md) — the one-screen overview and repository layout.
+- [`docs/overlays.md`](overlays.md) — customizing planwright with overlays: the
+  four layers, per-kind locations, merge rules, and worked examples.
 - [`doctrine/`](../doctrine/) — the rule docs skills cite (rigor, finding
   categorization, engineering doctrine, spec format).
 - [`docs/conventions.md`](conventions.md) — repository and workflow
