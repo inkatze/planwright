@@ -20,3 +20,13 @@ max_parallel_units: 3
 
 # Per-spec advisory lock staleness threshold for /orchestrate (D-10).
 stale_lock_threshold: 15m
+
+# The ordered review gauntlet /execute-task's convergence phase runs (D-6,
+# REQ-D1.3). An inline list of nestable review-skill names (a nestable review
+# skill is one invocable with --nested). The default reproduces today's
+# convergence behavior — a single /polish --nested pass — so out-of-the-box
+# behavior is unchanged; an overlay can reorder or extend it (e.g.
+# [self-review, polish]) once the named skills exist. Resolved through
+# scripts/resolve-review-sequence.sh, which validates each name and applies the
+# REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
+review_sequence: [polish]
