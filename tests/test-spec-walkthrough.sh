@@ -10,8 +10,9 @@
 #       reveal state (REQ-A1.1).
 #   2.  Status-agnostic: Draft, Active, Done, Retired, and Superseded each
 #       load without a non-Active refusal (REQ-A1.4, REQ-B1.4).
-#   3.  Strictly read-only: a run in a git work tree leaves the tree clean —
-#       no modified bundle file, no new path, no commit (REQ-A1.3).
+#   3.  Strictly read-only apart from the gitignored artifact: a run leaves the
+#       tracked tree clean, and the self-contained HTML walkthrough is written to
+#       the gitignored .claude/walkthroughs/<spec>/ location (REQ-A1.3, REQ-E1.1).
 #   4.  Argument and flag parsing: spec-path required; both `specs/<spec>`
 #       and bare `<spec>` forms accepted; `--scope`/`--reveal` parse; an
 #       unknown flag or a missing scope value is a usage refusal (REQ-A1.2).
@@ -223,12 +224,18 @@ has "undeclared"
 lacks "status: Active"
 
 # ---------------------------------------------------------------------------
-# 3. Strictly read-only: the git work tree stays clean after a run.
+# 3. Strictly read-only apart from the gitignored artifact (REQ-A1.3, REQ-E1.1):
+#    the generated walkthrough is written under the gitignored
+#    .claude/walkthroughs/<spec>/ location, so a run still leaves the *tracked*
+#    work tree clean — no modified bundle file, no new tracked path, no commit.
 # ---------------------------------------------------------------------------
 if command -v git >/dev/null 2>&1; then
   gws="$tmp/gitws"
   mkdir -p "$gws"
   make_bundle "$gws/specs" demo Draft
+  # The real repo gitignores the artifact location (Task 6); mirror that so the
+  # clean-tree assertion reflects the true contract.
+  printf '%s\n' '.claude/walkthroughs/' >"$gws/.gitignore"
   (
     cd "$gws"
     git init -q
@@ -242,7 +249,20 @@ if command -v git >/dev/null 2>&1; then
   run_w 0 "$gws" demo
   status_after=$(cd "$gws" && git status --porcelain)
   [ -z "$status_after" ] \
-    || fail "run was not read-only; git status: $status_after"
+    || fail "run was not read-only in the tracked tree; git status: $status_after"
+  # The artifact was written to the gitignored location and is a self-contained
+  # HTML document (REQ-E1.1) — the load report names it.
+  has "artifact: .claude/walkthroughs/demo/demo.html"
+  artifact="$gws/.claude/walkthroughs/demo/demo.html"
+  [ -f "$artifact" ] || fail "no artifact written at $artifact"
+  head1=$(head -1 "$artifact")
+  case $head1 in
+    '<!DOCTYPE html'*) ;;
+    *) fail "artifact is not an HTML document (first line: $head1)" ;;
+  esac
+  # It is genuinely gitignored: git does not see it as an untracked tracked path.
+  ignored=$(cd "$gws" && git status --porcelain --ignored .claude/walkthroughs/ | awk '$1=="!!"{print; exit}')
+  [ -n "$ignored" ] || fail "artifact location is not gitignored"
 fi
 
 # ---------------------------------------------------------------------------

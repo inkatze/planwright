@@ -20,13 +20,15 @@ and it stands apart from `/spec-kickoff` precisely so that read stays
 independent: the moment the authoring agent performs the comprehension,
 independent review collapses into "the agent reviewed its own spec."
 
-This skill is being built task by task. **Today it is the command scaffold**
-(Task 1): the surface, the safety gate, the read-only load, and graceful
-degradation. The rendering pipeline (the bundle model, the plain-language
-translation, the one-pager, teach-back, the drawn graph and decision-map views,
-the self-contained HTML artifact) lands in the following tasks and extends this
-same entry point. Until then the command loads a bundle and reports its shape;
-it produces no artifact yet.
+This skill is being built task by task. **Today it produces the self-contained
+HTML artifact** (through Task 6): the command surface and safety gate (Task 1),
+the bundle model and plain-language translation (Tasks 2–3), the one-pager and
+teach-back views (Tasks 4–5), and the HTML assembly and styling that bundles
+them into a single offline file (Task 6). On a successful load the command
+writes that file to the gitignored `.claude/walkthroughs/<spec>/` location
+(REQ-E1.1) and names it in the load report. The remaining views (the drawn
+dependency graph and decision-map, partial-scope rendering) land in the
+following tasks and extend this same artifact.
 
 ## Doctrine
 
@@ -72,6 +74,17 @@ the four files, or the requested scope resolves to no part of it) — a clear
 message names what is absent or the available scopes, never an opaque halt
 (REQ-A1.5); `2` a clean refusal (a malformed invocation, or a hostile/malformed
 identifier or escaping path).
+
+**Artifact.** On a successful load the command assembles the bundle into a
+single self-contained HTML file (via `scripts/spec-assemble.sh`) and writes it
+to the gitignored `.claude/walkthroughs/<spec>/<spec>.html` (REQ-E1.1); the load
+report names the path. The file opens offline in any browser with nothing
+installed (REQ-E1.2): the read (the one-pager) first, the teach-back prompt
+after it, all bundle content HTML/SVG-escaped so markup in the spec displays as
+literal text and never executes (REQ-E1.7), identifiers behind an off-by-default
+reveal toggle (REQ-D1.3), MIT-licensed styling inlined (REQ-E1.6), and a
+bundle + commit provenance stamp so a reader can tell whether it is stale
+(REQ-E1.5). Open it directly: `open .claude/walkthroughs/<spec>/<spec>.html`.
 
 ## Teach-back
 

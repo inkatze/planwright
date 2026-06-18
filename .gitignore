@@ -22,6 +22,12 @@ mise.local.toml
 # not source.
 .claude/worktrees/
 
+# Generated /spec-walkthrough comprehension artifacts (design.md D-8, REQ-E1.1).
+# Self-contained HTML renders of a spec bundle — ephemeral, per-reader, and
+# regenerable from the bundle; never source. Kept out of the tree so a render in
+# any checkout (the command's one sanctioned write) leaves the tracked tree clean.
+.claude/walkthroughs/
+
 # Optional handover brief — transient per-worktree cache (design.md D-2/D-3).
 .claude/handover.md
 
