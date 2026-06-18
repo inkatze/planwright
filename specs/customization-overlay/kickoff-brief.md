@@ -300,6 +300,30 @@ surface).
   focused confinement/by-layer review, matched to R8's stake; no external
   research trigger fired (no new dependency or version-sensitive API).
 
+**Manual verification — Task 6 execution (2026-06-17, `review_sequence`
+ordering scenario, R7).** REQ-D1.3's behavioral half is `[manual]`: that
+`/execute-task`'s convergence phase honors an overlay-set ordering. The
+convergence phase's mechanism is "run `scripts/resolve-review-sequence.sh`,
+then invoke `/<name> --nested` for each stdout line in order," so the ordering
+is verified by exercising the resolver against the **real repo `skills/` root**
+(confirming `polish` and `self-review` are recognized as nestable from the
+actual skill files, not a fixture) with concrete overlay orderings:
+- **Default (no overlays):** emits `polish` — today's single `/polish --nested`
+  convergence, unchanged (default-preserving).
+- **Adopter `[self-review, polish]`:** emits `self-review` then `polish` — the
+  overlay ordering, in order.
+- **Repo-tracked `[polish, self-review]` (the reverse, over the adopter):**
+  emits `polish` then `self-review` — order preserved verbatim (not sorted),
+  and repo-tracked wins over adopter (last-layer-wins).
+- **Machine-local `[polish, bogus-skill]`:** stderr warning naming the
+  machine-local layer, degrades to the core default `polish` (exit 0).
+- **Repo-tracked `[polish, bogus-skill]`:** hard-fail exit 4 naming the
+  repo-tracked layer (a broken shared gauntlet never silently degrades a team).
+R7 (manual verification may be skipped) is thereby discharged. The same five
+behaviors are also locked in as automated regression tests in
+`tests/test-resolve-review-sequence.sh`, so the manual exercise is the
+end-to-end confirmation layered on top of the unit suite, not the sole guard.
+
 Signed off: 2026-06-16
 
 ## 8. Sign-off — lens review pass
