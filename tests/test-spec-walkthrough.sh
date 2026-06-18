@@ -260,7 +260,7 @@ if command -v git >/dev/null 2>&1; then
     '<!DOCTYPE html'*) ;;
     *) fail "artifact is not an HTML document (first line: $head1)" ;;
   esac
-  # It is genuinely gitignored: git does not see it as an untracked tracked path.
+  # It is genuinely gitignored: git does not see it as an untracked path.
   ignored=$(cd "$gws" && git status --porcelain --ignored .claude/walkthroughs/ | awk '$1=="!!"{print; exit}')
   [ -n "$ignored" ] || fail "artifact location is not gitignored"
 fi
@@ -542,8 +542,10 @@ mkdir -p "$asws/scripts"
 cp "$script" "$asws/scripts/spec-walkthrough.sh"
 cat >"$asws/scripts/spec-assemble.sh" <<'EOF'
 #!/bin/sh
-# Stub assembler: emit partial output, then fail, modeling an assembly that dies
-# after writing some bytes to stdout.
+# Stub assembler: emit a specific diagnostic on stderr and partial output on
+# stdout, then fail — modeling an assembly that dies after writing some bytes,
+# with a concrete reason the scaffold must surface rather than swallow.
+printf 'STUB ASSEMBLER DIAGNOSTIC\n' >&2
 printf 'PARTIAL BROKEN HTML'
 exit 2
 EOF
@@ -565,6 +567,12 @@ case $aout in
 esac
 [ ! -e "$afile" ] \
   || fail "atomic: a failed assembly left a stray artifact at $afile: [$(cat "$afile" 2>/dev/null)]"
+# The assembler's specific diagnostic must reach the user, not be swallowed by a
+# stderr redirect — the degradation names the real reason (REQ-A1.5).
+case $aout in
+  *"STUB ASSEMBLER DIAGNOSTIC"*) ;;
+  *) fail "atomic: the assembler's stderr diagnostic was swallowed, not surfaced: $aout" ;;
+esac
 
 # 15b. Prior good artifact: a later failed assembly preserves it intact rather
 # than truncating it to empty/partial.

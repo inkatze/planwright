@@ -371,10 +371,16 @@ if [ -x "$assemble" ]; then
   # is removed on any failure. The temp shares the gitignored directory, so the
   # tracked tree stays clean either way (the house mktemp+rename pattern, see
   # scripts/tasks-pr-sync.sh).
+  #
+  # The assembler's stderr is deliberately NOT redirected to /dev/null: on
+  # success it emits nothing on stderr, so the load report stays clean, and on
+  # failure its specific diagnostic (e.g. "spec directory absent or unreadable")
+  # flows to this command's stderr alongside the "not written" line below, so the
+  # degradation names the real reason rather than an opaque generic (REQ-A1.5).
   tmp_file=
   if mkdir -p "$out_dir" 2>/dev/null \
     && tmp_file=$(mktemp "$out_dir/.$spec.html.XXXXXX" 2>/dev/null) \
-    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$bundle_dir" >"$tmp_file" 2>/dev/null \
+    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$bundle_dir" >"$tmp_file" \
     && mv -f "$tmp_file" "$out_file"; then
     printf '  artifact: %s\n' "$out_file"
   else
