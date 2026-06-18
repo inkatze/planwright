@@ -4,7 +4,8 @@ description: >
   Implement one task (or a cohesion bundle) from a signed-off, Active spec:
   recompute the execution freshness gate, write the verifying test first,
   implement to green, run the project's full CI with adaptive retry, converge
-  via /polish --nested, then open a draft PR referencing the brief, task IDs,
+  via the review_sequence gauntlet (default /polish --nested), then open a
+  draft PR referencing the brief, task IDs,
   REQs, tests, and the pending-sign-off checklist. The execution workhorse of
   the planwright pipeline. Assumes the worktree already exists; never creates
   worktrees, never merges, never marks a PR ready.
@@ -47,7 +48,8 @@ definitions govern wherever this skill names a concept:
   loop (targeted test, wider suite, altitude check).
 - `finding-categorization` and `gate-wiring` — the buckets, hard-disqualifier
   zones, pending-sign-off checklist, and pause protocol the convergence step
-  (`/polish`) applies and this skill folds into the PR.
+  (the `review_sequence` gauntlet, `/polish` by default) applies and this skill
+  folds into the PR.
 - `proportionality` — rigor and research depth scale with stake and
   reversibility; scoping is declared, never silent.
 
@@ -242,22 +244,47 @@ to `logic`, since escalating an unclassifiable failure beats burning retries):
   input and halt (attended: surface and wait). A logic failure is never
   retried.
 
-## Convergence (REQ-E1.4, D-39)
+## Convergence (REQ-E1.4, REQ-D1.3, D-39, D-6)
 
-After CI passes, invoke **`/polish --nested`** as the convergence step. Polish
-runs in-session (REQ-E2.2, D-13): one session, one context, hooks fire once
-per actual tool call; it drains every action disposition per act-then-review
-and returns its audit record without pushing or creating a PR (that is this
-skill's job, which is why `--nested` is mandatory). After it returns:
+After CI passes, run the **review gauntlet** as the convergence step. The
+gauntlet is the `review_sequence` config knob (D-6, REQ-D1.3): an ordered list
+of nestable review-skill names, resolved through the four-layer config overlay.
+The default `review_sequence` is the single `polish`, so out of the box this is
+exactly today's `/polish --nested` convergence; an adopter or repo overlay can
+reorder or extend it (for example `[self-review, polish]`).
 
-- **Normal exit** (converged, or handed off with queued forks): proceed to PR
-  creation, folding Polish's audit record — the four bucket tables, the
+**Resolve the sequence.** Run `scripts/resolve-review-sequence.sh` (under the
+resolved planwright root). It reads `review_sequence` *through* `config-get`
+(no layer logic re-implemented, REQ-D1.1), validates each name against the
+nestable-review-skill predicate, applies the REQ-E1.4 by-layer malformed
+policy, and prints the validated ordered names, one per line. By exit code:
+
+- **0** — the printed names are the gauntlet, in order. A stderr warning may
+  note that an adopter/machine-local overlay set a malformed value and was
+  degraded to the core default; surface that warning but proceed.
+- **4** — a repo-tracked (team-shared) overlay set a malformed `review_sequence`
+  value, or the repo-tracked config file is structurally malformed: a
+  hard-fail. **Stop condition** — record to `tasks.md` Awaiting input and halt;
+  do not converge over a broken shared gauntlet.
+- **5** — broken install (the core default itself is unresolvable). **Stop
+  condition** — halt and hand off.
+
+**Run each named skill in order, with `--nested`.** For each name the resolver
+printed, invoke `/<name> --nested`. Each review skill runs in-session (REQ-E2.2,
+D-13): one session, one context, hooks fire once per actual tool call; it
+drains every action disposition per act-then-review and returns its audit
+record without pushing or creating a PR (that is this skill's job, which is why
+`--nested` is mandatory for every gauntlet skill). After each returns:
+
+- **Normal exit** (converged, or handed off with queued forks): continue to the
+  next skill in the sequence; once the whole sequence has run, proceed to PR
+  creation, folding each skill's audit record — the four bucket tables, the
   declined log, the pending-sign-off checklist, and any queued
   Needs-human-judgment forks — into the PR body.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): the
   branch may be in a known-broken state. Surface the stop reason and halt; do
-  not open a PR over a broken branch.
-- **Hard-disqualifier finding** Polish surfaced but could not resolve
+  not run later gauntlet skills and do not open a PR over a broken branch.
+- **Hard-disqualifier finding** a gauntlet skill surfaced but could not resolve
   autonomously: a stop condition — hand off for human direction.
 
 ## In-flight amendments (D-19, REQ-A3.3, REQ-F1.10)
@@ -347,8 +374,9 @@ These hold at every step:
   (D-21, REQ-J1.1). The draft→ready flip and the merge are the human's.
 - **Never** create a worktree (D-37, D-44) — this skill runs inside one it did
   not make.
-- **Never** invoke `/polish` without `--nested`: this skill owns push and PR
-  creation (D-39, REQ-E1.4).
+- **Never** invoke a `review_sequence` gauntlet skill (`/polish` by default)
+  without `--nested`: this skill owns push and PR creation (D-39, REQ-E1.4,
+  REQ-D1.3).
 - **Never** skip the test-first loop for a behavior-introducing unit when
   `test-spec.md` describes a verification path (REQ-E1.1).
 - **Never** retry a logic CI failure; transient retries cap at two; unknown
