@@ -38,7 +38,7 @@ view tasks they cover.
 
 ### Task 12 — Docs and maintenance
 
-- **Status:** implementing
+- **Status:** PR #66 draft
 - **Last activity:** 2026-06-18
 - **Deliverables:** command documentation (invocation, scope selectors, reveal
   flag, the optional Graphviz enhancement); any options-reference rows for new
