@@ -14,27 +14,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## In progress
 
-### Task 7 — Adopter docs & onboarding
-
-- **Status:** implementing
-- **Last activity:** 2026-06-18
-- **Dispatch:** tmux backend; dispatched 2026-06-18; worker window `co-task-7` (branch `planwright/customization-overlay/task-7`, worktree `.claude/worktrees/customization-overlay-task-7`, branched off origin/main `9b23bfb`).
-- **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
-  four layers, each kind's per-layer locations, the merge rules, the
-  malformed-by-layer policy, the `--explain` affordance, the two worked
-  examples (dispatch-isolation and the `review_sequence` gauntlet), and an
-  explicit warning that secrets in adopter and machine-local (uncommitted)
-  overlays are NOT covered by the secret scanner (which scans committed files
-  only) — the data-hygiene rule is the only guard there. Hand-off note for
-  bootstrap Task 19 onboarding.
-- **Done when:** the overlay mechanism and per-layer locations are documented
-  for adopters; the worked examples appear; the uncommitted-overlay secret
-  warning is present; the bootstrap Task 19 hand-off is recorded;
-  `check-doc-links.sh` and the doc linters pass.
-- **Dependencies:** 3, 4, 5, 6
-- **Citations:** D-1, D-4, D-5, D-7, D-9 · REQ-B1.6, REQ-C1.3, REQ-E1.1,
-  REQ-E1.3, REQ-E1.4
-- **Estimated effort:** half day
+(none yet)
 
 ## Awaiting input
 
@@ -172,6 +152,26 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Dependencies:** 3
 - **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
+
+### Task 7 — Adopter docs & onboarding
+
+- **Status:** Completed — PR #52 merged 2026-06-18 (merge commit `3cb660d`).
+- **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
+  four layers, each kind's per-layer locations, the merge rules, the
+  malformed-by-layer policy, the `--explain` affordance, the two worked
+  examples (dispatch-isolation and the `review_sequence` gauntlet), and an
+  explicit warning that secrets in adopter and machine-local (uncommitted)
+  overlays are NOT covered by the secret scanner (which scans committed files
+  only) — the data-hygiene rule is the only guard there. Hand-off note for
+  bootstrap Task 19 onboarding.
+- **Done when:** the overlay mechanism and per-layer locations are documented
+  for adopters; the worked examples appear; the uncommitted-overlay secret
+  warning is present; the bootstrap Task 19 hand-off is recorded;
+  `check-doc-links.sh` and the doc linters pass.
+- **Dependencies:** 3, 4, 5, 6
+- **Citations:** D-1, D-4, D-5, D-7, D-9 · REQ-B1.6, REQ-C1.3, REQ-E1.1,
+  REQ-E1.3, REQ-E1.4
+- **Estimated effort:** half day
 
 ## Deferred
 
