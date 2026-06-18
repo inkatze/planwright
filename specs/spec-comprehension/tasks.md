@@ -19,19 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 9 — Scope selection and stage-aware framing
-
-- **Deliverables:** the whole-bundle default plus partial selectors (one file,
-  one requirement group, the decision set, the task graph, a single decision's
-  blast radius); status-auto-detected framing for Draft, Active, Done, and
-  terminal statuses.
-- **Done when:** each partial selector renders only its scope; a single
-  decision's view shows its blast radius; and the framing changes with the
-  bundle's status without the human specifying it.
-- **Dependencies:** 2, 6
-- **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
-- **Estimated effort:** 1.5 days
-
 ### Task 10 — Sibling discoverability touchpoints
 
 - **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
@@ -72,6 +59,21 @@ view tasks they cover.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 9 — Scope selection and stage-aware framing
+
+- **Status:** implementing
+- **Last activity:** 2026-06-18
+- **Deliverables:** the whole-bundle default plus partial selectors (one file,
+  one requirement group, the decision set, the task graph, a single decision's
+  blast radius); status-auto-detected framing for Draft, Active, Done, and
+  terminal statuses.
+- **Done when:** each partial selector renders only its scope; a single
+  decision's view shows its blast radius; and the framing changes with the
+  bundle's status without the human specifying it.
+- **Dependencies:** 2, 6
+- **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
+- **Estimated effort:** 1.5 days
 
 ### Task 7 — Dependency-graph and critical-path view
 
