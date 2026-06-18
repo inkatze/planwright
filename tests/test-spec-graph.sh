@@ -30,8 +30,11 @@
 #   6.  Built-in layout is the default with a "Graphviz not detected" note.
 #   7.  Graphviz present (stubbed): layout=graphviz, the note names it, and node
 #       coordinates come from the dot -Tplain output.
-#   8.  Graphviz present-but-failing (stubbed non-zero / garbage): degrades to
-#       the built-in layout with the note, exactly as absence (REQ-E1.3).
+#   8.  Graphviz present-but-failing (stubbed non-zero / garbage): the layout
+#       degrades to the built-in path exactly as absence does, but the note is
+#       deliberately distinct. It reports a present-but-unusable dot, never the
+#       "not detected" message reserved for a truly absent one (the 8a assertion
+#       checks this; REQ-E1.3).
 #   9.  A bundle with no task graph degrades to an empty-graph note, exit 0.
 #  10.  A missing spec directory fails closed (exit 2); the view is read-only.
 #
