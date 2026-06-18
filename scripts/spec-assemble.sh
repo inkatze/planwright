@@ -30,10 +30,11 @@
 #     generated from, so a reader can tell whether it is stale (D-8, REQ-E1.5).
 #
 # The document references no external network resource and needs nothing
-# installed: it opens offline in any browser (D-4, REQ-E1.2). Partial-scope
-# rendering lands in a later task and extends this same assembly; this artifact
-# carries the one-pager, the decision map, the dependency graph, and the
-# teach-back.
+# installed: it opens offline in any browser (D-4, REQ-E1.2). The whole-bundle
+# artifact carries the one-pager, the decision map, the dependency graph, and
+# the teach-back; a partial --scope selector (Task 9; REQ-B1.2) renders only the
+# sections in its scope, and the framing adapts to the bundle's auto-detected
+# status (REQ-B1.3).
 #
 # This script is strictly read-only (REQ-A1.3): it writes nothing but its stdout
 # stream. Persisting the document to the gitignored .claude/walkthroughs/<spec>/
@@ -41,7 +42,11 @@
 # one sanctioned write, layered on top of this stdout stream.
 #
 # Usage:
-#   spec-assemble.sh <spec-dir>     # run the chain and emit the HTML artifact
+#   spec-assemble.sh [--scope <selector>] <spec-dir>   # emit the HTML artifact
+#
+# <selector> (REQ-B1.2) names which part to render: whole (default), file:<name>,
+# reqs:<GROUP>, decisions, tasks, or decision:<id> (the decision plus its blast
+# radius). The scaffold validates it; this layer re-classifies and fails closed.
 #
 # Environment:
 #   SPEC_WALKTHROUGH_COMMIT  override the provenance commit (otherwise derived
@@ -66,11 +71,130 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-spec_dir="${1:-}"
-if [ -z "$spec_dir" ] || [ "$spec_dir" = "-" ]; then
-  echo "usage: spec-assemble.sh <spec-dir>" >&2
+usage() {
+  echo "usage: spec-assemble.sh [--scope <selector>] <spec-dir>" >&2
   exit 2
+}
+
+# Parse the optional --scope selector (Task 9; REQ-B1.1, REQ-B1.2) and the
+# positional spec directory. The whole-bundle default renders every view; a
+# partial selector renders only the sections in its scope. The scaffold
+# (spec-walkthrough.sh) already charset-validates the selector before it lands
+# here; this layer re-classifies it (defense in depth) and fails closed on a
+# malformed selector rather than degrading to a silent whole-bundle render.
+scope=
+spec_dir=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --scope)
+      [ $# -ge 2 ] || usage
+      scope=$2
+      shift 2
+      ;;
+    - | -*)
+      usage
+      ;;
+    *)
+      [ -z "$spec_dir" ] || usage
+      spec_dir=$1
+      shift
+      ;;
+  esac
+done
+if [ -z "$spec_dir" ]; then
+  usage
 fi
+
+# Classify the selector into a scope kind plus the section flags that decide
+# which views render. Each view is on (1) or off (0) per scope; the read-first
+# ordering (one-pager, decision map, graph, blast radius, verification, then the
+# teach-back prompt) is preserved among whichever sections are on.
+scope_label=
+dec_label=
+show_op=0
+show_dm=0
+show_gr=0
+show_tb=0
+show_blast=0
+show_verify=0
+case ${scope:-whole} in
+  whole | "")
+    scope=whole
+    scope_label="the whole bundle"
+    show_op=1
+    show_dm=1
+    show_gr=1
+    show_tb=1
+    ;;
+  file:*)
+    fname=${scope#file:}
+    fname=${fname%.md}
+    case $fname in
+      requirements)
+        scope_label="the requirements file"
+        show_op=1
+        show_tb=1
+        ;;
+      design)
+        scope_label="the design file"
+        show_dm=1
+        show_tb=1
+        ;;
+      tasks)
+        scope_label="the tasks file"
+        show_gr=1
+        ;;
+      test-spec)
+        scope_label="the test-spec file"
+        show_verify=1
+        ;;
+      *)
+        echo "spec-assemble: scope '$scope' names no source file" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  reqs:*)
+    rgroup=${scope#reqs:}
+    case $rgroup in
+      "" | *[!A-Z]*)
+        echo "spec-assemble: scope '$scope' is not a requirement group" >&2
+        exit 2
+        ;;
+    esac
+    scope_label="requirement group $rgroup"
+    show_op=1
+    show_tb=1
+    ;;
+  decisions)
+    scope_label="the decision set"
+    show_dm=1
+    show_tb=1
+    ;;
+  tasks)
+    scope_label="the task graph"
+    show_gr=1
+    ;;
+  decision:*)
+    dnum=${scope#decision:}
+    dnum=${dnum#D-}
+    dnum=${dnum#d-}
+    case $dnum in
+      "" | *[!0-9]*)
+        echo "spec-assemble: scope '$scope' is not a decision id" >&2
+        exit 2
+        ;;
+    esac
+    dec_label="D-$dnum"
+    scope_label="decision $dec_label and its blast radius"
+    show_dm=1
+    show_blast=1
+    ;;
+  *)
+    echo "spec-assemble: unknown scope '$scope'" >&2
+    exit 2
+    ;;
+esac
 
 # Resolve the sibling view scripts next to this one (the sibling-script
 # convention the whole pipeline follows).
@@ -79,32 +203,60 @@ onepager_sh="$here/spec-onepager.sh"
 decisionmap_sh="$here/spec-decisionmap.sh"
 teachback_sh="$here/spec-teachback.sh"
 graph_sh="$here/spec-graph.sh"
-for s in "$onepager_sh" "$decisionmap_sh" "$teachback_sh" "$graph_sh"; do
+model_sh="$here/spec-model.sh"
+scope_sh="$here/spec-scope.sh"
+translate_sh="$here/spec-translate.sh"
+for s in "$onepager_sh" "$decisionmap_sh" "$teachback_sh" "$graph_sh" \
+  "$model_sh" "$scope_sh" "$translate_sh"; do
   if [ ! -x "$s" ]; then
     echo "spec-assemble: cannot find an executable $(basename "$s") at $s" >&2
     exit 2
   fi
 done
 
-# Run the views in <spec-dir> mode; capture each first so its exit code
-# propagates (fail closed on an absent/unreadable spec directory; /bin/sh has no
-# portable pipefail). The teach-back is run in dir mode so its section labels are
-# the bundle's plain requirement-group headings.
-onepager_stream=$("$onepager_sh" "$spec_dir") || exit $?
-decisionmap_stream=$("$decisionmap_sh" "$spec_dir") || exit $?
-teachback_stream=$("$teachback_sh" "$spec_dir") || exit $?
-graph_stream=$("$graph_sh" "$spec_dir") || exit $?
-
 tab=$(printf '\t')
 
-# Bundle name + status from the BUNDLE pass-through record (the model floors at a
-# BUNDLE record for any existing directory); fall back to the directory name.
-spec=$(printf '%s\n' "$onepager_stream" | awk -F"$tab" '$1=="BUNDLE"{print $2; exit}')
-status=$(printf '%s\n' "$onepager_stream" | awk -F"$tab" '$1=="BUNDLE"{print $3; exit}')
+# The bundle model, captured once so its exit code propagates (fail closed on an
+# absent/unreadable spec directory; /bin/sh has no portable pipefail). The
+# BUNDLE record carries the bundle name and the auto-detected status that drives
+# the stage-aware framing (REQ-B1.3) and the provenance stamp.
+model=$("$model_sh" "$spec_dir") || exit $?
+spec=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="BUNDLE"{print $2; exit}')
+status=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="BUNDLE"{print $3; exit}')
 if [ -z "$spec" ]; then
   spec=$(basename "$spec_dir")
 fi
 [ -n "$status" ] || status="(undeclared)"
+
+# The view record streams. The whole-bundle scope runs each view in <spec-dir>
+# mode (the established path, byte-identical to before this task). A partial
+# scope filters the model through scripts/spec-scope.sh, translates the scoped
+# substream, and feeds the text views that scoped translate stream on stdin (the
+# composable pipe) so each renders only its scope (REQ-B1.2). The graph reuses
+# the orchestrator's critical-path computation, which is bound to the on-disk
+# bundle, so it always renders the whole graph — and is only shown for the
+# scopes whose scope *is* the whole task graph (whole, tasks, file:tasks).
+onepager_stream=
+decisionmap_stream=
+teachback_stream=
+graph_stream=
+scoped_translate=
+if [ "$scope" = whole ]; then
+  [ "$show_op" -eq 1 ] && onepager_stream=$("$onepager_sh" "$spec_dir")
+  [ "$show_dm" -eq 1 ] && decisionmap_stream=$("$decisionmap_sh" "$spec_dir")
+  [ "$show_tb" -eq 1 ] && teachback_stream=$("$teachback_sh" "$spec_dir")
+else
+  # Filter then translate once; the text views share the scoped translate stream.
+  scoped_translate=$(
+    printf '%s\n' "$model" | "$scope_sh" --scope "$scope" | "$translate_sh"
+  )
+  [ "$show_op" -eq 1 ] && onepager_stream=$(printf '%s\n' "$scoped_translate" | "$onepager_sh")
+  [ "$show_dm" -eq 1 ] && decisionmap_stream=$(printf '%s\n' "$scoped_translate" | "$decisionmap_sh")
+  [ "$show_tb" -eq 1 ] && teachback_stream=$(printf '%s\n' "$scoped_translate" | "$teachback_sh")
+fi
+if [ "$show_gr" -eq 1 ]; then
+  graph_stream=$("$graph_sh" "$spec_dir") || exit $?
+fi
 
 # Provenance commit: env override (a stable stamp for the scaffold and tests),
 # else the repo HEAD, else "unknown". git is read-only here.
@@ -392,10 +544,121 @@ graph_prog='
   }
 '
 
-onepager_html=$(printf '%s\n' "$onepager_stream" | awk "$onepager_prog")
-decisionmap_html=$(printf '%s\n' "$decisionmap_stream" | awk "$decisionmap_prog")
-teachback_html=$(printf '%s\n' "$teachback_stream" | awk "$teachback_prog")
-graph_html=$(printf '%s\n' "$graph_stream" | awk "$graph_prog")
+# The blast-radius section fragment (Task 9; REQ-B1.2). For a single-decision
+# scope (decision:<id>) the scope filter keeps the selected decision plus the
+# requirements and tasks that cite it — its blast radius, what the decision
+# affects. The decision itself renders in the decision map above; this section
+# lists, in plain language, the affected requirements and tasks read from the
+# scoped translate stream (TEXT requirement and task-title records). The
+# identifiers stay reveal-only (REQ-D1.3); the same esc() guards every field
+# (REQ-E1.7). An empty radius (nothing cites the decision) renders a clear note
+# rather than an empty list (REQ-A1.5).
+# shellcheck disable=SC2016 # $1..$5/$0 are awk fields, not shell expansions
+blast_prog='
+  function esc(s) {
+    gsub(/&/, "\\&amp;", s)
+    gsub(/</, "\\&lt;", s)
+    gsub(/>/, "\\&gt;", s)
+    gsub(/"/, "\\&quot;", s)
+    gsub(/\047/, "\\&#39;", s)
+    return s
+  }
+  BEGIN { FS = "\t"; nr = 0; nt = 0 }
+  $1 == "TEXT" && $3 == "requirement" { nr++; rref[nr] = $2; rplain[nr] = $4; next }
+  $1 == "TEXT" && $3 == "task-title"  { nt++; tref[nt] = $2; tplain[nt] = $4; next }
+  END {
+    print "<section data-section=\"blastradius\" class=\"card section\">"
+    print "<h2 class=\"section-title\">What this decision affects</h2>"
+    if (nr == 0 && nt == 0) {
+      print "<p class=\"frame empty\">Nothing else in the bundle points back to this decision.</p>"
+      print "</section>"
+      exit
+    }
+    print "<p class=\"frame\">The parts of the bundle that rest on this decision &mdash; change it and these are what feel it.</p>"
+    if (nr > 0) {
+      print "<h3 class=\"blast-group-title\">Requirements</h3>"
+      print "<ol class=\"claims\">"
+      for (i = 1; i <= nr; i++) {
+        print "<li class=\"claim claim-routine\">"
+        printf "<span class=\"plain\">%s</span>", esc(rplain[i])
+        printf "<span class=\"rv ref\"> [%s]</span>", esc(rref[i])
+        print "</li>"
+      }
+      print "</ol>"
+    }
+    if (nt > 0) {
+      print "<h3 class=\"blast-group-title\">Tasks</h3>"
+      print "<ol class=\"claims\">"
+      for (i = 1; i <= nt; i++) {
+        # The task back-pointer ref is "task-<id>"; strip the prefix so the
+        # reveal shows the bundle-facing task id (#<id>), matching the graph.
+        tid = tref[i]; sub(/^task-/, "", tid)
+        print "<li class=\"claim claim-routine\">"
+        printf "<span class=\"plain\">%s</span>", esc(tplain[i])
+        printf "<span class=\"rv ref\"> [#%s]</span>", esc(tid)
+        print "</li>"
+      }
+      print "</ol>"
+    }
+    print "</section>"
+  }
+'
+
+# The verification section fragment (Task 9; REQ-B1.2, file:test-spec scope).
+# The test-spec file pins requirements to verification paths; this view lists,
+# in plain language, the requirements that carry an automated check (the TEST
+# records joined to the kept requirement TEXT). Identifiers stay reveal-only;
+# the same esc() guards every field. No tested requirement renders a clear note.
+# shellcheck disable=SC2016 # $1..$5/$0 are awk fields, not shell expansions
+verify_prog='
+  function esc(s) {
+    gsub(/&/, "\\&amp;", s)
+    gsub(/</, "\\&lt;", s)
+    gsub(/>/, "\\&gt;", s)
+    gsub(/"/, "\\&quot;", s)
+    gsub(/\047/, "\\&#39;", s)
+    return s
+  }
+  BEGIN { FS = "\t"; ntest = 0 }
+  $1 == "TEST" { tested[$2] = 1; next }
+  $1 == "TEXT" && $3 == "requirement" { plain[$2] = $4; ord[++norder] = $2; next }
+  END {
+    print "<section data-section=\"verification\" class=\"card section\">"
+    print "<h2 class=\"section-title\">What is checked</h2>"
+    n = 0
+    for (i = 1; i <= norder; i++) if (ord[i] in tested) n++
+    if (n == 0) {
+      print "<p class=\"frame empty\">No requirement carries an automated check.</p>"
+      print "</section>"
+      exit
+    }
+    printf "<p class=\"frame\">%d requirement%s carr%s an automated check.</p>\n", n, (n == 1 ? "" : "s"), (n == 1 ? "ies" : "y")
+    print "<ol class=\"claims\">"
+    for (i = 1; i <= norder; i++) {
+      ref = ord[i]
+      if (!(ref in tested)) continue
+      print "<li class=\"claim claim-routine\">"
+      printf "<span class=\"plain\">%s</span>", esc(plain[ref])
+      printf "<span class=\"rv ref\"> [%s]</span>", esc(ref)
+      print "</li>"
+    }
+    print "</ol>"
+    print "</section>"
+  }
+'
+
+onepager_html=
+decisionmap_html=
+teachback_html=
+graph_html=
+blast_html=
+verify_html=
+[ "$show_op" -eq 1 ] && onepager_html=$(printf '%s\n' "$onepager_stream" | awk "$onepager_prog")
+[ "$show_dm" -eq 1 ] && decisionmap_html=$(printf '%s\n' "$decisionmap_stream" | awk "$decisionmap_prog")
+[ "$show_tb" -eq 1 ] && teachback_html=$(printf '%s\n' "$teachback_stream" | awk "$teachback_prog")
+[ "$show_gr" -eq 1 ] && graph_html=$(printf '%s\n' "$graph_stream" | awk "$graph_prog")
+[ "$show_blast" -eq 1 ] && blast_html=$(printf '%s\n' "$scoped_translate" | awk "$blast_prog")
+[ "$show_verify" -eq 1 ] && verify_html=$(printf '%s\n' "$scoped_translate" | awk "$verify_prog")
 
 # The inlined stylesheet (D-7, REQ-E1.6): original CSS authored at ship time,
 # drawing on the design language of Tailwind CSS and DaisyUI (their utility /
@@ -435,6 +698,12 @@ body {
 .provenance { margin: 0.25rem 0 0.75rem; color: var(--muted); font-size: 0.9rem; }
 .prov-spec, .prov-commit { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .read-hint { margin: 0.75rem 0 0; color: var(--muted); font-size: 0.9rem; font-style: italic; }
+/* Stage-aware framing (REQ-B1.3): a status-adapted orientation line; the scope
+ * label names what slice is shown so a partial render is never mistaken for the
+ * whole bundle. */
+.stage-framing { margin: 0.75rem 0 0; font-size: 0.95rem; }
+.scope-label { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.blast-group-title { font-size: 1rem; font-weight: 700; margin: 1rem 0 0.5rem; }
 .section-title { margin: 0 0 0.75rem; font-size: 1.25rem; font-weight: 700; }
 .frame { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
 .claims, .tb-claims { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.75rem; }
@@ -506,10 +775,44 @@ body {
 CSS
 )
 
+# Stage-aware framing (Task 9; D-11, REQ-B1.3). The framing adapts to the
+# bundle's auto-detected status — the reader never specifies it. A pre-sign-off
+# cold read for Draft, orientation plus progress for Active, onboarding or
+# archaeology for Done and the terminal statuses. The text is plain and
+# audience-neutral (REQ-C1.1): no internal vocabulary, no verdict (the
+# independence firewall, REQ-D1.1). data-stage carries the detected status so
+# the auto-detection is observable.
+case $status in
+  Draft)
+    stage_text="This is still a draft and has not been signed off. Read it as a proposal and judge it for yourself before it is approved."
+    ;;
+  Active)
+    stage_text="This is approved and the work is underway. Use it to get oriented and to see where things stand."
+    ;;
+  Done)
+    stage_text="This work is finished. Use it to get onboarded, or to trace why the work was shaped the way it was."
+    ;;
+  Retired)
+    stage_text="This work was retired without a replacement. Read it as a record of what was once proposed."
+    ;;
+  Superseded)
+    stage_text="This work was replaced by a newer version. Read it as a record; the current version lives elsewhere."
+    ;;
+  *)
+    stage_text="Read the whole walkthrough and judge the work for yourself."
+    ;;
+esac
+stage_text_e=$(esc_val "$stage_text")
+scope_e=$(esc_val "$scope")
+scope_label_e=$(esc_val "$scope_label")
+
 # Emit the document. Each dynamic value is passed as a printf %s argument (never
 # as a format string) so bundle-derived content is never interpreted; the head
 # values are pre-escaped, and the body fragments were escaped in awk. The styling
 # credit is plain text (no URL) so the artifact references no network resource.
+# Only the sections in scope are emitted, in read-first order (one-pager,
+# decision map, graph, blast radius, verification), with the teach-back prompt
+# last (silent-read-first, REQ-D1.2).
 {
   printf '%s\n' '<!DOCTYPE html>'
   printf '%s\n' '<html lang="en">'
@@ -527,13 +830,17 @@ CSS
   printf '%s\n' '<header class="card hero">'
   printf '%s\n' '<h1 class="hero-title">Spec walkthrough</h1>'
   printf '<p class="provenance" data-provenance="1">Bundle <span class="prov-spec">%s</span> &middot; status <span class="prov-status">%s</span> &middot; generated from commit <span class="prov-commit">%s</span></p>\n' "$spec_e" "$status_e" "$commit_e"
+  printf '<p class="stage-framing" data-stage="%s">%s</p>\n' "$status_e" "$stage_text_e"
+  printf '<p class="scope-label" data-scope="%s">Showing: %s.</p>\n' "$scope_e" "$scope_label_e"
   printf '%s\n' '<label for="reveal-toggle" class="reveal-label">Reveal identifiers</label>'
   printf '%s\n' '<p class="read-hint">Read the whole walkthrough first; the teach-back prompt follows it.</p>'
   printf '%s\n' '</header>'
-  printf '%s\n' "$onepager_html"
-  printf '%s\n' "$decisionmap_html"
-  printf '%s\n' "$graph_html"
-  printf '%s\n' "$teachback_html"
+  [ -n "$onepager_html" ] && printf '%s\n' "$onepager_html"
+  [ -n "$decisionmap_html" ] && printf '%s\n' "$decisionmap_html"
+  [ -n "$graph_html" ] && printf '%s\n' "$graph_html"
+  [ -n "$blast_html" ] && printf '%s\n' "$blast_html"
+  [ -n "$verify_html" ] && printf '%s\n' "$verify_html"
+  [ -n "$teachback_html" ] && printf '%s\n' "$teachback_html"
   printf '%s\n' '<footer class="card foot">'
   printf '%s\n' '<p class="license">Styling: original CSS, inlined for offline use, drawing on the design language of Tailwind CSS and DaisyUI.</p>'
   printf '%s\n' '<p class="license-text">This stylesheet is original work and bundles no third-party code. It draws on the design conventions and color tokens of Tailwind CSS and DaisyUI, both of which are distributed under the MIT License; this is a credit of inspiration, not a claim on their copyright.</p>'

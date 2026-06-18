@@ -90,6 +90,23 @@ run_dir() {
     || fail "dir mode: expected exit $rexp, got $rc for $2 — output: $out"
 }
 
+# run_args <expected-exit> <args...> — run with arbitrary args (the --scope
+# selector lands here), capture combined output in $out.
+run_args() {
+  rexp=$1
+  shift
+  rc=0
+  out=$("$script" "$@" 2>&1) || rc=$?
+  [ "$rc" -eq "$rexp" ] \
+    || fail "expected exit $rexp, got $rc for: $* — output: $out"
+}
+
+# secline <name> — 1-based line number of the data-section="<name>" marker, or
+# empty when the section is not rendered.
+secline() {
+  printf '%s\n' "$out" | grep -n "data-section=\"$1\"" | head -1 | cut -d: -f1
+}
+
 # has / lacks — substring presence in $out.
 has() {
   case $out in
@@ -617,5 +634,187 @@ has 'class="graph-empty"'
 lacks 'class="graph-intro"'
 # No diagram is rendered when there is no task graph.
 lacks 'class="graph-svg"'
+
+# ---------------------------------------------------------------------------
+# 17. Stage-aware framing (Task 9; D-11, REQ-B1.3): the artifact's framing
+#     adapts to the bundle's auto-detected status — no status flag is passed,
+#     the assembler reads it from the bundle. The framing element carries the
+#     detected status in data-stage, and the framing prose differs by stage
+#     (Draft cold read, Active orientation+progress, Done/terminal onboarding or
+#     archaeology). REQ-B1.3 is [test + manual]: the auto-detection (the
+#     data-stage value tracks the bundle status) and the prose-differs property
+#     are the [test] part asserted here; the framing's editorial fitness stays
+#     [manual].
+# ---------------------------------------------------------------------------
+# The Active demo bundle: data-stage tracks the status, and the framing names
+# the in-progress orientation.
+run_dir 0 "$specs/demo"
+has 'class="stage-framing"'
+has 'data-stage="Active"'
+active_frame=$out
+
+# A small single-file bundle per status (framing reads the BUNDLE status, which
+# comes from requirements.md, so requirements.md alone exercises the detection).
+make_status_bundle() {
+  msb=$1
+  mst=$2
+  mkdir -p "$msb"
+  cat >"$msb/requirements.md" <<EOF
+# Stage fixture — Requirements
+
+**Status:** $mst
+**Format-version:** 1
+
+## REQ-A — only group
+
+- **REQ-A1.1** The lone thing SHALL exist. *(Cites: D-1.)*
+EOF
+}
+
+stageroot="$tmp/stage"
+for st in Draft Done Retired Superseded; do
+  make_status_bundle "$stageroot/$st/specs/demo" "$st"
+  run_dir 0 "$stageroot/$st/specs/demo"
+  has "data-stage=\"$st\""
+done
+
+# The prose differs by stage: the Draft framing is not the Active framing. A
+# regression that emitted one constant framing string for every status would be
+# caught here (the Done-when: "the framing changes with the bundle's status").
+make_status_bundle "$stageroot/Draft2/specs/demo" Draft
+run_dir 0 "$stageroot/Draft2/specs/demo"
+draft_frame=$out
+draft_only=$(printf '%s\n' "$draft_frame" | grep 'class="stage-framing"' | head -1)
+active_only=$(printf '%s\n' "$active_frame" | grep 'class="stage-framing"' | head -1)
+[ -n "$draft_only" ] || fail "no stage-framing line in the Draft artifact"
+[ -n "$active_only" ] || fail "no stage-framing line in the Active artifact"
+[ "$draft_only" != "$active_only" ] \
+  || fail "stage framing did not change between Draft and Active (it must adapt to status)"
+
+# ---------------------------------------------------------------------------
+# 18. Scope selection (Task 9; REQ-B1.1, REQ-B1.2): each partial selector
+#     renders only its scope. The whole-bundle default renders all four views;
+#     a partial selector renders only the sections in its scope.
+# ---------------------------------------------------------------------------
+# --scope whole is the explicit default: all four views present, identical
+# section set to the no-scope default.
+run_args 0 --scope whole "$specs/demo"
+has 'data-section="onepager"'
+has 'data-section="decisionmap"'
+has 'data-section="graph"'
+has 'data-section="teachback"'
+# A scope label names what is being shown (so a partial render is never mistaken
+# for the whole bundle), carrying the raw selector in data-scope.
+has 'data-scope="whole"'
+
+# decisions: only the decision map (and the teach-back of those decisions). No
+# one-pager, no graph.
+run_args 0 --scope decisions "$specs/demo"
+has 'data-section="decisionmap"'
+[ -z "$(secline onepager)" ] || fail "scope decisions rendered the one-pager"
+[ -z "$(secline graph)" ] || fail "scope decisions rendered the graph"
+# Both fixture decisions are present.
+ditems=$(printf '%s\n' "$out" | grep -o 'class="decision"' | wc -l | tr -d ' ')
+[ "$ditems" -ge 2 ] || fail "scope decisions surfaced fewer than two decisions"
+
+# tasks: only the dependency graph. No one-pager, no decision map.
+run_args 0 --scope tasks "$specs/demo"
+has 'data-section="graph"'
+has '<svg'
+[ -z "$(secline onepager)" ] || fail "scope tasks rendered the one-pager"
+[ -z "$(secline decisionmap)" ] || fail "scope tasks rendered the decision map"
+
+# reqs:B: the one-pager (and teach-back) for group B only. Group A's content and
+# the decision map / graph are absent. The fixture's group-B requirement text
+# ("third uncited thing") is present; group A's distinctive D-1 decision content
+# is not rendered (no decision map at all).
+run_args 0 --scope reqs:B "$specs/demo"
+has 'data-section="onepager"'
+[ -z "$(secline decisionmap)" ] || fail "scope reqs:B rendered the decision map"
+[ -z "$(secline graph)" ] || fail "scope reqs:B rendered the graph"
+has 'third uncited thing'
+
+# reqs:A: group A only; group B's requirement text is filtered out.
+run_args 0 --scope reqs:A "$specs/demo"
+has 'data-section="onepager"'
+lacks 'third uncited thing'
+
+# file:design renders the decision map; file:tasks the graph.
+run_args 0 --scope file:design "$specs/demo"
+has 'data-section="decisionmap"'
+[ -z "$(secline graph)" ] || fail "scope file:design rendered the graph"
+run_args 0 --scope file:tasks "$specs/demo"
+has 'data-section="graph"'
+[ -z "$(secline decisionmap)" ] || fail "scope file:tasks rendered the decision map"
+
+# file:test-spec renders the verification view (which requirements carry a test
+# path); the fixture's REQ-A1.1 has a [test] entry. No one-pager / map / graph.
+run_args 0 --scope file:test-spec "$specs/demo"
+has 'data-section="verification"'
+[ -z "$(secline onepager)" ] || fail "scope file:test-spec rendered the one-pager"
+[ -z "$(secline graph)" ] || fail "scope file:test-spec rendered the graph"
+
+# ---------------------------------------------------------------------------
+# 19. Single-decision blast radius (Task 9; REQ-B1.2): decision:<id> shows the
+#     decision plus its blast radius — the requirements and tasks that cite it.
+#     In the fixture D-1 is cited by Task 1 ("broad") but not Task 2 ("tail …");
+#     D-2 is cited by Task 2 but not Task 1.
+# ---------------------------------------------------------------------------
+run_args 0 --scope decision:1 "$specs/demo"
+# The selected decision is rendered in the four-beat decision map.
+has 'data-section="decisionmap"'
+has '>Context<'
+has '>Decision<'
+# A dedicated blast-radius section names what the decision affects.
+has 'data-section="blastradius"'
+# D-1's blast radius includes Task 1 ("broad") and excludes Task 2 ("tail …").
+has 'broad'
+lacks 'tail'
+# Only one decision is shown (the selected one): exactly one decision item.
+ditems=$(printf '%s\n' "$out" | grep -o 'class="decision"' | wc -l | tr -d ' ')
+[ "$ditems" -eq 1 ] || fail "scope decision:1 rendered $ditems decisions, expected exactly 1"
+# The graph and one-pager are not part of a single-decision view.
+[ -z "$(secline graph)" ] || fail "scope decision:1 rendered the full graph"
+[ -z "$(secline onepager)" ] || fail "scope decision:1 rendered the one-pager"
+
+# The D-/d- prefix forms resolve to the same decision.
+run_args 0 --scope decision:D-1 "$specs/demo"
+has 'data-section="blastradius"'
+ditems=$(printf '%s\n' "$out" | grep -o 'class="decision"' | wc -l | tr -d ' ')
+[ "$ditems" -eq 1 ] || fail "scope decision:D-1 rendered $ditems decisions, expected exactly 1"
+
+# decision:2's blast radius surfaces Task 2 ("tail …") and excludes the broad
+# Task 1 — the radius tracks the selected decision's citations. Task 2's title
+# carries markup; the blast view renders it escaped (the plain rendering drops
+# the bare "()" but the markup metacharacters survive as escaped entities).
+run_args 0 --scope decision:2 "$specs/demo"
+has 'data-section="blastradius"'
+has 'tail'
+lacks 'broad'
+has '&lt;script&gt;boom&lt;/script&gt;'
+lacks '<script>boom'
+
+# A blast-radius render is still injection-safe: no live script survives.
+[ "$(count_substr '<script')" -eq 0 ] \
+  || fail "blast-radius view introduced a live <script> (a bundle label must be escaped)"
+
+# ---------------------------------------------------------------------------
+# 20. Scope is forwarded through the command scaffold (spec-walkthrough.sh): a
+#     partial selector produces a scoped artifact, not the whole bundle. This
+#     guards the scaffold->assembler wiring (the scaffold validates the selector
+#     and must hand it to the assembler, not drop it).
+# ---------------------------------------------------------------------------
+walkthrough="$here/../scripts/spec-walkthrough.sh"
+if [ -x "$walkthrough" ]; then
+  wkroot="$tmp/wk"
+  make_bundle "$wkroot/specs" demo
+  artifact="$wkroot/.claude/walkthroughs/demo/demo.html"
+  (cd "$wkroot" && SPEC_WALKTHROUGH_COMMIT="$COMMIT" "$walkthrough" --scope decisions "specs/demo" >/dev/null 2>&1)
+  [ -f "$artifact" ] || fail "scaffold did not write the scoped artifact at $artifact"
+  out=$(cat "$artifact")
+  has 'data-section="decisionmap"'
+  [ -z "$(secline onepager)" ] \
+    || fail "scaffold did not forward --scope decisions to the assembler (one-pager present)"
+fi
 
 echo "PASS: test-spec-assemble.sh"

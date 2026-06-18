@@ -26,9 +26,12 @@ the bundle model and plain-language translation (Tasks 2–3), the one-pager and
 teach-back views (Tasks 4–5), and the HTML assembly and styling that bundles
 them into a single offline file (Task 6). On a successful load the command
 writes that file to the gitignored `.claude/walkthroughs/<spec>/` location
-(REQ-E1.1) and names it in the load report. The remaining views (the drawn
-dependency graph and decision-map, partial-scope rendering) land in the
-following tasks and extend this same artifact.
+(REQ-E1.1) and names it in the load report. The artifact carries the
+one-pager, the decision map, the drawn dependency graph, and the teach-back;
+a partial `--scope` selector renders only the sections in its scope (a single
+file, a requirement group, the decision set, the task graph, or one decision
+plus its blast radius), and the framing adapts to the bundle's auto-detected
+status (REQ-B1.2, REQ-B1.3).
 
 ## Doctrine
 
