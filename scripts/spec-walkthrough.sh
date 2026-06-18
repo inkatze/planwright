@@ -354,9 +354,10 @@ printf '  reveal: %s\n' "$reveal"
 # successful load the rendering pipeline assembles the bundle into a single
 # self-contained HTML file at the gitignored .claude/walkthroughs/<spec>/
 # location, stamped with the bundle and the commit it was generated from
-# (REQ-E1.5). The whole-bundle artifact is the Task 6 MVP; scope-limited
-# artifacts land with the scope/stage task. A write failure degrades, never
-# halts opaquely (REQ-A1.5): the bundle loaded; only the artifact is missing.
+# (REQ-E1.5). The resolved --scope is forwarded to the assembler, so a partial
+# selector produces a scope-limited artifact (REQ-B1.2). A write failure
+# degrades, never halts opaquely (REQ-A1.5): the bundle loaded; only the
+# artifact is missing.
 assemble=$(cd "$(dirname "$0")" && pwd)/spec-assemble.sh
 if [ -x "$assemble" ]; then
   out_dir=".claude/walkthroughs/$spec"
@@ -378,9 +379,17 @@ if [ -x "$assemble" ]; then
   # flows to this command's stderr alongside the "not written" line below, so the
   # degradation names the real reason rather than an opaque generic (REQ-A1.5).
   tmp_file=
+  # Forward the validated scope to the assembler so a partial selector produces a
+  # scoped artifact (REQ-B1.2). The selector has already passed this scaffold's
+  # charset + resolution gate above; the assembler re-classifies it (defense in
+  # depth). The whole-bundle default passes no --scope.
+  set -- "$bundle_dir"
+  if [ -n "$scope" ]; then
+    set -- --scope "$scope" "$bundle_dir"
+  fi
   if mkdir -p "$out_dir" 2>/dev/null \
     && tmp_file=$(mktemp "$out_dir/.$spec.html.XXXXXX" 2>/dev/null) \
-    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$bundle_dir" >"$tmp_file" \
+    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$@" >"$tmp_file" \
     && mv -f "$tmp_file" "$out_file"; then
     printf '  artifact: %s\n' "$out_file"
   else
