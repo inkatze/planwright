@@ -212,9 +212,14 @@ has '<meta charset='
 # ---------------------------------------------------------------------------
 # 2. Content escaping / injection safety (REQ-E1.7) — the security core.
 # ---------------------------------------------------------------------------
-# The bundle's literal markup must survive only as escaped entities.
+# The bundle's literal markup must survive only as escaped entities. Each
+# metacharacter class in the fixture is asserted escaped: angle brackets, the
+# ampersand, the double quote (the onerror="..." in the fixture), and the
+# placeholder convention. A partial escaper that dropped any one of these would
+# be caught here, not only by the negative assertions below.
 has '&lt;script&gt;'
 has '&amp;'
+has '&quot;'
 has '&lt;spec&gt;'
 # No executable/structural markup from bundle content survives live.
 lacks "<script>alert('xss')</script>"
@@ -231,10 +236,15 @@ lacks '<b>bold</b>'
 # ---------------------------------------------------------------------------
 # 3. Reveal toggle off by default (REQ-D1.3).
 # ---------------------------------------------------------------------------
-# A reveal control exists and is unchecked by default.
+# A reveal control exists and is unchecked by default. Assert against the toggle
+# element itself, not a loose substring: the word "checked" legitimately appears
+# in the CSS (#reveal-toggle:checked …), so the test must confirm the *input tag*
+# carries no checked attribute rather than that "checked" is absent from the doc.
 has 'id="reveal-toggle"'
-case $out in
-  *'id="reveal-toggle"'*'checked'*) fail "reveal toggle must not ship checked" ;;
+toggle_tag=$(printf '%s\n' "$out" | grep -o '<input[^>]*id="reveal-toggle"[^>]*>' | head -1)
+[ -n "$toggle_tag" ] || fail "no reveal-toggle input element found"
+case $toggle_tag in
+  *checked*) fail "reveal toggle ships checked: $toggle_tag" ;;
   *) ;;
 esac
 # The inlined CSS hides reveal-only content by default and reveals it on :checked.
@@ -257,6 +267,11 @@ leak=$(printf '%s\n' "$out" | grep -o 'class="plain"[^<]*' | grep -E 'REQ-[A-Z][
 
 # ---------------------------------------------------------------------------
 # 4. Silent-read-first ordering (REQ-D1.2): one-pager precedes teach-back.
+#    REQ-D1.2 is [manual] [design-level] in test-spec.md — the *unanchored read*
+#    is a judged UX property a human confirms. This asserts only the mechanical
+#    precondition the artifact must structurally provide: the read (one-pager)
+#    comes before the prompt (teach-back) in document order. A regression that
+#    reordered the sections would be caught here; the full property stays manual.
 # ---------------------------------------------------------------------------
 op_off=$(printf '%s\n' "$out" | grep -n 'data-section="onepager"' | head -1 | cut -d: -f1)
 tb_off=$(printf '%s\n' "$out" | grep -n 'data-section="teachback"' | head -1 | cut -d: -f1)
@@ -302,8 +317,20 @@ boxart=$(printf '%s\n' "$out" | grep -E '[┌┐└┘├┤┬┴┼─│╔�
 # 9. Teach-back present and neutral (D-3, REQ-D1.1).
 # ---------------------------------------------------------------------------
 has 'data-section="teachback"'
-# An agree/disagree/unsure response control per claim, rendered as radio inputs.
+# An agree/disagree/unsure response control per claim, rendered as radio inputs
+# grouped per claim: a unique name= per claim (tb-claim-N) keeps each claim's
+# three options mutually exclusive without binding choices across claims. Assert
+# the structured name is present, not merely that some radio exists.
 has 'type="radio"'
+has 'name="tb-claim-'
+# Distinct radio groups: more than one claim => more than one tb-claim-N name.
+groups=$(printf '%s\n' "$out" | grep -o 'name="tb-claim-[0-9]*"' | sort -u | wc -l | tr -d ' ')
+[ "$groups" -ge 2 ] || fail "expected distinct per-claim radio groups, found $groups"
+# The three neutral options appear as radio values (no verdict, no fourth "right"
+# option). agree/disagree/unsure are the only response values.
+for opt in agree disagree unsure; do
+  has "value=\"$opt\""
+done
 # Neutral wording present; no verdict/score/right-answer surfaced.
 lacks 'correct answer'
 lacks 'pass/fail'
@@ -336,7 +363,10 @@ if command -v git >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# 11. Graceful degradation: missing dir fails closed; missing sibling fails closed.
+# 11. Graceful degradation: missing dir fails closed; missing sibling fails
+#     closed; a partial bundle (the directory exists but lacks some of the four
+#     files) still assembles one valid HTML document (REQ-A1.5 degradation, not
+#     an opaque halt and not a malformed half-document).
 # ---------------------------------------------------------------------------
 run_dir 2 "$specs/does-not-exist"
 # A copy of the script with no sibling views must fail closed (exit 2), not emit
@@ -349,6 +379,29 @@ rc=0
 iout=$("$isolate/spec-assemble.sh" "$specs/demo" 2>&1) || rc=$?
 [ "$rc" -eq 2 ] \
   || fail "missing sibling views: expected exit 2, got $rc — output: $iout"
+# Partial bundle: only requirements.md present (the upstream model degrades,
+# marking the absent files and emitting what is present). The assembler must
+# still emit one well-formed HTML document, exit 0.
+partial="$tmp/partial/specs/demo"
+mkdir -p "$partial"
+cat >"$partial/requirements.md" <<'EOF'
+# Partial — Requirements
+
+**Status:** Draft
+**Format-version:** 1
+
+## REQ-A — only group
+
+- **REQ-A1.1** The lone thing SHALL exist. *(Cites: D-1.)*
+EOF
+run_dir 0 "$tmp/partial/specs/demo"
+case $out in
+  '<!DOCTYPE html'*) ;;
+  *) fail "partial bundle did not produce an HTML document" ;;
+esac
+[ "$(count_substr '</html>')" -eq 1 ] || fail "partial bundle produced a malformed document"
+has 'data-section="onepager"'
+has 'data-section="teachback"'
 
 # ---------------------------------------------------------------------------
 # 12. Composition on a real bundle: full chain renders, escaped, no leak.
