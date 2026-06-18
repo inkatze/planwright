@@ -9,7 +9,7 @@
 # guard over the three sibling SKILL.md files:
 #   - each file mentions `/spec-walkthrough` (the recommendation is present);
 #   - at least one such mention carries a recommendation marker
-#     (recommend / suggest / optional / independent / may), so the touchpoint
+#     (recommend / suggest / optional / independent), so the touchpoint
 #     reads as a suggestion rather than a bare cross-reference;
 #   - no line mentioning `/spec-walkthrough` carries an invocation directive
 #     (invoke / dispatch / auto-invoke / auto-run / chain into / automatically
