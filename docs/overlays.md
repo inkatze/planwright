@@ -60,9 +60,10 @@ In **plugin mode**, `$CLAUDE_PLUGIN_DATA` already carries a per-plugin
 namespace, so a public install and a work fork resolve to *distinct* adopter
 overlays automatically — they never collide (REQ-A1.5). In **writer mode** the
 `<name>` segment is read from the plugin manifest `name` field that
-`install.sh` copies into place. If the manifest is missing or unreadable, the
-adopter layer is simply treated as absent and resolution falls through to the
-next lower layer — never an error.
+`install.sh` copies into place. `<claude-dir>` is `$CLAUDE_DIR` if set, else
+`$HOME/.claude`. If the manifest is missing or unreadable, the adopter layer is
+simply treated as absent and resolution falls through to the next lower layer —
+never an error.
 
 ## 2. Where each kind lives, per layer
 
@@ -303,7 +304,7 @@ hard-fails (a broken shared gauntlet never silently degrades a team).
 #   → hard-fail (nonzero exit) naming repo-tracked
 ```
 
-## Where to go next
+## 9. Where to go next
 
 - [`docs/getting-started.md`](getting-started.md) — installing planwright and
   operating the pilot-in-command model; §4 summarizes overlays and links here.
