@@ -753,6 +753,19 @@ run_args 0 --scope file:test-spec "$specs/demo"
 has 'data-section="verification"'
 [ -z "$(secline onepager)" ] || fail "scope file:test-spec rendered the one-pager"
 [ -z "$(secline graph)" ] || fail "scope file:test-spec rendered the graph"
+# The view actually lists the tested requirement, not just an empty section: the
+# fixture's REQ-A1.1 carries a [test] entry, so the non-empty frame and the
+# requirement's reveal ref render. A regression that emitted an empty "What is
+# checked" section (or dropped TEST records in translation) would pass the
+# existence check above but fail here. The "1 requirement" count distinguishes
+# the non-empty frame from the empty-state note ("No requirement carries ...").
+has '1 requirement carries an automated check'
+has 'REQ-A1.1'
+# REQ-A1.1's text carries markup; the verification view renders it escaped, the
+# same injection-safety guarantee the other views give (no live script survives).
+has '&lt;script&gt;alert'
+[ "$(count_substr '<script')" -eq 0 ] \
+  || fail "verification view introduced a live <script> (a tested requirement's text must be escaped)"
 
 # ---------------------------------------------------------------------------
 # 19. Single-decision blast radius (Task 9; REQ-B1.2): decision:<id> shows the
