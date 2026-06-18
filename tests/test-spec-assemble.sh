@@ -496,4 +496,41 @@ has 'class="graph-svg"'
 [ "$(count_substr '<script')" -eq 0 ] \
   || fail "graph introduced a live <script> (a bundle label must be escaped)"
 
+# ---------------------------------------------------------------------------
+# 15. Graph node labels honor the MAXLABEL budget: a title longer than the
+#     budget renders truncated with an ellipsis, and the visible <text> content
+#     (content + "...") never exceeds MAXLABEL=26. The full, untruncated title
+#     stays in the node's <title> tooltip.
+# ---------------------------------------------------------------------------
+longspecs="$tmp/long"
+make_bundle "$longspecs" demo
+cat >"$longspecs/demo/tasks.md" <<'EOF'
+# Fixture — Tasks
+
+**Status:** Active
+**Last reviewed:** 2026-06-16
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — supercalifragilisticexpialidociousX
+
+- **Deliverables:** a thing.
+- **Done when:** the thing exists.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-A1.1, REQ-A1.2
+- **Estimated effort:** 1 day
+EOF
+run_dir 0 "$longspecs/demo"
+glabel=$(printf '%s\n' "$out" | sed -n 's/.*<text class="graph-label"[^>]*>\(.*\)<\/text>.*/\1/p' | head -1)
+[ -n "$glabel" ] || fail "no graph-label text found for the long-title node"
+glen=${#glabel}
+[ "$glen" -le 26 ] || fail "graph label exceeds MAXLABEL=26: [$glabel] (len=$glen)"
+case $glabel in
+  *...) ;;
+  *) fail "long graph label should end with an ellipsis: [$glabel]" ;;
+esac
+# The full title survives untruncated in the node <title> tooltip.
+has '<title>supercalifragilisticexpialidociousX</title>'
+
 echo "PASS: test-spec-assemble.sh"

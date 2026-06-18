@@ -292,6 +292,13 @@ out=$(SPEC_WALKTHROUGH_DOT="$badexit/dot" "$script" "$bundle" 2>&1) \
   || fail "graphviz-failing run should still succeed (degrade), exit non-zero"
 [ "$(field GRAPHMETA 4)" = builtin ] \
   || fail "a failing dot must degrade to layout=builtin (REQ-E1.3)"
+# The in-artifact note must stay accurate: a dot binary WAS found (command -v
+# succeeded) and only its layout failed, so the note must not claim Graphviz was
+# "not detected" (REQ-E1.3 "in-artifact note").
+note8a=$(field GRAPHNOTE 2)
+case $note8a in
+  *"not detected"*) fail "present-but-failed dot still claims 'not detected': [$note8a]" ;;
+esac
 # 8b. dot emits garbage (no parseable layout).
 garbage="$tmp/gv-garbage"
 mkdir -p "$garbage"
@@ -327,6 +334,34 @@ out=$(SPEC_WALKTHROUGH_DOT="$slow/dot" SPEC_WALKTHROUGH_DOT_TIMEOUT=1 "$script" 
   || fail "graphviz-slow run should still succeed (degrade)"
 [ "$(field GRAPHMETA 4)" = builtin ] \
   || fail "a dot exceeding the time bound must degrade to layout=builtin (REQ-E1.3 timeout)"
+
+# 8d. A non-integer SPEC_WALKTHROUGH_DOT_TIMEOUT must not defeat the watchdog.
+#     The value is fed straight to the watchdog's `sleep`; a bad value makes that
+#     `sleep` error out and (under set -e) skip its `kill`, leaving a slow/hung
+#     `dot` unbounded. The script coerces a non-integer back to the default
+#     bound, so a dot that sleeps past that default still degrades to built-in.
+#     The stub sleeps 7s (> the 5s default); with the watchdog intact it is
+#     killed before it can emit its otherwise-valid layout. (Without the coercion
+#     this run picks layout=graphviz after ~7s — the assertion catches that.)
+vslow="$tmp/gv-vslow"
+mkdir -p "$vslow"
+cat >"$vslow/dot" <<'STUB'
+#!/bin/sh
+sleep 7
+cat <<'PLAIN'
+graph 1.0 6.0 2.0
+node 1 0.5 1.0 1.2 0.5 t1 solid box black lightgrey
+node 2 2.5 1.5 1.2 0.5 t2 solid box black lightgrey
+node 3 2.5 0.5 1.2 0.5 t3 solid box black lightgrey
+node 4 4.5 1.0 1.2 0.5 t4 solid box black lightgrey
+stop
+PLAIN
+STUB
+chmod +x "$vslow/dot"
+out=$(SPEC_WALKTHROUGH_DOT="$vslow/dot" SPEC_WALKTHROUGH_DOT_TIMEOUT=notanumber "$script" "$bundle" 2>&1) \
+  || fail "invalid-timeout run should still succeed (degrade)"
+[ "$(field GRAPHMETA 4)" = builtin ] \
+  || fail "an invalid timeout must fall back to the default bound and still degrade a slow dot (REQ-E1.3 timeout)"
 
 # Restore the force-builtin override for the remaining cases.
 SPEC_WALKTHROUGH_DOT=dot-not-installed-xyz

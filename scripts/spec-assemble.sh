@@ -237,8 +237,8 @@ teachback_prog='
 # coordinates are numeric (the view validated them) and coerced with +0. The
 # critical path and its edges carry a -critical class for the highlight; the
 # back-pointer id sits in a reveal-only (.rv) SVG element, hidden by default
-# (REQ-D1.3). No xmlns is emitted: inline SVG in an HTML5 document needs none,
-# and a namespace URI would read as a (never-fetched) network reference.
+# (REQ-D1.3). No xmlns is emitted: the HTML5 parser places inline SVG in the SVG
+# namespace automatically, so an explicit xmlns identifier is redundant here.
 # shellcheck disable=SC2016 # $1..$6/$0 are awk fields, not shell expansions
 graph_prog='
   function esc(s) {
@@ -251,7 +251,9 @@ graph_prog='
   }
   function trunc(s,   t) {
     if (length(s) <= MAXLABEL) return s
-    t = substr(s, 1, MAXLABEL - 1)
+    # Reserve three characters for the ellipsis so the rendered label (content +
+    # "...") never exceeds MAXLABEL.
+    t = substr(s, 1, MAXLABEL - 3)
     sub(/ +$/, "", t)
     return t "..."
   }

@@ -124,7 +124,20 @@ gvcoords=
 gvheight=
 dot_bin=${SPEC_WALKTHROUGH_DOT:-dot}
 gv_timeout=${SPEC_WALKTHROUGH_DOT_TIMEOUT:-5}
+# The timeout is fed straight to the watchdog's `sleep`; a non-integer (or
+# negative) value would make that `sleep` error out, and under `set -e` the
+# watchdog subshell would then exit before its `kill` — defeating the bound and
+# letting a hung `dot` stall the render (REQ-E1.3 "timeout"). Coerce anything
+# that is not a plain non-negative integer back to the default.
+case $gv_timeout in '' | *[!0-9]*) gv_timeout=5 ;; esac
 if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
+  # `dot` is present (command -v found it). If any step below rejects its layout
+  # (non-zero exit, timeout, or unparseable output) we keep the built-in layout,
+  # but the in-artifact note must not then claim Graphviz was "not detected" — it
+  # was, it just did not return a usable layout. The success branch overwrites
+  # this; every failure mode degrades identically (REQ-E1.3) while the note stays
+  # accurate about which mode occurred.
+  note="Built-in layout (Graphviz did not return a usable layout; using the built-in graph)."
   # Build a DOT graph from numeric ids only — no bundle text reaches dot, so no
   # title can inject DOT syntax.
   dot_src=$(
