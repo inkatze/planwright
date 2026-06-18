@@ -52,40 +52,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
-### Task 5 — Catalog-overlay resolution
-
-- **Status:** PR #40 draft
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-5` (branch `planwright/customization-overlay/task-5`, worktree `.claude/worktrees/customization-overlay-task-5`, branched off origin/main `6a26164`).
-- **Deliverables:** A catalog discovery path that unions core seed entries
-  with overlay entries (append/union, supersede-by-id) for the decision-domains
-  catalog and the guard catalog, with a `--explain` provenance mode, the
-  malformed-by-layer policy for catalog parsing (a catalog overlay not
-  parseable into entries degrades+warns for adopter/machine-local and
-  hard-fails for repo-tracked, per D-7/REQ-E1.4), and the
-  consuming skills wired to read the merged catalog through it. This task
-  **pins the supersede-by-id syntax** (overlay entry carries the target id plus
-  a supersede marker) as the merge contract bootstrap Task 16 consumes. Tests
-  under `tests/`.
-- **Done when:** overlay entries append to the core seed; a supersede-by-id
-  entry replaces its target; the supersede-by-id syntax is documented as the
-  contract, including the behavior when a supersede-by-id entry names a
-  non-existent target (pinned, not left implementation-defined); resolution is
-  order-independent of filesystem enumeration; the
-  decision-domains consumer reads the merged path with no single-layer
-  hardcoding; the guard-catalog consumer is wired the same way *if* bootstrap
-  Task 16's guard catalog exists at execution time (else that wiring defers per
-  the risk-register row, and the merge mechanism plus decision-domains consumer
-  still ship); a malformed (unparseable) adopter or machine-local catalog
-  overlay degrades to the next lower layer with a stderr warning and a
-  malformed repo-tracked catalog overlay exits nonzero (REQ-E1.4 by-layer
-  policy); `--explain` names each entry's layer; tests pass under
-  `mise run check`.
-- **Dependencies:** 2
-- **Citations:** D-2, D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
-  REQ-B1.6, REQ-D1.1, REQ-E1.4
-- **Estimated effort:** 1 day
-
 ## Awaiting input
 
 (none yet)
@@ -170,6 +136,38 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Dependencies:** 2
 - **Citations:** D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
   REQ-B1.6, REQ-E1.3, REQ-E1.4
+- **Estimated effort:** 1 day
+
+### Task 5 — Catalog-overlay resolution
+
+- **Status:** Completed — PR #40 merged 2026-06-17 (merge commit `b6a9407`).
+- **Deliverables:** A catalog discovery path that unions core seed entries
+  with overlay entries (append/union, supersede-by-id) for the decision-domains
+  catalog and the guard catalog, with a `--explain` provenance mode, the
+  malformed-by-layer policy for catalog parsing (a catalog overlay not
+  parseable into entries degrades+warns for adopter/machine-local and
+  hard-fails for repo-tracked, per D-7/REQ-E1.4), and the
+  consuming skills wired to read the merged catalog through it. This task
+  **pins the supersede-by-id syntax** (overlay entry carries the target id plus
+  a supersede marker) as the merge contract bootstrap Task 16 consumes. Tests
+  under `tests/`.
+- **Done when:** overlay entries append to the core seed; a supersede-by-id
+  entry replaces its target; the supersede-by-id syntax is documented as the
+  contract, including the behavior when a supersede-by-id entry names a
+  non-existent target (pinned, not left implementation-defined); resolution is
+  order-independent of filesystem enumeration; the
+  decision-domains consumer reads the merged path with no single-layer
+  hardcoding; the guard-catalog consumer is wired the same way *if* bootstrap
+  Task 16's guard catalog exists at execution time (else that wiring defers per
+  the risk-register row, and the merge mechanism plus decision-domains consumer
+  still ship); a malformed (unparseable) adopter or machine-local catalog
+  overlay degrades to the next lower layer with a stderr warning and a
+  malformed repo-tracked catalog overlay exits nonzero (REQ-E1.4 by-layer
+  policy); `--explain` names each entry's layer; tests pass under
+  `mise run check`.
+- **Dependencies:** 2
+- **Citations:** D-2, D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
+  REQ-B1.6, REQ-D1.1, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ## Deferred
