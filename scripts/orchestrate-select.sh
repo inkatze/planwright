@@ -1,6 +1,7 @@
 #!/bin/sh
 # orchestrate-select.sh — pick the next ready unit for /orchestrate,
-# critical-path-first (Task 13, REQ-F1.2, D-7, D-8).
+# critical-path-first (Task 13, REQ-F1.2, D-7, D-8), and emit the critical path
+# for the comprehension graph view (Task 7 of specs/spec-comprehension, D-6).
 #
 # A ready task is one in the `## Forward plan` section whose every dependency
 # sits in `## Completed` (a task that is In progress, Awaiting input, or in a
@@ -15,12 +16,23 @@
 # the state record); the per-block Status annotation is advisory and is NOT
 # consulted here, so the selector agrees with the content anchor's view.
 #
-# Usage: orchestrate-select.sh <spec-dir>
-#   prints the selected task id on stdout.
+# Usage:
+#   orchestrate-select.sh <spec-dir>
+#       prints the selected ready task id on stdout (the default; for
+#       /orchestrate dispatch).
+#   orchestrate-select.sh --critical-path <spec-dir>
+#       prints the effort-weighted longest-dependent chain — the structural
+#       critical path — as ordered task ids, one per line. This is the single
+#       source of truth the comprehension dependency-graph view reuses rather
+#       than recomputing (D-6): it shares the same weight()/crit() longest-chain
+#       logic the selector uses. Unlike selection, the chain spans the FULL task
+#       DAG (every section): the terminal-task exclusion is a remaining-work
+#       filter specific to dispatch, deliberately not applied to the structural
+#       visualization. On a bundle with nothing completed the two coincide.
 #
-# Exit: 0 a unit was selected (id on stdout); 1 no ready unit this step;
-# 2 the tasks.md is missing, unreadable, or holds no task records (fail
-# closed — selection on a malformed file must not silently report "nothing").
+# Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
+# unit this step; 2 the tasks.md is missing, unreadable, or holds no task
+# records (fail closed — a malformed file must not silently report "nothing").
 #
 # Portable POSIX sh + awk + git-free (bash 3.2 / BSD awk compatible): no
 # gawk-only constructs (3-arg match, gensub), no eval, input treated as data.
@@ -32,9 +44,19 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# Mode: the optional leading --critical-path flag selects the path-emitting mode
+# (D-6); without it the script is the unchanged ready-unit selector.
+mode=select
+case "${1:-}" in
+  --critical-path)
+    mode=path
+    shift
+    ;;
+esac
+
 spec_dir="${1:-}"
 if [ -z "$spec_dir" ]; then
-  echo "usage: orchestrate-select.sh <spec-dir>" >&2
+  echo "usage: orchestrate-select.sh [--critical-path] <spec-dir>" >&2
   exit 2
 fi
 tasks_md="$spec_dir/tasks.md"
@@ -43,7 +65,7 @@ if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
   exit 2
 fi
 
-awk '
+awk -v mode="$mode" '
   function weight(s) {
     # Effort string -> a numeric weight. "half day" is 0.5; otherwise the
     # leading number ("1", "1.5", "2", "3"); an unrecognized form is 1.
@@ -117,14 +139,48 @@ awk '
       deps[t] = list
     }
 
-    # Reverse edges: a non-terminal task t extends the chain of each dep it
-    # declares. Terminal tasks (Completed / Out of scope) are not future work.
+    # Reverse edges: a task t extends the chain of each dep it declares. In
+    # selection mode only non-terminal tasks count (Completed / Out of scope are
+    # not future work, so a done task never lengthens the remaining critical
+    # path). In path mode every task counts: the structural critical path is a
+    # property of the whole DAG, independent of how much is already done.
     for (t in sec) {
-      terminal = (sec[t] == "Completed" || sec[t] == "Out of scope")
-      if (terminal) continue
+      if (mode != "path") {
+        terminal = (sec[t] == "Completed" || sec[t] == "Out of scope")
+        if (terminal) continue
+      }
       m = split(deps[t], a, " ")
       for (i = 1; i <= m; i++)
         if (a[i] != "") deps_of[a[i]] = deps_of[a[i]] t " "
+    }
+
+    # Path mode: emit the effort-weighted longest-dependent chain (D-6). The
+    # head is the task with the greatest crit() (FIFO ties); from there follow
+    # the highest-crit dependent at each step, which is the continuation of the
+    # longest chain. A visited guard keeps a malformed cyclic graph from looping.
+    if (mode == "path") {
+      head = ""; hw = -1; ho = 0
+      for (t in sec) {
+        w = crit(t)
+        if (w > hw || (w == hw && order[t] < ho)) { hw = w; head = t; ho = order[t] }
+      }
+      cur = head
+      print cur
+      visited[cur] = 1
+      while (1) {
+        n = split(deps_of[cur], arr, " ")
+        nb = ""; nw = -1; nord = 0
+        for (i = 1; i <= n; i++) {
+          if (arr[i] == "") continue
+          w = crit(arr[i])
+          if (w > nw || (w == nw && order[arr[i]] < nord)) { nw = w; nb = arr[i]; nord = order[arr[i]] }
+        }
+        if (nb == "" || (nb in visited)) break
+        print nb
+        visited[nb] = 1
+        cur = nb
+      }
+      exit 0
     }
 
     # Ready set + critical-path selection.

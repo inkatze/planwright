@@ -259,4 +259,59 @@ rc=0
 [ "$rc" = 1 ] || fail "dangling-only fixture: exit $rc, expected 1 (no ready task)"
 echo "ok: a task with a non-existent dependency is treated as blocked"
 
+# ---------------------------------------------------------------------------
+# --critical-path mode (Task 7 of specs/spec-comprehension, D-6, REQ-C1.3):
+# an additive mode that emits the effort-weighted longest-dependent chain — the
+# structural critical path — as ordered task ids, one per line, reusing the SAME
+# weight()/crit() longest-chain logic the selector uses. The dependency-graph
+# view highlights exactly this output, so "the highlighted path matches the
+# reused computation" holds by construction. Unlike selection, the path is over
+# the FULL task DAG (all sections): the terminal-task exclusion is a remaining-
+# work filter for *dispatch*, not for the *visualization*.
+# ---------------------------------------------------------------------------
+
+# 9. --critical-path emits the full-graph longest effort-weighted chain. On the
+#    chain fixture (d1) the longest chain is 1 -> 2 -> 3 -> 4 (1 + 0.5 + 1 + 1);
+#    task 5 is a short leaf off 1, so it is not on the path.
+cp_out=$(/bin/bash "$SEL" --critical-path "$d1") || fail "--critical-path d1: non-zero exit"
+cp_expected=$(printf '1\n2\n3\n4')
+[ "$cp_out" = "$cp_expected" ] \
+  || fail "--critical-path d1: got [$cp_out], expected [1 2 3 4]"
+echo "ok: --critical-path emits the full-graph effort-weighted longest chain"
+
+# 10. The mode is additive: the default selection output is unchanged.
+got=$(/bin/bash "$SEL" "$d1") || fail "default mode regressed under --critical-path addition"
+[ "$got" = 2 ] || fail "default selection changed: got '$got', expected 2"
+echo "ok: --critical-path is additive — default selection is unchanged"
+
+# 11. Over the real spec-comprehension bundle the emitted path matches the
+#     documented structural critical path (tasks.md build-order note:
+#     1 -> 2 -> 3 -> 5 -> 6 -> 7 -> 11). This anchors REQ-C1.3's "matches the
+#     reused computation for the same bundle". The path is section-independent
+#     (full DAG), so it is stable as tasks complete.
+real="$here/../specs/spec-comprehension"
+if [ -d "$real" ]; then
+  cp_real=$(/bin/bash "$SEL" --critical-path "$real") \
+    || fail "--critical-path real bundle: non-zero exit"
+  cp_real_expected=$(printf '1\n2\n3\n5\n6\n7\n11')
+  [ "$cp_real" = "$cp_real_expected" ] \
+    || fail "--critical-path real bundle: got [$cp_real], expected [1 2 3 5 6 7 11]"
+  echo "ok: --critical-path matches the documented critical path on the real bundle"
+fi
+
+# 12. --critical-path fails closed on a missing / taskless tasks.md (exit 2),
+#     same as selection.
+rc=0
+/bin/bash "$SEL" --critical-path "$tmp/does-not-exist" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "--critical-path missing tasks.md: exit $rc, expected 2"
+rc=0
+/bin/bash "$SEL" --critical-path "$d6" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "--critical-path taskless tasks.md: exit $rc, expected 2"
+echo "ok: --critical-path fails closed on a missing/taskless bundle"
+
+# 13. A single depless task is its own critical path.
+cp_solo=$(/bin/bash "$SEL" --critical-path "$d8") || fail "--critical-path solo: non-zero exit"
+[ "$cp_solo" = 1 ] || fail "--critical-path solo: got [$cp_solo], expected [1]"
+echo "ok: --critical-path of a single depless task is that task"
+
 echo "PASS: orchestrate-select"
