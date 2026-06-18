@@ -55,7 +55,7 @@ rec_marker='recommend|suggest|optional|independent'
 # the human acts; the skill never runs the command itself. "run" on its own is
 # allowed (the human runs it); only the auto-/agent-imperative forms are
 # forbidden.
-invoke_pattern='invoke|dispatch|auto-?invoke|auto-?run|chain into|automatically (run|invoke|launch)|chains? into'
+invoke_pattern='invoke|dispatch|auto-?invoke|auto-?run|automatically (run|invoke|launch)|chains? into'
 
 for s in $siblings; do
   f="$REPO_ROOT/skills/$s/SKILL.md"
