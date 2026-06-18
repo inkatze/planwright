@@ -6,8 +6,13 @@
 # flag parsing, the identifier-charset + path-containment safety gate, the
 # read-only status-agnostic bundle load, and graceful degradation; it emits a
 # load report that the rendering tasks (the bundle model, the plain-language
-# translation, the views, the HTML assembly) build on. It renders no artifact
-# yet — artifact production lands with the HTML-assembly task.
+# translation, the views, the HTML assembly) build on.
+#
+# Task 6 layers artifact production on top: on a successful load the scaffold
+# assembles the bundle into a single self-contained HTML artifact (via the
+# sibling scripts/spec-assemble.sh) and writes it to the gitignored
+# .claude/walkthroughs/<spec>/ location (REQ-E1.1). That write is the command's
+# one sanctioned write (REQ-A1.3); the load report stays read-only.
 #
 # Usage:
 #   spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>
@@ -25,9 +30,10 @@
 #                         decision:1 or decision:D-1)
 # --reveal exposes the underlying identifiers; it is off by default (REQ-D1.3).
 #
-# Read-only (REQ-A1.3): this scaffold writes nothing. The only sanctioned write
-# in the whole command is the generated artifact to the gitignored location,
-# owned by a later task; Task 1 produces no file.
+# Read-only (REQ-A1.3): the only sanctioned write in the whole command is the
+# generated artifact to the gitignored .claude/walkthroughs/<spec>/ location
+# (Task 6, below). The load and scope resolution above write nothing; the
+# artifact is gitignored, so a run still leaves the tracked tree clean.
 #
 # Status-agnostic (REQ-A1.4, REQ-B1.4): every status renders, including the
 # terminal Retired/Superseded, in deliberate contrast with the execution
@@ -343,3 +349,44 @@ else
 fi
 printf '  scope: %s\n' "$scope_label"
 printf '  reveal: %s\n' "$reveal"
+
+# Artifact generation (REQ-E1.1) — the command's one sanctioned write. On a
+# successful load the rendering pipeline assembles the bundle into a single
+# self-contained HTML file at the gitignored .claude/walkthroughs/<spec>/
+# location, stamped with the bundle and the commit it was generated from
+# (REQ-E1.5). The whole-bundle artifact is the Task 6 MVP; scope-limited
+# artifacts land with the scope/stage task. A write failure degrades, never
+# halts opaquely (REQ-A1.5): the bundle loaded; only the artifact is missing.
+assemble=$(cd "$(dirname "$0")" && pwd)/spec-assemble.sh
+if [ -x "$assemble" ]; then
+  out_dir=".claude/walkthroughs/$spec"
+  out_file="$out_dir/$spec.html"
+  commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+  # Assemble into a temp file in the output directory, then rename into place
+  # only on success. Redirecting straight at $out_file would create/truncate it
+  # before the assembler runs, so a failed assembly would leave an empty or
+  # partial file behind (contradicting the "not written" message) and would
+  # destroy a previously-written good artifact. Writing to a sibling temp file
+  # and `mv`-ing on success keeps the rename atomic (same filesystem); the temp
+  # is removed on any failure. The temp shares the gitignored directory, so the
+  # tracked tree stays clean either way (the house mktemp+rename pattern, see
+  # scripts/tasks-pr-sync.sh).
+  #
+  # The assembler's stderr is deliberately NOT redirected to /dev/null: on
+  # success it emits nothing on stderr, so the load report stays clean, and on
+  # failure its specific diagnostic (e.g. "spec directory absent or unreadable")
+  # flows to this command's stderr alongside the "not written" line below, so the
+  # degradation names the real reason rather than an opaque generic (REQ-A1.5).
+  tmp_file=
+  if mkdir -p "$out_dir" 2>/dev/null \
+    && tmp_file=$(mktemp "$out_dir/.$spec.html.XXXXXX" 2>/dev/null) \
+    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$bundle_dir" >"$tmp_file" \
+    && mv -f "$tmp_file" "$out_file"; then
+    printf '  artifact: %s\n' "$out_file"
+  else
+    if [ -n "$tmp_file" ]; then rm -f "$tmp_file"; fi
+    printf '  artifact: not written (could not assemble or write %s)\n' "$out_file" >&2
+  fi
+else
+  printf '  artifact: not written (assembly layer unavailable at %s)\n' "$assemble" >&2
+fi

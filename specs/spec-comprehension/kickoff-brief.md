@@ -497,6 +497,82 @@ the accepted decisions (no decision-domains escalation):
   differ. The split mirrors the in-artifact / in-session delivery split the
   brief §3 recorded for REQ-D1.4.
 
+### Task 6 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 6 (the HTML assembly layer, `scripts/spec-assemble.sh`, plus
+the `scripts/spec-walkthrough.sh` artifact write) consumes untrusted input (the
+one-pager and teach-back record streams, which carry bundle content), runs the
+sibling view scripts as subprocesses, **serializes that content into an HTML/SVG
+document**, and writes the document to a path — the `security-posture` write-time
+untrusted-input, subprocess, serialization, and path-handling trigger classes
+all at once. Unlike the upstream layers, Task 6 is the layer where the
+output-encoding security work actually lands (REQ-E1.7 is its defining
+requirement), so the pass here is focused, not light. No new dependency (the
+portability envelope is unchanged: `/bin/sh` + `awk`, the REQ-K1.5 floor); the
+styling primitives (Tailwind CSS, DaisyUI) are MIT-licensed and inlined, not a
+runtime dependency.
+
+**Sources consulted.** `scripts/spec-onepager.sh` and `scripts/spec-teachback.sh`
+(the upstream views this layer assembles, and the documented contract that each
+carries bundle text *verbatim* and defers escaping to this layer so the reveal
+seam stays lossless, D-2), `scripts/spec-translate.sh` / `scripts/spec-model.sh`
+(the `clean()` / C-locale record-hygiene discipline that folds control bytes —
+including the tab delimiter — to spaces, so a tab-clean stream reaches this
+layer), the `security-posture` doctrine doc, the canonical HTML output-encoding
+guidance (the five-character context-aware escape set `& < > " '`, ampersand
+first), and REQ-E1.7 / REQ-E1.4 / REQ-E1.1 / REQ-E1.2.
+
+**Pass applied (the escaping is the security core — no residual risk surfaced).**
+Output encoding is centralized at the assembly boundary: every bundle-derived
+field — the one-pager plain/ref/source columns, the teach-back claim plain/ref/
+source and section labels, and the head's spec/status/commit values — passes
+through an `esc()` (HTML-escaping `&` first, then `< > " '`, with `\047` keeping
+the apostrophe out of the single-quoted `awk` source) before it reaches the
+document. The five-character set covers both contexts a bundle value can land
+in: HTML text and double-quoted attribute values. Bytes ≥ 0x80 (a multibyte ≤
+threshold, an em dash) are passed through escaping untouched under the pinned C
+locale, so normative tokens survive verbatim (REQ-C1.7) while still displaying
+as literal text. **Defense in depth:** the artifact ships **no executable
+JavaScript** (the reveal toggle is a pure-CSS `:checked` sibling rule), so even a
+hypothetical escape miss has no script-execution context to land in; and no
+bundle content is ever interpolated as a `printf` format string (every dynamic
+value is a `%s` argument, never the format) or into a shell/`eval`/path
+constructed from content. The document references **no external network
+resource** (no URL, no web font, no `@import`, no external stylesheet) — it is
+offline and self-contained (REQ-E1.2). Artifact data-hygiene holds: the file
+carries only bundle content and a short commit hash (no secrets, credentials, or
+internal hostnames), is written to the gitignored `.claude/walkthroughs/<spec>/`
+location (REQ-E1.1), and the test suite runs `gitleaks` directly over a
+generated artifact (REQ-E1.4). The provenance commit is derived read-only
+(`git rev-parse --short HEAD`, env-overridable for a deterministic stamp); the
+sibling subprocesses receive only the already-gated spec-directory argument (the
+identifier-charset and path-containment gate stays the command scaffold's job,
+REQ-A1.6), and their fail-closed exit codes propagate so an absent/unreadable
+bundle never yields a silent half-document.
+
+**Declared scoping (`proportionality`).** Two within-task scoping calls, both
+low-stake and reversible, recorded rather than escalated, and consistent with
+the accepted decisions (no decision-domains escalation):
+
+- *Escape-context coverage (REQ-E1.7).* The five-character escape covers the two
+  contexts bundle content reaches today: HTML text and double-quoted attributes.
+  No bundle content enters a CSS context (the stylesheet is static and curated)
+  or a URL/`href` context (none is emitted from content). When the inline-SVG
+  diagram views land (Task 7), bundle text rendered inside SVG sits in SVG text /
+  attribute contexts, which the same five-character set covers; a dedicated SVG
+  pass rides that task. The escaping is verified by a markup-bearing fixture
+  (`<script>`, an `onerror` handler, raw `< & "`, the `<spec>` placeholder) that
+  asserts the literal characters survive as entities and no live markup from
+  bundle content appears in the output.
+- *Artifact scope (D-4, REQ-E1.1).* The Task 6 MVP artifact is the whole-bundle
+  one-pager plus teach-back; the drawn graph/decision-map views and partial-scope
+  rendering layer onto this same assembly in later tasks. The scaffold writes the
+  whole-bundle artifact on any successful load; scope-limited artifacts are the
+  scope/stage task's job, recorded so the current whole-bundle behavior is not
+  mistaken for a gap.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)

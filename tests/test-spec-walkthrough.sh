@@ -10,8 +10,9 @@
 #       reveal state (REQ-A1.1).
 #   2.  Status-agnostic: Draft, Active, Done, Retired, and Superseded each
 #       load without a non-Active refusal (REQ-A1.4, REQ-B1.4).
-#   3.  Strictly read-only: a run in a git work tree leaves the tree clean —
-#       no modified bundle file, no new path, no commit (REQ-A1.3).
+#   3.  Strictly read-only apart from the gitignored artifact: a run leaves the
+#       tracked tree clean, and the self-contained HTML walkthrough is written to
+#       the gitignored .claude/walkthroughs/<spec>/ location (REQ-A1.3, REQ-E1.1).
 #   4.  Argument and flag parsing: spec-path required; both `specs/<spec>`
 #       and bare `<spec>` forms accepted; `--scope`/`--reveal` parse; an
 #       unknown flag or a missing scope value is a usage refusal (REQ-A1.2).
@@ -223,12 +224,18 @@ has "undeclared"
 lacks "status: Active"
 
 # ---------------------------------------------------------------------------
-# 3. Strictly read-only: the git work tree stays clean after a run.
+# 3. Strictly read-only apart from the gitignored artifact (REQ-A1.3, REQ-E1.1):
+#    the generated walkthrough is written under the gitignored
+#    .claude/walkthroughs/<spec>/ location, so a run still leaves the *tracked*
+#    work tree clean — no modified bundle file, no new tracked path, no commit.
 # ---------------------------------------------------------------------------
 if command -v git >/dev/null 2>&1; then
   gws="$tmp/gitws"
   mkdir -p "$gws"
   make_bundle "$gws/specs" demo Draft
+  # The real repo gitignores the artifact location (Task 6); mirror that so the
+  # clean-tree assertion reflects the true contract.
+  printf '%s\n' '.claude/walkthroughs/' >"$gws/.gitignore"
   (
     cd "$gws"
     git init -q
@@ -242,7 +249,20 @@ if command -v git >/dev/null 2>&1; then
   run_w 0 "$gws" demo
   status_after=$(cd "$gws" && git status --porcelain)
   [ -z "$status_after" ] \
-    || fail "run was not read-only; git status: $status_after"
+    || fail "run was not read-only in the tracked tree; git status: $status_after"
+  # The artifact was written to the gitignored location and is a self-contained
+  # HTML document (REQ-E1.1) — the load report names it.
+  has "artifact: .claude/walkthroughs/demo/demo.html"
+  artifact="$gws/.claude/walkthroughs/demo/demo.html"
+  [ -f "$artifact" ] || fail "no artifact written at $artifact"
+  head1=$(head -1 "$artifact")
+  case $head1 in
+    '<!DOCTYPE html'*) ;;
+    *) fail "artifact is not an HTML document (first line: $head1)" ;;
+  esac
+  # It is genuinely gitignored: git does not see it as an untracked path.
+  ignored=$(cd "$gws" && git status --porcelain --ignored .claude/walkthroughs/ | awk '$1=="!!"{print; exit}')
+  [ -n "$ignored" ] || fail "artifact location is not gitignored"
 fi
 
 # ---------------------------------------------------------------------------
@@ -505,5 +525,65 @@ if [ "$(id -u)" -ne 0 ]; then
   lacks "Permission denied"
   has "no decision set"
 fi
+
+# ---------------------------------------------------------------------------
+# 15. Artifact write is atomic: a failed assembly never creates, truncates, or
+# leaves an empty/partial artifact behind, and a prior good artifact survives a
+# later failed run (REQ-A1.5 — the bundle loaded, only the artifact is missing;
+# the load must not corrupt a previously-written artifact). The scaffold resolves
+# spec-assemble.sh as its sibling, so we run a copy of the scaffold beside a stub
+# assembler that prints partial output then exits non-zero. The real assembler is
+# fail-closed (no stdout on failure), so in practice the leftover would be an
+# empty file; the stub's mid-stream partial write proves the temp-then-rename
+# guard protects even a partially-writing assembler, the stronger property.
+# ---------------------------------------------------------------------------
+asws="$tmp/atomic"
+mkdir -p "$asws/scripts"
+cp "$script" "$asws/scripts/spec-walkthrough.sh"
+cat >"$asws/scripts/spec-assemble.sh" <<'EOF'
+#!/bin/sh
+# Stub assembler: emit a specific diagnostic on stderr and partial output on
+# stdout, then fail — modeling an assembly that dies after writing some bytes,
+# with a concrete reason the scaffold must surface rather than swallow.
+printf 'STUB ASSEMBLER DIAGNOSTIC\n' >&2
+printf 'PARTIAL BROKEN HTML'
+exit 2
+EOF
+chmod +x "$asws/scripts/spec-assemble.sh"
+scaffold="$asws/scripts/spec-walkthrough.sh"
+make_bundle "$asws/specs" demo Active
+printf '%s\n' '.claude/walkthroughs/' >"$asws/.gitignore"
+afile="$asws/.claude/walkthroughs/demo/demo.html"
+
+# 15a. No prior artifact: a failed assembly reports "not written" and leaves NO
+# artifact file behind — the message must not be contradicted by a stray
+# empty/partial file a confused reader could open.
+arc=0
+aout=$(cd "$asws" && "$scaffold" demo 2>&1) || arc=$?
+[ "$arc" -eq 0 ] || fail "atomic: the load itself should still succeed (exit $arc): $aout"
+case $aout in
+  *"artifact: not written"*) ;;
+  *) fail "atomic: expected 'artifact: not written' on assembly failure: $aout" ;;
+esac
+[ ! -e "$afile" ] \
+  || fail "atomic: a failed assembly left a stray artifact at $afile: [$(cat "$afile" 2>/dev/null)]"
+# The assembler's specific diagnostic must reach the user, not be swallowed by a
+# stderr redirect — the degradation names the real reason (REQ-A1.5).
+case $aout in
+  *"STUB ASSEMBLER DIAGNOSTIC"*) ;;
+  *) fail "atomic: the assembler's stderr diagnostic was swallowed, not surfaced: $aout" ;;
+esac
+
+# 15b. Prior good artifact: a later failed assembly preserves it intact rather
+# than truncating it to empty/partial.
+mkdir -p "$asws/.claude/walkthroughs/demo"
+printf 'GOOD PRIOR ARTIFACT\n' >"$afile"
+arc=0
+aout=$(cd "$asws" && "$scaffold" demo 2>&1) || arc=$?
+[ "$arc" -eq 0 ] || fail "atomic: the load should succeed with a prior artifact (exit $arc): $aout"
+case $(cat "$afile") in
+  'GOOD PRIOR ARTIFACT') ;;
+  *) fail "atomic: a failed assembly corrupted the prior artifact: [$(cat "$afile")]" ;;
+esac
 
 echo "PASS: test-spec-walkthrough.sh"
