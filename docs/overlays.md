@@ -1,9 +1,9 @@
 # Customizing planwright with overlays
 
 planwright core ships **general** doctrine and skills. Your project carries
-preferences that are not general — a review-gauntlet ordering, a
-dispatch-isolation default, project-specific decision-domain entries, a tweaked
-rule doc. You must be able to add these **without editing planwright's core**.
+preferences that are not general — a review-gauntlet ordering, a custom
+threshold, project-specific decision-domain entries, a tweaked rule doc. You
+must be able to add these **without editing planwright's core**.
 Editing core would make it less general for everyone and pollute the
 observation stream meant to merge upstream.
 
@@ -52,8 +52,8 @@ delivery modes without configuration:
 
 ```text
 $PLANWRIGHT_ADOPTER_OVERLAY            # explicit override (tests, advanced setups)
-  → $CLAUDE_PLUGIN_DATA/overlay/       # plugin mode: the <id> segment IS your namespace
-  → <claude-dir>/planwright/<name>/overlay/   # writer mode: <name> from the plugin manifest
+  → $CLAUDE_PLUGIN_DATA/overlay        # plugin mode: the <id> segment IS your namespace
+  → <claude-dir>/planwright/<name>/overlay    # writer mode: <name> from the plugin manifest
 ```
 
 In **plugin mode**, `$CLAUDE_PLUGIN_DATA` already carries a per-plugin
