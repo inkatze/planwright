@@ -382,4 +382,74 @@ real_sel=$(/bin/sh "$sel" --critical-path "$repo_root/specs/spec-comprehension" 
 [ "$real_crit" = "$real_sel" ] \
   || fail "real bundle: graph crit [$real_crit] != selector [$real_sel]"
 
+# ---------------------------------------------------------------------------
+# 12. Dangling dependency (graceful degradation, REQ-A1.4/REQ-A1.5): a task
+#     whose Dependencies line names an id with no task block (a mid-authoring
+#     Draft, a typo, a planned-but-unwritten task) must NOT produce a phantom
+#     edge. The layout already skips a dangling dep (it never ranks a non-node);
+#     every emitted GRAPHEDGE must likewise reference only ids that have a
+#     GRAPHNODE, so the assembler never draws a line to a node that does not
+#     exist. Without the guard the view emits GRAPHEDGE <ghost> <task> and the
+#     assembler draws a stray line from coordinate origin.
+# ---------------------------------------------------------------------------
+dangle="$tmp/specs/dangle"
+mkdir -p "$dangle"
+cat >"$dangle/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Draft
+**Format-version:** 1
+
+## REQ-A — group
+
+- **REQ-A1.1** A thing SHALL exist. *(Cites: D-1.)*
+EOF
+cat >"$dangle/tasks.md" <<'EOF'
+# Fixture — Tasks
+
+**Status:** Draft
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — root
+
+- **Deliverables:** a thing.
+- **Done when:** done.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-A1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — depends on a not-yet-written task
+
+- **Deliverables:** a thing.
+- **Done when:** done.
+- **Dependencies:** 99
+- **Citations:** D-1 · REQ-A1.1
+- **Estimated effort:** 1 day
+EOF
+run_dir 0 "$dangle"
+# Collect the node id set, then assert every edge endpoint is a known node. The
+# while loop reads from a here-doc (not a pipe) so its flag survives in the
+# current shell and a failed lookup does not trip `set -e` mid-pipeline.
+node_set=$(rec GRAPHNODE | awk -F'\t' '{print $2}')
+is_node() {
+  for n in $node_set; do
+    [ "$n" = "$1" ] && return 0
+  done
+  return 1
+}
+phantom=0
+edges_out=$(rec GRAPHEDGE)
+while IFS="$(printf '\t')" read -r _tag efrom eto _crit; do
+  [ "$_tag" = GRAPHEDGE ] || continue
+  is_node "$efrom" || phantom=1
+  is_node "$eto" || phantom=1
+done <<EOF
+$edges_out
+EOF
+[ "$phantom" -eq 0 ] \
+  || fail "dangling dep produced a GRAPHEDGE to a non-existent node (phantom edge)"
+echo "ok: a dangling dependency produces no phantom edge (REQ-A1.5)"
+
 echo "PASS: test-spec-graph.sh"

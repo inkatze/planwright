@@ -295,6 +295,12 @@ printf '%s\n' "$model" | awk \
     }
     for (j = 1; j <= ne; j++) {
       d = efrom[j]; t = eto[j]
+      # Skip a dangling edge whose dependency (or, defensively, dependent) names
+      # a task with no node — a Dependencies line pointing at a not-yet-written
+      # or mistyped id in a Draft/partial bundle. The built-in rank layout
+      # already ignores such a dep; emitting the edge anyway would make the
+      # assembler draw a line to a node that does not exist (REQ-A1.5).
+      if (!(d in seen) || !(t in seen)) continue
       ec = (d in critpos && t in critpos && critpos[t] == critpos[d] + 1) ? 1 : 0
       print "GRAPHEDGE", d, t, ec
     }
