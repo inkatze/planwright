@@ -13,6 +13,14 @@ Citations: REQ-G1.8, REQ-G1.4 · D-39, D-16.
 
 ## Entry format
 
+The prose entries below are the catalog's normative home. Their machine view
+for overlay merging is [`config/decision-domains.yaml`](../config/decision-domains.yaml)
+(the ten seed domains keyed by stable id), the core seed
+[`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) unions with
+adopter / team / machine-local overlays — see *Growth and adopter extension*.
+The doc/yaml split mirrors [guard-catalog.md](guard-catalog.md) /
+`config/guard-catalog.yaml`.
+
 Every entry, seed or added later, carries exactly three fields:
 
 - **Trigger.** What spec language or code change signals that the domain
@@ -61,13 +69,16 @@ paths:
   evidence a domain has earned an entry; the entry is added when the log
   is mined.
 - **By the adopter.** Projects with domains this seed list does not cover
-  (payments, ML model lifecycle, firmware rollout) add their own entries
-  in the same format through project configuration — the same channel the
-  builder's [guard catalog](guard-catalog.md) uses for adopter extension:
-  project-specific decision and guard data lives in project config (the
-  guard catalog's `PLANWRIGHT_GUARD_CATALOG` override is the concrete
-  mechanism), leaving this shipped doc unedited. The core seed list below
-  is planwright's, and adopters extend it without editing this doc.
+  (payments, ML model lifecycle, firmware rollout) add their own entries in the
+  same format through the overlay mechanism, leaving this shipped doc unedited.
+  An adopter, team, or machine-local overlay places a
+  `catalogs/decision-domains.yaml` (or, for the machine-local layer,
+  `catalogs.local/decision-domains.yaml`) under its overlay root, and
+  [`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) unions the
+  layers onto the core seed by **append/union with supersede-by-id** — the same
+  merge contract the [guard catalog](guard-catalog.md) uses (REQ-B1.3, D-5; the
+  contract is documented there). The core seed list below is planwright's,
+  authored in full prose here; adopters extend it without editing this doc.
 
 ## Seed catalog
 

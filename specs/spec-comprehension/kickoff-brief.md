@@ -429,6 +429,74 @@ low-stake and reversible, recorded rather than escalated:
   silent truncation. Claims are the bundle's *live* requirements; superseded
   requirements are not current claims, and decisions/tasks have their own views.
 
+### Task 5 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 5 (the teach-back challenge view, `scripts/spec-teachback.sh`)
+consumes untrusted input (the translation record stream, which carries bundle
+content), reads `requirements.md` from the spec directory for section labels,
+and re-serializes a tagged tab-separated stream — the `security-posture`
+write-time untrusted-input, path-handling, and serialization trigger classes.
+Light pass: the in-repo canonical posture, not a new pattern. No new dependency
+(the portability envelope is unchanged: `/bin/sh` + `awk`, the REQ-K1.5 floor);
+no new research trigger beyond the teach-back evidence base (clinical
+chunk-and-check) already recorded under D-3 / D-9 / §2.
+
+**Sources consulted.** `scripts/spec-translate.sh` (the upstream layer this view
+reads and the `printf '%s'` empty-in/empty-out stream discipline it inherits),
+`scripts/spec-model.sh` (the `clean()` / C-locale record hygiene and the
+trailing-slash + `readable_file` read gate this layer mirrors for its
+`requirements.md` read), `scripts/spec-walkthrough.sh` (the REQ-A1.6
+identifier/path gate this layer trusts rather than re-implements), the
+`security-posture` doctrine doc, and REQ-C1.5 / REQ-D1.1 / REQ-D1.4 / REQ-E1.7.
+
+**Pass applied (no new risk surfaced).** The view treats all input as data: no
+`eval`, and no shell or path is constructed from record *content* — the only
+paths it touches are its own sibling `spec-translate.sh` (resolved from
+`dirname "$0"`) and the fixed `requirements.md` under the spec directory
+(read only when it is a readable regular file, the model's gate), with the
+spec-directory argument flowing through to translate/model unchanged (the
+identifier-charset and path-containment gate stays the command scaffold's job,
+REQ-A1.6). In `<spec-dir>` mode the translate chain's exit code is captured and
+propagated so an absent/unreadable bundle fails closed (exit 2), never a silent
+empty view. The emitted RESPONSE/SECTION/CLAIM stream stays tab-clean: every
+text field is copied verbatim from the upstream layers, which already folded
+control bytes (including the delimiter) to spaces under the pinned C locale, and
+the group-title extraction folds control bytes and strips the leading separator
+byte-wise; the view introduces no new tabs or newlines (the test asserts CLAIM
+records have exactly six fields, SECTION four, RESPONSE two). The view does
+**not** HTML/SVG-escape its text: that is Task 6's artifact-assembly job
+(REQ-E1.7) downstream of this layer; escaping here would corrupt the lossless
+verbatim source the reveal view restores (D-2). The independence firewall is
+structural, not a check that could be bypassed: the view has no column where a
+verdict, score, or "right answer" could live, so it cannot supply one (REQ-D1.1,
+REQ-C1.5); the in-session divergence-surfacing hands the judgement to the human
+(REQ-D1.4). Read-only: it writes nothing but its stdout stream (REQ-A1.3).
+
+**Declared scoping (`proportionality`).** Two within-task scoping calls, both
+low-stake and reversible, recorded rather than escalated, and consistent with
+the accepted decisions (no decision-domains escalation):
+
+- *Claim set definition (D-3, D-9; Done-when "claims").* A claim is a live
+  requirement or a decision — the bundle's normative and design *assertions*,
+  the things a reader agrees or disagrees with. Superseded requirements (history,
+  not current claims), tasks (the execution plan, not assertions), and test-spec
+  entries (verification paths) are deliberately not claims. This keeps the
+  teach-back a comprehension check over what the spec *asserts*, complementing
+  the one-pager's killer-item foregrounding (Task 4). The same single extractor
+  feeds both the in-artifact checklist and the in-session walk, so the two paths
+  cover the same claim set by construction (Done-when #4), independent of this
+  scoping.
+- *Section labels (REQ-C1.5 "section by section").* In `<spec-dir>` mode — the
+  real pipeline path — section labels are the plain requirement-group heading
+  titles read from `requirements.md` (audience-neutral by spec convention, no
+  identifier scheme). In the composable stdin mode the headings are not in the
+  stream, so labels fall back to a generic plain phrase; the *claim set* (the
+  load-bearing contract) is identical in both modes, only the section labels
+  differ. The split mirrors the in-artifact / in-session delivery split the
+  brief §3 recorded for REQ-D1.4.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)

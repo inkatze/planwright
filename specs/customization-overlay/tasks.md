@@ -51,7 +51,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 3 — Four-layer config resolution
 
-- **Status:** implementing
+- **Status:** PR #37 draft
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-3` (branch `planwright/customization-overlay/task-3`, worktree `.claude/worktrees/customization-overlay-task-3`, branched off origin/main `6a26164`).
 - **Deliverables:** `config-get.sh` extended to read the adopter and
@@ -72,7 +72,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 5 — Catalog-overlay resolution
 
-- **Status:** implementing
+- **Status:** PR #40 draft
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-5` (branch `planwright/customization-overlay/task-5`, worktree `.claude/worktrees/customization-overlay-task-5`, branched off origin/main `6a26164`).
 - **Deliverables:** A catalog discovery path that unions core seed entries
