@@ -23,8 +23,12 @@
 #       carried in reveal-only elements that the inlined CSS hides by default and
 #       a :checked toggle reveals; the toggle ships unchecked; the default-visible
 #       (plain) text carries no internal vocabulary.
-#   4.  Silent-read-first ordering (REQ-D1.2): the full read (the one-pager
-#       section) precedes the teach-back prompt section in document order.
+#   4.  Silent-read-first ordering (REQ-D1.2): the full read (the one-pager then
+#       the decision map) precedes the teach-back prompt section in document
+#       order.
+#   9b. Decision map four-beat (D-2, REQ-C1.4): each decision renders in the ADR
+#       shape Context -> Decision -> Alternative-rejected -> Consequence, with the
+#       decision content escaped (REQ-E1.7) and the identifiers reveal-only.
 #   5.  Provenance stamp (REQ-E1.1, REQ-E1.5): the document records the bundle it
 #       rendered and the commit it was generated from (commit overridable for a
 #       deterministic stamp).
@@ -283,23 +287,34 @@ leak=$(printf '%s\n' "$out" | grep -o 'class="plain"[^<]*' | grep -E 'REQ-[A-Z][
 [ -z "$leak" ] || fail "an identifier leaked into a default-visible plain span: $leak"
 
 # ---------------------------------------------------------------------------
-# 4. Silent-read-first ordering (REQ-D1.2): one-pager precedes teach-back.
+# 4. Silent-read-first ordering (REQ-D1.2): the full read precedes the teach-back
+#    prompt. The reading content is the one-pager then the decision map; the
+#    teach-back prompt comes last.
 #    REQ-D1.2 is [manual] [design-level] in test-spec.md — the *unanchored read*
 #    is a judged UX property a human confirms. This asserts only the mechanical
-#    precondition the artifact must structurally provide: the read (one-pager)
-#    comes before the prompt (teach-back) in document order. A regression that
-#    reordered the sections would be caught here; the full property stays manual.
+#    precondition the artifact must structurally provide: the read (one-pager,
+#    decision map) comes before the prompt (teach-back) in document order. A
+#    regression that reordered the sections would be caught here; the full
+#    property stays manual.
 # ---------------------------------------------------------------------------
 op_off=$(printf '%s\n' "$out" | grep -n 'data-section="onepager"' | head -1 | cut -d: -f1)
+dm_off=$(printf '%s\n' "$out" | grep -n 'data-section="decisionmap"' | head -1 | cut -d: -f1)
 tb_off=$(printf '%s\n' "$out" | grep -n 'data-section="teachback"' | head -1 | cut -d: -f1)
 gr_off=$(printf '%s\n' "$out" | grep -n 'data-section="graph"' | head -1 | cut -d: -f1)
 [ -n "$op_off" ] || fail "no one-pager section marker found"
+[ -n "$dm_off" ] || fail "no decision-map section marker found"
 [ -n "$tb_off" ] || fail "no teach-back section marker found"
 [ -n "$gr_off" ] || fail "no graph section marker found"
 [ "$op_off" -lt "$tb_off" ] \
   || fail "one-pager (line $op_off) must precede teach-back (line $tb_off)"
-# The drawn graph is part of the read (it precedes the teach-back prompt) and
-# follows the at-a-glance one-pager: read-first ordering holds with it inline.
+# Both foreground views (decision map, graph) are part of the read: each follows
+# the at-a-glance one-pager and precedes the teach-back prompt. Their order
+# relative to each other is not asserted — either arrangement is read-first
+# compliant.
+[ "$op_off" -lt "$dm_off" ] \
+  || fail "one-pager (line $op_off) must precede the decision map (line $dm_off)"
+[ "$dm_off" -lt "$tb_off" ] \
+  || fail "decision map (line $dm_off) must precede teach-back (line $tb_off)"
 [ "$op_off" -lt "$gr_off" ] \
   || fail "one-pager (line $op_off) must precede the graph (line $gr_off)"
 [ "$gr_off" -lt "$tb_off" ] \
@@ -372,6 +387,37 @@ lacks 'data-verdict'
 lacks 'data-score'
 
 # ---------------------------------------------------------------------------
+# 9b. Decision map present and four-beat (D-2, REQ-C1.4): the decision-map
+#     section renders each decision in the ADR four-beat shape (Context,
+#     Decision, Alternative rejected, Consequence), with all rendered decision
+#     content escaped (REQ-E1.7) and the identifiers reveal-only (REQ-D1.3).
+# ---------------------------------------------------------------------------
+has 'data-section="decisionmap"'
+# The four beat labels are present (the ADR four-beat shape, REQ-C1.4).
+has '>Context<'
+has '>Decision<'
+has '>Alternative rejected<'
+has '>Consequence<'
+# The frame summary must use the same "alternative rejected" wording as the beat
+# labels and REQ-C1.4, not the divergent "alternative considered" (user-visible
+# wording consistency within the section).
+has 'alternative rejected, and consequence'
+lacks 'alternative considered'
+# Each decision in the fixture (D-1, D-2) renders a decision item; assert at least
+# two decision items so both fixture decisions surfaced.
+ditems=$(printf '%s\n' "$out" | grep -o 'class="decision"' | wc -l | tr -d ' ')
+[ "$ditems" -ge 2 ] || fail "expected at least two decision items, found $ditems"
+# The D-1 Decision field carries markup (`<b>bold</b>`); it must render escaped in
+# the decision map, never as a live element (REQ-E1.7). The negative form is
+# already asserted globally (lacks '<b>bold</b>'); assert the escaped form is
+# present so the decision content actually reached the artifact.
+has '&lt;b&gt;bold&lt;/b&gt;'
+# The decision identifiers are reveal-only: every D-id back-pointer sits in a
+# reveal-only (.rv) element, so the default plain spans carry no decision id.
+dleak=$(printf '%s\n' "$out" | grep -o 'class="plain"[^<]*' | grep -E 'D-[0-9]+' || true)
+[ -z "$dleak" ] || fail "a decision id leaked into a default-visible plain span: $dleak"
+
+# ---------------------------------------------------------------------------
 # 10. Composition + determinism + read-only.
 # ---------------------------------------------------------------------------
 run1=$("$script" "$specs/demo")
@@ -435,7 +481,13 @@ case $out in
 esac
 [ "$(count_substr '</html>')" -eq 1 ] || fail "partial bundle produced a malformed document"
 has 'data-section="onepager"'
+has 'data-section="decisionmap"'
 has 'data-section="teachback"'
+# The partial bundle has no design file, so the decision map has no decisions: it
+# renders the empty-state message, not a "0 decisions, each shown as ..." frame
+# (graceful degradation, REQ-A1.5; matches the sibling views' empty states).
+has 'No decisions to surface.'
+lacks '0 decisions, each shown as'
 
 # ---------------------------------------------------------------------------
 # 12. Composition on a real bundle: full chain renders, escaped, no leak.
@@ -443,7 +495,12 @@ has 'data-section="teachback"'
 run_dir 0 "$repo_root/specs/spec-comprehension"
 has 'spec-comprehension'
 has 'data-section="onepager"'
+has 'data-section="decisionmap"'
 has 'data-section="teachback"'
+# Every real decision renders the full four-beat shape: the count of beat labels
+# is four per decision surfaced in the map.
+realdecs=$(printf '%s\n' "$out" | grep -o 'class="decision"' | wc -l | tr -d ' ')
+[ "$realdecs" -ge 1 ] || fail "real bundle surfaced no decision in the map"
 # A real bundle's default plain spans leak no internal vocabulary.
 leak=$(printf '%s\n' "$out" | grep -o 'class="plain"[^<]*' | grep -E 'REQ-[A-Z][0-9]+\.[0-9]+|D-[0-9]+' || true)
 [ -z "$leak" ] || fail "real bundle leaked an identifier into a plain span: $leak"

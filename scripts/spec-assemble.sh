@@ -5,12 +5,15 @@
 # Task 6 of specs/spec-comprehension (D-3, D-4, D-7, D-8; REQ-C1.6, REQ-D1.2,
 # REQ-D1.3, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-E1.5, REQ-E1.6, REQ-E1.7): the
 # layer that assembles the rendered views into one offline, dependency-free HTML
-# artifact. It runs the one-pager view (Task 4, scripts/spec-onepager.sh) and the
-# teach-back view (Task 5, scripts/spec-teachback.sh) over a bundle and emits a
-# single self-contained HTML document on stdout:
+# artifact. It runs the one-pager view (Task 4, scripts/spec-onepager.sh), the
+# decision-map view (Task 8, scripts/spec-decisionmap.sh; D-2, REQ-C1.4), the
+# dependency-graph view (Task 7, scripts/spec-graph.sh; D-4, D-5, D-6, REQ-C1.3,
+# REQ-C1.6, REQ-E1.3), and the teach-back view (Task 5, scripts/spec-teachback.sh)
+# over a bundle and emits a single self-contained HTML document on stdout:
 #
-#   - the foregrounded read first, the teach-back prompt after it
-#     (silent-read-first ordering, REQ-D1.2);
+#   - the foregrounded read first (the one-pager, then the decision map, then the
+#     dependency graph), the teach-back prompt after it (silent-read-first
+#     ordering, REQ-D1.2);
 #   - every piece of bundle content HTML/SVG-escaped so no rendered text can
 #     inject executable or structural markup into the artifact, and so markup in
 #     bundle text displays as its literal characters (REQ-E1.7, the security
@@ -27,10 +30,10 @@
 #     generated from, so a reader can tell whether it is stale (D-8, REQ-E1.5).
 #
 # The document references no external network resource and needs nothing
-# installed: it opens offline in any browser (D-4, REQ-E1.2). The diagram views
-# (the dependency graph, the decision map) and partial-scope rendering land in
-# later tasks and extend this same assembly; the MVP artifact is the one-pager
-# plus the teach-back.
+# installed: it opens offline in any browser (D-4, REQ-E1.2). Partial-scope
+# rendering lands in a later task and extends this same assembly; this artifact
+# carries the one-pager, the decision map, the dependency graph, and the
+# teach-back.
 #
 # This script is strictly read-only (REQ-A1.3): it writes nothing but its stdout
 # stream. Persisting the document to the gitignored .claude/walkthroughs/<spec>/
@@ -73,20 +76,22 @@ fi
 # convention the whole pipeline follows).
 here=$(cd "$(dirname "$0")" && pwd)
 onepager_sh="$here/spec-onepager.sh"
+decisionmap_sh="$here/spec-decisionmap.sh"
 teachback_sh="$here/spec-teachback.sh"
 graph_sh="$here/spec-graph.sh"
-for s in "$onepager_sh" "$teachback_sh" "$graph_sh"; do
+for s in "$onepager_sh" "$decisionmap_sh" "$teachback_sh" "$graph_sh"; do
   if [ ! -x "$s" ]; then
     echo "spec-assemble: cannot find an executable $(basename "$s") at $s" >&2
     exit 2
   fi
 done
 
-# Run the two views in <spec-dir> mode; capture each first so its exit code
+# Run the views in <spec-dir> mode; capture each first so its exit code
 # propagates (fail closed on an absent/unreadable spec directory; /bin/sh has no
 # portable pipefail). The teach-back is run in dir mode so its section labels are
 # the bundle's plain requirement-group headings.
 onepager_stream=$("$onepager_sh" "$spec_dir") || exit $?
+decisionmap_stream=$("$decisionmap_sh" "$spec_dir") || exit $?
 teachback_stream=$("$teachback_sh" "$spec_dir") || exit $?
 graph_stream=$("$graph_sh" "$spec_dir") || exit $?
 
@@ -167,6 +172,79 @@ onepager_prog='
   END {
     if (open) print "</ol>"
     else if (!haveframe) print "<p class=\"frame empty\">No live claims to surface.</p>"
+    print "</section>"
+  }
+'
+
+# The decision-map section fragment (Task 8, REQ-C1.4). Each decision renders in
+# the ADR four-beat shape — Context, Decision, Alternative rejected, Consequence —
+# as a definition list (label/body pairs), the rejected alternative and its cost
+# surfaced alongside the chosen path. The plain rendering is default-visible; the
+# back-pointer and verbatim source live in reveal-only (.rv) elements (REQ-D1.3).
+# A beat the bundle does not state renders a muted "(not stated)" placeholder so
+# the four-beat shape stays visible rather than collapsing (graceful degradation,
+# REQ-A1.5). The same esc() guards every bundle field (REQ-E1.7).
+# shellcheck disable=SC2016 # $1..$6/$0 are awk fields, not shell expansions
+decisionmap_prog='
+  function esc(s) {
+    gsub(/&/, "\\&amp;", s)
+    gsub(/</, "\\&lt;", s)
+    gsub(/>/, "\\&gt;", s)
+    gsub(/"/, "\\&quot;", s)
+    gsub(/\047/, "\\&#39;", s)
+    return s
+  }
+  function beatlabel(b) {
+    if (b == "context")     return "Context"
+    if (b == "decision")    return "Decision"
+    if (b == "alternative") return "Alternative rejected"
+    if (b == "consequence") return "Consequence"
+    return b
+  }
+  BEGIN {
+    FS = "\t"
+    print "<section data-section=\"decisionmap\" class=\"card section\">"
+    print "<h2 class=\"section-title\">Decisions</h2>"
+    curref = ""; haveframe = 0; open = 0
+  }
+  $1 == "DECMAPFRAME" {
+    # A bundle with no decisions (e.g. a partial bundle missing the design file)
+    # falls through to the END empty-state message rather than a "0 decisions,
+    # each shown as ..." frame, matching the one-pager/teach-back empty-state
+    # convention and the graceful-degradation posture (REQ-A1.5).
+    if ($4 + 0 == 0) next
+    printf "<p class=\"frame\">%d decisions, each shown as context, decision, alternative rejected, and consequence.</p>\n", $4
+    haveframe = 1
+    next
+  }
+  $1 == "DECMAP" {
+    if (!open) { print "<ol class=\"decisions\">"; open = 1 }
+    # A new decision id opens a fresh decision item (closing the previous one).
+    if ($3 != curref) {
+      if (curref != "") { print "</dl>"; print "</li>" }
+      curref = $3
+      print "<li class=\"decision\">"
+      printf "<span class=\"rv ref\">[%s]</span>\n", esc($3)
+      print "<dl class=\"beats\">"
+    }
+    printf "<dt class=\"beat-label\">%s</dt>\n", esc(beatlabel($4))
+    printf "<dd class=\"beat beat-%s\">", esc($4)
+    if ($5 == "" && $6 == "") {
+      printf "<span class=\"beat-empty\">(not stated)</span>"
+    } else {
+      printf "<span class=\"plain\">%s</span>", esc($5)
+      printf "<span class=\"rv source\"> &mdash; %s</span>", esc($6)
+    }
+    print "</dd>"
+    next
+  }
+  END {
+    if (open) {
+      if (curref != "") { print "</dl>"; print "</li>" }
+      print "</ol>"
+    } else if (!haveframe) {
+      print "<p class=\"frame empty\">No decisions to surface.</p>"
+    }
     print "</section>"
   }
 '
@@ -312,6 +390,7 @@ graph_prog='
 '
 
 onepager_html=$(printf '%s\n' "$onepager_stream" | awk "$onepager_prog")
+decisionmap_html=$(printf '%s\n' "$decisionmap_stream" | awk "$decisionmap_prog")
 teachback_html=$(printf '%s\n' "$teachback_stream" | awk "$teachback_prog")
 graph_html=$(printf '%s\n' "$graph_stream" | awk "$graph_prog")
 
@@ -364,6 +443,18 @@ body {
 }
 .badge-killer { background: var(--key); color: var(--accent-ink); }
 .plain { display: block; }
+/* The decision map: each decision is a card-like list item holding a four-beat
+ * definition list (Context, Decision, Alternative rejected, Consequence). */
+.decisions { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+.decision { padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: 0.5rem; background: #fcfcfd; }
+.beats { margin: 0; }
+.beat-label {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--accent); margin-top: 0.6rem;
+}
+.beat-label:first-child { margin-top: 0; }
+.beat { margin: 0.15rem 0 0; }
+.beat-empty { color: var(--muted); font-style: italic; }
 .tb-group { margin-top: 1.25rem; }
 .tb-group-title { font-size: 1rem; font-weight: 700; margin: 0 0 0.5rem; }
 .tb-claim { padding: 0.85rem 1rem; border: 1px solid var(--line); border-radius: 0.5rem; background: #fcfcfd; }
@@ -437,6 +528,7 @@ CSS
   printf '%s\n' '<p class="read-hint">Read the whole walkthrough first; the teach-back prompt follows it.</p>'
   printf '%s\n' '</header>'
   printf '%s\n' "$onepager_html"
+  printf '%s\n' "$decisionmap_html"
   printf '%s\n' "$graph_html"
   printf '%s\n' "$teachback_html"
   printf '%s\n' '<footer class="card foot">'
