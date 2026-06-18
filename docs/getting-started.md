@@ -147,8 +147,14 @@ You drive these in order; planwright does the work between your two controls:
 5. **Review and merge** — review the draft PR, flip it to ready, and merge.
    *This is your second control.*
 
-`/resume` reloads context for a fresh session in an in-flight worktree, and
-`/drain` evaluates deferred gate conditions across specs. Both are read-only.
+`/spec-walkthrough <spec>` renders a bundle (or a chosen slice) into a
+plain-language, read-only comprehension artifact you read and judge for
+yourself: an independent cold read before kickoff sign-off, re-orientation
+mid-execution, or onboarding to a finished or abandoned bundle. It complements
+`/spec-kickoff`'s guided dialogue and never signs off, edits, or mutates the
+pipeline. `/resume` reloads context for a fresh session in an in-flight
+worktree, and `/drain` evaluates deferred gate conditions across specs. All
+three are read-only.
 
 ### Invariants the framework holds everywhere
 
