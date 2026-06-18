@@ -363,6 +363,38 @@ out=$(SPEC_WALKTHROUGH_DOT="$vslow/dot" SPEC_WALKTHROUGH_DOT_TIMEOUT=notanumber 
 [ "$(field GRAPHMETA 4)" = builtin ] \
   || fail "an invalid timeout must fall back to the default bound and still degrade a slow dot (REQ-E1.3 timeout)"
 
+# 8e. The -Tplain coordinate validation must reject malformed "numbers" that the
+#     loose [0-9.] character check passes: a bare ".", a double-dot "1..2", and a
+#     leading/trailing dot. awk/shell would coerce these to 0 or a partial number
+#     and the layout would otherwise be accepted as graphviz, breaking the
+#     "validated numeric" contract (dot output is untrusted). Each must degrade.
+assert_bad_coord_degrades() {
+  badx=$1
+  bcd="$tmp/gv-badcoord"
+  rm -rf "$bcd"
+  mkdir -p "$bcd"
+  cat >"$bcd/dot" <<STUB
+#!/bin/sh
+cat <<PLAIN
+graph 1.0 6.0 2.0
+node 1 $badx 1.0 1.2 0.5 t1 solid box black lightgrey
+node 2 2.5 1.5 1.2 0.5 t2 solid box black lightgrey
+node 3 2.5 0.5 1.2 0.5 t3 solid box black lightgrey
+node 4 4.5 1.0 1.2 0.5 t4 solid box black lightgrey
+stop
+PLAIN
+STUB
+  chmod +x "$bcd/dot"
+  out=$(SPEC_WALKTHROUGH_DOT="$bcd/dot" "$script" "$bundle" 2>&1) \
+    || fail "malformed-coord run should still succeed (degrade)"
+  [ "$(field GRAPHMETA 4)" = builtin ] \
+    || fail "a malformed coordinate '$badx' must degrade to layout=builtin (validated-numeric contract)"
+}
+assert_bad_coord_degrades .
+assert_bad_coord_degrades 1..2
+assert_bad_coord_degrades 5.
+assert_bad_coord_degrades .5
+
 # Restore the force-builtin override for the remaining cases.
 SPEC_WALKTHROUGH_DOT=dot-not-installed-xyz
 export SPEC_WALKTHROUGH_DOT

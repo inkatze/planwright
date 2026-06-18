@@ -144,6 +144,21 @@ gv_timeout=${SPEC_WALKTHROUGH_DOT_TIMEOUT:-5}
 # letting a hung `dot` stall the render (REQ-E1.3 "timeout"). Coerce anything
 # that is not a plain non-negative integer back to the default.
 case $gv_timeout in '' | *[!0-9]*) gv_timeout=5 ;; esac
+
+# Validate a Graphviz `-Tplain` coordinate as a conventional non-negative decimal
+# (digits, with at most one interior dot: no bare ".", no leading/trailing dot,
+# no "1..2"). A `*[!0-9.]*` character-class guard alone passes those malformed
+# forms, which awk/shell then coerce to 0 or a partial number; this keeps the
+# "every coordinate read back is validated numeric" claim honest so untrusted
+# `dot` output can never inject a misleading position.
+is_decimal() {
+  case $1 in
+    '' | *[!0-9.]*) return 1 ;;
+    *.*.* | .* | *.) return 1 ;;
+  esac
+  return 0
+}
+
 if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
   # `dot` is present (command -v found it). If any step below rejects its layout
   # (non-zero exit, timeout, or unparseable output) we keep the built-in layout,
@@ -209,12 +224,12 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
       cline=$(printf '%s\n' "$parsed" | awk -v i="$nid" '$1==i{print $2, $3; exit}')
       cx=${cline%% *}
       cy=${cline##* }
-      case $cx in '' | *[!0-9.]*) ok=0 ;; esac
-      case $cy in '' | *[!0-9.]*) ok=0 ;; esac
+      is_decimal "$cx" || ok=0
+      is_decimal "$cy" || ok=0
       [ "$ok" = 1 ] || break
       coords="$coords$nid $cx $cy;"
     done
-    case $gvheight in '' | *[!0-9.]*) ok=0 ;; esac
+    is_decimal "$gvheight" || ok=0
     if [ "$ok" = 1 ]; then
       layout=graphviz
       gvcoords=$coords
