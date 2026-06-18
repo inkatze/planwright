@@ -12,6 +12,15 @@
 .claude/*.local.yml
 .claude/*.local.json
 
+# Machine-local overlay layer (customization-overlay D-1/D-4): the highest,
+# per-machine, UNCOMMITTED overlay layer ships as `<kind>.local/` directories
+# (doctrine.local/, catalogs.local/). They must never be committed — that is
+# the trust boundary the machine-local layer depends on, and the only guard
+# against secrets in uncommitted overlays (R9; the secret scanner covers
+# committed files only). The `.local.*` file globs above match files, not
+# these directories, so ignore them explicitly.
+.claude/*.local/
+
 # Machine-local environment layer (mise convention). Loaded by mise in this
 # checkout and, via ancestor-directory config loading, in every worktree under
 # .claude/worktrees/. Per-machine paths and session plumbing only.

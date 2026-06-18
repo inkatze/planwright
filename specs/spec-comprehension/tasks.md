@@ -104,6 +104,7 @@ view tasks they cover.
 
 - **Status:** PR #51 draft
 - **Last activity:** 2026-06-17
+- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t6` · worktree `.claude/worktrees/planwright+spec-comprehension+task-6` · branch `planwright/spec-comprehension/task-6`
 - **Deliverables:** assembly of the rendered views into one self-contained HTML
   artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
   inlined and the MIT notice included; the reveal toggle; the silent-read-first
