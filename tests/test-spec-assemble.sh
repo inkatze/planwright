@@ -817,4 +817,24 @@ if [ -x "$walkthrough" ]; then
     || fail "scaffold did not forward --scope decisions to the assembler (one-pager present)"
 fi
 
+# ---------------------------------------------------------------------------
+# 21. Defense-in-depth selector validation (Task 9; REQ-B1.1): the scaffold
+#     (spec-walkthrough.sh) charset-validates the selector, but spec-assemble.sh
+#     is callable directly (the tests above call it without the scaffold), so it
+#     re-classifies the selector and must fail closed on a malformed one (exit 2,
+#     a clear message) rather than degrade to a silent whole-bundle render. One
+#     case per malformed class: unknown form, unknown file, non-uppercase group,
+#     non-numeric decision id.
+# ---------------------------------------------------------------------------
+run_args 2 --scope bogus "$specs/demo"
+has 'unknown scope'
+run_args 2 --scope file:nope "$specs/demo"
+has 'names no source file'
+run_args 2 --scope reqs:lower "$specs/demo"
+has 'is not a requirement group'
+run_args 2 --scope decision:abc "$specs/demo"
+has 'is not a decision id'
+# A bare --scope with no selector value is a usage error (exit 2).
+run_args 2 --scope
+
 echo "PASS: test-spec-assemble.sh"

@@ -248,9 +248,15 @@ if [ "$scope" = whole ]; then
   [ "$show_tb" -eq 1 ] && teachback_stream=$("$teachback_sh" "$spec_dir")
 else
   # Filter then translate once; the text views share the scoped translate stream.
-  scoped_translate=$(
-    printf '%s\n' "$model" | "$scope_sh" --scope "$scope" | "$translate_sh"
-  )
+  # Capture the filter and the translate as separate command substitutions so a
+  # mid-pipeline failure fails closed: a single `model | scope | translate`
+  # substitution yields only translate's exit status (/bin/sh has no portable
+  # pipefail), so a failing scope filter would be masked by a successful
+  # translate of its empty output, and the assembler would emit a silently empty
+  # document at exit 0. Splitting the captures with `|| exit $?` restores the
+  # file's fail-closed discipline (matching the model and graph captures above).
+  scoped_model=$(printf '%s\n' "$model" | "$scope_sh" --scope "$scope") || exit $?
+  scoped_translate=$(printf '%s\n' "$scoped_model" | "$translate_sh") || exit $?
   [ "$show_op" -eq 1 ] && onepager_stream=$(printf '%s\n' "$scoped_translate" | "$onepager_sh")
   [ "$show_dm" -eq 1 ] && decisionmap_stream=$(printf '%s\n' "$scoped_translate" | "$decisionmap_sh")
   [ "$show_tb" -eq 1 ] && teachback_stream=$(printf '%s\n' "$scoped_translate" | "$teachback_sh")
