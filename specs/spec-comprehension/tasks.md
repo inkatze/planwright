@@ -102,7 +102,7 @@ view tasks they cover.
 
 ### Task 6 — HTML assembly and styling
 
-- **Status:** implementing
+- **Status:** PR #51 draft
 - **Last activity:** 2026-06-17
 - **Deliverables:** assembly of the rendered views into one self-contained HTML
   artifact; MIT-licensed styling (Tailwind CSS plus DaisyUI) with only used CSS
