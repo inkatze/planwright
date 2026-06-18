@@ -10,8 +10,15 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
+(none — all tasks dispatched or complete)
+
+## In progress
+
 ### Task 7 — Adopter docs & onboarding
 
+- **Status:** implementing
+- **Last activity:** 2026-06-18
+- **Dispatch:** tmux backend; dispatched 2026-06-18; worker window `co-task-7` (branch `planwright/customization-overlay/task-7`, worktree `.claude/worktrees/customization-overlay-task-7`, branched off origin/main `9b23bfb`).
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
   four layers, each kind's per-layer locations, the merge rules, the
   malformed-by-layer policy, the `--explain` affordance, the two worked
@@ -28,29 +35,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Citations:** D-1, D-4, D-5, D-7, D-9 · REQ-B1.6, REQ-C1.3, REQ-E1.1,
   REQ-E1.3, REQ-E1.4
 - **Estimated effort:** half day
-
-## In progress
-
-### Task 6 — `review_sequence` config knob
-
-- **Status:** implementing
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-6` (branch `planwright/customization-overlay/task-6`, worktree `.claude/worktrees/customization-overlay-task-6`, branched off origin/main `f859ef8`).
-- **Deliverables:** The `review_sequence` config option (an ordered list of
-  nestable review-skill names) with a default reproducing today's convergence
-  behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
-  convergence phase rewired to read it through the four-layer config resolution
-  and run the named review skills in order. Verification of the ordering
-  scenario.
-- **Done when:** `review_sequence` resolves through all four layers; the
-  default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
-  is honored in order by the convergence phase; an entry naming an unknown or
-  non-nestable review skill is handled as a malformed value under the REQ-E1.4
-  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
-  is verified.
-- **Dependencies:** 3
-- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
-- **Estimated effort:** 1 day
 
 ## Awaiting input
 
@@ -168,6 +152,25 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Dependencies:** 2
 - **Citations:** D-2, D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
   REQ-B1.6, REQ-D1.1, REQ-E1.4
+- **Estimated effort:** 1 day
+
+### Task 6 — `review_sequence` config knob
+
+- **Status:** Completed — PR #47 merged 2026-06-18 (merge commit `9b23bfb`).
+- **Deliverables:** The `review_sequence` config option (an ordered list of
+  nestable review-skill names) with a default reproducing today's convergence
+  behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
+  convergence phase rewired to read it through the four-layer config resolution
+  and run the named review skills in order. Verification of the ordering
+  scenario.
+- **Done when:** `review_sequence` resolves through all four layers; the
+  default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
+  is honored in order by the convergence phase; an entry naming an unknown or
+  non-nestable review skill is handled as a malformed value under the REQ-E1.4
+  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
+  is verified.
+- **Dependencies:** 3
+- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ## Deferred
