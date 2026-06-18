@@ -55,6 +55,19 @@ usage() {
   exit 2
 }
 
+# sanitize_echo <string> — strip control characters before echoing untrusted
+# content (the spec-validate echo discipline, REQ-H1.3: a hostile value must not
+# reach the terminal raw, where escape sequences could manipulate it), with a
+# placeholder when nothing printable remains. spec-scope.sh is callable directly,
+# not always behind the scaffold's charset gate, so the selector is sanitized
+# here too (matching the sibling spec-walkthrough.sh / spec-assemble.sh). Display
+# only; the classification below still matches on the raw $scope.
+sanitize_echo() {
+  se=$(printf '%s' "$1" | tr -d '\000-\037\177')
+  [ -n "$se" ] || se="(unprintable)"
+  printf '%s' "$se"
+}
+
 scope=
 spec_dir=
 while [ $# -gt 0 ]; do
@@ -86,6 +99,9 @@ kind=whole
 name=
 group=
 target=
+# A control-character-stripped copy of the selector for the error messages below
+# (echo discipline); the case still matches on the raw $scope.
+scope_safe=$(sanitize_echo "$scope")
 case ${scope:-whole} in
   whole | "")
     kind=whole
@@ -96,7 +112,7 @@ case ${scope:-whole} in
     case $name in
       requirements | design | tasks | test-spec) kind="file" ;;
       *)
-        echo "spec-scope: scope '$scope' names no source file (expected file:requirements|design|tasks|test-spec)" >&2
+        echo "spec-scope: scope '$scope_safe' names no source file (expected file:requirements|design|tasks|test-spec)" >&2
         exit 2
         ;;
     esac
@@ -105,7 +121,7 @@ case ${scope:-whole} in
     group=${scope#reqs:}
     case $group in
       "" | *[!A-Z]*)
-        echo "spec-scope: scope '$scope' is not a requirement group (expected reqs:<GROUP>, uppercase letters)" >&2
+        echo "spec-scope: scope '$scope_safe' is not a requirement group (expected reqs:<GROUP>, uppercase letters)" >&2
         exit 2
         ;;
     esac
@@ -123,7 +139,7 @@ case ${scope:-whole} in
     target=${target#d-}
     case $target in
       "" | *[!0-9]*)
-        echo "spec-scope: scope '$scope' is not a decision id (expected decision:<id>)" >&2
+        echo "spec-scope: scope '$scope_safe' is not a decision id (expected decision:<id>)" >&2
         exit 2
         ;;
     esac
@@ -131,7 +147,7 @@ case ${scope:-whole} in
     kind=decision
     ;;
   *)
-    echo "spec-scope: unknown scope '$scope' (valid: whole, file:<name>, reqs:<GROUP>, decisions, tasks, decision:<id>)" >&2
+    echo "spec-scope: unknown scope '$scope_safe' (valid: whole, file:<name>, reqs:<GROUP>, decisions, tasks, decision:<id>)" >&2
     exit 2
     ;;
 esac

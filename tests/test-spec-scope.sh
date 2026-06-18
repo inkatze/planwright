@@ -353,6 +353,19 @@ run_s 2 --scope bogus:thing "$demo"
 run_s 2 --scope reqs:lowercase "$demo"
 run_s 2 --scope decision:notanumber "$demo"
 
+# Echo discipline (REQ-H1.3): spec-scope.sh is callable directly, so a hostile
+# --scope carrying control characters is stripped before being echoed to stderr
+# (Copilot review, PR #63; matches spec-walkthrough.sh / spec-assemble.sh). Each
+# selector below lands on a different malformed-selector branch (unknown, no-such-
+# file, bad reqs group, bad decision id); none may echo the raw control byte.
+esc=$(printf '\033')
+for hostile in "${esc}[31mbogus" "file:${esc}nope" "reqs:${esc}x" "decision:${esc}9"; do
+  run_s 2 --scope "$hostile" "$demo"
+  case $out in
+    *"$esc"*) fail "raw control character reached stderr (echo discipline violated)" ;;
+  esac
+done
+
 # The usage message presents --scope as optional. It defaults to whole (the
 # no-selector pass-through above relies on this), so the help text must not imply
 # --scope is required. Trigger usage via an unknown flag and assert the bracket.
