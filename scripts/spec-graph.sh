@@ -135,8 +135,10 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
   # pipe) so $! is unambiguously dot's pid for the watchdog to kill; both temps
   # live under TMPDIR, never the tracked tree, so the view stays repo-read-only.
   plain=
-  gv_in=$(mktemp 2>/dev/null) || gv_in=
-  gv_out=$(mktemp 2>/dev/null) || gv_out=
+  # Explicit templates: a bare `mktemp` default template is not portable to BSD
+  # mktemp (the house pattern, see scripts/builder-guards.sh).
+  gv_in=$(mktemp "${TMPDIR:-/tmp}/spec-graph.XXXXXX" 2>/dev/null) || gv_in=
+  gv_out=$(mktemp "${TMPDIR:-/tmp}/spec-graph.XXXXXX" 2>/dev/null) || gv_out=
   if [ -n "$gv_in" ] && [ -n "$gv_out" ]; then
     printf '%s\n' "$dot_src" >"$gv_in"
     "$dot_bin" -Tplain "$gv_in" >"$gv_out" 2>/dev/null &
