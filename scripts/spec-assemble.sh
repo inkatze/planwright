@@ -353,15 +353,18 @@ graph_prog='
   END {
     print "<section data-section=\"graph\" class=\"card section\">"
     print "<h2 class=\"section-title\">How the work fits together</h2>"
-    print "<p class=\"graph-intro\">Each box is a piece of work. An arrow runs from a piece to the work that depends on it, so the diagram flows left to right from the earliest work to the last. The highlighted chain is the longest path through the plan &mdash; the run of work that paces the whole effort. Boxes sharing a column have no dependency between them and can move ahead in parallel.</p>"
     if (nn == 0) {
       # The empty-graph GRAPHNOTE carries this same sentence, so it is the single
       # source for the message and is not also echoed as a graph-note (printing
-      # both rendered the identical line twice).
+      # both rendered the identical line twice). The graph-intro prose is emitted
+      # only below, once we know there is at least one node: it describes the
+      # arrows, critical path, and parallel columns of a drawn diagram, so
+      # printing it here would explain a diagram that is never rendered.
       print "<p class=\"graph-empty\">" esc(note) "</p>"
       print "</section>"
       exit
     }
+    print "<p class=\"graph-intro\">Each box is a piece of work. An arrow runs from a piece to the work that depends on it, so the diagram flows left to right from the earliest work to the last. The highlighted chain is the longest path through the plan &mdash; the run of work that paces the whole effort. Boxes sharing a column have no dependency between them and can move ahead in parallel.</p>"
     print "<svg class=\"graph-svg\" viewBox=\"0 0 " W " " H "\" role=\"img\" aria-label=\"Task dependency graph; the highlighted chain is the critical path\">"
     print "<defs>"
     print "<marker id=\"gv-arrow\" markerWidth=\"9\" markerHeight=\"9\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\"/></marker>"

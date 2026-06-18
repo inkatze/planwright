@@ -590,4 +590,32 @@ esac
 # The full title survives untruncated in the node <title> tooltip.
 has '<title>supercalifragilisticexpialidociousX</title>'
 
+# ---------------------------------------------------------------------------
+# 16. Empty-graph section (REQ-A1.5 graceful degradation): a bundle with no
+#     task graph renders the empty-graph note alone — the graph-intro prose
+#     describes the arrows / critical path / parallel columns of a diagram, so
+#     printing it when no diagram is drawn contradicts the "clear message"
+#     posture. The empty case shows the heading and the empty note, never the
+#     intro and never an <svg>.
+# ---------------------------------------------------------------------------
+emptyspecs="$tmp/empty"
+make_bundle "$emptyspecs" demo
+cat >"$emptyspecs/demo/tasks.md" <<'EOF'
+# Fixture — Tasks
+
+**Status:** Active
+**Last reviewed:** 2026-06-16
+**Format-version:** 1
+
+## Forward plan
+EOF
+run_dir 0 "$emptyspecs/demo"
+has 'data-section="graph"'
+has 'class="graph-empty"'
+# The intro describes a diagram that is not drawn in the empty case, so it must
+# not appear. This is the regression guard for the empty-graph branch.
+lacks 'class="graph-intro"'
+# No diagram is rendered when there is no task graph.
+lacks 'class="graph-svg"'
+
 echo "PASS: test-spec-assemble.sh"
