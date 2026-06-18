@@ -10,8 +10,14 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
+(none)
+
+## In progress
+
 ### Task 7 — Adopter docs & onboarding
 
+- **Status:** implementing
+- **Last activity:** 2026-06-17
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
   four layers, each kind's per-layer locations, the merge rules, the
   malformed-by-layer policy, the `--explain` affordance, the two worked
@@ -28,8 +34,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Citations:** D-1, D-4, D-5, D-7, D-9 · REQ-B1.6, REQ-C1.3, REQ-E1.1,
   REQ-E1.3, REQ-E1.4
 - **Estimated effort:** half day
-
-## In progress
 
 ### Task 6 — `review_sequence` config knob
 
