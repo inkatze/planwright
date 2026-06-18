@@ -60,7 +60,7 @@ In **plugin mode**, `$CLAUDE_PLUGIN_DATA` already carries a per-plugin
 namespace, so a public install and a work fork resolve to *distinct* adopter
 overlays automatically — they never collide (REQ-A1.5). In **writer mode** the
 `<name>` segment is read from the plugin manifest `name` field that
-`install.sh` copies into place. `<claude-dir>` is `$CLAUDE_DIR` if set, else
+`scripts/install.sh` copies into place. `<claude-dir>` is `$CLAUDE_DIR` if set, else
 `$HOME/.claude`. If the manifest is missing or unreadable, the adopter layer is
 simply treated as absent and resolution falls through to the next lower layer —
 never an error.
