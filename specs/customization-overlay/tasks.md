@@ -16,7 +16,7 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ### Task 7 — Adopter docs & onboarding
 
-- **Status:** implementing
+- **Status:** PR #52 draft
 - **Last activity:** 2026-06-17
 - **Hand-off (bootstrap Task 19 onboarding):** bootstrap Task 19 (Packaging
   finalization & onboarding docs, PR #27 merged 2026-06-17) shipped
