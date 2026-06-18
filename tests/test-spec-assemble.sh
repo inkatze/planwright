@@ -125,7 +125,7 @@ make_bundle() {
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
-## REQ-A — markup group
+## REQ-A — markup <i>group</i>
 
 - **REQ-A1.1** The renderer SHALL display <script>alert('xss')</script> and
   <img src=x onerror="boom()"> and a raw & ampersand and the <spec> placeholder
@@ -233,6 +233,13 @@ lacks '<b>bold</b>'
 # escaped and the artifact ships none).
 [ "$(count_substr '<script')" -eq 0 ] \
   || fail "the artifact must contain no live <script> tag (bundle script must be escaped)"
+# Section labels are rendered content too (REQ-E1.7 escapes ALL rendered text,
+# not only the fields assumed untrusted). The fixture's REQ-A group heading
+# carries markup (`markup <i>group</i>`); the teach-back group title must render
+# it escaped, never as a live element. A regression dropping the section-label
+# esc() (verified to surface live `<i>group</i>` when removed) is caught here.
+has '&lt;i&gt;group&lt;/i&gt;'
+lacks '<i>group</i>'
 
 # ---------------------------------------------------------------------------
 # 3. Reveal toggle off by default (REQ-D1.3).
@@ -288,6 +295,11 @@ has 'demo'
 has "$COMMIT"
 # The stamp ties them together in a provenance element.
 has 'data-provenance'
+# The status is carried in the provenance stamp from the BUNDLE record (no
+# basename fallback, unlike the spec name): asserting it guards the BUNDLE-record
+# read itself — a regression degrading it would surface here as "(undeclared)".
+# The fixture bundle is Active.
+has 'class="prov-status">Active<'
 
 # ---------------------------------------------------------------------------
 # 6. Inlined MIT-licensed styling (REQ-E1.6).
