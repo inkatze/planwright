@@ -19,31 +19,6 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 9 — Scope selection and stage-aware framing
-
-- **Deliverables:** the whole-bundle default plus partial selectors (one file,
-  one requirement group, the decision set, the task graph, a single decision's
-  blast radius); status-auto-detected framing for Draft, Active, Done, and
-  terminal statuses.
-- **Done when:** each partial selector renders only its scope; a single
-  decision's view shows its blast radius; and the framing changes with the
-  bundle's status without the human specifying it.
-- **Dependencies:** 2, 6
-- **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
-- **Estimated effort:** 1.5 days
-
-### Task 10 — Sibling discoverability touchpoints
-
-- **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
-  `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
-  `/spec-walkthrough` as an independent human step, none auto-invoking it.
-- **Done when:** the three sibling skills each surface the recommendation in the
-  right place, none invokes the command, and the wording frames it as an
-  optional independent pass.
-- **Dependencies:** 6
-- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
-- **Estimated effort:** half day
-
 ### Task 11 — Tests and test-spec coverage
 
 - **Deliverables:** automated fixtures across the views (model, translation,
@@ -73,7 +48,36 @@ view tasks they cover.
 
 ## In progress
 
-(none)
+### Task 9 — Scope selection and stage-aware framing
+
+- **Status:** In progress — dispatched 2026-06-18 (no PR yet)
+- **Last activity:** 2026-06-18
+- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t9` · worktree `.claude/worktrees/planwright+spec-comprehension+task-9` · branch `planwright/spec-comprehension/task-9`
+- **Deliverables:** the whole-bundle default plus partial selectors (one file,
+  one requirement group, the decision set, the task graph, a single decision's
+  blast radius); status-auto-detected framing for Draft, Active, Done, and
+  terminal statuses.
+- **Done when:** each partial selector renders only its scope; a single
+  decision's view shows its blast radius; and the framing changes with the
+  bundle's status without the human specifying it.
+- **Dependencies:** 2, 6
+- **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
+- **Estimated effort:** 1.5 days
+
+### Task 10 — Sibling discoverability touchpoints
+
+- **Status:** In progress — dispatched 2026-06-18 (no PR yet)
+- **Last activity:** 2026-06-18
+- **Dispatch:** tmux · 2026-06-18 · window `pw-sc-t10` · worktree `.claude/worktrees/planwright+spec-comprehension+task-10` · branch `planwright/spec-comprehension/task-10`
+- **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
+  `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
+  `/spec-walkthrough` as an independent human step, none auto-invoking it.
+- **Done when:** the three sibling skills each surface the recommendation in the
+  right place, none invokes the command, and the wording frames it as an
+  optional independent pass.
+- **Dependencies:** 6
+- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
+- **Estimated effort:** half day
 
 ## Awaiting input
 
