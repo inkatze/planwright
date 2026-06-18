@@ -63,7 +63,7 @@ view tasks they cover.
 
 ### Task 10 — Sibling discoverability touchpoints
 
-- **Status:** implementing
+- **Status:** PR #61 draft
 - **Last activity:** 2026-06-18
 - **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
   `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
