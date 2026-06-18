@@ -266,9 +266,11 @@ review_sequence: [self-review, polish]
 review_sequence: [polish, self-review]
 ```
 
-With those two layers present, `/execute-task`'s convergence phase runs
-`self-review` then `polish`… until the repo-tracked file wins and it becomes
-`polish` then `self-review` — the order is preserved verbatim, not sorted.
+With **only** the adopter layer set, `/execute-task`'s convergence phase runs
+`self-review` then `polish`. Add the `repo-tracked` layer above and it wins
+**outright** — config is last-layer-wins, so the higher layer's list replaces
+the whole value rather than merging with it — and convergence runs `polish`
+then `self-review`. Either way the order is preserved verbatim, not sorted.
 
 An entry naming an **unknown or non-nestable** skill is a malformed value under
 the same by-layer policy as §4: in an adopter or machine-local layer it warns
