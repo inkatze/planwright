@@ -526,4 +526,56 @@ if [ "$(id -u)" -ne 0 ]; then
   has "no decision set"
 fi
 
+# ---------------------------------------------------------------------------
+# 15. Artifact write is atomic: a failed assembly never creates, truncates, or
+# leaves an empty/partial artifact behind, and a prior good artifact survives a
+# later failed run (REQ-A1.5 — the bundle loaded, only the artifact is missing;
+# the load must not corrupt a previously-written artifact). The scaffold resolves
+# spec-assemble.sh as its sibling, so we run a copy of the scaffold beside a stub
+# assembler that prints partial output then exits non-zero. The real assembler is
+# fail-closed (no stdout on failure), so in practice the leftover would be an
+# empty file; the stub's mid-stream partial write proves the temp-then-rename
+# guard protects even a partially-writing assembler, the stronger property.
+# ---------------------------------------------------------------------------
+asws="$tmp/atomic"
+mkdir -p "$asws/scripts"
+cp "$script" "$asws/scripts/spec-walkthrough.sh"
+cat >"$asws/scripts/spec-assemble.sh" <<'EOF'
+#!/bin/sh
+# Stub assembler: emit partial output, then fail, modeling an assembly that dies
+# after writing some bytes to stdout.
+printf 'PARTIAL BROKEN HTML'
+exit 2
+EOF
+chmod +x "$asws/scripts/spec-assemble.sh"
+scaffold="$asws/scripts/spec-walkthrough.sh"
+make_bundle "$asws/specs" demo Active
+printf '%s\n' '.claude/walkthroughs/' >"$asws/.gitignore"
+afile="$asws/.claude/walkthroughs/demo/demo.html"
+
+# 15a. No prior artifact: a failed assembly reports "not written" and leaves NO
+# artifact file behind — the message must not be contradicted by a stray
+# empty/partial file a confused reader could open.
+arc=0
+aout=$(cd "$asws" && "$scaffold" demo 2>&1) || arc=$?
+[ "$arc" -eq 0 ] || fail "atomic: the load itself should still succeed (exit $arc): $aout"
+case $aout in
+  *"artifact: not written"*) ;;
+  *) fail "atomic: expected 'artifact: not written' on assembly failure: $aout" ;;
+esac
+[ ! -e "$afile" ] \
+  || fail "atomic: a failed assembly left a stray artifact at $afile: [$(cat "$afile" 2>/dev/null)]"
+
+# 15b. Prior good artifact: a later failed assembly preserves it intact rather
+# than truncating it to empty/partial.
+mkdir -p "$asws/.claude/walkthroughs/demo"
+printf 'GOOD PRIOR ARTIFACT\n' >"$afile"
+arc=0
+aout=$(cd "$asws" && "$scaffold" demo 2>&1) || arc=$?
+[ "$arc" -eq 0 ] || fail "atomic: the load should succeed with a prior artifact (exit $arc): $aout"
+case $(cat "$afile") in
+  'GOOD PRIOR ARTIFACT') ;;
+  *) fail "atomic: a failed assembly corrupted the prior artifact: [$(cat "$afile")]" ;;
+esac
+
 echo "PASS: test-spec-walkthrough.sh"

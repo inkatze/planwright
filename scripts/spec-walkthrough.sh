@@ -362,10 +362,23 @@ if [ -x "$assemble" ]; then
   out_dir=".claude/walkthroughs/$spec"
   out_file="$out_dir/$spec.html"
   commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+  # Assemble into a temp file in the output directory, then rename into place
+  # only on success. Redirecting straight at $out_file would create/truncate it
+  # before the assembler runs, so a failed assembly would leave an empty or
+  # partial file behind (contradicting the "not written" message) and would
+  # destroy a previously-written good artifact. Writing to a sibling temp file
+  # and `mv`-ing on success keeps the rename atomic (same filesystem); the temp
+  # is removed on any failure. The temp shares the gitignored directory, so the
+  # tracked tree stays clean either way (the house mktemp+rename pattern, see
+  # scripts/tasks-pr-sync.sh).
+  tmp_file=
   if mkdir -p "$out_dir" 2>/dev/null \
-    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$bundle_dir" >"$out_file" 2>/dev/null; then
+    && tmp_file=$(mktemp "$out_dir/.$spec.html.XXXXXX" 2>/dev/null) \
+    && SPEC_WALKTHROUGH_COMMIT="$commit" "$assemble" "$bundle_dir" >"$tmp_file" 2>/dev/null \
+    && mv -f "$tmp_file" "$out_file"; then
     printf '  artifact: %s\n' "$out_file"
   else
+    if [ -n "$tmp_file" ]; then rm -f "$tmp_file"; fi
     printf '  artifact: not written (could not assemble or write %s)\n' "$out_file" >&2
   fi
 else
