@@ -209,7 +209,7 @@ decisionmap_prog='
     # each shown as ..." frame, matching the one-pager/teach-back empty-state
     # convention and the graceful-degradation posture (REQ-A1.5).
     if ($4 + 0 == 0) next
-    printf "<p class=\"frame\">%d decisions, each shown as context, decision, alternative considered, and consequence.</p>\n", $4
+    printf "<p class=\"frame\">%d decisions, each shown as context, decision, alternative rejected, and consequence.</p>\n", $4
     haveframe = 1
     next
   }

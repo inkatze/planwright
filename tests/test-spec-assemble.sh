@@ -378,6 +378,11 @@ has '>Context<'
 has '>Decision<'
 has '>Alternative rejected<'
 has '>Consequence<'
+# The frame summary must use the same "alternative rejected" wording as the beat
+# labels and REQ-C1.4, not the divergent "alternative considered" (user-visible
+# wording consistency within the section).
+has 'alternative rejected, and consequence'
+lacks 'alternative considered'
 # Each decision in the fixture (D-1, D-2) renders a decision item; assert at least
 # two decision items so both fixture decisions surfaced.
 ditems=$(printf '%s\n' "$out" | grep -o 'class="decision"' | wc -l | tr -d ' ')
