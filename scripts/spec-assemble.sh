@@ -208,7 +208,12 @@ teachback_prog='
         print "<fieldset class=\"responses\">"
         print "<legend class=\"sr-only\">Your understanding</legend>"
         for (r = 1; r <= nresp; r++) {
-          printf "<label class=\"resp\"><input type=\"radio\" name=\"tb-claim-%d\" value=\"%s\"> %s</label>\n", cc, esc(resp[r]), cap(resp[r])
+          # Escape the label text as well as the value attribute: this assembly
+          # layer escapes ALL rendered content (REQ-E1.7), not only the fields it
+          # assumes are untrusted. The response options are the hardcoded
+          # agree/disagree/unsure upstream today, but the escaping contract here
+          # must not depend on that, so the cap() output is escaped before output.
+          printf "<label class=\"resp\"><input type=\"radio\" name=\"tb-claim-%d\" value=\"%s\"> %s</label>\n", cc, esc(resp[r]), esc(cap(resp[r]))
         }
         print "</fieldset>"
         print "</li>"
