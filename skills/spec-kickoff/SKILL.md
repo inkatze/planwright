@@ -179,6 +179,13 @@ state.
    case (the anchor-written-last ordering makes a killed session
    indistinguishable from absent-anchor, by design): resume at the
    sign-off step.
+7. **Surface the optional independent walkthrough (suggest only).** Before
+   beginning the guided walkthrough, recommend that the human may, as an
+   **optional independent step**, run `/spec-walkthrough specs/<spec>`
+   themselves for an unaided, plain-language read of the bundle — the cold-read
+   complement to this guided dialogue, not a replacement for it (REQ-F1.1,
+   REQ-F1.2, D-11). Surface it as a suggestion only and proceed: it is never a
+   step this skill performs, and sign-off does not depend on it.
 
 ## The walkthrough
 
