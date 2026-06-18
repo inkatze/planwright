@@ -495,4 +495,33 @@ printf '%s\n' "$out" | awk -F"$tab" '$1=="ONEPAGER"{print $2}' | sort -n | awk '
 zerokiller=$(printf '%s\n' "$out" | awk -F"$tab" '$1=="ONEPAGER" && $3=="killer" && $5+0==0{print $4; bad=1} END{exit(bad?1:0)}') \
   || fail "a zero-score requirement was foregrounded as killer: [$zerokiller]"
 
+# ---------------------------------------------------------------------------
+# 14. Missing dependency fails closed: in <spec-dir> mode the script resolves
+# its sibling spec-translate.sh next to itself; when no executable sibling is
+# present it must exit 2 with a clear message (the guard at spec-onepager.sh's
+# `[ ! -x "$translate" ]` branch), rather than silently emitting nothing. Run a
+# copy of the script from an isolated directory that has no spec-translate.sh
+# sibling so the resolution genuinely fails.
+# ---------------------------------------------------------------------------
+isolate="$tmp/isolated"
+mkdir -p "$isolate"
+cp "$script" "$isolate/spec-onepager.sh"
+chmod +x "$isolate/spec-onepager.sh"
+# No spec-translate.sh exists alongside the copy: the guard must fire.
+rc=0
+out=$("$isolate/spec-onepager.sh" "$specs/demo" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] \
+  || fail "missing translate sibling: expected exit 2, got $rc — output: $out"
+case $out in
+  *"cannot find an executable spec-translate.sh"*) ;;
+  *) fail "missing translate sibling: expected error message not surfaced — output: $out" ;;
+esac
+# A present-but-non-executable sibling triggers the same guard (the `! -x` half).
+: >"$isolate/spec-translate.sh"
+chmod -x "$isolate/spec-translate.sh"
+rc=0
+out=$("$isolate/spec-onepager.sh" "$specs/demo" 2>&1) || rc=$?
+[ "$rc" -eq 2 ] \
+  || fail "non-executable translate sibling: expected exit 2, got $rc — output: $out"
+
 echo "PASS: test-spec-onepager.sh"
