@@ -102,7 +102,7 @@ view tasks they cover.
 
 ### Task 6 — HTML assembly and styling
 
-- **Status:** dispatched
+- **Status:** PR #51 draft
 - **Last activity:** 2026-06-17
 - **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t6` · worktree `.claude/worktrees/planwright+spec-comprehension+task-6` · branch `planwright/spec-comprehension/task-6`
 - **Deliverables:** assembly of the rendered views into one self-contained HTML
@@ -173,6 +173,19 @@ view tasks they cover.
 - **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
 - **Estimated effort:** 2 days
 
+### Task 4 — Spec-at-a-glance one-pager renderer
+
+- **Status:** Completed — merged via PR #43 (merge commit `b285999`) on 2026-06-17
+- **Deliverables:** the narrative one-pager view (prose, length-bounded), each
+  load-bearing claim carrying its back-pointer, with the load-bearing "killer
+  items" foregrounded.
+- **Done when:** the one-pager renders a real bundle as bounded narrative prose
+  in which every claim resolves to a source element and the killer items are
+  visually distinct from routine content.
+- **Dependencies:** 3
+- **Citations:** D-2 · REQ-C1.2
+- **Estimated effort:** 1 day
+
 ### Task 5 — Teach-back challenge
 
 - **Status:** Completed — merged via PR #44 (merge commit `0c022a3`) on 2026-06-17
@@ -187,19 +200,6 @@ view tasks they cover.
 - **Dependencies:** 3
 - **Citations:** D-3, D-9 · REQ-C1.5, REQ-D1.1, REQ-D1.4
 - **Estimated effort:** 1.5 days
-
-### Task 4 — Spec-at-a-glance one-pager renderer
-
-- **Status:** Completed — merged via PR #43 (merge commit `b285999`) on 2026-06-17
-- **Deliverables:** the narrative one-pager view (prose, length-bounded), each
-  load-bearing claim carrying its back-pointer, with the load-bearing "killer
-  items" foregrounded.
-- **Done when:** the one-pager renders a real bundle as bounded narrative prose
-  in which every claim resolves to a source element and the killer items are
-  visually distinct from routine content.
-- **Dependencies:** 3
-- **Citations:** D-2 · REQ-C1.2
-- **Estimated effort:** 1 day
 
 ## Deferred
 
