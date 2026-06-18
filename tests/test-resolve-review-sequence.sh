@@ -237,4 +237,51 @@ b=$(run)
 [ "$a" = "$b" ] || fail "resolution is not deterministic across runs"
 echo "ok: resolution is deterministic across repeated runs"
 
+# 9. Output contract: the emitted stream is newline-terminated (one name per
+#    line, final line included), matching the rc=3 fallback and every sibling
+#    emitter (config-get, resolve-overlay-root, resolve-rule-doc). A missing
+#    trailing newline would make a shell `while read` consumer silently drop the
+#    last gauntlet skill. $()-based assertions above cannot catch this (command
+#    substitution strips trailing newlines), so check the raw bytes.
+reset_layers
+printf 'review_sequence: [self-review, polish]\n' >"$tracked_cfg"
+run >"$tmp/out.txt"
+[ "$(tail -c1 "$tmp/out.txt" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "multi-name output is not newline-terminated (a shell read-loop would drop the last name)"
+reset_layers
+run >"$tmp/out.txt" # the default single-name path
+[ "$(tail -c1 "$tmp/out.txt" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "single-name (default) output is not newline-terminated"
+echo "ok: the emitted stream is newline-terminated on every name (single and multi)"
+
+# 10. Usage guard: the resolver takes no arguments (the key is fixed); any
+#     argument is a usage error (exit 2).
+rc=0
+PLANWRIGHT_SKILLS_ROOT="$skills" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$RS" some-arg >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "passing an argument did not produce a usage error (exit $rc, expected 2)"
+echo "ok: passing any argument is a usage error (exit 2)"
+
+# 11. Broken/partial install: review_sequence absent in every layer (config-get
+#     exits 3). The resolver degrades to the historical single-skill gauntlet
+#     ('polish') with a loud stderr warning, exit 0, so convergence still runs.
+reset_layers
+core_empty="$tmp/core-empty.yml"
+printf 'max_parallel_units: 3\n' >"$core_empty" # a core file that omits review_sequence
+rc=0
+out=$(PLANWRIGHT_SKILLS_ROOT="$skills" PLANWRIGHT_CONFIG_DEFAULTS="$core_empty" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$RS" 2>/dev/null) || rc=$?
+err=$(PLANWRIGHT_SKILLS_ROOT="$skills" PLANWRIGHT_CONFIG_DEFAULTS="$core_empty" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$RS" 2>&1 >/dev/null) || true
+[ "$rc" = 0 ] || fail "absent-in-every-layer: exit $rc, expected 0 (graceful degrade)"
+[ "$out" = polish ] || fail "absent-in-every-layer: did not fall back to 'polish' (got '$out')"
+case $err in
+  *unset* | *broken* | *partial*) ;;
+  *) fail "absent-in-every-layer: warning does not flag a broken/partial install (got: '$err')" ;;
+esac
+echo "ok: review_sequence absent in every layer degrades to the 'polish' gauntlet with a warning (exit 0)"
+
 echo "PASS: resolve-review-sequence"

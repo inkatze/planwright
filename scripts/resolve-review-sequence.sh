@@ -192,7 +192,7 @@ layer=${explain_out%%	*}
 value=${explain_out#*	}
 
 if validated=$(validate_sequence "$value"); then
-  printf '%s' "$validated"
+  printf '%s\n' "$validated"
   exit 0
 fi
 
@@ -227,7 +227,7 @@ case "$layer" in
       exit 5
     fi
     if validated=$(validate_sequence "$core_value"); then
-      printf '%s' "$validated"
+      printf '%s\n' "$validated"
       exit 0
     fi
     echo "resolve-review-sequence: the core default review_sequence ('$core_value') is itself malformed — broken install" >&2
