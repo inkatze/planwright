@@ -353,6 +353,13 @@ run_s 2 --scope bogus:thing "$demo"
 run_s 2 --scope reqs:lowercase "$demo"
 run_s 2 --scope decision:notanumber "$demo"
 
+# The usage message presents --scope as optional. It defaults to whole (the
+# no-selector pass-through above relies on this), so the help text must not imply
+# --scope is required. Trigger usage via an unknown flag and assert the bracket.
+run_s 2 --unknown-flag
+printf '%s\n' "$out" | grep -q '\[--scope <selector>\]' \
+  || fail "usage message does not present --scope as optional: $out"
+
 # Read-only: a run in a clean git work tree leaves it clean.
 if command -v git >/dev/null 2>&1; then
   gws="$tmp/gitws"

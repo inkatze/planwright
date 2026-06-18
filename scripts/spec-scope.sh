@@ -51,7 +51,7 @@ export LC_ALL
 unset CDPATH
 
 usage() {
-  echo "usage: spec-scope.sh --scope <selector> [<spec-dir>]" >&2
+  echo "usage: spec-scope.sh [--scope <selector>] [<spec-dir>]" >&2
   exit 2
 }
 
