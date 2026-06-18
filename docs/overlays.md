@@ -207,29 +207,35 @@ The `repo-tracked` overlay (`<repo>/.claude/planwright.yml`,
 `gitleaks` does cover it — but a committed secret is the worst place to put
 one. The rule is the same for every layer: **secrets never go in overlays.**
 
-## 7. Worked example A — dispatch-isolation (a core capability)
+## 7. Worked example A — dispatch-isolation (the illustrative core-capability shape)
 
-Dispatch isolation (whether `/orchestrate` runs each execution unit in its own
-isolated worktree) is a **general capability**, not a personal style: every
-adopter benefits from the same well-chosen default. By the capability-vs-style
-rule it lands in **core**, exposed through a config knob, with the specific
-value an overlay may tune per layer.
+This first example is **illustrative, not a shipped knob** — it shows the shape
+of a preference that belongs in *core*, the opposite of the runnable overlay in
+§8. It is the worked example carried by the
+[`customization-boundary`](../doctrine/customization-boundary.md) doctrine doc;
+the customization-overlay spec ships the *seam*, not this particular knob.
 
-That means you do **not** ship a whole alternate orchestration doc to change it.
-You set the knob in whichever layer fits the scope:
+Consider per-step **dispatch isolation**: `/orchestrate` running each task in
+its own isolated worktree by default. Any operator running tasks in parallel
+benefits from isolation, so the preference **generalizes** — it does not encode
+one operator's taste. By the capability-vs-style rule that makes it a **general
+capability**, and a general capability's home is **core**, exposed as an opt-in,
+default-preserving config knob — not a bespoke overlay, and not a hardcoded
+default forced on every adopter.
 
-```yaml
-# <repo>/.claude/planwright.yml   (repo-tracked: the whole team gets this)
-dispatch_backend: tmux
+The overlay angle is what this example teaches by contrast: you would **not**
+ship a whole alternate orchestration doctrine doc (a doctrine overlay) to flip
+an isolation default. Once such a capability lands in core as a config knob, it
+resolves through the same four config layers as any other option, so an adopter
+could still tune it per scope (a team default in `repo-tracked`, a one-machine
+override in `machine-local`) — last-layer-wins, exactly like §8. The
+capability is general and lives in core; only the *value* an adopter chooses
+rides the overlay layers.
 
-# <repo>/.claude/planwright.local.yml   (machine-local: just your machine)
-dispatch_backend: in-session
-```
-
-The capability lives in core; the *choice* lives in your overlay, at the
-precedence your scope calls for. This is the right shape whenever a preference
-is something every adopter would reasonably want to set — make it a knob, not a
-doc override.
+Contrast that with §8, where only the *mechanism* (an ordered review sequence)
+is general enough for core while the *value* (the specific ordering) is personal
+style that stays in an overlay. Dispatch isolation tilts further toward core
+because both its mechanism and its intended default generalize.
 
 ## 8. Worked example B — the `review_sequence` gauntlet (a runnable style overlay)
 
