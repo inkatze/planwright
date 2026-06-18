@@ -87,8 +87,8 @@ view tasks they cover.
 
 ### Task 7 — Dependency-graph and critical-path view
 
-- **Status:** implementing
-- **Last activity:** 2026-06-17
+- **Status:** PR #56 draft
+- **Last activity:** 2026-06-18
 - **Deliverables:** the drawn dependency-graph view as inline SVG with the
   critical path and parallelism visible and plain labels, reusing
   `scripts/orchestrate-select.sh`'s critical-path computation; the optional
