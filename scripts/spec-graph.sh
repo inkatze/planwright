@@ -114,8 +114,22 @@ crit_path=$(
 )
 
 # Node ids and dependency edges (dep<tab>dependent) for the optional dot probe.
+# Edges are filtered to those whose BOTH endpoints have a TASK node — the same
+# dangling-edge guard the GRAPHEDGE emission applies (REQ-A1.5). Otherwise a
+# Dependencies line naming a not-yet-written or mistyped id would feed `dot` an
+# edge to an undeclared node; `dot` would implicitly create a ghost node for it
+# and distort the real nodes' coordinates. Edges are buffered and filtered in
+# END so the guard is order-independent (a forward dependency reference is kept
+# once every TASK record has been seen).
 node_ids=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="TASK"{print $2}')
-edges=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="TASKDEP"{print $3 "\t" $2}')
+edges=$(printf '%s\n' "$model" | awk -F"$tab" '
+  $1 == "TASK" { seen[$2] = 1; next }
+  $1 == "TASKDEP" { ne++; efrom[ne] = $3; eto[ne] = $2; next }
+  END {
+    for (i = 1; i <= ne; i++)
+      if ((efrom[i] in seen) && (eto[i] in seen)) print efrom[i] "\t" eto[i]
+  }
+')
 
 # --- Optional Graphviz layout (degrades cleanly to built-in) ----------------
 layout=builtin
@@ -145,9 +159,15 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
     printf '%s\n' "$node_ids" | while IFS= read -r nid; do
       [ -n "$nid" ] && printf '  "%s";\n' "$nid"
     done
-    printf '%s\n' "$edges" | while IFS="$tab" read -r ef et; do
-      [ -n "$ef" ] && printf '  "%s" -> "%s";\n' "$ef" "$et"
-    done
+    # Guard the empty case: with every edge filtered out (e.g. all dependencies
+    # dangling), `printf '%s\n' ""` would emit a blank line whose `[ -n "$ef" ]`
+    # short-circuits to a non-zero status, and under `set -e` that aborts this
+    # `$(...)` subshell before the closing brace is printed.
+    if [ -n "$edges" ]; then
+      printf '%s\n' "$edges" | while IFS="$tab" read -r ef et; do
+        [ -n "$ef" ] && printf '  "%s" -> "%s";\n' "$ef" "$et"
+      done
+    fi
     printf '}\n'
   )
   # Run dot under a wall-clock watchdog so a hung or pathologically slow

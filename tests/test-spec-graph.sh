@@ -487,4 +487,33 @@ EOF
   || fail "dangling dep produced a GRAPHEDGE to a non-existent node (phantom edge)"
 echo "ok: a dangling dependency produces no phantom edge (REQ-A1.5)"
 
+# 12b. The Graphviz probe must apply the same dangling-edge guard: an edge whose
+#      dependency id has no TASK node must NOT be fed to `dot`, or `dot` would
+#      implicitly create a ghost node for that id and distort the real nodes'
+#      coordinates (REQ-A1.5). Hand `dot` a capturing stub and assert the
+#      dangling id never appears in the DOT source it receives.
+gv_cap="$tmp/dot-input.captured"
+capstub="$tmp/gv-capture"
+mkdir -p "$capstub"
+cat >"$capstub/dot" <<CAP
+#!/bin/sh
+# Copy the DOT source file (argv 2 of \`dot -Tplain <file>\`) out for inspection,
+# then emit a valid -Tplain layout for the two real nodes so the probe succeeds.
+cp "\$2" "$gv_cap" 2>/dev/null || true
+cat <<'PLAIN'
+graph 1.0 6.0 2.0
+node 1 0.5 1.0 1.2 0.5 t1 solid box black lightgrey
+node 2 2.5 1.5 1.2 0.5 t2 solid box black lightgrey
+stop
+PLAIN
+CAP
+chmod +x "$capstub/dot"
+out=$(SPEC_WALKTHROUGH_DOT="$capstub/dot" "$script" "$dangle" 2>&1) \
+  || fail "dangling-dep run with a working dot should still succeed"
+[ -f "$gv_cap" ] || fail "capturing dot stub never received a DOT source"
+if grep -q '"99"' "$gv_cap"; then
+  fail "dangling dependency id 99 leaked into the DOT source fed to dot (ghost node)"
+fi
+echo "ok: the Graphviz probe drops dangling-dep edges (no ghost node, REQ-A1.5)"
+
 echo "PASS: test-spec-graph.sh"
