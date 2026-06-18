@@ -45,9 +45,10 @@ ok() {
 siblings="spec-draft spec-kickoff resume"
 
 # A recommendation-framing marker (case-insensitive). Presence of one of these
-# on a `/spec-walkthrough` line is what distinguishes a recommendation from a
-# bare reference.
-rec_marker='recommend|suggest|optional|independent|\bmay\b'
+# in the touchpoint is what distinguishes a recommendation from a bare
+# reference. Kept to plain alternation (no `\b` word-boundary) to hold the
+# portable BSD-tooling floor the rest of the suite observes (REQ-K1.5).
+rec_marker='recommend|suggest|optional|independent'
 
 # An agent-directed invocation directive (case-insensitive). None of these may
 # appear on a line that mentions `/spec-walkthrough`: the touchpoint recommends,
