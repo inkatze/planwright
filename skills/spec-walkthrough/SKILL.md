@@ -97,8 +97,9 @@ self-contained and offline either way; only the layout differs. No installation
 is required: Graphviz is an enhancement, not a dependency. Two environment
 variables tune the probe: `SPEC_WALKTHROUGH_DOT` overrides the binary name
 (default `dot`; point it at a name that does not exist to force the built-in
-layout), and `SPEC_WALKTHROUGH_DOT_TIMEOUT` sets the watchdog seconds (default
-5) before a slow `dot` run is killed and the layout degrades.
+layout), and `SPEC_WALKTHROUGH_DOT_TIMEOUT` sets the watchdog in whole seconds
+(default 5; any value that is not a plain non-negative integer, such as `0.5`,
+is coerced back to 5) before a slow `dot` run is killed and the layout degrades.
 
 ## Teach-back
 
