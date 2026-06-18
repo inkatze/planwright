@@ -110,7 +110,11 @@ needs sign-off, what needs human judgment.
 ## Stake escalation (REQ-G1.3, D-16)
 
 Before applying anything, walk the `decision-domains` catalog against what the
-build touches. When a guard or setup step is about to cross a catalogued
+build touches — the prose seed (`doctrine/decision-domains.md`) unioned with any
+adopter/team/machine-local additions via the merged path
+`scripts/resolve-catalog.sh decision-domains`, so overlay domains are covered
+too rather than a single-layer read (REQ-D1.1, the same merge path the guard
+catalog uses). When a guard or setup step is about to cross a catalogued
 decision domain the spec or kickoff brief has not decided — authentication,
 data modeling, security posture, integration surface, and the rest — do not
 auto-default it, however idiomatic the stack default looks. Escalate it as a

@@ -222,7 +222,10 @@ on.
    questions, and the **decision-domains gap check** — walk the catalog's
    entries against the spec; any catalogued domain the spec touches but
    never decides becomes a risk-register row naming the domain and the
-   undecided question (REQ-G1.4, D-39). Catalog absent: record the
+   undecided question (REQ-G1.4, D-39). Walk the prose seed
+   (`doctrine/decision-domains.md`) **and** overlay-added domains via the merged
+   path `scripts/resolve-catalog.sh decision-domains`, so adopter/team additions
+   are covered, not just the core layer (REQ-D1.1). Catalog absent: record the
    one-line skip here instead. Open questions must end the section
    resolved to decisions or recorded as explicit accepted risks; an open
    question is not a sign-off.

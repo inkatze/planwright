@@ -220,11 +220,14 @@ the validator the first time.
    feature touches; flag any the spec touches but does not decide, and
    escalate stake-bearing decisions (authn/z, data modeling, security
    posture, integration surface) as explicit design decisions — never
-   auto-default them. When the planwright builder skill exists it plugs in
-   here (stack detection, guard recommendations); until then the catalog
-   walk is the manual form and a missing catalog doc degrades to a one-line
-   notice. Hook point and catalog scan, not a dependency: drafting works
-   without the builder.
+   auto-default them. Walk the catalog's prose seed (`doctrine/decision-domains.md`,
+   the normative full text) **and** any adopter/team/machine-local additions via
+   the merged path `scripts/resolve-catalog.sh decision-domains`, so overlay
+   domains apply too rather than a single-layer read (REQ-D1.1). When the
+   planwright builder skill exists it plugs in here (stack detection, guard
+   recommendations); until then the catalog walk is the manual form and a
+   missing catalog doc degrades to a one-line notice. Hook point and catalog
+   scan, not a dependency: drafting works without the builder.
 4. **Tasks.** Decompose into task blocks with the five definition fields
    (Deliverables / Done when / Dependencies / Citations / Estimated effort);
    IDs stable from birth. `Done when:` conditions an agent can evaluate.
