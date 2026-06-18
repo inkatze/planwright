@@ -215,8 +215,12 @@ recommend (a low-stake, reversible call, with the considerations recorded) or
 **escalate** (a load-bearing or hard-disqualifier-adjacent call) as a stop
 condition rather than auto-defaulting. A decision in a domain the catalog
 does not cover yet writes an **observation** (the catalog grows through the
-drain loop). When `decision-domains` did not resolve, note the skipped check
-and lean on engineering judgment for the same calls.
+drain loop). The catalogued domains are the prose seed (`decision-domains`, the
+normative full text) unioned with any adopter/team/machine-local additions via
+the merged path `scripts/resolve-catalog.sh decision-domains`, so overlay
+domains trigger drift too rather than a single-layer read (REQ-D1.1). When
+`decision-domains` did not resolve, note the skipped check and lean on
+engineering judgment for the same calls.
 
 ### Run the full project CI (REQ-E1.2)
 

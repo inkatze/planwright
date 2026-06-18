@@ -73,6 +73,30 @@ message names what is absent or the available scopes, never an opaque halt
 (REQ-A1.5); `2` a clean refusal (a malformed invocation, or a hostile/malformed
 identifier or escaping path).
 
+## Teach-back
+
+The teach-back is the comprehension check: the reader restates the spec's own
+assertions, section by section, and judges each for themselves (D-3, D-9;
+REQ-C1.5). The claim set is extracted once by `scripts/spec-teachback.sh` over
+the plain-language translation stream — every live requirement and every
+decision becomes one claim, grouped into sections (one per requirement group,
+then the decisions) — and **both** delivery paths render from that single
+source, so they always cover the same claims:
+
+- **In-artifact** (assembled by the HTML task): a self-paced
+  agree / disagree / unsure checklist, one neutral choice per claim. It records
+  the reader's marks; it has no comparison engine and supplies no answer.
+- **In-session walk** (optional, this skill): present each claim section by
+  section, ask the reader to restate it in their own words, and record the
+  response. Where a restatement diverges from the source, **surface the
+  divergence** — show the verbatim source for the reader to compare — and let
+  the reader adjudicate (REQ-D1.4). Never say who is right, never score, never
+  supply the "right" answer: the independence firewall (REQ-D1.1) means the
+  tool presents and structures, the human judges.
+
+Run the full read first; only then offer the teach-back. The agent voices no
+verdict, score, or assessment of the spec at any point.
+
 ## Invariants
 
 These hold at every stage as the rendering pipeline is built on top:

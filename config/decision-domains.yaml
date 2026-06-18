@@ -1,0 +1,60 @@
+---
+# planwright decision-domains catalog — machine view (Task 5; REQ-B1.3, D-5).
+#
+# doctrine/decision-domains.md is the normative prose home: entry format,
+# lifecycle wiring, the ten seed domains in full, and the growth model. THIS
+# file is its machine view — the core seed scripts/resolve-catalog.sh merges
+# with the adopter / repo-tracked / machine-local overlay catalogs
+# (append/union, supersede-by-id). Adding a domain here, or via an overlay
+# catalogs/decision-domains.yaml, needs no edit to a consuming skill
+# (REQ-D1.1). The doc/yaml split mirrors guard-catalog.md / guard-catalog.yaml.
+#
+# Each entry carries exactly the three fields the doctrine defines — trigger,
+# considerations, disposition — keyed by a stable kebab id. Values are
+# single-line scalars (the constrained-reader shape, no block scalars); the
+# prose doc holds the full-length text. The reader is a constrained parser, not
+# full YAML: keep list items at two-space and fields at four-space indentation,
+# values unquoted or double-quoted (no single quotes, no inline "# ..."
+# comments). See doctrine/decision-domains.md for the authoritative entries.
+
+domains:
+  - id: data-storage
+    trigger: "A persistent store, a table/collection/schema, or a stored-data shape change"
+    considerations: "Access patterns, normalize vs duplicate, consistency, indexing, migration"
+    disposition: "Additive decided changes proceed; new stores / shape changes escalate"
+  - id: caching
+    trigger: "Adding any cache (memoization, HTTP/CDN, cache layer) or setting a TTL"
+    considerations: "Invalidation, staleness tolerance, key/tenancy scope, stampede, memory"
+    disposition: "Decided caches proceed; escalate when staleness tolerance is a product call"
+  - id: queues-async
+    trigger: "Moving work off the request path: a job, queue, scheduled task, or worker"
+    considerations: "Delivery semantics, idempotency, ordering, retries/dead-letters, backpressure"
+    disposition: "Internal idempotent work proceeds; escalate user-visible or ordered semantics"
+  - id: api-surface
+    trigger: "Changing anything external callers depend on: endpoint, signature, flag, schema"
+    considerations: "Versioning, error contract, naming, pagination/limits, deprecation, size"
+    disposition: "Existing surface changes are sign-off class; new public surface escalates"
+  - id: auth
+    trigger: "Anything touching login, sessions, tokens, credentials, permissions, or tenancy"
+    considerations: "Identity source, session mechanics, enforcement point, tenancy, recovery"
+    disposition: "Always escalated, never auto-defaulted (hard-disqualifier zone; no-flattening)"
+  - id: secrets-config
+    trigger: "A secret or credential, a new config option/env var, or a config-source change"
+    considerations: "Where it lives, rotation, per-env safe defaults, documented, leak blast radius"
+    disposition: "Secrets escalate (hard-disqualifier); plain config proceeds if documented"
+  - id: concurrency
+    trigger: "Shared mutable state, parallel execution, locks, or a read-modify-write boundary"
+    considerations: "Race windows, idempotency, lock ordering, contention, crash mid-section"
+    disposition: "Prefer removing shared state; genuine concurrency proceeds, ordering escalates"
+  - id: observability
+    trigger: "A new invisible failure mode, or new logging/metrics/tracing infrastructure"
+    considerations: "Signal on break, log discipline, metric cardinality, sensitive data, tracing"
+    disposition: "Instrumenting by convention proceeds; new observability stacks escalate"
+  - id: deploy-migration
+    trigger: "A change that cannot roll out/back atomically: migration, backfill, fleet flip"
+    considerations: "Rollback story, bidirectional compat, the irreversible step, data-loss windows"
+    disposition: "Hard-disqualifier zone: prepare the plan, state ordering/rollback, then stop"
+  - id: dependency-adoption
+    trigger: "Adding a library, service, or tool the project does not already use"
+    considerations: "Stdlib/existing cover it first; supply chain, maintenance, license, weight"
+    disposition: "Dev tooling proceeds with checklist; runtime/untrusted-input deps escalate"

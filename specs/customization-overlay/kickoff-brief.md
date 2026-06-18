@@ -300,6 +300,46 @@ surface).
   focused confinement/by-layer review, matched to R8's stake; no external
   research trigger fired (no new dependency or version-sensitive API).
 
+**Research / decision log — Task 5 execution (2026-06-17).**
+- **R2 resolved (guard-catalog consumer wiring).** Re-checked the guard
+  catalog's existence at Task 5 dispatch: `config/guard-catalog.yaml` and
+  `scripts/builder-guards.sh` are present on `origin/main` (bootstrap Task 16
+  merged). The R2 contingency therefore resolves *in favor of wiring*: the
+  guard-catalog consumer is wired through the catalog discovery path, not
+  deferred.
+- **Decision-domains catalog data model (human, 2026-06-17).** The spec
+  (REQ-B1.3 / D-5) assumes the decision-domains catalog is structurally
+  mergeable like the guard catalog, but it ships today as prose only
+  (`doctrine/decision-domains.md`, consumed by LLM-driven skills via
+  `resolve-rule-doc.sh`), with no entry ids for `supersede-by-id` to bind to.
+  Surfaced as a Needs-human-judgment fork. Diego chose **the structured
+  machine-view option**: create `config/decision-domains.yaml` as the core
+  seed (the ten domains given stable kebab ids + trigger/considerations/
+  disposition fields), with `doctrine/decision-domains.md` remaining the
+  normative human-facing home — the exact guard-catalog dual-form pattern
+  (`doctrine/guard-catalog.md` + `config/guard-catalog.yaml`). Aligning the
+  spec text (REQ-B1.3 / D-5) to this resolved model is a separate
+  `/spec-kickoff` amendment (Diego's action), not an execution-skill edit;
+  this task implements the code/seed/tests against the chosen model and
+  references the design in the PR.
+- **Supersede-of-nonexistent-target pinned (human, 2026-06-17; Task 5
+  done-when).** An overlay entry that carries the supersede marker but whose
+  id matches no lower-precedence entry is an error, handled under the D-7
+  by-layer policy: a repo-tracked (team-shared) overlay **hard-fails**
+  (nonzero exit), while an adopter or machine-local overlay emits a loud
+  stderr warning and **skips the offending entry** (degrade), so one
+  operator's typo never blocks their run but a broken shared catalog never
+  silently mis-merges. This mirrors the malformed-by-layer split (REQ-E1.4).
+- **Entry-format / `--explain` contract pinned (R5, R6).** Catalog entries
+  use the same constrained-YAML reader shape as `config/guard-catalog.yaml`
+  (top-level sequence section(s); `- id:` list items at two-space indent;
+  fields at four-space; single-line unquoted or double-quoted scalars; no single
+  quotes or inline `#` comments), keeping the runtime dependency-free under
+  the bash-3.2 floor. The supersede marker is the field `supersede: true` on
+  an entry whose `id` names the target. `--explain` emits one
+  `<id><TAB><layer>` line per merged entry (layer ∈
+  core|adopter|repo-tracked|machine-local).
+
 **Manual verification — Task 6 execution (2026-06-17, `review_sequence`
 ordering scenario, R7).** REQ-D1.3's behavioral half is `[manual]`: that
 `/execute-task`'s convergence phase honors an overlay-set ordering. The
