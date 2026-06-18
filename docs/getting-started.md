@@ -182,21 +182,25 @@ Three customization mechanisms exist, all of which avoid editing core:
   [`doctrine/customization-boundary.md`](../doctrine/customization-boundary.md).
 - **Config overrides.** Universal defaults live in
   [`config/defaults.yml`](../config/defaults.yml); the overlay mechanism's
-  config layers (above) layer on top. Per-repo and personal overrides go in
-  `<repo>/.claude/planwright.local.yml` (gitignored, agent-maintained; per-repo
-  entries are written only on your confirmation). Every option is documented in
-  the [options reference](options-reference.md); an undocumented option fails
+  config layers (above) layer on top — set a personal default across all your
+  repos in `<adopter-root>/planwright.yml`, a repo-shared override in
+  `<repo>/.claude/planwright.yml`, or a machine-local one in
+  `<repo>/.claude/planwright.local.yml` (gitignored, agent-maintained; entries
+  are written only on your confirmation). Every option is documented in the
+  [options reference](options-reference.md); an undocumented option fails
   planwright's own CI. This covers thresholds and commit/dispatch toggles.
 - **Project tooling discovery.** planwright's SessionStart hook detects your
   project's linters, formatters, and type-checkers and feeds them into
   Discovery Rigor and the builder, so your stack's tools ground reviews without
   any core edit.
 
-> **Secrets never go in overlays.** Your adopter and machine-local overlays are
-> uncommitted, so planwright's secret scanner (`gitleaks`, which scans
-> committed files only) never sees them. The data-hygiene rule is the only
-> guard there — keep secrets in your environment layer and reference them
-> indirectly. See [`docs/overlays.md` §6](overlays.md#6-secrets-and-data-hygiene--read-this).
+> **Secrets never go in overlays.** Your adopter overlay lives outside any repo,
+> and your machine-local overlay is meant to stay uncommitted (gitignored — but
+> only where your `.gitignore` covers it; see §6's caveat), so planwright's
+> secret scanner (`gitleaks`, which scans committed files only) never sees them.
+> The data-hygiene rule is the only guard there — keep secrets in your
+> environment layer and reference them indirectly. See [`docs/overlays.md`
+> §6](overlays.md#6-secrets-and-data-hygiene--read-this).
 
 ## 5. Where to go next
 
