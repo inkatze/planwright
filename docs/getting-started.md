@@ -196,7 +196,7 @@ Three customization mechanisms exist, all of which avoid editing core:
 
 > **Secrets never go in overlays.** Your adopter overlay lives outside any repo,
 > and your machine-local overlay is meant to stay uncommitted (gitignored — but
-> only where your `.gitignore` covers it; see §6's caveat), so planwright's
+> only where your `.gitignore` covers it; see overlays.md §6's caveat), so planwright's
 > secret scanner (`gitleaks`, which scans committed files only) never sees them.
 > The data-hygiene rule is the only guard there — keep secrets in your
 > environment layer and reference them indirectly. See [`docs/overlays.md`
