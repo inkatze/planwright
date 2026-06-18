@@ -133,7 +133,12 @@ the human (D-30).
 
 Then present the consolidated context (unit, brief slice, task state, git
 log, PR state, handover notes, working-tree status) and **ask the human how
-they want to proceed** before doing any further work. `/resume` ends here;
+they want to proceed** before doing any further work. When a `<spec>` was
+resolved, also recommend — as an **optional independent step** — that the
+human may run `/spec-walkthrough specs/<spec>` themselves for an unaided,
+plain-language re-read of the bundle to re-orient (REQ-F1.1, REQ-F1.2, D-11).
+It is a suggestion only, never a step this skill performs, and as a read-only
+loader `/resume` neither runs it nor depends on it. `/resume` ends here;
 continuing the work is a separate, human-initiated step.
 
 ## Invariants

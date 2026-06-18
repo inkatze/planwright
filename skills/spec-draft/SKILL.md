@@ -270,6 +270,12 @@ committed prose neutralizes them.
    `/spec-kickoff specs/<spec>` for the walkthrough and sign-off. Push, PR,
    and the Active flip all belong to kickoff and the human. This skill stops
    here.
+   - As an **optional independent step**, also recommend that the human run
+     `/spec-walkthrough specs/<spec>` themselves for an unaided, plain-language
+     read of the freshly drafted bundle before sign-off — the unaided
+     complement to `/spec-kickoff`'s guided dialogue (REQ-F1.1, REQ-F1.2,
+     D-11). Surface it as a suggestion only, never a step this skill performs:
+     the human chooses whether to take the independent pass.
 
 ## Maintenance
 
