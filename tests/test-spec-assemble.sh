@@ -220,6 +220,7 @@ has '<meta charset='
 has '&lt;script&gt;'
 has '&amp;'
 has '&quot;'
+has '&#39;'
 has '&lt;spec&gt;'
 # No executable/structural markup from bundle content survives live.
 lacks "<script>alert('xss')</script>"
