@@ -30,7 +30,7 @@
 # load-bearing and cannot inject anything into the diagram.
 #
 # Record vocabulary (tag in column 1, tab-separated):
-#   GRAPHMETA  <width>  <height>  <layout:builtin|graphviz>
+#   GRAPHMETA  <width>  <height>  <layout:builtin|graphviz>  <node-w>  <node-h>
 #   GRAPHNOTE  <text>                       (the layout / degradation note)
 #   GRAPHCRIT  <space-joined critical-path ids>
 #   GRAPHNODE  <id>  <x>  <y>  <crit:0|1>  <title verbatim>
@@ -192,7 +192,7 @@ printf '%s\n' "$model" | awk \
   }
   END {
     if (nnodes == 0) {
-      print "GRAPHMETA", 0, 0, layout
+      print "GRAPHMETA", 0, 0, layout, NODEW, NODEH
       print "GRAPHNOTE", "This bundle has no task graph to draw."
       print "GRAPHCRIT", ""
       exit 0
@@ -239,7 +239,7 @@ printf '%s\n' "$model" | awk \
       W = MARGIN + (maxrank + 1) * (NODEW + COLGAP) - COLGAP + MARGIN
       H = MARGIN + maxrows * (NODEH + ROWGAP) - ROWGAP + MARGIN
     }
-    print "GRAPHMETA", W, H, layout
+    print "GRAPHMETA", W, H, layout, NODEW, NODEH
     print "GRAPHNOTE", note
     cpline = ""
     for (i = 1; i <= ncp; i++)

@@ -74,7 +74,8 @@ fi
 here=$(cd "$(dirname "$0")" && pwd)
 onepager_sh="$here/spec-onepager.sh"
 teachback_sh="$here/spec-teachback.sh"
-for s in "$onepager_sh" "$teachback_sh"; do
+graph_sh="$here/spec-graph.sh"
+for s in "$onepager_sh" "$teachback_sh" "$graph_sh"; do
   if [ ! -x "$s" ]; then
     echo "spec-assemble: cannot find an executable $(basename "$s") at $s" >&2
     exit 2
@@ -87,6 +88,7 @@ done
 # the bundle's plain requirement-group headings.
 onepager_stream=$("$onepager_sh" "$spec_dir") || exit $?
 teachback_stream=$("$teachback_sh" "$spec_dir") || exit $?
+graph_stream=$("$graph_sh" "$spec_dir") || exit $?
 
 tab=$(printf '\t')
 
@@ -226,8 +228,88 @@ teachback_prog='
   }
 '
 
+# The dependency-graph section fragment (Task 7; D-4, D-5, D-6; REQ-C1.3,
+# REQ-C1.6, REQ-E1.3). The graph view (scripts/spec-graph.sh) emits a record
+# stream of nodes (with computed coordinates), edges, the reused critical path,
+# and a layout note; this draws it as an inline SVG (never ASCII) adjacent to its
+# explaining text. Bundle-derived labels are escaped here (the same esc(), now in
+# SVG text context — the dedicated SVG pass the Task 6 scoping note anticipated);
+# coordinates are numeric (the view validated them) and coerced with +0. The
+# critical path and its edges carry a -critical class for the highlight; the
+# back-pointer id sits in a reveal-only (.rv) SVG element, hidden by default
+# (REQ-D1.3). No xmlns is emitted: inline SVG in an HTML5 document needs none,
+# and a namespace URI would read as a (never-fetched) network reference.
+# shellcheck disable=SC2016 # $1..$6/$0 are awk fields, not shell expansions
+graph_prog='
+  function esc(s) {
+    gsub(/&/, "\\&amp;", s)
+    gsub(/</, "\\&lt;", s)
+    gsub(/>/, "\\&gt;", s)
+    gsub(/"/, "\\&quot;", s)
+    gsub(/\047/, "\\&#39;", s)
+    return s
+  }
+  function trunc(s,   t) {
+    if (length(s) <= MAXLABEL) return s
+    t = substr(s, 1, MAXLABEL - 1)
+    sub(/ +$/, "", t)
+    return t "..."
+  }
+  BEGIN { FS = "\t"; nn = 0; nedg = 0; MAXLABEL = 26; W = 0; H = 0; NODEW = 180; NODEH = 44; layout = "builtin"; note = "" }
+  $1 == "GRAPHMETA" { W = $2 + 0; H = $3 + 0; layout = $4; NODEW = $5 + 0; NODEH = $6 + 0; next }
+  $1 == "GRAPHNOTE" { note = $2; next }
+  $1 == "GRAPHCRIT" { next }
+  $1 == "GRAPHNODE" {
+    nn++
+    gid[nn] = $2; gx[nn] = $3 + 0; gy[nn] = $4 + 0; gc[nn] = ($5 == "1"); glab[nn] = $6
+    ix[$2] = $3 + 0; iy[$2] = $4 + 0
+    next
+  }
+  $1 == "GRAPHEDGE" {
+    nedg++
+    ef[nedg] = $2; et[nedg] = $3; ec[nedg] = ($4 == "1")
+    next
+  }
+  END {
+    print "<section data-section=\"graph\" class=\"card section\">"
+    print "<h2 class=\"section-title\">How the work fits together</h2>"
+    print "<p class=\"graph-intro\">Each box is a piece of work. An arrow runs from a piece to the work that depends on it, so the diagram flows left to right from the earliest work to the last. The highlighted chain is the longest path through the plan &mdash; the run of work that paces the whole effort. Boxes sharing a column have no dependency between them and can move ahead in parallel.</p>"
+    if (nn == 0) {
+      print "<p class=\"graph-empty\">This bundle has no task graph to draw.</p>"
+      print "<p class=\"graph-note\">" esc(note) "</p>"
+      print "</section>"
+      exit
+    }
+    print "<svg class=\"graph-svg\" viewBox=\"0 0 " W " " H "\" role=\"img\" aria-label=\"Task dependency graph; the highlighted chain is the critical path\">"
+    print "<defs>"
+    print "<marker id=\"gv-arrow\" markerWidth=\"9\" markerHeight=\"9\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\"/></marker>"
+    print "<marker id=\"gv-arrow-crit\" markerWidth=\"9\" markerHeight=\"9\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L7,3 L0,6 Z\"/></marker>"
+    print "</defs>"
+    for (j = 1; j <= nedg; j++) {
+      x1 = ix[ef[j]] + NODEW; y1 = iy[ef[j]] + NODEH / 2
+      x2 = ix[et[j]];         y2 = iy[et[j]] + NODEH / 2
+      cls = ec[j] ? "graph-edge graph-edge-critical" : "graph-edge"
+      mk = ec[j] ? "gv-arrow-crit" : "gv-arrow"
+      printf "<line class=\"%s\" x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" marker-end=\"url(#%s)\"/>\n", cls, x1, y1, x2, y2, mk
+    }
+    for (i = 1; i <= nn; i++) {
+      ncls = gc[i] ? "graph-node graph-node-critical" : "graph-node"
+      print "<g class=\"" ncls "\">"
+      printf "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"8\"/>\n", gx[i], gy[i], NODEW, NODEH
+      printf "<text class=\"graph-label\" x=\"%d\" y=\"%d\">%s</text>\n", gx[i] + 12, gy[i] + NODEH / 2 + 1, esc(trunc(glab[i]))
+      printf "<text class=\"rv graph-node-id\" x=\"%d\" y=\"%d\" text-anchor=\"end\">#%s</text>\n", gx[i] + NODEW - 8, gy[i] + NODEH - 8, esc(gid[i])
+      printf "<title>%s</title>\n", esc(glab[i])
+      print "</g>"
+    }
+    print "</svg>"
+    print "<p class=\"graph-note\">" esc(note) "</p>"
+    print "</section>"
+  }
+'
+
 onepager_html=$(printf '%s\n' "$onepager_stream" | awk "$onepager_prog")
 teachback_html=$(printf '%s\n' "$teachback_stream" | awk "$teachback_prog")
+graph_html=$(printf '%s\n' "$graph_stream" | awk "$graph_prog")
 
 # The inlined stylesheet (D-7, REQ-E1.6): original CSS authored at ship time,
 # drawing on the design language of Tailwind CSS and DaisyUI (their utility /
@@ -305,6 +387,24 @@ body {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
+/* The dependency-graph view (Task 7). The diagram is a drawn inline SVG (never
+ * ASCII); the critical path and its arrows are highlighted in the key color, the
+ * same accent the one-pager uses for load-bearing items. The back-pointer id is
+ * a reveal-only (.rv) element, hidden until the toggle is engaged. */
+.graph-intro { margin: 0 0 0.75rem; }
+.graph-svg { display: block; max-width: 100%; height: auto; margin: 0.25rem 0 0.5rem; }
+.graph-note { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.85rem; font-style: italic; }
+.graph-empty { margin: 0.25rem 0; color: var(--muted); }
+.graph-node rect { fill: #fcfcfd; stroke: var(--line); stroke-width: 1.5; }
+.graph-node-critical rect { fill: var(--key-bg); stroke: var(--key); stroke-width: 2.5; }
+.graph-label { font-size: 13px; fill: var(--ink); dominant-baseline: middle;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+.graph-node-id { font-size: 10px; fill: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.graph-edge { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.graph-edge-critical { stroke: var(--key); stroke-width: 2.5; fill: none; }
+#gv-arrow path { fill: var(--muted); }
+#gv-arrow-crit path { fill: var(--key); }
 CSS
 )
 
@@ -333,6 +433,7 @@ CSS
   printf '%s\n' '<p class="read-hint">Read the whole walkthrough first; the teach-back prompt follows it.</p>'
   printf '%s\n' '</header>'
   printf '%s\n' "$onepager_html"
+  printf '%s\n' "$graph_html"
   printf '%s\n' "$teachback_html"
   printf '%s\n' '<footer class="card foot">'
   printf '%s\n' '<p class="license">Styling: original CSS, inlined for offline use, drawing on the design language of Tailwind CSS and DaisyUI.</p>'
