@@ -82,7 +82,8 @@ report names the path. The file opens offline in any browser with nothing
 installed (REQ-E1.2): the read (the one-pager) first, the teach-back prompt
 after it, all bundle content HTML/SVG-escaped so markup in the spec displays as
 literal text and never executes (REQ-E1.7), identifiers behind an off-by-default
-reveal toggle (REQ-D1.3), MIT-licensed styling inlined (REQ-E1.6), and a
+reveal toggle (REQ-D1.3), original styling inlined that draws on MIT-licensed
+design primitives (REQ-E1.6), and a
 bundle + commit provenance stamp so a reader can tell whether it is stale
 (REQ-E1.5). Open it directly: `open .claude/walkthroughs/<spec>/<spec>.html`.
 
