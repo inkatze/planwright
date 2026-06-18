@@ -10,24 +10,6 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## Forward plan
 
-### Task 6 — `review_sequence` config knob
-
-- **Deliverables:** The `review_sequence` config option (an ordered list of
-  nestable review-skill names) with a default reproducing today's convergence
-  behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
-  convergence phase rewired to read it through the four-layer config resolution
-  and run the named review skills in order. Verification of the ordering
-  scenario.
-- **Done when:** `review_sequence` resolves through all four layers; the
-  default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
-  is honored in order by the convergence phase; an entry naming an unknown or
-  non-nestable review skill is handled as a malformed value under the REQ-E1.4
-  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
-  is verified.
-- **Dependencies:** 3
-- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
-- **Estimated effort:** 1 day
-
 ### Task 7 — Adopter docs & onboarding
 
 - **Deliverables:** Adopter-facing documentation of the overlay mechanism: the
@@ -49,25 +31,25 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 ## In progress
 
-### Task 3 — Four-layer config resolution
+### Task 6 — `review_sequence` config knob
 
-- **Status:** PR #37 draft
+- **Status:** implementing
 - **Last activity:** 2026-06-17
-- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-3` (branch `planwright/customization-overlay/task-3`, worktree `.claude/worktrees/customization-overlay-task-3`, branched off origin/main `6a26164`).
-- **Deliverables:** `config-get.sh` extended to read the adopter and
-  repo-tracked layers through the Task 2 primitive (four-layer
-  last-layer-wins), the malformed-by-layer policy (degrade+warn for
-  adopter/machine-local, hard-fail for repo-tracked), and a `--explain`
-  provenance mode. Any new option documented in `docs/options-reference.md`.
-  Tests under `tests/`.
-- **Done when:** a key set in all four layers resolves to the highest-precedence
-  value; absent layers degrade; a malformed adopter/machine-local file
-  degrades with a stderr warning and the malformed repo-tracked file exits
-  nonzero; `--explain` names the winning layer per key; `check-options-reference.sh`
-  passes; tests pass under `mise run check`.
-- **Dependencies:** 2
-- **Citations:** D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
-  REQ-B1.6, REQ-E1.3, REQ-E1.4
+- **Dispatch:** tmux backend; dispatched 2026-06-17; worker window `co-task-6` (branch `planwright/customization-overlay/task-6`, worktree `.claude/worktrees/customization-overlay-task-6`, branched off origin/main `f859ef8`).
+- **Deliverables:** The `review_sequence` config option (an ordered list of
+  nestable review-skill names) with a default reproducing today's convergence
+  behavior, documented in `docs/options-reference.md`, and `/execute-task`'s
+  convergence phase rewired to read it through the four-layer config resolution
+  and run the named review skills in order. Verification of the ordering
+  scenario.
+- **Done when:** `review_sequence` resolves through all four layers; the
+  default leaves `/execute-task`'s behavior unchanged; an overlay-set ordering
+  is honored in order by the convergence phase; an entry naming an unknown or
+  non-nestable review skill is handled as a malformed value under the REQ-E1.4
+  by-layer policy; `check-options-reference.sh` passes; the ordering scenario
+  is verified.
+- **Dependencies:** 3
+- **Citations:** D-6 · REQ-C1.3, REQ-D1.3, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ### Task 5 — Catalog-overlay resolution
@@ -169,6 +151,25 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 - **Dependencies:** 2
 - **Citations:** D-4, D-5, D-7, D-8, D-9, D-11 · REQ-A1.2, REQ-B1.2, REQ-B1.4,
   REQ-B1.6, REQ-B1.7, REQ-D1.2, REQ-E1.4, REQ-E1.5
+- **Estimated effort:** 1 day
+
+### Task 3 — Four-layer config resolution
+
+- **Status:** Completed — PR #37 merged 2026-06-17 (merge commit `f859ef8`).
+- **Deliverables:** `config-get.sh` extended to read the adopter and
+  repo-tracked layers through the Task 2 primitive (four-layer
+  last-layer-wins), the malformed-by-layer policy (degrade+warn for
+  adopter/machine-local, hard-fail for repo-tracked), and a `--explain`
+  provenance mode. Any new option documented in `docs/options-reference.md`.
+  Tests under `tests/`.
+- **Done when:** a key set in all four layers resolves to the highest-precedence
+  value; absent layers degrade; a malformed adopter/machine-local file
+  degrades with a stderr warning and the malformed repo-tracked file exits
+  nonzero; `--explain` names the winning layer per key; `check-options-reference.sh`
+  passes; tests pass under `mise run check`.
+- **Dependencies:** 2
+- **Citations:** D-4, D-5, D-7, D-9 · REQ-A1.2, REQ-B1.1, REQ-B1.4, REQ-B1.5,
+  REQ-B1.6, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 1 day
 
 ## Deferred
