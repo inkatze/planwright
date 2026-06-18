@@ -573,6 +573,85 @@ the accepted decisions (no decision-domains escalation):
   scope/stage task's job, recorded so the current whole-bundle behavior is not
   mistaken for a gap.
 
+### Task 7 — execution research & security pass (2026-06-17)
+
+Appended by `/execute-task` (named-section brief write; not an anchor entry).
+
+**Trigger.** Task 7 (the dependency-graph view, `scripts/spec-graph.sh`, plus a
+new `--critical-path` mode on `scripts/orchestrate-select.sh` and the inline-SVG
+rendering in `scripts/spec-assemble.sh`) consumes untrusted input (bundle task
+titles, which become SVG `<text>` labels), runs a sibling subprocess and the
+**optional `dot` (Graphviz) binary**, serializes a record stream and an SVG
+document, and probes the runtime for an external tool — the `security-posture`
+write-time untrusted-input, subprocess, serialization, and path-handling trigger
+classes. Focused pass, since this is the layer where the SVG output-encoding and
+the runtime-probe degradation actually land (REQ-C1.3, REQ-C1.6, REQ-E1.3).
+
+**Sources consulted.** `scripts/orchestrate-select.sh` (the effort-weighted
+longest-dependent-chain `crit()`/`weight()` computation this task reuses rather
+than recomputes, D-6; the existing selection mode is preserved byte-for-byte and
+the critical-path mode is additive), `scripts/spec-model.sh` (the TASK / TASKDEP /
+TASKFIELD-effort record vocabulary and the `clean()` / C-locale tab-hygiene the
+graph view inherits), `scripts/spec-assemble.sh` (the `esc()` five-character
+HTML/XML escape — `& < > " '`, ampersand first — which the same set covers in SVG
+text/attribute contexts, per the Task 6 §7 scoping note that a dedicated SVG pass
+rides this task), the `security-posture` doctrine doc, the Graphviz `dot -Tplain`
+output format (the stable `node <name> <x> <y> …` line shape, coordinates in
+inches, origin bottom-left — used read-only for layout only), and REQ-C1.3 /
+REQ-C1.6 / REQ-E1.3 / REQ-E1.7 / REQ-C1.1.
+
+**Pass applied (no new risk surfaced).** Output encoding stays centralized at the
+assembly boundary: SVG node labels are bundle task titles carried verbatim
+through the model and escaped by the assembler's `esc()` before they reach the
+`<text>` element, exactly as the one-pager/teach-back fields are; the artifact
+still ships **no executable JavaScript** and the SVG contains no `<script>` or
+`<foreignObject>`, so there is no script-execution context even on a hypothetical
+escape miss. **Graphviz is treated as untrusted and never load-bearing:** only the
+numeric task ids (charset `^[0-9]+(\.[0-9]+)?$`) are passed to `dot` as node
+names — never the free-text titles — so no bundle text can inject DOT syntax; the
+graph view reads back only node *coordinates* from `dot -Tplain` and **validates
+every coordinate is numeric** before use, discarding the whole `dot` result and
+falling back to the built-in layout on any malformed/missing field, non-zero
+exit, or absence (D-5: a failed invocation degrades identically to absence, and
+`dot` is never on a path that can fail the render — REQ-E1.3). No shell, `eval`,
+or path is constructed from record or `dot` content; the only paths touched are
+the sibling scripts resolved from `dirname "$0"` and the already-gated
+spec-directory argument flowing through to the model/selector (the
+identifier-charset and path-containment gate stays the command scaffold's job,
+REQ-A1.6). The record stream stays tab-clean (the model already folded control
+bytes, including the delimiter, to spaces under the pinned C locale; coordinates
+and the critical flag are numeric). Read-only: the graph view and the new
+selector mode write nothing but their stdout streams (REQ-A1.3). Artifact
+data-hygiene holds — the SVG carries only bundle task titles and computed
+geometry, no secrets or hostnames — and the existing gitleaks-over-the-artifact
+check (REQ-E1.4) covers it.
+
+**Declared scoping (`proportionality`).** Two within-task scoping calls, both
+low-stake and reversible, recorded rather than escalated, and consistent with the
+accepted decisions (no decision-domains escalation):
+
+- *Critical-path reuse semantics (D-6, REQ-C1.3).* The reused computation is
+  `orchestrate-select.sh`'s `weight()`/`crit()` longest-dependent-chain logic,
+  exposed through an additive `--critical-path` mode in the same file so there is
+  a single source of truth (no parallel computation to drift). The mode computes
+  the chain over the **full** task DAG (all sections), which is the structural
+  critical path the bundle's own `tasks.md` build-order note describes
+  (T1→T2→T3→T5→T6→T7→T11, ≈12.5 days); the selection mode's terminal-task
+  exclusion is a "remaining work" filter specific to *dispatch*, deliberately not
+  applied to the *visualization*. On a bundle with nothing completed the two
+  coincide. The view highlights exactly the ids the mode emits, so REQ-C1.3's
+  "matches the reused computation" holds by construction. This inherits
+  `orchestrate-select.sh`'s known quirks (risk row 4), as the brief anticipated.
+- *Graphviz enhancement depth (D-5).* `dot` enhances *layout only* (node
+  coordinates); planwright always renders its own escaped, styled inline SVG, so
+  the artifact is byte-for-byte self-contained and offline whether or not `dot`
+  was present at generation time, with only the layout differing and a one-line
+  in-artifact note recording which path was taken. `dot` is absent on this host
+  and in CI, so the built-in layout is the exercised default; the `dot`-present
+  success branch is `command -v dot`-gated in the tests (the gitleaks pattern),
+  while the absent and present-but-failing degradation branches — the REQ-E1.3
+  contract — are exercised deterministically via a stubbed PATH.
+
 ## 8. Sign-off
 
 ### Lens review pass (first activation — full bundle)
