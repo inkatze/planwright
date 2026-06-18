@@ -19,9 +19,10 @@
 #     stays lossless, D-2);
 #   - an off-by-default reveal toggle that the inlined CSS hides identifiers
 #     behind, surfaced only when the reader engages it (REQ-D1.3);
-#   - MIT-licensed styling (a curated subset of Tailwind CSS and DaisyUI
-#     primitives, both MIT), inlined for offline rendering with the MIT notice
-#     carried in the artifact (D-7, REQ-E1.6);
+#   - original styling inlined for offline rendering, drawing on the design
+#     language of the MIT-licensed Tailwind CSS and DaisyUI projects (their
+#     utility/component conventions and color tokens) without bundling any of
+#     their code, with that credit carried in the artifact (D-7, REQ-E1.6);
 #   - a provenance stamp naming the bundle it rendered and the commit it was
 #     generated from, so a reader can tell whether it is stale (D-8, REQ-E1.5).
 #
@@ -228,10 +229,11 @@ teachback_prog='
 onepager_html=$(printf '%s\n' "$onepager_stream" | awk "$onepager_prog")
 teachback_html=$(printf '%s\n' "$teachback_stream" | awk "$teachback_prog")
 
-# The curated, MIT-licensed inlined stylesheet (D-7, REQ-E1.6): a small subset of
-# Tailwind CSS utility primitives and DaisyUI component primitives (both MIT),
-# authored at ship time and inlined so the artifact stays offline and self-
-# contained (no external stylesheet, no web font, no network resource). The
+# The inlined stylesheet (D-7, REQ-E1.6): original CSS authored at ship time,
+# drawing on the design language of Tailwind CSS and DaisyUI (their utility /
+# component conventions and color tokens) without bundling any of their code, so
+# it inlines cleanly and the artifact stays offline and self-contained (no
+# external stylesheet, no web font, no network resource). The
 # default view hides the reveal-only (.rv) identifier elements; the off-by-default
 # #reveal-toggle checkbox reveals them with a pure-CSS sibling rule (no script —
 # the artifact ships no executable JavaScript). Quoted heredoc: static content,
@@ -239,9 +241,10 @@ teachback_html=$(printf '%s\n' "$teachback_stream" | awk "$teachback_prog")
 css=$(
   cat <<'CSS'
 /*
- * Styling: a curated subset of Tailwind CSS (https sources omitted for offline
- * self-containment) and DaisyUI component primitives. Both are MIT-licensed; the
- * MIT notice is carried in the artifact footer. Only the used CSS is inlined.
+ * Original CSS for planwright, inlined for offline self-containment. It draws on
+ * the design language of Tailwind CSS and DaisyUI (both MIT-licensed): their
+ * utility/component conventions and color tokens. It bundles none of their code;
+ * the credit is carried in the artifact footer.
  */
 :root {
   --bg: #f8fafc; --surface: #ffffff; --ink: #1e293b; --muted: #64748b;
@@ -307,8 +310,8 @@ CSS
 
 # Emit the document. Each dynamic value is passed as a printf %s argument (never
 # as a format string) so bundle-derived content is never interpreted; the head
-# values are pre-escaped, and the body fragments were escaped in awk. The MIT
-# notice is plain text (no URL) so the artifact references no network resource.
+# values are pre-escaped, and the body fragments were escaped in awk. The styling
+# credit is plain text (no URL) so the artifact references no network resource.
 {
   printf '%s\n' '<!DOCTYPE html>'
   printf '%s\n' '<html lang="en">'
@@ -332,8 +335,8 @@ CSS
   printf '%s\n' "$onepager_html"
   printf '%s\n' "$teachback_html"
   printf '%s\n' '<footer class="card foot">'
-  printf '%s\n' '<p class="license">Styling: a curated subset of Tailwind CSS and DaisyUI primitives, both MIT-licensed, inlined for offline use.</p>'
-  printf '%s\n' '<p class="license-text">MIT License. Copyright (c) Tailwind Labs Inc. and DaisyUI contributors. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the Software), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, subject to the inclusion of this notice. THE SOFTWARE IS PROVIDED AS IS, WITHOUT WARRANTY OF ANY KIND.</p>'
+  printf '%s\n' '<p class="license">Styling: original CSS, inlined for offline use, drawing on the design language of Tailwind CSS and DaisyUI.</p>'
+  printf '%s\n' '<p class="license-text">This stylesheet is original work and bundles no third-party code. It draws on the design conventions and color tokens of Tailwind CSS and DaisyUI, both of which are distributed under the MIT License; this is a credit of inspiration, not a claim on their copyright.</p>'
   printf '%s\n' '</footer>'
   printf '%s\n' '</main>'
   printf '%s\n' '</body>'

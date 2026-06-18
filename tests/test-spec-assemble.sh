@@ -28,9 +28,10 @@
 #   5.  Provenance stamp (REQ-E1.1, REQ-E1.5): the document records the bundle it
 #       rendered and the commit it was generated from (commit overridable for a
 #       deterministic stamp).
-#   6.  Inlined MIT-licensed styling (REQ-E1.6): the CSS is inlined in a <style>
-#       block, there is no external stylesheet <link>, and the MIT notice is
-#       present (crediting the styling primitives).
+#   6.  Inlined, redistributable styling (REQ-E1.6): the CSS is inlined in a
+#       <style> block, there is no external stylesheet <link>, and the credit to
+#       the MIT-licensed Tailwind CSS / DaisyUI design language it draws on is
+#       present (an inspiration credit, not a copyright claim on their code).
 #   7.  Offline, no external dependency (REQ-E1.2): the document references no
 #       network resource — no http(s) URL, no external src/href, no remote font.
 #   8.  Drawn, not ASCII (REQ-C1.6): the artifact carries no ASCII-art diagram
@@ -302,8 +303,12 @@ has 'data-provenance'
 has 'class="prov-status">Active<'
 
 # ---------------------------------------------------------------------------
-# 6. Inlined MIT-licensed styling (REQ-E1.6).
+# 6. Inlined, redistributable styling (REQ-E1.6).
 # ---------------------------------------------------------------------------
+# The CSS inlines in a <style> block with no external stylesheet link. The CSS is
+# original work; it credits the MIT-licensed Tailwind CSS / DaisyUI design
+# language it draws on (an inspiration credit, not a copyright claim on their
+# code), so the artifact still ships cleanly. "MIT" is present as that credit.
 has '<style'
 lacks '<link rel="stylesheet"'
 lacks "rel='stylesheet'"
