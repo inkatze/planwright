@@ -34,8 +34,12 @@ view tasks they cover.
 - **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-E1.7, REQ-C1.7, REQ-D1.1
 - **Estimated effort:** 2 days
 
+## In progress
+
 ### Task 12 — Docs and maintenance
 
+- **Status:** implementing
+- **Last activity:** 2026-06-18
 - **Deliverables:** command documentation (invocation, scope selectors, reveal
   flag, the optional Graphviz enhancement); any options-reference rows for new
   config; the completion-time doctrine drift-observation wiring.
@@ -45,8 +49,6 @@ view tasks they cover.
 - **Dependencies:** 6, 7, 9
 - **Citations:** D-5 · REQ-F1.4, REQ-E1.3
 - **Estimated effort:** half day
-
-## In progress
 
 ## Awaiting input
 
