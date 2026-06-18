@@ -131,7 +131,9 @@ These hold at every stage of the rendering pipeline:
 - **Strictly read-only** (REQ-A1.3). The command never edits a bundle file,
   commits, pushes, changes a status, or writes the kickoff brief. Its only
   sanctioned write is the generated artifact to the gitignored
-  `.claude/walkthroughs/<spec>/` location; it touches nothing else.
+  `.claude/walkthroughs/<spec>/` location; it modifies no tracked content (the
+  optional Graphviz probe's only writes are ephemeral, auto-cleaned `$TMPDIR`
+  temp files).
 - **Status-agnostic** (REQ-A1.4, REQ-B1.4). Every status renders — Draft,
   Active, Done, Retired, Superseded — in deliberate contrast with the execution
   skills' non-Active refusal. Rendering is read-only, so that refusal's safety
