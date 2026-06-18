@@ -233,17 +233,24 @@ done
 
 tab=$(printf '\t')
 
-# The bundle model, captured once so its exit code propagates (fail closed on an
-# absent/unreadable spec directory; /bin/sh has no portable pipefail). The
-# BUNDLE record carries the bundle name and the auto-detected status that drives
-# the stage-aware framing (REQ-B1.3) and the provenance stamp.
-model=$("$model_sh" "$spec_dir") || exit $?
-spec=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="BUNDLE"{print $2; exit}')
-status=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="BUNDLE"{print $3; exit}')
-if [ -z "$spec" ]; then
-  spec=$(basename "$spec_dir")
+# The bundle model, run only for the scopes that consume it. A partial scope
+# feeds it through the scope filter below, and every non-whole scope reads its
+# spec/status from the BUNDLE record here (a graph-only scope renders no one-pager,
+# so it has no other source). The whole-bundle scope runs its views in <spec-dir>
+# mode and reads spec/status from the one-pager pass-through BUNDLE record after
+# the views run (the established pre-task path), so it needs no separate model
+# parse — avoiding a redundant 1 + N model read in the common whole-bundle case.
+# Captured with `|| exit $?` so an absent/unreadable spec dir fails closed (no
+# portable pipefail in /bin/sh); for the whole scope that fail-closed comes from
+# the view scripts, which run the same model in <spec-dir> mode.
+model=
+spec=
+status=
+if [ "$scope" != whole ]; then
+  model=$("$model_sh" "$spec_dir") || exit $?
+  spec=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="BUNDLE"{print $2; exit}')
+  status=$(printf '%s\n' "$model" | awk -F"$tab" '$1=="BUNDLE"{print $3; exit}')
 fi
-[ -n "$status" ] || status="(undeclared)"
 
 # The view record streams. The whole-bundle scope runs each view in <spec-dir>
 # mode (the established path, byte-identical to before this task). A partial
@@ -286,6 +293,19 @@ fi
 if [ "$show_gr" -eq 1 ]; then
   graph_stream=$("$graph_sh" "$spec_dir") || exit $?
 fi
+
+# The whole-bundle scope reads spec/status from the one-pager's pass-through
+# BUNDLE record (the pre-task path), avoiding the separate model parse above. The
+# fallbacks then apply to every scope: an empty spec degrades to the directory
+# name, an empty status to "(undeclared)".
+if [ "$scope" = whole ]; then
+  spec=$(printf '%s\n' "$onepager_stream" | awk -F"$tab" '$1=="BUNDLE"{print $2; exit}')
+  status=$(printf '%s\n' "$onepager_stream" | awk -F"$tab" '$1=="BUNDLE"{print $3; exit}')
+fi
+if [ -z "$spec" ]; then
+  spec=$(basename "$spec_dir")
+fi
+[ -n "$status" ] || status="(undeclared)"
 
 # Provenance commit: env override (a stable stamp for the scaffold and tests),
 # else the repo HEAD, else "unknown". git is read-only here.

@@ -849,6 +849,39 @@ dout=$("$gtmp/spec-assemble.sh" --scope decisions "$specs/demo" 2>&1) || rc=$?
   || fail "a translate-dependent scope (decisions) must fail closed when translate is broken: $dout"
 
 # ---------------------------------------------------------------------------
+# 19d. Whole-bundle perf parity (Copilot review, PR #63): the whole-bundle
+#      assembler must not run a redundant spec-model.sh parse — its views already
+#      read the model in <spec-dir> mode. Count model parses via a wrapper; the
+#      whole-mode total must equal the parses its four views make on their own (no
+#      extra direct parse). A regression that re-adds a direct parse shows up as
+#      exactly one extra invocation. Robust to per-view parse counts: it compares
+#      the assembler's total against the views' own total, nothing hardcoded.
+# ---------------------------------------------------------------------------
+mc="$tmp/modelcount"
+mkdir -p "$mc/scripts"
+cp "$here/../scripts/"*.sh "$mc/scripts/"
+mv "$mc/scripts/spec-model.sh" "$mc/scripts/spec-model-real.sh"
+cat >"$mc/scripts/spec-model.sh" <<EOF
+#!/bin/sh
+echo x >>"$mc/calls"
+exec "$mc/scripts/spec-model-real.sh" "\$@"
+EOF
+chmod +x "$mc/scripts/spec-model.sh"
+# The parses the four whole-mode views make on their own (dir mode).
+: >"$mc/calls"
+"$mc/scripts/spec-onepager.sh" "$specs/demo" >/dev/null
+"$mc/scripts/spec-decisionmap.sh" "$specs/demo" >/dev/null
+"$mc/scripts/spec-teachback.sh" "$specs/demo" >/dev/null
+"$mc/scripts/spec-graph.sh" "$specs/demo" >/dev/null
+views_parses=$(wc -l <"$mc/calls" | tr -d ' ')
+# The whole-bundle assembler's parses.
+: >"$mc/calls"
+"$mc/scripts/spec-assemble.sh" --scope whole "$specs/demo" >/dev/null
+whole_parses=$(wc -l <"$mc/calls" | tr -d ' ')
+[ "$whole_parses" -eq "$views_parses" ] \
+  || fail "whole-bundle made $whole_parses model parses; its views alone make $views_parses (a redundant direct parse regressed)"
+
+# ---------------------------------------------------------------------------
 # 19c. Echo discipline (REQ-H1.3): spec-assemble.sh is callable directly, bypassing
 #      the scaffold's charset gate, so a hostile --scope carrying control characters
 #      is stripped before being echoed to stderr (Copilot review, PR #63; matches
