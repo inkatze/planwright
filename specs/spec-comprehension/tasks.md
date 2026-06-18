@@ -32,18 +32,6 @@ view tasks they cover.
 - **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
 - **Estimated effort:** 1.5 days
 
-### Task 10 — Sibling discoverability touchpoints
-
-- **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
-  `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
-  `/spec-walkthrough` as an independent human step, none auto-invoking it.
-- **Done when:** the three sibling skills each surface the recommendation in the
-  right place, none invokes the command, and the wording frames it as an
-  optional independent pass.
-- **Dependencies:** 6
-- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
-- **Estimated effort:** half day
-
 ### Task 11 — Tests and test-spec coverage
 
 - **Deliverables:** automated fixtures across the views (model, translation,
@@ -72,6 +60,20 @@ view tasks they cover.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 10 — Sibling discoverability touchpoints
+
+- **Status:** implementing
+- **Last activity:** 2026-06-18
+- **Deliverables:** suggest-only lines added to `/spec-draft`'s handoff,
+  `/spec-kickoff`'s pre-flight, and `/resume`, each recommending
+  `/spec-walkthrough` as an independent human step, none auto-invoking it.
+- **Done when:** the three sibling skills each surface the recommendation in the
+  right place, none invokes the command, and the wording frames it as an
+  optional independent pass.
+- **Dependencies:** 6
+- **Citations:** D-11 · REQ-F1.1, REQ-F1.2
+- **Estimated effort:** half day
 
 ### Task 7 — Dependency-graph and critical-path view
 
