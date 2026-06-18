@@ -134,23 +134,6 @@ view tasks they cover.
 - **Citations:** D-2 · REQ-C1.2
 - **Estimated effort:** 1 day
 
-### Task 5 — Teach-back challenge
-
-- **Status:** PR #44 draft
-- **Last activity:** 2026-06-17
-- **Dispatch:** tmux · 2026-06-17 · window `pw-sc-t5` · worktree `.claude/worktrees/planwright+spec-comprehension+task-5` · branch `planwright/spec-comprehension/task-5`
-- **Deliverables:** claim extraction from the bundle's own assertions; the
-  in-artifact agree / disagree / unsure self-paced checklist; the optional
-  in-session walk through the same claims; response recording that never
-  supplies the answer and surfaces restatement divergences for the human to
-  adjudicate.
-- **Done when:** the teach-back presents the spec's claims section by section,
-  records the human's own responses, supplies no verdict, and the in-artifact
-  and in-session paths cover the same claim set.
-- **Dependencies:** 3
-- **Citations:** D-3, D-9 · REQ-C1.5, REQ-D1.1, REQ-D1.4
-- **Estimated effort:** 1.5 days
-
 ## Awaiting input
 
 (none yet)
@@ -201,6 +184,21 @@ view tasks they cover.
 - **Dependencies:** 2
 - **Citations:** D-2 · REQ-C1.1, REQ-C1.7, REQ-D1.3
 - **Estimated effort:** 2 days
+
+### Task 5 — Teach-back challenge
+
+- **Status:** Completed — merged via PR #44 (merge commit `0c022a3`) on 2026-06-17
+- **Deliverables:** claim extraction from the bundle's own assertions; the
+  in-artifact agree / disagree / unsure self-paced checklist; the optional
+  in-session walk through the same claims; response recording that never
+  supplies the answer and surfaces restatement divergences for the human to
+  adjudicate.
+- **Done when:** the teach-back presents the spec's claims section by section,
+  records the human's own responses, supplies no verdict, and the in-artifact
+  and in-session paths cover the same claim set.
+- **Dependencies:** 3
+- **Citations:** D-3, D-9 · REQ-C1.5, REQ-D1.1, REQ-D1.4
+- **Estimated effort:** 1.5 days
 
 ## Deferred
 
