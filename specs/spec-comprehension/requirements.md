@@ -1,6 +1,6 @@
 # Spec Comprehension Walkthrough — Requirements
 
-**Status:** Active
+**Status:** Done
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 

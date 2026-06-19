@@ -1,6 +1,6 @@
 # Spec Comprehension Walkthrough — Tasks
 
-**Status:** Active
+**Status:** Done
 **Last reviewed:** 2026-06-16
 **Format-version:** 1
 
@@ -19,37 +19,11 @@ view tasks they cover.
 
 ## Forward plan
 
-### Task 12 — Docs and maintenance
-
-- **Deliverables:** command documentation (invocation, scope selectors, reveal
-  flag, the optional Graphviz enhancement); any options-reference rows for new
-  config; the completion-time doctrine drift-observation wiring.
-- **Done when:** the command is documented for an adopter, any new config option
-  has an options-reference row, and the skill appends a drift observation on
-  completion like its siblings.
-- **Dependencies:** 6, 7, 9
-- **Citations:** D-5 · REQ-F1.4, REQ-E1.3
-- **Estimated effort:** half day
+(none — all tasks dispatched or complete)
 
 ## In progress
 
-### Task 11 — Tests and test-spec coverage
-
-- **Status:** PR #67 draft
-- **Last activity:** 2026-06-18
-- **Dispatch:** tmux · 2026-06-18 · worktree `.claude/worktrees/planwright+spec-comprehension+task-11` · branch `planwright/spec-comprehension/task-11`
-- **Deliverables:** automated fixtures across the views (model, translation,
-  one-pager, teach-back, graph, decision-map, scope); an offline
-  self-containment check (the artifact opens with no network and no installed
-  dependency); a data-hygiene check; a content-escaping / injection-safety check
-  (a markup-bearing fixture renders escaped, never executable); CI wiring under
-  `mise run check`.
-- **Done when:** the fixtures run green in CI, the self-containment and
-  data-hygiene checks pass, and every REQ with a `[test]` path in `test-spec.md`
-  has an executing test.
-- **Dependencies:** 6, 7, 8, 9
-- **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-E1.7, REQ-C1.7, REQ-D1.1
-- **Estimated effort:** 2 days
+(none yet)
 
 ## Awaiting input
 
@@ -205,6 +179,35 @@ view tasks they cover.
 - **Dependencies:** 2, 6
 - **Citations:** D-11 · REQ-B1.1, REQ-B1.2, REQ-B1.3
 - **Estimated effort:** 1.5 days
+
+### Task 11 — Tests and test-spec coverage
+
+- **Status:** Completed — merged via PR #67 (merge commit `63d6c9a`) on 2026-06-19
+- **Deliverables:** automated fixtures across the views (model, translation,
+  one-pager, teach-back, graph, decision-map, scope); an offline
+  self-containment check (the artifact opens with no network and no installed
+  dependency); a data-hygiene check; a content-escaping / injection-safety check
+  (a markup-bearing fixture renders escaped, never executable); CI wiring under
+  `mise run check`.
+- **Done when:** the fixtures run green in CI, the self-containment and
+  data-hygiene checks pass, and every REQ with a `[test]` path in `test-spec.md`
+  has an executing test.
+- **Dependencies:** 6, 7, 8, 9
+- **Citations:** D-4 · REQ-E1.2, REQ-E1.4, REQ-E1.7, REQ-C1.7, REQ-D1.1
+- **Estimated effort:** 2 days
+
+### Task 12 — Docs and maintenance
+
+- **Status:** Completed — merged via PR #66 (merge commit `7ad2914`) on 2026-06-19
+- **Deliverables:** command documentation (invocation, scope selectors, reveal
+  flag, the optional Graphviz enhancement); any options-reference rows for new
+  config; the completion-time doctrine drift-observation wiring.
+- **Done when:** the command is documented for an adopter, any new config option
+  has an options-reference row, and the skill appends a drift observation on
+  completion like its siblings.
+- **Dependencies:** 6, 7, 9
+- **Citations:** D-5 · REQ-F1.4, REQ-E1.3
+- **Estimated effort:** half day
 
 ## Deferred
 
