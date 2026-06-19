@@ -20,18 +20,14 @@ and it stands apart from `/spec-kickoff` precisely so that read stays
 independent: the moment the authoring agent performs the comprehension,
 independent review collapses into "the agent reviewed its own spec."
 
-This skill is being built task by task. **Today it produces the self-contained
-HTML artifact** (through Task 6): the command surface and safety gate (Task 1),
-the bundle model and plain-language translation (Tasks 2–3), the one-pager and
-teach-back views (Tasks 4–5), and the HTML assembly and styling that bundles
-them into a single offline file (Task 6). On a successful load the command
-writes that file to the gitignored `.claude/walkthroughs/<spec>/` location
-(REQ-E1.1) and names it in the load report. The artifact carries the
-one-pager, the decision map, the drawn dependency graph, and the teach-back;
-a partial `--scope` selector renders only the sections in its scope (a single
-file, a requirement group, the decision set, the task graph, or one decision
-plus its blast radius), and the framing adapts to the bundle's auto-detected
-status (REQ-B1.2, REQ-B1.3).
+On a successful load the command assembles the bundle into a single
+self-contained HTML file and writes it to the gitignored
+`.claude/walkthroughs/<spec>/` location (REQ-E1.1), naming the path in the load
+report. The artifact carries the one-pager, the decision map, the drawn
+dependency graph, and the teach-back; a partial `--scope` selector renders only
+the sections in its scope (a single file, a requirement group, the decision set,
+the task graph, or one decision plus its blast radius), and the framing adapts
+to the bundle's auto-detected status (REQ-B1.2, REQ-B1.3).
 
 ## Doctrine
 
@@ -90,6 +86,21 @@ design primitives (REQ-E1.6), and a
 bundle + commit provenance stamp so a reader can tell whether it is stale
 (REQ-E1.5). Open it directly: `open .claude/walkthroughs/<spec>/<spec>.html`.
 
+**Optional Graphviz enhancement.** The dependency graph is always drawn as
+inline SVG (never ASCII), self-contained and offline. When the Graphviz `dot`
+binary is present it is used for a richer node layout (read-only, for
+coordinates only); when it is absent, exits non-zero, times out, or emits an
+unparseable layout, the view degrades identically to a built-in layout and
+records a one-line in-artifact note saying which path was taken (REQ-E1.3, D-5).
+`dot` is never on a path that can fail the render, so the artifact is fully
+self-contained and offline either way; only the layout differs. No installation
+is required: Graphviz is an enhancement, not a dependency. Two environment
+variables tune the probe: `SPEC_WALKTHROUGH_DOT` overrides the binary name
+(default `dot`; point it at a name that does not exist to force the built-in
+layout), and `SPEC_WALKTHROUGH_DOT_TIMEOUT` sets the watchdog in whole seconds
+(default 5; any value that is not a plain non-negative integer, such as `0.5`,
+is coerced back to 5) before a slow `dot` run is killed and the layout degrades.
+
 ## Teach-back
 
 The teach-back is the comprehension check: the reader restates the spec's own
@@ -116,12 +127,14 @@ verdict, score, or assessment of the spec at any point.
 
 ## Invariants
 
-These hold at every stage as the rendering pipeline is built on top:
+These hold at every stage of the rendering pipeline:
 
 - **Strictly read-only** (REQ-A1.3). The command never edits a bundle file,
   commits, pushes, changes a status, or writes the kickoff brief. Its only
-  sanctioned write is the generated artifact to the gitignored location (a later
-  task); the scaffold writes nothing at all.
+  sanctioned write is the generated artifact to the gitignored
+  `.claude/walkthroughs/<spec>/` location; it modifies no tracked content (the
+  optional Graphviz probe's only writes are ephemeral, auto-cleaned `$TMPDIR`
+  temp files).
 - **Status-agnostic** (REQ-A1.4, REQ-B1.4). Every status renders — Draft,
   Active, Done, Retired, Superseded — in deliberate contrast with the execution
   skills' non-Active refusal. Rendering is read-only, so that refusal's safety
@@ -137,11 +150,16 @@ These hold at every stage as the rendering pipeline is built on top:
 
 ## Maintenance
 
-After a run, compare these instructions against the resolved doctrine docs
-(`spec-format`, `security-posture`). If a concept this skill names has changed
-meaning, gained or lost a step, or moved between docs, append a drift
-observation to `specs/_observations/opportunities.md`
-(`- <YYYY-MM-DD> [<repo>] skill-drift(spec-walkthrough): <observation>`) and
-tell the user what drifted. Do not edit this skill or the doctrine docs to
-resolve the drift; the observation log's reader owns folding drift into spec
-amendments.
+After each run, compare these instructions against the doctrine and spec they
+implement: the `spec-format` and `security-posture` doctrine docs (the bundle
+file set and identifier discipline this command reads, and the data-hygiene rule
+for the artifact it writes) and REQ-F1.4 (the completion-time drift-observation
+contract). If a concept this skill names (the bundle file set, the identifier
+charset, the path-containment gate, or the artifact data-hygiene rule) has
+changed meaning, gained or lost a step, or moved between docs, append a one-line
+drift observation to `specs/_observations/opportunities.md` in the standard
+format (`- <YYYY-MM-DD> [<repo>] skill-drift(spec-walkthrough): <what>`) and
+commit the append as its own chore commit, per REQ-B3.2 / D-42. In repositories
+without `specs/`, surface the drift to the user instead of writing the log. Do
+not edit this skill or the doctrine docs to resolve the drift; the observation
+log's reader owns folding drift into spec amendments.
