@@ -74,7 +74,7 @@ fail() {
 
 [ -x "$script" ] || fail "scripts/spec-assemble.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # A deterministic provenance commit so output is byte-stable across runs.

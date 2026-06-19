@@ -44,7 +44,7 @@ is_hex40() {
 
 [ -x "$anchor" ] || fail "scripts/spec-anchor.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmp"' EXIT
 spec="$tmp/spec"
 mkdir "$spec"
