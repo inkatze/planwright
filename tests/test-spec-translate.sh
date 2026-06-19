@@ -73,7 +73,7 @@ fail() {
 
 [ -x "$script" ] || fail "scripts/spec-translate.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # run_stdin <expected-exit> — pipe $IN (a model stream) into the translator,

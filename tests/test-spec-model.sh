@@ -62,7 +62,7 @@ fail() {
 
 [ -x "$script" ] || fail "scripts/spec-model.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # run_m <expected-exit> <spec-dir> [args...] — run the model over a spec

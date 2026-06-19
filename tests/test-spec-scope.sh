@@ -44,7 +44,7 @@ fail() {
 [ -x "$script" ] || fail "scripts/spec-scope.sh missing or not executable"
 [ -x "$model_sh" ] || fail "scripts/spec-model.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # run_s <expected-exit> <args...> — run the filter in dir mode, capture combined

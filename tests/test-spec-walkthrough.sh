@@ -52,7 +52,7 @@ fail() {
 
 [ -x "$script" ] || fail "scripts/spec-walkthrough.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 # Restore search/write permission before rm: section 11 deliberately chmod 000's
 # a bundle dir, which would otherwise block cleanup if that test aborts early.
 # The chmod is best-effort (`|| true`): its only job is to let `rm` proceed, and
@@ -224,10 +224,14 @@ has "undeclared"
 lacks "status: Active"
 
 # ---------------------------------------------------------------------------
-# 3. Strictly read-only apart from the gitignored artifact (REQ-A1.3, REQ-E1.1):
-#    the generated walkthrough is written under the gitignored
+# 3. Strictly read-only apart from the gitignored artifact (REQ-A1.3, REQ-E1.1,
+#    REQ-F1.3): the generated walkthrough is written under the gitignored
 #    .claude/walkthroughs/<spec>/ location, so a run still leaves the *tracked*
 #    work tree clean — no modified bundle file, no new tracked path, no commit.
+#    The empty `git status --porcelain` below is also the REQ-F1.3 "no pipeline
+#    mutation" assertion: a run changes no tasks.md state, no lock, no status,
+#    and no other pipeline artifact — they are all tracked, so any mutation would
+#    surface here as a dirty tree.
 # ---------------------------------------------------------------------------
 if command -v git >/dev/null 2>&1; then
   gws="$tmp/gitws"
