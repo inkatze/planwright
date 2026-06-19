@@ -45,10 +45,15 @@ ok() {
   echo "ok: $1"
 }
 
-# The spec-comprehension test-file set: the suites for this spec's scripts plus
-# the sibling-touchpoints structural guard. This is the collision-safe search
-# scope (see header). Keep it in lockstep with the scripts the spec ships; a
-# missing entry is flagged below so the scope cannot silently shrink.
+# The spec-comprehension test-file set: the per-view suites for this spec's
+# scripts, the end-to-end suite that exercises /spec-walkthrough's whole command
+# surface, plus the sibling-touchpoints structural guard. This is the
+# collision-safe search scope (see header). Keep it in lockstep with the tests
+# the spec ships; a missing entry is flagged below so the scope cannot silently
+# shrink. The e2e suite earns its place here because it is the integration path
+# no single view test covers (REQ-E1.1/E1.2/E1.4/E1.5/E1.7 against the real
+# persisted artifact), so a future cross-cutting [test] REQ exercised only there
+# would otherwise escape this gate.
 sc_tests=(
   test-spec-walkthrough.sh
   test-spec-model.sh
@@ -59,6 +64,7 @@ sc_tests=(
   test-spec-graph.sh
   test-spec-decisionmap.sh
   test-spec-scope.sh
+  test-walkthrough-e2e.sh
   test-sibling-touchpoints.sh
 )
 
