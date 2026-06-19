@@ -75,7 +75,7 @@ fail() {
 
 [ -x "$script" ] || fail "scripts/spec-decisionmap.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null || true; rm -rf "$tmp"' EXIT
 
 # run_dir <expected-exit> <spec-dir> — run the decision-map over a spec directory

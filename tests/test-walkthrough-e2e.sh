@@ -56,7 +56,7 @@ fi
 # stamp and the read-only contract is asserted against a clean tracked tree)
 # holding a specs/<fixture> bundle whose text carries injection payloads. The
 # command writes its artifact under the workspace's gitignored .claude/.
-ws="$(mktemp -d)"
+ws="$(mktemp -d)" || exit 1
 trap 'chmod -R u+rwx "$ws" 2>/dev/null || true; rm -rf "$ws"' EXIT
 
 spec=injectfix
@@ -198,7 +198,12 @@ if grep -qF -- "$spec" "$art"; then
 else
   fail "artifact does not record the bundle name (REQ-E1.5)"
 fi
-if grep -qF -- "$short_commit" "$art"; then
+if [ -z "$short_commit" ]; then
+  # An empty commit id would make the grep below match any line (an empty -F
+  # pattern matches everything), silently passing the provenance check for the
+  # wrong reason. Guard it so REQ-E1.5 can only pass on a real commit stamp.
+  fail "short_commit is empty; cannot assert provenance (REQ-E1.5)"
+elif grep -qF -- "$short_commit" "$art"; then
   ok "artifact records the generating commit $short_commit (REQ-E1.5)"
 else
   fail "artifact does not record the generating commit $short_commit (REQ-E1.5)"

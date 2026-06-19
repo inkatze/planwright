@@ -52,7 +52,7 @@ fail() {
 
 [ -x "$script" ] || fail "scripts/spec-walkthrough.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp="$(mktemp -d)" || exit 1
 # Restore search/write permission before rm: section 11 deliberately chmod 000's
 # a bundle dir, which would otherwise block cleanup if that test aborts early.
 # The chmod is best-effort (`|| true`): its only job is to let `rm` proceed, and
