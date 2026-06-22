@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment that a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first.",
+  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment that a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first. Deny precedence: Claude Code evaluates deny before allow, so the deny rules below override the broad `git push origin` allow regardless of specificity. The push denies close the known evasions of the force/main guardrails, not just the flag-immediately-after-`git push` form: `git push * --force*` / `git push * -f*` catch force flags placed AFTER the remote (e.g. `git push origin --force`); `git push *+*` catches the `+<refspec>` force form (e.g. `git push origin +HEAD:main`); `git push *:main` / `git push * main` catch the short (`HEAD:main`) and bare (`origin main`) `main` destinations, and `git push *refs/heads/main` / `git push *heads/main` catch the fully-qualified and abbreviated `refs/heads/main` spellings; `--mirror`/`--all` are denied as bulk-ref escape hatches. These are glob deny rules matched as literal substrings, so they are best-effort against exotic refspec spellings rather than exhaustive: review them against your repo's risk posture before relying on the fragment. Compound commands are parsed per-subcommand by Claude Code, so a denied push cannot be smuggled via `&&`/`;`/`|`/subshell.",
   "permissions": {
     "defaultMode": "default",
     "allow": [
@@ -31,13 +31,24 @@
       "Bash(gh pr ready:*)",
       "Bash(git merge:*)",
       "Bash(git rebase:*)",
-      "Bash(git push --force:*)",
-      "Bash(git push --force-with-lease:*)",
-      "Bash(git push -f:*)",
       "Bash(git commit --amend:*)",
       "Bash(git reset --hard:*)",
       "Bash(git filter-branch:*)",
-      "Bash(git filter-repo:*)"
+      "Bash(git filter-repo:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push *+*)",
+      "Bash(git push *:main)",
+      "Bash(git push * main)",
+      "Bash(git push *refs/heads/main)",
+      "Bash(git push *heads/main)",
+      "Bash(git push --mirror:*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --all:*)",
+      "Bash(git push * --all*)"
     ]
   }
 }

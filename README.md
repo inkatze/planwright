@@ -11,9 +11,9 @@ converging review without further human keystrokes. How accurately the system
 flies is bounded by how good the spec is, so planwright's primary investment
 is making specs as correct as possible before any code is written.
 
-> **Status: bootstrapping.** planwright is building itself through its own
-> founding spec (`specs/bootstrap/`). The skills and doctrine docs land task
-> by task; this scaffold is the packaging skeleton they land on.
+> **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
+> defines planwright v1 is complete, and planwright now develops itself through
+> the same pipeline it ships. It is young software — expect rough edges.
 
 **New here?** [docs/getting-started.md](docs/getting-started.md) walks a
 non-author from a clean machine through installing planwright, confirming
@@ -41,6 +41,32 @@ from undone until the human merges.
 Invariants the framework holds everywhere: never auto-merge; never act on a
 non-Active spec; never force-push, amend, squash, or rebase (new commits
 only); all framework-created PRs are drafts.
+
+## The four-file spec and the pipeline
+
+Every feature is specified before it is built, as four files under
+`specs/<feature>/`:
+
+- `requirements.md` — what must be true (REQ-IDs), carrying a `Status:` that
+  moves `Draft` → `Active` → `Done`.
+- `design.md` — the decisions and the alternatives weighed (D-IDs).
+- `tasks.md` — the work as stable-ID tasks with `Done when:` /
+  `Dependencies:`; it doubles as the orchestration ledger.
+- `test-spec.md` — each requirement pinned to how it is verified.
+
+You drive five steps; planwright does the work between your two controls:
+
+1. **`/spec-draft <feature>`** — elicit the four-file bundle at Status `Draft`.
+2. **`/spec-kickoff <spec-path>`** — walk it to mutual understanding and sign
+   the kickoff brief, which flips the spec to `Active`. *(your first control)*
+3. **`/orchestrate <spec-path>`** — pick the next ready task, create or reuse
+   its worktree, and dispatch execution. Stateless: one step per invocation,
+   run it in several sessions for parallelism.
+4. **`/execute-task <ids>`** — test-first implementation, full CI with adaptive
+   retry, convergence via `/polish`, then a **draft PR**.
+5. **Review and merge.** *(your second control)*
+
+[docs/getting-started.md](docs/getting-started.md) covers each step in depth.
 
 ## Delivery modes
 
@@ -95,7 +121,6 @@ skills/                      planwright skills (one directory per skill)
 scripts/                     portable-shell entry points (writer, resolver, checks)
 tests/                       shell tests for the scripts
 specs/                       planwright's own specs (bootstrap = the founding spec)
-reference/                   transient migration sources (purged pre-release)
 ```
 
 ## Development

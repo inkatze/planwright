@@ -1,7 +1,7 @@
 # planwright Bootstrap — Tasks
 
-**Status:** Active
-**Last reviewed:** 2026-06-16
+**Status:** Done
+**Last reviewed:** 2026-06-22
 **Format-version:** 1
 
 Tasks to build planwright v1. Foundational work (intelligence migration + meta-spec +
@@ -42,16 +42,6 @@ first.
 ## In progress
 
 ## Awaiting input
-
-- **Note (Task 13, PR #18 — worker-settings sign-off):** `config/worker-settings.json`
-  ships as a draft permissions profile (security/hard-disqualifier zone) and needs a
-  human policy call before it is relied on. Both self-review and Copilot flagged that the
-  broad `Bash(git push origin:*)` allow permits force-push via the `+<refspec>` form and a
-  direct `HEAD:main` push, evading the `--force`/`-f` deny guards. Recommended hardening
-  (deferred to Diego's risk-posture decision, not applied autonomously): add deny rules
-  such as `Bash(git push origin +*)`, and/or tighten the allow to the worker's own feature
-  branch only (the real question: should a worker be able to push to `main` at all?). Also
-  surfaced in the PR body's "Needs sign-off" section.
 
 ## Completed
 
@@ -159,6 +149,19 @@ first.
 - **Dispatch:** backend=tmux · window=`pw-bootstrap-task-13` · dispatched 2026-06-12T23:25Z ·
   branch `planwright/bootstrap/task-13` · worktree `.claude/worktrees/task-13`
 - **Status:** Completed · PR #18 merged 2026-06-15
+- **Worker-settings sign-off (resolved 2026-06-22):** the draft `config/worker-settings.json`
+  permissions profile flagged at PR #18 — the broad `Bash(git push origin:*)` allow permitted
+  force-push via the `+<refspec>` form, a direct `HEAD:main` push, force flags placed
+  *after* the remote (e.g. `git push origin --force`), and (caught in publish-prep review) a
+  direct-to-`main` push via the fully-qualified `HEAD:refs/heads/main` refspec, all evading the
+  immediate-flag deny guards — was hardened in the pre-public publish-prep PR. The deny block now
+  closes the after-remote `--force`/`-f`, the `+<refspec>` force form, the short (`HEAD:main`) /
+  bare (`origin main`) `main` destinations and the fully-qualified / abbreviated
+  `refs/heads/main` spellings, and the `--mirror`/`--all` bulk-ref escape hatches (deny
+  precedence over allow, confirmed against Claude Code permission-matching semantics; compound
+  commands are parsed per-subcommand, so a denied push cannot be smuggled via `&&`/`;`/`|`/subshell).
+  The push denies are glob substring rules, best-effort against exotic refspec spellings rather
+  than exhaustive. Resolved as part of the bootstrap Done-flip; no longer Awaiting input.
 
 ### Task 1 — Repo scaffold & packaging skeleton
 
@@ -527,15 +530,18 @@ first.
   work repo (beyond the work fork's first run) is the user's stated ideal. **Gate:** the work
   fork's first multi-contributor run completed and a second eligible work repo is available.
   Citations: REQ-J1.5.
-- **Purge `reference/` from main's history.** `reference/` is tracked for now so worktrees can
-  access the migration source material, but it is transient and may contain personal/work data
-  that must not persist in history. A deliberate human history rewrite (e.g. `git filter-repo`)
-  removes it. Confidence: high. Scope widened at self-review 2026-06-10: the purge also
-  covers spec-file blobs in pre-neutralization commits (work-repo identifiers removed from
-  file content on 2026-06-10 survive in this branch's earlier commits). **Gate:** all
-  `reference/`-citing tasks Completed (notably Task 3)
-  AND before any public release. Citations: D-27, REQ-J1.5, REQ-J1.4 (human-reserved action, not
-  an autopilot one).
+- **Purge `reference/` from main's history.** ✅ **Satisfied 2026-06-21 (human-reserved action,
+  per REQ-J1.4).** `reference/` was tracked during execution so worktrees could access the
+  migration source material, but it was transient and could contain personal/work data that
+  must not persist in history. A deliberate human history rewrite (`git filter-repo`) removed
+  `reference/` and neutralized the work-repo identifier to `private-work-repo` across
+  the full published history, force-pushed to `origin/main`. Scope (widened at self-review
+  2026-06-10) also covered spec-file blobs in pre-neutralization commits. The pre-public
+  publish-prep pass additionally removed two divergent old-history side-branches on `origin`
+  (`planwright/spec-comprehension/ledger-t6`, `worktree-bootstrap-kickoff`) that still exposed
+  the purged payload. `scripts/release-checklist.sh` now reports the history gate PASS on a
+  fresh clone. Gate (was): all `reference/`-citing tasks Completed (notably Task 3) AND before
+  any public release. Citations: D-27, REQ-J1.5, REQ-J1.4.
 
 ## Out of scope
 
