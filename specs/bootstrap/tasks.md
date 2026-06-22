@@ -151,14 +151,17 @@ first.
 - **Status:** Completed · PR #18 merged 2026-06-15
 - **Worker-settings sign-off (resolved 2026-06-22):** the draft `config/worker-settings.json`
   permissions profile flagged at PR #18 — the broad `Bash(git push origin:*)` allow permitted
-  force-push via the `+<refspec>` form, a direct `HEAD:main` push, and force flags placed
-  *after* the remote (e.g. `git push origin --force`), all evading the immediate-flag deny
-  guards — was hardened in the pre-public publish-prep PR. The deny block now closes the
-  after-remote `--force`/`-f`, the `+<refspec>` force form, any `*:main` / `* main`
-  destination, and the `--mirror`/`--all` bulk-ref escape hatches (deny precedence over allow,
-  confirmed against Claude Code permission-matching semantics; compound commands are parsed
-  per-subcommand, so a denied push cannot be smuggled via `&&`/`;`/`|`/subshell). Resolved as
-  part of the bootstrap Done-flip; no longer Awaiting input.
+  force-push via the `+<refspec>` form, a direct `HEAD:main` push, force flags placed
+  *after* the remote (e.g. `git push origin --force`), and (caught in publish-prep review) a
+  direct-to-`main` push via the fully-qualified `HEAD:refs/heads/main` refspec, all evading the
+  immediate-flag deny guards — was hardened in the pre-public publish-prep PR. The deny block now
+  closes the after-remote `--force`/`-f`, the `+<refspec>` force form, the short (`HEAD:main`) /
+  bare (`origin main`) `main` destinations and the fully-qualified / abbreviated
+  `refs/heads/main` spellings, and the `--mirror`/`--all` bulk-ref escape hatches (deny
+  precedence over allow, confirmed against Claude Code permission-matching semantics; compound
+  commands are parsed per-subcommand, so a denied push cannot be smuggled via `&&`/`;`/`|`/subshell).
+  The push denies are glob substring rules, best-effort against exotic refspec spellings rather
+  than exhaustive. Resolved as part of the bootstrap Done-flip; no longer Awaiting input.
 
 ### Task 1 — Repo scaffold & packaging skeleton
 
