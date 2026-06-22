@@ -534,7 +534,7 @@ first.
   per REQ-J1.4).** `reference/` was tracked during execution so worktrees could access the
   migration source material, but it was transient and could contain personal/work data that
   must not persist in history. A deliberate human history rewrite (`git filter-repo`) removed
-  `reference/` and neutralized the work-repo identifier (`tecpan` → `private-work-repo`) across
+  `reference/` and neutralized the work-repo identifier to `private-work-repo` across
   the full published history, force-pushed to `origin/main`. Scope (widened at self-review
   2026-06-10) also covered spec-file blobs in pre-neutralization commits. The pre-public
   publish-prep pass additionally removed two divergent old-history side-branches on `origin`
