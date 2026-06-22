@@ -221,8 +221,10 @@ assert "nonexistent CLAUDE_DIR degrades adopter to absent" 0 $?
 assert_eq "nonexistent CLAUDE_DIR yields empty adopter root" "" "$out"
 
 # No adopter arm derivable at all (no override, no plugin data, no HOME/CLAUDE_DIR):
-# absent, zero exit.
-out="$(base /bin/bash "$RESOLVER" adopter)"
+# absent, zero exit. HOME is unset explicitly (base keeps it): a real
+# ~/.claude/planwright/plugin.json would otherwise satisfy the writer-mode arm
+# and resolve a non-empty root, mirroring the core fall-through case above.
+out="$(base env -u HOME /bin/bash "$RESOLVER" adopter)"
 assert "no adopter arm derivable degrades (zero exit)" 0 $?
 assert_eq "no adopter arm yields empty root" "" "$out"
 
