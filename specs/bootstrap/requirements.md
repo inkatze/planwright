@@ -1,7 +1,7 @@
 # planwright Bootstrap — Requirements
 
-**Status:** Active
-**Last reviewed:** 2026-06-16
+**Status:** Done
+**Last reviewed:** 2026-06-22
 **Format-version:** 1
 
 ## Goal

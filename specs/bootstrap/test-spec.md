@@ -1,7 +1,7 @@
 # planwright Bootstrap — Test Spec
 
-**Status:** Active
-**Last reviewed:** 2026-06-16
+**Status:** Done
+**Last reviewed:** 2026-06-22
 **Format-version:** 1
 
 Every REQ is pinned to at least one verification path. Types: **test** (automated),
