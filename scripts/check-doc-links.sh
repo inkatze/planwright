@@ -26,6 +26,11 @@
 #     slugs (#sec, #sec-1, #sec-2, ...); this checker emits the base slug for
 #     every heading, so a link to the second-or-later instance (#sec-1) is
 #     reported as a missing anchor.
+#   - Non-ASCII letters and digits are dropped, not kept. GitHub keeps Unicode
+#     word characters in anchors (a "## Café" heading anchors at #café); this
+#     checker keeps only [a-z0-9 _-], so that #café is reported as a missing
+#     anchor (and "fixing" the link to #caf to satisfy this checker would then
+#     404 on GitHub).
 #   - Fragments are matched literally, not percent-decoded. A URL-encoded anchor
 #     (#a%20section) will not match the decoded heading slug (a-section).
 # Parser constraints (documented, like check-options-reference.sh):
