@@ -551,4 +551,44 @@ if grep -q '"99"' "$gv_cap"; then
 fi
 echo "ok: the Graphviz probe drops dangling-dep edges (no ghost node, REQ-A1.5)"
 
+# ---------------------------------------------------------------------------
+# 13. The DOT source must reserve a fixed node size matching the boxes the view
+#     actually draws (NODEW=180px at SCALE=72). Without it, dot sizes each node
+#     to its tiny numeric-id label and packs the LR rank columns closer than
+#     180px, so adjacent columns overlap once every node is redrawn at NODEW.
+#     Capture the DOT source and assert it declares fixedsize=true and a width
+#     that, scaled to points, is at least NODEW.
+size_cap="$tmp/dot-input.size"
+sizestub="$tmp/gv-size"
+mkdir -p "$sizestub"
+cat >"$sizestub/dot" <<CAP
+#!/bin/sh
+# Copy the DOT source (argv 2 of \`dot -Tplain <file>\`), then emit a valid
+# -Tplain layout so the probe is accepted as layout=graphviz.
+cp "\$2" "$size_cap" 2>/dev/null || true
+cat <<'PLAIN'
+graph 1.0 6.0 2.0
+node 1 0.5 1.0 1.2 0.5 t1 solid box black lightgrey
+node 2 2.5 1.5 1.2 0.5 t2 solid box black lightgrey
+node 3 2.5 0.5 1.2 0.5 t3 solid box black lightgrey
+node 4 4.5 1.0 1.2 0.5 t4 solid box black lightgrey
+stop
+PLAIN
+CAP
+chmod +x "$sizestub/dot"
+out=$(SPEC_WALKTHROUGH_DOT="$sizestub/dot" "$script" "$bundle" 2>&1) \
+  || fail "size-capture run with a working dot should still succeed"
+[ -f "$size_cap" ] || fail "size-capturing dot stub never received a DOT source"
+case "$(cat "$size_cap")" in
+  *fixedsize=true*) ;;
+  *) fail "DOT source must declare fixedsize=true so dot reserves the drawn box size (columns overlap otherwise)" ;;
+esac
+# Reserved width (inches) x SCALE(72) must be >= NODEW(180px); otherwise adjacent
+# LR columns overlap. Derived from the script's NODEW/SCALE — update together.
+gw=$(sed -n 's/.*width=\([0-9][0-9.]*\).*/\1/p' "$size_cap" | head -1)
+[ -n "$gw" ] || fail "DOT node declaration carries no width"
+awk -v w="$gw" 'BEGIN { exit !(w * 72 >= 180) }' \
+  || fail "DOT reserves width=${gw}in (< NODEW=180px at SCALE=72); columns will overlap"
+echo "ok: DOT source reserves >= NODEW per node (fixedsize=true, no column overlap)"
+
 echo "PASS: test-spec-graph.sh"

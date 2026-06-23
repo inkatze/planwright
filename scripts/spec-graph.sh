@@ -169,8 +169,16 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
   note="Built-in layout (Graphviz did not return a usable layout; using the built-in graph)."
   # Build a DOT graph from numeric ids only — no bundle text reaches dot, so no
   # title can inject DOT syntax.
+  #
+  # Declare the node size dot should reserve so its column spacing matches the
+  # fixed-size boxes we actually draw downstream. Without this dot sizes each
+  # node to its tiny numeric-id label (~0.75in) and packs the LR ranks closer
+  # than NODEW, so adjacent columns overlap once each is redrawn 180px wide.
+  # width/height are NODEW/NODEH expressed in inches at SCALE=72
+  # (180/72 = 2.5, 44/72 ≈ 0.61); ranksep/nodesep add modest gutters. Keep
+  # these in sync with NODEW/NODEH/SCALE in the awk emitter below.
   dot_src=$(
-    printf 'digraph G {\n  rankdir=LR;\n  node [shape=box];\n'
+    printf 'digraph G {\n  rankdir=LR;\n  graph [ranksep=0.55, nodesep=0.3];\n  node [shape=box, fixedsize=true, width=2.5, height=0.61];\n'
     printf '%s\n' "$node_ids" | while IFS= read -r nid; do
       [ -n "$nid" ] && printf '  "%s";\n' "$nid"
     done
