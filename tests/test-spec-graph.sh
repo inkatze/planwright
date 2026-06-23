@@ -553,11 +553,16 @@ echo "ok: the Graphviz probe drops dangling-dep edges (no ghost node, REQ-A1.5)"
 
 # ---------------------------------------------------------------------------
 # 13. The DOT source must reserve a fixed node size matching the boxes the view
-#     actually draws (NODEW=180px at SCALE=72). Without it, dot sizes each node
-#     to its tiny numeric-id label and packs the LR rank columns closer than
-#     180px, so adjacent columns overlap once every node is redrawn at NODEW.
-#     Capture the DOT source and assert it declares fixedsize=true and a width
-#     that, scaled to points, is at least NODEW.
+#     actually draws. Without it, dot sizes each node to its tiny numeric-id
+#     label and packs the LR rank columns (and same-rank rows) closer than the
+#     redrawn box, so adjacent nodes overlap once every node is redrawn at
+#     NODEW x NODEH. Capture the DOT source and assert it declares fixedsize=true
+#     and reserves at least NODEW wide and NODEH tall.
+#
+#     Thresholds are READ FROM THE SCRIPT (NODEW/NODEH/SCALE), never a literal,
+#     so this test cannot pass green while real boxes overlap if that geometry
+#     changes: the script is the single source of truth for both the reserved
+#     DOT size and this assertion.
 size_cap="$tmp/dot-input.size"
 sizestub="$tmp/gv-size"
 mkdir -p "$sizestub"
@@ -583,12 +588,28 @@ case "$(cat "$size_cap")" in
   *fixedsize=true*) ;;
   *) fail "DOT source must declare fixedsize=true so dot reserves the drawn box size (columns overlap otherwise)" ;;
 esac
-# Reserved width (inches) x SCALE(72) must be >= NODEW(180px); otherwise adjacent
-# LR columns overlap. Derived from the script's NODEW/SCALE — update together.
+# Single source of truth: read the box geometry from the script itself. Each
+# constant is on its own line as `NAME=NN`, so a `^NAME=NN$` match pulls it out
+# portably (no GNU-only \b). A missing value fails loud rather than letting the
+# threshold collapse to 0 and pass vacuously.
+read_geom() { sed -n "s/^$1=\([0-9][0-9]*\)\$/\1/p" "$script" | head -1; }
+s_nodew=$(read_geom NODEW)
+s_nodeh=$(read_geom NODEH)
+s_scale=$(read_geom SCALE)
+[ -n "$s_nodew" ] || fail "could not read NODEW from $script (geometry source-of-truth moved?)"
+[ -n "$s_nodeh" ] || fail "could not read NODEH from $script (geometry source-of-truth moved?)"
+[ -n "$s_scale" ] || fail "could not read SCALE from $script (geometry source-of-truth moved?)"
+# Reserved inches x SCALE must be >= the px box on BOTH axes, or adjacent LR
+# columns (width) / same-rank rows (height) overlap once redrawn. Thresholds
+# come straight from the script's NODEW/NODEH/SCALE, so they track any change.
 gw=$(sed -n 's/^ *node.*width=\([0-9][0-9.]*\).*/\1/p' "$size_cap" | head -1)
+gh=$(sed -n 's/^ *node.*height=\([0-9][0-9.]*\).*/\1/p' "$size_cap" | head -1)
 [ -n "$gw" ] || fail "DOT node declaration carries no width"
-awk -v w="$gw" 'BEGIN { exit !(w * 72 >= 180) }' \
-  || fail "DOT reserves width=${gw}in (< NODEW=180px at SCALE=72); columns will overlap"
-echo "ok: DOT source reserves >= NODEW per node (fixedsize=true, no column overlap)"
+[ -n "$gh" ] || fail "DOT node declaration carries no height"
+awk -v v="$gw" -v px="$s_nodew" -v s="$s_scale" 'BEGIN { exit !(v * s >= px) }' \
+  || fail "DOT reserves width=${gw}in (< NODEW=${s_nodew}px at SCALE=${s_scale}); columns will overlap"
+awk -v v="$gh" -v px="$s_nodeh" -v s="$s_scale" 'BEGIN { exit !(v * s >= px) }' \
+  || fail "DOT reserves height=${gh}in (< NODEH=${s_nodeh}px at SCALE=${s_scale}); rows will overlap"
+echo "ok: DOT source reserves >= NODEW x NODEH per node (fixedsize=true, geometry read from script)"
 
 echo "PASS: test-spec-graph.sh"

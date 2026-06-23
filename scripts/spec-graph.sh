@@ -131,6 +131,20 @@ edges=$(printf '%s\n' "$model" | awk -F"$tab" '
   }
 ')
 
+# Drawn node-box geometry in px — the single source of truth for both the SVG
+# the assembler redraws and the box size we ask dot to reserve below. SCALE is
+# the px-per-inch used to convert dot's inch coordinates back to px. Defined
+# here as shell constants (and passed into the awk emitter via -v, never
+# re-stated as awk literals) so the DOT input size, the awk layout, and the
+# test all read one definition and cannot silently drift apart. Each constant
+# sits alone on its own line so the test can extract it with a `^NAME=NN$` match.
+NODEW=180
+NODEH=44
+COLGAP=54
+ROWGAP=22
+MARGIN=22
+SCALE=72
+
 # --- Optional Graphviz layout (degrades cleanly to built-in) ----------------
 layout=builtin
 note="Built-in layout (Graphviz not detected; install \`dot\` for a richer graph)."
@@ -173,14 +187,21 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
   # Declare the node size dot should reserve so its column spacing matches the
   # fixed-size boxes we actually draw downstream. Without this dot sizes each
   # node to its tiny numeric-id label (~0.75in) and packs the LR ranks closer
-  # than NODEW, so adjacent columns overlap once each is redrawn 180px wide.
-  # width/height are NODEW/NODEH expressed in inches at SCALE=72: 180/72 = 2.5
-  # exactly; 44/72 ≈ 0.611, rounded up to 0.62 so the reserved height is never
-  # less than the drawn box (0.61 would reserve 43.92px < NODEH). ranksep/nodesep
-  # add modest gutters. Keep these in sync with NODEW/NODEH/SCALE in the awk
-  # emitter below.
+  # than NODEW, so adjacent columns overlap once each is redrawn NODEW wide.
+  # The reserved size is DERIVED from NODEW/NODEH at SCALE (the single source of
+  # truth above), rounded UP to the hundredth-inch so the reserved box is never
+  # smaller than the drawn box: NODEW/SCALE = 180/72 = 2.5 exactly; NODEH/SCALE =
+  # 44/72 ≈ 0.611 -> 0.62 (a bare 0.61 would reserve 43.92px < NODEH and re-pack
+  # same-rank rows too tight). ranksep/nodesep add modest gutters.
+  dot_dims=$(awk -v w="$NODEW" -v h="$NODEH" -v s="$SCALE" 'BEGIN {
+    printf "%s %s", fmt(ceilh(w / s)), fmt(ceilh(h / s))
+  }
+  function ceilh(x,   n) { n = int(x * 100); if (x * 100 > n) n++; return n / 100 }
+  function fmt(x,   t) { t = sprintf("%.2f", x); sub(/0+$/, "", t); sub(/\.$/, "", t); return t }')
+  dot_w=${dot_dims%% *}
+  dot_h=${dot_dims##* }
   dot_src=$(
-    printf 'digraph G {\n  rankdir=LR;\n  graph [ranksep=0.55, nodesep=0.3];\n  node [shape=box, fixedsize=true, width=2.5, height=0.62];\n'
+    printf 'digraph G {\n  rankdir=LR;\n  graph [ranksep=0.55, nodesep=0.3];\n  node [shape=box, fixedsize=true, width=%s, height=%s];\n' "$dot_w" "$dot_h"
     printf '%s\n' "$node_ids" | while IFS= read -r nid; do
       [ -n "$nid" ] && printf '  "%s";\n' "$nid"
     done
@@ -251,10 +272,11 @@ fi
 # --- Emit the record stream -------------------------------------------------
 printf '%s\n' "$model" | awk \
   -v crit="$crit_path" -v layout="$layout" -v gvcoords="$gvcoords" \
-  -v gvheight="$gvheight" -v note="$note" '
+  -v gvheight="$gvheight" -v note="$note" \
+  -v NODEW="$NODEW" -v NODEH="$NODEH" -v COLGAP="$COLGAP" \
+  -v ROWGAP="$ROWGAP" -v MARGIN="$MARGIN" -v SCALE="$SCALE" '
   BEGIN {
     FS = "\t"; OFS = "\t"
-    NODEW = 180; NODEH = 44; COLGAP = 54; ROWGAP = 22; MARGIN = 22; SCALE = 72
     nnodes = 0; ne = 0
     ncp = split(crit, cp, " ")
     for (i = 1; i <= ncp; i++)
