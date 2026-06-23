@@ -585,7 +585,7 @@ case "$(cat "$size_cap")" in
 esac
 # Reserved width (inches) x SCALE(72) must be >= NODEW(180px); otherwise adjacent
 # LR columns overlap. Derived from the script's NODEW/SCALE — update together.
-gw=$(sed -n 's/.*width=\([0-9][0-9.]*\).*/\1/p' "$size_cap" | head -1)
+gw=$(sed -n 's/^ *node.*width=\([0-9][0-9.]*\).*/\1/p' "$size_cap" | head -1)
 [ -n "$gw" ] || fail "DOT node declaration carries no width"
 awk -v w="$gw" 'BEGIN { exit !(w * 72 >= 180) }' \
   || fail "DOT reserves width=${gw}in (< NODEW=180px at SCALE=72); columns will overlap"

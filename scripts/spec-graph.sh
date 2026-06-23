@@ -174,11 +174,13 @@ if [ -n "$node_ids" ] && command -v "$dot_bin" >/dev/null 2>&1; then
   # fixed-size boxes we actually draw downstream. Without this dot sizes each
   # node to its tiny numeric-id label (~0.75in) and packs the LR ranks closer
   # than NODEW, so adjacent columns overlap once each is redrawn 180px wide.
-  # width/height are NODEW/NODEH expressed in inches at SCALE=72
-  # (180/72 = 2.5, 44/72 ≈ 0.61); ranksep/nodesep add modest gutters. Keep
-  # these in sync with NODEW/NODEH/SCALE in the awk emitter below.
+  # width/height are NODEW/NODEH expressed in inches at SCALE=72: 180/72 = 2.5
+  # exactly; 44/72 ≈ 0.611, rounded up to 0.62 so the reserved height is never
+  # less than the drawn box (0.61 would reserve 43.92px < NODEH). ranksep/nodesep
+  # add modest gutters. Keep these in sync with NODEW/NODEH/SCALE in the awk
+  # emitter below.
   dot_src=$(
-    printf 'digraph G {\n  rankdir=LR;\n  graph [ranksep=0.55, nodesep=0.3];\n  node [shape=box, fixedsize=true, width=2.5, height=0.61];\n'
+    printf 'digraph G {\n  rankdir=LR;\n  graph [ranksep=0.55, nodesep=0.3];\n  node [shape=box, fixedsize=true, width=2.5, height=0.62];\n'
     printf '%s\n' "$node_ids" | while IFS= read -r nid; do
       [ -n "$nid" ] && printf '  "%s";\n' "$nid"
     done
