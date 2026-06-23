@@ -11,6 +11,12 @@ converging review without further human keystrokes. How accurately the system
 flies is bounded by how good the spec is, so planwright's primary investment
 is making specs as correct as possible before any code is written.
 
+In current terms, planwright is **loop engineering with guardrails**: it runs
+the agent in autonomous review-and-execute loops (bounded by iteration caps,
+convergence criteria, and no-progress detection), while every irreversible
+action stays a **human-in-the-loop** checkpoint. The two checkpoints,
+**sign-off** and **merge**, are described next.
+
 > **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
 > defines planwright v1 is complete, and planwright now develops itself through
 > the same pipeline it ships. It is young software — expect rough edges.
@@ -19,6 +25,20 @@ is making specs as correct as possible before any code is written.
 non-author from a clean machine through installing planwright, confirming
 rule-doc resolution, operating the pilot-in-command model, and supplying your
 own tooling and rigor without editing core.
+
+## Install
+
+planwright installs through Claude Code's standard marketplace flow:
+
+```text
+/plugin marketplace add inkatze/planwright
+/plugin install planwright@planwright
+```
+
+That is the whole quick start. For the `~/.claude/` writer fallback (no plugin
+support required) and the full walkthrough, see
+[docs/getting-started.md](docs/getting-started.md) and
+[Delivery modes](#delivery-modes) below.
 
 ## The pilot-in-command model
 
