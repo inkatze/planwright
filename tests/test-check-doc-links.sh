@@ -61,20 +61,121 @@ case "$out" in
     ;;
 esac
 
-# 4. Fixture: external and non-file links are skipped, not resolved.
+# 4. Fixture: external/mailto links are skipped; a same-page #anchor is now
+#    verified against the file's own headings (here it resolves).
 cat >"$tmp/sub/external.md" <<'EOF'
+# A heading
+
 [web](https://example.com/page) and [plain](http://example.com) and
 [mail](mailto:a@b.c) and [same-page section](#a-heading).
 EOF
 /bin/bash "$CHECKER" "$tmp/sub/external.md" >/dev/null
-assert "external/mailto/fragment-only links are skipped" 0 $?
+assert "external/mailto skipped; valid same-page anchor resolves" 0 $?
 
-# 5. Fixture: a fragment on a file link is stripped before resolution.
+# 5. Fixture: a fragment on a file link is verified against the target file's
+#    headings; target.md (test 2) has "# Target", so #target resolves.
 cat >"$tmp/sub/fragment.md" <<'EOF'
-See [a section](target.md#some-heading).
+See [a section](target.md#target).
 EOF
 /bin/bash "$CHECKER" "$tmp/sub/fragment.md" >/dev/null
-assert "file link with fragment resolves" 0 $?
+assert "file link with valid fragment resolves (anchor verified)" 0 $?
+
+# 5b. A broken same-page #anchor fails and names the missing anchor.
+cat >"$tmp/sub/badself.md" <<'EOF'
+# Present Heading
+
+See [broken](#absent-heading).
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/badself.md" 2>&1)"
+assert "broken same-page anchor fails" 1 $?
+case "$out" in
+  *absent-heading*) echo "ok: the missing same-page anchor is named" ;;
+  *)
+    echo "FAIL: missing same-page anchor not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5c. A broken anchor on a file link fails and names the target file + anchor.
+cat >"$tmp/sub/badxfile.md" <<'EOF'
+See [broken](target.md#no-such-section).
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/badxfile.md" 2>&1)"
+assert "broken cross-file anchor fails" 1 $?
+case "$out" in
+  *no-such-section*target.md* | *target.md*no-such-section*)
+    echo "ok: the missing cross-file anchor and target are named"
+    ;;
+  *)
+    echo "FAIL: cross-file anchor break not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5d. The GitHub slug rule: punctuation dropped, spaces -> hyphens, and internal
+#     repeats kept (an em-dash flanked by spaces yields a double hyphen).
+cat >"$tmp/sub/slug.md" <<'EOF'
+## 6. Secrets and data hygiene — read this
+
+[jump](#6-secrets-and-data-hygiene--read-this)
+EOF
+/bin/bash "$CHECKER" "$tmp/sub/slug.md" >/dev/null
+assert "github slug rule (punctuation/spaces/double-hyphen) matches" 0 $?
+
+# 5e. Documented limitation: duplicate-heading disambiguation is NOT applied.
+#     GitHub gives the second "## Setup" the anchor #setup-1; this checker emits
+#     the base slug for every heading, so #setup-1 is reported as missing. This
+#     test pins that limitation (fail-closed) so a future fix is a conscious
+#     change, not a silent regression. See the script header.
+cat >"$tmp/sub/dup.md" <<'EOF'
+## Setup
+## Setup
+
+[second](#setup-1)
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/dup.md" 2>&1)"
+assert "duplicate-heading -1 anchor fails (documented limitation)" 1 $?
+case "$out" in
+  *setup-1*) echo "ok: the unsupported disambiguated anchor is named" ;;
+  *)
+    echo "FAIL: disambiguated anchor not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5f. Documented limitation: fragments are matched literally, not percent-decoded.
+#     A URL-encoded anchor (#a%20section) will not match the decoded slug
+#     (a-section). Pins the limitation fail-closed; see the script header.
+cat >"$tmp/sub/encoded.md" <<'EOF'
+# A Section
+
+[encoded](#a%20section)
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/encoded.md" 2>&1)"
+assert "url-encoded fragment fails (documented limitation)" 1 $?
+case "$out" in
+  *'a%20section'*) echo "ok: the undecoded fragment is named verbatim" ;;
+  *)
+    echo "FAIL: undecoded fragment not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5g. Documented leniency: heading-like lines inside fenced code blocks are
+#     counted as headings, so an anchor that matches one resolves. The header
+#     notes this only ever makes the check more lenient (never a false failure).
+cat >"$tmp/sub/fenced.md" <<'EOF'
+Below is a code sample, not a real heading:
+
+```sh
+# Fenced Pseudo Heading
+echo hi
+```
+
+[jump](#fenced-pseudo-heading)
+EOF
+/bin/bash "$CHECKER" "$tmp/sub/fenced.md" >/dev/null
+assert "fenced-code heading line is counted (documented leniency)" 0 $?
 
 # 6. Fixture: multiple links on one line are each checked (one broken among
 #    valid ones still fails).

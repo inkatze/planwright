@@ -32,6 +32,8 @@
       "Bash(git merge:*)",
       "Bash(git rebase:*)",
       "Bash(git commit --amend:*)",
+      "Bash(git commit --squash:*)",
+      "Bash(git commit --fixup:*)",
       "Bash(git reset --hard:*)",
       "Bash(git filter-branch:*)",
       "Bash(git filter-repo:*)",
