@@ -15,7 +15,12 @@
     "spec-driven-development",
     "orchestration",
     "autonomy",
-    "workflow"
+    "workflow",
+    "loop-engineering",
+    "human-in-the-loop",
+    "guardrails",
+    "agentic",
+    "claude-code"
   ],
   "defaultEnabled": true
 }
