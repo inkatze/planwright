@@ -122,6 +122,61 @@ EOF
 /bin/bash "$CHECKER" "$tmp/sub/slug.md" >/dev/null
 assert "github slug rule (punctuation/spaces/double-hyphen) matches" 0 $?
 
+# 5e. Documented limitation: duplicate-heading disambiguation is NOT applied.
+#     GitHub gives the second "## Setup" the anchor #setup-1; this checker emits
+#     the base slug for every heading, so #setup-1 is reported as missing. This
+#     test pins that limitation (fail-closed) so a future fix is a conscious
+#     change, not a silent regression. See the script header.
+cat >"$tmp/sub/dup.md" <<'EOF'
+## Setup
+## Setup
+
+[second](#setup-1)
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/dup.md" 2>&1)"
+assert "duplicate-heading -1 anchor fails (documented limitation)" 1 $?
+case "$out" in
+  *setup-1*) echo "ok: the unsupported disambiguated anchor is named" ;;
+  *)
+    echo "FAIL: disambiguated anchor not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5f. Documented limitation: fragments are matched literally, not percent-decoded.
+#     A URL-encoded anchor (#a%20section) will not match the decoded slug
+#     (a-section). Pins the limitation fail-closed; see the script header.
+cat >"$tmp/sub/encoded.md" <<'EOF'
+# A Section
+
+[encoded](#a%20section)
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/encoded.md" 2>&1)"
+assert "url-encoded fragment fails (documented limitation)" 1 $?
+case "$out" in
+  *'a%20section'*) echo "ok: the undecoded fragment is named verbatim" ;;
+  *)
+    echo "FAIL: undecoded fragment not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5g. Documented leniency: heading-like lines inside fenced code blocks are
+#     counted as headings, so an anchor that matches one resolves. The header
+#     notes this only ever makes the check more lenient (never a false failure).
+cat >"$tmp/sub/fenced.md" <<'EOF'
+Below is a code sample, not a real heading:
+
+```sh
+# Fenced Pseudo Heading
+echo hi
+```
+
+[jump](#fenced-pseudo-heading)
+EOF
+/bin/bash "$CHECKER" "$tmp/sub/fenced.md" >/dev/null
+assert "fenced-code heading line is counted (documented leniency)" 0 $?
+
 # 6. Fixture: multiple links on one line are each checked (one broken among
 #    valid ones still fails).
 cat >"$tmp/sub/multi.md" <<'EOF'

@@ -17,7 +17,18 @@
 # match a heading in the target markdown file under GitHub's heading-slug rule
 # (lowercase; drop chars outside [a-z0-9 _-]; spaces -> hyphens; trim leading and
 # trailing hyphens; internal repeats are kept). Anchors on non-.md targets are
-# not checked. Parser constraints (documented, like check-options-reference.sh):
+# not checked.
+#
+# Known anchor limitations (the slug rule is deliberately a subset of GitHub's;
+# none occur in this repo's docs, and a future link that hits one fails closed,
+# i.e. reported as broken, never silently passed):
+#   - Duplicate-heading disambiguation is NOT applied. GitHub suffixes repeated
+#     slugs (#sec, #sec-1, #sec-2, ...); this checker emits the base slug for
+#     every heading, so a link to the second-or-later instance (#sec-1) is
+#     reported as a missing anchor.
+#   - Fragments are matched literally, not percent-decoded. A URL-encoded anchor
+#     (#a%20section) will not match the decoded heading slug (a-section).
+# Parser constraints (documented, like check-options-reference.sh):
 # inline one-line links only — reference-style definitions and links wrapped
 # across lines are invisible to it; ATX (#) headings only, and heading-like lines
 # inside fenced code blocks are counted as headings (this only makes the anchor
@@ -140,6 +151,6 @@ EOF
 done
 
 if [ "$status" -eq 0 ]; then
-  echo "check-doc-links: all $checked file links resolve"
+  echo "check-doc-links: all $checked links and anchors resolve"
 fi
 exit "$status"
