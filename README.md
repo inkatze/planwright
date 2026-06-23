@@ -15,7 +15,8 @@ In current terms, planwright is **loop engineering with guardrails**: it runs
 the agent in autonomous review-and-execute loops (bounded by iteration caps,
 convergence criteria, and no-progress detection), while every irreversible
 action stays a **human-in-the-loop** checkpoint. The two checkpoints,
-**sign-off** and **merge**, are described next.
+**sign-off** and **merge**, are described below under
+[The pilot-in-command model](#the-pilot-in-command-model).
 
 > **Status: v1, self-hosting.** The founding spec (`specs/bootstrap/`) that
 > defines planwright v1 is complete, and planwright now develops itself through
