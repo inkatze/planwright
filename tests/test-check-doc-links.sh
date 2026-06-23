@@ -61,20 +61,66 @@ case "$out" in
     ;;
 esac
 
-# 4. Fixture: external and non-file links are skipped, not resolved.
+# 4. Fixture: external/mailto links are skipped; a same-page #anchor is now
+#    verified against the file's own headings (here it resolves).
 cat >"$tmp/sub/external.md" <<'EOF'
+# A heading
+
 [web](https://example.com/page) and [plain](http://example.com) and
 [mail](mailto:a@b.c) and [same-page section](#a-heading).
 EOF
 /bin/bash "$CHECKER" "$tmp/sub/external.md" >/dev/null
-assert "external/mailto/fragment-only links are skipped" 0 $?
+assert "external/mailto skipped; valid same-page anchor resolves" 0 $?
 
-# 5. Fixture: a fragment on a file link is stripped before resolution.
+# 5. Fixture: a fragment on a file link is verified against the target file's
+#    headings; target.md (test 2) has "# Target", so #target resolves.
 cat >"$tmp/sub/fragment.md" <<'EOF'
-See [a section](target.md#some-heading).
+See [a section](target.md#target).
 EOF
 /bin/bash "$CHECKER" "$tmp/sub/fragment.md" >/dev/null
-assert "file link with fragment resolves" 0 $?
+assert "file link with valid fragment resolves (anchor verified)" 0 $?
+
+# 5b. A broken same-page #anchor fails and names the missing anchor.
+cat >"$tmp/sub/badself.md" <<'EOF'
+# Present Heading
+
+See [broken](#absent-heading).
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/badself.md" 2>&1)"
+assert "broken same-page anchor fails" 1 $?
+case "$out" in
+  *absent-heading*) echo "ok: the missing same-page anchor is named" ;;
+  *)
+    echo "FAIL: missing same-page anchor not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5c. A broken anchor on a file link fails and names the target file + anchor.
+cat >"$tmp/sub/badxfile.md" <<'EOF'
+See [broken](target.md#no-such-section).
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/sub/badxfile.md" 2>&1)"
+assert "broken cross-file anchor fails" 1 $?
+case "$out" in
+  *no-such-section*target.md* | *target.md*no-such-section*)
+    echo "ok: the missing cross-file anchor and target are named"
+    ;;
+  *)
+    echo "FAIL: cross-file anchor break not named: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 5d. The GitHub slug rule: punctuation dropped, spaces -> hyphens, and internal
+#     repeats kept (an em-dash flanked by spaces yields a double hyphen).
+cat >"$tmp/sub/slug.md" <<'EOF'
+## 6. Secrets and data hygiene — read this
+
+[jump](#6-secrets-and-data-hygiene--read-this)
+EOF
+/bin/bash "$CHECKER" "$tmp/sub/slug.md" >/dev/null
+assert "github slug rule (punctuation/spaces/double-hyphen) matches" 0 $?
 
 # 6. Fixture: multiple links on one line are each checked (one broken among
 #    valid ones still fails).

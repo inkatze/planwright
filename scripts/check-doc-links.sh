@@ -12,11 +12,16 @@
 #   lint:md scope minus specs, whose cross-references are validated by
 #   the spec validator, Task 5).
 #
-# Skipped link forms: http(s)://, mailto:, and pure-fragment (#...) targets.
-# A #fragment on a file link is stripped before resolution; anchors are not
-# verified. Parser constraints (documented, like check-options-reference.sh):
+# Skipped link forms: http(s):// and mailto:. A #fragment (anchor) — whether on
+# a file link (file.md#sec) or same-page (#sec) — IS verified: the fragment must
+# match a heading in the target markdown file under GitHub's heading-slug rule
+# (lowercase; drop chars outside [a-z0-9 _-]; spaces -> hyphens; trim leading and
+# trailing hyphens; internal repeats are kept). Anchors on non-.md targets are
+# not checked. Parser constraints (documented, like check-options-reference.sh):
 # inline one-line links only — reference-style definitions and links wrapped
-# across lines are invisible to it.
+# across lines are invisible to it; ATX (#) headings only, and heading-like lines
+# inside fenced code blocks are counted as headings (this only makes the anchor
+# check more lenient, never falsely failing a valid anchor).
 #
 # Exit codes: 0 all targets resolve, 1 broken link found, 2 usage error.
 #
@@ -31,6 +36,23 @@ export LC_ALL
 # A user CDPATH would make cd echo into the command substitutions below and
 # corrupt the path derivations.
 unset CDPATH
+
+# heading_slugs <file> — emit one GitHub-style anchor slug per ATX heading.
+# Used to verify #fragment link targets. See the slug rule in the header.
+heading_slugs() {
+  awk '
+    /^#{1,6}[ \t]/ {
+      line = $0
+      sub(/^#{1,6}[ \t]+/, "", line)      # strip the leading marker
+      sub(/[ \t]+#+[ \t]*$/, "", line)    # strip a closing-ATX run (## Foo ##)
+      s = tolower(line)
+      gsub(/[^a-z0-9 _-]/, "", s)         # keep alnum, space, underscore, hyphen
+      gsub(/ /, "-", s)                   # spaces -> hyphens (no collapse)
+      sub(/^-+/, "", s); sub(/-+$/, "", s)
+      if (s != "") print s
+    }
+  ' "$1"
+}
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 
@@ -78,15 +100,40 @@ for f in "${files[@]}"; do
   [ -z "$targets" ] && continue
   while IFS= read -r target; do
     case "$target" in
-      http://* | https://* | mailto:* | '#'*) continue ;;
+      http://* | https://* | mailto:*) continue ;;
     esac
     path="${target%%#*}"
-    [ -z "$path" ] && continue
-    checked=$((checked + 1))
-    if [ ! -e "$dir/$path" ]; then
-      echo "check-doc-links: $f links to missing target: $path" >&2
-      status=1
+    case "$target" in
+      *'#'*) frag="${target#*#}" ;;
+      *) frag="" ;;
+    esac
+    # File part: resolve it relative to the linking file (unless this is a
+    # pure same-page #anchor, where the anchor's file is the linking file).
+    if [ -n "$path" ]; then
+      checked=$((checked + 1))
+      if [ ! -e "$dir/$path" ]; then
+        echo "check-doc-links: $f links to missing target: $path" >&2
+        status=1
+        continue
+      fi
+      anchor_file="$dir/$path"
+    else
+      anchor_file="$f"
     fi
+    # Anchor part: a #fragment must match a heading in the target .md file.
+    # Only markdown targets carry verifiable anchors; others are left alone.
+    [ -z "$frag" ] && continue
+    case "$anchor_file" in
+      *.md)
+        [ -f "$anchor_file" ] || continue
+        checked=$((checked + 1))
+        if ! heading_slugs "$anchor_file" | grep -Fxq -- "$frag"; then
+          where="${path:-$(basename "$f")}"
+          echo "check-doc-links: $f links to missing anchor #$frag in $where" >&2
+          status=1
+        fi
+        ;;
+    esac
   done <<EOF
 $targets
 EOF
