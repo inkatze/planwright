@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/inkatze/planwright/actions/workflows/ci.yml/badge.svg)](https://github.com/inkatze/planwright/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://code.claude.com/docs/en/plugins)
+[![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757.svg)](https://claude.com/plugins)
 
 planwright is an opinionated Claude Code framework for **spec-driven
 development**: you specify a feature precisely, sign it off, and the framework
