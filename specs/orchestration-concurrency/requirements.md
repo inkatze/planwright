@@ -177,8 +177,9 @@ this contract.
   evidence as data, never code. The `<spec>/<id>` parsed from a `Planwright-Task`
   trailer, and any spec/task identifier used to construct a branch name, ref
   pattern, marker path, or lock path, SHALL be validated against its declared
-  grammar (the spec-id pattern `^[a-z0-9][a-z0-9-]*$`; the numeric component-wise
-  task-id form) **before use**, and every derived marker/lock path SHALL be
+  grammar (the spec-id pattern `^[a-z0-9][a-z0-9-]*$`; the task-id grammar
+  `^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$`, per D-36 / `doctrine/spec-format.md`)
+  **before use**, and every derived marker/lock path SHALL be
   containment-checked after canonicalization **before any read or write**.
   Malformed or hostile input is a clean refusal (the task is skipped and flagged,
   not dispatched/completed), never an executed command or an out-of-tree path.

@@ -477,3 +477,31 @@ choice, with distinctness separately carried by "unambiguous".)
 Class: expression-only
 Anchor: `95e4d45460730f924797a6600da3b329b81e57cd` — computed as
 `scripts/spec-anchor.sh specs/orchestration-concurrency`
+
+### Amendment 3 — REQ-F1.1 task-id grammar pinned (2026-06-26)
+
+Trigger: the `/copilot-pairing` gauntlet pass (PR #76, iteration 2, 3-pass valid)
+surfaced that REQ-F1.1 pinned the spec-id as a concrete regex but left the
+task-id as prose ("the numeric component-wise task-id form") — an asymmetry in a
+requirement whose job is "validate identifiers against their declared grammar
+before use." Scripts can't validate against prose; the canonical task-id grammar
+already exists repo-wide (`doctrine/spec-format.md:463`, bootstrap D-36 /
+REQ-K1.2). Human-signed-off (security-sensitive Needs-sign-off).
+
+Delta (meaning-class — tightens a security requirement from prose to a concrete,
+testable grammar):
+- `requirements.md` REQ-F1.1: task-id grammar pinned to
+  `^[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?)?$` (cite D-36 / `doctrine/spec-format.md`),
+  parallel to the spec-id pattern (anchored content → re-anchor).
+
+Delta lens pass (inline; small narrow delta): security — the change strictly
+strengthens injection / path-containment defense by making the validation
+grammar concrete; the regex is the canonical task-id grammar already enforced by
+the validator and hooks (no new surface). Cross-file — REQ-F1.1 now matches
+`doctrine/spec-format.md` and bootstrap D-36. Correctness — pattern accepts
+`3`, `3.5`, `3-4`. No new findings.
+
+Class: meaning
+Lens-pass: recorded in this entry (delta-scoped inline, security lens), findings dispositioned 2026-06-26.
+Anchor: `d8e5f2cb7b5ee341e35fcbe18e89e52c93791d05` — computed as
+`scripts/spec-anchor.sh specs/orchestration-concurrency`
