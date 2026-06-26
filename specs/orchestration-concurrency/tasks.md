@@ -12,10 +12,10 @@ piece. The two run early and in parallel:
 - **Foundation:** T1 (derivation engine), T6 (lock primitive), T2 (trailer
   emission) — all dependency-free.
 - **On T1:** T3 (dispatch rework; also on T6), T4 (idempotent reconcile), T5
-  (selection reads live truth), T7 (drift/corruption guards).
+  (selection reads live truth), T7 (structural-corruption guards).
 - **Docs + cross-spec:** T8, on T1/T3/T4.
 
-**Guard-first ordering.** T7 ships the drift/corruption guards. It depends on T1
+**Guard-first ordering.** T7 ships the structural-corruption guards. It depends on T1
 (it needs the live truth to compare against), but it SHOULD land before T3, T4,
 and T5 merge, so their placement-affecting changes validate under the guard.
 This ordering is a should-precede preference recorded here (the task format has
@@ -138,15 +138,21 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
 - **Estimated effort:** 1 day
 
-### Task 7 — Drift / corruption guards + CI
+### Task 7 — Structural-corruption guards + CI
 
-- **Deliverables:** Guards wired into CI / pre-commit: (a) a **snapshot-vs-live-
-  truth drift** check (the committed `tasks.md` sections must match Task 1's
-  derivation), and (b) a **`>1 Status line` per task block** lint. See the
-  guard-first ordering note above: this SHOULD land before T3/T4/T5 merge.
-- **Done when:** a hand-corrupted snapshot (drift, or two Status lines on a block)
-  fails the guard with a clear message; a clean, in-sync bundle passes; both
-  guards run in the project's CI and pre-commit; tests pass under `mise run check`.
+- **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
+  corruption** check on the committed `tasks.md` snapshot — placement/state
+  signatures the level-triggered reconcile would never produce from any evidence
+  (a task in a section its own evidence contradicts, a mis-sort, a malformed or
+  duplicated block), explicitly NOT failing on the snapshot's intentional lag
+  behind live truth (freshness is the reconcile pass's job, REQ-B1.2) — and (b) a
+  **`>1 Status line` per task block** lint. See the guard-first ordering note
+  above: this SHOULD land before T3/T4/T5 merge.
+- **Done when:** a hand-corrupted snapshot (a structural corruption — wrong-block
+  placement contradicting its own evidence, a mis-sort, or two Status lines on a
+  block) fails the guard with a clear message; a well-formed snapshot that merely
+  lags live truth (a not-yet-reconciled in-flight task) passes; both guards run in
+  the project's CI and pre-commit; tests pass under `mise run check`.
 - **Dependencies:** 1
 - **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
 - **Estimated effort:** 1 day

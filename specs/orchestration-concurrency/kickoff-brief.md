@@ -289,7 +289,7 @@ T8 docs + bootstrap supersede deps: 1,3,4   1d     wave 3 (join)
 Decision: **non-edge note + T8 owns verification.** Added the non-edge note to
 tasks.md and assigned the REQ-B1.1 sole-writer trace to T8's Done-when.
 
-### Spec edits (this section)
+### Spec edits — task graph (§6)
 
 - `tasks.md` intro: added the joint-sole-writer deliberate non-edge note.
 - `tasks.md` Task 8 Done-when: added ownership of the REQ-B1.1 design-level
@@ -335,7 +335,7 @@ Decision: **timestamped marker + staleness threshold.** Applied to `design.md`
 D-3, `requirements.md` REQ-C1.1, `tasks.md` Task 1 (deliverable + fixture matrix)
 and Task 3 (timestamped marker), and `test-spec.md` REQ-C1.1 (stale-marker case).
 
-### Spec edits (this section)
+### Spec edits — risk register (§7)
 
 - `design.md` D-3: marker is timestamped; stale-orphan marker reverts to Ready.
 - `requirements.md` REQ-C1.1: "fresh" marker holds In progress; stale marker ⇒
@@ -423,5 +423,34 @@ Anchor: `3becb245d27bb7ad056b7b23bdf99a6fabc874dd` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment 1 — Task 7 aligned to the structural-corruption re-scope (2026-06-26)
 
+Trigger: the `/panel-pairing` gauntlet pass (PR #76) caught that `tasks.md` Task 7
+still described the guard as a "snapshot-vs-live-truth drift check (committed
+sections must match Task 1's derivation)" with "a clean, in-sync bundle passes" —
+contradicting the §3 finding-① re-scope of REQ-E1.1 (structural-corruption only;
+the guard must NOT fail on intentional lag). A straggler the first-activation
+lens pass missed.
+
+Delta (meaning-class):
+- `tasks.md` Task 7: retitled "Structural-corruption guards + CI"; deliverable
+  (a) and Done-when reworded to the structural-corruption framing (a lagging
+  well-formed snapshot passes; only reconcile-impossible signatures fail).
+- `tasks.md` intro: two T7 labels "drift/corruption guards" →
+  "structural-corruption guards".
+- `kickoff-brief.md`: disambiguated two duplicate "Spec edits (this section)"
+  headings (MD024) and removed a trailing double blank (MD012) — brief-only,
+  anchor-neutral.
+
+Delta lens pass (inline; small narrow delta, proportionality): correctness +
+cross-file consistency re-checked — Task 7 now agrees with REQ-E1.1, REQ-E1.2,
+REQ-E1.3 and test-spec REQ-E1.1; a full-bundle grep confirmed no other
+"drift / in-sync / must-match-truth" straggler (remaining "drift" mentions are
+legitimate: Terraform prior-art, lock-duplication, the historical ledger-drift
+observations, anchor-drift out-of-scope, and the correct "lagging live truth"
+framing). No new findings.
+
+Class: meaning
+Lens-pass: recorded in this entry (delta-scoped inline), findings dispositioned 2026-06-26.
+Anchor: `b27a58b0b954a10967910e27b5b80873d7f2df89` — computed as
+`scripts/spec-anchor.sh specs/orchestration-concurrency`
