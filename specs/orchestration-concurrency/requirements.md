@@ -1,6 +1,6 @@
 # Orchestration Concurrency — Requirements
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-26
 **Format-version:** 1
 
@@ -77,15 +77,24 @@ this contract.
   state SHALL derive from local git and the runtime marker alone when no remote
   or PR exists, and SHALL use `origin`/PR signals when present without ever
   requiring them. Solo and prototyping flows are a supported path, not a
-  degraded one.
-  *(Cites: D-1; D-3; drafting-session decision (2026-06-26).)*
+  degraded one. A remote that is configured but whose `gh` query fails (auth,
+  network, rate-limit, or `gh` absent) SHALL degrade to the same git-only
+  derivation and **surface** the degradation, never wedge a task or silently
+  corrupt state.
+  *(Cites: D-1; D-3; drafting-session decision (2026-06-26); kickoff lens pass (2026-06-26).)*
 
 ## REQ-B — Single idempotent level-triggered projector
 
 - **REQ-B1.1** The reconcile pass (`tasks-pr-sync`) SHALL be the **sole writer**
-  of `tasks.md` section placement; no other skill, hook, or tower SHALL
-  hand-edit section placement.
-  *(Cites: D-1; the lock/writer-duplication observations (Sources).)*
+  of `tasks.md` section *placement* (which section a task block occupies); no
+  other skill, hook, or tower SHALL hand-edit section placement. This is distinct
+  from task-*definition* authoring (creating/editing task blocks and the Forward
+  plan), which remains the authoring skills' role (`/spec-draft`,
+  `/spec-kickoff`); `/orchestrate` and `/execute-task` SHALL write no section
+  placement. The writer SHALL update the snapshot **atomically**
+  (write-temp-then-rename) so a racy stale lock-break cannot tear `tasks.md`
+  under concurrent reconcile.
+  *(Cites: D-1; D-4; the lock/writer-duplication observations (Sources).)*
 - **REQ-B1.2** The projector SHALL be **level-triggered and idempotent**: it
   SHALL recompute the full placement from current observed truth rather than
   applying per-event deltas, and a second run against unchanged truth SHALL be a
@@ -104,14 +113,21 @@ this contract.
   evidence: **Completed** when any strong signal holds (a merged PR via `gh`, OR
   the task branch is merge-reachable into the base, OR a base commit carries the
   task's `Planwright-Task` trailer); **In progress** when an open PR, an
-  unmerged task branch with commits, or the runtime dispatch marker is present;
-  otherwise **Ready** or **Forward** per dependency state.
-  *(Cites: D-1; D-2.)*
+  unmerged task branch with commits, or a **fresh** runtime dispatch marker is
+  present (a timestamped marker older than the configured staleness threshold
+  whose branch carries no commits is **stale**: it does NOT hold the task In
+  progress, and the task reverts to Ready — safe because dispatch writes no
+  authoritative state); otherwise **Ready** or **Forward** per dependency state.
+  *(Cites: D-1; D-2; D-3; D-4.)*
 - **REQ-C1.2** Derivation precedence SHALL favor git ground truth: when the work
   is reachable in the base, the task SHALL read Completed regardless of PR
   metadata; a genuine contradiction between signals SHALL be surfaced to the
-  corruption guard (REQ-E1.x), never silently resolved.
-  *(Cites: D-1.)*
+  corruption guard (REQ-E1.x), never silently resolved. The derivation SHALL
+  surface a contradiction on a defined, machine-readable channel (a tagged
+  record in its output stream) that the corruption guard consumes; this channel
+  SHALL exist independently of whether the guard is wired, so a contradiction is
+  never silently dropped during the guard-first transition.
+  *(Cites: D-1; kickoff lens pass (2026-06-26).)*
 - **REQ-C1.3** On any `tasks.md` merge conflict, placement SHALL be regenerated
   from the authoritative derivation and validated; it SHALL NOT be resolved by
   `ours`, `theirs`, or `union`.
@@ -138,16 +154,35 @@ this contract.
 
 ## REQ-E — Corruption & drift guards
 
-- **REQ-E1.1** A guard SHALL detect drift between the committed `tasks.md`
-  snapshot and the live-derived truth and SHALL fail loudly at commit / CI time
-  rather than letting the snapshot rot silently.
-  *(Cites: D-1.)*
+- **REQ-E1.1** A guard SHALL detect **structural corruption** in the committed
+  `tasks.md` snapshot — placement/state signatures the level-triggered reconcile
+  would never produce from any evidence (a task placed in a section its own
+  evidence contradicts, a mis-sort, a malformed or duplicated block) — and SHALL
+  fail loudly at commit / CI time. The guard SHALL NOT fail on the snapshot's
+  **intentional lag** behind live truth: the snapshot is refreshed only at
+  reconcile (D-1, D-3), so a well-formed snapshot merely trailing a not-yet-
+  reconciled in-flight task is correct, not corrupt. Freshness is the reconcile
+  pass's responsibility (REQ-B1.2), not the guard's.
+  *(Cites: D-1; D-3; drafting-session decision (2026-06-26).)*
 - **REQ-E1.2** A lint SHALL detect the residual corruption signature of more than
   one `Status` line per task block.
   *(Cites: D-1; the duplicate-dispatch-metadata observation (Sources).)*
 - **REQ-E1.3** The guards SHALL be wired into the project's CI / pre-commit
   checks so a corrupt or drifted ledger blocks merge.
   *(Cites: D-1.)*
+
+## REQ-F — Robustness & framework-script safety
+
+- **REQ-F1.1** The derivation, dispatch, and lock scripts SHALL treat all parsed
+  evidence as data, never code. The `<spec>/<id>` parsed from a `Planwright-Task`
+  trailer, and any spec/task identifier used to construct a branch name, ref
+  pattern, marker path, or lock path, SHALL be validated against its declared
+  grammar (the spec-id pattern `^[a-z0-9][a-z0-9-]*$`; the numeric component-wise
+  task-id form) **before use**, and every derived marker/lock path SHALL be
+  containment-checked after canonicalization **before any read or write**.
+  Malformed or hostile input is a clean refusal (the task is skipped and flagged,
+  not dispatched/completed), never an executed command or an out-of-tree path.
+  *(Cites: security-posture; kickoff lens pass (2026-06-26).)*
 
 ## Sources
 

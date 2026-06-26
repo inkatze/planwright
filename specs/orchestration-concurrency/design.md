@@ -1,6 +1,6 @@
 # Orchestration Concurrency — Design
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-26
 **Format-version:** 1
 
@@ -12,7 +12,7 @@ endpoints are recorded so the reasoning survives.
 
 ## Decision log
 
-### D-1: Progress state is a derived projection, never committed at dispatch  (N (extends bootstrap D-38))
+### D-1: Progress state is a derived projection, never committed at dispatch  (N (extends bootstrap D-2 and D-38))
 
 **Decision:** `/orchestrate` never writes dispatch or progress state to
 `tasks.md`. The **task branch** (created as the first durable act of dispatch)
@@ -86,9 +86,20 @@ functional machine signal, not authorship.)*
 **Decision:** Three mechanics fall out of D-1 and are fixed here.
 - **Runtime dispatch marker.** A durable, local marker lives in the advisory-lock
   directory (`${CLAUDE_PLUGIN_DATA}` is the home under plugin delivery, with the
-  writer-mode fallback the resolvers use). It covers only the sub-second window
-  between lock-acquire and branch-create; once the branch exists, branch
-  evidence supersedes it.
+  writer-mode fallback the resolvers use). The branch is created first (the
+  first durable act, REQ-A1.1); the marker then covers the window between
+  branch-create and the branch acquiring its first commit (a zero-commit branch
+  is not yet In-progress evidence, REQ-C1.1 — "branch *with commits*"). Once the
+  branch carries a commit and is reconcile-visible, branch evidence supersedes
+  the marker. Branch-first is also fail-safe: a crash after lock-acquire but
+  before branch-create leaves neither branch nor marker, so the task reads Ready
+  and is cleanly re-dispatched. The marker is **timestamped**; a marker older
+  than the configured staleness threshold whose branch carries no commits is
+  treated as **stale** and no longer holds the task In-progress — derivation
+  reverts the task to Ready, safe to re-dispatch because dispatch writes no
+  authoritative state. This closes the crash-after-marker-before-first-commit
+  wedge and mirrors the lock stale-break (D-4); the marker staleness threshold is
+  a configured option with a documented safe default.
 - **Snapshot refresh.** The committed `tasks.md` snapshot is refreshed only by
   the reconcile / `--bookkeeping` pass, level-triggered from truth, never at
   dispatch.
@@ -131,19 +142,29 @@ corrupt the derived ledger.
 **Chosen because:** one primitive removes the drift risk, and D-1 shrinks the
 lock's correctness burden enough that the simpler design is also the safe one.
 
-### D-5: Reconcile bootstrap's canonical-record contract by amendment  (N (extends bootstrap))
+### D-5: Reconcile bootstrap's canonical-record contract by supersede  (N (supersedes bootstrap D-2))
 
-**Decision:** D-1 softens bootstrap's "`tasks.md` doubles as the canonical
-orchestration state record" into "`tasks.md` sections are a derived snapshot;
-the canonical state is the live derivation." Rather than leave the two specs
-disagreeing, this spec amends bootstrap through a `/spec-kickoff` delta
-(changelog entry + re-anchor), performed as part of Task 8.
+**Decision:** D-1 overturns bootstrap **D-2** ("`tasks.md` doubles as the
+orchestration state record"): under this spec `tasks.md` sections are a derived
+snapshot and the canonical state is the live derivation. Because **bootstrap is
+`Status: Done`**, the sanctioned ritual for a post-merge meaning change is
+**supersede**, not an in-place `/spec-kickoff` amendment (which requires an
+Active bundle). Task 8 annotates bootstrap D-2 with
+`Superseded-by: orchestration-concurrency D-1` — a pointer edit that does not
+change bootstrap's status — landing in the same PR that introduces D-1, so the
+two bundles are never observably contradictory on `main`.
 
 **Alternatives considered:**
+- **In-place `/spec-kickoff` amendment of bootstrap (changelog + re-anchor).**
+  Rejected: bootstrap is Done; `/spec-kickoff` amendment mode requires Active,
+  and the meta-spec routes post-merge meaning changes to supersede. Amending in
+  place would require reopening bootstrap (`/spec-draft --extend`, Done→Draft)
+  and re-activating it — disproportionate for a pointer reconciliation.
 - **A forward-note only**, leaving bootstrap's wording and reconciling later.
-  Rejected by the human: the contract genuinely changes meaning, so it is amended
-  properly rather than left contradictory.
+  Rejected by the human: the contract genuinely changes meaning, so the
+  relationship is recorded with the sanctioned supersede pointer, not left as an
+  informal note.
 
-**Chosen because:** the amendment ritual is the sanctioned path for a contract
-that changes meaning across an Active sibling; doing it in-spec keeps the two
-bundles consistent at merge time instead of accruing a known disagreement.
+**Chosen because:** supersede is the meta-spec's path for a meaning change to an
+already-merged (Done) spec; the `Superseded-by` pointer keeps the two bundles
+consistent at merge time without reopening a finished spec.

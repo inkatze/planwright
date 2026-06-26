@@ -1,6 +1,6 @@
 # Orchestration Concurrency — Tasks
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-26
 **Format-version:** 1
 
@@ -22,6 +22,15 @@ This ordering is a should-precede preference recorded here (the task format has
 no soft-ordering edge); it is not encoded as a dependency, which would invert the
 real data dependency on T1.
 
+**Joint sole-writer property (deliberate non-edge).** REQ-B1.1's "sole writer"
+is a system property established **jointly** by T3 and T4: T3 removes
+dispatch-time `tasks.md` writes, T4 makes the reconcile the writer. Neither is a
+build dependency of the other (both depend only on their listed deps and run in
+parallel), so no T3↔T4 edge is encoded. The B1.1 design-level sole-writer
+trace can only pass once **both** have merged; it is therefore owned by **T8**,
+which already depends on both T3 and T4. Recorded so nobody adds a spurious
+T4→T3 dependency to "fix" the apparent ordering.
+
 ## Forward plan
 
 ### Task 1 — Task-state derivation engine
@@ -29,18 +38,25 @@ real data dependency on T1.
 - **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
   state for a spec from observable evidence — merged PR via `gh`, task-branch
   merge-reachability (`git merge-base --is-ancestor`), a `Planwright-Task`
-  trailer on a base commit, and the runtime dispatch marker — applying the
+  trailer on a base commit, and the runtime dispatch marker (with a staleness
+  check: a timestamped marker past the configured threshold with no branch
+  commits is treated as stale → Ready, not In progress) — applying the
   REQ-C1.2 precedence (git ground truth wins; contradictions flagged). Emits a
   tagged record stream (task id → state + the evidence that decided it). The
   shared backbone consumed by the reconcile (T4), selection (T5), and the guards
   (T7).
 - **Done when:** against a fixture spec with mixed evidence (merged PR, reachable
-  branch, trailer-only base commit, open PR, marker-only, none), it returns the
-  correct state for each task; it is idempotent; it runs with no remote (skips
-  `gh`, derives from git + trailer + marker); a signal contradiction is reported,
-  not silently resolved; tests pass under `mise run check`.
+  branch, trailer-only base commit, open PR, fresh-marker-only, stale-marker-only-
+  no-commits → Ready, none), it returns the correct state for each task; it is
+  idempotent; it runs with no remote (skips
+  `gh`, derives from git + trailer + marker), and a configured-but-failing `gh`
+  degrades to git-only and surfaces the degradation rather than wedging; a signal
+  contradiction is reported on the defined output-stream channel (assertable
+  without the guard wired), not silently resolved; the parsed `Planwright-Task`
+  `<spec>/<id>` is validated against its grammar before use (malformed/hostile
+  input refused, never interpolated); tests pass under `mise run check`.
 - **Dependencies:** none
-- **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3
+- **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
 - **Estimated effort:** 2 days
 
 ### Task 2 — Commit-trailer emission
@@ -60,17 +76,19 @@ real data dependency on T1.
 ### Task 3 — Dispatch rework: branch-as-record, no `tasks.md` writes
 
 - **Deliverables:** `/orchestrate` dispatch rewired to: acquire the per-spec lock
-  → create the task branch as the first durable act → write the runtime dispatch
-  marker → release; with **all** dispatch-time `tasks.md` section moves and
+  → create the task branch as the first durable act → write the **timestamped**
+  runtime dispatch marker → release; with **all** dispatch-time `tasks.md` section moves and
   status annotations removed. Worker worktrees are cut from a base that carries
   no dispatch commits.
 - **Done when:** dispatching a task creates the branch + marker and makes **zero**
   `tasks.md` commits; a worker worktree cut immediately after has no sibling or
   foreign-spec dispatch commit in its diff (the contamination reproduction now
   passes clean); the in-flight task is derivable as In progress from branch +
-  marker; tests pass under `mise run check`.
+  marker; the branch name and marker path are built only from grammar-validated
+  ids and the marker path is containment-checked before write; tests pass under
+  `mise run check`.
 - **Dependencies:** 1, 6
-- **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2
+- **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2, REQ-F1.1
 - **Estimated effort:** 2 days
 
 ### Task 4 — Level-triggered idempotent reconcile (single writer)
@@ -85,7 +103,9 @@ real data dependency on T1.
   the second time; a simulated merge-interleave (the multi-day-drift scenario)
   reconciles to correct placement from truth; no path other than this writes
   section placement; the committed snapshot is refreshed off the dispatch path
-  only; tests pass under `mise run check`.
+  only; the snapshot write is atomic (write-temp-then-rename), so a racy stale
+  lock-break cannot tear `tasks.md` under concurrent reconcile; tests pass under
+  `mise run check`.
 - **Dependencies:** 1
 - **Citations:** D-1 · D-3 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-C1.3
 - **Estimated effort:** 2 days
@@ -112,9 +132,10 @@ real data dependency on T1.
   threshold. No fencing tokens (the branch ref is the natural fence, D-4).
 - **Done when:** both `/orchestrate` and the hook acquire through one primitive;
   concurrent acquirers exclude; a stale lock breaks at the threshold; the
-  duplicated lock logic is gone; tests pass under `mise run check`.
+  duplicated lock logic is gone; the lock path is built from a grammar-validated
+  spec id and containment-checked before use; tests pass under `mise run check`.
 - **Dependencies:** none
-- **Citations:** D-4 · REQ-D1.1, REQ-D1.2
+- **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
 - **Estimated effort:** 1 day
 
 ### Task 7 — Drift / corruption guards + CI
@@ -130,21 +151,30 @@ real data dependency on T1.
 - **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
 - **Estimated effort:** 1 day
 
-### Task 8 — Docs, options & bootstrap canonical-record amendment
+### Task 8 — Docs, options & bootstrap canonical-record supersede
 
-- **Deliverables:** Documentation of the derived-state model (the derivation, the
+- **Deliverables:** Documentation of the derived-state model — landing in the
+  project's `docs/` tree (a new derived-state / orchestration-state doc) with
+  option rows in `docs/options-reference.md` — covering the derivation, the
   trailer convention, the single-writer reconcile, the marker, the no-remote
-  flow); any new option rows in `docs/options-reference.md`; and a `/spec-kickoff`
-  delta **amendment to `bootstrap`** (changelog entry + re-anchor) reconciling its
-  "`tasks.md` is the canonical state record" wording with the derived-snapshot
-  model (D-5).
-- **Done when:** the derived-state model and trailer convention are documented for
-  an adopter; every new option has a row and `check-options-reference.sh` passes;
-  the bootstrap amendment lands via `/spec-kickoff` with a dated changelog entry
-  and a re-anchor (no out-of-flow edit to an Active bundle); `check-doc-links.sh`
-  and the doc linters pass.
+  flow, including the squash/rebase-merge caveat (branch-reachability does not
+  detect squash/rebase merges; solo completion then relies on trailer
+  preservation through the squash — risk R3); any new option rows in
+  `docs/options-reference.md`; and a **supersede annotation on `bootstrap` D-2**
+  (`Superseded-by: orchestration-concurrency D-1`) reconciling its "`tasks.md` is
+  the canonical state record" wording with the derived-snapshot model (D-5).
+- **Done when:** the derived-state model and trailer convention (and the squash
+  caveat) are documented for an adopter; the REQ-B1.1 design-level sole-writer
+  trace is performed here (now that T3 removed dispatch-time writes and T4 is the
+  writer) and confirms no path other than the reconcile writes section placement;
+  every new option has a row and
+  `check-options-reference.sh` passes; bootstrap D-2 carries the
+  `Superseded-by: orchestration-concurrency D-1` annotation, landed in this
+  spec's own PR (no reopen of bootstrap, no change to bootstrap's Done status,
+  no out-of-flow `/spec-kickoff` on a Done bundle); `check-doc-links.sh` and the
+  doc linters pass.
 - **Dependencies:** 1, 3, 4
-- **Citations:** D-5 · REQ-A1.3, REQ-B1.1
+- **Citations:** D-5 · D-2 (bootstrap, superseded) · REQ-A1.3, REQ-B1.1
 - **Estimated effort:** 1 day
 
 ## In progress

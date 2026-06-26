@@ -1,6 +1,6 @@
 # Orchestration Concurrency — Test Spec
 
-**Status:** Draft
+**Status:** Active
 **Last reviewed:** 2026-06-26
 **Format-version:** 1
 
@@ -12,13 +12,27 @@ contamination reproduction at orchestration scale) or a `[design-level]` audit
 (single-writer exclusivity, CI wiring) where a fragment test cannot stand in.
 Every REQ is pinned to at least one path below.
 
+**Verification ownership.** `[test]` arms run in the project's CI via
+`mise run check` and gate every PR (per-PR regression net). `[design-level]`
+arms are audited at PR review. `[manual]` arms are swept by the human as
+acceptance gates, timed per arm rather than per worker PR: **A1.3** (solo
+no-remote) is swept when **Task 3 reaches PR-ready** (the dispatch rework is
+where the solo flow first runs end-to-end); **A1.2**'s two-tower-at-scale arm is
+the **pre-Done capstone**, swept on `main` after Tasks 3 + 4 (and the Task 7
+guards) merge, before the spec is flipped Done. The automated `[test]` arm of
+A1.2 (the scripted contamination reproduction) carries per-PR regression
+coverage in the meantime.
+
 ## REQ-A — Dispatch-commit isolation & derived progress state
 
 ### REQ-A1.1 — Dispatch writes no `tasks.md`; branch + lock are the record [test]
 
 Dispatch a task in a fixture spec and assert: zero new commits touch `tasks.md`;
 the task branch exists; the runtime dispatch marker exists; and the task derives
-as In progress from branch + marker alone.
+as In progress from branch + marker alone. Ordering: the branch is created
+**before** the marker (branch-first); a dispatch interrupted after lock-acquire
+but before branch-create leaves **neither** branch nor marker, so the task
+derives Ready (fail-safe).
 
 ### REQ-A1.2 — Worker inherits no foreign dispatch commits [test + manual]
 
@@ -32,8 +46,10 @@ bookkeeping.
 
 Test: with no remote configured, the derivation and dispatch run end-to-end —
 state derives from git + trailer + marker, `gh` is skipped, nothing errors on the
-missing remote. Manual: a solo prototyping session drives a spec forward with no
-PRs and the ledger stays correct.
+missing remote. A configured remote whose `gh` query fails (stubbed to error)
+degrades to the same git-only derivation and surfaces the degradation rather than
+wedging or corrupting state. Manual: a solo prototyping session drives a spec
+forward with no PRs and the ledger stays correct.
 
 ## REQ-B — Single idempotent level-triggered projector
 
@@ -59,15 +75,20 @@ is rebuilt identically from truth with no data loss.
 ### REQ-C1.1 — Derivation from observable evidence [test]
 
 Against a fixture matrix (merged PR, merge-reachable branch, trailer-only base
-commit, open PR, marker-only, no-evidence-with-deps-met, no-evidence-with-deps-
-unmet), assert each task derives to the correct state.
+commit, open PR, fresh-marker-only ⇒ In progress, stale-marker-only-no-commits ⇒
+Ready, no-evidence-with-deps-met, no-evidence-with-deps-unmet), assert each task
+derives to the correct state. The stale-marker case (a timestamped marker past
+the configured threshold whose branch has no commits) confirms a crashed
+pre-first-commit dispatch does not wedge the task In progress.
 
 ### REQ-C1.2 — Git-truth precedence; contradictions flagged [test]
 
 Test: a closed-unmerged PR whose work is nonetheless reachable in the base derives
 as Completed (reality wins over PR metadata). A genuine contradiction (e.g. a
 trailer claiming completion with no reachable work) is reported to the guard, not
-silently resolved.
+silently resolved. The contradiction appears as a tagged record on the
+derivation's output stream (the defined channel), assertable without the guard
+wired.
 
 ### REQ-C1.3 — Conflict resolution regenerates from truth [test]
 
@@ -98,10 +119,16 @@ authoritative-write path.
 
 ## REQ-E — Corruption & drift guards
 
-### REQ-E1.1 — Snapshot-vs-truth drift guard [test]
+### REQ-E1.1 — Structural-corruption guard [test]
 
-A committed `tasks.md` snapshot deliberately out of sync with the live derivation
-fails the drift guard with a clear message; an in-sync bundle passes.
+A committed `tasks.md` snapshot carrying a **structural corruption** the
+reconcile would never produce (a task in a section its own evidence contradicts,
+a mis-sort, a malformed/duplicated block) fails the guard with a clear message.
+A well-formed snapshot that is merely **lagging** live truth (a not-yet-
+reconciled in-flight task still shown Forward) **passes** — intentional lag is
+not corruption; freshness is the reconcile pass's job, not the guard's. The
+write path is asserted atomic (write-temp-then-rename) so a torn file cannot
+result from concurrent reconcile.
 
 ### REQ-E1.2 — `>1 Status line` lint [test]
 
@@ -113,3 +140,13 @@ signature) fails the lint; a well-formed block passes.
 Design-level: both guards are registered in the project's CI / pre-commit
 configuration. Test: the CI entry point invokes them and fails the run on a
 corrupt or drifted ledger fixture.
+
+## REQ-F — Robustness & framework-script safety
+
+### REQ-F1.1 — Parsed identifiers validated; derived paths contained [test]
+
+A `Planwright-Task` trailer carrying a malformed or hostile `<spec>/<id>` (path
+traversal like `../../x`, shell metacharacters, or an id failing the grammar) is
+refused/flagged and never used to build a branch, ref, marker path, or lock path;
+a derived marker/lock path that would escape its base directory after
+canonicalization is refused. Well-formed identifiers pass through unchanged.
