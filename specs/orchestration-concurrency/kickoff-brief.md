@@ -137,7 +137,7 @@ contradiction), one resolved as a recorded clarification.
 3. **Squash/rebase merge completion (REQ-C1.1/C1.2).** Decision: **risk row +
    rely on `gh`/trailer**, no requirements change. With a remote, merged-PR-via-
    `gh` covers it; for solo, squash needs trailer preservation — documented in
-   Task 8 docs and recorded as risk R3 (§7).
+   Task 8 docs and recorded as risk R2 (§7).
 4. **Sole-writer boundary (REQ-B1.1).** Resolved as a clarification: "sole
    writer" governs section *placement*, distinct from task-*definition*
    authoring (`/spec-draft`, `/spec-kickoff`); `/orchestrate` and `/execute-task`
@@ -170,7 +170,7 @@ resolved by decision before sign-off.
 | D-ID | Status | Note |
 | --- | --- | --- |
 | D-1 Derived projection, never committed at dispatch | Confirmed | Backbone. Citation corrected to extend bootstrap **D-2 and D-38** (finding ⑥). |
-| D-2 Task reference via commit trailer | Confirmed | Squash-survival caveat → risk R3. |
+| D-2 Task reference via commit trailer | Confirmed | Squash-survival caveat → risk R2. |
 | D-3 Reconciliation & selection mechanics | Amended | Marker window reworded to branch-create → first-commit (§3 finding ②). |
 | D-4 One lock primitive; branch-ref is the fence | Confirmed | Atomic-write finding (⑤) reinforces the fence reasoning. |
 | D-5 Reconcile bootstrap's contract | Amended | Retargeted from in-place amendment to **supersede** (finding ⑥). |
@@ -453,4 +453,27 @@ framing). No new findings.
 Class: meaning
 Lens-pass: recorded in this entry (delta-scoped inline), findings dispositioned 2026-06-26.
 Anchor: `b27a58b0b954a10967910e27b5b80873d7f2df89` — computed as
+`scripts/spec-anchor.sh specs/orchestration-concurrency`
+
+### Amendment 2 — squash caveat risk-ID erratum (R3 → R2) (2026-06-26)
+
+Trigger: the `/copilot-pairing` gauntlet pass (PR #76) surfaced that `tasks.md`
+Task 8 cited the squash/rebase caveat as "risk R3"; the §7 register has squash =
+**R2** (R3 is the marker-wedge, finding ⑨). A cross-reference erratum. The same
+wrong pointer appeared twice more in the brief.
+
+Delta (expression-only — a factual cross-reference correction; no decision,
+design, or deliverable meaning changes):
+- `tasks.md` Task 8 deliverable: "risk R3" → "risk R2" (anchored content →
+  re-anchor).
+- `kickoff-brief.md` §3 (finding ③) and §4 (D-2 ledger row): "risk R3" → "risk
+  R2" — errata to as-walked sections (factual typo only, not a content change;
+  anchor-neutral).
+
+(Copilot also flagged design.md:57/65 "discreet"→"discrete"; both dismissed as
+false positives — "discreet"/unobtrusive is the deliberate, in-text-glossed word
+choice, with distinctness separately carried by "unambiguous".)
+
+Class: expression-only
+Anchor: `95e4d45460730f924797a6600da3b329b81e57cd` — computed as
 `scripts/spec-anchor.sh specs/orchestration-concurrency`

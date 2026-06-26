@@ -165,7 +165,7 @@ T4→T3 dependency to "fix" the apparent ordering.
   trailer convention, the single-writer reconcile, the marker, the no-remote
   flow, including the squash/rebase-merge caveat (branch-reachability does not
   detect squash/rebase merges; solo completion then relies on trailer
-  preservation through the squash — risk R3); any new option rows in
+  preservation through the squash — risk R2); any new option rows in
   `docs/options-reference.md`; and a **supersede annotation on `bootstrap` D-2**
   (`Superseded-by: orchestration-concurrency D-1`) reconciling its "`tasks.md` is
   the canonical state record" wording with the derived-snapshot model (D-5).
