@@ -256,7 +256,7 @@ core general and tells the dotfiles overlay exactly which value to render.
   with its in-flight task-PR coordination; a **Done** spec supersedes/reopens. The
   lens pass still fires on a meaning change to a Ready spec — a Ready bundle is
   about to be merged-and-executed, so a wrong spec is exactly what the lens pass
-  guards (D-45); what is dropped at the Ready stage is the *coordination* overhead,
+  guards (bootstrap D-45); what is dropped at the Ready stage is the *coordination* overhead,
   not the *correctness* check.
 - **Enforcement is execution-gated, not CI-gated.** The status-aware validator
   blocks *execution*, not merge (REQ-B1.2): it runs inside `/spec-kickoff`
