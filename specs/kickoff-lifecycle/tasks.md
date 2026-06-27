@@ -123,7 +123,7 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
   language; status enumerations across core name Ready; covered by the relevant
   tests.
 - **Dependencies:** Task 1.
-- **Citations:** D-1 · REQ-E1.1, REQ-E1.2
+- **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
 
 ### Task 8 — Migration sweep + docs + changelog reconcile
