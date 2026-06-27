@@ -23,10 +23,10 @@
 # policy). A review_sequence whose value names an unknown skill, a non-nestable
 # skill, or is an empty list is *malformed*. Handled by the layer that supplied
 # the winning value (config-get --explain names it):
-#   - repo-tracked: hard-fail, exit 4 — a broken shared gauntlet never silently
+#   - repo-tracked: hard-fail, exit 4 — a broken shared review sequence never silently
 #     degrades a whole team (mirrors config-get's repo-tracked hard-fail).
 #   - adopter / machine-local: warn on stderr and degrade to the CORE DEFAULT
-#     (the always-valid base; the historical single-skill gauntlet). The degrade
+#     (the always-valid base; the historical single-skill sequence). The degrade
 #     target is the core default rather than a strict per-layer cascade because
 #     config-get exposes only the merged winning value, not per-layer values; in
 #     the dominant case (only core sets the knob) the core default IS the next
@@ -141,7 +141,7 @@ parse_list() {
 # validate_sequence <raw>: print the validated names (one per line) on success
 # and return 0; return 1 if the raw value is malformed (unknown/non-nestable
 # name, or empty). Accumulates output and only emits it on full success, so a
-# bad trailing name never leaks a partial gauntlet.
+# bad trailing name never leaks a partial sequence.
 validate_sequence() {
   _raw="$1"
   _acc=""
@@ -176,8 +176,8 @@ fi
 if [ "$rc" -eq 3 ]; then
   # review_sequence is absent in every layer. The tracked defaults ship it, so
   # this means a broken/partial install; degrade gracefully to the historical
-  # single-skill gauntlet so convergence still runs (REQ-K1.6), warning loudly.
-  echo "resolve-review-sequence: warning: review_sequence is unset in every layer (broken/partial install?); falling back to the default single 'polish' gauntlet" >&2
+  # single-skill sequence so convergence still runs (REQ-K1.6), warning loudly.
+  echo "resolve-review-sequence: warning: review_sequence is unset in every layer (broken/partial install?); falling back to the default single 'polish' sequence" >&2
   printf 'polish\n'
   exit 0
 fi
@@ -199,11 +199,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-review-sequence: repo-tracked overlay sets review_sequence to a malformed value ('$value' names an unknown or non-nestable review skill, or is empty); refusing to silently degrade a shared team gauntlet" >&2
+    echo "resolve-review-sequence: repo-tracked overlay sets review_sequence to a malformed value ('$value' names an unknown or non-nestable review skill, or is empty); refusing to silently degrade a shared team review sequence" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-review-sequence: warning: the $layer overlay sets review_sequence to a malformed value ('$value' names an unknown or non-nestable review skill, or is empty); degrading to the core default gauntlet" >&2
+    echo "resolve-review-sequence: warning: the $layer overlay sets review_sequence to a malformed value ('$value' names an unknown or non-nestable review skill, or is empty); degrading to the core default sequence" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
     # the three overlay roots. mktemp gives an empty repo root (no

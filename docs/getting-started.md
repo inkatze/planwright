@@ -165,7 +165,7 @@ These are constraints, not future capabilities.
 ## 4. Supplying your own tooling and rigor (without editing core)
 
 planwright core ships **general** doctrine and skills. Your project carries its
-own preferences — a review-gauntlet ordering, a dispatch-isolation default,
+own preferences — a review-sequence ordering, a dispatch-isolation default,
 project-specific decision-domain entries, extra linters or rigor — and you must
 be able to add them **without editing planwright's core rule docs** (REQ-D2.2 /
 REQ-I1.4). Editing core would make it less general for everyone and pollute the

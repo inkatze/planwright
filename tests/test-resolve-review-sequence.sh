@@ -62,7 +62,7 @@ adopter_cfg="$adopter_root/planwright.yml"
 tracked_cfg="$repo/.claude/planwright.yml"
 mlocal_cfg="$repo/.claude/planwright.local.yml"
 
-# The shipped-style core default: today's single-skill gauntlet.
+# The shipped-style core default: today's single-skill sequence.
 printf 'review_sequence: [polish]\n' >"$core_cfg"
 
 # The resolver takes no arguments (the key is fixed), so `run` passes none.
@@ -126,7 +126,7 @@ echo "ok: a bare scalar review_sequence parses as one element"
 
 # 3b. Whitespace inside the flow list and a trailing comment are tolerated.
 reset_layers
-printf 'review_sequence: [ self-review ,  polish ]   # the gauntlet\n' >"$tracked_cfg"
+printf 'review_sequence: [ self-review ,  polish ]   # the review sequence\n' >"$tracked_cfg"
 got=$(run)
 [ "$got" = "$(printf 'self-review\npolish')" ] \
   || fail "whitespace/comment not tolerated (got: '$got')"
@@ -161,7 +161,7 @@ case $err in
 esac
 echo "ok: a non-nestable skill in machine-local degrades to the core default with a warning"
 
-# 4c. An empty list is malformed (a gauntlet needs at least one skill).
+# 4c. An empty list is malformed (a sequence needs at least one skill).
 reset_layers
 printf 'review_sequence: []\n' >"$adopter_cfg"
 rc=0
@@ -172,7 +172,7 @@ out=$(run 2>/dev/null)
 echo "ok: an empty review_sequence list is treated as malformed and degrades"
 
 # 5. Bad name in the repo-tracked (team-shared) overlay hard-fails (exit 4): a
-#    broken shared gauntlet never silently degrades a team.
+#    broken shared sequence never silently degrades a team.
 reset_layers
 printf 'review_sequence: [polish, no-such-skill]\n' >"$tracked_cfg"
 rc=0
@@ -220,7 +220,7 @@ out=$(run 2>/dev/null) || rc=$?
 echo "ok: a malformed winning layer degrades to the core default (documented, not strict next-lower)"
 
 # 7. A malformed adopter FILE (block sequence) degrades to the core default
-#    (config-get degrades adopter; the resolver still yields a usable gauntlet).
+#    (config-get degrades adopter; the resolver still yields a usable sequence).
 reset_layers
 printf 'review_sequence:\n  - polish\n' >"$adopter_cfg"
 rc=0
@@ -241,7 +241,7 @@ echo "ok: resolution is deterministic across repeated runs"
 #    line, final line included), matching the rc=3 fallback and every sibling
 #    emitter (config-get, resolve-overlay-root, resolve-rule-doc). A missing
 #    trailing newline would make a shell `while read` consumer silently drop the
-#    last gauntlet skill. $()-based assertions above cannot catch this (command
+#    last review-sequence skill. $()-based assertions above cannot catch this (command
 #    substitution strips trailing newlines), so check the raw bytes.
 reset_layers
 printf 'review_sequence: [self-review, polish]\n' >"$tracked_cfg"
@@ -264,7 +264,7 @@ PLANWRIGHT_SKILLS_ROOT="$skills" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
 echo "ok: passing any argument is a usage error (exit 2)"
 
 # 11. Broken/partial install: review_sequence absent in every layer (config-get
-#     exits 3). The resolver degrades to the historical single-skill gauntlet
+#     exits 3). The resolver degrades to the historical single-skill sequence
 #     ('polish') with a loud stderr warning, exit 0, so convergence still runs.
 reset_layers
 core_empty="$tmp/core-empty.yml"
@@ -282,6 +282,6 @@ case $err in
   *unset* | *broken* | *partial*) ;;
   *) fail "absent-in-every-layer: warning does not flag a broken/partial install (got: '$err')" ;;
 esac
-echo "ok: review_sequence absent in every layer degrades to the 'polish' gauntlet with a warning (exit 0)"
+echo "ok: review_sequence absent in every layer degrades to the 'polish' sequence with a warning (exit 0)"
 
 echo "PASS: resolve-review-sequence"

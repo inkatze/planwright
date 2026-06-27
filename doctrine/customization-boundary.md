@@ -1,7 +1,7 @@
 # Capability vs Style: the customization boundary
 
 planwright core ships *general* doctrine and skills. The author and adopters
-carry preferences that are not general — a review-gauntlet ordering, a
+carry preferences that are not general — a review-sequence ordering, a
 dispatch-isolation default, project-specific decision-domain entries. The
 overlay mechanism gives those preferences a sanctioned home (`core defaults <
 adopter overlay < repo-tracked overlay < machine-local overlay`). This doc is
@@ -89,7 +89,7 @@ mechanism beneath it.
 
 ## Worked examples
 
-### Review-gauntlet ordering — capability in core, ordering in an overlay
+### Review-sequence ordering — capability in core, ordering in an overlay
 
 An operator runs a specific sequence of *nestable* review skills at convergence
 (the default is today's single `/polish` pass; one operator might run
@@ -107,9 +107,9 @@ feature:
   instance** of this doc's rule.
 - The **style** — the *specific ordering* a given operator or team prefers — is
   not general; it is that operator's taste. It lives in an overlay: an adopter
-  overlay for a personal gauntlet, a repo-tracked overlay for a team-shared one.
+  overlay for a personal review sequence, a repo-tracked overlay for a team-shared one.
 
-Core gains the mechanism; nobody's particular gauntlet is baked into core. This
+Core gains the mechanism; nobody's particular review sequence is baked into core. This
 is the canonical demonstration that capability and style are different layers of
 the *same* feature.
 
@@ -126,5 +126,5 @@ This example is **illustrative, not shipped** by the customization-overlay spec:
 that spec ships the seam (the overlay mechanism and the boundary rule), not this
 particular knob. It is named here to show the other shape — a preference whose
 *mechanism and intended default* are both general, so the whole thing tilts
-toward core-as-knob — in contrast to the review-gauntlet case, where only the
+toward core-as-knob — in contrast to the review-sequence case, where only the
 mechanism is general and the value stays in an overlay.
