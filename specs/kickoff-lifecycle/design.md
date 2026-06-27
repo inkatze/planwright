@@ -172,7 +172,7 @@ remains human.
 **Decision:** The ready-flip (D-6) runs **last**, after any configured verification
 over the bundle / spec PR has converged. The verification itself — the process a
 user may informally call a "gauntlet" — is the configurable review process (the
-`review_sequence`-class mechanism, bootstrap D-6 / REQ-D1.3), not a hardcoded core
+`review_sequence`-class mechanism, customization-overlay D-6 / REQ-D1.3), not a hardcoded core
 step. In bare core, `/spec-kickoff`'s own walkthrough and Discovery-Rigor lens
 pass are that verification, and the flip follows them. When an overlay runs an
 additional review pass over the spec PR, the flip is its terminal step.

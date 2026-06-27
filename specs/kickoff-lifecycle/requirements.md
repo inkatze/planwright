@@ -212,7 +212,7 @@ second writer of derived state to drift.
   step. When an overlay runs such a pass over the spec PR, the ready-flip
   (REQ-D1.2) SHALL be its terminal step; the flip primitive lives in core, whether
   an extra review pass precedes it is configurable.
-  *(Cites: D-7; customization-boundary; bootstrap REQ-D1.3.)*
+  *(Cites: D-7; customization-boundary; customization-overlay D-6, REQ-D1.3.)*
 
 ## REQ-E — Downstream status surfaces & boundary
 
@@ -267,6 +267,10 @@ second writer of derived state to drift.
 - **The `spec-comprehension` spec bundle (`specs/spec-comprehension/`).** Downstream
   consumer: `spec-comprehension REQ-A1.4` (render bundles in any status), the
   stage-aware framing that must learn the Ready stage.
+- **The `customization-overlay` spec bundle (`specs/customization-overlay/`).** Owner
+  of the configurable review mechanism this bundle's ready-flip composes with:
+  `customization-overlay D-6` / `REQ-D1.3` (the `review_sequence` config list-knob),
+  which REQ-D1.5 / D-7 express the pre-flip verification as.
 - **The `customization-boundary` doctrine.** Governs the core-vs-overlay call for
   the heartbeat/dashboard Ready rendering (REQ-E1.2, D-8) and the configurable
   verification (REQ-D1.5, D-7).
