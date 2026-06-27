@@ -96,9 +96,10 @@ the task graph (Task 6 `Dependencies:`) and this design's Cross-cutting concerns
 has no task deriving In-progress or Completed is migrated to `Ready`; specs with
 work in flight or completed stay Active. Because Ready↔Active is derived (D-3), the
 reconcile *is* the migration once it lands — running it over each existing bundle
-computes the correct value. A one-time sweep applies it to bundles authored before
-adoption (for example `orchestration-concurrency` and `orchestration-fleet`, both
-currently `Active` with no task in flight, which become `Ready`).
+computes the correct value. A one-time sweep applies it at adoption to whichever
+bundles are then `Active` with no task in flight (for example
+`orchestration-concurrency`, in-tree today; and `orchestration-fleet` if it has
+merged by then), which become `Ready`.
 
 **Alternatives considered:**
 - Leave existing Active specs labelled Active. Rejected because: they would be

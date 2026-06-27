@@ -129,8 +129,9 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
 ### Task 8 — Migration sweep + docs + changelog reconcile
 
 - **Deliverables:** a one-time migration applying the derived rule to existing
-  bundles (Active-with-no-progress → Ready; for example `orchestration-concurrency`
-  and `orchestration-fleet`); `docs/getting-started.md` and any lifecycle-naming
+  bundles (Active-with-no-progress → Ready; for example `orchestration-concurrency`,
+  and `orchestration-fleet` if merged by adoption); `docs/getting-started.md` and
+  any lifecycle-naming
   docs updated to the six-status model; the glossary/options docs reconciled; dated
   `## Changelog` entries finalized in this bundle.
 - **Done when:** every pre-adoption Active-with-no-progress spec is migrated to
