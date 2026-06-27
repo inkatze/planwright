@@ -60,7 +60,7 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
   amendment mode operates on Ready or Active bundles; the reopen path (Done→Draft)
   is intact; verified by the skill's tests/manual checks.
 - **Dependencies:** Task 1.
-- **Citations:** D-1, D-2 · REQ-D1.1, REQ-D1.4, REQ-A1.6
+- **Citations:** D-1, D-2 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6
 - **Estimated effort:** half day
 
 ### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + D-26 exception
