@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-06-26
+**Status:** Active
+**Last reviewed:** 2026-06-27
 **Format-version:** 1
 
 Dependency view (derived; the `Dependencies:` lines are authoritative). Task 1
@@ -10,10 +10,16 @@ orchestration gate (Task 5), and the downstream renderers (Task 7) all key off t
 six-status lifecycle it defines. Task 4 (spec-PR-ready) extends Task 3. Task 6 (the
 derived reconcile) extends Task 5 and carries a **hard cross-spec dependency** on
 `orchestration-concurrency` Task 1 (derivation engine) and Task 4 (single reconcile
-writer). Task 8 (migration + docs) closes the bundle and depends on the validator
-(Task 2), the kickoff/PR work (Task 4), and the reconcile (Task 6). The
-human-gated and meta-spec/validator/docs path (Tasks 1–5, 7) does not depend on the
-sibling spec and can land first; only Tasks 6 and 8 wait on it.
+writer). **Task 3 (the Draft→Ready producer) is gated behind Task 6** (REQ-A1.8 /
+D-9): the flip that produces a `Ready` bundle SHALL NOT land before the reconcile
+that drains `Ready`→`Active`, so the lifecycle is never half-wired. Task 8
+(migration + docs) closes the bundle and depends on the validator (Task 2), the
+kickoff/PR work (Task 4), and the reconcile (Task 6). Only the **inert
+recognition-only** path — Task 1 (meta-spec doc), Task 2 (validator status enum),
+Task 5 (orchestrate Ready-acceptance), Task 7 (renderers) — lands independently of
+the sibling spec; the **behavioral** path (Tasks 3, 4, 6, 8) all waits on
+`orchestration-concurrency` through the Task 6 gate. This is the deliberate cost of
+D-9: never ship a lifecycle state with no exit.
 
 ## Forward plan
 
@@ -38,7 +44,8 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
 
 - **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
   status (status enum) and `Ready` findings map to errors-block severity alongside
-  Active and Done; Draft→Ready and Ready→Active accepted as valid transitions;
+  Active and Done; Draft→Ready, Ready→Active, Ready→Done (direct completion),
+  Active→Done, and Done→Draft accepted as valid transitions;
   terminal-state discipline unchanged; header documentation updated. Tests in
   `tests/test-spec-validate.sh`: a Ready bundle with a structural error errors out
   (written failing-first); valid Draft→Ready and Ready→Active bundles pass; the
@@ -62,8 +69,10 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
   a Ready bundle's pre-merge change re-signs-off the delta without invoking the
   amendment ritual; amendment mode operates on Active bundles; the reopen path
   (Done→Draft) is intact; verified by the skill's tests/manual checks.
-- **Dependencies:** Task 1.
-- **Citations:** D-1, D-2, D-6, D-7 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6
+- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
+  gated behind the derived Ready↔Active reconcile so the lifecycle is never
+  half-wired; this transitively sequences Task 3 after `orchestration-concurrency`).
+- **Citations:** D-1, D-2, D-6, D-7, D-9 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6, REQ-A1.8
 - **Estimated effort:** half day
 
 ### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
@@ -73,13 +82,18 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
   converged; it does not flip if sign-off parked on a fork or verification did not
   converge, and never auto-merges. A config opt-out `mark_spec_pr_ready_on_kickoff`
   (default true) added to `config/defaults.yml` with a row in
-  `docs/options-reference.md`. The flip restricted to the spec PR, sequenced after
+  `docs/options-reference.md`. `Bash(gh pr ready:*)` moved from `deny` to `allow` in
+  `config/worker-settings.json` — the runtime half of the bootstrap D-26 supersede;
+  without it the denied command blocks the skill-driven flip. The flip restricted to
+  the spec PR, sequenced after
   the configurable `review_sequence` verification (D-7); no new "gauntlet"
   documentation is added — "gauntlet" stays an informal label for `review_sequence`
   (already documented via its options-reference row and `/execute-task`), per D-7.
 - **Done when:** on clean completion the spec PR is ready; a parked/forked
   completion leaves it draft; task PRs are unaffected; the opt-out suppresses the
-  flip; no auto-merge path exists; the option is documented and
+  flip; a ready-flip failure degrades to Awaiting input (bootstrap REQ-K1.6/K1.7);
+  no auto-merge path exists; `gh pr ready` is permitted by
+  `config/worker-settings.json` (no longer denied); the option is documented and
   `scripts/check-options-reference.sh` passes.
 - **Dependencies:** Task 3.
 - **Citations:** D-6, D-7 · REQ-D1.2, REQ-D1.3, REQ-D1.5
@@ -109,9 +123,11 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
   realizes the Ready→Active transition on first dispatch (REQ-C1.2) and the derived
   rule (REQ-A1.5).
 - **Done when:** the reconcile renders `Status: Ready` for a signed-off bundle with
-  no task in flight and `Status: Active` once any task derives In-progress/Completed;
-  the header is written only by the single reconcile writer; the reconcile is
-  idempotent and covered by tests.
+  no task in flight, `Status: Active` once any task derives In-progress/Completed, and
+  `Status: Done` once no Forward-plan/In-progress/Awaiting-input task remains (Done
+  precedence over Ready↔Active, REQ-A1.5; including a signed-off bundle with no
+  startable tasks); the header is written only by the single reconcile writer; the
+  reconcile is idempotent and covered by tests.
 - **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
   Task 1 (derivation engine) and Task 4 (single reconcile writer) — see design
   Cross-cutting concerns.
@@ -135,13 +151,20 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
 
 - **Deliverables:** a one-time migration applying the derived rule to existing
   bundles (Active-with-no-progress → Ready; for example `orchestration-concurrency`,
-  and `orchestration-fleet` if merged by adoption); `docs/getting-started.md` and
-  any lifecycle-naming
-  docs updated to the six-status model; the glossary/options docs reconciled; dated
-  `## Changelog` entries finalized in this bundle.
+  and `orchestration-fleet` if merged by adoption); the sweep iterates `specs/*/`
+  excluding underscore accumulators (`specs/_*`), is idempotent (re-running over a
+  migrated corpus is a no-op), and halts-and-reports per-bundle (a malformed bundle
+  is surfaced by path and skipped, never silently flipped; an interrupted sweep is
+  recovered by re-running the reconcile). `docs/getting-started.md`, `README.md`,
+  `docs/CONTRIBUTING.md`, the `spec-draft` skill description, and any other
+  lifecycle-naming docs updated to the six-status model (the `spec-kickoff` and
+  `orchestrate` skill descriptions are updated by Tasks 3 and 5); the
+  glossary/options docs reconciled; dated `## Changelog` entries finalized in this
+  bundle.
 - **Done when:** every pre-adoption Active-with-no-progress spec is migrated to
-  Ready and in-flight specs stay Active; the docs describe Draft→Ready→Active→Done;
-  CI doc/link/options checks pass.
+  Ready and in-flight specs stay Active; the sweep is idempotent and skips-with-report
+  on malformed bundles; the docs (incl. README, CONTRIBUTING, spec-draft description)
+  describe Draft→Ready→Active→Done; CI doc/link/options checks pass.
 - **Dependencies:** Task 2, Task 4, Task 6.
 - **Citations:** D-4 · REQ-A1.7
 - **Estimated effort:** half day

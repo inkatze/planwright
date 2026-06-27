@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-06-26
+**Status:** Active
+**Last reviewed:** 2026-06-27
 **Format-version:** 1
 
 Coverage mix: the validator and reconcile behaviors are automated `[test]`
@@ -29,7 +29,10 @@ Given a Draft bundle, when `/spec-kickoff` signs it off, then its Status is
 `Ready`. Given a Ready bundle, when `/orchestrate` dispatches its first task and
 the reconcile runs, then its Status derives to `Active`. Given an Active bundle,
 when its last Forward/In-progress/Awaiting-input task moves to Completed, then its
-Status is `Done`. Retired and Superseded remain reachable only by human action.
+Status is `Done`. Given a Ready bundle whose tasks all complete in one reconcile
+pass (none ever observed In-progress), then its Status derives directly to `Done`
+(no Active intermediate), Done determination taking precedence (REQ-A1.5). Retired
+and Superseded remain reachable only by human action.
 
 ### REQ-A1.3 — Ready carries the old sign-off meaning; Active narrowed [design-level]
 
@@ -51,9 +54,10 @@ write.
 Against fixture bundles, the extended reconcile (Task 6) computes `Active` iff at
 least one task derives In-progress or Completed, else `Ready` when signed off, and
 writes the bundle `Status:` header; a second, independent writer of the header is
-absent. Test: feed task-state fixtures (no progress; one In-progress; one
-Completed) and assert the derived Status; assert (by code audit / grep test) that
-only the reconcile writer mutates the header.
+absent. Test: feed task-state fixtures (no progress → Ready; one In-progress →
+Active; one Completed → Active; all Completed → Done; a signed-off bundle with no
+startable tasks → Done) and assert the derived Status; assert (by code audit / grep
+test) that only the reconcile writer mutates the header.
 
 ### REQ-A1.6 — Reopen cycle flips to Ready, not Active [test + manual]
 
@@ -70,6 +74,15 @@ with zero tasks in flight (the `orchestration-concurrency` shape) sets it to
 Test: run the sweep over fixtures and assert per-bundle Status. Manual: confirm the
 real in-repo bundles (`orchestration-concurrency`, `orchestration-fleet`) land on
 the expected Status.
+
+### REQ-A1.8 — Ready lifecycle ships atomically; producer gated behind drainer [design-level]
+
+The task graph sequences the Draft→Ready producer (Task 3) behind the derived
+reconcile (Task 6), so no release can ship a `Ready`-producing flip without the
+`Ready`→`Active` drainer. Verification: Task 3's `Dependencies:` line names Task 6
+with the D-9 rationale, and D-9 records the atomic-delivery decision; a reader (or a
+grep of `tasks.md`) confirms the producer cannot land before the reconcile. The
+inert recognition-only tasks (2, 5, 7) carry no such dependency.
 
 ## REQ-B — Validator & meta-spec format
 
@@ -92,9 +105,9 @@ warns (exit 0).
 
 ### REQ-B1.3 — Valid transitions accepted; terminal discipline preserved [test]
 
-`tests/test-spec-validate.sh`: Draft→Ready, Ready→Active, Active→Done, and
-Done→Draft baseline-diff cases pass; a transition out of Retired or Superseded is
-still rejected as a hard finding.
+`tests/test-spec-validate.sh`: Draft→Ready, Ready→Active, Ready→Done (direct
+completion), Active→Done, and Done→Draft baseline-diff cases pass; a transition out
+of Retired or Superseded is still rejected as a hard finding.
 
 ## REQ-C — Orchestration gates
 
@@ -134,7 +147,9 @@ Active.
 On clean completion `/spec-kickoff` marks the spec PR ready as its last action;
 a parked-on-fork or non-converged completion leaves it draft; the skill never
 merges. Test (mockable git/gh surface): the ready-flip is invoked only on the
-clean path and a merge call is never issued. Manual: exercise a clean kickoff and a
+clean path and a merge call is never issued; a ready-flip failure (no remote / gh
+auth / PR not found) degrades to Awaiting input, not a crash; `config/worker-settings.json`
+permits `gh pr ready` (no longer in `deny`). Manual: exercise a clean kickoff and a
 parked kickoff and confirm the PR draft/ready state.
 
 ### REQ-D1.3 — Only the spec PR is auto-readied; opt-out gates it [test + manual]

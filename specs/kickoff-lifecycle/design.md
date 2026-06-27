@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-06-26
+**Status:** Active
+**Last reviewed:** 2026-06-27
 **Format-version:** 1
 
 Origin-tag legend: `N` new decision; `C, <foreign D>` carried from another
@@ -231,6 +231,36 @@ dashboard rendering is overlay.
 lands in core and a specific style stays in an overlay; naming the boundary keeps
 core general and tells the dotfiles overlay exactly which value to render.
 
+### D-9: Ship the Ready lifecycle atomically — gate the producer behind the drainer  (N)
+
+**Decision:** The Draft→Ready flip (the only thing that *produces* a `Ready`
+bundle, Task 3) is sequenced behind the derived Ready↔Active reconcile (the only
+thing that *drains* `Ready`→`Active`, Task 6): Task 3 carries a `Dependencies:` on
+Task 6. The recognition-only changes — the validator's Ready status enum (Task 2),
+`/orchestrate`'s Ready-acceptance (Task 5), the status renderers (Task 7) — are
+inert with no producer (no bundle is ever `Ready`), so they MAY land earlier.
+This is REQ-A1.8's enforcement.
+
+**Alternatives considered:**
+- Land the producer (Task 3) first, accept that signed-off bundles sit at `Ready`
+  forever until the reconcile lands. Rejected because: a half-wired lifecycle is a
+  trap — a human sees `Ready`, dispatches, and nothing ever derives the bundle to
+  `Active`; the gate that should flip it does not exist. A state with no exit is
+  worse than the current single overloaded `Active`.
+- Introduce a config feature-flag (default off) gating the flip, flipped on by
+  Task 6. Rejected because: it adds a throwaway flag and a second code path for a
+  purely sequencing concern the task graph already expresses natively via a
+  `Dependencies:` edge; once Task 6 lands the flag would be dead config.
+
+**Chosen because:** the dependency edge is the native, throwaway-free way to express
+"do not ship the producer without its drainer". The honest cost — recorded in the
+task graph — is that the whole *behavioral* feature now runs through the
+`orchestration-concurrency` cross-spec dependency (only the inert doc/validator/
+renderer tasks land independently); that cost is the correct price of never shipping
+a lifecycle state with no exit. Task 4 (the spec-PR ready-flip) extends Task 3 and
+so inherits the gate; it is left coupled (same skill, same sign-off flow) rather
+than split, a deliberate non-edge recorded in the task graph.
+
 ## Cross-cutting concerns
 
 - **Two `Ready`s at two granularities.** `orchestration-concurrency` REQ-C1.1
@@ -244,8 +274,16 @@ core general and tells the dotfiles overlay exactly which value to render.
   (the derived reconcile) consume that spec's derivation engine (its Task 1) and
   single reconcile writer (its Task 4), which are specified but not yet built (all
   eight of its tasks are in Forward plan). The task graph encodes this as a hard
-  cross-spec dependency; the human-gated and validator/meta-spec/docs work
-  (REQ-A1.1–A1.4, REQ-B, REQ-D, REQ-E) does not depend on it and can land first.
+  cross-spec dependency. Per **D-9**, the gate extends one step further than the
+  reconcile itself: only the **inert recognition-only** work — REQ-A1.1 (status
+  recognized), REQ-B (validator + meta-spec), REQ-C1.1 (orchestrate
+  Ready-acceptance), REQ-E (renderers); Tasks 1, 2, 5, 7 — lands independently of
+  the sibling, because with no producer no bundle is ever `Ready`. The
+  **behavioral** work that produces or drains a `Ready` bundle — REQ-A1.4
+  (the stored Draft→Ready flip), REQ-A1.5 / REQ-C1.2 (the reconcile), REQ-A1.7
+  (migration), REQ-D1.1–D1.4 (kickoff flip + PR-ready); Tasks 3, 4, 6, 8 — is gated
+  behind the reconcile and waits on the sibling, so the lifecycle is never
+  half-wired (REQ-A1.8).
 - **Single-writer invariant.** Per D-3, no skill other than the extended reconcile
   writer mutates the bundle `Status:` Ready/Active value. `/spec-kickoff` writes
   the one human-gated transition (Draft→Ready, and the reopen Done→Draft); the

@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-06-26
+**Status:** Active
+**Last reviewed:** 2026-06-27
 **Format-version:** 1
 
 ## Goal
@@ -101,11 +101,13 @@ second writer of derived state to drift.
   *(Cites: D-1; bootstrap D-40, REQ-A1.6.)*
 - **REQ-A1.2** The bundle lifecycle SHALL be Draft → Ready → Active → Done, with
   Retired and Superseded remaining human-set terminal states. `/spec-kickoff`
-  sign-off SHALL flip Draft→Ready; the first `/orchestrate` dispatch (the first
-  task to derive In-progress) SHALL result in Ready→Active; a spec SHALL transition
-  to `Done` (from `Active`, or directly from `Ready` if all tasks complete at once)
-  when its last Forward-plan / In-progress / Awaiting-input task moves to Completed
-  (Done determination takes precedence over the Ready↔Active derivation, REQ-A1.5).
+  sign-off SHALL flip Draft→Ready; the first `/orchestrate` dispatch — specifically,
+  the first task to derive In-progress per `orchestration-concurrency` REQ-C1.1, not
+  the dispatch act itself — SHALL result in Ready→Active; a spec SHALL transition
+  to `Done` (from `Active`, or directly from `Ready` if all tasks complete at once,
+  or at sign-off if it has no startable tasks) when its last Forward-plan /
+  In-progress / Awaiting-input task moves to Completed (Done determination takes
+  precedence over the Ready↔Active derivation, REQ-A1.5).
   *(Cites: D-1, D-2; bootstrap D-40, REQ-A3.1.)*
 - **REQ-A1.3** `Ready` SHALL carry exactly the meaning bootstrap's `Active` carried
   at sign-off ("signed off and executable"), and `Active` SHALL be narrowed to mean
@@ -122,7 +124,10 @@ second writer of derived state to drift.
   when signed off. This derivation applies only to bundles not already `Done`:
   Done determination (REQ-A1.2 — the last Forward-plan / In-progress /
   Awaiting-input task moving to Completed) takes precedence, so a fully-completed
-  bundle derives `Done`, not `Active`. The bundle `Status:` header SHALL be
+  bundle derives `Done`, not `Active`. A signed-off bundle with no Forward-plan /
+  In-progress / Awaiting-input tasks (only Deferred and/or Out-of-scope entries, or
+  none) likewise derives `Done`, since there is no startable work to enter — it
+  never rests at `Ready`. The bundle `Status:` header SHALL be
   reconciled to the derived value by the single level-triggered snapshot writer,
   never by an independent writer.
   *(Cites: D-2, D-3; orchestration-concurrency REQ-C1.1, D-1.)*
@@ -136,6 +141,15 @@ second writer of derived state to drift.
   Completed to `Ready`; specs with any task in flight or completed SHALL remain
   Active. Thereafter the derived reconcile (REQ-A1.5) maintains the distinction.
   *(Cites: D-4; orchestration-concurrency REQ-C1.1.)*
+- **REQ-A1.8** The Draft→Ready transition — the only producer of a `Ready` bundle —
+  SHALL NOT be enabled before the derived Ready↔Active reconcile (REQ-A1.5) is
+  available, so the lifecycle is never half-wired: no bundle SHALL be able to enter
+  `Ready` while no mechanism exists to derive it onward to `Active`. The task graph
+  SHALL sequence the kickoff Draft→Ready flip behind the reconcile to enforce this;
+  the inert recognition-only changes (validator status enum, orchestrate
+  Ready-acceptance, status renderers) MAY land earlier, since with no producer no
+  bundle is `Ready`.
+  *(Cites: D-9; orchestration-concurrency REQ-C1.1.)*
 
 ## REQ-B — Validator & meta-spec format
 
@@ -151,9 +165,10 @@ second writer of derived state to drift.
   alongside Active and Done (Ready is signed-off live content). Draft findings stay
   warnings; Retired and Superseded stay frozen-record warnings.
   *(Cites: D-1; bootstrap D-25, REQ-A2.1.)*
-- **REQ-B1.3** The validator SHALL accept Draft→Ready, Ready→Active, Active→Done,
-  and Done→Draft (reopen) as valid status transitions and SHALL preserve
-  terminal-state discipline (no transition out of Retired or Superseded).
+- **REQ-B1.3** The validator SHALL accept Draft→Ready, Ready→Active, Ready→Done
+  (direct completion when all tasks complete at once, REQ-A1.2), Active→Done, and
+  Done→Draft (reopen) as valid status transitions and SHALL preserve terminal-state
+  discipline (no transition out of Retired or Superseded).
   *(Cites: D-1; bootstrap REQ-A3.1.)*
 
 ## REQ-C — Orchestration gates
@@ -163,9 +178,11 @@ second writer of derived state to drift.
   Draft, Done, Retired, and Superseded specs, SHALL NOT auto-chain into
   `/spec-kickoff`, and SHALL provide no bypass flag. A `Ready` spec is acted on
   once merged to main — the same on-main ground truth `/orchestrate` has always
-  read; the "nothing executes against the spec until merge" rule (D-6, D-7) scopes
-  the pre-merge spec-PR window, not the on-main `Ready` state.
-  *(Cites: D-1; bootstrap REQ-F1.4, REQ-J1.2, D-26.)*
+  read; the "nothing executes against the spec until merge" rule (bootstrap D-44 —
+  the human's merge of the spec PR is what makes the spec operational; this bundle's
+  D-6 / D-7 consume that rule, they do not establish it) scopes the pre-merge
+  spec-PR window, not the on-main `Ready` state.
+  *(Cites: D-1; bootstrap D-44, REQ-F1.4, REQ-J1.2, D-26.)*
 - **REQ-C1.2** On the first dispatch that creates In-progress evidence for a Ready
   spec, the bundle SHALL transition Ready→Active via the derived reconcile
   (REQ-A1.5), implemented by extending `orchestration-concurrency`'s single
@@ -187,8 +204,12 @@ second writer of derived state to drift.
   ready (un-draft) as the terminal step, after any configured verification over the
   bundle has converged. It SHALL NOT mark the PR ready if sign-off parked on a fork
   or the configured verification did not converge. Merge remains the human's
-  reserved control; the skill SHALL never auto-merge.
-  *(Cites: D-6, D-7; bootstrap D-26, D-44, REQ-J1.1.)*
+  reserved control; the skill SHALL never auto-merge. If the ready-flip itself fails
+  (no remote, `gh` absent or auth failure, PR not found), the skill SHALL degrade per
+  bootstrap REQ-K1.6/K1.7 — record the pending flip in `tasks.md` `## Awaiting input`,
+  surface it in the handoff, and stop — rather than retry into an opaque failure or
+  roll back the recorded sign-off.
+  *(Cites: D-6, D-7; bootstrap D-26, D-44, REQ-J1.1, REQ-K1.6, REQ-K1.7.)*
 - **REQ-D1.3** The spec PR SHALL be the only framework-created PR a skill marks
   ready; all task PRs SHALL remain drafts. bootstrap D-26's "all framework-created
   PRs are drafts" SHALL be narrowly superseded to this effect via the
@@ -228,6 +249,23 @@ second writer of derived state to drift.
 
 ## Changelog
 
+- 2026-06-27: Kickoff sign-off walkthrough (`/spec-kickoff`, first activation).
+  Added REQ-A1.8 + D-9 gating the Draft→Ready producer behind the derived reconcile
+  so the lifecycle is never half-wired (Task 3 now depends on Task 6). Added
+  `Ready→Done` to REQ-B1.3's accepted-transition set (REQ-A1.2 already permits direct
+  completion). Re-pointed REQ-C1.1's "nothing executes until merge" citation to
+  bootstrap D-44 (it consumes, not establishes, that rule). Clarified REQ-A1.2's
+  Ready→Active trigger as In-progress derivation, not the dispatch act.
+- 2026-06-27: Kickoff sign-off lens-pass dispositions. Propagated Ready→Done to
+  Task 2, test-spec REQ-B1.3, and the REQ-A1.2 Gherkin. REQ-A1.5/A1.2 + Task 6 now
+  derive `Done` for a signed-off bundle with no startable tasks (closing the
+  stuck-at-Ready edge). Task 4 also moves `gh pr ready` from `deny` to `allow` in
+  `config/worker-settings.json` (runtime half of the bootstrap D-26 supersede).
+  REQ-D1.2 names the ready-flip-failure degradation (bootstrap REQ-K1.6/K1.7).
+  Task 6 Done-when gains the Done rendering; Task 8 gains migration idempotency/scope/
+  per-bundle-error handling and names README, CONTRIBUTING, and the spec-draft
+  description as doc surfaces. Deferred to backlog: four-file write atomicity note,
+  task/bundle-Ready naming consistency, single-writer/never-auto-merge test code-audits.
 - 2026-06-27: Kickoff walkthrough edits. Reworked REQ-D1.4 to a weight-scaled
   change-handling model (a Ready bundle's pre-merge changes re-sign-off via delta
   re-walkthrough; the amendment ritual keys off Active; Done reopens) and recorded
