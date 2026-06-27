@@ -1,7 +1,7 @@
 # Customizing planwright with overlays
 
 planwright core ships **general** doctrine and skills. Your project carries
-preferences that are not general — a review-gauntlet ordering, a custom
+preferences that are not general — a review-sequence ordering, a custom
 threshold, project-specific decision-domain entries, a tweaked rule doc. You
 must be able to add these **without editing planwright's core**.
 Editing core would make it less general for everyone and pollute the
@@ -264,9 +264,9 @@ is general enough for core while the *value* (the specific ordering) is personal
 style that stays in an overlay. Dispatch isolation tilts further toward core
 because both its mechanism and its intended default generalize.
 
-## 8. Worked example B — the `review_sequence` gauntlet (a runnable style overlay)
+## 8. Worked example B — the `review_sequence` knob (a runnable style overlay)
 
-A review-gauntlet **ordering** is **personal/team style**: which review skills
+A review-sequence **ordering** is **personal/team style**: which review skills
 run, and in what order, during `/execute-task`'s convergence phase is a
 preference, not a general capability. The *capability* (an ordered, overlayable
 review sequence) ships in core as the `review_sequence` config knob; the
@@ -302,7 +302,7 @@ then `self-review`. Either way the order is preserved verbatim, not sorted.
 An entry naming an **unknown or non-nestable** skill is a malformed value under
 the same by-layer policy as §4: in an adopter or machine-local layer it warns
 on stderr and degrades to the core default; in the repo-tracked layer it
-hard-fails (a broken shared gauntlet never silently degrades a team).
+hard-fails (a broken shared review sequence never silently degrades a team).
 
 ```bash
 # machine-local review_sequence: [polish, bogus-skill]
