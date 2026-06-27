@@ -112,9 +112,12 @@ second writer of derived state to drift.
 - **REQ-A1.5** The Ready↔Active distinction SHALL be derived from task-state
   evidence per `orchestration-concurrency` REQ-C1.1: a bundle is `Active` iff at
   least one of its tasks derives to In-progress or Completed, otherwise `Ready`
-  when signed off. The bundle `Status:` header SHALL be reconciled to the derived
-  value by the single level-triggered snapshot writer, never by an independent
-  writer.
+  when signed off. This derivation applies only to bundles not already `Done`:
+  Done determination (REQ-A1.2 — the last Forward-plan / In-progress /
+  Awaiting-input task moving to Completed) takes precedence, so a fully-completed
+  bundle derives `Done`, not `Active`. The bundle `Status:` header SHALL be
+  reconciled to the derived value by the single level-triggered snapshot writer,
+  never by an independent writer.
   *(Cites: D-2, D-3; orchestration-concurrency REQ-C1.1, D-1.)*
 - **REQ-A1.6** The reopen cycle SHALL be updated: extending a Done bundle flips
   Done→Draft; scoped kickoff of the delta flips Draft→Ready (not directly to
