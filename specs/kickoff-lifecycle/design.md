@@ -88,7 +88,7 @@ single-writer invariant is preserved. This makes the dependency on
 **Chosen because:** one writer of derived state is the invariant the concurrency
 work establishes; extending it (rather than racing it) keeps that invariant whole
 and avoids throwaway. The cost is an explicit sequencing dependency, recorded in
-the task graph and the risk register.
+the task graph (Task 6 `Dependencies:`) and this design's Cross-cutting concerns.
 
 ### D-4: Migration is the derived reconcile, plus a one-time sweep  (N)
 
