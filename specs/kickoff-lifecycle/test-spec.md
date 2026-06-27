@@ -13,6 +13,8 @@ confirms the operator-facing behavior; the meta-spec and boundary decisions are
 The migration is `[test + manual]`. End-to-end lifecycle behavior is given as
 `[Gherkin]` scenarios.
 
+## REQ-A — The Ready status & lifecycle
+
 ### REQ-A1.1 — Ready recognized as a sixth status [design-level + test]
 
 `doctrine/spec-format.md` lists `Ready` in the status table with the meaning
@@ -69,14 +71,16 @@ Test: run the sweep over fixtures and assert per-bundle Status. Manual: confirm 
 real in-repo bundles (`orchestration-concurrency`, `orchestration-fleet`) land on
 the expected Status.
 
+## REQ-B — Validator & meta-spec format
+
 ### REQ-B1.1 — Meta-spec six-status update + bootstrap supersede pointers [design-level]
 
 `doctrine/spec-format.md` carries the six-status table and transitions; `bootstrap`
 `design.md` D-40/D-44/D-26 carry `Superseded-by: kickoff-lifecycle …` pointers with
 dated changelog entries in both bundles; bootstrap's Status stays Done.
 Verification: the pointers and changelog entries exist and the validator passes
-both bundles (a supersede with a changelog entry is accepted, REQ-B1.3 /
-spec-format invariant 8).
+both bundles (a supersede with a changelog entry is accepted, spec-format
+invariant 8).
 
 ### REQ-B1.2 — Validator treats Ready as errors-block [test]
 
@@ -91,6 +95,8 @@ warns (exit 0).
 `tests/test-spec-validate.sh`: Draft→Ready, Ready→Active, Active→Done, and
 Done→Draft baseline-diff cases pass; a transition out of Retired or Superseded is
 still rejected as a hard finding.
+
+## REQ-C — Orchestration gates
 
 ### REQ-C1.1 — `/orchestrate` acts on Ready or Active [test + manual]
 
@@ -113,6 +119,8 @@ A `Ready` spec with a stale content anchor is refused by the freshness gate exac
 as an Active spec would be, halting to Awaiting input with the documented remedy.
 Test: a stale-anchor Ready fixture halts. Manual: confirm the halt message is the
 freshness-gate remedy, not a status refusal.
+
+## REQ-D — Kickoff sign-off & spec-PR ready-flip
 
 ### REQ-D1.1 — Kickoff sign-off writes Ready across four files [test + manual]
 
@@ -151,6 +159,8 @@ mechanism, not a hardcoded gauntlet; the ready-flip is documented as the termina
 step after it. Verification: the kickoff skill prose and `docs/options-reference.md`
 describe the configurable verification and the flip ordering; manual confirmation
 that an overlay review pass, when configured, precedes the flip.
+
+## REQ-E — Downstream status surfaces & boundary
 
 ### REQ-E1.1 — Core renderers recognize Ready [test + manual]
 
