@@ -24,9 +24,9 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
   defined ("signed off, validated, executable, no work started") and `Active`
   narrowed to "work in flight"; the validator-invariants section noting Ready
   errors-block; glossary updated. `bootstrap` `design.md` decisions D-40, D-44, and
-  D-26 annotated `Superseded-by: kickoff-lifecycle D-1 / D-6 / (D-5 ritual)` per the
-  supersede-pointer ritual, landed in this PR, with matching dated `## Changelog`
-  entries in both bundles.
+  D-26 each annotated with a `Superseded-by: kickoff-lifecycle D-<n>` pointer per the
+  supersede-pointer ritual (D-40→D-1, D-44→D-6, D-26→D-6), landed in this PR, with
+  matching dated `## Changelog` entries in both bundles.
 - **Done when:** `spec-format.md` lists six statuses with the Draft→Ready→Active→Done
   transitions and the Ready meaning; bootstrap D-40/D-44/D-26 carry the supersede
   pointers and changelog entries; nothing reopens bootstrap (its Status stays Done).
@@ -66,15 +66,17 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
 - **Citations:** D-1, D-2, D-6, D-7 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6
 - **Estimated effort:** half day
 
-### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + D-26 exception
+### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
 
 - **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
   the terminal step of clean completion, after the configured verification has
   converged; it does not flip if sign-off parked on a fork or verification did not
   converge, and never auto-merges. A config opt-out `mark_spec_pr_ready_on_kickoff`
   (default true) added to `config/defaults.yml` with a row in
-  `docs/options-reference.md`. The flip restricted to the spec PR; the "gauntlet"
-  documented as the configurable `review_sequence`-class verification.
+  `docs/options-reference.md`. The flip restricted to the spec PR, sequenced after
+  the configurable `review_sequence` verification (D-7); no new "gauntlet"
+  documentation is added — "gauntlet" stays an informal label for `review_sequence`
+  (already documented via its options-reference row and `/execute-task`), per D-7.
 - **Done when:** on clean completion the spec PR is ready; a parked/forked
   completion leaves it draft; task PRs are unaffected; the opt-out suppresses the
   flip; no auto-merge path exists; the option is documented and

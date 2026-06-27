@@ -135,7 +135,7 @@ already-merged (Done) bundle; the pointers keep bootstrap and this spec consiste
 on `main` without reopening a finished spec. This reuse is itself why the spec was
 spun new rather than folded into bootstrap.
 
-### D-6: Kickoff marks the spec PR ready; a narrow exception to D-26's all-drafts rule  (N)
+### D-6: Kickoff marks the spec PR ready; a narrow exception to bootstrap D-26's all-drafts rule  (N)
 
 **Decision:** `/spec-kickoff` marks the **spec PR** ready (un-draft) on clean
 completion. The kickoff walkthrough is the review of the spec bundle, so once the
@@ -157,7 +157,10 @@ true) gates the flip.
 
 Because nothing executes against the spec until merge, marking its PR ready does
 not lock the bundle: pre-merge feedback re-sign-offs in place (D-7's weight-scaled
-change-handling) while the PR stays ready.
+change-handling) while the PR stays ready. Once the human merges, that on-main
+`Ready` bundle is what `/orchestrate` dispatches against (REQ-C1.1), flipping it to
+`Active` on the first task; the "nothing executes until merge" rule scopes the
+pre-merge window, not the merged `Ready` state.
 
 **Chosen because:** the spec PR's ready state should track the completion of the
 spec bundle's review (kickoff), exactly as a task PR's ready state should track

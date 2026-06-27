@@ -60,7 +60,7 @@ second writer of derived state to drift.
 - The Ready↔Active derivation rule, implemented by extending
   `orchestration-concurrency`'s single level-triggered reconcile writer to
   reconcile the bundle `Status:` header.
-- The D-44 two-key model wording, updated: sign-off flips Draft→Ready and marks
+- The bootstrap D-44 two-key model wording, updated: sign-off flips Draft→Ready and marks
   the spec PR ready; first dispatch flips Ready→Active; the human's merge
   activates the spec operationally.
 - A narrow supersede of bootstrap D-26's "all framework-created PRs are drafts":
@@ -102,9 +102,10 @@ second writer of derived state to drift.
 - **REQ-A1.2** The bundle lifecycle SHALL be Draft → Ready → Active → Done, with
   Retired and Superseded remaining human-set terminal states. `/spec-kickoff`
   sign-off SHALL flip Draft→Ready; the first `/orchestrate` dispatch (the first
-  task to derive In-progress) SHALL result in Ready→Active; a spec SHALL flip
-  Active→Done when its last Forward-plan / In-progress / Awaiting-input task moves
-  to Completed.
+  task to derive In-progress) SHALL result in Ready→Active; a spec SHALL transition
+  to `Done` (from `Active`, or directly from `Ready` if all tasks complete at once)
+  when its last Forward-plan / In-progress / Awaiting-input task moves to Completed
+  (Done determination takes precedence over the Ready↔Active derivation, REQ-A1.5).
   *(Cites: D-1, D-2; bootstrap D-40, REQ-A3.1.)*
 - **REQ-A1.3** `Ready` SHALL carry exactly the meaning bootstrap's `Active` carried
   at sign-off ("signed off and executable"), and `Active` SHALL be narrowed to mean
@@ -160,7 +161,10 @@ second writer of derived state to drift.
 - **REQ-C1.1** `/orchestrate` SHALL act on a spec whose status is `Ready` or
   `Active`, superseding the "non-Active" refusal; it SHALL continue to refuse
   Draft, Done, Retired, and Superseded specs, SHALL NOT auto-chain into
-  `/spec-kickoff`, and SHALL provide no bypass flag.
+  `/spec-kickoff`, and SHALL provide no bypass flag. A `Ready` spec is acted on
+  once merged to main — the same on-main ground truth `/orchestrate` has always
+  read; the "nothing executes against the spec until merge" rule (D-6, D-7) scopes
+  the pre-merge spec-PR window, not the on-main `Ready` state.
   *(Cites: D-1; bootstrap REQ-F1.4, REQ-J1.2, D-26.)*
 - **REQ-C1.2** On the first dispatch that creates In-progress evidence for a Ready
   spec, the bundle SHALL transition Ready→Active via the derived reconcile
