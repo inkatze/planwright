@@ -145,12 +145,16 @@ pointer. Test: the opt-out path skips the flip; `scripts/check-options-reference
 passes with the new option documented. Manual: a task PR created elsewhere is
 unaffected.
 
-### REQ-D1.4 — Amendment / delta modes key off Ready-or-Active [test + manual]
+### REQ-D1.4 — Change-handling scales with lifecycle stage [test + manual]
 
-`/spec-kickoff` amendment and delta-re-walkthrough modes operate in-place on a
-Ready or an Active bundle; a Done bundle reopens to Draft. Test: mode dispatch over
-Ready/Active/Done status fixtures. Manual: an amendment to a Ready bundle does not
-demand a reopen.
+A `Ready` bundle's pre-merge change is handled as a delta re-walkthrough / re-sign-off
+(expression: changelog + self-re-anchor; meaning: delta lens pass + re-sign-off +
+fresh anchor), not the amendment ritual, and the spec PR stays ready; an `Active`
+bundle's change goes through the amendment ritual; a `Done` bundle reopens to Draft.
+Test: mode dispatch over Ready/Active/Done status fixtures asserts the path taken
+(re-sign-off vs amendment vs reopen). Manual: a meaning change to a Ready bundle
+re-signs-off the delta — running its delta lens pass — without invoking in-flight
+amendment coordination, and does not demand a reopen.
 
 ### REQ-D1.5 — "Gauntlet" is the configurable verification; flip is terminal [design-level + manual]
 

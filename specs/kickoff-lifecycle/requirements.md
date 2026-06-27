@@ -54,8 +54,9 @@ second writer of derived state to drift.
   a spec that is not Ready or Active"; the Ready→Active transition on first
   dispatch implemented as a derived reconcile, not an independent stored flip.
 - `/spec-kickoff` sign-off: flips Draft→Ready; marks the spec PR ready as the
-  terminal step of clean completion; amendment and delta-re-walkthrough modes key
-  off Ready-or-Active.
+  terminal step of clean completion; change-handling scales by lifecycle stage —
+  a Ready bundle's pre-merge changes re-sign-off (delta re-walkthrough), the
+  amendment ritual keys off Active (work in flight), a Done bundle reopens to Draft.
 - The Ready↔Active derivation rule, implemented by extending
   `orchestration-concurrency`'s single level-triggered reconcile writer to
   reconcile the bundle `Status:` header.
@@ -85,6 +86,11 @@ second writer of derived state to drift.
   consumes REQ-C1.1, it does not redefine it.
 - Changing the task-level Ready / Forward / In-progress / Completed vocabulary
   that `orchestration-concurrency` defines; this spec consumes it.
+- An automated spec-PR-thread resolution loop (a `/copilot-pairing`-style
+  autopilot for spec-PR review threads). Spec-PR feedback is folded in by
+  human-driven `/spec-kickoff` (delta re-walkthrough / re-sign-off, REQ-D1.4),
+  not a dedicated core skill; the configurable review process (REQ-D1.5) is the
+  only automation over the spec PR.
 - Auto-merge at any tier (permanent carried invariant).
 
 ## REQ-A — The Ready status & lifecycle
@@ -185,10 +191,17 @@ second writer of derived state to drift.
   supersede-pointer ritual, and a config opt-out (`mark_spec_pr_ready_on_kickoff`,
   default true) SHALL gate the flip.
   *(Cites: D-5, D-6; bootstrap D-26, REQ-F1.6.)*
-- **REQ-D1.4** `/spec-kickoff` amendment and delta-re-walkthrough modes SHALL key
-  off `Ready` or `Active`: an amendment to a Ready or Active bundle is handled
-  in-place; a Done bundle still reopens to Draft per the reopen cycle (REQ-A1.6).
-  *(Cites: D-1; bootstrap D-44, REQ-A3.1.)*
+- **REQ-D1.4** `/spec-kickoff` SHALL scale change-handling to what is built
+  against the contract. A `Ready` bundle (signed off, no execution work started,
+  spec PR pre-merge) SHALL take changes — PR feedback or any other pre-merge edit —
+  through **delta re-walkthrough / re-sign-off**, not the amendment ritual: an
+  expression-only change takes a changelog entry and a self-re-anchor; a meaning
+  change takes a delta-scoped walk, the delta lens pass, a re-sign-off, and a fresh
+  anchor; the spec PR stays ready throughout (it is the review surface). The
+  amendment ritual (with its in-flight task-PR coordination) SHALL apply once the
+  bundle is `Active` (work in flight). A `Done` bundle SHALL reopen to Draft per the
+  reopen cycle (REQ-A1.6).
+  *(Cites: D-1, D-6, D-7; bootstrap D-44, REQ-A3.1, REQ-A3.3.)*
 - **REQ-D1.5** The verification that precedes the ready-flip (the process a user
   may informally call a "gauntlet") SHALL be expressed as the configurable
   review process (the `review_sequence`-class mechanism), not a hardcoded core
@@ -211,6 +224,13 @@ second writer of derived state to drift.
 
 ## Changelog
 
+- 2026-06-27: Kickoff walkthrough edits. Reworked REQ-D1.4 to a weight-scaled
+  change-handling model (a Ready bundle's pre-merge changes re-sign-off via delta
+  re-walkthrough; the amendment ritual keys off Active; Done reopens) and recorded
+  the principle in D-6/D-7. Added an Out-of-scope bullet ruling out an automated
+  spec-PR-thread resolution loop (spec feedback is human-driven `/spec-kickoff`).
+  Added a design note clarifying that validator enforcement is execution-gated, not
+  CI-gated, so no-CI adopters still validate any spec they execute.
 - 2026-06-26: Draft bundle elicited via `/spec-draft kickoff-lifecycle`. Four
   decisions taken interactively: spin a new bundle (not reopen bootstrap); model
   Ready as a stored Draft→Ready human flip plus a derived Ready↔Active reconcile

@@ -155,6 +155,10 @@ true) gates the flip.
   execution review before they are ready; that is owned by the execution and
   review skills, not by this change.
 
+Because nothing executes against the spec until merge, marking its PR ready does
+not lock the bundle: pre-merge feedback re-sign-offs in place (D-7's weight-scaled
+change-handling) while the PR stays ready.
+
 **Chosen because:** the spec PR's ready state should track the completion of the
 spec bundle's review (kickoff), exactly as a task PR's ready state should track
 the completion of *its* review; the two-key model is preserved because merge
@@ -170,7 +174,24 @@ step. In bare core, `/spec-kickoff`'s own walkthrough and Discovery-Rigor lens
 pass are that verification, and the flip follows them. When an overlay runs an
 additional review pass over the spec PR, the flip is its terminal step.
 
+Change-handling after the flip scales with what is built against the contract. A
+Ready spec — signed off, spec PR readied, but with no execution work started — is
+still under review until merge: pre-merge feedback on its PR is folded in by a
+**delta re-walkthrough / re-sign-off** (expression-only: changelog + self-re-anchor;
+meaning: delta lens pass + re-sign-off + fresh anchor), and the PR stays ready
+throughout. The heavier **amendment ritual** — with its in-flight task-PR
+coordination — is reserved for an `Active` spec, where execution is already reading
+the brief; a merged (`Done`) spec changes via the supersede/reopen ritual. This is
+why kickoff can mark the spec PR ready without committing to treat every later edit
+as an "amendment": nothing executes against a Ready spec yet, so its review is
+simply not finished until merge.
+
 **Alternatives considered:**
+- Treat any post-sign-off edit (Ready included) as an amendment, keyed off
+  Ready-or-Active uniformly. Rejected because: the amendment ritual's weight is its
+  in-flight-coordination machinery, and a Ready spec has nothing in flight — running
+  it imports coordination concepts with nothing to coordinate. Weight should track
+  what is built against the contract, not merely whether sign-off has happened.
 - Hardcode a fixed review gauntlet in core before the flip. Rejected because: the
   review process is already configurable via `review_sequence`; hardcoding a
   second one duplicates it and bakes a personal preference into core
@@ -226,3 +247,24 @@ core general and tells the dotfiles overlay exactly which value to render.
   writer mutates the bundle `Status:` Ready/Active value. `/spec-kickoff` writes
   the one human-gated transition (Draft→Ready, and the reopen Done→Draft); the
   reconcile owns Ready↔Active and Active→Done's derived rendering.
+- **Change-handling weight scales by lifecycle stage** (D-6, D-7; REQ-D1.4). The
+  cost of changing a spec tracks what is built against its contract, not merely
+  whether it was signed off: **Draft** edits are plain authoring; a **Ready** spec
+  (signed off, PR pre-merge, no work started) re-sign-offs pre-merge changes via a
+  delta re-walkthrough (expression: changelog + self-re-anchor; meaning: + delta
+  lens pass), PR staying ready; an **Active** spec uses the full amendment ritual
+  with its in-flight task-PR coordination; a **Done** spec supersedes/reopens. The
+  lens pass still fires on a meaning change to a Ready spec — a Ready bundle is
+  about to be merged-and-executed, so a wrong spec is exactly what the lens pass
+  guards (D-45); what is dropped at the Ready stage is the *coordination* overhead,
+  not the *correctness* check.
+- **Enforcement is execution-gated, not CI-gated.** The status-aware validator
+  blocks *execution*, not merge (REQ-B1.2): it runs inside `/spec-kickoff`
+  (pre-flight, and re-run under enforcement at sign-off, which refuses to record
+  while errors remain), and the freshness gate (REQ-C1.3) forces a re-sign-off
+  before the next dispatch. So a planwright adopter with **no CI gate** still gets
+  full structural + semantic validation of any spec it executes, at re-sign-off
+  time. A CI gate (planwright's guard-catalog `check:specs`, wired via the `builder`
+  skill) is an additional, earlier, merge-blocking tripwire — recommended, not a
+  dependency. Without it, a malformed or stale-anchor spec can merge, but cannot be
+  executed (kickoff sign-off enforcement and the freshness gate both fail closed).

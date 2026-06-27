@@ -49,18 +49,21 @@ sibling spec and can land first; only Tasks 6 and 8 wait on it.
 - **Citations:** D-1 · REQ-B1.2, REQ-B1.3
 - **Estimated effort:** half day
 
-### Task 3 — `/spec-kickoff` flips Draft→Ready; amendment modes key off Ready-or-Active
+### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
 
 - **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
   (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
   writes the sign-off record with the content anchor last (unchanged ordering);
-  amendment and delta-re-walkthrough modes key off Ready-or-Active (a Done bundle
-  still reopens to Draft).
+  a Ready bundle's pre-merge changes go through delta re-walkthrough / re-sign-off
+  (expression: changelog + self-re-anchor; meaning: + delta lens pass), the
+  amendment ritual keys off Active (work in flight), and a Done bundle reopens to
+  Draft.
 - **Done when:** kickoff writes `Status: Ready` on sign-off across the four files;
-  amendment mode operates on Ready or Active bundles; the reopen path (Done→Draft)
-  is intact; verified by the skill's tests/manual checks.
+  a Ready bundle's pre-merge change re-signs-off the delta without invoking the
+  amendment ritual; amendment mode operates on Active bundles; the reopen path
+  (Done→Draft) is intact; verified by the skill's tests/manual checks.
 - **Dependencies:** Task 1.
-- **Citations:** D-1, D-2 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6
+- **Citations:** D-1, D-2, D-6, D-7 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6
 - **Estimated effort:** half day
 
 ### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + D-26 exception
