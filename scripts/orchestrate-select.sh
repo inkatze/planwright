@@ -47,7 +47,9 @@
 #
 # Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
 # unit this step; 2 the tasks.md is missing, unreadable, or holds no task
-# records (fail closed — a malformed file must not silently report "nothing").
+# records, or (selection only) the derivation engine is missing / not executable
+# or its derivation fails (no git work tree, invalid spec id) — fail closed: a
+# malformed file or unavailable live truth must not silently report "nothing".
 #
 # Portable POSIX sh + awk (bash 3.2 / BSD awk compatible): no gawk-only
 # constructs (3-arg match, gensub), no eval, input treated as data. The
