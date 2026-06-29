@@ -80,12 +80,12 @@ space).
 
 ### Task 9 — Cross-spec fleet coordination-state home
 
-- **Deliverables:** Resolution of the durable **cross-spec** fleet-coordination
-  -state location through the `${CLAUDE_PLUGIN_DATA}` chain (with the writer-mode
-  fallback the overlay resolvers use), and a small store for the worker/scope
-  registry the attention surface reads. This is explicitly distinct from the
-  sibling's **per-spec** orchestration state (the advisory lock and runtime
-  dispatch marker, which the sibling ships spec-dir-local at
+- **Deliverables:** Resolution of the durable **cross-spec**
+  fleet-coordination-state location through the `${CLAUDE_PLUGIN_DATA}` chain
+  (with the writer-mode fallback the overlay resolvers use), and a small store
+  for the worker/scope registry the attention surface reads. This is explicitly
+  distinct from the sibling's **per-spec** orchestration state (the advisory lock
+  and runtime dispatch marker, which the sibling ships spec-dir-local at
   `<spec-dir>/.orchestrate.lock` and `<spec-dir>/.orchestrate/markers/`); a
   comment/citation records the split and that the lock home is the sibling's
   decision, not re-decided here.
@@ -254,8 +254,9 @@ space).
 - **Deliverables:** One obvious entry command that autodetects/selects a backend
   (Task 2) and starts the tower(s), rendering the decision queue (Task 12) as the
   default attention surface; the **execution-substrate / attention-surface
-  decoupling** surfaced as UX, including the multiplexer-as-detached-background
-  -plumbing path (the tower drives a detached server; the human sees only the
+  decoupling** surfaced as UX, including the
+  multiplexer-as-detached-background-plumbing path (the tower drives a detached
+  server; the human sees only the
   attention surface); clear per-worker scope presentation; and the documented
   **persona → (execution backend × attention surface)** mapping (multiplexer
   users, non-terminal users, editor-feedback users). The approachable path is the

@@ -239,11 +239,11 @@ across a plain session and a detached-multiplexer popup.
 ### REQ-E1.4 — Attention/notification capability in core [test + design-level]
 
 Test: heartbeat/registry state lives under the cross-spec fleet-state home and the
-capability functions with no dotfiles-local mechanism present (a marketplace
--install user gets it from core); the notification-channel knob resolves as an
-overlay value through the four layers and has an options-reference row. Design
--level: the portable status renderer reads the registry and the capability
-parallels the execution capability.
+capability functions with no dotfiles-local mechanism present (a
+marketplace-install user gets it from core); the notification-channel knob
+resolves as an overlay value through the four layers and has an options-reference
+row. Design-level: the portable status renderer reads the registry and the
+capability parallels the execution capability.
 
 ### REQ-E1.5 — Per-worker scope legible & default [design-level + manual]
 

@@ -92,8 +92,8 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   surface; a **substrate-agnostic attention/notification capability lifted into
   core** (heartbeat state under the durable plugin-data home, a portable status
   renderer, a notification seam whose channel is an overlay value); and a
-  persona→(backend × surface) mapping including the multiplexer-as-background
-  -plumbing path for non-terminal operators.
+  persona→(backend × surface) mapping including the
+  multiplexer-as-background-plumbing path for non-terminal operators.
 - The capability-vs-style split for every backend/fleet preference (general
   capability → core opt-in knob; specific value → overlay), and data hygiene for
   every committed fleet artifact.
@@ -287,8 +287,8 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   state-safety contract (REQ-A1.1): a tower handover or a fresh per-step session
   SHALL drive `tasks.md` placement only through the level-triggered reconcile and
   SHALL acquire the per-spec advisory lock for any state move, never writing
-  dispatch/progress state to `tasks.md` by a path that bypasses the derived
-  -projection contract.
+  dispatch/progress state to `tasks.md` by a path that bypasses the
+  derived-projection contract.
   *(Cites: D-1, D-4, D-5; orchestration-concurrency D-1, D-3, D-4 (Sources).)*
 
 ## REQ-D — Meta-orchestration, coordination & autonomy
@@ -458,6 +458,16 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   (3) tasks.md — "portable renderer" → "portable status renderer" (terminology
   consistency).
   *(Cites: kickoff §8 lens pass (2026-06-29); REQ-B1.5, REQ-E1.3, D-11.)*
+- 2026-06-29: Post-sign-off expression-only re-anchor (finishing gauntlet,
+  `/panel-pairing` stage), no REQ/D-ID/task meaning changed: fixed six markdown
+  soft-wrap rendering defects where a hyphenated compound split across a line
+  break rendered with a spurious space — `requirements.md`
+  (`multiplexer-as-background-plumbing`, `derived-projection contract`),
+  `tasks.md` (`fleet-coordination-state`,
+  `multiplexer-as-detached-background-plumbing`), `test-spec.md`
+  (`marketplace-install`, `Design-level`). The recomputed bundle anchor and the
+  superseded sign-off anchor are recorded in the kickoff brief Amendment log.
+  *(Cites: kickoff-brief Amendment log (2026-06-29).)*
 
 ## Sources
 

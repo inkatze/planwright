@@ -467,5 +467,26 @@ D-1/D-2). `Last reviewed:` is 2026-06-29 on all four. Re-validated under Ready
 Class: meaning
 Lens-pass: recorded above (this section), full-bundle nine-lens fan-out, findings
 validated and dispositioned 2026-06-29.
-Anchor: `6ab1f63975714c68a00be55e3aa115ec54c3af42` — computed as
+Anchor: `e6ead4184ca0a72c380657529b7fef1b30dc18a2` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
+(re-anchored 2026-06-29 for an expression-only fix; see Amendment log. Original
+sign-off anchor: `6ab1f63975714c68a00be55e3aa115ec54c3af42`.)
+
+## Amendment log
+
+Post-sign-off changes to the anchored spec bundle. Signed sections 1–8 above are
+unchanged except the `Anchor:` pointer in §8; entries here record expression-only
+edits that re-anchor the bundle. A meaning-class change is never recorded here —
+it requires a delta re-walkthrough by the kickoff owner.
+
+- **2026-06-29 — expression-only re-anchor (finishing gauntlet, `/panel-pairing`
+  stage).** Fixed six markdown soft-wrap rendering defects where a hyphenated
+  compound was split across a line break and rendered with a spurious space:
+  `requirements.md` (`multiplexer-as-background-plumbing`,
+  `derived-projection contract`), `tasks.md` (`fleet-coordination-state`,
+  `multiplexer-as-detached-background-plumbing`), and `test-spec.md`
+  (`marketplace-install`, `Design-level`). No REQ/D-ID/task meaning changed; the
+  fixes bring the defective spots into line with the already-correct usages
+  elsewhere in the bundle. Validator re-run clean (0 errors, 0 warnings, Ready
+  enforcement). Anchor recomputed
+  `6ab1f63975714c68a00be55e3aa115ec54c3af42` → `e6ead4184ca0a72c380657529b7fef1b30dc18a2`.
