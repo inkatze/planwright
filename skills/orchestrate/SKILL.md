@@ -163,10 +163,13 @@ takes a single `planwright/<spec>/task-<id>-<id>` branch (D-36).
 ## The dispatch record (the locked window) — REQ-A1.1, REQ-A1.2, REQ-F1.1, REQ-F1.9, D-1, D-3, D-10
 
 The dispatch record is the **task branch** (created as the first durable act)
-plus the **per-spec advisory lock** — **never** a `tasks.md` write (D-1,
-REQ-A1.1). Progress state is a derived projection: `/orchestrate` commits no
-dispatch or progress state to `tasks.md`, so `main` carries no dispatch commit
-and a worker worktree cut from it inherits nothing foreign — cross-task and
+plus the **timestamped runtime marker** — **never** a `tasks.md` write (D-1,
+REQ-A1.1). The **per-spec advisory lock** is not part of the record; it is the
+mechanism that serializes the branch-create-plus-marker write window (below),
+released the moment that window closes. Progress state is a derived projection:
+`/orchestrate` commits no dispatch or progress state to `tasks.md`, so `main`
+carries no dispatch commit and a worker worktree cut from it inherits nothing
+foreign — cross-task and
 cross-spec contamination is impossible **by construction** (REQ-A1.2), not
 merely mitigated. Section placement is refreshed off the dispatch path, by the
 level-triggered reconcile alone (D-3), never here.
