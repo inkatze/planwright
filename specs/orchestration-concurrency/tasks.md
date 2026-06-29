@@ -33,32 +33,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## Forward plan
 
-### Task 1 — Task-state derivation engine
-
-- **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
-  state for a spec from observable evidence — merged PR via `gh`, task-branch
-  merge-reachability (`git merge-base --is-ancestor`), a `Planwright-Task`
-  trailer on a base commit, and the runtime dispatch marker (with a staleness
-  check: a timestamped marker past the configured threshold with no branch
-  commits is treated as stale → Ready, not In progress) — applying the
-  REQ-C1.2 precedence (git ground truth wins; contradictions flagged). Emits a
-  tagged record stream (task id → state + the evidence that decided it). The
-  shared backbone consumed by the reconcile (T4), selection (T5), and the guards
-  (T7).
-- **Done when:** against a fixture spec with mixed evidence (merged PR, reachable
-  branch, trailer-only base commit, open PR, fresh-marker-only, stale-marker-only-
-  no-commits → Ready, none), it returns the correct state for each task; it is
-  idempotent; it runs with no remote (skips
-  `gh`, derives from git + trailer + marker), and a configured-but-failing `gh`
-  degrades to git-only and surfaces the degradation rather than wedging; a signal
-  contradiction is reported on the defined output-stream channel (assertable
-  without the guard wired), not silently resolved; the parsed `Planwright-Task`
-  `<spec>/<id>` is validated against its grammar before use (malformed/hostile
-  input refused, never interpolated); tests pass under `mise run check`.
-- **Dependencies:** none
-- **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
-- **Estimated effort:** 2 days
-
 ### Task 2 — Commit-trailer emission
 
 - **Deliverables:** `/execute-task` (and the shared commit helpers) emit a
@@ -124,6 +98,20 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-3 · REQ-B1.2
 - **Estimated effort:** 1 day
 
+### Task 6 — Unify the advisory-lock primitive
+
+- **Deliverables:** One advisory-lock primitive shared by `/orchestrate` and the
+  `tasks-pr-sync` hook (collapsing `orchestrate-lock.sh` and the hook's inline
+  lock), with per-spec mutual exclusion and a sound stale-break at the configured
+  threshold. No fencing tokens (the branch ref is the natural fence, D-4).
+- **Done when:** both `/orchestrate` and the hook acquire through one primitive;
+  concurrent acquirers exclude; a stale lock breaks at the threshold; the
+  duplicated lock logic is gone; the lock path is built from a grammar-validated
+  spec id and containment-checked before use; tests pass under `mise run check`.
+- **Dependencies:** none
+- **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
+- **Estimated effort:** 1 day
+
 ### Task 7 — Structural-corruption guards + CI
 
 - **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
@@ -171,20 +159,32 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## In progress
 
-### Task 6 — Unify the advisory-lock primitive
+### Task 1 — Task-state derivation engine
 
-- **Deliverables:** One advisory-lock primitive shared by `/orchestrate` and the
-  `tasks-pr-sync` hook (collapsing `orchestrate-lock.sh` and the hook's inline
-  lock), with per-spec mutual exclusion and a sound stale-break at the configured
-  threshold. No fencing tokens (the branch ref is the natural fence, D-4).
-- **Done when:** both `/orchestrate` and the hook acquire through one primitive;
-  concurrent acquirers exclude; a stale lock breaks at the threshold; the
-  duplicated lock logic is gone; the lock path is built from a grammar-validated
-  spec id and containment-checked before use; tests pass under `mise run check`.
+- **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
+  state for a spec from observable evidence — merged PR via `gh`, task-branch
+  merge-reachability (`git merge-base --is-ancestor`), a `Planwright-Task`
+  trailer on a base commit, and the runtime dispatch marker (with a staleness
+  check: a timestamped marker past the configured threshold with no branch
+  commits is treated as stale → Ready, not In progress) — applying the
+  REQ-C1.2 precedence (git ground truth wins; contradictions flagged). Emits a
+  tagged record stream (task id → state + the evidence that decided it). The
+  shared backbone consumed by the reconcile (T4), selection (T5), and the guards
+  (T7).
+- **Done when:** against a fixture spec with mixed evidence (merged PR, reachable
+  branch, trailer-only base commit, open PR, fresh-marker-only, stale-marker-only-
+  no-commits → Ready, none), it returns the correct state for each task; it is
+  idempotent; it runs with no remote (skips
+  `gh`, derives from git + trailer + marker), and a configured-but-failing `gh`
+  degrades to git-only and surfaces the degradation rather than wedging; a signal
+  contradiction is reported on the defined output-stream channel (assertable
+  without the guard wired), not silently resolved; the parsed `Planwright-Task`
+  `<spec>/<id>` is validated against its grammar before use (malformed/hostile
+  input refused, never interpolated); tests pass under `mise run check`.
 - **Dependencies:** none
-- **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
-- **Estimated effort:** 1 day
-- **Status:** PR #81 draft
+- **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
+- **Estimated effort:** 2 days
+- **Status:** PR #82 draft
 - **Last activity:** 2026-06-28
 
 ## Awaiting input
