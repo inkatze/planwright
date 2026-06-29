@@ -348,8 +348,9 @@ echo "ok: a deleted/flattened snapshot rebuilds identically from truth (REQ-B1.3
 # ===========================================================================
 # 5. Conflict regeneration (REQ-C1.3): a tasks.md carrying git conflict markers
 #    (Task 1 under Forward plan on one side, Completed on the other — a crafted
-#    interleave that union/ours/theirs would mis-resolve) regenerates placement
-#    from the derivation and leaves no markers.
+#    interleave that union/ours/theirs would mis-resolve, with a ||||||| diff3
+#    base section in the first hunk) regenerates placement from the derivation
+#    and leaves no markers (all four: <<<<<<<, |||||||, =======, >>>>>>>).
 repo=$tmp/r4
 make_repo "$repo"
 tasks=$repo/specs/demo/tasks.md
@@ -373,6 +374,16 @@ derived; the `Dependencies:` lines are authoritative.
 ## Forward plan
 
 <<<<<<< ours
+### Task 1 — Widget core
+
+- **Deliverables:** A widget core,
+  wrapped onto a second line.
+- **Done when:** Widgets exist.
+- **Dependencies:** none
+- **Citations:** REQ-X1.1
+- **Estimated effort:** 1 day
+
+||||||| base
 ### Task 1 — Widget core
 
 - **Deliverables:** A widget core,
@@ -449,7 +460,7 @@ derived; the `Dependencies:` lines are authoritative.
 EOF
 cp "$conf" "$tasks"
 reconcile "$repo" specs/demo || fail "conflict reconcile: non-zero exit"
-grep -qE '^(<{7}|={7}|>{7})' "$tasks" && fail "conflict: markers remain after reconcile"
+grep -qE '^(<{7}|={7}|>{7}|\|{7})' "$tasks" && fail "conflict: markers remain after reconcile (incl. ||||||| base)"
 [ "$(section_of "$tasks" 1)" = "Completed" ] || fail "conflict: Task 1 not regenerated to Completed from truth"
 # Exactly one Task 1 block survives (the duplicate from the two sides is deduped).
 [ "$(grep -c '^### Task 1 ' "$tasks")" = 1 ] || fail "conflict: Task 1 block duplicated (not deduped)"

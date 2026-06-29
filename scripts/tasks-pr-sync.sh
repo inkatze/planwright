@@ -44,9 +44,14 @@
 #     snapshot reconciles to the same canonical placement; the snapshot is a
 #     discardable derivation.
 #   * Conflict regeneration (REQ-C1.3): a tasks.md carrying git conflict markers
-#     (<<<<<<<, =======, >>>>>>>, |||||||) has them stripped and the duplicated
-#     blocks deduped by id, then placement is regenerated from the derivation —
-#     never resolved by ours/theirs/union.
+#     (<<<<<<<, =======, >>>>>>>, |||||||) has them stripped and placement is
+#     regenerated from the derivation — never resolved by ours/theirs/union.
+#     Dedupe-by-id covers the task blocks the derivation PLACES (the triad
+#     sections), so a conflict that duplicated a triad block leaves one copy.
+#     Content in the sticky human-owned / unknown sections is preserved as-is and
+#     not parsed for task blocks, so a conflict that duplicated a task PARKED in
+#     such a section leaves both copies for the human to resolve — the reconcile
+#     does not edit human-owned bodies (sticky preservation wins there).
 #   * Atomic write (REQ-B1.1): the rewrite goes to a same-directory temp file
 #     and is renamed into place, so a racy stale lock-break cannot observe a
 #     half-written tasks.md.
@@ -179,8 +184,10 @@ FNR == NR {
   next
 }
 # Strip git conflict markers from tasks.md (REQ-C1.3: regenerate from truth, do
-# not resolve by ours/theirs/union). Duplicated blocks from the two sides are
-# deduped by id in flush_block.
+# not resolve by ours/theirs/union). Triad task blocks duplicated across the
+# sides are deduped by id in flush_block; content inside sticky human-owned /
+# unknown sections is preserved as-is (a task parked there and duplicated by the
+# conflict keeps both copies — the reconcile does not edit human-owned bodies).
 /^<<<<<<</ || /^=======/ || /^>>>>>>>/ || /^\|\|\|\|\|\|\|/ {
   next
 }
