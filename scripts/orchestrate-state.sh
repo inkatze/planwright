@@ -173,9 +173,12 @@ case "$tv" in
 esac
 threshold_sec=$((threshold_min * 60))
 
-# Runtime-marker base dir, containment-checked so a crafted override cannot
-# point the read outside an expected tree (defense in depth; per-task ids are
-# grammar-validated below, so a built path can never carry a traversal).
+# Runtime-marker base dir. PLANWRIGHT_ORCH_STATE_DIR is a trusted operator/test
+# override and sets this tree freely; the hardening is at the read, not here.
+# Each per-task marker (built from a grammar-validated id) is containment-checked
+# below to sit directly under marker_dir, and a symlink at the marker path is
+# refused — so a crafted task id or a symlink swap cannot redirect the read
+# outside marker_dir (defense in depth).
 marker_dir="${PLANWRIGHT_ORCH_STATE_DIR:-$spec_dir/.orchestrate/markers}"
 
 now=$(date +%s)
