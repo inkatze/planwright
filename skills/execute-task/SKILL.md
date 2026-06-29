@@ -139,15 +139,28 @@ present the reason and wait instead.
    `cargo test && cargo clippy -- -D warnings`, pytest+ruff+mypy from
    `pyproject.toml`). Prefer the aggregate over a bare test run. If none can
    be derived, ask. Record the command for the implementation phase.
-10. **Mark the unit In progress.** Ensure each task block sits in
-    `## In progress` with the annotations `- **Status:** implementing` and
-    `- **Last activity:** <today>` (moving it from `## Forward plan` when
-    invoked standalone on an un-started task). These are state annotations,
-    excluded from the content anchor (`spec-format` canonical extraction), so
-    the move does not trip the gate that just ran. Commit the move when
-    `commit_on_state_move` is true (read `config/defaults.yml` overridden by
-    `<repo>/.claude/planwright.local.yml`, local wins; absent/malformed config
-    falls back to the default with a one-line warning).
+10. **Update Last activity; write no placement or `Status`.** The dispatch record
+    (the task branch + the runtime marker) created at dispatch already makes the
+    unit derivable as In progress, so this skill writes **no** `tasks.md` section
+    placement here, and **no** `Status` line either. Section placement is the
+    `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1); a block still sitting in
+    `## Forward plan` while its branch is in flight is intentional snapshot lag,
+    not corruption (REQ-B1.2). Writing a `Status` here would be the problem: an
+    in-progress `Status` on a still-`Forward plan` block reads to the
+    structural-corruption guard as a section/status contradiction (REQ-E1.1,
+    REQ-E1.2, `scripts/check-ledger.sh`), and the placement is not yours to move.
+    The only edit is the block's `- **Last activity:** <today>` annotation, which
+    is anchor-excluded (`spec-format` canonical extraction) and is not a `Status`
+    line, so it neither trips the gate that just ran nor the corruption guard. The
+    reconcile relocates the block on the PR events this skill later triggers, and
+    preserves the block's annotations untouched as it moves it: it owns placement,
+    not the `Status` text (`scripts/tasks-pr-sync.sh`). This skill writes no
+    `Status` at PR creation (PR step 3) either; an in-flight block simply carries
+    no `Status`, which the corruption guard accepts (a no-`Status` block has
+    nothing to contradict its section). Commit the Last-activity
+    update when `commit_on_state_move` is true (read `config/defaults.yml`
+    overridden by `<repo>/.claude/planwright.local.yml`, local wins;
+    absent/malformed config falls back to the default with a one-line warning).
 
 ## Implementation
 
@@ -353,10 +366,17 @@ amendment axis:
      the brief's assumptions.
 
    The PR is always a draft. Never mark it ready and never merge.
-3. **Annotate the unit.** Update the task block's annotations to
-   `- **Status:** PR #<N> draft` and `- **Last activity:** <today>`. Section
-   moves on `gh pr create`/`merge` are the `tasks-pr-sync` hook's job; these
-   annotations are anchor-excluded.
+3. **Annotate the unit.** Update only the task block's `- **Last activity:**
+   <today>` annotation; write **no** `Status` line. Section placement is the
+   `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1); the reconcile preserves
+   annotations untouched and does not author the `Status` text. Writing a
+   `PR #<N> draft` Status here would race the reconcile:
+   the hook is fail-soft on a busy lock (a clean no-op), so the block can still
+   sit in `## Forward plan`, and an in-progress `Status` on a Forward-plan block
+   is exactly the section/status contradiction `scripts/check-ledger.sh` flags
+   (REQ-E1.1, REQ-E1.2). Section moves on `gh pr create`/`merge` are the
+   reconcile's job; the Last-activity annotation is anchor-excluded and is not a
+   `Status` line, so it trips neither the gate nor the corruption guard.
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, the tests
 written and CI outcome, Polish's convergence summary, the verified anchor, the

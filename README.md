@@ -160,6 +160,9 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 - [Customizing with overlays](docs/overlays.md) — the four-layer model and
   per-kind merge rules.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
+- [Orchestration state](docs/orchestration-state.md) — the derived-projection
+  model: how progress is derived from git/GitHub evidence, the single-writer
+  reconcile, and the no-remote flow.
 - [Options reference](docs/options-reference.md) — every configuration option.
 - [Doctrine](doctrine/README.md) — the framework's rule docs: validation and
   discovery rigor, finding categorization, engineering decisions, security
