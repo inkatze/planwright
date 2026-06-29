@@ -47,24 +47,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-2 · REQ-C1.4
 - **Estimated effort:** half day
 
-### Task 3 — Dispatch rework: branch-as-record, no `tasks.md` writes
-
-- **Deliverables:** `/orchestrate` dispatch rewired to: acquire the per-spec lock
-  → create the task branch as the first durable act → write the **timestamped**
-  runtime dispatch marker → release; with **all** dispatch-time `tasks.md` section moves and
-  status annotations removed. Worker worktrees are cut from a base that carries
-  no dispatch commits.
-- **Done when:** dispatching a task creates the branch + marker and makes **zero**
-  `tasks.md` commits; a worker worktree cut immediately after has no sibling or
-  foreign-spec dispatch commit in its diff (the contamination reproduction now
-  passes clean); the in-flight task is derivable as In progress from branch +
-  marker; the branch name and marker path are built only from grammar-validated
-  ids and the marker path is containment-checked before write; tests pass under
-  `mise run check`.
-- **Dependencies:** 1, 6
-- **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2, REQ-F1.1
-- **Estimated effort:** 2 days
-
 ### Task 4 — Level-triggered idempotent reconcile (single writer)
 
 - **Deliverables:** `tasks-pr-sync` reworked into the **sole** writer of
@@ -112,6 +94,25 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
 - **Estimated effort:** 1 day
 
+### Task 7 — Structural-corruption guards + CI
+
+- **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
+  corruption** check on the committed `tasks.md` snapshot — placement/state
+  signatures the level-triggered reconcile would never produce from any evidence
+  (a task in a section its own evidence contradicts, a mis-sort, a malformed or
+  duplicated block), explicitly NOT failing on the snapshot's intentional lag
+  behind live truth (freshness is the reconcile pass's job, REQ-B1.2) — and (b) a
+  **`>1 Status line` per task block** lint. See the guard-first ordering note
+  above: this SHOULD land before T3/T4/T5 merge.
+- **Done when:** a hand-corrupted snapshot (a structural corruption — wrong-block
+  placement contradicting its own evidence, a mis-sort, or two Status lines on a
+  block) fails the guard with a clear message; a well-formed snapshot that merely
+  lags live truth (a not-yet-reconciled in-flight task) passes; both guards run in
+  the project's CI and pre-commit; tests pass under `mise run check`.
+- **Dependencies:** 1
+- **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
+- **Estimated effort:** 1 day
+
 ### Task 8 — Docs, options & bootstrap canonical-record supersede
 
 - **Deliverables:** Documentation of the derived-state model — landing in the
@@ -140,33 +141,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## In progress
 
-### Task 7 — Structural-corruption guards + CI
-
-- **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
-  corruption** check on the committed `tasks.md` snapshot — placement/state
-  signatures the level-triggered reconcile would never produce from any evidence
-  (a task in a section its own evidence contradicts, a mis-sort, a malformed or
-  duplicated block), explicitly NOT failing on the snapshot's intentional lag
-  behind live truth (freshness is the reconcile pass's job, REQ-B1.2) — and (b) a
-  **`>1 Status line` per task block** lint. See the guard-first ordering note
-  above: this SHOULD land before T3/T4/T5 merge.
-- **Done when:** a hand-corrupted snapshot (a structural corruption — wrong-block
-  placement contradicting its own evidence, a mis-sort, or two Status lines on a
-  block) fails the guard with a clear message; a well-formed snapshot that merely
-  lags live truth (a not-yet-reconciled in-flight task) passes; both guards run in
-  the project's CI and pre-commit; tests pass under `mise run check`.
-- **Dependencies:** 1
-- **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
-- **Estimated effort:** 1 day
-- **Status:** PR #83 draft
-- **Last activity:** 2026-06-28
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
 ### Task 1 — Task-state derivation engine
 
 - **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
@@ -192,8 +166,36 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Dependencies:** none
 - **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
 - **Estimated effort:** 2 days
-- **Status:** Completed · PR #82 merged 2026-06-29 (ledger reconciled by `/execute-task 7` pre-flight; merge commit 59618b0 in HEAD, `scripts/orchestrate-state.sh` present; anchor intact `d8e5f2cb`)
-- **Last activity:** 2026-06-29
+- **Status:** PR #82 draft
+- **Last activity:** 2026-06-28
+
+### Task 3 — Dispatch rework: branch-as-record, no `tasks.md` writes
+
+- **Deliverables:** `/orchestrate` dispatch rewired to: acquire the per-spec lock
+  → create the task branch as the first durable act → write the **timestamped**
+  runtime dispatch marker → release; with **all** dispatch-time `tasks.md` section moves and
+  status annotations removed. Worker worktrees are cut from a base that carries
+  no dispatch commits.
+- **Done when:** dispatching a task creates the branch + marker and makes **zero**
+  `tasks.md` commits; a worker worktree cut immediately after has no sibling or
+  foreign-spec dispatch commit in its diff (the contamination reproduction now
+  passes clean); the in-flight task is derivable as In progress from branch +
+  marker; the branch name and marker path are built only from grammar-validated
+  ids and the marker path is containment-checked before write; tests pass under
+  `mise run check`.
+- **Dependencies:** 1, 6
+- **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2, REQ-F1.1
+- **Estimated effort:** 2 days
+- **Status:** PR #84 draft
+- **Last activity:** 2026-06-28
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
+(none yet)
 
 ## Deferred
 

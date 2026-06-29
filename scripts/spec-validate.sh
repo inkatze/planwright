@@ -7,8 +7,9 @@
 #
 #   1. Four-file presence.
 #   2. Header block: Status declared (missing warns, defaults to Draft);
-#      one of the five statuses; Superseded requires `Superseded-by:`;
-#      Format-version declared; Status mirrors kept in sync.
+#      one of the six statuses (Draft, Ready, Active, Done, Retired,
+#      Superseded); Superseded requires `Superseded-by:`; Format-version
+#      declared; Status mirrors kept in sync.
 #   3. Spec-identifier charset and length; underscore-accumulator name
 #      screening (accumulators are skipped, not validated as bundles).
 #   4. REQ-ID convention: ID-bearing bullets, citation per live REQ
@@ -24,9 +25,10 @@
 #      relative to the baseline ref.
 #
 # Severity (status-aware, D-25): findings are warnings on Draft, errors on
-# Active and Done (signed-off live content), warnings on Retired/Superseded
-# (frozen records do not block CI). Integrity violations are errors
-# regardless of status: an unknown status, an unsupported format-version,
+# Ready, Active, and Done (signed-off live content — Ready is signed off and
+# executable), warnings on Retired/Superseded (frozen records do not block
+# CI). Integrity violations are errors regardless of status: an unknown
+# status, an unsupported format-version,
 # Superseded without its pointer, duplicate IDs, identifier-charset
 # violations, and a transition out of a terminal state.
 #
@@ -346,7 +348,7 @@ baseline_checks() {
     # the why-it-changed. The current superseded set is diffed against the
     # baseline's so a supersede already recorded upstream is not re-flagged.
     # Status-scoped like the other stable-ID findings (warn on Draft, error on
-    # Active/Done). REQ supersedes only: that is the parseable, marked case.
+    # Ready/Active/Done). REQ supersedes only: that is the parseable, marked case.
     # Guarded on the current file existing: a bundle that deletes
     # requirements.md still has a non-empty baseline `$old_req`, and parsing a
     # now-missing file would leak raw awk errors and abort under set -eu — the
@@ -441,7 +443,7 @@ validate_bundle() {
   if [ ! -f "$bdir/requirements.md" ]; then
     # The authoritative Status home is absent: derive the severity status
     # from the first sibling mirror that declares one, so deleting
-    # requirements.md cannot downgrade an Active bundle's errors to
+    # requirements.md cannot downgrade a Ready/Active bundle's errors to
     # warnings (same evasion class as an implicit-Draft mirror).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
@@ -455,7 +457,7 @@ validate_bundle() {
     if [ -z "$declared_status" ]; then
       printf 'gap\tmissing Status: header (defaulting to Draft)\n' >>"$fnd"
       # The default participates in everything downstream (mirrors, severity,
-      # baseline): an explicit Active mirror must not hide behind an absent
+      # baseline): an explicit Ready/Active mirror must not hide behind an absent
       # authoritative header.
       declared_status=Draft
     fi
@@ -507,9 +509,9 @@ validate_bundle() {
   fi
 
   case $declared_status in
-    Draft | Active | Done | Retired | Superseded | '') ;;
+    Draft | Ready | Active | Done | Retired | Superseded | '') ;;
     *)
-      printf 'hard\tunknown status: %s (expected Draft, Active, Done, Retired, or Superseded)\n' \
+      printf 'hard\tunknown status: %s (expected Draft, Ready, Active, Done, Retired, or Superseded)\n' \
         "$declared_status" >>"$fnd"
       ;;
   esac
@@ -540,10 +542,12 @@ validate_bundle() {
   baseline_checks "$bdir"
 
   # Severity mapping (D-25): warnings on Draft and on the frozen terminal
-  # records; errors on the signed-off live statuses; hard findings always
-  # error. An unknown status already carries its own hard finding.
+  # records; errors on the signed-off live statuses (Ready, Active, Done —
+  # Ready is signed off and executable, kickoff-lifecycle D-1/REQ-B1.2); hard
+  # findings always error. An unknown status already carries its own hard
+  # finding.
   case $declared_status in
-    Active | Done) gapsev=ERROR ;;
+    Ready | Active | Done) gapsev=ERROR ;;
     *) gapsev=WARN ;;
   esac
   while IFS="$tab" read -r class msg; do
