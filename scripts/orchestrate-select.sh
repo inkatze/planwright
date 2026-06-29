@@ -3,18 +3,25 @@
 # critical-path-first (Task 13, REQ-F1.2, D-7, D-8), and emit the critical path
 # for the comprehension graph view (Task 7 of specs/spec-comprehension, D-6).
 #
-# A ready task is one in the `## Forward plan` section whose every dependency
-# sits in `## Completed` (a task that is In progress, Awaiting input, or in a
-# terminal/parked section is not a candidate). Among ready tasks the selector
-# prefers the head of the effort-weighted longest dependent chain — the unit
-# that unblocks the most downstream remaining work — and breaks ties FIFO, by
-# first appearance in tasks.md. This turns REQ-F1.2's critical-path-first rule
-# into a deterministic, testable computation instead of a hand-asserted one
-# (the 2026-06-10 observation).
+# A ready task is one in the `## Forward plan` section that the LIVE DERIVATION
+# reports neither completed nor in-progress, and whose every dependency the
+# derivation reports completed. Among ready tasks the selector prefers the head
+# of the effort-weighted longest dependent chain — the unit that unblocks the
+# most downstream remaining work — and breaks ties FIFO, by first appearance in
+# tasks.md. This turns REQ-F1.2's critical-path-first rule into a deterministic,
+# testable computation instead of a hand-asserted one (the 2026-06-10
+# observation).
 #
-# Section membership is the canonical orchestration state (tasks.md doubles as
-# the state record); the per-block Status annotation is advisory and is NOT
-# consulted here, so the selector agrees with the content anchor's view.
+# Live truth, not the committed snapshot (orchestration-concurrency Task 5, D-3,
+# REQ-B1.2). Completed / in-progress state is read from the derivation engine
+# (scripts/orchestrate-state.sh — git + trailer + marker + gh evidence), NOT from
+# tasks.md section placement, so a task that is already in-flight or completed
+# (by evidence the committed snapshot has not yet been reconciled to) is never
+# re-dispatched. The dependency GRAPH is still parsed from tasks.md here: the
+# engine's dependency parser is stricter (it flags prose forms as malformed),
+# whereas the selector keeps the prose-deps handling PR #78 added, so readiness
+# is recomputed locally over the engine's completed-set. The Status annotation
+# is advisory and is NOT consulted.
 #
 # Dependency-line parsing: the `**Dependencies:**` bullet is read in prose or
 # bare-id form. The local dep ids are the numeric (or dotted) tokens BEFORE any
@@ -40,10 +47,15 @@
 #
 # Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
 # unit this step; 2 the tasks.md is missing, unreadable, or holds no task
-# records (fail closed — a malformed file must not silently report "nothing").
+# records, or (selection only) the derivation engine is missing / not executable
+# or its derivation fails (no git work tree, invalid spec id) — fail closed: a
+# malformed file or unavailable live truth must not silently report "nothing".
 #
-# Portable POSIX sh + awk + git-free (bash 3.2 / BSD awk compatible): no
-# gawk-only constructs (3-arg match, gensub), no eval, input treated as data.
+# Portable POSIX sh + awk (bash 3.2 / BSD awk compatible): no gawk-only
+# constructs (3-arg match, gensub), no eval, input treated as data. The
+# --critical-path mode stays git-free (purely structural); selection mode is
+# NOT git-free — it reads git-derived evidence by shelling out to the derivation
+# engine (orchestrate-state.sh), which needs a git work tree and git on PATH.
 set -u
 
 # Pin the C locale: range patterns in the awk grammar are collation-dependent
@@ -51,6 +63,12 @@ set -u
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+
+TAB=$(printf '\t')
+
+# Resolve this script's directory so the sibling derivation engine
+# (orchestrate-state.sh) is found regardless of the caller's working directory.
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 # Mode: the optional leading --critical-path flag selects the path-emitting mode
 # (D-6); without it the script is the unchanged ready-unit selector.
@@ -73,7 +91,55 @@ if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
   exit 2
 fi
 
-awk -v mode="$mode" '
+# Live-truth state (Task 5, D-3, REQ-B1.2). In selection mode the completed /
+# in-progress sets come from the derivation engine, never from tasks.md section
+# placement. --critical-path stays purely structural (full DAG,
+# completion-independent, git-free) and never consults the derivation, so these
+# sets remain empty there. The sets are space-padded id lists (" 1 6 ") for an
+# unambiguous whole-token membership test in the awk below.
+completed=" "
+inprogress=" "
+if [ "$mode" = select ]; then
+  state_engine="$script_dir/orchestrate-state.sh"
+  if [ ! -x "$state_engine" ]; then
+    echo "orchestrate-select: derivation engine $state_engine missing or not executable" >&2
+    exit 2
+  fi
+  # Fail closed when the derivation cannot run (no git work tree, missing or
+  # taskless tasks.md, invalid spec id): selecting against absent truth would
+  # risk the double-dispatch this rewire exists to prevent (REQ-B1.2). The
+  # engine's no-remote / degraded-gh paths still exit 0, so only a hard failure
+  # reaches here. Capture the engine's STDOUT (the tagged record stream the
+  # parser below keys on) but let its STDERR pass straight through to ours: that
+  # keeps both the fail-closed reason AND any success-path warning the engine
+  # writes (e.g. a malformed stale_marker_threshold that warns and falls back)
+  # visible to the operator, instead of the capture swallowing them.
+  if ! state_out=$("$state_engine" "$spec_dir"); then
+    echo "orchestrate-select: derivation failed for $spec_dir (cannot select against live truth)" >&2
+    exit 2
+  fi
+  # Read only the evidence-based states (completed / in-progress); ready and
+  # blocked are recomputed below from the locally-parsed dependency graph. The
+  # other tagged stdout records (contradiction / degraded / refused /
+  # malformed-deps) are handled just below or left to the reconcile's and the
+  # guards' concern; the engine's free-form stderr already reached the operator.
+  completed=" $(printf '%s\n' "$state_out" \
+    | awk -F"$TAB" '$1=="task" && $3=="completed"{print $2}' | tr '\n' ' ')"
+  inprogress=" $(printf '%s\n' "$state_out" \
+    | awk -F"$TAB" '$1=="task" && $3=="in-progress"{print $2}' | tr '\n' ' ')"
+  # Surface the evidence-quality diagnostics on the success path so an operator
+  # running selection by hand sees the pick stood on degraded or conflicting
+  # evidence: `degraded` (a configured gh query failed, so the completed set is
+  # git-only) and `contradiction` (git attests completion but the PR is still
+  # open). stdout stays clean — only the selected id is emitted there. Acting on
+  # these stays the reconcile's (T4) and the guards' (T7) concern; the selector
+  # only makes them visible. The noisier `refused` / `malformed-deps` records are
+  # deliberately left to those owners and not forwarded here.
+  printf '%s\n' "$state_out" \
+    | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
+fi
+
+awk -v mode="$mode" -v completed="$completed" -v inprogress="$inprogress" '
   function weight(s) {
     # Effort string -> a numeric weight. "half day" is 0.5; otherwise the
     # leading number ("1", "1.5", "2", "3"); an unrecognized form is 1.
@@ -159,7 +225,11 @@ awk -v mode="$mode" '
     # property of the whole DAG, independent of how much is already done.
     for (t in sec) {
       if (mode != "path") {
-        terminal = (sec[t] == "Completed" || sec[t] == "Out of scope")
+        # A task the derivation reports completed (live truth) carries no
+        # remaining work, so it never lengthens the remaining critical path.
+        # Out of scope is a parked terminal section — a human decision that is
+        # not git-derivable, so it stays section-based.
+        terminal = (index(completed, " " t " ") > 0 || sec[t] == "Out of scope")
         if (terminal) continue
       }
       m = split(deps[t], a, " ")
@@ -201,12 +271,22 @@ awk -v mode="$mode" '
     best_w = -1
     best_order = 0
     for (t in sec) {
+      # Only un-parked candidates: a task parked in Awaiting input / Deferred /
+      # Out of scope (a human decision, not git-derivable) is never auto-picked.
+      # Because dispatch no longer moves sections (Task 3, branch-as-record), an
+      # in-flight task still sits in Forward plan here; live truth excludes it.
       if (sec[t] != "Forward plan") continue
+      # Already done or already in flight by live truth — never re-dispatch, even
+      # when the committed snapshot has not yet caught up (D-3, REQ-B1.2).
+      if (index(completed, " " t " ") > 0) continue
+      if (index(inprogress, " " t " ") > 0) continue
       ready = 1
       m = split(deps[t], a, " ")
       for (i = 1; i <= m; i++) {
         if (a[i] == "") continue
-        if (sec[a[i]] != "Completed") { ready = 0; break }
+        # A dependency counts as satisfied only when the derivation reports it
+        # completed — so a dep done by snapshot-stale evidence still unblocks.
+        if (index(completed, " " a[i] " ") == 0) { ready = 0; break }
       }
       if (!ready) continue
       w = crit(t)

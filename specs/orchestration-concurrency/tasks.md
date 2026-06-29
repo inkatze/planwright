@@ -66,20 +66,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-1 · D-3 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-C1.3
 - **Estimated effort:** 2 days
 
-### Task 5 — Selection reads live truth
-
-- **Deliverables:** `orchestrate-select` rewired to consume Task 1's live
-  derivation (rather than the committed snapshot) when choosing the next ready
-  unit, so an in-flight or already-Completed task is never re-dispatched.
-- **Done when:** with a task mid-flight (branch + marker present, snapshot not yet
-  refreshed), the selector does not re-dispatch it; with a task Completed by
-  reachable-but-snapshot-stale evidence, the selector treats it as done;
-  selection output is unchanged for the clean steady state; tests pass under
-  `mise run check`.
-- **Dependencies:** 1
-- **Citations:** D-3 · REQ-B1.2
-- **Estimated effort:** 1 day
-
 ### Task 6 — Unify the advisory-lock primitive
 
 - **Deliverables:** One advisory-lock primitive shared by `/orchestrate` and the
@@ -188,6 +174,22 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Estimated effort:** 2 days
 - **Status:** PR #84 draft
 - **Last activity:** 2026-06-28
+
+### Task 5 — Selection reads live truth
+
+- **Deliverables:** `orchestrate-select` rewired to consume Task 1's live
+  derivation (rather than the committed snapshot) when choosing the next ready
+  unit, so an in-flight or already-Completed task is never re-dispatched.
+- **Done when:** with a task mid-flight (branch + marker present, snapshot not yet
+  refreshed), the selector does not re-dispatch it; with a task Completed by
+  reachable-but-snapshot-stale evidence, the selector treats it as done;
+  selection output is unchanged for the clean steady state; tests pass under
+  `mise run check`.
+- **Dependencies:** 1
+- **Citations:** D-3 · REQ-B1.2
+- **Estimated effort:** 1 day
+- **Status:** PR #90 draft
+- **Last activity:** 2026-06-29
 
 ## Awaiting input
 
