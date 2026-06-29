@@ -124,6 +124,17 @@ if [ -z "$base" ]; then
     base=HEAD
   fi
 fi
+# The base reaches git as a ref argument (log / rev-list / rev-parse). It is
+# operator-set via PLANWRIGHT_BASE_REF, but a value beginning with '-' would be
+# read as a git option (argument injection), so validate against a conservative
+# ref charset and fail closed on anything outside it (REQ-F1.1 framework-script
+# safety). The defaults (main / origin/main / HEAD) and normal ref names pass.
+case "$base" in
+  -* | *[!a-zA-Z0-9/._-]*)
+    echo "orchestrate-state: refusing unsafe base ref '$base'" >&2
+    exit 2
+    ;;
+esac
 
 # Marker staleness threshold (minutes), via the config reader (defaults + the
 # overlay chain). An absent key keeps the documented safe default; a malformed
@@ -244,10 +255,8 @@ if [ -z "$tasks" ]; then
   exit 2
 fi
 
-# Branch-reachability helpers.
+# Branch-reachability helper.
 branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1"; }
-is_ancestor() { git -C "$repo_root" merge-base --is-ancestor "$1" "$2" 2>/dev/null; }
-commits_beyond() { [ "$(git -C "$repo_root" rev-list --count "$2..$1" 2>/dev/null || echo 0)" -gt 0 ]; }
 
 while IFS="$TAB" read -r id deps; do
   [ -n "$id" ] || continue
@@ -256,10 +265,22 @@ while IFS="$TAB" read -r id deps; do
   br_merged=0
   br_commits=0
   if branch_exists "$branch"; then
-    if is_ancestor "$branch" "$base"; then
-      br_merged=1
-    elif commits_beyond "$branch" "$base"; then
+    ahead=$(git -C "$repo_root" rev-list --count "$base..$branch" 2>/dev/null || echo 0)
+    if [ "$ahead" -gt 0 ]; then
+      # Unique commits not yet in base → in-flight work.
       br_commits=1
+    else
+      # Tip reachable from base. A tip strictly behind base is merged work; a
+      # tip sitting exactly at base is a zero-commit dispatch branch (the
+      # branch-create → first-commit window, D-3) — not completion evidence,
+      # so the marker/trailer/deps decide. (A reachable tip equal to base is
+      # also how a fast-forward merge looks; the trailer carries completion
+      # there, REQ-C1.1.)
+      btip=$(git -C "$repo_root" rev-parse --verify --quiet "$branch" 2>/dev/null || echo "")
+      basetip=$(git -C "$repo_root" rev-parse --verify --quiet "$base" 2>/dev/null || echo "")
+      if [ -n "$btip" ] && [ -n "$basetip" ] && [ "$btip" != "$basetip" ]; then
+        br_merged=1
+      fi
     fi
   fi
 
@@ -279,7 +300,10 @@ while IFS="$TAB" read -r id deps; do
   # it). A stale or malformed marker holds nothing — the task reverts to ready.
   marker_fresh=0
   marker_file="$marker_dir/$id"
-  if [ -f "$marker_file" ]; then
+  # A symlink at the marker path is never a legitimate marker (the writer emits
+  # a regular file); refuse it rather than follow it outside the tree (REQ-F1.1
+  # path containment, closing the read-time symlink swap).
+  if [ -f "$marker_file" ] && [ ! -L "$marker_file" ]; then
     # Containment: the resolved marker must sit under its base dir.
     base_real=$(cd "$marker_dir" 2>/dev/null && pwd -P) || base_real=""
     file_real=$(cd "$(dirname "$marker_file")" 2>/dev/null && pwd -P) || file_real=""
@@ -288,8 +312,16 @@ while IFS="$TAB" read -r id deps; do
       case "$mts" in
         '' | *[!0-9]*) mts="" ;; # malformed timestamp → no hold (fail safe)
       esac
-      if [ -n "$mts" ] && [ "$((now - mts))" -le "$threshold_sec" ]; then
-        marker_fresh=1
+      if [ -n "$mts" ]; then
+        # Fresh iff the marker time is within ±threshold of now. A small forward
+        # clock skew (marker slightly in the future) still reads fresh; a marker
+        # far in the future is anomalous and, like a far-past one, holds nothing
+        # — the fail-safe bias (the task reverts to Ready, re-dispatchable; the
+        # lock + live-truth selection guard double-dispatch separately).
+        delta=$((now - mts))
+        if [ "${delta#-}" -le "$threshold_sec" ]; then
+          marker_fresh=1
+        fi
       fi
     fi
   fi

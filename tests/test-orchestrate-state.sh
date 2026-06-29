@@ -319,6 +319,77 @@ printf '%s\n' "$hout" | grep -q "^refused${TAB}Planwright-Task" \
 echo "ok: REQ-F1.1 hostile trailer value refused and never used"
 
 # ---------------------------------------------------------------------------
+# 6b. REQ-A1.1 / D-3 — a zero-commit dispatch branch is NOT completion evidence.
+#     The branch is created as the first durable act of dispatch; until it
+#     carries a commit it is the branch-create → first-commit window the marker
+#     covers. A tip sitting exactly at base is trivially an ancestor of base, so
+#     it must NOT derive completed — the marker (fresh → in-progress) or deps
+#     (no marker → ready) decide.
+# ---------------------------------------------------------------------------
+zrepo="$tmp/zerocommit"
+zspec="$zrepo/specs/demo"
+mkdir -p "$zspec"
+gitc_init "$zrepo"
+cat >"$zspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — zero-commit branch, no marker
+- **Dependencies:** none
+### Task 2 — zero-commit branch, fresh marker
+- **Dependencies:** none
+EOF
+gitc "$zrepo" add -A
+gitc "$zrepo" commit -q -m "base"
+gitc "$zrepo" branch planwright/demo/task-1 # created, no commits yet
+gitc "$zrepo" branch planwright/demo/task-2
+zmdir="$zspec/.orchestrate/markers"
+mkdir -p "$zmdir"
+date +%s >"$zmdir/2" # fresh marker covers the window
+zout=$("$STATE" "$zspec") || fail "A1.1: engine exited non-zero on a zero-commit branch"
+assert_state "$zout" 1 ready "A1.1: zero-commit branch + no marker → ready (not completed)"
+assert_state "$zout" 2 in-progress "A1.1: zero-commit branch + fresh marker → in-progress"
+echo "ok: REQ-A1.1/D-3 zero-commit dispatch branch is not completion evidence"
+
+# ---------------------------------------------------------------------------
+# 6c. marker robustness — a far-future marker (clock skew anomaly) does NOT
+#     hold the task (fail-safe), and a symlink at the marker path is refused.
+# ---------------------------------------------------------------------------
+mrepo="$tmp/markerrobust"
+mspec="$mrepo/specs/demo"
+mkdir -p "$mspec"
+gitc_init "$mrepo"
+cat >"$mspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — far-future marker (anomalous)
+- **Dependencies:** none
+### Task 2 — symlink at the marker path
+- **Dependencies:** none
+### Task 3 — small-skew future marker (still fresh)
+- **Dependencies:** none
+EOF
+gitc "$mrepo" add -A
+gitc "$mrepo" commit -q -m "base"
+mrdir="$mspec/.orchestrate/markers"
+mkdir -p "$mrdir"
+echo $(($(date +%s) + 999999999)) >"$mrdir/1" # far in the future → not a hold
+ln -s /etc/hostname "$mrdir/2"                # a symlink is never a marker
+echo $(($(date +%s) + 30)) >"$mrdir/3"        # 30s skew, within threshold
+mout=$("$STATE" "$mspec") || fail "marker-robust: engine exited non-zero"
+assert_state "$mout" 1 ready "far-future marker is anomalous → not held (ready)"
+assert_state "$mout" 2 ready "symlink marker refused → not held (ready)"
+assert_state "$mout" 3 in-progress "small forward clock skew still reads fresh"
+echo "ok: marker robustness (future-skew + symlink) holds the fail-safe"
+
+# ---------------------------------------------------------------------------
+# 6d. REQ-F1.1 — an unsafe PLANWRIGHT_BASE_REF (option-injection) is refused.
+# ---------------------------------------------------------------------------
+rc=0
+PLANWRIGHT_BASE_REF="--output=/tmp/x" "$STATE" "$mspec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "F1.1 base ref: exit $rc, expected 2 for an option-like base"
+echo "ok: REQ-F1.1 unsafe base ref refused (fail closed)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
