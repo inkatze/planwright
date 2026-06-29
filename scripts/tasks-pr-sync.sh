@@ -434,8 +434,15 @@ write_status_header() {
 # are left untouched (REQ-A1.5 "applies only to bundles not already Done"; the
 # reopen Done->Draft is the human's, REQ-A1.6). requirements.md is the
 # authoritative Status home (spec-format.md): its value gates the reconcile and
-# the derived value is mirrored to all four. Best-effort: a failure is logged and
-# does not abort placement (status and placement are independent writes).
+# the derived value is mirrored to all four. Best-effort and never aborts
+# placement (status and placement are independent writes): a per-file mirror
+# failure (write_status_header) is logged there and propagates a non-zero return,
+# so the caller logs "status reconcile incomplete". The gate and derivation
+# guards — a status outside the reconcile-owned {Ready, Active} set, an
+# absent/empty requirements.md or state map, or a derivation that yields no
+# usable {Ready, Active, Done} value — are intentional fail-safe no-ops that
+# leave every header untouched, not failures, so they return 0 without a
+# diagnostic.
 do_status() {
   dst_dir=$1
   dst_map=$2
