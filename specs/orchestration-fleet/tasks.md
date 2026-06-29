@@ -1,6 +1,6 @@
 # Orchestration Fleet — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -9,7 +9,7 @@ Dependency view (derived; the `Dependencies:` lines are authoritative). Task 1
 everything else builds on. Task 8 (the autonomous-safe-decision policy) is a
 safety artifact that gates the unattended meta-tower, so it carries an explicit
 edge from Task 6. The two seams of facet E are split: Task 12 builds the
-attention/notification substrate (decision queue, portable renderer,
+attention/notification substrate (decision queue, portable status renderer,
 heartbeat-in-core, notification seam) and Task 10 surfaces it as the approachable
 default UX. The facets sit on the foundation:
 
@@ -315,7 +315,7 @@ space).
   **Gate:** a concrete adopter need for a specific non-tmux backend is observed in
   the drain loop. Citations: D-2 · REQ-B1.3.
 - **An editor-rendered attention surface (Cursor-style).** Task 12 ships the
-  portable renderer + decision-queue model and Task 10 the persona mapping that
+  portable status renderer + decision-queue model and Task 10 the persona mapping that
   names the editor-feedback persona; a concrete editor integration (the editor
   rendering the queue + diffs with a steer-in-flight affordance) is built to a
   concrete adopter need. All durable fleet state is files, so this is a renderer,

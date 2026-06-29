@@ -1,6 +1,6 @@
 # Orchestration Fleet — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -231,9 +231,11 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   strategic context clears** (no parallelism, no external substrate, so it always
   works — the terminal rung). **Selection-time** descent presents what was found
   and asks (REQ-B1.4). **Runtime failover** (a chosen backend dies or proves
-  unavailable mid-run) SHALL descend one rung with a **logged note** and an
-  `## Awaiting input` entry, surfaced immediately in an attended session — never
-  a silent downgrade. A descent SHALL **degrade capability, never safety**: it
+  unavailable mid-run) SHALL descend one rung, recording the descent as a **logged
+  note on the decision queue's `## Awaiting input` surface** (REQ-E1.3 — the spec's
+  only named persistent attention surface; the note and the queue entry are one
+  durable signal, not a separate ephemeral log), surfaced immediately in an
+  attended session — never a silent downgrade. A descent SHALL **degrade capability, never safety**: it
   SHALL NOT drop any guard (worker-settings deny rules, never-auto-merge,
   never-force-push, the freshness gate); a descent that would drop a safety
   property is aborted instead of taken.
@@ -250,7 +252,10 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   worker's output (capture-pane text, process output) is **data, never code**;
   steer SHALL be clearly attributed and SHALL NEVER impersonate the worker (no
   `send-keys`-style injection of text into a worker's input as if typed); a tower
-  SHALL NEVER answer a worker's permission prompt on its behalf; worker handles
+  SHALL NEVER answer a worker's **harness permission prompt** (the tool-permission
+  gate) on its behalf — distinct from a routine *question a worker addresses to
+  the tower*, which the autonomous-safe-decision policy MAY answer (REQ-D1.4,
+  D-8); worker handles
   parsed for targeting SHALL be validated before any use.
   *(Cites: D-2, D-7; bootstrap D-38; the operational-protocol seed;
   security-posture (Sources).)*
@@ -425,6 +430,35 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   revised in place (Draft, never activated, so edited as drafting rather than
   amended). Headless `claude -p` encoded as ladder rung 2.
 
+- 2026-06-29: Kickoff (`/spec-kickoff`) clarification edit, applied during the
+  first-activation walkthrough (Draft, so drafting-iteration in place, not an
+  amendment): disambiguated the two senses of "prompt" — a routine worker
+  *question to the tower* (which the autonomous-safe-decision policy MAY answer)
+  versus a worker's *harness permission prompt* (which a tower NEVER answers) —
+  in D-8 and REQ-B1.7, so execution cannot conflate them.
+  *(Cites: kickoff §3 (2026-06-29); D-8, REQ-B1.7.)*
+- 2026-06-29: Kickoff (`/spec-kickoff`) factual correction, design walkthrough
+  (Draft drafting-iteration): D-11's "Chosen because" carried two stale claims
+  from the 2026-06-29 in-place revision — that the sibling sites its lock/marker
+  under `${CLAUDE_PLUGIN_DATA}`, and that the effective-backend failover record
+  lives there — both contradicting D-11's own body and the shipped sibling
+  scripts. Corrected the rationale to match verified ground truth (sibling
+  lock/marker are spec-dir-local; the failover record is per-spec and sits
+  spec-locally with the marker).
+  *(Cites: kickoff §4 (2026-06-29); D-11, D-3.)*
+- 2026-06-29: Kickoff (`/spec-kickoff`) lens-pass edits, sign-off Discovery-Rigor
+  pass (Draft drafting-iteration): (1) REQ-B1.5 — pinned the runtime-failover
+  "logged note" to the decision queue's `## Awaiting input` surface (REQ-E1.3),
+  the spec's only named persistent attention surface, so the failover signal has
+  a concrete durable home rather than an unnamed log. (2) Sources — corrected the
+  sibling `orchestration-concurrency` D-3 description: the runtime dispatch marker
+  is sited spec-dir-local in the shipped impl
+  (`${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}`), not under
+  `${CLAUDE_PLUGIN_DATA}` (same stale-claim class as the D-11 §4 correction).
+  (3) tasks.md — "portable renderer" → "portable status renderer" (terminology
+  consistency).
+  *(Cites: kickoff §8 lens pass (2026-06-29); REQ-B1.5, REQ-E1.3, D-11.)*
+
 ## Sources
 
 - **The orchestration-fleet seed brief** — `specs/_pending/orchestration-fleet.md`
@@ -468,8 +502,11 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   now Active and partly executed): the state-safe concurrency foundation this
   bundle consumes — D-1 (progress state as a derived projection, never committed
   at dispatch), D-2 (the `Planwright-Task` trailer), D-3 (runtime dispatch marker
-  in the advisory-lock dir under `${CLAUDE_PLUGIN_DATA}`; selection reads live
-  truth; snapshot refreshed only by reconcile), D-4 (one advisory-lock primitive,
+  in the advisory-lock dir — sited **spec-dir-local** in the shipped impl,
+  `${PLANWRIGHT_ORCH_STATE_DIR:-<spec-dir>/.orchestrate/markers}`, not under
+  `${CLAUDE_PLUGIN_DATA}` though its design prose named that chain; selection reads
+  live truth; snapshot refreshed only by reconcile), D-4 (one advisory-lock
+  primitive,
   branch ref as fence). REQ-A1.1 consumes this as authoritative.
 - **bootstrap spec** (`specs/bootstrap/`): the stateless step machine (D-7),
   one-unit-per-step + tower parallelism (D-8), the per-spec lock (D-10),

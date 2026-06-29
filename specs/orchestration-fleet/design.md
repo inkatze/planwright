@@ -1,6 +1,6 @@
 # Orchestration Fleet — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -276,7 +276,12 @@ tower as a *mapping onto the existing finding-categorization gate*, not a new
 taxonomy. "May decide unattended" = the act-then-review buckets (Auto-applicable,
 Agent-resolvable, Needs-sign-off applied-on-branch-with-checklist) plus routine
 operational hygiene (scoped cleanups of merged workers, answering routine worker
-prompts pre-approved by the worker-settings profile). "Must escalate / pause" =
+**questions to the tower** — continue-prompts, hygiene confirmations — that the
+worker-settings profile pre-approves). This is distinct from a worker's **harness
+permission prompt** (the tool-permission gate), which a tower NEVER answers
+(REQ-B1.7, D-7): the two senses of "prompt" do not overlap — the tower may answer
+a routine *question the worker addresses to it*, never the *harness's
+authorization gate*. "Must escalate / pause" =
 the existing hard-pause zones (security-sensitive code, migrations/destructive
 ops, CI config, lockfiles, secrets) and irreducible Needs-human-judgment forks
 (design forks, spec drift, sign-off-class decisions the human reserves),
@@ -397,13 +402,18 @@ in both repo and plugin delivery. The per-spec effective-backend failover record
   lifted into core under this same durable home (D-13).
 
 **Chosen because:** `${CLAUDE_PLUGIN_DATA}` is the already-researched durable,
-namespace-separated home for framework runtime state, the sibling already sites
-its dispatch marker and lock there, and co-siting fleet-coordination state under
-the same root (a distinct sibling directory) keeps the two specs coherent on one
-location — the coordination this whole bundle is about, applied to its own
-artifacts. The failover record living here (not in `tasks.md`) is what lets a
-reconcile sweep see the effective backend without violating the sibling's
-derived-projection contract (D-1).
+namespace-separated home for framework runtime state, and the fleet's cross-spec
+registry genuinely needs a cross-spec home — it spans every supervised spec, so
+it cannot live under any one spec dir the way the sibling's per-spec lock and
+marker do. The sibling's lock and marker are correctly **spec-dir-local**
+(`<spec-dir>/.orchestrate.lock`, `<spec-dir>/.orchestrate/markers/`, confirmed
+against the shipped `orchestrate-lock.sh` / `orchestrate-marker.sh`), *not* under
+`${CLAUDE_PLUGIN_DATA}`; the two homes are deliberately different because the
+state they hold has different scope (per-spec vs cross-spec). The per-spec
+effective-backend **failover record** (D-3) is per-spec, so it sits spec-locally
+with the sibling's marker, **not** in this cross-spec store — and kept out of
+`tasks.md`, which is what lets a reconcile sweep see the effective backend
+without violating the sibling's derived-projection contract (D-1).
 
 ### D-12: Two separable seams — execution substrate vs attention surface  (N)
 
