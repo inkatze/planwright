@@ -286,6 +286,38 @@ assert_exit "default no-arg scan of repo bundles passes" 0 $?
 run "$tmp/does-not-exist.md"
 assert_exit "missing file argument is a usage error" 2 "$code"
 
+# --- 12b. Usage-error exit (2) is sticky over a later corruption (1) ---------
+# A missing/unreadable file sets the usage-error code; a later corrupt file must
+# not silently downgrade the run to exit 1. The usage error means an input could
+# not be processed at all, so it dominates the corruption-found code.
+make_clean "$tmp/c2-sticky.md"
+sed 's/Completed · PR #1 merged 2026-06-01/implementing/' "$tmp/clean.md" >"$tmp/c2-sticky.md"
+run "$tmp/does-not-exist.md" "$tmp/c2-sticky.md"
+assert_exit "usage-error exit (2) stays sticky over a later finding" 2 "$code"
+
+# --- 12c. CRLF snapshots parse like LF ones (trailing CR is not data) --------
+# A well-formed snapshot saved with CRLF line endings must still pass: the
+# trailing \r must be stripped before section/heading/Status matching, or every
+# task is falsely reported as outside a recognized state section.
+make_clean "$tmp/clean-lf.md"
+awk '{ printf "%s\r\n", $0 }' "$tmp/clean-lf.md" >"$tmp/clean-crlf.md"
+run "$tmp/clean-crlf.md"
+assert_exit "well-formed CRLF snapshot passes" 0 "$code"
+
+# --- 12d. Control characters in file content do not reach the diagnostic -----
+# tasks.md content is untrusted repo/PR input; the echo discipline (REQ-H1.3,
+# mirrored across the sibling guards) requires stripping control characters
+# before echoing extracted file content into a finding message.
+printf '## Completed\n\n### Task \007BEL — Bad heading\n' >"$tmp/ctrl.md"
+run "$tmp/ctrl.md"
+assert_exit "control-char malformed heading still fails" 1 "$code"
+if printf '%s' "$out" | tr -d '\011\012' | LC_ALL=C grep -q '[[:cntrl:]]'; then
+  echo "FAIL: control char leaked into check-ledger diagnostic output" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: control char stripped from malformed-heading diagnostic"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1

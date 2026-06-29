@@ -106,6 +106,12 @@ for f in "${files[@]}"; do
       printf "%s:%d: %s\n", FILE, line, msg
       nfind++
     }
+    # Echo discipline (REQ-H1.3, mirrored across the sibling guards): tasks.md
+    # content is untrusted repo/PR input, so strip control characters before
+    # embedding extracted file content in a finding message. Under LC_ALL=C the
+    # cntrl class is C0 + DEL only, so legitimate multibyte UTF-8 (the em-dash in
+    # a heading) is preserved while a stray BEL/ESC/CR cannot reach CI logs.
+    function safe(s) { gsub(/[[:cntrl:]]/, "", s); return s }
     # Evaluate the block that just ended (placement vs its own Status, and the
     # >1-Status lint). Called on each new heading and at END.
     function finalize_block(   c) {
@@ -117,7 +123,7 @@ for f in "${files[@]}"; do
       if (!is_state_section(block_section)) {
         finding(block_line, \
           sprintf("task %s block is outside any recognized state section (under \"%s\")", \
-            block_id, block_section == "" ? "(no section)" : block_section))
+            block_id, block_section == "" ? "(no section)" : safe(block_section)))
         in_block = 0
         return
       }
@@ -151,6 +157,12 @@ for f in "${files[@]}"; do
       in_block = 0
     }
 
+    # Strip a trailing CR first so a CRLF-saved snapshot parses like an LF one
+    # (mirrors scripts/drain-gates.sh); otherwise the \r rides into the section
+    # name and is_state_section() rejects every block. Runs before every rule
+    # below because awk evaluates rules in source order per line.
+    { sub(/\r$/, "") }
+
     # H2 section heading.
     /^## / {
       finalize_block()
@@ -164,7 +176,7 @@ for f in "${files[@]}"; do
     /^### / {
       finalize_block()
       if ($0 !~ /^### Task / || $0 !~ /^### Task [0-9]+(\.[0-9]+)? — ./) {
-        finding(NR, sprintf("malformed task heading (expected \"### Task <id> — <title>\"): %s", $0))
+        finding(NR, sprintf("malformed task heading (expected \"### Task <id> — <title>\"): %s", safe($0)))
         in_block = 0
         next
       }
@@ -200,7 +212,7 @@ for f in "${files[@]}"; do
       finalize_block()
       if (nfind > 0) exit 1
     }
-  ' "$f" || status=1
+  ' "$f" || { [ "$status" -eq 2 ] || status=1; }
 done
 
 exit "$status"
