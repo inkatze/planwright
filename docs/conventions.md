@@ -32,25 +32,43 @@ carries spec authoring (`/spec-draft` creates it; `/spec-kickoff` pushes it
 and opens the spec's draft PR). It is not a task branch: the `tasks-pr-sync`
 hook no-ops on it by name.
 
-### The `tasks-pr-sync` hook contract (REQ-K1.2)
+### The `tasks-pr-sync` hook contract (REQ-K1.2, REQ-B1.1)
 
 On `gh pr create` / `gh pr merge` for a convention-named branch, the hook
-moves the matching task block(s) in the spec's `tasks.md`:
+triggers a **level-triggered reconcile** of that spec's `tasks.md`: it is the
+**sole writer of section placement** and recomputes the placement of every task
+block from the derivation engine (`scripts/orchestrate-state.sh`), not just the
+one task named by the PR event. Each `### Task <id>` block is relocated by its
+derived state:
 
-| PR event | Target section | Status annotation |
-| --- | --- | --- |
-| `gh pr create` | `## In progress` | `- **Status:** PR #<n> draft` |
-| `gh pr merge` | `## Completed` | `- **Status:** Completed · PR #<n> merged <date>` |
+| Derived state | Target section |
+| --- | --- |
+| `completed` (merged PR, merge-reachable branch, or a `Planwright-Task` trailer) | `## Completed` |
+| `in-progress` (open PR, unmerged branch with commits, or a fresh dispatch marker) | `## In progress` |
+| `ready` / `blocked` (by dependency state) | `## Forward plan` |
 
-The block moves whole: definition content is preserved byte-for-byte, so a
-hook move never changes the spec's content anchor (REQ-F1.9). Worker
-sessions inside worktrees write the canonical `tasks.md` in the primary
-checkout, under the spec's advisory lock; a busy lock is a clean no-op that
-`/orchestrate --bookkeeping` reconciles. Both parsed segments are validated
-against the grammars above and the resolved path is containment-checked
-under `<repo>/specs/` before any write — a branch that fails validation
-(wrong charset, `..`, extra path separators, metacharacters) is a clean
-no-op and never reaches a filesystem path.
+The human-owned sections (`## Awaiting input`, `## Deferred`, `## Out of scope`)
+are **sticky**: their bodies are preserved verbatim and their blocks are never
+relocated by the derivation. The reconcile writes **placement only** — the
+per-block `Status` / `Last activity` annotations ride along untouched (those are
+`/execute-task`'s to write, and are excluded from the content anchor), so a
+reconcile never changes the spec's content anchor (REQ-F1.9). It is
+**idempotent**: a second run against unchanged truth is a byte-identical no-op,
+and a scrambled, flattened, or conflict-marked snapshot reconciles to the same
+canonical placement (a git-conflicted `tasks.md` is regenerated from the
+derivation, never resolved by `ours`/`theirs`/`union`). The rewrite is atomic
+(a same-directory temp renamed into place).
+
+The same script also exposes a direct form, `tasks-pr-sync.sh reconcile
+<spec-dir>`, that `/orchestrate --bookkeeping` and the tests drive. Worker
+sessions inside worktrees reconcile the canonical `tasks.md` in the primary
+checkout, under the spec's advisory lock (the one shared
+`scripts/orchestrate-lock.sh` primitive); a busy lock is a clean no-op that
+`/orchestrate --bookkeeping` reconciles. The parsed `<spec>` / `<id>` segments
+are validated against the grammars above and the resolved path is
+containment-checked under `<repo>/specs/` before any write — a branch that fails
+validation (wrong charset, `..`, extra path separators, metacharacters) is a
+clean no-op and never reaches a filesystem path.
 
 ## Worktree placement (D-37)
 
