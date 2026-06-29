@@ -726,4 +726,48 @@ reconcile "$repo" specs/demo || fail "sticky-completed reconcile: non-zero exit"
   || fail "sticky-completed: a completed-evidence task was pulled out of Awaiting input"
 echo "ok: Awaiting input is fully sticky even under completed evidence"
 
+# ===========================================================================
+# 15. Concurrent reconcile (REQ-B1.1 atomic write, Done-when "a racy stale
+#     lock-break cannot tear tasks.md under concurrent reconcile"). Test 11
+#     audits the atomic-write SOURCE; this is the behavioral complement: fire
+#     several reconciles at the same spec at once and assert the settled file is
+#     the canonical placement, byte-identical to a lone run, with no torn output
+#     and no temp left behind. The per-spec lock serializes the writers and the
+#     same-dir-temp-then-rename keeps every observer's view whole; because the
+#     placement is idempotent, whichever writer wins, the final bytes are the
+#     same — so the assertions on the settled state are deterministic, not racy.
+repo=$tmp/r15
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+# Capture the un-reconciled fixture (every task under ## Forward plan, the human
+# sections intact), then the lone-run canonical, then restore the fixture so the
+# concurrent run has real convergence work rather than an instant no-op.
+pristine15=$tmp/pristine15.md
+cp "$tasks" "$pristine15"
+ref15=$tmp/ref15.md
+reconcile "$repo" specs/demo || fail "concurrent: reference reconcile non-zero"
+cp "$tasks" "$ref15"
+cmp -s "$pristine15" "$ref15" && fail "concurrent: fixture already canonical (test would be a vacuous no-op)"
+cp "$pristine15" "$tasks"
+# Fire N reconciles concurrently; wait for all to settle before asserting.
+pids=""
+for _ in 1 2 3 4 5 6; do
+  (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo >/dev/null 2>&1) &
+  pids="$pids $!"
+done
+crc=0
+for p in $pids; do
+  wait "$p" || crc=1
+done
+[ "$crc" = 0 ] || fail "concurrent: a reconcile exited non-zero under contention"
+cmp -s "$tasks" "$ref15" \
+  || {
+    diff "$ref15" "$tasks" || true
+    fail "concurrent: settled tasks.md is not the canonical placement (torn or lost-update)"
+  }
+ls "$repo/specs/demo"/.tasks-pr-sync.* >/dev/null 2>&1 \
+  && fail "concurrent: a temp file was left behind"
+[ ! -d "$repo/specs/demo/.orchestrate.lock" ] || fail "concurrent: the advisory lock was not released"
+echo "ok: concurrent reconciles settle on the canonical placement, no torn write, no temp/lock left"
+
 echo "PASS: all tasks-pr-sync tests passed"
