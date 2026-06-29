@@ -140,7 +140,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 2 — Status-aware validator recognizes Ready (errors-block)
 
-- **Status:** implementing
+- **Status:** PR #87 draft
 - **Last activity:** 2026-06-29
 - **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
   status (status enum) and `Ready` findings map to errors-block severity alongside
