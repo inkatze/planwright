@@ -10,7 +10,8 @@
 #   3.  Four-file presence: a missing file is a status-scoped finding.
 #   4.  Header block: missing Status warns and defaults to Draft; an unknown
 #       status is an error; Superseded requires `Superseded-by:`; status
-#       mirrors across the four files are checked.
+#       mirrors across the four files are checked. One of the six statuses
+#       (Draft, Ready, Active, Done, Retired, Superseded) is recognized.
 #   5.  Format-version keying: missing version is a gap; an undeclared
 #       (unsupported) version is a clear error, never silently re-keyed.
 #   6.  REQ convention: prose-only bullets flagged; citation per live REQ
@@ -34,6 +35,12 @@
 #       the baseline must be named in a dated Changelog entry (status-scoped:
 #       error on Active, warning on Draft); a supersede already in the
 #       baseline, or one named in the changelog, is not flagged.
+#   14. Ready status (REQ-B1.2): a Ready bundle is recognized (not flagged
+#       unknown-status); its findings are errors that block execution, like
+#       Active and Done; the Draft path stays warnings.
+#   15. Ready transitions (REQ-B1.3): Draft→Ready, Ready→Active, Ready→Done,
+#       Active→Done, and Done→Draft are accepted; a transition out of a
+#       terminal status (Retired/Superseded) is still rejected.
 #
 # Runs standalone: ./tests/test-spec-validate.sh
 set -eu
@@ -879,6 +886,72 @@ edit "$repo6/specs/myspec/requirements.md" 's|^- REQ-X1.2 placeholder, undated\.
   retired REQ-X1.2 in favor of REQ-X1.3.|'
 run_v 0 --baseline HEAD "$repo6/specs"
 has "0 error(s), 0 warning(s)"
+
+# --- 14. Ready status: recognized, errors-block like Active (REQ-B1.2) ---
+# A clean Ready bundle passes: Ready is a known status, not flagged unknown.
+write_bundle "$root/fixture" Ready
+run_v 0 "$root"
+has "0 error(s), 0 warning(s)"
+
+# The same structural gap that only warns on Draft is an error on Ready,
+# exactly as on Active: Ready is signed-off live content (D-25 severity). The
+# unknown-status finding must not appear (Ready is recognized).
+write_bundle "$root/fixture" Ready
+edit "$root/fixture/tasks.md" '/^- \*\*Done when:\*\*/d'
+run_v 1 "$root"
+has "ERROR fixture: Task 1 missing field: Done when"
+lacks "unknown status"
+
+# The Draft path is unchanged: the same gap stays a warning.
+write_bundle "$root/fixture" Draft
+edit "$root/fixture/tasks.md" '/^- \*\*Done when:\*\*/d'
+run_v 0 "$root"
+has "WARN"
+has "Done when"
+lacks "ERROR"
+
+# --- 15. Status transitions involving Ready (REQ-B1.3) ---
+# Draft→Ready, Ready→Active, Ready→Done, Active→Done, and Done→Draft are all
+# accepted (no positive transition is rejected); terminal-state discipline is
+# preserved. Each case is a baseline-diff over a throwaway repo: commit the
+# `from` status, edit the four files to the `to` status, validate against the
+# committed baseline.
+treq="$tmp/repo-trans"
+# Fresh repo per case: consecutive cases can share a `from` status, so a
+# reused repo would commit an identical baseline twice and abort on the
+# nothing-to-commit no-op. Isolation keeps each baseline self-contained.
+transition() {
+  from=$1
+  to=$2
+  expect=$3
+  rm -rf "$treq"
+  mkdir -p "$treq"
+  git -C "$treq" init -q
+  write_bundle "$treq/specs/myspec" "$from"
+  git -C "$treq" add -A
+  git -C "$treq" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm "$from"
+  for f in requirements design tasks test-spec; do
+    edit "$treq/specs/myspec/$f.md" "s/^\\*\\*Status:\\*\\* $from\$/**Status:** $to/"
+  done
+  run_v "$expect" --baseline HEAD "$treq/specs"
+}
+
+transition Draft Ready 0
+has "0 error(s), 0 warning(s)"
+transition Ready Active 0
+has "0 error(s), 0 warning(s)"
+transition Ready Done 0
+has "0 error(s), 0 warning(s)"
+transition Active Done 0
+has "0 error(s), 0 warning(s)"
+transition Done Draft 0
+has "0 error(s), 0 warning(s)"
+
+# Terminal-state discipline is preserved: a transition out of Superseded is
+# still a hard error, even with Ready now in the lifecycle.
+transition Superseded Ready 1
+has "ERROR"
+has "terminal"
 
 # --- usage errors ---
 run_v 2
