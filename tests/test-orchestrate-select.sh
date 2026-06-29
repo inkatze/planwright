@@ -99,6 +99,15 @@ inflight_branch() {
   gitc "$1" checkout -q main
 }
 
+# make_failing_gh_stub <dir> — drop a `gh` on PATH that always errors (mirrors
+# the engine test). With a remote configured, this drives the engine's
+# configured-but-failing-gh path, which emits a `degraded` record.
+make_failing_gh_stub() {
+  mkdir -p "$1"
+  printf '#!/bin/sh\necho "gh: simulated failure" >&2\nexit 1\n' >"$1/gh"
+  chmod +x "$1/gh"
+}
+
 # ---------------------------------------------------------------------------
 # 1. Critical-path-first: a ready task heading a long dependent chain beats a
 #    ready leaf. Task 1 is COMPLETED (trailer); 2 (deps 1, heads 2->3->4) and 5
@@ -541,13 +550,26 @@ parse_deps_assert() {
     done
   } >"$pd_dir/tasks.md"
   seal_base "$pd_repo"
-  # Completed helpers get a trailer; in-progress helpers get a marker instead.
+  # Completed helpers share ONE commit whose trailer block carries every
+  # Planwright-Task trailer (the engine reads all reachable trailers, and
+  # multiple trailers in a single message's trailer block all register), so N
+  # completions cost one commit instead of N — keeping a 31-case suite from
+  # racking up hundreds of commits. In-progress helpers get a marker (no
+  # trailer) instead, so a dep on one blocks the candidate.
+  pd_done=""
   for pd_i in 1 2 3 4 5 6 7 8 9; do
     case "$pd_inprog" in
       *" $pd_i "*) inflight_marker "$pd_dir" "$pd_i" ;;
-      *) done_trailer "$pd_repo" "$pd_spec" "$pd_i" ;;
+      *) pd_done="$pd_done $pd_i" ;;
     esac
   done
+  if [ -n "$pd_done" ]; then
+    pd_trailers=$(for pd_i in $pd_done; do
+      printf 'Planwright-Task: %s/%s\n' "$pd_spec" "$pd_i"
+    done)
+    gitc "$pd_repo" commit -q --allow-empty \
+      -m "complete helper tasks" -m "$pd_trailers"
+  fi
 
   pd_rc=0
   pd_got=$(/bin/bash "$SEL" "$pd_dir" 2>/dev/null) || pd_rc=$?
@@ -874,5 +896,42 @@ rc=0
 /bin/bash "$SEL" "$dwrapbspec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "wrap-firstline: first-line dep Task 2 in flight must block task 70 (exit $rc, expected 1)"
 echo "ok: first-line deps on a wrapped bullet are honored (Task 2 blocks)"
+
+# ---------------------------------------------------------------------------
+# 17. Evidence-quality diagnostics surface on the success path (Task 5 review).
+# The engine's `degraded` record (a configured gh query failed → selection ran
+# git-only) is forwarded to STDERR so an operator sees the pick stood on
+# degraded evidence, while STDOUT stays clean (just the selected id). Acting on
+# the record stays the reconcile's (T4) and guards' (T7) concern; the selector
+# only makes the safety-relevant subset visible (refused / malformed-deps are
+# intentionally NOT forwarded, to keep the selection path quiet).
+# ---------------------------------------------------------------------------
+ddeg="$tmp/degraded"
+ddegspec=$(new_spec "$ddeg" degradedspec)
+cat >"$ddegspec/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 1 — root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+seal_base "$ddeg"
+# A remote + a failing gh stub on PATH makes the engine emit `degraded`.
+gitc "$ddeg" remote add origin https://example.invalid/demo.git
+degstub="$tmp/bindeg"
+make_failing_gh_stub "$degstub"
+deg_err="$tmp/degraded.err"
+deg_rc=0
+deg_out=$(PATH="$degstub:$PATH" /bin/bash "$SEL" "$ddegspec" 2>"$deg_err") || deg_rc=$?
+[ "$deg_rc" = 0 ] \
+  || fail "degraded-forward: selection must still succeed git-only (exit $deg_rc; stderr: $(cat "$deg_err"))"
+[ "$deg_out" = 1 ] \
+  || fail "degraded-forward: STDOUT must carry only the selected id (got '$deg_out')"
+grep -Eq '^degraded[[:space:]]gh[[:space:]]' "$deg_err" \
+  || fail "degraded-forward: the engine's degraded record must reach STDERR (got: $(cat "$deg_err"))"
+echo "ok: degraded evidence is forwarded to stderr; stdout stays clean"
 
 echo "PASS: orchestrate-select"

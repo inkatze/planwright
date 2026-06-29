@@ -122,6 +122,16 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="task" && $3=="completed"{print $2}' | tr '\n' ' ')"
   inprogress=" $(printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1=="task" && $3=="in-progress"{print $2}' | tr '\n' ' ')"
+  # Surface the evidence-quality diagnostics on the success path so an operator
+  # running selection by hand sees the pick stood on degraded or conflicting
+  # evidence: `degraded` (a configured gh query failed, so the completed set is
+  # git-only) and `contradiction` (git attests completion but the PR is still
+  # open). stdout stays clean — only the selected id is emitted there. Acting on
+  # these stays the reconcile's (T4) and the guards' (T7) concern; the selector
+  # only makes them visible. The noisier `refused` / `malformed-deps` records are
+  # deliberately left to those owners and not forwarded here.
+  printf '%s\n' "$state_out" \
+    | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
 fi
 
 awk -v mode="$mode" -v completed="$completed" -v inprogress="$inprogress" '
