@@ -99,9 +99,8 @@ the reason and wait instead. When several pre-flight halts fire at once
    (D-36), giving `specs/<spec>/`; (c) the checkout when it holds exactly one
    `specs/*/` bundle whose `Status:` is `Ready` or `Active`
    (underscore-prefixed accumulators are not bundles); (d) ask, listing the
-   available bundles. Verify the
-   directory holds `requirements.md`, `design.md`, `tasks.md`, and
-   `test-spec.md`.
+   available bundles. Verify the directory holds `requirements.md`,
+   `design.md`, `tasks.md`, and `test-spec.md`.
 3. **Resolve the doctrine docs** (above). Halt on a core-doc failure on a
    dispatch path; note a degraded doc on a non-dispatching path.
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap

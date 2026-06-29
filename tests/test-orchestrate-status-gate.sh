@@ -86,11 +86,15 @@ if grep -q 'REQ-C1.3' "$skill"; then
 else
   fail "freshness-composition requirement REQ-C1.3 is not cited (REQ-C1.3)"
 fi
-if grep -nE -A3 -B3 'Ready or Active' "$skill" \
-  | grep -qiE 'freshness|content anchor|execution-valid'; then
-  ok "a Ready spec is tied to the freshness gate / execution-valid anchor (REQ-C1.3)"
+# Bind to the REQ-C1.3 citation itself (it appears only in the composition
+# prose), not to a stray co-occurrence of "freshness" in the halt-list
+# enumeration: the gate prose must tie the Ready state to the freshness gate /
+# execution-valid content anchor where REQ-C1.3 is cited.
+if grep -nE -A2 -B2 'REQ-C1\.3' "$skill" \
+  | grep -qiE 'freshness|content anchor|execution-valid|compose'; then
+  ok "the REQ-C1.3 prose ties the Ready gate to the freshness gate / execution-valid anchor"
 else
-  fail "Ready is not tied to the freshness gate near the gate prose (REQ-C1.3)"
+  fail "REQ-C1.3 is cited but not tied to the freshness gate / execution-valid anchor (REQ-C1.3)"
 fi
 
 # Regression fence: the superseded bare-Active refusal phrasings are gone.
