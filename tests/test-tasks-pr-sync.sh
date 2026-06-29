@@ -957,8 +957,8 @@ k6_assert_all() { # <spec-dir> <expected> <label>
     [ "$got" = "$2" ] || fail "$3: $f Status=$got, expected $2"
   done
 }
-# A standard two-task tasks.md body (both under Forward plan). $1 = status,
-# $2 = an extra annotation line for Task 1 (or empty).
+# A standard two-task tasks.md body (both under Forward plan). $1 = spec-dir,
+# $2 = status, $3 = an extra annotation line for Task 1 (or empty).
 k6_two_task_tasks() { # <spec-dir> <status> <task1-annotation>
   {
     printf '%s\n' '# K6 — Tasks' '' "**Status:** $2" '**Format-version:** 1' ''
