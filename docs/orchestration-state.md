@@ -61,18 +61,24 @@ mutable shared state file safe.
 
 `scripts/orchestrate-state.sh` is the derivation engine: for each task in a spec
 it reads observable evidence and emits a tagged record (task id, derived state,
-and the evidence that decided it). The evidence set, in precedence order, is:
+and the evidence that decided it). It checks **git ground truth before any `gh`
+query**, so when signals disagree git wins. The completion signals, in the order
+the engine applies them, are:
 
-1. **PR / merge state** via `gh` (when a remote is configured).
-2. **Commit / branch merge-reachability** (`git merge-base --is-ancestor`).
-3. **The `Planwright-Task` trailer** on a reachable base commit.
-4. **The runtime dispatch marker** (covering the pre-first-commit window).
+1. **Commit / branch merge-reachability** (`git merge-base --is-ancestor`).
+2. **The `Planwright-Task` trailer** on a reachable base commit.
+3. **PR / merge state** via `gh` (only when a remote is configured).
 
-Git ground truth takes precedence: a closed-unmerged PR whose work is nonetheless
-reachable in the base derives as **Completed** (reality wins over PR metadata). A
-genuine contradiction, for example a trailer claiming completion with no
-reachable work, is **flagged** on the derivation's output stream rather than
-silently resolved, so the corruption guard (and a human) can see it.
+If none of those marks the task done, the in-progress signals are, in order: a
+**branch carrying commits**, an **open PR** (via `gh`), and finally a **fresh
+runtime dispatch marker** (covering the pre-first-commit window).
+
+Because git ground truth is checked first, a closed-unmerged PR whose work is
+nonetheless reachable in the base derives as **Completed** (reality wins over PR
+metadata). And a git-confirmed completion (a reachable merged branch or trailer)
+while `gh` still reports the PR open is **flagged** as a contradiction on the
+derivation's output stream rather than silently resolved, so the corruption guard
+(and a human) can see it.
 
 The four derived states map to sections like this (see the hook contract in
 [conventions.md](conventions.md#the-tasks-pr-sync-hook-contract-req-k12-req-b11)
@@ -91,8 +97,12 @@ are sticky: the derivation never relocates their blocks.
 
 A branch with zero commits is not yet evidence of work in flight (the derivation
 counts a branch *with commits*). The runtime marker covers exactly that gap: the
-window between branch-create and the branch acquiring its first commit. It is a
-durable, timestamped, local marker in the advisory-lock directory.
+window between branch-create and the branch acquiring its first commit.
+
+It is a durable, timestamped marker file, one per task, in the spec's runtime
+orchestration-state directory (`<spec-dir>/.orchestrate/markers/<id>` by default,
+overridable with the `PLANWRIGHT_ORCH_STATE_DIR` environment variable),
+alongside the per-spec advisory lock.
 
 Branch-first ordering is also fail-safe: a dispatch that crashes after acquiring
 the lock but before creating the branch leaves **neither** branch nor marker, so
@@ -185,8 +195,8 @@ corruption guard flags that case so it does not silently under-complete.
 The thresholds this model relies on, with safe defaults, are in the
 [options reference](options-reference.md):
 
-- `stale_lock_threshold` — when a per-spec advisory lock is treated as stale.
-- `stale_marker_threshold` — when a runtime marker whose branch has no commits is
+- `stale_lock_threshold`: when a per-spec advisory lock is treated as stale.
+- `stale_marker_threshold`: when a runtime marker whose branch has no commits is
   treated as stale, reverting the task to Ready.
 
 Every option in `config/defaults.yml` has a row there;
