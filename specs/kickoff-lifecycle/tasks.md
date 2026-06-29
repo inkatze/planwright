@@ -82,20 +82,6 @@ D-9: never ship a lifecycle state with no exit.
 - **Citations:** D-6, D-7 · REQ-D1.2, REQ-D1.3, REQ-D1.5
 - **Estimated effort:** 1 day
 
-### Task 5 — `/orchestrate` gate: Ready or Active
-
-- **Deliverables:** the `orchestrate` skill's pre-flight refusal updated from
-  "non-Active" to "not Ready or Active": it acts on Ready or Active specs, refuses
-  Draft/Done/Retired/Superseded, keeps the no-auto-chain and no-bypass invariants,
-  and composes with the freshness gate (a Ready spec is executable only if its
-  anchor is execution-valid). Skill prose and any status-naming messages updated.
-- **Done when:** `/orchestrate` dispatches against a Ready or Active spec and
-  refuses the others with a clear message; the freshness gate still applies to
-  Ready; no bypass flag; verified by the skill's tests/manual checks.
-- **Dependencies:** Task 1.
-- **Citations:** D-1 · REQ-C1.1, REQ-C1.3
-- **Estimated effort:** half day
-
 ### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
 
 - **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
@@ -172,6 +158,22 @@ D-9: never ship a lifecycle state with no exit.
 - **Estimated effort:** half day
 - **Status:** In progress · PR #80 draft
 - **Last activity:** 2026-06-28
+
+### Task 5 — `/orchestrate` gate: Ready or Active
+
+- **Deliverables:** the `orchestrate` skill's pre-flight refusal updated from
+  "non-Active" to "not Ready or Active": it acts on Ready or Active specs, refuses
+  Draft/Done/Retired/Superseded, keeps the no-auto-chain and no-bypass invariants,
+  and composes with the freshness gate (a Ready spec is executable only if its
+  anchor is execution-valid). Skill prose and any status-naming messages updated.
+- **Done when:** `/orchestrate` dispatches against a Ready or Active spec and
+  refuses the others with a clear message; the freshness gate still applies to
+  Ready; no bypass flag; verified by the skill's tests/manual checks.
+- **Dependencies:** Task 1.
+- **Citations:** D-1 · REQ-C1.1, REQ-C1.3
+- **Estimated effort:** half day
+- **Status:** implementing
+- **Last activity:** 2026-06-29
 
 ## Awaiting input
 
