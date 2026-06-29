@@ -136,6 +136,7 @@ make_clean "$tmp/c2.md"
 sed 's/Completed · PR #1 merged 2026-06-01/implementing/' "$tmp/clean.md" >"$tmp/c2.md"
 run "$tmp/c2.md"
 assert_exit "implementing status under Completed fails" 1 "$code"
+assert_contains "implementing-under-Completed message located" "under Completed lacks a completion Status" "$out"
 
 # --- 5. Wrong-block: Completed section block with no completion status -------
 make_clean "$tmp/c3.md"
@@ -143,6 +144,7 @@ make_clean "$tmp/c3.md"
 grep -v 'Completed · PR #1 merged 2026-06-01' "$tmp/clean.md" >"$tmp/c3.md"
 run "$tmp/c3.md"
 assert_exit "no completion status under Completed fails" 1 "$code"
+assert_contains "no-completion-under-Completed message located" "under Completed lacks a completion Status" "$out"
 
 # --- 5b. Completion vocabulary is free-form: a bare "done" passes -----------
 # spec-format declares Status a free-form descriptor; the canonical reconcile
@@ -202,6 +204,66 @@ sed 's/- \*\*Status:\*\* implementing/- **Status:** implementing\n- **Status:** 
 run "$tmp/twostatus.md"
 assert_exit "two Status lines on a block fails" 1 "$code"
 assert_contains "two-status message mentions Status" "Status" "$out"
+
+# --- 9b. Section/status placement matrix (symmetric branch coverage) --------
+# Tests 3-5 cover the Forward-plan and Completed branches; this matrix exercises
+# the remaining state-section branches in finalize_block() (In progress,
+# Awaiting input, Deferred, Out of scope, and the in-progress/deferred Forward
+# cases) so every placement-vs-Status contract has an explicit located test.
+# Build a minimal well-formed skeleton with a single task placed in <section>
+# carrying <status>, then assert the expected exit (and message when it fails).
+section_case() { # <label> <section> <status> <expected-exit> [needle]
+  {
+    printf '# Example — Tasks\n\n**Status:** Active\n\n'
+    printf '## Forward plan\n\n'
+    [ "$2" = "Forward plan" ] && {
+      printf '### Task 5 — Epsilon\n\n'
+      block_body
+      printf -- '- **Status:** %s\n' "$3"
+    }
+    printf '\n## In progress\n\n'
+    [ "$2" = "In progress" ] && {
+      printf '### Task 5 — Epsilon\n\n'
+      block_body
+      printf -- '- **Status:** %s\n' "$3"
+    }
+    printf '\n## Awaiting input\n\n'
+    [ "$2" = "Awaiting input" ] && {
+      printf '### Task 5 — Epsilon\n\n'
+      block_body
+      printf -- '- **Status:** %s\n' "$3"
+    }
+    printf '\n## Completed\n\n(none yet)\n'
+    printf '\n## Deferred\n\n'
+    [ "$2" = "Deferred" ] && {
+      printf '### Task 5 — Epsilon\n\n'
+      block_body
+      printf -- '- **Status:** %s\n' "$3"
+    }
+    printf '\n## Out of scope\n'
+    [ "$2" = "Out of scope" ] && {
+      printf '\n### Task 5 — Epsilon\n\n'
+      block_body
+      printf -- '- **Status:** %s\n' "$3"
+    }
+  } >"$tmp/sec.md"
+  run "$tmp/sec.md"
+  assert_exit "$1" "$4" "$code"
+  [ -n "${5:-}" ] && assert_contains "$1 (located)" "$5" "$out"
+}
+
+# Wrong placements: each fails with a section-named message.
+section_case "Forward plan + in-progress Status fails" "Forward plan" "implementing" 1 "under Forward plan"
+section_case "Forward plan + deferred Status fails" "Forward plan" "deferred" 1 "under Forward plan"
+section_case "In progress + completed Status fails" "In progress" "Completed · PR #1 merged 2026-06-01" 1 "under In progress"
+section_case "In progress + deferred Status fails" "In progress" "deferred" 1 "under In progress"
+section_case "Awaiting input + completed Status fails" "Awaiting input" "Completed · PR #1 merged 2026-06-01" 1 "under Awaiting input"
+section_case "Deferred + completed Status fails" "Deferred" "Completed · PR #1 merged 2026-06-01" 1 "under Deferred"
+section_case "Deferred + in-progress Status fails" "Deferred" "implementing" 1 "under Deferred"
+section_case "Out of scope + completed Status fails" "Out of scope" "Completed · PR #1 merged 2026-06-01" 1 "under Out of scope"
+# Well-formed placements for the same sections pass (no false positives).
+section_case "Deferred + deferred Status passes" "Deferred" "deferred" 0
+section_case "Awaiting input + in-progress Status passes" "Awaiting input" "implementing" 0
 
 # --- 10. No false positives on the real spec bundles ------------------------
 real_args=""
