@@ -135,7 +135,7 @@ These hold at every stage of the rendering pipeline:
   `.claude/walkthroughs/<spec>/` location; it modifies no tracked content (the
   optional Graphviz probe's only writes are ephemeral, auto-cleaned `$TMPDIR`
   temp files).
-- **Status-agnostic** (REQ-A1.4, REQ-B1.4). Every status renders — Draft,
+- **Status-agnostic** (REQ-A1.4, REQ-B1.4). Every status renders — Draft, Ready,
   Active, Done, Retired, Superseded — in deliberate contrast with the execution
   skills' non-Active refusal. Rendering is read-only, so that refusal's safety
   rationale does not apply, and terminal bundles stay valuable for archaeology.

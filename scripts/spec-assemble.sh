@@ -824,16 +824,20 @@ body {
 CSS
 )
 
-# Stage-aware framing (Task 9; D-11, REQ-B1.3). The framing adapts to the
-# bundle's auto-detected status — the reader never specifies it. A pre-sign-off
-# cold read for Draft, orientation plus progress for Active, onboarding or
-# archaeology for Done and the terminal statuses. The text is plain and
+# Stage-aware framing (Task 9; D-11, REQ-B1.3; Ready arm kickoff-lifecycle Task 7,
+# D-1/D-8/REQ-E1.1). The framing adapts to the bundle's auto-detected status — the
+# reader never specifies it. A pre-sign-off cold read for Draft, a signed-off but
+# not-yet-started read for Ready, orientation plus progress for Active, onboarding
+# or archaeology for Done and the terminal statuses. The text is plain and
 # audience-neutral (REQ-C1.1): no internal vocabulary, no verdict (the
 # independence firewall, REQ-D1.1). data-stage carries the detected status so
 # the auto-detection is observable.
 case $status in
   Draft)
     stage_text="This is still a draft and has not been signed off. Read it as a proposal and judge it for yourself before it is approved."
+    ;;
+  Ready)
+    stage_text="This is signed off and cleared to start, but no work has begun yet. Read it to understand what was approved before the work gets underway."
     ;;
   Active)
     stage_text="This is approved and the work is underway. Use it to get oriented and to see where things stand."
