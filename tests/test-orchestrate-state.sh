@@ -59,6 +59,13 @@ state_of() {
   printf '%s\n' "$1" | awk -F"$TAB" -v i="$2" '$1=="task" && $2==i {print $3; exit}'
 }
 
+# Pull a single task's derived EVIDENCE (column 4) out of the tagged stream, so
+# a test can assert the derivation PATH, not just the resulting state (a state
+# that is right via the wrong evidence would otherwise pass).
+evidence_of() {
+  printf '%s\n' "$1" | awk -F"$TAB" -v i="$2" '$1=="task" && $2==i {print $4; exit}'
+}
+
 # True when a tagged record for (tag,id) is present.
 has_record() {
   printf '%s\n' "$1" | awk -F"$TAB" -v t="$2" -v i="$3" \
@@ -68,6 +75,11 @@ has_record() {
 assert_state() {
   got=$(state_of "$1" "$2")
   [ "$got" = "$3" ] || fail "$4: task $2 derived '$got', expected '$3'"
+}
+
+assert_evidence() {
+  got=$(evidence_of "$1" "$2")
+  [ "$got" = "$3" ] || fail "$4: task $2 evidence '$got', expected '$3'"
 }
 
 # Write the fixture tasks.md. Section placement is deliberately WRONG for the
@@ -541,6 +553,67 @@ assert_state "$gout" 2 ready "dep-glob: '*' is literal (no pathname expansion) �
 has_record "$gout" malformed-deps 2 \
   || fail "dep-glob: a literal glob metacharacter was not surfaced as malformed"
 echo "ok: dependency tokenization does not pathname-expand glob metacharacters"
+
+# ---------------------------------------------------------------------------
+# 6j. decimal task ids — the task-id grammar is `^[0-9]+(\.[0-9]+)?$`, so a
+#     subtask id like 1.1 must parse, derive, and resolve dependencies exactly
+#     as an integer id does (decimal/subtask ids are a first-class dispatch
+#     convention this shared engine must not silently regress). Also asserts the
+#     evidence column, not just the state.
+# ---------------------------------------------------------------------------
+xrepo="$tmp/decimal"
+xspec="$xrepo/specs/demo"
+mkdir -p "$xspec"
+gitc_init "$xrepo"
+cat >"$xspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1.1 — completed via trailer
+- **Dependencies:** none
+### Task 1.2 — depends on the decimal id 1.1
+- **Dependencies:** 1.1
+EOF
+gitc "$xrepo" add -A
+gitc "$xrepo" commit -q -m "base" -m "Planwright-Task: demo/1.1"
+xout=$("$STATE" "$xspec") || fail "decimal-id: engine exited non-zero"
+assert_state "$xout" 1.1 completed "decimal-id: 1.1 completes via its trailer"
+assert_evidence "$xout" 1.1 trailer "decimal-id: 1.1 completion evidence is the trailer"
+assert_state "$xout" 1.2 ready "decimal-id: 1.2's decimal dependency 1.1 is met → ready"
+assert_evidence "$xout" 1.2 deps-met "decimal-id: 1.2 evidence is deps-met"
+echo "ok: decimal task ids parse, derive, and resolve decimal dependencies"
+
+# ---------------------------------------------------------------------------
+# 6k. contradiction via BRANCH-MERGED evidence (not only the trailer arm) — a
+#     task branch merge-reachable into base while gh still reports its PR OPEN
+#     derives completed (git wins) AND surfaces the contradiction. Test 3 covers
+#     the trailer arm; this covers the other half of the
+#     `{ br_merged || trailer_done } && pr_open` condition.
+# ---------------------------------------------------------------------------
+brepo="$tmp/branchcontra"
+bspec="$brepo/specs/demo"
+mkdir -p "$bspec"
+gitc_init "$brepo"
+cat >"$bspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged branch, PR still open
+- **Dependencies:** none
+EOF
+gitc "$brepo" add -A
+gitc "$brepo" commit -q -m "base"
+gitc "$brepo" remote add origin https://example.invalid/demo.git
+gitc "$brepo" checkout -q -b planwright/demo/task-1
+gitc "$brepo" commit -q --allow-empty -m "task 1 work"
+gitc "$brepo" checkout -q main
+gitc "$brepo" merge -q --no-ff -m "merge task 1" planwright/demo/task-1
+bstub="$tmp/binbranchcontra"
+make_gh_stub "$bstub" "planwright/demo/task-1${TAB}OPEN"
+bout=$(PATH="$bstub:$PATH" "$STATE" "$bspec")
+assert_state "$bout" 1 completed "branch-contra: merged branch → completed (git wins)"
+assert_evidence "$bout" 1 branch-merged "branch-contra: completion evidence is branch-merged"
+has_record "$bout" contradiction 1 \
+  || fail "branch-contra: merged-branch-vs-open-PR contradiction not surfaced"
+echo "ok: branch-merged completion vs open PR surfaces a contradiction"
 
 # ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
