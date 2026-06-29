@@ -240,7 +240,7 @@ gh_state_for() {
 #   <id><TAB><evstate><TAB><evidence><TAB><contra><TAB><deps>
 # where evstate is completed|in-progress|unresolved, contra is 0|1, and deps is
 # a space-separated id list (kept last so embedded spaces are harmless).
-work=$(mktemp) || exit 2
+work=$(mktemp "${TMPDIR:-/tmp}/orchestrate-state.XXXXXX") || exit 2
 trap 'rm -f "$work"' EXIT
 
 tasks=$(awk '
