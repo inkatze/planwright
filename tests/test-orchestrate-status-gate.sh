@@ -57,11 +57,16 @@ else
 fi
 
 # REQ-C1.1: the four non-executable statuses are explicitly refused, listed
-# together so the refusal message is unambiguous.
-if grep -qE 'Draft, Done, Retired,? and Superseded' "$skill"; then
-  ok "gate enumerates the refused statuses Draft/Done/Retired/Superseded (REQ-C1.1)"
+# together so the refusal message is unambiguous. Bind to the operative verb
+# "refuse" (not just the status names) so an inverted-semantics regression
+# ("allows Draft, Done, Retired, and Superseded") cannot pass. The verb and the
+# list wrap across a line in the prose, so flatten newlines to spaces first and
+# match the verb-then-list across the wrap.
+if tr '\n' ' ' <"$skill" \
+  | grep -qE 'refuse[[:space:]]+Draft, Done, Retired,? and Superseded'; then
+  ok "gate refuses the statuses Draft/Done/Retired/Superseded (REQ-C1.1)"
 else
-  fail "gate does not enumerate 'Draft, Done, Retired, and Superseded' as refused (REQ-C1.1)"
+  fail "gate does not state it will 'refuse' Draft, Done, Retired, and Superseded (REQ-C1.1)"
 fi
 
 # REQ-C1.1: the no-bypass invariant survives the rewording.
