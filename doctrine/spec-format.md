@@ -266,7 +266,7 @@ set):
 | `Draft` | Being authored or revised. Validator findings are warnings. |
 | `Ready` | Signed off via `/spec-kickoff`, validated, and executable, with no execution work started. Validator findings are errors that block execution. |
 | `Active` | Execution work in flight: at least one task has started. Validator findings are errors that block execution. |
-| `Done` | All Forward plan / In progress / Awaiting input tasks completed. |
+| `Done` | All Forward plan / In progress / Awaiting input tasks completed. Validator findings are errors that block execution. |
 | `Retired` | Terminal: abandoned or withdrawn, no replacement. |
 | `Superseded` | Terminal: replaced by another bundle; `Superseded-by:` pointer mandatory. |
 
