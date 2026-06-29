@@ -33,32 +33,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## Forward plan
 
-### Task 1 — Task-state derivation engine
-
-- **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
-  state for a spec from observable evidence — merged PR via `gh`, task-branch
-  merge-reachability (`git merge-base --is-ancestor`), a `Planwright-Task`
-  trailer on a base commit, and the runtime dispatch marker (with a staleness
-  check: a timestamped marker past the configured threshold with no branch
-  commits is treated as stale → Ready, not In progress) — applying the
-  REQ-C1.2 precedence (git ground truth wins; contradictions flagged). Emits a
-  tagged record stream (task id → state + the evidence that decided it). The
-  shared backbone consumed by the reconcile (T4), selection (T5), and the guards
-  (T7).
-- **Done when:** against a fixture spec with mixed evidence (merged PR, reachable
-  branch, trailer-only base commit, open PR, fresh-marker-only, stale-marker-only-
-  no-commits → Ready, none), it returns the correct state for each task; it is
-  idempotent; it runs with no remote (skips
-  `gh`, derives from git + trailer + marker), and a configured-but-failing `gh`
-  degrades to git-only and surfaces the degradation rather than wedging; a signal
-  contradiction is reported on the defined output-stream channel (assertable
-  without the guard wired), not silently resolved; the parsed `Planwright-Task`
-  `<spec>/<id>` is validated against its grammar before use (malformed/hostile
-  input refused, never interpolated); tests pass under `mise run check`.
-- **Dependencies:** none
-- **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
-- **Estimated effort:** 2 days
-
 ### Task 2 — Commit-trailer emission
 
 - **Deliverables:** `/execute-task` (and the shared commit helpers) emit a
@@ -185,7 +159,33 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## In progress
 
-(none yet)
+### Task 1 — Task-state derivation engine
+
+- **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
+  state for a spec from observable evidence — merged PR via `gh`, task-branch
+  merge-reachability (`git merge-base --is-ancestor`), a `Planwright-Task`
+  trailer on a base commit, and the runtime dispatch marker (with a staleness
+  check: a timestamped marker past the configured threshold with no branch
+  commits is treated as stale → Ready, not In progress) — applying the
+  REQ-C1.2 precedence (git ground truth wins; contradictions flagged). Emits a
+  tagged record stream (task id → state + the evidence that decided it). The
+  shared backbone consumed by the reconcile (T4), selection (T5), and the guards
+  (T7).
+- **Done when:** against a fixture spec with mixed evidence (merged PR, reachable
+  branch, trailer-only base commit, open PR, fresh-marker-only, stale-marker-only-
+  no-commits → Ready, none), it returns the correct state for each task; it is
+  idempotent; it runs with no remote (skips
+  `gh`, derives from git + trailer + marker), and a configured-but-failing `gh`
+  degrades to git-only and surfaces the degradation rather than wedging; a signal
+  contradiction is reported on the defined output-stream channel (assertable
+  without the guard wired), not silently resolved; the parsed `Planwright-Task`
+  `<spec>/<id>` is validated against its grammar before use (malformed/hostile
+  input refused, never interpolated); tests pass under `mise run check`.
+- **Dependencies:** none
+- **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
+- **Estimated effort:** 2 days
+- **Status:** implementing
+- **Last activity:** 2026-06-28
 
 ## Awaiting input
 
