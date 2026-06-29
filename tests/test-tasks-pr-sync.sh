@@ -919,4 +919,238 @@ grep -q 'Task 2 blocks Task 4\.' "$tasks" || fail "leading non-canonical: body l
 [ "$(section_of "$tasks" 1)" = "Completed" ] || fail "leading non-canonical: Task 1 not placed in Completed"
 echo "ok: a leading non-canonical section is preserved in place above the canonical set"
 
+# ===========================================================================
+# Task 6 (kickoff-lifecycle REQ-A1.5, REQ-C1.2): the reconcile derives and
+# writes the bundle **Status:** header, mirrored across the four files. The
+# derivation (Done > Active > Ready, all from task-state evidence):
+#   * Active  iff at least one task derives In-progress or Completed;
+#   * Ready   otherwise (signed off, no progress, startable work remains);
+#   * Done    iff no Forward-plan / In-progress / Awaiting-input task remains
+#             (every task is Completed, Deferred, or Out-of-scope, or there are
+#             none) — Done takes precedence over Ready/Active.
+# The reconcile is the SOLE writer of the header and reconciles it only for
+# bundles already in the reconcile-owned set {Ready, Active}: the Draft->Ready
+# flip is the human-gated /spec-kickoff write (not derived, D-2/REQ-A1.4) and
+# Done / Retired / Superseded are left untouched (REQ-A1.5 "applies only to
+# bundles not already Done"; the reopen Done->Draft is the human's, REQ-A1.6).
+
+# k6_init <repo>: a fresh git repo with deterministic identity.
+k6_init() {
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  git -C "$1" config user.email t@example.com
+  git -C "$1" config user.name t
+  git -C "$1" config commit.gpgsign false
+}
+# k6_heads <spec-dir> <status>: write requirements/design/test-spec with the
+# bundle Status mirrored across all three. tasks.md is written per-scenario.
+k6_heads() {
+  mkdir -p "$1"
+  printf '%s\n' '# K6 — Requirements' '' "**Status:** $2" '**Format-version:** 1' >"$1/requirements.md"
+  printf '%s\n' '# K6 — Design' '' "**Status:** $2" '**Format-version:** 1' >"$1/design.md"
+  printf '%s\n' '# K6 — Test Spec' '' "**Status:** $2" '**Format-version:** 1' >"$1/test-spec.md"
+}
+k6_status_of() { awk '/^\*\*Status:\*\* / { print $2; exit }' "$1"; }
+k6_assert_all() { # <spec-dir> <expected> <label>
+  for f in requirements.md design.md tasks.md test-spec.md; do
+    got=$(k6_status_of "$1/$f")
+    [ "$got" = "$2" ] || fail "$3: $f Status=$got, expected $2"
+  done
+}
+# A standard two-task tasks.md body (both under Forward plan). $1 = status,
+# $2 = an extra annotation line for Task 1 (or empty).
+k6_two_task_tasks() { # <spec-dir> <status> <task1-annotation>
+  {
+    printf '%s\n' '# K6 — Tasks' '' "**Status:** $2" '**Format-version:** 1' ''
+    printf '%s\n' '## Forward plan' ''
+    printf '%s\n' '### Task 1 — Alpha' ''
+    [ -n "$3" ] && printf '%s\n' "$3"
+    printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+      '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+    printf '%s\n' '### Task 2 — Beta' ''
+    printf '%s\n' '- **Deliverables:** Beta.' '- **Done when:** Beta done.' \
+      '- **Dependencies:** none' '- **Citations:** REQ-K1.2' '- **Estimated effort:** 1 day' ''
+    printf '%s\n' '## In progress' '' '(none yet)' ''
+    printf '%s\n' '## Awaiting input' '' '(none yet)' ''
+    printf '%s\n' '## Completed' '' '(none yet)'
+  } >"$1/tasks.md"
+}
+
+# --- T-A: no progress, stored Ready -> stays Ready (REQ-A1.5 no-progress arm).
+repo=$tmp/k6a
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile "$repo" specs/kl || fail "k6-A reconcile non-zero"
+k6_assert_all "$sd" Ready "REQ-A1.5 no progress stays Ready"
+echo "ok: reconcile keeps a signed-off bundle with no progress at Ready (REQ-A1.5)"
+
+# --- T-B: one In-progress, stored Ready -> Active, mirrored to four files; the
+# derivation engine (the /orchestrate read path) writes nothing (REQ-C1.2). A
+# task-level `- **Status:**` annotation must survive the header rewrite.
+repo=$tmp/k6b
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready '- **Status:** implementing'
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+before=$(k6_status_of "$sd/requirements.md")
+(cd "$repo" && PATH="$stub:$PATH" "$STATE" specs/kl >/dev/null) || fail "k6-B derivation non-zero"
+[ "$(k6_status_of "$sd/requirements.md")" = "$before" ] \
+  || fail "REQ-C1.2: orchestrate-state.sh (the /orchestrate derivation path) wrote the Status header"
+reconcile "$repo" specs/kl || fail "k6-B reconcile non-zero"
+k6_assert_all "$sd" Active "REQ-C1.2 Ready->Active on first in-progress evidence"
+grep -q -- '- \*\*Status:\*\* implementing' "$sd/tasks.md" \
+  || fail "REQ-C1.2: header rewrite clobbered a task-level - **Status:** annotation"
+echo "ok: reconcile derives Ready->Active on first in-progress evidence, mirrored across four files; /orchestrate's derivation path writes nothing; task annotations survive (REQ-C1.2)"
+
+# --- T-C: one Completed (rest Forward), stored Active -> stays Active. Proves a
+# Completed task alone counts as progress (REQ-A1.5).
+repo=$tmp/k6c
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: kl/1"
+reconcile "$repo" specs/kl || fail "k6-C reconcile non-zero"
+k6_assert_all "$sd" Active "REQ-A1.5 one completed stays Active"
+echo "ok: reconcile keeps Active when one task is completed and work remains (REQ-A1.5)"
+
+# --- T-D: all Completed, stored Active -> Done; second run is a no-op on the
+# header (idempotent, REQ-A1.5 Done precedence).
+repo=$tmp/k6d
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: kl/1"
+git -C "$repo" commit -q --allow-empty -m "feat: task 2 done
+
+Planwright-Task: kl/2"
+reconcile "$repo" specs/kl || fail "k6-D reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.5 all completed -> Done"
+snap=$tmp/k6d-snap
+cp "$sd/requirements.md" "$snap"
+reconcile "$repo" specs/kl || fail "k6-D second reconcile non-zero"
+cmp -s "$sd/requirements.md" "$snap" || fail "REQ-A1.5: status reconcile not idempotent (second run rewrote the header)"
+echo "ok: reconcile derives Active->Done when all tasks complete; idempotent on the header (REQ-A1.5)"
+
+# --- T-E: no startable tasks (only Deferred / Out of scope blocks), stored
+# Ready -> Done (REQ-A1.5 "no startable work" arm, Done precedence).
+repo=$tmp/k6e
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+{
+  printf '%s\n' '# K6 — Tasks' '' '**Status:** Ready' '**Format-version:** 1' ''
+  printf '%s\n' '## Forward plan' '' '(none yet)' ''
+  printf '%s\n' '## In progress' '' '(none yet)' ''
+  printf '%s\n' '## Awaiting input' '' '(none yet)' ''
+  printf '%s\n' '## Completed' '' '(none yet)' ''
+  printf '%s\n' '## Deferred' ''
+  printf '%s\n' '### Task 1 — Alpha' ''
+  printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+  printf '%s\n' '## Out of scope' ''
+  printf '%s\n' '### Task 2 — Beta' ''
+  printf '%s\n' '- **Deliverables:** Beta.' '- **Done when:** Beta done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.2' '- **Estimated effort:** 1 day'
+} >"$sd/tasks.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile "$repo" specs/kl || fail "k6-E reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.5 no startable tasks -> Done"
+echo "ok: reconcile derives Done for a signed-off bundle with no startable tasks (REQ-A1.5)"
+
+# --- T-F: a task parked in Awaiting input counts as pending, stored Ready ->
+# stays Ready (not Done). Distinguishes Awaiting-input from Deferred/Out-of-scope.
+repo=$tmp/k6f
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+{
+  printf '%s\n' '# K6 — Tasks' '' '**Status:** Ready' '**Format-version:** 1' ''
+  printf '%s\n' '## Forward plan' '' '(none yet)' ''
+  printf '%s\n' '## In progress' '' '(none yet)' ''
+  printf '%s\n' '## Awaiting input' ''
+  printf '%s\n' '### Task 1 — Alpha' ''
+  printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+  printf '%s\n' '## Completed' '' '(none yet)'
+} >"$sd/tasks.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile "$repo" specs/kl || fail "k6-F reconcile non-zero"
+k6_assert_all "$sd" Ready "REQ-A1.5 Awaiting-input task keeps Ready (pending, not Done)"
+echo "ok: an Awaiting-input task is pending (keeps Ready), not parked like Deferred/Out-of-scope (REQ-A1.5)"
+
+# --- T-G: owned-set guard. Stored Draft with in-progress evidence is NOT
+# flipped (Draft->Ready is the human-gated kickoff write, never derived;
+# D-2 / REQ-A1.4).
+repo=$tmp/k6g
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Draft
+k6_two_task_tasks "$sd" Draft ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-G reconcile non-zero"
+k6_assert_all "$sd" Draft "REQ-A1.4 Draft is never derived to Active by the reconcile"
+echo "ok: the reconcile never derives a Draft bundle's Status (Draft->Ready is human-gated, REQ-A1.4)"
+
+# --- T-H: owned-set guard. Stored Superseded (terminal) and Done are left
+# untouched even with reopening evidence (REQ-A1.5 / REQ-A1.6: the reopen is the
+# human's Done->Draft, not a derived flip).
+for st in Superseded Done; do
+  repo=$tmp/k6h-$st
+  k6_init "$repo"
+  sd="$repo/specs/kl"
+  k6_heads "$sd" "$st"
+  k6_two_task_tasks "$sd" "$st" ""
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm fixture
+  git -C "$repo" branch planwright/kl/task-1
+  git -C "$repo" checkout -q planwright/kl/task-1
+  git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+  git -C "$repo" checkout -q main
+  reconcile "$repo" specs/kl || fail "k6-H($st) reconcile non-zero"
+  k6_assert_all "$sd" "$st" "REQ-A1.5 $st is left untouched by the reconcile"
+done
+echo "ok: the reconcile leaves Done and terminal (Superseded) bundles untouched (REQ-A1.5/A1.6)"
+
+# --- T-I: single-writer code audit (REQ-A1.5). tasks-pr-sync.sh is the only
+# script that EMITS a bundle Status header; spec-validate.sh only READS it, and
+# the /orchestrate path (orchestrate-select / orchestrate-state) never writes it.
+emit='"\*\*Status:\*\* "'
+writers=""
+for s in "$here"/../scripts/*.sh; do
+  grep -qE "print[^|]*$emit|printf[^|]*$emit|echo[^|]*$emit" "$s" && writers="$writers $(basename "$s")"
+done
+writers=$(printf '%s' "$writers" | sed 's/^ //')
+[ "$writers" = "tasks-pr-sync.sh" ] \
+  || fail "single-writer audit: scripts emitting a Status header = '$writers', expected only tasks-pr-sync.sh"
+grep -q '\*\*Status:\*\*' "$here/../scripts/orchestrate-select.sh" \
+  && fail "single-writer audit: orchestrate-select.sh references the Status header (should not touch it)"
+echo "ok: tasks-pr-sync.sh is the sole writer of the bundle Status header (REQ-A1.5 single-writer)"
+
 echo "PASS: all tasks-pr-sync tests passed"

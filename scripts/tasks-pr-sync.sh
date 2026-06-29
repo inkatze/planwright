@@ -325,6 +325,106 @@ END {
 }
 '
 
+# The bundle-Status derivation program (kickoff-lifecycle Task 6; D-2, D-3;
+# REQ-A1.5, REQ-C1.2). Reads the derivation state map (id<TAB>state) as the
+# first file, then tasks.md, and prints the derived bundle status on stdout:
+#   Active  iff at least one task derives In-progress or Completed;
+#   Ready   otherwise (signed off, no progress, startable work remains);
+#   Done    iff no Forward-plan / In-progress / Awaiting-input task remains
+#           (Done precedence over Ready/Active, REQ-A1.5).
+# A task parked in a sticky human section is classified by that section
+# (Awaiting input -> pending; Deferred / Out of scope -> ignored); every other
+# task is classified by its derived state, matching the placement reconcile.
+# Fully static (no interpolated input).
+# shellcheck disable=SC2016 # $1..$3 are awk fields, not shell expansions
+STATUS_AWK='
+FNR == NR { st[$1] = $2; next }
+/^## / { sec = substr($0, 4); next }
+/^### Task [0-9]/ { seen[$3] = 1; tsec[$3] = sec; next }
+END {
+  fwd = 0; inp = 0; comp = 0; await = 0
+  for (id in seen) {
+    s = tsec[id]
+    if (s == "Awaiting input") { await++; continue }
+    if (s == "Deferred" || s == "Out of scope") { continue }
+    d = st[id]
+    if (d == "completed") comp++
+    else if (d == "in-progress") inp++
+    else fwd++
+  }
+  pending = (fwd > 0) || (inp > 0) || (await > 0)
+  progress = (inp > 0) || (comp > 0)
+  if (!pending) print "Done"
+  else if (progress) print "Active"
+  else print "Ready"
+}
+'
+
+# write_status_header <file> <value>: rewrite the bundle **Status:** header (the
+# first ^**Status:** line; task-level `- **Status:**` annotations start with
+# "- " and are never matched) to <value> via a same-directory temp + rename
+# (atomic, REQ-B1.1). A file without the header is a no-op; an already-correct
+# value is a no-op (idempotent, REQ-B1.2); a symlinked file is refused.
+write_status_header() {
+  wsh_file=$1
+  wsh_val=$2
+  [ -f "$wsh_file" ] || return 0
+  if [ -L "$wsh_file" ]; then
+    log "refusing symlinked $wsh_file"
+    return 1
+  fi
+  wsh_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$wsh_file") || wsh_cur=""
+  [ -n "$wsh_cur" ] || return 0           # no bundle Status header in this file
+  [ "$wsh_cur" = "$wsh_val" ] && return 0 # already correct: idempotent no-op
+  wsh_tmp=$(mktemp "$(dirname "$wsh_file")/.tasks-pr-sync-st.XXXXXX") || return 1
+  if awk -v val="$wsh_val" '
+        !did && /^\*\*Status:\*\* / { print "**Status:** " val; did = 1; next }
+        { print }
+      ' "$wsh_file" >"$wsh_tmp"; then
+    if mv "$wsh_tmp" "$wsh_file"; then
+      return 0
+    fi
+    rm -f "$wsh_tmp"
+    log "status rename failed for $wsh_file"
+    return 1
+  fi
+  rm -f "$wsh_tmp"
+  log "status rewrite failed for $wsh_file"
+  return 1
+}
+
+# do_status <canonical-spec-dir> <state-map>: derive the bundle Status from the
+# task-state evidence (Done > Active > Ready, REQ-A1.5) and reconcile the
+# **Status:** header across the four spec files, mirrored. The reconcile owns
+# only the {Ready, Active} set: a Draft bundle's flip to Ready is the human-gated
+# /spec-kickoff write (REQ-A1.4, never derived) and Done / Retired / Superseded
+# are left untouched (REQ-A1.5 "applies only to bundles not already Done"; the
+# reopen Done->Draft is the human's, REQ-A1.6). requirements.md is the
+# authoritative Status home (spec-format.md): its value gates the reconcile and
+# the derived value is mirrored to all four. Best-effort: a failure is logged and
+# does not abort placement (status and placement are independent writes).
+do_status() {
+  dst_dir=$1
+  dst_map=$2
+  dst_req="$dst_dir/requirements.md"
+  [ -f "$dst_req" ] || return 0
+  dst_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$dst_req") || dst_cur=""
+  case $dst_cur in
+    Ready | Active) ;;
+    *) return 0 ;; # Draft / Done / terminal / absent: not reconcile-owned
+  esac
+  dst_val=$(awk "$STATUS_AWK" "$dst_map" "$dst_dir/tasks.md") || return 0
+  case $dst_val in
+    Ready | Active | Done) ;;
+    *) return 0 ;; # derivation produced nothing usable: leave the header alone
+  esac
+  dst_rc=0
+  for dst_f in requirements.md design.md tasks.md test-spec.md; do
+    write_status_header "$dst_dir/$dst_f" "$dst_val" || dst_rc=1
+  done
+  return $dst_rc
+}
+
 # do_placement <canonical-spec-dir>: recompute placement from the derivation and
 # atomically rewrite tasks.md. Assumes the per-spec lock is already held. Exit
 # 0 on a successful rewrite OR a no-op; 1 on any failure that leaves tasks.md
@@ -369,6 +469,11 @@ do_placement() {
     return 1
   fi
   rm -f "$dp_raw"
+
+  # Reconcile the derived bundle Status header (kickoff-lifecycle Task 6;
+  # REQ-A1.5, REQ-C1.2) from the same derivation map, before the placement
+  # rewrite. Independent of placement: a status failure is logged, not fatal.
+  do_status "$dp_dir" "$dp_map" || log "status reconcile incomplete in $dp_dir"
 
   # Atomic write: a same-directory temp renamed into place (REQ-B1.1).
   tmpf=$(mktemp "$dp_dir/.tasks-pr-sync.XXXXXX") || {
