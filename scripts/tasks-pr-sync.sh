@@ -393,11 +393,16 @@ wsh_tmp=""
 write_status_header() {
   wsh_file=$1
   wsh_val=$2
-  [ -f "$wsh_file" ] || return 0
+  # Refuse ANY symlink before the missing-file no-op: `-f` follows the link, so a
+  # broken symlink or a symlink to a non-regular target (e.g. a directory) would
+  # otherwise fail `-f` and be silently treated as "file missing" (return 0)
+  # rather than refused, hiding a partial-mirror problem. Order `-L` first so the
+  # refusal is unconditional, matching the documented contract.
   if [ -L "$wsh_file" ]; then
     log "refusing symlinked $wsh_file"
     return 1
   fi
+  [ -f "$wsh_file" ] || return 0
   wsh_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$wsh_file") || wsh_cur=""
   [ -n "$wsh_cur" ] || return 0           # no bundle Status header in this file
   [ "$wsh_cur" = "$wsh_val" ] && return 0 # already correct: idempotent no-op

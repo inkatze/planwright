@@ -1250,4 +1250,48 @@ grep -q '^\*\*Status:\*\* ' "$sd/design.md" \
   && fail "k6-L: write_status_header injected a Status header into a file that lacked one"
 echo "ok: write_status_header skips a file with no Status header (no injection) and mirrors the rest (REQ-A1.5)"
 
+# --- T-M: write_status_header refuses a symlink whose target is NOT a regular
+# file (a broken symlink, or one pointing at a directory), not just a symlink to
+# a real file (T-J). The refusal must be unconditional per the documented
+# contract ("a symlinked file is refused"): ordering the `-L` test before the
+# `-f` test is what makes a broken / non-regular-target symlink hit the refusal
+# rather than the `[ -f ] || return 0` missing-file no-op (which would skip it
+# silently with no diagnostic, hiding a partial-mirror problem). Each variant
+# leaves its symlink untouched, emits the diagnostic, and the other three files
+# still mirror the derived Active.
+for k6m_variant in broken dir; do
+  repo=$tmp/k6m-$k6m_variant
+  k6_init "$repo"
+  sd="$repo/specs/kl"
+  k6_heads "$sd" Active
+  k6_two_task_tasks "$sd" Active ""
+  rm "$sd/design.md"
+  case $k6m_variant in
+    broken) ln -s design.gone.md "$sd/design.md" ;; # target never created -> broken
+    dir)
+      mkdir "$sd/design.d"
+      ln -s design.d "$sd/design.md"
+      ;; # points at a dir
+  esac
+  [ -L "$sd/design.md" ] || fail "k6-M/$k6m_variant precondition: design.md is not a symlink (test would be vacuous)"
+  [ -f "$sd/design.md" ] && fail "k6-M/$k6m_variant precondition: design.md resolves to a regular file (covered by T-J, not this test)"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm fixture
+  # In-progress evidence keeps the derived value Active, so the mirror target is Active.
+  git -C "$repo" branch planwright/kl/task-1
+  git -C "$repo" checkout -q planwright/kl/task-1
+  git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+  git -C "$repo" checkout -q main
+  err=$(reconcile "$repo" specs/kl 2>&1) || fail "k6-M/$k6m_variant reconcile non-zero"
+  case $err in
+    *"refusing symlinked"*) ;;
+    *) fail "k6-M/$k6m_variant: no symlink-refusal diagnostic emitted (got: $err)" ;;
+  esac
+  [ -L "$sd/design.md" ] || fail "k6-M/$k6m_variant: the design.md symlink was replaced (write went through the link)"
+  for f in requirements.md tasks.md test-spec.md; do
+    [ "$(k6_status_of "$sd/$f")" = Active ] || fail "k6-M/$k6m_variant: $f not mirrored to Active around a refused non-regular symlink"
+  done
+done
+echo "ok: write_status_header refuses broken / directory-target symlinks unconditionally, not just symlinks to regular files (REQ-A1.5)"
+
 echo "PASS: all tasks-pr-sync tests passed"
