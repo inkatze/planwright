@@ -1,11 +1,13 @@
 #!/bin/sh
 # tasks-pr-sync.sh — the level-triggered, idempotent reconcile that is the
 # SOLE writer of tasks.md section placement (orchestration-concurrency Task 4;
-# D-1, D-3; REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-C1.3). It supersedes the prior
-# edge-triggered single-block move: instead of relocating one task per PR
-# event, it recomputes the FULL placement of every task block from the Task 1
-# derivation engine (scripts/orchestrate-state.sh) and rewrites tasks.md to
-# match.
+# D-1, D-3; REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-C1.3) AND of the derived bundle
+# `**Status:**` header (kickoff-lifecycle Task 6; D-2, D-3; REQ-A1.5, REQ-C1.2).
+# It supersedes the prior edge-triggered single-block move: instead of relocating
+# one task per PR event, it recomputes the FULL placement of every task block from
+# the Task 1 derivation engine (scripts/orchestrate-state.sh) and rewrites tasks.md
+# to match, then reconciles the bundle Status header (Ready/Active/Done) from the
+# same derivation across the four spec files (see do_status / STATUS_AWK below).
 #
 # Two entry points share one reconcile:
 #   * PostToolUse(Bash) hook — invoked with NO arguments, reads the tool call
@@ -55,11 +57,21 @@
 #   * Atomic write (REQ-B1.1): the rewrite goes to a same-directory temp file
 #     and is renamed into place, so a racy stale lock-break cannot observe a
 #     half-written tasks.md.
-#   * Definition/anchor invariance (REQ-B1.1): only section placement changes;
-#     the five definition fields move byte-for-byte and the Status / Last
-#     activity / Dispatch annotations ride along untouched (those annotations
-#     are /execute-task's to write, and are excluded from the content anchor —
-#     scripts/spec-anchor.sh — so a reconcile never changes the anchor).
+#   * Definition invariance (REQ-B1.1): the five task-definition fields move
+#     byte-for-byte and the task-level Status / Last activity / Dispatch
+#     annotations ride along untouched (those are /execute-task's to write, and
+#     are excluded from the content anchor — scripts/spec-anchor.sh — so a
+#     placement move never changes the anchor).
+#   * Bundle Status reconcile (kickoff-lifecycle Task 6): the bundle `**Status:**`
+#     header (distinct from the task-level `- **Status:**` annotations above) is
+#     derived and rewritten across the four files by do_status. CAVEAT: that
+#     header is NOT yet anchor-excluded (spec-anchor.sh hashes requirements.md /
+#     design.md / test-spec.md whole), so a derived Ready->Active flip DOES change
+#     the anchor today. This is inert until kickoff-lifecycle Task 3 ships the
+#     Draft->Ready producer (no bundle is Ready before then, and a currently-Active
+#     bundle with progress derives Active = a no-op). The required follow-up before
+#     Task 3 — exclude the bundle Status header from the anchor + a re-anchor
+#     migration — is logged in specs/_observations/opportunities.md (2026-06-29).
 #
 # Worker sessions: the hook fires inside worktrees, so it resolves and writes
 # the canonical tasks.md in the PRIMARY checkout (kickoff brief risk row 3),
@@ -345,6 +357,12 @@ END {
   fwd = 0; inp = 0; comp = 0; await = 0
   for (id in seen) {
     s = tsec[id]
+    # A task parked in a sticky human section is classified by that section, not
+    # by its derived state: Awaiting input is pending startable work; Deferred /
+    # Out of scope are out of the live plan and do not count toward Active or
+    # pending (so a stray completion marker on a deferred task cannot flip the
+    # bundle to Active). Every other task is classified by its derived state,
+    # mirroring the placement reconcile.
     if (s == "Awaiting input") { await++; continue }
     if (s == "Deferred" || s == "Out of scope") { continue }
     d = st[id]
@@ -413,6 +431,12 @@ do_status() {
     Ready | Active) ;;
     *) return 0 ;; # Draft / Done / terminal / absent: not reconcile-owned
   esac
+  # An empty state map would make awk's FNR==NR file discriminator read the first
+  # tasks.md line as a map entry (the classic empty-first-file gotcha) and derive
+  # a spurious Done. do_placement only reaches here after a non-zero-task
+  # derivation (state_sh exits 2 when taskless), so the map is non-empty in
+  # practice; guard anyway rather than rely on that invariant from a distance.
+  [ -s "$dst_map" ] || return 0
   dst_val=$(awk "$STATUS_AWK" "$dst_map" "$dst_dir/tasks.md") || return 0
   case $dst_val in
     Ready | Active | Done) ;;
