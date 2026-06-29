@@ -74,8 +74,12 @@
 #   malformed input must not silently report "nothing").
 #
 # Portable POSIX sh + awk; bash 3.2 / BSD tooling. No gawk-only constructs,
-# no eval; all external input is treated as data.
-set -u
+# no eval; all external input is treated as data. Pathname expansion is disabled
+# globally (set -f): the script does no intentional globbing, and an unquoted
+# expansion of parsed spec text (e.g. a Dependencies token) must never be
+# filename-expanded against the run directory (REQ-F1.1; word-splitting on IFS
+# still applies, only glob metacharacters are taken literally).
+set -uf
 
 # Pin the C locale: the bracket-range validations below are collation-dependent
 # and would otherwise admit non-ASCII under a UTF-8 locale.

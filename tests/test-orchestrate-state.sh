@@ -511,6 +511,38 @@ has_record "$dout" malformed-deps 2 \
 echo "ok: dependency-grammar hardening keeps real ids and surfaces malformed lines"
 
 # ---------------------------------------------------------------------------
+# 6i. dependency tokenization must not pathname-expand — a Dependencies line
+#     containing a glob metacharacter is literal text (surfaced as malformed),
+#     never expanded against the run directory into a phantom numeric dependency.
+# ---------------------------------------------------------------------------
+grepo="$tmp/depglob"
+gspec="$grepo/specs/demo"
+mkdir -p "$gspec"
+gitc_init "$grepo"
+cat >"$gspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via trailer
+- **Dependencies:** none
+### Task 2 — a glob metacharacter where the id list belongs
+- **Dependencies:** *
+EOF
+gitc "$grepo" add -A
+gitc "$grepo" commit -q -m "base" -m "Planwright-Task: demo/1"
+# Run from a directory holding a single numerically-named file: if the '*' were
+# pathname-expanded it would glob to '9' and fabricate a dependency on a
+# (non-existent, non-completed) task 9, leaving task 2 blocked with no malformed
+# record. With expansion disabled the '*' stays literal → refused → task 2 ready.
+gcwd="$tmp/depglob-cwd"
+mkdir -p "$gcwd"
+: >"$gcwd/9"
+gout=$(cd "$gcwd" && "$STATE" "$gspec") || fail "dep-glob: engine exited non-zero"
+assert_state "$gout" 2 ready "dep-glob: '*' is literal (no pathname expansion) → no phantom dep → ready"
+has_record "$gout" malformed-deps 2 \
+  || fail "dep-glob: a literal glob metacharacter was not surfaced as malformed"
+echo "ok: dependency tokenization does not pathname-expand glob metacharacters"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
