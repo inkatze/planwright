@@ -42,15 +42,22 @@
 #                                          continues git-only (REQ-A1.3).
 #   refused<TAB>Planwright-Task<TAB><val>  a malformed/hostile trailer value,
 #                                          refused and never used (REQ-F1.1).
+#   malformed-deps<TAB><id><TAB><raw>      a Dependencies line carried a token
+#                                          outside the task-id grammar; the
+#                                          conforming ids are still used, the
+#                                          non-conforming line is surfaced rather
+#                                          than digit-scraped (REQ-F1.1).
 #
 # No remote is first-class (REQ-A1.3): with no remote configured (or no gh on
 # PATH) the gh probe is skipped silently and state derives from git + trailer +
 # marker alone. Only a configured-but-failing gh emits a `degraded` record.
 #
-# Framework-script safety (REQ-F1.1): the spec id, every parsed task id, and
-# every Planwright-Task trailer value are validated against their grammar before
-# use; a value that fails is refused and never interpolated into a ref, path, or
-# pattern. The runtime-marker path is containment-checked under its base dir.
+# Framework-script safety (REQ-F1.1): the spec id, every parsed task id, every
+# Planwright-Task trailer value, and every dependency token are validated against
+# their grammar before use; a value that fails is refused and never interpolated
+# into a ref, path, or pattern (a non-conforming dependency token is dropped and
+# the line surfaced, not digit-scraped). The runtime-marker path is
+# containment-checked under its base dir.
 #
 # Environment overrides (tests, worktree callers):
 #   PLANWRIGHT_BASE_REF        the integration ref reachability is measured
@@ -242,7 +249,11 @@ tasks=$(awk '
   pid != "" && /\*\*Dependencies:\*\*/{
     s = $0
     sub(/.*\*\*Dependencies:\*\*/, "", s)
-    gsub(/[^0-9.]+/, " ", s)
+    # Emit the raw dependency text (only tab-normalized and trimmed); the shell
+    # validates each token against the task-id grammar so a non-conforming token
+    # is detected, not silently digit-scraped (REQ-F1.1). A literal tab would
+    # corrupt the id<TAB>deps split, so fold tabs to spaces first.
+    gsub(/\t/, " ", s)
     gsub(/^ +| +$/, "", s)
     pdeps = s
     next
@@ -260,6 +271,35 @@ branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1";
 
 while IFS="$TAB" read -r id deps; do
   [ -n "$id" ] || continue
+
+  # Validate dependency tokens against the task-id grammar before use (REQ-F1.1).
+  # The Dependencies grammar is `<task ids, or "none">`; a line carrying tokens
+  # outside it (stray prose, a typo) keeps only the conforming ids — so a number
+  # embedded in prose never becomes a phantom dependency — and is surfaced as a
+  # tagged record. `none` is the empty-set sentinel. Tokens split on commas and
+  # whitespace, matching the comma-separated id-list grammar.
+  raw_deps=$deps
+  clean_deps=""
+  deps_malformed=0
+  for tok in $(printf '%s' "$raw_deps" | tr ',' ' '); do
+    case "$tok" in
+      none | None | NONE) continue ;;
+    esac
+    if printf '%s' "$tok" | grep -Eq '^[0-9]+(\.[0-9]+)?$'; then
+      case " $clean_deps " in
+        *" $tok "*) ;;
+        *) clean_deps="$clean_deps$tok " ;;
+      esac
+    else
+      deps_malformed=1
+    fi
+  done
+  clean_deps=${clean_deps% }
+  if [ "$deps_malformed" -eq 1 ]; then
+    printf 'malformed-deps%s%s%s%s\n' "$TAB" "$id" "$TAB" "$raw_deps"
+  fi
+  deps=$clean_deps
+
   branch="planwright/$spec_id/task-$id"
 
   br_merged=0

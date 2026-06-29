@@ -25,6 +25,7 @@
 #   contradiction<TAB><id><TAB><message>
 #   degraded<TAB>gh<TAB><message>
 #   refused<TAB>Planwright-Task<TAB><value>
+#   malformed-deps<TAB><id><TAB><raw>
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -478,6 +479,36 @@ rc=0
 "$STATE" "$ispec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "F1.1 spec id: exit $rc, expected 2 for an invalid spec id"
 echo "ok: REQ-F1.1 invalid spec id refused (fail closed)"
+
+# ---------------------------------------------------------------------------
+# 6h. dependency-grammar hardening — a Dependencies line carrying tokens outside
+#     the task-id grammar keeps only the conforming ids (so a phantom number
+#     grepped out of prose is NOT treated as a dependency) and surfaces the
+#     non-conforming line as a tagged `malformed-deps` record (REQ-F1.1 — parsed
+#     identifiers are validated against their grammar before use).
+# ---------------------------------------------------------------------------
+drepo="$tmp/depgrammar"
+dspec="$drepo/specs/demo"
+mkdir -p "$dspec"
+gitc_init "$drepo"
+cat >"$dspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via trailer
+- **Dependencies:** none
+### Task 2 — real dep is 1, but the line carries stray prose
+- **Dependencies:** 1 (see issue #2)
+EOF
+gitc "$drepo" add -A
+gitc "$drepo" commit -q -m "base" -m "Planwright-Task: demo/1"
+dout=$("$STATE" "$dspec") || fail "dep-grammar: engine exited non-zero"
+assert_state "$dout" 1 completed "dep-grammar: trailer completes task 1"
+# Task 2's only real dependency is 1 (completed); the '2' grepped from '#2' must
+# NOT become a phantom dependency, so task 2 is ready, not blocked.
+assert_state "$dout" 2 ready "dep-grammar: phantom prose number is not a dependency → ready"
+has_record "$dout" malformed-deps 2 \
+  || fail "dep-grammar: non-conforming Dependencies line not surfaced on the stream"
+echo "ok: dependency-grammar hardening keeps real ids and surfaces malformed lines"
 
 # ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
