@@ -65,7 +65,9 @@ mise run check      # the full local equivalent of the CI gate
 `mise run check` runs the shell test suites (bash 3.2 floor), shellcheck, shfmt,
 markdownlint, yamllint, the plugin-manifest validation, the doctrine
 link-check, conventional-commit lint, the options-reference drift check, the
-spec validator over `specs/`, and a secret scan. GitHub Actions runs the same
+ledger structural-corruption + duplicate-Status guard over `tasks.md`
+snapshots, the spec validator over `specs/`, and a secret scan. GitHub Actions
+runs the same
 gate on every pull request. This is dev tooling only — planwright's **runtime**
 scripts stay plain portable bash with no mise dependency.
 
