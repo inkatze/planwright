@@ -89,10 +89,12 @@ Planwright-Task: orchestration-concurrency/6
 - It is footer-only (never the subject line) and uses git's native trailer
   mechanism, so the orchestration-state derivation reads it with
   `git log --format='%(trailers:key=Planwright-Task)'`. As a real commit
-  trailer it is the durable completion anchor that **survives branch
-  deletion and a squash/rebase merge** (where branch-reachability no longer
-  proves completion) and lets solo work committed straight to `main` — with
-  no task branch at all — still be seen as done.
+  trailer it is the completion anchor for the cases branch-reachability can
+  no longer prove done: it **survives branch deletion**, and it lets solo
+  work committed straight to `main` — with no task branch at all — still be
+  seen as done. (A squash/rebase merge also defeats branch-reachability;
+  there completion then relies on the squash preserving the footer — the
+  risk-R2 caveat documented with the derived-state model.)
 
 `/execute-task` stamps the trailer automatically. For **manual or solo
 commits**, add it yourself — either with git's native flag:
