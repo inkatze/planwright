@@ -7,9 +7,10 @@
 Origin-tag legend: `N` = new decision minted in this bundle; `N (extends
 <foreign>)` = a new decision extending a foreign-namespace decision, named in
 the body. Foreign IDs are namespace-qualified (for example `bootstrap D-38`,
-`orchestration-concurrency D-1`, `customization-overlay D-1`). This bundle is
-Draft and has never been activated, so decisions are edited in place as drafting
-iteration (no supersede/amendment ritual, which governs Active/Done bundles).
+`orchestration-concurrency D-1`, `customization-overlay D-1`). This bundle was
+drafted and re-drafted at Status Draft and never activated, so its decisions were
+edited in place as drafting iteration rather than via the supersede/amendment
+ritual that governs Active/Done bundles; sign-off (2026-06-29) flipped it to Ready.
 The 2026-06-29 re-draft folded the seed brief's 2026-06-26 design addendum
 (§A–§G) and reconciled every sibling-dependent decision against the now-Active
 `orchestration-concurrency` contract.

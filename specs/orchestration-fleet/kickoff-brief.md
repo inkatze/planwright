@@ -467,7 +467,7 @@ D-1/D-2). `Last reviewed:` is 2026-06-29 on all four. Re-validated under Ready
 Class: meaning
 Lens-pass: recorded above (this section), full-bundle nine-lens fan-out, findings
 validated and dispositioned 2026-06-29.
-Anchor: `e6ead4184ca0a72c380657529b7fef1b30dc18a2` — computed as
+Anchor: `ac6d52181395098f4c2c0ad824ae11c5ce6321a4` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
 (re-anchored 2026-06-29 for an expression-only fix; see Amendment log. Original
 sign-off anchor: `6ab1f63975714c68a00be55e3aa115ec54c3af42`.)
@@ -490,3 +490,13 @@ it requires a delta re-walkthrough by the kickoff owner.
   elsewhere in the bundle. Validator re-run clean (0 errors, 0 warnings, Ready
   enforcement). Anchor recomputed
   `6ab1f63975714c68a00be55e3aa115ec54c3af42` → `e6ead4184ca0a72c380657529b7fef1b30dc18a2`.
+- **2026-06-29 — expression-only re-anchor (finishing gauntlet, `/copilot-pairing`
+  stage).** `design.md`'s decision-log preamble still read "This bundle is Draft
+  and has never been activated" (present tense) while the `Status:` header reads
+  Ready — a straggler the kickoff Draft→Ready flip left behind, surfaced by a
+  Copilot review thread. Reframed the preamble to past tense: the decisions were
+  edited in place as drafting iteration while the bundle was Draft, and sign-off
+  flipped it to Ready (so future edits follow the amendment/re-anchor process this
+  log records). No D-ID decision content changed. Validator re-run clean (0/0,
+  Ready enforcement); doc-links resolve. Anchor recomputed
+  `e6ead4184ca0a72c380657529b7fef1b30dc18a2` → `ac6d52181395098f4c2c0ad824ae11c5ce6321a4`.

@@ -468,6 +468,15 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   (`marketplace-install`, `Design-level`). The recomputed bundle anchor and the
   superseded sign-off anchor are recorded in the kickoff brief Amendment log.
   *(Cites: kickoff-brief Amendment log (2026-06-29).)*
+- 2026-06-29: Post-sign-off expression-only re-anchor (finishing gauntlet,
+  `/copilot-pairing` stage), no REQ/D-ID/task meaning changed: `design.md`
+  preamble said "This bundle is Draft and has never been activated" while the
+  `Status:` header reads Ready (a straggler the kickoff flip left present-tense).
+  Reframed the preamble to past tense — the decisions were edited in place as
+  drafting iteration while the bundle was Draft, and sign-off flipped it to Ready
+  — resolving the status/prose inconsistency without changing any decision. The
+  recomputed bundle anchor is recorded in the kickoff brief Amendment log.
+  *(Cites: kickoff-brief Amendment log (2026-06-29); Copilot review thread.)*
 
 ## Sources
 
