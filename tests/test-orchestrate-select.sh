@@ -411,6 +411,19 @@ parse_deps_assert "paren-real-dep-6" \
 parse_deps_assert "paren-real-dep-1" \
   "Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is" blocked 1
 
+# DOCUMENTED LIMITATION — a local dep written AFTER a mid-line parenthetical is
+# dropped. The greedy paren-strip (sub(/\(.*/, ...)) removes the parenthetical
+# AND everything after it, because in the real bundles that trailing text is a
+# qualifier or a cross-spec clause whose own id-shaped tokens must NOT become
+# local deps (see the cross-spec cases below). Every real bundle places its
+# local deps BEFORE any parenthetical, so this is safe; pinned here so a future
+# move to a non-greedy strip updates this test on purpose rather than tripping
+# it by accident. Here dep "Task 2" trails the paren: with Task 2 In progress a
+# correct (greedy) parse drops it, so task 50 sees only dep 1 (Completed) and
+# stays READY. Honoring the after-paren dep would (wrongly) block on Task 2.
+parse_deps_assert "paren-trailing-dep-dropped" \
+  "Task 1 (the foundational one), Task 2" ready 2
+
 # Cross-spec clause: the only LOCAL dep is Task 5; the "orchestration-concurrency
 # Task 1 ... Task 4" names ANOTHER bundle's tasks and must NOT be parsed local.
 # Put local-ids 1 and 4 In progress: a correct parse ignores the cross-spec

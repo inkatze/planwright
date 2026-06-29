@@ -16,6 +16,14 @@
 # the state record); the per-block Status annotation is advisory and is NOT
 # consulted here, so the selector agrees with the content anchor's view.
 #
+# Dependency-line parsing: the `**Dependencies:**` bullet is read in prose or
+# bare-id form. The local dep ids are the numeric (or dotted) tokens BEFORE any
+# parenthetical; a trailing period is tolerated ("Task 1." is dep 1), and a
+# parenthetical qualifier together with any trailing cross-spec clause (which
+# may itself name id-shaped tokens) is dropped, so only this bundle's deps are
+# extracted. Only the first line of the bullet is read — a wrapped continuation
+# line is not parsed (both limitations are pinned in the test suite).
+#
 # Usage:
 #   orchestrate-select.sh <spec-dir>
 #       prints the selected ready task id on stdout (the default; for
