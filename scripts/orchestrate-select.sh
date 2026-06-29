@@ -104,15 +104,20 @@ if [ "$mode" = select ]; then
   # taskless tasks.md, invalid spec id): selecting against absent truth would
   # risk the double-dispatch this rewire exists to prevent (REQ-B1.2). The
   # engine's no-remote / degraded-gh paths still exit 0, so only a hard failure
-  # reaches here.
-  if ! state_out=$("$state_engine" "$spec_dir" 2>/dev/null); then
-    echo "orchestrate-select: derivation failed for $spec_dir (cannot select against live truth)" >&2
+  # reaches here. Capture stderr into the same stream (2>&1) so the engine's
+  # specific reason is surfaced on a fail-closed exit; the record parser below
+  # keys on a `task` first column, so any diagnostic line is harmlessly ignored
+  # on the success path.
+  if ! state_out=$("$state_engine" "$spec_dir" 2>&1); then
+    echo "orchestrate-select: derivation failed for $spec_dir (cannot select against live truth):" >&2
+    printf '%s\n' "$state_out" >&2
     exit 2
   fi
   # Read only the evidence-based states (completed / in-progress); ready and
   # blocked are recomputed below from the locally-parsed dependency graph. Other
-  # tagged records (contradiction / degraded / refused / malformed-deps) are
-  # ignored here — they are the reconcile's and the guards' concern.
+  # tagged records (contradiction / degraded / refused / malformed-deps) and any
+  # engine diagnostic line are ignored here — they are the reconcile's and the
+  # guards' concern.
   completed=" $(printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1=="task" && $3=="completed"{print $2}' | tr '\n' ' ')"
   inprogress=" $(printf '%s\n' "$state_out" \

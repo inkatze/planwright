@@ -249,14 +249,20 @@ seal_base "$d6"
 rc=0
 /bin/bash "$SEL" "$d6spec" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "taskless tasks.md: exit $rc, expected 2"
-# A tasks.md present but outside any git repo: the derivation cannot run → exit 2.
+# A tasks.md present but outside any git repo: the derivation cannot run → exit 2,
+# and the fail-closed message must surface the engine's specific reason (not just
+# a generic line), so an operator can see why selection refused.
 d6n="$tmp/nongit"
 mkdir -p "$d6n"
 printf '# tasks\n\n## Forward plan\n\n### Task 1 — x\n\n- **Dependencies:** none\n' >"$d6n/tasks.md"
 rc=0
-/bin/bash "$SEL" "$d6n" >/dev/null 2>&1 || rc=$?
+errout=$(/bin/bash "$SEL" "$d6n" 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "non-git tasks.md: exit $rc, expected 2 (live truth needs git)"
-echo "ok: missing / taskless / non-git tasks.md fails closed with exit 2"
+case "$errout" in
+  *"orchestrate-state"*) : ;; # the engine's own diagnostic is forwarded
+  *) fail "non-git tasks.md: fail-closed message did not surface the engine reason: [$errout]" ;;
+esac
+echo "ok: missing / taskless / non-git tasks.md fails closed with exit 2 (engine reason surfaced)"
 
 # 6. A dotted task id (3.5) is a valid candidate and selectable.
 d7="$tmp/r7"
