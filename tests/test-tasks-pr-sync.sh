@@ -285,6 +285,10 @@ awk '
   }
 ' "$tasks" >"$scr"
 cp "$scr" "$tasks"
+# Precondition: the scramble actually mis-placed the blocks (so the self-heal is
+# not vacuous) — Task 2 derives in-progress but the scramble dumped it in Completed.
+[ "$(section_of "$tasks" 2)" = "Completed" ] \
+  || fail "self-heal precondition: scramble did not mis-place Task 2 (test would be vacuous)"
 reconcile "$repo" specs/demo || fail "self-heal reconcile: non-zero exit"
 [ "$(section_of "$tasks" 1)" = "Completed" ] || fail "self-heal: Task 1 not corrected to Completed"
 [ "$(section_of "$tasks" 2)" = "In progress" ] || fail "self-heal: Task 2 not corrected to In progress"
@@ -620,5 +624,101 @@ echo "ok: a symlinked (out-of-tree) spec dir is containment-rejected"
 # 10c. The direct CLI rejects a missing / non-spec dir (fail closed).
 reconcile "$repo" specs/nope 2>/dev/null && fail "missing spec dir: reconcile should fail closed"
 echo "ok: reconcile fails closed on a missing spec dir"
+
+# 10d. The direct CLI fails closed on a hostile spec id (REQ-F1.1): the shared
+#      lock primitive refuses a spec dir whose basename fails the grammar, so the
+#      reconcile returns non-zero and never writes.
+repo=$tmp/r11d
+make_repo "$repo"
+mkdir -p "$repo/specs/Bad_Spec"
+cp "$repo/specs/demo/tasks.md" "$repo/specs/Bad_Spec/tasks.md"
+cp "$repo/specs/Bad_Spec/tasks.md" "$tmp/bad-pristine.md"
+reconcile "$repo" specs/Bad_Spec 2>/dev/null \
+  && fail "hostile spec id: reconcile should fail closed (non-zero)"
+cmp -s "$repo/specs/Bad_Spec/tasks.md" "$tmp/bad-pristine.md" \
+  || fail "hostile spec id: reconcile wrote despite the grammar refusal"
+echo "ok: CLI reconcile fails closed on a hostile spec id, writes nothing"
+
+# ===========================================================================
+# 11. Atomic write (REQ-B1.1): the write goes to a same-directory temp and is
+#     renamed into place. The atomicity of rename-on-the-same-filesystem is a
+#     property of mv; ground it with a source audit (the same shape as the
+#     REQ-D1.1 inline-lock audit above) plus the no-leftover-temp check in test 1.
+grep -q 'mktemp "$dp_dir/.tasks-pr-sync' "$SYNC" \
+  || fail "atomic write: the temp is not created in the spec dir (same-filesystem rename)"
+grep -q 'mv "$tmpf" "$dp_tasks"' "$SYNC" \
+  || fail "atomic write: tasks.md is not written by renaming the temp into place"
+echo "ok: the snapshot write is a same-dir temp renamed into place (REQ-B1.1 atomic)"
+
+# ===========================================================================
+# 12. Dotted task id (D-36 blessed: 2.5) is placed end-to-end by the reconcile
+#     (the placement engine and the derivation both accept the dotted grammar).
+repo=$tmp/r12
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+awk '
+  /^## In progress/ && !done {
+    print "### Task 2.5 — Dotted"
+    print ""
+    print "- **Deliverables:** Dotted thing."
+    print "- **Done when:** Dotted done."
+    print "- **Dependencies:** none"
+    print "- **Citations:** REQ-X1.6"
+    print "- **Estimated effort:** half day"
+    print ""
+    done = 1
+  }
+  { print }
+' "$tasks" >"$tasks.n" && mv "$tasks.n" "$tasks"
+git -C "$repo" commit -q --allow-empty -m "feat: 2.5
+
+Planwright-Task: demo/2.5"
+reconcile "$repo" specs/demo || fail "dotted reconcile: non-zero exit"
+[ "$(section_of "$tasks" 2.5)" = "Completed" ] || fail "dotted: Task 2.5 not placed in Completed"
+block_of "$tasks" 2.5 | grep -q -- '- \*\*Done when:\*\* Dotted done\.' \
+  || fail "dotted: definition content lost in the move"
+echo "ok: a dotted task id (2.5) is placed end-to-end by the reconcile"
+
+# ===========================================================================
+# 13. Derivation diagnostic records (refused / degraded / contradiction /
+#     malformed-deps) are tolerated: the reconcile keeps only `task` records, so
+#     a diagnostic record on the derivation stream never corrupts placement.
+repo=$tmp/r13
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+# A hostile Planwright-Task trailer on base makes the derivation emit a `refused`
+# record (the value is refused, never matched to a task).
+git -C "$repo" commit -q --allow-empty -m "hostile trailer
+
+Planwright-Task: ../evil/1"
+(cd "$repo" && "$STATE" specs/demo) | grep -qE '^(refused|degraded|contradiction|malformed-deps)' \
+  || fail "diagnostic precondition: derivation emitted no diagnostic record"
+reconcile "$repo" specs/demo || fail "diagnostic reconcile: non-zero exit"
+[ "$(section_of "$tasks" 1)" = "Completed" ] || fail "diagnostic: a diagnostic record broke placement"
+[ "$(section_of "$tasks" 2)" = "In progress" ] || fail "diagnostic: Task 2 mis-placed"
+echo "ok: derivation diagnostic records are filtered out; placement unaffected"
+
+# ===========================================================================
+# 14. Sticky-under-completed: a task parked in ## Awaiting input with COMPLETED
+#     evidence (its Planwright-Task trailer) stays put. The human-owned sections
+#     are fully sticky — the derivation never overrides a human park, in any
+#     state — so a completed-but-parked task is not yanked to ## Completed.
+repo=$tmp/r14
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+awk '
+  BEGIN { blk = ""; inblk = 0 }
+  /^### Task 1 / { inblk = 1; blk = $0 "\n"; next }
+  inblk && (/^## / || /^### /) { inblk = 0 }
+  inblk { blk = blk $0 "\n"; next }
+  /^## Awaiting input/ { print; print ""; printf "%s", blk; next }
+  { print }
+' "$tasks" >"$tasks.n" && mv "$tasks.n" "$tasks"
+[ "$(section_of "$tasks" 1)" = "Awaiting input" ] \
+  || fail "sticky-completed precondition: Task 1 not parked in Awaiting input"
+reconcile "$repo" specs/demo || fail "sticky-completed reconcile: non-zero exit"
+[ "$(section_of "$tasks" 1)" = "Awaiting input" ] \
+  || fail "sticky-completed: a completed-evidence task was pulled out of Awaiting input"
+echo "ok: Awaiting input is fully sticky even under completed evidence"
 
 echo "PASS: all tasks-pr-sync tests passed"
