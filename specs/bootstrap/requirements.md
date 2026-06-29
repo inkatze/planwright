@@ -763,6 +763,15 @@ This is the bootstrap spec: the founding spec for building planwright v1.
   ("the manual-verification sweep *that* the work fork's first … run carries").
   No REQ / D / task-definition / test meaning changed; re-anchored via the kickoff
   brief's expression-only lane.
+- 2026-06-28 (post-activation amendment, supersede ritual; landed in
+  kickoff-lifecycle's spec PR, bootstrap stays Done and is never reopened) — three
+  Done-bundle decisions reconciled by `Superseded-by:` pointer for the six-status
+  lifecycle: D-40 superseded-by kickoff-lifecycle D-1 (five-status → six-status
+  lifecycle; `Ready` inserted to carry the sign-off meaning `Active` held); D-44
+  superseded-by kickoff-lifecycle D-6 (sign-off flips Draft→Ready and marks the
+  spec PR ready, the human's merge still activates); D-26 superseded-by
+  kickoff-lifecycle D-6 (narrow exception for the spec PR to the all-drafts
+  invariant). Pointer edits only — no REQ, task, or status change.
 
 ## Sources
 

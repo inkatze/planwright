@@ -258,25 +258,39 @@ the entry states which REQ carries the normative text.
 
 ## Status lifecycle
 
-Five statuses (D-40):
+Six statuses (kickoff-lifecycle D-1, superseding bootstrap D-40's five-status
+set):
 
 | Status | Meaning |
 | --- | --- |
 | `Draft` | Being authored or revised. Validator findings are warnings. |
-| `Active` | Signed off via `/spec-kickoff` and executable. Validator findings are errors that block execution. |
+| `Ready` | Signed off via `/spec-kickoff`, validated, and executable, with no execution work started. Validator findings are errors that block execution. |
+| `Active` | Execution work in flight: at least one task has started. Validator findings are errors that block execution. |
 | `Done` | All Forward plan / In progress / Awaiting input tasks completed. |
 | `Retired` | Terminal: abandoned or withdrawn, no replacement. |
 | `Superseded` | Terminal: replaced by another bundle; `Superseded-by:` pointer mandatory. |
 
-Transitions: `/spec-draft` writes Draft; `/spec-kickoff` flips Draft→Active
-on sign-off (and the human's merge of the spec PR makes the Active spec
-operational, D-44); a spec flips Active→Done when its last Forward-plan /
-In-progress / Awaiting-input task moves to Completed. Open Deferred gates do
-not block Done, and the gate evaluator continues sweeping gates in Done
-specs. **Reopen cycle:** extending a Done bundle flips Done→Draft; scoped
-kickoff of the delta flips back to Active. Retired and Superseded are
-human-set terminal states; no skill-driven transition out of a terminal
-state is accepted.
+`Ready` carries the meaning bootstrap's `Active` carried at sign-off ("signed
+off and executable"); `Active` is narrowed to strictly "execution work in
+flight", so no signed-off-unstarted bundle is labelled `Active` (kickoff-lifecycle
+D-1).
+
+Transitions: `/spec-draft` writes Draft; `/spec-kickoff` flips Draft→Ready
+on sign-off (and the human's merge of the spec PR makes the Ready spec
+operational, D-44); a spec derives Ready→Active on the first task to start —
+the first to derive In-progress per `orchestration-concurrency` REQ-C1.1, not
+the dispatch act itself (kickoff-lifecycle D-2); a spec flips to Done when its
+last Forward-plan / In-progress / Awaiting-input task moves to Completed —
+from `Active`, directly from `Ready` if all tasks complete at once, or at
+sign-off if it has no startable tasks (Done determination takes precedence over
+the Ready↔Active derivation). The Draft→Ready flip is stored and human-gated;
+Ready↔Active is derived (not stored) and written only by
+`orchestration-concurrency`'s single level-triggered reconcile writer
+(kickoff-lifecycle D-2, D-3). Open Deferred gates do not block Done, and the
+gate evaluator continues sweeping gates in Done specs. **Reopen cycle:**
+extending a Done bundle flips Done→Draft; scoped kickoff of the delta flips
+back to Ready. Retired and Superseded are human-set terminal states; no
+skill-driven transition out of a terminal state is accepted.
 
 ## Stable IDs and supersession
 
@@ -474,12 +488,12 @@ anchor).
 ## Validator-enforceable invariants
 
 The status-aware validator (REQ-A2.1, D-25; warnings on Draft, errors on
-Active; Retired/Superseded terminal) enforces, keyed off the declared
+Ready and Active; Retired/Superseded terminal) enforces, keyed off the declared
 format-version:
 
 1. Four-file presence.
 2. Header block: `Status:` declared (missing warns and defaults to Draft);
-   one of the five statuses (unknown flagged); `Superseded` requires
+   one of the six statuses (unknown flagged); `Superseded` requires
    `Superseded-by:`; `Format-version:` declared.
 3. Spec-identifier charset and length; underscore-accumulator name
    screening (accumulators are otherwise skipped, not validated as bundles).
@@ -539,6 +553,12 @@ format-version:
   meaning (meaning-class, human-classified at sign-off; additions included)
   or stays within accepted decisions (expression-only: typo, ambiguity,
   gap-fill).
+- **Kicked off vs started** — the distinction the `Ready`/`Active` split
+  encodes (kickoff-lifecycle D-1): a `Ready` bundle is signed off and
+  executable but nothing has started; an `Active` bundle has execution work
+  in flight. Sign-off makes a bundle `Ready` (stored, human-gated); the first
+  task to derive In-progress derives it `Active` (orchestration-concurrency's
+  single reconcile writer; never a second writer).
 
 ## Versioning of this meta-spec
 

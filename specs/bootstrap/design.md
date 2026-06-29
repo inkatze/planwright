@@ -422,6 +422,14 @@ format evolve.
 
 ### D-26: Hard invariants carried in unchanged  (C, pair-flow D-21/D-33/D-36)
 
+**Superseded-by: kickoff-lifecycle D-6** (2026-06-28) — narrow exception to the
+"all framework-created PRs are drafts" invariant: `/spec-kickoff` marks the
+**spec PR** (and only the spec PR) ready on clean completion, since the kickoff
+walkthrough is the spec bundle's review. Task PRs stay drafts, and never
+auto-merge holds unchanged (merge remains the human's key). The other invariants
+listed here are unaffected; "never act on a non-Active spec" is read as
+"non-Ready/non-Active" under the six-status lifecycle (kickoff-lifecycle D-1).
+
 **Decision:** Never auto-merge; never act on a non-Active spec (no bypass flag); never
 auto-chain `/orchestrate` into `/spec-kickoff`; never force-push, amend, squash, or rebase
 (new commits only); all framework-created PRs are drafts.
@@ -667,6 +675,13 @@ adopter-extensible without core edits.
 
 ### D-40: Five-status lifecycle with reopen cycle  (N, kickoff 2026-06-10)
 
+**Superseded-by: kickoff-lifecycle D-1** (2026-06-28) — the lifecycle is now
+six statuses (Draft → Ready → Active → Done), with `Ready` inserted between
+Draft and Active to carry the "signed off and executable, nothing started"
+meaning this decision gave `Active`; `Active` is narrowed to "execution work in
+flight". The reopen cycle and the Retired/Superseded terminal states are
+unchanged — the supersede covers the status-set change only.
+
 **Decision:** Statuses are Draft, Active, Done, Retired (terminal:
 abandoned/withdrawn), Superseded (terminal: replaced, mandatory
 `Superseded-by:` pointer). Done requires Forward plan / In progress / Awaiting
@@ -730,6 +745,13 @@ contains an option with no reference entry.
 options break the build (dogfoods D-32).
 
 ### D-44: Spec-PR flow — one branch spans draft→kickoff; merge activates  (N, post-activation amendment 2026-06-10)
+
+**Superseded-by: kickoff-lifecycle D-6** (2026-06-28) — the spec-PR flow is
+unchanged except that `/spec-kickoff` flips the bundle to `Ready` (not `Active`)
+on sign-off and marks the spec PR ready (un-draft) as the terminal step of clean
+completion; the human's merge still activates (a merged `Ready` bundle is what
+`/orchestrate` dispatches against, deriving it `Active` on the first task). The
+two-key model (sign-off + human merge) is preserved.
 
 **Decision:** `/spec-draft` creates the spec worktree + branch
 (`planwright/<spec>/spec`, a reserved namespace the `tasks-pr-sync` hook
