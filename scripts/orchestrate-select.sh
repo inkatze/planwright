@@ -112,6 +112,8 @@ awk -v mode="$mode" '
   cur != "" && /\*\*Dependencies:\*\*/ {
     s = $0
     sub(/.*\*\*Dependencies:\*\*/, "", s)
+    sub(/\(.*/, "", s)    # drop parenthetical qualifiers (and any cross-spec
+                          # clause they introduce) before id extraction
     gsub(/[^0-9.]+/, " ", s)               # keep only id-shaped tokens
     raw_deps[cur] = s
     next
@@ -134,8 +136,11 @@ awk -v mode="$mode" '
     for (t in sec) {
       m = split(raw_deps[t], a, " ")
       list = ""
-      for (i = 1; i <= m; i++)
-        if (a[i] ~ /^[0-9]+(\.[0-9]+)?$/) list = list a[i] " "
+      for (i = 1; i <= m; i++) {
+        tok = a[i]
+        sub(/\.$/, "", tok)    # tolerate prose trailing period: "Task 1." -> 1
+        if (tok ~ /^[0-9]+(\.[0-9]+)?$/) list = list tok " "
+      }
       deps[t] = list
     }
 

@@ -314,4 +314,252 @@ cp_solo=$(/bin/bash "$SEL" --critical-path "$d8") || fail "--critical-path solo:
 [ "$cp_solo" = 1 ] || fail "--critical-path solo: got [$cp_solo], expected [1]"
 echo "ok: --critical-path of a single depless task is that task"
 
+# ---------------------------------------------------------------------------
+# Prose-style dependency lines (specs/kickoff-lifecycle uses these): the
+# Dependencies bullet may read "Task 1." (with a trailing period), carry a
+# parenthetical qualifier whose own text contains id-shaped tokens
+# ("Task 6 (REQ-A1.8 / D-9 — ...)"), or trail a cross-spec clause naming
+# ANOTHER spec's tasks ("plus cross-spec (hard): ... Task 1 ... Task 4").
+# The selector must parse only the LOCAL dependency ids:
+#   - a trailing period must not break the id (so "Task 1." is dep 1);
+#   - tokens inside a parenthetical qualifier must NOT become phantom deps
+#     ("REQ-A1.8 / D-9" must not yield deps 1.8 or 9);
+#   - a cross-spec clause (introduced after a paren / "plus") names another
+#     bundle's tasks and must NOT be read as local deps.
+# ---------------------------------------------------------------------------
+
+# parse_deps_assert <label> <deps-line> <ready|blocked> [in_progress_ids...]
+# Builds a single Forward-plan candidate task 50 whose Dependencies bullet is
+# exactly <deps-line>. Helper tasks 1..9 are Completed by default; any id passed
+# after the expected outcome is placed In progress instead, so a dep on it (if
+# parsed) would block task 50. This lets a case assert both that a genuine dep
+# is honored (put it In progress, expect blocked) and that a phantom/cross-spec
+# id is NOT parsed (put it In progress, expect ready — a wrong parse would block).
+parse_deps_assert() {
+  pd_label=$1
+  pd_line=$2
+  pd_expect=$3
+  shift 3
+  pd_inprog=" $* "
+  pd_dir="$tmp/parse-$(echo "$pd_label" | tr -c 'A-Za-z0-9' _)"
+  mkdir -p "$pd_dir"
+  {
+    printf '# tasks\n\n## Forward plan\n\n'
+    printf '### Task 50 — candidate under test\n\n'
+    printf -- '- **Dependencies:** %s\n' "$pd_line"
+    printf -- '- **Estimated effort:** 1 day\n\n'
+    printf '## In progress\n\n'
+    for pd_i in 1 2 3 4 5 6 7 8 9; do
+      case "$pd_inprog" in
+        *" $pd_i "*)
+          printf '### Task %s — in flight\n\n' "$pd_i"
+          printf -- '- **Dependencies:** none\n'
+          printf -- '- **Estimated effort:** 1 day\n\n'
+          ;;
+      esac
+    done
+    printf '## Completed\n\n'
+    for pd_i in 1 2 3 4 5 6 7 8 9; do
+      case "$pd_inprog" in
+        *" $pd_i "*) : ;;
+        *)
+          printf '### Task %s — done\n\n' "$pd_i"
+          printf -- '- **Dependencies:** none\n'
+          printf -- '- **Estimated effort:** 1 day\n\n'
+          ;;
+      esac
+    done
+  } >"$pd_dir/tasks.md"
+
+  pd_rc=0
+  pd_got=$(/bin/bash "$SEL" "$pd_dir" 2>/dev/null) || pd_rc=$?
+  if [ "$pd_expect" = ready ]; then
+    [ "$pd_rc" = 0 ] && [ "$pd_got" = 50 ] \
+      || fail "deps-parse [$pd_label]: line '$pd_line' should leave task 50 READY (got '$pd_got', rc $pd_rc)"
+  else
+    # blocked: task 50 must NOT be selected. With every other task non-Forward,
+    # the only possible Forward candidate is 50, so a correct block → exit 1.
+    { [ "$pd_rc" = 1 ] || [ "$pd_got" != 50 ]; } \
+      || fail "deps-parse [$pd_label]: line '$pd_line' should leave task 50 BLOCKED (got '$pd_got', rc $pd_rc)"
+  fi
+  echo "ok: deps-parse [$pd_label] -> $pd_expect"
+}
+
+# Baseline OC-style bare-number deps still parse (regression guard for the fix).
+parse_deps_assert "none" "none" ready
+parse_deps_assert "none-dot" "none." ready
+parse_deps_assert "bare-1-6" "1, 6" ready         # both Completed -> ready
+parse_deps_assert "bare-1-6-blk" "1, 6" blocked 6 # dep 6 In progress -> blocked
+parse_deps_assert "bare-1-3-4" "1, 3, 4" ready
+parse_deps_assert "bare-1-3-4-blk" "1, 3, 4" blocked 3 # dep 3 In progress -> blocked
+
+# Trailing period must not erase the dependency: "Task 1." is a real dep 1.
+parse_deps_assert "task-1-dot" "Task 1." blocked 1   # dep 1 In progress -> blocked
+parse_deps_assert "task-1-dot-ready" "Task 1." ready # dep 1 Completed   -> ready
+parse_deps_assert "task-3-dot" "Task 3." blocked 3
+parse_deps_assert "task-3-dot-ready" "Task 3." ready
+
+# Parenthetical qualifier: deps are "Task 1" and "Task 6"; the ids INSIDE the
+# paren (REQ-A1.8 -> 1.8, D-9 -> 9) must NOT become phantom deps. Put 9 (the
+# phantom) In progress: a correct parse ignores it, so 50 stays ready (deps 1,6
+# Completed). A buggy parse would read phantom 9 and block.
+parse_deps_assert "paren-phantom-ignored" \
+  "Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is" ready 9
+# And the genuine deps from that same line are honored: put 6 In progress.
+parse_deps_assert "paren-real-dep-6" \
+  "Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is" blocked 6
+parse_deps_assert "paren-real-dep-1" \
+  "Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is" blocked 1
+
+# Cross-spec clause: the only LOCAL dep is Task 5; the "orchestration-concurrency
+# Task 1 ... Task 4" names ANOTHER bundle's tasks and must NOT be parsed local.
+# Put local-ids 1 and 4 In progress: a correct parse ignores the cross-spec
+# mention, so with dep 5 Completed task 50 stays ready. A buggy parse reads
+# 1/4 as local deps and blocks.
+parse_deps_assert "cross-spec-ignored" \
+  "Task 5; plus cross-spec (hard): \`orchestration-concurrency\`" ready 1 4
+parse_deps_assert "cross-spec-real-dep-5" \
+  "Task 5; plus cross-spec (hard): \`orchestration-concurrency\`" blocked 5
+
+# Multiple comma-joined "Task N" deps with a trailing period on the last id.
+parse_deps_assert "multi-task-trailing" "Task 2, Task 4, Task 6." ready
+parse_deps_assert "multi-task-trailing-blk2" "Task 2, Task 4, Task 6." blocked 2
+parse_deps_assert "multi-task-trailing-blk4" "Task 2, Task 4, Task 6." blocked 4
+parse_deps_assert "multi-task-trailing-blk6" "Task 2, Task 4, Task 6." blocked 6
+
+# ---------------------------------------------------------------------------
+# 14. End-to-end prose-deps fixture mirroring specs/kickoff-lifecycle's shape:
+# Task 1 Completed; Tasks 2/5/7 depend on "Task 1."; Task 3 depends on
+# "Task 1; Task 6 (...)"; Task 6 depends on "Task 5; plus cross-spec ...";
+# Task 4 depends on Task 3; Task 8 depends on "Task 2, Task 4, Task 6.".
+# Genuinely ready = {2,5,7} (their only dep, Task 1, is Completed). 3 is blocked
+# on Task 6 (Forward, not done), 4 on Task 3, 6 on Task 5 (Forward, not done),
+# 8 on 2/4/6 (Forward, not done). The selector must pick one of {2,5,7} and
+# never 3/4/6/8.
+# ---------------------------------------------------------------------------
+d_kl="$tmp/kickoff-prose"
+mkdir -p "$d_kl"
+cat >"$d_kl/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 2 — validator
+
+- **Dependencies:** Task 1.
+- **Estimated effort:** half day
+
+### Task 3 — kickoff flip
+
+- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
+  gated behind the derived reconcile so the lifecycle is never half-wired).
+- **Estimated effort:** half day
+
+### Task 4 — kickoff readies PR
+
+- **Dependencies:** Task 3.
+- **Estimated effort:** 1 day
+
+### Task 5 — orchestrate gate
+
+- **Dependencies:** Task 1.
+- **Estimated effort:** half day
+
+### Task 6 — derived reconcile
+
+- **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
+  Task 1 (derivation engine) and Task 4 (single reconcile writer).
+- **Estimated effort:** 1 day
+
+### Task 7 — downstream surfaces
+
+- **Dependencies:** Task 1.
+- **Estimated effort:** half day
+
+### Task 8 — migration sweep
+
+- **Dependencies:** Task 2, Task 4, Task 6.
+- **Estimated effort:** half day
+
+## Completed
+
+### Task 1 — meta-spec root
+
+- **Dependencies:** none.
+- **Estimated effort:** half day
+EOF
+got=$(/bin/bash "$SEL" "$d_kl") || fail "kickoff-prose fixture: non-zero exit ($?)"
+case "$got" in
+  2 | 5 | 7) : ;;
+  *) fail "kickoff-prose fixture: selected '$got', expected one of {2,5,7}" ;;
+esac
+echo "ok: prose-deps end-to-end selects a genuinely-ready task ($got in {2,5,7})"
+
+# Exhaustively confirm 3/4/6/8 are never selectable here: each is blocked by a
+# Forward-plan (not Completed) dependency, so even after completing {2,5,7} they
+# would still depend on each other. We assert directly that the parsed ready set
+# excludes them by completing 2,5,7 and checking the next pick is never 3 alone-
+# blocked path. Simpler: assert the FIRST pick is in {2,5,7} (above) and that
+# removing 2,5,7 from contention (mark them In progress) yields no ready task,
+# proving 3/4/6/8 are all blocked on un-Completed Forward deps.
+d_klb="$tmp/kickoff-prose-blocked"
+mkdir -p "$d_klb"
+# Same bundle but with 2,5,7 moved to In progress so only 3,4,6,8 remain in
+# Forward plan; each depends on a non-Completed task → nothing ready.
+cat >"$d_klb/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 3 — kickoff flip
+
+- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
+  gated behind the derived reconcile so the lifecycle is never half-wired).
+- **Estimated effort:** half day
+
+### Task 4 — kickoff readies PR
+
+- **Dependencies:** Task 3.
+- **Estimated effort:** 1 day
+
+### Task 6 — derived reconcile
+
+- **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
+  Task 1 (derivation engine) and Task 4 (single reconcile writer).
+- **Estimated effort:** 1 day
+
+### Task 8 — migration sweep
+
+- **Dependencies:** Task 2, Task 4, Task 6.
+- **Estimated effort:** half day
+
+## In progress
+
+### Task 2 — validator
+
+- **Dependencies:** Task 1.
+- **Estimated effort:** half day
+
+### Task 5 — orchestrate gate
+
+- **Dependencies:** Task 1.
+- **Estimated effort:** half day
+
+### Task 7 — downstream surfaces
+
+- **Dependencies:** Task 1.
+- **Estimated effort:** half day
+
+## Completed
+
+### Task 1 — meta-spec root
+
+- **Dependencies:** none.
+- **Estimated effort:** half day
+EOF
+rc=0
+/bin/bash "$SEL" "$d_klb" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "kickoff-prose-blocked: tasks 3/4/6/8 must all be blocked (exit $rc, expected 1)"
+echo "ok: prose-deps end-to-end leaves 3/4/6/8 blocked (each on a non-Completed Forward dep)"
+
 echo "PASS: orchestrate-select"
