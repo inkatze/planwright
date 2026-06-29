@@ -348,7 +348,7 @@ baseline_checks() {
     # the why-it-changed. The current superseded set is diffed against the
     # baseline's so a supersede already recorded upstream is not re-flagged.
     # Status-scoped like the other stable-ID findings (warn on Draft, error on
-    # Active/Done). REQ supersedes only: that is the parseable, marked case.
+    # Ready/Active/Done). REQ supersedes only: that is the parseable, marked case.
     # Guarded on the current file existing: a bundle that deletes
     # requirements.md still has a non-empty baseline `$old_req`, and parsing a
     # now-missing file would leak raw awk errors and abort under set -eu — the
