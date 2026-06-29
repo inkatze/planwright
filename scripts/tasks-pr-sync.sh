@@ -465,10 +465,17 @@ do_status() {
 }
 
 # do_placement <canonical-spec-dir>: recompute placement from the derivation and
-# atomically rewrite tasks.md. Assumes the per-spec lock is already held. Exit
-# 0 on a successful rewrite OR a no-op; 1 on any failure that leaves tasks.md
-# untouched. Sets the global $tmpf so the caller trap can clean a half-written
-# temp on a signal.
+# atomically rewrite tasks.md. Assumes the per-spec lock is already held. Also
+# drives the independent bundle-Status reconcile (do_status) from the same
+# derivation map before the placement rewrite: that mirror is best-effort and
+# atomic per-file, may rewrite the **Status:** header in all four spec files
+# (tasks.md's header line included), and runs regardless of the placement
+# outcome (D-3 independent writes) — so it is deliberately NOT rolled back when
+# the placement rewrite later fails. Exit 0 on a successful placement rewrite OR
+# a no-op; 1 on any failure that leaves the placement rewrite of tasks.md
+# untouched (an already-applied Status-header update may remain; the
+# level-triggered reconcile re-converges both on the next run). Sets the global
+# $tmpf so the caller trap can clean a half-written temp on a signal.
 tmpf=""
 do_placement() {
   dp_dir=$1
