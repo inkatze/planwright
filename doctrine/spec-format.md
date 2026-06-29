@@ -32,7 +32,7 @@ All four files open with the same header block:
 ```markdown
 # <Spec title> — <File role>
 
-**Status:** <Draft|Active|Done|Retired|Superseded>
+**Status:** <Draft|Ready|Active|Done|Retired|Superseded>
 **Last reviewed:** <YYYY-MM-DD>
 **Format-version:** 1
 ```
