@@ -338,7 +338,18 @@ while IFS="$TAB" read -r id deps; do
       # there, REQ-C1.1.)
       btip=$(git -C "$repo_root" rev-parse --verify --quiet "$branch" 2>/dev/null || echo "")
       basetip=$(git -C "$repo_root" rev-parse --verify --quiet "$base" 2>/dev/null || echo "")
-      if [ -n "$btip" ] && [ -n "$basetip" ] && [ "$btip" != "$basetip" ]; then
+      # A tip strictly behind base is merged work ONLY if it entered base through
+      # a merge — i.e. it sits OFF base's first-parent mainline. A tip that is
+      # itself a commit on base's first-parent line is a zero-commit dispatch
+      # branch forked at an older base that never advanced: base moved past it,
+      # but no work ever merged. Treating that as completed would mis-derive a
+      # crashed pre-first-commit dispatch (it must revert to ready / be held by a
+      # fresh marker, D-3), so the marker/deps decide instead. A genuinely merged
+      # branch deleted after merge never reaches here (branch_exists is false; the
+      # trailer carries completion); an ff-merged branch's tip lands on the
+      # first-parent line, where the trailer (REQ-C1.4) is the completion anchor.
+      if [ -n "$btip" ] && [ -n "$basetip" ] && [ "$btip" != "$basetip" ] \
+        && ! git -C "$repo_root" rev-list --first-parent "$base" | grep -qx "$btip"; then
         br_merged=1
       fi
     fi

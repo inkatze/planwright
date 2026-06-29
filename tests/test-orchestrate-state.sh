@@ -616,6 +616,40 @@ has_record "$bout" contradiction 1 \
 echo "ok: branch-merged completion vs open PR surfaces a contradiction"
 
 # ---------------------------------------------------------------------------
+# 6n. a zero-commit dispatch branch that fell BEHIND base is not completion
+#     evidence. Section 6b covers a zero-commit branch whose tip sits exactly at
+#     base; this covers the case the br_merged heuristic missed — the branch was
+#     forked at an older base and never advanced, then base moved forward, so its
+#     tip became "strictly behind base" (an ancestor of base, != base) and looked
+#     like merged work even though nothing was ever committed or merged. It must
+#     derive ready (no marker) / in-progress (fresh marker), never completed.
+# ---------------------------------------------------------------------------
+yrepo="$tmp/zerobehind"
+yspec="$yrepo/specs/demo"
+mkdir -p "$yspec"
+gitc_init "$yrepo"
+cat >"$yspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — zero-commit branch forked at an older base, no marker
+- **Dependencies:** none
+### Task 2 — zero-commit branch forked at an older base, fresh marker
+- **Dependencies:** none
+EOF
+gitc "$yrepo" add -A
+gitc "$yrepo" commit -q -m "B0 base"
+gitc "$yrepo" branch planwright/demo/task-1 # forked at B0, zero commits
+gitc "$yrepo" branch planwright/demo/task-2
+gitc "$yrepo" commit -q --allow-empty -m "B1 — base advances past the forks"
+ymdir="$yspec/.orchestrate/markers"
+mkdir -p "$ymdir"
+date +%s >"$ymdir/2" # a fresh marker on task 2 only
+yout=$("$STATE" "$yspec") || fail "zero-behind: engine exited non-zero"
+assert_state "$yout" 1 ready "zero-behind: forked-at-older-base + no marker → ready (not completed)"
+assert_state "$yout" 2 in-progress "zero-behind: forked-at-older-base + fresh marker → in-progress (not completed)"
+echo "ok: a zero-commit dispatch branch that fell behind base is not completion evidence"
+
+# ---------------------------------------------------------------------------
 # 6l. fail-closed on a non-resolving base ref — a PLANWRIGHT_BASE_REF that passes
 #     the charset gate (a typo'd ref, a deleted branch) but does NOT resolve to a
 #     commit must exit 2, not continue. Otherwise every later rev-list/rev-parse
