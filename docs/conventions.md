@@ -69,3 +69,49 @@ Creation goes through Claude Code's native mechanisms (`claude --worktree`,
 `EnterWorktree`, the Agent tool's worktree isolation); planwright never
 shells out to `git worktree`. `.claude/worktrees/` is gitignored (working
 copies, not source).
+
+## Commit trailer (D-2, REQ-C1.4)
+
+Every planwright-related commit carries a `Planwright-Task: <spec>/<id>`
+trailer in the message footer:
+
+```text
+feat(orchestrate): unify the advisory-lock primitive
+
+Body paragraphs as usual.
+
+Planwright-Task: orchestration-concurrency/6
+```
+
+- `<spec>` is the spec directory name (`^[a-z0-9][a-z0-9-]*$`, ≤64); `<id>`
+  is the task id (`^[0-9]+(\.[0-9]+)?$`). A commit that lands a **bundle**
+  carries one trailer line per task.
+- It is footer-only (never the subject line) and uses git's native trailer
+  mechanism, so the orchestration-state derivation reads it with
+  `git log --format='%(trailers:key=Planwright-Task)'`. As a real commit
+  trailer it is the completion anchor for the cases branch-reachability can
+  no longer prove done: it **survives branch deletion**, and it lets solo
+  work committed straight to `main` — with no task branch at all — still be
+  seen as done. (A squash/rebase merge also defeats branch-reachability;
+  there completion then relies on the squash preserving the footer — the
+  risk-R2 caveat documented with the derived-state model.)
+
+`/execute-task` stamps the trailer automatically. For **manual or solo
+commits**, add it yourself — either with git's native flag:
+
+```sh
+git commit -m "fix(lock): break a stale lock at the threshold" \
+  --trailer "Planwright-Task: orchestration-concurrency/6"
+```
+
+or through the shared helper, which grammar-validates each ref and emits one
+trailer per task (handy for a bundle):
+
+```sh
+printf '%s\n' "$message" \
+  | scripts/planwright-commit-trailers.sh orchestration-concurrency/3 \
+  | git commit -F -
+```
+
+The trailer is additive: it introduces no Claude or co-author attribution, so
+the project's no-attribution commit rule is unaffected.
