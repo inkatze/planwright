@@ -151,6 +151,28 @@ present the reason and wait instead.
 
 ## Implementation
 
+### Commit convention (REQ-C1.4, D-2)
+
+Every commit this skill authors for the unit — the test-first action commits,
+the observation chore commit, any in-flight expression-only amendment commit —
+carries a `Planwright-Task: <spec>/<id>` footer trailer. It is the durable,
+cross-flow completion anchor the orchestration-state derivation reads (via
+git's native trailer mechanism), surviving branch deletion and solo
+direct-to-`main` commits. Stamp it through the shared helper rather than
+hand-typing the footer, so the trailer is grammar-validated and identical
+everywhere:
+
+```sh
+printf '%s\n' "$message" \
+  | scripts/planwright-commit-trailers.sh <spec>/<id> \
+  | git commit -F -
+```
+
+For a **bundle**, pass one ref per task (`… <spec>/<id1> <spec>/<id2> …`); the
+helper emits one trailer per task. The trailer is footer-only and additive: it
+does not touch the subject line and does not introduce any Claude/co-author
+attribution, so the no-attribution commit rule is unaffected.
+
 ### Test-first development (REQ-E1.1, `validation-rigor`)
 
 Read `test-spec.md` for the unit's cited REQs first: each entry describes the
