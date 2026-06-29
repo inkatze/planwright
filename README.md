@@ -185,7 +185,8 @@ tests/            shell tests for the scripts
 planwright pins its toolchain with [mise](https://mise.jdx.dev): run
 `mise install` once, then `mise run check` runs the full gate — shell tests,
 shellcheck, shfmt, markdownlint, yamllint, conventional-commit lint, manifest +
-link + options-reference checks, the spec validator, and a gitleaks scan. It is
+link + options-reference checks, the ledger structural-corruption guard, the
+spec validator, and a gitleaks scan. It is
 the same gate CI runs on every pull request. This is dev tooling only;
 planwright's runtime scripts stay plain portable bash. See
 [Contributing](docs/CONTRIBUTING.md) for the workflow.
