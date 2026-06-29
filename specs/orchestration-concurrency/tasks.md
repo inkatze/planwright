@@ -47,24 +47,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-2 · REQ-C1.4
 - **Estimated effort:** half day
 
-### Task 3 — Dispatch rework: branch-as-record, no `tasks.md` writes
-
-- **Deliverables:** `/orchestrate` dispatch rewired to: acquire the per-spec lock
-  → create the task branch as the first durable act → write the **timestamped**
-  runtime dispatch marker → release; with **all** dispatch-time `tasks.md` section moves and
-  status annotations removed. Worker worktrees are cut from a base that carries
-  no dispatch commits.
-- **Done when:** dispatching a task creates the branch + marker and makes **zero**
-  `tasks.md` commits; a worker worktree cut immediately after has no sibling or
-  foreign-spec dispatch commit in its diff (the contamination reproduction now
-  passes clean); the in-flight task is derivable as In progress from branch +
-  marker; the branch name and marker path are built only from grammar-validated
-  ids and the marker path is containment-checked before write; tests pass under
-  `mise run check`.
-- **Dependencies:** 1, 6
-- **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2, REQ-F1.1
-- **Estimated effort:** 2 days
-
 ### Task 4 — Level-triggered idempotent reconcile (single writer)
 
 - **Deliverables:** `tasks-pr-sync` reworked into the **sole** writer of
@@ -185,6 +167,26 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
 - **Estimated effort:** 2 days
 - **Status:** PR #82 draft
+- **Last activity:** 2026-06-28
+
+### Task 3 — Dispatch rework: branch-as-record, no `tasks.md` writes
+
+- **Deliverables:** `/orchestrate` dispatch rewired to: acquire the per-spec lock
+  → create the task branch as the first durable act → write the **timestamped**
+  runtime dispatch marker → release; with **all** dispatch-time `tasks.md` section moves and
+  status annotations removed. Worker worktrees are cut from a base that carries
+  no dispatch commits.
+- **Done when:** dispatching a task creates the branch + marker and makes **zero**
+  `tasks.md` commits; a worker worktree cut immediately after has no sibling or
+  foreign-spec dispatch commit in its diff (the contamination reproduction now
+  passes clean); the in-flight task is derivable as In progress from branch +
+  marker; the branch name and marker path are built only from grammar-validated
+  ids and the marker path is containment-checked before write; tests pass under
+  `mise run check`.
+- **Dependencies:** 1, 6
+- **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2, REQ-F1.1
+- **Estimated effort:** 2 days
+- **Status:** PR #84 draft
 - **Last activity:** 2026-06-28
 
 ## Awaiting input
