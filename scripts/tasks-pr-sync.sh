@@ -462,6 +462,13 @@ if [ "${1:-}" = reconcile ]; then
     echo "tasks-pr-sync: no tasks.md in $cli_dir" >&2
     exit 2
   fi
+  # A symlinked tasks.md is unsafe input: do_placement refuses it (-L) but
+  # run_reconcile masks that refusal with `|| true`, so the CLI must reject it
+  # here to honor the fail-closed contract rather than exit 0 on a silent skip.
+  if [ -L "$cli_dir/tasks.md" ]; then
+    echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
+    exit 2
+  fi
   # Containment + spec-id grammar are enforced by the shared lock primitive
   # (REQ-F1.1): it refuses a spec dir whose canonical parent is not specs/ or
   # whose id fails the charset, with exit 2. run_reconcile (closed) surfaces

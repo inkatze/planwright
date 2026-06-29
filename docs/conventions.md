@@ -48,8 +48,12 @@ derived state:
 | `ready` / `blocked` (by dependency state) | `## Forward plan` |
 
 The human-owned sections (`## Awaiting input`, `## Deferred`, `## Out of scope`)
-are **sticky**: their bodies are preserved verbatim and their blocks are never
-relocated by the derivation. The reconcile writes **placement only** — the
+are **sticky**: their bodies are preserved without data loss and their blocks are
+never relocated by the derivation. "Without data loss" is not byte-for-byte:
+blank-line whitespace is normalized to the canonical form (leading/trailing
+blanks trimmed, blank runs collapsed) so the snapshot stays idempotent; the
+content lines themselves are kept intact. The reconcile writes **placement
+only** — the
 per-block `Status` / `Last activity` annotations ride along untouched (those are
 `/execute-task`'s to write, and are excluded from the content anchor), so a
 reconcile never changes the spec's content anchor (REQ-F1.9). It is

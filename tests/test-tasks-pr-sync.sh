@@ -640,6 +640,22 @@ cmp -s "$repo/specs/Bad_Spec/tasks.md" "$tmp/bad-pristine.md" \
   || fail "hostile spec id: reconcile wrote despite the grammar refusal"
 echo "ok: CLI reconcile fails closed on a hostile spec id, writes nothing"
 
+# 10e. The direct CLI fails closed on a symlinked tasks.md. The preflight uses
+#      `-f` (which follows the link), and do_placement refuses the `-L` file and
+#      returns 1 — but run_reconcile masks that with `|| true`, so without an
+#      explicit CLI-side refusal the caller would see exit 0 (a silent skip)
+#      despite the documented fail-closed contract. Assert non-zero + no write.
+repo=$tmp/r11e
+make_repo "$repo"
+mv "$repo/specs/demo/tasks.md" "$repo/specs/demo/tasks.real.md"
+ln -s tasks.real.md "$repo/specs/demo/tasks.md"
+cp "$repo/specs/demo/tasks.real.md" "$tmp/symlink-pristine.md"
+reconcile "$repo" specs/demo 2>/dev/null \
+  && fail "symlinked tasks.md: CLI should fail closed (non-zero exit)"
+cmp -s "$repo/specs/demo/tasks.real.md" "$tmp/symlink-pristine.md" \
+  || fail "symlinked tasks.md: CLI wrote through the symlink target"
+echo "ok: CLI reconcile fails closed on a symlinked tasks.md, writes nothing"
+
 # ===========================================================================
 # 11. Atomic write (REQ-B1.1): the write goes to a same-directory temp and is
 #     renamed into place. The atomicity of rename-on-the-same-filesystem is a
@@ -824,5 +840,42 @@ section9=$(section_of "$tasks" 9)
 block_of "$tasks" 9 | grep -q -- '- \*\*Done when:\*\* Never (no evidence)\.' \
   || fail "unknown section: orphan Task 9 definition lost"
 echo "ok: an unknown ## section and its blocks are preserved without data loss, nothing dropped"
+
+# ===========================================================================
+# 17. Merge-from-non-convention-branch fallback: `gh pr merge <n>` often runs off
+#     the head branch (e.g. on main), so the hook resolves the spec via the PR's
+#     headRefName (scraped PR number → `gh pr view --json headRefName`). The gh
+#     stub answers headRefName from GH_HEADREF; this drives that fallback end to
+#     end and asserts the resolved spec reconciles. Without it, the branch-
+#     resolution fallback (and its GH_HEADREF scaffolding) is dead, easy to
+#     regress unnoticed.
+repo=$tmp/r17
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+# Run on main (make_repo leaves HEAD there): the branch is non-convention, so the
+# hook must fall back to the PR's headRefName to learn the spec. The merge payload
+# carries a PR URL the hook scrapes for the number; the stub maps it to a
+# convention branch via GH_HEADREF.
+git -C "$repo" rev-parse --abbrev-ref HEAD | grep -qx main \
+  || fail "fallback precondition: fixture HEAD is not on a non-convention branch"
+export GH_HEADREF=planwright/demo/task-2
+run_hook "$repo" "gh pr merge 12 --squash" "https://github.com/o/r/pull/12" \
+  || fail "headRefName fallback: hook returned non-zero"
+unset GH_HEADREF
+# The fallback fired only if the spec was resolved and reconciled: Task 1
+# (completed evidence) must have moved from its start section into ## Completed.
+[ "$(section_of "$tasks" 1)" = "Completed" ] \
+  || fail "headRefName fallback: spec not reconciled via GH_HEADREF (Task 1 not in Completed)"
+# Negative guard: with no headRefName resolvable, the fallback yields no spec and
+# the hook is a clean no-op (a fresh repo whose snapshot stays put).
+repo=$tmp/r17b
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+cp "$tasks" "$tmp/r17b-pristine.md"
+run_hook "$repo" "gh pr merge 12 --squash" "https://github.com/o/r/pull/12" \
+  || fail "no-headRefName fallback: hook returned non-zero"
+cmp -s "$tasks" "$tmp/r17b-pristine.md" \
+  || fail "no-headRefName fallback: hook reconciled despite an unresolvable head ref"
+echo "ok: gh pr merge off a non-convention branch reconciles the spec resolved via headRefName"
 
 echo "PASS: all tasks-pr-sync tests passed"
