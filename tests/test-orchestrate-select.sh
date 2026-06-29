@@ -378,8 +378,13 @@ parse_deps_assert() {
       || fail "deps-parse [$pd_label]: line '$pd_line' should leave task 50 READY (got '$pd_got', rc $pd_rc)"
   else
     # blocked: task 50 must NOT be selected. With every other task non-Forward,
-    # the only possible Forward candidate is 50, so a correct block → exit 1.
-    { [ "$pd_rc" = 1 ] || [ "$pd_got" != 50 ]; } \
+    # the only possible Forward candidate is 50, so a correct block is
+    # deterministic: the selector finds no ready unit and exits 1 with no id on
+    # stdout. Assert BOTH (AND, not OR): rc must be 1 AND 50 must not be emitted.
+    # An OR here would mask real regressions — e.g. the selector exiting 0 while
+    # printing nothing, or selecting some other (non-Forward) id — since either
+    # would satisfy `pd_got != 50` and pass despite being a serious failure.
+    { [ "$pd_rc" = 1 ] && [ "$pd_got" != 50 ]; } \
       || fail "deps-parse [$pd_label]: line '$pd_line' should leave task 50 BLOCKED (got '$pd_got', rc $pd_rc)"
   fi
   echo "ok: deps-parse [$pd_label] -> $pd_expect"
