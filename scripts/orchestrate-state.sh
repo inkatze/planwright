@@ -289,6 +289,24 @@ fi
 # Branch-reachability helper.
 branch_exists() { git -C "$repo_root" show-ref --verify --quiet "refs/heads/$1"; }
 
+# Membership test: is commit $1 on base's first-parent mainline? Used by the
+# branch-merged check below to tell a stale zero-commit fork (tip ON the line)
+# from genuinely merged work (tip OFF it). base is loop-invariant, so the
+# first-parent commit list is computed at most ONCE per run and cached — without
+# this the rev-list would re-walk the whole mainline for every task branch
+# reachable from base, making the check O(tasks × history). The loop below reads
+# from a here-doc (it runs in this shell, not a subshell), so the cache persists
+# across iterations.
+fp_loaded=0
+fp_commits=""
+tip_on_first_parent() {
+  if [ "$fp_loaded" -eq 0 ]; then
+    fp_commits=$(git -C "$repo_root" rev-list --first-parent "$base" 2>/dev/null)
+    fp_loaded=1
+  fi
+  printf '%s\n' "$fp_commits" | grep -qx "$1"
+}
+
 while IFS="$TAB" read -r id deps; do
   [ -n "$id" ] || continue
 
@@ -349,7 +367,7 @@ while IFS="$TAB" read -r id deps; do
       # trailer carries completion); an ff-merged branch's tip lands on the
       # first-parent line, where the trailer (REQ-C1.4) is the completion anchor.
       if [ -n "$btip" ] && [ -n "$basetip" ] && [ "$btip" != "$basetip" ] \
-        && ! git -C "$repo_root" rev-list --first-parent "$base" | grep -qx "$btip"; then
+        && ! tip_on_first_parent "$btip"; then
         br_merged=1
       fi
     fi
