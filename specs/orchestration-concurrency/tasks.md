@@ -65,25 +65,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-1 · D-3 · REQ-A1.1, REQ-A1.2, REQ-F1.1
 - **Estimated effort:** 2 days
 
-### Task 4 — Level-triggered idempotent reconcile (single writer)
-
-- **Deliverables:** `tasks-pr-sync` reworked into the **sole** writer of
-  `tasks.md` section placement: a level-triggered, idempotent pass that recomputes
-  full placement from Task 1's derivation. On any `tasks.md` merge conflict, it
-  regenerates placement from the derivation and validates, never resolving by
-  `ours`/`theirs`/`union`. Dispatch-time section writing is gone (Task 3); this is
-  the only path that writes sections.
-- **Done when:** running the reconcile twice against unchanged truth is a no-op
-  the second time; a simulated merge-interleave (the multi-day-drift scenario)
-  reconciles to correct placement from truth; no path other than this writes
-  section placement; the committed snapshot is refreshed off the dispatch path
-  only; the snapshot write is atomic (write-temp-then-rename), so a racy stale
-  lock-break cannot tear `tasks.md` under concurrent reconcile; tests pass under
-  `mise run check`.
-- **Dependencies:** 1
-- **Citations:** D-1 · D-3 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-C1.3
-- **Estimated effort:** 2 days
-
 ### Task 5 — Selection reads live truth
 
 - **Deliverables:** `orchestrate-select` rewired to consume Task 1's live
@@ -186,6 +167,27 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Estimated effort:** 2 days
 - **Status:** PR #82 draft
 - **Last activity:** 2026-06-28
+
+### Task 4 — Level-triggered idempotent reconcile (single writer)
+
+- **Deliverables:** `tasks-pr-sync` reworked into the **sole** writer of
+  `tasks.md` section placement: a level-triggered, idempotent pass that recomputes
+  full placement from Task 1's derivation. On any `tasks.md` merge conflict, it
+  regenerates placement from the derivation and validates, never resolving by
+  `ours`/`theirs`/`union`. Dispatch-time section writing is gone (Task 3); this is
+  the only path that writes sections.
+- **Done when:** running the reconcile twice against unchanged truth is a no-op
+  the second time; a simulated merge-interleave (the multi-day-drift scenario)
+  reconciles to correct placement from truth; no path other than this writes
+  section placement; the committed snapshot is refreshed off the dispatch path
+  only; the snapshot write is atomic (write-temp-then-rename), so a racy stale
+  lock-break cannot tear `tasks.md` under concurrent reconcile; tests pass under
+  `mise run check`.
+- **Dependencies:** 1
+- **Citations:** D-1 · D-3 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-C1.3
+- **Estimated effort:** 2 days
+- **Status:** implementing
+- **Last activity:** 2026-06-29
 
 ## Awaiting input
 
