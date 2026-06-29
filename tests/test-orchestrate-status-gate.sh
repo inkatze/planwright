@@ -49,8 +49,14 @@ if [ ! -f "$skill" ]; then
   exit 1
 fi
 
-# REQ-C1.1: the executable set is named "Ready or Active".
-if grep -qE 'Ready or Active' "$skill"; then
+# REQ-C1.1: the step-4 gate POSITIVELY names the executable set as "Ready or
+# Active". Bind to the gate header itself, not a bare "Ready or Active"
+# substring: the phrase also appears in negative halt-list rows ("not Ready or
+# Active", "Spec not Ready or Active"), so a bare substring match would stay
+# green even if step 4 stopped explicitly accepting both statuses. This is the
+# positive mirror of the line-106 stale "Verify the spec is Active" check: old
+# header absent, new header present.
+if grep -qE 'Verify the spec is Ready or Active' "$skill"; then
   ok "gate names the executable set as Ready or Active (REQ-C1.1)"
 else
   fail "gate does not name 'Ready or Active' as the executable set (REQ-C1.1)"
