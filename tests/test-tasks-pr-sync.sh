@@ -644,8 +644,10 @@ echo "ok: CLI reconcile fails closed on a hostile spec id, writes nothing"
 #     renamed into place. The atomicity of rename-on-the-same-filesystem is a
 #     property of mv; ground it with a source audit (the same shape as the
 #     REQ-D1.1 inline-lock audit above) plus the no-leftover-temp check in test 1.
+# shellcheck disable=SC2016 # the $-tokens are literal source strings to grep for, not expansions
 grep -q 'mktemp "$dp_dir/.tasks-pr-sync' "$SYNC" \
   || fail "atomic write: the temp is not created in the spec dir (same-filesystem rename)"
+# shellcheck disable=SC2016 # the $-tokens are literal source strings to grep for, not expansions
 grep -q 'mv "$tmpf" "$dp_tasks"' "$SYNC" \
   || fail "atomic write: tasks.md is not written by renaming the temp into place"
 echo "ok: the snapshot write is a same-dir temp renamed into place (REQ-B1.1 atomic)"
