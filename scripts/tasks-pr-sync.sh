@@ -383,6 +383,13 @@ END {
 # "- " and are never matched) to <value> via a same-directory temp + rename
 # (atomic, REQ-B1.1). A file without the header is a no-op; an already-correct
 # value is a no-op (idempotent, REQ-B1.2); a symlinked file is refused.
+#
+# Tracks its in-flight same-directory temp in the global $wsh_tmp so the
+# EXIT/signal trap (rm_lock_and_tmp) can clean it, mirroring $tmpf: a signal
+# landing between mktemp and the rename would otherwise leak a
+# .tasks-pr-sync-st.* file in the spec dir (the spec-dir temp $tmpf already
+# guards against for the placement write).
+wsh_tmp=""
 write_status_header() {
   wsh_file=$1
   wsh_val=$2
@@ -400,13 +407,16 @@ write_status_header() {
         { print }
       ' "$wsh_file" >"$wsh_tmp"; then
     if mv "$wsh_tmp" "$wsh_file"; then
+      wsh_tmp=""
       return 0
     fi
     rm -f "$wsh_tmp"
+    wsh_tmp=""
     log "status rename failed for $wsh_file"
     return 1
   fi
   rm -f "$wsh_tmp"
+  wsh_tmp=""
   log "status rewrite failed for $wsh_file"
   return 1
 }
@@ -544,6 +554,7 @@ rm_lock_and_tmp() {
     "$lock_sh" release "$rr_lockdir" >/dev/null 2>&1 || true
   fi
   [ -n "$tmpf" ] && rm -f "$tmpf"
+  [ -n "$wsh_tmp" ] && rm -f "$wsh_tmp"
 }
 
 # run_reconcile <canonical-spec-dir> <policy>: acquire the shared lock, run
