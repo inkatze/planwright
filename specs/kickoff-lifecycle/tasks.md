@@ -23,22 +23,6 @@ D-9: never ship a lifecycle state with no exit.
 
 ## Forward plan
 
-### Task 2 — Status-aware validator recognizes Ready (errors-block)
-
-- **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
-  status (status enum) and `Ready` findings map to errors-block severity alongside
-  Active and Done; Draft→Ready, Ready→Active, Ready→Done (direct completion),
-  Active→Done, and Done→Draft accepted as valid transitions;
-  terminal-state discipline unchanged; header documentation updated. Tests in
-  `tests/test-spec-validate.sh`: a Ready bundle with a structural error errors out
-  (written failing-first); valid Draft→Ready and Ready→Active bundles pass; the
-  unknown-status path is unchanged.
-- **Done when:** the validator recognizes Ready and blocks execution on Ready
-  findings; the new tests pass and the suite is green.
-- **Dependencies:** Task 1.
-- **Citations:** D-1 · REQ-B1.2, REQ-B1.3
-- **Estimated effort:** half day
-
 ### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
 
 - **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
@@ -117,6 +101,19 @@ D-9: never ship a lifecycle state with no exit.
 - **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
 - **Estimated effort:** 1 day
 
+### Task 7 — Downstream core status surfaces recognize Ready
+
+- **Deliverables:** `/spec-walkthrough`'s stage-aware framing extended to frame the
+  `Ready` stage (its renderer and any status switch); validator and skill messages
+  that enumerate statuses updated to include Ready; any core status-printing path
+  audited for the five→six status set.
+- **Done when:** `/spec-walkthrough` frames a Ready bundle with stage-appropriate
+  language; status enumerations across core name Ready; covered by the relevant
+  tests.
+- **Dependencies:** Task 1.
+- **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
+- **Estimated effort:** half day
+
 ### Task 8 — Migration sweep + docs + changelog reconcile
 
 - **Deliverables:** a one-time migration applying the derived rule to existing
@@ -141,8 +138,33 @@ D-9: never ship a lifecycle state with no exit.
 
 ## In progress
 
+### Task 2 — Status-aware validator recognizes Ready (errors-block)
+
+- **Status:** PR #87 draft
+- **Last activity:** 2026-06-29
+- **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
+  status (status enum) and `Ready` findings map to errors-block severity alongside
+  Active and Done; Draft→Ready, Ready→Active, Ready→Done (direct completion),
+  Active→Done, and Done→Draft accepted as valid transitions;
+  terminal-state discipline unchanged; header documentation updated. Tests in
+  `tests/test-spec-validate.sh`: a Ready bundle with a structural error errors out
+  (written failing-first); valid Draft→Ready and Ready→Active bundles pass; the
+  unknown-status path is unchanged.
+- **Done when:** the validator recognizes Ready and blocks execution on Ready
+  findings; the new tests pass and the suite is green.
+- **Dependencies:** Task 1.
+- **Citations:** D-1 · REQ-B1.2, REQ-B1.3
+- **Estimated effort:** half day
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 1 — Meta-spec: six-status lifecycle + bootstrap supersede pointers
 
+- **Status:** Completed — PR #80 merged 2026-06-29 (merge commit `8f9f03c`).
 - **Deliverables:** `doctrine/spec-format.md` status table and transitions updated
   to Draft → Ready → Active → Done (Retired/Superseded terminal), with `Ready`
   defined ("signed off, validated, executable, no work started") and `Active`
@@ -157,31 +179,6 @@ D-9: never ship a lifecycle state with no exit.
 - **Dependencies:** none.
 - **Citations:** D-1, D-5 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-B1.1
 - **Estimated effort:** half day
-- **Status:** In progress · PR #80 draft
-- **Last activity:** 2026-06-28
-
-### Task 7 — Downstream core status surfaces recognize Ready
-
-- **Deliverables:** `/spec-walkthrough`'s stage-aware framing extended to frame the
-  `Ready` stage (its renderer and any status switch); validator and skill messages
-  that enumerate statuses updated to include Ready; any core status-printing path
-  audited for the five→six status set.
-- **Done when:** `/spec-walkthrough` frames a Ready bundle with stage-appropriate
-  language; status enumerations across core name Ready; covered by the relevant
-  tests.
-- **Dependencies:** Task 1.
-- **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
-- **Estimated effort:** half day
-- **Status:** PR #85 draft
-- **Last activity:** 2026-06-29
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 
