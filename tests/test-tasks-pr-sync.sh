@@ -1045,11 +1045,17 @@ git -C "$repo" commit -q --allow-empty -m "feat: task 2 done
 Planwright-Task: kl/2"
 reconcile "$repo" specs/kl || fail "k6-D reconcile non-zero"
 k6_assert_all "$sd" Done "REQ-A1.5 all completed -> Done"
+# Idempotency is a four-file property (do_status mirrors all four): snapshot and
+# cmp every file, so a second-run rewrite of any sibling (not just requirements.md)
+# is caught.
 snap=$tmp/k6d-snap
-cp "$sd/requirements.md" "$snap"
+mkdir -p "$snap"
+for f in requirements.md design.md tasks.md test-spec.md; do cp "$sd/$f" "$snap/$f"; done
 reconcile "$repo" specs/kl || fail "k6-D second reconcile non-zero"
-cmp -s "$sd/requirements.md" "$snap" || fail "REQ-A1.5: status reconcile not idempotent (second run rewrote the header)"
-echo "ok: reconcile derives Active->Done when all tasks complete; idempotent on the header (REQ-A1.5)"
+for f in requirements.md design.md tasks.md test-spec.md; do
+  cmp -s "$sd/$f" "$snap/$f" || fail "REQ-A1.5: status reconcile not idempotent (second run rewrote $f)"
+done
+echo "ok: reconcile derives Active->Done when all tasks complete; idempotent across all four files (REQ-A1.5)"
 
 # --- T-E: no startable tasks (only Deferred / Out of scope blocks), stored
 # Ready -> Done (REQ-A1.5 "no startable work" arm, Done precedence).
