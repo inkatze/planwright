@@ -49,8 +49,11 @@
 # unit this step; 2 the tasks.md is missing, unreadable, or holds no task
 # records (fail closed — a malformed file must not silently report "nothing").
 #
-# Portable POSIX sh + awk + git-free (bash 3.2 / BSD awk compatible): no
-# gawk-only constructs (3-arg match, gensub), no eval, input treated as data.
+# Portable POSIX sh + awk (bash 3.2 / BSD awk compatible): no gawk-only
+# constructs (3-arg match, gensub), no eval, input treated as data. The
+# --critical-path mode stays git-free (purely structural); selection mode is
+# NOT git-free — it reads git-derived evidence by shelling out to the derivation
+# engine (orchestrate-state.sh), which needs a git work tree and git on PATH.
 set -u
 
 # Pin the C locale: range patterns in the awk grammar are collation-dependent

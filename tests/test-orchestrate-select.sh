@@ -59,8 +59,9 @@ gitc() {
 # new_spec <repo> <spec-id> — init a git repo with specs/<spec-id>/ and echo the
 # spec dir. The bundle's tasks.md is then written by the caller and committed
 # with seal_base. The spec id is the bundle dir basename and must satisfy the
-# anchored identifier grammar the engine validates (lowercase, dashes), so all
-# fixture spec ids below are well-formed.
+# anchored identifier grammar the engine validates (lowercase letters, digits,
+# and dashes; first character a letter or digit), so all fixture spec ids below
+# are well-formed.
 new_spec() {
   nr_repo="$1"
   nr_spec="$2"
