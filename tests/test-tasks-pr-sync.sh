@@ -487,7 +487,7 @@ echo "ok: space-padded stale_lock_threshold parses without a false warning"
 #     stale-break over the lock dir.
 grep -q 'orchestrate-lock.sh' "$HOOK" \
   || fail "REQ-D1.1: hook does not reference the shared lock primitive"
-grep -Eq 'find[[:space:]]+"?\$\{?lock\}?"?[[:space:]]+-maxdepth 0 -mmin' "$HOOK" \
+grep -Eq 'find[[:space:]].*-maxdepth 0 -mmin' "$HOOK" \
   && fail "REQ-D1.1: hook still carries inline stale-break logic (duplication)"
 echo "ok: hook delegates locking to the shared primitive (no inline duplication)"
 
@@ -506,5 +506,31 @@ run_hook "$repo" "gh pr create --draft" "https://github.com/o/r/pull/12" \
 assert_unchanged "primitive-held lock excludes hook" "$repo/specs/demo/tasks.md" "$pristine9"
 /bin/bash "$LOCKSH" release "$repo/specs/demo"
 echo "ok: a lock held via the shared primitive excludes the hook (REQ-D1.2)"
+
+# 19. REQ-D1.1 fail-soft: if the shared lock primitive is missing beside the
+#     hook (a broken/partial install), the hook is a clean no-op (the move is
+#     skipped for `/orchestrate --bookkeeping` to reconcile), never an abort.
+#     Exercised by running a copy of the hook from a directory that has no
+#     orchestrate-lock.sh sibling, so $lock_sh resolves to a non-existent path.
+repo=$tmp/r10
+make_repo "$repo"
+pristine10=$tmp/pristine10.md
+cp "$repo/specs/demo/tasks.md" "$pristine10"
+git -C "$repo" checkout -qb planwright/demo/task-3
+nolockdir=$tmp/nolock
+mkdir -p "$nolockdir"
+cp "$HOOK" "$nolockdir/tasks-pr-sync.sh" # no orchestrate-lock.sh beside it
+chmod +x "$nolockdir/tasks-pr-sync.sh"
+err=$(
+  cd "$repo" \
+    && printf '{"tool_name":"Bash","tool_input":{"command":"gh pr create --draft"},"tool_response":{"stdout":"https://github.com/o/r/pull/12","stderr":""}}' \
+    | PATH="$stub:$PATH" "$nolockdir/tasks-pr-sync.sh" 2>&1 >/dev/null
+) || fail "missing primitive: hook exited non-zero (should be a fail-soft no-op)"
+assert_unchanged "missing lock primitive" "$repo/specs/demo/tasks.md" "$pristine10"
+case $err in
+  *"missing or not executable"*) ;;
+  *) fail "missing primitive: no broken-install diagnostic (got: $err)" ;;
+esac
+echo "ok: a missing lock primitive is a clean fail-soft no-op (REQ-D1.1)"
 
 echo "PASS: all tasks-pr-sync tests passed"
