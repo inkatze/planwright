@@ -101,8 +101,9 @@ window between branch-create and the branch acquiring its first commit.
 
 It is a durable, timestamped marker file, one per task, in the spec's runtime
 orchestration-state directory (`<spec-dir>/.orchestrate/markers/<id>` by default,
-overridable with the `PLANWRIGHT_ORCH_STATE_DIR` environment variable),
-alongside the per-spec advisory lock.
+overridable with the `PLANWRIGHT_ORCH_STATE_DIR` environment variable). The
+per-spec advisory lock lives beside it at `<spec-dir>/.orchestrate.lock`, not
+under the markers directory.
 
 Branch-first ordering is also fail-safe: a dispatch that crashes after acquiring
 the lock but before creating the branch leaves **neither** branch nor marker, so
@@ -163,13 +164,16 @@ in-flight task **passes**: freshness is the reconcile's job, not the guard's.
 ## No remote (solo and prototyping)
 
 Working with no remote configured is a **first-class** path, not a degraded one.
-With no `origin` and no PRs, the derivation runs end-to-end from local git plus
-the trailer plus the marker: `gh` is skipped, nothing errors on the missing
-remote, and the ledger stays correct as a solo session drives a spec forward.
+With no `origin` and no PRs (or no `gh` on PATH at all), the derivation runs
+end-to-end from local git plus the trailer plus the marker: the `gh` probe is
+skipped silently, nothing errors on the missing remote, and the ledger stays
+correct as a solo session drives a spec forward.
 
-A remote that *is* configured but whose `gh` query fails (auth, network,
-rate-limit, or `gh` absent) degrades to the **same** git-only derivation and
-surfaces the degradation, rather than wedging a task or corrupting state.
+A remote that *is* configured, with `gh` on PATH, but whose `gh` query fails
+(auth, network, rate-limit) degrades to the **same** git-only derivation and
+surfaces a `degraded` record, rather than wedging a task or corrupting state. A
+missing `gh` binary is not this degraded case: like a missing remote, it takes
+the silent first-class path above and emits no `degraded` record.
 
 ## The squash / rebase-merge caveat (risk R2)
 
