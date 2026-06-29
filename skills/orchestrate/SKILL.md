@@ -2,9 +2,9 @@
 name: orchestrate
 description: >
   Advance one planwright spec by one step: read tasks.md, pick the next ready
-  unit critical-path-first (or one cohesion bundle), create or reuse its
-  worktree, run the execution freshness gate, move the unit to In progress
-  under the per-spec lock, and dispatch /execute-task via the configured
+  unit critical-path-first (or one cohesion bundle), run the execution freshness
+  gate, record the dispatch (the task branch + runtime marker, never a tasks.md
+  write) under the per-spec lock, and dispatch /execute-task via the configured
   backend. A stateless, disposable control tower — every step is atomic and a
   reconcile sweep rebuilds the picture from disk. Never merges, never marks a
   PR ready, never auto-chains into /spec-kickoff. --bookkeeping runs the
@@ -16,18 +16,22 @@ argument-hint: "[<spec-path>] [--watch] [--bookkeeping] [--backend <b>] [--unatt
 
 The orchestration layer of the planwright pipeline (REQ-F1.1–REQ-F1.10): a
 **stateless step machine** (D-7) that advances an Active spec one unit at a
-time. Each step reads `tasks.md`, selects the next ready unit, prepares its
-worktree, dispatches `/execute-task`, records the move, and exits. The step —
-not the session — is the unit of crash-safety (D-8): a watch loop or control
-tower may take many steps per session, each individually atomic, and any step
-may die mid-flight without losing work, because the only durable state is
-`tasks.md`, `gh`, and the process/window list. A reconcile sweep rebuilds the
-full picture from those three on the next run.
+time. Each step reads `tasks.md`, selects the next ready unit, records the
+dispatch (the task branch + runtime marker), dispatches `/execute-task`, and
+exits. The step — not the session — is the unit of crash-safety (D-8): a watch
+loop or control tower may take many steps per session, each individually atomic,
+and any step may die mid-flight without losing work, because progress state is a
+**derived projection** (D-1): the durable evidence is git (branches, the
+`Planwright-Task` trailers), the runtime dispatch markers, `gh`, and the
+process/window list. The committed `tasks.md` sections are a discardable
+read-model snapshot a reconcile sweep rebuilds from that evidence on the next
+run, never the authoritative record.
 
 The tower is **disposable** (D-38): it holds no in-memory state beyond the
 current step. This is what lets it run headless under cron, be killed and
 restarted freely, and run concurrently in several sessions against the same
-spec (serialized only during the brief state-move by the per-spec lock, D-10).
+spec (serialized only during the brief dispatch-record write by the per-spec
+lock, D-10).
 
 `/orchestrate` **never** merges or marks a PR ready (sign-off and merge are
 the human's two reserved controls, REQ-J1.1), **never** auto-chains into
@@ -156,31 +160,24 @@ shared dependencies). Combined size is a guardrail against bloat, not the
 primary signal. Non-cohesive ready tasks ship as separate units/PRs. A bundle
 takes a single `planwright/<spec>/task-<id>-<id>` branch (D-36).
 
-## Worktree create / reuse (REQ-F1.8, D-37, D-44)
+## The dispatch record (the locked window) — REQ-A1.1, REQ-A1.2, REQ-F1.1, REQ-F1.9, D-1, D-3, D-10
 
-Create the unit's worktree through Claude Code's **native** mechanism
-(`claude --worktree` / `EnterWorktree` / the Agent tool's worktree isolation)
-— planwright **never** shells out to `git worktree`. Placement is always
-`<repo>/.claude/worktrees/<branch-suffix>`, so the worktree is attachable via
-`claude --worktree <name>` regardless of which backend launches the work; the
-placement convention is the contract, the launch mechanism incidental. Reuse
-the current worktree when it is clean, after a one-line confirm (**attended
-only**; unattended mode always creates a fresh worktree). Print the re-open
-command after create-or-reuse.
+The dispatch record is the **task branch** (created as the first durable act)
+plus the **timestamped runtime marker** — **never** a `tasks.md` write (D-1,
+REQ-A1.1). The **per-spec advisory lock** is not part of the record; it is the
+mechanism that serializes the branch-create-plus-marker write window (below),
+released the moment that window closes. Progress state is a derived projection:
+`/orchestrate` commits no dispatch or progress state to `tasks.md`, so `main`
+carries no dispatch commit and a worker worktree cut from it inherits nothing
+foreign — cross-task and
+cross-spec contamination is impossible **by construction** (REQ-A1.2), not
+merely mitigated. Section placement is refreshed off the dispatch path, by the
+level-triggered reconcile alone (D-3), never here.
 
-**Dispatch-time environment hardening** (2026-06-12 field trial): when the
-backend spawns a process (tmux pane, subagent), launch it through the
-umask-pinning wrapper, pre-trust the worktree's config paths (so a fresh
-worktree needs no per-worktree `mise trust`), and verify the SSH-agent
-indirection is alive before any signed state-move commit. A recovered tmux
-server once spawned panes under a wrong umask and broke every scratch dir; a
-stale forwarded agent socket once broke commit signing across every worker.
-
-## The state move (the locked window) — REQ-F1.3, REQ-F1.9, D-10, D-41
-
-This is the only serialized part of a step. Do it in this order, holding the
-per-spec lock across the freshness gate **and** the `tasks.md` update so the
-two are atomic against a concurrent tower or the `tasks-pr-sync` hook:
+This is the only serialized part of a step. Hold the per-spec lock across the
+freshness gate **and** the branch-create-plus-marker write, so the two are
+atomic against a concurrent tower or the `tasks-pr-sync` hook. Do it in this
+order:
 
 1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire specs/<spec>`.
    Exit 1 (another live holder) is a **clean no-op**: skip this step, another
@@ -188,8 +185,8 @@ two are atomic against a concurrent tower or the `tasks-pr-sync` hook:
    The lock path and mkdir protocol are shared with `tasks-pr-sync.sh` (risk
    row 18) so they exclude each other.
 2. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45), **inside
-   the lock, immediately before the update**. This stops dispatch against spec
-   content that changed since the brief was last signed:
+   the lock, immediately before the durable acts**. This stops dispatch against
+   spec content that changed since the brief was last signed:
    - Read the brief's **most recent anchor entry** and the four spec files
      **from the primary checkout's main view** (a worker compares its
      worktree's spec against main's brief; divergence in either direction
@@ -206,36 +203,65 @@ two are atomic against a concurrent tower or the `tasks-pr-sync` hook:
      / unparseable / non-sanctioned command / non-sanctioned writer** → halt,
      remedy: complete or repair the sign-off record per REQ-F1.10. Every halt
      is to Awaiting input naming its remedy. No bypass flag.
-3. **Move the unit to In progress.** Relocate each task block to
-   `## In progress` and write the dispatch metadata annotations:
-   `- **Status:** implementing`, `- **Last activity:** <today>`, and a
-   `- **Dispatch:**` line recording the backend, the dispatch timestamp, and
-   the worker handle/window name (REQ-F1.1). These annotations and the section
-   move are **excluded from the content anchor** (`scripts/spec-anchor.sh`
-   strips placement and Status/Dispatch annotations), so the move never trips
-   the gate that just ran — which is why this skill writes **no** anchor entry
-   for a state move (the canonical extraction superseded the interim
-   whole-file re-anchor ritual; observations 2026-06-11/06-12).
-4. **Auto-commit the move** (D-41) when `commit_on_state_move` is true (read
-   via `scripts/config-get.sh commit_on_state_move`; local override wins,
-   absent/malformed falls back to the default with a one-line warning). Use a
-   fixed conventional message (e.g. `chore(orchestrate): dispatch task <id>`).
-   Commit only — **never push** (push, sign-off, merge stay human).
+3. **Create the task branch as the first durable act** (REQ-A1.1, D-3), through
+   the worktree create/reuse step below. The branch — `planwright/<spec>/task-<id>`
+   (a bundle takes one `planwright/<spec>/task-<id>-<id>` branch, D-36) — is cut
+   from `main`, which carries no dispatch commit, so the worker base is pristine
+   (REQ-A1.2). Build the branch name only from grammar-validated ids (the spec
+   and task ids already validated at pre-flight, REQ-F1.1). **Branch-first is
+   fail-safe:** a crash after lock-acquire but before branch-create leaves
+   *neither* branch nor marker, so the task derives Ready and is cleanly
+   re-dispatched (D-3) — which is exactly why the branch precedes the marker and
+   never the reverse.
+4. **Write the timestamped runtime dispatch marker** (D-3, REQ-A1.1, REQ-F1.1):
+   `scripts/orchestrate-marker.sh write specs/<spec> <id> [<id>...]` — one
+   marker per task id in the unit (a bundle writes one per component id, never a
+   single `<id>-<id>` marker). The marker covers the branch-create →
+   first-commit window: a zero-commit branch is not yet In-progress evidence
+   (REQ-C1.1), so the marker holds the task In progress until its branch carries
+   a commit, after which branch evidence supersedes it, and a stale orphan
+   marker reverts the task to Ready (D-3). The writer grammar-validates each id
+   and containment-checks the marker path before the write (REQ-F1.1), dropping
+   a discardable, gitignored local artifact — **no `tasks.md` write, no commit**
+   (the in-flight task is now derivable as In progress from branch + marker by
+   `scripts/orchestrate-state.sh`).
 5. **Release the lock** before dispatching:
    `scripts/orchestrate-lock.sh release specs/<spec>`. The lock is held only
-   across this move, never across execution (D-10), so it never serializes the
+   across this window, never across execution (D-10), so it never serializes the
    workers.
+
+### Worktree create / reuse (REQ-F1.8, D-37, D-44)
+
+Step 3 creates the branch through the unit's worktree, made with Claude Code's
+**native** mechanism (`claude --worktree` / `EnterWorktree` / the Agent tool's
+worktree isolation) — planwright **never** shells out to `git worktree`.
+Placement is always `<repo>/.claude/worktrees/<branch-suffix>`, so the worktree
+is attachable via `claude --worktree <name>` regardless of which backend
+launches the work; the placement convention is the contract, the launch
+mechanism incidental. Reuse the current worktree when it is clean, after a
+one-line confirm (**attended only**; unattended mode always creates a fresh
+worktree). Print the re-open command after create-or-reuse.
+
+**Dispatch-time environment hardening** (2026-06-12 field trial): when the
+backend spawns a process (tmux pane, subagent), launch it through the
+umask-pinning wrapper, pre-trust the worktree's config paths (so a fresh
+worktree needs no per-worktree `mise trust`), and verify the SSH-agent
+indirection is alive before the worker's signed commits. A recovered tmux
+server once spawned panes under a wrong umask and broke every scratch dir; a
+stale forwarded agent socket once broke commit signing across every worker.
 
 ## Dispatch (REQ-F1.8, D-38)
 
 Dispatch the unit's `/execute-task <ids>` into its worktree via the configured
 backend (`scripts/config-get.sh dispatch_backend`, overridable with
 `--backend`). Concurrency is capped by `max_parallel_units` (default 3, via
-config-get): if that many units are already In progress for this spec, do not
-dispatch another — report the cap and exit. Division of labor (2026-06-12
-field trial): **the tower owns** `tasks.md` state moves, dispatch, and
-merged-window cleanup; **the worker owns** its branch's commits and conflict
-resolution. The tower relays clearly-attributed instructions to a worker but
+config-get): if that many units already derive **In progress** for this spec —
+counted from the live derivation (`scripts/orchestrate-state.sh`, which sees the
+markers just written), not the lagging committed snapshot — do not dispatch
+another; report the cap and exit. Division of labor (2026-06-12
+field trial): **the tower owns** the dispatch record (the task branch + runtime
+marker), dispatch, and merged-window cleanup; **the worker owns** its branch's
+commits and conflict resolution. The tower relays clearly-attributed instructions to a worker but
 never answers a worker's permission prompts and never types into a worker's
 input line.
 
@@ -265,7 +291,7 @@ scheduled-autopilot path; a human drains the Awaiting-input queue later.
 
 ## --watch
 
-Loop the full step (pre-flight → reconcile → select → state move → dispatch)
+Loop the full step (pre-flight → reconcile → select → dispatch record → dispatch)
 until selection reports no ready unit or a halt fires. Event-driven under the
 subagent backend (wake on a worker-completion event), a polling metronome
 under tmux.
@@ -352,8 +378,13 @@ These hold at every step:
 - **Never** merge a PR or mark one ready for review, and **never** create a
   non-draft PR (REQ-J1.1, REQ-F1.6) — `/execute-task` opens drafts; the
   draft→ready flip and the merge are the human's.
-- **Never** push, force-push, amend, squash, or rebase; state moves are local
-  commits only (REQ-J1.4, D-41).
+- **Never** write or commit `tasks.md` section placement at dispatch — the
+  dispatch record is the task branch (the first durable act) + the runtime
+  marker (D-1, D-3, REQ-A1.1), so `main` carries no dispatch commit and worker
+  bases stay pristine (REQ-A1.2). Section placement is the level-triggered
+  reconcile's to write, off the dispatch path.
+- **Never** push, force-push, amend, squash, or rebase; any commit
+  `/orchestrate` makes is local only (REQ-J1.4).
 - **Never** create a worktree by shelling out to `git worktree`; use the
   native mechanism and the `.claude/worktrees/` placement (D-37).
 - **Never** answer a worker's permission prompt or type into its input line;
@@ -364,10 +395,11 @@ These hold at every step:
   the grace threshold, an observable backend, and positive evidence of death
   (REQ-F1.1).
 - **Never** write an anchor entry: this skill is a freshness-gate reader, not a
-  sanctioned anchor writer (REQ-F1.10). Its state moves are anchor-excluded by
-  construction.
+  sanctioned anchor writer (REQ-F1.10). Its dispatch record writes no `tasks.md`
+  at all, and any reconcile placement write is anchor-excluded by construction
+  (`scripts/spec-anchor.sh` strips section placement and the Status annotations).
 - **Never** hold the per-spec lock across execution; only across the
-  freshness-gate-plus-update window (D-10).
+  freshness-gate-plus-marker window (D-10).
 
 ## Observations
 

@@ -46,6 +46,13 @@ mise.local.toml
 specs/*/.orchestrate.lock
 specs/*/.tasks-pr-sync.*
 
+# Runtime dispatch markers (orchestration-concurrency D-1/D-3) — the timestamped
+# per-task markers /orchestrate drops as part of the dispatch record. Discardable
+# local state, never committed: keeping them out of the tree is what lets `main`
+# carry no dispatch commit, so a worker worktree cut from it inherits nothing
+# foreign (REQ-A1.2 contamination isolation by construction).
+specs/*/.orchestrate/
+
 # === Bootstrap staging ===
 
 # Consumed bootstrap seed — already mined into specs/bootstrap/, kept local only.
