@@ -112,25 +112,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
 - **Estimated effort:** 1 day
 
-### Task 7 — Structural-corruption guards + CI
-
-- **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
-  corruption** check on the committed `tasks.md` snapshot — placement/state
-  signatures the level-triggered reconcile would never produce from any evidence
-  (a task in a section its own evidence contradicts, a mis-sort, a malformed or
-  duplicated block), explicitly NOT failing on the snapshot's intentional lag
-  behind live truth (freshness is the reconcile pass's job, REQ-B1.2) — and (b) a
-  **`>1 Status line` per task block** lint. See the guard-first ordering note
-  above: this SHOULD land before T3/T4/T5 merge.
-- **Done when:** a hand-corrupted snapshot (a structural corruption — wrong-block
-  placement contradicting its own evidence, a mis-sort, or two Status lines on a
-  block) fails the guard with a clear message; a well-formed snapshot that merely
-  lags live truth (a not-yet-reconciled in-flight task) passes; both guards run in
-  the project's CI and pre-commit; tests pass under `mise run check`.
-- **Dependencies:** 1
-- **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
-- **Estimated effort:** 1 day
-
 ### Task 8 — Docs, options & bootstrap canonical-record supersede
 
 - **Deliverables:** Documentation of the derived-state model — landing in the
@@ -159,6 +140,33 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## In progress
 
+### Task 7 — Structural-corruption guards + CI
+
+- **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
+  corruption** check on the committed `tasks.md` snapshot — placement/state
+  signatures the level-triggered reconcile would never produce from any evidence
+  (a task in a section its own evidence contradicts, a mis-sort, a malformed or
+  duplicated block), explicitly NOT failing on the snapshot's intentional lag
+  behind live truth (freshness is the reconcile pass's job, REQ-B1.2) — and (b) a
+  **`>1 Status line` per task block** lint. See the guard-first ordering note
+  above: this SHOULD land before T3/T4/T5 merge.
+- **Done when:** a hand-corrupted snapshot (a structural corruption — wrong-block
+  placement contradicting its own evidence, a mis-sort, or two Status lines on a
+  block) fails the guard with a clear message; a well-formed snapshot that merely
+  lags live truth (a not-yet-reconciled in-flight task) passes; both guards run in
+  the project's CI and pre-commit; tests pass under `mise run check`.
+- **Dependencies:** 1
+- **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-28
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 1 — Task-state derivation engine
 
 - **Deliverables:** A `scripts/orchestrate-state.sh` that derives each task's
@@ -184,16 +192,8 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Dependencies:** none
 - **Citations:** D-1 · D-2 · REQ-C1.1, REQ-C1.2, REQ-A1.3, REQ-F1.1
 - **Estimated effort:** 2 days
-- **Status:** PR #82 draft
-- **Last activity:** 2026-06-28
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
+- **Status:** Completed · PR #82 merged 2026-06-29 (ledger reconciled by `/execute-task 7` pre-flight; merge commit 59618b0 in HEAD, `scripts/orchestrate-state.sh` present; anchor intact `d8e5f2cb`)
+- **Last activity:** 2026-06-29
 
 ## Deferred
 
