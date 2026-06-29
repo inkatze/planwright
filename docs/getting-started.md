@@ -219,6 +219,9 @@ Three customization mechanisms exist, all of which avoid editing core:
   categorization, engineering doctrine, spec format).
 - [`docs/conventions.md`](conventions.md) — repository and workflow
   conventions.
+- [`docs/orchestration-state.md`](orchestration-state.md) — the derived-projection
+  model behind concurrent orchestration (derivation, single-writer reconcile,
+  the trailer, no-remote flow).
 - [`docs/CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute changes.
 - [`docs/release-checklist.md`](release-checklist.md) — the public-release
   readiness gate (for maintainers).

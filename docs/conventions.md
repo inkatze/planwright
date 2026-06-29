@@ -116,7 +116,8 @@ Planwright-Task: orchestration-concurrency/6
   work committed straight to `main` — with no task branch at all — still be
   seen as done. (A squash/rebase merge also defeats branch-reachability;
   there completion then relies on the squash preserving the footer — the
-  risk-R2 caveat documented with the derived-state model.)
+  risk-R2 caveat documented with
+  [the derived-state model](orchestration-state.md#the-squash--rebase-merge-caveat-risk-r2).)
 
 `/execute-task` stamps the trailer automatically. For **manual or solo
 commits**, add it yourself — either with git's native flag:
