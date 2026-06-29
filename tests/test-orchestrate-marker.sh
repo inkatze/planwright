@@ -240,6 +240,34 @@ rc=0
 echo "ok: REQ-F1.1 a symlink at the marker path is refused, never followed"
 
 # ---------------------------------------------------------------------------
+# 7b. REQ-F1.1 — a non-regular file (a directory) at the marker path is refused
+#     (exit 2), never written through. `mv -f` onto a directory would otherwise
+#     move the temp *inside* it and exit 0 leaving no marker. Plus: a multi-id
+#     write is all-or-nothing while staging — one refused id places no marker for
+#     the rest of the batch (two-phase staging rolls back).
+# ---------------------------------------------------------------------------
+drepo="$tmp/dirpath"
+dspec="$drepo/specs/demo"
+make_fixture "$drepo"
+dmk="$dspec/.orchestrate/markers"
+mkdir -p "$dmk/2" # a directory sitting where marker '2' would go
+rc=0
+"$MARKER" write "$dspec" 2 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "F1.1: a directory at the marker path returned $rc, expected refusal (exit 2)"
+[ -d "$dmk/2" ] || fail "F1.1: the refused write disturbed the directory at the marker path"
+dinside=$(find "$dmk/2" -type f | wc -l | tr -d ' ')
+[ "$dinside" = 0 ] || fail "F1.1: a temp marker was moved inside the directory at the marker path"
+echo "ok: REQ-F1.1 a directory at the marker path is refused, never written through"
+
+# Batch all-or-nothing on a staging refusal: '1 2' with '2' blocked by the
+# directory — marker '1' must NOT be placed (two-phase staging rolls back).
+rc=0
+"$MARKER" write "$dspec" 1 2 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "F1.1: a batch with a non-regular-path id must be refused (exit 2)"
+[ ! -e "$dmk/1" ] || fail "F1.1: a refused batch still placed marker 1 (staging must be all-or-nothing)"
+echo "ok: a multi-id write is all-or-nothing while staging (one refusal places no markers)"
+
+# ---------------------------------------------------------------------------
 # 8. atomicity — no temp/partial file is left behind in the marker dir; the only
 #    entry per dispatched id is the final, complete marker.
 # ---------------------------------------------------------------------------
