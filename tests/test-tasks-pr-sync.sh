@@ -693,7 +693,10 @@ tasks=$repo/specs/demo/tasks.md
 git -C "$repo" commit -q --allow-empty -m "hostile trailer
 
 Planwright-Task: ../evil/1"
-(cd "$repo" && "$STATE" specs/demo) | grep -qE '^(refused|degraded|contradiction|malformed-deps)' \
+# Capture the full stream to a file (rather than piping into grep -q, which would
+# SIGPIPE the deriver mid-emit) so the precondition reads the whole record set.
+(cd "$repo" && "$STATE" specs/demo) >"$tmp/state13.out" 2>/dev/null
+grep -qE '^(refused|degraded|contradiction|malformed-deps)' "$tmp/state13.out" \
   || fail "diagnostic precondition: derivation emitted no diagnostic record"
 reconcile "$repo" specs/demo || fail "diagnostic reconcile: non-zero exit"
 [ "$(section_of "$tasks" 1)" = "Completed" ] || fail "diagnostic: a diagnostic record broke placement"
