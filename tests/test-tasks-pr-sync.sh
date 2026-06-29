@@ -1219,4 +1219,35 @@ reconcile "$repo" specs/kl || fail "k6-K reconcile non-zero"
 k6_assert_all "$sd" Active "k6-K partial mirror self-heals to Active"
 echo "ok: a partial four-file Status mirror self-heals on the next reconcile (REQ-A1.5)"
 
+# --- T-L: a bundle file lacking the **Status:** header is skipped, not injected.
+# requirements.md (the authoritative Status home) carries the header and gates the
+# reconcile; a sibling file without one (here design.md) exercises
+# write_status_header's no-header early return ([ -n "$wsh_cur" ] || return 0): the
+# reconcile must leave it headerless rather than prepend a header, while the other
+# three files still mirror the derived value. Guards the contract that the
+# reconcile rewrites an existing header but never creates one.
+repo=$tmp/k6l
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready ""
+# Strip the bundle Status header from design.md (a malformed-but-present sibling).
+grep -v '^\*\*Status:\*\* ' "$sd/design.md" >"$sd/design.tmp" && mv "$sd/design.tmp" "$sd/design.md"
+grep -q '^\*\*Status:\*\* ' "$sd/design.md" \
+  && fail "k6-L precondition: design.md still has a Status header (test would be vacuous)"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence flips the derivation Ready->Active.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-L reconcile non-zero"
+for f in requirements.md tasks.md test-spec.md; do
+  [ "$(k6_status_of "$sd/$f")" = Active ] || fail "k6-L: $f not mirrored to Active around a headerless sibling"
+done
+grep -q '^\*\*Status:\*\* ' "$sd/design.md" \
+  && fail "k6-L: write_status_header injected a Status header into a file that lacked one"
+echo "ok: write_status_header skips a file with no Status header (no injection) and mirrors the rest (REQ-A1.5)"
+
 echo "PASS: all tasks-pr-sync tests passed"
