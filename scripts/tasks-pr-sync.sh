@@ -331,8 +331,16 @@ do_placement() {
   }
   # Keep only the `task` records, projected to `id<TAB>state`; the diagnostic
   # records (contradiction / degraded / refused / malformed-deps) are not
-  # placement input.
-  awk -F'\t' '$1 == "task" { print $2 "\t" $3 }' "$dp_raw" >"$dp_map"
+  # placement input. A failed projection (e.g. a full TMPDIR while the spec dir
+  # still has space) would leave a partial map, which the placement program
+  # below would read as "these tasks have no derived state" and wrongly sink to
+  # Forward plan; treat it like any other derivation failure and leave tasks.md
+  # untouched (same discipline as the $state_sh check above).
+  if ! awk -F'\t' '$1 == "task" { print $2 "\t" $3 }' "$dp_raw" >"$dp_map"; then
+    rm -f "$dp_raw" "$dp_map"
+    log "state projection failed for $dp_dir; tasks.md unchanged"
+    return 1
+  fi
   rm -f "$dp_raw"
 
   # Atomic write: a same-directory temp renamed into place (REQ-B1.1).
