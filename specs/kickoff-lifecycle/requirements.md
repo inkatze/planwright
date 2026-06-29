@@ -249,6 +249,16 @@ second writer of derived state to drift.
 
 ## Changelog
 
+- 2026-06-28: Task 1 implementation (meta-spec six-status lifecycle + bootstrap
+  supersede pointers). `doctrine/spec-format.md` status table, transitions,
+  validator-invariants, and glossary updated to the Draft → Ready → Active → Done
+  lifecycle with `Ready` defined ("signed off, validated, executable, no work
+  started") and `Active` narrowed to "execution work in flight". bootstrap
+  `design.md` D-40/D-44/D-26 annotated with `Superseded-by: kickoff-lifecycle …`
+  pointers (D-40→D-1, D-44→D-6, D-26→D-6) with matching changelog entries in both
+  bundles; bootstrap stays Done (not reopened). Recognition-only landing per D-9:
+  the meta-spec defines the lifecycle the behavioral skills (Tasks 3/4/6/8) adopt
+  later.
 - 2026-06-27: Kickoff sign-off walkthrough (`/spec-kickoff`, first activation).
   Added REQ-A1.8 + D-9 gating the Draft→Ready producer behind the derived reconcile
   so the lifecycle is never half-wired (Task 3 now depends on Task 6). Added
