@@ -41,9 +41,10 @@
 # Exit: 0 success; 2 usage error, a missing spec dir, a refused (malformed/
 #   hostile) id, a symlink/containment refusal, or a write failure (fail closed).
 #
-# Portable POSIX sh; no eval, all input treated as data. Pathname expansion is
-# disabled (set -f): the script does no intentional globbing, so an id like `*`
-# is taken literally and refused by the grammar rather than expanded.
+# Portable POSIX sh + `mktemp`/`date`; bash 3.2 / BSD tooling (the same floor as
+# the reader). No eval; all input treated as data. Pathname expansion is disabled
+# (set -f): the script does no intentional globbing, so an id like `*` is taken
+# literally and refused by the grammar rather than expanded.
 set -uf
 
 LC_ALL=C

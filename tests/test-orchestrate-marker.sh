@@ -225,6 +225,31 @@ entries=$(find "$aspec/.orchestrate/markers" -type f | wc -l | tr -d ' ')
 echo "ok: write leaves no temp/partial file (atomic write-temp-then-rename)"
 
 # ---------------------------------------------------------------------------
+# 8b. re-dispatch — `write` over an existing (stale) marker refreshes it to a
+#     current timestamp, so a task re-dispatched after its marker went stale is
+#     held In progress again. The marker stays a single regular file.
+# ---------------------------------------------------------------------------
+rrepo="$tmp/redispatch"
+rspec="$rrepo/specs/demo"
+make_fixture "$rrepo"
+rmdir_path="$rspec/.orchestrate/markers"
+mkdir -p "$rmdir_path"
+echo 100 >"$rmdir_path/1" # a far-past (stale) marker from a prior dispatch
+"$MARKER" write "$rspec" 1 || fail "redispatch: write exited non-zero"
+newval=$(cat "$rmdir_path/1")
+[ "$newval" -gt 100 ] || fail "redispatch: marker not refreshed past the stale value"
+[ -f "$rmdir_path/1" ] && [ ! -L "$rmdir_path/1" ] \
+  || fail "redispatch: marker is no longer a single regular file"
+rentries=$(find "$rmdir_path" -type f | wc -l | tr -d ' ')
+[ "$rentries" = 1 ] || fail "redispatch: expected one marker file, found $rentries"
+# The refreshed marker derives in-progress (a zero-commit branch is present).
+gitc "$rrepo" branch planwright/demo/task-1
+rout=$("$STATE" "$rspec") || fail "redispatch: state engine exited non-zero"
+[ "$(state_of "$rout" 1)" = in-progress ] \
+  || fail "redispatch: refreshed marker did not derive in-progress"
+echo "ok: write over a stale marker refreshes it (re-dispatch) and stays one regular file"
+
+# ---------------------------------------------------------------------------
 # 9. usage / fail-closed — missing args and an unknown subcommand exit 2.
 # ---------------------------------------------------------------------------
 rc=0
