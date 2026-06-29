@@ -171,6 +171,33 @@ cout=$("$STATE" "$spec") || fail "clear: state engine exited non-zero"
 echo "ok: clear removes the marker (→ ready) and is idempotent"
 
 # ---------------------------------------------------------------------------
+# 5b. clear fail-closed — a real removal failure (an unwritable marker dir, so
+#     the marker cannot be unlinked) is surfaced (exit 2), not swallowed. The
+#     script is fail-closed everywhere else (exit 2 on operational failure), so
+#     `clear` must not report success while the marker survives. Skipped under
+#     root, which bypasses the directory permission and lets rm succeed anyway.
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  cfrepo="$tmp/clearfail"
+  cfspec="$cfrepo/specs/demo"
+  make_fixture "$cfrepo"
+  cfdir="$cfspec/.orchestrate/markers"
+  mkdir -p "$cfdir"
+  echo 100 >"$cfdir/1"
+  chmod 555 "$cfdir" # read+exec, no write: the marker child cannot be unlinked
+  rc=0
+  "$MARKER" clear "$cfspec" 1 >/dev/null 2>&1 || rc=$?
+  chmod 755 "$cfdir" # restore before any assertion so trap cleanup can recurse
+  [ -e "$cfdir/1" ] \
+    || fail "clear-failclosed: setup invalid — the marker was removable after all"
+  [ "$rc" = 2 ] \
+    || fail "clear-failclosed: a real removal failure must fail closed (exit 2), got $rc"
+  echo "ok: clear surfaces a real removal failure (exit 2), never reports false success"
+else
+  echo "skip: clear fail-closed test (running as root bypasses dir permissions)"
+fi
+
+# ---------------------------------------------------------------------------
 # 6. REQ-F1.1 — a malformed/hostile id is refused (exit 2), nothing written.
 # ---------------------------------------------------------------------------
 hrepo="$tmp/hostile"

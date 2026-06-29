@@ -37,9 +37,11 @@
 #
 # Usage: orchestrate-marker.sh write|clear <spec-dir> <id> [<id>...]
 #   write   drop a fresh timestamped marker per id (mkdir -p the base dir).
-#   clear   remove the marker per id (idempotent: a missing marker is fine).
+#   clear   remove the marker per id (idempotent: a missing marker is fine; a
+#           real removal failure is surfaced fail-closed, not swallowed).
 # Exit: 0 success; 2 usage error, a missing spec dir, a refused (malformed/
-#   hostile) id, a symlink/containment refusal, or a write failure (fail closed).
+#   hostile) id, a symlink/containment refusal, or a write/removal failure (fail
+#   closed).
 #
 # Portable POSIX sh + `mktemp`/`date`; bash 3.2 / BSD tooling (the same floor as
 # the reader). No eval; all input treated as data. Pathname expansion is disabled
@@ -99,12 +101,20 @@ done
 marker_dir="${PLANWRIGHT_ORCH_STATE_DIR:-$spec_dir/.orchestrate/markers}"
 
 if [ "$cmd" = clear ]; then
-  # Idempotent removal. rm -f on a missing path is a no-op; on a symlink it
-  # removes the link itself, never follows it.
+  # Idempotent removal. rm -f on a missing path is a no-op (exit 0); on a symlink
+  # it removes the link itself, never follows it. A real removal failure (e.g. an
+  # unwritable marker dir) is surfaced fail-closed (exit 2) rather than swallowed,
+  # so a clean exit always means the marker is gone — matching the script's
+  # fail-closed contract everywhere else. Every id is attempted before exiting, so
+  # one stuck marker never strands the rest of a bundle's cleanup.
+  rc=0
   for id in "$@"; do
-    rm -f "$marker_dir/$id"
+    if ! rm -f "$marker_dir/$id" 2>/dev/null; then
+      echo "orchestrate-marker: cannot remove marker for task $id" >&2
+      rc=2
+    fi
   done
-  exit 0
+  exit "$rc"
 fi
 
 # write: create the base dir only now that every id has passed validation, so a
