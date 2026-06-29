@@ -23,10 +23,14 @@
 #   in-progress -> ## In progress
 #   ready / blocked (or anything else) -> ## Forward plan
 # The human-owned sections — `## Awaiting input`, `## Deferred`, `## Out of
-# scope` — are STICKY: their bodies are preserved verbatim and their task
-# blocks are never relocated by the derivation (a human parked them; the
-# reconcile does not second-guess that). The header block and intro prose
-# (everything before the first `## ` state section) are preserved verbatim.
+# scope` — are STICKY: their bodies are preserved without data loss (REQ-B1.3)
+# and their task blocks are never relocated by the derivation (a human parked
+# them; the reconcile does not second-guess that). "Without data loss" is not
+# byte-for-byte: blank-line whitespace is normalized to the canonical form
+# (leading/trailing blank lines trimmed, blank runs collapsed to one) so the
+# snapshot stays idempotent (REQ-B1.2); the content lines themselves are kept
+# intact. The header block and intro prose (everything before the first `## `
+# state section) are preserved the same way.
 #
 # Properties the rework guarantees:
 #   * Level-triggered & idempotent (REQ-B1.2): placement is recomputed from
@@ -223,7 +227,8 @@ FNR == NR {
     }
     next
   }
-  # human / other sections: preserve the body verbatim.
+  # human / other sections: capture the body verbatim here; emit_human
+  # canonicalizes its blank whitespace on output (content kept, no data loss).
   hbody[cur] = hbody[cur] $0 "\n"
   next
 }
@@ -362,10 +367,16 @@ do_placement() {
       tmpf=""
       return 0
     fi
-    mv "$tmpf" "$dp_tasks"
+    if mv "$tmpf" "$dp_tasks"; then
+      tmpf=""
+      log "reconciled placement in $dp_tasks"
+      return 0
+    fi
+    dp_rc=$?
+    rm -f "$tmpf"
     tmpf=""
-    log "reconciled placement in $dp_tasks"
-    return 0
+    log "rename failed (mv exit $dp_rc); $dp_tasks unchanged"
+    return 1
   fi
   dp_rc=$?
   rm -f "$dp_map" "$tmpf"

@@ -11,7 +11,8 @@
 #     derivation engine), never from the prior tasks.md section assignment;
 #   - completed → ## Completed, in-progress → ## In progress, ready/blocked →
 #     ## Forward plan; the human-owned sections (Awaiting input, Deferred, Out
-#     of scope) are sticky (preserved verbatim, never relocated by derivation);
+#     of scope) are sticky (bodies preserved without data loss — REQ-B1.3 —
+#     never relocated by derivation; whitespace is canonicalized, content kept);
 #   - a second run against unchanged truth is a byte-identical no-op (REQ-B1.2);
 #   - a scrambled / flattened / conflict-marked snapshot reconciles to the SAME
 #     canonical placement (REQ-B1.2 self-heal, REQ-B1.3 rebuild, REQ-C1.3
@@ -231,7 +232,7 @@ block_of "$tasks" 1 | grep -q 'wrapped onto a second line\.' \
   || fail "no data loss: Task 1 wrapped continuation line lost"
 block_of "$tasks" 4 | grep -q -- '- \*\*Done when:\*\* Gadgets integrate\.' \
   || fail "no data loss: Task 4 definition lost"
-# Human-owned sections preserved verbatim.
+# Human-owned section bodies preserved without data loss (content kept).
 grep -q 'A deferred idea\.' "$tasks" || fail "sticky: Deferred prose lost"
 grep -q 'A permanent exclusion\.' "$tasks" || fail "sticky: Out of scope prose lost"
 grep -q 'Intro prose is preserved verbatim' "$tasks" || fail "preamble: intro prose lost"
@@ -652,6 +653,17 @@ grep -q 'mv "$tmpf" "$dp_tasks"' "$SYNC" \
   || fail "atomic write: tasks.md is not written by renaming the temp into place"
 echo "ok: the snapshot write is a same-dir temp renamed into place (REQ-B1.1 atomic)"
 
+# 11b. The rename is failure-checked. Without set -e, a bare `mv` that fails
+#      (read-only dir, ENOSPC at rename, etc.) would still log "reconciled" and
+#      return 0 while leaking the temp — a silent failure-as-success. Same
+#      source-audit shape as 11 (mv atomicity is a property of mv, grounded by
+#      reading the source): assert the rename sits in a conditional, not a bare
+#      statement.
+# shellcheck disable=SC2016 # the $-tokens are literal source strings to grep for, not expansions
+grep -q 'if mv "$tmpf" "$dp_tasks"' "$SYNC" \
+  || fail "atomic write: the rename is unchecked (a failed mv would log success and leak the temp)"
+echo "ok: the snapshot rename is failure-checked (REQ-B1.1)"
+
 # ===========================================================================
 # 12. Dotted task id (D-36 blessed: 2.5) is placed end-to-end by the reconcile
 #     (the placement engine and the derivation both accept the dotted grammar).
@@ -772,10 +784,10 @@ echo "ok: concurrent reconciles settle on the canonical placement, no torn write
 
 # ===========================================================================
 # 16. Unknown section preservation: a `## ` section the format does not define
-#     (and any `### Task` block inside it) is preserved verbatim — nothing is
-#     silently dropped or yanked into the triad. Exercises the emit_human path
-#     for `oth[]` (unknown sections are sticky like the human-owned ones), which
-#     no other case covers.
+#     (and any `### Task` block inside it) is preserved without data loss —
+#     nothing is silently dropped or yanked into the triad. Exercises the
+#     emit_human path for `oth[]` (unknown sections are sticky like the
+#     human-owned ones), which no other case covers.
 repo=$tmp/r16
 make_repo "$repo"
 tasks=$repo/specs/demo/tasks.md
@@ -811,6 +823,6 @@ section9=$(section_of "$tasks" 9)
   || fail "unknown section: orphan Task 9 not preserved under ## Suspended (got '$section9')"
 block_of "$tasks" 9 | grep -q -- '- \*\*Done when:\*\* Never (no evidence)\.' \
   || fail "unknown section: orphan Task 9 definition lost"
-echo "ok: an unknown ## section and its blocks are preserved verbatim, nothing dropped"
+echo "ok: an unknown ## section and its blocks are preserved without data loss, nothing dropped"
 
 echo "PASS: all tasks-pr-sync tests passed"
