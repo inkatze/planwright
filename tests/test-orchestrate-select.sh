@@ -427,6 +427,36 @@ parse_deps_assert "multi-task-trailing-blk2" "Task 2, Task 4, Task 6." blocked 2
 parse_deps_assert "multi-task-trailing-blk4" "Task 2, Task 4, Task 6." blocked 4
 parse_deps_assert "multi-task-trailing-blk6" "Task 2, Task 4, Task 6." blocked 6
 
+# Empty / whitespace-only Dependencies value: no ids parse, so task 50 has no
+# effective deps and is ready. Pins robustness (the awk pipeline must not choke
+# on an empty value) — both naive and fixed parsers agree an empty value is depless.
+parse_deps_assert "empty" "" ready
+parse_deps_assert "whitespace-only" "   " ready
+
+# Malformed value with no id-shaped tokens at all -> treated as depless -> ready.
+# DOCUMENTED LIMITATION: an unparseable Dependencies value (e.g. "see design
+# doc", "TBD") yields NO numeric ids, so the task is considered ready, not
+# blocked — the selector understands only numeric ids and cannot distinguish
+# prose-without-ids from "Dependencies: none". Current behavior, pinned on purpose.
+parse_deps_assert "no-ids-prose" "see the design doc; to be determined" ready
+
+# Trailing-semicolon variant ("Task 1;"): the ";" is a separator collapsed by the
+# id-extraction pass, not part of the id, so dep 1 is honored (In progress -> blocked).
+parse_deps_assert "task-1-semicolon" "Task 1;" blocked 1
+parse_deps_assert "task-1-semicolon-ready" "Task 1;" ready
+# Trailing-period variant on task 2 (completes the "Task 1." / "Task 2." pair the
+# brief calls out; discriminates the fix — a naive parser drops "2." entirely).
+parse_deps_assert "task-2-dot" "Task 2." blocked 2
+parse_deps_assert "task-2-dot-ready" "Task 2." ready
+
+# Mixed ";" and "," separators in a single line, the last id carrying a trailing
+# period. All three ids must parse; the trailing "." on "Task 3." discriminates
+# the fix (a naive parser drops it). Assert each id is individually honored.
+parse_deps_assert "mixed-sep" "Task 1; Task 2, Task 3." ready
+parse_deps_assert "mixed-sep-blk1" "Task 1; Task 2, Task 3." blocked 1
+parse_deps_assert "mixed-sep-blk2" "Task 1; Task 2, Task 3." blocked 2
+parse_deps_assert "mixed-sep-blk3" "Task 1; Task 2, Task 3." blocked 3
+
 # ---------------------------------------------------------------------------
 # 14. End-to-end prose-deps fixture mirroring specs/kickoff-lifecycle's shape:
 # Task 1 Completed; Tasks 2/5/7 depend on "Task 1."; Task 3 depends on
@@ -561,5 +591,187 @@ rc=0
 /bin/bash "$SEL" "$d_klb" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "kickoff-prose-blocked: tasks 3/4/6/8 must all be blocked (exit $rc, expected 1)"
 echo "ok: prose-deps end-to-end leaves 3/4/6/8 blocked (each on a non-Completed Forward dep)"
+
+# ---------------------------------------------------------------------------
+# 15. Genuine dotted task ids (e.g. 1.2, 3.5) are preserved verbatim: the
+# trailing-period strip removes ONLY a trailing dot, never the internal dot of a
+# fractional id. The dotted helper tasks can't be expressed through
+# parse_deps_assert (which seeds integer tasks 1..9), so use standalone fixtures.
+# ---------------------------------------------------------------------------
+# Both fractional deps Completed (last with a trailing period) -> ready. A naive
+# parser would drop "Task 3.5." (trailing period); the fix keeps it as dep 3.5.
+d_dot="$tmp/dotted-prose"
+mkdir -p "$d_dot"
+cat >"$d_dot/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 60 — depends on two fractional ids, last with a trailing period
+
+- **Dependencies:** Task 1.2, Task 3.5.
+- **Estimated effort:** 1 day
+
+## Completed
+
+### Task 1.2 — fractional root a
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 3.5 — fractional root b
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+got=$(/bin/bash "$SEL" "$d_dot") || fail "dotted-prose: non-zero exit ($?)"
+[ "$got" = 60 ] || fail "dotted-prose: selected '$got', expected 60 (both fractional deps Completed)"
+echo "ok: fractional deps 'Task 1.2, Task 3.5.' parse (internal dot kept, trailing dot stripped)"
+
+# The trailing-period fractional dep is genuinely honored: move 3.5 to In
+# progress and task 60 must block. Discriminates the fix — a naive parser drops
+# "3.5." and would wrongly leave 60 ready.
+d_dotb="$tmp/dotted-prose-blocked"
+mkdir -p "$d_dotb"
+cat >"$d_dotb/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 60 — depends on a fractional id with a trailing period
+
+- **Dependencies:** Task 1.2, Task 3.5.
+- **Estimated effort:** 1 day
+
+## In progress
+
+### Task 3.5 — fractional dep in flight
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Completed
+
+### Task 1.2 — fractional root a
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+rc=0
+/bin/bash "$SEL" "$d_dotb" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "dotted-prose-blocked: 'Task 3.5.' In progress must block task 60 (exit $rc, expected 1)"
+echo "ok: trailing-period fractional dep '3.5.' is honored (blocks when not Completed)"
+
+# Internal dot must NOT be stripped: a dep on Completed Task 3.5 leaves task 60
+# ready. Were the dot collapsed (3.5 -> 35), id 35 would dangle and block — so a
+# ready result proves the internal dot survives.
+d_dotc="$tmp/dotted-internal"
+mkdir -p "$d_dotc"
+cat >"$d_dotc/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 60 — depends on fractional 3.5
+
+- **Dependencies:** Task 3.5
+- **Estimated effort:** 1 day
+
+## Completed
+
+### Task 3.5 — fractional root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+got=$(/bin/bash "$SEL" "$d_dotc") || fail "dotted-internal: non-zero exit ($?)"
+[ "$got" = 60 ] || fail "dotted-internal: selected '$got', expected 60 (3.5 must resolve to Completed 3.5, not dangling 35)"
+echo "ok: internal dot preserved — dep 'Task 3.5' resolves to Completed 3.5 (not 35)"
+
+# ---------------------------------------------------------------------------
+# 16. KNOWN LIMITATION — first-line-only dependency parsing. The parser reads ids
+# ONLY from the single line carrying the `**Dependencies:**` marker; a local dep
+# id that WRAPS onto a continuation line is not seen. This is safe for the real
+# bundles — every local dep fits on the first line, and the only text that wraps
+# is a parenthetical or cross-spec clause we deliberately ignore (see
+# specs/kickoff-lifecycle/tasks.md, Tasks 3 and 6). It IS a limitation, pinned
+# here so a future move to multi-line parsing updates this test on purpose rather
+# than tripping it by accident.
+#
+# Fixture: deps "Task 1, Task 2," with "Task 3." on the continuation line. Tasks
+# 1,2 Completed; Task 3 In progress. The second line is not parsed, so task 70
+# sees only deps {1,2} (both Completed) and is READY. If the wrap WERE parsed,
+# the In-progress Task 3 would block it.
+# ---------------------------------------------------------------------------
+d_wrap="$tmp/wrap-secondline"
+mkdir -p "$d_wrap"
+cat >"$d_wrap/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 70 — deps wrap onto a second line
+
+- **Dependencies:** Task 1, Task 2,
+  Task 3.
+- **Estimated effort:** 1 day
+
+## In progress
+
+### Task 3 — second-line dep, in flight (NOT seen by the parser)
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Completed
+
+### Task 1 — first-line dep a
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 2 — first-line dep b
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+got=$(/bin/bash "$SEL" "$d_wrap") || fail "wrap-secondline: non-zero exit ($?)"
+[ "$got" = 70 ] \
+  || fail "wrap-secondline: selected '$got', expected 70 (second-line dep 3 is NOT parsed — first-line-only limitation)"
+echo "ok: first-line-only limitation pinned — a wrapped second-line dep is not parsed"
+
+# Conversely, the FIRST-line deps on that same wrapped bullet ARE honored: move
+# Task 2 (first line) to In progress and task 70 must block.
+d_wrapb="$tmp/wrap-firstline"
+mkdir -p "$d_wrapb"
+cat >"$d_wrapb/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 70 — deps wrap onto a second line
+
+- **Dependencies:** Task 1, Task 2,
+  Task 3.
+- **Estimated effort:** 1 day
+
+## In progress
+
+### Task 2 — first-line dep, in flight
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Completed
+
+### Task 1 — first-line dep a
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+rc=0
+/bin/bash "$SEL" "$d_wrapb" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "wrap-firstline: first-line dep Task 2 In progress must block task 70 (exit $rc, expected 1)"
+echo "ok: first-line deps on a wrapped bullet are honored (Task 2 blocks)"
 
 echo "PASS: orchestrate-select"
