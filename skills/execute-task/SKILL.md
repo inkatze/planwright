@@ -139,15 +139,20 @@ present the reason and wait instead.
    `cargo test && cargo clippy -- -D warnings`, pytest+ruff+mypy from
    `pyproject.toml`). Prefer the aggregate over a bare test run. If none can
    be derived, ask. Record the command for the implementation phase.
-10. **Mark the unit In progress.** Ensure each task block sits in
-    `## In progress` with the annotations `- **Status:** implementing` and
-    `- **Last activity:** <today>` (moving it from `## Forward plan` when
-    invoked standalone on an un-started task). These are state annotations,
-    excluded from the content anchor (`spec-format` canonical extraction), so
-    the move does not trip the gate that just ran. Commit the move when
-    `commit_on_state_move` is true (read `config/defaults.yml` overridden by
-    `<repo>/.claude/planwright.local.yml`, local wins; absent/malformed config
-    falls back to the default with a one-line warning).
+10. **Mark the unit's annotations; do not move sections.** Set the task block's
+    state annotations `- **Status:** implementing` and `- **Last activity:**
+    <today>` in place. Do **not** relocate the block between sections: section
+    placement is the `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1),
+    derived from the branch + marker and refreshed on the PR events this skill
+    triggers. A block still sitting in `## Forward plan` while its branch is in
+    flight is intentional snapshot lag, not corruption, and the structural-
+    corruption guard passes it (REQ-B1.2, REQ-E1.1). The annotations are state
+    annotations excluded from the content anchor (`spec-format` canonical
+    extraction), so writing them does not trip the gate that just ran. Commit the
+    annotation write when `commit_on_state_move` is true (read
+    `config/defaults.yml` overridden by `<repo>/.claude/planwright.local.yml`,
+    local wins; absent/malformed config falls back to the default with a one-line
+    warning).
 
 ## Implementation
 
