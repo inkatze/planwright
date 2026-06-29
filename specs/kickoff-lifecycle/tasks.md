@@ -23,23 +23,6 @@ D-9: never ship a lifecycle state with no exit.
 
 ## Forward plan
 
-### Task 1 — Meta-spec: six-status lifecycle + bootstrap supersede pointers
-
-- **Deliverables:** `doctrine/spec-format.md` status table and transitions updated
-  to Draft → Ready → Active → Done (Retired/Superseded terminal), with `Ready`
-  defined ("signed off, validated, executable, no work started") and `Active`
-  narrowed to "work in flight"; the validator-invariants section noting Ready
-  errors-block; glossary updated. `bootstrap` `design.md` decisions D-40, D-44, and
-  D-26 each annotated with a `Superseded-by: kickoff-lifecycle D-<n>` pointer per the
-  supersede-pointer ritual (D-40→D-1, D-44→D-6, D-26→D-6), landed in this PR, with
-  matching dated `## Changelog` entries in both bundles.
-- **Done when:** `spec-format.md` lists six statuses with the Draft→Ready→Active→Done
-  transitions and the Ready meaning; bootstrap D-40/D-44/D-26 carry the supersede
-  pointers and changelog entries; nothing reopens bootstrap (its Status stays Done).
-- **Dependencies:** none.
-- **Citations:** D-1, D-5 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-B1.1
-- **Estimated effort:** half day
-
 ### Task 2 — Status-aware validator recognizes Ready (errors-block)
 
 - **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
@@ -171,7 +154,24 @@ D-9: never ship a lifecycle state with no exit.
 
 ## In progress
 
-(none yet)
+### Task 1 — Meta-spec: six-status lifecycle + bootstrap supersede pointers
+
+- **Deliverables:** `doctrine/spec-format.md` status table and transitions updated
+  to Draft → Ready → Active → Done (Retired/Superseded terminal), with `Ready`
+  defined ("signed off, validated, executable, no work started") and `Active`
+  narrowed to "work in flight"; the validator-invariants section noting Ready
+  errors-block; glossary updated. `bootstrap` `design.md` decisions D-40, D-44, and
+  D-26 each annotated with a `Superseded-by: kickoff-lifecycle D-<n>` pointer per the
+  supersede-pointer ritual (D-40→D-1, D-44→D-6, D-26→D-6), landed in this PR, with
+  matching dated `## Changelog` entries in both bundles.
+- **Done when:** `spec-format.md` lists six statuses with the Draft→Ready→Active→Done
+  transitions and the Ready meaning; bootstrap D-40/D-44/D-26 carry the supersede
+  pointers and changelog entries; nothing reopens bootstrap (its Status stays Done).
+- **Dependencies:** none.
+- **Citations:** D-1, D-5 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-B1.1
+- **Estimated effort:** half day
+- **Status:** In progress · PR #80 draft
+- **Last activity:** 2026-06-28
 
 ## Awaiting input
 

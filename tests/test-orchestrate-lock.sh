@@ -110,4 +110,62 @@ else
   echo "ok: a non-contention mkdir failure fails closed (exit 2) with a diagnostic"
 fi
 
+# 8. REQ-F1.1: the lock path is derived from a grammar-validated spec id. A
+#    spec dir whose id fails the spec-id grammar (`^[a-z0-9][a-z0-9-]*$`) is a
+#    clean refusal (exit 2, diagnostic, no lock created) — hostile/malformed
+#    input is never used to build an on-disk lock path.
+badspec="$tmp/badid/specs/Bad_Spec"
+mkdir -p "$badspec"
+rc=0
+err=$(/bin/bash "$LOCK" acquire "$badspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "hostile spec id: exit $rc, expected 2 (clean refusal)"
+[ ! -d "$badspec/.orchestrate.lock" ] || fail "hostile spec id: a lock was created"
+case $err in
+  *F1.1* | *refus*) ;;
+  *) fail "hostile spec id: missing refusal diagnostic (got: $err)" ;;
+esac
+echo "ok: a spec id failing the grammar is refused (REQ-F1.1)"
+
+# 9. REQ-F1.1 containment: a spec dir not located under a specs/ parent is
+#    refused — the derived lock path must stay inside the spec tree.
+loosespec="$tmp/loose/notspecs/demo"
+mkdir -p "$loosespec"
+rc=0
+/bin/bash "$LOCK" acquire "$loosespec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "non-specs parent: exit $rc, expected 2"
+[ ! -d "$loosespec/.orchestrate.lock" ] || fail "non-specs parent: a lock was created"
+echo "ok: a spec dir outside a specs/ parent is refused (REQ-F1.1)"
+
+# 10. REQ-F1.1 containment *after canonicalization*: a spec dir that is a
+#     symlink resolving outside any specs/ parent is refused — the physical
+#     path, not the link path, decides containment, so an escaping symlink
+#     cannot smuggle the lock out of the tree.
+realout="$tmp/realout/demo" # canonical parent is realout, not specs
+mkdir -p "$realout"
+mkdir -p "$tmp/linked/specs"
+ln -s "$realout" "$tmp/linked/specs/demo" # specs/demo -> .../realout/demo
+rc=0
+/bin/bash "$LOCK" acquire "$tmp/linked/specs/demo" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "escaping symlink: exit $rc, expected 2"
+[ ! -d "$realout/.orchestrate.lock" ] || fail "escaping symlink: lock created outside the tree"
+echo "ok: a spec dir symlinked outside a specs/ parent is refused (REQ-F1.1)"
+
+# 11. REQ-F1.1 length cap: a spec id whose charset is valid but whose length
+#     exceeds the 64-char bound is its own refusal branch (separate from the
+#     grammar and containment checks). A 65-char all-valid id under a specs/
+#     parent must be a clean refusal (exit 2, diagnostic naming the bound, no
+#     lock created) — the length branch is exercised in isolation here.
+longid=$(printf 'a%.0s' {1..65}) # 65 valid chars: trips only the >64 cap
+longspec="$tmp/longid/specs/$longid"
+mkdir -p "$longspec"
+rc=0
+err=$(/bin/bash "$LOCK" acquire "$longspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "over-length spec id: exit $rc, expected 2 (clean refusal)"
+[ ! -d "$longspec/.orchestrate.lock" ] || fail "over-length spec id: a lock was created"
+case $err in
+  *64*) ;;
+  *) fail "over-length spec id: diagnostic does not name the 64-char bound (got: $err)" ;;
+esac
+echo "ok: a spec id exceeding 64 chars is refused (REQ-F1.1)"
+
 echo "PASS: orchestrate-lock"

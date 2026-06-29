@@ -286,4 +286,20 @@ Anchor: `6be22e33c5e1af3b0872bf1e28f4f410ed092ebf` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Expression-only self-re-anchor (2026-06-28, Task 1 execution)
+
+Machine-written entry per REQ-F1.10's expression-only lane (the one anchor entry
+an execution skill may write). Task 1 landed its recognition-only deliverable
+(REQ-B1.1): `doctrine/spec-format.md` six-status update and the bootstrap
+D-40/D-44/D-26 supersede pointers. The only edit to a kickoff-lifecycle anchored
+file is a dated `## Changelog` entry in `requirements.md` documenting the work;
+the `doctrine/` and `specs/bootstrap/` edits are outside this bundle's four files,
+and the Task 1 `tasks.md` In-progress move is anchor-excluded. This is gap-fill
+within the accepted decisions (D-1, D-5, D-6) — it contradicts no decision and
+alters no REQ's meaning. Changelog: requirements.md `## Changelog`, entry
+"2026-06-28: Task 1 implementation (meta-spec six-status lifecycle + bootstrap
+supersede pointers)".
+
+Class: expression-only
+Anchor: `440999874be0286640f38d68f02ef6de50f7517f` — computed as
+`scripts/spec-anchor.sh specs/kickoff-lifecycle`
