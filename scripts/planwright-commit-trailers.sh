@@ -92,7 +92,7 @@ valid_ref() {
 for ref in "$@"; do
   if ! valid_ref "$ref"; then
     echo "$prog: refusing malformed task ref '$ref'" >&2
-    echo "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ id ^[0-9]+(\\.[0-9]+)?$" >&2
+    echo "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ (≤64) id ^[0-9]+(\\.[0-9]+)?$" >&2
     exit 2
   fi
 done
