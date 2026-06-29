@@ -80,27 +80,6 @@ D-9: never ship a lifecycle state with no exit.
 - **Citations:** D-1 · REQ-C1.1, REQ-C1.3
 - **Estimated effort:** half day
 
-### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
-
-- **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
-  writer extended to compute and reconcile the bundle `Status:` header from the
-  task-state derivation: `Active` iff any task derives In-progress or Completed,
-  else `Ready` when signed off; mirrored across the four files; idempotent; no
-  independent status writer introduced (single-writer invariant preserved). This
-  realizes the Ready→Active transition on first dispatch (REQ-C1.2) and the derived
-  rule (REQ-A1.5).
-- **Done when:** the reconcile renders `Status: Ready` for a signed-off bundle with
-  no task in flight, `Status: Active` once any task derives In-progress/Completed, and
-  `Status: Done` once no Forward-plan/In-progress/Awaiting-input task remains (Done
-  precedence over Ready↔Active, REQ-A1.5; including a signed-off bundle with no
-  startable tasks); the header is written only by the single reconcile writer; the
-  reconcile is idempotent and covered by tests.
-- **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
-  Task 1 (derivation engine) and Task 4 (single reconcile writer) — see design
-  Cross-cutting concerns.
-- **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
-- **Estimated effort:** 1 day
-
 ### Task 7 — Downstream core status surfaces recognize Ready
 
 - **Deliverables:** `/spec-walkthrough`'s stage-aware framing extended to frame the
@@ -137,6 +116,29 @@ D-9: never ship a lifecycle state with no exit.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
+
+- **Status:** implementing
+- **Last activity:** 2026-06-29
+- **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
+  writer extended to compute and reconcile the bundle `Status:` header from the
+  task-state derivation: `Active` iff any task derives In-progress or Completed,
+  else `Ready` when signed off; mirrored across the four files; idempotent; no
+  independent status writer introduced (single-writer invariant preserved). This
+  realizes the Ready→Active transition on first dispatch (REQ-C1.2) and the derived
+  rule (REQ-A1.5).
+- **Done when:** the reconcile renders `Status: Ready` for a signed-off bundle with
+  no task in flight, `Status: Active` once any task derives In-progress/Completed, and
+  `Status: Done` once no Forward-plan/In-progress/Awaiting-input task remains (Done
+  precedence over Ready↔Active, REQ-A1.5; including a signed-off bundle with no
+  startable tasks); the header is written only by the single reconcile writer; the
+  reconcile is idempotent and covered by tests.
+- **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
+  Task 1 (derivation engine) and Task 4 (single reconcile writer) — see design
+  Cross-cutting concerns.
+- **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
+- **Estimated effort:** 1 day
 
 ### Task 2 — Status-aware validator recognizes Ready (errors-block)
 
