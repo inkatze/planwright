@@ -935,4 +935,39 @@ grep -Eq '^degraded[[:space:]]gh[[:space:]]' "$deg_err" \
   || fail "degraded-forward: the engine's degraded record must reach STDERR (got: $(cat "$deg_err"))"
 echo "ok: degraded evidence is forwarded to stderr; stdout stays clean"
 
+# ---------------------------------------------------------------------------
+# 18. Engine success-path stderr warnings pass through (Task 5 review). The
+# selector captures only the engine's STDOUT (records) and lets its STDERR flow
+# through, so a warning the engine emits while still exiting 0 — here a malformed
+# stale_marker_threshold that warns and falls back to the default — reaches the
+# operator instead of being swallowed by the capture. stdout stays the id only.
+# ---------------------------------------------------------------------------
+dwarn="$tmp/warn"
+dwarnspec=$(new_spec "$dwarn" warnspec)
+cat >"$dwarnspec/tasks.md" <<'EOF'
+# tasks
+
+## Forward plan
+
+### Task 1 — root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+EOF
+seal_base "$dwarn"
+# A malformed repo-local stale_marker_threshold makes the engine warn on stderr
+# while still exiting 0 (it falls back to the 15m default).
+mkdir -p "$dwarn/.claude"
+printf 'stale_marker_threshold: not-a-number\n' >"$dwarn/.claude/planwright.local.yml"
+warn_err="$tmp/warn.err"
+warn_rc=0
+warn_out=$(/bin/bash "$SEL" "$dwarnspec" 2>"$warn_err") || warn_rc=$?
+[ "$warn_rc" = 0 ] \
+  || fail "stderr-passthrough: selection must still succeed (exit $warn_rc; stderr: $(cat "$warn_err"))"
+[ "$warn_out" = 1 ] \
+  || fail "stderr-passthrough: stdout must carry only the selected id (got '$warn_out')"
+grep -q "ignoring malformed stale_marker_threshold" "$warn_err" \
+  || fail "stderr-passthrough: the engine's success-path warning must reach stderr (got: $(cat "$warn_err"))"
+echo "ok: engine success-path stderr warning passes through; stdout stays clean"
+
 echo "PASS: orchestrate-select"
