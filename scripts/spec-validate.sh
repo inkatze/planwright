@@ -443,7 +443,7 @@ validate_bundle() {
   if [ ! -f "$bdir/requirements.md" ]; then
     # The authoritative Status home is absent: derive the severity status
     # from the first sibling mirror that declares one, so deleting
-    # requirements.md cannot downgrade an Active bundle's errors to
+    # requirements.md cannot downgrade a Ready/Active bundle's errors to
     # warnings (same evasion class as an implicit-Draft mirror).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
@@ -457,7 +457,7 @@ validate_bundle() {
     if [ -z "$declared_status" ]; then
       printf 'gap\tmissing Status: header (defaulting to Draft)\n' >>"$fnd"
       # The default participates in everything downstream (mirrors, severity,
-      # baseline): an explicit Active mirror must not hide behind an absent
+      # baseline): an explicit Ready/Active mirror must not hide behind an absent
       # authoritative header.
       declared_status=Draft
     fi

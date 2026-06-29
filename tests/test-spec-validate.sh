@@ -947,9 +947,14 @@ has "0 error(s), 0 warning(s)"
 transition Done Draft 0
 has "0 error(s), 0 warning(s)"
 
-# Terminal-state discipline is preserved: a transition out of Superseded is
-# still a hard error, even with Ready now in the lifecycle.
+# Terminal-state discipline is preserved: a transition out of either terminal
+# status (Superseded or Retired) into Ready is still a hard error, even with
+# Ready now in the lifecycle. Both terminal statuses share one case arm, so
+# covering each guards against the arm being narrowed to only one of them.
 transition Superseded Ready 1
+has "ERROR"
+has "terminal"
+transition Retired Ready 1
 has "ERROR"
 has "terminal"
 
