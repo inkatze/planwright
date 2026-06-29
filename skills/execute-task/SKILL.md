@@ -152,9 +152,10 @@ present the reason and wait instead.
     The only edit is the block's `- **Last activity:** <today>` annotation, which
     is anchor-excluded (`spec-format` canonical extraction) and is not a `Status`
     line, so it neither trips the gate that just ran nor the corruption guard. The
-    reconcile relocates the block on the PR events this skill later triggers, and
-    the `Status` annotation is written at PR creation (PR step 3), on the block
-    the reconcile has by then placed in `## In progress`. Commit the Last-activity
+    reconcile relocates the block on the PR events this skill later triggers. The
+    `Status` annotation, like section placement, is the reconcile's to write
+    (REQ-B1.1); this skill writes no `Status` at PR creation (PR step 3) either.
+    Commit the Last-activity
     update when `commit_on_state_move` is true (read `config/defaults.yml`
     overridden by `<repo>/.claude/planwright.local.yml`, local wins;
     absent/malformed config falls back to the default with a one-line warning).
@@ -363,10 +364,16 @@ amendment axis:
      the brief's assumptions.
 
    The PR is always a draft. Never mark it ready and never merge.
-3. **Annotate the unit.** Update the task block's annotations to
-   `- **Status:** PR #<N> draft` and `- **Last activity:** <today>`. Section
-   moves on `gh pr create`/`merge` are the `tasks-pr-sync` hook's job; these
-   annotations are anchor-excluded.
+3. **Annotate the unit.** Update only the task block's `- **Last activity:**
+   <today>` annotation; write **no** `Status` line. Section placement and the
+   `Status` annotation are the `tasks-pr-sync` reconcile's sole job (REQ-B1.1,
+   D-1). Writing a `PR #<N> draft` Status here would race the reconcile:
+   the hook is fail-soft on a busy lock (a clean no-op), so the block can still
+   sit in `## Forward plan`, and an in-progress `Status` on a Forward-plan block
+   is exactly the section/status contradiction `scripts/check-ledger.sh` flags
+   (REQ-E1.1, REQ-E1.2). Section moves on `gh pr create`/`merge` are the
+   reconcile's job; the Last-activity annotation is anchor-excluded and is not a
+   `Status` line, so it trips neither the gate nor the corruption guard.
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, the tests
 written and CI outcome, Polish's convergence summary, the verified anchor, the
