@@ -119,7 +119,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
 
-- **Status:** implementing
+- **Status:** PR #92 draft
 - **Last activity:** 2026-06-29
 - **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
   writer extended to compute and reconcile the bundle `Status:` header from the
