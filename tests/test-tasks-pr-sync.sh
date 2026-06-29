@@ -1141,10 +1141,15 @@ echo "ok: the reconcile leaves Done and terminal (Superseded) bundles untouched 
 # --- T-I: single-writer code audit (REQ-A1.5). tasks-pr-sync.sh is the only
 # script that EMITS a bundle Status header; spec-validate.sh only READS it, and
 # the /orchestrate path (orchestrate-select / orchestrate-state) never writes it.
-emit='"\*\*Status:\*\* "'
+# Quote-agnostic on purpose: a print/printf/echo that emits the literal header
+# string in EITHER single or double quotes counts as an emitter, so a future
+# writer using `printf '**Status:** %s\n'` (single-quoted) cannot bypass the
+# guard. Readers (`awk '/^**Status:** /{print $2}'`) are not matched because the
+# quoted literal there precedes, not follows, the print token.
+emit='\*\*Status:\*\* '
 writers=""
 for s in "$here"/../scripts/*.sh; do
-  grep -qE "print[^|]*$emit|printf[^|]*$emit|echo[^|]*$emit" "$s" && writers="$writers $(basename "$s")"
+  grep -qE "(print|printf|echo).*['\"]$emit" "$s" && writers="$writers $(basename "$s")"
 done
 writers=$(printf '%s' "$writers" | sed 's/^ //')
 [ "$writers" = "tasks-pr-sync.sh" ] \
@@ -1152,5 +1157,66 @@ writers=$(printf '%s' "$writers" | sed 's/^ //')
 grep -q '\*\*Status:\*\*' "$here/../scripts/orchestrate-select.sh" \
   && fail "single-writer audit: orchestrate-select.sh references the Status header (should not touch it)"
 echo "ok: tasks-pr-sync.sh is the sole writer of the bundle Status header (REQ-A1.5 single-writer)"
+
+# --- T-J: write_status_header refuses a symlinked status file. A spec file
+# symlinked elsewhere (here design.md) is refused by the status writer: its
+# target is left untouched and a diagnostic is logged, while the other three
+# files still mirror the derived value (the per-file write is best-effort, so one
+# refused file does not abort the mirror). Complements the tasks.md symlink-
+# refusal tests (10e) for the four status-header files specifically.
+repo=$tmp/k6j
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready ""
+# design.md is a symlink to a real target carrying the (stale) Ready header.
+mv "$sd/design.md" "$sd/design.real.md"
+ln -s design.real.md "$sd/design.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence flips the derivation Ready->Active.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+err=$(reconcile "$repo" specs/kl 2>&1) || fail "k6-J reconcile non-zero"
+for f in requirements.md tasks.md test-spec.md; do
+  [ "$(k6_status_of "$sd/$f")" = Active ] || fail "k6-J: $f not mirrored to Active around a refused symlink"
+done
+[ "$(k6_status_of "$sd/design.real.md")" = Ready ] \
+  || fail "k6-J: write_status_header wrote through the symlinked design.md"
+[ -L "$sd/design.md" ] || fail "k6-J: the design.md symlink was replaced (write went through the link)"
+case $err in
+  *"refusing symlinked"*) ;;
+  *) fail "k6-J: no symlink-refusal diagnostic emitted (got: $err)" ;;
+esac
+echo "ok: write_status_header refuses a symlinked status file and mirrors the rest (best-effort)"
+
+# --- T-K: a partial four-file Status mirror self-heals on the next reconcile.
+# The mirror is not group-atomic (a per-file refusal/failure leaves dst_rc=1 and
+# a de-synced file); the level-triggered reconcile converges every file on a
+# subsequent run (REQ-A1.5 idempotent/self-healing, mirroring the placement
+# self-heal). Here design.md is hand-desynced to Ready while the rest read
+# Active; a reconcile that derives Active must pull design.md back into line.
+repo=$tmp/k6k
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# De-sync design.md to Ready (as if a prior mirror write to it had been refused).
+awk '!d && /^\*\*Status:\*\* / { print "**Status:** Ready"; d = 1; next } { print }' \
+  "$sd/design.md" >"$sd/design.tmp" && mv "$sd/design.tmp" "$sd/design.md"
+[ "$(k6_status_of "$sd/design.md")" = Ready ] \
+  || fail "k6-K precondition: design.md not de-synced to Ready (test would be vacuous)"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence keeps the derived value Active, so the heal target is Active.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-K reconcile non-zero"
+k6_assert_all "$sd" Active "k6-K partial mirror self-heals to Active"
+echo "ok: a partial four-file Status mirror self-heals on the next reconcile (REQ-A1.5)"
 
 echo "PASS: all tasks-pr-sync tests passed"
