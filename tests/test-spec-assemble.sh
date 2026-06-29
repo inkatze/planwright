@@ -695,6 +695,7 @@ ready_prose=$(printf '%s' "$ready_only" | sed 's/ data-stage="[^"]*"//')
 make_status_bundle "$stageroot/Unknownst/specs/demo" Nonesuch
 run_dir 0 "$stageroot/Unknownst/specs/demo"
 fallback_only=$(printf '%s\n' "$out" | grep 'class="stage-framing"' | head -1)
+[ -n "$fallback_only" ] || fail "no stage-framing line in the fallback artifact"
 fallback_prose=$(printf '%s' "$fallback_only" | sed 's/ data-stage="[^"]*"//')
 [ "$ready_prose" != "$fallback_prose" ] \
   || fail "Ready stage framing fell through to the default fallback (it must have dedicated Ready-stage prose)"
@@ -704,7 +705,7 @@ fallback_prose=$(printf '%s' "$fallback_only" | sed 's/ data-stage="[^"]*"//')
 # arm, and the /spec-walkthrough Status-agnostic invariant must name Ready in its
 # rendered status set. Catches a regression that dropped Ready from either
 # enumeration even if the prose tests above were skipped.
-grep -qE '^  Ready\)' "$script" \
+grep -qE '^[[:space:]]*Ready\)' "$script" \
   || fail "scripts/spec-assemble.sh stage case is missing a Ready) arm"
 skill_md="$here/../skills/spec-walkthrough/SKILL.md"
 grep -qE 'Draft, Ready,[[:space:]]*$|Draft, Ready, Active' "$skill_md" \
