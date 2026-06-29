@@ -672,11 +672,44 @@ EOF
 }
 
 stageroot="$tmp/stage"
-for st in Draft Done Retired Superseded; do
+for st in Draft Ready Done Retired Superseded; do
   make_status_bundle "$stageroot/$st/specs/demo" "$st"
   run_dir 0 "$stageroot/$st/specs/demo"
   has "data-stage=\"$st\""
 done
+
+# Ready stage framing (Task 7; D-1, D-8, REQ-E1.1): the six-status lifecycle
+# inserts Ready between Draft and Active ("signed off, validated, executable, no
+# work started"). A Ready bundle must get its own stage prose, distinct from the
+# unknown-status fallback — it must NOT fall through to the default arm. Before
+# Task 7 the case had no Ready arm, so a Ready bundle hit the `*)` default; this
+# is the regression guard for the dedicated Ready framing.
+make_status_bundle "$stageroot/Ready/specs/demo" Ready
+run_dir 0 "$stageroot/Ready/specs/demo"
+ready_only=$(printf '%s\n' "$out" | grep 'class="stage-framing"' | head -1)
+[ -n "$ready_only" ] || fail "no stage-framing line in the Ready artifact"
+ready_prose=$(printf '%s' "$ready_only" | sed 's/ data-stage="[^"]*"//')
+
+# The default fallback prose: a status outside the six-status set hits the `*)`
+# arm. Ready must have dedicated framing, not this fallback.
+make_status_bundle "$stageroot/Unknownst/specs/demo" Nonesuch
+run_dir 0 "$stageroot/Unknownst/specs/demo"
+fallback_only=$(printf '%s\n' "$out" | grep 'class="stage-framing"' | head -1)
+[ -n "$fallback_only" ] || fail "no stage-framing line in the fallback artifact"
+fallback_prose=$(printf '%s' "$fallback_only" | sed 's/ data-stage="[^"]*"//')
+[ "$ready_prose" != "$fallback_prose" ] \
+  || fail "Ready stage framing fell through to the default fallback (it must have dedicated Ready-stage prose)"
+
+# Source-enumeration guard (Task 7; REQ-E1.1 "a grep test asserts status
+# enumerations include Ready"): the assembler's stage case must carry a Ready
+# arm, and the /spec-walkthrough Status-agnostic invariant must name Ready in its
+# rendered status set. Catches a regression that dropped Ready from either
+# enumeration even if the prose tests above were skipped.
+grep -qE '^[[:space:]]*Ready\)' "$script" \
+  || fail "scripts/spec-assemble.sh stage case is missing a Ready) arm"
+skill_md="$here/../skills/spec-walkthrough/SKILL.md"
+grep -qE 'Draft, Ready,[[:space:]]*$|Draft, Ready, Active' "$skill_md" \
+  || fail "skills/spec-walkthrough/SKILL.md Status-agnostic enumeration does not name Ready"
 
 # The prose differs by stage: the Draft framing is not the Active framing. A
 # regression that emitted one constant framing string for every status would be

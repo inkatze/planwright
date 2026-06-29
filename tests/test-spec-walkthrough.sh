@@ -8,8 +8,8 @@
 #   1.  A valid full bundle loads (exit 0) and the load report names the
 #       detected status, the present files, the requested scope, and the
 #       reveal state (REQ-A1.1).
-#   2.  Status-agnostic: Draft, Active, Done, Retired, and Superseded each
-#       load without a non-Active refusal (REQ-A1.4, REQ-B1.4).
+#   2.  Status-agnostic: Draft, Ready, Active, Done, Retired, and Superseded
+#       each load without a non-Active refusal (REQ-A1.4, REQ-B1.4).
 #   3.  Strictly read-only apart from the gitignored artifact: a run leaves the
 #       tracked tree clean, and the self-contained HTML walkthrough is written to
 #       the gitignored .claude/walkthroughs/<spec>/ location (REQ-A1.3, REQ-E1.1).
@@ -189,7 +189,7 @@ has "demo"
 # ---------------------------------------------------------------------------
 # 2. Status-agnostic: every status loads, no non-Active refusal.
 # ---------------------------------------------------------------------------
-for st in Draft Active Done Retired Superseded; do
+for st in Draft Ready Active Done Retired Superseded; do
   wsx="$tmp/status-$st"
   mkdir -p "$wsx"
   make_bundle "$wsx/specs" demo "$st"
