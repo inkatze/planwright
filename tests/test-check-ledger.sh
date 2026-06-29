@@ -144,6 +144,20 @@ grep -v 'Completed · PR #1 merged 2026-06-01' "$tmp/clean.md" >"$tmp/c3.md"
 run "$tmp/c3.md"
 assert_exit "no completion status under Completed fails" 1 "$code"
 
+# --- 5b. Completion vocabulary is free-form: a bare "done" passes -----------
+# spec-format declares Status a free-form descriptor; the canonical reconcile
+# writer emits "Completed · PR #N merged", but a concurrent reconcile may use a
+# bare "done". Both are completion evidence and must pass under Completed.
+make_clean "$tmp/done.md"
+sed 's/Completed · PR #1 merged 2026-06-01/done/' "$tmp/clean.md" >"$tmp/done.md"
+run "$tmp/done.md"
+assert_exit "bare \"done\" completion Status under Completed passes" 0 "$code"
+# ...and a "done" Status under Forward plan is still a placement contradiction.
+sed 's/### Task 2 — Beta/### Task 2 — Beta\n\n- **Status:** done/' \
+  "$tmp/clean.md" >"$tmp/donefwd.md"
+run "$tmp/donefwd.md"
+assert_exit "\"done\" Status under Forward plan fails (completion in Forward)" 1 "$code"
+
 # --- 6. Mis-sort / duplicate: same task id under two sections ----------------
 {
   printf '# Example — Tasks\n\n**Status:** Active\n\n'

@@ -92,9 +92,13 @@ for f in "${files[@]}"; do
     function classify(s,   t) {
       if (s == "") return "none"
       t = tolower(s)
-      if (t ~ /merged/ || t ~ /^completed/) return "completed"
+      # Status is free-form (spec-format): the canonical reconcile writer emits
+      # "Completed · PR #N merged", but a bare "done" is equally completion
+      # evidence. Match "done" only as a leading word so "abandoned" etc. do not
+      # read as completion.
+      if (t ~ /merged/ || t ~ /^completed/ || t ~ /^done([^a-z]|$)/) return "completed"
       if (t ~ /^deferred/) return "deferred"
-      if (t ~ /implementing|draft|polish iter|in[ -]progress|awaiting input|open|pr #/) \
+      if (t ~ /implementing|draft|polish iter|in[ -]progress|awaiting[ -]input|open|pr #/) \
         return "in-progress"
       return "other"
     }
