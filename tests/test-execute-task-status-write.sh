@@ -62,11 +62,14 @@ fi
 flat="$(tr '\n' ' ' <"$skill" | tr -s ' ')"
 
 # REQ-B1.1: PR creation step 3 must NOT instruct writing an in-progress
-# `Status: PR #<N> draft` annotation. The reconcile is the sole Status writer;
-# a Status write here races the fail-soft hook. Fail if the instruction is
-# present anywhere in the skill (it occurred only at PR step 3).
-if printf '%s' "$flat" | grep -qE 'Status:\*\* PR #<N> draft'; then
-  fail "PR step 3 still instructs writing '**Status:** PR #<N> draft' (REQ-B1.1: reconcile is sole Status writer)"
+# `- **Status:** PR #<N> draft` annotation. Writing one here races the fail-soft
+# reconcile (the hook can no-op on a busy lock); `/execute-task` writes no
+# in-progress Status, the reconcile preserves annotations untouched. Bind to the
+# full markdown bold form so a regression that re-adds the instruction is caught.
+# Fail if the instruction is present anywhere in the skill (it occurred only at
+# PR step 3).
+if printf '%s' "$flat" | grep -qE '\*\*Status:\*\* PR #<N> draft'; then
+  fail "PR step 3 still instructs writing '**Status:** PR #<N> draft' (REQ-B1.1: /execute-task writes no in-progress Status)"
 else
   ok "PR creation writes no in-progress Status annotation (REQ-B1.1)"
 fi
@@ -119,12 +122,14 @@ else
   fail "check-ledger corruption-guard rationale missing"
 fi
 
-# Positive: PR step 3 still writes the anchor-excluded Last-activity annotation
-# (dropping the Status must not drop Last activity too).
-if printf '%s' "$flat" | grep -qE 'Last activity'; then
-  ok "Last-activity annotation still written"
+# Positive: PR step 3 specifically still writes the anchor-excluded Last-activity
+# annotation (dropping the Status must not drop Last activity too). Bind to PR
+# step 3's distinctive "Update only the task block's ... Last activity" sentence
+# rather than a bare "Last activity" match, which step 10 would also satisfy.
+if printf '%s' "$flat" | grep -qE 'Update only the task block.s .- \*\*Last activity:\*\* <today>'; then
+  ok "PR step 3 still writes the Last-activity annotation"
 else
-  fail "Last-activity annotation no longer written (regression)"
+  fail "PR step 3 no longer instructs the Last-activity write (regression)"
 fi
 
 if [ "$failures" -gt 0 ]; then
