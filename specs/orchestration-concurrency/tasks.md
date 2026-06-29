@@ -124,20 +124,6 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Citations:** D-3 · REQ-B1.2
 - **Estimated effort:** 1 day
 
-### Task 6 — Unify the advisory-lock primitive
-
-- **Deliverables:** One advisory-lock primitive shared by `/orchestrate` and the
-  `tasks-pr-sync` hook (collapsing `orchestrate-lock.sh` and the hook's inline
-  lock), with per-spec mutual exclusion and a sound stale-break at the configured
-  threshold. No fencing tokens (the branch ref is the natural fence, D-4).
-- **Done when:** both `/orchestrate` and the hook acquire through one primitive;
-  concurrent acquirers exclude; a stale lock breaks at the threshold; the
-  duplicated lock logic is gone; the lock path is built from a grammar-validated
-  spec id and containment-checked before use; tests pass under `mise run check`.
-- **Dependencies:** none
-- **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
-- **Estimated effort:** 1 day
-
 ### Task 7 — Structural-corruption guards + CI
 
 - **Deliverables:** Guards wired into CI / pre-commit: (a) a **structural-
@@ -185,7 +171,21 @@ T4→T3 dependency to "fix" the apparent ordering.
 
 ## In progress
 
-(none yet)
+### Task 6 — Unify the advisory-lock primitive
+
+- **Deliverables:** One advisory-lock primitive shared by `/orchestrate` and the
+  `tasks-pr-sync` hook (collapsing `orchestrate-lock.sh` and the hook's inline
+  lock), with per-spec mutual exclusion and a sound stale-break at the configured
+  threshold. No fencing tokens (the branch ref is the natural fence, D-4).
+- **Done when:** both `/orchestrate` and the hook acquire through one primitive;
+  concurrent acquirers exclude; a stale lock breaks at the threshold; the
+  duplicated lock logic is gone; the lock path is built from a grammar-validated
+  spec id and containment-checked before use; tests pass under `mise run check`.
+- **Dependencies:** none
+- **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-F1.1
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-06-28
 
 ## Awaiting input
 
