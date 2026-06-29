@@ -22,12 +22,15 @@
 # Worker sessions: the hook fires inside worktrees, so it resolves and
 # writes the canonical tasks.md in the PRIMARY checkout (kickoff brief risk
 # row 3), under the per-spec advisory lock at specs/<spec>/.orchestrate.lock.
-# A busy lock is a clean no-op (`/orchestrate --bookkeeping` reconciles the
-# dropped event); a lock older than stale_lock_threshold (D-10; local
-# override in <primary>/.claude/planwright.local.yml, default 15m) is
-# broken. The hook never commits: commit ownership for hook writes is an
-# open design item (kickoff brief, deferred backlog), and D-41's
-# commit_on_state_move toggle belongs to /orchestrate.
+# That lock is acquired and released through the ONE shared primitive,
+# scripts/orchestrate-lock.sh (D-4, REQ-D1.1) — the hook carries no acquire or
+# stale-break logic of its own. A busy or unavailable lock is a clean no-op
+# (`/orchestrate --bookkeeping` reconciles the dropped event); the primitive
+# breaks a lock older than stale_lock_threshold (D-10; default 15m, local
+# override in <primary>/.claude/planwright.local.yml). The hook never commits:
+# commit ownership for hook writes is an open design item (kickoff brief,
+# deferred backlog), and D-41's commit_on_state_move toggle belongs to
+# /orchestrate.
 #
 # Diagnostics go to stderr; no-op cases are silent so PostToolUse noise
 # never reaches the transcript on unrelated Bash calls.
@@ -46,6 +49,12 @@ export LC_ALL
 unset CDPATH
 
 log() { printf 'tasks-pr-sync: %s\n' "$*" >&2; }
+
+# The shared advisory-lock primitive ships beside this hook (REQ-D1.1). A
+# missing/non-executable sibling is a broken install: stay fail-soft (this is
+# a PostToolUse hook) and let the lock step skip below rather than aborting.
+hook_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || hook_dir=""
+lock_sh="$hook_dir/orchestrate-lock.sh"
 
 input=$(cat 2>/dev/null) || input=""
 [ -n "$input" ] || exit 0
@@ -178,43 +187,33 @@ case $canon_dir in
 esac
 tasks_md="$canon_dir/tasks.md"
 
-# --- Advisory lock (D-10). Threshold: stale_lock_threshold from the local
-# override (flat `key: value`, `<n>m` or bare minutes), default 15m.
-threshold_min=15
-local_cfg="$primary/.claude/planwright.local.yml"
-if [ -f "$local_cfg" ]; then
-  v=$(sed -n 's/^stale_lock_threshold:[[:space:]]*//p' "$local_cfg" \
-    | head -1 | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' | tr -d '"' | tr -d "'")
-  v=${v%m}
-  case $v in
-    '') ;; # key absent: tracked default applies silently
-    *[!0-9]*)
-      # Malformed value: fall back to the tracked default and surface a
-      # warning (config-model fallback rule, docs/options-reference.md).
-      log "ignoring malformed stale_lock_threshold in $local_cfg; using ${threshold_min}m"
-      ;;
-    *) threshold_min=$v ;;
-  esac
+# --- Advisory lock (D-10), acquired through the ONE shared primitive
+# (REQ-D1.1): no inline mkdir/stale-break logic lives here. The primitive owns
+# threshold resolution (stale_lock_threshold via config-get, default 15m),
+# the atomic mkdir, the stale-break, and the REQ-F1.1 grammar/containment
+# checks on the lock path. $canon_dir is already validated + contained under
+# <primary>/specs above; the primitive re-validates it (defense in depth).
+#
+# The hook's failure policy is fail-soft: ANY non-zero acquire (busy=1,
+# error/refusal=2, or a broken-install 127) is a clean no-op that
+# `/orchestrate --bookkeeping` reconciles — the policy lives here, off the
+# primitive's one exit-code contract (REQ-D1.2).
+if [ ! -x "$lock_sh" ]; then
+  log "lock primitive '$lock_sh' missing or not executable; skipping (bookkeeping reconciles)"
+  exit 0
 fi
-lock="$canon_dir/.orchestrate.lock"
-if ! mkdir "$lock" 2>/dev/null; then
-  if [ -n "$(find "$lock" -maxdepth 0 -mmin +"$threshold_min" 2>/dev/null)" ]; then
-    log "breaking stale lock (older than ${threshold_min}m): $lock"
-    rm -rf "$lock"
-    if ! mkdir "$lock" 2>/dev/null; then
-      log "lock contention after stale break; skipping (bookkeeping reconciles)"
-      exit 0
-    fi
-  else
-    log "lock busy: $lock; skipping (bookkeeping reconciles)"
-    exit 0
-  fi
+lock_rc=0
+"$lock_sh" acquire "$canon_dir" || lock_rc=$?
+if [ "$lock_rc" -ne 0 ]; then
+  log "lock unavailable (acquire exit $lock_rc); skipping (bookkeeping reconciles)"
+  exit 0
 fi
 tmpf=""
-trap 'rmdir "$lock" 2>/dev/null || true; [ -n "$tmpf" ] && rm -f "$tmpf"' EXIT
-# An explicit exit on a fatal signal makes the EXIT cleanup run under
-# shells (dash) that skip EXIT traps on signal-default termination; SIGKILL
-# remains unrecoverable and falls to the stale-break (D-10).
+# Release through the same primitive (idempotent rmdir), and clean any
+# half-written rewrite temp. An explicit exit on a fatal signal makes the EXIT
+# cleanup run under shells (dash) that skip EXIT traps on signal-default
+# termination; SIGKILL remains unrecoverable and falls to the stale-break.
+trap '"$lock_sh" release "$canon_dir" >/dev/null 2>&1 || true; [ -n "$tmpf" ] && rm -f "$tmpf"' EXIT
 trap 'exit 130' HUP INT TERM
 
 today=$(date -u +%Y-%m-%d)
