@@ -172,7 +172,7 @@ D-9: never ship a lifecycle state with no exit.
 - **Dependencies:** Task 1.
 - **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
-- **Status:** implementing
+- **Status:** PR #85 draft
 - **Last activity:** 2026-06-29
 
 ## Awaiting input
