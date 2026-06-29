@@ -28,11 +28,14 @@
 #     introduced (the no-attribution rule is unaffected).
 #   - `--if-exists addIfDifferent` makes a re-stamp idempotent: piping an
 #     already-trailered message through again does not duplicate it.
-#   - Each ref is grammar-validated before use (REQ-F1.1 discipline, the same
-#     grammars /execute-task's pre-flight and bootstrap D-36 enforce):
-#     spec `^[a-z0-9][a-z0-9-]*$` (≤64 chars), id `^[0-9]+(\.[0-9]+)?$`. A
-#     malformed ref or no ref at all is refused (exit 2) and nothing is
-#     emitted — the value is never interpolated into the trailer.
+#   - Each ref is grammar-validated before use (REQ-F1.1 discipline): spec
+#     `^[a-z0-9][a-z0-9-]*$` (≤64 chars, the D-36 spec-id grammar), id
+#     `^[0-9]+(\.[0-9]+)?$`. The id is the *single-task subset* of D-36's
+#     branch `<id-or-ids>` grammar: a trailer names one task (D-2 — a bundle
+#     carries one trailer line per task), so the bundle-range form (`3-4`) is
+#     deliberately not accepted here. A malformed ref, a ref with an embedded
+#     newline, or no ref at all is refused (exit 2) and nothing is emitted —
+#     the value is never interpolated into the trailer.
 #
 # Exit: 0 on success; 2 on a usage error or a malformed ref (fail closed,
 # emitting nothing).
@@ -46,15 +49,26 @@ export LC_ALL
 
 prog=${0##*/}
 
+# A literal newline, for the embedded-newline guard in valid_ref.
+LF='
+'
+
 usage() {
   echo "usage: $prog <spec>/<id> [<spec>/<id> ...] < message" >&2
 }
 
-# valid_ref <ref> — true when <ref> is `<spec>/<id>` with a grammar-valid
-# spec (^[a-z0-9][a-z0-9-]*$, ≤64) and id (^[0-9]+(\.[0-9]+)?$). Exactly one
-# slash; no further slash in the id (blocks `../` path escapes).
+# valid_ref <ref> — true when <ref> is `<spec>/<id>` with a grammar-valid spec
+# (^[a-z0-9][a-z0-9-]*$, ≤64) and id (^[0-9]+(\.[0-9]+)?$, the single-task
+# subset of D-36's branch grammar — no bundle range). Exactly one slash; no
+# further slash in the id (blocks `../` path escapes); no embedded newline
+# (the grep below is `^…$`-anchored and matches line-by-line, so without this
+# a ref whose first line is valid would slip a second line through into the
+# trailer — REQ-F1.1: hostile input is refused, never interpolated).
 valid_ref() {
   _ref=$1
+  case "$_ref" in
+    *"$LF"*) return 1 ;;
+  esac
   case "$_ref" in
     */*) ;;
     *) return 1 ;;

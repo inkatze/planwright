@@ -99,7 +99,33 @@ assert_refused "non-numeric id" demo/x
 assert_refused "uppercase spec" Demo/2
 assert_refused "path-escape spec" ../etc/2
 assert_refused "command injection" 'demo/2; rm -rf x'
+# Newline-bearing refs: a valid first line must NOT slip a second line
+# through. The per-component grep is `^…$`-anchored (line-by-line), so without
+# the up-front newline guard these would pass and inject an extra trailer.
+# Built with a literal-newline var (not $(...), which strips trailing newlines)
+# so the byte actually reaches the script.
+NL='
+'
+assert_refused "newline in id" "demo/2${NL}Injected-Trailer: evil"
+assert_refused "newline in spec" "demo${NL}evil/2"
+assert_refused "trailing newline in ref" "demo/2${NL}"
 echo "ok: malformed refs and missing args are refused without emitting"
+
+# 6b. Spec-length boundary: 64 chars accepted, 65 refused (REQ-A1.8, ≤64).
+spec64=$(printf 'a%063d' 0 | tr '0' 'a') # 64 'a's
+[ "${#spec64}" = 64 ] || fail "boundary: test setup produced ${#spec64}-char spec, expected 64"
+got=$(printf 'feat: s\n' | /bin/bash "$SCRIPT" "$spec64/1" | trailers_of)
+[ "$got" = "$spec64/1" ] || fail "boundary: 64-char spec was rejected, got [$got]"
+assert_refused "spec >64 chars" "${spec64}a/1"
+echo "ok: spec length boundary holds (64 accepted, 65 refused)"
+
+# 6c. The injected line must never reach git's trailer reader. Belt-and-braces
+# over the assert_refused exit-code check: confirm no second Planwright-Task
+# value and no foreign trailer are recoverable from a newline-injection attempt.
+inj=$(printf 'feat: s\n\nbody\n' \
+  | /bin/bash "$SCRIPT" "demo/2${NL}Injected-Trailer: evil" 2>/dev/null) || true
+[ -z "$inj" ] || fail "injection: helper emitted output for a newline ref [$inj]"
+echo "ok: newline injection yields no output (no trailer reaches git)"
 
 # 7. Round-trip through a real commit: git's %(trailers) reader recovers the
 #    ids, and the subject line is clean (the Task 1 derivation's view).
