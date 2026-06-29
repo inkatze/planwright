@@ -878,4 +878,34 @@ cmp -s "$tasks" "$tmp/r17b-pristine.md" \
   || fail "no-headRefName fallback: hook reconciled despite an unresolvable head ref"
 echo "ok: gh pr merge off a non-convention branch reconciles the spec resolved via headRefName"
 
+# ===========================================================================
+# 18. Leading non-canonical section preserved IN PLACE. A `## ` section that
+#     precedes the first canonical state-section (e.g. a top-of-file
+#     `## Dependency graph`, as specs/bootstrap/tasks.md carries) is part of the
+#     preamble: it must stay at the top, not be relocated to the end with the
+#     other unknown sections (test 16 covers the after-the-canonical-set case).
+repo=$tmp/r18
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+awk '
+  /^## Forward plan/ && !inj {
+    print "## Dependency graph"
+    print ""
+    print "- Task 2 blocks Task 4."
+    print ""
+    inj = 1
+  }
+  { print }
+' "$tasks" >"$tasks.n" && mv "$tasks.n" "$tasks"
+reconcile "$repo" specs/demo || fail "leading non-canonical: reconcile non-zero exit"
+dg_line=$(grep -n '^## Dependency graph' "$tasks" | head -1 | cut -d: -f1)
+fp_line=$(grep -n '^## Forward plan' "$tasks" | head -1 | cut -d: -f1)
+[ -n "$dg_line" ] || fail "leading non-canonical: ## Dependency graph dropped"
+[ -n "$fp_line" ] && [ "$dg_line" -lt "$fp_line" ] \
+  || fail "leading non-canonical: ## Dependency graph relocated below the canonical sections (dg=$dg_line fp=$fp_line)"
+grep -q 'Task 2 blocks Task 4\.' "$tasks" || fail "leading non-canonical: body lost"
+# Placement still works for the real tasks below it.
+[ "$(section_of "$tasks" 1)" = "Completed" ] || fail "leading non-canonical: Task 1 not placed in Completed"
+echo "ok: a leading non-canonical section is preserved in place above the canonical set"
+
 echo "PASS: all tasks-pr-sync tests passed"

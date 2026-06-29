@@ -30,7 +30,10 @@
 # (leading/trailing blank lines trimmed, blank runs collapsed to one) so the
 # snapshot stays idempotent (REQ-B1.2); the content lines themselves are kept
 # intact. The header block and intro prose (everything before the first `## `
-# state section) are preserved the same way.
+# state section — including a leading non-canonical section such as a top-of-file
+# `## Dependency graph`) are preserved the same way, in place. A non-canonical
+# `## ` section that appears after the canonical set is preserved too, parked
+# after it (see the END loop).
 #
 # Properties the rework guarantees:
 #   * Level-triggered & idempotent (REQ-B1.2): placement is recomputed from
@@ -184,7 +187,19 @@ FNR == NR {
 {
   if (inpre) {
     if ($0 ~ /^## /) {
-      inpre = 0
+      # The preamble ends at the first CANONICAL state-section. A `## ` section
+      # that precedes it (e.g. a top-of-file `## Dependency graph`, as
+      # specs/bootstrap/tasks.md carries) is not a state section: keep it, header
+      # and body, in the preamble so its position is preserved rather than being
+      # parked after the canonical set with the other unknown sections.
+      pre_sec = substr($0, 4)
+      if (TRIAD[pre_sec] || HUMAN[pre_sec]) {
+        inpre = 0
+      } else {
+        npre++
+        pre[npre] = $0
+        next
+      }
     } else {
       npre++
       pre[npre] = $0
@@ -424,11 +439,16 @@ run_reconcile() {
     fi
     return 0
   fi
-  # Track the held lock BEFORE arming the trap so a signal in the window cannot
-  # leak it. Release through the same primitive (idempotent rmdir) and clean any
-  # half-written temp. The explicit exit on a fatal signal makes the EXIT
-  # cleanup run under shells (dash) that skip EXIT traps on signal-default
-  # termination; SIGKILL remains unrecoverable and falls to the stale-break.
+  # Set rr_lockdir BEFORE arming the trap so the EXIT trap, once armed, always
+  # sees a populated lock dir (closing the trap-armed-but-lockdir-still-empty
+  # race). This does NOT make the post-acquire window leak-free: a signal
+  # delivered between acquire succeeding and the trap arming still terminates
+  # without running cleanup — that residual window falls to the stale-break,
+  # exactly like SIGKILL below. Release through the same primitive (idempotent
+  # rmdir) and clean any half-written temp. The explicit exit on a fatal signal
+  # makes the EXIT cleanup run under shells (dash) that skip EXIT traps on
+  # signal-default termination; SIGKILL remains unrecoverable and falls to the
+  # stale-break.
   rr_lockdir=$rr_dir
   tmpf=""
   trap 'rm_lock_and_tmp' EXIT
