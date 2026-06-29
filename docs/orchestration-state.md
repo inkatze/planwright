@@ -65,7 +65,9 @@ and the evidence that decided it). It checks **git ground truth before any `gh`
 query**, so when signals disagree git wins. The completion signals, in the order
 the engine applies them, are:
 
-1. **Commit / branch merge-reachability** (`git merge-base --is-ancestor`).
+1. **Commit / branch merge-reachability** (via `git rev-list`: a
+   `--count <base>..<branch>` ahead-count plus a `--first-parent`
+   mainline-membership check).
 2. **The `Planwright-Task` trailer** on a reachable base commit.
 3. **PR / merge state** via `gh` (only when a remote is configured).
 
@@ -135,9 +137,9 @@ derivable task block occupies. This is distinct from task-*definition* authoring
 authoring skills' role (`/spec-draft`, `/spec-kickoff`). `/execute-task` writes
 the per-block `- **Last activity:**` annotation (excluded from the spec content
 anchor, riding along with the block); it writes **no** `Status` line, and
-`/orchestrate` writes no `tasks.md` state at all (its dispatch record is the
-branch plus the runtime marker, D-1). Neither moves blocks between sections; the
-reconcile derives placement and preserves the annotations untouched.
+`/orchestrate` writes no `tasks.md` state at all at dispatch (D-1). Neither moves
+blocks between sections; the reconcile derives placement and preserves the
+annotations untouched.
 
 The reconcile is:
 
