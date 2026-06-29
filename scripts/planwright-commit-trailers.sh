@@ -91,7 +91,13 @@ valid_ref() {
 # First pass: validate every ref before emitting anything (fail closed).
 for ref in "$@"; do
   if ! valid_ref "$ref"; then
-    echo "$prog: refusing malformed task ref '$ref'" >&2
+    # Never echo the candidate back: a malformed ref can carry terminal escapes
+    # or a newline-injected forged log line, so echoing it verbatim is terminal/
+    # log injection. The sibling validators (spec-validate.sh, spec-walkthrough.sh)
+    # refuse the same spec-id grammar without echoing the candidate, and this
+    # helper's own contract (REQ-F1.1) is "hostile input is refused, never
+    # interpolated". The grammar hint below is enough to act on the refusal.
+    echo "$prog: refusing a malformed task ref (does not match the expected grammar)" >&2
     echo "$prog: expected <spec>/<id>, spec ^[a-z0-9][a-z0-9-]*$ (≤64) id ^[0-9]+(\\.[0-9]+)?$" >&2
     exit 2
   fi

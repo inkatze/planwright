@@ -127,6 +127,30 @@ inj=$(printf 'feat: s\n\nbody\n' \
 [ -z "$inj" ] || fail "injection: helper emitted output for a newline ref [$inj]"
 echo "ok: newline injection yields no output (no trailer reaches git)"
 
+# 6d. The refusal message must never echo the raw ref back to stderr. A
+# malformed ref can carry terminal escapes or a newline-injected forged log
+# line; echoing it verbatim is terminal/log injection. The sibling validators
+# (spec-validate.sh, spec-walkthrough.sh) refuse the same spec-id grammar
+# without echoing the candidate, and this helper's own header claims the same
+# "hostile input is refused, never interpolated" discipline (REQ-F1.1). Assert
+# the hostile payload never reaches stderr, while the grammar hint still does.
+esc=$(printf '\033')
+payload='FORGED-LOG-LINE'
+stderr=$(printf 'feat: s\n' \
+  | /bin/bash "$SCRIPT" "bad${esc}[31m/1${NL}${payload}" 2>&1 >/dev/null) || true
+case "$stderr" in
+  *"$payload"*) fail "hostile-echo: refusal echoed the injected payload back to stderr [$stderr]" ;;
+esac
+case "$stderr" in
+  *"$esc"*) fail "hostile-echo: refusal leaked a raw ESC byte to stderr" ;;
+esac
+# The message stays useful: the expected grammar hint is still printed.
+case "$stderr" in
+  *'expected <spec>/<id>'*) ;;
+  *) fail "hostile-echo: refusal lost its grammar hint [$stderr]" ;;
+esac
+echo "ok: refusal never echoes the raw ref (no terminal/log injection)"
+
 # 7. Round-trip through a real commit: git's %(trailers) reader recovers the
 #    ids, and the subject line is clean (the Task 1 derivation's view).
 repo="$tmp/repo"
