@@ -770,4 +770,47 @@ ls "$repo/specs/demo"/.tasks-pr-sync.* >/dev/null 2>&1 \
 [ ! -d "$repo/specs/demo/.orchestrate.lock" ] || fail "concurrent: the advisory lock was not released"
 echo "ok: concurrent reconciles settle on the canonical placement, no torn write, no temp/lock left"
 
+# ===========================================================================
+# 16. Unknown section preservation: a `## ` section the format does not define
+#     (and any `### Task` block inside it) is preserved verbatim — nothing is
+#     silently dropped or yanked into the triad. Exercises the emit_human path
+#     for `oth[]` (unknown sections are sticky like the human-owned ones), which
+#     no other case covers.
+repo=$tmp/r16
+make_repo "$repo"
+tasks=$repo/specs/demo/tasks.md
+# Inject an unknown ## Suspended section (with body) and an orphan Task 9 (no
+# evidence anywhere, so the derivation emits no state for it).
+awk '
+  /^## Out of scope/ && !inj {
+    print "## Suspended"
+    print ""
+    print "- A custom note the format does not define."
+    print ""
+    print "### Task 9 — Orphan with no derived state"
+    print ""
+    print "- **Deliverables:** An orphan."
+    print "- **Done when:** Never (no evidence)."
+    print "- **Dependencies:** none"
+    print "- **Citations:** REQ-X9.9"
+    print "- **Estimated effort:** half day"
+    print ""
+    inj = 1
+  }
+  { print }
+' "$tasks" >"$tasks.n" && mv "$tasks.n" "$tasks"
+reconcile "$repo" specs/demo || fail "unknown-section reconcile: non-zero exit"
+grep -q '^## Suspended' "$tasks" || fail "unknown section: ## Suspended dropped"
+grep -q 'A custom note the format does not define\.' "$tasks" \
+  || fail "unknown section: body silently dropped"
+# Task 9 lives inside ## Suspended (an unknown, body-preserved section), so the
+# derivation never relocates it: assert it stays under Suspended with its
+# definition intact rather than being pulled into a triad section.
+section9=$(section_of "$tasks" 9)
+[ "$section9" = "Suspended" ] \
+  || fail "unknown section: orphan Task 9 not preserved under ## Suspended (got '$section9')"
+block_of "$tasks" 9 | grep -q -- '- \*\*Done when:\*\* Never (no evidence)\.' \
+  || fail "unknown section: orphan Task 9 definition lost"
+echo "ok: an unknown ## section and its blocks are preserved verbatim, nothing dropped"
+
 echo "PASS: all tasks-pr-sync tests passed"
