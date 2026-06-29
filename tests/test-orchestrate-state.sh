@@ -390,6 +390,96 @@ PLANWRIGHT_BASE_REF="--output=/tmp/x" "$STATE" "$mspec" >/dev/null 2>&1 || rc=$?
 echo "ok: REQ-F1.1 unsafe base ref refused (fail closed)"
 
 # ---------------------------------------------------------------------------
+# 6e. stale_marker_threshold config override — a repo-local override widens the
+#     freshness window; a malformed value warns and falls back to the default.
+#     Mirrors the advisory lock's stale_lock_threshold coverage.
+# ---------------------------------------------------------------------------
+trepo="$tmp/threshold"
+tspec="$trepo/specs/demo"
+mkdir -p "$tspec"
+gitc_init "$trepo"
+cat >"$tspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — marker 20 minutes old
+- **Dependencies:** none
+EOF
+gitc "$trepo" add -A
+gitc "$trepo" commit -q -m "base"
+tmdir="$tspec/.orchestrate/markers"
+mkdir -p "$tmdir"
+echo $(($(date +%s) - 1200)) >"$tmdir/1" # 20m old: stale at the 15m default
+
+# Default threshold (15m): the 20m marker is stale → the task reverts to ready.
+tout=$("$STATE" "$tspec") || fail "threshold: engine exited non-zero (default)"
+assert_state "$tout" 1 ready "threshold default 15m: 20m marker is stale → ready"
+
+# Repo-local override to 30m: the same 20m marker is now fresh → in-progress.
+mkdir -p "$trepo/.claude"
+printf 'stale_marker_threshold: 30m\n' >"$trepo/.claude/planwright.local.yml"
+tout=$("$STATE" "$tspec") || fail "threshold: engine exited non-zero (override)"
+assert_state "$tout" 1 in-progress "threshold override 30m: 20m marker is fresh → in-progress"
+
+# Malformed override: warn on stderr and fall back to the 15m default → ready.
+printf 'stale_marker_threshold: not-a-number\n' >"$trepo/.claude/planwright.local.yml"
+terr="$tmp/threshold.err"
+tout=$("$STATE" "$tspec" 2>"$terr") || fail "threshold: engine exited non-zero (malformed)"
+grep -q "ignoring malformed stale_marker_threshold" "$terr" \
+  || fail "threshold malformed: no fallback warning surfaced"
+assert_state "$tout" 1 ready "threshold malformed: falls back to 15m default → ready"
+echo "ok: stale_marker_threshold override widens the window; malformed warns and falls back"
+
+# ---------------------------------------------------------------------------
+# 6f. PLANWRIGHT_ORCH_STATE_DIR override — markers are read from the overridden
+#     base dir, not the default <spec-dir>/.orchestrate/markers.
+# ---------------------------------------------------------------------------
+orepo="$tmp/statedir"
+ospec="$orepo/specs/demo"
+mkdir -p "$ospec"
+gitc_init "$orepo"
+cat >"$ospec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — fresh marker only in the overridden state dir
+- **Dependencies:** none
+EOF
+gitc "$orepo" add -A
+gitc "$orepo" commit -q -m "base"
+# No marker in the DEFAULT dir; a fresh one only in the override dir.
+altdir="$tmp/statedir-alt"
+mkdir -p "$altdir"
+date +%s >"$altdir/1"
+# Without the override the task is ready (no marker found in the default dir).
+oout=$("$STATE" "$ospec") || fail "statedir: engine exited non-zero (default dir)"
+assert_state "$oout" 1 ready "statedir default: no marker in the default dir → ready"
+# With the override the fresh marker is found → in-progress.
+oout=$(PLANWRIGHT_ORCH_STATE_DIR="$altdir" "$STATE" "$ospec") \
+  || fail "statedir: engine exited non-zero (override)"
+assert_state "$oout" 1 in-progress "statedir override: fresh marker in the override dir → in-progress"
+echo "ok: PLANWRIGHT_ORCH_STATE_DIR override redirects the marker read"
+
+# ---------------------------------------------------------------------------
+# 6g. REQ-F1.1 — an invalid spec id (the bundle dir name fails its grammar) is
+#     refused with a fail-closed exit, never deriving against a bad identifier.
+# ---------------------------------------------------------------------------
+irepo="$tmp/invalidspec"
+ispec="$irepo/specs/BadSpec" # uppercase is outside the spec-id grammar
+mkdir -p "$ispec"
+gitc_init "$irepo"
+cat >"$ispec/tasks.md" <<'EOF'
+# Bad — Tasks
+## Forward plan
+### Task 1 — never reached
+- **Dependencies:** none
+EOF
+gitc "$irepo" add -A
+gitc "$irepo" commit -q -m "base"
+rc=0
+"$STATE" "$ispec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "F1.1 spec id: exit $rc, expected 2 for an invalid spec id"
+echo "ok: REQ-F1.1 invalid spec id refused (fail closed)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
