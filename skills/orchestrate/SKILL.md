@@ -15,8 +15,8 @@ argument-hint: "[<spec-path>] [--watch] [--bookkeeping] [--backend <b>] [--unatt
 # /orchestrate
 
 The orchestration layer of the planwright pipeline (REQ-F1.1–REQ-F1.10): a
-**stateless step machine** (D-7) that advances an Active spec one unit at a
-time. Each step reads `tasks.md`, selects the next ready unit, records the
+**stateless step machine** (D-7) that advances a Ready or Active spec one unit
+at a time. Each step reads `tasks.md`, selects the next ready unit, records the
 dispatch (the task branch + runtime marker), dispatches `/execute-task`, and
 exits. The step — not the session — is the unit of crash-safety (D-8): a watch
 loop or control tower may take many steps per session, each individually atomic,
@@ -91,7 +91,7 @@ Run in order. Any halt records the unit (when one is selected) to the spec's
 `tasks.md` `## Awaiting input` with the reason and ends the step — the
 `gate-wiring` pause protocol's dispatched arm; in an attended session, present
 the reason and wait instead. When several pre-flight halts fire at once
-(non-Active, missing validator, freshness), report them together (D-45).
+(not Ready or Active, missing validator, freshness), report them together (D-45).
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional spec
    path, given as `specs/<spec>` or the bare `<spec>`. Validate the `<spec>`
@@ -101,22 +101,30 @@ the reason and wait instead. When several pre-flight halts fire at once
 2. **Resolve the spec path**, trying in order: (a) an explicit spec-path
    argument; (b) the current branch parsed against `planwright/<spec>/task-<ids>`
    (D-36), giving `specs/<spec>/`; (c) the checkout when it holds exactly one
-   `specs/*/` bundle with `Status: Active` (underscore-prefixed accumulators
-   are not bundles); (d) ask, listing the available bundles. Verify the
-   directory holds `requirements.md`, `design.md`, `tasks.md`, and
-   `test-spec.md`.
+   `specs/*/` bundle whose `Status:` is `Ready` or `Active`
+   (underscore-prefixed accumulators are not bundles); (d) ask, listing the
+   available bundles. Verify the directory holds `requirements.md`,
+   `design.md`, `tasks.md`, and `test-spec.md`.
 3. **Resolve the doctrine docs** (above). Halt on a core-doc failure on a
    dispatch path; note a degraded doc on a non-dispatching path.
-4. **Verify the spec is Active** (REQ-F1.4, REQ-J1.2, D-33). Read the
-   `**Status:**` line in `requirements.md`. Not Active: **halt and prompt
-   `/spec-kickoff`** when Draft; say plainly that a terminal
-   (Retired/Superseded) or Done spec has nothing to orchestrate. There is no
-   bypass flag, and this skill **never** invokes `/spec-kickoff` itself
-   (REQ-J1.3) — it names the command for the human to run.
+4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
+   "non-Active" refusal — REQ-F1.4, REQ-J1.2, D-33; D-1). Read the
+   `**Status:**` line in `requirements.md`. `Ready` (signed off, executable, no
+   work started) and `Active` (work in flight) are both dispatchable; refuse
+   Draft, Done, Retired, and Superseded. When the status is **Draft**, halt and
+   prompt `/spec-kickoff`; for a terminal (Retired/Superseded) or Done spec, say
+   plainly it has nothing to orchestrate. There is no bypass flag, and this skill
+   **never** invokes `/spec-kickoff` itself (REQ-J1.3) — it names the command for
+   the human to run. A `Ready` spec is dispatched on the same terms as an Active
+   one: the execution freshness gate (the locked-window step below) still
+   applies, so a Ready spec is executable only if its content anchor is
+   execution-valid (REQ-C1.3); the Ready-or-Active gate and the freshness gate
+   compose, neither replaces the other.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh specs/<spec>`.
    On a dispatch step, a missing or non-executable validator **fails closed**
    and halts (REQ-A2.1's block-execution guarantee outranks degradation here);
-   an Active bundle's findings are errors — surface and halt. On
+   a Ready or Active bundle's findings are errors — surface and halt (Ready is
+   signed-off live content, errors-block alongside Active, REQ-B1.2). On
    `--bookkeeping` the missing validator degrades with a message.
 6. **Verify the kickoff brief** (D-36). `specs/<spec>/kickoff-brief.md` must
    exist and carry a final sign-off record with its anchor line. Absent or
@@ -132,17 +140,25 @@ the reason and wait instead. When several pre-flight halts fire at once
 
 Pick the next ready unit with `scripts/orchestrate-select.sh specs/<spec>`. It
 implements the critical-path-first rule deterministically: a **ready** task is
-one in `## Forward plan` whose every dependency sits in `## Completed` (a task
-that is In progress, Awaiting input, or terminal is not a candidate); among
+one in `## Forward plan` that the live derivation reports neither completed nor
+in-progress, and whose every dependency the derivation reports completed (a task
+parked in Awaiting input, Deferred, or Out of scope is never a candidate); among
 ready tasks it returns the head of the effort-weighted longest dependent chain
-(the unit unblocking the most downstream work), FIFO on ties. Section
-membership is the canonical state, so the selector agrees with the content
-anchor (the per-block Status annotation is advisory and not consulted).
+(the unit unblocking the most downstream work), FIFO on ties.
+
+Completed / in-progress state is read from the **live derivation**
+(`scripts/orchestrate-state.sh`: git + trailer + marker + gh evidence), not from
+the committed `tasks.md` section snapshot (D-3, REQ-B1.2). So a task already
+in-flight or completed by evidence the snapshot has not yet been reconciled to is
+never re-dispatched, closing the double-dispatch race. The dependency graph is
+still parsed from `tasks.md`; the per-block Status annotation is advisory and not
+consulted.
 
 - Exit 0 with an id → that is the unit (subject to bundling below).
 - Exit 1 (no ready unit) → there is nothing to dispatch this step. In
   `--watch`, stop the loop; in a single step, report it and exit cleanly.
-- Exit 2 (missing/taskless tasks.md) → fail closed; halt with the message.
+- Exit 2 (missing/taskless tasks.md, or the derivation failed closed — no git
+  work tree, invalid spec id) → fail closed; halt with the message.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* but carry no dependency
@@ -347,8 +363,8 @@ dispatch path); it still never merges and never pushes.
 
 Halt to Awaiting input on ambiguity, a missing dependency, a worker test
 failure surfaced back, a hard-disqualifier, or contract drift — non-exhaustive;
-the pre-flight refusals (non-Active, missing validator, freshness gate) are
-defined at their own steps. Each halt writes the unit to `## Awaiting input`
+the pre-flight refusals (not Ready or Active, missing validator, freshness gate)
+are defined at their own steps. Each halt writes the unit to `## Awaiting input`
 with the reason (the pause protocol's dispatched arm); attended, present it and
 wait. In unattended mode every would-be prompt becomes an Awaiting-input entry.
 
@@ -356,8 +372,8 @@ wait. In unattended mode every would-be prompt becomes an Awaiting-input entry.
 
 | Condition | Trigger |
 | --- | --- |
-| Spec not Active | Pre-flight step 4 found a non-Active status. Prompt `/spec-kickoff` for Draft; never auto-chain. |
-| Missing/erroring validator | Pre-flight step 5 on a dispatch path: absent/non-executable, or Active errors (fail closed). |
+| Spec not Ready or Active | Pre-flight step 4 found a status outside {Ready, Active} (Draft, Done, Retired, Superseded). Prompt `/spec-kickoff` for Draft; never auto-chain. |
+| Missing/erroring validator | Pre-flight step 5 on a dispatch path: absent/non-executable, or a Ready/Active bundle's errors (fail closed). |
 | No / partial kickoff brief | Pre-flight step 6 found no brief or a brief without its anchor line. |
 | Freshness-gate halt | The locked-window gate: anchor mismatch, or an absent / unparseable / non-sanctioned / wrong-writer entry. |
 | Taskless / unreadable tasks.md | Selection exit 2. |
@@ -370,9 +386,11 @@ wait. In unattended mode every would-be prompt becomes an Awaiting-input entry.
 
 These hold at every step:
 
-- **Never** act on a spec whose status is not Active (REQ-F1.4, REQ-J1.2,
-  D-33); **never** bypass the execution freshness gate (REQ-F1.9). No bypass
-  flag exists for either.
+- **Never** act on a spec whose status is neither Ready nor Active (REQ-C1.1,
+  superseding the bootstrap non-Active refusal REQ-F1.4, REQ-J1.2, D-33);
+  **never** bypass the execution freshness gate (REQ-F1.9), which composes with
+  the Ready-or-Active gate and applies to a Ready spec exactly as to an Active
+  one (REQ-C1.3). No bypass flag exists for either.
 - **Never** auto-chain into `/spec-kickoff` (REQ-J1.3) — name the command, do
   not run it.
 - **Never** merge a PR or mark one ready for review, and **never** create a
@@ -403,7 +421,7 @@ These hold at every step:
 
 ## Observations
 
-`/orchestrate` only runs on an Active planwright spec, so `specs/` and the
+`/orchestrate` only runs on a Ready or Active planwright spec, so `specs/` and the
 observations log necessarily exist. When something outside the current step's
 scope surfaces — a selection-policy gap, a dispatch-backend rough edge, a
 config-model wrinkle, a drift in a shared script — append one line to
