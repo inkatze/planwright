@@ -1,13 +1,15 @@
 #!/bin/bash
 # Tests for the /execute-task Status-write contract (specs/orchestration-
 # concurrency; REQ-B1.1, D-1). Under the single-writer model the `tasks-pr-sync`
-# reconcile is the SOLE writer of `tasks.md` section placement AND the `Status`
-# annotation. `/execute-task` must therefore write no `Status` line anywhere —
-# not at the pre-implementation step (step 10) and not at PR creation (PR step
-# 3). This is a skill-prose change: PR creation is procedure the agent reads,
-# not a script, so REQ-B1.1's verification path is a structural guard over
-# skills/execute-task/SKILL.md (the same shape as
-# tests/test-orchestrate-status-gate.sh).
+# reconcile is the SOLE writer of `tasks.md` section PLACEMENT; it preserves the
+# per-block annotations untouched and does not author the `Status` text
+# (scripts/tasks-pr-sync.sh). `/execute-task` must write no in-progress `Status`
+# line anywhere — not at the pre-implementation step (step 10) and not at PR
+# creation (PR step 3) — so a busy-lock reconcile no-op can never leave an
+# in-progress Status on a still-`## Forward plan` block. This is a skill-prose
+# change: PR creation is procedure the agent reads, not a script, so REQ-B1.1's
+# verification path is a structural guard over skills/execute-task/SKILL.md (the
+# same shape as tests/test-orchestrate-status-gate.sh).
 #
 # Why this matters (the regression fenced here): the `tasks-pr-sync` hook is
 # fail-soft on a busy lock (a clean no-op; scripts/tasks-pr-sync.sh). If PR
@@ -22,8 +24,10 @@
 #   - PR creation step 3 writes NO in-progress `Status` annotation (the
 #     `- **Status:** PR #<N> draft` instruction is gone);
 #   - step 10 no longer claims the Status is written at PR creation;
-#   - the skill positively names placement AND the Status annotation as the
-#     reconcile's sole job, citing REQ-B1.1;
+#   - the skill positively names section placement as the reconcile's sole job,
+#     citing REQ-B1.1;
+#   - the skill states the reconcile preserves annotations / does not author the
+#     Status text (matching scripts/tasks-pr-sync.sh, not over-claiming);
 #   - the busy-lock-race rationale is documented (fail-soft hook + check-ledger);
 #   - PR step 3 still writes the anchor-excluded Last-activity annotation.
 #
@@ -76,13 +80,22 @@ else
   ok "step 10 no longer claims the Status is written at PR creation"
 fi
 
-# REQ-B1.1: the skill positively names placement AND the Status annotation as
-# the reconcile's sole job. Bind to the conjunction so dropping either side is
-# caught.
-if printf '%s' "$flat" | grep -qE 'placement and the .Status. annotation are the .tasks-pr-sync. reconcile'; then
-  ok "skill names placement AND Status as the reconcile's sole job"
+# REQ-B1.1: the skill positively names section PLACEMENT (not the Status text)
+# as the reconcile's sole job. The reconcile owns placement only; over-claiming
+# that it writes Status would contradict scripts/tasks-pr-sync.sh.
+if printf '%s' "$flat" | grep -qE 'placement is the .tasks-pr-sync. reconcile.s sole job'; then
+  ok "skill names section placement as the reconcile's sole job"
 else
-  fail "skill does not name placement AND the Status annotation as the reconcile's sole job (REQ-B1.1)"
+  fail "skill does not name section placement as the reconcile's sole job (REQ-B1.1)"
+fi
+
+# Accuracy fence: the skill states the reconcile PRESERVES annotations and does
+# not author the Status text — matching the reconcile contract
+# (scripts/tasks-pr-sync.sh), not over-claiming that the reconcile writes Status.
+if printf '%s' "$flat" | grep -qE 'reconcile preserves annotations untouched and does not author the .Status. text'; then
+  ok "skill states the reconcile preserves annotations / does not author Status (matches impl)"
+else
+  fail "skill does not state the reconcile preserves annotations / does not author Status (REQ-B1.1; must match scripts/tasks-pr-sync.sh)"
 fi
 
 # REQ-B1.1: the sole-job claim cites REQ-B1.1.

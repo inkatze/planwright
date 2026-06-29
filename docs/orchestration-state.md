@@ -132,10 +132,12 @@ is in [conventions.md](conventions.md#commit-trailer-d-2-req-c14).
 section placement. No other skill, hook, or tower hand-edits which section a
 derivable task block occupies. This is distinct from task-*definition* authoring
 (creating and editing task blocks and the Forward plan), which remains the
-authoring skills' role (`/spec-draft`, `/spec-kickoff`). `/orchestrate` and
-`/execute-task` write the per-block `Status` / `Last activity` annotations (which
-are excluded from the spec content anchor and ride along with the block), but
-they do **not** move blocks between sections; the reconcile derives placement.
+authoring skills' role (`/spec-draft`, `/spec-kickoff`). `/execute-task` writes
+the per-block `- **Last activity:**` annotation (excluded from the spec content
+anchor, riding along with the block); it writes **no** `Status` line, and
+`/orchestrate` writes no `tasks.md` state at all (its dispatch record is the
+branch plus the runtime marker, D-1). Neither moves blocks between sections; the
+reconcile derives placement and preserves the annotations untouched.
 
 The reconcile is:
 
