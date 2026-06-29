@@ -158,7 +158,7 @@ T4→T3 dependency to "fix" the apparent ordering.
 - **Dependencies:** 1
 - **Citations:** D-1 · REQ-E1.1, REQ-E1.2, REQ-E1.3
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** PR #83 draft
 - **Last activity:** 2026-06-28
 
 ## Awaiting input
