@@ -21,6 +21,13 @@ max_parallel_units: 3
 # Per-spec advisory lock staleness threshold for /orchestrate (D-10).
 stale_lock_threshold: 15m
 
+# Runtime dispatch-marker staleness threshold (orchestration-concurrency D-3).
+# A timestamped marker older than this whose branch carries no commits is
+# treated as stale: the task-state derivation reverts the task to Ready, so a
+# dispatch that crashed before its first commit cannot wedge the task In
+# progress. Safe to revert because dispatch writes no authoritative state (D-1).
+stale_marker_threshold: 15m
+
 # The ordered review sequence /execute-task's convergence phase runs (D-6,
 # REQ-D1.3). An inline list of nestable review-skill names (a nestable review
 # skill is one invocable with --nested). The default reproduces today's
