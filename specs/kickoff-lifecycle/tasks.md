@@ -117,19 +117,6 @@ D-9: never ship a lifecycle state with no exit.
 - **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
 - **Estimated effort:** 1 day
 
-### Task 7 — Downstream core status surfaces recognize Ready
-
-- **Deliverables:** `/spec-walkthrough`'s stage-aware framing extended to frame the
-  `Ready` stage (its renderer and any status switch); validator and skill messages
-  that enumerate statuses updated to include Ready; any core status-printing path
-  audited for the five→six status set.
-- **Done when:** `/spec-walkthrough` frames a Ready bundle with stage-appropriate
-  language; status enumerations across core name Ready; covered by the relevant
-  tests.
-- **Dependencies:** Task 1.
-- **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
-- **Estimated effort:** half day
-
 ### Task 8 — Migration sweep + docs + changelog reconcile
 
 - **Deliverables:** a one-time migration applying the derived rule to existing
@@ -172,6 +159,21 @@ D-9: never ship a lifecycle state with no exit.
 - **Estimated effort:** half day
 - **Status:** In progress · PR #80 draft
 - **Last activity:** 2026-06-28
+
+### Task 7 — Downstream core status surfaces recognize Ready
+
+- **Deliverables:** `/spec-walkthrough`'s stage-aware framing extended to frame the
+  `Ready` stage (its renderer and any status switch); validator and skill messages
+  that enumerate statuses updated to include Ready; any core status-printing path
+  audited for the five→six status set.
+- **Done when:** `/spec-walkthrough` frames a Ready bundle with stage-appropriate
+  language; status enumerations across core name Ready; covered by the relevant
+  tests.
+- **Dependencies:** Task 1.
+- **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
+- **Estimated effort:** half day
+- **Status:** implementing
+- **Last activity:** 2026-06-29
 
 ## Awaiting input
 
