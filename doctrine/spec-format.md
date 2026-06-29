@@ -488,8 +488,8 @@ anchor).
 ## Validator-enforceable invariants
 
 The status-aware validator (REQ-A2.1, D-25; warnings on Draft, errors on
-Ready and Active; Retired/Superseded terminal) enforces, keyed off the declared
-format-version:
+Ready, Active, and Done; Retired/Superseded terminal) enforces, keyed off
+the declared format-version:
 
 1. Four-file presence.
 2. Header block: `Status:` declared (missing warns and defaults to Draft);
