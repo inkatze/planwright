@@ -616,6 +616,58 @@ has_record "$bout" contradiction 1 \
 echo "ok: branch-merged completion vs open PR surfaces a contradiction"
 
 # ---------------------------------------------------------------------------
+# 6l. fail-closed on a non-resolving base ref — a PLANWRIGHT_BASE_REF that passes
+#     the charset gate (a typo'd ref, a deleted branch) but does NOT resolve to a
+#     commit must exit 2, not continue. Otherwise every later rev-list/rev-parse
+#     degrades silently to ahead=0/empty and a genuinely merged task mis-derives
+#     as ready instead of completed. Section 6d covers the option-injection arm of
+#     base-ref validation; this covers the non-existent-ref arm.
+rc=0
+berr="$tmp/baseref.err"
+PLANWRIGHT_BASE_REF="no-such-ref-xyz" "$STATE" "$mspec" >/dev/null 2>"$berr" || rc=$?
+[ "$rc" = 2 ] || fail "base ref resolve: exit $rc, expected 2 for a non-resolving base ref"
+grep -q "does not resolve to a commit" "$berr" \
+  || fail "base ref resolve: exit 2 surfaced without the resolution-failure reason"
+echo "ok: a non-resolving PLANWRIGHT_BASE_REF fails closed (exit 2)"
+
+# ---------------------------------------------------------------------------
+# 6m. the gh PR probe must not silently truncate — `gh pr list` defaults to a
+#     single page (30). On a repo with more PRs than the page size, a task whose
+#     PR sits beyond the page would have its OPEN/MERGED evidence invisible and
+#     its state mis-derived. The engine must pass an explicit high --limit; assert
+#     the flag actually reaches gh (a recording stub logs its argv).
+arepo="$tmp/ghlimit"
+aspec="$arepo/specs/demo"
+mkdir -p "$aspec"
+gitc_init "$arepo"
+cat >"$aspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — evidence comes only from gh (merged PR)
+- **Dependencies:** none
+EOF
+gitc "$arepo" add -A
+gitc "$arepo" commit -q -m "base"
+gitc "$arepo" remote add origin https://example.invalid/demo.git
+# A recording gh stub: append its args to a log, then emit the canned TSV line.
+astub="$tmp/binghlimit"
+mkdir -p "$astub"
+alog="$tmp/ghlimit.args"
+{
+  echo '#!/bin/sh'
+  printf 'printf "%%s\\n" "$*" >>"%s"\n' "$alog"
+  echo 'cat <<STUB'
+  printf 'planwright/demo/task-1%sMERGED\n' "$TAB"
+  echo 'STUB'
+} >"$astub/gh"
+chmod +x "$astub/gh"
+aout=$(PATH="$astub:$PATH" "$STATE" "$aspec") || fail "gh-limit: engine exited non-zero"
+assert_state "$aout" 1 completed "gh-limit: gh MERGED evidence still derives completed"
+grep -q -- '--limit' "$alog" \
+  || fail "gh-limit: engine called gh pr list without an explicit --limit (default-page truncation risk)"
+echo "ok: the gh PR probe passes an explicit --limit (no default-page truncation)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0

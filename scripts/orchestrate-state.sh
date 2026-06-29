@@ -146,6 +146,15 @@ case "$base" in
     exit 2
     ;;
 esac
+# The base must also resolve to a commit. A charset-valid but non-existent ref
+# (a typo'd PLANWRIGHT_BASE_REF, a deleted branch) would otherwise let every
+# later rev-list/rev-parse degrade silently to ahead=0/empty, mis-deriving a
+# merged task as ready instead of failing closed (REQ-F1.1; same
+# `rev-parse --verify <ref>^{commit}` resolution guard spec-validate.sh uses).
+if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1; then
+  echo "orchestrate-state: base ref '$base' does not resolve to a commit" >&2
+  exit 2
+fi
 
 # Marker staleness threshold (minutes), via the config reader (defaults + the
 # overlay chain). An absent key keeps the documented safe default; a malformed
@@ -221,7 +230,11 @@ gh_lines=""
 have_remote=0
 [ -n "$(git -C "$repo_root" remote 2>/dev/null)" ] && have_remote=1
 if [ "$have_remote" -eq 1 ] && command -v gh >/dev/null 2>&1; then
-  if gh_out=$(cd "$repo_root" && gh pr list --state all \
+  # --limit is mandatory: `gh pr list` returns a single default page (30), which
+  # would silently truncate PR evidence on any repo carrying more PRs than that
+  # and mis-derive a task whose PR sits beyond the page. The probe keys by head
+  # ref and over-fetching is harmless, so request a generous ceiling.
+  if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
     --json state,headRefName --jq '.[] | [.headRefName, .state] | @tsv' 2>/dev/null); then
     gh_lines=$gh_out
   else
