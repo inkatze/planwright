@@ -132,17 +132,25 @@ the reason and wait instead. When several pre-flight halts fire at once
 
 Pick the next ready unit with `scripts/orchestrate-select.sh specs/<spec>`. It
 implements the critical-path-first rule deterministically: a **ready** task is
-one in `## Forward plan` whose every dependency sits in `## Completed` (a task
-that is In progress, Awaiting input, or terminal is not a candidate); among
+one in `## Forward plan` that the live derivation reports neither completed nor
+in-progress, and whose every dependency the derivation reports completed (a task
+parked in Awaiting input, Deferred, or Out of scope is never a candidate); among
 ready tasks it returns the head of the effort-weighted longest dependent chain
-(the unit unblocking the most downstream work), FIFO on ties. Section
-membership is the canonical state, so the selector agrees with the content
-anchor (the per-block Status annotation is advisory and not consulted).
+(the unit unblocking the most downstream work), FIFO on ties.
+
+Completed / in-progress state is read from the **live derivation**
+(`scripts/orchestrate-state.sh`: git + trailer + marker + gh evidence), not from
+the committed `tasks.md` section snapshot (D-3, REQ-B1.2). So a task already
+in-flight or completed by evidence the snapshot has not yet been reconciled to is
+never re-dispatched, closing the double-dispatch race. The dependency graph is
+still parsed from `tasks.md`; the per-block Status annotation is advisory and not
+consulted.
 
 - Exit 0 with an id → that is the unit (subject to bundling below).
 - Exit 1 (no ready unit) → there is nothing to dispatch this step. In
   `--watch`, stop the loop; in a single step, report it and exit cleanly.
-- Exit 2 (missing/taskless tasks.md) → fail closed; halt with the message.
+- Exit 2 (missing/taskless tasks.md, or the derivation failed closed — no git
+  work tree, invalid spec id) → fail closed; halt with the message.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* but carry no dependency
