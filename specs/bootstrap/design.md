@@ -427,8 +427,9 @@ format evolve.
 **spec PR** (and only the spec PR) ready on clean completion, since the kickoff
 walkthrough is the spec bundle's review. Task PRs stay drafts, and never
 auto-merge holds unchanged (merge remains the human's key). The other invariants
-listed here are unaffected; "never act on a non-Active spec" is read as
-"neither Ready nor Active" under the six-status lifecycle (kickoff-lifecycle D-1).
+listed here are unaffected; "never act on a non-Active spec" is read as "never
+act on a spec that is neither Ready nor Active" under the six-status lifecycle
+(kickoff-lifecycle D-1).
 
 **Decision:** Never auto-merge; never act on a non-Active spec (no bypass flag); never
 auto-chain `/orchestrate` into `/spec-kickoff`; never force-push, amend, squash, or rebase
