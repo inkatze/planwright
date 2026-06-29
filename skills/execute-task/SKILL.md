@@ -139,20 +139,25 @@ present the reason and wait instead.
    `cargo test && cargo clippy -- -D warnings`, pytest+ruff+mypy from
    `pyproject.toml`). Prefer the aggregate over a bare test run. If none can
    be derived, ask. Record the command for the implementation phase.
-10. **Mark the unit's annotations; do not move sections.** Set the task block's
-    state annotations `- **Status:** implementing` and `- **Last activity:**
-    <today>` in place. Do **not** relocate the block between sections: section
-    placement is the `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1),
-    derived from the branch + marker and refreshed on the PR events this skill
-    triggers. A block still sitting in `## Forward plan` while its branch is in
-    flight is intentional snapshot lag, not corruption, and the structural-
-    corruption guard passes it (REQ-B1.2, REQ-E1.1). The annotations are state
-    annotations excluded from the content anchor (`spec-format` canonical
-    extraction), so writing them does not trip the gate that just ran. Commit the
-    annotation write when `commit_on_state_move` is true (read
-    `config/defaults.yml` overridden by `<repo>/.claude/planwright.local.yml`,
-    local wins; absent/malformed config falls back to the default with a one-line
-    warning).
+10. **Update Last activity; write no placement or `Status`.** The dispatch record
+    (the task branch + the runtime marker) created at dispatch already makes the
+    unit derivable as In progress, so this skill writes **no** `tasks.md` section
+    placement here, and **no** `Status` line either. Section placement is the
+    `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1); a block still sitting in
+    `## Forward plan` while its branch is in flight is intentional snapshot lag,
+    not corruption (REQ-B1.2). Writing a `Status` here would be the problem: an
+    in-progress `Status` on a still-`Forward plan` block reads to the
+    structural-corruption guard as a section/status contradiction (REQ-E1.1,
+    REQ-E1.2, `scripts/check-ledger.sh`), and the placement is not yours to move.
+    The only edit is the block's `- **Last activity:** <today>` annotation, which
+    is anchor-excluded (`spec-format` canonical extraction) and is not a `Status`
+    line, so it neither trips the gate that just ran nor the corruption guard. The
+    reconcile relocates the block on the PR events this skill later triggers, and
+    the `Status` annotation is written at PR creation (PR step 3), on the block
+    the reconcile has by then placed in `## In progress`. Commit the Last-activity
+    update when `commit_on_state_move` is true (read `config/defaults.yml`
+    overridden by `<repo>/.claude/planwright.local.yml`, local wins;
+    absent/malformed config falls back to the default with a one-line warning).
 
 ## Implementation
 
