@@ -29,6 +29,16 @@ is a stable contract that can evolve without breaking pinned specs.
 
 ### D-2: `tasks.md` is canonical orchestration state; no parallel state file  (C, pair-flow D-1)
 
+**Superseded-by: orchestration-concurrency D-1** (2026-06-29) — under
+orchestration-concurrency, `tasks.md` sections are a **derived read-model
+snapshot**, not the canonical record: progress state is derived idempotently from
+observable git/GitHub evidence (the task branch, merge-reachability, the
+`Planwright-Task` trailer, and the runtime dispatch marker), and the committed
+sections are a discardable, rebuildable projection of it written only by the
+single-writer reconcile. The "no parallel state file" half of this decision still
+holds (there is still no `state.json`); the supersede covers only the
+"`tasks.md` is *canonical*" half. See `docs/orchestration-state.md`.
+
 **Decision:** `tasks.md` doubles as the orchestration state record (Forward plan /
 In progress / Completed / Awaiting input / Deferred / Out of scope). No separate
 `state.json`.
