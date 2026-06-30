@@ -314,14 +314,15 @@ not walked.
    four spec files (REQ-D1.1, REQ-A1.4 — this stored, human-gated flip is the
    only stored status transition; Ready↔Active is *derived* from task state by
    the single reconcile writer, REQ-A1.5, and is never written by this skill).
-   Re-walkthroughs and amendments on an in-flight bundle: bump `Last reviewed:`
-   on the files the delta touched, with no status flip. Then, when the validator
-   is present, re-run it under errors-block enforcement (Ready, Active, and Done
+   Re-walkthroughs and amendments on an already-signed bundle (Ready or
+   Active): bump `Last reviewed:` on the files the delta touched, with no
+   status flip. Then, when the validator is present, re-run it under
+   errors-block enforcement (Ready, Active, and Done
    all block on errors): errors now block — fix them with
    the human, or halt without recording the sign-off entry (on a first
    activation or reopen, also revert the flip so the bundle does not sit
-   Ready and erroring; on an already-in-flight spec there is no flip to
-   revert, and the stale anchor keeps dispatch blocked). Never sign off
+   Ready and erroring; on an already-signed (Ready or Active) spec there is
+   no flip to revert, and the stale anchor keeps dispatch blocked). Never sign off
    over an erroring bundle. When the validator is absent (the
    pre-flight consent path — re-ask on a resumed session that never saw
    pre-flight step 3), record "signed off unvalidated (validator absent,
