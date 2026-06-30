@@ -664,8 +664,11 @@ rm_lock_and_tmp() {
 # reconcile, do_placement) or `status` (the status-only arm, do_status_only —
 # the Status header without the placement rewrite, the migration's path). Both
 # ops need the same lock and derivation primitives, so the broken-install checks
-# below cover them alike. Returns 0 on a clean run/no-op/soft-skip, 2 on a
-# fail-closed error.
+# below cover them alike. Returns 0 on a clean run/no-op/soft-skip; 2 on a
+# fail-closed setup error (a broken install or lock error under the closed
+# policy); and 1 when the status+closed arm propagates an in-writer op failure
+# (do_status_only returned non-zero — a derivation, projection, or mirror
+# failure; see the arm below).
 run_reconcile() {
   rr_dir=$1
   rr_policy=$2
