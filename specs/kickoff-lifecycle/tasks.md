@@ -23,30 +23,6 @@ D-9: never ship a lifecycle state with no exit.
 
 ## Forward plan
 
-### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
-
-- **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
-  the terminal step of clean completion, after the configured verification has
-  converged; it does not flip if sign-off parked on a fork or verification did not
-  converge, and never auto-merges. A config opt-out `mark_spec_pr_ready_on_kickoff`
-  (default true) added to `config/defaults.yml` with a row in
-  `docs/options-reference.md`. `Bash(gh pr ready:*)` moved from `deny` to `allow` in
-  `config/worker-settings.json` — the runtime half of the bootstrap D-26 supersede;
-  without it the denied command blocks the skill-driven flip. The flip restricted to
-  the spec PR, sequenced after
-  the configurable `review_sequence` verification (D-7); no new "gauntlet"
-  documentation is added — "gauntlet" stays an informal label for `review_sequence`
-  (already documented via its options-reference row and `/execute-task`), per D-7.
-- **Done when:** on clean completion the spec PR is ready; a parked/forked
-  completion leaves it draft; task PRs are unaffected; the opt-out suppresses the
-  flip; a ready-flip failure degrades to Awaiting input (bootstrap REQ-K1.6/K1.7);
-  no auto-merge path exists; `gh pr ready` is permitted by
-  `config/worker-settings.json` (no longer denied); the option is documented and
-  `scripts/check-options-reference.sh` passes.
-- **Dependencies:** Task 3.
-- **Citations:** D-6, D-7 · REQ-D1.2, REQ-D1.3, REQ-D1.5
-- **Estimated effort:** 1 day
-
 ### Task 5 — `/orchestrate` gate: Ready or Active
 
 - **Deliverables:** the `orchestrate` skill's pre-flight refusal updated from
@@ -98,26 +74,31 @@ D-9: never ship a lifecycle state with no exit.
 
 ## In progress
 
-### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
+### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
 
-- **Status:** PR #97 draft
-- **Last activity:** 2026-06-29
-- **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
-  (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
-  writes the sign-off record with the content anchor last (unchanged ordering);
-  a Ready bundle's pre-merge changes go through delta re-walkthrough / re-sign-off
-  (expression: changelog + self-re-anchor; meaning: + delta lens pass), the
-  amendment ritual keys off Active (work in flight), and a Done bundle reopens to
-  Draft.
-- **Done when:** kickoff writes `Status: Ready` on sign-off across the four files;
-  a Ready bundle's pre-merge change re-signs-off the delta without invoking the
-  amendment ritual; amendment mode operates on Active bundles; the reopen path
-  (Done→Draft) is intact; verified by the skill's tests/manual checks.
-- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
-  gated behind the derived Ready↔Active reconcile so the lifecycle is never
-  half-wired; this transitively sequences Task 3 after `orchestration-concurrency`).
-- **Citations:** D-1, D-2, D-6, D-7, D-9 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6, REQ-A1.8
-- **Estimated effort:** half day
+- **Status:** PR #98 draft
+- **Last activity:** 2026-06-30
+- **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
+  the terminal step of clean completion, after the configured verification has
+  converged; it does not flip if sign-off parked on a fork or verification did not
+  converge, and never auto-merges. A config opt-out `mark_spec_pr_ready_on_kickoff`
+  (default true) added to `config/defaults.yml` with a row in
+  `docs/options-reference.md`. `Bash(gh pr ready:*)` moved from `deny` to `allow` in
+  `config/worker-settings.json` — the runtime half of the bootstrap D-26 supersede;
+  without it the denied command blocks the skill-driven flip. The flip restricted to
+  the spec PR, sequenced after
+  the configurable `review_sequence` verification (D-7); no new "gauntlet"
+  documentation is added — "gauntlet" stays an informal label for `review_sequence`
+  (already documented via its options-reference row and `/execute-task`), per D-7.
+- **Done when:** on clean completion the spec PR is ready; a parked/forked
+  completion leaves it draft; task PRs are unaffected; the opt-out suppresses the
+  flip; a ready-flip failure degrades to Awaiting input (bootstrap REQ-K1.6/K1.7);
+  no auto-merge path exists; `gh pr ready` is permitted by
+  `config/worker-settings.json` (no longer denied); the option is documented and
+  `scripts/check-options-reference.sh` passes.
+- **Dependencies:** Task 3.
+- **Citations:** D-6, D-7 · REQ-D1.2, REQ-D1.3, REQ-D1.5
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 
@@ -181,6 +162,26 @@ D-9: never ship a lifecycle state with no exit.
   Cross-cutting concerns.
 - **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
 - **Estimated effort:** 1 day
+
+### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
+
+- **Status:** Completed — PR #97 merged 2026-06-30 (merge commit `e3df013`).
+- **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
+  (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
+  writes the sign-off record with the content anchor last (unchanged ordering);
+  a Ready bundle's pre-merge changes go through delta re-walkthrough / re-sign-off
+  (expression: changelog + self-re-anchor; meaning: + delta lens pass), the
+  amendment ritual keys off Active (work in flight), and a Done bundle reopens to
+  Draft.
+- **Done when:** kickoff writes `Status: Ready` on sign-off across the four files;
+  a Ready bundle's pre-merge change re-signs-off the delta without invoking the
+  amendment ritual; amendment mode operates on Active bundles; the reopen path
+  (Done→Draft) is intact; verified by the skill's tests/manual checks.
+- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
+  gated behind the derived Ready↔Active reconcile so the lifecycle is never
+  half-wired; this transitively sequences Task 3 after `orchestration-concurrency`).
+- **Citations:** D-1, D-2, D-6, D-7, D-9 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6, REQ-A1.8
+- **Estimated effort:** half day
 
 ## Deferred
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment that a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first. Deny precedence: Claude Code evaluates deny before allow, so the deny rules below override the broad `git push origin` allow regardless of specificity. The push denies close the known evasions of the force/main guardrails, not just the flag-immediately-after-`git push` form: `git push * --force*` / `git push * -f*` catch force flags placed AFTER the remote (e.g. `git push origin --force`); `git push *+*` catches the `+<refspec>` force form (e.g. `git push origin +HEAD:main`); `git push *:main` / `git push * main` catch the short (`HEAD:main`) and bare (`origin main`) `main` destinations, and `git push *refs/heads/main` / `git push *heads/main` catch the fully-qualified and abbreviated `refs/heads/main` spellings; `--mirror`/`--all` are denied as bulk-ref escape hatches. These are glob deny rules matched as literal substrings, so they are best-effort against exotic refspec spellings rather than exhaustive: review them against your repo's risk posture before relying on the fragment. Compound commands are parsed per-subcommand by Claude Code, so a denied push cannot be smuggled via `&&`/`;`/`|`/subshell.",
+  "_about": "planwright worker-settings profile (REQ-F1.8, D-38). A Claude Code settings fragment that a /orchestrate worker (background subagent or headless tmux/cron worker) runs under so the ROUTINE /execute-task toolset is pre-approved and the autonomy loop does not stall on permission prompts. planwright never edits settings.json itself (REQ-I1.2): merge this into the worker's settings (or reference it) the same way hook wiring is a manual step. SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants (never merge / force-push / amend / squash / rebase) as guardrails, but review the allow list against your repo's risk posture first. `gh pr ready` is allowed (not denied) so /spec-kickoff can mark the spec PR ready as its terminal step — the narrow exception to bootstrap D-26's all-drafts rule that kickoff-lifecycle D-6 carries (only the spec PR, by /spec-kickoff; task PRs stay drafts; merge stays human, never auto-merge); the permission un-blocks the command, while the only-the-spec-PR scope is enforced by the skill, not the glob. The `gh pr ready --undo` form (both `gh pr ready --undo` and the `gh pr ready <pr> --undo` flag-after-arg spelling) is explicitly denied so a worker can only un-draft a PR, never re-draft one. Deny precedence: Claude Code evaluates deny before allow, so the deny rules below override the broad `git push origin` allow regardless of specificity. The push denies close the known evasions of the force/main guardrails, not just the flag-immediately-after-`git push` form: `git push * --force*` / `git push * -f*` catch force flags placed AFTER the remote (e.g. `git push origin --force`); `git push *+*` catches the `+<refspec>` force form (e.g. `git push origin +HEAD:main`); `git push *:main` / `git push * main` catch the short (`HEAD:main`) and bare (`origin main`) `main` destinations, and `git push *refs/heads/main` / `git push *heads/main` catch the fully-qualified and abbreviated `refs/heads/main` spellings; `--mirror`/`--all` are denied as bulk-ref escape hatches. These are glob deny rules matched as literal substrings, so they are best-effort against exotic refspec spellings rather than exhaustive: review them against your repo's risk posture before relying on the fragment. Compound commands are parsed per-subcommand by Claude Code, so a denied push cannot be smuggled via `&&`/`;`/`|`/subshell.",
   "permissions": {
     "defaultMode": "default",
     "allow": [
@@ -21,6 +21,7 @@
       "Bash(git commit:*)",
       "Bash(git push origin:*)",
       "Bash(gh pr create:*)",
+      "Bash(gh pr ready:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(mise run:*)",
@@ -28,7 +29,8 @@
     ],
     "deny": [
       "Bash(gh pr merge:*)",
-      "Bash(gh pr ready:*)",
+      "Bash(gh pr ready --undo:*)",
+      "Bash(gh pr ready * --undo*)",
       "Bash(git merge:*)",
       "Bash(git rebase:*)",
       "Bash(git commit --amend:*)",

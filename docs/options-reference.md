@@ -24,8 +24,9 @@ parses zero keys).
 | Option | Default | Effect | Consumed by |
 | --- | --- | --- | --- |
 | `commit_on_draft` | `true` | Auto-commit the completed Draft bundle after elicitation finishes (D-41). Commit only, never push. | `/spec-draft` |
-| `commit_on_kickoff` | `true` | Auto-commit the kickoff brief plus the Draft→Active status flip after sign-off (D-41). Commit only; the push and draft PR are separate kickoff steps. | `/spec-kickoff` |
+| `commit_on_kickoff` | `true` | Auto-commit the kickoff brief plus the Draft→Ready status flip after sign-off (D-41). Commit only; the push, draft PR, and terminal ready-flip are separate kickoff steps. | `/spec-kickoff` |
 | `commit_on_state_move` | `true` | Auto-commit `tasks.md` orchestration-state edits — section moves (e.g. `/drain` relocating a block between human-owned sections) and the per-block `Status` / `Last activity` annotations (e.g. `/execute-task` stamping `Last activity`) — with a fixed conventional message (D-41). | `/drain`, `/execute-task` |
+| `mark_spec_pr_ready_on_kickoff` | `true` | On a clean kickoff completion, `/spec-kickoff` marks the **spec** PR ready (un-draft) as its terminal step, after the configurable `review_sequence` verification has converged (D-6, D-7) — the narrow exception to bootstrap D-26's all-drafts rule: only the spec PR is readied, task PRs stay drafts, merge stays the human's (never auto-merge). `false` leaves the spec PR draft for the human to un-draft. The flip is also suppressed when sign-off parked on a fork or verification did not converge; a flip failure degrades to `tasks.md` Awaiting input (REQ-D1.2, REQ-D1.3). | `/spec-kickoff` |
 | `dispatch_backend` | `subagent` | Which dispatch backend `/orchestrate` uses for execution units: `subagent` (default), `tmux`, `print`, or `in-session` (D-38, REQ-F1.8). | `/orchestrate` |
 | `max_parallel_units` | `3` | Concurrency cap on simultaneously in-flight execution units (REQ-F1.8). | `/orchestrate` |
 | `stale_lock_threshold` | `15m` | Age past which a per-spec advisory lock is treated as stale and may be broken by the next runner (D-10). | `/orchestrate`, `tasks-pr-sync` hook |
