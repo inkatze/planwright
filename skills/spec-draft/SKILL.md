@@ -7,7 +7,7 @@ description: >
   them. Runs fold-detection against existing specs on every invocation and
   surfaces an extend recommendation instead of spinning a duplicate bundle.
   Commits the completed bundle (commit_on_draft opt-out); never pushes, never
-  flips a spec to Active.
+  flips a spec to Ready.
 argument-hint: "<feature-name> [--extend <spec>]"
 ---
 
@@ -17,8 +17,8 @@ The authoring entry point of the planwright pipeline (REQ-B1.1): a Socratic,
 interactive elicitation that turns an idea plus its seed material into a
 compliant four-file bundle at `specs/<spec>/`, Status Draft, committed on the
 spec branch. Drafting ends where comprehension begins: `/spec-kickoff` walks
-the Draft to sign-off and flips it Active. This skill never pushes, never
-opens a PR, and never flips a status to Active — sign-off is a reserved human
+the Draft to sign-off and flips it Ready. This skill never pushes, never
+opens a PR, and never flips a status to Ready — sign-off is a reserved human
 control it has no business near.
 
 ## Doctrine

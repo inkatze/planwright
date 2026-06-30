@@ -27,7 +27,8 @@ bounded by spec quality:
    `design.md`, `tasks.md`, `test-spec.md`) at Status `Draft`. Run fold
    detection first; extend an existing spec instead of spinning a duplicate.
 2. **`/spec-kickoff <spec>`** — walk it to mutual understanding and sign off the
-   kickoff brief. Sign-off flips the spec Draft → Active. This is a human
+   kickoff brief. Sign-off flips the spec Draft → Ready (executable, not yet
+   started); the first dispatch derives Ready → Active. This is a human
    control; there is no bypass.
 3. **`/orchestrate` + `/execute-task`** — the framework advances tasks
    test-first, runs full CI, converges via `/polish`, and opens **draft** PRs.
