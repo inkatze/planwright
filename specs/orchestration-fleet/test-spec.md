@@ -206,9 +206,12 @@ multi-spec run respects both each spec's per-spec lock and the fleet bound.
 Test: the cross-spec fleet-coordination root resolves in both delivery modes
 (plugin and writer) through the `${CLAUDE_PLUGIN_DATA}` chain and survives a
 simulated plugin-version change; distinct plugin namespaces resolve to distinct
-roots; the worker/scope registry round-trips a record; no fleet path writes into
-the sibling's spec-local `.orchestrate/` dir; hostile identifiers are rejected
-before any path use.
+roots; the worker/scope registry round-trips a record; the named cross-spec
+concurrency-control primitive serializes concurrent registry writes and the
+fleet-bound check-and-increment so two simulated concurrent towers produce no
+torn record and no over-count past the bound; no fleet path writes into the
+sibling's spec-local `.orchestrate/` dir; hostile identifiers are rejected before
+any path use.
 
 ## REQ-E — Approachability
 

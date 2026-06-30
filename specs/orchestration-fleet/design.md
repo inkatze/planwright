@@ -490,8 +490,9 @@ a description of the author's dotfiles.
   accounting layer that does not collide with the per-spec lock (D-6, sibling
   D-4); and the homes split cleanly — the sibling's **per-spec** lock and
   marker are spec-dir-local and gitignored (`<spec-dir>/.orchestrate.lock`,
-  `.orchestrate/markers/`, confirmed against the shipped `orchestrate-lock.sh` /
-  `orchestrate-state.sh`), while this bundle's **cross-spec** fleet-coordination
+  `.orchestrate/markers/`, confirmed against the shipped `orchestrate-lock.sh`
+  for the lock and `orchestrate-marker.sh` for the marker), while this bundle's
+  **cross-spec** fleet-coordination
   registry lives under `${CLAUDE_PLUGIN_DATA}` because it spans specs (D-11). The
   per-spec effective-backend failover record sits spec-locally with the marker,
   never in `tasks.md` (D-3, D-11). Remaining sibling-touching point carried to the

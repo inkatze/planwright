@@ -458,6 +458,16 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   (3) tasks.md — "portable renderer" → "portable status renderer" (terminology
   consistency).
   *(Cites: kickoff §8 lens pass (2026-06-29); REQ-B1.5, REQ-E1.3, D-11.)*
+- 2026-06-29: Kickoff delta (finishing-gauntlet owner-review): reconciled
+  tasks.md Task 9 to the signed brief's reshaped R1 — added the **named cross-spec
+  concurrency-control primitive** (fleet-level advisory lock or atomic-append) to
+  Task 9's Deliverables + Done-when and a matching REQ-D1.6 test line, so the
+  primitive that Task 6 (fleet bound) and Task 12 (registry) consume is captured
+  in the task definition, not only the risk register. Also standardized the
+  design.md cross-cutting marker citation onto `orchestrate-marker.sh` (matching
+  D-11 / brief §4). Meaning-class (Task 9 scope); recorded with a delta-scoped
+  lens check and a meaning-class re-anchor in the brief's amendment log.
+  *(Cites: kickoff delta (2026-06-29); brief R1; D-11, REQ-D1.6.)*
 - 2026-06-29: Post-sign-off expression-only re-anchor (finishing gauntlet,
   `/panel-pairing` stage), no REQ/D-ID/task meaning changed: fixed six markdown
   soft-wrap rendering defects where a hyphenated compound split across a line

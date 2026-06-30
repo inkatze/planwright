@@ -88,11 +88,22 @@ space).
   and runtime dispatch marker, which the sibling ships spec-dir-local at
   `<spec-dir>/.orchestrate.lock` and `<spec-dir>/.orchestrate/markers/`); a
   comment/citation records the split and that the lock home is the sibling's
-  decision, not re-decided here.
+  decision, not re-decided here. Because the cross-spec store is read by the
+  attention surface (Task 12) and written by the meta-tower's fleet-bound
+  accounting (Task 6) concurrently, this task also provides a **named cross-spec
+  concurrency-control primitive** — a fleet-level advisory lock (à la the
+  sibling's `orchestrate-lock.sh`) or atomic-append registry semantics — that
+  Task 6 and Task 12 consume for a race-free check-and-increment of the
+  fleet-concurrency bound and for read-during-write safety on the registry. This
+  is the resolution of the signed brief's reshaped R1 (the cross-spec store must
+  not be a lockless shared-mutable surface).
 - **Done when:** the cross-spec fleet-state root resolves in both delivery modes
   (plugin and writer) and survives a simulated plugin-version change; distinct
   plugin namespaces resolve to distinct roots; the registry store round-trips a
-  worker/scope record; the split from the sibling's spec-local lock/marker is
+  worker/scope record; the named concurrency-control primitive serializes (or
+  makes atomic) concurrent registry writes and the fleet-bound
+  check-and-increment, so two concurrent towers cannot corrupt the registry or
+  exceed the bound; the split from the sibling's spec-local lock/marker is
   documented and no fleet path writes into the sibling's `.orchestrate/` dir;
   hostile identifiers are rejected before any path use; tests pass under
   `mise run check`.

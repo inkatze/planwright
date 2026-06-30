@@ -467,17 +467,22 @@ D-1/D-2). `Last reviewed:` is 2026-06-29 on all four. Re-validated under Ready
 Class: meaning
 Lens-pass: recorded above (this section), full-bundle nine-lens fan-out, findings
 validated and dispositioned 2026-06-29.
-Anchor: `70edfab2b0bbcf798725a044efc78bfa6198e1d0` — computed as
+Anchor: `d8f10400ec3f379b3052e08c3f9735676df55119` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
-(re-anchored 2026-06-29 for an expression-only fix; see Amendment log. Original
-sign-off anchor: `6ab1f63975714c68a00be55e3aa115ec54c3af42`.)
+(re-anchored 2026-06-29; the latest entry is a meaning-class kickoff delta — see
+Amendment log. Prior expression-only anchor:
+`70edfab2b0bbcf798725a044efc78bfa6198e1d0`; original sign-off anchor:
+`6ab1f63975714c68a00be55e3aa115ec54c3af42`.)
 
 ## Amendment log
 
 Post-sign-off changes to the anchored spec bundle. Signed sections 1–8 above are
-unchanged except the `Anchor:` pointer in §8; entries here record expression-only
-edits that re-anchor the bundle. A meaning-class change is never recorded here —
-it requires a delta re-walkthrough by the kickoff owner.
+unchanged except the `Anchor:` pointer in §8. Most entries here record
+expression-only edits that re-anchor the bundle (the only kind a finishing-gauntlet
+worker may make). A **meaning-class** change is recorded here only by the kickoff
+owner via a delta re-walkthrough, and its entry carries `Class: meaning` plus a
+delta-scoped `Lens-pass:` reference (the gauntlet worker is never permitted to
+write one).
 
 - **2026-06-29 — expression-only re-anchor (finishing gauntlet, `/panel-pairing`
   stage).** Fixed six markdown soft-wrap rendering defects where a hyphenated
@@ -508,3 +513,28 @@ it requires a delta re-walkthrough by the kickoff owner.
   was valid; the edit is a pure readability fix, no task meaning changed. Validator
   re-run clean (0/0, Ready enforcement); doc-links resolve. Anchor recomputed
   `ac6d52181395098f4c2c0ad824ae11c5ce6321a4` → `70edfab2b0bbcf798725a044efc78bfa6198e1d0`.
+- **2026-06-29 — meaning-class delta re-walkthrough (finishing-gauntlet owner
+  review, kickoff owner).** The finishing gauntlet's owner-review surfaced that
+  the signed §7 R1-reshape assigns Task 9 a named cross-spec concurrency-control
+  primitive (consumed by Task 6's fleet bound and Task 12's registry), but
+  tasks.md Task 9 captured it only in the risk register, not in its
+  Deliverables/Done-when — a brief↔spec scope drift. Resolution (Diego, kickoff
+  owner-review): added the named concurrency-control primitive (fleet-level
+  advisory lock à la `orchestrate-lock.sh`, or atomic-append registry semantics)
+  to Task 9's Deliverables + Done-when, with a matching REQ-D1.6 test line
+  (concurrent writers + fleet-bound check-and-increment produce no torn record /
+  over-count). Folded in the §3 citation fix (design.md cross-cutting marker
+  citation standardized onto `orchestrate-marker.sh`, matching D-11 / §4).
+  Delta-scoped lens check (correctness / concurrency / cross-file / tests):
+  Task 9 Deliverables ↔ Done-when ↔ REQ-D1.6 ↔ brief R1 now coherent; the
+  addition reconciles the task to an already-lens-passed signed disposition; no
+  new findings. The §2/§3 other declined findings (`_pending` seed provenance)
+  remain declined (Diego kept the `(consumed)` convention). Validator 0/0 (Ready
+  enforcement); doc-links 143/143 resolve.
+  Class: meaning
+  Lens-pass: delta-scoped check recorded in this entry (correctness, concurrency,
+  cross-file consistency, tests), no new findings; the load-bearing R1 disposition
+  was dispositioned in the §8 full-bundle pass.
+  Anchor: `d8f10400ec3f379b3052e08c3f9735676df55119` — computed as
+  `scripts/spec-anchor.sh specs/orchestration-fleet`
+  (prior: `70edfab2b0bbcf798725a044efc78bfa6198e1d0`).
