@@ -76,6 +76,10 @@ fi
 # task-state derivation). Bind the flip target to the four-file mirror via the
 # conjunction so the two phrases stay semantically adjacent (a bounded gap, not
 # an open-ended one, so a reordered/unrelated co-occurrence cannot satisfy it).
+# The {0,N} widths are sized just past the current intervening prose (measured in
+# C-locale bytes, so a multi-byte em-dash counts as its UTF-8 length): wide enough
+# for the live wording, tight enough to keep both phrases inside one sentence so a
+# cross-sentence regression cannot satisfy the match.
 if printf '%s' "$flat" | grep -qE 'Draft→Ready and .{0,80}on all four spec files'; then
   ok "Draft→Ready is written across all four spec files (stored flip, REQ-A1.4)"
 else
@@ -94,8 +98,11 @@ else
 fi
 
 # REQ-D1.4: change-handling scales by lifecycle stage. The Ready path is a delta
-# re-walkthrough / re-sign-off, explicitly NOT the amendment ritual.
-if printf '%s' "$flat" | grep -qE 'Ready bundle.*delta re-walkthrough.*not the amendment ritual'; then
+# re-walkthrough / re-sign-off, explicitly NOT the amendment ritual. Use bounded
+# gaps (same rationale as the {0,N} widths above) rather than open-ended `.*`, so
+# the three phrases must co-occur inside one sentence; an unbounded `.*` would
+# false-pass if they drifted into unrelated clauses.
+if printf '%s' "$flat" | grep -qE 'Ready bundle.{0,120}delta re-walkthrough.{0,200}not the amendment ritual'; then
   ok "a Ready bundle's pre-merge change is a delta re-walkthrough, not the amendment ritual (REQ-D1.4)"
 else
   fail "the Ready-bundle change path is not tied to delta re-walkthrough / not-amendment (REQ-D1.4)"
