@@ -176,14 +176,17 @@ else
 fi
 
 # REQ-D1.3: the options-reference drift check passes with the new option.
-if [ -x "$options_check" ]; then
-  if "$options_check" >/dev/null 2>&1; then
+# Invoke via /bin/bash (the canonical entrypoint: mise.toml and
+# tests/test-check-options-reference.sh run it that way) so the assertion does
+# not depend on the executable bit surviving the checkout.
+if [ -f "$options_check" ]; then
+  if /bin/bash "$options_check" >/dev/null 2>&1; then
     ok "scripts/check-options-reference.sh passes (REQ-D1.3)"
   else
     fail "scripts/check-options-reference.sh fails (REQ-D1.3)"
   fi
 else
-  fail "scripts/check-options-reference.sh missing or not executable"
+  fail "scripts/check-options-reference.sh missing"
 fi
 
 if [ "$failures" -gt 0 ]; then
