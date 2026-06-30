@@ -71,7 +71,7 @@ done
 flat="$(tr '\n' ' ' <"$skill" | tr -s '[:space:]' ' ')"
 
 # REQ-D1.2: the flip is the terminal step of clean completion.
-if printf '%s' "$flat" | grep -qE 'ark the spec PR ready \(terminal step'; then
+if printf '%s' "$flat" | grep -qE '[Mm]ark the spec PR ready \(terminal step'; then
   ok "ready-flip is named as the terminal step (REQ-D1.2)"
 else
   fail "skill does not name the spec-PR ready-flip as a terminal step (REQ-D1.2)"
