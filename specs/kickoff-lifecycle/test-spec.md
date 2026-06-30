@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Test Spec
 
 **Status:** Active
-**Last reviewed:** 2026-06-27
+**Last reviewed:** 2026-06-29
 **Format-version:** 1
 
 Coverage mix: the validator and reconcile behaviors are automated `[test]`
@@ -57,7 +57,13 @@ writes the bundle `Status:` header; a second, independent writer of the header i
 absent. Test: feed task-state fixtures (no progress → Ready; one In-progress →
 Active; one Completed → Active; all Completed → Done; a signed-off bundle with no
 startable tasks → Done) and assert the derived Status; assert (by code audit / grep
-test) that only the reconcile writer mutates the header.
+test) that only the reconcile writer mutates the header. Also assert the Done
+mirror-completion clause: a bundle already `Done` with a partially-applied
+four-file mirror (an earlier sibling write refused, e.g. a symlinked target)
+converges every file to `Done` on the next reconcile when the derived value is
+still `Done`, and the writer never reopens a stored `Done` to `Ready`/`Active`
+(covered by the partial-mirror self-heal and symlink-refusal cases in
+`tests/test-tasks-pr-sync.sh`).
 
 ### REQ-A1.6 — Reopen cycle flips to Ready, not Active [test + manual]
 

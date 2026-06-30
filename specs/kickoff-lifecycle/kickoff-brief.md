@@ -303,3 +303,85 @@ supersede pointers)".
 Class: expression-only
 Anchor: `440999874be0286640f38d68f02ef6de50f7517f` — computed as
 `scripts/spec-anchor.sh specs/kickoff-lifecycle`
+
+### Delta re-walkthrough — Done mirror-completion (2026-06-29, Task 6 / PR #92)
+
+**Mode:** Delta re-walkthrough (Status Active, signed brief, anchor stale).
+**Trigger:** the freshness gate halted Task 3 dispatch — the brief's prior anchor
+(`440999874`, Task 1 entry above) no longer matched the recomputed
+`origin/main` anchor (`496b6220`). This re-anchor is REQ-F1.9's named remedy.
+Diego drove the walkthrough confirmation and sign-off in-session (no
+self-sign-off).
+
+**Delta scope (verified by anchor bisection, not just the PR description).** The
+only anchored-content change since the prior anchor is PR #92 (Task 6,
+`ea0e8e0`):
+- Task 2 / PR #87 (`714bac2`) left the anchor unchanged (`440999874`) — its
+  spec-file edits were pure orchestration-state (anchor-excluded).
+- PR #92's `tasks.md` change was a pure section move (Task 6: Forward plan → In
+  progress; task-definition content identical, anchor-excluded).
+- The entire anchored delta is two coupled edits, both from #92:
+  **REQ-A1.5** (requirements.md) gained the Done mirror-completion clause, and
+  **D-3** (design.md) gained the "Done mirror-completion (refinement)" paragraph.
+
+**Walked to mutual understanding.** The reconcile (the single level-triggered
+writer, D-3) MAY write a bundle *already* `Done` solely to converge a
+partially-applied four-file mirror — when the derived value is still `Done`
+(e.g. an earlier sibling write was refused, a symlinked target) — and SHALL NOT
+reopen a `Done` bundle to `Ready`/`Active`; that reopen stays the human's
+`Done→Draft` (REQ-A1.6). No new writer, no new stored transition: it narrows
+*when* the existing reconcile may touch a `Done` bundle, preserving the
+no-derived-reopen invariant and the level-triggered self-heal across the
+terminal transition. Confirmed coherent against REQ-A1.5's "derivation applies
+only to non-Done bundles", REQ-A1.6, and D-3's single-writer extension — **no
+inconsistency halt**. Note: this refinement resolves the torn-four-file-mirror
+edge that the first-activation lens pass deferred to backlog as **H1**.
+
+### Lens review pass (Discovery Rigor, delta-scoped)
+
+Path: **inline walk** (narrow two-edit prose delta, no code), declared per
+`discovery-rigor`. Artifact under review: the amended spec text (D-45).
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | none | Carve-out composes with "derivation applies only to non-Done"; computing the derived value to confirm "still Done" before mirror-completion is intentional, not contradictory |
+| Security | n/a | Text/spec delta; no secrets, auth, or input surface |
+| Error handling & failure modes | none | Torn mirror (refused sibling write) is exactly what's handled; permanent-unwritable termination is owned by orchestration-concurrency Task 4's atomic writer, out of this bundle's scope |
+| Performance | n/a | O(files) one-time convergence |
+| Concurrency / state | none | Single-writer invariant explicitly preserved; level-triggered self-heal strengthened, not weakened |
+| Naming, readability, structure | none | Refinement correctly scoped under D-3 (before D-4); reads cleanly |
+| Documentation | 1 (F1) | `test-spec.md` REQ-A1.5 entry not updated for the mirror-completion clause |
+| Tests / verification | 1 (F1) | Behavior *is* implemented + tested in `tests/test-tasks-pr-sync.sh`; the anchored test-spec did not enumerate it |
+| Cross-file consistency | 1 (F1) | REQ-A1.5 meaning ↔ test-spec verification path out of sync; REQ-A1.5 ↔ D-3 ↔ A1.6 cross-refs themselves consistent |
+
+**F1** (one finding, three lens labels) — validated three ways: (1) direct read —
+the REQ-A1.5 test-spec entry listed only the Ready/Active/Done derivation cases;
+(2) orthogonal — the tests genuinely exist (#92 added partial-mirror self-heal
+and symlink-refusal cases in `tests/test-tasks-pr-sync.sh`), so the fix is
+naming the existing verification, no new test owed; (3) outside-in —
+`git diff --stat 714bac2..ea0e8e0` confirms #92 never touched `test-spec.md`, a
+meaning-edit-didn't-reach-the-verification-doc straggler. Confirmed, low
+severity; a spec-internal completeness gap, not a behavior bug.
+
+**Disposition (all findings dispositioned — refusal rule satisfied):**
+- F1 — **Applied** (Diego: apply the test-spec edit). Added a sentence to the
+  REQ-A1.5 test-spec entry naming the Done mirror-completion / no-reopen check
+  and citing the existing `tests/test-tasks-pr-sync.sh` cases. No behavior
+  change.
+
+**Spec edits applied this re-walk:**
+1. `test-spec.md` REQ-A1.5 — mirror-completion / no-reopen verification sentence (F1).
+2. `Last reviewed:` bumped 2026-06-27 → 2026-06-29 on the touched files
+   (requirements.md, design.md, test-spec.md); tasks.md untouched (not in the delta).
+
+Validator after edits (Active enforcement): `0 error(s), 0 warning(s)`.
+
+### Sign-off record (delta re-walkthrough)
+
+Class: meaning
+Lens-pass: recorded above (this section), findings dispositioned 2026-06-29.
+Status: no flip (already Active; delta re-walk on an in-flight bundle).
+`Last reviewed:` bumped to 2026-06-29 on the touched files. Validator re-run
+under Active enforcement: clean.
+Anchor: `ec8581af562b22a9905cbdae11ae132a94a72da1` — computed as
+`scripts/spec-anchor.sh specs/kickoff-lifecycle`

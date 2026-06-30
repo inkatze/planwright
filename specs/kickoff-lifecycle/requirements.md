@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Requirements
 
 **Status:** Active
-**Last reviewed:** 2026-06-27
+**Last reviewed:** 2026-06-29
 **Format-version:** 1
 
 ## Goal

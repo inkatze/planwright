@@ -1,7 +1,7 @@
 # Kickoff Lifecycle — Design
 
 **Status:** Active
-**Last reviewed:** 2026-06-27
+**Last reviewed:** 2026-06-29
 **Format-version:** 1
 
 Origin-tag legend: `N` new decision; `C, <foreign D>` carried from another
