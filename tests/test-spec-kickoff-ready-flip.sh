@@ -5,7 +5,7 @@
 # Active: sign-off now stores a Draft→Ready flip (the only stored, human-gated
 # transition), Ready↔Active is derived by the reconcile (Task 6, not written
 # here), and change-handling scales by the bundle's lifecycle stage. This is a
-# skill-prose change: the sign-off flip and the mode selection are procedure the
+# skill-prose change: the sign-off flip and the mode selection are procedures the
 # agent reads, not a script, so the [test] half of REQ-D1.1 / REQ-A1.4 /
 # REQ-D1.4 / REQ-A1.6's verification paths is a structural guard over
 # skills/spec-kickoff/SKILL.md (the same shape as

@@ -86,7 +86,7 @@ state:
   no lens pass.
 
 **Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
-(signed off, validated, pre-merge, nothing dispatched) takes its pre-merge
+(signed off, pre-merge, nothing dispatched) takes its pre-merge
 changes through a delta re-walkthrough / re-sign-off — expression-only via a
 changelog entry plus a self-re-anchor, meaning-class via a delta lens pass,
 re-sign-off, and a fresh anchor — not the amendment ritual, and the spec PR
