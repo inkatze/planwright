@@ -54,7 +54,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 8 — Migration sweep + docs + changelog reconcile
 
-- **Status:** implementing
+- **Status:** PR #99 draft
 - **Last activity:** 2026-06-30
 - **Deliverables:** a one-time migration applying the derived rule to existing
   bundles (Active-with-no-progress → Ready; for example `orchestration-concurrency`,
