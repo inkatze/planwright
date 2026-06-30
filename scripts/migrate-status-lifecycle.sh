@@ -84,10 +84,12 @@ for spec_dir in "$specs_dir"/*/; do
 
   before=$(status_of "$req")
   # The single status writer (do_status via reconcile-status). A fail-closed exit
-  # (hostile dir, lock error, derivation failure) is a per-bundle skip-and-report,
-  # never a silent flip and never a hard stop for the rest of the sweep.
-  if ! "$sync_sh" reconcile-status "$spec_dir" >/dev/null 2>&1; then
-    echo "skipped (reconcile failed): $spec_dir" >&2
+  # (hostile dir, lock error, derivation failure, or a refused partial mirror) is a
+  # per-bundle skip-and-report, never a silent flip and never a hard stop for the
+  # rest of the sweep. Capture the writer's stderr so the skip names *why* (without
+  # it the failure is invisible); discard stdout.
+  if ! rc_err=$("$sync_sh" reconcile-status "$spec_dir" 2>&1 >/dev/null); then
+    echo "skipped (reconcile failed): $spec_dir${rc_err:+ — $rc_err}" >&2
     skipped=$((skipped + 1))
     continue
   fi

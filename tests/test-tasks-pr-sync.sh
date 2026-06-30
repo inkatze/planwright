@@ -1513,4 +1513,37 @@ mkdir -p "$nodir"
 ("$SYNC" reconcile-status "$nodir" >/dev/null 2>&1) && fail "RS-F: reconcile-status on a dir with no tasks.md did not fail closed"
 echo "ok: reconcile-status fails closed on missing arg / missing tasks.md (exit 2)"
 
+# --- RS-G: a partial mirror (a symlinked sibling the writer refuses) makes the
+# status-only arm fail closed under the CLI (closed) policy — do_status returns
+# non-zero, and reconcile-status propagates it rather than masking with `|| true`
+# — so a migration sweep records a real skip instead of a false "unchanged". The
+# full placement reconcile keeps its best-effort return-0 contract (k6-O), so only
+# the status arm propagates.
+repo=$tmp/rsg
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# design.md becomes a symlink: write_status_header refuses it, do_status returns 1.
+# (A symlinked requirements.md/tasks.md would exit 2 at the CLI pre-check instead;
+# a sibling exercises the in-writer failure path the migration relies on.)
+mv "$sd/design.md" "$sd/design.real.md"
+ln -s design.real.md "$sd/design.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+err=$(reconcile_status "$repo" specs/kl 2>&1) \
+  && fail "RS-G: reconcile-status did not fail closed on a refused symlinked sibling"
+case $err in
+  *"refusing symlinked"*) ;;
+  *) fail "RS-G: no symlink-refusal diagnostic on stderr (got: $err)" ;;
+esac
+# The non-symlinked siblings are still mirrored (the partial mirror is real; a
+# re-run heals once the symlink is fixed).
+[ "$(k6_status_of "$sd/requirements.md")" = Ready ] \
+  || fail "RS-G: requirements.md not mirrored to Ready"
+# Contrast: the full reconcile keeps returning 0 on the same partial mirror.
+reconcile "$repo" specs/kl \
+  || fail "RS-G contrast: full reconcile must keep its best-effort return-0 contract"
+echo "ok: reconcile-status fails closed on a partial mirror; full reconcile stays best-effort (REQ-A1.7)"
+
 echo "PASS: all tasks-pr-sync tests passed"

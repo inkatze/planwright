@@ -705,8 +705,9 @@ run_reconcile() {
   tmpf=""
   trap 'rm_lock_and_tmp' EXIT
   trap 'exit 130' HUP INT TERM
+  rr_op_rc=0
   case $rr_op in
-    status) do_status_only "$rr_dir" || true ;;
+    status) do_status_only "$rr_dir" || rr_op_rc=$? ;;
     *) do_placement "$rr_dir" || true ;;
   esac
   "$lock_sh" release "$rr_dir" >/dev/null 2>&1 || true
@@ -715,6 +716,14 @@ run_reconcile() {
   if [ -n "$tmpf" ]; then
     rm -f "$tmpf"
     tmpf=""
+  fi
+  # The status-only arm propagates a real failure (a derivation failure or a
+  # refused partial mirror) under the closed (CLI) policy, so the migration sweep
+  # records a per-bundle skip rather than a false "unchanged". The placement arm
+  # keeps its best-effort return-0 contract: the hook must never error, and the
+  # level-triggered reconcile re-converges on the next run.
+  if [ "$rr_op" = status ] && [ "$rr_policy" = closed ] && [ "$rr_op_rc" -ne 0 ]; then
+    return 1
   fi
   return 0
 }

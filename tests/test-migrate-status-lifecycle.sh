@@ -197,4 +197,33 @@ echo "ok: the sweep is idempotent — a second run is a no-op (REQ-A1.7, D-4)"
   && fail "sweep over a nonexistent specs dir did not fail closed"
 echo "ok: the sweep fails closed on an unreachable specs dir (exit 2)"
 
+# --- A partial mirror (a symlinked sibling the writer refuses) is reported as a
+# per-bundle skip with the writer's diagnostic surfaced, never a false
+# "unchanged"/"migrated" (REQ-A1.7 skip-and-report). The bundle passes the sweep's
+# file pre-checks (requirements.md and tasks.md are regular), so the failure is the
+# in-writer refusal that reconcile-status now propagates.
+repo2=$tmp/corpus2
+mkdir -p "$repo2"
+git -C "$repo2" init -q -b main
+git -C "$repo2" config user.email t@example.com
+git -C "$repo2" config user.name t
+git -C "$repo2" config commit.gpgsign false
+heads "$repo2/specs/partial" Active
+two_tasks "$repo2/specs/partial" Active
+mv "$repo2/specs/partial/design.md" "$repo2/specs/partial/design.real.md"
+ln -s design.real.md "$repo2/specs/partial/design.md"
+git -C "$repo2" add -A
+git -C "$repo2" commit -qm fixture
+out3=$(cd "$repo2" && PATH="$stub:$PATH" "$MIGRATE" specs 2>"$tmp/run3.err") \
+  || fail "sweep over a partial-mirror corpus exited non-zero"
+grep -q "skipped (reconcile failed): .*/specs/partial" "$tmp/run3.err" \
+  || fail "partial-mirror bundle not reported as skipped (reconcile failed)"
+grep -q "refusing symlinked" "$tmp/run3.err" \
+  || fail "partial-mirror skip did not surface the writer's diagnostic"
+case $out3 in
+  *"0 migrated, 0 unchanged, 1 skipped"*) ;;
+  *) fail "partial-mirror corpus summary wrong: $out3" ;;
+esac
+echo "ok: a partial-mirror bundle is reported skipped (reconcile failed) with its diagnostic, not unchanged (REQ-A1.7)"
+
 echo "PASS: all migrate-status-lifecycle tests passed"
