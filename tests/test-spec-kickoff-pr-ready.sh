@@ -85,7 +85,7 @@ if printf '%s' "$flat" | grep -qE 'configurable `review_sequence`-class mechanis
 else
   fail "skill does not express the pre-flip verification as the review_sequence-class mechanism (REQ-D1.5)"
 fi
-if printf '%s' "$flat" | grep -qE 'not a hardcoded'; then
+if printf '%s' "$flat" | grep -qE 'not a hardcoded\*\* core step'; then
   ok "the verification is explicitly not a hardcoded core step (REQ-D1.5, D-7)"
 else
   fail "skill does not state the verification is not hardcoded (REQ-D1.5)"
@@ -146,18 +146,28 @@ else
   fail "skill does not narrow the claim to 'marks only the spec PR ready'"
 fi
 
-# REQ-D1.2: worker-settings permits `gh pr ready` (allow), no longer deny.
+# REQ-D1.2: worker-settings permits the bare `gh pr ready` un-draft (allow),
+# no longer deny. Match the exact allow glob with grep -F so the
+# `gh pr ready --undo` deny rules below (which also contain the substring
+# "gh pr ready") do not make these assertions false-pass / false-fail.
 allow_block="$(sed -n '/"allow": \[/,/\]/p' "$worker_settings")"
 deny_block="$(sed -n '/"deny": \[/,/\]/p' "$worker_settings")"
-if printf '%s' "$allow_block" | grep -q 'gh pr ready'; then
-  ok "worker-settings allow block permits 'gh pr ready' (REQ-D1.2)"
+if printf '%s' "$allow_block" | grep -qF 'gh pr ready:*'; then
+  ok "worker-settings allow block permits the bare 'gh pr ready' un-draft (REQ-D1.2)"
 else
-  fail "worker-settings allow block does not permit 'gh pr ready' (REQ-D1.2)"
+  fail "worker-settings allow block does not permit the bare 'gh pr ready' un-draft (REQ-D1.2)"
 fi
-if printf '%s' "$deny_block" | grep -q 'gh pr ready'; then
-  fail "worker-settings deny block still denies 'gh pr ready' (REQ-D1.2)"
+if printf '%s' "$deny_block" | grep -qF 'gh pr ready:*'; then
+  fail "worker-settings deny block still denies the bare 'gh pr ready' un-draft (REQ-D1.2)"
 else
-  ok "worker-settings deny block no longer denies 'gh pr ready' (REQ-D1.2)"
+  ok "worker-settings deny block no longer denies the bare 'gh pr ready' un-draft (REQ-D1.2)"
+fi
+# The `gh pr ready --undo` re-draft form stays denied (un-draft only, never
+# re-draft) — the permissions hardening from the Copilot iter-3 review.
+if printf '%s' "$deny_block" | grep -qF 'gh pr ready --undo'; then
+  ok "worker-settings deny block denies the 'gh pr ready --undo' re-draft form"
+else
+  fail "worker-settings deny block does not deny 'gh pr ready --undo' (re-draft guardrail missing)"
 fi
 
 # REQ-D1.3: the option is in the default config.

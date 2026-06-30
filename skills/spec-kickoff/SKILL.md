@@ -418,7 +418,12 @@ not walked.
    pass (already complete above), and when an overlay runs an additional
    review pass over the spec PR the flip is its terminal step. When
    `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
-   completion is clean, un-draft the spec PR: `gh pr ready <spec-PR>`. This
+   completion is clean, un-draft the spec PR — but **first check its state**
+   (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
+   <spec-PR>` **only while it is still a draft**. Skip the command entirely
+   when the PR is already ready or merged/closed (the benign no-op below):
+   `gh pr ready` against an already-ready or merged/closed PR exits non-zero
+   and would wrongly trip the degradation path. This
    is the narrow exception to bootstrap D-26's all-drafts rule
    (REQ-D1.3, the supersede-pointer ritual recorded on bootstrap D-26):
    **only the spec PR**, and only this skill, marks a PR ready; **task PRs
@@ -426,8 +431,9 @@ not walked.
    skills). Merge stays the human's second key — **never auto-merge**. The
    flip is for a draft spec PR: when the spec PR is already ready or already
    merged (a delta re-walkthrough or amendment on a PR readied or merged in an
-   earlier run), there is nothing to un-draft — a benign no-op, not a
-   degradation.
+   earlier run), the state check above skips the flip — there is nothing to
+   un-draft, a benign no-op, not a degradation (the skip is what keeps it
+   from being one).
    - **Do not flip** when sign-off parked on a fork (an inconsistency halt, a
      carried open question, an undispositioned finding) or the configured
      verification did not converge: leave the PR draft and say so in the
