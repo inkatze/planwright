@@ -428,11 +428,14 @@ write_status_header() {
 
 # do_status <canonical-spec-dir> <state-map>: derive the bundle Status from the
 # task-state evidence (Done > Active > Ready, REQ-A1.5) and reconcile the
-# **Status:** header across the four spec files, mirrored. The reconcile owns
-# only the {Ready, Active} set: a Draft bundle's flip to Ready is the human-gated
-# /spec-kickoff write (REQ-A1.4, never derived) and Done / Retired / Superseded
-# are left untouched (REQ-A1.5 "applies only to bundles not already Done"; the
-# reopen Done->Draft is the human's, REQ-A1.6). requirements.md is the
+# **Status:** header across the four spec files, mirrored. The reconcile owns the
+# {Ready, Active} set outright, plus Done solely to COMPLETE a partially-applied
+# Done mirror (when the derived value is still Done, e.g. an earlier sibling write
+# was refused and left the four files split). A Draft bundle's flip to Ready is the
+# human-gated /spec-kickoff write (REQ-A1.4, never derived); Retired / Superseded
+# are left untouched; and a stored-Done bundle is NEVER reopened to Ready/Active by
+# the reconcile (a derived Ready/Active on a Done bundle is the human's Done->Draft
+# flip, REQ-A1.6). requirements.md is the
 # authoritative Status home (spec-format.md): its value gates the reconcile and
 # the derived value is mirrored to all four. Best-effort and never aborts
 # placement (status and placement are independent writes): a per-file mirror
@@ -450,8 +453,8 @@ do_status() {
   [ -f "$dst_req" ] || return 0
   dst_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$dst_req") || dst_cur=""
   case $dst_cur in
-    Ready | Active) ;;
-    *) return 0 ;; # Draft / Done / terminal / absent: not reconcile-owned
+    Ready | Active | Done) ;; # Done is owned only to finish its own mirror (guarded below)
+    *) return 0 ;;            # Draft / Retired / Superseded / absent: not reconcile-owned
   esac
   # An empty state map would make awk's FNR==NR file discriminator read the first
   # tasks.md line as a map entry (the classic empty-first-file gotcha) and derive
@@ -464,6 +467,14 @@ do_status() {
     Ready | Active | Done) ;;
     *) return 0 ;; # derivation produced nothing usable: leave the header alone
   esac
+  # A stored Done bundle is reconcile-owned ONLY to complete a partially-applied
+  # Done mirror (e.g. an earlier sibling write was refused, leaving the four files
+  # split): mirror only while the derived value is still Done. A derived
+  # Ready/Active on a stored-Done bundle is a reopen, which is the human's flip
+  # (Done->Draft, REQ-A1.6) and is never derived — leave every header at Done.
+  if [ "$dst_cur" = Done ] && [ "$dst_val" != Done ]; then
+    return 0
+  fi
   dst_rc=0
   for dst_f in requirements.md design.md tasks.md test-spec.md; do
     write_status_header "$dst_dir/$dst_f" "$dst_val" || dst_rc=1

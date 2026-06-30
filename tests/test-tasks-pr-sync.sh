@@ -928,11 +928,12 @@ echo "ok: a leading non-canonical section is preserved in place above the canoni
 #   * Done    iff no Forward-plan / In-progress / Awaiting-input task remains
 #             (every task is Completed, Deferred, or Out-of-scope, or there are
 #             none) — Done takes precedence over Ready/Active.
-# The reconcile is the SOLE writer of the header and reconciles it only for
-# bundles already in the reconcile-owned set {Ready, Active}: the Draft->Ready
-# flip is the human-gated /spec-kickoff write (not derived, D-2/REQ-A1.4) and
-# Done / Retired / Superseded are left untouched (REQ-A1.5 "applies only to
-# bundles not already Done"; the reopen Done->Draft is the human's, REQ-A1.6).
+# The reconcile is the sole writer of the *derived* header value and reconciles
+# the {Ready, Active} set outright, plus Done only to complete a partially-applied
+# Done mirror: the one-time Draft->Ready flip is the human-gated /spec-kickoff
+# write (not derived, D-2/REQ-A1.4); Retired / Superseded are left untouched; and
+# a stored-Done bundle is never reopened to Ready/Active by the reconcile (the
+# reopen Done->Draft is the human's, REQ-A1.6).
 
 # k6_init <repo>: a fresh git repo with deterministic identity.
 k6_init() {
@@ -1299,5 +1300,66 @@ for k6m_variant in broken dir; do
   done
 done
 echo "ok: write_status_header refuses broken / directory-target symlinks unconditionally, not just symlinks to regular files (REQ-A1.5)"
+
+# --- T-N: a Done bundle with a partially-applied mirror self-heals; a Done
+# bundle never auto-reopens (REQ-A1.5 Done mirror-completion + REQ-A1.6 no
+# derived reopen). The reconcile gate keys off requirements.md, which reaches
+# Done first (it is written first in the mirror loop); if a sibling write was
+# refused during the ->Done transition, a naive "stop on any Done" gate would
+# never revisit the sibling. The reconcile is therefore Done-owned solely to
+# complete its own mirror (derived value still Done), and is NEVER allowed to
+# flip a stored-Done bundle back to Active/Ready (that reopen is the human's).
+
+# N1 (self-heal): design.md is symlinked during the ->Done transition so its
+# mirror write is refused, leaving requirements.md=Done but design.md=Active.
+# Removing the symlink and reconciling again must heal design.md to Done.
+repo=$tmp/k6n1
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# design.md is a symlink to a real target carrying the (stale) Active header, so
+# write_status_header refuses it on the ->Done mirror.
+mv "$sd/design.md" "$sd/design.real.md"
+ln -s design.real.md "$sd/design.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# Both tasks complete -> derivation is Done.
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: kl/1"
+git -C "$repo" commit -q --allow-empty -m "feat: task 2 done
+
+Planwright-Task: kl/2"
+reconcile "$repo" specs/kl || fail "k6-N1 first reconcile non-zero"
+[ "$(k6_status_of "$sd/requirements.md")" = Done ] \
+  || fail "k6-N1 precondition: requirements.md did not reach Done"
+[ "$(k6_status_of "$sd/design.real.md")" = Active ] \
+  || fail "k6-N1 precondition: the symlinked design.md was not left stale at Active"
+# Clear the obstruction: design.md becomes a regular file still stale at Active.
+rm "$sd/design.md"
+mv "$sd/design.real.md" "$sd/design.md"
+[ "$(k6_status_of "$sd/design.md")" = Active ] || fail "k6-N1 precondition: design.md not stale Active after unlink"
+reconcile "$repo" specs/kl || fail "k6-N1 heal reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.5 Done mirror self-heals after the obstruction clears"
+echo "ok: a Done bundle with a partially-applied mirror self-heals on the next reconcile (REQ-A1.5)"
+
+# N2 (no reopen): a stored-Done bundle with in-progress evidence (derivation
+# Active) must stay Done — the reconcile never derives a reopen (REQ-A1.6).
+repo=$tmp/k6n2
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Done
+k6_two_task_tasks "$sd" Done ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence: derivation would be Active, but the bundle is stored Done.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-N2 reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.6 stored-Done never auto-reopens to Active"
+echo "ok: a stored-Done bundle with in-progress evidence stays Done; the reconcile never derives a reopen (REQ-A1.6)"
 
 echo "PASS: all tasks-pr-sync tests passed"
