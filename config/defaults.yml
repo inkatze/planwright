@@ -14,6 +14,15 @@ commit_on_draft: true
 commit_on_kickoff: true
 commit_on_state_move: true
 
+# Whether /spec-kickoff marks the spec PR ready as the terminal step of a clean
+# kickoff completion (D-6, D-7; REQ-D1.2, REQ-D1.3) — the narrow exception to
+# bootstrap D-26's all-drafts rule (only the spec PR; task PRs stay drafts; merge
+# stays human, never auto-merge). false leaves the spec PR draft for the human to
+# un-draft by hand. The flip never fires when sign-off parked on a fork or the
+# configured review_sequence verification did not converge, regardless of this
+# value.
+mark_spec_pr_ready_on_kickoff: true
+
 # Dispatch layer (D-38, REQ-F1.8).
 dispatch_backend: subagent
 max_parallel_units: 3

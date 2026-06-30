@@ -6,8 +6,10 @@ description: >
   sign-off: runs the Discovery-Rigor lens pass, flips Draft to Ready,
   updates Last reviewed, records the machine-checkable sign-off record with
   the content anchor written last, commits brief + flip (commit_on_kickoff
-  opt-out), pushes the spec branch, and opens a draft PR. The human's merge
-  makes the Ready spec operational; the first dispatch derives Active. Also
+  opt-out), pushes the spec branch, opens a draft PR, then on clean completion
+  marks the spec PR ready as the terminal step (mark_spec_pr_ready_on_kickoff
+  opt-out). The human's merge makes the Ready spec operational; the first
+  dispatch derives Active. Also
   runs delta re-walkthroughs (on a Ready or Active spec) and amendments (on
   an Active spec). Halts on genuine spec inconsistency rather than papering
   over it.
@@ -26,10 +28,14 @@ walkthrough is mutually didactic: the agent restates and probes, the human
 corrects, and the agent surfaces what the human has not considered.
 
 Sign-off is the first key of a two-key launch (D-44): it flips the spec
-Draft→Ready, and the human's merge of the spec PR makes the Ready spec
+Draft→Ready and, on a clean completion, marks the spec PR ready as its terminal
+step (D-6, D-7) — the kickoff walkthrough is the spec bundle's review, so once it
+is signed off and any configured verification has converged, the spec PR's ready
+state reflects that. The human's merge of the spec PR makes the Ready spec
 operational for orchestration (the first dispatch then derives Active,
-reconciled by the single writer — not by this skill). This skill never marks
-the PR ready, never merges, and never dispatches execution.
+reconciled by the single writer — not by this skill). This skill marks only the
+spec PR ready (a narrow exception to bootstrap D-26's all-drafts rule; task PRs
+stay drafts), never merges, and never dispatches execution.
 
 ## Doctrine
 
@@ -70,7 +76,8 @@ state:
 
 - **First activation.** Status Draft, no signed brief (or a partial one —
   see resumability). The full walkthrough below, ending in the first
-  sign-off, the Ready flip, push, and draft PR.
+  sign-off, the Draft→Ready flip, push, draft PR, and — on a clean
+  completion — the terminal spec-PR ready-flip (sign-off step 7).
 - **Delta re-walkthrough.** Status Ready or Active with a signed brief, and
   the freshness comparison in pre-flight step 2 found the spec content changed
   since the brief's most recent anchor entry (this is the remedy
@@ -159,11 +166,13 @@ state.
    unvalidated. Either way — naming the Draft→Ready flip only when this run
    flips — ask the human whether to proceed anyway or stop here, install the
    validator, and re-run `/spec-kickoff specs/<spec>`.
-4. **Read the config.** `commit_on_kickoff` from `config/defaults.yml`
-   overridden by `<repo>/.claude/planwright.local.yml` (local wins).
-   Default `true`; an absent, unreadable, or malformed config file falls
-   back to the default with a one-line warning surfaced now and repeated in
-   the handoff.
+4. **Read the config.** `commit_on_kickoff` and
+   `mark_spec_pr_ready_on_kickoff` from `config/defaults.yml` overridden by
+   `<repo>/.claude/planwright.local.yml` (local wins). Both default `true`; an
+   absent, unreadable, or malformed config file falls back to the defaults with
+   a one-line warning surfaced now and repeated in the handoff.
+   `mark_spec_pr_ready_on_kickoff` gates the terminal ready-flip (sign-off
+   step 7).
 5. **Resolve the working location** (D-44, graceful in every starting
    state). The spec branch is `planwright/<spec>/spec` (the reserved
    namespace the `tasks-pr-sync` hook no-ops on); the spec worktree is
@@ -374,8 +383,9 @@ not walked.
    force-push, amend, squash, or rebase (REQ-J1.4). Opt-out set: leave the
    work uncommitted, say so explicitly, and skip push/PR (an unpushed
    commit is recoverable; pushing uncommitted state is not a thing).
-6. **Push and draft PR** (REQ-B2.4, D-44). Publishing is the run's final
-   action: run the Observations and Maintenance steps below first, so
+6. **Push and draft PR** (REQ-B2.4, D-44). Publishing is the run's last
+   commit-producing action (the terminal ready-flip in step 7 issues no
+   commit): run the Observations and Maintenance steps below first, so
    their chore commits land before the push and nothing is left behind
    unpushed (the same ordering `/self-review` uses). Then push the spec
    branch: `git push -u origin planwright/<spec>/spec`. Then the PR: if one
@@ -386,20 +396,51 @@ not walked.
    chars): `feat(spec): <spec> kickoff sign-off` for a first activation,
    `docs(spec): <spec> <event>` for later events. The body carries the spec
    path, brief path, walkthrough scope (full or delta), validator outcome,
-   lens-pass summary, and the anchor. The PR is always a draft; the
-   draft→ready flip and the merge are the human's (the second key — merge
-   is what makes the Ready spec operational for orchestration; the first
-   dispatch then derives Active). On no
+   lens-pass summary, and the anchor. The PR is created as a draft; on a
+   clean completion the terminal ready-flip (step 7) un-drafts it, while the
+   merge stays the human's (the second key — merge is what makes the Ready
+   spec operational for orchestration; the first dispatch then derives
+   Active). On no
    remote, push rejection, or `gh` absence/auth failure: degrade per
    REQ-K1.6/K1.7 — the local work is complete and committed; record a note
    in the spec's `tasks.md` `## Awaiting input` section naming the pending
    push/PR step and the failure, surface it in the handoff, and stop.
    Never retry into an opaque failure.
+7. **Mark the spec PR ready (terminal step, D-6/D-7; REQ-D1.2, REQ-D1.3,
+   REQ-D1.5).** The run's final action, and only on a **clean completion** —
+   the sign-off record above is written with its anchor (no inconsistency
+   halt, no carried open question, every lens finding dispositioned) and any
+   configured verification has converged. The verification that precedes the
+   flip — the process a user may informally call a "gauntlet" — is the
+   configurable `review_sequence`-class mechanism (D-7,
+   customization-overlay D-6 / REQ-D1.3), **not a hardcoded** core step: in
+   bare core it is this skill's own walkthrough and Discovery-Rigor lens
+   pass (already complete above), and when an overlay runs an additional
+   review pass over the spec PR the flip is its terminal step. When
+   `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
+   completion is clean, un-draft the spec PR: `gh pr ready <spec-PR>`. This
+   is the narrow exception to bootstrap D-26's all-drafts rule
+   (REQ-D1.3, the supersede-pointer ritual recorded on bootstrap D-26):
+   **only the spec PR**, and only this skill, marks a PR ready; **task PRs
+   stay drafts** (their execution review is owned by the execution and review
+   skills). Merge stays the human's second key — **never auto-merge**.
+   - **Do not flip** when sign-off parked on a fork (an inconsistency halt, a
+     carried open question, an undispositioned finding) or the configured
+     verification did not converge: leave the PR draft and say so in the
+     handoff.
+   - **Opt-out:** `mark_spec_pr_ready_on_kickoff: false` suppresses the flip;
+     the PR stays draft and the human un-drafts it by hand.
+   - **Degrade, never retry into opacity (bootstrap REQ-K1.6/K1.7):** if the
+     flip itself fails — no remote, `gh` absent or auth failure, PR not
+     found — the recorded sign-off stands (never roll it back); record the
+     pending ready-flip in the spec's `tasks.md` `## Awaiting input` section
+     naming the failure, surface it in the handoff, and stop.
 
 **Hand off.** Report: mode and scope, sections walked, spec edits applied,
 gap-check outcome, lens-pass summary, the anchor, commit/push/PR outcome
-(or the degradation notes), and the next step — merge the spec PR, then
-`/orchestrate specs/<spec>`.
+(or the degradation notes), the spec PR's ready/draft state (and the opt-out
+or degradation reason when it stayed draft), and the next step — merge the
+spec PR (now ready), then `/orchestrate specs/<spec>`.
 
 **Data hygiene throughout (security-posture):** the brief, the risk
 register, and the PR body are committed artifacts — no secrets,
