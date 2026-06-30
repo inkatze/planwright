@@ -436,8 +436,10 @@ write_status_header() {
 # are left untouched; and a stored-Done bundle is NEVER reopened to Ready/Active by
 # the reconcile (a derived Ready/Active on a Done bundle is the human's Done->Draft
 # flip, REQ-A1.6). requirements.md is the
-# authoritative Status home (spec-format.md): its value gates the reconcile and
-# the derived value is mirrored to all four. Best-effort and never aborts
+# authoritative Status home (spec-format.md): a symlinked requirements.md is
+# refused outright (logged, non-zero) so the reconcile never reads ownership
+# through the link nor leaves a partial mirror; otherwise its value gates the
+# reconcile and the derived value is mirrored to all four. Best-effort and never aborts
 # placement (status and placement are independent writes): a per-file mirror
 # failure (write_status_header) is logged there and propagates a non-zero return,
 # so the caller logs "status reconcile incomplete". The gate and derivation
@@ -450,6 +452,17 @@ do_status() {
   dst_dir=$1
   dst_map=$2
   dst_req="$dst_dir/requirements.md"
+  # Refuse a symlinked requirements.md outright: it is the authoritative Status
+  # home that both gates the reconcile and is mirrored. `-f` follows the link, so
+  # without this the gate would read ownership through the link while
+  # write_status_header (which refuses symlinks) would later leave it unwritten —
+  # the three siblings move but the authoritative file does not, a cross-file
+  # split. Bow out entirely so no sibling is rewritten (mirrors do_placement's
+  # symlinked-tasks.md refusal).
+  if [ -L "$dst_req" ]; then
+    log "refusing symlinked $dst_req"
+    return 1
+  fi
   [ -f "$dst_req" ] || return 0
   dst_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$dst_req") || dst_cur=""
   case $dst_cur in

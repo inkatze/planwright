@@ -1362,4 +1362,37 @@ reconcile "$repo" specs/kl || fail "k6-N2 reconcile non-zero"
 k6_assert_all "$sd" Done "REQ-A1.6 stored-Done never auto-reopens to Active"
 echo "ok: a stored-Done bundle with in-progress evidence stays Done; the reconcile never derives a reopen (REQ-A1.6)"
 
+# --- T-O: do_status refuses a symlinked requirements.md (the authoritative
+# Status home) outright. Otherwise the gate reads ownership *through* the link
+# and the mirror updates the three siblings while write_status_header refuses the
+# symlinked authoritative file — a cross-file split. do_status must bow out
+# entirely (log + non-zero) so no sibling is rewritten. Mirrors do_placement's
+# existing symlinked-tasks.md refusal.
+repo=$tmp/k6o
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# requirements.md becomes a symlink to a real target carrying Active. No progress
+# means the derivation is Ready, so a proceeding mirror WOULD move the siblings to
+# Ready — making a partial mirror observable.
+mv "$sd/requirements.md" "$sd/requirements.real.md"
+ln -s requirements.real.md "$sd/requirements.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+err=$(reconcile "$repo" specs/kl 2>&1) || fail "k6-O reconcile non-zero"
+case $err in
+  *"refusing symlinked"*) ;;
+  *) fail "k6-O: no symlink-refusal diagnostic for requirements.md (got: $err)" ;;
+esac
+[ -L "$sd/requirements.md" ] || fail "k6-O: requirements.md symlink was replaced (write went through the link)"
+[ "$(k6_status_of "$sd/requirements.real.md")" = Active ] \
+  || fail "k6-O: requirements.md target was rewritten despite the refusal"
+# The distinguishing assertion: the siblings must be untouched (no partial mirror).
+for f in design.md tasks.md test-spec.md; do
+  [ "$(k6_status_of "$sd/$f")" = Active ] \
+    || fail "k6-O: sibling $f was rewritten while the authoritative requirements.md was refused (partial mirror)"
+done
+echo "ok: do_status refuses a symlinked requirements.md outright; no sibling is rewritten (no partial mirror)"
+
 echo "PASS: all tasks-pr-sync tests passed"
