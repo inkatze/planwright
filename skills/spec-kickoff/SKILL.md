@@ -423,7 +423,11 @@ not walked.
    (REQ-D1.3, the supersede-pointer ritual recorded on bootstrap D-26):
    **only the spec PR**, and only this skill, marks a PR ready; **task PRs
    stay drafts** (their execution review is owned by the execution and review
-   skills). Merge stays the human's second key — **never auto-merge**.
+   skills). Merge stays the human's second key — **never auto-merge**. The
+   flip is for a draft spec PR: when the spec PR is already ready or already
+   merged (a delta re-walkthrough or amendment on a PR readied or merged in an
+   earlier run), there is nothing to un-draft — a benign no-op, not a
+   degradation.
    - **Do not flip** when sign-off parked on a fork (an inconsistency halt, a
      carried open question, an undispositioned finding) or the configured
      verification did not converge: leave the PR draft and say so in the
