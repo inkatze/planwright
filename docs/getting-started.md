@@ -159,8 +159,9 @@ three are read-only.
 
 ### Invariants the framework holds everywhere
 
-Never auto-merge; never act on a non-Active spec; never force-push, amend,
-squash, or rebase (new commits only); all framework-created PRs are drafts.
+Never auto-merge; never act on a spec that is not Ready or Active; never
+force-push, amend, squash, or rebase (new commits only); all framework-created
+PRs are drafts.
 These are constraints, not future capabilities.
 
 ## 4. Supplying your own tooling and rigor (without editing core)

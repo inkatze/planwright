@@ -108,8 +108,8 @@ human-reserved, permanently:
 Between them, the intervention contract has three phases: sign-off before
 execution, rare hard pauses during it (security-sensitive zones, destructive
 operations, irreducible judgment forks), and review plus merge after. Invariants
-the framework holds everywhere: never auto-merge; never act on a non-Active spec;
-never force-push, amend, squash, or rebase (new commits only).
+the framework holds everywhere: never auto-merge; never act on a spec that is not
+Ready or Active; never force-push, amend, squash, or rebase (new commits only).
 
 ### The four-file spec
 
