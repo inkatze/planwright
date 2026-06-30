@@ -1395,4 +1395,122 @@ for f in design.md tasks.md test-spec.md; do
 done
 echo "ok: do_status refuses a symlinked requirements.md outright; no sibling is rewritten (no partial mirror)"
 
+# ===========================================================================
+# RS — the status-only reconcile arm (`reconcile-status`, do_status_only):
+# kickoff-lifecycle Task 8 (REQ-A1.7, D-4). It reconciles the bundle **Status:**
+# header across the four files exactly like the full reconcile (the same single
+# writer, do_status) but WITHOUT the placement rewrite, so a one-time corpus
+# migration sweep can flip Active-with-no-progress bundles to Ready while leaving
+# task placement — including legacy bundles whose git evidence has aged out —
+# untouched.
+reconcile_status() { # <repo> <spec-dir-relative>
+  (cd "$1" && PATH="$stub:$PATH" "$SYNC" reconcile-status "$2")
+}
+
+# --- RS-A: stored Active, no progress -> reconcile-status flips to Ready,
+# mirrored across all four files; a second run is a byte-identical no-op.
+repo=$tmp/rsa
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile_status "$repo" specs/kl || fail "RS-A reconcile-status non-zero"
+k6_assert_all "$sd" Ready "REQ-A1.7 Active-with-no-progress migrates to Ready"
+snap=$tmp/rsa-snap
+for f in requirements.md design.md tasks.md test-spec.md; do cp "$sd/$f" "$snap.$f"; done
+reconcile_status "$repo" specs/kl || fail "RS-A second reconcile-status non-zero"
+for f in requirements.md design.md tasks.md test-spec.md; do
+  cmp -s "$snap.$f" "$sd/$f" || fail "RS-A: $f changed on the idempotent second run"
+done
+echo "ok: reconcile-status migrates an Active-with-no-progress bundle to Ready, mirrored, idempotent (REQ-A1.7)"
+
+# --- RS-B: stored Active, one task in-progress -> stays Active (a started bundle
+# is not migrated).
+repo=$tmp/rsb
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile_status "$repo" specs/kl || fail "RS-B reconcile-status non-zero"
+k6_assert_all "$sd" Active "REQ-A1.7 a started bundle stays Active"
+echo "ok: reconcile-status leaves a bundle with in-flight work at Active (REQ-A1.7)"
+
+# --- RS-C: the distinguishing property — status-only does NOT rewrite placement.
+# A bundle with Task 2 mis-placed under ## In progress (but deriving `ready`, no
+# branch) gets its Status flipped Active->Ready while Task 2 stays exactly where
+# it was; the full reconcile would relocate it to Forward plan.
+repo=$tmp/rsc
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+{
+  printf '%s\n' '# K6 — Tasks' '' '**Status:** Active' '**Format-version:** 1' ''
+  printf '%s\n' '## Forward plan' ''
+  printf '%s\n' '### Task 1 — Alpha' ''
+  printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+  printf '%s\n' '## In progress' ''
+  printf '%s\n' '### Task 2 — Beta' ''
+  printf '%s\n' '- **Deliverables:** Beta.' '- **Done when:** Beta done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.2' '- **Estimated effort:** 1 day' ''
+  printf '%s\n' '## Awaiting input' '' '(none yet)' ''
+  printf '%s\n' '## Completed' '' '(none yet)'
+} >"$sd/tasks.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+[ "$(section_of "$sd/tasks.md" 2)" = "In progress" ] || fail "RS-C precondition: Task 2 not pre-placed in In progress"
+reconcile_status "$repo" specs/kl || fail "RS-C reconcile-status non-zero"
+k6_assert_all "$sd" Ready "REQ-A1.7 status flips on a status-only reconcile"
+[ "$(section_of "$sd/tasks.md" 2)" = "In progress" ] \
+  || fail "RS-C: reconcile-status relocated Task 2 (placement must be untouched)"
+[ "$(section_of "$sd/tasks.md" 1)" = "Forward plan" ] \
+  || fail "RS-C: reconcile-status relocated Task 1 (placement must be untouched)"
+# Contrast: the full placement reconcile WOULD move the mis-placed ready Task 2.
+reconcile "$repo" specs/kl || fail "RS-C contrast reconcile non-zero"
+[ "$(section_of "$sd/tasks.md" 2)" = "Forward plan" ] \
+  || fail "RS-C contrast: full reconcile did not relocate the ready Task 2 to Forward plan"
+echo "ok: reconcile-status mirrors the Status header but never rewrites task placement (REQ-A1.7, D-4)"
+
+# --- RS-D: a stored-Done bundle is never reopened by the status-only arm (the
+# stored-Done guard in do_status holds for both arms).
+repo=$tmp/rsd
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Done
+k6_two_task_tasks "$sd" Done ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile_status "$repo" specs/kl || fail "RS-D reconcile-status non-zero"
+k6_assert_all "$sd" Done "REQ-A1.6 stored-Done never reopened by reconcile-status"
+echo "ok: reconcile-status never reopens a stored-Done bundle (REQ-A1.6)"
+
+# --- RS-E: a Draft bundle's header is left untouched (Draft->Ready is the
+# human-gated /spec-kickoff write, never derived).
+repo=$tmp/rse
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Draft
+k6_two_task_tasks "$sd" Draft ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile_status "$repo" specs/kl || fail "RS-E reconcile-status non-zero"
+k6_assert_all "$sd" Draft "REQ-A1.4 Draft is never derived to Ready by reconcile-status"
+echo "ok: reconcile-status leaves a Draft bundle untouched (REQ-A1.4)"
+
+# --- RS-F: fail-closed CLI validation mirrors `reconcile` (missing arg / missing
+# tasks.md -> exit 2, not a silent skip).
+("$SYNC" reconcile-status >/dev/null 2>&1) && fail "RS-F: missing-arg reconcile-status did not exit non-zero"
+nodir=$tmp/rsf-empty
+mkdir -p "$nodir"
+("$SYNC" reconcile-status "$nodir" >/dev/null 2>&1) && fail "RS-F: reconcile-status on a dir with no tasks.md did not fail closed"
+echo "ok: reconcile-status fails closed on missing arg / missing tasks.md (exit 2)"
+
 echo "PASS: all tasks-pr-sync tests passed"
