@@ -919,4 +919,480 @@ grep -q 'Task 2 blocks Task 4\.' "$tasks" || fail "leading non-canonical: body l
 [ "$(section_of "$tasks" 1)" = "Completed" ] || fail "leading non-canonical: Task 1 not placed in Completed"
 echo "ok: a leading non-canonical section is preserved in place above the canonical set"
 
+# ===========================================================================
+# Task 6 (kickoff-lifecycle REQ-A1.5, REQ-C1.2): the reconcile derives and
+# writes the bundle **Status:** header, mirrored across the four files. The
+# derivation (Done > Active > Ready, all from task-state evidence):
+#   * Active  iff at least one task derives In-progress or Completed;
+#   * Ready   otherwise (signed off, no progress, startable work remains);
+#   * Done    iff no Forward-plan / In-progress / Awaiting-input task remains
+#             (every task is Completed, Deferred, or Out-of-scope, or there are
+#             none) — Done takes precedence over Ready/Active.
+# The reconcile is the sole writer of the *derived* header value and reconciles
+# the {Ready, Active} set outright, plus Done only to complete a partially-applied
+# Done mirror: the one-time Draft->Ready flip is the human-gated /spec-kickoff
+# write (not derived, D-2/REQ-A1.4); Retired / Superseded are left untouched; and
+# a stored-Done bundle is never reopened to Ready/Active by the reconcile (the
+# reopen Done->Draft is the human's, REQ-A1.6).
+
+# k6_init <repo>: a fresh git repo with deterministic identity.
+k6_init() {
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  git -C "$1" config user.email t@example.com
+  git -C "$1" config user.name t
+  git -C "$1" config commit.gpgsign false
+}
+# k6_heads <spec-dir> <status>: write requirements/design/test-spec with the
+# bundle Status mirrored across all three. tasks.md is written per-scenario.
+k6_heads() {
+  mkdir -p "$1"
+  printf '%s\n' '# K6 — Requirements' '' "**Status:** $2" '**Format-version:** 1' >"$1/requirements.md"
+  printf '%s\n' '# K6 — Design' '' "**Status:** $2" '**Format-version:** 1' >"$1/design.md"
+  printf '%s\n' '# K6 — Test Spec' '' "**Status:** $2" '**Format-version:** 1' >"$1/test-spec.md"
+}
+k6_status_of() { awk '/^\*\*Status:\*\* / { print $2; exit }' "$1"; }
+k6_assert_all() { # <spec-dir> <expected> <label>
+  for f in requirements.md design.md tasks.md test-spec.md; do
+    got=$(k6_status_of "$1/$f")
+    [ "$got" = "$2" ] || fail "$3: $f Status=$got, expected $2"
+  done
+}
+# A standard two-task tasks.md body (both under Forward plan). $1 = spec-dir,
+# $2 = status, $3 = an extra annotation line for Task 1 (or empty).
+k6_two_task_tasks() { # <spec-dir> <status> <task1-annotation>
+  {
+    printf '%s\n' '# K6 — Tasks' '' "**Status:** $2" '**Format-version:** 1' ''
+    printf '%s\n' '## Forward plan' ''
+    printf '%s\n' '### Task 1 — Alpha' ''
+    [ -n "$3" ] && printf '%s\n' "$3"
+    printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+      '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+    printf '%s\n' '### Task 2 — Beta' ''
+    printf '%s\n' '- **Deliverables:** Beta.' '- **Done when:** Beta done.' \
+      '- **Dependencies:** none' '- **Citations:** REQ-K1.2' '- **Estimated effort:** 1 day' ''
+    printf '%s\n' '## In progress' '' '(none yet)' ''
+    printf '%s\n' '## Awaiting input' '' '(none yet)' ''
+    printf '%s\n' '## Completed' '' '(none yet)'
+  } >"$1/tasks.md"
+}
+
+# --- T-A: no progress, stored Ready -> stays Ready (REQ-A1.5 no-progress arm).
+repo=$tmp/k6a
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile "$repo" specs/kl || fail "k6-A reconcile non-zero"
+k6_assert_all "$sd" Ready "REQ-A1.5 no progress stays Ready"
+echo "ok: reconcile keeps a signed-off bundle with no progress at Ready (REQ-A1.5)"
+
+# --- T-B: one In-progress, stored Ready -> Active, mirrored to four files; the
+# derivation engine (the /orchestrate read path) writes nothing (REQ-C1.2). A
+# task-level `- **Status:**` annotation must survive the header rewrite.
+repo=$tmp/k6b
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready '- **Status:** implementing'
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+before=$(k6_status_of "$sd/requirements.md")
+(cd "$repo" && PATH="$stub:$PATH" "$STATE" specs/kl >/dev/null) || fail "k6-B derivation non-zero"
+[ "$(k6_status_of "$sd/requirements.md")" = "$before" ] \
+  || fail "REQ-C1.2: orchestrate-state.sh (the /orchestrate derivation path) wrote the Status header"
+reconcile "$repo" specs/kl || fail "k6-B reconcile non-zero"
+k6_assert_all "$sd" Active "REQ-C1.2 Ready->Active on first in-progress evidence"
+grep -q -- '- \*\*Status:\*\* implementing' "$sd/tasks.md" \
+  || fail "REQ-C1.2: header rewrite clobbered a task-level - **Status:** annotation"
+echo "ok: reconcile derives Ready->Active on first in-progress evidence, mirrored across four files; /orchestrate's derivation path writes nothing; task annotations survive (REQ-C1.2)"
+
+# --- T-C: one Completed (rest Forward), stored Active -> stays Active. Proves a
+# Completed task alone counts as progress (REQ-A1.5).
+repo=$tmp/k6c
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: kl/1"
+reconcile "$repo" specs/kl || fail "k6-C reconcile non-zero"
+k6_assert_all "$sd" Active "REQ-A1.5 one completed stays Active"
+echo "ok: reconcile keeps Active when one task is completed and work remains (REQ-A1.5)"
+
+# --- T-D: all Completed, stored Active -> Done; second run is a no-op on the
+# header (idempotent, REQ-A1.5 Done precedence).
+repo=$tmp/k6d
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: kl/1"
+git -C "$repo" commit -q --allow-empty -m "feat: task 2 done
+
+Planwright-Task: kl/2"
+reconcile "$repo" specs/kl || fail "k6-D reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.5 all completed -> Done"
+# Idempotency is a four-file property (do_status mirrors all four): snapshot and
+# cmp every file, so a second-run rewrite of any sibling (not just requirements.md)
+# is caught.
+snap=$tmp/k6d-snap
+mkdir -p "$snap"
+for f in requirements.md design.md tasks.md test-spec.md; do cp "$sd/$f" "$snap/$f"; done
+reconcile "$repo" specs/kl || fail "k6-D second reconcile non-zero"
+for f in requirements.md design.md tasks.md test-spec.md; do
+  cmp -s "$sd/$f" "$snap/$f" || fail "REQ-A1.5: status reconcile not idempotent (second run rewrote $f)"
+done
+echo "ok: reconcile derives Active->Done when all tasks complete; idempotent across all four files (REQ-A1.5)"
+
+# --- T-E: no startable tasks (only Deferred / Out of scope blocks), stored
+# Ready -> Done (REQ-A1.5 "no startable work" arm, Done precedence).
+repo=$tmp/k6e
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+{
+  printf '%s\n' '# K6 — Tasks' '' '**Status:** Ready' '**Format-version:** 1' ''
+  printf '%s\n' '## Forward plan' '' '(none yet)' ''
+  printf '%s\n' '## In progress' '' '(none yet)' ''
+  printf '%s\n' '## Awaiting input' '' '(none yet)' ''
+  printf '%s\n' '## Completed' '' '(none yet)' ''
+  printf '%s\n' '## Deferred' ''
+  printf '%s\n' '### Task 1 — Alpha' ''
+  printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+  printf '%s\n' '## Out of scope' ''
+  printf '%s\n' '### Task 2 — Beta' ''
+  printf '%s\n' '- **Deliverables:** Beta.' '- **Done when:** Beta done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.2' '- **Estimated effort:** 1 day'
+} >"$sd/tasks.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile "$repo" specs/kl || fail "k6-E reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.5 no startable tasks -> Done"
+echo "ok: reconcile derives Done for a signed-off bundle with no startable tasks (REQ-A1.5)"
+
+# --- T-F: a task parked in Awaiting input counts as pending, stored Ready ->
+# stays Ready (not Done). Distinguishes Awaiting-input from Deferred/Out-of-scope.
+repo=$tmp/k6f
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+{
+  printf '%s\n' '# K6 — Tasks' '' '**Status:** Ready' '**Format-version:** 1' ''
+  printf '%s\n' '## Forward plan' '' '(none yet)' ''
+  printf '%s\n' '## In progress' '' '(none yet)' ''
+  printf '%s\n' '## Awaiting input' ''
+  printf '%s\n' '### Task 1 — Alpha' ''
+  printf '%s\n' '- **Deliverables:** Alpha.' '- **Done when:** Alpha done.' \
+    '- **Dependencies:** none' '- **Citations:** REQ-K1.1' '- **Estimated effort:** 1 day' ''
+  printf '%s\n' '## Completed' '' '(none yet)'
+} >"$sd/tasks.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile "$repo" specs/kl || fail "k6-F reconcile non-zero"
+k6_assert_all "$sd" Ready "REQ-A1.5 Awaiting-input task keeps Ready (pending, not Done)"
+echo "ok: an Awaiting-input task is pending (keeps Ready), not parked like Deferred/Out-of-scope (REQ-A1.5)"
+
+# --- T-G: owned-set guard. Stored Draft with in-progress evidence is NOT
+# flipped (Draft->Ready is the human-gated kickoff write, never derived;
+# D-2 / REQ-A1.4).
+repo=$tmp/k6g
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Draft
+k6_two_task_tasks "$sd" Draft ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-G reconcile non-zero"
+k6_assert_all "$sd" Draft "REQ-A1.4 Draft is never derived to Active by the reconcile"
+echo "ok: the reconcile never derives a Draft bundle's Status (Draft->Ready is human-gated, REQ-A1.4)"
+
+# --- T-H: owned-set guard. Stored Superseded (terminal) and Done are left
+# untouched even with reopening evidence (REQ-A1.5 / REQ-A1.6: the reopen is the
+# human's Done->Draft, not a derived flip).
+for st in Superseded Done; do
+  repo=$tmp/k6h-$st
+  k6_init "$repo"
+  sd="$repo/specs/kl"
+  k6_heads "$sd" "$st"
+  k6_two_task_tasks "$sd" "$st" ""
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm fixture
+  git -C "$repo" branch planwright/kl/task-1
+  git -C "$repo" checkout -q planwright/kl/task-1
+  git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+  git -C "$repo" checkout -q main
+  reconcile "$repo" specs/kl || fail "k6-H($st) reconcile non-zero"
+  k6_assert_all "$sd" "$st" "REQ-A1.5 $st is left untouched by the reconcile"
+done
+echo "ok: the reconcile leaves Done and terminal (Superseded) bundles untouched (REQ-A1.5/A1.6)"
+
+# --- T-I: single-writer code audit (REQ-A1.5). tasks-pr-sync.sh is the only
+# script that EMITS a bundle Status header; spec-validate.sh only READS it, and
+# the /orchestrate path (orchestrate-select / orchestrate-state) never writes it.
+# Quote-agnostic on purpose: a print/printf/echo that emits the literal header
+# string in EITHER single or double quotes counts as an emitter, so a future
+# writer using `printf '**Status:** %s\n'` (single-quoted) cannot bypass the
+# guard. Readers (`awk '/^**Status:** /{print $2}'`) are not matched because the
+# quoted literal there precedes, not follows, the print token.
+emit='\*\*Status:\*\* '
+writers=""
+for s in "$here"/../scripts/*.sh; do
+  grep -qE "(print|printf|echo).*['\"]$emit" "$s" && writers="$writers $(basename "$s")"
+done
+writers=$(printf '%s' "$writers" | sed 's/^ //')
+[ "$writers" = "tasks-pr-sync.sh" ] \
+  || fail "single-writer audit: scripts emitting a Status header = '$writers', expected only tasks-pr-sync.sh"
+grep -q '\*\*Status:\*\*' "$here/../scripts/orchestrate-select.sh" \
+  && fail "single-writer audit: orchestrate-select.sh references the Status header (should not touch it)"
+echo "ok: tasks-pr-sync.sh is the sole writer of the bundle Status header (REQ-A1.5 single-writer)"
+
+# --- T-J: write_status_header refuses a symlinked status file. A spec file
+# symlinked elsewhere (here design.md) is refused by the status writer: its
+# target is left untouched and a diagnostic is logged, while the other three
+# files still mirror the derived value (the per-file write is best-effort, so one
+# refused file does not abort the mirror). Complements the tasks.md symlink-
+# refusal tests (10e) for the four status-header files specifically.
+repo=$tmp/k6j
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready ""
+# design.md is a symlink to a real target carrying the (stale) Ready header.
+mv "$sd/design.md" "$sd/design.real.md"
+ln -s design.real.md "$sd/design.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence flips the derivation Ready->Active.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+err=$(reconcile "$repo" specs/kl 2>&1) || fail "k6-J reconcile non-zero"
+for f in requirements.md tasks.md test-spec.md; do
+  [ "$(k6_status_of "$sd/$f")" = Active ] || fail "k6-J: $f not mirrored to Active around a refused symlink"
+done
+[ "$(k6_status_of "$sd/design.real.md")" = Ready ] \
+  || fail "k6-J: write_status_header wrote through the symlinked design.md"
+[ -L "$sd/design.md" ] || fail "k6-J: the design.md symlink was replaced (write went through the link)"
+case $err in
+  *"refusing symlinked"*) ;;
+  *) fail "k6-J: no symlink-refusal diagnostic emitted (got: $err)" ;;
+esac
+echo "ok: write_status_header refuses a symlinked status file and mirrors the rest (best-effort)"
+
+# --- T-K: a partial four-file Status mirror self-heals on the next reconcile.
+# The mirror is not group-atomic (a per-file refusal/failure leaves dst_rc=1 and
+# a de-synced file); the level-triggered reconcile converges every file on a
+# subsequent run (REQ-A1.5 idempotent/self-healing, mirroring the placement
+# self-heal). Here design.md is hand-desynced to Ready while the rest read
+# Active; a reconcile that derives Active must pull design.md back into line.
+repo=$tmp/k6k
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# De-sync design.md to Ready (as if a prior mirror write to it had been refused).
+awk '!d && /^\*\*Status:\*\* / { print "**Status:** Ready"; d = 1; next } { print }' \
+  "$sd/design.md" >"$sd/design.tmp" && mv "$sd/design.tmp" "$sd/design.md"
+[ "$(k6_status_of "$sd/design.md")" = Ready ] \
+  || fail "k6-K precondition: design.md not de-synced to Ready (test would be vacuous)"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence keeps the derived value Active, so the heal target is Active.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-K reconcile non-zero"
+k6_assert_all "$sd" Active "k6-K partial mirror self-heals to Active"
+echo "ok: a partial four-file Status mirror self-heals on the next reconcile (REQ-A1.5)"
+
+# --- T-L: a bundle file lacking the **Status:** header is skipped, not injected.
+# requirements.md (the authoritative Status home) carries the header and gates the
+# reconcile; a sibling file without one (here design.md) exercises
+# write_status_header's no-header early return ([ -n "$wsh_cur" ] || return 0): the
+# reconcile must leave it headerless rather than prepend a header, while the other
+# three files still mirror the derived value. Guards the contract that the
+# reconcile rewrites an existing header but never creates one.
+repo=$tmp/k6l
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Ready
+k6_two_task_tasks "$sd" Ready ""
+# Strip the bundle Status header from design.md (a malformed-but-present sibling).
+grep -v '^\*\*Status:\*\* ' "$sd/design.md" >"$sd/design.tmp" && mv "$sd/design.tmp" "$sd/design.md"
+grep -q '^\*\*Status:\*\* ' "$sd/design.md" \
+  && fail "k6-L precondition: design.md still has a Status header (test would be vacuous)"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence flips the derivation Ready->Active.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-L reconcile non-zero"
+for f in requirements.md tasks.md test-spec.md; do
+  [ "$(k6_status_of "$sd/$f")" = Active ] || fail "k6-L: $f not mirrored to Active around a headerless sibling"
+done
+grep -q '^\*\*Status:\*\* ' "$sd/design.md" \
+  && fail "k6-L: write_status_header injected a Status header into a file that lacked one"
+echo "ok: write_status_header skips a file with no Status header (no injection) and mirrors the rest (REQ-A1.5)"
+
+# --- T-M: write_status_header refuses a symlink whose target is NOT a regular
+# file (a broken symlink, or one pointing at a directory), not just a symlink to
+# a real file (T-J). The refusal must be unconditional per the documented
+# contract ("a symlinked file is refused"): ordering the `-L` test before the
+# `-f` test is what makes a broken / non-regular-target symlink hit the refusal
+# rather than the `[ -f ] || return 0` missing-file no-op (which would skip it
+# silently with no diagnostic, hiding a partial-mirror problem). Each variant
+# leaves its symlink untouched, emits the diagnostic, and the other three files
+# still mirror the derived Active.
+for k6m_variant in broken dir; do
+  repo=$tmp/k6m-$k6m_variant
+  k6_init "$repo"
+  sd="$repo/specs/kl"
+  k6_heads "$sd" Active
+  k6_two_task_tasks "$sd" Active ""
+  rm "$sd/design.md"
+  case $k6m_variant in
+    broken) ln -s design.gone.md "$sd/design.md" ;; # target never created -> broken
+    dir)
+      mkdir "$sd/design.d"
+      ln -s design.d "$sd/design.md"
+      ;; # points at a dir
+  esac
+  [ -L "$sd/design.md" ] || fail "k6-M/$k6m_variant precondition: design.md is not a symlink (test would be vacuous)"
+  [ -f "$sd/design.md" ] && fail "k6-M/$k6m_variant precondition: design.md resolves to a regular file (covered by T-J, not this test)"
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm fixture
+  # In-progress evidence keeps the derived value Active, so the mirror target is Active.
+  git -C "$repo" branch planwright/kl/task-1
+  git -C "$repo" checkout -q planwright/kl/task-1
+  git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+  git -C "$repo" checkout -q main
+  err=$(reconcile "$repo" specs/kl 2>&1) || fail "k6-M/$k6m_variant reconcile non-zero"
+  case $err in
+    *"refusing symlinked"*) ;;
+    *) fail "k6-M/$k6m_variant: no symlink-refusal diagnostic emitted (got: $err)" ;;
+  esac
+  [ -L "$sd/design.md" ] || fail "k6-M/$k6m_variant: the design.md symlink was replaced (write went through the link)"
+  for f in requirements.md tasks.md test-spec.md; do
+    [ "$(k6_status_of "$sd/$f")" = Active ] || fail "k6-M/$k6m_variant: $f not mirrored to Active around a refused non-regular symlink"
+  done
+done
+echo "ok: write_status_header refuses broken / directory-target symlinks unconditionally, not just symlinks to regular files (REQ-A1.5)"
+
+# --- T-N: a Done bundle with a partially-applied mirror self-heals; a Done
+# bundle never auto-reopens (REQ-A1.5 Done mirror-completion + REQ-A1.6 no
+# derived reopen). The reconcile gate keys off requirements.md, which reaches
+# Done first (it is written first in the mirror loop); if a sibling write was
+# refused during the ->Done transition, a naive "stop on any Done" gate would
+# never revisit the sibling. The reconcile is therefore Done-owned solely to
+# complete its own mirror (derived value still Done), and is NEVER allowed to
+# flip a stored-Done bundle back to Active/Ready (that reopen is the human's).
+
+# N1 (self-heal): design.md is symlinked during the ->Done transition so its
+# mirror write is refused, leaving requirements.md=Done but design.md=Active.
+# Removing the symlink and reconciling again must heal design.md to Done.
+repo=$tmp/k6n1
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# design.md is a symlink to a real target carrying the (stale) Active header, so
+# write_status_header refuses it on the ->Done mirror.
+mv "$sd/design.md" "$sd/design.real.md"
+ln -s design.real.md "$sd/design.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# Both tasks complete -> derivation is Done.
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: kl/1"
+git -C "$repo" commit -q --allow-empty -m "feat: task 2 done
+
+Planwright-Task: kl/2"
+reconcile "$repo" specs/kl || fail "k6-N1 first reconcile non-zero"
+[ "$(k6_status_of "$sd/requirements.md")" = Done ] \
+  || fail "k6-N1 precondition: requirements.md did not reach Done"
+[ "$(k6_status_of "$sd/design.real.md")" = Active ] \
+  || fail "k6-N1 precondition: the symlinked design.md was not left stale at Active"
+# Clear the obstruction: design.md becomes a regular file still stale at Active.
+rm "$sd/design.md"
+mv "$sd/design.real.md" "$sd/design.md"
+[ "$(k6_status_of "$sd/design.md")" = Active ] || fail "k6-N1 precondition: design.md not stale Active after unlink"
+reconcile "$repo" specs/kl || fail "k6-N1 heal reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.5 Done mirror self-heals after the obstruction clears"
+echo "ok: a Done bundle with a partially-applied mirror self-heals on the next reconcile (REQ-A1.5)"
+
+# N2 (no reopen): a stored-Done bundle with in-progress evidence (derivation
+# Active) must stay Done — the reconcile never derives a reopen (REQ-A1.6).
+repo=$tmp/k6n2
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Done
+k6_two_task_tasks "$sd" Done ""
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+# In-progress evidence: derivation would be Active, but the bundle is stored Done.
+git -C "$repo" branch planwright/kl/task-1
+git -C "$repo" checkout -q planwright/kl/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+git -C "$repo" checkout -q main
+reconcile "$repo" specs/kl || fail "k6-N2 reconcile non-zero"
+k6_assert_all "$sd" Done "REQ-A1.6 stored-Done never auto-reopens to Active"
+echo "ok: a stored-Done bundle with in-progress evidence stays Done; the reconcile never derives a reopen (REQ-A1.6)"
+
+# --- T-O: do_status refuses a symlinked requirements.md (the authoritative
+# Status home) outright. Otherwise the gate reads ownership *through* the link
+# and the mirror updates the three siblings while write_status_header refuses the
+# symlinked authoritative file — a cross-file split. do_status must bow out
+# entirely (log + non-zero) so no sibling is rewritten. Mirrors do_placement's
+# existing symlinked-tasks.md refusal.
+repo=$tmp/k6o
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+k6_two_task_tasks "$sd" Active ""
+# requirements.md becomes a symlink to a real target carrying Active. No progress
+# means the derivation is Ready, so a proceeding mirror WOULD move the siblings to
+# Ready — making a partial mirror observable.
+mv "$sd/requirements.md" "$sd/requirements.real.md"
+ln -s requirements.real.md "$sd/requirements.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+err=$(reconcile "$repo" specs/kl 2>&1) || fail "k6-O reconcile non-zero"
+case $err in
+  *"refusing symlinked"*) ;;
+  *) fail "k6-O: no symlink-refusal diagnostic for requirements.md (got: $err)" ;;
+esac
+[ -L "$sd/requirements.md" ] || fail "k6-O: requirements.md symlink was replaced (write went through the link)"
+[ "$(k6_status_of "$sd/requirements.real.md")" = Active ] \
+  || fail "k6-O: requirements.md target was rewritten despite the refusal"
+# The distinguishing assertion: the siblings must be untouched (no partial mirror).
+for f in design.md tasks.md test-spec.md; do
+  [ "$(k6_status_of "$sd/$f")" = Active ] \
+    || fail "k6-O: sibling $f was rewritten while the authoritative requirements.md was refused (partial mirror)"
+done
+echo "ok: do_status refuses a symlinked requirements.md outright; no sibling is rewritten (no partial mirror)"
+
 echo "PASS: all tasks-pr-sync tests passed"

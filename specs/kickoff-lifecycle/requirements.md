@@ -129,7 +129,12 @@ second writer of derived state to drift.
   none) likewise derives `Done`, since there is no startable work to enter — it
   never rests at `Ready`. The bundle `Status:` header SHALL be
   reconciled to the derived value by the single level-triggered snapshot writer,
-  never by an independent writer.
+  never by an independent writer. The reconcile MAY write a bundle already at
+  `Done` solely to complete a partially-applied four-file mirror (every file
+  converging to `Done` when the derived value is still `Done`, e.g. after an
+  earlier sibling write was refused); it SHALL NOT reopen a `Done` bundle to
+  `Ready`/`Active` (a derived `Ready`/`Active` over a stored `Done` is the
+  human's reopen, Done→Draft, REQ-A1.6).
   *(Cites: D-2, D-3; orchestration-concurrency REQ-C1.1, D-1.)*
 - **REQ-A1.6** The reopen cycle SHALL be updated: extending a Done bundle flips
   Done→Draft; scoped kickoff of the delta flips Draft→Ready (not directly to

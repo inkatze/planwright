@@ -90,6 +90,18 @@ work establishes; extending it (rather than racing it) keeps that invariant whol
 and avoids throwaway. The cost is an explicit sequencing dependency, recorded in
 the task graph (Task 6 `Dependencies:`) and this design's Cross-cutting concerns.
 
+**Done mirror-completion (refinement).** The reconcile gate keys off
+requirements.md (the authoritative Status home), which is written first in the
+four-file mirror loop, so it reaches `Done` before its siblings. If a sibling
+write is refused mid-mirror (a symlinked file, a transient error), a gate that
+stopped on *any* stored `Done` would never revisit the stragglers and the split
+would be permanent. The writer is therefore Done-owned **only to finish its own
+mirror** — it reconciles a stored-`Done` bundle when the derived value is still
+`Done`, and never flips a stored `Done` to `Ready`/`Active` (that reopen is the
+human's Done→Draft, REQ-A1.6). This keeps the level-triggered self-heal property
+whole across the terminal transition without weakening the no-derived-reopen
+invariant.
+
 ### D-4: Migration is the derived reconcile, plus a one-time sweep  (N)
 
 **Decision:** On adoption, every spec whose declared Status is `Active` but which
