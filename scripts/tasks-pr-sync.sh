@@ -352,6 +352,13 @@ END {
 STATUS_AWK='
 FNR == NR { st[$1] = $2; next }
 /^## / { sec = substr($0, 4); next }
+# tsec records the section of each task id; a duplicate id lets the last
+# occurrence win. A duplicate task id is a hard spec-validate error (see
+# spec-validate.sh "duplicate task id"), so it cannot occur in a valid bundle —
+# the only way one reaches here is a transient, uncommitted malformed tasks.md
+# (e.g. a git-conflict working tree), where the bundle status is best-effort and
+# the placement reconcile regenerates the file from truth on this same run.
+# Last-occurrence-wins is acceptable for that throwaway state.
 /^### Task [0-9]/ { seen[$3] = 1; tsec[$3] = sec; next }
 END {
   fwd = 0; inp = 0; comp = 0; await = 0
