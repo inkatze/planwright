@@ -239,4 +239,35 @@ case "$out_empty" in
 esac
 echo "ok: an existing but empty specs dir is a clean no-op (REQ-A1.7)"
 
+# --- A bundle with real task blocks but NO **Status:** header in requirements.md
+# (the authoritative Status home) is malformed: the reconcile is a deliberate
+# no-op (do_status leaves an absent header untouched), so the bundle's before/after
+# Status are both empty. Without a header pre-check arm the sweep miscounts it as
+# "unchanged ()" instead of skip-and-reporting it — the very "never silently
+# flipped / surfaced by path" contract the malformed pre-check exists to honor. The
+# bundle clears the file + task-block pre-checks, so this isolates the header arm.
+repo3=$tmp/corpus3
+mkdir -p "$repo3"
+git -C "$repo3" init -q -b main
+git -C "$repo3" config user.email t@example.com
+git -C "$repo3" config user.name t
+git -C "$repo3" config commit.gpgsign false
+sd3=$repo3/specs/headerless
+mkdir -p "$sd3"
+printf '%s\n' '# Headerless — Requirements' '' 'No bundle Status header here.' >"$sd3/requirements.md"
+printf '%s\n' '# Headerless — Design' '' 'No bundle Status header.' >"$sd3/design.md"
+printf '%s\n' '# Headerless — Test Spec' '' 'No bundle Status header.' >"$sd3/test-spec.md"
+two_tasks "$sd3" Active # real task blocks so the bundle clears the task-block arm
+git -C "$repo3" add -A
+git -C "$repo3" commit -qm fixture
+out_hl=$(cd "$repo3" && PATH="$stub:$PATH" "$MIGRATE" specs 2>"$tmp/run-hl.err") \
+  || fail "sweep over a headerless-bundle corpus exited non-zero"
+grep -q "skipped (malformed): .*/specs/headerless" "$tmp/run-hl.err" \
+  || fail "headerless bundle not surfaced as skipped (malformed) by path on stderr"
+case $out_hl in
+  *"0 migrated, 0 unchanged, 1 skipped"*) ;;
+  *) fail "headerless-bundle summary wrong (expected skip, not unchanged): $out_hl" ;;
+esac
+echo "ok: a bundle missing its requirements.md **Status:** header is skipped (malformed), not miscounted unchanged (REQ-A1.7)"
+
 echo "PASS: all migrate-status-lifecycle tests passed"

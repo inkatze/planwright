@@ -66,8 +66,12 @@ for spec_dir in "$specs_dir"/*/; do
   req="$spec_dir/requirements.md"
   tasks="$spec_dir/tasks.md"
   # Malformed pre-check: surface by path and skip, never silently flip. A bundle
-  # must carry a regular (non-symlink) requirements.md and tasks.md, and tasks.md
-  # must declare at least one task block to derive from.
+  # must carry a regular (non-symlink) requirements.md and tasks.md, tasks.md must
+  # declare at least one task block to derive from, and requirements.md (the
+  # authoritative Status home) must carry a bundle **Status:** header. Without the
+  # header the reconcile is a deliberate no-op (do_status leaves an absent header
+  # untouched), so before/after Status are both empty and the bundle would be
+  # miscounted as "unchanged ()" rather than reported as the malformed bundle it is.
   reason=""
   if [ ! -f "$req" ] || [ -L "$req" ]; then
     reason="missing or symlinked requirements.md"
@@ -75,6 +79,8 @@ for spec_dir in "$specs_dir"/*/; do
     reason="missing or symlinked tasks.md"
   elif ! grep -qE '^### Task [0-9]' "$tasks"; then
     reason="no task blocks in tasks.md"
+  elif ! grep -qE '^\*\*Status:\*\* ' "$req"; then
+    reason="no bundle **Status:** header in requirements.md"
   fi
   if [ -n "$reason" ]; then
     echo "skipped (malformed): $spec_dir — $reason" >&2
