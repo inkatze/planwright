@@ -316,11 +316,11 @@ space).
   **Gate:** a concrete adopter need for a specific non-tmux backend is observed in
   the drain loop. Citations: D-2 · REQ-B1.3.
 - **An editor-rendered attention surface (Cursor-style).** Task 12 ships the
-  portable status renderer + decision-queue model and Task 10 the persona mapping that
-  names the editor-feedback persona; a concrete editor integration (the editor
-  rendering the queue + diffs with a steer-in-flight affordance) is built to a
-  concrete adopter need. All durable fleet state is files, so this is a renderer,
-  not a new execution model. Confidence: medium.
+  portable status renderer + decision-queue model and Task 10 ships the persona
+  mapping that names the editor-feedback persona; a concrete editor integration
+  (the editor rendering the queue + diffs with a steer-in-flight affordance) is
+  built to a concrete adopter need. All durable fleet state is files, so this is a
+  renderer, not a new execution model. Confidence: medium.
   **Gate:** a concrete editor-integration adopter need is observed in the drain
   loop. Citations: D-9, D-12 · REQ-E1.6.
 - **Richer status rendering beyond the terminal/editor-legible surface.** The

@@ -477,6 +477,13 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   — resolving the status/prose inconsistency without changing any decision. The
   recomputed bundle anchor is recorded in the kickoff brief Amendment log.
   *(Cites: kickoff-brief Amendment log (2026-06-29); Copilot review thread.)*
+- 2026-06-29: Post-sign-off expression-only re-anchor (finishing gauntlet,
+  `/copilot-pairing` stage, second re-review), no REQ/D-ID/task meaning changed:
+  inserted the elided verb in a `tasks.md` Deferred-item sentence ("Task 12 ships
+  … and Task 10 *ships* the persona mapping …") so the verb-gapped clause reads
+  unambiguously. The recomputed bundle anchor is recorded in the kickoff brief
+  Amendment log.
+  *(Cites: kickoff-brief Amendment log (2026-06-29); Copilot review thread.)*
 
 ## Sources
 

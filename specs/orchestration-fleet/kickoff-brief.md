@@ -467,7 +467,7 @@ D-1/D-2). `Last reviewed:` is 2026-06-29 on all four. Re-validated under Ready
 Class: meaning
 Lens-pass: recorded above (this section), full-bundle nine-lens fan-out, findings
 validated and dispositioned 2026-06-29.
-Anchor: `ac6d52181395098f4c2c0ad824ae11c5ce6321a4` — computed as
+Anchor: `70edfab2b0bbcf798725a044efc78bfa6198e1d0` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
 (re-anchored 2026-06-29 for an expression-only fix; see Amendment log. Original
 sign-off anchor: `6ab1f63975714c68a00be55e3aa115ec54c3af42`.)
@@ -500,3 +500,11 @@ it requires a delta re-walkthrough by the kickoff owner.
   log records). No D-ID decision content changed. Validator re-run clean (0/0,
   Ready enforcement); doc-links resolve. Anchor recomputed
   `e6ead4184ca0a72c380657529b7fef1b30dc18a2` → `ac6d52181395098f4c2c0ad824ae11c5ce6321a4`.
+- **2026-06-29 — expression-only re-anchor (finishing gauntlet, `/copilot-pairing`
+  stage, second re-review).** A Copilot thread flagged a verb-gapped sentence in
+  `tasks.md`'s Deferred section ("Task 12 ships … and Task 10 the persona mapping
+  …") as reading like a missing verb. Inserted the elided verb — "Task 10 **ships**
+  the persona mapping" — so the clause is unambiguous. Grammatically the gapping
+  was valid; the edit is a pure readability fix, no task meaning changed. Validator
+  re-run clean (0/0, Ready enforcement); doc-links resolve. Anchor recomputed
+  `ac6d52181395098f4c2c0ad824ae11c5ce6321a4` → `70edfab2b0bbcf798725a044efc78bfa6198e1d0`.
