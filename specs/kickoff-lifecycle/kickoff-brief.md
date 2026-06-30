@@ -376,7 +376,7 @@ severity; a spec-internal completeness gap, not a behavior bug.
 
 Validator after edits (Active enforcement): `0 error(s), 0 warning(s)`.
 
-### Sign-off record
+### Sign-off record (delta re-walkthrough)
 
 Class: meaning
 Lens-pass: recorded above (this section), findings dispositioned 2026-06-29.
