@@ -3,12 +3,13 @@ name: spec-kickoff
 description: >
   Walk a spec bundle section by section to mutual understanding, producing
   the signed-off kickoff brief that downstream skills execute from. On
-  sign-off: runs the Discovery-Rigor lens pass, flips Draft to Active,
+  sign-off: runs the Discovery-Rigor lens pass, flips Draft to Ready,
   updates Last reviewed, records the machine-checkable sign-off record with
   the content anchor written last, commits brief + flip (commit_on_kickoff
   opt-out), pushes the spec branch, and opens a draft PR. The human's merge
-  activates the spec. Also runs delta re-walkthroughs and amendments on
-  Active specs. Halts on genuine spec inconsistency rather than papering
+  makes the Ready spec operational; the first dispatch derives Active. Also
+  runs delta re-walkthroughs (on a Ready or Active spec) and amendments (on
+  an Active spec). Halts on genuine spec inconsistency rather than papering
   over it.
 argument-hint: "<spec-path>"
 ---
@@ -25,9 +26,10 @@ walkthrough is mutually didactic: the agent restates and probes, the human
 corrects, and the agent surfaces what the human has not considered.
 
 Sign-off is the first key of a two-key launch (D-44): it flips the spec
-Draft→Active, and the human's merge of the spec PR makes the Active spec
-operational. This skill never marks the PR ready, never merges, and never
-dispatches execution.
+Draft→Ready, and the human's merge of the spec PR makes the Ready spec
+operational for orchestration (the first dispatch then derives Active,
+reconciled by the single writer — not by this skill). This skill never marks
+the PR ready, never merges, and never dispatches execution.
 
 ## Doctrine
 
@@ -68,9 +70,9 @@ state:
 
 - **First activation.** Status Draft, no signed brief (or a partial one —
   see resumability). The full walkthrough below, ending in the first
-  sign-off, the Active flip, push, and draft PR.
-- **Delta re-walkthrough.** Status Active with a signed brief, and the
-  freshness comparison in pre-flight step 2 found the spec content changed
+  sign-off, the Ready flip, push, and draft PR.
+- **Delta re-walkthrough.** Status Ready or Active with a signed brief, and
+  the freshness comparison in pre-flight step 2 found the spec content changed
   since the brief's most recent anchor entry (this is the remedy
   REQ-F1.9's freshness gate names), or the human asks for a re-walk. Walk
   only the delta identified at pre-flight; the lens pass is delta-scoped;
@@ -83,12 +85,23 @@ state:
   changes get a changelog entry and an expression-only anchor entry with
   no lens pass.
 
+**Change-handling scales with the lifecycle stage (REQ-D1.4).** A Ready bundle
+(signed off, validated, pre-merge, nothing dispatched) takes its pre-merge
+changes through a delta re-walkthrough / re-sign-off — expression-only via a
+changelog entry plus a self-re-anchor, meaning-class via a delta lens pass,
+re-sign-off, and a fresh anchor — not the amendment ritual, and the spec PR
+stays as it was (no reopen). The amendment ritual is reserved for an Active
+bundle (work in flight), where a change must coordinate with execution already
+underway. A Done bundle reopens to Draft first (the REQ-A1.6 reopen cycle
+below) — a Done bundle is never amended in place.
+
 A **reopened bundle** (Status Draft with a complete signed brief — the
-REQ-A3.1 reopen cycle, entered when `/spec-draft --extend` flips a Done
-spec back to Draft) is a scoped kickoff of the delta, not a first
+REQ-A3.1 / REQ-A1.6 reopen cycle, entered when `/spec-draft --extend` flips a
+Done spec back to Draft) is a scoped kickoff of the delta, not a first
 activation: walk the extension delta in the delta re-walkthrough shape,
-and the sign-off flips Draft→Active again. A Done spec has nothing to
-kick off regardless of stray edits: say so and point at
+and the sign-off flips Draft→Ready again (Done→Draft, then the scoped delta
+sign-off flips Draft→Ready; the delta's first dispatch derives Active). A Done
+spec has nothing to kick off regardless of stray edits: say so and point at
 `/spec-draft --extend` (the reopen path above). Retired and Superseded
 are terminal: refuse — no skill-driven transition leaves a terminal
 state.
@@ -109,36 +122,38 @@ state.
    - **Draft** → first activation; a resume when step 6 finds a partial
      brief; a reopened-bundle delta kickoff when the brief is complete
      and signed (per the Modes section).
-   - **Active with a signed brief** → run the freshness comparison: parse
-     the brief's most recent anchor entry, recompute the anchor with the
+   - **Ready or Active with a signed brief** → run the freshness comparison:
+     parse the brief's most recent anchor entry, recompute the anchor with the
      exact command that entry records, and compare. **Mismatch** → delta
      re-walkthrough; derive the delta from the git history of the four
      spec files since the entry was recorded plus any uncommitted changes,
      and confirm that scope with the human before walking. **Match** →
      nothing is stale; ask what the human is bringing (a re-walk on
-     request, or an amendment — amendment mode is always human-declared).
+     request, or — on an Active bundle — an amendment, always human-declared;
+     a Ready bundle's pre-merge change is the delta re-walk path, REQ-D1.4).
      **Brief or anchor entry absent, unparseable, or non-sanctioned**
-     (including a hand-flipped Active spec that never had a kickoff) → the
+     (including a hand-flipped Ready or Active spec that never had a kickoff) → the
      sign-off record needs creating or repairing, and this skill's
      sign-off flow is the repair REQ-F1.9 names: walk it as a delta
      re-walkthrough scoped to the whole bundle (a missing brief gets the
      full structure, first-activation shape, minus the already-done
-     Active flip).
+     status flip).
    - **Done / Retired / Superseded** → per the Modes section.
 3. **Run the validator.** `scripts/spec-validate.sh specs/<spec>` when
    present and executable. On a Draft bundle findings are warnings: surface
    them, fix structural ones with the human before walking (a walkthrough
    over a malformed bundle wastes the human's attention), and record the
-   outcome for the brief header. On an Active bundle findings are errors
-   (the validator is status-aware): surface them now and carry each into
+   outcome for the brief header. On a Ready or Active bundle findings are
+   errors (the validator is status-aware — Ready blocks on errors exactly
+   as Active does): surface them now and carry each into
    the walk as a must-fix item — the delta walk is where they get fixed
    with the human, and sign-off step 3's re-validation refuses to record
    while any remain. Validator absent or not executable:
    kickoff is an authoring path, so this degrades rather than halts
-   (REQ-K1.7) — but the flip to Active is what arms execution, so say
-   plainly that the bundle will go Active unvalidated and ask the human
-   whether to proceed anyway or stop here, install the validator, and
-   re-run `/spec-kickoff specs/<spec>`.
+   (REQ-K1.7) — but the flip to Ready is what arms execution (a merged Ready
+   spec is dispatchable), so say plainly that the bundle will go Ready
+   unvalidated and ask the human whether to proceed anyway or stop here,
+   install the validator, and re-run `/spec-kickoff specs/<spec>`.
 4. **Read the config.** `commit_on_kickoff` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins).
    Default `true`; an absent, unreadable, or malformed config file falls
@@ -253,7 +268,7 @@ both readings and the smallest edit that would resolve each way. The human
 resolves by **editing the spec** (the affected sections re-walk) or by
 **recording an explicit override in the brief** (the contradiction stands,
 named, with the chosen reading and rationale). Until one happens there is
-no sign-off, no Active flip, and no anchor entry: the run ends with the
+no sign-off, no Ready flip, and no anchor entry: the run ends with the
 partial brief on disk and the halt reason stated. Fail closed, not
 helpful.
 
@@ -289,20 +304,25 @@ not walked.
    the record without its anchor line (the freshness gate treats that as
    absent-anchor and halts dispatch — fail closed), and stop. There is no
    override.
-3. **Status flip and `Last reviewed:`.** First activation: flip
-   `**Status:**` Draft→Active and `**Last reviewed:**` to today on all
-   four spec files. Re-walkthroughs and amendments: bump `Last reviewed:`
-   on the files the delta touched. Then, when the validator is present,
-   re-run it under Active enforcement: errors now block — fix them with
+3. **Status flip and `Last reviewed:`.** First activation (and a
+   reopened-bundle delta kickoff): flip
+   `**Status:**` Draft→Ready and `**Last reviewed:**` to today on all
+   four spec files (REQ-D1.1, REQ-A1.4 — this stored, human-gated flip is the
+   only stored status transition; Ready↔Active is *derived* from task state by
+   the single reconcile writer, REQ-A1.5, and is never written by this skill).
+   Re-walkthroughs and amendments on an in-flight bundle: bump `Last reviewed:`
+   on the files the delta touched, with no status flip. Then, when the validator
+   is present, re-run it under errors-block enforcement (Ready, Active, and Done
+   all block on errors): errors now block — fix them with
    the human, or halt without recording the sign-off entry (on a first
    activation or reopen, also revert the flip so the bundle does not sit
-   Active and erroring; on an already-Active spec there is no flip to
+   Ready and erroring; on an already-in-flight spec there is no flip to
    revert, and the stale anchor keeps dispatch blocked). Never sign off
-   over an erroring Active bundle. When the validator is absent (the
+   over an erroring bundle. When the validator is absent (the
    pre-flight consent path — re-ask on a resumed session that never saw
    pre-flight step 3), record "signed off unvalidated (validator absent,
    human-consented)" in the sign-off section — adding "including the
-   Draft→Active flip" only when this run actually flipped — so the
+   Draft→Ready flip" only when this run actually flipped — so the
    degradation is auditable rather than silent.
 4. **The sign-off record** (format per `spec-format`; REQ-F1.10). Write
    the record into the brief's sign-off section (first activation) or as
@@ -337,7 +357,7 @@ not walked.
 5. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` containing the brief, the four spec files,
    and the observations-log append when one rode this run —
-   first activation: `feat(spec): <spec> kickoff, brief + Active flip`;
+   first activation: `feat(spec): <spec> kickoff, brief + Ready flip`;
    later events: `docs(spec): <spec> <event>` (e.g.
    `delta re-walkthrough`, `amendment`), the same shapes the PR titles
    below use. New commits only — never
@@ -358,7 +378,8 @@ not walked.
    path, brief path, walkthrough scope (full or delta), validator outcome,
    lens-pass summary, and the anchor. The PR is always a draft; the
    draft→ready flip and the merge are the human's (the second key — merge
-   is what makes the Active spec operational for orchestration). On no
+   is what makes the Ready spec operational for orchestration; the first
+   dispatch then derives Active). On no
    remote, push rejection, or `gh` absence/auth failure: degrade per
    REQ-K1.6/K1.7 — the local work is complete and committed; record a note
    in the spec's `tasks.md` `## Awaiting input` section naming the pending
