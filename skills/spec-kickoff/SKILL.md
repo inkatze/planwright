@@ -150,10 +150,15 @@ state.
    with the human, and sign-off step 3's re-validation refuses to record
    while any remain. Validator absent or not executable:
    kickoff is an authoring path, so this degrades rather than halts
-   (REQ-K1.7) — but the flip to Ready is what arms execution (a merged Ready
-   spec is dispatchable), so say plainly that the bundle will go Ready
-   unvalidated and ask the human whether to proceed anyway or stop here,
-   install the validator, and re-run `/spec-kickoff specs/<spec>`.
+   (REQ-K1.7) — but a merged signed-off bundle is dispatchable, so the
+   sign-off this run records lands unvalidated. Say plainly what that means
+   for the mode in play: on a first activation or reopen, the Draft→Ready
+   flip itself goes unvalidated; on an already-signed Ready or Active bundle
+   (delta re-walk or amendment) there is no flip and the bundle keeps its
+   current status, but the re-sign-off still leaves a dispatchable bundle
+   unvalidated. Either way — naming the Draft→Ready flip only when this run
+   flips — ask the human whether to proceed anyway or stop here, install the
+   validator, and re-run `/spec-kickoff specs/<spec>`.
 4. **Read the config.** `commit_on_kickoff` from `config/defaults.yml`
    overridden by `<repo>/.claude/planwright.local.yml` (local wins).
    Default `true`; an absent, unreadable, or malformed config file falls
