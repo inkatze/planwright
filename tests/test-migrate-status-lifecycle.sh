@@ -226,4 +226,17 @@ case $out3 in
 esac
 echo "ok: a partial-mirror bundle is reported skipped (reconcile failed) with its diagnostic, not unchanged (REQ-A1.7)"
 
+# --- An existing but empty specs dir is a clean no-op: the no-match glob stays
+# literal and is skipped, so the sweep reports a zero-count summary and exits 0
+# (no bundles to migrate, nothing to fail on).
+emptyspecs=$tmp/empty-corpus/specs
+mkdir -p "$emptyspecs"
+out_empty=$("$MIGRATE" "$emptyspecs" 2>/dev/null) \
+  || fail "sweep over an existing but empty specs dir exited non-zero"
+case "$out_empty" in
+  *"0 migrated, 0 unchanged, 0 skipped"*) ;;
+  *) fail "empty specs dir summary wrong: $out_empty" ;;
+esac
+echo "ok: an existing but empty specs dir is a clean no-op (REQ-A1.7)"
+
 echo "PASS: all migrate-status-lifecycle tests passed"

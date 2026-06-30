@@ -1546,4 +1546,27 @@ reconcile "$repo" specs/kl \
   || fail "RS-G contrast: full reconcile must keep its best-effort return-0 contract"
 echo "ok: reconcile-status fails closed on a partial mirror; full reconcile stays best-effort (REQ-A1.7)"
 
+# --- RS-H: a present-but-taskless tasks.md (well-formed sections, no `### Task`
+# blocks) has no state to derive from. The CLI pre-check passes (the file exists
+# and is a regular file), so this exercises the in-writer derivation guard inside
+# do_status_only — distinct from RS-F's missing-file guard — which returns
+# non-zero. reconcile-status propagates it (fail closed) and the stored header is
+# left untouched (no partial flip on a failed derivation).
+repo=$tmp/rsh
+k6_init "$repo"
+sd="$repo/specs/kl"
+k6_heads "$sd" Active
+{
+  printf '%s\n' '# K6 — Tasks' '' '**Status:** Active' '**Format-version:** 1' ''
+  printf '%s\n' '## Forward plan' '' '(none yet)' ''
+  printf '%s\n' '## In progress' '' '(none yet)' ''
+  printf '%s\n' '## Completed' '' '(none yet)'
+} >"$sd/tasks.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+reconcile_status "$repo" specs/kl >/dev/null 2>&1 \
+  && fail "RS-H: reconcile-status on a taskless tasks.md did not fail closed"
+k6_assert_all "$sd" Active "REQ-A1.7 taskless bundle's header left untouched on a failed derivation"
+echo "ok: reconcile-status fails closed on a present-but-taskless tasks.md; header untouched (REQ-A1.7)"
+
 echo "PASS: all tasks-pr-sync tests passed"
