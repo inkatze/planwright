@@ -76,7 +76,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
 
-- **Status:** implementing
+- **Status:** PR #98 draft
 - **Last activity:** 2026-06-30
 - **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
   the terminal step of clean completion, after the configured verification has
