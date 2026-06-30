@@ -23,25 +23,6 @@ D-9: never ship a lifecycle state with no exit.
 
 ## Forward plan
 
-### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
-
-- **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
-  (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
-  writes the sign-off record with the content anchor last (unchanged ordering);
-  a Ready bundle's pre-merge changes go through delta re-walkthrough / re-sign-off
-  (expression: changelog + self-re-anchor; meaning: + delta lens pass), the
-  amendment ritual keys off Active (work in flight), and a Done bundle reopens to
-  Draft.
-- **Done when:** kickoff writes `Status: Ready` on sign-off across the four files;
-  a Ready bundle's pre-merge change re-signs-off the delta without invoking the
-  amendment ritual; amendment mode operates on Active bundles; the reopen path
-  (Done→Draft) is intact; verified by the skill's tests/manual checks.
-- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
-  gated behind the derived Ready↔Active reconcile so the lifecycle is never
-  half-wired; this transitively sequences Task 3 after `orchestration-concurrency`).
-- **Citations:** D-1, D-2, D-6, D-7, D-9 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6, REQ-A1.8
-- **Estimated effort:** half day
-
 ### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
 
 - **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
@@ -117,45 +98,25 @@ D-9: never ship a lifecycle state with no exit.
 
 ## In progress
 
-### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
+### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
 
-- **Status:** PR #92 draft
+- **Status:** PR #97 draft
 - **Last activity:** 2026-06-29
-- **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
-  writer extended to compute and reconcile the bundle `Status:` header from the
-  task-state derivation: `Active` iff any task derives In-progress or Completed,
-  else `Ready` when signed off; mirrored across the four files; idempotent; no
-  independent status writer introduced (single-writer invariant preserved). This
-  realizes the Ready→Active transition on first dispatch (REQ-C1.2) and the derived
-  rule (REQ-A1.5).
-- **Done when:** the reconcile renders `Status: Ready` for a signed-off bundle with
-  no task in flight, `Status: Active` once any task derives In-progress/Completed, and
-  `Status: Done` once no Forward-plan/In-progress/Awaiting-input task remains (Done
-  precedence over Ready↔Active, REQ-A1.5; including a signed-off bundle with no
-  startable tasks); the header is written only by the single reconcile writer; the
-  reconcile is idempotent and covered by tests.
-- **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
-  Task 1 (derivation engine) and Task 4 (single reconcile writer) — see design
-  Cross-cutting concerns.
-- **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
-- **Estimated effort:** 1 day
-
-### Task 2 — Status-aware validator recognizes Ready (errors-block)
-
-- **Status:** PR #87 draft
-- **Last activity:** 2026-06-29
-- **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
-  status (status enum) and `Ready` findings map to errors-block severity alongside
-  Active and Done; Draft→Ready, Ready→Active, Ready→Done (direct completion),
-  Active→Done, and Done→Draft accepted as valid transitions;
-  terminal-state discipline unchanged; header documentation updated. Tests in
-  `tests/test-spec-validate.sh`: a Ready bundle with a structural error errors out
-  (written failing-first); valid Draft→Ready and Ready→Active bundles pass; the
-  unknown-status path is unchanged.
-- **Done when:** the validator recognizes Ready and blocks execution on Ready
-  findings; the new tests pass and the suite is green.
-- **Dependencies:** Task 1.
-- **Citations:** D-1 · REQ-B1.2, REQ-B1.3
+- **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
+  (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
+  writes the sign-off record with the content anchor last (unchanged ordering);
+  a Ready bundle's pre-merge changes go through delta re-walkthrough / re-sign-off
+  (expression: changelog + self-re-anchor; meaning: + delta lens pass), the
+  amendment ritual keys off Active (work in flight), and a Done bundle reopens to
+  Draft.
+- **Done when:** kickoff writes `Status: Ready` on sign-off across the four files;
+  a Ready bundle's pre-merge change re-signs-off the delta without invoking the
+  amendment ritual; amendment mode operates on Active bundles; the reopen path
+  (Done→Draft) is intact; verified by the skill's tests/manual checks.
+- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the Draft→Ready producer is
+  gated behind the derived Ready↔Active reconcile so the lifecycle is never
+  half-wired; this transitively sequences Task 3 after `orchestration-concurrency`).
+- **Citations:** D-1, D-2, D-6, D-7, D-9 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6, REQ-A1.8
 - **Estimated effort:** half day
 
 ## Awaiting input
@@ -181,6 +142,45 @@ D-9: never ship a lifecycle state with no exit.
 - **Dependencies:** none.
 - **Citations:** D-1, D-5 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-B1.1
 - **Estimated effort:** half day
+
+### Task 2 — Status-aware validator recognizes Ready (errors-block)
+
+- **Status:** Completed — PR #87 merged 2026-06-29 (merge commit `714bac2`).
+- **Deliverables:** `scripts/spec-validate.sh` updated so `Ready` is a recognized
+  status (status enum) and `Ready` findings map to errors-block severity alongside
+  Active and Done; Draft→Ready, Ready→Active, Ready→Done (direct completion),
+  Active→Done, and Done→Draft accepted as valid transitions;
+  terminal-state discipline unchanged; header documentation updated. Tests in
+  `tests/test-spec-validate.sh`: a Ready bundle with a structural error errors out
+  (written failing-first); valid Draft→Ready and Ready→Active bundles pass; the
+  unknown-status path is unchanged.
+- **Done when:** the validator recognizes Ready and blocks execution on Ready
+  findings; the new tests pass and the suite is green.
+- **Dependencies:** Task 1.
+- **Citations:** D-1 · REQ-B1.2, REQ-B1.3
+- **Estimated effort:** half day
+
+### Task 6 — Derived reconcile of the bundle `Status:` header (extend the single writer)
+
+- **Status:** Completed — PR #92 merged 2026-06-29 (merge commit `ea0e8e0`).
+- **Deliverables:** `orchestration-concurrency`'s single level-triggered reconcile
+  writer extended to compute and reconcile the bundle `Status:` header from the
+  task-state derivation: `Active` iff any task derives In-progress or Completed,
+  else `Ready` when signed off; mirrored across the four files; idempotent; no
+  independent status writer introduced (single-writer invariant preserved). This
+  realizes the Ready→Active transition on first dispatch (REQ-C1.2) and the derived
+  rule (REQ-A1.5).
+- **Done when:** the reconcile renders `Status: Ready` for a signed-off bundle with
+  no task in flight, `Status: Active` once any task derives In-progress/Completed, and
+  `Status: Done` once no Forward-plan/In-progress/Awaiting-input task remains (Done
+  precedence over Ready↔Active, REQ-A1.5; including a signed-off bundle with no
+  startable tasks); the header is written only by the single reconcile writer; the
+  reconcile is idempotent and covered by tests.
+- **Dependencies:** Task 5; plus cross-spec (hard): `orchestration-concurrency`
+  Task 1 (derivation engine) and Task 4 (single reconcile writer) — see design
+  Cross-cutting concerns.
+- **Citations:** D-2, D-3 · REQ-A1.5, REQ-C1.2
+- **Estimated effort:** 1 day
 
 ## Deferred
 
