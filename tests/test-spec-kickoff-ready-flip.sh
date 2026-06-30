@@ -73,11 +73,24 @@ else
 fi
 
 # REQ-A1.4: the flip is stored across all four spec files (no dependence on
-# task-state derivation). Bind the flip target to the four-file mirror.
-if printf '%s' "$flat" | grep -qE 'Draft→Ready[^.]*all four spec files'; then
+# task-state derivation). Bind the flip target to the four-file mirror via the
+# conjunction so the two phrases stay semantically adjacent (a bounded gap, not
+# an open-ended one, so a reordered/unrelated co-occurrence cannot satisfy it).
+if printf '%s' "$flat" | grep -qE 'Draft→Ready and .{0,80}on all four spec files'; then
   ok "Draft→Ready is written across all four spec files (stored flip, REQ-A1.4)"
 else
   fail "the Draft→Ready flip is not bound to 'all four spec files' (REQ-A1.4)"
+fi
+
+# REQ-A1.4 / REQ-A1.5: Draft→Ready is the ONLY stored flip. Re-walkthroughs and
+# amendments on an in-flight bundle bump Last reviewed but do NOT re-flip the
+# status (Ready↔Active is derived by the reconcile, never re-written here); guard
+# that the no-re-flip property is stated so a regression re-introducing a flip on
+# the re-walk path is caught.
+if printf '%s' "$flat" | grep -qE 'Re-walkthroughs and amendments.{0,120}with no status flip'; then
+  ok "re-walkthroughs/amendments bump Last reviewed with no status flip (REQ-A1.4, REQ-A1.5)"
+else
+  fail "the re-walkthrough/amendment path is not bound to 'no status flip' (REQ-A1.4, REQ-A1.5)"
 fi
 
 # REQ-D1.4: change-handling scales by lifecycle stage. The Ready path is a delta

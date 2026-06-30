@@ -254,11 +254,15 @@ on.
 
 **Spec edits during the walkthrough.** A Draft bundle is unsigned: edits
 land in place, applied with the human section by section, and the
-consolidated edit list is recorded in the brief. On an Active bundle the
-amendment ritual governs (REQ-A3.3, `spec-format`): pre-merge corrections
-on the spec's own PR amend in place with a changelog entry and a recorded
-re-sign-off; post-merge meaning changes supersede (new ID, old marked
-`Superseded-by`); expression-only fixes take a dated changelog entry.
+consolidated edit list is recorded in the brief. On a signed bundle the
+stage-scaled change-handling above governs (REQ-D1.4): a **Ready** bundle's
+pre-merge corrections on the spec's own PR go through a delta re-walkthrough /
+re-sign-off — amend in place with a changelog entry and a recorded re-sign-off
+(expression-only), or a delta lens pass and a fresh anchor (meaning-class) —
+not the amendment ritual; an **Active** bundle's in-flight change goes through
+the amendment ritual (REQ-A3.3, `spec-format`). Post-merge meaning changes
+supersede (new ID, old marked `Superseded-by`); expression-only fixes take a
+dated changelog entry.
 
 **The inconsistency halt (REQ-B2.3).** A genuine spec inconsistency — two
 requirements that contradict, a design decision that contradicts a
