@@ -1,7 +1,7 @@
 # Orchestration Concurrency — Design
 
-**Status:** Active
-**Last reviewed:** 2026-06-26
+**Status:** Done
+**Last reviewed:** 2026-06-30
 **Format-version:** 1
 
 Origin-tag legend: `N` = new decision minted in this bundle; `N (extends

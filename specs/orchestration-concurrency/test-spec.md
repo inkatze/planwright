@@ -1,7 +1,7 @@
 # Orchestration Concurrency — Test Spec
 
-**Status:** Active
-**Last reviewed:** 2026-06-26
+**Status:** Done
+**Last reviewed:** 2026-06-30
 **Format-version:** 1
 
 Coverage mix: this spec is portable scripts + hook/skill behavior over git and
