@@ -1,7 +1,7 @@
 # Orchestration Concurrency — Requirements
 
-**Status:** Active
-**Last reviewed:** 2026-06-26
+**Status:** Done
+**Last reviewed:** 2026-06-30
 **Format-version:** 1
 
 ## Goal
