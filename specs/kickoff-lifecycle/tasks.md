@@ -100,7 +100,7 @@ D-9: never ship a lifecycle state with no exit.
 
 ### Task 3 — `/spec-kickoff` flips Draft→Ready; change-handling scales by lifecycle stage
 
-- **Status:** implementing
+- **Status:** PR #97 draft
 - **Last activity:** 2026-06-29
 - **Deliverables:** the `spec-kickoff` skill updated so sign-off flips Draft→`Ready`
   (not Active), mirrors Status across all four files, bumps `Last reviewed`, and
