@@ -820,6 +820,56 @@ assert_state "$lout" 2 ready "stale-base: dependent task 2 is met → ready (not
 echo "ok: a trailer merged to origin/main is seen while local main is stale (union scan)"
 
 # ---------------------------------------------------------------------------
+# 6r. STALE LOCAL BASE, CONFIGURED UPSTREAM — the sibling of 6q. Here local main
+#     *tracks* origin/main (the common shape: a normal clone's main), so the
+#     remote-tracking ref is resolved via `main@{upstream}`, NOT the origin/<base>
+#     string fallback 6q exercises. Both derivation branches of the new union
+#     scan must recognize a trailer that reached origin/main before a fetch
+#     fast-forwarded local main. Without this, only the fallback path had a
+#     regression guard.
+# ---------------------------------------------------------------------------
+urepo="$tmp/upstreambase"
+uspec="$urepo/specs/demo"
+mkdir -p "$uspec"
+gitc_init "$urepo"
+cat >"$uspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged on the remote, not yet on local main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$urepo" add -A
+gitc "$urepo" commit -q -m "base"
+# A remote (adding it sets the default +refs/heads/*:refs/remotes/origin/* fetch
+# refspec that lets @{upstream} resolve to a remote-tracking ref). Build the
+# merged commit carrying the trailer, record it as origin/main, set local main to
+# track origin/main, then move local main back one commit so it lags — the
+# tracked-local-main shape. The gh probe still misses (non-convention head ref),
+# so the trailer is the only anchor, and main@{upstream} is what must fire here.
+gitc "$urepo" remote add origin https://example.invalid/demo.git
+gitc "$urepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+umerged_sha=$(gitc "$urepo" rev-parse HEAD)
+gitc "$urepo" update-ref refs/remotes/origin/main "$umerged_sha"
+gitc "$urepo" branch --set-upstream-to=origin/main main >/dev/null 2>&1
+gitc "$urepo" reset -q --hard HEAD~1
+# Sanity-check the fixture exercises the @{upstream} branch (not the fallback):
+# main must resolve an upstream, and a base-only scan must NOT see the trailer.
+upstream_of_main=$(gitc "$urepo" rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null)
+[ "$upstream_of_main" = "origin/main" ] \
+  || fail "upstream-base: fixture invalid — main@{upstream} is '$upstream_of_main', not origin/main"
+ubase_only=$(gitc "$urepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$ubase_only" ] \
+  || fail "upstream-base: fixture invalid — local main already carries the trailer"
+uout=$("$STATE" "$uspec") || fail "upstream-base: engine exited non-zero"
+assert_state "$uout" 1 completed "upstream-base: trailer via main@{upstream} still derives completed"
+assert_evidence "$uout" 1 trailer "upstream-base: completion evidence is the trailer"
+assert_state "$uout" 2 ready "upstream-base: dependent task 2 is met → ready (not re-dispatched)"
+echo "ok: a trailer on origin/main is seen via main@{upstream} while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
