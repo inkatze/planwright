@@ -747,6 +747,33 @@ assert_state "$sout" 2 ready "squash-trailer: dependent task 1 is met → task 2
 echo "ok: a squash-relocated mid-body trailer is recognized (whole-message scan)"
 
 # ---------------------------------------------------------------------------
+# 6p. case-insensitive trailer key — git's own trailer parser treats keys
+#     case-insensitively, so %(trailers:key=Planwright-Task) matched a
+#     lowercased `planwright-task:` footer. The whole-message scan must preserve
+#     that (an awk tolower() match, not a case-sensitive `sed '^Planwright-Task:'`)
+#     so switching the reader does not silently narrow what completes. Guards the
+#     case-sensitivity regression the panel review reproduced.
+# ---------------------------------------------------------------------------
+crepo2="$tmp/casekey"
+cspec2="$crepo2/specs/demo"
+mkdir -p "$cspec2"
+gitc_init "$crepo2"
+cat >"$cspec2/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via a lowercased trailer key
+- **Dependencies:** none
+EOF
+gitc "$crepo2" add -A
+gitc "$crepo2" commit -q -m "base"
+# A lowercased key in footer position — git's %(trailers) would have matched it.
+gitc "$crepo2" commit -q --allow-empty -m "task 1 work" -m "planwright-task: demo/1"
+cout2=$("$STATE" "$cspec2") || fail "case-key: engine exited non-zero"
+assert_state "$cout2" 1 completed "case-key: lowercased planwright-task: still completes (git parity)"
+assert_evidence "$cout2" 1 trailer "case-key: completion evidence is the trailer"
+echo "ok: a case-variant trailer key is recognized (git-parity, no regression)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0

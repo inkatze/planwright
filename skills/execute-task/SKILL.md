@@ -169,11 +169,12 @@ present the reason and wait instead.
 Every commit this skill authors for the unit — the test-first action commits,
 the observation chore commit, any in-flight expression-only amendment commit —
 carries a `Planwright-Task: <spec>/<id>` footer trailer. It is the durable,
-cross-flow completion anchor the orchestration-state derivation reads (via
-git's native trailer mechanism), surviving branch deletion and solo
-direct-to-`main` commits. Stamp it through the shared helper rather than
-hand-typing the footer, so the trailer is grammar-validated and identical
-everywhere:
+cross-flow completion anchor the orchestration-state derivation reads by
+scanning the whole commit message (so a squash/rebase merge that relocates the
+trailer mid-body is still recognized, not git's footer-only `%(trailers)`),
+surviving branch deletion and solo direct-to-`main` commits. Stamp it through
+the shared helper rather than hand-typing the footer, so the trailer is
+grammar-validated and identical everywhere:
 
 ```sh
 printf '%s\n' "$message" \

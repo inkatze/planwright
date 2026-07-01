@@ -193,15 +193,26 @@ now=$(date +%s)
 # commits' messages, so a Planwright-Task trailer that was a proper footer on
 # its original commit lands mid-body in the squashed message — where
 # %(trailers), which only parses the LAST paragraph, cannot see it. Scanning
-# every line that begins with `Planwright-Task:` recognizes the trailer wherever
-# the squash placed it, so completion survives however the PR was merged and
-# whatever the branch was named. Downstream grammar validation and the spec-id
-# gate below are unchanged, so a trailer-shaped line in prose still can't forge
-# a completion for this spec.
+# every line whose first field is the Planwright-Task key recognizes the trailer
+# wherever the squash placed it, so completion survives however the PR was
+# merged and whatever the branch was named. The key match is case-insensitive,
+# matching git's own trailer parser (git treats trailer keys case-insensitively;
+# %(trailers) accepted a lowercased key, so this preserves that behavior).
+#
+# Trust boundary: this scan honors any well-formed `Planwright-Task: <id>` line
+# for THIS spec that sits at column 0 anywhere in a reachable message — that is
+# by design (the trailer is a completion *declaration*). The spec-id gate below
+# ignores other specs' trailers and the grammar refuses malformed values, so the
+# only thing this treats as completion is a well-formed column-0 declaration for
+# this exact spec; it is not a defense against a committer who writes that line.
 reachable_ours=" "
 if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
+  # awk (not sed) so the key can match case-insensitively via tolower() without
+  # relying on a non-portable sed `I` flag; `sub(/^[^:]*:[[:space:]]*/,"")` strips
+  # the key and its trailing space, leaving the value untouched (neither the key
+  # nor the <spec>/<id> value contains a colon, so the first colon is the split).
   trailer_raw=$(git -C "$repo_root" log "$base" --format='%B' 2>/dev/null \
-    | sed -n 's/^Planwright-Task:[[:space:]]*//p')
+    | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
   # Iterate values line by line; blank lines (commits without the trailer) are
   # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
   while IFS= read -r tval; do
