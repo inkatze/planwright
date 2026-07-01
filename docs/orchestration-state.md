@@ -202,6 +202,18 @@ branch is no longer an ancestor of `main`.
   `Planwright-Task` line in the resulting message (GitHub's squash UI lets you
   edit it; a local squash should carry it forward), or the task will not derive
   as Completed from git alone.
+- **Across a stale local base.** A merged PR's trailer reaches the remote first;
+  the local base ref (`main`) does not carry it until a fetch has
+  fast-forwarded that branch. So the trailer scan reads the **union of the base
+  and its remote-tracking counterpart** (`origin/main`, via the branch's
+  configured upstream or the conventional `origin/<base>`): a trailer merged to
+  `origin/main` is recognized even if `orchestrate` runs before the local `main`
+  is updated. This reads only refs git has already fetched (no network), and a
+  local-only repo with no origin counterpart simply scans the base alone. It
+  does not paper over an *unfetched* remote — if `origin/main` itself lags the
+  true remote tip, fetch first. Only the trailer scan widens this way; the
+  branch/merge-reachability signals stay base-local, since they reason about
+  local task branches.
 
 A related failure (risk R1): solo work whose branch was deleted *and* whose
 trailer is missing or mistyped derives as deps-met-but-no-evidence. The

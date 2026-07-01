@@ -156,6 +156,46 @@ if ! git -C "$repo_root" rev-parse --verify --quiet "$base^{commit}" >/dev/null 
   exit 2
 fi
 
+# Refs the completion-trailer scan reads. A merged PR's Planwright-Task trailer
+# lives on the remote until the local base is fetched AND fast-forwarded; if the
+# operator runs orchestrate before a fetch has reached local main, the trailer
+# sits on origin/main but NOT on local main, so a base-only scan misses it and
+# the task is re-dispatched even though it is genuinely merged (the paycalc-
+# services grammar-backed-explain shape: local main lagged origin/main, the PR
+# merged from a non-convention branch so the gh head-ref map also missed, and
+# the trailer was the only completion anchor). Scan the UNION of base and its
+# remote-tracking counterpart so completion survives a stale local base. This
+# adds no network I/O (it reads whatever git already fetched) and never regresses
+# a local-only repo: with no upstream and no origin/<base>, the union is just
+# base. Only the TRAILER scan widens — the branch/merge-reachability arms below
+# stay base-local by design, because they reason about LOCAL task branches,
+# whereas a merged PR's completion anchor (the trailer) is what can lag the base.
+scan_refs="$base"
+# Prefer the configured upstream (correct when tracking is set); fall back to a
+# conventional origin/<base> when base is a local branch with no tracking config
+# (git does not require `main` to track `origin/main`, yet the merged trailer may
+# still sit there — exactly the untracked-local-main paycalc case).
+remote_base=$(git -C "$repo_root" rev-parse --abbrev-ref --symbolic-full-name \
+  "$base@{upstream}" 2>/dev/null || true)
+if [ -z "$remote_base" ] && git -C "$repo_root" show-ref --verify --quiet "refs/heads/$base" \
+  && git -C "$repo_root" rev-parse --verify --quiet "refs/remotes/origin/$base^{commit}" >/dev/null 2>&1; then
+  remote_base="origin/$base"
+fi
+# The remote ref reaches git as a log argument, so validate it against the same
+# conservative charset base itself passes (REQ-F1.1), require it to resolve, and
+# skip it when it is just base again. scan_refs stays intentionally unquoted at
+# the call site (a space-separated ref list); both tokens are charset-checked, so
+# word-splitting yields exactly those refs and nothing shell-significant.
+if [ -n "$remote_base" ] && [ "$remote_base" != "$base" ]; then
+  case "$remote_base" in
+    -* | *[!a-zA-Z0-9/._-]*) remote_base="" ;;
+  esac
+  if [ -n "$remote_base" ] \
+    && git -C "$repo_root" rev-parse --verify --quiet "$remote_base^{commit}" >/dev/null 2>&1; then
+    scan_refs="$base $remote_base"
+  fi
+fi
+
 # Marker staleness threshold (minutes), via the config reader (defaults + the
 # overlay chain). An absent key keeps the documented safe default; a malformed
 # value warns and falls back, mirroring the advisory lock.
@@ -211,7 +251,11 @@ if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
   # relying on a non-portable sed `I` flag; `sub(/^[^:]*:[[:space:]]*/,"")` strips
   # the key and its trailing space, leaving the value untouched (neither the key
   # nor the <spec>/<id> value contains a colon, so the first colon is the split).
-  trailer_raw=$(git -C "$repo_root" log "$base" --format='%B' 2>/dev/null \
+  # scan_refs is base plus its remote-tracking counterpart (see the resolution
+  # above); intentionally unquoted so git logs the UNION of both refs. A trailer
+  # merged to origin/main but not yet on a stale local main is thus still seen.
+  # shellcheck disable=SC2086
+  trailer_raw=$(git -C "$repo_root" log $scan_refs --format='%B' 2>/dev/null \
     | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { sub(/^[^:]*:[[:space:]]*/, ""); print }')
   # Iterate values line by line; blank lines (commits without the trailer) are
   # skipped. Read from a here-doc so the loop runs in this shell (no subshell).

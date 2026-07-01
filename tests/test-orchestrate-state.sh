@@ -774,6 +774,52 @@ assert_evidence "$cout2" 1 trailer "case-key: completion evidence is the trailer
 echo "ok: a case-variant trailer key is recognized (git-parity, no regression)"
 
 # ---------------------------------------------------------------------------
+# 6q. STALE LOCAL BASE — the trailer of a merged PR reaches the remote first. If
+#     orchestrate runs before a fetch has fast-forwarded local main, the
+#     Planwright-Task trailer sits on origin/main but NOT on local main, so a
+#     base-only scan misses it and the merged task is re-dispatched. The engine
+#     must scan the UNION of base and its remote-tracking counterpart so
+#     completion survives the lag. Regression guard for the paycalc-services
+#     grammar-backed-explain case #102's whole-message scan did NOT cover: the
+#     trailer read was correct, but it was pointed at a stale local main while
+#     the merged trailer lived on the (already-fetched) origin/main.
+# ---------------------------------------------------------------------------
+lrepo="$tmp/stalebase"
+lspec="$lrepo/specs/demo"
+mkdir -p "$lspec"
+gitc_init "$lrepo"
+cat >"$lspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged on the remote, not yet on local main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$lrepo" add -A
+gitc "$lrepo" commit -q -m "base"
+# Build the merged commit (carrying the trailer), record it as the remote-tracking
+# ref origin/main, then move LOCAL main back one commit so it lags the remote —
+# the untracked-local-main shape. No remote is configured (the gh probe misses a
+# non-convention head ref anyway, so the trailer is the only anchor either way),
+# and main has no @{upstream}, so the origin/<base> fallback is what must fire.
+gitc "$lrepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+merged_sha=$(gitc "$lrepo" rev-parse HEAD)
+gitc "$lrepo" update-ref refs/remotes/origin/main "$merged_sha"
+gitc "$lrepo" reset -q --hard HEAD~1
+# Sanity-check the fixture reproduces the bug: a base-only scan of local main must
+# NOT see the trailer (otherwise the test would pass on the pre-fix, base-only read).
+base_only=$(gitc "$lrepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$base_only" ] \
+  || fail "stale-base: fixture invalid — local main already carries the trailer"
+lout=$("$STATE" "$lspec") || fail "stale-base: engine exited non-zero"
+assert_state "$lout" 1 completed "stale-base: trailer on origin/main (not local main) still derives completed"
+assert_evidence "$lout" 1 trailer "stale-base: completion evidence is the trailer"
+assert_state "$lout" 2 ready "stale-base: dependent task 2 is met → ready (not re-dispatched)"
+echo "ok: a trailer merged to origin/main is seen while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
