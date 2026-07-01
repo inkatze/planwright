@@ -317,7 +317,27 @@ surfaces the reason.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
-Rebuild from `tasks.md`, `gh`, and the process/window list, then for each
+**First, refresh the remote view (best-effort).** Before rebuilding, run a
+best-effort fetch of the base's remote (`git -C <primary-checkout> fetch origin
+--quiet` — name the remote explicitly so a checkout whose current branch tracks
+a fork does not fetch the wrong remote and leave `origin/main` stale; no ref
+writes to local branches or the working tree, only remote-tracking refs) so the
+git-side completion evidence reflects the true remote. This closes a staleness
+gap: a merged PR's `Planwright-Task` trailer reaches the remote first, and
+`origin/main` only reflects it after a fetch — so
+without this a genuinely-merged task can derive not-done and be re-dispatched
+(the paycalc-services grammar-backed-explain case). The derivation
+(`orchestrate-state.sh`) already scans the **union** of the base and its
+remote-tracking ref, so this fetch is consumed **read-only** — no local `main`
+merge is needed, and a worktree's branch state is never touched. Failure is
+non-fatal and offline is first-class: no remote / no `gh` / a failing fetch
+degrades exactly like the `gh` probe (derive from local git + trailer + marker,
+no noise). It refreshes the remote-tracking ref the derivation's union scan
+reads; it does **not** advance the primary checkout's local `main`, so the
+freshness gate's local-main view below is unaffected (that view intentionally
+tracks the operator's checked-out brief, not the remote tip).
+
+Then rebuild from `tasks.md`, `gh`, and the process/window list, and for each
 `## In progress` entry:
 
 1. **Reconcile PR state first.** A PR in any state for the unit's branch takes
