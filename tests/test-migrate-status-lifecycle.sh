@@ -270,4 +270,44 @@ case $out_hl in
 esac
 echo "ok: a bundle missing its requirements.md **Status:** header is skipped (malformed), not miscounted unchanged (REQ-A1.7)"
 
+# --- TWO symlinked siblings make the writer log two `refusing symlinked` lines in
+# a single reconcile-status call, so the captured rc_err carries an embedded
+# newline. The skip report must flatten it to ONE line — otherwise the second
+# diagnostic is orphaned (no "skipped ...: <path>" prefix), so a log scan keyed on
+# the skip marker associates only the first refusal with the bundle, weakening the
+# per-path skip-and-report contract. (The corpus2 partial-mirror case above
+# symlinks a single sibling, so it never exercises the multi-line path.)
+repo_ml=$tmp/corpus-multiline
+mkdir -p "$repo_ml"
+git -C "$repo_ml" init -q -b main
+git -C "$repo_ml" config user.email t@example.com
+git -C "$repo_ml" config user.name t
+git -C "$repo_ml" config commit.gpgsign false
+sd_ml=$repo_ml/specs/twolink
+heads "$sd_ml" Active
+two_tasks "$sd_ml" Active
+# requirements.md stays a regular file (the authoritative home; symlinking it would
+# make do_status bow out with a single refusal). Symlink two siblings so do_status's
+# per-file write loop logs two refusals.
+mv "$sd_ml/design.md" "$sd_ml/design.real.md"
+ln -s design.real.md "$sd_ml/design.md"
+mv "$sd_ml/test-spec.md" "$sd_ml/test-spec.real.md"
+ln -s test-spec.real.md "$sd_ml/test-spec.md"
+git -C "$repo_ml" add -A
+git -C "$repo_ml" commit -qm fixture
+(cd "$repo_ml" && PATH="$stub:$PATH" "$MIGRATE" specs >/dev/null 2>"$tmp/run-ml.err") \
+  || fail "sweep over a two-symlink corpus exited non-zero"
+# Exactly one skip record for the bundle, and no orphaned diagnostic line.
+# grep -c exits 1 on a zero count, which would trip `set -e`; `|| true` keeps the
+# assignment alive so the explicit count assertions below own the verdict.
+ml_skips=$(grep -c "skipped (reconcile failed): .*/specs/twolink" "$tmp/run-ml.err" || true)
+[ "$ml_skips" = 1 ] || fail "expected exactly one skip record, got $ml_skips"
+ml_orphans=$(grep -v "skipped (reconcile failed):" "$tmp/run-ml.err" | grep -c . || true)
+[ "$ml_orphans" = 0 ] || fail "orphaned diagnostic line(s) not associated with the bundle path ($ml_orphans)"
+# Both refused siblings are surfaced on that single line.
+if ! grep -q "design.md" "$tmp/run-ml.err" || ! grep -q "test-spec.md" "$tmp/run-ml.err"; then
+  fail "both refused siblings should be reported in the skip diagnostic"
+fi
+echo "ok: a multi-diagnostic reconcile failure is flattened to one skip line per bundle (REQ-A1.7)"
+
 echo "PASS: all migrate-status-lifecycle tests passed"

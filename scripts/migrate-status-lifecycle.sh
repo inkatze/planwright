@@ -95,6 +95,12 @@ for spec_dir in "$specs_dir"/*/; do
   # rest of the sweep. Capture the writer's stderr so the skip names *why* (without
   # it the failure is invisible); discard stdout.
   if ! rc_err=$("$sync_sh" reconcile-status "$spec_dir" 2>&1 >/dev/null); then
+    # The writer can stack diagnostics in one call (do_status logs a refusal per
+    # symlinked sibling), so rc_err may carry embedded newlines. Flatten them to a
+    # single line ("; "-joined) so each skipped bundle is exactly one
+    # "skipped ...: <path> — <diag>" record — otherwise the 2nd+ diagnostics are
+    # orphaned (no path prefix) and a log scan keyed on the skip marker misses them.
+    rc_err=$(printf '%s\n' "$rc_err" | awk 'NR > 1 { printf "; " } { printf "%s", $0 }')
     echo "skipped (reconcile failed): $spec_dir${rc_err:+ — $rc_err}" >&2
     skipped=$((skipped + 1))
     continue
