@@ -182,15 +182,31 @@ if [ -z "$remote_base" ] && git -C "$repo_root" show-ref --verify --quiet "refs/
   remote_base="origin/$base"
 fi
 # The remote ref reaches git as a log argument, so validate it against the same
-# conservative charset base itself passes (REQ-F1.1), require it to resolve, and
-# skip it when it is just base again. scan_refs stays intentionally unquoted at
-# the call site (a space-separated ref list); both tokens are charset-checked, so
-# word-splitting yields exactly those refs and nothing shell-significant.
+# conservative charset base itself passes (REQ-F1.1), require it to be a genuine
+# remote-tracking ref that resolves, and skip it when it is just base again.
+# scan_refs stays intentionally unquoted at the call site (a space-separated ref
+# list); both tokens are charset-checked, so word-splitting yields exactly those
+# refs and nothing shell-significant.
+#
+# The remote-tracking guard matters: `base@{upstream}` can resolve to a LOCAL
+# branch (branch.<base>.remote=`.`, an operator who set main's upstream to a
+# local integration branch). A trailer on that local branch never reached the
+# remote, so honoring it would falsely complete a task and suppress its
+# re-dispatch. Only refs under refs/remotes/* are the "remote-tracking
+# counterpart" this union scan is meant to add, so require the resolved ref to
+# exist there and drop anything else back to a base-only scan.
+#
+# (Known limitation, intentionally unhandled: a full-ref base such as
+# `refs/heads/main` makes `@{upstream}` error and the origin/<base> fallback
+# probe miss, so the union silently narrows to base only — a graceful
+# degradation to the pre-union behavior, not a regression. base defaults to a
+# short name; a full-ref value is an unusual operator override.)
 if [ -n "$remote_base" ] && [ "$remote_base" != "$base" ]; then
   case "$remote_base" in
     -* | *[!a-zA-Z0-9/._-]*) remote_base="" ;;
   esac
   if [ -n "$remote_base" ] \
+    && git -C "$repo_root" show-ref --verify --quiet "refs/remotes/$remote_base" \
     && git -C "$repo_root" rev-parse --verify --quiet "$remote_base^{commit}" >/dev/null 2>&1; then
     scan_refs="$base $remote_base"
   fi

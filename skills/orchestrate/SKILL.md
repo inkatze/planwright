@@ -318,11 +318,13 @@ surfaces the reason.
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
 **First, refresh the remote view (best-effort).** Before rebuilding, run a
-best-effort `git fetch` of the base's remote (`git -C <primary-checkout> fetch
---quiet` — no ref writes to local branches or the working tree, only
-remote-tracking refs) so the git-side completion evidence reflects the true
-remote. This closes a staleness gap: a merged PR's `Planwright-Task` trailer
-reaches the remote first, and `origin/main` only reflects it after a fetch — so
+best-effort fetch of the base's remote (`git -C <primary-checkout> fetch origin
+--quiet` — name the remote explicitly so a checkout whose current branch tracks
+a fork does not fetch the wrong remote and leave `origin/main` stale; no ref
+writes to local branches or the working tree, only remote-tracking refs) so the
+git-side completion evidence reflects the true remote. This closes a staleness
+gap: a merged PR's `Planwright-Task` trailer reaches the remote first, and
+`origin/main` only reflects it after a fetch — so
 without this a genuinely-merged task can derive not-done and be re-dispatched
 (the paycalc-services grammar-backed-explain case). The derivation
 (`orchestrate-state.sh`) already scans the **union** of the base and its

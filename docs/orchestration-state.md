@@ -211,9 +211,11 @@ branch is no longer an ancestor of `main`.
   is updated. This reads only refs git has already fetched (no network), and a
   local-only repo with no origin counterpart simply scans the base alone. It
   does not paper over an *unfetched* remote — if `origin/main` itself lags the
-  true remote tip, fetch first. Only the trailer scan widens this way; the
-  branch/merge-reachability signals stay base-local, since they reason about
-  local task branches.
+  true remote tip, fetch first (this derivation script never fetches; when driven
+  through `/orchestrate`, the reconcile sweep runs a best-effort `git fetch
+  origin` for you, so `origin/main` is refreshed before the union scan reads it).
+  Only the trailer scan widens this way; the branch/merge-reachability signals
+  stay base-local, since they reason about local task branches.
 
 A related failure (risk R1): solo work whose branch was deleted *and* whose
 trailer is missing or mistyped derives as deps-met-but-no-evidence. The

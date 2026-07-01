@@ -863,11 +863,69 @@ ubase_only=$(gitc "$urepo" log main --format='%B' \
   | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
 [ -z "$ubase_only" ] \
   || fail "upstream-base: fixture invalid — local main already carries the trailer"
-uout=$("$STATE" "$uspec") || fail "upstream-base: engine exited non-zero"
+# The fixture adds a real origin remote, so `have_remote=1` and the engine would
+# invoke the real gh binary against example.invalid without a stub (non-hermetic).
+# The head-ref map misses either way (non-convention branch), so stub gh to an
+# empty result, matching the suite convention for remote-adding tests above.
+ustub="$tmp/binupstream"
+make_gh_stub "$ustub"
+uout=$(PATH="$ustub:$PATH" "$STATE" "$uspec") || fail "upstream-base: engine exited non-zero"
 assert_state "$uout" 1 completed "upstream-base: trailer via main@{upstream} still derives completed"
 assert_evidence "$uout" 1 trailer "upstream-base: completion evidence is the trailer"
 assert_state "$uout" 2 ready "upstream-base: dependent task 2 is met → ready (not re-dispatched)"
 echo "ok: a trailer on origin/main is seen via main@{upstream} while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
+# 6s. LOCAL UPSTREAM IS NOT A REMOTE-TRACKING COUNTERPART — the union scan adds
+#     base's *remote-tracking* counterpart, but `base@{upstream}` can resolve to
+#     a LOCAL branch (branch.main.remote=`.`, an operator who set main's upstream
+#     to a local integration branch). A trailer on that local branch never
+#     reached the remote, so honoring it would falsely complete a task and
+#     suppress its re-dispatch. The engine must reject a non-refs/remotes/*
+#     upstream and fall back to a base-only scan. Regression guard paired with
+#     6q/6r (which cover the legitimate remote-tracking paths).
+# ---------------------------------------------------------------------------
+lurepo="$tmp/localupstream"
+luspec="$lurepo/specs/demo"
+mkdir -p "$luspec"
+gitc_init "$lurepo"
+cat >"$luspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — trailer lives on a LOCAL upstream branch, not on main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$lurepo" add -A
+gitc "$lurepo" commit -q -m "base"
+# Build a local `integration` branch carrying the trailer, point main's upstream
+# at it (sets branch.main.remote=`.`), and leave main WITHOUT the trailer. No
+# origin remote exists, so this is unambiguously a LOCAL upstream — not the
+# remote-tracking counterpart the union scan is meant to add.
+gitc "$lurepo" checkout -q -b integration
+gitc "$lurepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+gitc "$lurepo" checkout -q main
+gitc "$lurepo" branch --set-upstream-to=integration main >/dev/null 2>&1
+# Sanity-check the fixture: main@{upstream} resolves to the LOCAL integration
+# branch, a base-only scan of main does NOT see the trailer, but a UNION scan of
+# `main integration` WOULD — so only the remote-tracking guard prevents the false
+# completion (otherwise this test would pass even on an unguarded union scan).
+luupstream=$(gitc "$lurepo" rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null)
+[ "$luupstream" = "integration" ] \
+  || fail "local-upstream: fixture invalid — main@{upstream} is '$luupstream', not integration"
+lubase_only=$(gitc "$lurepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$lubase_only" ] \
+  || fail "local-upstream: fixture invalid — local main already carries the trailer"
+luunion=$(gitc "$lurepo" log main integration --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -n "$luunion" ] \
+  || fail "local-upstream: fixture invalid — union scan would not see the trailer either"
+luout=$("$STATE" "$luspec") || fail "local-upstream: engine exited non-zero"
+assert_state "$luout" 1 ready "local-upstream: a trailer on a LOCAL upstream does NOT complete task 1 (guard → base-only scan)"
+assert_state "$luout" 2 blocked "local-upstream: task 2 stays blocked while task 1 is not complete"
+echo "ok: a local (non-remote-tracking) upstream is rejected; its trailer does not falsely complete (union guard)"
 
 # ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
