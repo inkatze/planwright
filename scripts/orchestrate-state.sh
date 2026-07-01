@@ -187,10 +187,21 @@ now=$(date +%s)
 # anchors). Each value is validated before use; a malformed/hostile value is
 # refused on the output stream and never matched against a task. Well-formed
 # values for OTHER specs are simply ignored (not ours, not an error).
+#
+# The whole commit message is scanned (%B), not git's footer-only trailer
+# parser (%(trailers)). A squash or rebase merge concatenates the constituent
+# commits' messages, so a Planwright-Task trailer that was a proper footer on
+# its original commit lands mid-body in the squashed message — where
+# %(trailers), which only parses the LAST paragraph, cannot see it. Scanning
+# every line that begins with `Planwright-Task:` recognizes the trailer wherever
+# the squash placed it, so completion survives however the PR was merged and
+# whatever the branch was named. Downstream grammar validation and the spec-id
+# gate below are unchanged, so a trailer-shaped line in prose still can't forge
+# a completion for this spec.
 reachable_ours=" "
 if git -C "$repo_root" rev-parse --verify --quiet "$base" >/dev/null 2>&1; then
-  trailer_raw=$(git -C "$repo_root" log "$base" \
-    --format='%(trailers:key=Planwright-Task,valueonly)' 2>/dev/null)
+  trailer_raw=$(git -C "$repo_root" log "$base" --format='%B' 2>/dev/null \
+    | sed -n 's/^Planwright-Task:[[:space:]]*//p')
   # Iterate values line by line; blank lines (commits without the trailer) are
   # skipped. Read from a here-doc so the loop runs in this shell (no subshell).
   while IFS= read -r tval; do

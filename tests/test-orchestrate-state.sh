@@ -702,6 +702,51 @@ grep -q -- '--limit' "$alog" \
 echo "ok: the gh PR probe passes an explicit --limit (no default-page truncation)"
 
 # ---------------------------------------------------------------------------
+# 6o. squash/rebase-merge RELOCATED trailer — a squash merge concatenates the
+#     constituent commits' messages, so a Planwright-Task trailer that was a
+#     proper footer on its original commit lands MID-BODY in the squashed
+#     message (content follows it). git's %(trailers) parses only the last
+#     paragraph, so it misses a relocated trailer; the engine must scan the
+#     whole message (%B) and still derive completion — regardless of how the PR
+#     was merged or what the branch was named. Regression guard for the
+#     footer-only read that failed grammar-backed-explain Task 1 in paycalc-
+#     services (PR squash-merged from a non-convention branch: the gh head-ref
+#     mapping found no match AND the trailer was mid-body → task mis-derived).
+# ---------------------------------------------------------------------------
+srepo="$tmp/squashtrailer"
+sspec="$srepo/specs/demo"
+mkdir -p "$sspec"
+gitc_init "$srepo"
+cat >"$sspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via a trailer the squash pushed mid-body
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$srepo" add -A
+gitc "$srepo" commit -q -m "base"
+# A squash-style message: subject, then the trailer, then MORE body after it, so
+# the trailer is no longer in the last paragraph (where %(trailers) looks). No
+# task branch and no remote — the trailer is the only completion anchor, exactly
+# the paycalc-services shape.
+gitc "$srepo" commit -q --allow-empty \
+  -m "squashed: task 1 work (STEAI-834)" \
+  -m "Planwright-Task: demo/1" \
+  -m "trailing body paragraph the squash appended after the trailer"
+# Sanity-check the fixture actually reproduces the bug: footer-only parsing must
+# NOT see the relocated trailer (otherwise the test would pass on the old code).
+footer_only=$(gitc "$srepo" log HEAD --format='%(trailers:key=Planwright-Task,valueonly)')
+[ -z "$footer_only" ] \
+  || fail "squash-trailer: fixture invalid — %(trailers) already sees the relocated trailer"
+sout=$("$STATE" "$sspec") || fail "squash-trailer: engine exited non-zero"
+assert_state "$sout" 1 completed "squash-trailer: relocated mid-body trailer still derives completed"
+assert_evidence "$sout" 1 trailer "squash-trailer: completion evidence is the trailer"
+assert_state "$sout" 2 ready "squash-trailer: dependent task 1 is met → task 2 ready (not re-dispatched)"
+echo "ok: a squash-relocated mid-body trailer is recognized (whole-message scan)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0

@@ -108,16 +108,19 @@ Planwright-Task: orchestration-concurrency/6
 - `<spec>` is the spec directory name (`^[a-z0-9][a-z0-9-]*$`, ≤64); `<id>`
   is the task id (`^[0-9]+(\.[0-9]+)?$`). A commit that lands a **bundle**
   carries one trailer line per task.
-- It is footer-only (never the subject line) and uses git's native trailer
-  mechanism, so the orchestration-state derivation reads it with
-  `git log --format='%(trailers:key=Planwright-Task)'`. As a real commit
-  trailer it is the completion anchor for the cases branch-reachability can
-  no longer prove done: it **survives branch deletion**, and it lets solo
+- Stamp it in the message footer (never the subject line), the same position
+  as `Signed-off-by:`; `/execute-task` emits it there automatically. The
+  orchestration-state derivation does **not** depend on footer position when
+  *reading*, though: it scans the whole commit message for `Planwright-Task:`
+  lines, so a trailer that a squash or rebase merge relocates mid-body is still
+  recognized (git's own `%(trailers)` parser reads only the last paragraph and
+  would miss it). As a completion anchor it covers the cases branch-reachability
+  can no longer prove done: it **survives branch deletion**, and it lets solo
   work committed straight to `main` — with no task branch at all — still be
-  seen as done. (A squash/rebase merge also defeats branch-reachability;
-  there completion then relies on the squash preserving the footer — the
-  risk-R2 caveat documented with
-  [the derived-state model](orchestration-state.md#the-squash--rebase-merge-caveat-risk-r2).)
+  seen as done. (See the risk-R2 caveat with
+  [the derived-state model](orchestration-state.md#the-squash--rebase-merge-caveat-risk-r2)
+  for how this interacts with squash/rebase merges and the `gh` head-ref
+  mapping.)
 
 `/execute-task` stamps the trailer automatically. For **manual or solo
 commits**, add it yourself — either with git's native flag:
