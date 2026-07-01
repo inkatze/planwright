@@ -1506,11 +1506,19 @@ k6_assert_all "$sd" Draft "REQ-A1.4 Draft is never derived to Ready by reconcile
 echo "ok: reconcile-status leaves a Draft bundle untouched (REQ-A1.4)"
 
 # --- RS-F: fail-closed CLI validation mirrors `reconcile` (missing arg / missing
-# tasks.md -> exit 2, not a silent skip).
-("$SYNC" reconcile-status >/dev/null 2>&1) && fail "RS-F: missing-arg reconcile-status did not exit non-zero"
+# tasks.md -> exit 2 specifically, not merely non-zero and not a silent skip).
+# Assert the exact code: this bundle added an in-writer failure arm that exits 1
+# (the status+closed propagation), so a regression that made input validation exit
+# 1 instead of 2 must NOT pass as "fails closed". (`(cmd) || rc=$?` keeps the
+# failing command out of `set -e`'s reach while capturing its code.)
+rc=0
+("$SYNC" reconcile-status >/dev/null 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "RS-F: missing-arg reconcile-status exit=$rc, expected 2"
 nodir=$tmp/rsf-empty
 mkdir -p "$nodir"
-("$SYNC" reconcile-status "$nodir" >/dev/null 2>&1) && fail "RS-F: reconcile-status on a dir with no tasks.md did not fail closed"
+rc=0
+("$SYNC" reconcile-status "$nodir" >/dev/null 2>&1) || rc=$?
+[ "$rc" = 2 ] || fail "RS-F: reconcile-status on a dir with no tasks.md exit=$rc, expected 2"
 echo "ok: reconcile-status fails closed on missing arg / missing tasks.md (exit 2)"
 
 # --- RS-G: a partial mirror (a symlinked sibling the writer refuses) makes the
