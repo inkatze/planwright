@@ -609,4 +609,66 @@ rec REQ REQ-A1.1 A live
 [ "$(count_tag DEC)" -eq 0 ] || fail "unreadable design.md should yield no DEC records"
 chmod u+rwx "$unsib/design.md"
 
+# ---------------------------------------------------------------------------
+# 15. Prose dependency-line parsing (parity with the derivation engine,
+# scripts/orchestrate-state.sh). Two regressions, mirroring the fixes already
+# landed in the engine and the selector (opportunities.md 2026-06-28 /
+# 2026-07-01, PR #103 / #104):
+#   (a) trailing-period tolerance — a prose Dependencies entry commonly ends
+#       its final id with a sentence period ("Task 1.", "1.", "3.5."); the id
+#       must still emit its TASKDEP edge. Without it a SINGLE-dependency line
+#       drops its only edge and the graph diverges from what orchestration
+#       derives.
+#   (b) no phantom edges — id-shaped digits inside a parenthetical carry clause
+#       (e.g. "(REQ-A1.8 / D-9 …)") must NOT be scraped into TASKDEP nodes.
+#       Whitespace-tokenize then grammar-validate (the engine's approach):
+#       "REQ-A1.8" stays one non-numeric token and is dropped, never digit-
+#       scraped into "1.8"/"9". The model has no malformed-deps channel, so a
+#       non-conforming token is silently not emitted as an edge.
+# ---------------------------------------------------------------------------
+deps="$tmp/prosedeps/demo"
+mkdir -p "$deps"
+cat >"$deps/tasks.md" <<'EOF'
+# Prose-deps — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — foundation
+
+- **Done when:** the base exists.
+- **Dependencies:** none
+
+### Task 2 — single trailing-period dependency
+
+- **Done when:** it layers over the base.
+- **Dependencies:** Task 1.
+
+### Task 3 — parenthetical carry clause
+
+- **Done when:** it carries the rationale.
+- **Dependencies:** Task 2 (see REQ-A1.8 / D-9 for the carry rationale)
+
+### Task 4 — dotted dependency with a trailing period
+
+- **Done when:** the dotted edge survives.
+- **Dependencies:** 2.1.
+EOF
+run_m 0 "$deps"
+# (a) Trailing-period ids still emit their edge — the fail-open case: a single
+# dependency ending in a period must not drop to zero edges.
+rec TASKDEP 2 1
+rec TASKDEP 4 2.1
+# (a)+(b) Task 3's only edge is the real "Task 2" dep; the parenthetical
+# "REQ-A1.8 / D-9" must not scrape phantom nodes 1.8 or 9.
+t3deps=$(printf '%s\n' "$out" \
+  | awk -F"$tab" '$1 == "TASKDEP" && $2 == "3" { print $3 }' | sort | tr '\n' ' ')
+[ "$t3deps" = "2 " ] \
+  || fail "Task 3 deps should be exactly {2}, got: {$t3deps} (phantom scrape from the parenthetical?)"
+# No phantom edges leaked into the overall stream (three real edges only).
+[ "$(count_tag TASKDEP)" -eq 3 ] \
+  || fail "expected 3 TASKDEP edges, got $(count_tag TASKDEP) (phantom or dropped edge?)"
+
 echo "PASS: test-spec-model.sh"

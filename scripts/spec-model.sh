@@ -310,10 +310,24 @@ parse_tasks() {
       flush_field()
       s = $0
       sub(/.*\*\*Dependencies:\*\*/, "", s)
-      gsub(/[^0-9.]+/, " ", s)
+      # Whitespace-tokenize then grammar-validate, matching the derivation
+      # engine (scripts/orchestrate-state.sh). Splitting on commas and
+      # whitespace keeps a non-id token whole ("REQ-A1.8", "Task") so it fails
+      # the id grammar and is dropped, rather than being digit-scraped into a
+      # phantom edge from a parenthetical carry clause ("(REQ-A1.8 / D-9 …)").
+      # A trailing run of sentence periods is stripped per token so a prose
+      # entry ("Task 1.", "1.", "2.1.") still yields its edge — a task id
+      # always ends in a digit, so this only ever removes punctuation. The
+      # model has no malformed-deps channel, so a non-conforming token is
+      # silently not emitted as an edge (opportunities.md 2026-06-28 /
+      # 2026-07-01; parity with PR #103 / #104).
+      gsub(/,/, " ", s)
       n = split(s, a, " ")
-      for (i = 1; i <= n; i++)
-        if (a[i] ~ /^[0-9]+(\.[0-9]+)?$/) printf "TASKDEP\t%s\t%s\n", cur, a[i]
+      for (i = 1; i <= n; i++) {
+        tok = a[i]
+        sub(/\.+$/, "", tok)
+        if (tok ~ /^[0-9]+(\.[0-9]+)?$/) printf "TASKDEP\t%s\t%s\n", cur, tok
+      }
       next
     }
     /^- \*\*Citations:\*\*/ {
