@@ -774,6 +774,49 @@ assert_evidence "$cout2" 1 trailer "case-key: completion evidence is the trailer
 echo "ok: a case-variant trailer key is recognized (git-parity, no regression)"
 
 # ---------------------------------------------------------------------------
+# 6q. dependency trailing-period tolerance — a prose dependency list commonly
+#     ends its final entry with a period ("...Task 13."). On a MULTI-dependency
+#     line an earlier token still yields a valid id, so the task keeps a real
+#     dependency; but on a SINGLE-dependency line the only id carries the period,
+#     fails the id grammar, is dropped, and the line silently parses to zero deps
+#     — so the task resolves ready and is dispatched BEFORE its prerequisite is
+#     complete. The engine must strip a trailing period so the id is recognized.
+#     A dotted id (n.m) ends in a digit, so the strip only ever removes sentence
+#     punctuation. Regression guard for the single-dependency fail-open reported
+#     against grammar-backed-explain (Task 14 dep "Task 13.", Task 15 dep "Task 3.").
+# ---------------------------------------------------------------------------
+prepo="$tmp/depperiod"
+pspec="$prepo/specs/demo"
+mkdir -p "$pspec"
+gitc_init "$prepo"
+cat >"$pspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — prerequisite, not complete
+- **Dependencies:** none
+### Task 14 — single prose dependency ending in a period
+- **Dependencies:** Task 1.
+### Task 15 — single bare id ending in a period
+- **Dependencies:** 1.
+### Task 19 — dotted id ending in a period (the period must not eat the id)
+- **Dependencies:** 1.2.
+EOF
+gitc "$prepo" add -A
+gitc "$prepo" commit -q -m "base"
+pout=$("$STATE" "$pspec") || fail "dep-period: engine exited non-zero"
+# Task 1 is not complete, so anything depending on it must be blocked, never ready.
+assert_state "$pout" 1 ready "dep-period: prerequisite with no deps is ready"
+assert_state "$pout" 14 blocked "dep-period: single prose dep 'Task 1.' → dep 1 recognized → blocked (not ready)"
+assert_evidence "$pout" 14 deps-unmet "dep-period: task 14 is blocked on its real, unmet dependency"
+assert_state "$pout" 15 blocked "dep-period: single bare id '1.' → dep 1 recognized → blocked (not ready)"
+# The bare-id-with-period case is now clean (no stray prose), so it must NOT be
+# flagged as malformed — the period alone is not a grammar violation.
+has_record "$pout" malformed-deps 15 \
+  && fail "dep-period: a bare id with a trailing period was wrongly flagged malformed"
+assert_state "$pout" 19 blocked "dep-period: dotted id '1.2.' keeps id 1.2 (period stripped, digit preserved) → blocked on unmet 1.2"
+echo "ok: a trailing period on a single-dependency line no longer fails open (id recognized)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
