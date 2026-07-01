@@ -1,6 +1,6 @@
 # Kickoff Lifecycle — Tasks
 
-**Status:** Active
+**Status:** Done
 **Last reviewed:** 2026-06-27
 **Format-version:** 1
 
