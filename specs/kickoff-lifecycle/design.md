@@ -1,6 +1,6 @@
 # Kickoff Lifecycle — Design
 
-**Status:** Active
+**Status:** Done
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
