@@ -402,6 +402,14 @@ while IFS="$TAB" read -r id deps; do
   clean_deps=""
   deps_malformed=0
   for tok in $(printf '%s' "$raw_deps" | tr ',' ' '); do
+    # A prose dependency list commonly ends its final entry with a period
+    # ("...Task 13."). Strip a trailing run of periods so the id is still
+    # recognized: a task id (n or n.m) always ends in a digit, so this only ever
+    # removes sentence punctuation, never part of an id. Without it the last id
+    # keeps the period, fails the grammar, and is dropped — and on a
+    # SINGLE-dependency line, where that id is the only token, the line then
+    # parses to zero deps and the task resolves ready before its prerequisite.
+    while [ "${tok%.}" != "$tok" ]; do tok=${tok%.}; done
     case "$tok" in
       none | None | NONE) continue ;;
     esac
