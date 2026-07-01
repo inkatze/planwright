@@ -774,6 +774,160 @@ assert_evidence "$cout2" 1 trailer "case-key: completion evidence is the trailer
 echo "ok: a case-variant trailer key is recognized (git-parity, no regression)"
 
 # ---------------------------------------------------------------------------
+# 6q. STALE LOCAL BASE — the trailer of a merged PR reaches the remote first. If
+#     orchestrate runs before a fetch has fast-forwarded local main, the
+#     Planwright-Task trailer sits on origin/main but NOT on local main, so a
+#     base-only scan misses it and the merged task is re-dispatched. The engine
+#     must scan the UNION of base and its remote-tracking counterpart so
+#     completion survives the lag. Regression guard for the paycalc-services
+#     grammar-backed-explain case #102's whole-message scan did NOT cover: the
+#     trailer read was correct, but it was pointed at a stale local main while
+#     the merged trailer lived on the (already-fetched) origin/main.
+# ---------------------------------------------------------------------------
+lrepo="$tmp/stalebase"
+lspec="$lrepo/specs/demo"
+mkdir -p "$lspec"
+gitc_init "$lrepo"
+cat >"$lspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged on the remote, not yet on local main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$lrepo" add -A
+gitc "$lrepo" commit -q -m "base"
+# Build the merged commit (carrying the trailer), record it as the remote-tracking
+# ref origin/main, then move LOCAL main back one commit so it lags the remote —
+# the untracked-local-main shape. No remote is configured (the gh probe misses a
+# non-convention head ref anyway, so the trailer is the only anchor either way),
+# and main has no @{upstream}, so the origin/<base> fallback is what must fire.
+gitc "$lrepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+merged_sha=$(gitc "$lrepo" rev-parse HEAD)
+gitc "$lrepo" update-ref refs/remotes/origin/main "$merged_sha"
+gitc "$lrepo" reset -q --hard HEAD~1
+# Sanity-check the fixture reproduces the bug: a base-only scan of local main must
+# NOT see the trailer (otherwise the test would pass on the pre-fix, base-only read).
+base_only=$(gitc "$lrepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$base_only" ] \
+  || fail "stale-base: fixture invalid — local main already carries the trailer"
+lout=$("$STATE" "$lspec") || fail "stale-base: engine exited non-zero"
+assert_state "$lout" 1 completed "stale-base: trailer on origin/main (not local main) still derives completed"
+assert_evidence "$lout" 1 trailer "stale-base: completion evidence is the trailer"
+assert_state "$lout" 2 ready "stale-base: dependent task 2 is met → ready (not re-dispatched)"
+echo "ok: a trailer merged to origin/main is seen while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
+# 6r. STALE LOCAL BASE, CONFIGURED UPSTREAM — the sibling of 6q. Here local main
+#     *tracks* origin/main (the common shape: a normal clone's main), so the
+#     remote-tracking ref is resolved via `main@{upstream}`, NOT the origin/<base>
+#     string fallback 6q exercises. Both derivation branches of the new union
+#     scan must recognize a trailer that reached origin/main before a fetch
+#     fast-forwarded local main. Without this, only the fallback path had a
+#     regression guard.
+# ---------------------------------------------------------------------------
+urepo="$tmp/upstreambase"
+uspec="$urepo/specs/demo"
+mkdir -p "$uspec"
+gitc_init "$urepo"
+cat >"$uspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged on the remote, not yet on local main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$urepo" add -A
+gitc "$urepo" commit -q -m "base"
+# A remote (adding it sets the default +refs/heads/*:refs/remotes/origin/* fetch
+# refspec that lets @{upstream} resolve to a remote-tracking ref). Build the
+# merged commit carrying the trailer, record it as origin/main, set local main to
+# track origin/main, then move local main back one commit so it lags — the
+# tracked-local-main shape. The gh probe still misses (non-convention head ref),
+# so the trailer is the only anchor, and main@{upstream} is what must fire here.
+gitc "$urepo" remote add origin https://example.invalid/demo.git
+gitc "$urepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+umerged_sha=$(gitc "$urepo" rev-parse HEAD)
+gitc "$urepo" update-ref refs/remotes/origin/main "$umerged_sha"
+gitc "$urepo" branch --set-upstream-to=origin/main main >/dev/null 2>&1
+gitc "$urepo" reset -q --hard HEAD~1
+# Sanity-check the fixture exercises the @{upstream} branch (not the fallback):
+# main must resolve an upstream, and a base-only scan must NOT see the trailer.
+upstream_of_main=$(gitc "$urepo" rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null)
+[ "$upstream_of_main" = "origin/main" ] \
+  || fail "upstream-base: fixture invalid — main@{upstream} is '$upstream_of_main', not origin/main"
+ubase_only=$(gitc "$urepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$ubase_only" ] \
+  || fail "upstream-base: fixture invalid — local main already carries the trailer"
+# The fixture adds a real origin remote, so `have_remote=1` and the engine would
+# invoke the real gh binary against example.invalid without a stub (non-hermetic).
+# The head-ref map misses either way (non-convention branch), so stub gh to an
+# empty result, matching the suite convention for remote-adding tests above.
+ustub="$tmp/binupstream"
+make_gh_stub "$ustub"
+uout=$(PATH="$ustub:$PATH" "$STATE" "$uspec") || fail "upstream-base: engine exited non-zero"
+assert_state "$uout" 1 completed "upstream-base: trailer via main@{upstream} still derives completed"
+assert_evidence "$uout" 1 trailer "upstream-base: completion evidence is the trailer"
+assert_state "$uout" 2 ready "upstream-base: dependent task 2 is met → ready (not re-dispatched)"
+echo "ok: a trailer on origin/main is seen via main@{upstream} while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
+# 6s. LOCAL UPSTREAM IS NOT A REMOTE-TRACKING COUNTERPART — the union scan adds
+#     base's *remote-tracking* counterpart, but `base@{upstream}` can resolve to
+#     a LOCAL branch (branch.main.remote=`.`, an operator who set main's upstream
+#     to a local integration branch). A trailer on that local branch never
+#     reached the remote, so honoring it would falsely complete a task and
+#     suppress its re-dispatch. The engine must reject a non-refs/remotes/*
+#     upstream and fall back to a base-only scan. Regression guard paired with
+#     6q/6r (which cover the legitimate remote-tracking paths).
+# ---------------------------------------------------------------------------
+lurepo="$tmp/localupstream"
+luspec="$lurepo/specs/demo"
+mkdir -p "$luspec"
+gitc_init "$lurepo"
+cat >"$luspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — trailer lives on a LOCAL upstream branch, not on main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$lurepo" add -A
+gitc "$lurepo" commit -q -m "base"
+# Build a local `integration` branch carrying the trailer, point main's upstream
+# at it (sets branch.main.remote=`.`), and leave main WITHOUT the trailer. No
+# origin remote exists, so this is unambiguously a LOCAL upstream — not the
+# remote-tracking counterpart the union scan is meant to add.
+gitc "$lurepo" checkout -q -b integration
+gitc "$lurepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+gitc "$lurepo" checkout -q main
+gitc "$lurepo" branch --set-upstream-to=integration main >/dev/null 2>&1
+# Sanity-check the fixture: main@{upstream} resolves to the LOCAL integration
+# branch, a base-only scan of main does NOT see the trailer, but a UNION scan of
+# `main integration` WOULD — so only the remote-tracking guard prevents the false
+# completion (otherwise this test would pass even on an unguarded union scan).
+luupstream=$(gitc "$lurepo" rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null)
+[ "$luupstream" = "integration" ] \
+  || fail "local-upstream: fixture invalid — main@{upstream} is '$luupstream', not integration"
+lubase_only=$(gitc "$lurepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$lubase_only" ] \
+  || fail "local-upstream: fixture invalid — local main already carries the trailer"
+luunion=$(gitc "$lurepo" log main integration --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -n "$luunion" ] \
+  || fail "local-upstream: fixture invalid — union scan would not see the trailer either"
+luout=$("$STATE" "$luspec") || fail "local-upstream: engine exited non-zero"
+assert_state "$luout" 1 ready "local-upstream: a trailer on a LOCAL upstream does NOT complete task 1 (guard → base-only scan)"
+assert_state "$luout" 2 blocked "local-upstream: task 2 stays blocked while task 1 is not complete"
+echo "ok: a local (non-remote-tracking) upstream is rejected; its trailer does not falsely complete (union guard)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0
