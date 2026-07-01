@@ -50,8 +50,12 @@ D-9: never ship a lifecycle state with no exit.
 - **Citations:** D-1, D-8 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
 
+## In progress
+
 ### Task 8 — Migration sweep + docs + changelog reconcile
 
+- **Status:** PR #99 draft
+- **Last activity:** 2026-06-30
 - **Deliverables:** a one-time migration applying the derived rule to existing
   bundles (Active-with-no-progress → Ready; for example `orchestration-concurrency`,
   and `orchestration-fleet` if merged by adoption); the sweep iterates `specs/*/`
@@ -71,34 +75,6 @@ D-9: never ship a lifecycle state with no exit.
 - **Dependencies:** Task 2, Task 4, Task 6.
 - **Citations:** D-4 · REQ-A1.7
 - **Estimated effort:** half day
-
-## In progress
-
-### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
-
-- **Status:** PR #98 draft
-- **Last activity:** 2026-06-30
-- **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
-  the terminal step of clean completion, after the configured verification has
-  converged; it does not flip if sign-off parked on a fork or verification did not
-  converge, and never auto-merges. A config opt-out `mark_spec_pr_ready_on_kickoff`
-  (default true) added to `config/defaults.yml` with a row in
-  `docs/options-reference.md`. `Bash(gh pr ready:*)` moved from `deny` to `allow` in
-  `config/worker-settings.json` — the runtime half of the bootstrap D-26 supersede;
-  without it the denied command blocks the skill-driven flip. The flip restricted to
-  the spec PR, sequenced after
-  the configurable `review_sequence` verification (D-7); no new "gauntlet"
-  documentation is added — "gauntlet" stays an informal label for `review_sequence`
-  (already documented via its options-reference row and `/execute-task`), per D-7.
-- **Done when:** on clean completion the spec PR is ready; a parked/forked
-  completion leaves it draft; task PRs are unaffected; the opt-out suppresses the
-  flip; a ready-flip failure degrades to Awaiting input (bootstrap REQ-K1.6/K1.7);
-  no auto-merge path exists; `gh pr ready` is permitted by
-  `config/worker-settings.json` (no longer denied); the option is documented and
-  `scripts/check-options-reference.sh` passes.
-- **Dependencies:** Task 3.
-- **Citations:** D-6, D-7 · REQ-D1.2, REQ-D1.3, REQ-D1.5
-- **Estimated effort:** 1 day
 
 ## Awaiting input
 
@@ -182,6 +158,31 @@ D-9: never ship a lifecycle state with no exit.
   half-wired; this transitively sequences Task 3 after `orchestration-concurrency`).
 - **Citations:** D-1, D-2, D-6, D-7, D-9 · REQ-D1.1, REQ-A1.4, REQ-D1.4, REQ-A1.6, REQ-A1.8
 - **Estimated effort:** half day
+
+### Task 4 — `/spec-kickoff` marks the spec PR ready (terminal step) + bootstrap D-26 exception
+
+- **Status:** Completed — PR #98 merged 2026-06-30 (merge commit `003718f`).
+- **Deliverables:** the `spec-kickoff` skill marks the spec PR ready (un-draft) as
+  the terminal step of clean completion, after the configured verification has
+  converged; it does not flip if sign-off parked on a fork or verification did not
+  converge, and never auto-merges. A config opt-out `mark_spec_pr_ready_on_kickoff`
+  (default true) added to `config/defaults.yml` with a row in
+  `docs/options-reference.md`. `Bash(gh pr ready:*)` moved from `deny` to `allow` in
+  `config/worker-settings.json` — the runtime half of the bootstrap D-26 supersede;
+  without it the denied command blocks the skill-driven flip. The flip restricted to
+  the spec PR, sequenced after
+  the configurable `review_sequence` verification (D-7); no new "gauntlet"
+  documentation is added — "gauntlet" stays an informal label for `review_sequence`
+  (already documented via its options-reference row and `/execute-task`), per D-7.
+- **Done when:** on clean completion the spec PR is ready; a parked/forked
+  completion leaves it draft; task PRs are unaffected; the opt-out suppresses the
+  flip; a ready-flip failure degrades to Awaiting input (bootstrap REQ-K1.6/K1.7);
+  no auto-merge path exists; `gh pr ready` is permitted by
+  `config/worker-settings.json` (no longer denied); the option is documented and
+  `scripts/check-options-reference.sh` passes.
+- **Dependencies:** Task 3.
+- **Citations:** D-6, D-7 · REQ-D1.2, REQ-D1.3, REQ-D1.5
+- **Estimated effort:** 1 day
 
 ## Deferred
 

@@ -108,15 +108,15 @@ human-reserved, permanently:
 Between them, the intervention contract has three phases: sign-off before
 execution, rare hard pauses during it (security-sensitive zones, destructive
 operations, irreducible judgment forks), and review plus merge after. Invariants
-the framework holds everywhere: never auto-merge; never act on a non-Active spec;
-never force-push, amend, squash, or rebase (new commits only).
+the framework holds everywhere: never auto-merge; never act on a spec that is not
+Ready or Active; never force-push, amend, squash, or rebase (new commits only).
 
 ### The four-file spec
 
 Every feature lives in `specs/<feature>/` as four files:
 
 - `requirements.md` — what must be true (REQ-IDs), with a `Status:` that moves
-  `Draft` → `Active` → `Done`.
+  `Draft` → `Ready` → `Active` → `Done`.
 - `design.md` — the decisions and the alternatives weighed (D-IDs).
 - `tasks.md` — the work as stable-ID tasks with `Done when:` / `Dependencies:`;
   it doubles as the orchestration ledger.
@@ -132,7 +132,7 @@ planwright ships ten skills; each is a slash command in Claude Code.
 | Stage | Command | What it does |
 | --- | --- | --- |
 | **Author** | `/spec-draft` | Interactively elicit a four-file spec bundle (Status Draft). |
-| | `/spec-kickoff` | Walk a spec to sign-off and flip it Active. *(your first control)* |
+| | `/spec-kickoff` | Walk a spec to sign-off and flip it Ready. *(your first control)* |
 | | `/spec-walkthrough` | Render a spec into a plain-language artifact for an unaided cold read. |
 | **Execute** | `/orchestrate` | Pick the next ready task, create its worktree, dispatch execution. |
 | | `/execute-task` | Test-first build of one task → full CI → draft PR. |

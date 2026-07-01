@@ -385,3 +385,25 @@ Status: no flip (already Active; delta re-walk on an in-flight bundle).
 under Active enforcement: clean.
 Anchor: `ec8581af562b22a9905cbdae11ae132a94a72da1` — computed as
 `scripts/spec-anchor.sh specs/kickoff-lifecycle`
+
+### Expression-only self-re-anchor (2026-06-30, Task 8 execution)
+
+Machine-written entry per REQ-F1.10's expression-only lane (the one anchor entry
+an execution skill may write). Task 8 landed its migration + docs deliverable
+(REQ-A1.7, D-4): `scripts/migrate-status-lifecycle.sh` (the one-time adoption
+sweep), a status-only arm of the single reconcile writer
+(`tasks-pr-sync.sh reconcile-status`), the six-status doc updates (README,
+getting-started, CONTRIBUTING, the spec-draft skill description), and their
+tests. The only edit to a kickoff-lifecycle anchored file is a dated
+`## Changelog` entry in `requirements.md` documenting the work
+(`spec-anchor.sh` hashes requirements.md whole-file, so the entry moves the
+anchor `ec8581af…`→`e16fc708…`); the scripts/tests/docs edits are outside the
+four anchored files, and the Task 8 `tasks.md` In-progress move plus the Task 4
+ledger reconcile are anchor-excluded state annotations. This is gap-fill within
+the accepted decisions (D-4) — it contradicts no decision and alters no REQ's
+meaning. Changelog: requirements.md `## Changelog`, entry "2026-06-30: Task 8
+implementation (migration sweep + docs + changelog reconcile)".
+
+Class: expression-only
+Anchor: `e16fc708fe613aba985d8d0dbf6ab794d452126a` — computed as
+`scripts/spec-anchor.sh specs/kickoff-lifecycle`

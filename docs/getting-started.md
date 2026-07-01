@@ -132,11 +132,12 @@ You drive these in order; planwright does the work between your two controls:
 
 1. **`/spec-draft <feature>`** — elicit the four-file spec bundle
    (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`) at Status
-   `Draft`. Never commits a flip to Active.
+   `Draft`. Never commits a flip to Ready.
 2. **`/spec-kickoff <spec-path>`** — walk the spec to mutual understanding,
    producing the signed-off **kickoff brief** (the durable contract every
-   downstream skill executes from). On your sign-off it flips Draft → Active.
-   *This is your first control.*
+   downstream skill executes from). On your sign-off it flips Draft → Ready
+   (signed off and executable, nothing started); the first dispatch derives
+   Ready → Active. *This is your first control.*
 3. **`/orchestrate <spec-path>`** — pick the next ready task, create or reuse its
    worktree, and dispatch execution. Stateless: one step per invocation; run it
    in several sessions for intra-spec parallelism. Never merges, never marks a
@@ -158,8 +159,9 @@ three are read-only.
 
 ### Invariants the framework holds everywhere
 
-Never auto-merge; never act on a non-Active spec; never force-push, amend,
-squash, or rebase (new commits only); all framework-created PRs are drafts.
+Never auto-merge; never act on a spec that is not Ready or Active; never
+force-push, amend, squash, or rebase (new commits only); all framework-created
+PRs are drafts.
 These are constraints, not future capabilities.
 
 ## 4. Supplying your own tooling and rigor (without editing core)
