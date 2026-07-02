@@ -270,10 +270,12 @@ stale forwarded agent socket once broke commit signing across every worker.
 
 Dispatch the unit's `/execute-task <ids>` into its worktree via the configured
 backend (`scripts/config-get.sh dispatch_backend`, overridable with
-`--backend`). Each backend advertises a capability set and the tower adapts to
-what is advertised, not to the backend's name — see the
-[backend capability contract](../../doctrine/backend-capability-contract.md) for
-the capabilities, the advertised set, and the backends below mapped to it.
+`--backend`). Each backend advertises a capability set; the
+[backend capability contract](../../doctrine/backend-capability-contract.md)
+(D-2) defines how the tower is to adapt to what is advertised rather than to the
+backend's name (the per-backend guidance below is the current, still name-keyed
+dispatch, pending that wiring). See it for the capabilities, the advertised set,
+and the backends below mapped to it.
 Concurrency is capped by `max_parallel_units` (default 3, via
 config-get): if that many units already derive **In progress** for this spec —
 counted from the live derivation (`scripts/orchestrate-state.sh`, which sees the

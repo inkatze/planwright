@@ -23,9 +23,11 @@ commit_on_state_move: true
 # value.
 mark_spec_pr_ready_on_kickoff: true
 
-# Dispatch layer (D-38, REQ-F1.8). Each backend value advertises a capability
-# set per doctrine/backend-capability-contract.md (D-2); the orchestrator adapts
-# to what is advertised rather than special-casing backends by name.
+# Dispatch layer (D-38, REQ-F1.8). Each backend value maps to an advertised
+# capability set defined by doctrine/backend-capability-contract.md (D-2), which
+# specifies how the orchestrator is to adapt to what is advertised rather than
+# special-casing backends by name (contract defined there; the dispatch layer is
+# still backend-keyed pending that wiring).
 dispatch_backend: subagent
 max_parallel_units: 3
 
