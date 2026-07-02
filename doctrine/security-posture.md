@@ -55,8 +55,10 @@ stricter bar than the code they help review:
   parsed identifiers) is stripped of non-printable bytes before it is echoed,
   so an embedded escape sequence cannot drive the terminal. The canonical
   sanitizer is `scripts/echo-safety.sh` (`sanitize_printable`), sourced by the
-  framework scripts; the awk `gsub(/[^[:print:]]/, "")` header parsers are its
-  in-awk form.
+  migrated command-tier callers (`spec-validate.sh`, `spec-walkthrough.sh`);
+  `spec-assemble.sh` (deliberately self-contained) and `spec-scope.sh` (a
+  tracked follow-up) keep inline copies. The awk `gsub(/[^[:print:]]/, "")`
+  header parsers are its in-awk form.
 - **Stay auditable.** Scripts are plain portable shell, small enough to
   read before trusting, and gated by planwright's self-hosting quality
   guards (shell lint and secret scan, per the dogfooding decision D-32).

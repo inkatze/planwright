@@ -1,6 +1,9 @@
 # shellcheck shell=sh
 # echo-safety.sh — the canonical echo-discipline sanitizer for planwright's
-# framework scripts (sourced, never executed).
+# framework scripts (sourced, never executed). Sourced today by the migrated
+# command-tier callers (spec-validate.sh, spec-walkthrough.sh); spec-assemble.sh
+# (deliberately self-contained) and spec-scope.sh (a tracked follow-up) keep
+# byte-identical inline copies.
 #
 # Echo discipline (doctrine/security-posture.md, "Framework-script security"):
 # untrusted content — spec-file values, branch names, parsed identifiers — must
@@ -20,9 +23,9 @@
 # under the pinned C locale; it cannot call this sourced shell function and is
 # intentionally left in place.
 sanitize_printable() {
-  sp=$(printf '%s' "$1" | tr -d '\000-\037\177')
-  if [ -z "$sp" ] && [ $# -ge 2 ]; then
-    sp=$2
+  _sp=$(printf '%s' "$1" | tr -d '\000-\037\177')
+  if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+    _sp=$2
   fi
-  printf '%s' "$sp"
+  printf '%s' "$_sp"
 }
