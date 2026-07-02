@@ -1,6 +1,6 @@
 # Kickoff Lifecycle — Requirements
 
-**Status:** Active
+**Status:** Done
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -254,6 +254,18 @@ second writer of derived state to drift.
 
 ## Changelog
 
+- 2026-06-30: Task 8 implementation (migration sweep + docs + changelog
+  reconcile). Added `scripts/migrate-status-lifecycle.sh`, the one-time adoption
+  sweep that reconciles each bundle's `Status:` header to its derived value
+  (Active-with-no-progress → Ready; started → Active; Done by precedence),
+  excluding underscore accumulators, idempotent, skipping malformed bundles with
+  a per-path report (REQ-A1.7, D-4). The sweep drives a new status-only arm of
+  the single reconcile writer (`tasks-pr-sync.sh reconcile-status`, `do_status`)
+  so a corpus sweep never rewrites task placement in legacy bundles — no second
+  Status writer is introduced. `README.md`, `docs/getting-started.md`,
+  `docs/CONTRIBUTING.md`, and the `spec-draft` skill description updated to the
+  Draft → Ready → Active → Done model. Verified no-op over the live corpus
+  (orchestration-concurrency → Done, orchestration-fleet → Ready).
 - 2026-06-28: Task 1 implementation (meta-spec six-status lifecycle + bootstrap
   supersede pointers). `doctrine/spec-format.md` status table, transitions,
   validator-invariants, and glossary updated to the Draft → Ready → Active → Done

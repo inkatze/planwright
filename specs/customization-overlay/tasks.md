@@ -177,13 +177,13 @@ T4, T5 each depend on T2. T6 depends on T3. T7 depends on T3, T4, T5, T6.
 
 - **Doctrine fragment/section merge.** Whole-doc shadow (D-5) covers v1;
   splicing overlay sections into a core doc is drift-prone and deferred.
-  Confidence: high. **Gate:** GATE(when: a concrete adopter need for
-  partial-doc override is observed in the drain loop). Citations: D-5,
+  Confidence: high. **Gate:** a concrete adopter need for
+  partial-doc override is observed in the drain loop. Citations: D-5,
   REQ-B1.2.
 - **Aggregate `overlay explain` tool.** Per-resolver `--explain` (D-9) covers
   v1; a single cross-kind provenance command can follow if demand appears.
-  Confidence: medium. **Gate:** GATE(when: per-resolver provenance proves
-  insufficient in practice). Citations: D-9, REQ-B1.6.
+  Confidence: medium. **Gate:** per-resolver provenance proves
+  insufficient in practice. Citations: D-9, REQ-B1.6.
 
 ## Out of scope
 

@@ -3,11 +3,13 @@
 # trailers onto a commit message (Task 2, REQ-C1.4, D-2).
 #
 # The trailer is planwright's durable, cross-flow completion anchor: it
-# survives branch deletion and solo direct-to-`main` commits, and Task 1's
-# derivation engine reads it through git's native trailer mechanism
-# (`git log --format='%(trailers:key=Planwright-Task)'`). This helper is the
-# one shared place that emits it, so `/execute-task` and any manual/solo
-# committer produce the identical, well-formed trailer.
+# survives branch deletion and solo direct-to-`main` commits. This helper
+# emits it in the footer; Task 1's derivation engine reads it by scanning the
+# whole commit message for `Planwright-Task:` lines (not git's footer-only
+# `%(trailers)`), so the anchor is still recognized when a squash/rebase merge
+# relocates it mid-body. This helper is the one shared place that emits it, so
+# `/execute-task` and any manual/solo committer produce the identical,
+# well-formed trailer.
 #
 # Usage:
 #   planwright-commit-trailers.sh <spec>/<id> [<spec>/<id> ...] < message

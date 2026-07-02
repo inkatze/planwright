@@ -702,6 +702,275 @@ grep -q -- '--limit' "$alog" \
 echo "ok: the gh PR probe passes an explicit --limit (no default-page truncation)"
 
 # ---------------------------------------------------------------------------
+# 6o. squash/rebase-merge RELOCATED trailer — a squash merge concatenates the
+#     constituent commits' messages, so a Planwright-Task trailer that was a
+#     proper footer on its original commit lands MID-BODY in the squashed
+#     message (content follows it). git's %(trailers) parses only the last
+#     paragraph, so it misses a relocated trailer; the engine must scan the
+#     whole message (%B) and still derive completion — regardless of how the PR
+#     was merged or what the branch was named. Regression guard for the
+#     footer-only read that failed grammar-backed-explain Task 1 in paycalc-
+#     services (PR squash-merged from a non-convention branch: the gh head-ref
+#     mapping found no match AND the trailer was mid-body → task mis-derived).
+# ---------------------------------------------------------------------------
+srepo="$tmp/squashtrailer"
+sspec="$srepo/specs/demo"
+mkdir -p "$sspec"
+gitc_init "$srepo"
+cat >"$sspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via a trailer the squash pushed mid-body
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$srepo" add -A
+gitc "$srepo" commit -q -m "base"
+# A squash-style message: subject, then the trailer, then MORE body after it, so
+# the trailer is no longer in the last paragraph (where %(trailers) looks). No
+# task branch and no remote — the trailer is the only completion anchor, exactly
+# the paycalc-services shape.
+gitc "$srepo" commit -q --allow-empty \
+  -m "squashed: task 1 work (STEAI-834)" \
+  -m "Planwright-Task: demo/1" \
+  -m "trailing body paragraph the squash appended after the trailer"
+# Sanity-check the fixture actually reproduces the bug: footer-only parsing must
+# NOT see the relocated trailer (otherwise the test would pass on the old code).
+footer_only=$(gitc "$srepo" log HEAD --format='%(trailers:key=Planwright-Task,valueonly)')
+[ -z "$footer_only" ] \
+  || fail "squash-trailer: fixture invalid — %(trailers) already sees the relocated trailer"
+sout=$("$STATE" "$sspec") || fail "squash-trailer: engine exited non-zero"
+assert_state "$sout" 1 completed "squash-trailer: relocated mid-body trailer still derives completed"
+assert_evidence "$sout" 1 trailer "squash-trailer: completion evidence is the trailer"
+assert_state "$sout" 2 ready "squash-trailer: dependent task 1 is met → task 2 ready (not re-dispatched)"
+echo "ok: a squash-relocated mid-body trailer is recognized (whole-message scan)"
+
+# ---------------------------------------------------------------------------
+# 6p. case-insensitive trailer key — git's own trailer parser treats keys
+#     case-insensitively, so %(trailers:key=Planwright-Task) matched a
+#     lowercased `planwright-task:` footer. The whole-message scan must preserve
+#     that (an awk tolower() match, not a case-sensitive `sed '^Planwright-Task:'`)
+#     so switching the reader does not silently narrow what completes. Guards the
+#     case-sensitivity regression the panel review reproduced.
+# ---------------------------------------------------------------------------
+crepo2="$tmp/casekey"
+cspec2="$crepo2/specs/demo"
+mkdir -p "$cspec2"
+gitc_init "$crepo2"
+cat >"$cspec2/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — completed via a lowercased trailer key
+- **Dependencies:** none
+EOF
+gitc "$crepo2" add -A
+gitc "$crepo2" commit -q -m "base"
+# A lowercased key in footer position — git's %(trailers) would have matched it.
+gitc "$crepo2" commit -q --allow-empty -m "task 1 work" -m "planwright-task: demo/1"
+cout2=$("$STATE" "$cspec2") || fail "case-key: engine exited non-zero"
+assert_state "$cout2" 1 completed "case-key: lowercased planwright-task: still completes (git parity)"
+assert_evidence "$cout2" 1 trailer "case-key: completion evidence is the trailer"
+echo "ok: a case-variant trailer key is recognized (git-parity, no regression)"
+
+# ---------------------------------------------------------------------------
+# 6q. STALE LOCAL BASE — the trailer of a merged PR reaches the remote first. If
+#     orchestrate runs before a fetch has fast-forwarded local main, the
+#     Planwright-Task trailer sits on origin/main but NOT on local main, so a
+#     base-only scan misses it and the merged task is re-dispatched. The engine
+#     must scan the UNION of base and its remote-tracking counterpart so
+#     completion survives the lag. Regression guard for the paycalc-services
+#     grammar-backed-explain case #102's whole-message scan did NOT cover: the
+#     trailer read was correct, but it was pointed at a stale local main while
+#     the merged trailer lived on the (already-fetched) origin/main.
+# ---------------------------------------------------------------------------
+lrepo="$tmp/stalebase"
+lspec="$lrepo/specs/demo"
+mkdir -p "$lspec"
+gitc_init "$lrepo"
+cat >"$lspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged on the remote, not yet on local main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$lrepo" add -A
+gitc "$lrepo" commit -q -m "base"
+# Build the merged commit (carrying the trailer), record it as the remote-tracking
+# ref origin/main, then move LOCAL main back one commit so it lags the remote —
+# the untracked-local-main shape. No remote is configured (the gh probe misses a
+# non-convention head ref anyway, so the trailer is the only anchor either way),
+# and main has no @{upstream}, so the origin/<base> fallback is what must fire.
+gitc "$lrepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+merged_sha=$(gitc "$lrepo" rev-parse HEAD)
+gitc "$lrepo" update-ref refs/remotes/origin/main "$merged_sha"
+gitc "$lrepo" reset -q --hard HEAD~1
+# Sanity-check the fixture reproduces the bug: a base-only scan of local main must
+# NOT see the trailer (otherwise the test would pass on the pre-fix, base-only read).
+base_only=$(gitc "$lrepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$base_only" ] \
+  || fail "stale-base: fixture invalid — local main already carries the trailer"
+lout=$("$STATE" "$lspec") || fail "stale-base: engine exited non-zero"
+assert_state "$lout" 1 completed "stale-base: trailer on origin/main (not local main) still derives completed"
+assert_evidence "$lout" 1 trailer "stale-base: completion evidence is the trailer"
+assert_state "$lout" 2 ready "stale-base: dependent task 2 is met → ready (not re-dispatched)"
+echo "ok: a trailer merged to origin/main is seen while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
+# 6r. STALE LOCAL BASE, CONFIGURED UPSTREAM — the sibling of 6q. Here local main
+#     *tracks* origin/main (the common shape: a normal clone's main), so the
+#     remote-tracking ref is resolved via `main@{upstream}`, NOT the origin/<base>
+#     string fallback 6q exercises. Both derivation branches of the new union
+#     scan must recognize a trailer that reached origin/main before a fetch
+#     fast-forwarded local main. Without this, only the fallback path had a
+#     regression guard.
+# ---------------------------------------------------------------------------
+urepo="$tmp/upstreambase"
+uspec="$urepo/specs/demo"
+mkdir -p "$uspec"
+gitc_init "$urepo"
+cat >"$uspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged on the remote, not yet on local main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$urepo" add -A
+gitc "$urepo" commit -q -m "base"
+# A remote (adding it sets the default +refs/heads/*:refs/remotes/origin/* fetch
+# refspec that lets @{upstream} resolve to a remote-tracking ref). Build the
+# merged commit carrying the trailer, record it as origin/main, set local main to
+# track origin/main, then move local main back one commit so it lags — the
+# tracked-local-main shape. The gh probe still misses (non-convention head ref),
+# so the trailer is the only anchor, and main@{upstream} is what must fire here.
+gitc "$urepo" remote add origin https://example.invalid/demo.git
+gitc "$urepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+umerged_sha=$(gitc "$urepo" rev-parse HEAD)
+gitc "$urepo" update-ref refs/remotes/origin/main "$umerged_sha"
+gitc "$urepo" branch --set-upstream-to=origin/main main >/dev/null 2>&1
+gitc "$urepo" reset -q --hard HEAD~1
+# Sanity-check the fixture exercises the @{upstream} branch (not the fallback):
+# main must resolve an upstream, and a base-only scan must NOT see the trailer.
+upstream_of_main=$(gitc "$urepo" rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null)
+[ "$upstream_of_main" = "origin/main" ] \
+  || fail "upstream-base: fixture invalid — main@{upstream} is '$upstream_of_main', not origin/main"
+ubase_only=$(gitc "$urepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$ubase_only" ] \
+  || fail "upstream-base: fixture invalid — local main already carries the trailer"
+# The fixture adds a real origin remote, so `have_remote=1` and the engine would
+# invoke the real gh binary against example.invalid without a stub (non-hermetic).
+# The head-ref map misses either way (non-convention branch), so stub gh to an
+# empty result, matching the suite convention for remote-adding tests above.
+ustub="$tmp/binupstream"
+make_gh_stub "$ustub"
+uout=$(PATH="$ustub:$PATH" "$STATE" "$uspec") || fail "upstream-base: engine exited non-zero"
+assert_state "$uout" 1 completed "upstream-base: trailer via main@{upstream} still derives completed"
+assert_evidence "$uout" 1 trailer "upstream-base: completion evidence is the trailer"
+assert_state "$uout" 2 ready "upstream-base: dependent task 2 is met → ready (not re-dispatched)"
+echo "ok: a trailer on origin/main is seen via main@{upstream} while local main is stale (union scan)"
+
+# ---------------------------------------------------------------------------
+# 6s. LOCAL UPSTREAM IS NOT A REMOTE-TRACKING COUNTERPART — the union scan adds
+#     base's *remote-tracking* counterpart, but `base@{upstream}` can resolve to
+#     a LOCAL branch (branch.main.remote=`.`, an operator who set main's upstream
+#     to a local integration branch). A trailer on that local branch never
+#     reached the remote, so honoring it would falsely complete a task and
+#     suppress its re-dispatch. The engine must reject a non-refs/remotes/*
+#     upstream and fall back to a base-only scan. Regression guard paired with
+#     6q/6r (which cover the legitimate remote-tracking paths).
+# ---------------------------------------------------------------------------
+lurepo="$tmp/localupstream"
+luspec="$lurepo/specs/demo"
+mkdir -p "$luspec"
+gitc_init "$lurepo"
+cat >"$luspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — trailer lives on a LOCAL upstream branch, not on main
+- **Dependencies:** none
+### Task 2 — depends on task 1
+- **Dependencies:** 1
+EOF
+gitc "$lurepo" add -A
+gitc "$lurepo" commit -q -m "base"
+# Build a local `integration` branch carrying the trailer, point main's upstream
+# at it (sets branch.main.remote=`.`), and leave main WITHOUT the trailer. No
+# origin remote exists, so this is unambiguously a LOCAL upstream — not the
+# remote-tracking counterpart the union scan is meant to add.
+gitc "$lurepo" checkout -q -b integration
+gitc "$lurepo" commit -q --allow-empty -m "task 1 work (STEAI-999)" -m "Planwright-Task: demo/1"
+gitc "$lurepo" checkout -q main
+gitc "$lurepo" branch --set-upstream-to=integration main >/dev/null 2>&1
+# Sanity-check the fixture: main@{upstream} resolves to the LOCAL integration
+# branch, a base-only scan of main does NOT see the trailer, but a UNION scan of
+# `main integration` WOULD — so only the remote-tracking guard prevents the false
+# completion (otherwise this test would pass even on an unguarded union scan).
+luupstream=$(gitc "$lurepo" rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null)
+[ "$luupstream" = "integration" ] \
+  || fail "local-upstream: fixture invalid — main@{upstream} is '$luupstream', not integration"
+lubase_only=$(gitc "$lurepo" log main --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -z "$lubase_only" ] \
+  || fail "local-upstream: fixture invalid — local main already carries the trailer"
+luunion=$(gitc "$lurepo" log main integration --format='%B' \
+  | awk 'tolower($0) ~ /^planwright-task:[[:space:]]*/ { print }')
+[ -n "$luunion" ] \
+  || fail "local-upstream: fixture invalid — union scan would not see the trailer either"
+luout=$("$STATE" "$luspec") || fail "local-upstream: engine exited non-zero"
+assert_state "$luout" 1 ready "local-upstream: a trailer on a LOCAL upstream does NOT complete task 1 (guard → base-only scan)"
+assert_state "$luout" 2 blocked "local-upstream: task 2 stays blocked while task 1 is not complete"
+echo "ok: a local (non-remote-tracking) upstream is rejected; its trailer does not falsely complete (union guard)"
+
+# ---------------------------------------------------------------------------
+# 6t. dependency trailing-period tolerance — a prose dependency list commonly
+#     ends its final entry with a period ("...Task 13."). On a MULTI-dependency
+#     line an earlier token still yields a valid id, so the task keeps a real
+#     dependency; but on a SINGLE-dependency line the only id carries the period,
+#     fails the id grammar, is dropped, and the line silently parses to zero deps
+#     — so the task resolves ready and is dispatched BEFORE its prerequisite is
+#     complete. The engine must strip a trailing period so the id is recognized.
+#     A dotted id (n.m) ends in a digit, so the strip only ever removes sentence
+#     punctuation. Regression guard for the single-dependency fail-open reported
+#     against grammar-backed-explain (Task 14 dep "Task 13.", Task 15 dep "Task 3.").
+# ---------------------------------------------------------------------------
+prepo="$tmp/depperiod"
+pspec="$prepo/specs/demo"
+mkdir -p "$pspec"
+gitc_init "$prepo"
+cat >"$pspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — prerequisite, not complete
+- **Dependencies:** none
+### Task 14 — single prose dependency ending in a period
+- **Dependencies:** Task 1.
+### Task 15 — single bare id ending in a period
+- **Dependencies:** 1.
+### Task 19 — dotted id ending in a period (the period must not eat the id)
+- **Dependencies:** 1.2.
+EOF
+gitc "$prepo" add -A
+gitc "$prepo" commit -q -m "base"
+pout=$("$STATE" "$pspec") || fail "dep-period: engine exited non-zero"
+# Task 1 is not complete, so anything depending on it must be blocked, never ready.
+assert_state "$pout" 1 ready "dep-period: prerequisite with no deps is ready"
+assert_state "$pout" 14 blocked "dep-period: single prose dep 'Task 1.' → dep 1 recognized → blocked (not ready)"
+assert_evidence "$pout" 14 deps-unmet "dep-period: task 14 is blocked on its real, unmet dependency"
+assert_state "$pout" 15 blocked "dep-period: single bare id '1.' → dep 1 recognized → blocked (not ready)"
+# The bare-id-with-period case is now clean (no stray prose), so it must NOT be
+# flagged as malformed — the period alone is not a grammar violation.
+has_record "$pout" malformed-deps 15 \
+  && fail "dep-period: a bare id with a trailing period was wrongly flagged malformed"
+assert_state "$pout" 19 blocked "dep-period: dotted id '1.2.' keeps id 1.2 (period stripped, digit preserved) → blocked on unmet 1.2"
+echo "ok: a trailing period on a single-dependency line no longer fails open (id recognized)"
+
+# ---------------------------------------------------------------------------
 # 7. fail-closed on a missing / taskless bundle (matches the sibling scripts).
 # ---------------------------------------------------------------------------
 rc=0

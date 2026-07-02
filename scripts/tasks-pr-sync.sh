@@ -596,6 +596,56 @@ do_placement() {
   return 1
 }
 
+# do_status_only <canonical-spec-dir>: derive the bundle Status from the
+# task-state evidence and reconcile ONLY the **Status:** header across the four
+# spec files, leaving task placement untouched. This is the status-only arm of
+# the single reconcile writer (do_status, kickoff-lifecycle Task 6): the one-time
+# adoption migration (Task 8; REQ-A1.7, D-4) drives it per bundle so an
+# Active-with-no-progress bundle migrates to Ready without the placement rewrite
+# (do_placement) relocating task blocks in legacy bundles whose git evidence has
+# aged out (e.g. a Done bundle with a deleted task branch derives `ready`). It
+# introduces NO second writer of derived Status — do_status stays the sole
+# writer; this only reaches it without the coupled placement rewrite. All of
+# do_status's guards apply verbatim (Draft / Retired / Superseded left alone; a
+# stored-Done bundle never reopened to Ready/Active). Returns 0 on success or a
+# no-op, 1 on a derivation, projection, or mirror failure.
+do_status_only() {
+  dso_dir=$1
+  dso_tasks="$dso_dir/tasks.md"
+  if [ ! -f "$dso_tasks" ]; then
+    log "no tasks.md in $dso_dir; skipping"
+    return 1
+  fi
+  if [ -L "$dso_tasks" ]; then
+    log "refusing symlinked tasks.md in $dso_dir"
+    return 1
+  fi
+  # Derive each task's state (the Task 1 backbone). A non-zero exit (taskless /
+  # unreadable / invalid spec id) means there is no truth to derive from: leave
+  # the headers untouched and report the failure to the caller. Same discipline
+  # as do_placement's derivation guard.
+  dso_raw=$(mktemp "${TMPDIR:-/tmp}/tasks-pr-sync-state.XXXXXX") || return 1
+  if ! "$state_sh" "$dso_dir" >"$dso_raw" 2>/dev/null; then
+    rm -f "$dso_raw"
+    log "derivation failed for $dso_dir; status unchanged"
+    return 1
+  fi
+  dso_map=$(mktemp "${TMPDIR:-/tmp}/tasks-pr-sync-map.XXXXXX") || {
+    rm -f "$dso_raw"
+    return 1
+  }
+  if ! awk -F'\t' '$1 == "task" { print $2 "\t" $3 }' "$dso_raw" >"$dso_map"; then
+    rm -f "$dso_raw" "$dso_map"
+    log "state projection failed for $dso_dir; status unchanged"
+    return 1
+  fi
+  rm -f "$dso_raw"
+  do_status "$dso_dir" "$dso_map"
+  dso_rc=$?
+  rm -f "$dso_map"
+  return $dso_rc
+}
+
 # The held lock dir for the EXIT/signal trap (empty when nothing is held).
 rr_lockdir=""
 # shellcheck disable=SC2329 # invoked indirectly via the EXIT trap in run_reconcile
@@ -607,14 +657,22 @@ rm_lock_and_tmp() {
   [ -n "$wsh_tmp" ] && rm -f "$wsh_tmp"
 }
 
-# run_reconcile <canonical-spec-dir> <policy>: acquire the shared lock, run
-# do_placement under it, release. policy is `soft` (hook: any acquire failure
+# run_reconcile <canonical-spec-dir> <policy> [op]: acquire the shared lock, run
+# the reconcile op under it, release. policy is `soft` (hook: any acquire failure
 # or broken install is a clean no-op) or `closed` (CLI: a broken install or a
-# lock error returns 2). Returns 0 on a clean run/no-op/soft-skip, 2 on a
-# fail-closed error.
+# lock error returns 2). op is `placement` (default: the full placement + Status
+# reconcile, do_placement) or `status` (the status-only arm, do_status_only —
+# the Status header without the placement rewrite, the migration's path). Both
+# ops need the same lock and derivation primitives, so the broken-install checks
+# below cover them alike. Returns 0 on a clean run/no-op/soft-skip; 2 on a
+# fail-closed setup error (a broken install or lock error under the closed
+# policy); and 1 when the status+closed arm propagates an in-writer op failure
+# (do_status_only returned non-zero — a derivation, projection, or mirror
+# failure; see the arm below).
 run_reconcile() {
   rr_dir=$1
   rr_policy=$2
+  rr_op=${3:-placement}
   if [ ! -x "$lock_sh" ]; then
     log "lock primitive '$lock_sh' missing or not executable; skipping (bookkeeping reconciles)"
     [ "$rr_policy" = closed ] && return 2
@@ -650,7 +708,11 @@ run_reconcile() {
   tmpf=""
   trap 'rm_lock_and_tmp' EXIT
   trap 'exit 130' HUP INT TERM
-  do_placement "$rr_dir" || true
+  rr_op_rc=0
+  case $rr_op in
+    status) do_status_only "$rr_dir" || rr_op_rc=$? ;;
+    *) do_placement "$rr_dir" || true ;;
+  esac
   "$lock_sh" release "$rr_dir" >/dev/null 2>&1 || true
   rr_lockdir=""
   trap - EXIT HUP INT TERM
@@ -658,8 +720,45 @@ run_reconcile() {
     rm -f "$tmpf"
     tmpf=""
   fi
+  # The status-only arm propagates a real failure (a derivation failure or a
+  # refused partial mirror) under the closed (CLI) policy, so the migration sweep
+  # records a per-bundle skip rather than a false "unchanged". The placement arm
+  # keeps its best-effort return-0 contract: the hook must never error, and the
+  # level-triggered reconcile re-converges on the next run.
+  if [ "$rr_op" = status ] && [ "$rr_policy" = closed ] && [ "$rr_op_rc" -ne 0 ]; then
+    return 1
+  fi
   return 0
 }
+
+# ---------------------------------------------------------------------------
+# Direct CLI: `tasks-pr-sync.sh reconcile-status <spec-dir>`. The status-only arm
+# of the reconcile (do_status_only): reconciles the bundle **Status:** header
+# across the four files WITHOUT the placement rewrite, so a one-time corpus sweep
+# never relocates task blocks in legacy bundles. Drives the adoption migration
+# (kickoff-lifecycle Task 8; REQ-A1.7, D-4). Same fail-closed validation as
+# `reconcile` below (missing / non-spec / hostile dir -> exit 2).
+if [ "${1:-}" = reconcile-status ]; then
+  cli_arg="${2:-}"
+  if [ -z "$cli_arg" ]; then
+    echo "usage: tasks-pr-sync.sh reconcile-status <spec-dir>" >&2
+    exit 2
+  fi
+  cli_dir=$(cd "$cli_arg" 2>/dev/null && pwd -P) || {
+    echo "tasks-pr-sync: no such spec dir: $cli_arg" >&2
+    exit 2
+  }
+  if [ ! -f "$cli_dir/tasks.md" ]; then
+    echo "tasks-pr-sync: no tasks.md in $cli_dir" >&2
+    exit 2
+  fi
+  if [ -L "$cli_dir/tasks.md" ]; then
+    echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
+    exit 2
+  fi
+  run_reconcile "$cli_dir" closed status
+  exit $?
+fi
 
 # ---------------------------------------------------------------------------
 # Direct CLI: `tasks-pr-sync.sh reconcile <spec-dir>`. Fails closed (exit 2) on

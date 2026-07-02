@@ -213,12 +213,12 @@ view tasks they cover.
 
 - **Redline / amendment-diff view.** A plain-language diff between two versions
   or anchors of a bundle, for the Active/amendment stage. Confidence: high.
-  **Gate:** GATE(when: the v1 walkthrough has shipped and an amendment-heavy
-  bundle motivates a diff view). Citations: REQ scope (Out of scope); D-1.
+  **Gate:** the v1 walkthrough has shipped and an amendment-heavy
+  bundle motivates a diff view. Citations: REQ scope (Out of scope); D-1.
 - **Markdown + Mermaid companion artifact.** A second output path that renders
   natively for engineers on GitHub and VS Code and keeps diagram source as
-  diffable text. Confidence: high. **Gate:** GATE(when: the HTML artifact has
-  shipped and an engineer-facing diffable companion is requested). Citations:
+  diffable text. Confidence: high. **Gate:** the HTML artifact has
+  shipped and an engineer-facing diffable companion is requested. Citations:
   D-4.
 
 ## Out of scope

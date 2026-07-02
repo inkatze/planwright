@@ -1,7 +1,7 @@
 ---
 name: execute-task
 description: >
-  Implement one task (or a cohesion bundle) from a signed-off, Active spec:
+  Implement one task (or a cohesion bundle) from a signed-off spec (Ready or Active):
   recompute the execution freshness gate, write the verifying test first,
   implement to green, run the project's full CI with adaptive retry, converge
   via the configured review_sequence (default /polish --nested), then open a
@@ -15,8 +15,8 @@ argument-hint: "<task-id> [<task-id> …] [<spec-path>]"
 # /execute-task
 
 The execution layer of the planwright pipeline (REQ-E1.1–REQ-E1.5): take one
-ready unit — a single task or a cohesion bundle — from an Active spec with a
-signed-off kickoff brief, and carry it from a failing test to a draft PR
+ready unit — a single task or a cohesion bundle — from a Ready or Active spec
+with a signed-off kickoff brief, and carry it from a failing test to a draft PR
 without further human keystrokes. `/orchestrate` dispatches this skill into a
 prepared worktree; a human may also invoke it directly inside one. It operates
 from the kickoff brief, the durable contract (D-3), not by re-reading the
@@ -83,20 +83,32 @@ present the reason and wait instead.
    argument (`specs/<spec>` or bare `<spec>`, validated in step 1);
    (b) the branch name parsed against `planwright/<spec>/task-<ids>` (D-36),
    giving `specs/<spec>/`; (c) the current checkout when it holds exactly one
-   `specs/*/` bundle with `Status: Active`; (d) ask, listing the available
+   `specs/*/` bundle whose `Status:` is `Ready` or `Active`; (d) ask, listing the available
    bundles (underscore-prefixed accumulators are not bundles). Verify the
    directory holds `requirements.md`, `design.md`, `tasks.md`, and
    `test-spec.md`.
 3. **Resolve the doctrine docs** (above). Halt on a core-doc resolution
    failure; note a degraded `decision-domains`.
-4. **Verify the spec is Active** (REQ-J1.2, D-33). Read the `**Status:**`
-   line in `requirements.md`. Not Active: halt. Suggest `/spec-kickoff` when
-   the status is Draft; say plainly that a terminal (Retired/Superseded) or
-   Done spec has nothing to execute. There is no bypass flag.
+4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
+   "non-Active" refusal — REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
+   `**Status:**` line in `requirements.md`. `Ready` (signed off, executable, no
+   work started) and `Active` (work in flight) are both executable; refuse
+   Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
+   execution: Ready↔Active is **derived, not stored** (D-2), written only by
+   `orchestration-concurrency`'s single level-triggered reconcile writer (D-3),
+   so a dispatched task normally runs against a `Ready` spec — demanding a
+   stored `Active` here is the bug this gate must not reintroduce. When the
+   status is **Draft**, halt and suggest `/spec-kickoff`; say plainly that a
+   terminal (Retired/Superseded) or Done spec has nothing to execute. A `Ready`
+   spec is executed on the same terms as an Active one: the execution freshness
+   gate (step 7) still applies, so a Ready spec is executable only if its
+   content anchor is execution-valid (REQ-C1.3); the Ready-or-Active gate and
+   the freshness gate compose, neither replaces the other. There is no bypass
+   flag.
 5. **Run the validator.** `scripts/spec-validate.sh specs/<spec>`. On this
    dispatch path a missing or non-executable validator fails closed and halts
    (REQ-K1.7, the K1.7 amendment: the fail-closed arm preserves the
-   block-execution guarantee). An Active bundle's findings are errors:
+   block-execution guarantee). A Ready or Active bundle's findings are errors:
    surface them and halt; an erroring spec is not executed.
 6. **Verify the kickoff brief.** `specs/<spec>/kickoff-brief.md` must exist
    and carry a final sign-off record with an anchor line (D-36). Absent, or
@@ -124,7 +136,7 @@ present the reason and wait instead.
      **No entry / unparseable / non-sanctioned command / non-sanctioned
      writer** → halt, remedy: complete or repair the sign-off record per
      REQ-F1.10. Every halt is to Awaiting input, naming its remedy. There is
-     no bypass flag (same class as the non-Active refusal).
+     no bypass flag (same class as the not-Ready-or-Active refusal).
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
    goal restatement (it anchors every judgment call), the task-graph section,
    and the risk-register entries relevant to the unit. From `tasks.md`: each
@@ -169,11 +181,12 @@ present the reason and wait instead.
 Every commit this skill authors for the unit — the test-first action commits,
 the observation chore commit, any in-flight expression-only amendment commit —
 carries a `Planwright-Task: <spec>/<id>` footer trailer. It is the durable,
-cross-flow completion anchor the orchestration-state derivation reads (via
-git's native trailer mechanism), surviving branch deletion and solo
-direct-to-`main` commits. Stamp it through the shared helper rather than
-hand-typing the footer, so the trailer is grammar-validated and identical
-everywhere:
+cross-flow completion anchor the orchestration-state derivation reads by
+scanning the whole commit message (so a squash/rebase merge that relocates the
+trailer mid-body is still recognized, not git's footer-only `%(trailers)`),
+surviving branch deletion and solo direct-to-`main` commits. Stamp it through
+the shared helper rather than hand-typing the footer, so the trailer is
+grammar-validated and identical everywhere:
 
 ```sh
 printf '%s\n' "$message" \
@@ -392,8 +405,8 @@ session, present it and wait.
 
 | Condition | Trigger |
 | --- | --- |
-| Spec not Active | Pre-flight step 4 found a non-Active status. |
-| Missing/erroring validator | Pre-flight step 5: validator absent on the dispatch path, or Active errors. |
+| Spec not Ready or Active | Pre-flight step 4 found a status outside {Ready, Active} (Draft, Done, Retired, Superseded). Suggest `/spec-kickoff` for Draft. |
+| Missing/erroring validator | Pre-flight step 5: validator absent on the dispatch path, or a Ready/Active bundle's errors. |
 | No / partial kickoff brief | Pre-flight step 6 found no brief or a brief without its anchor line. |
 | Freshness-gate halt | Pre-flight step 7: anchor mismatch, or an absent / unparseable / non-sanctioned / wrong-writer entry. |
 | Dependency not completed | Pre-flight step 8 found an incomplete dependency. |
@@ -409,9 +422,11 @@ session, present it and wait.
 
 These hold at every step:
 
-- **Never** act on a spec whose status is not Active (D-33), and **never**
-  bypass the execution freshness gate (REQ-F1.9). No bypass flag exists for
-  either.
+- **Never** act on a spec whose status is neither Ready nor Active (REQ-C1.1,
+  superseding the bootstrap non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle
+  D-2, D-3), and **never** bypass the execution freshness gate (REQ-F1.9), which
+  composes with the Ready-or-Active gate and applies to a Ready spec exactly as
+  to an Active one (REQ-C1.3). No bypass flag exists for either.
 - **Never** create a non-draft PR, mark a PR ready for review, or merge
   (D-21, REQ-J1.1). The draft→ready flip and the merge are the human's.
 - **Never** create a worktree (D-37, D-44) — this skill runs inside one it did
@@ -432,7 +447,7 @@ These hold at every step:
 
 ## Observations
 
-`/execute-task` only runs on an Active planwright spec, so `specs/` and the
+`/execute-task` only runs on a Ready or Active planwright spec, so `specs/` and the
 observations log necessarily exist. When something outside the unit's scope
 surfaces during implementation or convergence — complexity growth, an
 outdated pattern, a newly available dependency feature, an uncatalogued

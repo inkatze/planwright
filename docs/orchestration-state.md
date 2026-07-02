@@ -185,14 +185,37 @@ Branch merge-reachability is one of the completion signals, and a squash or
 rebase merge defeats it: the merged commit is a new commit, so the original task
 branch is no longer an ancestor of `main`.
 
-- **With a remote**, this is covered: the merged-PR signal via `gh` derives the
-  task as Completed regardless of how it was merged.
-- **Solo, with no remote**, completion then relies on the `Planwright-Task`
-  trailer **surviving the squash**. A squash merge preserves the footer only if
-  the squashed commit message keeps it. If you squash-merge solo work, keep the
-  `Planwright-Task` trailer in the resulting commit message (GitHub's squash UI
-  lets you edit it; a local squash should carry the trailer forward), or the task
-  will not derive as Completed from git alone.
+- **With a remote**, the merged-PR signal via `gh` covers this **when the PR's
+  head ref follows the `planwright/<spec>/task-<id>` convention** — that head ref
+  is how the derivation maps a merged PR back to a task. Work merged from a
+  differently-named branch (for instance, running `/execute-task` on your own
+  feature branch) produces no head-ref match, so completion falls back to the
+  trailer, exactly like the no-remote path below.
+- **From the trailer** (the no-remote path, and the fallback whenever the `gh`
+  head-ref mapping does not match), completion relies on the `Planwright-Task`
+  trailer surviving the squash. The derivation scans the **whole** commit
+  message, not only the footer, so a trailer is recognized wherever the squash
+  places it: a squash concatenates the constituent commits' messages and can
+  push a footer trailer mid-body, out of the last paragraph that git's own
+  `%(trailers)` parser reads. **Presence anywhere in the squashed message is
+  enough; footer position is not required.** If you squash-merge, just keep the
+  `Planwright-Task` line in the resulting message (GitHub's squash UI lets you
+  edit it; a local squash should carry it forward), or the task will not derive
+  as Completed from git alone.
+- **Across a stale local base.** A merged PR's trailer reaches the remote first;
+  the local base ref (`main`) does not carry it until a fetch has
+  fast-forwarded that branch. So the trailer scan reads the **union of the base
+  and its remote-tracking counterpart** (`origin/main`, via the branch's
+  configured upstream or the conventional `origin/<base>`): a trailer merged to
+  `origin/main` is recognized even if `orchestrate` runs before the local `main`
+  is updated. This reads only refs git has already fetched (no network), and a
+  local-only repo with no origin counterpart simply scans the base alone. It
+  does not paper over an *unfetched* remote — if `origin/main` itself lags the
+  true remote tip, fetch first (this derivation script never fetches; when driven
+  through `/orchestrate`, the reconcile sweep runs a best-effort `git fetch
+  origin` for you, so `origin/main` is refreshed before the union scan reads it).
+  Only the trailer scan widens this way; the branch/merge-reachability signals
+  stay base-local, since they reason about local task branches.
 
 A related failure (risk R1): solo work whose branch was deleted *and* whose
 trailer is missing or mistyped derives as deps-met-but-no-evidence. The
