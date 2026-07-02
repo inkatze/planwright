@@ -51,6 +51,14 @@ stricter bar than the code they help review:
 - **Guard path access.** Paths derived from parsed input are validated and
   containment-checked after canonicalization before any read or write.
   Hostile input is a clean refusal, never a path.
+- **Echo discipline.** Untrusted content (spec-file values, branch names,
+  parsed identifiers) is stripped of non-printable bytes before it is echoed,
+  so an embedded escape sequence cannot drive the terminal. The canonical
+  sanitizer is `scripts/echo-safety.sh` (`sanitize_printable`), sourced by the
+  migrated command-tier callers (`spec-validate.sh`, `spec-walkthrough.sh`);
+  `spec-assemble.sh` (deliberately self-contained) and `spec-scope.sh` (a
+  tracked follow-up) keep inline copies. The awk `gsub(/[^[:print:]]/, "")`
+  header parsers are its in-awk form.
 - **Stay auditable.** Scripts are plain portable shell, small enough to
   read before trusting, and gated by planwright's self-hosting quality
   guards (shell lint and secret scan, per the dogfooding decision D-32).

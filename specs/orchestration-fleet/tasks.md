@@ -59,6 +59,7 @@ space).
 - **Dependencies:** none
 - **Citations:** D-2 · REQ-B1.1, REQ-B1.2, REQ-B1.3
 - **Estimated effort:** 1.5 days
+- **Last activity:** 2026-07-02
 
 ### Task 8 — Autonomous-safe-decision policy
 
