@@ -333,6 +333,14 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
   D-12 (armed mode, cited by Task 10 / verified by T10's Done-when) as the
   sole task-only D-ID; §5 coverage count corrected 30 → 36. See
   `kickoff-brief.md` §9 amendment log.
+- 2026-07-02 — Self-review corrections (delta re-walkthrough, pre-approved;
+  expression-only): `design.md` D-2 qualifies the foreign ref as
+  `bootstrap D-21`; `design.md` D-9 rewords the `0.1.0` mentions to read as
+  the version-lineage origin, not a current-version claim; `test-spec.md`
+  REQ-E1.3 verification moment corrected to "T6 (settings land), observed
+  live at T11"; `kickoff-brief.md` §5 `[test]` sub-count corrected 17 → 18;
+  `kickoff-brief.md` §2 stale "0.2.2 / v0.2.1" figure reconciled to the
+  verified v0.2.6. See `kickoff-brief.md` §9 amendment log.
 
 ## Sources
 

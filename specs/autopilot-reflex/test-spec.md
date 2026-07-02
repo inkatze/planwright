@@ -158,7 +158,8 @@ Out-of-window fixture exits zero; a non-bump PR fixture is unaffected.
 
 Repo settings show the check required and merge queue (or
 require-up-to-date) enabled; adopter guidance shipped. Settings are not
-CI-assertable; verified at kickoff of T11.
+CI-assertable; verified at T6 (merge-serialization settings land), observed
+live at T11.
 
 ### REQ-E1.4 — Correctness independent of the lock [test]
 

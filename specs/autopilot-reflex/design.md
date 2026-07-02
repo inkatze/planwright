@@ -41,8 +41,9 @@ the standard rule-doc chain; the release-tagging policy note cites it.
 
 **Alternatives considered:**
 - Extend `proportionality.md` or `engineering-decisions.md` with a section.
-  Rejected because: the reflex is independently ownable (D-21-style spin-out
-  test), spans authoring and runtime ceremonies, and will be cited by skills
+  Rejected because: the reflex is independently ownable (bootstrap D-21-style
+  spin-out test), spans authoring and runtime ceremonies, and will be cited
+  by skills
   (`/spec-draft`, `/spec-kickoff`) and catalogs on its own.
 - Its own separate spec with release tagging downstream. Rejected in D-1.
 
@@ -203,7 +204,8 @@ catalog can scaffold into adopter repos.
 ### D-9: SemVer for planwright  (N)
 
 **Decision:** planwright versions by SemVer (`vX.Y.Z` tags, `plugin.json`
-continuing from `0.1.0`): feat→minor, fix→patch, breaking→major.
+continuing its existing lineage from the `0.1.0` origin): feat→minor,
+fix→patch, breaking→major.
 
 **Alternatives considered:**
 - CalVer (`YYYY.MINOR.PATCH`), fleet-consistent with the author's Elixir
@@ -214,7 +216,8 @@ continuing from `0.1.0`): feat→minor, fix→patch, breaking→major.
 
 **Chosen because:** artifact type decides the scheme (the heuristic REQ-G1.2
 generalizes into the decision-domains entry, with this call as the worked
-example); it also avoids resetting the existing `0.1.0` lineage.
+example); it also avoids resetting that existing lineage, which originated
+at `0.1.0` and is now well beyond it.
 
 ### D-10: Notes from merged PRs, spec-enriched, never spec-dependent  (N)
 

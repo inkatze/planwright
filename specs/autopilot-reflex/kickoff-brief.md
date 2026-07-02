@@ -56,9 +56,9 @@ lives on the publisher's machine (a local value, not capability);
   observed merge.
 
 **Resolutions.**
-- Stale Goal prose ("currently `0.1.0`"; main is at 0.2.2 / tag v0.2.1):
-  fixed in place — version number un-pinned from the Goal. Logged in the
-  consolidated edit list (§3).
+- Stale Goal prose ("currently `0.1.0`"; main is actually at v0.2.6, per the
+  release-state check below): fixed in place — version number un-pinned from
+  the Goal. Logged in the consolidated edit list (§3).
 - Release state verified against origin at walkthrough time: v0.2.0–v0.2.6
   exist as signed annotated tags with GitHub Releases, cut manually (v0.2.4
   skipped — a live example of manual-ceremony fallibility); no untagged
@@ -171,7 +171,7 @@ Signed off: 2026-07-02
 ## 5. Verification approach
 
 **Coverage mix** (36 entries; validator confirms every REQ pinned):
-`[test]` component on 17 entries — the REQ-D script surface, lock logic,
+`[test]` component on 18 entries — the REQ-D script surface, lock logic,
 resolver/link-check, the no-merge-call-sites grep, bookkeeping branch, mise
 task, template-placement inventory; all in `mise run check` with fixture
 repos and a throwaway SSH key (no 1Password in tests). `[manual]` on 13 —
@@ -326,4 +326,64 @@ Class: expression-only
 Changelog: `requirements.md` §Changelog, 2026-07-02 "Panel-pairing
 corrections (delta re-walkthrough)" entry.
 Anchor: `a3d4d382446d2627f0738342d5b7a5b54e691fe7` — computed as
+`scripts/spec-anchor.sh specs/autopilot-reflex`
+
+### Amendment 2 — delta re-walkthrough (2026-07-02)
+
+**Trigger.** A standalone `/self-review` pass over the Ready bundle surfaced
+five expression-level defects that the kickoff lens pass and the prior
+panel-pairing/polish passes had missed. Diego reviewed all five and
+pre-approved these exact changes; this re-walkthrough applies them,
+re-anchors, and re-records the sign-off over them. No fresh human sign-off is
+required (pre-approved).
+
+**Scope (delta).** Five corrections, all gap-fills consistent with the
+already-signed-off contract; no requirement, decision, or task meaning
+changes:
+
+- **F1** (`kickoff-brief.md` §5 Coverage mix) — the `[test]` sub-count was
+  17; the actual number of test-tagged entries in `test-spec.md` is 18
+  (REQ-A1.1's `[test]` half — the `resolve-rule-doc.sh` resolver + doctrine
+  link-check — was uncounted). The `[manual]` (13) and `[design-level]` (16)
+  sub-counts were already correct. Amendment 1's F3 corrected the total
+  (30 → 36) but left this sibling sub-count. The category enumeration in the
+  same sentence already sums to 18, so only the number changed.
+- **F2** (`design.md` D-2 Alternatives) — the "D-21-style spin-out test"
+  reference to the foreign `bootstrap D-21` (fold-vs-new-bundle rule) is now
+  namespace-qualified as `bootstrap D-21`, matching the file's own
+  origin-tag legend (`bootstrap D-27`). Semantically unchanged.
+- **F3** (`test-spec.md` REQ-E1.3) — the verification moment "verified at
+  kickoff of T11" used non-existent vocabulary (tasks have no kickoff) and
+  contradicted §5's ownership ("T6 settings, T11 window observation"). It now
+  reads "verified at T6 (merge-serialization settings land), observed live at
+  T11", matching where the settings deliverable actually lands (Task 6).
+- **F4** (`kickoff-brief.md` §2 Resolutions) — the parenthetical asserted a
+  stale "main is at 0.2.2 / tag v0.2.1", which the same section's next bullet
+  corrects to the verified "main = v0.2.6" and disavows as an earlier
+  stale-fetch misread. The parenthetical now reads "main is actually at
+  v0.2.6, per the release-state check below", consistent with lines 62–68.
+- **F5** (`design.md` D-9) — "continuing from `0.1.0`" and "avoids resetting
+  the existing `0.1.0` lineage" now read unambiguously as the version-lineage
+  ORIGIN, not a current-version claim ("continuing its existing lineage from
+  the `0.1.0` origin"; "that existing lineage, which originated at `0.1.0`
+  and is now well beyond it"). This mirrors §3 edit #1, which un-pinned the
+  identical "currently `0.1.0`" from the Goal. The decision's rationale is
+  preserved; expression only.
+
+**Cross-check re-verification (no new inconsistency).** After the edits:
+`[test]`/`[manual]`/`[design-level]` sub-counts are 18/13/16 (47 tag-instances
+over 36 entries with 11 dual-tagged). All D-1…D-13 remain task-cited; D-12 is
+still the sole D-ID without a REQ citation (§4 exception intact). `bootstrap
+D-21`/`bootstrap D-27` are the only foreign decision refs and both are now
+namespace-qualified. Critical-path math (5.5d / 4.75d) and all dependency
+edges unchanged. No inconsistency beyond F1–F5 surfaced.
+
+**Status / validator.** No status flip (already Ready); `Last reviewed:`
+already 2026-07-02 on all four files. Validator, `lint:md`, `check:specs`,
+`check:links` clean before and after the edits, under Ready enforcement.
+
+Class: expression-only
+Changelog: `requirements.md` §Changelog, 2026-07-02 "Self-review corrections
+(delta re-walkthrough)" entry.
+Anchor: `429be6bcb8168498dbd99dec8d2723b9f6479982` — computed as
 `scripts/spec-anchor.sh specs/autopilot-reflex`
