@@ -10,9 +10,11 @@ act-then-review half read at the orchestration tier; "must escalate" is that
 gate's hard-pause half. There is no fleet-only category, and no tier at which
 the gate loosens (orchestration-fleet REQ-A1.3).
 
-Citations: orchestration-fleet REQ-A1.3, REQ-D1.4, REQ-A1.2 (never-auto-merge
-floor), REQ-B1.7 (harness permission gate), REQ-E1.3 (decision queue) ·
-orchestration-fleet D-8 (extends bootstrap D-5), D-13.
+Citations: orchestration-fleet REQ-A1.3, orchestration-fleet REQ-D1.4,
+orchestration-fleet REQ-A1.2 (never-auto-merge floor), orchestration-fleet
+REQ-B1.7 (harness permission gate), orchestration-fleet REQ-E1.3 (decision
+queue) · orchestration-fleet D-8 (extends bootstrap D-5), orchestration-fleet
+D-13.
 
 ## The floor: never auto-merge
 
@@ -70,8 +72,8 @@ worker-settings profile has pre-approved:
 **The two senses of "prompt" do not overlap.** A routine worker *question to the
 tower* (may answer) is not a worker's *harness tool-permission prompt* (the
 authorization gate), which a tower **never** answers at any tier
-(orchestration-fleet REQ-B1.7, D-7). The autonomy this section grants is over
-the tower's own
+(orchestration-fleet REQ-B1.7, orchestration-fleet D-7). The autonomy this
+section grants is over the tower's own
 operational surface; it never reaches into a worker's harness authorization
 gate.
 
@@ -124,7 +126,7 @@ way it becomes a human decision, never an autonomous default.
 Every escalation this policy names routes to the **decision queue** — one
 ordered, alarm-rationalized queue of actionable items across all active specs,
 the substrate-agnostic attention surface lifted into core (orchestration-fleet
-D-13, REQ-E1.3). Each
+D-13, orchestration-fleet REQ-E1.3). Each
 queued item is a structured choice with bespoke options (the actual decision
 branches, never timing labels), so human load is bounded by the queue depth, not
 the worker count.
