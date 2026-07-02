@@ -22,10 +22,10 @@ Everything below describes what a tower **may** do without a human at the
 prompt. None of it includes merging. The merge is the human's reserved control
 at every tier — the single-tower run, the meta-tower, every rung of the
 degradation ladder — and no amount of clean autonomous convergence promotes a
-draft PR to merged (orchestration-fleet REQ-A1.2). An unattended fleet run's terminal state is
-draft-PR-ready, never merged. The autonomy this policy grants is a ceiling that
-sits well below merge; never-auto-merge is the floor beneath the whole mapping,
-not one clause within it.
+draft PR to merged (orchestration-fleet REQ-A1.2). An unattended fleet run's
+terminal state is draft-PR-ready, never merged. The autonomy this policy grants
+is a ceiling that sits well below merge; never-auto-merge is the floor beneath
+the whole mapping, not one clause within it.
 
 ## May decide unattended
 
@@ -81,8 +81,9 @@ gate.
 
 The tower must hand the call to a human — it may not decide it unattended —
 whenever a finding or action falls in one of the gate's two hard-pause
-categories. These are the same hard pauses [Finding Categorization](finding-categorization.md)
-defines; the tower inherits them unchanged.
+categories. These are the same hard pauses
+[Finding Categorization](finding-categorization.md) defines; the tower inherits
+them unchanged.
 
 ### Hard-disqualifier zones
 
