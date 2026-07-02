@@ -326,6 +326,13 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
   and partial-publish fixtures, H1.3 positive case, six verification moments
   moved from "kickoff walkthrough" to task-PR review. See
   `kickoff-brief.md` §3/§8 for the consolidated list.
+- 2026-07-02 — Panel-pairing corrections (delta re-walkthrough, pre-approved;
+  expression-only): Task 5 now cites REQ-C1.4 so the "merge is human / no
+  merge call sites" requirement has a task owner (every pinned REQ is now
+  cited by ≥1 task); `kickoff-brief.md` §4 cross-check reworded to document
+  D-12 (armed mode, cited by Task 10 / verified by T10's Done-when) as the
+  sole task-only D-ID; §5 coverage count corrected 30 → 36. See
+  `kickoff-brief.md` §9 amendment log.
 
 ## Sources
 

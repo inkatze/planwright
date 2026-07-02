@@ -107,8 +107,8 @@ of the release chain after T1 and can run in parallel throughout.
   no CI-created tag exists after a test cycle; the template ships in the
   opt-in location.
 - **Dependencies:** Task 2.
-- **Citations:** D-3, D-10, D-13 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.5,
-  REQ-F1.1, REQ-G1.3
+- **Citations:** D-3, D-10, D-13 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4,
+  REQ-C1.5, REQ-F1.1, REQ-G1.3
 - **Estimated effort:** 1.0d
 
 ### Task 6 — Untagged-window lock + merge serialization

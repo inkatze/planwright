@@ -160,7 +160,9 @@ superseded:
   **D-12** armed mode as sequenced follow-up T10 · **D-13** adopter path via
   builder/catalogs (edit #4 is implementation precision).
 
-Cross-checks: every D-ID cited by ≥1 REQ and ≥1 task; no decision
+Cross-checks: every D-ID cited by ≥1 task, and by ≥1 REQ with one documented
+exception — D-12 (armed mode) is an ergonomic optimization cited by Task 10
+and verified by T10's Done-when rather than by any REQ; no decision
 contradicts a walked requirement; D-5/D-4 rejected alternatives mirrored in
 Out of scope.
 
@@ -168,7 +170,7 @@ Signed off: 2026-07-02
 
 ## 5. Verification approach
 
-**Coverage mix** (30 entries; validator confirms every REQ pinned):
+**Coverage mix** (36 entries; validator confirms every REQ pinned):
 `[test]` component on 17 entries — the REQ-D script surface, lock logic,
 resolver/link-check, the no-merge-call-sites grep, bookkeeping branch, mise
 task, template-placement inventory; all in `mise run check` with fixture
@@ -285,4 +287,43 @@ Anchor: `789f80e89a6138fe516a954e64bf651db4ee9358` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### Amendment 1 — delta re-walkthrough (2026-07-02)
+
+**Trigger.** Freshness gate: the recorded anchor
+(`789f80e89a6138fe516a954e64bf651db4ee9358`) no longer matched the bundle
+after three panel-pairing corrections were applied. Diego reviewed the three
+findings and pre-approved these exact changes; this re-walkthrough re-anchors
+and re-records the sign-off over them.
+
+**Scope (delta).** Three corrections, all gap-fills consistent with the
+already-accepted contract:
+
+- **F1** (`tasks.md` Task 5 Citations) — added REQ-C1.4 so the "merge is
+  human / no merge call sites" requirement (grep-guarded per `test-spec.md`
+  REQ-C1.4) has a task owner. Task 5 (release-please PR-only; "merge stays
+  human, no CI-created tag") is the intended owner; placed after REQ-C1.3.
+- **F2** (`kickoff-brief.md` §4 cross-checks) — reworded the "every D-ID
+  cited by ≥1 REQ and ≥1 task" line to document D-12 (armed mode) as the
+  sole exception: cited by Task 10 and verified by T10's Done-when, not by
+  any REQ. The rest of the sentence is unchanged.
+- **F3** (`kickoff-brief.md` §5 Coverage mix) — corrected the pinned-entry
+  count 30 → 36 (36 `### REQ-` entries in `test-spec.md`).
+
+**Cross-check re-verification (no new inconsistency).** After F1 every one
+of the 36 pinned REQs is cited by ≥1 task (REQ-C1.4 was the only orphan);
+all D-1…D-13 are task-cited and exactly D-12 lacks a REQ citation — the
+exception F2 now documents. `D-27`, `REQ-J*`, and `REQ-K*` are
+namespace-qualified `bootstrap …` cross-references, not this spec's own
+decisions/requirements.
+No inconsistency beyond F1/F2/F3 surfaced; the bundle's cross-checks are now
+internally true.
+
+**Status / validator.** No status flip (already Ready); `Last reviewed:`
+already 2026-07-02 on all four files. Validator clean (0 errors, 0 warnings)
+under Ready enforcement, before and after the edits.
+
+Class: expression-only
+Changelog: `requirements.md` §Changelog, 2026-07-02 "Panel-pairing
+corrections (delta re-walkthrough)" entry.
+Anchor: `a3d4d382446d2627f0738342d5b7a5b54e691fe7` — computed as
+`scripts/spec-anchor.sh specs/autopilot-reflex`
