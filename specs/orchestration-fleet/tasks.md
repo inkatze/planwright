@@ -78,6 +78,7 @@ space).
 - **Dependencies:** none
 - **Citations:** D-8 · REQ-A1.3, REQ-D1.4
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-02
 
 ### Task 9 — Cross-spec fleet coordination-state home
 
