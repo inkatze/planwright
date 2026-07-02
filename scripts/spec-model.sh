@@ -320,8 +320,13 @@ parse_tasks() {
       # always ends in a digit, so this only ever removes punctuation. The
       # model has no malformed-deps channel, so a non-conforming token is
       # silently not emitted as an edge (opportunities.md 2026-06-28 /
-      # 2026-07-01; parity with PR #103 / #104).
-      gsub(/,/, " ", s)
+      # 2026-07-01; parity with PR #103 / #104). Semicolons separate deps in a
+      # prose list ("Task 5; plus cross-spec", "Task 1; Task 6") exactly as
+      # commas do, so they are split on too: the selector treats a semicolon as
+      # a separator, and the drawn graph (which highlights the selector critical
+      # path per D-6) must not lose an edge that path crosses (REQ-C1.3).
+      # (No apostrophes in this awk program: it is single-quoted in the shell.)
+      gsub(/[,;]/, " ", s)
       n = split(s, a, " ")
       for (i = 1; i <= n; i++) {
         tok = a[i]

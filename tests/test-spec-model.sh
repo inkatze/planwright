@@ -625,6 +625,13 @@ chmod u+rwx "$unsib/design.md"
 #       "REQ-A1.8" stays one non-numeric token and is dropped, never digit-
 #       scraped into "1.8"/"9". The model has no malformed-deps channel, so a
 #       non-conforming token is silently not emitted as an edge.
+#   (c) semicolon separators — a prose list separates deps with ';' as well as
+#       ',' ("Task 1; Task 4", "Task 5; plus cross-spec …"); ';' must split like
+#       ',' so the id is not left as a whole token ("5;") that fails the grammar
+#       and drops the edge. The selector honors ';'; the drawn graph (which
+#       highlights the selector's critical path, D-6) must not lose that edge
+#       (REQ-C1.3). Guards the regression the tokenize-then-validate switch would
+#       otherwise introduce.
 # ---------------------------------------------------------------------------
 deps="$tmp/prosedeps/demo"
 mkdir -p "$deps"
@@ -655,6 +662,16 @@ cat >"$deps/tasks.md" <<'EOF'
 
 - **Done when:** the dotted edge survives.
 - **Dependencies:** 2.1.
+
+### Task 5 — semicolon-separated multi-dependency
+
+- **Done when:** both upstreams land.
+- **Dependencies:** Task 1; Task 4
+
+### Task 6 — semicolon then a prose cross-spec clause
+
+- **Done when:** the semicolon edge survives the prose tail.
+- **Dependencies:** Task 5; plus a cross-spec note that is not an id
 EOF
 run_m 0 "$deps"
 # (a) Trailing-period ids still emit their edge — the fail-open case: a single
@@ -667,8 +684,15 @@ t3deps=$(printf '%s\n' "$out" \
   | awk -F"$tab" '$1 == "TASKDEP" && $2 == "3" { print $3 }' | sort | tr '\n' ' ')
 [ "$t3deps" = "2 " ] \
   || fail "Task 3 deps should be exactly {2}, got: {$t3deps} (phantom scrape from the parenthetical?)"
-# No phantom edges leaked into the overall stream (three real edges only).
-[ "$(count_tag TASKDEP)" -eq 3 ] \
-  || fail "expected 3 TASKDEP edges, got $(count_tag TASKDEP) (phantom or dropped edge?)"
+# (c) Semicolons separate deps just like commas: Task 5's "Task 1; Task 4"
+# yields BOTH edges, and Task 6's "Task 5; plus …" keeps the 5 edge while the
+# prose tail drops. Guards the regression where ';' left the id as a whole token
+# ("5;") that failed the grammar and dropped the edge (REQ-C1.3 graph divergence).
+rec TASKDEP 5 1
+rec TASKDEP 5 4
+rec TASKDEP 6 5
+# No phantom edges leaked into the overall stream (six real edges only).
+[ "$(count_tag TASKDEP)" -eq 6 ] \
+  || fail "expected 6 TASKDEP edges, got $(count_tag TASKDEP) (phantom or dropped edge?)"
 
 echo "PASS: test-spec-model.sh"
