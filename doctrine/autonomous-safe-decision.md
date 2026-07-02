@@ -8,10 +8,10 @@ the gate planwright already ships — the four buckets and hard pauses of
 [Gate Wiring](gate-wiring.md). "May decide unattended" is that gate's
 act-then-review half read at the orchestration tier; "must escalate" is that
 gate's hard-pause half. There is no fleet-only category, and no tier at which
-the gate loosens (REQ-A1.3).
+the gate loosens (orchestration-fleet REQ-A1.3).
 
-Citations: REQ-A1.3, REQ-D1.4 · REQ-A1.2 (never-auto-merge floor),
-REQ-B1.7 (harness permission gate), REQ-E1.3 (decision queue) ·
+Citations: orchestration-fleet REQ-A1.3, REQ-D1.4, REQ-A1.2 (never-auto-merge
+floor), REQ-B1.7 (harness permission gate), REQ-E1.3 (decision queue) ·
 orchestration-fleet D-8 (extends bootstrap D-5), D-13.
 
 ## The floor: never auto-merge
@@ -20,7 +20,7 @@ Everything below describes what a tower **may** do without a human at the
 prompt. None of it includes merging. The merge is the human's reserved control
 at every tier — the single-tower run, the meta-tower, every rung of the
 degradation ladder — and no amount of clean autonomous convergence promotes a
-draft PR to merged (REQ-A1.2). An unattended fleet run's terminal state is
+draft PR to merged (orchestration-fleet REQ-A1.2). An unattended fleet run's terminal state is
 draft-PR-ready, never merged. The autonomy this policy grants is a ceiling that
 sits well below merge; never-auto-merge is the floor beneath the whole mapping,
 not one clause within it.
@@ -69,8 +69,9 @@ worker-settings profile has pre-approved:
 
 **The two senses of "prompt" do not overlap.** A routine worker *question to the
 tower* (may answer) is not a worker's *harness tool-permission prompt* (the
-authorization gate), which a tower **never** answers at any tier (REQ-B1.7,
-D-7). The autonomy this section grants is over the tower's own
+authorization gate), which a tower **never** answers at any tier
+(orchestration-fleet REQ-B1.7, D-7). The autonomy this section grants is over
+the tower's own
 operational surface; it never reaches into a worker's harness authorization
 gate.
 
@@ -85,14 +86,14 @@ defines; the tower inherits them unchanged.
 
 A finding, or any file its fix would touch, in a hard-disqualifier zone forces a
 pause regardless of which bucket it would otherwise land in. The zones are the
-categorization doctrine's list, carried verbatim:
+categorization doctrine's list, with the relevant write-time cross-links added:
 
 - **Security-sensitive code** — authentication, authorization, secrets, crypto,
   permission boundaries, SQL or shell construction, sandbox boundaries (with the
   write-time triggers in [Security Posture](security-posture.md)).
 - **Migrations or destructive operations** — schema changes, backfills, deletes,
   anything irreversible.
-- **CI configuration, lockfiles, and secrets files.**
+- **CI configuration, lockfiles, or secrets files.**
 
 In a zone the tower records the recommended fix and does **not** apply it; the
 disposition is the human's.
@@ -122,7 +123,8 @@ way it becomes a human decision, never an autonomous default.
 
 Every escalation this policy names routes to the **decision queue** — one
 ordered, alarm-rationalized queue of actionable items across all active specs,
-the substrate-agnostic attention surface lifted into core (D-13, REQ-E1.3). Each
+the substrate-agnostic attention surface lifted into core (orchestration-fleet
+D-13, REQ-E1.3). Each
 queued item is a structured choice with bespoke options (the actual decision
 branches, never timing labels), so human load is bounded by the queue depth, not
 the worker count.
