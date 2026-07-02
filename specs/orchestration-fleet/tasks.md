@@ -111,6 +111,7 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-11 · REQ-D1.6, REQ-A1.6
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-02
 
 ### Task 2 — Backend autodetection & present-and-ask selection
 
