@@ -1,7 +1,7 @@
 # Autopilot Reflex — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-07-01
+**Status:** Ready
+**Last reviewed:** 2026-07-02
 **Format-version:** 1
 
 Coverage mix: the scripts (publish, comparator, lock logic) are automated
@@ -24,19 +24,19 @@ the doctrine link-check in `mise run check` covers the index link.
 ### REQ-A1.2 — Altitude triggers defined [design-level]
 
 The doc defines both trigger classes (seed claims, mid-flow signals) and the
-resolve-before-design rule. Verification: kickoff walkthrough reads the
-definitions against this REQ.
+resolve-before-design rule. Verification: design-level read at task-PR
+review against this REQ.
 
 ### REQ-A1.3 — Phase re-anchor defined [design-level]
 
 The doc defines the phase-end altitude restatement + drift flag. Verification:
-kickoff walkthrough.
+design-level read at task-PR review.
 
 ### REQ-A1.4 — Trigger-scoped altitude D-ID rule [design-level]
 
 The doc states the record-when-triggered / no-record-otherwise rule and that
-the D-ID is cited from the goal. Verification: kickoff walkthrough; REQ-I1.2
-is the live demonstration.
+the D-ID is cited from the goal. Verification: design-level read at task-PR
+review; REQ-I1.2 is the live demonstration.
 
 ### REQ-A1.5 — Standard resolution + index link [test]
 
@@ -53,7 +53,8 @@ window locked, merge/publish never autonomous. Link-check covers it.
 ### REQ-B1.2 — Capability/mechanism/value split explicit [design-level]
 
 The policy note carries the altitude table assigning each shipped piece to
-core / template / config. Verification: kickoff walkthrough against D-13.
+core / template / config. Verification: design-level read at task-PR review
+against D-13.
 
 ## REQ-C — Release detection & proposal
 
@@ -78,8 +79,8 @@ GitHub Release exists. This is the PR-only mode's load-bearing property.
 ### REQ-C1.4 — Merge is human; no merge call sites [test + design-level]
 
 A repo-wide grep test asserts no shipped script/workflow/skill invokes a
-merge of the release PR (`gh pr merge` / merge API); kickoff walkthrough
-confirms the invariant prose.
+merge of the release PR (`gh pr merge` / merge API); the invariant prose is
+confirmed by design-level read at task-PR review.
 
 ### REQ-C1.5 — Notes from PRs, spec-enriched [manual]
 
@@ -104,7 +105,9 @@ publish — the tag points at the bump-merge SHA, not HEAD.
 
 One failing fixture per gate: existing local tag, existing origin tag,
 non-monotonic version, dirty tree, diverged main, CI-not-green (stubbed `gh`).
-Each exits non-zero, names the gate, and leaves no tag/Release behind.
+Each exits non-zero, names the gate, and leaves no tag/Release behind. A
+first-release fixture (no existing tags) passes the monotonicity gate and
+publishes — the fresh-adopter case.
 
 ### REQ-D1.4 — require_signed_tags modes [test]
 
@@ -126,7 +129,8 @@ A fixture repo versioning `package.json` publishes correctly with
 
 Stubbed-`gh` test asserts the invocation shape (notes = the version's
 CHANGELOG section, `--verify-tag`, no tag creation by `gh`); the live path is
-covered by REQ-I1.1.
+covered by REQ-I1.1. A partial-publish fixture (tag pushed, Release absent)
+resumes by creating the Release, per REQ-D1.3's idempotency exception.
 
 ### REQ-D1.8 — Comparator [test]
 
@@ -183,7 +187,7 @@ branch); a live `--bookkeeping` run in the T11 window shows the report.
 ### REQ-G1.1 — Guard-catalog entry with both facets [design-level]
 
 The entry exists with detection + scaffold facets and the advisory/consent
-framing. Kickoff walkthrough; link-check.
+framing. Design-level read at task-PR review; link-check.
 
 ### REQ-G1.2 — Decision-domains versioning entry [design-level]
 
@@ -211,9 +215,11 @@ exercise shows it at each phase end.
 
 ### REQ-H1.3 — Kickoff lens check [design-level + manual]
 
-`/spec-kickoff`'s lens list names the altitude check (D-ID present, goal
-citation, task match). Manual: a kickoff over a triggered fixture bundle
-missing its D-ID surfaces the finding.
+`/spec-kickoff`'s lens-pass instructions name the altitude check (D-ID
+present, goal citation, task match) as a kickoff-specific check item; the
+canonical `discovery-rigor` lens list is untouched. Manual: a kickoff over a
+triggered fixture bundle missing its D-ID surfaces the finding, and a
+triggered bundle carrying its D-ID passes the check.
 
 ## REQ-I — Organic proof
 

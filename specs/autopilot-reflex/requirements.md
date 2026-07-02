@@ -1,13 +1,13 @@
 # Autopilot Reflex — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-07-01
+**Status:** Ready
+**Last reviewed:** 2026-07-02
 **Format-version:** 1
 
 ## Goal
 
-planwright ships a versioned artifact (`.claude-plugin/plugin.json`, currently
-`0.1.0`) yet releases are cut manually: a human must remember to prompt for a
+planwright ships a versioned artifact (`.claude-plugin/plugin.json`) yet
+releases are cut manually: a human must remember to prompt for a
 version bump and a git tag. For a framework whose north star is "the human
 keeps the reserved controls; planwright flies the rest", a recurring manual
 ceremony that fires only when a human remembers it is a doctrine gap, and the
@@ -179,16 +179,21 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
   *(Cites: D-4, D-8.)*
 - **REQ-D1.2** The script SHALL tag the observed release-merge commit SHA —
   the commit where the version bump landed on `main` — never the current
-  HEAD.
-  *(Cites: D-6.)*
+  HEAD. The target version SHALL be read from the version file in that
+  commit's tree, never from the working tree or current HEAD.
+  *(Cites: D-6; kickoff lens pass (2026-07-02).)*
 - **REQ-D1.3** Before creating anything, the script SHALL enforce all safety
   gates and refuse without side effects if any fails: the target tag does not
   exist locally or on `origin` (idempotency); the target version is strictly
-  greater than the latest release tag (monotonicity); the working tree is
+  greater than the latest release tag (monotonicity; with no existing release
+  tags the gate passes vacuously — the first release); the working tree is
   clean; local `main` is synced with `origin/main`; GitHub CI is green on the
   release SHA, verified against the real external state via `gh`, not a local
-  claim.
-  *(Cites: D-6, D-8; drafting-session decision (2026-06-30).)*
+  claim. Exception to the idempotency gate: when the target tag is already
+  pushed but its GitHub Release is absent (a partial publish), the script
+  SHALL resume by creating the Release (REQ-D1.7) rather than refuse.
+  *(Cites: D-6, D-8; drafting-session decision (2026-06-30); kickoff lens
+  pass (2026-07-02).)*
 - **REQ-D1.4** A `require_signed_tags` config knob SHALL govern signing
   policy: `auto` (default — sign when the repo has signing configured,
   otherwise create an annotated unsigned tag with a warning), `require`
@@ -280,8 +285,11 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
   explicit statements about the deliverable's nature found in the invocation
   or seeds are extracted as anchors the elicitation must reconcile against,
   and an altitude trigger firing SHALL force the altitude resolution before
-  the design phase begins.
-  *(Cites: D-11; drafting-session decision (2026-07-01).)*
+  the design phase begins. Pinned claims SHALL be recorded in the bundle's
+  `## Sources` entries, so the REQ-H1.3 kickoff check is bundle-local rather
+  than dependent on drafting-session memory.
+  *(Cites: D-11; drafting-session decision (2026-07-01); kickoff §3 REQ-A
+  (2026-07-02).)*
 - **REQ-H1.2** `/spec-draft`'s phase-end running summaries SHALL restate the
   claimed altitude and flag drift (the re-anchor of REQ-A1.3).
   *(Cites: D-11.)*
@@ -309,6 +317,15 @@ drafting, so D-1 is the altitude record REQ-A1.4 demands.
 ## Changelog
 
 - 2026-07-01 — Initial draft (spec-draft session, 2026-06-30 → 2026-07-01).
+- 2026-07-02 — Kickoff walkthrough + lens-pass edits (in place; Draft):
+  Goal version staleness un-pinned; REQ-H1.1 pins seed claims in Sources;
+  REQ-D1.2 version read from the release-merge commit's tree; REQ-D1.3
+  first-release base case + partial-publish resume exception; T3 names the
+  catalog yaml machine views; T4 cites security-posture input validation;
+  T8/REQ-H1.3 altitude check clarified kickoff-local; test-spec: first-release
+  and partial-publish fixtures, H1.3 positive case, six verification moments
+  moved from "kickoff walkthrough" to task-PR review. See
+  `kickoff-brief.md` §3/§8 for the consolidated list.
 
 ## Sources
 

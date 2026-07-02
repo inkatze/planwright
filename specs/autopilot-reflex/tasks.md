@@ -1,7 +1,7 @@
 # Autopilot Reflex — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-07-01
+**Status:** Ready
+**Last reviewed:** 2026-07-02
 **Format-version:** 1
 
 Dependency levels (the `Dependencies:` lines below are the source of truth):
@@ -52,11 +52,13 @@ of the release chain after T1 and can run in parallel throughout.
 ### Task 3 — Catalog entries: guard-catalog + decision-domains
 
 - **Deliverables:** (a) A release-tagging breadth entry in
-  `doctrine/guard-catalog.md`: detection facet (versioned artifact + no
+  `doctrine/guard-catalog.md` and its machine view
+  `config/guard-catalog.yaml`: detection facet (versioned artifact + no
   release automation → recommend) and scaffold facet (release-PR mechanism
   template, lock workflow template, publish-script wiring), advisory-only per
   the builder's consent flow. (b) A versioning-scheme domain in
-  `doctrine/decision-domains.md`: SemVer / CalVer / unversioned with
+  `doctrine/decision-domains.md` and its machine view
+  `config/decision-domains.yaml`: SemVer / CalVer / unversioned with
   artifact-type heuristics, planwright's D-9 SemVer call as the worked
   example.
 - **Done when:** Both catalog entries exist with the facets/heuristics named;
@@ -79,7 +81,10 @@ of the release chain after T1 and can run in parallel throughout.
   with `docs/options-reference.md` rows. Unit tests (fixture repos with a
   throwaway SSH signing key — no 1Password dependency in tests) wired into
   `mise run check`. Repo portability conventions (bash 3.2, `LC_ALL=C`,
-  `unset CDPATH`).
+  `unset CDPATH`). Input validation per `security-posture`'s
+  framework-script rules: version strings validated against the SemVer
+  grammar before any use; the `version_file` selector treated as data, never
+  executed.
 - **Done when:** Every safety gate has a failing-fixture test; the three
   signing modes are each exercised; the SHA-selection race fixture (extra
   commit after the release merge) tags the merge SHA; options-reference drift
@@ -147,7 +152,8 @@ of the release chain after T1 and can run in parallel throughout.
 - **Done when:** Both skill docs carry the wiring with doctrine citations; a
   fixture/manual drafting exercise with a trigger phrase produces the altitude
   resolution before design and the re-anchor lines in summaries; kickoff's
-  lens list names the altitude check.
+  lens-pass instructions name the altitude check as a kickoff-specific check
+  item (the canonical lens list in `discovery-rigor` is untouched).
 - **Dependencies:** Task 1.
 - **Citations:** D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.3
 - **Estimated effort:** 1.0d

@@ -1,7 +1,7 @@
 # Autopilot Reflex — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-07-01
+**Status:** Ready
+**Last reviewed:** 2026-07-02
 **Format-version:** 1
 
 Origin-tag legend: `N` new decision. Foreign decision IDs are
