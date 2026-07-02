@@ -54,10 +54,12 @@ provide capability X" is decidable, not a matter of taste.
   subagent that dies with the tower. *Evaluable:* if the tower process dies, does
   the worker keep running and can it still produce signed commits on its branch?
 
-Named-addressable-units, liveness, and session-grade spawn are baseline
-expectations the orchestrator relies on from any real execution backend;
-observe-in-flight and steer-in-flight are the two that genuinely vary across
-substrates, which is why the advertisement set below foregrounds them.
+Named-addressable-units and liveness are the baseline expectations any real
+execution backend must meet. Observe-in-flight, steer-in-flight, and
+session-grade spawn are the three that genuinely vary across substrates:
+observe and steer are foregrounded as advertised booleans below, while
+session-grade is a distinct quality property tracked per backend (the
+degradation ladder and the backend table order backends partly by it).
 
 ## The advertisement set
 
@@ -86,10 +88,11 @@ five booleans:
   effective `max_parallel_units` is 1.
 
 `can_observe` and `can_steer_inflight` map directly onto the observe/steer
-capabilities. The remaining three capabilities (named units, liveness,
-session-grade spawn) are contract baselines rather than per-backend toggles; a
-backend that cannot meet them is the manual/synchronous escape hatch, described
-in its row below.
+capabilities. Named units and liveness are contract baselines rather than
+per-backend toggles: a backend that cannot meet *those two* is the
+manual/synchronous escape hatch, described in its row below. Session-grade spawn
+is the third varying property; it is not one of the advertised booleans but is
+recorded per backend in the table below and orders the degradation ladder.
 
 ## Orchestrator adaptation
 
@@ -124,6 +127,13 @@ inapplicable (there is no separate worker to observe or steer), distinct from
 | `subagent` (default) | false | false | false | false | true | no |
 | `print` | false | false | false | false | n/a | deferred |
 | `in-session` | false | n/a | n/a | false | false | no |
+
+The `Session-grade` column appears because session-grade genuinely varies across
+backends. The two baseline capabilities — named-addressable units and
+positive-evidence-of-death liveness — get no column because every shipped backend
+that hosts a separate worker satisfies them; the backends that do not (`print`
+and `in-session`) are the manual/synchronous escape hatch called out in their
+rows below.
 
 - **`tmux`.** The richest backend: an interactive `claude --worktree` worker in a
   named window. `capture-pane` provides observe-in-flight; attributed
