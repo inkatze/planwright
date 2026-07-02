@@ -68,6 +68,11 @@ export LC_ALL
 # house pattern every sibling script follows).
 unset CDPATH
 
+# Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
+# non-printables off untrusted content before it reaches the terminal.
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
+
 usage() {
   echo "usage: spec-walkthrough.sh [--scope <selector>] [--reveal] <spec-path>" >&2
   exit 2
@@ -106,13 +111,12 @@ first_header() {
 }
 
 # sanitize_echo <string> — strip control characters before echoing untrusted
-# content (the spec-validate echo discipline: a hostile value must not reach the
-# terminal raw, where escape sequences could manipulate it), with a placeholder
-# when nothing printable remains. Display only; logic uses the raw value.
+# content (the echo discipline: a hostile value must not reach the terminal
+# raw, where escape sequences could manipulate it), with a placeholder when
+# nothing printable remains. Display only; logic uses the raw value. Wraps the
+# canonical scripts/echo-safety.sh sanitizer with this command's placeholder.
 sanitize_echo() {
-  se=$(printf '%s' "$1" | tr -d '\000-\037\177')
-  [ -n "$se" ] || se="(unprintable)"
-  printf '%s' "$se"
+  sanitize_printable "$1" "(unprintable)"
 }
 
 # join_lines — read a newline list on stdin, print it ", "-joined on one line.

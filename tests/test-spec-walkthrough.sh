@@ -544,6 +544,8 @@ fi
 asws="$tmp/atomic"
 mkdir -p "$asws/scripts"
 cp "$script" "$asws/scripts/spec-walkthrough.sh"
+# The scaffold sources scripts/echo-safety.sh as a sibling; stage it too.
+cp "$here/../scripts/echo-safety.sh" "$asws/scripts/echo-safety.sh"
 cat >"$asws/scripts/spec-assemble.sh" <<'EOF'
 #!/bin/sh
 # Stub assembler: emit a specific diagnostic on stderr and partial output on

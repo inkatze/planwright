@@ -63,6 +63,11 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
+# Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
+# non-printables off repo-controlled input before it reaches the terminal.
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
+
 usage() {
   echo "usage: spec-validate.sh [--baseline <ref>] <specs-root-or-spec-dir>" >&2
   echo "       spec-validate.sh --check-id <identifier>" >&2
@@ -146,8 +151,7 @@ tab=$(printf '\t')
 # charset screen, so non-printables are stripped before echoing (REQ-H1.3
 # echo discipline), with a placeholder when nothing printable remains.
 emit_error() {
-  en=$(printf '%s' "$1" | tr -d '\000-\037\177')
-  [ -n "$en" ] || en="(unprintable name)"
+  en=$(sanitize_printable "$1" "(unprintable name)")
   printf 'spec-validate: ERROR %s: %s\n' "$en" "$2"
   err=$((err + 1))
 }
@@ -155,7 +159,10 @@ emit_error() {
 # first_header <file> <key> — first "**<key>:** value" header line's value.
 # Non-printable characters are stripped: extracted values are echoed in
 # findings, and hostile file content must not reach the terminal raw (same
-# echo discipline as the REQ-H1.3 gate parser).
+# echo discipline as the REQ-H1.3 gate parser). The canonical statement of
+# this posture lives in scripts/echo-safety.sh; the awk `gsub(/[^[:print:]]/,
+# "")` below is its in-awk form (a strict superset — it strips high/UTF-8
+# bytes too, and cannot call the sourced shell sanitizer).
 first_header() {
   awk -v key="$2" '
     index($0, "**" key ":**") == 1 {
