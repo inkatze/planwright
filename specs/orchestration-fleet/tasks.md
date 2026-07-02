@@ -112,24 +112,6 @@ space).
 - **Citations:** D-11 · REQ-D1.6, REQ-A1.6
 - **Estimated effort:** 1 day
 
-### Task 2 — Backend autodetection & present-and-ask selection
-
-- **Deliverables:** A host-backend autodetection step (`scripts/`-level detection
-  of tmux, the subagent runtime, and any configured pluggable backend) that
-  collects each candidate's advertised capability set (Task 1), wired into
-  `/orchestrate` so it presents the detected set and asks the operator which to
-  use; in unattended mode, selection comes from resolved config and a missing rich
-  backend degrades down the ladder (Task 3), never silently picking an interactive
-  backend.
-- **Done when:** autodetect reports the backends actually present and their
-  advertised capabilities; attended dispatch presents the set and asks (no silent
-  pick); unattended dispatch reads config and degrades a missing rich backend down
-  the ladder (never to an interactive backend); the selection path is covered by
-  tests; tests pass under `mise run check`.
-- **Dependencies:** 1
-- **Citations:** D-3 · REQ-B1.4
-- **Estimated effort:** 1 day
-
 ### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
 
 - **Deliverables:** The **graceful-degradation ladder** (richest to safest:
@@ -308,7 +290,25 @@ space).
 
 ## In progress
 
-(none yet)
+### Task 2 — Backend autodetection & present-and-ask selection
+
+- **Deliverables:** A host-backend autodetection step (`scripts/`-level detection
+  of tmux, the subagent runtime, and any configured pluggable backend) that
+  collects each candidate's advertised capability set (Task 1), wired into
+  `/orchestrate` so it presents the detected set and asks the operator which to
+  use; in unattended mode, selection comes from resolved config and a missing rich
+  backend degrades down the ladder (Task 3), never silently picking an interactive
+  backend.
+- **Done when:** autodetect reports the backends actually present and their
+  advertised capabilities; attended dispatch presents the set and asks (no silent
+  pick); unattended dispatch reads config and degrades a missing rich backend down
+  the ladder (never to an interactive backend); the selection path is covered by
+  tests; tests pass under `mise run check`.
+- **Dependencies:** 1
+- **Citations:** D-3 · REQ-B1.4
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-07-02
 
 ## Awaiting input
 
