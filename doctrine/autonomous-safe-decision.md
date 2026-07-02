@@ -70,7 +70,7 @@ worker-settings profile has pre-approved:
 **The two senses of "prompt" do not overlap.** A routine worker *question to the
 tower* (may answer) is not a worker's *harness tool-permission prompt* (the
 authorization gate), which a tower **never** answers at any tier (REQ-B1.7,
-bootstrap D-7). The autonomy this section grants is over the tower's own
+D-7). The autonomy this section grants is over the tower's own
 operational surface; it never reaches into a worker's harness authorization
 gate.
 
