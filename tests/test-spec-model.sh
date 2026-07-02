@@ -610,10 +610,11 @@ rec REQ REQ-A1.1 A live
 chmod u+rwx "$unsib/design.md"
 
 # ---------------------------------------------------------------------------
-# 15. Prose dependency-line parsing (parity with the derivation engine,
-# scripts/orchestrate-state.sh). Two regressions, mirroring the fixes already
-# landed in the engine and the selector (opportunities.md 2026-06-28 /
-# 2026-07-01, PR #103 / #104):
+# 15. Prose dependency-line parsing. Three cases, each mirroring a fix already
+# landed in a sibling parser: (a) and (b) mirror the derivation engine
+# (scripts/orchestrate-state.sh); (c) mirrors the selector
+# (scripts/orchestrate-select.sh) and intentionally diverges from the
+# comma-only engine (opportunities.md 2026-06-28 / 2026-07-01, PR #103 / #104):
 #   (a) trailing-period tolerance — a prose Dependencies entry commonly ends
 #       its final id with a sentence period ("Task 1.", "1.", "3.5."); the id
 #       must still emit its TASKDEP edge. Without it a SINGLE-dependency line
