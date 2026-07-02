@@ -261,8 +261,8 @@ three-pass + adversarial refute/resurrect scoped to spec-prose review):
 D-1 exists, the Goal cites it, task decomposition matches the doctrine-first
 claim (T1 is the graph root).
 
-**Dispositions (2026-07-02, human: apply all):** F1 applied (REQ-D1.2, edit
-#7); F2 applied (REQ-D1.3, edit #8); F3 applied (REQ-D1.3 + test-spec
+**Dispositions (2026-07-02, human: apply all):** F1 applied (REQ-D1.2,
+edit #7); F2 applied (REQ-D1.3, edit #8); F3 applied (REQ-D1.3 + test-spec
 REQ-D1.7, edit #9); F4 applied (Task 4, edit #10); F5 applied (test-spec
 REQ-H1.3, edit #11). All other raw findings declined with rationale in the
 table notes above; no deferrals. Changelog entry added to `requirements.md`
@@ -286,5 +286,3 @@ Anchor: `789f80e89a6138fe516a954e64bf651db4ee9358` — computed as
 ## 9. Amendment log
 
 (none yet)
-
-
