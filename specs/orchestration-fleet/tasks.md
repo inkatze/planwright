@@ -245,7 +245,7 @@ space).
 - **Dependencies:** 1, 2
 - **Citations:** D-3 · REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-A1.4
 - **Estimated effort:** 2 days
-- **Status:** implementing
+- **Status:** PR #118 draft
 - **Last activity:** 2026-07-03
 
 ### Task 2 — Backend autodetection & present-and-ask selection
