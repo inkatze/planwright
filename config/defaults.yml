@@ -31,6 +31,16 @@ mark_spec_pr_ready_on_kickoff: true
 dispatch_backend: subagent
 max_parallel_units: 3
 
+# Fleet-level concurrency bound for the meta-tower ("tower of towers",
+# /orchestrate --meta, D-6, REQ-D1.5). Caps the TOTAL number of in-flight
+# execution units summed across ALL specs the meta-tower supervises — distinct
+# from max_parallel_units, which caps one spec. The safe default is
+# conservative: 3 holds total fleet concurrency to a single spec's worth, so
+# enabling the (opt-in) meta-tower never multiplies load until an operator
+# raises it. Resolved through scripts/orchestrate-meta-select.sh via config-get;
+# an absent key keeps this default, a malformed value warns and falls back.
+fleet_max_parallel_units: 3
+
 # How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
 # implementation and each configured review_sequence skill in its own fresh
 # /resume-seeded session, so context stays bounded and each review's perspective

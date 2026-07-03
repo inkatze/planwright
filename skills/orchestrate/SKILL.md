@@ -9,7 +9,7 @@ description: >
   reconcile sweep rebuilds the picture from disk. Never merges, never marks a
   PR ready, never auto-chains into /spec-kickoff. --bookkeeping runs the
   out-of-session drain + PR reconcile; --watch loops the step.
-argument-hint: "[<spec-path>] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
+argument-hint: "[<spec-path>] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
 ---
 
 # /orchestrate
@@ -83,6 +83,11 @@ Selected from `$ARGUMENTS` at pre-flight:
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
   PRs into `tasks.md`, evaluate open gates (no auto-drop), and surface the
   observations log's staleness. Dispatches nothing. See its own section.
+- **`--meta`.** The **meta-tower** ("tower of towers", D-6): supervise **several
+  Ready/Active specs at once**, advancing one unit across the whole fleet per
+  step under a fleet-level concurrency bound, by launching subordinate
+  single-spec towers. Composes with `--watch` (loop the meta step) and the
+  backend/`--unattended` flags. See the **Meta-tower** section.
 
 Flags: `--backend <subagent|tmux|print|in-session>` overrides the configured
 `dispatch_backend` for this run; `--unattended` selects headless mode (skip
@@ -370,6 +375,77 @@ supported live context-usage signal, so the count stands in for one (see the
 doctrine doc). Auto-heal is inert for a single-step run and when
 `context_budget_threshold` is `off`.
 
+## Meta-tower — tower of towers (REQ-D1.1, REQ-D1.5, REQ-A1.2, D-6)
+
+`--meta` supervises **several Ready/Active specs at once**, advancing one unit
+across the whole fleet per step by launching **subordinate single-spec towers**.
+It adds exactly one layer — *which spec advances next, under a fleet-wide bound*
+— over the unchanged single-spec machinery: each subordinate is an ordinary
+disposable step machine (this same skill without `--meta`), owning exactly one
+spec, one lock, one dispatch record. The meta-tower holds **no cross-spec state
+beyond the current step** (D-6): every step recomputes the whole picture from the
+live cross-spec derivation, so it is disposable and crash-safe exactly like a
+single tower, and rebuilds from disk after any kill.
+
+**Resolve the supervised set.** Take the explicit `specs/<spec>` paths after
+`--meta` when given; otherwise discover every `specs/*/` bundle whose `Status:`
+is `Ready` or `Active` (underscore-prefixed accumulators are never bundles). Run
+each supervised spec through pre-flight (Ready/Active, validator, kickoff brief);
+a spec that fails is **dropped from supervision with a one-line note** (and, when
+the failure is a dispatch-blocking one, an entry in that spec's `## Awaiting
+input`) rather than halting the fleet — one unsigned or erroring spec must not
+stall the others.
+
+**The meta step.** One atomic step, mirroring the single-spec locked window at
+the fleet tier:
+
+1. **Acquire the fleet advisory lock** — `scripts/fleet-state.sh lock` (Task 9's
+   named cross-spec concurrency primitive under `${CLAUDE_PLUGIN_DATA}`). This
+   serializes concurrent meta-towers, the cross-spec analogue of the per-spec
+   lock. Exit 1 (another live meta-tower holds it) is a **clean no-op**: skip
+   this step. Hold it only across the decision below, never across a
+   subordinate's execution (the D-10 discipline at the fleet tier).
+2. **Select across the fleet**, under the lock:
+   `scripts/orchestrate-meta-select.sh specs/<a> specs/<b> …`. It reads each
+   spec's **live derivation** (`orchestrate-state.sh` / `orchestrate-select.sh`,
+   never the committed snapshot), sums fleet-wide in-flight units, and returns
+   `<spec-dir>\t<id>` for the fewest-in-flight ready spec (FIFO on ties) **only
+   when the fleet is below `fleet_max_parallel_units`** and that spec is below
+   its own `max_parallel_units`. Exit 1 → nothing to dispatch this step (nothing
+   ready, or the fleet / every ready spec is at its bound): release the lock and,
+   under `--watch`, idle until the next tick; a single step reports it and exits.
+   Exit 2 → fail closed; halt.
+3. **Reserve a fleet slot** for the pick — `scripts/fleet-state.sh bound-incr
+   "$(scripts/config-get.sh fleet_max_parallel_units)"`. This atomic
+   check-and-increment is the same-instant guard closing the brief window between
+   launching a subordinate and its dispatch marker becoming visible to the live
+   count. Exit 1 (already at the bound — a racing meta-tower took the last slot)
+   → release the lock and hold this step. The **authoritative** bound is the
+   level-triggered live cross-spec in-flight count that step 2 enforces (it
+   rebuilds from disk and cannot leak); the counter is the same-instant
+   reservation over it, reconciled toward the live count each step by
+   `bound-decr` for units the derivation now reports completed/merged. (A hard
+   kill between `bound-incr` and completion can leak a slot; the live-count
+   backstop is why that self-heals — tracked as an observation.)
+4. **Release the fleet lock** before launching (`scripts/fleet-state.sh unlock`).
+5. **Launch the subordinate tower** for the chosen spec: dispatch
+   `/orchestrate <spec>` (one step) via the selected backend (**Backend
+   selection** applies unchanged). The subordinate is an ordinary single-spec
+   tower — it runs its own pre-flight and freshness gate, takes its **own**
+   per-spec lock, writes its **own** dispatch record, and dispatches its worker.
+   The meta-tower passes it no in-memory state and **never** edits another
+   tower's or a worker's branch state (REQ-D1.2 division of labor).
+
+**Autonomy and the reserved controls hold unchanged at the meta tier.**
+Unattended, the meta-tower honors the **autonomous-safe-decision policy**
+(`autonomous-safe-decision`, Task 8) exactly as a single tower does — there is no
+looser autonomy and no fleet-only decision category; every escalation routes to
+the owning spec's `## Awaiting input`, the one cross-spec decision queue a human
+drains. **Never-auto-merge holds at every tier** (REQ-A1.2): the meta-tower and
+every subordinate create draft PRs only; the draft→ready flip and the merge stay
+the human's two reserved controls. The meta-tower never marks a PR ready and
+never merges.
+
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
 **First, refresh the remote view (best-effort).** Before rebuilding, run a
@@ -493,6 +569,13 @@ These hold at every step:
   (`scripts/spec-anchor.sh` strips section placement and the Status annotations).
 - **Never** hold the per-spec lock across execution; only across the
   freshness-gate-plus-marker window (D-10).
+- **Never** loosen any invariant at the meta tier (`--meta`, D-6): never-merge
+  and never-ready hold across every tier (REQ-A1.2); the fleet advisory lock is
+  held only across the meta decision window, never across a subordinate's
+  execution; the fleet bound (`fleet_max_parallel_units`) caps total in-flight
+  units across all supervised specs, distinct from each spec's
+  `max_parallel_units` (REQ-D1.5); and the meta-tower never edits another tower's
+  or a worker's branch state (REQ-D1.2).
 
 ## Observations
 
