@@ -20,13 +20,12 @@
 # Hermetic: every case sets the resolution env explicitly (no ambient HOME /
 # CLAUDE_DIR / CLAUDE_PLUGIN_* leak), so the suite is reproducible on a
 # developer box and on CI alike. Runs standalone under /bin/bash (bash 3.2).
-# One caveat: the stale-break case (12) exercises the real config-get.sh to
-# read stale_lock_threshold, so it assumes the ambient config resolves to a
-# threshold shorter than the back-dated lock's age — true for the tracked
-# default (15m) and any realistic override. It is NOT pinned against a
-# pathological ambient override (e.g. stale_lock_threshold: 99999999m); the
-# sibling test-orchestrate-lock.sh, which controls that value via a temp-repo
-# planwright.local.yml, is the reference if this ever needs full pinning.
+# The stale-break case (12) reads stale_lock_threshold through the real
+# config-get.sh, so it pins that value via an explicit PLANWRIGHT_LOCAL_CONFIG
+# (the top-of-ladder machine-local layer) instead of trusting the ambient
+# config — the break stays deterministic even against a pathological repo-local
+# override (e.g. stale_lock_threshold: 99999999m), mirroring how the sibling
+# orchestrate-lock.sh consumes the knob.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -400,9 +399,19 @@ echo "ok: bound-incr rejects a malformed bound (non-numeric and empty)"
 home_stale="$tmp/stale-home"
 mkdir -p "$home_stale"
 mkdir "$home_stale/.fleet.lock"
-touch -t 202001010000 "$home_stale/.fleet.lock" # crashed holder, >15m stale
+touch -t 202001010000 "$home_stale/.fleet.lock" # crashed holder, back-dated to 2020
+# Pin stale_lock_threshold via an explicit machine-local config so the break is
+# deterministic regardless of the ambient config-get resolution. An explicit
+# PLANWRIGHT_LOCAL_CONFIG replaces the resolver-derived machine-local layer (the
+# top of the four-layer ladder, last-wins), so no repo-local or adopter override
+# can widen the threshold past the back-dated lock's age. Mirrors how the sibling
+# orchestrate-lock.sh consumes the knob. 5m is far below the 2020 lock's age, so
+# the lock is reliably stale.
+stale_pin="$tmp/stale-pin.yml"
+printf 'stale_lock_threshold: 5m\n' >"$stale_pin"
 env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-  PLANWRIGHT_FLEET_STATE_DIR="$home_stale" /bin/sh "$FS" bound-incr 3 >/dev/null \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_stale" PLANWRIGHT_LOCAL_CONFIG="$stale_pin" \
+  /bin/sh "$FS" bound-incr 3 >/dev/null \
   || fail "stale lock deadlocked a new acquirer (no break/recovery)"
 [ "$(cat "$home_stale/concurrency")" = "1" ] || fail "stale-break recovery did not complete the increment"
 echo "ok: a crashed holder's stale lock is broken, not a permanent deadlock"

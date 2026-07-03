@@ -66,9 +66,12 @@
 #   (`bound-incr`); 2 usage error, unresolvable home, refused hostile input, or a
 #   filesystem/lock error (fail closed).
 #
-# Portable POSIX sh + mkdir/mktemp/date/awk; bash 3.2 / BSD tooling, no eval, no
-# jq/fish/mise (REQ-K1.5). All input is treated as data. Pathname expansion is
-# disabled (set -f): the script does no intentional globbing.
+# POSIX sh targeting the macOS + Linux support bar (bash 3.2 / BSD tooling), not
+# strict POSIX: it deliberately uses a few widely-portable extensions — `date
+# +%s`, `find -mmin`, and a fractional `sleep` (each documented at its use site)
+# — plus mkdir/mktemp/awk. No eval, no jq/fish/mise (REQ-K1.5). All input is
+# treated as data. Pathname expansion is disabled (set -f): the script does no
+# intentional globbing.
 set -uf
 
 LC_ALL=C
