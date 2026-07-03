@@ -222,24 +222,50 @@ home_bound="$tmp/bound-race"
 MAX=5
 N=20
 okdir="$tmp/bound-results"
-mkdir -p "$okdir"
+rcdir="$tmp/bound-rcs"
+errdir="$tmp/bound-errs"
+mkdir -p "$okdir" "$rcdir" "$errdir"
 i=0
 while [ "$i" -lt "$N" ]; do
   (
-    # Capture the granted increment's stdout (the new count) into the marker,
-    # so the race also proves each grant PRINTS its unique new-count — not just
-    # that it exited 0 and the counter file landed right.
-    if out=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    # Capture the exit code, the granted new-count (stdout on exit 0), and any
+    # stderr, so the race proves not just that exactly MAX succeeded but that
+    # every non-grant was a CLEAN at-bound refusal (exit 1, silent) — never a
+    # fail-closed error (exit 2, e.g. spin_acquire budget exhaustion under
+    # contention). A grant-count-only check would pass an exit-2 that landed on a
+    # call which would have been refused anyway, as long as MAX grants still hit.
+    rc=0
+    out=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
       PLANWRIGHT_FLEET_STATE_DIR="$home_bound" \
-      /bin/sh "$FS" bound-incr "$MAX" 2>/dev/null); then
-      printf '%s\n' "$out" >"$okdir/$i"
-    fi
+      /bin/sh "$FS" bound-incr "$MAX" 2>"$errdir/$i") || rc=$?
+    printf '%s\n' "$rc" >"$rcdir/$i"
+    if [ "$rc" = 0 ]; then printf '%s\n' "$out" >"$okdir/$i"; fi
   ) &
   i=$((i + 1))
 done
 wait
 granted=$(find "$okdir" -type f | wc -l | tr -d ' ')
 [ "$granted" = "$MAX" ] || fail "bound race: $granted grants, expected exactly $MAX (over/under-count)"
+# Exit-code distribution: exactly MAX grants (exit 0) and N-MAX clean at-bound
+# refusals (exit 1), with ZERO fail-closed errors (exit 2 or anything else) —
+# this is what a grant-count-only assertion cannot see.
+zeros=0
+ones=0
+others=0
+for f in "$rcdir"/*; do
+  case $(cat "$f") in
+    0) zeros=$((zeros + 1)) ;;
+    1) ones=$((ones + 1)) ;;
+    *) others=$((others + 1)) ;;
+  esac
+done
+[ "$zeros" = "$MAX" ] || fail "bound race: $zeros grants (exit 0), expected $MAX"
+[ "$ones" = "$((N - MAX))" ] || fail "bound race: $ones clean refusals (exit 1), expected $((N - MAX))"
+[ "$others" = 0 ] || fail "bound race: $others invocations failed closed (exit 2/other) under contention, expected 0"
+# And none of them wrote to stderr: a clean grant and a clean at-bound refusal
+# are both silent there; only a fail-closed error diagnoses to stderr.
+errfiles=$(find "$errdir" -type f ! -empty)
+[ -z "$errfiles" ] || fail "bound race: invocation(s) wrote to stderr under contention: $errfiles"
 counter=$(cat "$home_bound/concurrency")
 [ "$counter" = "$MAX" ] || fail "bound race: counter landed on $counter, expected $MAX"
 # The MAX grants printed exactly the counts 1..MAX on stdout (the documented

@@ -166,7 +166,7 @@ resolve_root() {
       fi
     fi
   fi
-  echo "fleet-state: cannot resolve a cross-spec fleet home (set \$CLAUDE_PLUGIN_DATA, or \$PLANWRIGHT_FLEET_STATE_DIR)" >&2
+  echo "fleet-state: cannot resolve a cross-spec fleet home — set \$PLANWRIGHT_FLEET_STATE_DIR (explicit override) or \$CLAUDE_PLUGIN_DATA (plugin mode), or ensure a readable plugin manifest at <claude-dir>/planwright/plugin.json (writer mode; claude-dir is \$CLAUDE_DIR else \$HOME/.claude)" >&2
   return 2
 }
 
