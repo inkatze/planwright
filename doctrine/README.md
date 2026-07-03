@@ -25,6 +25,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
 | [interaction-style.md](interaction-style.md) | How spec-authoring skills conduct interactive sessions: progress indicator, progressive disclosure, selectors with recommendations, running summary, small bites | REQ-B3.1 |
 | [backend-capability-contract.md](backend-capability-contract.md) | The dispatch-backend capability contract and advertisement: the five named capabilities, the advertised capability set, orchestrator adaptation, and the existing backends mapped to it | orchestration-fleet REQ-B1.1, REQ-B1.2, REQ-B1.3 · orchestration-fleet D-2 |
+| [context-budget-autoheal.md](context-budget-autoheal.md) | The long-running tower's context-budget monitor (the completed-step-count proxy signal and its knob) and the disposable-tower auto-heal handover (`continue-as-new`): rebuild-from-disk, the wake prompt as handover document, state-safety across the handover, and the never-auto-merge floor | orchestration-fleet REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-A1.2 · orchestration-fleet D-4 |
 
 ## Resolution convention
 

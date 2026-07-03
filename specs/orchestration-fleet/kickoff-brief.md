@@ -398,6 +398,53 @@ added rows R12–R17. These append to the §7 register; they do not overwrite it
   captured here so each task pins its term with a test. Early signal: a reviewer
   cannot evaluate a Done-when because the term is still abstract.
 
+### Task 5 research findings — the context-budget signal (2026-07-02)
+
+Resolves risk **R2** (context-budget signal undefined, C1.1/D-4) and informs
+**R12** (auto-heal error paths) and **R5** (safe defaults). Research fired on the
+version-sensitive-capability trigger (how a running Claude Code session can
+introspect its own context budget); sources consulted top-down: current Claude
+Code docs (hooks reference, context-window management, sessions, headless mode),
+2026 recency honored over model memory. Appended per the execution-skill
+risk-register convention (named section, no anchor entry, existing rows
+untouched).
+
+- **Finding — no supported live token-usage introspection.** Claude Code exposes
+  **no** documented programmatic signal of current context-window usage to a
+  command a session runs itself: no environment variable, no hook input field, no
+  CLI query. `/context` is interactive-only (not machine-readable). The session
+  transcript JSONL (`~/.claude/projects/<project>/<session-id>.jsonl`) *does*
+  carry per-message usage, but its schema is documented as **internal and
+  changes between versions** — explicitly unsupported for scripting. Antipattern
+  check: parsing the transcript is the tempting-but-fragile path and is rejected
+  (it breaks on any release, a silent-degradation vector this spec's degrade-safe
+  posture forbids).
+- **Finding — `PreCompact` (matcher `auto`) is the native context-pressure
+  signal.** The documented, stable `PreCompact` hook fires when Claude Code's own
+  auto-compaction is about to run — i.e. it *is* Claude Code's "budget exhausted"
+  event. Limit: it fires **at** the threshold, not before, and registering it in
+  planwright's plugin `hooks/hooks.json` would fire for every adopter's every
+  session (not just towers), needing tower-detection to stay a no-op.
+- **Finding — fresh sessions launch headless.** `claude -p "<prompt>"`
+  (`--output-format json` returns the new `session_id`) is the documented way for
+  a retiring tower to start its replacement and confirm it is alive; the Agent SDK
+  is the richer alternative. No atomic "launch + seed" flag beyond the prompt
+  argument.
+- **Decision (R2 resolved).** The budget signal is a **completed-step-count
+  proxy** — the count of orchestration steps a long-running tower has run since it
+  started — as the **primary, tower-controllable, host-agnostic** signal (needs no
+  unsupported introspection; measurable on every backend). The `context_budget_threshold`
+  knob configures it and `scripts/context-budget-monitor.sh` evaluates it. The
+  `PreCompact auto` hook is documented as the **corroborating native hard-floor**
+  a tower may register in its own worker settings (not a global plugin hook, to
+  bound blast radius). Tradeoffs weighed: reliability (step-count is deterministic
+  and under our control; PreCompact is native but late; transcript-parsing is
+  fragile/unsupported), system-wide implications (no global hook side effect),
+  and safety (the handover is cheap and lossless — rebuild-from-disk — so a
+  conservative default that hands off *early* is the safe default per R5).
+  Proportionality: scope declared — the step-count monitor is built and CI-tested;
+  the PreCompact path is documented, not globally wired.
+
 ## 8. Sign-off
 
 ### Lens review pass (Discovery Rigor)
@@ -477,7 +524,10 @@ Amendment log. Prior expression-only anchor:
 ## Amendment log
 
 Post-sign-off changes to the anchored spec bundle. Signed sections 1–8 above are
-unchanged except the `Anchor:` pointer in §8. Most entries here record
+unchanged except the `Anchor:` pointer in §8 and any **sanctioned execution-time
+risk-register appends** (named subsections an execution skill adds to §7 to record
+research findings — they carry no anchor entry and touch no signed decision; e.g.
+the "Task 5 research findings" subsection). Most entries here record
 expression-only edits that re-anchor the bundle (the only kind a finishing-gauntlet
 worker may make). A **meaning-class** change is recorded here only by the kickoff
 owner via a delta re-walkthrough, and its entry carries `Class: meaning` plus a
