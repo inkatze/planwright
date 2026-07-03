@@ -287,4 +287,61 @@ got=$("$MSEL" "$balpha") || fail "case 8: non-zero exit ($?)"
   || fail "case 8: single-spec fleet must emit the sole ready unit (got '$got')"
 echo "ok: a single-spec fleet reduces to a one-spec selection"
 
+# ---------------------------------------------------------------------------
+# 9. Malformed bound value → warn on stderr and fall back to the default (3), so
+#    a typo in the overlay never wedges the fleet. speca has a ready task 2 and
+#    zero in-flight; with a non-numeric fleet bound the selector must still
+#    dispatch (default 3 leaves headroom) AND emit the malformed-value warning.
+# ---------------------------------------------------------------------------
+repoE=$(new_fleet "$tmp/E")
+ealpha=$(add_spec "$repoE" speca)
+two_task_body >"$ealpha/tasks.md"
+seal_base "$repoE"
+done_trailer "$repoE" speca 1
+set_bounds "$repoE" foo 3
+got=$("$MSEL" "$ealpha" 2>"$tmp/e9.err") || fail "case 9: malformed bound must still dispatch via fallback (rc $?)"
+[ "$got" = "$ealpha${tab}2" ] \
+  || fail "case 9: malformed fleet bound must fall back to the default and dispatch (got '$got')"
+grep -q "ignoring malformed fleet_max_parallel_units" "$tmp/e9.err" \
+  || fail "case 9: malformed fleet bound must warn on stderr"
+echo "ok: a malformed bound warns and falls back to the safe default"
+
+# ---------------------------------------------------------------------------
+# 10. Missing required helper → fail closed (exit 2) at pre-flight, before any
+#     selection. A copy of the selector placed in a directory WITHOUT its sibling
+#     primitives (orchestrate-state.sh / orchestrate-select.sh / config-get.sh)
+#     must exit 2 rather than proceed with absent live truth.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/nohelpers"
+cp "$MSEL" "$tmp/nohelpers/orchestrate-meta-select.sh"
+chmod +x "$tmp/nohelpers/orchestrate-meta-select.sh"
+rc=0
+"$tmp/nohelpers/orchestrate-meta-select.sh" "$ealpha" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "case 10: a missing required helper must fail closed (exit $rc, expected 2)"
+echo "ok: a missing / non-executable required helper fails closed with exit 2"
+
+# ---------------------------------------------------------------------------
+# 11. A bound of 0 pauses (documented as "a paused fleet/spec"). 11a: fleet bound
+#     0 holds every step even with a ready unit and zero in-flight. 11b: per-spec
+#     cap 0 skips the spec (0 < 0 is false) so nothing is dispatchable. Both
+#     assert exit 1 with empty stdout; if 0 were not honored the ready task 2
+#     would dispatch and each assertion would flip.
+# ---------------------------------------------------------------------------
+repoF=$(new_fleet "$tmp/F")
+falpha=$(add_spec "$repoF" speca)
+two_task_body >"$falpha/tasks.md"
+seal_base "$repoF"
+done_trailer "$repoF" speca 1
+set_bounds "$repoF" 0 3
+rc=0
+got=$("$MSEL" "$falpha" 2>/dev/null) || rc=$?
+{ [ "$rc" = 1 ] && [ -z "$got" ]; } \
+  || fail "case 11a: fleet bound 0 must pause the fleet (got '$got', rc $rc)"
+set_bounds "$repoF" 5 0
+rc=0
+got=$("$MSEL" "$falpha" 2>/dev/null) || rc=$?
+{ [ "$rc" = 1 ] && [ -z "$got" ]; } \
+  || fail "case 11b: per-spec cap 0 must skip the spec (got '$got', rc $rc)"
+echo "ok: a bound of 0 pauses the fleet (fleet-wide) or the spec (per-spec)"
+
 echo "PASS: orchestrate-meta-select"
