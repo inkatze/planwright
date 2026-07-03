@@ -176,27 +176,6 @@ space).
 - **Estimated effort:** 2 days
 - **Last activity:** 2026-07-02
 
-### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
-
-- **Deliverables:** A context-budget monitor for a long-running tower (threshold
-  configurable via a documented knob) and the auto-heal handover (the
-  `continue-as-new` pattern): on nearing the limit the tower launches a fresh
-  tower that rebuilds from durable state (the `tasks.md` snapshot, `gh`, the
-  branch/marker/process and worker list), with the standing-instructions/wake
-  prompt serving as the handover document; the retiring tower starts the
-  replacement and stops. The exact budget signal is resolved against Claude Code's
-  available capability (risk-register row / research).
-- **Done when:** the monitor surfaces a near-limit condition against the
-  configured threshold; auto-heal launches a fresh tower that reconstructs the
-  in-flight picture from durable state with no in-memory state passed (testable by
-  "could a fresh tower resume from this alone?"); the handover uses the wake prompt
-  (no second artifact); the handover preserves the state-safety contract
-  (REQ-C1.4); the threshold knob is in `docs/options-reference.md`; tests/manual
-  exercise cover the handover; CI passes.
-- **Dependencies:** 1
-- **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
-- **Estimated effort:** 2 days
-
 ### Task 6 — Meta-orchestration (tower of towers)
 
 - **Deliverables:** A meta-tower mode that selects ready units across multiple
@@ -310,7 +289,28 @@ space).
 
 ## In progress
 
-(none yet)
+### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
+
+- **Deliverables:** A context-budget monitor for a long-running tower (threshold
+  configurable via a documented knob) and the auto-heal handover (the
+  `continue-as-new` pattern): on nearing the limit the tower launches a fresh
+  tower that rebuilds from durable state (the `tasks.md` snapshot, `gh`, the
+  branch/marker/process and worker list), with the standing-instructions/wake
+  prompt serving as the handover document; the retiring tower starts the
+  replacement and stops. The exact budget signal is resolved against Claude Code's
+  available capability (risk-register row / research).
+- **Done when:** the monitor surfaces a near-limit condition against the
+  configured threshold; auto-heal launches a fresh tower that reconstructs the
+  in-flight picture from durable state with no in-memory state passed (testable by
+  "could a fresh tower resume from this alone?"); the handover uses the wake prompt
+  (no second artifact); the handover preserves the state-safety contract
+  (REQ-C1.4); the threshold knob is in `docs/options-reference.md`; tests/manual
+  exercise cover the handover; CI passes.
+- **Dependencies:** 1
+- **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
+- **Estimated effort:** 2 days
+- **Status:** implementing
+- **Last activity:** 2026-07-02
 
 ## Awaiting input
 
