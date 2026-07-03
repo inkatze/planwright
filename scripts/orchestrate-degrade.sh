@@ -269,6 +269,15 @@ rung_num() {
 # A guard-preserving descent target keeps the worker on planwright's driven,
 # guarded path: non-interactive (never strand an unattended run) AND not
 # spawn-deferred (never the manual `print` rung). Reads a caps string on $1.
+#
+# Deliberately stricter than rung_of_caps's interactivity test: the classifier
+# treats any `interactive != true` (including `na`) as non-interactive and puts
+# it on the ladder, but the guard gate demands `interactive = false` EXACTLY. An
+# advertisement of `interactive=na` (unknown interactivity — no real backend emits
+# it, but the grammar admits it) is therefore refused as a descent target and the
+# run escalates for a human, rather than risking an unattended strand on a backend
+# whose interactivity we cannot confirm. This asymmetry is intentional:
+# degrade capability, never safety — when interactivity is unknown, refuse.
 caps_guard_preserving() {
   f_i='' f_g='' f_rest=''
   read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
@@ -456,6 +465,11 @@ cmd_failover() {
     printf '%s\n' "orchestrate-degrade: cannot classify current backend '$(sanitize_printable "$fo_current" "(unprintable)")'" >&2
     return 2
   fi
+  # A `manual` current classifies as rung_num 5 (below every autonomous rung), so
+  # nothing is "strictly below" it and failover escalates. That is correct by
+  # design: `print` is off the driven ladder — planwright never drives it, so it
+  # cannot "die mid-run", and failover-from-manual is a nonsensical call that
+  # fails safe to a human decision rather than descending to a real rung.
   fo_cur_n=$(rung_num "$fo_cur_rung") || fo_cur_n=5
 
   # No explicit candidates: re-detect the shipped present set at failover time.
