@@ -284,8 +284,9 @@ which one to use in this order:
   chosen backend, not a silent pick.
 - **Attended, no flag** — run `scripts/orchestrate-backends.sh detect` to
   autodetect the backends actually present on this host and their advertised
-  capability sets (`tmux` is present iff installed; `subagent`, `in-session`,
-  and `print` are always present; a configured pluggable backend appears when
+  capability sets (`tmux` is present iff installed; `subagent` is present by
+  default but a host or test can force it off via `PLANWRIGHT_BACKEND_SUBAGENT`;
+  `in-session` and `print` are always present; a configured pluggable backend appears when
   its `planwright-backend-<name>` adapter advertises). Pass the configured
   `dispatch_backend` value as a trailing pluggable-name argument so an operator's
   configured pluggable backend is included. **Present** that set and **ask** the

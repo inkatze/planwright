@@ -34,6 +34,11 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+# Hermeticity: the suite controls backend presence only via per-invocation env
+# prefixes (and the real `command -v` probe for the unforced cases). A backend
+# override inherited from the developer's/CI's ambient shell would flip those
+# cases, so clear them up front.
+unset PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT
 
 here=$(cd "$(dirname "$0")" && pwd)
 BACKENDS="$here/../scripts/orchestrate-backends.sh"
