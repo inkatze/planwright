@@ -286,4 +286,25 @@ sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended ghost 
 grep -q NOTE "$err" || fail "select-unattended: an absent-pluggable degrade must emit a NOTE"
 echo "ok: select-unattended degrades an absent configured pluggable down the ladder"
 
+# ---------------------------------------------------------------------------
+# 16. echo discipline (doctrine/security-posture.md): an invalid backend name
+#     carrying control/escape bytes is SANITIZED before it reaches stderr, and
+#     detect still continues to emit the always-present rows after refusing it.
+#     Guards the fix for the terminal-escape/log-injection finding — a raw ESC
+#     in a rejected name must never survive into the diagnostic.
+# ---------------------------------------------------------------------------
+esc=$(printf 'ev\033]0;PWNED\007il')
+out=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect "$esc" 2>"$err") \
+  || fail "detect(control-byte name) non-zero"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "detect: an invalid name's control bytes must be stripped before echo"
+fi
+grep -q "ignoring invalid backend name" "$err" \
+  || fail "detect: a refused invalid name should still be reported (sanitized) on stderr"
+row_present "$out" subagent \
+  || fail "detect: must continue emitting always-present rows after refusing an invalid name"
+row_present "$out" in-session \
+  || fail "detect: must continue emitting in-session after refusing an invalid name"
+echo "ok: detect sanitizes a refused invalid name's control bytes and continues"
+
 echo "PASS: test-orchestrate-backends.sh"

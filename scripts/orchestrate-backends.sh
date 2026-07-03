@@ -55,6 +55,13 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
+# An invalid backend name is untrusted DATA: it must be stripped of non-printable
+# bytes before it reaches a diagnostic, so an embedded escape sequence cannot
+# drive the operator's terminal (doctrine/security-posture.md, "Echo
+# discipline"). Sourced like the other framework callers (spec-validate.sh).
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
+
 # ---------------------------------------------------------------------------
 # The advertised capability set of each shipped backend, verbatim from the
 # Task 1 contract table (doctrine/backend-capability-contract.md). Fields, in
@@ -189,7 +196,7 @@ cmd_detect() {
   for p in "$@"; do
     is_known "$p" && continue
     if ! valid_name "$p"; then
-      echo "orchestrate-backends: ignoring invalid backend name: $p" >&2
+      printf '%s\n' "orchestrate-backends: ignoring invalid backend name: $(sanitize_printable "$p" "(unprintable name)")" >&2
       continue
     fi
     case "$seen" in
@@ -217,7 +224,7 @@ cmd_select_unattended() {
   # A pluggable configured name must be a valid identifier before it reaches the
   # adapter command; a hostile name is a usage error, not a silent degrade.
   if ! is_known "$configured" && ! valid_name "$configured"; then
-    echo "orchestrate-backends: invalid backend name: $configured" >&2
+    printf '%s\n' "orchestrate-backends: invalid backend name: $(sanitize_printable "$configured" "(unprintable name)")" >&2
     return 2
   fi
 
