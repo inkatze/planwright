@@ -90,12 +90,12 @@ valid_identifier() {
 }
 
 # The registry FIELD grammar for worker/scope identifiers (REQ-F1.1, REQ-A1.6):
-# a conservative handle charset that excludes path separators, `..` traversal
-# (no dot-run can form a path with no slash), whitespace, tabs, newlines, and
-# any control or shell-metacharacter — so a hostile field can neither escape a
-# path nor tear the tab-delimited append-only record. Covers the backend worker
-# handles the capability contract names (`window=<name>`, an agent id) and spec
-# identifiers. Bounded to 128 chars.
+# a conservative handle charset that excludes path separators (so a `.` or `..`
+# dot-run is inert: with no slash it can never form a traversal path), plus
+# whitespace, tabs, newlines, and any control or shell-metacharacter — so a
+# hostile field can neither escape a path nor tear the tab-delimited append-only
+# record. Covers the backend worker handles the capability contract names
+# (`window=<name>`, an agent id) and spec identifiers. Bounded to 128 chars.
 valid_field() {
   vf_v=$1
   case $vf_v in
@@ -193,7 +193,11 @@ fleet_stale_min() {
 # spun under contention with frequent releases — misreading the race as fatal
 # drops the caller's update (a lost registry write / a skipped increment).
 mkdir_failure_kind() {
-  mfk_parent=${1%/*}
+  # dirname (already a dependency, see script_dir above) rather than ${1%/*}:
+  # the in-shell trim yields the empty string for a single-leading-slash path
+  # (`/.fleet.lock` → ""), which would misclassify the probe; dirname is correct
+  # for every path shape.
+  mfk_parent=$(dirname "$1")
   if [ -d "$mfk_parent" ] && [ -w "$mfk_parent" ]; then
     printf 'busy\n'
   else
@@ -284,7 +288,9 @@ spin_acquire() {
 atomic_write() {
   aw_file=$1
   aw_val=$2
-  aw_dir=${aw_file%/*}
+  # dirname, not ${aw_file%/*}: the latter is the empty string for a single-
+  # leading-slash target (`/concurrency` → ""), breaking the same-dir mktemp.
+  aw_dir=$(dirname "$aw_file")
   aw_tmp=$(mktemp "$aw_dir/.tmp.XXXXXX") || return 1
   if ! printf '%s\n' "$aw_val" >"$aw_tmp"; then
     rm -f "$aw_tmp"
