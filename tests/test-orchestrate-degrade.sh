@@ -75,7 +75,22 @@ cat >"$BIN/planwright-backend-ipool" <<'EOF'
 #!/bin/sh
 [ "$1" = advertise ] && echo "true false false false true yes"
 EOF
-chmod +x "$BIN/planwright-backend-pool" "$BIN/planwright-backend-ipool"
+# A malformed adapter (7 fields) → its advertisement is rejected by adapter_caps,
+# so the candidate is fail-safe SKIPPED (never selected on an unknown capset).
+cat >"$BIN/planwright-backend-bad7" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true no extra"
+EOF
+# An `interactive=na` (unknown interactivity) single-stream adapter: rung_of_caps
+# places it on the ladder (na != true → non-interactive → rung 4), but
+# caps_guard_preserving refuses it (interactive must be `false` exactly), so a
+# failover whose only candidate is this escalates rather than descending.
+cat >"$BIN/planwright-backend-napool" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "na na na false false no"
+EOF
+chmod +x "$BIN/planwright-backend-pool" "$BIN/planwright-backend-ipool" \
+  "$BIN/planwright-backend-bad7" "$BIN/planwright-backend-napool"
 
 # A fresh spec-dir fixture with the four spec files a real bundle carries, so the
 # script's spec-dir checks see a plausible directory. tasks.md is seeded so a
@@ -144,6 +159,12 @@ for bad in "../x" "1;rm -rf" "5-6" "*" ""; do
   [ -z "${out:-}" ] || fail "terminal-plan emitted output for hostile id '$bad'"
 done
 
+# All-or-nothing: a VALID leading id followed by a hostile one emits NO partial
+# `run 1` before the invalid id is caught (validation precedes all emission).
+out=$("$DEGRADE" terminal-plan 1 "../x" 3 2>/dev/null) && rc=0 || rc=$?
+[ "$rc" = 2 ] || fail "terminal-plan with a mid-list hostile id: expected exit 2, got $rc"
+[ -z "${out:-}" ] || fail "terminal-plan emitted partial output before a later hostile id: '$out'"
+
 # No ids at all is a usage error (exit 2).
 if "$DEGRADE" terminal-plan >/dev/null 2>&1; then
   fail "terminal-plan with no ids should exit nonzero"
@@ -197,9 +218,9 @@ mkdir -p "$sd_empty/.orchestrate"
 sd_bad=$(new_spec_dir)
 mkdir -p "$sd_bad/.orchestrate"
 printf '../evil\t1\n' >"$sd_bad/.orchestrate/effective-backend"
-if "$DEGRADE" read "$sd_bad" >/dev/null 2>&1; then
-  fail "read emitted a malformed effective-backend value"
-fi
+out=$("$DEGRADE" read "$sd_bad" 2>/dev/null) && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "read of a malformed value: expected exit 1 (no valid record), got $rc"
+[ -z "${out:-}" ] || fail "read emitted a malformed effective-backend value: '$out'"
 
 # A hostile backend name is refused; nothing written.
 sd3=$(new_spec_dir)
@@ -267,6 +288,33 @@ sd=$(new_spec_dir)
 "$DEGRADE" failover "$sd" subagent subagent in-session >/dev/null 2>&1 || fail "R6 step 2 failed"
 [ "$("$DEGRADE" read "$sd")" = in-session ] || fail "R6 step 2 wrong rung"
 
+# Richest-rung discrimination: with BOTH a rung-2 pool AND a rung-3 subagent
+# present below tmux (rung 1), descent picks the RICHEST — the pool (rung 2) —
+# skipping the present-but-lower subagent (guards against a mis-ranked two-rung
+# jump when an intermediate rung is present).
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux pool subagent in-session >/dev/null 2>&1 \
+  || fail "failover tmux→ (pool+subagent present) exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = pool ] \
+  || fail "failover did not pick the richest lower rung (expected pool, got $("$DEGRADE" read "$sd"))"
+
+# Fail-safe skip of an UNKNOWN candidate (neither a shipped name nor an installed
+# adapter): it is dropped, and the descent still lands on a valid lower rung.
+sd=$(new_spec_dir)
+"$DEGRADE" failover "$sd" tmux nosuchbackend in-session >/dev/null 2>&1 \
+  || fail "failover with an unknown candidate exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = in-session ] \
+  || fail "unknown candidate was not skipped fail-safe (expected in-session)"
+
+# Fail-safe skip of a candidate whose adapter emits a MALFORMED capset (7 fields):
+# adapter_caps rejects it, so it never reaches the ladder; descent falls to the
+# next valid lower rung rather than trusting an unclassifiable advertisement.
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux bad7 in-session >/dev/null 2>&1 \
+  || fail "failover with a malformed-adapter candidate exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = in-session ] \
+  || fail "malformed-adapter candidate was not skipped fail-safe (expected in-session)"
+
 # --- safety-abort / escalation: degrade capability, NEVER safety --------------
 
 # Terminal-rung floor: in-session (rung 4) dies with no lower rung → ESCALATE
@@ -279,10 +327,13 @@ both=$({
   printf '%s' "$out"
   cat "$tmp/err"
 })
-echo "$both" | grep -qi "ladder floor\|no lower rung" \
+echo "$both" | grep -qi "no lower rung" \
   || fail "terminal-rung escalation gave no terminal-floor reason"
 echo "$both" | grep -qi "would drop a named guard" \
   && fail "terminal-rung escalation was mislabeled as a guard-drop"
+# `print` was present, so the message carries the off-ladder suffix (F5/off-ladder).
+echo "$both" | grep -qi "cannot drive it" \
+  || fail "terminal escalation omitted the off-ladder 'print' suffix"
 [ ! -f "$sd/.orchestrate/effective-backend" ] || fail "terminal escalation recorded a backend"
 
 # Guard-drop: tmux (rung 1) dies and the only lower rung is an INTERACTIVE pool
@@ -297,7 +348,7 @@ both=$({
 })
 echo "$both" | grep -qi "would drop a named guard" \
   || fail "guard-drop refusal gave no guard-drop reason"
-echo "$both" | grep -qi "ladder floor\|no lower rung" \
+echo "$both" | grep -qi "no lower rung" \
   && fail "guard-drop refusal was mislabeled as the terminal floor"
 [ ! -f "$sd/.orchestrate/effective-backend" ] || fail "guard-drop escalation recorded a backend"
 
@@ -307,6 +358,26 @@ sd=$(new_spec_dir)
 "$DEGRADE" failover "$sd" subagent tmux subagent >/dev/null 2>&1 && rc=0 || rc=$?
 [ "$rc" = 3 ] || fail "ascend refusal: expected exit 3, got $rc"
 [ ! -f "$sd/.orchestrate/effective-backend" ] || fail "ascend refusal recorded a backend"
+
+# Failover FROM a manual/off-ladder current (`print`): print is off the driven
+# ladder (rung_num 5, below every autonomous rung), so nothing is strictly below
+# it and failover escalates (exit 3) even with in-session present — never silently
+# descends from a backend planwright was not driving. Nothing recorded.
+sd=$(new_spec_dir)
+"$DEGRADE" failover "$sd" print in-session >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 3 ] || fail "failover from manual current: expected exit 3, got $rc"
+[ ! -f "$sd/.orchestrate/effective-backend" ] || fail "manual-current failover recorded a backend"
+
+# Unknown interactivity is refused, not descended to: tmux dies and the only lower
+# candidate advertises `interactive=na` (rung 4 by classification, but unconfirmed
+# interactivity) → escalate (exit 3), nothing recorded — degrade capability, never
+# safety when interactivity cannot be confirmed.
+sd=$(new_spec_dir)
+out=$(PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux napool 2>"$tmp/err") && rc=0 || rc=$?
+[ "$rc" = 3 ] || fail "na-interactivity refusal: expected exit 3, got $rc"
+grep -qi "would drop a named guard" "$tmp/err" \
+  || fail "na-interactivity refusal gave no guard-preserving reason"
+[ ! -f "$sd/.orchestrate/effective-backend" ] || fail "na-interactivity refusal recorded a backend"
 
 # Record-write failure aborts (R12): a regular FILE where .orchestrate must be a
 # dir makes the record write fail → the failover ESCALATES (exit 3) rather than
