@@ -207,6 +207,20 @@ done
   || fail "bound race: grants printed '$grants_printed', expected '$expected_printed'"
 echo "ok: the fleet-bound check-and-increment never over-counts under contention"
 
+# At the bound, a further increment is REFUSED: it grants no slot, prints the
+# current count (MAX) on stdout, and exits 1. The race above proved the granted
+# calls print 1..MAX; this proves the refused call honors its own half of the
+# contract (a regression printing an empty string or the wrong value, or exiting
+# 0, would break a consumer that gates dispatch on this exit + count).
+at_bound_rc=0
+at_bound_out=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_bound" \
+  /bin/sh "$FS" bound-incr "$MAX" 2>/dev/null) || at_bound_rc=$?
+[ "$at_bound_rc" = 1 ] || fail "bound-incr at bound: exit $at_bound_rc, expected 1"
+[ "$at_bound_out" = "$MAX" ] || fail "bound-incr at bound: printed '$at_bound_out', expected $MAX"
+[ "$(cat "$home_bound/concurrency")" = "$MAX" ] || fail "bound-incr at bound mutated the counter"
+echo "ok: bound-incr at the bound is refused, prints the current count, and exits 1"
+
 # bound-decr releases a slot and floors at zero.
 fenv() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
