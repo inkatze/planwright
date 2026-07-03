@@ -140,6 +140,31 @@ got=$("$MSEL" "$alpha" "$beta") || fail "case 2: non-zero exit ($?)"
   || fail "case 2: selected '$got', expected '$beta${tab}2' (fewest-in-flight-first fairness)"
 echo "ok: fair selection prefers the spec with the fewest in-flight units"
 
+# 2b. Fewest-in-flight-first is the PRIMARY key, ahead of command-line order — a
+#     dedicated fixture that discriminates it from a pure FIFO. specA (listed
+#     FIRST) has a ready unit but 1 in-flight; specB (listed second) has a ready
+#     unit and 0 in-flight. The lower-in-flight specB must win despite being
+#     later on the command line; a CLI-order-only pick would wrongly take specA.
+repoD=$(new_fleet "$tmp/D")
+dA=$(add_spec "$repoD" speca)
+dB=$(add_spec "$repoD" specb)
+{
+  printf '# tasks\n\n## Forward plan\n\n'
+  printf '### Task 1 — root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n\n'
+  printf '### Task 2 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n\n'
+  printf '### Task 3 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n'
+} >"$dA/tasks.md"
+two_task_body >"$dB/tasks.md"
+seal_base "$repoD"
+done_trailer "$repoD" speca 1
+done_trailer "$repoD" specb 1
+inflight_marker "$dA" 2 # specA now at 1 in-flight, still ready via task 3
+set_bounds "$repoD" 5 3
+got=$("$MSEL" "$dA" "$dB") || fail "case 2b: non-zero exit ($?)"
+[ "$got" = "$dB${tab}2" ] \
+  || fail "case 2b: fewest-in-flight specB must win over earlier-listed specA (got '$got', expected '$dB${tab}2')"
+echo "ok: fewest-in-flight is the primary key, ahead of command-line order"
+
 # 3. The fleet bound caps TOTAL concurrency across specs. With the bound at 1 and
 #    alpha already holding 1 in-flight unit, beta's ready task 2 is HELD — the
 #    cap is fleet-wide, not per-spec.
@@ -172,10 +197,15 @@ got=$("$MSEL" "$alpha" "$beta" "$gamma") || fail "case 4b: non-zero exit ($?)"
 echo "ok: the fleet bound is distinct from per-spec max_parallel_units and overlay-resolved"
 
 # ---------------------------------------------------------------------------
-# 5. Per-spec cap respected: a spec at its own max_parallel_units is skipped even
-#    with fleet headroom, so it does not starve the others. alpha holds 1
-#    in-flight (task 2) but still has a ready task 3; with per-spec cap 1 alpha is
-#    skipped and beta (0 in-flight) is selected, despite a fleet bound of 10.
+# 5. Per-spec cap respected — and the case is built to DISCRIMINATE it. The
+#    fewest-in-flight fair-pick already prefers a lower-in-flight spec, so a
+#    capped spec only changes the outcome when it is the spec that would
+#    otherwise be picked. So the capped spec here is the SOLE ready spec: alpha
+#    holds 1 in-flight (task 2) but still has a ready task 3, while beta has no
+#    ready unit at all (only its completed task 1). With per-spec cap 1 and a
+#    generous fleet bound (10), alpha is skipped by its cap and nothing else is
+#    ready → exit 1. Deleting the per-spec-cap check would make alpha a candidate
+#    and flip this to `alpha\t3`, so the assertion genuinely exercises the cap.
 # ---------------------------------------------------------------------------
 repoB=$(new_fleet "$tmp/B")
 balpha=$(add_spec "$repoB" alpha)
@@ -186,16 +216,27 @@ bbeta=$(add_spec "$repoB" beta)
   printf '### Task 2 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n\n'
   printf '### Task 3 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n'
 } >"$balpha/tasks.md"
-two_task_body >"$bbeta/tasks.md"
+# beta carries only a (completed) task 1: no forward-ready unit, so alpha is the
+# sole ready spec and the per-spec cap is the only thing that can hold it.
+printf '# tasks\n\n## Forward plan\n\n### Task 1 — lone root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n' >"$bbeta/tasks.md"
 seal_base "$repoB"
 done_trailer "$repoB" alpha 1
 done_trailer "$repoB" beta 1
 inflight_marker "$balpha" 2
 set_bounds "$repoB" 10 1
-got=$("$MSEL" "$balpha" "$bbeta") || fail "case 5: non-zero exit ($?)"
-[ "$got" = "$bbeta${tab}2" ] \
-  || fail "case 5: per-spec cap 1 must skip alpha (ready task 3) and pick beta (got '$got')"
-echo "ok: a spec at its per-spec cap is skipped even with fleet headroom"
+rc=0
+got=$("$MSEL" "$balpha" "$bbeta" 2>/dev/null) || rc=$?
+{ [ "$rc" = 1 ] && [ -z "$got" ]; } \
+  || fail "case 5a: per-spec cap 1 must skip the sole ready spec alpha → exit 1 (got '$got', rc $rc)"
+echo "ok: a spec at its per-spec cap is skipped even as the sole ready spec (cap discriminated)"
+# 5b. Same fixture, per-spec cap raised to 2 (via the overlay): alpha is now below
+#     its cap (1 < 2) and IS selected — proving the cap is the overlay-resolved
+#     gate, distinct from the fleet bound, and that raising it admits the spec.
+set_bounds "$repoB" 10 2
+got=$("$MSEL" "$balpha" "$bbeta") || fail "case 5b: non-zero exit ($?)"
+[ "$got" = "$balpha${tab}3" ] \
+  || fail "case 5b: raising the per-spec cap to 2 must admit alpha's ready task 3 (got '$got')"
+echo "ok: raising the per-spec cap (overlay) admits the previously-capped spec"
 
 # ---------------------------------------------------------------------------
 # 6. Nothing dispatchable anywhere → exit 1, empty stdout. Every forward task
@@ -236,11 +277,13 @@ echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with ex
 
 # ---------------------------------------------------------------------------
 # 8. Degenerate single-spec fleet: the meta-selector reduces to a one-spec pass,
-#    emitting "<spec-dir>\t<id>" for the sole spec's ready unit.
+#    emitting "<spec-dir>\t<id>" for the sole spec's ready unit. alpha holds 1
+#    in-flight (task 2) and a ready task 3; with per-spec cap 3 it is below its
+#    cap, so the sole ready unit (task 3) is emitted.
 # ---------------------------------------------------------------------------
 set_bounds "$repoB" 10 3
-got=$("$MSEL" "$bbeta") || fail "case 8: non-zero exit ($?)"
-[ "$got" = "$bbeta${tab}2" ] \
+got=$("$MSEL" "$balpha") || fail "case 8: non-zero exit ($?)"
+[ "$got" = "$balpha${tab}3" ] \
   || fail "case 8: single-spec fleet must emit the sole ready unit (got '$got')"
 echo "ok: a single-spec fleet reduces to a one-spec selection"
 

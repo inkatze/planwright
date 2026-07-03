@@ -415,18 +415,23 @@ the fleet tier:
    ready, or the fleet / every ready spec is at its bound): release the lock and,
    under `--watch`, idle until the next tick; a single step reports it and exits.
    Exit 2 → fail closed; halt.
-3. **Reserve a fleet slot** for the pick — `scripts/fleet-state.sh bound-incr
-   "$(scripts/config-get.sh fleet_max_parallel_units)"`. This atomic
-   check-and-increment is the same-instant guard closing the brief window between
-   launching a subordinate and its dispatch marker becoming visible to the live
-   count. Exit 1 (already at the bound — a racing meta-tower took the last slot)
-   → release the lock and hold this step. The **authoritative** bound is the
-   level-triggered live cross-spec in-flight count that step 2 enforces (it
-   rebuilds from disk and cannot leak); the counter is the same-instant
-   reservation over it, reconciled toward the live count each step by
-   `bound-decr` for units the derivation now reports completed/merged. (A hard
-   kill between `bound-incr` and completion can leak a slot; the live-count
-   backstop is why that self-heals — tracked as an observation.)
+   The **authoritative** bound is this live count: it is re-derived from disk
+   every step, so it rebuilds after any crash and cannot leak, and the fleet lock
+   from step 1 makes the check-then-launch atomic against another meta-tower — the
+   cross-spec analogue of the per-spec lock closing the double-dispatch race. That
+   pair (fleet lock + live count) is the enforcement; a step that finds the fleet
+   at bound simply releases the lock and holds.
+3. **Optionally reserve a same-instant slot.** For a backend whose dispatch
+   marker becomes visible to the live count only after a lag, Task 9's atomic
+   `scripts/fleet-state.sh bound-incr
+   "$(scripts/config-get.sh fleet_max_parallel_units)"` /
+   `bound-decr` counter can reserve the launch slot for the window between the
+   subordinate's launch and its marker appearing. It is a reservation *over* the
+   live count, never a substitute for it: because a hard kill can leak a reserved
+   slot and a disposable tower keeps no cross-step memory to pair a `bound-decr`
+   to, the leak-free live count — not the counter — remains what actually gates,
+   so a leaked slot can never permanently narrow the effective bound. (The
+   slot-leak limitation is tracked as an observation.)
 4. **Release the fleet lock** before launching (`scripts/fleet-state.sh unlock`).
 5. **Launch the subordinate tower** for the chosen spec: dispatch
    `/orchestrate <spec>` (one step) via the selected backend (**Backend
