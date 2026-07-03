@@ -298,11 +298,18 @@ atomic_write() {
 }
 
 # read_counter <file> — print the integer at <file>, or 0 when absent/malformed.
+# A leading-zero value (`08`, `010`) is malformed too: this script only ever
+# writes canonical decimals, so a leading zero means a tampered/corrupt file.
+# Left through, it reaches `$(( ))` as OCTAL — `08` aborts the arithmetic
+# ("value too great for base"), which under `set -u` kills bound-incr/-decr
+# mid-critical-section and LEAKS the lock; `010` silently miscounts (octal 8).
+# So `0?*` (a zero followed by any char — but not the lone legit `0`) joins the
+# malformed arm and normalizes to 0, matching the function's stated contract.
 read_counter() {
   rc_file=$1
   rc_v=$(cat "$rc_file" 2>/dev/null) || rc_v=""
   case $rc_v in
-    "" | *[!0-9]*) printf '0\n' ;;
+    "" | *[!0-9]* | 0?*) printf '0\n' ;;
     *) printf '%s\n' "$rc_v" ;;
   esac
 }

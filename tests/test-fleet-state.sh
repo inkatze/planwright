@@ -82,6 +82,23 @@ esac
 echo "ok: writer-mode root resolves under <claude-dir>/planwright/<name>/fleet"
 
 # ---------------------------------------------------------------------------
+# 2b. Writer-mode manifest parse skips a NESTED object's `name` (e.g.
+#     author.name) and captures only the TOP-LEVEL name. This is exactly what
+#     the brace-depth tracking in resolve_root exists for; without a case it
+#     was the script's most complex logic left unpinned.
+# ---------------------------------------------------------------------------
+cdir_nested="$tmp/nested/.claude"
+mkdir -p "$cdir_nested/planwright"
+printf '%s\n' '{ "author": { "name": "not-the-plugin" }, "name": "planwright" }' \
+  >"$cdir_nested/planwright/plugin.json"
+root=$(run_root CLAUDE_DIR="$cdir_nested") || fail "nested-manifest: root did not resolve"
+case $root in
+  "$cdir_nested"/planwright/planwright/fleet) ;;
+  *) fail "nested-manifest: captured the wrong name (root '$root')" ;;
+esac
+echo "ok: writer-mode manifest parse skips a nested name, captures the top-level name"
+
+# ---------------------------------------------------------------------------
 # 3. Survives a simulated plugin-version change: with the data home fixed, the
 #    resolved root does not move when the versioned install root changes.
 # ---------------------------------------------------------------------------
@@ -275,6 +292,32 @@ done
 floor_out=$(fenv bound-decr) || fail "bound-decr: floor exit"
 [ "$floor_out" = "0" ] || fail "bound-decr at floor printed '$floor_out', expected 0"
 echo "ok: bound-decr releases a slot, prints the new count, and floors at zero"
+
+# ---------------------------------------------------------------------------
+# 9b. A corrupt counter file with a leading-zero value is treated as malformed
+#     (→ 0), NOT parsed as octal. Regression: `08`/`010` passed read_counter's
+#     `*[!0-9]*` guard, reached `$(( ))` as octal, aborted bound-incr
+#     mid-critical-section with "value too great for base", and LEAKED the lock
+#     (wedging the fleet until a stale break). read_counter is the designated
+#     sanitizer — it already maps "" and non-numeric to 0; a leading-zero value
+#     must land there too. Covers both bound-incr and bound-decr.
+# ---------------------------------------------------------------------------
+home_corrupt="$tmp/corrupt-counter"
+mkdir -p "$home_corrupt"
+cenv() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    PLANWRIGHT_FLEET_STATE_DIR="$home_corrupt" /bin/sh "$FS" "$@"
+}
+printf '08\n' >"$home_corrupt/concurrency"
+out=$(cenv bound-incr 10) || fail "bound-incr crashed on a leading-zero counter (should treat it as 0)"
+[ "$out" = "1" ] || fail "corrupt counter not treated as 0: bound-incr printed '$out', expected 1"
+[ ! -d "$home_corrupt/.fleet.lock" ] || fail "bound-incr leaked the lock on a corrupt counter"
+[ "$(cat "$home_corrupt/concurrency")" = "1" ] || fail "corrupt-counter recovery did not land the increment at 1"
+printf '09\n' >"$home_corrupt/concurrency"
+out=$(cenv bound-decr) || fail "bound-decr crashed on a leading-zero counter (should treat it as 0)"
+[ "$out" = "0" ] || fail "corrupt counter not treated as 0: bound-decr printed '$out', expected 0"
+[ ! -d "$home_corrupt/.fleet.lock" ] || fail "bound-decr leaked the lock on a corrupt counter"
+echo "ok: a corrupt (leading-zero) counter is sanitized to 0 — no octal crash, no leaked lock"
 
 # ---------------------------------------------------------------------------
 # 10. The advisory-lock primitive: exclusive acquire, busy no-op, idempotent
