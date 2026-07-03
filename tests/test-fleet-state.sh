@@ -272,24 +272,26 @@ at_bound_out=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
 [ "$(cat "$home_bound/concurrency")" = "$MAX" ] || fail "bound-incr at bound mutated the counter"
 echo "ok: bound-incr at the bound is refused, prints the current count, and exits 1"
 
-# bound-decr releases a slot and floors at zero.
-fenv() {
+# bound-decr releases a slot and floors at zero. Its own bound-home closure
+# (benv), matching the per-home <mnemonic>env convention (cenv/lenv/henv) so no
+# helper name is bound to two different homes across the suite.
+benv() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
     PLANWRIGHT_FLEET_STATE_DIR="$home_bound" /bin/sh "$FS" "$@"
 }
 # bound-decr prints the new count on stdout (the documented contract Task 6
 # consumes); assert the printed value, not only the counter file.
-decr_out=$(fenv bound-decr) || fail "bound-decr: non-zero exit"
+decr_out=$(benv bound-decr) || fail "bound-decr: non-zero exit"
 [ "$decr_out" = "$((MAX - 1))" ] || fail "bound-decr printed '$decr_out', expected $((MAX - 1))"
 [ "$(cat "$home_bound/concurrency")" = "$((MAX - 1))" ] || fail "bound-decr did not decrement"
 c=$MAX
 while [ "$c" -gt 0 ]; do
-  fenv bound-decr >/dev/null || fail "bound-decr drain"
+  benv bound-decr >/dev/null || fail "bound-decr drain"
   c=$((c - 1))
 done
 [ "$(cat "$home_bound/concurrency")" = "0" ] || fail "bound-decr floored below zero"
 # The floored decr also prints 0 on stdout, not an empty string.
-floor_out=$(fenv bound-decr) || fail "bound-decr: floor exit"
+floor_out=$(benv bound-decr) || fail "bound-decr: floor exit"
 [ "$floor_out" = "0" ] || fail "bound-decr at floor printed '$floor_out', expected 0"
 echo "ok: bound-decr releases a slot, prints the new count, and floors at zero"
 
@@ -379,10 +381,10 @@ echo "ok: hostile worker/scope identifiers are refused, nothing written"
 #      unbounded counter. Cover both the non-numeric and the empty-string arms
 #      of the validation `case`, so a refactor that drops either is caught.
 rc=0
-fenv bound-incr "notanumber" >/dev/null 2>&1 || rc=$?
+benv bound-incr "notanumber" >/dev/null 2>&1 || rc=$?
 [ "$rc" != "0" ] || fail "bound-incr accepted a non-numeric bound"
 rc=0
-fenv bound-incr "" >/dev/null 2>&1 || rc=$?
+benv bound-incr "" >/dev/null 2>&1 || rc=$?
 [ "$rc" != "0" ] || fail "bound-incr accepted an empty-string bound"
 echo "ok: bound-incr rejects a malformed bound (non-numeric and empty)"
 
