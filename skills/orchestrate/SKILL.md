@@ -373,7 +373,8 @@ this is the adjacent one), **records the effective backend spec-locally**
 beside the sibling's `markers/` dir in its dispatch-state root
 (`<spec-dir>/.orchestrate/` by default, relocatable via
 `PLANWRIGHT_ORCH_STATE_DIR`; never in `tasks.md`, REQ-B1.6; read back with
-`orchestrate-degrade.sh read`), emits a `NOTE:` on stderr, and prints an
+`scripts/orchestrate-degrade.sh read <spec-dir>`), emits a `NOTE:` on stderr,
+and prints an
 `## Awaiting input`-ready entry on stdout — **append that entry to the spec's
 `## Awaiting input`** so the descent is one durable, operator-visible signal
 (REQ-E1.3). Repeated failures descend one rung each down to the terminal rung.
