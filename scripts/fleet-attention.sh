@@ -146,7 +146,8 @@ now_epoch() {
 #     one-shot `lock`/`unlock` primitive (D-11). We spin the one-shot acquire so
 #     an attention write is never dropped under contention, matching fleet-state
 #     spin_acquire's bounded 20ms backoff. HOLD_LOCK gates release so we never
-#     rmdir a lock we do not hold (the trap is a crash-safety net only).
+#     rmdir a lock we do not hold. On a fatal signal the trap releases AND exits
+#     (below) rather than resuming the critical section unlocked.
 HOLD_LOCK=0
 
 release_lock() {
@@ -155,7 +156,17 @@ release_lock() {
     HOLD_LOCK=0
   fi
 }
-trap 'release_lock' EXIT INT TERM
+# The EXIT trap is the cleanup; the fatal-signal traps re-`exit` so the
+# interrupted critical section does NOT resume with the lock released (a bare
+# `trap release_lock INT TERM` would run the handler and then RETURN into the
+# unfinished copy-filter-append-rename, unlocked — letting a concurrent writer
+# acquire and clobber `state`, the exact lost update the lock prevents). The
+# explicit `exit` re-enters the EXIT trap so release still runs, mirroring the
+# sibling lock-holder scripts/tasks-pr-sync.sh. SIGKILL stays unrecoverable and
+# falls to the stale-lock break.
+trap 'release_lock' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 acquire_lock() {
   al_tries=0
