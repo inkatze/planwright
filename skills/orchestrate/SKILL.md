@@ -369,9 +369,10 @@ downgrade. Run `scripts/orchestrate-degrade.sh failover <spec-dir>
 including any pluggable ones by name; omitted, it re-probes the shipped set). It
 descends to the richest present, **guard-preserving** backend strictly below the
 current rung (an absent intermediate rung is skipped, so with every rung present
-this is the adjacent one), **records the effective backend spec-locally** in
-`<spec-dir>/.orchestrate/` — the sibling's dispatch-state root, beside its
-`markers/` dir (never in `tasks.md`, REQ-B1.6; read back with
+this is the adjacent one), **records the effective backend spec-locally**
+beside the sibling's `markers/` dir in its dispatch-state root
+(`<spec-dir>/.orchestrate/` by default, relocatable via
+`PLANWRIGHT_ORCH_STATE_DIR`; never in `tasks.md`, REQ-B1.6; read back with
 `orchestrate-degrade.sh read`), emits a `NOTE:` on stderr, and prints an
 `## Awaiting input`-ready entry on stdout — **append that entry to the spec's
 `## Awaiting input`** so the descent is one durable, operator-visible signal

@@ -39,8 +39,9 @@
 #
 #   record <spec-dir> <backend>
 #       Write the effective backend spec-locally to the effective-backend record
-#       in `<spec-dir>/.orchestrate/` — the sibling's dispatch-state root, beside
-#       its `markers/` dir (REQ-B1.6). NEVER writes
+#       beside the sibling's `markers/` dir in its dispatch-state root — the
+#       `<spec-dir>/.orchestrate/` default, or wherever PLANWRIGHT_ORCH_STATE_DIR
+#       relocates the markers dir's parent (REQ-B1.6). NEVER writes
 #       tasks.md — dispatch-adjacent state stays out of the committed ledger
 #       (REQ-A1.1, the sibling contract). Atomic write-temp-then-rename; a
 #       symlink or non-regular file at the path is refused, not written through

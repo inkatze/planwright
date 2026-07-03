@@ -230,7 +230,8 @@ space).
   clear between them), and **runtime failover**: on a chosen backend dying mid-run,
   descend one rung with a logged note + `## Awaiting input` entry, recording the
   effective backend **spec-locally alongside the sibling's dispatch marker**
-  (`<spec-dir>/.orchestrate/`), never in `tasks.md`. The descent honors
+  (`<spec-dir>/.orchestrate/` by default, relocatable via
+  `PLANWRIGHT_ORCH_STATE_DIR`), never in `tasks.md`. The descent honors
   **degrade-capability-never-safety**: a descent that would drop a guard
   (worker-settings deny, never-auto-merge, never-force-push, the freshness gate)
   aborts instead.
