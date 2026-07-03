@@ -307,4 +307,33 @@ row_present "$out" in-session \
   || fail "detect: must continue emitting in-session after refusing an invalid name"
 echo "ok: detect sanitizes a refused invalid name's control bytes and continues"
 
+# ---------------------------------------------------------------------------
+# 17. detect: a well-formed first six tokens followed by an extra trailing token
+#     (f_rest nonempty) is malformed → reported absent. The prior malformed test
+#     only exercised bad token VALUES, never the too-many-tokens guard.
+# ---------------------------------------------------------------------------
+cat >"$BIN/planwright-backend-extra" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+printf '%s\n' "false false false false true no EXTRA"
+EOF
+chmod +x "$BIN/planwright-backend-extra"
+out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect extra 2>/dev/null) \
+  || fail "detect(extra-token adapter) non-zero"
+row_present "$out" extra \
+  && fail "detect: an adapter set with a trailing extra token must be reported absent"
+echo "ok: detect rejects an adapter set with too many tokens"
+
+# ---------------------------------------------------------------------------
+# 18. detect: five valid booleans plus an INVALID session_grade sixth token
+#     exercises the session_grade validation branch (yes|no|deferred) that the
+#     bad-boolean malformed test short-circuits before reaching → reported absent.
+# ---------------------------------------------------------------------------
+make_adapter badsg false false false false true maybe
+out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect badsg 2>/dev/null) \
+  || fail "detect(bad session_grade) non-zero"
+row_present "$out" badsg \
+  && fail "detect: an adapter with an invalid session_grade token must be reported absent"
+echo "ok: detect rejects an adapter with an invalid session_grade token"
+
 echo "PASS: test-orchestrate-backends.sh"
