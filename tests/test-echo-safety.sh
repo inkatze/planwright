@@ -1,7 +1,8 @@
 #!/bin/sh
 # test-echo-safety.sh — regression coverage for the shared echo-discipline
-# sanitizer in scripts/echo-safety.sh. Runs standalone under /bin/bash (the
-# bash 3.2 floor); the `test` mise task sources every tests/*.sh under bash.
+# sanitizer in scripts/echo-safety.sh. POSIX sh (matching the sourced helper's
+# `# shellcheck shell=sh`); the `test` mise task also runs every tests/*.sh
+# under /bin/bash, the bash 3.2 floor, so this stays portable to both.
 set -eu
 LC_ALL=C
 export LC_ALL
