@@ -121,27 +121,29 @@ is_present() {
 # the six validated fields, or returns 1 when there is no adapter on PATH or its
 # output is not a well-formed capability set (the fail-safe absent case).
 adapter_caps() {
-  cmd="planwright-backend-$1"
-  command -v "$cmd" >/dev/null 2>&1 || return 1
-  raw=$("$cmd" advertise 2>/dev/null) || return 1
+  ac_cmd="planwright-backend-$1"
+  command -v "$ac_cmd" >/dev/null 2>&1 || return 1
+  ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
   # First line only; default IFS splits on space/tab. A well-formed set is
-  # exactly six known tokens (rest must be empty).
-  i='' o='' s='' a='' p='' sg='' rest=''
-  read -r i o s a p sg rest <<EOF
-$raw
+  # exactly six known tokens (rest must be empty). The read targets are
+  # `f_`-prefixed so this helper never clobbers a caller's loop variable
+  # (`p`, `rung`) — sh has no lexical scope.
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+$ac_raw
 EOF
-  [ -z "$rest" ] || return 1
-  for f in "$i" "$o" "$s" "$a" "$p"; do
+  [ -z "$f_rest" ] || return 1
+  for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
     case "$f" in
       true | false | na) ;;
       *) return 1 ;;
     esac
   done
-  case "$sg" in
+  case "$f_g" in
     yes | no | deferred) ;;
     *) return 1 ;;
   esac
-  echo "$i $o $s $a $p $sg"
+  echo "$f_i $f_o $f_s $f_a $f_p $f_g"
 }
 
 # Echo the advertised set of a backend IF it is present, else return 1. Handles
@@ -162,20 +164,21 @@ resolve_caps() {
 # AND session_grade!=deferred (excludes the manual `print` rung, whose spawn is
 # deferred to a human). Reads the six-field caps string on $1.
 eligible() {
-  i='' rest=''
-  read -r i o s a p sg rest <<EOF
+  f_i='' f_g='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
 $1
 EOF
-  [ "$i" = false ] && [ "$sg" != deferred ]
+  [ "$f_i" = false ] && [ "$f_g" != deferred ]
 }
 
-# Print one detect TSV row: $1 backend, $2 six-field caps string.
+# Print one detect TSV row: $1 backend, $2 six-field caps string. Read targets
+# are `f_`-prefixed so this helper never clobbers a caller's loop variable.
 emit_row() {
-  b=$1
-  read -r i o s a p sg rest <<EOF
+  er_b=$1
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
 $2
 EOF
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$b" "$i" "$o" "$s" "$a" "$p" "$sg"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$er_b" "$f_i" "$f_o" "$f_s" "$f_a" "$f_p" "$f_g"
 }
 
 cmd_detect() {
