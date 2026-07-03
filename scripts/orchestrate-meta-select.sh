@@ -176,20 +176,33 @@ index=0
 for spec_dir in "$@"; do
   index=$((index + 1))
 
-  # In-flight count from the live derivation. Let the engine's stderr flow
-  # through (a degraded/contradiction record stays visible); a non-zero exit is
-  # a hard failure (no git work tree, taskless) → fail the whole fleet closed.
+  # In-flight count from the live derivation. A non-zero exit is a hard failure
+  # (no git work tree, taskless) → fail the whole fleet closed.
   if ! state_out=$("$state_engine" "$spec_dir"); then
     echo "orchestrate-meta-select: live derivation failed for $spec_dir (fail closed)" >&2
     exit 2
   fi
+  # The derivation's evidence-quality records (degraded / contradiction) are
+  # emitted on its STDOUT as tagged TSV (orchestrate-state.sh output contract),
+  # so they are captured into $state_out, not the engine's stderr. The awk below
+  # keeps only task rows, which would silently drop them; surface each to the
+  # operator's stderr (tagged with the spec) so a gh-degraded or git-vs-PR
+  # contradiction stays visible during meta selection. This is the one place they
+  # reach the operator: the per-spec selector re-derives the same state with its
+  # stderr suppressed, so it cannot surface them either.
+  printf '%s\n' "$state_out" \
+    | awk -F"$TAB" '$1 == "degraded" || $1 == "contradiction"' \
+    | while IFS= read -r meta_rec; do
+      [ -n "$meta_rec" ] && echo "orchestrate-meta-select: [$spec_dir] $meta_rec" >&2
+    done
   inflight=$(printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1 == "task" && $3 == "in-progress" { n++ } END { print n + 0 }')
   fleet_inflight=$((fleet_inflight + inflight))
 
   # The per-spec ready pick, from the single-spec selector (critical-path-first,
-  # live-truth). Its stderr is suppressed here: it re-derives the same state we
-  # just forwarded, so letting it through would double any degraded record.
+  # live-truth). Its stderr is suppressed here: it re-derives the same state whose
+  # evidence records we already surfaced above, so letting it through would double
+  # every degraded/contradiction diagnostic.
   sel_rc=0
   ready_id=$("$selector" "$spec_dir" 2>/dev/null) || sel_rc=$?
   if [ "$sel_rc" = 2 ]; then

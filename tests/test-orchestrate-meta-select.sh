@@ -103,6 +103,15 @@ set_bounds() {
     >"$1/.claude/planwright.local.yml"
 }
 
+# make_failing_gh_stub <dir> — a `gh` that always errors, mirroring the sibling
+# state-engine test. With a remote configured, it forces orchestrate-state.sh to
+# emit a `degraded` evidence record (gh query failed; deriving git-only).
+make_failing_gh_stub() {
+  mkdir -p "$1"
+  printf '#!/bin/sh\necho "gh: simulated failure" >&2\nexit 1\n' >"$1/gh"
+  chmod +x "$1/gh"
+}
+
 # A ready task with dep 1: task 1 is a depless root completed via a trailer; the
 # forward task(s) depend on it and become ready once 1 is derived completed.
 two_task_body() {
@@ -436,5 +445,36 @@ got=$(
 { [ "$rc" = 1 ] && [ -z "$got" ]; } \
   || fail "case 14: repo-tracked bound must resolve from the fleet root, not CWD (got '$got', rc $rc)"
 echo "ok: config resolution is pinned to the fleet root, independent of the caller's CWD"
+
+# ---------------------------------------------------------------------------
+# 15. Evidence-quality records surface during meta selection. orchestrate-state.sh
+#     emits degraded / contradiction records on STDOUT as tagged TSV (its output
+#     contract), so the meta-selector captures them into $state_out; its in-flight
+#     awk keeps only task rows, which would silently drop them, and the per-spec
+#     selector re-derives with stderr suppressed. The selector must re-emit them on
+#     its own stderr, tagged with the spec, so the operator still sees them. Force
+#     a `degraded` record (a configured remote + a failing gh on PATH) and assert
+#     it surfaces on stderr while the ready unit still dispatches. Without the
+#     explicit surface the record is captured and discarded, so the grep fails —
+#     the assertion discriminates the fix.
+# ---------------------------------------------------------------------------
+repoL=$(new_fleet "$tmp/L")
+lalpha=$(add_spec "$repoL" speca)
+two_task_body >"$lalpha/tasks.md"
+seal_base "$repoL"
+done_trailer "$repoL" speca 1
+gitc "$repoL" remote add origin https://example.invalid/demo.git
+set_bounds "$repoL" 5 3
+lstub="$tmp/binghfail"
+make_failing_gh_stub "$lstub"
+rc=0
+got=$(PATH="$lstub:$PATH" "$MSEL" "$lalpha" 2>"$tmp/l15.err") || rc=$?
+[ "$rc" = 0 ] \
+  || fail "case 15: a degraded derivation must still dispatch the ready unit (rc $rc)"
+[ "$got" = "$lalpha${tab}2" ] \
+  || fail "case 15: degraded derivation must still emit the ready unit (got '$got')"
+grep -Fq "orchestrate-meta-select: [$lalpha] degraded" "$tmp/l15.err" \
+  || fail "case 15: degraded record must surface on stderr, tagged with the spec"
+echo "ok: degraded / contradiction evidence records surface on stderr during meta selection"
 
 echo "PASS: orchestrate-meta-select"
