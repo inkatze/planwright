@@ -11,7 +11,8 @@
 # Contract under test:
 #   - heartbeat/awareness state lives UNDER the Task 9 cross-spec home and works
 #     with no dotfiles present (marketplace-install parity);
-#   - the renderer lists each worker's scope AND state (REQ-E1.3);
+#   - the renderer lists each worker's scope AND state (REQ-E1.4 — the portable
+#     status renderer; REQ-E1.3 is the decision queue, below);
 #   - the decision queue orders actionable items across specs as structured
 #     choices and its length tracks the `## Awaiting input` count, NOT the
 #     worker count — non-actionable signal is suppressed (REQ-E1.3);
@@ -90,7 +91,8 @@ aenv "$home" render 2>/dev/null | grep -q "worker=alpha" \
 echo "ok: heartbeat records state under the Task 9 cross-spec home with no dotfiles present"
 
 # ---------------------------------------------------------------------------
-# 2. The renderer lists each worker's scope AND state (REQ-E1.3).
+# 2. The renderer lists each worker's scope AND state (REQ-E1.4 — the portable
+#    status renderer; the decision queue is REQ-E1.3, exercised in test 4).
 # ---------------------------------------------------------------------------
 home2="$tmp/render-home"
 aenv "$home2" heartbeat "worker=a" "spec-one:3" working || fail "render setup: heartbeat a"
@@ -532,5 +534,170 @@ grep -qx -- '--' "$inj_dir/notify-args" || fail "os-notify: summary not passed a
 grep -qx 'deploy done; rm -rf /' "$inj_dir/notify-args" \
   || fail "os-notify: summary not passed verbatim as a single argv token (injection-safe)"
 echo "ok: notify adapters neutralize tmux format injection and pass os-notify summaries as argv data"
+
+# ---------------------------------------------------------------------------
+# 18. Tool-absent degradation. The doc contract (attention-notification-
+#     capability.md: "A channel whose tool is absent degrades to leaving the item
+#     in the queue rather than failing the run") — regression against a change
+#     that turned an absent-tool push into a run-failing exit 2.
+#     (a) tmux-popup with no attached server (TMUX unset): stderr notice, exit 0.
+#     (b) os-notify with neither notify-send nor osascript reachable (a coreutils-
+#         only PATH): stderr notice, exit 0. The item stays in the queue.
+# ---------------------------------------------------------------------------
+home18="$tmp/degrade-home"
+core18="$tmp/degrade-core.yml"
+scratch18="$tmp/degrade-repo"
+mkdir -p "$scratch18"
+printf 'notification_channel: none\n' >"$core18"
+pin18() {
+  _p="$tmp/degrade-pin-$1.yml"
+  printf 'notification_channel: %s\n' "$1" >"$_p"
+  printf '%s' "$_p"
+}
+# (a) tmux-popup, TMUX explicitly unset → no attached server → degrade branch.
+pin_tmux=$(pin18 tmux-popup)
+de_rc=0
+de_err=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME -u TMUX \
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+  PLANWRIGHT_FLEET_STATE_DIR="$home18" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core18" \
+  PLANWRIGHT_REPO_ROOT="$scratch18" \
+  PLANWRIGHT_LOCAL_CONFIG="$pin_tmux" \
+  /bin/sh "$FA" notify "worker=w needs input" 2>&1 >/dev/null) || de_rc=$?
+[ "$de_rc" = 0 ] || fail "degrade (tmux-popup, no server): exit $de_rc, expected 0 (must not fail the run)"
+case $de_err in *"decision queue"*) ;; *) fail "degrade (tmux-popup): no 'remains in the decision queue' notice on stderr (got: $de_err)" ;; esac
+# (b) os-notify with a coreutils-only PATH so command -v notify-send/osascript
+#     both fail. Build the stub PATH by symlinking every currently-reachable
+#     executable EXCEPT the notification tools — complete, so the resolver's own
+#     helpers (config-get, sed, mktemp, …) still work while the push tools are
+#     absent.
+stub_bin18="$tmp/degrade-coreonly-bin"
+mkdir -p "$stub_bin18"
+_oifs=$IFS
+IFS=:
+for _d in $PATH; do
+  [ -d "$_d" ] || continue
+  for _f in "$_d"/*; do
+    [ -e "$_f" ] || continue
+    _b=$(basename "$_f")
+    case $_b in
+      tmux | notify-send | osascript) continue ;;
+    esac
+    [ -e "$stub_bin18/$_b" ] || ln -sf "$_f" "$stub_bin18/$_b" 2>/dev/null || true
+  done
+done
+IFS=$_oifs
+pin_osn=$(pin18 os-notify)
+de_rc=0
+de_err=$(env -i LC_ALL=C HOME=/nonexistent \
+  PATH="$stub_bin18" \
+  PLANWRIGHT_FLEET_STATE_DIR="$home18" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core18" \
+  PLANWRIGHT_REPO_ROOT="$scratch18" \
+  PLANWRIGHT_LOCAL_CONFIG="$pin_osn" \
+  /bin/sh "$FA" notify "worker=w needs input" 2>&1 >/dev/null) || de_rc=$?
+[ "$de_rc" = 0 ] || fail "degrade (os-notify, no tool): exit $de_rc, expected 0 (must not fail the run)"
+case $de_err in *"decision queue"*) ;; *) fail "degrade (os-notify): no 'remains in the decision queue' notice on stderr (got: $de_err)" ;; esac
+echo "ok: an absent channel tool degrades to leaving the item in the queue (exit 0), never failing the run"
+
+# ---------------------------------------------------------------------------
+# 19. Queue ordering is deterministic at EQUAL priority AND equal timestamp —
+#     the worker handle is the tertiary key (sort -k3,3). Test 6 proves the
+#     timestamp tiebreak but always uses distinct timestamps (sleep 2), so it
+#     never exercises the fully-tied case. Here two normal-priority awaiting-input
+#     rows share one timestamp; a crafted store writes them in DESCENDING worker
+#     order (zzz before aaa), so a queue that leaked input order (e.g. a stable
+#     sort that suppressed the tertiary comparison) would emit zzz first. The
+#     contract is aaa-before-zzz. (Note: because the worker field sits right after
+#     the priority+timestamp keys in the sort line, GNU sort's whole-line
+#     last-resort coincides with -k3,3 here; this pins the observable ordering,
+#     it does not by itself distinguish -k3,3 from that default — a stable sort
+#     without a final key is what it catches.)
+# ---------------------------------------------------------------------------
+home19="$tmp/tiebreak-home"
+mkdir -p "$home19/attention"
+{
+  printf 'zzz\tspec-c:1\tawaiting-input\t1700000000\tnormal\tQz\tdz\toz\n'
+  printf 'aaa\tspec-c:2\tawaiting-input\t1700000000\tnormal\tQa\tda\toa\n'
+} >"$home19/attention/state"
+q19=$(aenv "$home19" queue) || fail "tiebreak: queue non-zero exit"
+order19=$(printf '%s\n' "$q19" | grep -oE '(aaa|zzz)' | tr '\n' ' ')
+[ "$order19" = "aaa zzz " ] \
+  || fail "tiebreak: same-priority same-timestamp order was '$order19', expected 'aaa zzz ' (worker-handle tertiary key)"
+echo "ok: the queue tie-break at equal priority and timestamp is the deterministic worker-handle key"
+
+# ---------------------------------------------------------------------------
+# 20. notify propagates a resolver HARD-FAIL (fail closed), never swallows it. A
+#     repo-tracked overlay with a malformed channel makes the resolver exit 4
+#     (a broken shared value must not silently degrade); notify must propagate
+#     that non-zero exit rather than guessing a channel or no-op'ing. Independent
+#     oracle: the resolver run directly returns 4, so the notify exit is causally
+#     the propagated hard-fail, not a coincidence.
+# ---------------------------------------------------------------------------
+home20="$tmp/notify-hardfail-home"
+core20="$tmp/hardfail-core.yml"
+repo20="$tmp/hardfail-repo"
+mkdir -p "$repo20/.claude"
+printf 'notification_channel: none\n' >"$core20"
+printf 'notification_channel: bogus-channel\n' >"$repo20/.claude/planwright.yml"
+hf_env() {
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+    PLANWRIGHT_FLEET_STATE_DIR="$home20" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core20" \
+    PLANWRIGHT_REPO_ROOT="$repo20" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    "$@"
+}
+# Independent oracle: the resolver itself hard-fails with exit 4.
+oracle_rc=0
+hf_env /bin/sh "$here/../scripts/resolve-notification-channel.sh" >/dev/null 2>&1 || oracle_rc=$?
+[ "$oracle_rc" = 4 ] || fail "hardfail oracle: resolver exit is $oracle_rc, expected 4 (setup did not produce a hard-fail)"
+nf_rc=0
+hf_env /bin/sh "$FA" notify "worker=w needs input" >/dev/null 2>&1 || nf_rc=$?
+[ "$nf_rc" = 4 ] || fail "notify swallowed a resolver hard-fail: exit $nf_rc, expected the propagated 4 (must fail closed)"
+[ ! -e "$home20/attention/toasts" ] || fail "notify pushed despite an unresolvable channel (should fail closed, push nothing)"
+echo "ok: notify propagates a resolver hard-fail (fail closed), pushing nothing"
+
+# ---------------------------------------------------------------------------
+# 21. Concurrent editor-toast appends: N concurrent notifies produce N intact,
+#     distinct `<ts>\t<summary>` lines — none lost, none torn. Exercises the
+#     editor-toast branch under contention (test 12 covers only the state-store
+#     write path; the toast append is a distinct code path). This catches a
+#     `>`-clobber (truncation loses lines), a crash under contention, or torn
+#     records; it does not by itself isolate acquire_lock, since single small
+#     O_APPEND writes are atomic regardless of the lock (short summaries here).
+# ---------------------------------------------------------------------------
+home21="$tmp/notify-race-home"
+core21="$tmp/notify-race-core.yml"
+repo21="$tmp/notify-race-repo"
+pin21="$tmp/notify-race-pin.yml"
+mkdir -p "$repo21"
+printf 'notification_channel: none\n' >"$core21"
+printf 'notification_channel: editor-toast\n' >"$pin21"
+Nt=20
+pids=""
+i=0
+while [ "$i" -lt "$Nt" ]; do
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+    PLANWRIGHT_FLEET_STATE_DIR="$home21" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core21" \
+    PLANWRIGHT_REPO_ROOT="$repo21" \
+    PLANWRIGHT_LOCAL_CONFIG="$pin21" \
+    /bin/sh "$FA" notify "decision-$i-needs-input" &
+  pids="$pids $!"
+  i=$((i + 1))
+done
+rc=0
+for p in $pids; do wait "$p" || rc=1; done
+[ "$rc" = 0 ] || fail "toast race: a concurrent notify exited non-zero under contention"
+tlines=$(wc -l <"$home21/attention/toasts" | tr -d ' ')
+[ "$tlines" = "$Nt" ] || fail "toast race: $tlines lines, expected $Nt (lost or torn appends)"
+torn=$(awk -F"$tab" 'NF != 2 { c++ } END { print c + 0 }' "$home21/attention/toasts")
+[ "$torn" = 0 ] || fail "toast race: $torn torn/interleaved lines (expected 2 tab-fields: <ts>\\t<summary>)"
+distinct=$(cut -f2- "$home21/attention/toasts" | sort -u | wc -l | tr -d ' ')
+[ "$distinct" = "$Nt" ] || fail "toast race: $distinct distinct summaries, expected $Nt (an append was lost or clobbered)"
+echo "ok: concurrent editor-toast appends are serialized (N intact lines, none torn or lost)"
 
 echo "ALL PASS: fleet-attention.sh"
