@@ -19,8 +19,8 @@
 #   - the knob resolves across all four layers via config-get (last-layer-wins);
 #   - the sentinel `off` is a legal value;
 #   - a trailing comment and surrounding whitespace are tolerated;
-#   - a positive integer of any width validates; 0, negatives, and non-numeric
-#     values are malformed;
+#   - a positive integer up to the 15-digit width cap validates; wider
+#     integers, 0, negatives, and non-numeric values are malformed;
 #   - the REQ-E1.4 by-layer policy on a bad value: adopter/machine-local
 #     degrade+warn to the core default, repo-tracked hard-fails (exit 4);
 #   - a structurally malformed repo-tracked config file still hard-fails;

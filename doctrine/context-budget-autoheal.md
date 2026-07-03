@@ -42,8 +42,10 @@ stand-in for one. Because the handover is cheap and lossless (below), the proxy
 does not need to be precise — only conservative.
 
 - **The knob.** `context_budget_threshold` (config, four-layer overlay) is the
-  step budget: a positive integer, or `off` to disable auto-heal (the historical
-  single-tower behavior). Its default is deliberately conservative — handing off
+  step budget: a positive integer of at most 15 digits (an overflow guard that
+  only rejects typos far larger than any real budget), or `off` to disable
+  auto-heal (the historical single-tower behavior). Its default is deliberately
+  conservative — handing off
   *early* wastes only a cheap rebuild, while handing off *late* risks the silent
   degradation REQ-C1.1 forbids, so the safe default is the low one. Resolved
   through `scripts/resolve-context-budget-threshold.sh`.

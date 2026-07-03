@@ -15,8 +15,10 @@
 #   - near-limit: steps completed have reached the threshold; hand off now.
 #   - ok:         below the threshold; keep going.
 #   - disabled:   auto-heal is turned off (threshold `off`); never hand off.
-# Exit: 0 on a successful evaluation (any of the three words); 2 usage error;
-# the resolver's hard-fail (exit 4, broken shared config) is propagated.
+# Exit: 0 on a successful evaluation (any of the three words); 2 usage error
+# (including a step count past the width cap); the resolver's hard-fail is
+# propagated — exit 4 (broken shared config) or exit 5 (resolver missing/
+# non-executable, or a broken install).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-context-budget-monitor.sh
