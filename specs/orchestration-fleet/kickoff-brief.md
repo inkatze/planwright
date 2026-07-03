@@ -524,7 +524,10 @@ Amendment log. Prior expression-only anchor:
 ## Amendment log
 
 Post-sign-off changes to the anchored spec bundle. Signed sections 1–8 above are
-unchanged except the `Anchor:` pointer in §8. Most entries here record
+unchanged except the `Anchor:` pointer in §8 and any **sanctioned execution-time
+risk-register appends** (named subsections an execution skill adds to §7 to record
+research findings — they carry no anchor entry and touch no signed decision; e.g.
+the "Task 5 research findings" subsection). Most entries here record
 expression-only edits that re-anchor the bundle (the only kind a finishing-gauntlet
 worker may make). A **meaning-class** change is recorded here only by the kickoff
 owner via a delta re-walkthrough, and its entry carries `Class: meaning` plus a

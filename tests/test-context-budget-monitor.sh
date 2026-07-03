@@ -92,6 +92,36 @@ got=$(run 6)
 reset_layers
 echo "ok: the monitor honors an overlay-set threshold via config resolution"
 
+# 6b. Overflow guard: an over-long step count (past the 15-digit width cap) is a
+#     usage error, not a wrong answer. Before the guard this overflowed
+#     `test -ge` (INTMAX ~9.2e18), leaked a `[:` diagnostic to stderr, and
+#     printed `ok` at exit 0 — a wrong verdict for a step count that dwarfs the
+#     threshold, plus an opaque failure.
+set_threshold 50
+reset_layers
+rc=0
+out=$(run 99999999999999999999999 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "over-long step count: exit $rc, expected 2 (usage error, no overflow)"
+[ -z "$out" ] || fail "over-long step count printed '$out' to stdout; expected nothing on the usage-error path"
+echo "ok: an over-long step count is a usage error (exit 2), not an overflowed wrong answer"
+
+# 6c. A huge THRESHOLD does not overflow the comparison either. A repo-tracked
+#     over-long value hard-fails at the resolver (propagated exit 4); an
+#     adopter-layer one degrades to the core default, after which the monitor
+#     answers correctly with no overflow or stderr leak.
+set_threshold 50
+printf 'context_budget_threshold: 100000000000000000000\n' >"$tracked_cfg" # 21 digits, repo-tracked
+rc=0
+run 10 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "huge repo-tracked threshold: exit $rc, expected 4 (resolver hard-fail propagated, no overflow)"
+reset_layers
+printf 'context_budget_threshold: 100000000000000000000\n' >"$adopter_root/planwright.yml" # degrades to 50
+got=$(run 60 2>/dev/null)
+[ "$got" = near-limit ] \
+  || fail "huge adopter threshold: expected 'near-limit' at steps=60 vs degraded default 50, got '$got'"
+rm -f "$adopter_root/planwright.yml"
+echo "ok: a huge threshold does not overflow — it hard-fails or degrades, then the verdict is correct"
+
 # 7. Usage errors → exit 2.
 set_threshold 50
 reset_layers

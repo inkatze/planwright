@@ -32,9 +32,11 @@
 #   ok          below the threshold; keep going.
 #   disabled    auto-heal is off (threshold `off`); never hand off.
 #
-# Exit: 0 on a successful evaluation; 2 usage error; 4 propagated from the
-# resolver when a broken repo-tracked config value hard-fails (a broken shared
-# config never silently degrades the tower). Never fails opaquely.
+# Exit: 0 on a successful evaluation; 2 usage error (including a step count past
+# the width cap); 4 propagated from the resolver when a broken repo-tracked
+# config value hard-fails (a broken shared config never silently degrades the
+# tower); 5 when the resolver is missing/non-executable or reports a broken
+# install (propagated). Never fails opaquely.
 set -u
 
 LC_ALL=C
@@ -88,6 +90,14 @@ fi
 # (the resolver rejects `0*`). An all-zeros count normalizes to 0.
 steps_n=$(printf '%s' "$steps" | sed 's/^0\{1,\}//')
 [ -n "$steps_n" ] || steps_n=0
+
+# Bound the step count to the same 15-digit width cap the resolver enforces on
+# the threshold, so `test -ge` below cannot overflow the shell signed-integer
+# range (INTMAX ~9.2e18) and fall through to a wrong answer. A count this large
+# from a tower's own step tally is impossible, so this is a fail-closed guard on
+# a bug, not a real value — surface it as a usage error rather than an opaque
+# arithmetic leak.
+[ "${#steps_n}" -le 15 ] || usage
 
 if [ "$steps_n" -ge "$threshold" ]; then
   echo near-limit

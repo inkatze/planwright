@@ -15,8 +15,9 @@ Citations: orchestration-fleet REQ-C1.1 (monitor the budget, surface the
 near-limit), orchestration-fleet REQ-C1.2 (auto-heal handover), orchestration-fleet
 REQ-C1.4 (the handover preserves the sibling state-safety contract),
 orchestration-fleet REQ-A1.2 (the never-auto-merge floor holds across the
-handover) · orchestration-fleet D-4 (extends bootstrap D-7 disposable towers, D-38
-dispatch). The unattended fresh tower operates under the
+handover) · orchestration-fleet D-4 (extends bootstrap D-7 disposable towers; the
+handover launch relates to bootstrap D-38 dispatch). The unattended fresh tower
+operates under the
 [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md).
 
 ## The budget signal: a completed-step-count proxy
@@ -55,8 +56,10 @@ does not need to be precise — only conservative.
   Its limits: it fires *at* the threshold rather than before it, and a tower whose
   step budget is well-tuned reaches `near-limit` first. A tower operator who wants
   a belt-and-suspenders floor may register a `PreCompact` (matcher `auto`) hook in
-  **their own** worker settings that writes a hand-off marker the tower treats as
-  an immediate `near-limit`. planwright does **not** register this hook in its
+  **their own** worker settings that writes a hand-off marker their own tower
+  wake-loop can treat as an immediate hand-off signal (this monitor evaluates the
+  step-count threshold only; marker-reading is the operator's wiring, not shipped
+  here). planwright does **not** register this hook in its
   plugin `hooks/hooks.json`: a global hook would fire for every adopter's every
   session, not just towers, and bound blast radius matters more than catching the
   rare case where the step budget is mis-tuned high.

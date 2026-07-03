@@ -117,12 +117,30 @@ got=$(run)
 [ "$got" = 80 ] || fail "whitespace/comment not tolerated (got: '$got')"
 echo "ok: inner whitespace and a trailing comment are tolerated"
 
-# 4b. A wide positive integer validates (no arbitrary upper clamp).
+# 4b. A wide-but-bounded positive integer validates (15 digits, the width cap).
 reset_layers
-printf 'context_budget_threshold: 100000\n' >"$mlocal_cfg"
+printf 'context_budget_threshold: 999999999999999\n' >"$mlocal_cfg" # 15 digits
 got=$(run)
-[ "$got" = 100000 ] || fail "a wide positive integer did not validate (got: '$got')"
-echo "ok: a positive integer of any width validates"
+[ "$got" = 999999999999999 ] || fail "a 15-digit integer did not validate (got: '$got')"
+echo "ok: a positive integer up to the 15-digit width cap validates"
+
+# 4c. An over-long integer (16+ digits) is malformed: it would overflow the
+#     downstream `test -ge` arithmetic (INTMAX ~9.2e18, 19 digits), so it is
+#     rejected before it can. In the adopter overlay it degrades to the core
+#     default with a warning.
+reset_layers
+printf 'context_budget_threshold: 10000000000000000000\n' >"$adopter_cfg" # 20 digits
+rc=0
+err=$(run 2>&1 >/dev/null) || rc=$?
+out=$(run 2>/dev/null)
+[ "$rc" = 0 ] || fail "over-long adopter value: exit $rc, expected 0 (degrade)"
+[ "$out" = "$SAFE_DEFAULT" ] \
+  || fail "over-long adopter value did not degrade to core default (got '$out')"
+case $err in
+  *adopter*) ;;
+  *) fail "over-long adopter value: warning does not name the layer (got: '$err')" ;;
+esac
+echo "ok: an over-long integer (past the 15-digit width cap) is malformed and degrades"
 
 # 5. Bad value in the adopter overlay: malformed, degrade to the core default
 #    with a loud warning, exit 0. `0` is malformed (hand-off-immediately is

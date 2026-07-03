@@ -78,20 +78,25 @@ if [ ! -x "$config_get" ]; then
 fi
 
 # valid_value <value>: 0 when the value is a positive integer (no leading zero,
-# no sign, no decimal) or the sentinel `off`, after trimming surrounding
-# whitespace; 1 otherwise. config-get already strips a trailing `# comment` and a
-# surrounding quote pair; the trim here is defensive against surrounding
-# whitespace so `  40  ` validates. `0` is rejected: a zero step budget means
-# hand off before any work, which is nonsensical and almost certainly a mistake.
+# no sign, no decimal) of at most 15 digits, or the sentinel `off`, after
+# trimming surrounding whitespace; 1 otherwise. config-get already strips a
+# trailing `# comment` and a surrounding quote pair; the trim here is defensive
+# against surrounding whitespace so `  40  ` validates. `0` is rejected: a zero
+# step budget means hand off before any work, which is nonsensical and almost
+# certainly a mistake. The 15-digit width cap (max ~1e15) keeps the value well
+# below the shell signed-integer range (INTMAX ~9.2e18, 19 digits) so the
+# downstream `test -ge` comparison in context-budget-monitor.sh never overflows;
+# 1e15 already dwarfs any real step budget, so the cap rejects only typos.
 valid_value() {
   _v=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   case "$_v" in
     off) return 0 ;;
+    '') return 1 ;;       # empty → reject
     0 | 0*) return 1 ;;   # bare or leading-zero → reject
     *[!0-9]*) return 1 ;; # any non-digit (sign, dot, letters) → reject
-    ?*) return 0 ;;       # one-or-more digits, first is 1-9 → positive integer
-    *) return 1 ;;        # empty → reject
   esac
+  # A positive integer (first digit 1-9). Accept only within the width cap.
+  [ "${#_v}" -le 15 ]
 }
 
 # emit_trimmed <value>: print the value trimmed of surrounding whitespace, with
