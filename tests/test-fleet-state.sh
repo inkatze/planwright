@@ -298,12 +298,16 @@ henv register "worker=ok" "$(printf 'sc\tope')" >/dev/null 2>&1 || rc=$?
 }
 echo "ok: hostile worker/scope identifiers are refused, nothing written"
 
-# 11c. bound-incr rejects a non-numeric / non-positive bound rather than
-#      coercing it into an unbounded counter.
+# 11c. bound-incr rejects a malformed bound rather than coercing it into an
+#      unbounded counter. Cover both the non-numeric and the empty-string arms
+#      of the validation `case`, so a refactor that drops either is caught.
 rc=0
 fenv bound-incr "notanumber" >/dev/null 2>&1 || rc=$?
 [ "$rc" != "0" ] || fail "bound-incr accepted a non-numeric bound"
-echo "ok: bound-incr rejects a malformed bound"
+rc=0
+fenv bound-incr "" >/dev/null 2>&1 || rc=$?
+[ "$rc" != "0" ] || fail "bound-incr accepted an empty-string bound"
+echo "ok: bound-incr rejects a malformed bound (non-numeric and empty)"
 
 # ---------------------------------------------------------------------------
 # 12. Stale-break liveness: a lock left behind by a CRASHED holder (a stale
