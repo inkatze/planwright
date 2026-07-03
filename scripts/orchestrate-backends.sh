@@ -27,7 +27,7 @@
 #       whose capabilities are unknown is never advertised). A pluggable arg
 #       naming a shipped backend, or a hostile/invalid name, is skipped.
 #
-#   select-unattended <configured> [pluggable-name...]
+#   select-unattended <configured>
 #       Print the backend the tower should use with NO human to ask: the
 #       configured backend when it is present AND unattended-eligible
 #       (advertised interactive=false AND session_grade!=deferred), else DEGRADE
@@ -218,7 +218,7 @@ cmd_detect() {
 cmd_select_unattended() {
   configured=${1-}
   if [ -z "$configured" ]; then
-    echo "usage: orchestrate-backends.sh select-unattended <configured> [pluggable-name...]" >&2
+    echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2
     return 2
   fi
   # A pluggable configured name must be a valid identifier before it reaches the
@@ -256,7 +256,7 @@ case "$sub" in
   detect) cmd_detect "$@" ;;
   select-unattended) cmd_select_unattended "$@" ;;
   '' | help | -h | --help)
-    echo "usage: orchestrate-backends.sh {detect | select-unattended <configured>} [pluggable-name...]" >&2
+    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured>}" >&2
     exit 2
     ;;
   *)

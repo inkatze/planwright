@@ -16,7 +16,7 @@
 #     TMUX} so a host/test can force presence. A pluggable name is present iff a
 #     `planwright-backend-<name>` adapter on PATH answers `advertise` with a
 #     well-formed capability set; a malformed/absent adapter is reported absent.
-#   - `select-unattended <configured> [pluggable-name...]` makes the autonomous
+#   - `select-unattended <configured>` makes the autonomous
 #     (no-human-to-ask) pick: the configured backend when it is present AND
 #     unattended-eligible (interactive=false AND session_grade!=deferred); else
 #     it DEGRADES down the shipped autonomous chain (subagent → in-session, the
