@@ -114,32 +114,6 @@ space).
 - **Estimated effort:** 1 day
 - **Last activity:** 2026-07-02
 
-### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
-
-- **Deliverables:** The **graceful-degradation ladder** (richest to safest:
-  interactive-multiplexer-with-steer → multiplexer-without-steer or headless
-  `claude -p` pool → in-harness subagent → synchronous in-session with strategic
-  context clears), the synchronous terminal rung as a contract implementation
-  (units, and under per-step isolation steps, run one at a time with a context
-  clear between them), and **runtime failover**: on a chosen backend dying mid-run,
-  descend one rung with a logged note + `## Awaiting input` entry, recording the
-  effective backend **spec-locally alongside the sibling's dispatch marker**
-  (`<spec-dir>/.orchestrate/`), never in `tasks.md`. The descent honors
-  **degrade-capability-never-safety**: a descent that would drop a guard
-  (worker-settings deny, never-auto-merge, never-force-push, the freshness gate)
-  aborts instead.
-- **Done when:** with no rich backend available or selected, ready units execute
-  via the synchronous terminal rung with bounded-context clears; runtime failover
-  descends exactly one rung with a logged note + Awaiting-input entry (never a
-  silent downgrade) and records the effective backend spec-locally, not in
-  `tasks.md`; a descent that would drop a named guard is refused; the
-  never-auto-merge invariant and the sibling state-safety contract hold on every
-  rung; tests cover the single-stream run, a simulated failover, and a
-  safety-abort; tests pass under `mise run check`.
-- **Dependencies:** 1, 2
-- **Citations:** D-3 · REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-A1.4
-- **Estimated effort:** 2 days
-
 ### Task 4 — `dispatch_isolation` knob & per-step dispatch
 
 - **Deliverables:** The `dispatch_isolation` config option (`per-step` |
@@ -245,6 +219,34 @@ space).
 - **Estimated effort:** 1 day
 
 ## In progress
+
+### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
+
+- **Deliverables:** The **graceful-degradation ladder** (richest to safest:
+  interactive-multiplexer-with-steer → multiplexer-without-steer or headless
+  `claude -p` pool → in-harness subagent → synchronous in-session with strategic
+  context clears), the synchronous terminal rung as a contract implementation
+  (units, and under per-step isolation steps, run one at a time with a context
+  clear between them), and **runtime failover**: on a chosen backend dying mid-run,
+  descend one rung with a logged note + `## Awaiting input` entry, recording the
+  effective backend **spec-locally alongside the sibling's dispatch marker**
+  (`<spec-dir>/.orchestrate/`), never in `tasks.md`. The descent honors
+  **degrade-capability-never-safety**: a descent that would drop a guard
+  (worker-settings deny, never-auto-merge, never-force-push, the freshness gate)
+  aborts instead.
+- **Done when:** with no rich backend available or selected, ready units execute
+  via the synchronous terminal rung with bounded-context clears; runtime failover
+  descends exactly one rung with a logged note + Awaiting-input entry (never a
+  silent downgrade) and records the effective backend spec-locally, not in
+  `tasks.md`; a descent that would drop a named guard is refused; the
+  never-auto-merge invariant and the sibling state-safety contract hold on every
+  rung; tests cover the single-stream run, a simulated failover, and a
+  safety-abort; tests pass under `mise run check`.
+- **Dependencies:** 1, 2
+- **Citations:** D-3 · REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-A1.4
+- **Estimated effort:** 2 days
+- **Status:** implementing
+- **Last activity:** 2026-07-03
 
 ### Task 2 — Backend autodetection & present-and-ask selection
 
