@@ -423,15 +423,14 @@ the fleet tier:
    at bound simply releases the lock and holds.
 3. **Optionally reserve a same-instant slot.** For a backend whose dispatch
    marker becomes visible to the live count only after a lag, Task 9's atomic
-   `scripts/fleet-state.sh bound-incr
-   "$(scripts/config-get.sh fleet_max_parallel_units)"` /
-   `bound-decr` counter can reserve the launch slot for the window between the
-   subordinate's launch and its marker appearing. It is a reservation *over* the
-   live count, never a substitute for it: because a hard kill can leak a reserved
-   slot and a disposable tower keeps no cross-step memory to pair a `bound-decr`
-   to, the leak-free live count — not the counter — remains what actually gates,
-   so a leaked slot can never permanently narrow the effective bound. (The
-   slot-leak limitation is tracked as an observation.)
+   counter — `scripts/fleet-state.sh bound-incr "$(scripts/config-get.sh fleet_max_parallel_units)"`
+   paired with `scripts/fleet-state.sh bound-decr` — can reserve the launch slot
+   for the window between the subordinate's launch and its marker appearing. It is
+   a reservation *over* the live count, never a substitute for it: because a hard
+   kill can leak a reserved slot and a disposable tower keeps no cross-step memory
+   to pair a `bound-decr` to, the leak-free live count — not the counter — remains
+   what actually gates, so a leaked slot can never permanently narrow the effective
+   bound. (The slot-leak limitation is tracked as an observation.)
 4. **Release the fleet lock** before launching (`scripts/fleet-state.sh unlock`).
 5. **Launch the subordinate tower** for the chosen spec: dispatch
    `/orchestrate <spec>` (one step) via the selected backend (**Backend
