@@ -80,6 +80,14 @@ unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
+# The canonical echo-discipline sanitizer (doctrine/security-posture.md): every
+# untrusted value (a caller's argv, a parsed manifest name) is stripped of C0/DEL
+# before it reaches a diagnostic, so an embedded escape sequence can't drive the
+# terminal or corrupt a log. Sourced as the sibling command scripts do
+# (spec-validate.sh, spec-walkthrough.sh); a missing helper is a broken install.
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
+
 # The overlay identifier charset (REQ-E1.2, REQ-A1.8), matching
 # resolve-overlay-root.sh: a kebab token, no uppercase, no traversal segments,
 # no leading dash, at most 64 chars. Used for the plugin-namespace `name` that
@@ -162,7 +170,7 @@ resolve_root() {
         fi
         # A name that fails the charset is NEVER interpolated into a path
         # (REQ-F1.1): warn and treat the writer arm as underivable.
-        echo "fleet-state: plugin manifest name '$rr_name' is not a valid identifier; refusing to build a fleet path from it" >&2
+        echo "fleet-state: plugin manifest name '$(sanitize_printable "$rr_name" "(unprintable name)")' is not a valid identifier; refusing to build a fleet path from it" >&2
       fi
     fi
   fi
@@ -356,7 +364,7 @@ case $cmd in
     # so a typo is a clean usage error (exit 2) that never materializes any
     # fleet-state artifacts (fail-closed / data hygiene, REQ-A1.6). Without this
     # the unconditional mkdir below would create the fleet home on a typo.
-    echo "fleet-state: unknown command '$cmd' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    echo "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac
@@ -396,11 +404,11 @@ case $cmd in
     # Validate BOTH fields before any write (REQ-F1.1, REQ-A1.6): a hostile
     # identifier is refused, nothing is written.
     if ! valid_field "$worker"; then
-      echo "fleet-state: refusing malformed worker handle '$worker' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      echo "fleet-state: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-state: refusing malformed scope '$scope' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
+      echo "fleet-state: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
       exit 2
     fi
     spin_acquire "$lock" || exit 2
@@ -499,7 +507,7 @@ case $cmd in
     # home is created (first case above). This guards against the two command
     # lists drifting — a command added to the fall-through list but not handled
     # here fails loudly rather than silently no-op'ing.
-    echo "fleet-state: unknown command '$cmd' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    echo "fleet-state: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;
 esac

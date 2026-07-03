@@ -506,4 +506,31 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
 [ ! -e "$home_bogus" ] || fail "unknown command created fleet-state artifacts at '$home_bogus' (not fail-closed)"
 echo "ok: an unknown command exits 2 and creates no fleet-home artifacts"
 
+# ---------------------------------------------------------------------------
+# 14. Echo discipline (doctrine/security-posture.md): untrusted input embedded
+#     in a diagnostic is stripped of C0/DEL control bytes before it reaches
+#     stderr, so an escape sequence in a caller's argv (or a hostile manifest
+#     name) cannot drive the terminal or corrupt a log. Covers the
+#     unknown-command ($cmd) and register field ($worker/$scope) diagnostics.
+# ---------------------------------------------------------------------------
+esc=$(printf 'x\033]0;INJECT\007y\010z') # ESC + OSC + BEL + backspace embedded
+home_inj="$tmp/inj-home"
+assert_no_cntrl() {
+  # $1 = captured stderr, $2 = label. Fail if any C0/DEL byte survived, using
+  # the same byte set the sanitizer strips.
+  aic_stripped=$(printf '%s' "$1" | tr -d '\000-\037\177')
+  [ -n "$1" ] || fail "$2: no diagnostic emitted at all"
+  [ "$aic_stripped" = "$1" ] || fail "$2: leaked control bytes to stderr (terminal/log injection)"
+}
+inj_err=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_inj" /bin/sh "$FS" "$esc" 2>&1 >/dev/null) || true
+assert_no_cntrl "$inj_err" "unknown-command diagnostic"
+inj_err=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_inj" /bin/sh "$FS" register "$esc" "scope-ok" 2>&1 >/dev/null) || true
+assert_no_cntrl "$inj_err" "register worker diagnostic"
+inj_err=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_inj" /bin/sh "$FS" register "worker-ok" "$esc" 2>&1 >/dev/null) || true
+assert_no_cntrl "$inj_err" "register scope diagnostic"
+echo "ok: untrusted diagnostics are stripped of control/escape bytes (no terminal/log injection)"
+
 echo "ALL PASS: fleet-state.sh"
