@@ -219,6 +219,14 @@ cmd_detect() {
 }
 
 cmd_select_unattended() {
+  # Exactly one positional: the configured backend name. Reject missing OR extra
+  # args fail-closed (exit 2) rather than silently ignoring trailing args, so a
+  # caller's mistake surfaces instead of being masked. `${1-}` keeps set -u happy
+  # for the single-empty-arg case below.
+  if [ "$#" -ne 1 ]; then
+    echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2
+    return 2
+  fi
   configured=${1-}
   if [ -z "$configured" ]; then
     echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2

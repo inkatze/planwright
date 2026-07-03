@@ -263,6 +263,11 @@ rc=0
 rc=0
 "$BACKENDS" select-unattended >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "usage: select-unattended with no arg returned $rc, expected 2"
+# select-unattended takes exactly one <configured> arg: an extra positional is a
+# caller mistake and must fail closed (exit 2), never be silently ignored.
+rc=0
+PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended foo bar >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "usage: select-unattended with extra args returned $rc, expected 2"
 echo "ok: usage errors and an unknown subcommand fail closed (exit 2)"
 
 # ---------------------------------------------------------------------------
