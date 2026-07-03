@@ -256,6 +256,12 @@ try_acquire() {
 # internal consumer must not lose its update). A real error (rc 2) aborts at
 # once; only a live-holder busy (rc 1) is retried. Exhausting the budget fails
 # closed (rc 2) rather than proceeding without the lock.
+#
+# The 20ms backoff uses a sub-second `sleep`, which is a BSD/GNU extension, not
+# strict POSIX (POSIX `sleep` takes integer seconds). This is deliberate and in
+# scope: macOS and Linux — where both `sleep 0.02` and the already-relied-on
+# `date +%s` work — are planwright's support bar; a fractional-second backoff is
+# what keeps brief lock contention cheap (20ms, not a full second).
 spin_acquire() {
   sa_lock=$1
   sa_tries=0
