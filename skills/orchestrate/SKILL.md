@@ -291,10 +291,13 @@ which one to use in this order:
   capability sets (`tmux` is present iff installed; `subagent` is present by
   default but a host or test can force it off via `PLANWRIGHT_BACKEND_SUBAGENT`;
   `in-session` and `print` are always present; a configured pluggable backend appears when
-  its `planwright-backend-<name>` adapter advertises). Pass the configured
-  `dispatch_backend` value as a trailing pluggable-name argument so an operator's
-  configured pluggable backend is included. **Present** that set and **ask** the
-  operator which to use — never auto-select (REQ-B1.4).
+  its `planwright-backend-<name>` adapter advertises). To surface a pluggable
+  backend in the presented set, pass its `planwright-backend-<name>` name as a
+  trailing argument to `detect`. (`dispatch_backend` itself is one of the four
+  shipped backends — configuring it to a pluggable name is deferred until
+  pluggable dispatch lands, per the options reference — so there is no pluggable
+  `dispatch_backend` value to forward here today.) **Present** that set and
+  **ask** the operator which to use — never auto-select (REQ-B1.4).
 - **Unattended (`--unattended` / headless)** — there is no one to ask, so run
   `scripts/orchestrate-backends.sh select-unattended "$(scripts/config-get.sh
   dispatch_backend)"` and use the backend it prints. It picks the configured
