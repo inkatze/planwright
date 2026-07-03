@@ -56,7 +56,7 @@ trap 'rm -rf "$tmp"' EXIT
 # `command -v` probe.
 BIN="$tmp/bin"
 mkdir -p "$BIN"
-for t in sh env cat awk sed grep printf command dirname basename; do
+for t in sh env cat awk sed tr grep printf command dirname basename; do
   p=$(command -v "$t" 2>/dev/null) || true
   [ -n "$p" ] && ln -sf "$p" "$BIN/$t" 2>/dev/null || true
 done
@@ -197,11 +197,11 @@ echo "ok: select-unattended degrades down the ladder to the in-session terminal 
 # 9. select-unattended: a configured PLUGGABLE that is present & eligible is
 #    picked; an interactive pluggable is refused (degrades), never picked.
 # ---------------------------------------------------------------------------
-sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended foo foo 2>"$err") \
+sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended foo 2>"$err") \
   || fail "select-unattended(pluggable foo) non-zero"
 [ "$sel" = foo ] || fail "select-unattended: eligible configured pluggable foo should be picked, got '$sel'"
 make_adapter bar true true true false true yes
-sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended bar bar 2>"$err") \
+sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended bar 2>"$err") \
   || fail "select-unattended(interactive pluggable) non-zero"
 [ "$sel" = subagent ] || fail "select-unattended: interactive pluggable bar must degrade to subagent, got '$sel'"
 [ "$sel" != bar ] || fail "select-unattended: MUST NOT pick an interactive pluggable"
