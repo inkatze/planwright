@@ -230,8 +230,9 @@ while [ "$i" -lt "$N" ]; do
   (
     # Capture the exit code, the granted new-count (stdout on exit 0), and any
     # stderr, so the race proves not just that exactly MAX succeeded but that
-    # every non-grant was a CLEAN at-bound refusal (exit 1, silent) — never a
-    # fail-closed error (exit 2, e.g. spin_acquire budget exhaustion under
+    # every non-grant was a CLEAN at-bound refusal (exit 1 — which prints the
+    # current count on stdout but is silent on stderr) — never a fail-closed
+    # error (exit 2, e.g. spin_acquire budget exhaustion under
     # contention). A grant-count-only check would pass an exit-2 that landed on a
     # call which would have been refused anyway, as long as MAX grants still hit.
     rc=0
@@ -441,5 +442,32 @@ env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
   || fail "stale lock deadlocked a new acquirer (no break/recovery)"
 [ "$(cat "$home_stale/concurrency")" = "1" ] || fail "stale-break recovery did not complete the increment"
 echo "ok: a crashed holder's stale lock is broken, not a permanent deadlock"
+
+# ---------------------------------------------------------------------------
+# 12b. CWD-independence: the cross-spec fleet stale threshold must NOT vary by
+#      the repo a tower happens to run from. fleet_stale_min pins
+#      PLANWRIGHT_REPO_ROOT to the fleet home (which has no .claude overlay), so
+#      config-get cannot pick up the cwd repo's stale_lock_threshold. Here the
+#      cwd is a git repo whose committed config sets a ~190-year threshold: if it
+#      leaked in, the back-dated 2020 lock would count as FRESH and the stale
+#      break would NOT fire (crash recovery silently disabled). Note NO explicit
+#      PLANWRIGHT_LOCAL_CONFIG here — the determinism must come from the
+#      REPO_ROOT pin alone, not an override. Regression for the cwd-dependence bug.
+# ---------------------------------------------------------------------------
+home_cwd="$tmp/cwd-indep-home"
+mkdir -p "$home_cwd"
+mkdir "$home_cwd/.fleet.lock"
+touch -t 202001010000 "$home_cwd/.fleet.lock" # crashed holder, back-dated to 2020
+hostile_repo="$tmp/hostile-cwd-repo"
+mkdir -p "$hostile_repo/.claude"
+(cd "$hostile_repo" && git init -q) || fail "cwd-indep: could not init the hostile cwd repo"
+printf 'stale_lock_threshold: 99999999m\n' >"$hostile_repo/.claude/planwright.yml"
+(
+  cd "$hostile_repo" \
+    && env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME -u PLANWRIGHT_LOCAL_CONFIG \
+      PLANWRIGHT_FLEET_STATE_DIR="$home_cwd" /bin/sh "$FS" bound-incr 3 >/dev/null
+) || fail "cwd-indep: stale break did not fire — the cwd repo's threshold leaked into the fleet lock"
+[ "$(cat "$home_cwd/concurrency")" = "1" ] || fail "cwd-indep: stale-break recovery did not complete the increment"
+echo "ok: the fleet stale threshold is cwd-independent (a hostile repo-local override cannot disable recovery)"
 
 echo "ALL PASS: fleet-state.sh"

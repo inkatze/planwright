@@ -170,12 +170,20 @@ resolve_root() {
   return 2
 }
 
-# stale_lock_threshold in minutes (the sibling advisory-lock knob). Read via
-# config-get.sh's tracked-defaults layer; there is no repo-local override in the
-# cross-spec context. An absent key or broken read falls back to 15m.
+# stale_lock_threshold in minutes (the sibling advisory-lock knob). Resolved via
+# config-get.sh with PLANWRIGHT_REPO_ROOT pinned to the fleet home ($root, which
+# carries no .claude/ overlay of its own), which NEUTRALIZES the CWD's git-derived
+# repo-tracked / machine-local layers. This matters because the fleet lock is
+# cross-spec: without the pin the stale-break threshold would vary by whichever
+# repo a tower happens to run from (config-get resolves those layers from the
+# caller's cwd git toplevel), so two towers on the SAME fleet lock could disagree
+# on staleness — one even disabling crash recovery under a pathological repo-local
+# override. The CWD-independent layers still apply: the tracked default, the
+# per-operator adopter layer, and an EXPLICIT PLANWRIGHT_LOCAL_CONFIG override (a
+# deliberate, non-cwd-derived knob). An absent key or broken read falls back to 15m.
 fleet_stale_min() {
   fsm_v=15
-  fsm_read=$("$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || fsm_read=""
+  fsm_read=$(PLANWRIGHT_REPO_ROOT="$root" "$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || fsm_read=""
   fsm_read=${fsm_read%m}
   case $fsm_read in
     "") ;;
