@@ -350,9 +350,19 @@ case $cmd in
     resolve_root
     exit $?
     ;;
+  lock | unlock | register | registry | bound-incr | bound-decr) ;;
+  *)
+    # Reject an unknown command HERE, before resolving/creating the fleet home,
+    # so a typo is a clean usage error (exit 2) that never materializes any
+    # fleet-state artifacts (fail-closed / data hygiene, REQ-A1.6). Without this
+    # the unconditional mkdir below would create the fleet home on a typo.
+    echo "fleet-state: unknown command '$cmd' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
+    exit 2
+    ;;
 esac
 
-# Every command below needs the resolved home to exist.
+# Every command below needs the resolved home to exist. cmd is now guaranteed to
+# be one of the six above (unknown was rejected before this point).
 root=$(resolve_root) || exit 2
 if ! mkdir -p "$root" 2>/dev/null; then
   echo "fleet-state: cannot create fleet home $root" >&2
@@ -485,6 +495,10 @@ case $cmd in
     ;;
 
   *)
+    # Defensive fallback: unknown commands are already rejected before the fleet
+    # home is created (first case above). This guards against the two command
+    # lists drifting — a command added to the fall-through list but not handled
+    # here fails loudly rather than silently no-op'ing.
     echo "fleet-state: unknown command '$cmd' (root|lock|unlock|register|registry|bound-incr|bound-decr)" >&2
     exit 2
     ;;

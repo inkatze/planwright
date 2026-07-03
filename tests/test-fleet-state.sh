@@ -492,4 +492,18 @@ printf 'stale_lock_threshold: 99999999m\n' >"$hostile_repo/.claude/planwright.ym
 [ "$(cat "$home_cwd/concurrency")" = "1" ] || fail "cwd-indep: stale-break recovery did not complete the increment"
 echo "ok: the fleet stale threshold is cwd-independent (a hostile repo-local override cannot disable recovery)"
 
+# ---------------------------------------------------------------------------
+# 13. Fail-closed usage error: an UNKNOWN command exits 2 and creates NO
+#     fleet-state artifacts. A typo is a usage error, not a reason to
+#     materialize the fleet home (REQ-A1.6 data hygiene) — the unknown-command
+#     rejection must happen BEFORE the unconditional fleet-home mkdir.
+# ---------------------------------------------------------------------------
+home_bogus="$tmp/bogus-home"
+rc=0
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_bogus" /bin/sh "$FS" bogus-cmd >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unknown command: exit $rc, expected 2"
+[ ! -e "$home_bogus" ] || fail "unknown command created fleet-state artifacts at '$home_bogus' (not fail-closed)"
+echo "ok: an unknown command exits 2 and creates no fleet-home artifacts"
+
 echo "ALL PASS: fleet-state.sh"
