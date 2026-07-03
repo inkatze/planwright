@@ -42,8 +42,11 @@
 # the anchored identifier charset before it is ever spliced into the
 # `planwright-backend-<name>` command, so a hostile name is refused, never run.
 #
-# Exit codes: 0 success; 2 usage error (no/unknown subcommand, a missing or
-# malformed configured backend). No subcommand mutates any file.
+# Exit codes: 0 success (including every degrade — an absent, malformed, or
+# ineligible configured backend degrades to a shipped rung and still exits 0);
+# 2 usage error (no/unknown subcommand, or a select-unattended configured
+# argument that is empty or fails the identifier charset). No subcommand
+# mutates any file.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no gawk
 # extensions, input treated as data only (REQ-K1.5).
