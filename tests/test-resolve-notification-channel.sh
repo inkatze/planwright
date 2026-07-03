@@ -104,6 +104,16 @@ got=$(run)
 [ "$got" = tmux-popup ] || fail "adopter did not win over core after repo-tracked removed (got: '$got')"
 echo "ok: notification_channel obeys last-layer-wins (core < adopter < repo-tracked < machine-local)"
 
+# 2c. The topmost precedence edge: machine-local wins over repo-tracked when BOTH
+#     are set (the top of the four-layer ladder), so the full cascade is proven
+#     end-to-end, not just piecewise.
+reset_layers
+printf 'notification_channel: editor-toast\n' >"$tracked_cfg" # repo-tracked
+printf 'notification_channel: os-notify\n' >"$mlocal_cfg"     # machine-local
+got=$(run)
+[ "$got" = os-notify ] || fail "machine-local did not win over repo-tracked (got: '$got')"
+echo "ok: machine-local wins over repo-tracked (topmost precedence edge)"
+
 # 3. Every legal channel value validates.
 for ch in none tmux-popup os-notify editor-toast; do
   reset_layers
@@ -214,5 +224,40 @@ printf 'notification_channel: editor-toast\n' >"$tracked_cfg"
 lines=$(run | wc -l | tr -d ' ')
 [ "$lines" = 1 ] || fail "output is not exactly one line (got $lines lines)"
 echo "ok: the output is a single newline-terminated value line"
+
+# 10. Echo discipline (doctrine/security-posture.md): a malformed config value
+#     carrying a control/escape sequence must NOT reach the operator's terminal
+#     raw. config-get strips a comment/quote/whitespace but not C0/DEL, so a
+#     value like `<ESC>]0;pwned<BEL>` fails the enum and lands in a
+#     malformed-value diagnostic — which must be sanitized before stderr.
+reset_layers
+esc=$(printf 'x\033]0;INJECT\007y')                          # ESC + OSC + BEL embedded, not in the enum
+printf 'notification_channel: "%s"\n' "$esc" >"$adopter_cfg" # adopter → degrade path
+err=$(run 2>&1 >/dev/null) || true
+[ -n "$err" ] || fail "malformed-value case emitted no diagnostic at all"
+stripped=$(printf '%s' "$err" | tr -d '\000-\037\177')
+[ "$stripped" = "$err" ] || fail "resolver leaked control/escape bytes to stderr (terminal injection)"
+# And the repo-tracked hard-fail path is likewise sanitized.
+reset_layers
+printf 'notification_channel: "%s"\n' "$esc" >"$tracked_cfg"
+err=$(run 2>&1 >/dev/null) || true
+stripped=$(printf '%s' "$err" | tr -d '\000-\037\177')
+[ "$stripped" = "$err" ] || fail "repo-tracked hard-fail diagnostic leaked control/escape bytes"
+echo "ok: malformed-value diagnostics are stripped of control/escape bytes (no terminal injection)"
+
+# 11. The resolver's enum and safe default stay coupled to the shipped config.
+#     Nothing else asserts that config/defaults.yml's notification_channel is a
+#     value the resolver considers legal and equals SAFE_DEFAULT — if the two
+#     drifted, every hermetic case above (which uses fixture configs) would stay
+#     green while the real default broke. Read the shipped value and check it.
+shipped=$(sed -n 's/^notification_channel:[[:space:]]*\([a-z-]*\).*/\1/p' "$here/../config/defaults.yml")
+[ -n "$shipped" ] || fail "could not read notification_channel from config/defaults.yml"
+case $shipped in
+  none | tmux-popup | os-notify | editor-toast) ;;
+  *) fail "config/defaults.yml notification_channel '$shipped' is not a legal resolver enum value" ;;
+esac
+[ "$shipped" = "$SAFE_DEFAULT" ] \
+  || fail "config/defaults.yml default '$shipped' drifted from the resolver SAFE_DEFAULT '$SAFE_DEFAULT'"
+echo "ok: the shipped config default is a legal enum value and matches the resolver's safe default"
 
 echo "PASS: resolve-notification-channel.sh"

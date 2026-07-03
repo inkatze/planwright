@@ -75,6 +75,17 @@ if [ "$#" -ne 0 ]; then
 fi
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+
+# The canonical echo-discipline sanitizer (doctrine/security-posture.md): a
+# config-derived value reaching a diagnostic is untrusted (config-get strips a
+# trailing comment/quote/whitespace but NOT C0/DEL), so a hostile value like
+# `notification_channel: "<ESC>]0;pwned<BEL>"` — which fails the enum and lands
+# in a malformed-value diagnostic below — must be stripped before it reaches the
+# operator's terminal. Sourced as the sibling scripts do; a missing helper is a
+# broken install.
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
+
 config_get="$script_dir/config-get.sh"
 if [ ! -x "$config_get" ]; then
   echo "resolve-notification-channel: config reader '$config_get' is missing or not executable" >&2
@@ -116,7 +127,7 @@ fi
 if [ "$rc" -eq 3 ]; then
   # notification_channel is absent in every layer. The tracked defaults ship it,
   # so this means a broken/partial install; degrade gracefully to the safe
-  # default so the seam still resolves (REQ-K1.6), warning loudly.
+  # default so the seam still resolves (REQ-K1.7), warning loudly.
   echo "resolve-notification-channel: warning: notification_channel is unset in every layer (broken/partial install?); falling back to the safe default '$DEFAULT_CHANNEL'" >&2
   printf '%s\n' "$DEFAULT_CHANNEL"
   exit 0
@@ -139,11 +150,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-notification-channel: repo-tracked overlay sets notification_channel to a malformed value ('$value' is not one of none/tmux-popup/os-notify/editor-toast); refusing to silently degrade a shared team value" >&2
+    echo "resolve-notification-channel: repo-tracked overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-notification-channel: warning: the $layer overlay sets notification_channel to a malformed value ('$value' is not one of none/tmux-popup/os-notify/editor-toast); degrading to the core default" >&2
+    echo "resolve-notification-channel: warning: the $layer overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
     # the three overlay roots. mktemp gives an empty repo root (no
@@ -178,11 +189,11 @@ case "$layer" in
       emit_trimmed "$core_value"
       exit 0
     fi
-    echo "resolve-notification-channel: the core default notification_channel ('$core_value') is itself malformed — broken install" >&2
+    echo "resolve-notification-channel: the core default notification_channel ('$(sanitize_printable "$core_value" "(unprintable value)")') is itself malformed — broken install" >&2
     exit 5
     ;;
   core)
-    echo "resolve-notification-channel: the core default notification_channel ('$value') is malformed — broken install" >&2
+    echo "resolve-notification-channel: the core default notification_channel ('$(sanitize_printable "$value" "(unprintable value)")') is malformed — broken install" >&2
     exit 5
     ;;
   *)
