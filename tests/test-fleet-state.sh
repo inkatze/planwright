@@ -176,10 +176,13 @@ mkdir -p "$okdir"
 i=0
 while [ "$i" -lt "$N" ]; do
   (
-    if env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+    # Capture the granted increment's stdout (the new count) into the marker,
+    # so the race also proves each grant PRINTS its unique new-count — not just
+    # that it exited 0 and the counter file landed right.
+    if out=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
       PLANWRIGHT_FLEET_STATE_DIR="$home_bound" \
-      /bin/sh "$FS" bound-incr "$MAX" >/dev/null 2>&1; then
-      : >"$okdir/$i"
+      /bin/sh "$FS" bound-incr "$MAX" 2>/dev/null); then
+      printf '%s\n' "$out" >"$okdir/$i"
     fi
   ) &
   i=$((i + 1))
@@ -189,6 +192,19 @@ granted=$(find "$okdir" -type f | wc -l | tr -d ' ')
 [ "$granted" = "$MAX" ] || fail "bound race: $granted grants, expected exactly $MAX (over/under-count)"
 counter=$(cat "$home_bound/concurrency")
 [ "$counter" = "$MAX" ] || fail "bound race: counter landed on $counter, expected $MAX"
+# The MAX grants printed exactly the counts 1..MAX on stdout (the documented
+# contract Task 6 consumes). A regression that stopped printing, printed the
+# old value, or printed an empty line would break this even though the exit
+# codes and the counter file stayed correct.
+grants_printed=$(cat "$okdir"/* | sort -n | tr '\n' ' ')
+expected_printed=""
+c=1
+while [ "$c" -le "$MAX" ]; do
+  expected_printed="$expected_printed$c "
+  c=$((c + 1))
+done
+[ "$grants_printed" = "$expected_printed" ] \
+  || fail "bound race: grants printed '$grants_printed', expected '$expected_printed'"
 echo "ok: the fleet-bound check-and-increment never over-counts under contention"
 
 # bound-decr releases a slot and floors at zero.
@@ -196,7 +212,10 @@ fenv() {
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
     PLANWRIGHT_FLEET_STATE_DIR="$home_bound" /bin/sh "$FS" "$@"
 }
-fenv bound-decr >/dev/null || fail "bound-decr: non-zero exit"
+# bound-decr prints the new count on stdout (the documented contract Task 6
+# consumes); assert the printed value, not only the counter file.
+decr_out=$(fenv bound-decr) || fail "bound-decr: non-zero exit"
+[ "$decr_out" = "$((MAX - 1))" ] || fail "bound-decr printed '$decr_out', expected $((MAX - 1))"
 [ "$(cat "$home_bound/concurrency")" = "$((MAX - 1))" ] || fail "bound-decr did not decrement"
 c=$MAX
 while [ "$c" -gt 0 ]; do
@@ -204,7 +223,10 @@ while [ "$c" -gt 0 ]; do
   c=$((c - 1))
 done
 [ "$(cat "$home_bound/concurrency")" = "0" ] || fail "bound-decr floored below zero"
-echo "ok: bound-decr releases a slot and floors at zero"
+# The floored decr also prints 0 on stdout, not an empty string.
+floor_out=$(fenv bound-decr) || fail "bound-decr: floor exit"
+[ "$floor_out" = "0" ] || fail "bound-decr at floor printed '$floor_out', expected 0"
+echo "ok: bound-decr releases a slot, prints the new count, and floors at zero"
 
 # ---------------------------------------------------------------------------
 # 10. The advisory-lock primitive: exclusive acquire, busy no-op, idempotent
