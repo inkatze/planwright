@@ -381,16 +381,28 @@ policy, and prints the validated ordered names, one per line. By exit code:
   condition** — halt and hand off.
 
 **Run each named skill in order, with `--nested`.** For each name the resolver
-printed, invoke `/<name> --nested`. Each review skill runs in a real session
-(REQ-E2.2, D-13) — not an in-harness subagent — so hooks fire once per actual
-tool call; it drains every action disposition per act-then-review and returns
-its audit record without pushing or creating a PR (that is this skill's job,
-which is why `--nested` is mandatory for every review-sequence skill). Whether
-that session is **the same** one the implementation ran in (`per-unit`) or a
-**fresh `/resume`-seeded** one per skill (`per-step`) is the `dispatch_isolation`
-mode resolved in pre-flight step 10 (the *Step isolation* subsection): the
-sequence and the `--nested` contract are identical either way; only the hosting
-differs. After each returns:
+printed, invoke `/<name> --nested`. Every review skill runs `--nested` in both
+isolation modes — it drains every action disposition per act-then-review and
+returns its audit record without pushing or creating a PR (that is this skill's
+job, which is why `--nested` is mandatory for every review-sequence skill). The
+`dispatch_isolation` mode resolved in pre-flight step 10 (the *Step isolation*
+subsection) sets only where that `--nested` call is **hosted**, not the sequence
+or the contract:
+
+- **`per-unit`:** the review skill is invoked by **in-session composition**
+  (REQ-E2.2, D-13) — the same session the implementation ran in, one context,
+  hooks fire once per actual tool call.
+- **`per-step`:** the review skill runs in its **own fresh `/resume`-seeded
+  session** per step (the assigned-decision default), a session distinct from
+  the implementation's and from the other review steps. REQ-E2.2's "one session,
+  one context" holds *within* that fresh session (the review skill and its own
+  sub-composition are one session, hooks fire once per tool call); the isolation
+  is that the session is re-seeded per step, so context stays bounded and each
+  review's perspective is uncontaminated by prior steps. It is dispatched, not
+  composed into the implementation's session — but the `--nested` contract is
+  unchanged, so it still never pushes or opens a PR.
+
+After each returns:
 
 - **Normal exit** (converged, or handed off with queued forks): continue to the
   next skill in the sequence; once the whole sequence has run, proceed to PR
