@@ -344,4 +344,62 @@ got=$("$MSEL" "$falpha" 2>/dev/null) || rc=$?
   || fail "case 11b: per-spec cap 0 must skip the spec (got '$got', rc $rc)"
 echo "ok: a bound of 0 pauses the fleet (fleet-wide) or the spec (per-spec)"
 
+# ---------------------------------------------------------------------------
+# 12. Multi-checkout fail-closed. A fleet supervises specs in ONE checkout: the
+#     config overlay is read once from the shared repo root and the bounds are
+#     only meaningful against a single derivation base. A spec passed from a
+#     DIFFERENT git work tree must fail closed (exit 2) rather than silently
+#     resolving bounds from the first repo's overlay while deriving state against
+#     another. Two separate repos, each with a ready spec; without the check the
+#     selector would happily emit the first spec's unit (rc 0), so the assertion
+#     genuinely exercises the same-checkout guard.
+# ---------------------------------------------------------------------------
+repoG=$(new_fleet "$tmp/G")
+galpha=$(add_spec "$repoG" speca)
+two_task_body >"$galpha/tasks.md"
+seal_base "$repoG"
+done_trailer "$repoG" speca 1
+repoH=$(new_fleet "$tmp/H")
+hbeta=$(add_spec "$repoH" specb)
+two_task_body >"$hbeta/tasks.md"
+seal_base "$repoH"
+done_trailer "$repoH" specb 1
+set_bounds "$repoG" 5 3
+rc=0
+"$MSEL" "$galpha" "$hbeta" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] \
+  || fail "case 12: specs from different checkouts must fail closed (exit $rc, expected 2)"
+echo "ok: specs spanning different checkouts fail closed with exit 2"
+
+# ---------------------------------------------------------------------------
+# 13. A malformed repo-tracked (team-shared) overlay must SURFACE config-get's
+#     hard-fail diagnostic (exit 4) on stderr rather than being silently degraded
+#     to the fallback bound: read_bound does not suppress config-get's stderr
+#     (matching scripts/orchestrate-lock.sh / scripts/fleet-state.sh), so an
+#     operator sees the broken shared config; the selector still dispatches via
+#     the safe fallback default (degrade-but-surface, like the sibling threshold
+#     reads). speca has a ready task 2 and zero in-flight. PLANWRIGHT_REPO_ROOT
+#     pins the repo so config-get resolves the repo-tracked layer to the fixture.
+#     A suppressed (2>/dev/null) read_bound would swallow the diagnostic and this
+#     grep would fail, so the assertion discriminates the fix.
+# ---------------------------------------------------------------------------
+repoI=$(new_fleet "$tmp/I")
+ialpha=$(add_spec "$repoI" speca)
+two_task_body >"$ialpha/tasks.md"
+seal_base "$repoI"
+done_trailer "$repoI" speca 1
+mkdir -p "$repoI/.claude"
+# An indented (nested) line is malformed for the flat `key: value` reader → the
+# repo-tracked layer hard-fails with config-get exit 4.
+printf 'fleet_max_parallel_units:\n  nested: bad\n' >"$repoI/.claude/planwright.yml"
+rc=0
+got=$(PLANWRIGHT_REPO_ROOT="$repoI" "$MSEL" "$ialpha" 2>"$tmp/i13.err") || rc=$?
+[ "$rc" = 0 ] \
+  || fail "case 13: malformed repo-tracked overlay must still dispatch via fallback (rc $rc)"
+[ "$got" = "$ialpha${tab}2" ] \
+  || fail "case 13: malformed repo-tracked overlay must dispatch the ready unit via fallback (got '$got')"
+grep -q "repo-tracked overlay.*malformed" "$tmp/i13.err" \
+  || fail "case 13: malformed repo-tracked overlay must surface config-get's diagnostic on stderr"
+echo "ok: a malformed repo-tracked overlay surfaces the hard-fail diagnostic (not silently degraded)"
+
 echo "PASS: orchestrate-meta-select"

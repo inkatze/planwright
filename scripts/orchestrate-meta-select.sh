@@ -82,9 +82,13 @@ fi
 # Validate every supervised spec dir up front (fail closed before any selection):
 # the basename becomes the spec id used downstream in branch names and trailers,
 # so it must satisfy the anchored identifier grammar (REQ-A1.8) — a hostile id is
-# rejected before it reaches any path or git op. Derive the shared repo root from
-# the first spec for the config-overlay read (a fleet supervises specs in one
-# checkout).
+# rejected before it reaches any path or git op. A fleet supervises specs in ONE
+# checkout: the config overlay (below) is read once from the shared repo root and
+# the bounds are only meaningful against a single derivation base, so every spec
+# must be inside a git work tree AND share the first spec's toplevel. A spec in no
+# git work tree, or in a different checkout, is a caller error and fails closed
+# (exit 2) rather than silently resolving bounds from one repo while deriving
+# state against another.
 repo_root=""
 for spec_dir in "$@"; do
   spec_id=$(basename "$spec_dir")
@@ -102,21 +106,36 @@ for spec_dir in "$@"; do
     echo "orchestrate-meta-select: missing or unreadable $spec_dir/tasks.md" >&2
     exit 2
   fi
+  spec_top=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || spec_top=""
+  if [ -z "$spec_top" ]; then
+    echo "orchestrate-meta-select: spec '$spec_dir' is not inside a git work tree" >&2
+    exit 2
+  fi
   if [ -z "$repo_root" ]; then
-    repo_root=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || repo_root=""
+    repo_root="$spec_top"
+  elif [ "$spec_top" != "$repo_root" ]; then
+    echo "orchestrate-meta-select: spec '$spec_dir' is in a different checkout ('$spec_top') than the fleet root ('$repo_root'); a fleet supervises specs in one checkout" >&2
+    exit 2
   fi
 done
 
 # read_bound <key> <fallback> — resolve a concurrency bound through the config
-# overlay (defaults + the four layers), with a documented safe fallback. Mirrors
-# orchestrate-state.sh's threshold read: an absent key keeps the default, a
-# malformed value (non-numeric or a leading-zero form that arithmetic would treat
-# as octal) warns and falls back. A bound of 0 is honored (a paused fleet/spec).
+# overlay (defaults + the four layers), with a documented safe fallback. An
+# absent key keeps the default; a malformed VALUE (non-numeric, or a leading-zero
+# form that arithmetic would treat as octal) warns and falls back; a bound of 0
+# is honored (a paused fleet/spec). config-get's own stderr is intentionally NOT
+# suppressed (matching scripts/orchestrate-lock.sh and scripts/fleet-state.sh, the
+# fleet's own sibling primitives): config-get is silent on a found/absent key, so
+# the common paths stay quiet, but a hard-fail on a malformed repo-tracked
+# (team-shared) overlay — config-get exit 4, which it raises "loudly regardless of
+# the queried key" — reaches the operator instead of being silently degraded to
+# the fallback. We still fall back to the safe default on that exit so one broken
+# shared config never wedges the fleet, matching the sibling threshold reads.
 read_bound() {
   rb_key=$1
   rb_fallback=$2
   rb_v=$(PLANWRIGHT_LOCAL_CONFIG="$repo_root/.claude/planwright.local.yml" \
-    "$config_get" "$rb_key" 2>/dev/null) || rb_v=""
+    "$config_get" "$rb_key") || rb_v=""
   case "$rb_v" in
     '')
       printf '%s' "$rb_fallback"
