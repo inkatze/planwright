@@ -197,7 +197,7 @@ case "$layer" in
     exit 5
     ;;
   *)
-    echo "resolve-notification-channel: config-get named an unrecognized layer '$layer'" >&2
+    echo "resolve-notification-channel: config-get named an unrecognized layer '$(sanitize_printable "$layer" "(unprintable layer)")'" >&2
     exit 5
     ;;
 esac
