@@ -260,4 +260,30 @@ rc=0
 [ "$rc" = 2 ] || fail "usage: select-unattended with no arg returned $rc, expected 2"
 echo "ok: usage errors and an unknown subcommand fail closed (exit 2)"
 
+# ---------------------------------------------------------------------------
+# 14. detect: rows are emitted richest rung first — the documented ordering
+#     contract (tmux → advertised pluggables → subagent → in-session → print).
+#     Presence tests above never pin the relative order, so a reordering of the
+#     emit_row sequence would pass unnoticed; this asserts it directly.
+# ---------------------------------------------------------------------------
+make_adapter ordp false true true false true yes
+order=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=1 "$BACKENDS" detect ordp \
+  | awk -F"$TAB" '{printf "%s ", $1}')
+[ "$order" = "tmux ordp subagent in-session print " ] \
+  || fail "detect: rows must be emitted richest rung first, got '$order'"
+echo "ok: detect emits rows richest rung first"
+
+# ---------------------------------------------------------------------------
+# 15. select-unattended: a configured PLUGGABLE with no adapter (absent, not
+#     malformed) degrades down the ladder to subagent with a NOTE, the same
+#     fail-safe path a missing shipped backend takes (case 8) — the pluggable
+#     branch of that path was only covered indirectly before.
+# ---------------------------------------------------------------------------
+sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended ghost 2>"$err") \
+  || fail "select-unattended(absent pluggable) non-zero"
+[ "$sel" = subagent ] \
+  || fail "select-unattended: an absent configured pluggable should degrade to subagent, got '$sel'"
+grep -q NOTE "$err" || fail "select-unattended: an absent-pluggable degrade must emit a NOTE"
+echo "ok: select-unattended degrades an absent configured pluggable down the ladder"
+
 echo "PASS: test-orchestrate-backends.sh"
