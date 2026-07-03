@@ -540,10 +540,13 @@ cmd_failover() {
     return 3
   fi
 
+  # Name the ACTUAL record location (record_path honors PLANWRIGHT_ORCH_STATE_DIR),
+  # not a hardcoded `.orchestrate/` the record may not live in under that override.
+  fo_rec=$(record_path "$fo_spec")
   echo "NOTE: runtime failover — backend '$fo_current' (rung $fo_cur_rung) unavailable; descended one rung to '$fo_best_backend' (rung $fo_best_n). Effective backend recorded spec-locally." >&2
   # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
-  printf -- '- **Backend failover (%s):** `%s` (rung %s) died mid-run; descended one rung to `%s` (rung %s). Effective backend recorded spec-locally in `.orchestrate/`; all guards held. Review before resuming.\n' \
-    "$today" "$fo_current" "$fo_cur_rung" "$fo_best_backend" "$fo_best_n"
+  printf -- '- **Backend failover (%s):** `%s` (rung %s) died mid-run; descended one rung to `%s` (rung %s). Effective backend recorded spec-locally in `%s`; all guards held. Review before resuming.\n' \
+    "$today" "$fo_current" "$fo_cur_rung" "$fo_best_backend" "$fo_best_n" "$fo_rec"
   return 0
 }
 

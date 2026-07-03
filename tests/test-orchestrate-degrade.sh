@@ -261,6 +261,20 @@ grep -qi "descend" "$tmp/err" || fail "failover emitted no descent NOTE on stder
 [ "$(cat "$sd/tasks.md")" = "$tasks_before" ] || fail "failover MUTATED tasks.md (REQ-B1.6 violation)"
 [ "$("$DEGRADE" read "$sd")" = subagent ] || fail "failover recorded the wrong backend"
 
+# The failover stdout entry names the ACTUAL record location, not a hardcoded
+# `.orchestrate/`: under PLANWRIGHT_ORCH_STATE_DIR the record relocates beside the
+# markers-dir parent (record_path), so the operator-facing note must reflect
+# where the record was really written — a bare `.orchestrate/` claim is inaccurate
+# there.
+sd=$(new_spec_dir)
+mkdir -p "$sd/mk"
+out=$(PLANWRIGHT_ORCH_STATE_DIR="$sd/mk" "$DEGRADE" failover "$sd" tmux subagent in-session 2>/dev/null) \
+  || fail "failover with a relocated state dir exited nonzero"
+[ -f "$sd/effective-backend" ] \
+  || fail "relocated failover did not write the record beside the markers-dir parent"
+echo "$out" | grep -Fq "$sd/effective-backend" \
+  || fail "failover stdout entry does not name the actual record location under PLANWRIGHT_ORCH_STATE_DIR"
+
 # subagent (rung 3) dies; only in-session below → descend to the terminal rung.
 sd=$(new_spec_dir)
 "$DEGRADE" failover "$sd" subagent subagent in-session >/dev/null 2>&1 \
