@@ -189,6 +189,32 @@ out=$(run 2>/dev/null) || rc=$?
 [ "$out" = per-step ] || fail "malformed adopter file: did not degrade to core (got '$out')"
 echo "ok: a malformed adopter config file degrades to the core default"
 
+# 7b. Malformed overlay value AND the core omits the key: the degrade re-resolve
+#     finds no core default (config-get exit 3), so it falls back to the safe
+#     default `per-step` with a second warning, exit 0. Covers the partial-install
+#     branch this resolver adds over resolve-review-sequence.sh (which treats a
+#     non-zero re-resolve as a broken install); without it /execute-task would
+#     halt on a corner that is recoverable.
+reset_layers
+core_omit="$tmp/core-omit.yml"
+printf 'max_parallel_units: 3\n' >"$core_omit"            # a core file that omits dispatch_isolation
+printf 'dispatch_isolation: per-monkey\n' >"$adopter_cfg" # malformed winning value
+rc=0
+out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RDI" 2>/dev/null) || rc=$?
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RDI" 2>&1 >/dev/null) || true
+[ "$rc" = 0 ] || fail "malformed overlay + core omits key: exit $rc, expected 0 (degrade)"
+[ "$out" = per-step ] \
+  || fail "malformed overlay + core omits key: did not fall back to per-step (got '$out')"
+case $err in
+  *"core default dispatch_isolation is also unset"*) ;;
+  *) fail "malformed overlay + core omits key: warning does not flag the absent core default (got: '$err')" ;;
+esac
+echo "ok: a malformed overlay with the key absent from core falls back to the safe default per-step"
+
 # 8. Determinism: identical inputs yield identical output across repeated runs.
 reset_layers
 printf 'dispatch_isolation: per-unit\n' >"$tracked_cfg"
