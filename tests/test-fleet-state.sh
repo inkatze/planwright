@@ -269,4 +269,23 @@ fenv bound-incr "notanumber" >/dev/null 2>&1 || rc=$?
 [ "$rc" != "0" ] || fail "bound-incr accepted a non-numeric bound"
 echo "ok: bound-incr rejects a malformed bound"
 
+# ---------------------------------------------------------------------------
+# 12. Stale-break liveness: a lock left behind by a CRASHED holder (a stale
+#     lock older than the threshold) must not deadlock the fleet forever — a new
+#     acquirer breaks it and proceeds. (This is the recoverable, single-acquirer
+#     property. The concurrent-multi-breaker mutual-exclusion corner of the
+#     mkdir stale-break — shared with the sibling orchestrate-lock.sh — is a
+#     documented known limitation queued for a lock-discipline follow-up, not
+#     asserted here.)
+# ---------------------------------------------------------------------------
+home_stale="$tmp/stale-home"
+mkdir -p "$home_stale"
+mkdir "$home_stale/.fleet.lock"
+touch -t 202001010000 "$home_stale/.fleet.lock" # crashed holder, >15m stale
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_stale" /bin/sh "$FS" bound-incr 3 >/dev/null \
+  || fail "stale lock deadlocked a new acquirer (no break/recovery)"
+[ "$(cat "$home_stale/concurrency")" = "1" ] || fail "stale-break recovery did not complete the increment"
+echo "ok: a crashed holder's stale lock is broken, not a permanent deadlock"
+
 echo "ALL PASS: fleet-state.sh"

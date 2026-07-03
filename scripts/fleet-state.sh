@@ -1,7 +1,7 @@
 #!/bin/sh
 # fleet-state.sh — the CROSS-SPEC fleet-coordination-state home, its worker/
 # scope registry store, and the named concurrency-control primitive the fleet
-# consumes (orchestration-fleet Task 9; D-11, REQ-D1.6, REQ-A1.6, REQ-A1.6).
+# consumes (orchestration-fleet Task 9; D-11, REQ-D1.6, REQ-A1.6).
 #
 # WHERE (D-11). Fleet coordination state spans specs — the worker/scope
 # registry the attention surface reads (Task 12), the fleet-level concurrency
@@ -219,6 +219,21 @@ try_acquire() {
   fi
   ta_min=$(fleet_stale_min)
   if [ -n "$(find "$ta_lock" -maxdepth 0 -mmin +"$ta_min" 2>/dev/null)" ]; then
+    # Break a stale lock (a holder that crashed >stale_lock_threshold ago and
+    # never released) and re-acquire, byte-for-byte as the sibling
+    # orchestrate-lock.sh does. KNOWN LIMITATION (shared with that sibling; see
+    # the observation logged for orchestration-fleet Task 9): this
+    # check-then-remove is not atomic, so if ≥2 towers race the break of the
+    # SAME genuinely-stale lock at the same instant, one can remove/replace the
+    # other's freshly-created lock and both mkdir-succeed — two holders on the
+    # crash-recovery path only. Closing it correctly needs a different lock
+    # discipline (owner token + ownership re-verified across the critical
+    # section) applied to the whole planwright lock family, which is a design
+    # decision left to a follow-up rather than a unilateral divergence here. The
+    # NORMAL contention path (no stale lock) is fully serialized and is what the
+    # register/bound-incr guarantees rely on; the crash-recovery window requires
+    # a SIGKILL at the microsecond a tower holds this ms-long lock plus a
+    # simultaneous multi-tower break, so the residual is narrow.
     rm -rf "$ta_lock"
     if mkdir "$ta_lock" 2>/dev/null; then
       return 0
