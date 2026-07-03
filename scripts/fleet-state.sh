@@ -180,10 +180,15 @@ resolve_root() {
 # on staleness — one even disabling crash recovery under a pathological repo-local
 # override. The CWD-independent layers still apply: the tracked default, the
 # per-operator adopter layer, and an EXPLICIT PLANWRIGHT_LOCAL_CONFIG override (a
-# deliberate, non-cwd-derived knob). An absent key or broken read falls back to 15m.
+# deliberate, non-cwd-derived knob). An absent key or broken read falls back to
+# 15m. config-get's stderr is intentionally NOT suppressed (matching the sibling
+# orchestrate-lock.sh): it is silent on a found/absent key, and the one thing it
+# emits — the broken-install diagnostic when the tracked defaults are missing or
+# unreadable — must surface for the operator, not be swallowed into a silent 15m
+# fallback. stderr does not affect the numeric stdout capture below.
 fleet_stale_min() {
   fsm_v=15
-  fsm_read=$(PLANWRIGHT_REPO_ROOT="$root" "$script_dir/config-get.sh" stale_lock_threshold 2>/dev/null) || fsm_read=""
+  fsm_read=$(PLANWRIGHT_REPO_ROOT="$root" "$script_dir/config-get.sh" stale_lock_threshold) || fsm_read=""
   fsm_read=${fsm_read%m}
   case $fsm_read in
     "") ;;
