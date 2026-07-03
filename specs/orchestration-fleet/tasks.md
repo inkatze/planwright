@@ -309,7 +309,7 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
 - **Estimated effort:** 2 days
-- **Status:** implementing
+- **Status:** PR #115 draft
 - **Last activity:** 2026-07-02
 
 ## Awaiting input
