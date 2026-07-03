@@ -58,6 +58,10 @@ definitions govern wherever this skill names a concept:
   buckets `/execute-task` → `/polish` apply downstream.
 - `proportionality` — bundling, dispatch ceremony, and reconcile caution scale
   with stake and reversibility; scoping is declared, never silent.
+- `context-budget-autoheal` — the long-running (`--watch`) tower's context-budget
+  monitor and the disposable-tower auto-heal handover (`continue-as-new`): the
+  completed-step-count proxy signal, the `context_budget_threshold` knob, and the
+  rebuild-from-disk handover the `--watch` loop performs when it nears its budget.
 
 On a **dispatch path** (a step that selects and dispatches a unit), a missing
 core doc fails closed (REQ-K1.7, the K1.7 amendment): orchestrating against a
@@ -320,6 +324,25 @@ under tmux.
 Each iteration is independent and atomic; the loop holds no state between
 iterations beyond what is on disk. A halt in any iteration ends the loop and
 surfaces the reason.
+
+**Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
+REQ-C1.4).** A `--watch` tower is the one long-running session in the fleet, so it
+is the one that can fill its context window and degrade silently. Each iteration,
+before selecting new work, evaluate the budget: run
+`scripts/context-budget-monitor.sh <steps-completed>` with the count of iterations
+this loop has run (an ephemeral, in-session tally — losing it on a crash is safe,
+since a restarted tower simply recounts from zero against the same conservative
+bound). On `ok` or `disabled`, proceed. On `near-limit`, perform the handover per
+`context-budget-autoheal`: **start a fresh tower** seeded with this tower's
+standing-instructions / wake prompt (the handover document — no second artifact),
+**confirm it is alive before retiring** (never leave a zero-tower gap — on a failed
+launch, record `## Awaiting input` and stay up), then **stop.** The fresh tower
+rebuilds the whole picture from durable state via its first reconcile sweep; it
+passes no in-memory state and inherits every invariant below (never-auto-merge
+first). The step count is a proxy, not a token measurement: Claude Code exposes no
+supported live context-usage signal, so the count stands in for one (see the
+doctrine doc). Auto-heal is inert for a single-step run and when
+`context_budget_threshold` is `off`.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 

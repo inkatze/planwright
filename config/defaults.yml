@@ -45,6 +45,22 @@ max_parallel_units: 3
 # D-38 amendment — risk row R3.)
 dispatch_isolation: per-step
 
+# When a long-running tower auto-heals (D-4, REQ-C1.1). The value is a
+# completed-step budget: the number of orchestration steps a tower runs before
+# it hands off to a fresh tower (the continue-as-new pattern) so it never
+# silently degrades from context exhaustion. The signal is a step-count proxy
+# because Claude Code exposes no supported live context-usage introspection
+# (Task 5 research): the transcript is internal/unstable and there is no env
+# var, hook field, or CLI query for remaining budget. `off` disables auto-heal
+# (the historical single-tower behavior). The default is conservative because
+# the handover is cheap and lossless — the fresh tower rebuilds from durable
+# state — so handing off early is the safe direction. Resolved through
+# scripts/resolve-context-budget-threshold.sh, which validates the value (a
+# positive integer or `off`) and applies the REQ-E1.4 by-layer malformed policy;
+# scripts/context-budget-monitor.sh evaluates a step count against it. Adopters
+# on roomier hosts can raise it; constrained hosts lower it.
+context_budget_threshold: 50
+
 # Per-spec advisory lock staleness threshold for /orchestrate (D-10).
 stale_lock_threshold: 15m
 
