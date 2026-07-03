@@ -20,6 +20,13 @@
 # Hermetic: every case sets the resolution env explicitly (no ambient HOME /
 # CLAUDE_DIR / CLAUDE_PLUGIN_* leak), so the suite is reproducible on a
 # developer box and on CI alike. Runs standalone under /bin/bash (bash 3.2).
+# One caveat: the stale-break case (12) exercises the real config-get.sh to
+# read stale_lock_threshold, so it assumes the ambient config resolves to a
+# threshold shorter than the back-dated lock's age — true for the tracked
+# default (15m) and any realistic override. It is NOT pinned against a
+# pathological ambient override (e.g. stale_lock_threshold: 99999999m); the
+# sibling test-orchestrate-lock.sh, which controls that value via a temp-repo
+# planwright.local.yml, is the reference if this ever needs full pinning.
 set -eu
 LC_ALL=C
 export LC_ALL
