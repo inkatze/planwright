@@ -402,4 +402,39 @@ grep -q "repo-tracked overlay.*malformed" "$tmp/i13.err" \
   || fail "case 13: malformed repo-tracked overlay must surface config-get's diagnostic on stderr"
 echo "ok: a malformed repo-tracked overlay surfaces the hard-fail diagnostic (not silently degraded)"
 
+# ---------------------------------------------------------------------------
+# 14. Config resolution is pinned to the validated fleet root, NOT the caller's
+#     CWD. config-get resolves the repo-tracked/adopter overlay layers from
+#     PLANWRIGHT_REPO_ROOT when set, else the CWD's git toplevel; read_bound pins
+#     it to repo_root so the bound is read from the fleet the specs live in even
+#     when the selector is invoked from a different checkout. Fixture: repoJ holds
+#     a ready spec AND a repo-tracked overlay pausing the fleet (bound 0, no
+#     machine-local overlay so repo-tracked is the deciding layer over core's
+#     default 3). Invoked from inside a DIFFERENT git repo (repoK, no overlay).
+#     With the pin, repoJ's overlay is read → fleet paused → exit 1 empty. Without
+#     it, config-get would resolve repo-tracked from repoK (absent) → core default
+#     3 → the ready unit would dispatch (rc 0), so the assertion discriminates the
+#     CWD-independence fix. PLANWRIGHT_REPO_ROOT is unset in the environment so the
+#     ONLY thing pinning it is read_bound.
+# ---------------------------------------------------------------------------
+repoJ=$(new_fleet "$tmp/J")
+jalpha=$(add_spec "$repoJ" speca)
+two_task_body >"$jalpha/tasks.md"
+seal_base "$repoJ"
+done_trailer "$repoJ" speca 1
+mkdir -p "$repoJ/.claude"
+# Repo-tracked (team-shared) overlay, NOT machine-local: pauses the fleet.
+printf 'fleet_max_parallel_units: 0\n' >"$repoJ/.claude/planwright.yml"
+# A different checkout to run FROM (carries no overlay). `git rev-parse
+# --show-toplevel` resolves on a freshly-init'd repo, so it needs no commit.
+repoK=$(new_fleet "$tmp/K")
+rc=0
+got=$(
+  unset PLANWRIGHT_REPO_ROOT
+  cd "$repoK" && "$MSEL" "$jalpha" 2>/dev/null
+) || rc=$?
+{ [ "$rc" = 1 ] && [ -z "$got" ]; } \
+  || fail "case 14: repo-tracked bound must resolve from the fleet root, not CWD (got '$got', rc $rc)"
+echo "ok: config resolution is pinned to the fleet root, independent of the caller's CWD"
+
 echo "PASS: orchestrate-meta-select"

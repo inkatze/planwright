@@ -131,10 +131,21 @@ done
 # the queried key" — reaches the operator instead of being silently degraded to
 # the fallback. We still fall back to the safe default on that exit so one broken
 # shared config never wedges the fleet, matching the sibling threshold reads.
+#
+# PLANWRIGHT_REPO_ROOT is pinned to the validated fleet root so config resolution
+# is independent of the caller's CWD (matching scripts/fleet-state.sh, which pins
+# it for the same cross-spec reason). Without the pin, config-get resolves the
+# repo-tracked and adopter overlay layers from the CWD's git toplevel
+# (resolve-overlay-root.sh), so invoking this selector from a different repo — or
+# outside any repo — would read the wrong repo-tracked overlay and could apply an
+# incorrect bound for the fleet the specs actually live in. PLANWRIGHT_LOCAL_CONFIG
+# pins the machine-local layer to the same root (it already did); the two together
+# tie every overlay layer to repo_root.
 read_bound() {
   rb_key=$1
   rb_fallback=$2
-  rb_v=$(PLANWRIGHT_LOCAL_CONFIG="$repo_root/.claude/planwright.local.yml" \
+  rb_v=$(PLANWRIGHT_REPO_ROOT="$repo_root" \
+    PLANWRIGHT_LOCAL_CONFIG="$repo_root/.claude/planwright.local.yml" \
     "$config_get" "$rb_key") || rb_v=""
   case "$rb_v" in
     '')
