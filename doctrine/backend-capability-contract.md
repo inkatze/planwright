@@ -176,3 +176,19 @@ advertised set, and adapts as above. planwright stays declarative — a backend 
 a small adapter that answers the contract, not an arbitrary-code extension host —
 so the capability set, not a hardcoded enum, is what a new substrate must
 satisfy.
+
+A backend adapter is an executable named `planwright-backend-<name>` on `PATH`
+that answers `advertise` by printing its capability set as one
+whitespace-separated line of **six fields**, in contract order:
+
+```text
+interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade
+```
+
+The first five are the advertised booleans (each `true`, `false`, or `na` for a
+structurally-inapplicable capability); the sixth carries session-grade (`yes`,
+`no`, or `deferred`). A pluggable backend advertises session-grade in this line
+because — unlike the four shipped backends — it has no row in the table above for
+planwright to read it from. `/orchestrate` reports an adapter absent (the
+fail-safe: a backend whose capabilities are unknown is never selected) when
+`advertise` is missing or its output is not a well-formed six-field set.

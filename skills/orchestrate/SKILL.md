@@ -272,14 +272,40 @@ stale forwarded agent socket once broke commit signing across every worker.
 
 ## Dispatch (REQ-F1.8, D-38)
 
-Dispatch the unit's `/execute-task <ids>` into its worktree via the configured
-backend (`scripts/config-get.sh dispatch_backend`, overridable with
-`--backend`). Each backend advertises a capability set; the
+Dispatch the unit's `/execute-task <ids>` into its worktree via the selected
+backend (see **Backend selection** below). Each backend advertises a capability
+set; the
 [backend capability contract](../../doctrine/backend-capability-contract.md)
 (D-2) defines how the tower is to adapt to what is advertised rather than to the
 backend's name (the per-backend guidance below is the current, still name-keyed
 dispatch, pending that wiring). See it for the capabilities, the advertised set,
 and the backends below mapped to it.
+
+**Backend selection** (REQ-B1.4, D-3). Never silently pick a backend. Resolve
+which one to use in this order:
+
+- **Explicit `--backend <b>`** — use it as given; an explicit operator flag is a
+  chosen backend, not a silent pick.
+- **Attended, no flag** — run `scripts/orchestrate-backends.sh detect` to
+  autodetect the backends actually present on this host and their advertised
+  capability sets (`tmux` is present iff installed; `subagent` is present by
+  default but a host or test can force it off via `PLANWRIGHT_BACKEND_SUBAGENT`;
+  `in-session` and `print` are always present; a configured pluggable backend appears when
+  its `planwright-backend-<name>` adapter advertises). To surface a pluggable
+  backend in the presented set, pass its `planwright-backend-<name>` name as a
+  trailing argument to `detect`. (`dispatch_backend` itself is one of the four
+  shipped backends — configuring it to a pluggable name is deferred until
+  pluggable dispatch lands, per the options reference — so there is no pluggable
+  `dispatch_backend` value to forward here today.) **Present** that set and
+  **ask** the operator which to use — never auto-select (REQ-B1.4).
+- **Unattended (`--unattended` / headless)** — there is no one to ask, so run
+  `scripts/orchestrate-backends.sh select-unattended "$(scripts/config-get.sh
+  dispatch_backend)"` and use the backend it prints. It picks the configured
+  backend when present and autonomously selectable, else **degrades** down the
+  ladder (to `subagent`, then the always-present `in-session` terminal rung),
+  **never** to an interactive backend and never to the manual `print` rung. A
+  degrade is a designed selection-time behavior — it emits a `NOTE:` on stderr;
+  log it — not a halt (runtime failover into `## Awaiting input` is Task 3).
 Concurrency is capped by `max_parallel_units` (default 3, via
 config-get): if that many units already derive **In progress** for this spec —
 counted from the live derivation (`scripts/orchestrate-state.sh`, which sees the
