@@ -305,7 +305,9 @@ which one to use in this order:
   ladder (to `subagent`, then the always-present `in-session` terminal rung),
   **never** to an interactive backend and never to the manual `print` rung. A
   degrade is a designed selection-time behavior — it emits a `NOTE:` on stderr;
-  log it — not a halt (runtime failover into `## Awaiting input` is Task 3).
+  log it — not a halt. Selection-time descent is the *choosing* end of the
+  degradation ladder; **runtime failover** (a chosen backend dying mid-run) is
+  the other end, below.
 Concurrency is capped by `max_parallel_units` (default 3, via
 config-get): if that many units already derive **In progress** for this spec —
 counted from the live derivation (`scripts/orchestrate-state.sh`, which sees the
@@ -335,6 +337,54 @@ input line.
   zero-dependency manual dispatch. The human pastes the command; no process
   exists until they do (which the orphan predicate accounts for).
 - **in-session**. Run `/execute-task` in this session, no separate worker.
+
+### Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
+
+The four backends above are rungs of one **graceful-degradation ladder**,
+ordered by their advertised capability set (not their name), richest to safest:
+rung 1 interactive multiplexer **with** steer (`tmux`); rung 2 interactive
+**without** steer, or a headless `claude -p` pool (session-grade + parallel but
+no live steer — its ambiguity routes to the decision queue, so it is **not** a
+quality-equivalent middle rung and sits near the fallback); rung 3 the in-harness
+`subagent`; rung 4 the synchronous **in-session** terminal rung (no external
+substrate, so it **always works**). The manual `print` backend is off the
+autonomous ladder — a human runs the printed command, so planwright is not
+driving the worker. `scripts/orchestrate-degrade.sh rung <backend|caps6>` reports
+a backend's rung from its advertised set.
+
+**The synchronous terminal rung.** With no rich backend present or selected,
+ready units run **one at a time with a context clear between them** — the
+bounded-context single-stream run. `scripts/orchestrate-degrade.sh terminal-plan
+<id>...` prints the plan (a `run <id>` line per unit, a `context-clear` between
+consecutive units, never after the last); execute each unit, then issue the
+context clear before the next. (Per-*step* isolation clears within a unit are
+`dispatch_isolation`'s job — `scripts/resolve-dispatch-isolation.sh`; this is the
+per-*unit* plan.) This rung needs no tmux or multiplexer, so ordinary single-spec
+execution is always available (REQ-A1.4).
+
+**Runtime failover.** When a chosen backend **dies or proves unavailable
+mid-run**, descend exactly one rung — never a silent downgrade. Run
+`scripts/orchestrate-degrade.sh failover <spec-dir> <current-backend>
+[candidate...]` (candidates = the backends detected present; omitted, it
+re-probes the shipped set). It descends to the richest present,
+**guard-preserving** backend strictly below the current rung, **records the
+effective backend spec-locally** in `<spec-dir>/.orchestrate/` alongside the
+sibling's dispatch marker (never in `tasks.md`, REQ-B1.6; read back with
+`orchestrate-degrade.sh read`), emits a `NOTE:` on stderr, and prints an
+`## Awaiting input`-ready entry on stdout — **append that entry to the spec's
+`## Awaiting input`** so the descent is one durable, operator-visible signal
+(REQ-E1.3). Repeated failures descend one rung each down to the terminal rung.
+
+The governing rule is **degrade capability, never safety**: a descent
+guard-preserving target is non-interactive (never strand an unattended run) and
+not spawn-deferred (never the manual `print` rung) — the two advertised
+properties whose loss would take the worker off planwright's driven, guarded path
+and drop a named guard (worker-settings deny, never-auto-merge, never-force-push,
+the freshness gate). When no safe rung remains below — the terminal-rung fatal
+crash, or a descent whose only lower candidates would drop a guard — `failover`
+**escalates** (exit 3) with the reason rather than descending; a record-write
+failure likewise aborts (exit 3) rather than proceeding unrecorded. Surface the
+escalation and stop; never auto-merge and never drop a guard to keep a run alive.
 
 **Unattended mode** (headless: cron/launchd/CI, or `--unattended`). Skip every
 confirm, always create fresh worktrees, and route **every** would-be prompt to
