@@ -186,14 +186,35 @@ resolve_home() {
   printf '%s' "$rh_root"
 }
 
-# upsert_row <worker> <line> — replace <worker>'s row in the state store with
-# <line> (or insert it), atomically, under the Task 9 lock. Copy-filter-append-
-# rename so a concurrent reader sees only a complete store and the worker never
-# appears twice (a state store, not a log).
+# upsert_row <worker> <scope> <state> <priority> <question> <default> <options>
+# — replace <worker>'s row in the state store (or insert it), atomically, under
+# the Task 9 lock. Copy-filter-append-rename so a concurrent reader sees only a
+# complete store and the worker never appears twice (a state store, not a log).
+# The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
+# lock (below), so this is the single authority for the 8-field record layout.
 upsert_row() {
   ur_worker=$1
-  ur_line=$2
+  ur_scope=$2
+  ur_state=$3
+  ur_prio=$4
+  ur_q=$5
+  ur_def=$6
+  ur_opts=$7
   acquire_lock || return 2
+  # Stamp the heartbeat UNDER the lock, so the recorded time is COMMIT time, not
+  # invocation time — byte-for-byte the discipline fleet-state.sh register uses
+  # (scripts/fleet-state.sh, "stamp the record's time UNDER the lock"). Without
+  # it, a writer that captured its timestamp early and then blocked on the lock
+  # could commit an OLDER timestamp after a newer one under contention, which
+  # both regresses the heartbeat (non-monotonic age / queue oldest-first order)
+  # and, for the same worker, lets an earlier-captured write overwrite a
+  # later-committed one (a lost update). On a bad clock read, release and fail.
+  ur_ts=$(now_epoch)
+  if [ -z "$ur_ts" ]; then
+    release_lock
+    echo "fleet-attention: could not read a numeric timestamp" >&2
+    return 2
+  fi
   ur_rc=0
   if ! mkdir -p "$attn_dir" 2>/dev/null; then
     echo "fleet-attention: cannot create the attention dir $attn_dir" >&2
@@ -205,10 +226,17 @@ upsert_row() {
     return 2
   }
   if [ -f "$store" ]; then
-    awk -F "$TAB" -v w="$ur_worker" '$1 != w' "$store" >"$ur_tmp" || ur_rc=2
+    # Force a STRING comparison: awk compares two numeric-looking operands
+    # NUMERICALLY (strnum), and valid_field admits all-numeric handles, so a
+    # bare `$1 != w` would treat `100` == `1e2` and `1` == `01` == `1.0` as
+    # equal and drop the wrong worker's row (data loss). Concatenating "" pins
+    # both operands to string type so only an exact-text match is filtered.
+    awk -F "$TAB" -v w="$ur_worker" '($1 "") != (w "")' "$store" >"$ur_tmp" || ur_rc=2
   fi
   if [ "$ur_rc" = 0 ]; then
-    printf '%s\n' "$ur_line" >>"$ur_tmp" || ur_rc=2
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" \
+      >>"$ur_tmp" || ur_rc=2
   fi
   if [ "$ur_rc" = 0 ]; then
     mv -f "$ur_tmp" "$store" || ur_rc=2
@@ -269,15 +297,9 @@ case $cmd in
     root=$(resolve_home) || exit 2
     attn_dir="$root/attention"
     store="$attn_dir/state"
-    ts=$(now_epoch)
-    [ -n "$ts" ] || {
-      echo "fleet-attention: could not read a numeric timestamp" >&2
-      exit 2
-    }
-    # 8 fields: worker, scope, state, heartbeat_ts, priority, question, default,
-    # options. A heartbeat carries no decision, so the last four are empty.
-    line=$(printf '%s\t%s\t%s\t%s\t\t\t\t' "$worker" "$scope" "$state" "$ts")
-    upsert_row "$worker" "$line" || exit 2
+    # A heartbeat carries no decision, so priority/question/default/options are
+    # empty; upsert_row stamps the commit-time timestamp under the lock.
+    upsert_row "$worker" "$scope" "$state" "" "" "" "" || exit 2
     exit 0
     ;;
 
@@ -313,14 +335,10 @@ case $cmd in
     root=$(resolve_home) || exit 2
     attn_dir="$root/attention"
     store="$attn_dir/state"
-    ts=$(now_epoch)
-    [ -n "$ts" ] || {
-      echo "fleet-attention: could not read a numeric timestamp" >&2
-      exit 2
-    }
-    line=$(printf '%s\t%s\tawaiting-input\t%s\t%s\t%s\t%s\t%s' \
-      "$worker" "$scope" "$ts" "$priority" "$question" "$default" "$options")
-    upsert_row "$worker" "$line" || exit 2
+    # awaiting-input is the one decision-bearing state; upsert_row stamps the
+    # commit-time timestamp under the lock.
+    upsert_row "$worker" "$scope" "awaiting-input" "$priority" "$question" "$default" "$options" \
+      || exit 2
     exit 0
     ;;
 
@@ -345,7 +363,9 @@ case $cmd in
       release_lock
       exit 2
     }
-    awk -F "$TAB" -v w="$worker" '$1 != w' "$store" >"$clr_tmp" || clr_rc=2
+    # String comparison (see upsert_row): a bare `$1 != w` would numerically
+    # equate all-numeric handles (`1` == `01` == `1.0`) and clear the wrong row.
+    awk -F "$TAB" -v w="$worker" '($1 "") != (w "")' "$store" >"$clr_tmp" || clr_rc=2
     if [ "$clr_rc" = 0 ]; then
       mv -f "$clr_tmp" "$store" || clr_rc=2
     fi
@@ -355,20 +375,21 @@ case $cmd in
     ;;
 
   render)
-    surface_flag=0
+    # `--surface-provided` is accepted as a recognized no-op so a caller can pass
+    # the advertised set uniformly to both render and queue. It does NOT suppress
+    # render: the backend-capability contract scopes provides_attention_surface
+    # deferral to the DECISION QUEUE only (the actionable surface), never the
+    # status view — planwright's per-worker status is always available. Only
+    # `queue` honors the signal.
     for _a in "$@"; do
       case $_a in
-        --surface-provided) surface_flag=1 ;;
+        --surface-provided) ;;
         *)
           echo "fleet-attention: render: unknown flag '$(sanitize_printable "$_a" "(unprintable flag)")'" >&2
           exit 2
           ;;
       esac
     done
-    if suppressed; then
-      echo "fleet-attention: a backend advertises provides_attention_surface; deferring the status view to it (planwright renders nothing)" >&2
-      exit 0
-    fi
     root=$(resolve_home) || exit 2
     store="$root/attention/state"
     [ -f "$store" ] || exit 0
@@ -413,7 +434,10 @@ case $cmd in
     # Actionable items only (awaiting-input); non-actionable signal suppressed.
     # Prefix each with a sort key: a priority weight (high<normal<low) and the
     # heartbeat timestamp, so the sort is priority-desc then oldest-waiting-first
-    # (alarm rationalization). No store → no actionable items.
+    # (alarm rationalization). The worker handle (field 3 of the prefixed line,
+    # the first field of $0) is a tertiary key so two decisions committed within
+    # the same wall-clock second still order deterministically rather than by
+    # sort's unspecified tie behavior. No store → no actionable items.
     sortable=""
     if [ -f "$store" ]; then
       sortable=$(awk -F "$TAB" '
@@ -421,7 +445,7 @@ case $cmd in
           w = ($5 == "high") ? 0 : ($5 == "low") ? 2 : 1
           print w "\t" $4 "\t" $0
         }
-      ' "$store" | sort -t "$TAB" -k1,1n -k2,2n)
+      ' "$store" | sort -t "$TAB" -k1,1n -k2,2n -k3,3)
     fi
     # Item count = the queue length that tracks the `## Awaiting input` count.
     if [ -z "$sortable" ]; then

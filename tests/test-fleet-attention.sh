@@ -81,6 +81,12 @@ esac
 [ ! -e "$home/.orchestrate" ] || fail "attention writes created a sibling .orchestrate dir"
 find "$home" -name '.orchestrate' -print 2>/dev/null | grep -q . \
   && fail "an attention path wrote into a .orchestrate dir"
+# Read the record back UNDER this home (not just "the dir exists"): prove the
+# heartbeat actually persisted here, so a regression that wrote elsewhere while
+# still touching the home dir cannot pass.
+[ -f "$home/attention/state" ] || fail "no state store under the resolved home"
+aenv "$home" render 2>/dev/null | grep -q "worker=alpha" \
+  || fail "heartbeat did not persist a retrievable record under this home"
 echo "ok: heartbeat records state under the Task 9 cross-spec home with no dotfiles present"
 
 # ---------------------------------------------------------------------------
@@ -94,13 +100,12 @@ out=$(aenv "$home2" render) || fail "render: non-zero exit"
 while IFS='|' read -r rw rscope rstate; do
   [ -n "$rw" ] || continue
   line=$(printf '%s\n' "$out" | grep -F "$rw") || fail "render: worker '$rw' not listed"
+  # Positional check ([state] scope  worker …), not a bare substring test: a
+  # regression that swapped the scope and state columns would still contain both
+  # strings somewhere on the line, so assert they sit in their labeled fields.
   case $line in
-    *"$rscope"*) ;;
-    *) fail "render: worker '$rw' line missing scope '$rscope' (got: $line)" ;;
-  esac
-  case $line in
-    *"$rstate"*) ;;
-    *) fail "render: worker '$rw' line missing state '$rstate' (got: $line)" ;;
+    "[$rstate] $rscope  $rw  ("*) ;;
+    *) fail "render: worker '$rw' line not in '[state] scope  worker' order (got: $line)" ;;
   esac
 done <<'EOF'
 worker=a|spec-one:3|working
@@ -131,14 +136,17 @@ echo "ok: heartbeat upserts (one row per worker, last state wins)"
 home4="$tmp/queue-home"
 aenv "$home4" heartbeat "worker=busy" "spec-x:1" working || fail "queue setup: working"
 aenv "$home4" heartbeat "worker=ready" "spec-x:2" pr-ready || fail "queue setup: pr-ready"
+# The recommended default (retry-none) is deliberately a token that appears
+# NOWHERE in the options list, so its assertion cannot be satisfied by the
+# options field — the default column is verified independently.
 aenv "$home4" decide "worker=stuck" "spec-y:7" \
-  "Retry policy on partial success?" "retry-failed-substep" \
+  "Retry policy on partial success?" "retry-none" \
   "retry-full|retry-failed-substep|fail-fast" high \
   || fail "decide: non-zero exit"
 q=$(aenv "$home4" queue) || fail "queue: non-zero exit"
 case $q in *"spec-y:7"*) ;; *) fail "queue: decision scope not rendered (got: $q)" ;; esac
 case $q in *"Retry policy on partial success?"*) ;; *) fail "queue: question not rendered" ;; esac
-case $q in *"retry-failed-substep"*) ;; *) fail "queue: recommended default not rendered" ;; esac
+case $q in *"retry-none"*) ;; *) fail "queue: recommended default not rendered independently" ;; esac
 case $q in *"retry-full|retry-failed-substep|fail-fast"*) ;; *) fail "queue: options not rendered" ;; esac
 # Non-actionable workers are suppressed from the queue.
 case $q in *"worker=busy"*) fail "queue: a non-actionable (working) worker leaked into the queue" ;; esac
@@ -146,10 +154,12 @@ case $q in *"worker=ready"*) fail "queue: a non-actionable (pr-ready) worker lea
 echo "ok: the decision queue renders structured choices and suppresses non-actionable signal"
 
 # ---------------------------------------------------------------------------
-# 5. Queue LENGTH tracks the `## Awaiting input` count, NOT the worker count
-#    (REQ-E1.3). Here: 5 workers, 2 awaiting-input → queue length 2.
-#    The `## Awaiting input` correspondence is concrete: a tasks.md fixture with
-#    exactly 2 awaiting-input entries mirrors the 2 recorded decisions.
+# 5. Queue LENGTH tracks the awaiting-input count (one awaiting-input record per
+#    `## Awaiting input` entry, by the pause-protocol correspondence), NOT the
+#    worker count (REQ-E1.3). Here: 5 workers, 2 awaiting-input → queue length 2.
+#    The queue's own count is cross-checked against an INDEPENDENT oracle: a
+#    direct awk count of awaiting-input rows in the store (a different mechanism
+#    than the queue's), so the assertion is causal, not two hand-matched numbers.
 # ---------------------------------------------------------------------------
 home5="$tmp/count-home"
 aenv "$home5" heartbeat "worker=w1" "spec-a:1" working || fail "count: w1"
@@ -161,29 +171,18 @@ aenv "$home5" decide "worker=w5" "spec-b:2" "Validation strict or lenient?" "str
   || fail "count: w5 decide"
 count=$(aenv "$home5" queue --count) || fail "queue --count: non-zero exit"
 [ "$count" = 2 ] || fail "queue length is $count, expected 2 (must track awaiting-input, not the 5 workers)"
-
-# The `## Awaiting input` correspondence, made concrete against a fixture.
-fixture_tasks="$tmp/fixture-tasks.md"
-cat >"$fixture_tasks" <<'EOF'
-## Awaiting input
-
-### Task 3 — spec-a
-- some blocked note
-
-### Task 2 — spec-b
-- another blocked note
-
-## Completed
-EOF
-awaiting=$(awk '
-  /^## Awaiting input/ { in_sec = 1; next }
-  /^## / { in_sec = 0 }
-  in_sec && /^### / { c++ }
-  END { print c + 0 }
-' "$fixture_tasks")
-[ "$awaiting" = "$count" ] \
-  || fail "queue length ($count) does not track the fixture '## Awaiting input' entry count ($awaiting)"
-echo "ok: the queue length tracks the '## Awaiting input' count, not the worker count"
+# Independent oracle: count awaiting-input rows straight from the store (field 3
+# == awaiting-input) with a mechanism the queue does not share. The queue's
+# self-reported length must equal it — this is what makes "length tracks the
+# actionable count" a causal check rather than two author-matched constants.
+oracle=$(awk -F"$tab" '$3 == "awaiting-input" { c++ } END { print c + 0 }' "$home5/attention/state")
+[ "$oracle" = "$count" ] \
+  || fail "queue --count ($count) disagrees with an independent awaiting-input row count ($oracle)"
+# And it is NOT the worker count (5): the actionable-only property.
+total=$(wc -l <"$home5/attention/state" | tr -d ' ')
+[ "$total" = 5 ] || fail "count setup: expected 5 worker rows, got $total"
+[ "$count" != "$total" ] || fail "queue length equals the worker count — non-actionable signal is not suppressed"
+echo "ok: the queue length tracks the awaiting-input count (independent oracle), not the worker count"
 
 # ---------------------------------------------------------------------------
 # 6. Alarm rationalization — ordering. Priority first (high before normal before
@@ -205,30 +204,35 @@ order=$(printf '%s\n' "$q6" | grep -oE 'worker=(hi|n1|n2|lo)' | sed 's/worker=//
 echo "ok: the queue is alarm-rationalized (priority desc, oldest-waiting first within a priority)"
 
 # ---------------------------------------------------------------------------
-# 7. provides_attention_surface:true suppression — planwright renders neither the
-#    status view nor the queue; it defers to the backend's surface. Suppressed
-#    stdout is empty; a one-line notice goes to stderr; exit stays 0.
-#    Both the --surface-provided flag and the env signal are honored (the flag is
-#    what the entry command passes; the env is the ambient advertisement).
+# 7. provides_attention_surface:true suppression — the backend-capability
+#    contract scopes deferral to the DECISION QUEUE only (the actionable
+#    surface): `queue` suppresses (empty stdout, a one-line stderr notice, exit
+#    0), but the status `render` is NOT suppressed (status stays available).
+#    Both the --surface-provided flag and the env signal are honored for queue.
 # ---------------------------------------------------------------------------
 home7="$tmp/suppress-home"
 aenv "$home7" heartbeat "worker=s1" "spec-s:1" working || fail "suppress: heartbeat"
 aenv "$home7" decide "worker=s2" "spec-s:2" "q?" "d" "a|b" normal || fail "suppress: decide"
-for cmd in render queue; do
-  so=$(aenv "$home7" "$cmd" --surface-provided 2>/dev/null) || fail "suppress: $cmd --surface-provided non-zero exit"
-  [ -z "$so" ] || fail "suppress: $cmd --surface-provided still wrote to stdout ('$so')"
-  se=$(aenv "$home7" "$cmd" --surface-provided 2>&1 >/dev/null) || true
-  [ -n "$se" ] || fail "suppress: $cmd --surface-provided emitted no deferral notice on stderr"
-  # The env signal (ambient advertisement) suppresses too.
-  so=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
-    PLANWRIGHT_FLEET_STATE_DIR="$home7" PLANWRIGHT_ATTENTION_SURFACE_PROVIDED=1 \
-    /bin/sh "$FA" "$cmd" 2>/dev/null) || fail "suppress: $cmd env-signal non-zero exit"
-  [ -z "$so" ] || fail "suppress: $cmd with the env advertisement still rendered ('$so')"
-done
-# Sanity: without the signal, both DO render (so the suppression above is real).
-[ -n "$(aenv "$home7" render 2>/dev/null)" ] || fail "suppress control: render is empty even unsuppressed"
+# queue defers: empty stdout + a stderr notice, via the flag AND the env signal.
+so=$(aenv "$home7" queue --surface-provided 2>/dev/null) || fail "suppress: queue --surface-provided non-zero exit"
+[ -z "$so" ] || fail "suppress: queue --surface-provided still wrote to stdout ('$so')"
+se=$(aenv "$home7" queue --surface-provided 2>&1 >/dev/null) || true
+[ -n "$se" ] || fail "suppress: queue --surface-provided emitted no deferral notice on stderr"
+so=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home7" PLANWRIGHT_ATTENTION_SURFACE_PROVIDED=1 \
+  /bin/sh "$FA" queue 2>/dev/null) || fail "suppress: queue env-signal non-zero exit"
+[ -z "$so" ] || fail "suppress: queue with the env advertisement still rendered ('$so')"
+# render is NOT the actionable surface: it stays available even when a backend
+# provides its own attention surface (contract scopes deferral to the queue).
+ro=$(aenv "$home7" render --surface-provided 2>/dev/null) || fail "render --surface-provided non-zero exit"
+[ -n "$ro" ] || fail "render was suppressed by --surface-provided (contract defers the QUEUE only, not status)"
+ro=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home7" PLANWRIGHT_ATTENTION_SURFACE_PROVIDED=1 \
+  /bin/sh "$FA" render 2>/dev/null) || fail "render env-signal non-zero exit"
+[ -n "$ro" ] || fail "render was suppressed by the env advertisement (status must stay available)"
+# Sanity: without any signal, the queue DOES render (so the suppression is real).
 [ -n "$(aenv "$home7" queue 2>/dev/null)" ] || fail "suppress control: queue is empty even unsuppressed"
-echo "ok: provides_attention_surface suppresses planwright's own render and queue (flag and env)"
+echo "ok: provides_attention_surface suppresses the decision queue only; status render stays available"
 
 # ---------------------------------------------------------------------------
 # 8. clear removes a worker's row (idempotent) — cleanup on merged/done teardown.
@@ -260,10 +264,13 @@ aenv "$home9" decide "worker=ok" "spec:1" "$(printf 'q\twith\ttabs')" "d" "a|b" 
 rc=0
 aenv "$home9" decide "worker=ok" "spec:1" "$(printf 'q\nnewline')" "d" "a|b" normal >/dev/null 2>&1 || rc=$?
 [ "$rc" != 0 ] || fail "decision question with an embedded newline accepted (would tear the record)"
-if [ -e "$home9/attention/state" ]; then
-  grep -q "passwd" "$home9/attention/state" && fail "hostile worker id reached the state store"
-  true
-fi
+# "Nothing written" must be asserted directly: all four writes were refused, so
+# the store must not exist at all (a refused write must not even create it). A
+# regression that stripped a hostile field and then wrote a `worker=ok` row
+# would fail this, where the old passwd-only grep (guarded by an existence
+# check that is never true) asserted nothing.
+[ ! -e "$home9/attention/state" ] \
+  || fail "a refused hostile write still created/populated the state store ($(wc -l <"$home9/attention/state") rows)"
 echo "ok: hostile worker/scope/decision fields are refused, nothing written"
 
 # ---------------------------------------------------------------------------
@@ -390,5 +397,117 @@ aenv "$home14" render >/dev/null 2>&1 || fail "render on an empty home did not e
 c=$(aenv "$home14" queue --count) || fail "queue --count on an empty home non-zero exit"
 [ "$c" = 0 ] || fail "queue --count on an empty home is '$c', expected 0"
 echo "ok: reads on an empty home are clean (render exits 0, queue count is 0)"
+
+# ---------------------------------------------------------------------------
+# 15. Numeric-handle upsert/clear must compare worker keys as STRINGS, not
+#     numerically. valid_field admits all-numeric handles; a numeric awk
+#     comparison (`$1 != w`) treats `100` == `1e2` and `1` == `01` == `1.0` as
+#     equal, so upserting/clearing one worker would silently destroy another's
+#     row (data loss). Regression for the awk strnum trap.
+# ---------------------------------------------------------------------------
+home15="$tmp/numeric-home"
+aenv "$home15" heartbeat "1e2" "spec-n:1" working || fail "numeric: heartbeat 1e2"
+aenv "$home15" heartbeat "100" "spec-n:2" working || fail "numeric: heartbeat 100 (upsert must not wipe 1e2)"
+r15=$(aenv "$home15" render 2>/dev/null) || fail "numeric: render"
+printf '%s\n' "$r15" | grep -qE '(^| )1e2( |$)' \
+  || fail "numeric upsert of '100' destroyed worker '1e2' (awk numeric-equated them)"
+printf '%s\n' "$r15" | grep -qE '(^| )100( |$)' || fail "numeric: worker '100' not recorded"
+# clear must also be string-keyed: clearing '1' must not remove '01' or '1.0'.
+home15b="$tmp/numeric-clear-home"
+aenv "$home15b" heartbeat "1" "spec-n:1" working || fail "numeric-clear: heartbeat 1"
+aenv "$home15b" heartbeat "01" "spec-n:2" working || fail "numeric-clear: heartbeat 01"
+aenv "$home15b" heartbeat "1.0" "spec-n:3" working || fail "numeric-clear: heartbeat 1.0"
+aenv "$home15b" clear "1" || fail "numeric-clear: clear 1"
+rows=$(wc -l <"$home15b/attention/state" | tr -d ' ')
+[ "$rows" = 2 ] || fail "numeric clear of '1' also removed '01'/'1.0' ($rows rows left, expected 2)"
+echo "ok: worker-key comparison is string-based (numeric-looking handles never collide)"
+
+# ---------------------------------------------------------------------------
+# 16. The heartbeat timestamp is stamped UNDER the lock (commit time), not at
+#     invocation. Deterministic proof, mirroring test-fleet-state.sh: hold the
+#     lock, launch a heartbeat that blocks on it, advance the wall clock past a
+#     1s boundary, then release. A commit-time stamp is >= the release time; an
+#     invocation-time stamp (captured before the block) would predate it.
+# ---------------------------------------------------------------------------
+home16="$tmp/ts-home"
+mkdir -p "$home16"
+mkdir "$home16/.fleet.lock" # hold the Task 9 lock so the heartbeat must block
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home16" \
+  /bin/sh "$FA" heartbeat "worker=late" "spec-t:1" working &
+hb_pid=$!
+sleep 2 # advance the clock while the heartbeat is blocked on the held lock
+t_release=$(date +%s)
+rmdir "$home16/.fleet.lock" # release; the heartbeat now acquires and stamps
+wait "$hb_pid" || fail "blocked heartbeat did not complete after lock release"
+rec_ts=$(cut -f4 "$home16/attention/state")
+case $rec_ts in
+  "" | *[!0-9]*) fail "heartbeat timestamp '$rec_ts' is not numeric" ;;
+esac
+[ "$rec_ts" -ge "$t_release" ] \
+  || fail "heartbeat timestamp ($rec_ts) predates lock release ($t_release): stamped at invocation, not under the lock"
+echo "ok: the heartbeat timestamp is stamped under the lock (commit time, monotonic)"
+
+# ---------------------------------------------------------------------------
+# 17. Notification-adapter injection defenses (the security-relevant channels).
+#     Stub the platform tools on PATH so the dispatch is exercised hermetically:
+#     tmux-popup must strip '#' (neutralizing tmux #(cmd)/#{...} FORMAT execution)
+#     and os-notify must pass the summary as ARGV data (no script-string
+#     interpolation). Each stub records exactly the argv it received.
+# ---------------------------------------------------------------------------
+inj_dir="$tmp/notify-inj"
+stub_bin="$inj_dir/bin"
+mkdir -p "$stub_bin"
+home17="$tmp/notify-inj-home"
+core_cfg17="$tmp/notify-inj-core.yml"
+scratch_repo17="$tmp/notify-inj-repo"
+mkdir -p "$scratch_repo17"
+printf 'notification_channel: none\n' >"$core_cfg17"
+
+# A fake `tmux` that appends every arg (one per line) to a capture file.
+cat >"$stub_bin/tmux" <<EOF
+#!/bin/sh
+for a in "\$@"; do printf '%s\n' "\$a" >>"$inj_dir/tmux-args"; done
+exit 0
+EOF
+# A fake `notify-send` doing the same, so os-notify picks the Linux branch
+# deterministically (checked before osascript in the adapter).
+cat >"$stub_bin/notify-send" <<EOF
+#!/bin/sh
+for a in "\$@"; do printf '%s\n' "\$a" >>"$inj_dir/notify-args"; done
+exit 0
+EOF
+chmod +x "$stub_bin/tmux" "$stub_bin/notify-send"
+
+notify_inj() { # <channel> <summary>
+  _pin="$tmp/notify-inj-pin-$1.yml"
+  printf 'notification_channel: %s\n' "$1" >"$_pin"
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+    PATH="$stub_bin:$PATH" TMUX="fake-server" \
+    PLANWRIGHT_FLEET_STATE_DIR="$home17" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg17" \
+    PLANWRIGHT_REPO_ROOT="$scratch_repo17" \
+    PLANWRIGHT_LOCAL_CONFIG="$_pin" \
+    /bin/sh "$FA" notify "$2"
+}
+
+# tmux-popup: a summary that WOULD run a shell command if tmux interpreted its
+# format (`#(touch pwned)`). The adapter must strip every '#', so the stub sees
+# no '#' and the pwned marker is never created.
+notify_inj tmux-popup 'alert #(touch '"$inj_dir"'/pwned) #{q:x}' || fail "notify tmux-popup: non-zero exit"
+[ ! -e "$inj_dir/pwned" ] || fail "tmux-popup: '#(cmd)' was not neutralized (format execution)"
+[ -f "$inj_dir/tmux-args" ] || fail "tmux-popup: stub tmux was not invoked"
+grep -q '#' "$inj_dir/tmux-args" && fail "tmux-popup: a '#' reached tmux (format-injection vector intact)"
+grep -q 'alert' "$inj_dir/tmux-args" || fail "tmux-popup: the summary text did not reach tmux"
+
+# os-notify: the summary is passed as a single argv token after `--`, verbatim
+# (control bytes already stripped upstream), never interpolated into a script.
+notify_inj os-notify 'deploy done; rm -rf /' || fail "notify os-notify: non-zero exit"
+[ -f "$inj_dir/notify-args" ] || fail "os-notify: stub notify-send was not invoked"
+grep -qx -- '--' "$inj_dir/notify-args" || fail "os-notify: summary not passed after an end-of-options '--'"
+grep -qx 'deploy done; rm -rf /' "$inj_dir/notify-args" \
+  || fail "os-notify: summary not passed verbatim as a single argv token (injection-safe)"
+echo "ok: notify adapters neutralize tmux format injection and pass os-notify summaries as argv data"
 
 echo "ALL PASS: fleet-attention.sh"

@@ -107,11 +107,14 @@ degrades to leaving the item in the queue rather than failing the run.
 A backend may advertise `provides_attention_surface: true` (backend capability
 contract): it renders the operator's queue itself (a cmux-class tool). When that
 signal is present — passed per-call as `--surface-provided`, or ambient via
-`PLANWRIGHT_ATTENTION_SURFACE_PROVIDED` — planwright **suppresses its own** `render`
-and `queue` output and defers, so the operator sees one attention surface, not
-two. This is the attention-seam half of the same adapt-to-advertised discipline
-the execution seam follows: planwright reacts to the advertised set, never to the
-backend's name.
+`PLANWRIGHT_ATTENTION_SURFACE_PROVIDED` — planwright **suppresses its own decision
+queue** (`queue`) and defers, so the operator sees one *actionable* surface, not
+two. The contract scopes deferral to the decision queue only: the status renderer
+(`render`) is informational, not the actionable attention surface, so planwright's
+per-worker status stays available regardless of the signal (`render` accepts the
+flag as a recognized no-op for a uniform caller interface). This is the
+attention-seam half of the same adapt-to-advertised discipline the execution seam
+follows: planwright reacts to the advertised set, never to the backend's name.
 
 ## Data hygiene (REQ-A1.6)
 
