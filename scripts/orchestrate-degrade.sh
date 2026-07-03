@@ -39,7 +39,8 @@
 #
 #   record <spec-dir> <backend>
 #       Write the effective backend spec-locally to the effective-backend record
-#       alongside the sibling's runtime dispatch marker (REQ-B1.6). NEVER writes
+#       in `<spec-dir>/.orchestrate/` — the sibling's dispatch-state root, beside
+#       its `markers/` dir (REQ-B1.6). NEVER writes
 #       tasks.md — dispatch-adjacent state stays out of the committed ledger
 #       (REQ-A1.1, the sibling contract). Atomic write-temp-then-rename; a
 #       symlink or non-regular file at the path is refused, not written through
@@ -50,8 +51,9 @@
 #
 #   failover <spec-dir> <current-backend> [candidate...]
 #       Runtime failover: a chosen backend died or proved unavailable mid-run.
-#       Descend EXACTLY one rung to the richest present, guard-preserving
-#       candidate strictly below the current rung, record it spec-locally, and
+#       Descend one rung down the AVAILABLE ladder — to the richest present,
+#       guard-preserving candidate strictly below the current rung (an absent
+#       intermediate rung is skipped) — record it spec-locally, and
 #       emit a NOTE (stderr) + an `## Awaiting input`-ready entry (stdout) — never
 #       a silent downgrade (REQ-B1.5). `candidate...` is the set of backends the
 #       tower found present; omitted, the shipped presence probe fills it in.
@@ -65,10 +67,14 @@
 #       fails, it aborts (exit 3) rather than proceed unrecorded: degrade
 #       capability, never safety.
 #
-# Scope (proportionality): rung classification of explicit candidates covers the
-# four SHIPPED backends by name (a pluggable/headless-pool descent target rides
-# the pluggable-dispatch path, deferred with `dispatch_backend` per the options
-# reference). A caps string may be classified directly via `rung`.
+# Scope (proportionality): failover classifies each candidate by its advertised
+# set — shipped backends via the contract table, a pluggable candidate via its
+# `planwright-backend-<name>` adapter — so the ladder's rung-2 (a headless
+# `claude -p` pool) is a real descent target the moment such a backend is
+# present. The no-candidate presence probe covers only the shipped set (a
+# pluggable name is not known to it and must be passed explicitly). The `rung`
+# subcommand takes a shipped name or a caps string directly (not a pluggable
+# name — that needs the adapter, which `failover` consults).
 #
 # Exit codes: 0 success; 1 `read` with no record; 2 usage / hostile input /
 # unclassifiable / spec-dir or record-path failure; 3 failover escalation
@@ -150,6 +156,46 @@ is_present() {
   esac
 }
 
+# The advertised set of a PLUGGABLE backend, obtained from its adapter (mirrors
+# orchestrate-backends.sh's adapter_caps — same fail-safe contract: an absent or
+# malformed adapter is reported absent, so a backend whose capabilities are
+# unknown is never a failover target). Echoes the six validated fields or
+# returns 1. The name is charset-validated by the caller before it reaches the
+# `planwright-backend-<name>` command.
+adapter_caps() {
+  ac_cmd="planwright-backend-$1"
+  command -v "$ac_cmd" >/dev/null 2>&1 || return 1
+  ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+$ac_raw
+EOF
+  [ -z "$f_rest" ] || return 1
+  for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
+    case "$f" in
+      true | false | na) ;;
+      *) return 1 ;;
+    esac
+  done
+  case "$f_g" in
+    yes | no | deferred) ;;
+    *) return 1 ;;
+  esac
+  echo "$f_i $f_o $f_s $f_a $f_p $f_g"
+}
+
+# The advertised caps of a backend by name: a shipped name via the contract
+# table, else a validated pluggable name via its adapter. Returns 1 when the
+# name is invalid or a pluggable adapter is absent/malformed (fail-safe absent).
+caps_of_backend() {
+  if is_known "$1"; then
+    caps_for "$1"
+  else
+    valid_name "$1" || return 1
+    adapter_caps "$1"
+  fi
+}
+
 # Classify a six-field caps string onto the ladder. Reads into `f_`-prefixed
 # targets so it never clobbers a caller's loop variable (sh has no lexical
 # scope). Echoes 1|2|3|4|manual, or returns 1 when the set is not well-formed or
@@ -170,37 +216,33 @@ EOF
     yes | no | deferred) ;;
     *) return 1 ;;
   esac
+  # Classification is TOTAL over well-formed caps (every parsing-valid set maps
+  # to a rung), so an unusual-but-valid advertisement never falls through to
+  # "unclassifiable" — only a malformed set (rejected above) does.
+  #
   # A spawn-deferred backend is off the autonomous ladder (manual).
-  [ "$f_g" = deferred ] && {
+  if [ "$f_g" = deferred ]; then
     echo manual
     return 0
-  }
-  # rung 1: interactive multiplexer WITH steer.
-  if [ "$f_i" = true ] && [ "$f_s" = true ]; then
-    echo 1
+  fi
+  # Interactive multiplexer: rung 1 with steer, else rung 2 (without steer).
+  # rung 1 is the ONLY rung requiring interactivity, so a non-interactive
+  # backend never lands there however rich it is.
+  if [ "$f_i" = true ]; then
+    if [ "$f_s" = true ]; then echo 1; else echo 2; fi
     return 0
   fi
-  # rung 2: interactive-without-steer, OR a session-grade parallel pool with no
-  # steer (near the fallback — ambiguity routes to the queue).
-  if [ "$f_i" = true ] && [ "$f_s" = false ]; then
-    echo 2
-    return 0
-  fi
-  if [ "$f_g" = yes ] && [ "$f_p" = true ] && [ "$f_s" = false ]; then
-    echo 2
-    return 0
-  fi
-  # rung 3: in-harness parallel worker, not session-grade, no steer (subagent).
-  if [ "$f_i" = false ] && [ "$f_g" = no ] && [ "$f_p" = true ]; then
-    echo 3
-    return 0
-  fi
-  # rung 4: single-stream in-session (the always-works terminal rung).
-  if [ "$f_i" = false ] && [ "$f_p" != true ]; then
+  # Non-interactive. A single-stream (non-parallel) backend is the terminal
+  # rung 4 — the always-works floor — regardless of session-grade.
+  if [ "$f_p" != true ]; then
     echo 4
     return 0
   fi
-  return 1
+  # Non-interactive AND parallel: a session-grade pool is rung 2 (a headless
+  # `claude -p` pool — steer is what routes ambiguity to the queue, it does not
+  # move the rung); a non-session-grade in-harness pool is rung 3 (subagent).
+  if [ "$f_g" = yes ]; then echo 2; else echo 3; fi
+  return 0
 }
 
 # Rung of a backend by name (shipped) or a caps string. A shipped name resolves
@@ -323,13 +365,10 @@ write_record() {
     echo "orchestrate-degrade: refusing non-regular file at record path $wr_file" >&2
     return 2
   fi
-  # Containment: the record must sit directly under its resolved dir.
-  wr_base=$(cd "$wr_dir" 2>/dev/null && pwd -P) || wr_base=""
-  wr_fdir=$(cd "$(dirname "$wr_file")" 2>/dev/null && pwd -P) || wr_fdir=""
-  if [ -z "$wr_base" ] || [ "$wr_base" != "$wr_fdir" ]; then
-    echo "orchestrate-degrade: refusing out-of-base record path $wr_file" >&2
-    return 2
-  fi
+  # (No containment check is needed: the record filename is the constant literal
+  # `effective-backend` with no token interpolated into the path, so it can never
+  # escape its resolved dir — unlike the sibling marker, whose filename is a
+  # variable task id and therefore does need a containment guard.)
   wr_now=$(date +%s)
   case "$wr_now" in '' | *[!0-9]*) wr_now=0 ;; esac
   wr_tmp=$(mktemp "$wr_dir/.effbk.XXXXXX") || {
@@ -363,10 +402,27 @@ cmd_read() {
     return 2
   fi
   rd_file=$(record_path "$1")
-  [ -f "$rd_file" ] || return 1
-  # First field of the first line is the backend name.
-  IFS='	' read -r rd_backend _ <"$rd_file" || return 1
+  [ -e "$rd_file" ] || return 1
+  # A symlink or any other non-regular file at the record path is never a valid
+  # record — refuse to follow it (write-path parity; a reconcile sweep degrades
+  # to the configured backend on a nonzero read). Treated as "no valid record".
+  if [ -L "$rd_file" ] || [ ! -f "$rd_file" ]; then
+    echo "orchestrate-degrade: ignoring non-regular effective-backend record at $rd_file" >&2
+    return 1
+  fi
+  # First field of the first line is the backend name. Do NOT gate on `read`'s
+  # exit status: a record written without a trailing newline (e.g. by another
+  # tool) makes `read` return nonzero at EOF though it populated the field.
+  IFS='	' read -r rd_backend _ <"$rd_file" || true
   [ -n "$rd_backend" ] || return 1
+  # Re-validate the read-back value: the writer only ever persists a valid
+  # backend name, so anything else means a tampered/foreign record — refuse it
+  # (and route through sanitize_printable so escape bytes cannot reach the
+  # operator's terminal) rather than emit it raw.
+  if ! is_known "$rd_backend" && ! valid_name "$rd_backend"; then
+    printf '%s\n' "orchestrate-degrade: ignoring malformed effective-backend record: $(sanitize_printable "$rd_backend" "(unprintable value)")" >&2
+    return 1
+  fi
   printf '%s\n' "$rd_backend"
 }
 
@@ -386,13 +442,21 @@ cmd_failover() {
     printf '%s\n' "orchestrate-degrade: invalid current backend: $(sanitize_printable "$fo_current" "(unprintable name)")" >&2
     return 2
   fi
-  if ! fo_cur_rung=$(rung_of "$fo_current"); then
+  fo_cur_rung=''
+  if is_known "$fo_current"; then
+    fo_cur_rung=$(rung_of_caps "$(caps_for "$fo_current")")
+  elif fo_cur_caps=$(caps_of_backend "$fo_current"); then
+    fo_cur_rung=$(rung_of_caps "$fo_cur_caps")
+  fi
+  if [ -z "$fo_cur_rung" ]; then
     printf '%s\n' "orchestrate-degrade: cannot classify current backend '$(sanitize_printable "$fo_current" "(unprintable)")'" >&2
     return 2
   fi
   fo_cur_n=$(rung_num "$fo_cur_rung") || fo_cur_n=5
 
   # No explicit candidates: re-detect the shipped present set at failover time.
+  # (A pluggable candidate must be passed explicitly — its name is not known to
+  # the shipped presence probe.)
   if [ "$#" -eq 0 ]; then
     set --
     for b in tmux subagent in-session print; do
@@ -400,21 +464,27 @@ cmd_failover() {
     done
   fi
 
-  # Walk the candidates. Track the richest guard-preserving rung strictly below
-  # the current one (the descent target) and whether ANY candidate sits below —
-  # the two together distinguish "no lower rung (terminal)" from "lower rungs
-  # exist but every one would drop a guard".
+  # Walk the candidates, each classified by its ADVERTISED set (shipped via the
+  # contract table, pluggable via its adapter). Track the richest guard-
+  # preserving rung strictly below the current one (the descent target), whether
+  # any real LOWER LADDER RUNG exists (guard-preserving or not), and whether an
+  # off-ladder manual backend is present. Together they distinguish the two
+  # escalations: a lower rung that would drop a guard vs. the ladder floor.
   fo_best_backend=''
   fo_best_n=99
   fo_any_below=0
+  fo_off_ladder=0
   for cand in "$@"; do
-    is_known "$cand" || continue # explicit-candidate classification is shipped-only (see Scope)
-    cand_caps=$(caps_for "$cand")
+    cand_caps=$(caps_of_backend "$cand") || continue # unknown name / absent adapter → fail-safe skip
     cand_rung=$(rung_of_caps "$cand_caps") || continue
+    if [ "$cand_rung" = manual ]; then
+      fo_off_ladder=1 # off the autonomous ladder — never a lower rung, never a target
+      continue
+    fi
     cand_n=$(rung_num "$cand_rung") || continue
-    [ "$cand_n" -gt "$fo_cur_n" ] || continue # strictly below (further down the ladder)
-    fo_any_below=1
-    caps_guard_preserving "$cand_caps" || continue # would drop a guard — skip
+    [ "$cand_n" -gt "$fo_cur_n" ] || continue      # strictly below (further down the ladder)
+    fo_any_below=1                                 # a real lower LADDER rung exists
+    caps_guard_preserving "$cand_caps" || continue # but it would drop a guard — skip
     if [ "$cand_n" -lt "$fo_best_n" ]; then
       fo_best_n=$cand_n
       fo_best_backend=$cand
@@ -425,14 +495,15 @@ cmd_failover() {
   case "$today" in '' | *[!0-9-]*) today="(date-unavailable)" ;; esac
 
   if [ -z "$fo_best_backend" ]; then
-    # No safe descent. Distinguish the two escalation reasons for the operator.
+    # No safe descent. Distinguish the escalation reasons for the operator.
     if [ "$fo_any_below" -eq 1 ]; then
-      fo_reason="a descent would drop a named guard (only interactive/manual candidates remain below '$fo_current'); refusing — degrade capability, never safety"
+      fo_reason="a lower ladder rung is available but would drop a named guard (an interactive or otherwise unsafe backend); refusing to descend — degrade capability, never safety"
     else
-      fo_reason="'$fo_current' is the terminal rung; no lower rung exists"
+      fo_reason="'$fo_current' is at the autonomous ladder floor; no lower rung exists"
+      [ "$fo_off_ladder" -eq 1 ] && fo_reason="$fo_reason (the manual 'print' backend remains, but the tower cannot drive it)"
     fi
     echo "NOTE: runtime-failover ESCALATION: $fo_reason." >&2
-    printf -- '- **Backend failover escalation (%s):** %s. The tower cannot descend further without dropping a guard; human decision required.\n' \
+    printf -- '- **Backend failover escalation (%s):** %s. Human decision required.\n' \
       "$today" "$fo_reason"
     return 3
   fi

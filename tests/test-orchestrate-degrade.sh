@@ -11,30 +11,31 @@
 #
 # Contract under test:
 #   - `rung <backend|caps6>` reports a backend's ladder rung by its ADVERTISED
-#     set (D-3, ordered richest→safest): 1 interactive+steer (tmux); 2 headless
-#     pool (session-grade parallel, no steer) OR interactive-without-steer; 3
-#     in-harness parallel no-steer (subagent); 4 synchronous single-stream
-#     (in-session — the terminal rung). A spawn-deferred backend (print) is
-#     `manual` — off the autonomous ladder. A hostile/unclassifiable arg exits 2.
+#     set (D-3, ordered richest->safest): 1 interactive+steer (tmux); 2 headless
+#     pool (session-grade parallel) OR interactive-without-steer; 3 in-harness
+#     parallel not-session-grade (subagent); 4 synchronous single-stream
+#     (in-session — the terminal rung). Classification is TOTAL over well-formed
+#     caps. A spawn-deferred backend (print) is `manual` — off the autonomous
+#     ladder. A hostile/malformed arg exits 2.
 #   - `terminal-plan <id>...` emits the synchronous terminal rung's run plan:
 #     one `run <id>` line per unit with a `context-clear` line BETWEEN
 #     consecutive units (bounded-context clears; never after the last). Ids are
-#     validated against the task-id grammar before use; a hostile id exits 2 with
-#     no output.
+#     validated against the task-id grammar before use; a hostile id or no id
+#     exits 2 with no output.
 #   - `record <spec-dir> <backend>` writes the effective backend spec-locally to
-#     `<spec-dir>/.orchestrate/effective-backend` (alongside the sibling's
-#     dispatch marker, REQ-B1.6) atomically; NEVER to tasks.md. `read <spec-dir>`
-#     prints it back (exit 1 when absent). A hostile backend name, a symlink /
+#     `<spec-dir>/.orchestrate/effective-backend` atomically; NEVER to tasks.md.
+#     `read <spec-dir>` prints it back (exit 1 when absent, on a non-regular
+#     record, or on a malformed value). A hostile backend name, a symlink /
 #     non-regular file at the path, or an unwritable dir is refused fail-closed.
-#   - `failover <spec-dir> <current> [candidate...]` descends EXACTLY one rung to
-#     the richest present, guard-preserving (non-interactive, non-deferred)
-#     backend strictly below the current rung; records the effective backend
+#   - `failover <spec-dir> <current> [candidate...]` descends one rung down the
+#     available ladder to the richest present, guard-preserving (non-interactive,
+#     non-deferred) backend strictly below the current rung — classifying
+#     candidates by their advertised set (shipped via the table, pluggable via a
+#     `planwright-backend-<name>` adapter); records the effective backend
 #     spec-locally; emits a NOTE (stderr) + an `## Awaiting input` entry (stdout);
-#     exit 0. It ESCALATES (exit 3, never a silent downgrade) when no lower
-#     guard-preserving rung is available — the terminal-rung fatal crash, or a
-#     descent that would drop a named guard (only interactive/manual candidates
-#     remain below). A record-write failure aborts (exit 3) rather than proceeding
-#     unrecorded (degrade capability, never safety).
+#     exit 0. It ESCALATES (exit 3, never a silent downgrade) with a DISTINCT
+#     reason for the terminal-rung floor vs a lower rung that would drop a guard;
+#     a record-write failure aborts (exit 3) rather than proceeding unrecorded.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -56,6 +57,26 @@ fail() {
 tmp=$(mktemp -d)
 trap 'chmod -R u+rwx "$tmp" 2>/dev/null; rm -rf "$tmp"' EXIT
 
+# A bin dir seeded with fake pluggable-backend adapters, so failover can be
+# exercised against a rung-2 pool (the middle rung no shipped backend occupies)
+# and an interactive (guard-dropping) lower rung — mirrors how
+# test-orchestrate-backends.sh fakes adapters on PATH. Prepended to PATH only
+# for the calls that need it.
+BIN="$tmp/bin"
+mkdir -p "$BIN"
+# A non-interactive session-grade parallel pool → rung 2, guard-preserving.
+cat >"$BIN/planwright-backend-pool" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true yes"
+EOF
+# An interactive session-grade parallel pool → rung 2, NOT guard-preserving
+# (interactive would strand an unattended run).
+cat >"$BIN/planwright-backend-ipool" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "true false false false true yes"
+EOF
+chmod +x "$BIN/planwright-backend-pool" "$BIN/planwright-backend-ipool"
+
 # A fresh spec-dir fixture with the four spec files a real bundle carries, so the
 # script's spec-dir checks see a plausible directory. tasks.md is seeded so a
 # test can assert the script NEVER writes it (REQ-B1.6 / REQ-A1.1).
@@ -69,33 +90,33 @@ new_spec_dir() {
 
 # --- rung classification (the ladder ordering by advertised set) -------------
 
-got=$("$DEGRADE" rung tmux) || fail "rung tmux exited nonzero"
-[ "$got" = 1 ] || fail "rung tmux: expected 1, got '$got'"
-
-got=$("$DEGRADE" rung subagent) || fail "rung subagent exited nonzero"
-[ "$got" = 3 ] || fail "rung subagent: expected 3, got '$got'"
-
-got=$("$DEGRADE" rung in-session) || fail "rung in-session exited nonzero"
-[ "$got" = 4 ] || fail "rung in-session (terminal rung): expected 4, got '$got'"
-
-got=$("$DEGRADE" rung print) || fail "rung print exited nonzero"
-[ "$got" = manual ] || fail "rung print: expected 'manual' (off-ladder), got '$got'"
-
+check_rung() { # <caps-or-backend> <expected>
+  cr_got=$("$DEGRADE" rung "$1") || fail "rung '$1' exited nonzero"
+  [ "$cr_got" = "$2" ] || fail "rung '$1': expected '$2', got '$cr_got'"
+}
+check_rung tmux 1
+check_rung subagent 3
+check_rung in-session 4
+check_rung print manual
 # A headless `claude -p` pool: session-grade + parallel, no live steer → rung 2.
-got=$("$DEGRADE" rung "false false false false true yes") || fail "rung headless-pool caps exited nonzero"
-[ "$got" = 2 ] || fail "rung headless-pool caps: expected 2, got '$got'"
-
+check_rung "false false false false true yes" 2
 # An interactive multiplexer WITHOUT steer → also rung 2 (near the fallback).
-got=$("$DEGRADE" rung "true false false false true yes") || fail "rung interactive-no-steer caps exited nonzero"
-[ "$got" = 2 ] || fail "rung interactive-no-steer caps: expected 2, got '$got'"
+check_rung "true false false false true yes" 2
+# Total classifier: a session-grade parallel pool whose steer is `na` or `true`
+# still classifies as rung 2 (it is not rung 1, which requires interactivity),
+# never "unclassifiable" (regression guard for the non-total classifier).
+check_rung "false na na false true yes" 2
+check_rung "false false true false true yes" 2
+# A non-interactive single-stream backend is the terminal rung 4 regardless of
+# session-grade.
+check_rung "false na na false false no" 4
 
-# Hostile / unclassifiable arg is refused, not classified.
-if "$DEGRADE" rung "../../etc/passwd" >/dev/null 2>&1; then
-  fail "rung accepted a hostile arg"
-fi
-if "$DEGRADE" rung "not-a-real-backend" >/dev/null 2>&1; then
-  fail "rung accepted an unknown backend name"
-fi
+# Hostile / malformed args are refused, not classified.
+for bad in "../../etc/passwd" "not-a-real-backend" "true false" "true true true false true bogus"; do
+  if "$DEGRADE" rung "$bad" >/dev/null 2>&1; then
+    fail "rung accepted a bad arg '$bad'"
+  fi
+done
 
 # --- synchronous terminal rung: single-stream run with bounded-context clears -
 
@@ -123,6 +144,11 @@ for bad in "../x" "1;rm -rf" "5-6" "*" ""; do
   [ -z "${out:-}" ] || fail "terminal-plan emitted output for hostile id '$bad'"
 done
 
+# No ids at all is a usage error (exit 2).
+if "$DEGRADE" terminal-plan >/dev/null 2>&1; then
+  fail "terminal-plan with no ids should exit nonzero"
+fi
+
 # --- effective-backend record: spec-local, never tasks.md (REQ-B1.6) ---------
 
 sd=$(new_spec_dir)
@@ -138,10 +164,34 @@ grep -q "subagent" "$rec" || fail "record file missing the backend name"
 got=$("$DEGRADE" read "$sd") || fail "read exited nonzero after record"
 [ "$got" = subagent ] || fail "read: expected 'subagent', got '$got'"
 
-# read on a spec dir with no record exits 1 (absent), not 0.
+# read on a spec dir with no record exits EXACTLY 1 (absent), not a usage 2.
 sd2=$(new_spec_dir)
-if "$DEGRADE" read "$sd2" >/dev/null 2>&1; then
-  fail "read succeeded with no record present"
+"$DEGRADE" read "$sd2" >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "read with no record: expected exit 1, got $rc"
+
+# read tolerates a record written WITHOUT a trailing newline (external writer).
+sd_nl=$(new_spec_dir)
+mkdir -p "$sd_nl/.orchestrate"
+printf 'subagent\t9' >"$sd_nl/.orchestrate/effective-backend"
+got=$("$DEGRADE" read "$sd_nl") || fail "read of a newline-less record exited nonzero"
+[ "$got" = subagent ] || fail "read newline-less: expected 'subagent', got '$got'"
+
+# read refuses a symlink at the record path (write-path parity), reporting no
+# valid record (exit 1) rather than following it.
+sd_sl=$(new_spec_dir)
+mkdir -p "$sd_sl/.orchestrate"
+printf 'secret\n' >"$tmp/leak-target"
+ln -s "$tmp/leak-target" "$sd_sl/.orchestrate/effective-backend"
+out=$("$DEGRADE" read "$sd_sl" 2>/dev/null) && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "read of a symlink record: expected exit 1, got $rc"
+[ "${out:-}" != secret ] || fail "read followed a symlink and leaked target content"
+
+# read refuses a malformed (tampered) value rather than emitting it raw.
+sd_bad=$(new_spec_dir)
+mkdir -p "$sd_bad/.orchestrate"
+printf '../evil\t1\n' >"$sd_bad/.orchestrate/effective-backend"
+if "$DEGRADE" read "$sd_bad" >/dev/null 2>&1; then
+  fail "read emitted a malformed effective-backend value"
 fi
 
 # A hostile backend name is refused; nothing written.
@@ -154,7 +204,7 @@ fi
 # A symlink at the record path is refused, not written through (marker parity).
 sd4=$(new_spec_dir)
 mkdir -p "$sd4/.orchestrate"
-ln -s /etc/passwd "$sd4/.orchestrate/effective-backend"
+ln -s "$tmp/leak-target" "$sd4/.orchestrate/effective-backend"
 if "$DEGRADE" record "$sd4" subagent >/dev/null 2>&1; then
   fail "record wrote through a symlink at the record path"
 fi
@@ -167,31 +217,43 @@ PLANWRIGHT_ORCH_STATE_DIR="$sd5/mk" "$DEGRADE" record "$sd5" in-session \
   || fail "record with PLANWRIGHT_ORCH_STATE_DIR exited nonzero"
 [ -f "$sd5/effective-backend" ] || fail "record ignored PLANWRIGHT_ORCH_STATE_DIR parent placement"
 
-# --- runtime failover: descend exactly one rung (REQ-B1.5, REQ-B1.6) ---------
+# --- runtime failover: descend one rung down the available ladder ------------
 
-# tmux (rung 1) dies; subagent + in-session present → descend ONE rung to the
-# richest safe present rung below rung 1 = subagent (rung 3; no rung-2 pool here).
+# tmux (rung 1) dies; subagent + in-session present, no rung-2 pool → descend to
+# the richest safe present rung below rung 1 = subagent (rung 3).
 sd=$(new_spec_dir)
 tasks_before=$(cat "$sd/tasks.md")
 out=$("$DEGRADE" failover "$sd" tmux subagent in-session 2>"$tmp/err") \
   || fail "failover tmux→ exited nonzero (expected a safe descent)"
 grep -q "subagent" "$sd/.orchestrate/effective-backend" \
   || fail "failover did not record the effective backend (subagent)"
-echo "$out" | grep -qi "awaiting input\|failover" \
-  || fail "failover emitted no Awaiting-input entry on stdout"
+echo "$out" | grep -q -- "- \*\*Backend failover" \
+  || fail "failover emitted no Awaiting-input entry bullet on stdout"
 grep -qi "descend" "$tmp/err" || fail "failover emitted no descent NOTE on stderr"
 [ "$(cat "$sd/tasks.md")" = "$tasks_before" ] || fail "failover MUTATED tasks.md (REQ-B1.6 violation)"
-got=$("$DEGRADE" read "$sd")
-[ "$got" = subagent ] || fail "failover recorded '$got', expected subagent"
+[ "$("$DEGRADE" read "$sd")" = subagent ] || fail "failover recorded the wrong backend"
 
 # subagent (rung 3) dies; only in-session below → descend to the terminal rung.
 sd=$(new_spec_dir)
 "$DEGRADE" failover "$sd" subagent subagent in-session >/dev/null 2>&1 \
   || fail "failover subagent→in-session exited nonzero"
-got=$("$DEGRADE" read "$sd")
-[ "$got" = in-session ] || fail "failover subagent→ recorded '$got', expected in-session"
+[ "$("$DEGRADE" read "$sd")" = in-session ] || fail "failover subagent→ recorded wrong backend"
 
-# Multi-descent (R6): repeated failures walk down one rung each to the floor.
+# Descent to the rung-2 pool (the middle rung), a true adjacent one-rung step
+# from rung 1, via a pluggable adapter (F11).
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux tmux pool in-session >/dev/null 2>&1 \
+  || fail "failover tmux→pool (rung 2) exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = pool ] || fail "failover did not descend to the rung-2 pool"
+
+# Empty candidate list: the shipped presence probe fills it in (F4). With
+# subagent forced present, tmux fails over to subagent.
+sd=$(new_spec_dir)
+PLANWRIGHT_BACKEND_SUBAGENT=1 "$DEGRADE" failover "$sd" tmux >/dev/null 2>&1 \
+  || fail "failover with an empty candidate list exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = subagent ] || fail "empty-candidate probe recorded wrong backend"
+
+# Multi-descent (R6): repeated failures walk down one rung each toward the floor.
 sd=$(new_spec_dir)
 "$DEGRADE" failover "$sd" tmux subagent in-session >/dev/null 2>&1 || fail "R6 step 1 failed"
 [ "$("$DEGRADE" read "$sd")" = subagent ] || fail "R6 step 1 wrong rung"
@@ -200,56 +262,64 @@ sd=$(new_spec_dir)
 
 # --- safety-abort / escalation: degrade capability, NEVER safety --------------
 
-# Terminal-rung fatal crash: in-session (rung 4) dies, no lower rung exists →
-# ESCALATE (exit 3), never a silent downgrade, never a descent to print.
+# Terminal-rung floor: in-session (rung 4) dies with no lower rung → ESCALATE
+# (exit 3) with the TERMINAL reason, distinct from the guard-drop reason. `print`
+# is off the autonomous ladder, so it does not count as a lower rung.
 sd=$(new_spec_dir)
 out=$("$DEGRADE" failover "$sd" in-session in-session print 2>"$tmp/err") && rc=0 || rc=$?
 [ "$rc" = 3 ] || fail "terminal-rung escalation: expected exit 3, got $rc"
-{
+both=$({
   printf '%s' "$out"
   cat "$tmp/err"
-} | grep -qi "escalat\|terminal rung\|no lower rung" \
-  || fail "terminal-rung escalation gave no operator-visible reason"
+})
+echo "$both" | grep -qi "ladder floor\|no lower rung" \
+  || fail "terminal-rung escalation gave no terminal-floor reason"
+echo "$both" | grep -qi "would drop a named guard" \
+  && fail "terminal-rung escalation was mislabeled as a guard-drop"
+[ ! -f "$sd/.orchestrate/effective-backend" ] || fail "terminal escalation recorded a backend"
 
-# A descent that would DROP A GUARD is refused: subagent (rung 3) dies and the
-# only candidate below is the manual `print` rung (spawn deferred to a human,
-# dropping planwright's guard enforcement) → ESCALATE, never descend to print.
+# Guard-drop: tmux (rung 1) dies and the only lower rung is an INTERACTIVE pool
+# (rung 2, would strand an unattended run) → ESCALATE (exit 3) with the
+# GUARD-DROP reason, distinct from the terminal reason (F3/F5).
 sd=$(new_spec_dir)
-out=$("$DEGRADE" failover "$sd" subagent subagent print 2>"$tmp/err") && rc=0 || rc=$?
+out=$(PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux tmux ipool 2>"$tmp/err") && rc=0 || rc=$?
 [ "$rc" = 3 ] || fail "guard-drop refusal: expected exit 3, got $rc"
-{
+both=$({
   printf '%s' "$out"
   cat "$tmp/err"
-} | grep -qi "guard\|print\|manual\|escalat" \
-  || fail "guard-drop refusal gave no operator-visible reason"
-# The escalation must not have recorded print as the effective backend.
-if [ -f "$sd/.orchestrate/effective-backend" ]; then
-  ! grep -q "print" "$sd/.orchestrate/effective-backend" \
-    || fail "escalation recorded the unsafe 'print' backend"
-fi
+})
+echo "$both" | grep -qi "would drop a named guard" \
+  || fail "guard-drop refusal gave no guard-drop reason"
+echo "$both" | grep -qi "ladder floor\|no lower rung" \
+  && fail "guard-drop refusal was mislabeled as the terminal floor"
+[ ! -f "$sd/.orchestrate/effective-backend" ] || fail "guard-drop escalation recorded a backend"
 
-# Never ascend / never pick an interactive backend as a descent target: subagent
-# dies with only tmux (interactive, rung 1 — above) available → escalate.
+# Never ascend to an interactive backend: subagent dies with only tmux (rung 1,
+# above) present → no lower rung → escalate (exit 3), nothing recorded.
 sd=$(new_spec_dir)
-if "$DEGRADE" failover "$sd" subagent tmux subagent >/dev/null 2>"$tmp/err"; then
-  fail "failover ascended to an interactive backend"
-fi
+"$DEGRADE" failover "$sd" subagent tmux subagent >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 3 ] || fail "ascend refusal: expected exit 3, got $rc"
+[ ! -f "$sd/.orchestrate/effective-backend" ] || fail "ascend refusal recorded a backend"
 
 # Record-write failure aborts (R12): a regular FILE where .orchestrate must be a
-# dir makes the record write fail → the failover ESCALATES rather than proceeding
-# unrecorded (degrade capability, never safety).
+# dir makes the record write fail → the failover ESCALATES (exit 3) rather than
+# proceeding unrecorded, and says so.
 sd=$(new_spec_dir)
 : >"$sd/.orchestrate" # a file blocks `mkdir -p .orchestrate`
-if "$DEGRADE" failover "$sd" tmux subagent in-session >/dev/null 2>"$tmp/err"; then
-  fail "failover proceeded despite an unrecordable effective backend"
-fi
+out=$("$DEGRADE" failover "$sd" tmux subagent in-session 2>"$tmp/err") && rc=0 || rc=$?
+[ "$rc" = 3 ] || fail "record-write-failure abort: expected exit 3, got $rc"
+{
+  printf '%s' "$out"
+  cat "$tmp/err"
+} | grep -qi "record\|unrecorded" \
+  || fail "record-write-failure abort gave no operator-visible reason"
 
-# --- state-safety invariant: the script has no tasks.md-write or merge path ---
-# REQ-B1.6 / REQ-J1.1: the effective-backend record is spec-local and the fleet
-# never auto-merges. A source audit backs the functional assertions above.
-if grep -nE "tasks\.md" "$DEGRADE" | grep -vqiE '#|never|not'; then
-  fail "orchestrate-degrade.sh references tasks.md outside a comment"
-fi
+# --- state-safety invariant: no tasks.md-write or merge path (REQ-B1.6/J1.1) --
+# Every line of the script mentioning tasks.md must be a comment; and there is no
+# merge path (never-auto-merge). The behavioral assertions above (tasks.md
+# unchanged after record/failover) back this source audit.
+noncomment=$(grep -n 'tasks\.md' "$DEGRADE" | sed 's/^[0-9]*://' | grep -vE '^[[:space:]]*#' || true)
+[ -z "$noncomment" ] || fail "orchestrate-degrade.sh references tasks.md outside a comment: $noncomment"
 if grep -niE "\bgit merge\b|--auto-merge|gh pr merge|merge_pull_request" "$DEGRADE" >/dev/null; then
   fail "orchestrate-degrade.sh contains a merge path (never-auto-merge invariant)"
 fi

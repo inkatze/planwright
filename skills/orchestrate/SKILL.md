@@ -363,13 +363,15 @@ per-*unit* plan.) This rung needs no tmux or multiplexer, so ordinary single-spe
 execution is always available (REQ-A1.4).
 
 **Runtime failover.** When a chosen backend **dies or proves unavailable
-mid-run**, descend exactly one rung — never a silent downgrade. Run
-`scripts/orchestrate-degrade.sh failover <spec-dir> <current-backend>
-[candidate...]` (candidates = the backends detected present; omitted, it
-re-probes the shipped set). It descends to the richest present,
-**guard-preserving** backend strictly below the current rung, **records the
-effective backend spec-locally** in `<spec-dir>/.orchestrate/` alongside the
-sibling's dispatch marker (never in `tasks.md`, REQ-B1.6; read back with
+mid-run**, descend one rung down the available ladder — never a silent
+downgrade. Run `scripts/orchestrate-degrade.sh failover <spec-dir>
+<current-backend> [candidate...]` (candidates = the backends detected present,
+including any pluggable ones by name; omitted, it re-probes the shipped set). It
+descends to the richest present, **guard-preserving** backend strictly below the
+current rung (an absent intermediate rung is skipped, so with every rung present
+this is the adjacent one), **records the effective backend spec-locally** in
+`<spec-dir>/.orchestrate/` — the sibling's dispatch-state root, beside its
+`markers/` dir (never in `tasks.md`, REQ-B1.6; read back with
 `orchestrate-degrade.sh read`), emits a `NOTE:` on stderr, and prints an
 `## Awaiting input`-ready entry on stdout — **append that entry to the spec's
 `## Awaiting input`** so the descent is one durable, operator-visible signal
