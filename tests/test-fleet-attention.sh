@@ -18,7 +18,8 @@
 #     worker count — non-actionable signal is suppressed (REQ-E1.3);
 #   - the queue is alarm-rationalized: ordered by priority, then oldest-waiting;
 #   - a backend advertising provides_attention_surface:true suppresses
-#     planwright's own render/queue (backend-capability-contract adaptation);
+#     planwright's own decision queue only; the status render stays available
+#     (backend-capability-contract adaptation, scoped to the actionable surface);
 #   - the notification seam dispatches through the resolved channel (none is a
 #     silent no-op; editor-toast drops a sanitized line);
 #   - artifact data hygiene (REQ-A1.6): hostile worker/scope/decision fields are

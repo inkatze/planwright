@@ -33,8 +33,9 @@
 # writes into the sibling's spec-local .orchestrate/ dir.
 #
 # provides_attention_surface (backend-capability-contract, D-2): when a backend
-# supplies its own attention surface, planwright suppresses its OWN render/queue
-# and defers, so the operator sees one surface, not two. Signalled per-call by
+# supplies its own attention surface, planwright suppresses its OWN decision
+# queue (the actionable surface) and defers; the status render stays available,
+# so the operator sees one actionable surface, not two. Signalled per-call by
 # --surface-provided (what an entry command passes from the selected backend's
 # advertised set) or the ambient PLANWRIGHT_ATTENTION_SURFACE_PROVIDED env.
 #
