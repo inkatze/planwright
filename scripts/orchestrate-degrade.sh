@@ -410,9 +410,13 @@ cmd_read() {
     echo "orchestrate-degrade: ignoring non-regular effective-backend record at $rd_file" >&2
     return 1
   fi
-  # First field of the first line is the backend name. Do NOT gate on `read`'s
-  # exit status: a record written without a trailing newline (e.g. by another
-  # tool) makes `read` return nonzero at EOF though it populated the field.
+  # First field of the first line is the backend name. Pre-initialize so a
+  # redirect that fails (the record vanished after the check above) leaves a
+  # defined-but-empty value under `set -u` rather than an unbound-variable abort.
+  # Do NOT gate on `read`'s exit status: a record written without a trailing
+  # newline (e.g. by another tool) makes `read` return nonzero at EOF though it
+  # populated the field.
+  rd_backend=''
   IFS='	' read -r rd_backend _ <"$rd_file" || true
   [ -n "$rd_backend" ] || return 1
   # Re-validate the read-back value: the writer only ever persists a valid

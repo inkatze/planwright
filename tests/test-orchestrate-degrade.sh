@@ -186,6 +186,13 @@ out=$("$DEGRADE" read "$sd_sl" 2>/dev/null) && rc=0 || rc=$?
 [ "$rc" = 1 ] || fail "read of a symlink record: expected exit 1, got $rc"
 [ "${out:-}" != secret ] || fail "read followed a symlink and leaked target content"
 
+# An empty record file is "no valid record" (exit 1), not a crash.
+sd_empty=$(new_spec_dir)
+mkdir -p "$sd_empty/.orchestrate"
+: >"$sd_empty/.orchestrate/effective-backend"
+"$DEGRADE" read "$sd_empty" >/dev/null 2>&1 && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "read of an empty record: expected exit 1, got $rc"
+
 # read refuses a malformed (tampered) value rather than emitting it raw.
 sd_bad=$(new_spec_dir)
 mkdir -p "$sd_bad/.orchestrate"
