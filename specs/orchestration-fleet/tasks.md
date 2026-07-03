@@ -217,32 +217,6 @@ space).
 - **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
 - **Estimated effort:** 2 days
 
-### Task 12 — Attention/notification capability in core
-
-- **Deliverables:** The substrate-agnostic attention/notification capability
-  lifted into core (paralleling the execution capability), depending on no
-  dotfiles-local mechanism: heartbeat/awareness state under the cross-spec
-  fleet-state home (Task 9); a **portable status renderer** reading the
-  worker/scope registry (each worker's scope = spec + unit, state = working /
-  awaiting input / PR-ready / merged / done); the **decision queue** — one
-  ordered, alarm-rationalized queue of actionable items across all active specs,
-  each a structured choice (spec/task, question, recommended default, concrete
-  options), human load bounded by `## Awaiting input` count, non-actionable signal
-  suppressed; and a **notification seam** whose channel (multiplexer popup / OS
-  notify / editor toast) is the overlay value.
-- **Done when:** heartbeat/registry state lives under the Task 9 cross-spec home
-  and a marketplace-install user gets the capability from core (no dotfiles
-  dependency); the renderer lists each worker's scope and state; the decision
-  queue orders actionable items across active specs as structured choices and its
-  length tracks `## Awaiting input` count (not worker count); the notification
-  seam's channel resolves as an overlay value through the four layers; a backend
-  advertising `provides_attention_surface: true` suppresses planwright's own queue
-  rendering; tests/manual cover the renderer and queue; `check-options-reference.sh`
-  passes for the notification-channel knob; CI passes.
-- **Dependencies:** 9
-- **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
-- **Estimated effort:** 2 days
-
 ### Task 10 — Approachability: entry command, two-seam UX, persona mapping
 
 - **Deliverables:** One obvious entry command that autodetects/selects a backend
@@ -312,6 +286,34 @@ space).
 - **Estimated effort:** 2 days
 - **Status:** PR #115 draft
 - **Last activity:** 2026-07-02
+
+### Task 12 — Attention/notification capability in core
+
+- **Deliverables:** The substrate-agnostic attention/notification capability
+  lifted into core (paralleling the execution capability), depending on no
+  dotfiles-local mechanism: heartbeat/awareness state under the cross-spec
+  fleet-state home (Task 9); a **portable status renderer** reading the
+  worker/scope registry (each worker's scope = spec + unit, state = working /
+  awaiting input / PR-ready / merged / done); the **decision queue** — one
+  ordered, alarm-rationalized queue of actionable items across all active specs,
+  each a structured choice (spec/task, question, recommended default, concrete
+  options), human load bounded by `## Awaiting input` count, non-actionable signal
+  suppressed; and a **notification seam** whose channel (multiplexer popup / OS
+  notify / editor toast) is the overlay value.
+- **Done when:** heartbeat/registry state lives under the Task 9 cross-spec home
+  and a marketplace-install user gets the capability from core (no dotfiles
+  dependency); the renderer lists each worker's scope and state; the decision
+  queue orders actionable items across active specs as structured choices and its
+  length tracks `## Awaiting input` count (not worker count); the notification
+  seam's channel resolves as an overlay value through the four layers; a backend
+  advertising `provides_attention_surface: true` suppresses planwright's own queue
+  rendering; tests/manual cover the renderer and queue; `check-options-reference.sh`
+  passes for the notification-channel knob; CI passes.
+- **Dependencies:** 9
+- **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
+- **Estimated effort:** 2 days
+- **Status:** PR #116 draft
+- **Last activity:** 2026-07-03
 
 ## Awaiting input
 

@@ -445,6 +445,40 @@ untouched).
   Proportionality: scope declared — the step-count monitor is built and CI-tested;
   the PreCompact path is documented, not globally wired.
 
+### Task 12 execution findings — notification-seam injection hardening (2026-07-03)
+
+Informs **R5** (safe defaults for new knobs) and extends the §7 **Security
+surface** note (which enumerated the backend relay/spawn surface but not the
+notification channel's own adapter surface). The write-time security pass fired on
+the subprocess/shell-construction trigger: the `notify` seam hands an untrusted,
+worker-derived summary to a platform notification tool. Appended per the
+execution-skill risk-register convention (named section, no anchor entry, existing
+rows untouched).
+
+- **Finding — `tmux display-message` executes format specifiers.** tmux interprets
+  `#{...}` / `#(...)` FORMAT sequences in a message, and `#(cmd)` runs a shell
+  command — so passing an untrusted summary to it verbatim is a command-injection
+  vector. Mitigation: the `tmux-popup` adapter strips `#` from the summary before
+  the push, neutralizing both format and command expansion. Best-effort: with no
+  attached server the item still lives in the decision queue.
+- **Finding — AppleScript string interpolation is an injection vector.** Building
+  an `osascript -e "display notification \"$summary\""` string interpolates the
+  summary into script text. Mitigation: the `os-notify` adapter passes the summary
+  as **argv data** (`on run argv … item 1 of argv … end run -- "$summary"`), never
+  interpolated into the script; the Linux `notify-send -- "$summary"` path is argv-
+  safe by construction.
+- **Decision (R5 informed).** The default channel is **`none`** (pull-only): it
+  pushes nothing, needs no external tool, and cannot surprise an operator — the
+  safe, quiet default R5 requires. Every channel adapter treats the summary as
+  data: it is first stripped of C0/DEL through the canonical echo-discipline
+  sanitizer, then handled so no format specifier, AppleScript string, or shell
+  metacharacter can execute. Store fields (worker/scope handles, decision text)
+  are grammar-validated before any write, so the store cannot be torn or a path
+  escaped. Proportionality: scope declared — `none` and `editor-toast` are
+  CI-tested; the `tmux-popup` / `os-notify` platform pushes are best-effort
+  adapters exercised manually (per the test-spec `[manual]` classification for
+  substrate-specific behavior), degrading to the queue when their tool is absent.
+
 ## 8. Sign-off
 
 ### Lens review pass (Discovery Rigor)

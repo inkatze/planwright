@@ -71,6 +71,21 @@ stale_lock_threshold: 15m
 # progress. Safe to revert because dispatch writes no authoritative state (D-1).
 stale_marker_threshold: 15m
 
+# Which channel the fleet attention/notification seam pushes a notification
+# through (D-13, REQ-E1.4). This is the capability-vs-style split (REQ-A1.5):
+# the notification SEAM lives in core; the specific channel VALUE is
+# overlay-owned. `none` (default) is pull-only — nothing is pushed and the
+# operator reads the decision queue (scripts/fleet-attention.sh queue) on
+# demand; it is dependency-free and behavior-preserving, so it is the safe
+# default. `tmux-popup` pushes a multiplexer popup (the multiplexer-user
+# persona); `os-notify` an OS notification (the non-terminal-user persona);
+# `editor-toast` an editor toast the editor tails (the editor-feedback persona).
+# Resolved through scripts/resolve-notification-channel.sh, which validates the
+# enum and applies the REQ-E1.4 by-layer malformed policy (degrade+warn for
+# adopter/machine-local, hard-fail for repo-tracked); the channel adapters live
+# in scripts/fleet-attention.sh (`notify`).
+notification_channel: none
+
 # The ordered review sequence /execute-task's convergence phase runs (D-6,
 # REQ-D1.3). An inline list of nestable review-skill names (a nestable review
 # skill is one invocable with --nested). The default reproduces today's
