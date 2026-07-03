@@ -235,6 +235,29 @@ ro=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
 echo "ok: provides_attention_surface suppresses the decision queue only; status render stays available"
 
 # ---------------------------------------------------------------------------
+# 7b. Suppression PRECEDENCE over --count. --surface-provided and --count can be
+#     passed together; the contract is that suppression WINS — a deferred queue
+#     renders nothing, not even the item COUNT, so an operator never sees a bare
+#     number they might mistake for planwright's own actionable surface while a
+#     backend owns it. This pins the "suppress before emitting the count"
+#     ordering explicitly rather than trusting the composition of the single-flag
+#     cases. home7 already holds one awaiting-input worker (s2), so an
+#     unsuppressed --count would print 1 — the control below proves it.
+# ---------------------------------------------------------------------------
+so=$(aenv "$home7" queue --surface-provided --count 2>/dev/null) \
+  || fail "precedence: queue --surface-provided --count non-zero exit"
+[ -z "$so" ] || fail "precedence: --surface-provided must win over --count, but a count ('$so') was printed"
+# Flag order must not matter — --count first, then --surface-provided, still defers.
+so=$(aenv "$home7" queue --count --surface-provided 2>/dev/null) \
+  || fail "precedence: queue --count --surface-provided (reversed) non-zero exit"
+[ -z "$so" ] || fail "precedence: suppression must win regardless of flag order, but a count ('$so') was printed"
+# Control: --count ALONE (no surface signal) DOES print the actionable count, so
+# the empty stdout above is the suppression flag's doing, not an empty store.
+c=$(aenv "$home7" queue --count 2>/dev/null) || fail "precedence control: queue --count non-zero exit"
+[ "$c" = 1 ] || fail "precedence control: queue --count is '$c', expected 1 (one awaiting-input worker present)"
+echo "ok: provides_attention_surface suppression wins over --count (no leaked item count, either flag order)"
+
+# ---------------------------------------------------------------------------
 # 8. clear removes a worker's row (idempotent) — cleanup on merged/done teardown.
 # ---------------------------------------------------------------------------
 home8="$tmp/clear-home"
