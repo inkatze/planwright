@@ -169,13 +169,23 @@ echo "ok: no fleet path writes into the sibling .orchestrate/ dir"
 home_reg="$tmp/reg-race"
 N=20
 i=0
+reg_pids=""
 while [ "$i" -lt "$N" ]; do
   env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
     PLANWRIGHT_FLEET_STATE_DIR="$home_reg" \
     /bin/sh "$FS" register "worker=w$i" "spec-$i" &
+  reg_pids="$reg_pids $!"
   i=$((i + 1))
 done
-wait
+# Track PIDs and check each exit status: a bare `wait` returns only the last
+# job's status, so a register that exited non-zero under contention would go
+# unnoticed (repo idiom, cf. tests/test-tasks-pr-sync.sh). Every register must
+# succeed here — none should fail — so any non-zero exit is a real regression.
+reg_rc=0
+for p in $reg_pids; do
+  wait "$p" || reg_rc=1
+done
+[ "$reg_rc" = 0 ] || fail "registry race: a concurrent register exited non-zero under contention"
 lines=$(wc -l <"$home_reg/registry" | tr -d ' ')
 [ "$lines" = "$N" ] || fail "registry race: $lines records, expected $N (lost or torn writes)"
 # Every record is well-formed: <epoch>\t<worker>\t<scope>, exactly three fields,
@@ -226,6 +236,7 @@ rcdir="$tmp/bound-rcs"
 errdir="$tmp/bound-errs"
 mkdir -p "$okdir" "$rcdir" "$errdir"
 i=0
+bound_pids=""
 while [ "$i" -lt "$N" ]; do
   (
     # Capture the exit code, the granted new-count (stdout on exit 0), and any
@@ -235,6 +246,9 @@ while [ "$i" -lt "$N" ]; do
     # error (exit 2, e.g. spin_acquire budget exhaustion under
     # contention). A grant-count-only check would pass an exit-2 that landed on a
     # call which would have been refused anyway, as long as MAX grants still hit.
+    # The subshell swallows bound-incr's own exit into the rc marker, so its OWN
+    # exit is 0 unless a marker write fails (set -e) — which the PID check below
+    # then surfaces as a harness failure rather than a confusing count mismatch.
     rc=0
     out=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
       PLANWRIGHT_FLEET_STATE_DIR="$home_bound" \
@@ -242,9 +256,17 @@ while [ "$i" -lt "$N" ]; do
     printf '%s\n' "$rc" >"$rcdir/$i"
     if [ "$rc" = 0 ]; then printf '%s\n' "$out" >"$okdir/$i"; fi
   ) &
+  bound_pids="$bound_pids $!"
   i=$((i + 1))
 done
-wait
+# Track PIDs and check each exit status (repo idiom, cf.
+# tests/test-tasks-pr-sync.sh): a bare `wait` returns only the last job's status,
+# so a subshell that failed to write its rc/stderr marker would slip past.
+bound_prc=0
+for p in $bound_pids; do
+  wait "$p" || bound_prc=1
+done
+[ "$bound_prc" = 0 ] || fail "bound race: a concurrent worker subshell exited non-zero (marker-write/harness failure)"
 granted=$(find "$okdir" -type f | wc -l | tr -d ' ')
 [ "$granted" = "$MAX" ] || fail "bound race: $granted grants, expected exactly $MAX (over/under-count)"
 # Exit-code distribution: exactly MAX grants (exit 0) and N-MAX clean at-bound
