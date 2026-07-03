@@ -503,7 +503,11 @@ cmd_failover() {
     if [ "$fo_any_below" -eq 1 ]; then
       fo_reason="a lower ladder rung is available but would drop a named guard (an interactive or otherwise unsafe backend); refusing to descend — degrade capability, never safety"
     else
-      fo_reason="'$fo_current' is at the autonomous ladder floor; no lower rung exists"
+      # No lower ladder rung is present. This is the true terminal-rung floor
+      # when current is rung 4; it is also reached when a higher rung's only
+      # present descendants are off-ladder — so the message states the available
+      # fact ("no lower rung present") without asserting current is the floor.
+      fo_reason="no lower rung is present below '$fo_current' (rung $fo_cur_rung); nothing safe to descend to"
       [ "$fo_off_ladder" -eq 1 ] && fo_reason="$fo_reason (the manual 'print' backend remains, but the tower cannot drive it)"
     fi
     echo "NOTE: runtime-failover ESCALATION: $fo_reason." >&2
