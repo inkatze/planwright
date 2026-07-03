@@ -33,8 +33,9 @@ monitor that silently breaks is exactly the silent degradation this doctrine
 exists to prevent.
 
 What a tower *does* reliably have is a count of the **orchestration steps** it has
-completed since it started — one increment per dispatched unit, wholly under its
-own control and identical on every backend. So the budget signal is a
+completed since it started — one increment per orchestration step (each `--watch`
+loop iteration, dispatch or not), wholly under its own control and identical on
+every backend. So the budget signal is a
 **completed-step-count proxy**: the tower hands off after a configured number of
 steps. It is not a token measurement; it is a bounded, portable, deterministic
 stand-in for one. Because the handover is cheap and lossless (below), the proxy
