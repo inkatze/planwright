@@ -112,6 +112,7 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-11 · REQ-D1.6, REQ-A1.6
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-02
 
 ### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
 
@@ -158,27 +159,6 @@ space).
 - **Estimated effort:** 2 days
 - **Last activity:** 2026-07-02
 
-### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
-
-- **Deliverables:** A context-budget monitor for a long-running tower (threshold
-  configurable via a documented knob) and the auto-heal handover (the
-  `continue-as-new` pattern): on nearing the limit the tower launches a fresh
-  tower that rebuilds from durable state (the `tasks.md` snapshot, `gh`, the
-  branch/marker/process and worker list), with the standing-instructions/wake
-  prompt serving as the handover document; the retiring tower starts the
-  replacement and stops. The exact budget signal is resolved against Claude Code's
-  available capability (risk-register row / research).
-- **Done when:** the monitor surfaces a near-limit condition against the
-  configured threshold; auto-heal launches a fresh tower that reconstructs the
-  in-flight picture from durable state with no in-memory state passed (testable by
-  "could a fresh tower resume from this alone?"); the handover uses the wake prompt
-  (no second artifact); the handover preserves the state-safety contract
-  (REQ-C1.4); the threshold knob is in `docs/options-reference.md`; tests/manual
-  exercise cover the handover; CI passes.
-- **Dependencies:** 1
-- **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
-- **Estimated effort:** 2 days
-
 ### Task 6 — Meta-orchestration (tower of towers)
 
 - **Deliverables:** A meta-tower mode that selects ready units across multiple
@@ -217,32 +197,6 @@ space).
   data with validation before use; doc linters and CI pass.
 - **Dependencies:** 1, 6
 - **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
-- **Estimated effort:** 2 days
-
-### Task 12 — Attention/notification capability in core
-
-- **Deliverables:** The substrate-agnostic attention/notification capability
-  lifted into core (paralleling the execution capability), depending on no
-  dotfiles-local mechanism: heartbeat/awareness state under the cross-spec
-  fleet-state home (Task 9); a **portable status renderer** reading the
-  worker/scope registry (each worker's scope = spec + unit, state = working /
-  awaiting input / PR-ready / merged / done); the **decision queue** — one
-  ordered, alarm-rationalized queue of actionable items across all active specs,
-  each a structured choice (spec/task, question, recommended default, concrete
-  options), human load bounded by `## Awaiting input` count, non-actionable signal
-  suppressed; and a **notification seam** whose channel (multiplexer popup / OS
-  notify / editor toast) is the overlay value.
-- **Done when:** heartbeat/registry state lives under the Task 9 cross-spec home
-  and a marketplace-install user gets the capability from core (no dotfiles
-  dependency); the renderer lists each worker's scope and state; the decision
-  queue orders actionable items across active specs as structured choices and its
-  length tracks `## Awaiting input` count (not worker count); the notification
-  seam's channel resolves as an overlay value through the four layers; a backend
-  advertising `provides_attention_surface: true` suppresses planwright's own queue
-  rendering; tests/manual cover the renderer and queue; `check-options-reference.sh`
-  passes for the notification-channel knob; CI passes.
-- **Dependencies:** 9
-- **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
 - **Estimated effort:** 2 days
 
 ### Task 10 — Approachability: entry command, two-seam UX, persona mapping
@@ -311,6 +265,57 @@ space).
 - **Estimated effort:** 1 day
 - **Status:** PR #112 draft
 - **Last activity:** 2026-07-02
+
+### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
+
+- **Deliverables:** A context-budget monitor for a long-running tower (threshold
+  configurable via a documented knob) and the auto-heal handover (the
+  `continue-as-new` pattern): on nearing the limit the tower launches a fresh
+  tower that rebuilds from durable state (the `tasks.md` snapshot, `gh`, the
+  branch/marker/process and worker list), with the standing-instructions/wake
+  prompt serving as the handover document; the retiring tower starts the
+  replacement and stops. The exact budget signal is resolved against Claude Code's
+  available capability (risk-register row / research).
+- **Done when:** the monitor surfaces a near-limit condition against the
+  configured threshold; auto-heal launches a fresh tower that reconstructs the
+  in-flight picture from durable state with no in-memory state passed (testable by
+  "could a fresh tower resume from this alone?"); the handover uses the wake prompt
+  (no second artifact); the handover preserves the state-safety contract
+  (REQ-C1.4); the threshold knob is in `docs/options-reference.md`; tests/manual
+  exercise cover the handover; CI passes.
+- **Dependencies:** 1
+- **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
+- **Estimated effort:** 2 days
+- **Status:** PR #115 draft
+- **Last activity:** 2026-07-02
+
+### Task 12 — Attention/notification capability in core
+
+- **Deliverables:** The substrate-agnostic attention/notification capability
+  lifted into core (paralleling the execution capability), depending on no
+  dotfiles-local mechanism: heartbeat/awareness state under the cross-spec
+  fleet-state home (Task 9); a **portable status renderer** reading the
+  worker/scope registry (each worker's scope = spec + unit, state = working /
+  awaiting input / PR-ready / merged / done); the **decision queue** — one
+  ordered, alarm-rationalized queue of actionable items across all active specs,
+  each a structured choice (spec/task, question, recommended default, concrete
+  options), human load bounded by `## Awaiting input` count, non-actionable signal
+  suppressed; and a **notification seam** whose channel (multiplexer popup / OS
+  notify / editor toast) is the overlay value.
+- **Done when:** heartbeat/registry state lives under the Task 9 cross-spec home
+  and a marketplace-install user gets the capability from core (no dotfiles
+  dependency); the renderer lists each worker's scope and state; the decision
+  queue orders actionable items across active specs as structured choices and its
+  length tracks `## Awaiting input` count (not worker count); the notification
+  seam's channel resolves as an overlay value through the four layers; a backend
+  advertising `provides_attention_surface: true` suppresses planwright's own queue
+  rendering; tests/manual cover the renderer and queue; `check-options-reference.sh`
+  passes for the notification-channel knob; CI passes.
+- **Dependencies:** 9
+- **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
+- **Estimated effort:** 2 days
+- **Status:** PR #116 draft
+- **Last activity:** 2026-07-03
 
 ## Awaiting input
 
