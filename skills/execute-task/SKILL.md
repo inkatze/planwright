@@ -151,7 +151,20 @@ present the reason and wait instead.
    `cargo test && cargo clippy -- -D warnings`, pytest+ruff+mypy from
    `pyproject.toml`). Prefer the aggregate over a bare test run. If none can
    be derived, ask. Record the command for the implementation phase.
-10. **Update Last activity; write no placement or `Status`.** The dispatch record
+10. **Resolve `dispatch_isolation`** (D-5, REQ-C1.3). Run
+    `scripts/resolve-dispatch-isolation.sh` (under the resolved planwright root)
+    to read the knob through the four-layer overlay; it prints `per-step` (the
+    assigned-decision default) or `per-unit` and applies the REQ-E1.4 by-layer
+    malformed policy. On a hard-fail (exit 4 — a malformed repo-tracked value or a
+    structurally malformed team-shared config; exit 5 — a broken install whose
+    core default is itself unresolvable) this is a **stop condition**: record to
+    `tasks.md` Awaiting input and halt, as with a broken review sequence; do not
+    sequence a unit under a broken shared value. A warn+degrade
+    (an adopter/machine-local malformed value degraded to the core default, exit
+    0) proceeds. Record the resolved mode; it governs how the Implementation and
+    Convergence phases sequence this unit's steps (the *Step isolation* subsection
+    below).
+11. **Update Last activity; write no placement or `Status`.** The dispatch record
     (the task branch + the runtime marker) created at dispatch already makes the
     unit derivable as In progress, so this skill writes **no** `tasks.md` section
     placement here, and **no** `Status` line either. Section placement is the
@@ -175,6 +188,56 @@ present the reason and wait instead.
     absent/malformed config falls back to the default with a one-line warning).
 
 ## Implementation
+
+### Step isolation (`dispatch_isolation`, REQ-C1.3, REQ-C1.4, D-5)
+
+The `dispatch_isolation` mode resolved in pre-flight step 10 governs how this
+unit's **steps** — the implementation phase (test-first loop, research, security
+pass, CI), then each review skill in the configured `review_sequence` — are
+hosted. It changes only the *hosting*, never the work each step does or the
+order the sequence runs in.
+
+- **`per-unit`** (today's behavior, strictly preserved): the whole unit runs in
+  **one session** — this session. Implement, run CI, then invoke each
+  `review_sequence` skill inline with `--nested` (the Convergence section),
+  then push and open the PR. No fresh sessions, no context clears; the
+  accumulated context carries across every step. An operator on a constrained
+  host selects this.
+
+- **`per-step`** (the assigned-decision default): each step runs in its **own
+  fresh `/resume`-seeded session**, so context stays bounded and each review's
+  perspective is uncontaminated by the implementation's (or a prior review's)
+  context. The sequence is unchanged — implementation first, then each
+  `review_sequence` skill in order, then this skill's single push + PR — but the
+  steps do not share a context:
+  - **Fresh session seeding.** Each step's session is seeded by `/resume`, which
+    rebuilds the picture from durable state alone (the kickoff brief, the
+    `tasks.md` snapshot, the git log, the open PR state) — the same
+    reconstruct-from-disk contract auto-heal uses. **No in-memory state is
+    passed between steps**; a step that needs a predecessor's output reads it
+    from the committed tree, the brief, or the PR, never from carried context.
+    Each step commits its own work with the `Planwright-Task:` trailer, the
+    durable cross-session anchor the next `/resume` and the reconcile both read.
+  - **Realization by substrate.** How a fresh session is obtained is the
+    backend's job (the capability contract, D-2): a backend advertising
+    session-grade spawn hosts each step as a separate top-level session; the
+    synchronous terminal rung (D-3), which cannot spawn, **approximates**
+    per-step with a strategic context clear followed by a `/resume` reseed
+    between steps — the same bounded-context effect within one terminal. A
+    backend that can neither spawn nor clear degrades to `per-unit` behavior for
+    this unit (degrade capability, never safety); note the degrade.
+  - **State-safety is invariant across sessions (REQ-C1.4).** Splitting the unit
+    into fresh sessions changes nothing about state ownership: every `tasks.md`
+    placement move still happens **only** through the sibling's level-triggered
+    reconcile, and any state move still acquires the per-spec advisory lock. No
+    fresh per-step session writes dispatch or progress state to `tasks.md` by a
+    path that bypasses the derived-projection contract, and none opens its own
+    PR — push and PR creation remain this skill's single terminal step
+    (`per-step` never produces a PR per step).
+
+If `dispatch_isolation` could not be resolved (it hard-failed in pre-flight step
+10), execution has already halted; this subsection is reached only with a
+resolved mode.
 
 ### Commit convention (REQ-C1.4, D-2)
 
@@ -318,11 +381,28 @@ policy, and prints the validated ordered names, one per line. By exit code:
   condition** — halt and hand off.
 
 **Run each named skill in order, with `--nested`.** For each name the resolver
-printed, invoke `/<name> --nested`. Each review skill runs in-session (REQ-E2.2,
-D-13): one session, one context, hooks fire once per actual tool call; it
-drains every action disposition per act-then-review and returns its audit
-record without pushing or creating a PR (that is this skill's job, which is why
-`--nested` is mandatory for every review-sequence skill). After each returns:
+printed, invoke `/<name> --nested`. Every review skill runs `--nested` in both
+isolation modes — it drains every action disposition per act-then-review and
+returns its audit record without pushing or creating a PR (that is this skill's
+job, which is why `--nested` is mandatory for every review-sequence skill). The
+`dispatch_isolation` mode resolved in pre-flight step 10 (the *Step isolation*
+subsection) sets only where that `--nested` call is **hosted**, not the sequence
+or the contract:
+
+- **`per-unit`:** the review skill is invoked by **in-session composition**
+  (REQ-E2.2, D-13) — the same session the implementation ran in, one context,
+  hooks fire once per actual tool call.
+- **`per-step`:** the review skill runs in its **own fresh `/resume`-seeded
+  session** per step (the assigned-decision default), a session distinct from
+  the implementation's and from the other review steps. REQ-E2.2's "one session,
+  one context" holds *within* that fresh session (the review skill and its own
+  sub-composition are one session, hooks fire once per tool call); the isolation
+  is that the session is re-seeded per step, so context stays bounded and each
+  review's perspective is uncontaminated by prior steps. It is dispatched, not
+  composed into the implementation's session — but the `--nested` contract is
+  unchanged, so it still never pushes or opens a PR.
+
+After each returns:
 
 - **Normal exit** (converged, or handed off with queued forks): continue to the
   next skill in the sequence; once the whole sequence has run, proceed to PR
@@ -410,6 +490,7 @@ session, present it and wait.
 | No / partial kickoff brief | Pre-flight step 6 found no brief or a brief without its anchor line. |
 | Freshness-gate halt | Pre-flight step 7: anchor mismatch, or an absent / unparseable / non-sanctioned / wrong-writer entry. |
 | Dependency not completed | Pre-flight step 8 found an incomplete dependency. |
+| Malformed `dispatch_isolation` | Pre-flight step 10: `resolve-dispatch-isolation.sh` hard-failed (exit 4/5) — a malformed repo-tracked value, a structurally malformed team-shared config, or a broken install. |
 | Test cannot fail for the right reason | Test-first step 2: the test passes immediately or fails for an unrelated reason and cannot be isolated. |
 | CI logic failure | A logic-classified CI failure, or transient retries exhausted then reclassified. |
 | Research reveals an uncovered risk | Research surfaced a significant risk the brief did not anticipate. |
@@ -434,6 +515,13 @@ These hold at every step:
 - **Never** invoke a `review_sequence` skill (`/polish` by default)
   without `--nested`: this skill owns push and PR creation (D-39, REQ-E1.4,
   REQ-D1.3).
+- **Never** let `per-step` isolation weaken the state-safety contract
+  (REQ-C1.4): a fresh `/resume`-seeded step session rebuilds from durable state
+  only, drives every `tasks.md` placement move through the sibling's
+  level-triggered reconcile under the per-spec lock, and opens no PR of its own —
+  push and PR creation stay this skill's single terminal step regardless of the
+  isolation mode. Degrade `per-step` to `per-unit` when the substrate cannot host
+  a fresh session, never a guard (degrade capability, never safety).
 - **Never** skip the test-first loop for a behavior-introducing unit when
   `test-spec.md` describes a verification path (REQ-E1.1).
 - **Never** retry a logic CI failure; transient retries cap at two; unknown

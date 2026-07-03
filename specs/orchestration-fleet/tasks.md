@@ -175,6 +175,7 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-5 · REQ-C1.3, REQ-C1.4
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-02
 
 ### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
 

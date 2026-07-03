@@ -31,6 +31,20 @@ mark_spec_pr_ready_on_kickoff: true
 dispatch_backend: subagent
 max_parallel_units: 3
 
+# How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
+# implementation and each configured review_sequence skill in its own fresh
+# /resume-seeded session, so context stays bounded and each review's perspective
+# is uncontaminated by prior steps; backends that cannot spawn a fresh session
+# approximate it (the synchronous terminal rung via context clears between
+# steps). `per-unit` keeps today's single-session behavior (one worker session
+# for the whole unit). The default is the assigned human decision (`per-step`);
+# `per-unit` remains supported for constrained hosts. Resolved through
+# scripts/resolve-dispatch-isolation.sh, which validates the enum and applies
+# the REQ-E1.4 by-layer malformed policy. (Flipping this default from the
+# historical per-unit behavior is tracked cross-spec as the required bootstrap
+# D-38 amendment — risk row R3.)
+dispatch_isolation: per-step
+
 # Per-spec advisory lock staleness threshold for /orchestrate (D-10).
 stale_lock_threshold: 15m
 
