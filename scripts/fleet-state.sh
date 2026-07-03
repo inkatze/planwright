@@ -364,14 +364,21 @@ case $cmd in
       echo "fleet-state: refusing malformed scope '$scope' (must match ^[A-Za-z0-9._=@:-]{1,128}\$)" >&2
       exit 2
     fi
+    spin_acquire "$lock" || exit 2
+    # Stamp the record's time UNDER the lock, so it reflects when the record is
+    # committed, not when register was invoked. Append order then matches
+    # timestamp order (monotonic non-decreasing): without this, a caller that
+    # captured its timestamp early and then blocked on the lock could append an
+    # earlier timestamp after a later one under contention. On a bad clock read,
+    # release the lock before failing closed.
     now=$(date +%s)
     case $now in
       "" | *[!0-9]*)
+        rmdir "$lock" 2>/dev/null || true
         echo "fleet-state: could not read a numeric timestamp" >&2
         exit 2
         ;;
     esac
-    spin_acquire "$lock" || exit 2
     rc=0
     # Copy-append-rename so a concurrent reader sees only a complete registry.
     reg_tmp=$(mktemp "$root/.registry.XXXXXX") || rc=2

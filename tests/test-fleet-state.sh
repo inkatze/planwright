@@ -164,6 +164,33 @@ distinct=$(cut -f2 "$home_reg/registry" | sort -u | wc -l | tr -d ' ')
 echo "ok: concurrent registry writes are serialized (no torn records, none lost)"
 
 # ---------------------------------------------------------------------------
+# 8b. The record's timestamp is stamped UNDER the lock (commit time), not at
+#     invocation. Deterministic proof: hold the lock, launch a register that
+#     blocks on it, let the wall clock advance past a 1s boundary, then release.
+#     A commit-time stamp is taken only after the release, so it is >= the
+#     release time; an invocation-time stamp (captured before the block) would
+#     predate the release and fail this assertion.
+# ---------------------------------------------------------------------------
+home_ts="$tmp/ts-home"
+mkdir -p "$home_ts"
+mkdir "$home_ts/.fleet.lock" # hold the lock so register must block
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_DIR -u HOME \
+  PLANWRIGHT_FLEET_STATE_DIR="$home_ts" \
+  /bin/sh "$FS" register "worker=late" "scope-late" &
+reg_pid=$!
+sleep 2 # advance the clock while register is blocked on the held lock
+t_release=$(date +%s)
+rmdir "$home_ts/.fleet.lock" # release; register now acquires and stamps
+wait "$reg_pid" || fail "blocked register did not complete after lock release"
+rec_ts=$(cut -f1 "$home_ts/registry")
+case $rec_ts in
+  "" | *[!0-9]*) fail "registry timestamp '$rec_ts' is not numeric" ;;
+esac
+[ "$rec_ts" -ge "$t_release" ] \
+  || fail "register timestamp ($rec_ts) predates lock release ($t_release): stamped at invocation, not under the lock"
+echo "ok: the register timestamp is stamped under the lock (commit time, monotonic append order)"
+
+# ---------------------------------------------------------------------------
 # 9. Concurrency — the fleet-bound check-and-increment cannot over-count:
 #    with a bound of MAX, N concurrent increments yield exactly MAX successes
 #    and the counter lands on exactly MAX (no two towers exceed the bound).
