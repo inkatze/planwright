@@ -120,9 +120,9 @@ queue on demand. Set `notification_channel` (an overlay value; see the
 capability.
 
 The rest of this guide is the execution-substrate side of the split: how a
-backend is picked, what happens when the rich one is missing or dies, how the
-towers manage their own context, how multiple towers coordinate, and which
-decisions the fleet takes without you. None of it requires tmux knowledge —
+backend is picked, what happens when the rich one is missing or dies, how you
+plug in a backend of your own, how the towers manage their own context, how
+multiple towers coordinate, and which decisions the fleet takes without you. None of it requires tmux knowledge —
 tmux appears below only as one backend among several.
 
 ## Picking an execution backend
