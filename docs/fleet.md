@@ -135,8 +135,10 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death. The tower adapts to the advertised set, never to the
-backend's name.
+tower's death. Backend selection and the degradation ladder below key on this
+advertised set, not on the backend's name; the per-backend dispatch wiring
+itself is still name-keyed today, pending later wiring (see the
+[options reference](options-reference.md)).
 
 The shipped `dispatch_backend` values, by what they give you:
 
