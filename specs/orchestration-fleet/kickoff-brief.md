@@ -622,3 +622,28 @@ write one).
   Anchor: `d8f10400ec3f379b3052e08c3f9735676df55119` — computed as
   `scripts/spec-anchor.sh specs/orchestration-fleet`
   (prior: `70edfab2b0bbcf798725a044efc78bfa6198e1d0`).
+
+### Expression-only self-re-anchor (2026-07-04, post-execution reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane, drafted by the
+orchestrator at Diego's direction and landed under his sign-off (the T3 worker
+that made the edit should have written it in-flight; it did not, so the anchor
+went stale ahead of the final Task 11 dispatch — REQ-F1.9's named remedy).
+
+**Delta (verified by anchor bisection, not the PR descriptions).** Between the
+kickoff sign-off (anchor `d8f10400…`) and this entry, the *only* change to
+anchored content is a single implementation-detail refinement in **Task 3's
+Deliverables**: the effective-backend record location `<spec-dir>/.orchestrate/`
+now reads "`<spec-dir>/.orchestrate/` by default, relocatable via
+`PLANWRIGHT_ORCH_STATE_DIR`". This contradicts no decision (D-3) and alters no
+REQ's meaning (REQ-B1.4/B1.5/B1.6/A1.4 unchanged); the core deliverable (record
+the effective backend spec-locally, never in `tasks.md`) and the default
+location are unchanged. requirements.md, design.md, test-spec.md, and every
+other task definition are byte-identical to sign-off; the reconcile's task-block
+reordering is anchor-invariant (spec-anchor sorts by id). Confirmed
+expression-only: gap-fill within the accepted decisions, no meaning edit.
+
+Class: expression-only
+Anchor: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
+(prior: `d8f10400ec3f379b3052e08c3f9735676df55119`).
