@@ -1,6 +1,7 @@
 #!/bin/sh
-# orchestrate-backends.sh — host-backend AUTODETECTION and unattended
-# SELECTION for /orchestrate (orchestration-fleet Task 2; D-3, REQ-B1.4).
+# orchestrate-backends.sh — host-backend AUTODETECTION, unattended SELECTION,
+# and the attended two-seam PRESENTATION for /orchestrate (orchestration-fleet
+# Task 2 + Task 10; D-3, D-9, D-12, REQ-B1.4, REQ-E1.2).
 #
 # This is the scripts-level realization of the Task 1 backend capability
 # contract's advertisement mechanism (doctrine/backend-capability-contract.md,
@@ -37,6 +38,25 @@
 #       stderr and still exits 0 with the selection on stdout. Runtime failover,
 #       the full richest-to-safest ladder, and the degrade-capability-never-
 #       safety abort are Task 3; this is the selection-time autonomous pick only.
+#
+#   present
+#       Read detect-format TSV rows on stdin and render the TWO-SEAM
+#       presentation the entry command shows an attended operator (Task 10;
+#       D-9, D-12, REQ-E1.2, REQ-E1.5): picking a backend chooses only how
+#       workers are hosted (the execution seam); the decision queue is the
+#       default attention surface for every pick (the attention seam). Each
+#       backend renders as one block, in input (richest-first) order, with an
+#       execution-quality summary derived from its advertised set — never from
+#       its name. An interactive backend's block carries the
+#       detached-background-plumbing note (the tower can drive it as a detached
+#       server nobody attaches to), so the approachable path is the default
+#       presentation, not a fallback behind multiplexer fluency. A backend
+#       advertising provides_attention_surface=true is marked as owning the
+#       operator's surface and planwright's queue defers (--surface-provided,
+#       D-13). present's stdin is detect's own output, so a malformed row is a
+#       framework bug: it fails closed (exit 2, sanitized diagnostic), never
+#       silently skips. Compose as:
+#         orchestrate-backends.sh detect | orchestrate-backends.sh present
 #
 # Every backend token is treated as DATA: a pluggable name is validated against
 # the anchored identifier charset before it is ever spliced into the
@@ -261,17 +281,124 @@ cmd_select_unattended() {
   return 1
 }
 
+# Render one backend's presentation block from its validated seven fields.
+# $1..$7 = backend interactive can_observe can_steer_inflight
+# provides_attention_surface supports_parallel session_grade. The summary is
+# derived from the advertised set only (adapt-to-advertised, never name-keyed).
+emit_block() {
+  pb_feats=''
+  pb_add() {
+    if [ -z "$pb_feats" ]; then pb_feats=$1; else pb_feats="$pb_feats, $1"; fi
+  }
+  [ "$2" = true ] && pb_add "interactive"
+  [ "$3" = true ] && pb_add "observe in-flight"
+  [ "$4" = true ] && pb_add "steer in-flight"
+  [ "$6" = true ] && pb_add "parallel workers"
+  case "$7" in
+    yes) pb_add "session-grade workers" ;;
+    deferred) pb_add "manual dispatch (the launch command is printed for you to paste)" ;;
+  esac
+  [ -n "$pb_feats" ] \
+    || pb_feats="synchronous, in the tower's own session (no parallel, no in-flight observe/steer)"
+  printf '* %s: %s\n' "$1" "$pb_feats"
+  if [ "$5" = true ]; then
+    printf '    attention: provides its own attention surface; planwright defers its decision queue to it (--surface-provided)\n'
+  else
+    printf '    attention: planwright decision queue (default)\n'
+  fi
+  if [ "$2" = true ]; then
+    printf '    plumbing: the tower can drive this backend as a detached background server nobody attaches to; attaching is optional, never required\n'
+  fi
+}
+
+cmd_present() {
+  # No positionals: present reads detect rows on stdin only. A stray argument
+  # is a caller mistake and fails closed rather than being silently ignored.
+  if [ "$#" -ne 0 ]; then
+    echo "usage: orchestrate-backends.sh detect [...] | orchestrate-backends.sh present" >&2
+    return 2
+  fi
+  pr_input=$(cat)
+  if [ -z "$pr_input" ]; then
+    echo "orchestrate-backends: present expects detect rows on stdin (detect always emits rows)" >&2
+    return 2
+  fi
+
+  # Validate every row BEFORE rendering anything: stdin is our own detect
+  # output, so any malformed row means a broken producer (or a hand-corrupted
+  # pipe) and the whole presentation is untrustworthy — fail closed, emit
+  # nothing (no partial surface an operator could act on).
+  #
+  # Strict field-count guard first: TAB is IFS whitespace, so the token split
+  # below collapses consecutive tabs (an empty field) and could re-align a
+  # hand-corrupted row into seven valid-looking tokens. A well-formed detect
+  # row has exactly six tabs; anything else fails closed here.
+  pr_tab=$(printf '\t')
+  while IFS= read -r pr_line; do
+    pr_tabs=$(printf '%s' "$pr_line" | tr -cd "$pr_tab")
+    if [ "${#pr_tabs}" -ne 6 ]; then
+      # Show at most the first field, capped: a zero-tab line has no field
+      # boundary to strip at, and an uncapped echo would reproduce an
+      # arbitrarily long corrupted line in the diagnostic.
+      pr_show=$(printf '%.64s' "${pr_line%%"$pr_tab"*}")
+      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$pr_show" "(unprintable name)")" >&2
+      return 2
+    fi
+  done <<EOF
+$pr_input
+EOF
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
+    if ! valid_name "$p_b" || [ -n "$p_rest" ]; then
+      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+      return 2
+    fi
+    for f in "$p_i" "$p_o" "$p_s" "$p_a" "$p_p"; do
+      case "$f" in
+        true | false | na) ;;
+        *)
+          printf '%s\n' "orchestrate-backends: present: malformed capability field in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+          return 2
+          ;;
+      esac
+    done
+    case "$p_g" in
+      yes | no | deferred) ;;
+      *)
+        printf '%s\n' "orchestrate-backends: present: malformed session_grade in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+        return 2
+        ;;
+    esac
+  done <<EOF
+$pr_input
+EOF
+
+  # The two-seam framing (D-12): the pick below is the execution seam only;
+  # the attention seam is independent and defaults to the decision queue.
+  printf 'Execution backends present on this host, richest rung first. Picking one\n'
+  printf 'chooses only how workers are hosted (the execution seam). What you watch\n'
+  printf 'is independent: the decision queue is the default attention surface for\n'
+  printf 'every pick; a backend that provides its own surface is marked below and\n'
+  printf 'deferred to.\n\n'
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
+    emit_block "$p_b" "$p_i" "$p_o" "$p_s" "$p_a" "$p_p" "$p_g"
+  done <<EOF
+$pr_input
+EOF
+  return 0
+}
+
 sub=${1-}
 [ "$#" -gt 0 ] && shift
 case "$sub" in
   detect) cmd_detect "$@" ;;
   select-unattended) cmd_select_unattended "$@" ;;
+  present) cmd_present "$@" ;;
   '' | help | -h | --help)
-    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured>}" >&2
+    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured> | present}" >&2
     exit 2
     ;;
   *)
-    echo "orchestrate-backends: unknown subcommand: $sub" >&2
+    printf '%s\n' "orchestrate-backends: unknown subcommand: $(sanitize_printable "$sub" "(unprintable)")" >&2
     exit 2
     ;;
 esac

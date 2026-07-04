@@ -346,4 +346,215 @@ row_present "$out" badsg \
   && fail "detect: an adapter with an invalid session_grade token must be reported absent"
 echo "ok: detect rejects an adapter with an invalid session_grade token"
 
+# ---------------------------------------------------------------------------
+# 19. present: renders detect's TSV rows as the two-seam presentation the
+#     entry command shows an attended operator (orchestration-fleet Task 10;
+#     D-9, D-12, REQ-E1.2, REQ-E1.5). The header frames the seams (the decision
+#     queue is the default attention surface regardless of the execution pick),
+#     each backend keeps detect's richest-first order, and an INTERACTIVE
+#     multiplexer row carries the detached-background-plumbing note so the
+#     approachable path is the default presentation, not a fallback behind tmux.
+# ---------------------------------------------------------------------------
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$BACKENDS" detect \
+  | "$BACKENDS" present) || fail "present exited non-zero on detect output"
+printf '%s\n' "$out" | grep -qi "decision queue" \
+  || fail "present: header must name the decision queue as the attention surface"
+printf '%s\n' "$out" | grep -qi "default" \
+  || fail "present: header must present the decision queue as the DEFAULT surface"
+# Header-only phrases: every block also says "decision queue (default)", so the
+# two greps above alone would survive deleting the header wholesale. These two
+# appear only in the header's two-seam framing.
+printf '%s\n' "$out" | grep -q "execution seam" \
+  || fail "present: the header must frame the pick as the execution seam"
+printf '%s\n' "$out" | grep -q "richest rung first" \
+  || fail "present: the header must state the richest-first ordering"
+# Block extractor: prints the lines of the block for backend $2 (from its
+# "* <name>:" line up to the next "* " line).
+block_of() {
+  printf '%s\n' "$1" | awk -v b="$2" '
+    $0 ~ "^\\* " b ":" {inb=1}
+    inb && $0 ~ "^\\* " && $0 !~ "^\\* " b ":" {inb=0}
+    inb {print}'
+}
+tb=$(block_of "$out" tmux)
+[ -n "$tb" ] || fail "present: tmux row missing from the presentation"
+printf '%s\n' "$tb" | grep -q "detached background server" \
+  || fail "present: interactive tmux block must carry the detached-plumbing note"
+printf '%s\n' "$tb" | grep -q "never required" \
+  || fail "present: the detached-plumbing note must say attaching is never required"
+# The summary is derived one token per advertised capability; asserting the
+# full five-token line means dropping (or mislabeling) any single pb_add
+# branch in emit_block fails here instead of passing silently.
+printf '%s\n' "$tb" \
+  | grep -q "interactive, observe in-flight, steer in-flight, parallel workers, session-grade workers" \
+  || fail "present: tmux's summary must carry all five advertised feature tokens"
+sb=$(block_of "$out" subagent)
+printf '%s\n' "$sb" | grep -q "decision queue (default)" \
+  || fail "present: a backend with no own surface must default to the decision queue"
+printf '%s\n' "$sb" | grep -q "detached" \
+  && fail "present: a non-interactive backend must not carry the plumbing note"
+order=$(printf '%s\n' "$out" | awk '/^\* / {sub(/^\* /,""); sub(/:.*/,""); printf "%s ", $0}')
+[ "$order" = "tmux subagent in-session print " ] \
+  || fail "present: blocks must keep detect's richest-first order, got '$order'"
+# The advertised-set-derived summary branches: in-session (nothing true, na
+# observe/steer) must hit the empty-feature fallback — which also proves na
+# fields are skipped, not treated as capabilities — and print
+# (session_grade=deferred) must carry the manual-dispatch phrasing.
+ib=$(block_of "$out" in-session)
+printf '%s\n' "$ib" | grep -q "synchronous, in the tower's own session" \
+  || fail "present: in-session must render the empty-feature fallback summary"
+printf '%s\n' "$ib" | grep -Eq "observe in-flight|steer in-flight" \
+  && fail "present: in-session's na observe/steer fields must not surface as features"
+prb=$(block_of "$out" print)
+printf '%s\n' "$prb" | grep -q "manual dispatch" \
+  || fail "present: print (session_grade=deferred) must carry the manual-dispatch phrasing"
+echo "ok: present renders the two-seam presentation with the detached-plumbing note"
+
+# ---------------------------------------------------------------------------
+# 20. present: a backend advertising provides_attention_surface=true is marked
+#     as owning the operator's surface, and the presentation says planwright
+#     DEFERS its own queue (the --surface-provided deferral, D-13) — the
+#     attention-seam half of adapt-to-advertised.
+# ---------------------------------------------------------------------------
+row=$(printf 'cmuxish\ttrue\ttrue\ttrue\ttrue\ttrue\tyes\n')
+out=$(printf '%s\n' "$row" | "$BACKENDS" present) \
+  || fail "present exited non-zero on a provides-surface row"
+cb=$(block_of "$out" cmuxish)
+printf '%s\n' "$cb" | grep -q "provides its own" \
+  || fail "present: a provides_attention_surface backend must be marked as owning the surface"
+printf '%s\n' "$cb" | grep -q -- "--surface-provided" \
+  || fail "present: the defer note must name the --surface-provided signal"
+echo "ok: present defers to a backend that provides its own attention surface"
+
+# ---------------------------------------------------------------------------
+# 21. present: fail-closed input handling. present's stdin is detect's own
+#     output, so a malformed row is a framework bug, never silently skipped:
+#     wrong field count, a bad boolean, empty input, and a stray positional
+#     argument all exit 2.
+# ---------------------------------------------------------------------------
+rc=0
+printf 'tmux\ttrue\ttrue\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: a short row returned $rc, expected 2"
+grep -q "malformed detect row" "$err" \
+  || fail "present: a short row must get the malformed-detect-row diagnostic"
+rc=0
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tmaybe\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: an invalid session_grade returned $rc, expected 2"
+grep -q "malformed session_grade" "$err" \
+  || fail "present: an invalid session_grade must get its own diagnostic, not a generic one"
+rc=0
+printf 'tmux\tmaybe\ttrue\ttrue\tfalse\ttrue\tyes\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: an invalid capability boolean returned $rc, expected 2"
+grep -q "malformed capability field" "$err" \
+  || fail "present: an invalid capability boolean must get the capability-field diagnostic"
+rc=0
+printf '' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: empty input returned $rc, expected 2 (detect always emits rows)"
+rc=0
+printf 'subagent\tfalse\tfalse\tfalse\tfalse\ttrue\tno\n' \
+  | "$BACKENDS" present extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: a stray positional arg returned $rc, expected 2"
+echo "ok: present fails closed on malformed rows, empty input, and stray args"
+
+# ---------------------------------------------------------------------------
+# 22. present: echo discipline — a hand-corrupted row whose backend name
+#     carries control/escape bytes is refused with a SANITIZED diagnostic (no
+#     raw ESC reaches stderr), the same terminal-escape guard detect applies.
+# ---------------------------------------------------------------------------
+rc=0
+printf '%s\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\n' "$(printf 'ev\033]0;PWNED\007il')" \
+  | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: a control-byte backend name returned $rc, expected 2"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "present: a refused name's control bytes must be stripped before echo"
+fi
+grep -q "malformed detect row" "$err" \
+  || fail "present: the refused hostile row must still be reported (sanitized), not fail silently"
+echo "ok: present sanitizes a refused hostile row's control bytes"
+
+# ---------------------------------------------------------------------------
+# 23. present: the no-partial-output guarantee — a valid first row followed by
+#     a malformed second row must emit NOTHING on stdout (all rows validate
+#     before any rendering), so an operator can never act on a truncated
+#     backend list. Guards the two-loop validate-then-render structure.
+# ---------------------------------------------------------------------------
+rc=0
+outp=$(printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\nBAD ROW\n' \
+  | "$BACKENDS" present 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "present: valid-then-malformed input returned $rc, expected 2"
+[ -z "$outp" ] \
+  || fail "present: a malformed later row must suppress ALL output, got '$outp'"
+echo "ok: present emits no partial surface when a later row is malformed"
+
+# ---------------------------------------------------------------------------
+# 24. present: strict field count — TAB is IFS whitespace, so a hand-corrupted
+#     row with an empty field (consecutive tabs) would collapse and could
+#     re-align into seven valid-looking tokens; the six-tab count guard must
+#     refuse it. Here: empty seventh field plus a stray trailing token, which
+#     token-collapse alone would mis-read as a well-formed row.
+# ---------------------------------------------------------------------------
+rc=0
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\t\tyes\n' \
+  | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: a double-tab (empty-field) row returned $rc, expected 2"
+# The malformed-row diagnostic is capped: a zero-tab line has no field boundary
+# to strip at, so without a cap the whole corrupted line would be echoed.
+rc=0
+printf '%0300d\n' 0 | tr '0' 'x' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: a long zero-tab row returned $rc, expected 2"
+[ "$(wc -c <"$err")" -lt 160 ] \
+  || fail "present: the malformed-row diagnostic must cap the echoed line"
+echo "ok: present refuses a row whose tab count betrays an empty field"
+# The complementary shape: exactly six tabs with an empty MIDDLE field passes
+# the tab-count guard, so only the field-validation loop can catch it — after
+# token collapse the trailing vars land empty/shifted (p_g empty, p_p=yes).
+# Pins the loop interplay so a reorder of the validate loops cannot silently
+# accept a collapsed row. No stdout: the fail-closed guarantee holds here too.
+rc=0
+outp=$(printf 'tmux\ttrue\t\ttrue\tfalse\ttrue\tyes\n' \
+  | "$BACKENDS" present 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "present: a six-tab empty-middle-field row returned $rc, expected 2"
+[ -z "$outp" ] \
+  || fail "present: a six-tab empty-middle-field row must emit no output, got '$outp'"
+echo "ok: present refuses a six-tab row whose empty middle field collapses"
+
+# ---------------------------------------------------------------------------
+# 25. echo discipline on the dispatcher: an unknown subcommand carrying
+#     control/escape bytes is reported SANITIZED (no raw ESC reaches stderr),
+#     matching the treatment every refused backend name gets.
+# ---------------------------------------------------------------------------
+rc=0
+"$BACKENDS" "$(printf 'fr\033]0;PWNED\007ob')" >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "unknown subcommand with control bytes returned $rc, expected 2"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "dispatcher: an unknown subcommand's control bytes must be stripped before echo"
+fi
+grep -q "unknown subcommand" "$err" \
+  || fail "dispatcher: the unknown-subcommand diagnostic should still be reported (sanitized)"
+echo "ok: the dispatcher sanitizes an unknown subcommand's control bytes"
+
+# ---------------------------------------------------------------------------
+# 26. present: na-typed fields on a RENDERED row are skipped, not treated as
+#     capabilities — a pluggable adapter may advertise na for ANY of the five
+#     booleans (adapter_caps admits it), so a row with interactive=na,
+#     surface=na, parallel=na must render only its true features, carry no
+#     plumbing note, and fall to the default attention line.
+# ---------------------------------------------------------------------------
+row=$(printf 'plugna\tna\ttrue\ttrue\tna\tna\tyes\n')
+out=$(printf '%s\n' "$row" | "$BACKENDS" present) \
+  || fail "present exited non-zero on an na-heavy row"
+nb=$(block_of "$out" plugna)
+[ -n "$nb" ] || fail "present: plugna row missing from the presentation"
+printf '%s\n' "$nb" | grep -q "observe in-flight, steer in-flight, session-grade workers" \
+  || fail "present: an na-heavy row must render exactly its true features"
+printf '%s\n' "$nb" | grep -q "interactive" \
+  && fail "present: interactive=na must not surface as a feature"
+printf '%s\n' "$nb" | grep -q "parallel workers" \
+  && fail "present: supports_parallel=na must not surface as a feature"
+printf '%s\n' "$nb" | grep -q "detached" \
+  && fail "present: interactive=na must not carry the plumbing note"
+printf '%s\n' "$nb" | grep -q "decision queue (default)" \
+  || fail "present: provides_attention_surface=na must fall to the default attention line"
+echo "ok: present skips na-typed fields on a rendered row"
+
 echo "PASS: test-orchestrate-backends.sh"
