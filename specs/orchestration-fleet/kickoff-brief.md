@@ -479,6 +479,39 @@ rows untouched).
   adapters exercised manually (per the test-spec `[manual]` classification for
   substrate-specific behavior), degrading to the queue when their tool is absent.
 
+### Task 11 execution findings — R5 safe-defaults audit (2026-07-04)
+
+Discharges **R5**'s mitigation ("each default must be quiet/safe; audited in
+the Task 11 options-reference"). Appended per the execution-skill
+risk-register convention (named section, no anchor entry, existing rows
+untouched). Audit basis: `config/defaults.yml` against each option's
+options-reference row; the adopter-facing rendering is the capability-vs-style
+knobs table added to `docs/fleet.md` in this task.
+
+- `dispatch_backend: subagent` — non-interactive, present on any host, no
+  external substrate; an unattended run never silently selects an interactive
+  backend. Quiet/safe: yes.
+- `dispatch_isolation: per-step` — bounds context and isolates review
+  perspectives by construction; `per-unit` remains available for constrained
+  hosts. The default-flip from historical `per-unit` is the assigned human
+  decision (D-5), tracked cross-spec as the bootstrap D-38 amendment (R3/R4).
+  Quiet/safe: yes, with the rollout documented.
+- `context_budget_threshold: 50` — conservative step budget; the handover is
+  cheap and lossless, so handing off early is the safe direction; `off`
+  restores the historical single-tower behavior. Quiet/safe: yes.
+- `fleet_max_parallel_units: 3` — holds total fleet concurrency to a single
+  spec's worth, so enabling the opt-in meta-tower never multiplies load until
+  an operator raises it. Quiet/safe: yes.
+- `notification_channel: none` — pull-only, pushes nothing, needs no external
+  tool (the Task 12 injection-hardening section above informed this same
+  default). Quiet/safe: yes.
+- Pre-existing neighbors re-checked, unchanged: `max_parallel_units: 3`,
+  `stale_lock_threshold`/`stale_marker_threshold: 15m`, `review_sequence:
+  [polish]` — all quiet, default-preserving, no new external dependency.
+
+No default fails the quiet/safe bar; no config change was needed. R5 is
+discharged as audited.
+
 ## 8. Sign-off
 
 ### Lens review pass (Discovery Rigor)
