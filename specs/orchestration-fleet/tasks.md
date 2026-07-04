@@ -1,6 +1,6 @@
 # Orchestration Fleet — Tasks
 
-**Status:** Active
+**Status:** Done
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -38,6 +38,14 @@ space).
 
 ## In progress
 
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 11 — Adopter docs, options reference & onboarding handoff
 
 - **Deliverables:** Adopter-facing documentation of fleet operation — the backend
@@ -59,14 +67,8 @@ space).
 - **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
 - **Citations:** D-10 · REQ-A1.5, REQ-E1.4
 - **Estimated effort:** 1 day
-- **Status:** PR #122 draft
+- **Status:** Completed · PR #122 merged 2026-07-04
 - **Last activity:** 2026-07-04
-
-## Awaiting input
-
-(none yet)
-
-## Completed
 
 ### Task 1 — Backend capability contract & advertisement
 
