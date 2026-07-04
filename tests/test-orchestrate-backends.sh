@@ -346,4 +346,94 @@ row_present "$out" badsg \
   && fail "detect: an adapter with an invalid session_grade token must be reported absent"
 echo "ok: detect rejects an adapter with an invalid session_grade token"
 
+# ---------------------------------------------------------------------------
+# 19. present: renders detect's TSV rows as the two-seam presentation the
+#     entry command shows an attended operator (orchestration-fleet Task 10;
+#     D-9, D-12, REQ-E1.2, REQ-E1.5). The header frames the seams (the decision
+#     queue is the default attention surface regardless of the execution pick),
+#     each backend keeps detect's richest-first order, and an INTERACTIVE
+#     multiplexer row carries the detached-background-plumbing note so the
+#     approachable path is the default presentation, not a fallback behind tmux.
+# ---------------------------------------------------------------------------
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$BACKENDS" detect \
+  | "$BACKENDS" present) || fail "present exited non-zero on detect output"
+printf '%s\n' "$out" | grep -qi "decision queue" \
+  || fail "present: header must name the decision queue as the attention surface"
+printf '%s\n' "$out" | grep -qi "default" \
+  || fail "present: header must present the decision queue as the DEFAULT surface"
+# Block extractor: prints the lines of the block for backend $2 (from its
+# "* <name>:" line up to the next "* " line).
+block_of() {
+  printf '%s\n' "$1" | awk -v b="$2" '
+    $0 ~ "^\\* " b ":" {inb=1}
+    inb && $0 ~ "^\\* " && $0 !~ "^\\* " b ":" {inb=0}
+    inb {print}'
+}
+tb=$(block_of "$out" tmux)
+[ -n "$tb" ] || fail "present: tmux row missing from the presentation"
+printf '%s\n' "$tb" | grep -q "detached background server" \
+  || fail "present: interactive tmux block must carry the detached-plumbing note"
+printf '%s\n' "$tb" | grep -q "never required" \
+  || fail "present: the detached-plumbing note must say attaching is never required"
+sb=$(block_of "$out" subagent)
+printf '%s\n' "$sb" | grep -q "decision queue (default)" \
+  || fail "present: a backend with no own surface must default to the decision queue"
+printf '%s\n' "$sb" | grep -q "detached" \
+  && fail "present: a non-interactive backend must not carry the plumbing note"
+order=$(printf '%s\n' "$out" | awk '/^\* / {sub(/^\* /,""); sub(/:.*/,""); printf "%s ", $0}')
+[ "$order" = "tmux subagent in-session print " ] \
+  || fail "present: blocks must keep detect's richest-first order, got '$order'"
+echo "ok: present renders the two-seam presentation with the detached-plumbing note"
+
+# ---------------------------------------------------------------------------
+# 20. present: a backend advertising provides_attention_surface=true is marked
+#     as owning the operator's surface, and the presentation says planwright
+#     DEFERS its own queue (the --surface-provided deferral, D-13) — the
+#     attention-seam half of adapt-to-advertised.
+# ---------------------------------------------------------------------------
+row=$(printf 'cmuxish\ttrue\ttrue\ttrue\ttrue\ttrue\tyes\n')
+out=$(printf '%s\n' "$row" | "$BACKENDS" present) \
+  || fail "present exited non-zero on a provides-surface row"
+cb=$(block_of "$out" cmuxish)
+printf '%s\n' "$cb" | grep -q "provides its own" \
+  || fail "present: a provides_attention_surface backend must be marked as owning the surface"
+printf '%s\n' "$cb" | grep -q -- "--surface-provided" \
+  || fail "present: the defer note must name the --surface-provided signal"
+echo "ok: present defers to a backend that provides its own attention surface"
+
+# ---------------------------------------------------------------------------
+# 21. present: fail-closed input handling. present's stdin is detect's own
+#     output, so a malformed row is a framework bug, never silently skipped:
+#     wrong field count, a bad boolean, empty input, and a stray positional
+#     argument all exit 2.
+# ---------------------------------------------------------------------------
+rc=0
+printf 'tmux\ttrue\ttrue\n' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: a short row returned $rc, expected 2"
+rc=0
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tmaybe\n' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: an invalid session_grade returned $rc, expected 2"
+rc=0
+printf '' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: empty input returned $rc, expected 2 (detect always emits rows)"
+rc=0
+printf 'subagent\tfalse\tfalse\tfalse\tfalse\ttrue\tno\n' \
+  | "$BACKENDS" present extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: a stray positional arg returned $rc, expected 2"
+echo "ok: present fails closed on malformed rows, empty input, and stray args"
+
+# ---------------------------------------------------------------------------
+# 22. present: echo discipline — a hand-corrupted row whose backend name
+#     carries control/escape bytes is refused with a SANITIZED diagnostic (no
+#     raw ESC reaches stderr), the same terminal-escape guard detect applies.
+# ---------------------------------------------------------------------------
+rc=0
+printf '%s\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\n' "$(printf 'ev\033]0;PWNED\007il')" \
+  | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: a control-byte backend name returned $rc, expected 2"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "present: a refused name's control bytes must be stripped before echo"
+fi
+echo "ok: present sanitizes a refused hostile row's control bytes"
+
 echo "PASS: test-orchestrate-backends.sh"
