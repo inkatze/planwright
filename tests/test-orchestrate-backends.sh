@@ -480,6 +480,13 @@ rc=0
 printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\t\tyes\n' \
   | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "present: a double-tab (empty-field) row returned $rc, expected 2"
+# The malformed-row diagnostic is capped: a zero-tab line has no field boundary
+# to strip at, so without a cap the whole corrupted line would be echoed.
+rc=0
+printf '%0300d\n' 0 | tr '0' 'x' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: a long zero-tab row returned $rc, expected 2"
+[ "$(wc -c <"$err")" -lt 160 ] \
+  || fail "present: the malformed-row diagnostic must cap the echoed line"
 echo "ok: present refuses a row whose tab count betrays an empty field"
 
 # ---------------------------------------------------------------------------

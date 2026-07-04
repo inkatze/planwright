@@ -337,7 +337,11 @@ cmd_present() {
   while IFS= read -r pr_line; do
     pr_tabs=$(printf '%s' "$pr_line" | tr -cd "$pr_tab")
     if [ "${#pr_tabs}" -ne 6 ]; then
-      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "${pr_line%%"$pr_tab"*}" "(unprintable name)")" >&2
+      # Show at most the first field, capped: a zero-tab line has no field
+      # boundary to strip at, and an uncapped echo would reproduce an
+      # arbitrarily long corrupted line in the diagnostic.
+      pr_show=$(printf '%.64s' "${pr_line%%"$pr_tab"*}")
+      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$pr_show" "(unprintable name)")" >&2
       return 2
     fi
   done <<EOF
