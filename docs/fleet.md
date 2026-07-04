@@ -178,7 +178,8 @@ Two properties hold on every rung:
   richness (steer, observe, parallelism). A descent that would drop a *guard*
   is refused — the run aborts rather than trading safety for progress. The
   guards: the worker-settings deny profile (the restricted permission set
-  every worker runs under), never-auto-merge, never-force-push, and the
+  workers run under — reviewed and installed by you, with sign-off, never
+  applied by planwright itself), never-auto-merge, never-force-push, and the
   execution freshness gate (the pre-dispatch check that the spec is unchanged
   since its sign-off).
 - **Never silent.** Every descent is logged and surfaced; you can always tell
