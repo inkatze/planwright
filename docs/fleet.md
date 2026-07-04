@@ -64,7 +64,8 @@ Your load scales with the number of **actionable decisions**, not the number
 of workers. The queue lists only workers blocked on a human decision, each as
 a structured choice (scope, question, recommended default, concrete options),
 ordered by priority and then by longest-waiting. Everything else — working,
-PR-ready, merged — is status, visible in the per-worker view but never queued.
+PR-ready, merged, done — is status, visible in the per-worker view but never
+queued.
 
 Both views read plain files under the durable fleet home and render from any
 normal terminal or editor:
@@ -90,7 +91,7 @@ a requirement.
 
 ## Personas: pick your combination of the two seams
 
-Each kind of operator resolves as a combination of (execution backend x
+Each kind of operator resolves as a combination of (execution backend ×
 attention surface), not as a separate system:
 
 | Persona | Execution backend | Attention surface | Steer affordance |
