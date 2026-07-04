@@ -236,7 +236,9 @@ Long fleet runs manage their own context instead of quietly degrading:
 ## Scaling out: the meta-tower
 
 `/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
-subordinate tower per spec — a tower of towers. Fleet-wide load is capped by
+subordinate tower per spec — a tower of towers (the `--meta` mode, which
+`--fleet` wraps with the watch loop and the default attention surface).
+Fleet-wide load is capped by
 `fleet_max_parallel_units` (in-flight units summed across every spec), enforced
 against the live cross-spec derivation so the bound survives any crash;
 `max_parallel_units` still caps each spec individually.
