@@ -227,7 +227,7 @@ Three customization mechanisms exist, all of which avoid editing core:
 - [`docs/fleet.md`](fleet.md) — fleet operation: the one entry command, the
   execution-backend seam (autodetect, the degradation ladder, plugging in your
   own backend), the decision queue you watch, and what an unattended fleet
-  decides without you. No multiplexer knowledge required.
+  decides without you — no multiplexer knowledge required.
 - [`docs/CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute changes.
 - [`docs/release-checklist.md`](release-checklist.md) — the public-release
   readiness gate (for maintainers).
