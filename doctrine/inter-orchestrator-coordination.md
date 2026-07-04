@@ -58,7 +58,11 @@ rather than *asking that branch's owner to*? If so, it crossed the boundary.
 ## Attributed, non-impersonating relay
 
 A tower steers and observes a **live, busy worker mid-task** — not a paused one.
-The relay discipline keeps the worker's authorization boundary intact.
+The relay discipline keeps the worker's authorization boundary intact. The same
+attributed buffer-paste mechanism serves both **tower-to-worker** relay and
+**tower-to-tower** coordination between peer towers sharing a checkout (for
+example, reconcile-then-quick-PR hand-offs); in either direction the header marks
+the message as tower-originated, which is what keeps it non-impersonating.
 
 ### Steer-in-flight: buffer-paste, never `send-keys`
 
