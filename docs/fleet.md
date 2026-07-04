@@ -199,6 +199,12 @@ section of `tasks.md`, which the decision queue mirrors — so the downgrade
 shows on the attention surface. A second failure descends
 one more step, down to the floor. There is no silent downgrade path.
 
+And there is no unsafe one: when nothing safe remains below (the floor itself
+failed, or every remaining rung would drop a guard), or the downgrade record
+cannot be written, the tower does not press on — it stops and escalates the
+same way, an `## Awaiting input` entry asking for your decision. Fail-closed,
+never unrecorded.
+
 ### The synchronous terminal rung
 
 The floor of the ladder is a contract implementation, not an error state: units
