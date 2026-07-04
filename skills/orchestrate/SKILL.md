@@ -9,7 +9,7 @@ description: >
   reconcile sweep rebuilds the picture from disk. Never merges, never marks a
   PR ready, never auto-chains into /spec-kickoff. --bookkeeping runs the
   out-of-session drain + PR reconcile; --watch loops the step.
-argument-hint: "[<spec-path>] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
+argument-hint: "[<spec-path>] [--fleet] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
 ---
 
 # /orchestrate
@@ -88,6 +88,12 @@ Selected from `$ARGUMENTS` at pre-flight:
   step under a fleet-level concurrency bound, by launching subordinate
   single-spec towers. Composes with `--watch` (loop the meta step) and the
   backend/`--unattended` flags. See the **Meta-tower** section.
+- **`--fleet`.** The **one obvious entry command** for fleet operation (D-9,
+  REQ-E1.2): `--meta --watch` with the **attention surface wired in as the
+  default watch surface**. `/orchestrate --fleet` is the single documented
+  command that autodetects/selects a backend, starts the tower over every
+  Ready/Active spec, and renders the decision queue — no multiplexer knowledge
+  required. See the **Fleet entry** section.
 
 Flags: `--backend <subagent|tmux|print|in-session>` overrides the configured
 `dispatch_backend` for this run; `--unattended` selects headless mode (skip
@@ -301,8 +307,13 @@ which one to use in this order:
   trailing argument to `detect`. (`dispatch_backend` itself is one of the four
   shipped backends — configuring it to a pluggable name is deferred until
   pluggable dispatch lands, per the options reference — so there is no pluggable
-  `dispatch_backend` value to forward here today.) **Present** that set and
-  **ask** the operator which to use — never auto-select (REQ-B1.4).
+  `dispatch_backend` value to forward here today.) **Present** that set through
+  the two-seam presentation —
+  `scripts/orchestrate-backends.sh detect | scripts/orchestrate-backends.sh
+  present` (D-9, D-12: the pick chooses only the execution seam; the decision
+  queue is the default attention surface for every pick, and an interactive
+  multiplexer carries its detached-background-plumbing note) — and **ask** the
+  operator which to use — never auto-select (REQ-B1.4).
 - **Unattended (`--unattended` / headless)** — there is no one to ask, so run
   `scripts/orchestrate-backends.sh select-unattended "$(scripts/config-get.sh
   dispatch_backend)"` and use the backend it prints. It picks the configured
@@ -310,7 +321,9 @@ which one to use in this order:
   ladder (to `subagent`, then the always-present `in-session` terminal rung),
   **never** to an interactive backend and never to the manual `print` rung. A
   degrade is a designed selection-time behavior — it emits a `NOTE:` on stderr;
-  log it — not a halt (runtime failover into `## Awaiting input` is Task 3).
+  log it — not a halt. Selection-time descent is the *choosing* end of the
+  degradation ladder; **runtime failover** (a chosen backend dying mid-run) is
+  the other end, below.
 Concurrency is capped by `max_parallel_units` (default 3, via
 config-get): if that many units already derive **In progress** for this spec —
 counted from the live derivation (`scripts/orchestrate-state.sh`, which sees the
@@ -352,6 +365,58 @@ never types into a worker's input line.
   zero-dependency manual dispatch. The human pastes the command; no process
   exists until they do (which the orphan predicate accounts for).
 - **in-session**. Run `/execute-task` in this session, no separate worker.
+
+### Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
+
+The four backends above are rungs of one **graceful-degradation ladder**,
+ordered by their advertised capability set (not their name), richest to safest:
+rung 1 interactive multiplexer **with** steer (`tmux`); rung 2 interactive
+**without** steer, or a headless `claude -p` pool (session-grade + parallel but
+no live steer — its ambiguity routes to the decision queue, so it is **not** a
+quality-equivalent middle rung and sits near the fallback); rung 3 the in-harness
+`subagent`; rung 4 the synchronous **in-session** terminal rung (no external
+substrate, so it **always works**). The manual `print` backend is off the
+autonomous ladder — a human runs the printed command, so planwright is not
+driving the worker. `scripts/orchestrate-degrade.sh rung <backend|caps6>` reports
+a backend's rung from its advertised set.
+
+**The synchronous terminal rung.** With no rich backend present or selected,
+ready units run **one at a time with a context clear between them** — the
+bounded-context single-stream run. `scripts/orchestrate-degrade.sh terminal-plan
+<id>...` prints the plan (a `run <id>` line per unit, a `context-clear` between
+consecutive units, never after the last); execute each unit, then issue the
+context clear before the next. (Per-*step* isolation clears within a unit are
+`dispatch_isolation`'s job — `scripts/resolve-dispatch-isolation.sh`; this is the
+per-*unit* plan.) This rung needs no tmux or multiplexer, so ordinary single-spec
+execution is always available (REQ-A1.4).
+
+**Runtime failover.** When a chosen backend **dies or proves unavailable
+mid-run**, descend one rung down the available ladder — never a silent
+downgrade. Run `scripts/orchestrate-degrade.sh failover <spec-dir>
+<current-backend> [candidate...]` (candidates = the backends detected present,
+including any pluggable ones by name; omitted, it re-probes the shipped set). It
+descends to the richest present, **guard-preserving** backend strictly below the
+current rung (an absent intermediate rung is skipped, so with every rung present
+this is the adjacent one), **records the effective backend spec-locally**
+beside the sibling's `markers/` dir in its dispatch-state root
+(`<spec-dir>/.orchestrate/` by default, relocatable via
+`PLANWRIGHT_ORCH_STATE_DIR`; never in `tasks.md`, REQ-B1.6; read back with
+`scripts/orchestrate-degrade.sh read <spec-dir>`), emits a `NOTE:` on stderr,
+and prints an
+`## Awaiting input`-ready entry on stdout — **append that entry to the spec's
+`## Awaiting input`** so the descent is one durable, operator-visible signal
+(REQ-E1.3). Repeated failures descend one rung each down to the terminal rung.
+
+The governing rule is **degrade capability, never safety**: a descent
+guard-preserving target is non-interactive (never strand an unattended run) and
+not spawn-deferred (never the manual `print` rung) — the two advertised
+properties whose loss would take the worker off planwright's driven, guarded path
+and drop a named guard (worker-settings deny, never-auto-merge, never-force-push,
+the freshness gate). When no safe rung remains below — the terminal-rung fatal
+crash, or a descent whose only lower candidates would drop a guard — `failover`
+**escalates** (exit 3) with the reason rather than descending; a record-write
+failure likewise aborts (exit 3) rather than proceeding unrecorded. Surface the
+escalation and stop; never auto-merge and never drop a guard to keep a run alive.
 
 **Unattended mode** (headless: cron/launchd/CI, or `--unattended`). Skip every
 confirm, always create fresh worktrees, and route **every** would-be prompt to
@@ -461,6 +526,95 @@ drains. **Never-auto-merge holds at every tier** (REQ-A1.2): the meta-tower and
 every subordinate create draft PRs only; the draft→ready flip and the merge stay
 the human's two reserved controls. The meta-tower never marks a PR ready and
 never merges.
+
+## Fleet entry — the one obvious command (`--fleet`; D-9, D-12, REQ-E1.1, REQ-E1.2, REQ-E1.5)
+
+`/orchestrate --fleet` is **the** documented way to start fleet operation: it
+runs the meta-tower watch loop (`--meta --watch`, both sections above,
+unchanged) with the **attention surface wired in as the default watch
+surface**. An operator on a normal editor and terminal types this one command
+and never needs multiplexer knowledge; from a plain shell, the same entry is
+`claude "/orchestrate --fleet"` (headless, e.g. under cron:
+`claude -p "/orchestrate --fleet --unattended"` — the flag rides inside the
+quoted command). The
+approachable path is the *default presentation* of fleet operation, not a
+degraded fallback behind tmux: full execution quality (session-grade,
+steerable workers) remains available underneath it, because quality lives in
+the execution seam and what the human watches lives in the attention seam, and
+the two do not trade off (D-12,
+[attention/notification capability](../../doctrine/attention-notification-capability.md)).
+The [fleet operation guide](../../docs/fleet.md) documents the entry command
+and the **persona → (execution backend × attention surface)** mapping
+(REQ-E1.6) for adopters.
+
+**Starting up.** Backend selection is exactly the **Backend selection** step
+(REQ-B1.4): attended, pipe `detect` through `present` and ask — the operator
+picks an *execution* backend from the two-seam presentation, told explicitly
+that the pick does not change what they watch; unattended,
+`select-unattended` picks from config. Never a silent pick.
+
+**The multiplexer as detached background plumbing (REQ-E1.1).** When the
+selected backend is an interactive multiplexer and the operator did not ask to
+attach, the tower drives it **detached**: start the server headlessly (for the
+shipped tmux backend, `tmux new-session -d -s <fleet-session>` — the session
+name is the operator's style, overlay-owned per D-10) and address every window
+by target id. Dispatch, capture-pane observation, and `load-buffer`/
+`paste-buffer` relay work identically against a detached server — nobody ever
+attaches, and the human sees only the attention surface below. Attaching stays
+available at any time for a multiplexer-fluent operator (the mapping's persona
+a); it is never required.
+
+**The attention surface (the queue as default, D-13).** The fleet-entry loop
+keeps the attention store current and renders it, through
+`scripts/fleet-attention.sh` (Task 12's capability, on the Task 9 cross-spec
+home):
+
+- **At dispatch** (subordinate launch or worker dispatch):
+  `scripts/fleet-attention.sh heartbeat <worker> <spec>:task-<ids> working` —
+  `<worker>` is the backend's **stable unit handle** from the capability
+  contract's named-addressable-units guarantee (the tmux window id, the
+  subagent handle), so every later `heartbeat`/`decide`/`clear` for the unit
+  keys the same store row. The handle and its scope (one spec/unit per worker,
+  isolated worktree/context) use the store's field grammar (colon-separated
+  scope; the grammar has no slash), so `render` presents **per-worker scope**
+  legibly (REQ-E1.5).
+- **On a halt → `## Awaiting input`**: mirror the entry as a structured
+  decision — `scripts/fleet-attention.sh decide <worker> <scope> <question>
+  <default> <options> [priority]` — so the queue's length tracks the
+  `## Awaiting input` count, never the worker count. The `tasks.md` entry
+  remains the durable record; the queue row is its projection.
+- **On reconcile observations**: heartbeat `pr-ready` when a draft PR is up,
+  `merged` on an observed merge, and `clear <worker>` at teardown (merged-window
+  cleanup). The mirror is **level-triggered like the sweep itself**: each
+  iteration reconciles the store to the observed state — write a row only on
+  an observed *change* (an unchanged row keeps its commit-time stamp, so the
+  queue's oldest-first order is preserved), re-issue a missing `decide` for a
+  still-open `## Awaiting input` entry, and `clear` any row whose unit is no
+  longer in flight or awaiting input (answered, deferred, or vanished) — so a
+  crash between an edge and its mirror, a lost write, or a late heartbeat
+  self-heals within one iteration and stale workers do not linger on the
+  surface.
+- **Each watch iteration ends by rendering the surface**:
+  `scripts/fleet-attention.sh render` (per-worker scope + state), then
+  `scripts/fleet-attention.sh queue` (the ordered decision queue). When the
+  selected backend **advertises** `provides_attention_surface=true`, pass
+  `--surface-provided`: the queue defers to the backend's own surface while
+  `render` stays available — adapt to the advertised set, never the name.
+
+Attention calls are **best-effort surface maintenance**: a failed
+`heartbeat`/`decide`/`clear` is reported and never halts the step — the
+`tasks.md` entry stays the durable record, and the level-triggered mirror
+repairs the surface on the next iteration.
+
+The queue and renderer read plain files under the durable fleet home, so the
+same surface is readable from a plain terminal, a popup over a detached
+server, or an editor panel — a new surface is a renderer, not a new execution
+model.
+
+**Nothing else changes.** `--fleet` adds presentation, not autonomy: every
+meta-tower rule (fleet lock, live-count bound, subordinate independence), the
+autonomous-safe-decision policy, and the reserved controls hold exactly as
+written above. Never-auto-merge holds at every tier.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
