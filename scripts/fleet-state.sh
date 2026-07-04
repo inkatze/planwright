@@ -42,6 +42,20 @@
 # consumers. The bound VALUE and policy are Task 6's; the atomic MECHANISM is
 # here.
 #
+# RESERVATION vs SOURCE OF TRUTH. `bound-incr`/`bound-decr` are a same-instant
+# RESERVATION primitive, not the authoritative fleet in-flight count. The
+# authoritative count is the live git derivation the meta-tower selector
+# (orchestrate-meta-select.sh) sums per step — level-triggered and self-healing,
+# so it never leaks across a tower crash; that selector reads only the git truth,
+# never this counter. This counter's role is to close the sub-second window
+# between a meta step deciding and a subordinate tower materializing its
+# branch/marker. It is NOT self-healing: a holder that crashes between
+# `bound-incr` and `bound-decr` leaks its slot (same crash-recovery gap as the
+# stale-lock break — a known limitation deferred to the lock-family owner-token
+# redesign; tracked in specs/_observations, fleet-bound-slot-leak /
+# shared-lock-stale-break-race). A consumer must not treat this counter as a
+# durable occupancy tally; the git-derived count is what reconciles.
+#
 # REQ-F1.1 / REQ-A1.6 (parsed input is data, never an executed path; artifact
 # data hygiene). The plugin-namespace `name` is grammar-validated (kebab charset,
 # no traversal, no uppercase, ≤64) before it is interpolated into any path, so a

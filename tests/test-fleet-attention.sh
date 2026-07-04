@@ -332,6 +332,40 @@ stripped=$(printf '%s' "$rout" | tr -d '\000-\037\177')
 echo "ok: render strips control/escape bytes from stored fields (no terminal injection)"
 
 # ---------------------------------------------------------------------------
+# 11b. Octal-safe age math on a corrupted timestamp field. A leading-zero ts in
+#      a hand-corrupted/pre-grammar store line must NOT reach `$(( ))` as octal:
+#      `010` would silently miscount (age = now-8) and `08`/`09` are an invalid-
+#      octal arithmetic error that is FATAL under dash (aborting render mid-loop,
+#      exit != 0) and non-fatal-but-noisy under bash — either way breaking the
+#      corruption-tolerant render contract (test 11) and diverging across the two
+#      supported shells. The guard mirrors the sibling leading-zero exclusions in
+#      fleet-state.sh `read_counter` and orchestrate-meta-select.sh `read_bound`:
+#      a leading-zero ts degrades to the unknown-age "?", never a computed value.
+# ---------------------------------------------------------------------------
+home11b="$tmp/octal-ts-home"
+mkdir -p "$home11b/attention"
+# Row 1: a valid-octal leading-zero ts (silent miscount risk). Row 2: an invalid-
+# octal leading-zero ts (arithmetic-error / dash-fatal risk).
+{
+  printf 'worker=oct\tspec-z:1\tworking\t010\t\t\t\t\n'
+  printf 'worker=inv\tspec-z:2\tworking\t08\t\t\t\t\n'
+} >"$home11b/attention/state"
+octrc=0
+oct_out=$(aenv "$home11b" render 2>/dev/null) || octrc=$?
+[ "$octrc" = 0 ] \
+  || fail "render: corrupted leading-zero ts made render exit $octrc (contract: tolerate a corrupt line, exit 0)"
+# Both corrupted rows must show the unknown-age "?", not an octal-misparsed number.
+case $oct_out in
+  *"worker=oct"*"(?s)"*) ;;
+  *) fail "render: leading-zero ts '010' produced a computed age instead of '?' (octal miscount): $oct_out" ;;
+esac
+# Every rendered age in this store is the corrupt-degraded "?"; no digit-only age leaked.
+if printf '%s\n' "$oct_out" | grep -Eq '\([0-9]+s\)'; then
+  fail "render: a corrupted leading-zero ts was misparsed into a numeric age (octal): $oct_out"
+fi
+echo "ok: render treats a leading-zero timestamp as unknown age (octal-safe, dash/bash parity)"
+
+# ---------------------------------------------------------------------------
 # 12. Concurrency: N concurrent heartbeats for DISTINCT workers are serialized
 #     through the Task 9 lock → exactly N rows, none torn, none lost. And N
 #     concurrent upserts of the SAME worker collapse to exactly one row.

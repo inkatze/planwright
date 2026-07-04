@@ -260,6 +260,16 @@ rc=0
 rc=0
 "$BACKENDS" frobnicate >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "usage: unknown subcommand returned $rc, expected 2"
+# Echo discipline: an unknown subcommand carrying an ESC/OSC sequence fails closed
+# AND never leaks its raw control bytes to stderr (mirrors the sanitized invalid-
+# name diagnostics this script already emits for detect/select-unattended).
+escsub=$(printf 'frob\033]0;INJECT\007nicate')
+rc=0
+subErr=$("$BACKENDS" "$escsub" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "usage: escape-laden subcommand returned $rc, expected 2"
+subStripped=$(printf '%s' "$subErr" | tr -d '\000-\037\177')
+[ "$subStripped" = "$subErr" ] \
+  || fail "usage: raw control/escape bytes leaked to stderr from an unknown subcommand"
 rc=0
 "$BACKENDS" select-unattended >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "usage: select-unattended with no arg returned $rc, expected 2"

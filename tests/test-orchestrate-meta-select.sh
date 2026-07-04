@@ -282,7 +282,36 @@ two_task_body >"$repoB/specs/Bad/tasks.md"
 rc=0
 "$MSEL" "$repoB/specs/Bad" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "case 7c: hostile spec basename must fail closed (exit $rc, expected 2)"
-echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with exit 2"
+# 7d. Echo discipline (doctrine/security-posture.md): a hostile basename carrying
+#     an ESC/OSC sequence is rejected AND its raw control bytes never reach the
+#     operator's stderr. The invalid-id diagnostic echoes the basename that just
+#     FAILED the grammar, so it is guaranteed to hold out-of-charset bytes; every
+#     such diagnostic must be sanitized, as the sibling scripts and the
+#     fleet-attention render path already are. (The grammar check fires on the arg
+#     string before any filesystem access, so no real dir is needed.)
+escbase=$(printf 'x\033]0;INJECT\007y')
+rc=0
+d7err=$("$MSEL" "$tmp/$escbase" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "case 7d: escape-laden spec basename must fail closed (exit $rc, expected 2)"
+d7stripped=$(printf '%s' "$d7err" | tr -d '\000-\037\177')
+[ "$d7stripped" = "$d7err" ] \
+  || fail "case 7d: raw control/escape bytes leaked to stderr (terminal injection)"
+echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with exit 2 (diagnostics sanitized)"
+# 7e. Echo discipline for the missing-tasks.md diagnostic: only the spec-dir
+#     BASENAME is grammar-checked, so the parent path can carry arbitrary bytes.
+#     A spec dir with a valid basename but ESC/OSC bytes in its PARENT and no
+#     tasks.md must fail closed (exit 2) AND its raw control bytes must never
+#     reach stderr — the same sanitization the sibling "not inside a git work
+#     tree" / "different checkout" diagnostics already apply to $spec_dir.
+escdir=$(printf 'ev\033]0;INJECT\007il')
+mkdir -p "$tmp/$escdir/myspec"
+rc=0
+d7eerr=$("$MSEL" "$tmp/$escdir/myspec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "case 7e: escape-laden spec-dir parent must fail closed (exit $rc, expected 2)"
+d7estripped=$(printf '%s' "$d7eerr" | tr -d '\000-\037\177')
+[ "$d7estripped" = "$d7eerr" ] \
+  || fail "case 7e: raw control/escape bytes leaked to stderr from the missing-tasks.md diagnostic (terminal injection)"
+echo "ok: the missing-tasks.md diagnostic sanitizes an escape-laden spec-dir path"
 
 # ---------------------------------------------------------------------------
 # 8. Degenerate single-spec fleet: the meta-selector reduces to a one-spec pass,
@@ -313,6 +342,22 @@ got=$("$MSEL" "$ealpha" 2>"$tmp/e9.err") || fail "case 9: malformed bound must s
   || fail "case 9: malformed fleet bound must fall back to the default and dispatch (got '$got')"
 grep -q "ignoring malformed fleet_max_parallel_units" "$tmp/e9.err" \
   || fail "case 9: malformed fleet bound must warn on stderr"
+# 9b. Echo discipline for the malformed-bound warning: a config-overlay value is
+#     untrusted content (repo-tracked, adopter, or machine-local YAML). A
+#     malformed bound value carrying ESC/OSC bytes must still fall back and
+#     dispatch, AND the warning that echoes the rejected value must be sanitized
+#     — no raw control bytes to the operator's terminal.
+escbound=$(printf 'foo\033]0;INJECT\007bar')
+set_bounds "$repoE" "$escbound" 3
+rc=0
+got=$("$MSEL" "$ealpha" 2>"$tmp/e9b.err") || rc=$?
+[ "$rc" = 0 ] || fail "case 9b: escape-laden malformed bound must still dispatch via fallback (rc $rc)"
+grep -q "ignoring malformed fleet_max_parallel_units" "$tmp/e9b.err" \
+  || fail "case 9b: escape-laden malformed bound must still warn on stderr"
+e9bstripped=$(tr -d '\000-\037\177' <"$tmp/e9b.err")
+[ "$e9bstripped" = "$(cat "$tmp/e9b.err")" ] \
+  || fail "case 9b: raw control/escape bytes leaked to stderr from the malformed-bound warning (terminal injection)"
+echo "ok: the malformed-bound warning sanitizes an escape-laden config value"
 echo "ok: a malformed bound warns and falls back to the safe default"
 
 # ---------------------------------------------------------------------------
