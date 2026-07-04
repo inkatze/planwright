@@ -304,4 +304,27 @@ rc_of 2 "observe-command must still fail closed on a control-byte backend" -- \
   "$RELAY" observe-command "$bad_backend" "@3"
 echo "ok: echo discipline — diagnostics sanitize untrusted paths/backends; msgfile guard rejects unreadable + control-byte paths"
 
+# ---------------------------------------------------------------------------
+# 13. Concurrency: the tmux buffer name must be UNIQUE per relay invocation.
+#     tmux named buffers are server-global, so a fixed name lets two relays on
+#     one tmux server interleave (A load, B load, A paste) and deliver the wrong
+#     payload to the wrong target — a live risk since this feature is multi-tower
+#     coordination sharing a server. Within one invocation, load and paste must
+#     still name the SAME buffer; across invocations the names must differ.
+# ---------------------------------------------------------------------------
+bufname_of() { printf '%s\n' "$1" | sed -n 's/.*-b \([^ ]*\).*/\1/p'; }
+out1=$("$RELAY" relay-command tmux "@3" "$msg") \
+  || fail "relay-command tmux exited non-zero building the buffer-name fixture"
+lb1=$(bufname_of "$(printf '%s\n' "$out1" | grep 'tmux load-buffer')")
+pb1=$(bufname_of "$(printf '%s\n' "$out1" | grep 'tmux paste-buffer')")
+[ -n "$lb1" ] || fail "could not extract the load-buffer name from relay-command output"
+[ "$lb1" = "$pb1" ] \
+  || fail "relay-command load and paste must name the same buffer within one invocation (got '$lb1' vs '$pb1')"
+out2=$("$RELAY" relay-command tmux "@3" "$msg") \
+  || fail "relay-command tmux exited non-zero on the second buffer-name fixture"
+lb2=$(bufname_of "$(printf '%s\n' "$out2" | grep 'tmux load-buffer')")
+[ "$lb1" != "$lb2" ] \
+  || fail "relay-command must use a buffer name unique per invocation (both were '$lb1'); a fixed server-global buffer races across concurrent relays"
+echo "ok: relay buffer name is unique per invocation and consistent within one (no cross-relay race)"
+
 echo "PASS: test-orchestrate-relay.sh"

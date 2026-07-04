@@ -170,11 +170,19 @@ case "$sub" in
           echo "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
           exit 2
         }
+        # tmux named buffers are server-global, so a fixed buffer name lets two
+        # relays on one server interleave (A load, B load, A paste) and paste the
+        # wrong payload to the wrong target — a live risk here, where multiple
+        # towers coordinate over one server. Uniquify the buffer per invocation
+        # with this relay process's PID: computed once, so the load and paste
+        # lines below name the SAME buffer, while two concurrent invocations
+        # (distinct live PIDs) never collide. It is a DATA-free literal (digits).
+        buf="planwright-relay-$$"
         # Attributed buffer-paste delivery. The header is a fixed literal (tower
         # origin + target); the message body is `cat`'d from the file, so its
         # content is DATA and never enters the command as code. NEVER send-keys.
-        printf '%s\n' "{ printf '%s\\n' '[planwright tower relay -> $handle]'; cat -- '$msg'; } | tmux load-buffer -b planwright-relay -"
-        printf '%s\n' "tmux paste-buffer -b planwright-relay -t '$handle' -d"
+        printf '%s\n' "{ printf '%s\\n' '[planwright tower relay -> $handle]'; cat -- '$msg'; } | tmux load-buffer -b $buf -"
+        printf '%s\n' "tmux paste-buffer -b $buf -t '$handle' -d"
         exit 0
         ;;
       subagent)
