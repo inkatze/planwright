@@ -199,6 +199,20 @@ rc_of 2 "observe-command tmux must reject a hostile handle" -- \
   "$RELAY" observe-command tmux "a;id"
 echo "ok: observe-command tmux emits a handle-validated capture-pane read"
 
+# observe-command subagent: harness-native, like relay — empty stdout, exit 0.
+out=$("$RELAY" observe-command subagent "task-7") \
+  || fail "observe-command subagent should exit 0 (harness-native)"
+[ -z "$out" ] || fail "observe-command subagent must emit no shell command (stdout empty)"
+echo "ok: observe-command subagent is harness-native (no shell command)"
+
+# relay/observe fail closed on an UNKNOWN backend — no command is emitted for a
+# backend whose steer/observe mechanism is undeclared (never a guessed path).
+rc_of 2 "relay-command must fail closed on an unknown backend" -- \
+  "$RELAY" relay-command frobnicate "@3" "$msg"
+rc_of 2 "observe-command must fail closed on an unknown backend" -- \
+  "$RELAY" observe-command frobnicate "@3"
+echo "ok: relay/observe fail closed on an unknown backend"
+
 # ---------------------------------------------------------------------------
 # 10. Source audit: the EXECUTABLE code contains no send-keys and no eval path —
 #     the "no send-keys impersonation path exists" Done-when check made grep-able
