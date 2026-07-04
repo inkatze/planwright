@@ -503,10 +503,13 @@ home):
 
 - **At dispatch** (subordinate launch or worker dispatch):
   `scripts/fleet-attention.sh heartbeat <worker> <spec>:task-<ids> working` —
-  the worker handle and its scope (one spec/unit per worker, isolated
-  worktree/context) use the store's field grammar (colon-separated scope; the
-  grammar has no slash), so `render` presents **per-worker scope** legibly
-  (REQ-E1.5).
+  `<worker>` is the backend's **stable unit handle** from the capability
+  contract's named-addressable-units guarantee (the tmux window id, the
+  subagent handle), so every later `heartbeat`/`decide`/`clear` for the unit
+  keys the same store row. The handle and its scope (one spec/unit per worker,
+  isolated worktree/context) use the store's field grammar (colon-separated
+  scope; the grammar has no slash), so `render` presents **per-worker scope**
+  legibly (REQ-E1.5).
 - **On a halt → `## Awaiting input`**: mirror the entry as a structured
   decision — `scripts/fleet-attention.sh decide <worker> <scope> <question>
   <default> <options> [priority]` — so the queue's length tracks the
@@ -514,13 +517,26 @@ home):
   remains the durable record; the queue row is its projection.
 - **On reconcile observations**: heartbeat `pr-ready` when a draft PR is up,
   `merged` on an observed merge, and `clear <worker>` at teardown (merged-window
-  cleanup), so stale workers do not linger on the surface.
+  cleanup). The mirror is **level-triggered like the sweep itself**: each
+  iteration reconciles the store to the observed state — write a row only on
+  an observed *change* (an unchanged row keeps its commit-time stamp, so the
+  queue's oldest-first order is preserved), re-issue a missing `decide` for a
+  still-open `## Awaiting input` entry, and `clear` any row whose unit is no
+  longer in flight or awaiting input (answered, deferred, or vanished) — so a
+  crash between an edge and its mirror, a lost write, or a late heartbeat
+  self-heals within one iteration and stale workers do not linger on the
+  surface.
 - **Each watch iteration ends by rendering the surface**:
   `scripts/fleet-attention.sh render` (per-worker scope + state), then
   `scripts/fleet-attention.sh queue` (the ordered decision queue). When the
   selected backend **advertises** `provides_attention_surface=true`, pass
   `--surface-provided`: the queue defers to the backend's own surface while
   `render` stays available — adapt to the advertised set, never the name.
+
+Attention calls are **best-effort surface maintenance**: a failed
+`heartbeat`/`decide`/`clear` is reported and never halts the step — the
+`tasks.md` entry stays the durable record, and the level-triggered mirror
+repairs the surface on the next iteration.
 
 The queue and renderer read plain files under the durable fleet home, so the
 same surface is readable from a plain terminal, a popup over a detached
