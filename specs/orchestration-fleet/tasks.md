@@ -152,6 +152,7 @@ space).
 - **Dependencies:** 1, 2, 8
 - **Citations:** D-6 · REQ-D1.1, REQ-D1.5, REQ-A1.2
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-03
 
 ### Task 7 — Inter-orchestrator coordination protocol
 
