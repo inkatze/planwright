@@ -488,6 +488,18 @@ printf '%0300d\n' 0 | tr '0' 'x' | "$BACKENDS" present >/dev/null 2>"$err" || rc
 [ "$(wc -c <"$err")" -lt 160 ] \
   || fail "present: the malformed-row diagnostic must cap the echoed line"
 echo "ok: present refuses a row whose tab count betrays an empty field"
+# The complementary shape: exactly six tabs with an empty MIDDLE field passes
+# the tab-count guard, so only the field-validation loop can catch it — after
+# token collapse the trailing vars land empty/shifted (p_g empty, p_p=yes).
+# Pins the loop interplay so a reorder of the validate loops cannot silently
+# accept a collapsed row. No stdout: the fail-closed guarantee holds here too.
+rc=0
+outp=$(printf 'tmux\ttrue\t\ttrue\tfalse\ttrue\tyes\n' \
+  | "$BACKENDS" present 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "present: a six-tab empty-middle-field row returned $rc, expected 2"
+[ -z "$outp" ] \
+  || fail "present: a six-tab empty-middle-field row must emit no output, got '$outp'"
+echo "ok: present refuses a six-tab row whose empty middle field collapses"
 
 # ---------------------------------------------------------------------------
 # 25. echo discipline on the dispatcher: an unknown subcommand carrying
