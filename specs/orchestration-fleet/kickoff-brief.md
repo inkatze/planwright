@@ -512,6 +512,33 @@ knobs table added to `docs/fleet.md` in this task.
 No default fails the quiet/safe bar; no config change was needed. R5 is
 discharged as audited.
 
+### Task 11 execution findings — onboarding hand-off note (2026-07-04)
+
+The hand-off note the Task 11 deliverables name, addressed to the
+packaging/onboarding docs (bootstrap Task 19's territory: `docs/getting-started.md`
+and `docs/release-checklist.md`). Appended per the execution-skill convention
+(named section, no anchor entry, existing rows untouched).
+
+- **What now exists:** `docs/fleet.md` is the complete adopter-facing fleet
+  guide — the approachable-path half (entry command, decision queue,
+  multiplexer-as-plumbing, personas, notification channel) plus the
+  execution-substrate half added by this task (backend contract +
+  advertisement, autodetect-and-ask, degradation ladder + runtime failover +
+  terminal rung, bring-your-own-backend, self-management, meta-tower +
+  coordination, autonomous-safe-decision, the capability-vs-style knobs
+  table). Every fleet option has a `docs/options-reference.md` row.
+- **Indexes updated:** the `docs/getting-started.md` "Where to go next" list
+  and the `README.md` documentation index both point at `docs/fleet.md` with
+  descriptions covering both halves.
+- **What remains for the onboarding docs:** nothing blocking — the
+  getting-started flow needs no fleet step (fleet mode is opt-in via
+  `/orchestrate --fleet` and fully documented at its pointer). Two watch
+  items: `docs/release-checklist.md` was deliberately left untouched (no
+  fleet-specific release step was identified; revisit if a fleet knob ever
+  gains a release-gated default), and the persona-(c) editor integration is a
+  gated deferral (`docs/fleet.md` audit note) whose docs land with that
+  feature, not before.
+
 ## 8. Sign-off
 
 ### Lens review pass (Discovery Rigor)
