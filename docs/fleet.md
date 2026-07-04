@@ -135,7 +135,7 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death. The orchestrator adapts to the advertised set, never to the
+tower's death. The tower adapts to the advertised set, never to the
 backend's name.
 
 The shipped `dispatch_backend` values, by what they give you:
@@ -217,8 +217,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one six-field capability line; the
-orchestrator autodetects it, reads the set, places it on the ladder, and offers
+`PATH` that answers `advertise` with one six-field capability line;
+`/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter
 protocol lives in
