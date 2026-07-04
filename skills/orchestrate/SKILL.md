@@ -468,7 +468,9 @@ runs the meta-tower watch loop (`--meta --watch`, both sections above,
 unchanged) with the **attention surface wired in as the default watch
 surface**. An operator on a normal editor and terminal types this one command
 and never needs multiplexer knowledge; from a plain shell, the same entry is
-`claude "/orchestrate --fleet"` (add `--unattended` for headless). The
+`claude "/orchestrate --fleet"` (headless, e.g. under cron:
+`claude -p "/orchestrate --fleet --unattended"` — the flag rides inside the
+quoted command). The
 approachable path is the *default presentation* of fleet operation, not a
 degraded fallback behind tmux: full execution quality (session-grade,
 steerable workers) remains available underneath it, because quality lives in

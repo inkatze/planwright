@@ -24,8 +24,9 @@ From a plain shell, the same entry is:
 claude "/orchestrate --fleet"
 ```
 
-(add `--unattended` for a headless run, e.g. under cron). The command does
-three things, and asks before the one choice that is yours:
+For a headless run (e.g. under cron), use headless mode with the flag inside
+the quoted command: `claude -p "/orchestrate --fleet --unattended"`. The
+command does three things, and asks before the one choice that is yours:
 
 1. **Autodetects the execution backends** present on the host and presents
    them with their advertised capabilities; you pick one (attended runs never
