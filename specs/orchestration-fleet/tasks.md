@@ -59,7 +59,7 @@ space).
 - **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
 - **Citations:** D-10 · REQ-A1.5, REQ-E1.4
 - **Estimated effort:** 1 day
-- **Status:** implementing
+- **Status:** PR #122 draft
 - **Last activity:** 2026-07-04
 
 ## Awaiting input
