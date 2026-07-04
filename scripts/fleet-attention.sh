@@ -411,7 +411,11 @@ case $cmd in
       [ -n "$w" ] || continue
       age="?"
       case $ts in
-        "" | *[!0-9]*) ;;
+        "" | *[!0-9]* | 0?*) ;; # 0?* excludes a leading-zero ts: `$(( ))` would
+        # read it as OCTAL — `010` miscounts (age = now-8) and `08`/`09` are an
+        # invalid-octal error, FATAL under dash. Mirrors fleet-state.sh
+        # read_counter / orchestrate-meta-select.sh read_bound; a corrupt ts
+        # degrades to the "?" age below, never a wrong number or an abort.
         *) [ -n "$now" ] && age=$((now - ts)) ;;
       esac
       # Sanitize every field before it reaches the terminal (echo discipline):
@@ -476,7 +480,11 @@ case $cmd in
       [ -n "$worker" ] || continue
       age="?"
       case $ts in
-        "" | *[!0-9]*) ;;
+        "" | *[!0-9]* | 0?*) ;; # 0?* excludes a leading-zero ts: `$(( ))` would
+        # read it as OCTAL — `010` miscounts (age = now-8) and `08`/`09` are an
+        # invalid-octal error, FATAL under dash. Mirrors fleet-state.sh
+        # read_counter / orchestrate-meta-select.sh read_bound; a corrupt ts
+        # degrades to the "?" age below, never a wrong number or an abort.
         *) [ -n "$now" ] && age=$((now - ts)) ;;
       esac
       s_prio=$(sanitize_printable "$prio" "?")
