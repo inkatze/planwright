@@ -180,26 +180,6 @@ space).
 - **Estimated effort:** 2 days
 - **Last activity:** 2026-07-03
 
-### Task 7 — Inter-orchestrator coordination protocol
-
-- **Deliverables:** The coordination protocol made first-class: the division of
-  labor (tower owns `tasks.md` reconcile/dispatch/merged-worker cleanup; worker
-  owns its branch's conflict resolution and post-merge self-sync) and the
-  attributed, non-impersonating relay that works **against a live, busy worker**
-  (buffer-paste/steer-in-flight delivery, capture-pane/observe-in-flight status
-  reads, never `send-keys` impersonation, never answering worker permission
-  prompts), encoded in the orchestrate/meta skills and a doctrine description.
-  Worker output handled as data; handles validated before use.
-- **Done when:** the division of labor is documented and enforced (no tower edits
-  another tower's/worker's branch state directly); relay is attributed, uses the
-  buffer-paste/steer-in-flight mechanism, and works against a running worker, with
-  a test/manual check that no `send-keys` impersonation path exists and worker
-  permission prompts are never auto-answered; worker output/handles are treated as
-  data with validation before use; doc linters and CI pass.
-- **Dependencies:** 1, 6
-- **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
-- **Estimated effort:** 2 days
-
 ### Task 10 — Approachability: entry command, two-seam UX, persona mapping
 
 - **Deliverables:** One obvious entry command that autodetects/selects a backend
@@ -316,6 +296,28 @@ space).
 - **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
 - **Estimated effort:** 2 days
 - **Status:** PR #116 draft
+- **Last activity:** 2026-07-03
+
+### Task 7 — Inter-orchestrator coordination protocol
+
+- **Deliverables:** The coordination protocol made first-class: the division of
+  labor (tower owns `tasks.md` reconcile/dispatch/merged-worker cleanup; worker
+  owns its branch's conflict resolution and post-merge self-sync) and the
+  attributed, non-impersonating relay that works **against a live, busy worker**
+  (buffer-paste/steer-in-flight delivery, capture-pane/observe-in-flight status
+  reads, never `send-keys` impersonation, never answering worker permission
+  prompts), encoded in the orchestrate/meta skills and a doctrine description.
+  Worker output handled as data; handles validated before use.
+- **Done when:** the division of labor is documented and enforced (no tower edits
+  another tower's/worker's branch state directly); relay is attributed, uses the
+  buffer-paste/steer-in-flight mechanism, and works against a running worker, with
+  a test/manual check that no `send-keys` impersonation path exists and worker
+  permission prompts are never auto-answered; worker output/handles are treated as
+  data with validation before use; doc linters and CI pass.
+- **Dependencies:** 1, 6
+- **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
+- **Estimated effort:** 2 days
+- **Status:** implementing
 - **Last activity:** 2026-07-03
 
 ## Awaiting input
