@@ -285,7 +285,7 @@ are in the [options reference](options-reference.md).
 | `context_budget_threshold` | Step-count monitor + continue-as-new handover | How long your towers run before handing over | `50` — hands over early; the handover is cheap and lossless, so early is the safe direction |
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
-| `notification_channel` | The notification seam and the decision queue | Which channel pushes at you | `none` — pull-only, dependency-free, nothing fires until you opt in |
+| `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you | `none` — pull-only, dependency-free, nothing fires until you opt in |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,
