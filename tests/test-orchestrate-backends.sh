@@ -382,6 +382,12 @@ printf '%s\n' "$tb" | grep -q "detached background server" \
   || fail "present: interactive tmux block must carry the detached-plumbing note"
 printf '%s\n' "$tb" | grep -q "never required" \
   || fail "present: the detached-plumbing note must say attaching is never required"
+# The summary is derived one token per advertised capability; asserting the
+# full five-token line means dropping (or mislabeling) any single pb_add
+# branch in emit_block fails here instead of passing silently.
+printf '%s\n' "$tb" \
+  | grep -q "interactive, observe in-flight, steer in-flight, parallel workers, session-grade workers" \
+  || fail "present: tmux's summary must carry all five advertised feature tokens"
 sb=$(block_of "$out" subagent)
 printf '%s\n' "$sb" | grep -q "decision queue (default)" \
   || fail "present: a backend with no own surface must default to the decision queue"
@@ -427,11 +433,20 @@ echo "ok: present defers to a backend that provides its own attention surface"
 #     argument all exit 2.
 # ---------------------------------------------------------------------------
 rc=0
-printf 'tmux\ttrue\ttrue\n' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+printf 'tmux\ttrue\ttrue\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: a short row returned $rc, expected 2"
+grep -q "malformed detect row" "$err" \
+  || fail "present: a short row must get the malformed-detect-row diagnostic"
 rc=0
-printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tmaybe\n' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tmaybe\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "present: an invalid session_grade returned $rc, expected 2"
+grep -q "malformed session_grade" "$err" \
+  || fail "present: an invalid session_grade must get its own diagnostic, not a generic one"
+rc=0
+printf 'tmux\tmaybe\ttrue\ttrue\tfalse\ttrue\tyes\n' | "$BACKENDS" present >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "present: an invalid capability boolean returned $rc, expected 2"
+grep -q "malformed capability field" "$err" \
+  || fail "present: an invalid capability boolean must get the capability-field diagnostic"
 rc=0
 printf '' | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "present: empty input returned $rc, expected 2 (detect always emits rows)"
@@ -453,6 +468,8 @@ printf '%s\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\n' "$(printf 'ev\033]0;PWNED\007i
 if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
   fail "present: a refused name's control bytes must be stripped before echo"
 fi
+grep -q "malformed detect row" "$err" \
+  || fail "present: the refused hostile row must still be reported (sanitized), not fail silently"
 echo "ok: present sanitizes a refused hostile row's control bytes"
 
 # ---------------------------------------------------------------------------
@@ -515,5 +532,29 @@ fi
 grep -q "unknown subcommand" "$err" \
   || fail "dispatcher: the unknown-subcommand diagnostic should still be reported (sanitized)"
 echo "ok: the dispatcher sanitizes an unknown subcommand's control bytes"
+
+# ---------------------------------------------------------------------------
+# 26. present: na-typed fields on a RENDERED row are skipped, not treated as
+#     capabilities — a pluggable adapter may advertise na for ANY of the five
+#     booleans (adapter_caps admits it), so a row with interactive=na,
+#     surface=na, parallel=na must render only its true features, carry no
+#     plumbing note, and fall to the default attention line.
+# ---------------------------------------------------------------------------
+row=$(printf 'plugna\tna\ttrue\ttrue\tna\tna\tyes\n')
+out=$(printf '%s\n' "$row" | "$BACKENDS" present) \
+  || fail "present exited non-zero on an na-heavy row"
+nb=$(block_of "$out" plugna)
+[ -n "$nb" ] || fail "present: plugna row missing from the presentation"
+printf '%s\n' "$nb" | grep -q "observe in-flight, steer in-flight, session-grade workers" \
+  || fail "present: an na-heavy row must render exactly its true features"
+printf '%s\n' "$nb" | grep -q "interactive" \
+  && fail "present: interactive=na must not surface as a feature"
+printf '%s\n' "$nb" | grep -q "parallel workers" \
+  && fail "present: supports_parallel=na must not surface as a feature"
+printf '%s\n' "$nb" | grep -q "detached" \
+  && fail "present: interactive=na must not carry the plumbing note"
+printf '%s\n' "$nb" | grep -q "decision queue (default)" \
+  || fail "present: provides_attention_surface=na must fall to the default attention line"
+echo "ok: present skips na-typed fields on a rendered row"
 
 echo "PASS: test-orchestrate-backends.sh"
