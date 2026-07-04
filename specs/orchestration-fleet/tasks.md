@@ -317,7 +317,7 @@ space).
 - **Dependencies:** 1, 6
 - **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
 - **Estimated effort:** 2 days
-- **Status:** implementing
+- **Status:** PR #119 draft
 - **Last activity:** 2026-07-03
 
 ## Awaiting input
