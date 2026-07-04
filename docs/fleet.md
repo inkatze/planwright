@@ -193,7 +193,8 @@ backend spec-locally (in the spec's dispatch-state directory,
 `<spec-dir>/.orchestrate/` by default — runtime state never lands in
 `tasks.md`, which stays a clean derived ledger), and surfaces the downgrade:
 a logged note, plus a human-facing entry in the spec's `## Awaiting input`
-section of `tasks.md`, which is what the attention surface renders. A second failure descends
+section of `tasks.md`, which the decision queue mirrors — so the downgrade
+shows on the attention surface. A second failure descends
 one more rung, down to the floor. There is no silent downgrade path.
 
 ### The synchronous terminal rung
