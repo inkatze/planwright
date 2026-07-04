@@ -130,10 +130,13 @@ case "$out" in
   *send-keys*) fail "relay-command tmux must NEVER emit a send-keys path" ;;
   *) : ;;
 esac
-# Attribution: the emitted relay is clearly marked as tower-originated.
+# Attribution: pin the human-visible, tower-marked header naming the target
+# direction — the actual non-impersonation marker (REQ-D1.3), NOT merely the
+# internal `planwright-relay` buffer name (a bare `*planwright*relay*` glob would
+# pass on the buffer name alone even if the visible header were deleted).
 case "$out" in
-  *planwright*relay*) : ;;
-  *) fail "relay-command tmux must emit an attributed (tower-marked) relay" ;;
+  *"[planwright tower relay -> @3]"*) : ;;
+  *) fail "relay-command tmux must emit the attributed, target-named header ([planwright tower relay -> @3])" ;;
 esac
 echo "ok: relay-command tmux emits an attributed buffer-paste command, no send-keys"
 
@@ -166,7 +169,15 @@ rc_of 2 "relay-command tmux must reject a hostile handle" -- \
   "$RELAY" relay-command tmux 'a$(id)' "$msg"
 rc_of 2 "relay-command tmux must reject a missing message file" -- \
   "$RELAY" relay-command tmux "@3" "$tmp/does-not-exist.txt"
-echo "ok: relay-command tmux fails closed on a hostile handle or missing message file"
+# A message-file PATH containing a single quote is the emission-boundary injection
+# case: the path is interpolated into a single-quoted literal in the emitted
+# `cat -- '<path>'`, so a `'` in the path would break out. valid_msgfile must
+# reject it even though the file exists.
+sq_msg="$tmp/msg'quote.txt"
+printf 'body\n' >"$sq_msg"
+rc_of 2 "relay-command tmux must reject a message-file path containing a single quote" -- \
+  "$RELAY" relay-command tmux "@3" "$sq_msg"
+echo "ok: relay-command tmux fails closed on a hostile handle, missing message file, or unsafe message-file path"
 
 # ---------------------------------------------------------------------------
 # 8. relay-command subagent: harness-native — no screen-scrape/send-keys
