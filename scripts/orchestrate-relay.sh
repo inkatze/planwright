@@ -59,6 +59,22 @@ unset CDPATH
 
 me=orchestrate-relay
 
+# Resolve this script's directory so the sibling echo-safety helper is found
+# regardless of the caller's working directory.
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+echo_safety="$script_dir/echo-safety.sh"
+# echo-safety.sh is sourced (not executed), so require it READABLE and fail closed
+# (exit 2) when a broken install omits it — rather than a raw dot-source error. It
+# sanitizes every untrusted value (message-file paths, backend names) before it
+# reaches operator-facing stderr (echo discipline, doctrine/security-posture.md —
+# the same posture every sibling in-scope script applies at each such site).
+if [ ! -r "$echo_safety" ]; then
+  echo "$me: required helper $echo_safety missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$echo_safety"
+
 # A literal newline, for the message-file path safety check below.
 nl='
 '
@@ -97,16 +113,23 @@ valid_handle() {
   return 0
 }
 
-# A message file must exist as a regular file and its path must be safe to place
-# inside a single-quoted shell literal in the emitted command (no single quote,
-# no newline). The tower writes the message to a temp file it controls; this
-# guards the emission boundary regardless.
+# A message file must exist as a readable regular file and its path must be safe
+# to place inside a single-quoted shell literal in the emitted command (no single
+# quote, no newline, no control byte). The tower writes the message to a temp file
+# it controls; this guards the emission boundary regardless. Readability is
+# required because the emitted `cat -- '<path>'` would otherwise fail at runtime.
 valid_msgfile() {
   [ -f "$1" ] || return 1
+  [ -r "$1" ] || return 1
   case "$1" in
     *"'"*) return 1 ;;
     *"$nl"*) return 1 ;;
   esac
+  # Reject C0/DEL/C1 control bytes in the path (the exact range echo-safety.sh
+  # strips): the path is bound into the emitted relay command and echoed in the
+  # reject diagnostic, so a raw escape byte would drive the operator's terminal.
+  # A path bound into an emitted command is refused outright, not sanitized.
+  [ "$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')" = "$1" ] || return 1
   return 0
 }
 
@@ -144,7 +167,7 @@ case "$sub" in
       tmux)
         valid_handle tmux "$handle" || reject_handle tmux
         valid_msgfile "$msg" || {
-          echo "$me: message file missing or path unsafe to relay: $msg" >&2
+          echo "$me: message file missing or path unsafe to relay: $(sanitize_printable "$msg" "(unprintable path)")" >&2
           exit 2
         }
         # Attributed buffer-paste delivery. The header is a fixed literal (tower
@@ -160,7 +183,7 @@ case "$sub" in
         exit 0
         ;;
       *)
-        echo "$me: unknown backend '$backend' (no relay mechanism)" >&2
+        echo "$me: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no relay mechanism)" >&2
         exit 2
         ;;
     esac
@@ -187,7 +210,7 @@ case "$sub" in
         exit 0
         ;;
       *)
-        echo "$me: unknown backend '$backend' (no observe mechanism)" >&2
+        echo "$me: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no observe mechanism)" >&2
         exit 2
         ;;
     esac

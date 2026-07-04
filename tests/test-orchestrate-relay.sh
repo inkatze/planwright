@@ -248,4 +248,60 @@ rc_of 2 "relay-command with no message file must be a usage error" -- \
   "$RELAY" relay-command tmux "@3"
 echo "ok: fail-closed usage errors"
 
+# ---------------------------------------------------------------------------
+# 12. Echo discipline (doctrine/security-posture.md): every untrusted value a
+#     diagnostic echoes — the message-file path ($msg) and the backend name
+#     ($backend) — must be run through echo-safety.sh's sanitizer, so an embedded
+#     escape/control byte cannot drive the operator's terminal. And the
+#     message-file guard must fail closed on an unreadable file and on a path
+#     carrying a control byte (both would otherwise reach the emitted command).
+# ---------------------------------------------------------------------------
+esc=$(printf '\033')
+
+# 12a. valid_msgfile hardening: an UNREADABLE regular file is refused (else the
+#      emitted `cat -- '<path>'` fails at runtime).
+unreadable="$tmp/unreadable-msg.txt"
+printf 'body\n' >"$unreadable"
+chmod 000 "$unreadable"
+rc_of 2 "relay-command tmux must reject an unreadable message file" -- \
+  "$RELAY" relay-command tmux "@3" "$unreadable"
+chmod 644 "$unreadable"
+
+# 12b. valid_msgfile hardening: an EXISTING message file whose PATH carries a
+#      control byte is refused (the path is bound into the emitted command).
+esc_path="$tmp/esc${esc}path.txt"
+printf 'body\n' >"$esc_path"
+[ -f "$esc_path" ] || fail "test setup: could not create control-byte message-file fixture"
+rc_of 2 "relay-command tmux must reject a message-file path carrying a control byte" -- \
+  "$RELAY" relay-command tmux "@3" "$esc_path"
+
+# 12c. The reject diagnostic must not echo the raw control byte from the path.
+#      Uses a MISSING path (rejected on the -f check even on the pre-fix script)
+#      so the diagnostic fires regardless, isolating the echo-discipline defect.
+esc_missing="$tmp/missing-${esc}-esc.txt"
+errout=$("$RELAY" relay-command tmux "@3" "$esc_missing" 2>&1 1>/dev/null || true)
+case "$errout" in
+  *"$esc"*) fail "relay-command reject diagnostic must not echo a raw control byte from the message-file path" ;;
+  *) : ;;
+esac
+
+# 12d. The unknown-backend diagnostics (relay and observe) must not echo the raw
+#      control byte from $backend, and must still fail closed (exit 2).
+bad_backend="frob${esc}nicate"
+errout=$("$RELAY" relay-command "$bad_backend" "@3" "$msg" 2>&1 1>/dev/null || true)
+case "$errout" in
+  *"$esc"*) fail "relay-command unknown-backend diagnostic must not echo a raw control byte from \$backend" ;;
+  *) : ;;
+esac
+rc_of 2 "relay-command must still fail closed on a control-byte backend" -- \
+  "$RELAY" relay-command "$bad_backend" "@3" "$msg"
+errout=$("$RELAY" observe-command "$bad_backend" "@3" 2>&1 1>/dev/null || true)
+case "$errout" in
+  *"$esc"*) fail "observe-command unknown-backend diagnostic must not echo a raw control byte from \$backend" ;;
+  *) : ;;
+esac
+rc_of 2 "observe-command must still fail closed on a control-byte backend" -- \
+  "$RELAY" observe-command "$bad_backend" "@3"
+echo "ok: echo discipline — diagnostics sanitize untrusted paths/backends; msgfile guard rejects unreadable + control-byte paths"
+
 echo "PASS: test-orchestrate-relay.sh"
