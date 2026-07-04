@@ -175,9 +175,11 @@ Two properties hold on every rung:
 
 - **Degrade capability, never safety.** A descent only ever costs execution
   richness (steer, observe, parallelism). A descent that would drop a *guard*
-  — the worker-settings deny profile, never-auto-merge, never-force-push, the
-  execution freshness gate — is refused: the run aborts rather than trading
-  safety for progress.
+  is refused — the run aborts rather than trading safety for progress. The
+  guards: the worker-settings deny profile (the restricted permission set
+  every worker runs under), never-auto-merge, never-force-push, and the
+  execution freshness gate (the pre-dispatch check that the spec is unchanged
+  since its sign-off).
 - **Never silent.** Every descent is logged and surfaced; you can always tell
   which rung you are on.
 
