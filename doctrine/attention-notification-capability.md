@@ -97,6 +97,11 @@ the specific *channel* is overlay-owned, resolved through the four config layers
 - **`editor-toast`** — an editor toast the editor tails (the editor-feedback
   persona).
 
+Each persona resolves as a combination of the two seams — an execution backend
+times an attention surface, never a separate system; the full persona mapping
+and the approachable entry path are documented in the
+[fleet operation guide](../docs/fleet.md).
+
 The channel adapters treat the summary as data: it is stripped of control bytes,
 and each adapter passes it so that no format specifier, AppleScript string, or
 shell metacharacter in the summary can execute. A channel whose tool is absent

@@ -9,7 +9,7 @@ description: >
   reconcile sweep rebuilds the picture from disk. Never merges, never marks a
   PR ready, never auto-chains into /spec-kickoff. --bookkeeping runs the
   out-of-session drain + PR reconcile; --watch loops the step.
-argument-hint: "[<spec-path>] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
+argument-hint: "[<spec-path>] [--fleet] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
 ---
 
 # /orchestrate
@@ -88,6 +88,12 @@ Selected from `$ARGUMENTS` at pre-flight:
   step under a fleet-level concurrency bound, by launching subordinate
   single-spec towers. Composes with `--watch` (loop the meta step) and the
   backend/`--unattended` flags. See the **Meta-tower** section.
+- **`--fleet`.** The **one obvious entry command** for fleet operation (D-9,
+  REQ-E1.2): `--meta --watch` with the **attention surface wired in as the
+  default watch surface**. `/orchestrate --fleet` is the single documented
+  command that autodetects/selects a backend, starts the tower over every
+  Ready/Active spec, and renders the decision queue — no multiplexer knowledge
+  required. See the **Fleet entry** section.
 
 Flags: `--backend <subagent|tmux|print|in-session>` overrides the configured
 `dispatch_backend` for this run; `--unattended` selects headless mode (skip
@@ -301,8 +307,13 @@ which one to use in this order:
   trailing argument to `detect`. (`dispatch_backend` itself is one of the four
   shipped backends — configuring it to a pluggable name is deferred until
   pluggable dispatch lands, per the options reference — so there is no pluggable
-  `dispatch_backend` value to forward here today.) **Present** that set and
-  **ask** the operator which to use — never auto-select (REQ-B1.4).
+  `dispatch_backend` value to forward here today.) **Present** that set through
+  the two-seam presentation —
+  `scripts/orchestrate-backends.sh detect | scripts/orchestrate-backends.sh
+  present` (D-9, D-12: the pick chooses only the execution seam; the decision
+  queue is the default attention surface for every pick, and an interactive
+  multiplexer carries its detached-background-plumbing note) — and **ask** the
+  operator which to use — never auto-select (REQ-B1.4).
 - **Unattended (`--unattended` / headless)** — there is no one to ask, so run
   `scripts/orchestrate-backends.sh select-unattended "$(scripts/config-get.sh
   dispatch_backend)"` and use the backend it prints. It picks the configured
@@ -449,6 +460,77 @@ drains. **Never-auto-merge holds at every tier** (REQ-A1.2): the meta-tower and
 every subordinate create draft PRs only; the draft→ready flip and the merge stay
 the human's two reserved controls. The meta-tower never marks a PR ready and
 never merges.
+
+## Fleet entry — the one obvious command (`--fleet`; D-9, D-12, REQ-E1.1, REQ-E1.2, REQ-E1.5)
+
+`/orchestrate --fleet` is **the** documented way to start fleet operation: it
+runs the meta-tower watch loop (`--meta --watch`, both sections above,
+unchanged) with the **attention surface wired in as the default watch
+surface**. An operator on a normal editor and terminal types this one command
+and never needs multiplexer knowledge; from a plain shell, the same entry is
+`claude "/orchestrate --fleet"` (add `--unattended` for headless). The
+approachable path is the *default presentation* of fleet operation, not a
+degraded fallback behind tmux: full execution quality (session-grade,
+steerable workers) remains available underneath it, because quality lives in
+the execution seam and what the human watches lives in the attention seam, and
+the two do not trade off (D-12,
+[attention/notification capability](../../doctrine/attention-notification-capability.md)).
+The [fleet operation guide](../../docs/fleet.md) documents the entry command
+and the **persona → (execution backend × attention surface)** mapping
+(REQ-E1.6) for adopters.
+
+**Starting up.** Backend selection is exactly the **Backend selection** step
+(REQ-B1.4): attended, pipe `detect` through `present` and ask — the operator
+picks an *execution* backend from the two-seam presentation, told explicitly
+that the pick does not change what they watch; unattended,
+`select-unattended` picks from config. Never a silent pick.
+
+**The multiplexer as detached background plumbing (REQ-E1.1).** When the
+selected backend is an interactive multiplexer and the operator did not ask to
+attach, the tower drives it **detached**: start the server headlessly (for the
+shipped tmux backend, `tmux new-session -d -s <fleet-session>` — the session
+name is the operator's style, overlay-owned per D-10) and address every window
+by target id. Dispatch, capture-pane observation, and `load-buffer`/
+`paste-buffer` relay work identically against a detached server — nobody ever
+attaches, and the human sees only the attention surface below. Attaching stays
+available at any time for a multiplexer-fluent operator (the mapping's persona
+a); it is never required.
+
+**The attention surface (the queue as default, D-13).** The fleet-entry loop
+keeps the attention store current and renders it, through
+`scripts/fleet-attention.sh` (Task 12's capability, on the Task 9 cross-spec
+home):
+
+- **At dispatch** (subordinate launch or worker dispatch):
+  `scripts/fleet-attention.sh heartbeat <worker> <spec>:task-<ids> working` —
+  the worker handle and its scope (one spec/unit per worker, isolated
+  worktree/context) use the store's field grammar (colon-separated scope; the
+  grammar has no slash), so `render` presents **per-worker scope** legibly
+  (REQ-E1.5).
+- **On a halt → `## Awaiting input`**: mirror the entry as a structured
+  decision — `scripts/fleet-attention.sh decide <worker> <scope> <question>
+  <default> <options> [priority]` — so the queue's length tracks the
+  `## Awaiting input` count, never the worker count. The `tasks.md` entry
+  remains the durable record; the queue row is its projection.
+- **On reconcile observations**: heartbeat `pr-ready` when a draft PR is up,
+  `merged` on an observed merge, and `clear <worker>` at teardown (merged-window
+  cleanup), so stale workers do not linger on the surface.
+- **Each watch iteration ends by rendering the surface**:
+  `scripts/fleet-attention.sh render` (per-worker scope + state), then
+  `scripts/fleet-attention.sh queue` (the ordered decision queue). When the
+  selected backend **advertises** `provides_attention_surface=true`, pass
+  `--surface-provided`: the queue defers to the backend's own surface while
+  `render` stays available — adapt to the advertised set, never the name.
+
+The queue and renderer read plain files under the durable fleet home, so the
+same surface is readable from a plain terminal, a popup over a detached
+server, or an editor panel — a new surface is a renderer, not a new execution
+model.
+
+**Nothing else changes.** `--fleet` adds presentation, not autonomy: every
+meta-tower rule (fleet lock, live-count bound, subordinate independence), the
+autonomous-safe-decision policy, and the reserved controls hold exactly as
+written above. Never-auto-merge holds at every tier.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 

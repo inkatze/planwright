@@ -222,6 +222,7 @@ space).
 - **Dependencies:** 2, 6, 9, 12
 - **Citations:** D-9, D-12 · REQ-E1.1, REQ-E1.2, REQ-E1.5, REQ-E1.6
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-03
 
 ### Task 11 — Adopter docs, options reference & onboarding handoff
 
