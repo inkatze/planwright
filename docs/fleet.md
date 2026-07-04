@@ -5,8 +5,9 @@ executed by its own isolated worker, supervised by a meta-tower. This guide is
 the approachable path into that mode — one command, one surface to watch, no
 multiplexer knowledge required. The approachable path is the *default*
 presentation of fleet operation, not a simplified fallback: full execution
-quality (session-grade, steerable, parallel workers) runs underneath it
-unchanged.
+quality (session-grade, steerable, parallel workers, with the richest backend
+your host offers) stays available underneath it — the surface never costs you
+worker quality.
 
 ## The one command
 
@@ -94,7 +95,7 @@ attention surface), not as a separate system:
 | Persona | Execution backend | Attention surface | Steer affordance |
 | --- | --- | --- | --- |
 | a. Multiplexer user | tmux, attached — windows visible, capture/relay at hand | The queue, or the tool's own surface: a backend advertising `provides_attention_surface` owns the queue rendering and planwright defers to it | Direct: type into a worker window, or relay via buffers |
-| b. Non-terminal user | tmux or subagent as invisible background plumbing (detached server; nothing to attach to) | The decision queue, read from any plain terminal or via the notification channel | Answer queue items; the tower relays to workers |
+| b. Non-terminal user | tmux driven as a detached server, or the subagent backend (in-harness background workers) — invisible plumbing either way, nothing to attach to | The decision queue, read from any plain terminal or via the notification channel | Answer queue items; the tower relays to workers |
 | c. Editor-feedback user | The same background plumbing as (b) | The editor renders the queue and diffs (an editor panel tails the same files; `editor-toast` is the matching notification channel) | An editor affordance submits the queue answer; the tower relays |
 
 Two audit notes behind that table:

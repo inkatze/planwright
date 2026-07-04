@@ -361,6 +361,13 @@ printf '%s\n' "$out" | grep -qi "decision queue" \
   || fail "present: header must name the decision queue as the attention surface"
 printf '%s\n' "$out" | grep -qi "default" \
   || fail "present: header must present the decision queue as the DEFAULT surface"
+# Header-only phrases: every block also says "decision queue (default)", so the
+# two greps above alone would survive deleting the header wholesale. These two
+# appear only in the header's two-seam framing.
+printf '%s\n' "$out" | grep -q "execution seam" \
+  || fail "present: the header must frame the pick as the execution seam"
+printf '%s\n' "$out" | grep -q "richest rung first" \
+  || fail "present: the header must state the richest-first ordering"
 # Block extractor: prints the lines of the block for backend $2 (from its
 # "* <name>:" line up to the next "* " line).
 block_of() {
@@ -383,6 +390,18 @@ printf '%s\n' "$sb" | grep -q "detached" \
 order=$(printf '%s\n' "$out" | awk '/^\* / {sub(/^\* /,""); sub(/:.*/,""); printf "%s ", $0}')
 [ "$order" = "tmux subagent in-session print " ] \
   || fail "present: blocks must keep detect's richest-first order, got '$order'"
+# The advertised-set-derived summary branches: in-session (nothing true, na
+# observe/steer) must hit the empty-feature fallback — which also proves na
+# fields are skipped, not treated as capabilities — and print
+# (session_grade=deferred) must carry the manual-dispatch phrasing.
+ib=$(block_of "$out" in-session)
+printf '%s\n' "$ib" | grep -q "synchronous, in the tower's own session" \
+  || fail "present: in-session must render the empty-feature fallback summary"
+printf '%s\n' "$ib" | grep -Eq "observe in-flight|steer in-flight" \
+  && fail "present: in-session's na observe/steer fields must not surface as features"
+prb=$(block_of "$out" print)
+printf '%s\n' "$prb" | grep -q "manual dispatch" \
+  || fail "present: print (session_grade=deferred) must carry the manual-dispatch phrasing"
 echo "ok: present renders the two-seam presentation with the detached-plumbing note"
 
 # ---------------------------------------------------------------------------
@@ -435,5 +454,47 @@ if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
   fail "present: a refused name's control bytes must be stripped before echo"
 fi
 echo "ok: present sanitizes a refused hostile row's control bytes"
+
+# ---------------------------------------------------------------------------
+# 23. present: the no-partial-output guarantee — a valid first row followed by
+#     a malformed second row must emit NOTHING on stdout (all rows validate
+#     before any rendering), so an operator can never act on a truncated
+#     backend list. Guards the two-loop validate-then-render structure.
+# ---------------------------------------------------------------------------
+rc=0
+outp=$(printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\tyes\nBAD ROW\n' \
+  | "$BACKENDS" present 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "present: valid-then-malformed input returned $rc, expected 2"
+[ -z "$outp" ] \
+  || fail "present: a malformed later row must suppress ALL output, got '$outp'"
+echo "ok: present emits no partial surface when a later row is malformed"
+
+# ---------------------------------------------------------------------------
+# 24. present: strict field count — TAB is IFS whitespace, so a hand-corrupted
+#     row with an empty field (consecutive tabs) would collapse and could
+#     re-align into seven valid-looking tokens; the six-tab count guard must
+#     refuse it. Here: empty seventh field plus a stray trailing token, which
+#     token-collapse alone would mis-read as a well-formed row.
+# ---------------------------------------------------------------------------
+rc=0
+printf 'tmux\ttrue\ttrue\ttrue\tfalse\ttrue\t\tyes\n' \
+  | "$BACKENDS" present >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "present: a double-tab (empty-field) row returned $rc, expected 2"
+echo "ok: present refuses a row whose tab count betrays an empty field"
+
+# ---------------------------------------------------------------------------
+# 25. echo discipline on the dispatcher: an unknown subcommand carrying
+#     control/escape bytes is reported SANITIZED (no raw ESC reaches stderr),
+#     matching the treatment every refused backend name gets.
+# ---------------------------------------------------------------------------
+rc=0
+"$BACKENDS" "$(printf 'fr\033]0;PWNED\007ob')" >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "unknown subcommand with control bytes returned $rc, expected 2"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "dispatcher: an unknown subcommand's control bytes must be stripped before echo"
+fi
+grep -q "unknown subcommand" "$err" \
+  || fail "dispatcher: the unknown-subcommand diagnostic should still be reported (sanitized)"
+echo "ok: the dispatcher sanitizes an unknown subcommand's control bytes"
 
 echo "PASS: test-orchestrate-backends.sh"

@@ -47,7 +47,7 @@
 #       default attention surface for every pick (the attention seam). Each
 #       backend renders as one block, in input (richest-first) order, with an
 #       execution-quality summary derived from its advertised set — never from
-#       its name. An interactive multiplexer block carries the
+#       its name. An interactive backend's block carries the
 #       detached-background-plumbing note (the tower can drive it as a detached
 #       server nobody attaches to), so the approachable path is the default
 #       presentation, not a fallback behind multiplexer fluency. A backend
@@ -307,7 +307,7 @@ emit_block() {
     printf '    attention: planwright decision queue (default)\n'
   fi
   if [ "$2" = true ]; then
-    printf '    plumbing: the tower can drive this multiplexer as a detached background server nobody attaches to; attaching is optional, never required\n'
+    printf '    plumbing: the tower can drive this backend as a detached background server nobody attaches to; attaching is optional, never required\n'
   fi
 }
 
@@ -328,7 +328,21 @@ cmd_present() {
   # output, so any malformed row means a broken producer (or a hand-corrupted
   # pipe) and the whole presentation is untrustworthy — fail closed, emit
   # nothing (no partial surface an operator could act on).
+  #
+  # Strict field-count guard first: TAB is IFS whitespace, so the token split
+  # below collapses consecutive tabs (an empty field) and could re-align a
+  # hand-corrupted row into seven valid-looking tokens. A well-formed detect
+  # row has exactly six tabs; anything else fails closed here.
   pr_tab=$(printf '\t')
+  while IFS= read -r pr_line; do
+    pr_tabs=$(printf '%s' "$pr_line" | tr -cd "$pr_tab")
+    if [ "${#pr_tabs}" -ne 6 ]; then
+      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "${pr_line%%"$pr_tab"*}" "(unprintable name)")" >&2
+      return 2
+    fi
+  done <<EOF
+$pr_input
+EOF
   while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
     if ! valid_name "$p_b" || [ -n "$p_rest" ]; then
       printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
@@ -380,7 +394,7 @@ case "$sub" in
     exit 2
     ;;
   *)
-    echo "orchestrate-backends: unknown subcommand: $sub" >&2
+    printf '%s\n' "orchestrate-backends: unknown subcommand: $(sanitize_printable "$sub" "(unprintable)")" >&2
     exit 2
     ;;
 esac
