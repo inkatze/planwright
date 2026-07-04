@@ -271,7 +271,7 @@ case "$sub" in
     exit 2
     ;;
   *)
-    echo "orchestrate-backends: unknown subcommand: $sub" >&2
+    echo "orchestrate-backends: unknown subcommand: $(sanitize_printable "$sub" "(unprintable subcommand)")" >&2
     exit 2
     ;;
 esac

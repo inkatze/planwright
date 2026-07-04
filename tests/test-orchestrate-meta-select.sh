@@ -282,7 +282,21 @@ two_task_body >"$repoB/specs/Bad/tasks.md"
 rc=0
 "$MSEL" "$repoB/specs/Bad" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "case 7c: hostile spec basename must fail closed (exit $rc, expected 2)"
-echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with exit 2"
+# 7d. Echo discipline (doctrine/security-posture.md): a hostile basename carrying
+#     an ESC/OSC sequence is rejected AND its raw control bytes never reach the
+#     operator's stderr. The invalid-id diagnostic echoes the basename that just
+#     FAILED the grammar, so it is guaranteed to hold out-of-charset bytes; every
+#     such diagnostic must be sanitized, as the sibling scripts and the
+#     fleet-attention render path already are. (The grammar check fires on the arg
+#     string before any filesystem access, so no real dir is needed.)
+escbase=$(printf 'x\033]0;INJECT\007y')
+rc=0
+d7err=$("$MSEL" "$tmp/$escbase" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "case 7d: escape-laden spec basename must fail closed (exit $rc, expected 2)"
+d7stripped=$(printf '%s' "$d7err" | tr -d '\000-\037\177')
+[ "$d7stripped" = "$d7err" ] \
+  || fail "case 7d: raw control/escape bytes leaked to stderr (terminal injection)"
+echo "ok: missing / mixed-bad / hostile-identifier spec dirs fail closed with exit 2 (diagnostics sanitized)"
 
 # ---------------------------------------------------------------------------
 # 8. Degenerate single-spec fleet: the meta-selector reduces to a one-spec pass,
