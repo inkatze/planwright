@@ -129,7 +129,7 @@ for spec_dir in "$@"; do
     exit 2
   fi
   if [ ! -f "$spec_dir/tasks.md" ] || [ ! -r "$spec_dir/tasks.md" ]; then
-    echo "orchestrate-meta-select: missing or unreadable $spec_dir/tasks.md" >&2
+    echo "orchestrate-meta-select: missing or unreadable $(sanitize_printable "$spec_dir" "(unprintable path)")/tasks.md" >&2
     exit 2
   fi
   spec_top=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || spec_top=""
@@ -181,7 +181,7 @@ read_bound() {
       printf '%s' "$rb_v"
       ;;
     *)
-      echo "orchestrate-meta-select: ignoring malformed $rb_key '$rb_v'; using $rb_fallback" >&2
+      echo "orchestrate-meta-select: ignoring malformed $rb_key '$(sanitize_printable "$rb_v" "(unprintable value)")'; using $rb_fallback" >&2
       printf '%s' "$rb_fallback"
       ;;
   esac
