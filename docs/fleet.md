@@ -189,9 +189,10 @@ If the chosen backend dies mid-run (the multiplexer server goes away, the
 harness loses the subagent runtime), the tower descends **exactly one rung**
 to the richest guard-preserving backend still present, records the effective
 backend spec-locally (in the spec's dispatch-state directory,
-`<spec-dir>/.orchestrate/` by default — never in `tasks.md`, which stays a
-clean derived ledger), and writes a note plus an `## Awaiting input` entry so
-the downgrade is visible on the attention surface. A second failure descends
+`<spec-dir>/.orchestrate/` by default — runtime state never lands in
+`tasks.md`, which stays a clean derived ledger), and surfaces the downgrade:
+a logged note, plus a human-facing entry in the spec's `## Awaiting input`
+section of `tasks.md`, which is what the attention surface renders. A second failure descends
 one more rung, down to the floor. There is no silent downgrade path.
 
 ### The synchronous terminal rung
