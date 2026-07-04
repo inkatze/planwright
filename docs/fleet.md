@@ -194,8 +194,9 @@ harness loses the subagent runtime), the tower descends **one step** — to the
 richest guard-preserving backend still present, skipping absent rungs —
 and records the effective
 backend spec-locally (in the spec's dispatch-state directory,
-`<spec-dir>/.orchestrate/` by default — runtime state never lands in
-`tasks.md`, which stays a clean derived ledger), and surfaces the downgrade:
+`<spec-dir>/.orchestrate/` by default — this effective-backend record never
+lands in `tasks.md`, which stays a clean derived ledger), and surfaces the
+downgrade:
 a logged note, plus a human-facing entry in the spec's `## Awaiting input`
 section of `tasks.md`, which the decision queue mirrors — so the downgrade
 shows on the attention surface. A second failure descends
