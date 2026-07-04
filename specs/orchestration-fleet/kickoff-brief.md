@@ -691,12 +691,14 @@ ritual. The pre-flight freshness gate passed against the prior entry
 reconcile (`scripts/tasks-pr-sync.sh reconcile specs/orchestration-fleet`) run
 at the Task 11 state-move step, plus the changelog line recording them:
 
-1. The `**Status:**` header in `requirements.md`, `design.md`, and
-   `test-spec.md` flipped Ready→Active — the derived transition on the first
-   task to derive In-progress (kickoff-lifecycle D-2; `spec-format`
+1. The `**Status:**` header in `requirements.md`, `design.md`, `tasks.md`,
+   and `test-spec.md` flipped Ready→Active — the derived transition on the
+   first task to derive In-progress (kickoff-lifecycle D-2; `spec-format`
    transitions). Task 11 is that first task to be dispatched after the
    reconcile writer shipped: tasks 1–10 and 12 all merged (PRs #110–#120)
-   while the bundle read Ready.
+   while the bundle read Ready. The `tasks.md` header flip is anchor-invariant
+   (the canonical extraction digests task-definition content only); the other
+   three files are whole-file digests, which is where the anchor moves.
 2. `tasks.md` placement reconciled (the eleven merged tasks to `## Completed`,
    Task 11 to `## In progress`) — anchor-invariant by the canonical
    extraction; listed for completeness.
