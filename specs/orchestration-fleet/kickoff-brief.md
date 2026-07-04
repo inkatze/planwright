@@ -647,3 +647,36 @@ Class: expression-only
 Anchor: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
 (prior: `d8f10400ec3f379b3052e08c3f9735676df55119`).
+
+### Expression-only self-re-anchor (2026-07-04, Task 11 execution — derived Active flip)
+
+Written by `/execute-task` (Task 11) per the sanctioned marked-expression-only
+ritual. The pre-flight freshness gate passed against the prior entry
+(`83c83cf…` recomputed and matched on the main view) before any edit was made.
+
+**Delta.** Two machine-derived state changes, both produced by the sole-writer
+reconcile (`scripts/tasks-pr-sync.sh reconcile specs/orchestration-fleet`) run
+at the Task 11 state-move step, plus the changelog line recording them:
+
+1. The `**Status:**` header in `requirements.md`, `design.md`, and
+   `test-spec.md` flipped Ready→Active — the derived transition on the first
+   task to derive In-progress (kickoff-lifecycle D-2; `spec-format`
+   transitions). Task 11 is that first task to be dispatched after the
+   reconcile writer shipped: tasks 1–10 and 12 all merged (PRs #110–#120)
+   while the bundle read Ready.
+2. `tasks.md` placement reconciled (the eleven merged tasks to `## Completed`,
+   Task 11 to `## In progress`) — anchor-invariant by the canonical
+   extraction; listed for completeness.
+3. A dated `## Changelog` entry in `requirements.md` (2026-07-04) recording
+   the derived flip.
+
+No REQ, D-ID, or task-definition meaning changed; every task-definition field
+is byte-identical to the prior entry's content. The anchor moves only because
+the whole-file digests of `requirements.md`/`design.md`/`test-spec.md` include
+the `**Status:**` header and changelog (a gate/derivation interplay recorded
+as an observation for the drain loop).
+
+Class: expression-only
+Anchor: `13496b67e5302666a64a2fb8276fabadacafae49` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
+(prior: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3`).

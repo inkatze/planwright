@@ -1,6 +1,6 @@
 # Orchestration Fleet — Tasks
 
-**Status:** Ready
+**Status:** Active
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -33,6 +33,40 @@ dependencies (a sibling spec's task ids are not in this bundle's dependency
 space).
 
 ## Forward plan
+
+(none yet)
+
+## In progress
+
+### Task 11 — Adopter docs, options reference & onboarding handoff
+
+- **Deliverables:** Adopter-facing documentation of fleet operation — the backend
+  capability contract + advertisement and how to plug in a backend,
+  autodetect-and-ask, the degradation ladder and runtime failover, the synchronous
+  terminal rung, `dispatch_isolation`, the context-budget/auto-heal
+  self-management, meta-orchestration and the coordination protocol, the
+  autonomous-safe-decision policy, the attention/notification capability and the
+  decision queue, and the persona×seam mapping — with every new config option
+  present in `docs/options-reference.md` and a hand-off note for the
+  packaging/onboarding docs.
+- **Done when:** every new option (`dispatch_isolation`, the context-budget
+  threshold, the fleet concurrency bound, the notification channel, any
+  backend-selection option) has a row in `docs/options-reference.md` and
+  `check-options-reference.sh` passes; the fleet capabilities are documented for an
+  adopter who is not a tmux user; the capability-vs-style split (core knob vs
+  overlay value) is stated for each knob; `check-doc-links.sh` and the doc linters
+  pass.
+- **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
+- **Citations:** D-10 · REQ-A1.5, REQ-E1.4
+- **Estimated effort:** 1 day
+- **Status:** implementing
+- **Last activity:** 2026-07-04
+
+## Awaiting input
+
+(none yet)
+
+## Completed
 
 ### Task 1 — Backend capability contract & advertisement
 
@@ -178,30 +212,6 @@ space).
 - **Estimated effort:** 2 days
 - **Last activity:** 2026-07-03
 
-### Task 11 — Adopter docs, options reference & onboarding handoff
-
-- **Deliverables:** Adopter-facing documentation of fleet operation — the backend
-  capability contract + advertisement and how to plug in a backend,
-  autodetect-and-ask, the degradation ladder and runtime failover, the synchronous
-  terminal rung, `dispatch_isolation`, the context-budget/auto-heal
-  self-management, meta-orchestration and the coordination protocol, the
-  autonomous-safe-decision policy, the attention/notification capability and the
-  decision queue, and the persona×seam mapping — with every new config option
-  present in `docs/options-reference.md` and a hand-off note for the
-  packaging/onboarding docs.
-- **Done when:** every new option (`dispatch_isolation`, the context-budget
-  threshold, the fleet concurrency bound, the notification channel, any
-  backend-selection option) has a row in `docs/options-reference.md` and
-  `check-options-reference.sh` passes; the fleet capabilities are documented for an
-  adopter who is not a tmux user; the capability-vs-style split (core knob vs
-  overlay value) is stated for each knob; `check-doc-links.sh` and the doc linters
-  pass.
-- **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
-- **Citations:** D-10 · REQ-A1.5, REQ-E1.4
-- **Estimated effort:** 1 day
-
-## In progress
-
 ### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
 
 - **Deliverables:** The **graceful-degradation ladder** (richest to safest:
@@ -323,14 +333,6 @@ space).
 - **Estimated effort:** 2 days
 - **Status:** PR #119 draft
 - **Last activity:** 2026-07-03
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 

@@ -1,6 +1,6 @@
 # Orchestration Fleet — Test Spec
 
-**Status:** Ready
+**Status:** Active
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
