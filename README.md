@@ -164,8 +164,9 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
   model: how progress is derived from git/GitHub evidence, the single-writer
   reconcile, and the no-remote flow.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
-  command, the decision queue, the detached-multiplexer plumbing, and the
-  persona-to-seams mapping.
+  command, the decision queue, the persona-to-seams mapping, and the
+  execution-backend seam (autodetect, the degradation ladder, plugging in
+  your own backend) — no multiplexer knowledge required.
 - [Options reference](docs/options-reference.md) — every configuration option.
 - [Doctrine](doctrine/README.md) — the framework's rule docs: validation and
   discovery rigor, finding categorization, engineering decisions, security

@@ -479,6 +479,66 @@ rows untouched).
   adapters exercised manually (per the test-spec `[manual]` classification for
   substrate-specific behavior), degrading to the queue when their tool is absent.
 
+### Task 11 execution findings — R5 safe-defaults audit (2026-07-04)
+
+Discharges **R5**'s mitigation ("each default must be quiet/safe; audited in
+the Task 11 options-reference"). Appended per the execution-skill
+risk-register convention (named section, no anchor entry, existing rows
+untouched). Audit basis: `config/defaults.yml` against each option's
+options-reference row; the adopter-facing rendering is the capability-vs-style
+knobs table added to `docs/fleet.md` in this task.
+
+- `dispatch_backend: subagent` — non-interactive, present on any host, no
+  external substrate; an unattended run never silently selects an interactive
+  backend. Quiet/safe: yes.
+- `dispatch_isolation: per-step` — bounds context and isolates review
+  perspectives by construction; `per-unit` remains available for constrained
+  hosts. The default-flip from historical `per-unit` is the assigned human
+  decision (D-5), tracked cross-spec as the bootstrap D-38 amendment (R3/R4).
+  Quiet/safe: yes, with the rollout documented.
+- `context_budget_threshold: 50` — conservative step budget; the handover is
+  cheap and lossless, so handing off early is the safe direction; `off`
+  restores the historical single-tower behavior. Quiet/safe: yes.
+- `fleet_max_parallel_units: 3` — holds total fleet concurrency to a single
+  spec's worth, so enabling the opt-in meta-tower never multiplies load until
+  an operator raises it. Quiet/safe: yes.
+- `notification_channel: none` — pull-only, pushes nothing, needs no external
+  tool (the Task 12 injection-hardening section above informed this same
+  default). Quiet/safe: yes.
+- Pre-existing neighbors re-checked, unchanged: `max_parallel_units: 3`,
+  `stale_lock_threshold`/`stale_marker_threshold: 15m`, `review_sequence:
+  [polish]` — all quiet, default-preserving, no new external dependency.
+
+No default fails the quiet/safe bar; no config change was needed. R5 is
+discharged as audited.
+
+### Task 11 execution findings — onboarding hand-off note (2026-07-04)
+
+The hand-off note the Task 11 deliverables name, addressed to the
+packaging/onboarding docs (bootstrap Task 19's territory: `docs/getting-started.md`
+and `docs/release-checklist.md`). Appended per the execution-skill convention
+(named section, no anchor entry, existing rows untouched).
+
+- **What now exists:** `docs/fleet.md` is the complete adopter-facing fleet
+  guide — the approachable-path half (entry command, decision queue,
+  multiplexer-as-plumbing, personas, notification channel) plus the
+  execution-substrate half added by this task (backend contract +
+  advertisement, autodetect-and-ask, degradation ladder + runtime failover +
+  terminal rung, bring-your-own-backend, self-management, meta-tower +
+  coordination, autonomous-safe-decision, the capability-vs-style knobs
+  table). Every fleet option has a `docs/options-reference.md` row.
+- **Indexes updated:** the `docs/getting-started.md` "Where to go next" list
+  and the `README.md` documentation index both point at `docs/fleet.md` with
+  descriptions covering both halves.
+- **What remains for the onboarding docs:** nothing blocking — the
+  getting-started flow needs no fleet step (fleet mode is opt-in via
+  `/orchestrate --fleet` and fully documented at its pointer). Two watch
+  items: `docs/release-checklist.md` was deliberately left untouched (no
+  fleet-specific release step was identified; revisit if a fleet knob ever
+  gains a release-gated default), and the persona-(c) editor integration is a
+  gated deferral (`docs/fleet.md` audit note) whose docs land with that
+  feature, not before.
+
 ## 8. Sign-off
 
 ### Lens review pass (Discovery Rigor)
@@ -647,3 +707,38 @@ Class: expression-only
 Anchor: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
 (prior: `d8f10400ec3f379b3052e08c3f9735676df55119`).
+
+### Expression-only self-re-anchor (2026-07-04, Task 11 execution — derived Active flip)
+
+Written by `/execute-task` (Task 11) per the sanctioned marked-expression-only
+ritual. The pre-flight freshness gate passed against the prior entry
+(`83c83cf…` recomputed and matched on the main view) before any edit was made.
+
+**Delta.** Two machine-derived state changes, both produced by the sole-writer
+reconcile (`scripts/tasks-pr-sync.sh reconcile specs/orchestration-fleet`) run
+at the Task 11 state-move step, plus the changelog line recording them:
+
+1. The `**Status:**` header in `requirements.md`, `design.md`, `tasks.md`,
+   and `test-spec.md` flipped Ready→Active — the derived transition on the
+   first task to derive In-progress (kickoff-lifecycle D-2; `spec-format`
+   transitions). Task 11 is that first task to be dispatched after the
+   reconcile writer shipped: tasks 1–10 and 12 all merged (PRs #110–#120)
+   while the bundle read Ready. The `tasks.md` header flip is anchor-invariant
+   (the canonical extraction digests task-definition content only); the other
+   three files are whole-file digests, which is where the anchor moves.
+2. `tasks.md` placement reconciled (the eleven merged tasks to `## Completed`,
+   Task 11 to `## In progress`) — anchor-invariant by the canonical
+   extraction; listed for completeness.
+3. A dated `## Changelog` entry in `requirements.md` (2026-07-04) recording
+   the derived flip.
+
+No REQ, D-ID, or task-definition meaning changed; every task-definition field
+is byte-identical to the prior entry's content. The anchor moves only because
+the whole-file digests of `requirements.md`/`design.md`/`test-spec.md` include
+the `**Status:**` header and changelog (a gate/derivation interplay recorded
+as an observation for the drain loop).
+
+Class: expression-only
+Anchor: `13496b67e5302666a64a2fb8276fabadacafae49` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
+(prior: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3`).

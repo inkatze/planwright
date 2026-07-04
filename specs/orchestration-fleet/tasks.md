@@ -1,6 +1,6 @@
 # Orchestration Fleet — Tasks
 
-**Status:** Ready
+**Status:** Active
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -34,6 +34,40 @@ space).
 
 ## Forward plan
 
+(none yet)
+
+## In progress
+
+### Task 11 — Adopter docs, options reference & onboarding handoff
+
+- **Deliverables:** Adopter-facing documentation of fleet operation — the backend
+  capability contract + advertisement and how to plug in a backend,
+  autodetect-and-ask, the degradation ladder and runtime failover, the synchronous
+  terminal rung, `dispatch_isolation`, the context-budget/auto-heal
+  self-management, meta-orchestration and the coordination protocol, the
+  autonomous-safe-decision policy, the attention/notification capability and the
+  decision queue, and the persona×seam mapping — with every new config option
+  present in `docs/options-reference.md` and a hand-off note for the
+  packaging/onboarding docs.
+- **Done when:** every new option (`dispatch_isolation`, the context-budget
+  threshold, the fleet concurrency bound, the notification channel, any
+  backend-selection option) has a row in `docs/options-reference.md` and
+  `check-options-reference.sh` passes; the fleet capabilities are documented for an
+  adopter who is not a tmux user; the capability-vs-style split (core knob vs
+  overlay value) is stated for each knob; `check-doc-links.sh` and the doc linters
+  pass.
+- **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
+- **Citations:** D-10 · REQ-A1.5, REQ-E1.4
+- **Estimated effort:** 1 day
+- **Status:** PR #122 draft
+- **Last activity:** 2026-07-04
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 1 — Backend capability contract & advertisement
 
 - **Deliverables:** A definition of the backend **capability contract** — the
@@ -59,6 +93,7 @@ space).
 - **Dependencies:** none
 - **Citations:** D-2 · REQ-B1.1, REQ-B1.2, REQ-B1.3
 - **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #110 merged 2026-07-02
 - **Last activity:** 2026-07-02
 
 ### Task 8 — Autonomous-safe-decision policy
@@ -78,6 +113,7 @@ space).
 - **Dependencies:** none
 - **Citations:** D-8 · REQ-A1.3, REQ-D1.4
 - **Estimated effort:** half day
+- **Status:** Completed · PR #111 merged 2026-07-02
 - **Last activity:** 2026-07-02
 
 ### Task 9 — Cross-spec fleet coordination-state home
@@ -112,7 +148,8 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-11 · REQ-D1.6, REQ-A1.6
 - **Estimated effort:** 1 day
-- **Last activity:** 2026-07-02
+- **Status:** Completed · PR #114 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 4 — `dispatch_isolation` knob & per-step dispatch
 
@@ -131,7 +168,8 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-5 · REQ-C1.3, REQ-C1.4
 - **Estimated effort:** 2 days
-- **Last activity:** 2026-07-02
+- **Status:** Completed · PR #113 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 6 — Meta-orchestration (tower of towers)
 
@@ -152,6 +190,7 @@ space).
 - **Dependencies:** 1, 2, 8
 - **Citations:** D-6 · REQ-D1.1, REQ-D1.5, REQ-A1.2
 - **Estimated effort:** 2 days
+- **Status:** Completed · PR #117 merged 2026-07-03
 - **Last activity:** 2026-07-03
 
 ### Task 10 — Approachability: entry command, two-seam UX, persona mapping
@@ -176,31 +215,8 @@ space).
 - **Dependencies:** 2, 6, 9, 12
 - **Citations:** D-9, D-12 · REQ-E1.1, REQ-E1.2, REQ-E1.5, REQ-E1.6
 - **Estimated effort:** 2 days
-- **Last activity:** 2026-07-03
-
-### Task 11 — Adopter docs, options reference & onboarding handoff
-
-- **Deliverables:** Adopter-facing documentation of fleet operation — the backend
-  capability contract + advertisement and how to plug in a backend,
-  autodetect-and-ask, the degradation ladder and runtime failover, the synchronous
-  terminal rung, `dispatch_isolation`, the context-budget/auto-heal
-  self-management, meta-orchestration and the coordination protocol, the
-  autonomous-safe-decision policy, the attention/notification capability and the
-  decision queue, and the persona×seam mapping — with every new config option
-  present in `docs/options-reference.md` and a hand-off note for the
-  packaging/onboarding docs.
-- **Done when:** every new option (`dispatch_isolation`, the context-budget
-  threshold, the fleet concurrency bound, the notification channel, any
-  backend-selection option) has a row in `docs/options-reference.md` and
-  `check-options-reference.sh` passes; the fleet capabilities are documented for an
-  adopter who is not a tmux user; the capability-vs-style split (core knob vs
-  overlay value) is stated for each knob; `check-doc-links.sh` and the doc linters
-  pass.
-- **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
-- **Citations:** D-10 · REQ-A1.5, REQ-E1.4
-- **Estimated effort:** 1 day
-
-## In progress
+- **Status:** Completed · PR #120 merged 2026-07-04
+- **Last activity:** 2026-07-04
 
 ### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
 
@@ -228,8 +244,8 @@ space).
 - **Dependencies:** 1, 2
 - **Citations:** D-3 · REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-A1.4
 - **Estimated effort:** 2 days
-- **Status:** PR #118 draft
-- **Last activity:** 2026-07-03
+- **Status:** Completed · PR #118 merged 2026-07-04
+- **Last activity:** 2026-07-04
 
 ### Task 2 — Backend autodetection & present-and-ask selection
 
@@ -248,8 +264,8 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-3 · REQ-B1.4
 - **Estimated effort:** 1 day
-- **Status:** PR #112 draft
-- **Last activity:** 2026-07-02
+- **Status:** Completed · PR #112 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
 
@@ -271,8 +287,8 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
 - **Estimated effort:** 2 days
-- **Status:** PR #115 draft
-- **Last activity:** 2026-07-02
+- **Status:** Completed · PR #115 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 12 — Attention/notification capability in core
 
@@ -299,7 +315,7 @@ space).
 - **Dependencies:** 9
 - **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
 - **Estimated effort:** 2 days
-- **Status:** PR #116 draft
+- **Status:** Completed · PR #116 merged 2026-07-03
 - **Last activity:** 2026-07-03
 
 ### Task 7 — Inter-orchestrator coordination protocol
@@ -321,16 +337,8 @@ space).
 - **Dependencies:** 1, 6
 - **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
 - **Estimated effort:** 2 days
-- **Status:** PR #119 draft
-- **Last activity:** 2026-07-03
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
+- **Status:** Completed · PR #119 merged 2026-07-04
+- **Last activity:** 2026-07-04
 
 ## Deferred
 
