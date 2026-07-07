@@ -172,13 +172,14 @@ part of its own delivery; no `orchestration-concurrency` spec file is edited. Ed
 in `design.md` D-5, `tasks.md` Task 7 (deliverable + Done-when), `requirements.md`
 Out-of-scope + Changelog, and the brief's §2/§3 forward-references. Validator: 0/0 after.
 
-**Consolidated spec-edit list — §4 addendum:**
+**Consolidated spec-edit list — §4 addendum** (continuing §3's list; items 5–7 of the
+overall sequence):
 
-5. `design.md` D-5 item 1: supersession → additive framing; Task 7 corrects the
+1. (edit 5) `design.md` D-5 item 1: supersession → additive framing; Task 7 corrects the
    `tasks-pr-sync.sh` comment instead of writing a pointer.
-6. `tasks.md` Task 7 deliverable + Done-when: drop the `Superseded-by:` pointer; add the
-   comment correction and the "definition fields untouched / anchor unchanged" check.
-7. `requirements.md` Out-of-scope reframed additive; `## Changelog` §4 entry added.
+2. (edit 6) `tasks.md` Task 7 deliverable + Done-when: drop the `Superseded-by:` pointer;
+   add the comment correction and the "definition fields untouched / anchor unchanged" check.
+3. (edit 7) `requirements.md` Out-of-scope reframed additive; `## Changelog` §4 entry added.
 
 Signed off: 2026-07-06
 
