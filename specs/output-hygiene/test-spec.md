@@ -1,7 +1,7 @@
 # Output & Accumulator Hygiene — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-07-02
+**Status:** Ready
+**Last reviewed:** 2026-07-07
 **Format-version:** 1
 
 Coverage mix: the mechanical REQs are `[test]` (suites under `tests/`, run by the
@@ -38,9 +38,12 @@ updates keep the structure.
 
 ### REQ-B1.1 — No shared append point [test]
 
-Task 1 suite: two fragment files written as concurrent runs would write them; consolidation
-yields one conflict-free, chronologically ordered log. No step of the flow edits a shared
-append point concurrently.
+Task 1 suite: two runs with distinct identities on the same date compute **different**
+fragment filenames (asserted directly — the per-run nonce guarantees it), each writing its
+own file with no shared append point; consolidation by the single writer yields one
+conflict-free log with entries appended in consolidation order. A concurrent-consolidation
+case (two `--bookkeeping` runs over the same queue) proves idempotency: no duplicate entry,
+and a simulated log conflict regenerates from current state rather than resolving by union.
 
 ### REQ-B1.2 — Class-3 invariants preserved [test + design-level]
 
@@ -51,14 +54,27 @@ in the unmined count and oldest-age figures.
 ### REQ-B1.3 — No loss, reorder, or rewrap [test]
 
 Task 1 suite: consolidation over a populated `opportunities.md` leaves every pre-existing
-line byte-for-byte intact apart from appended entries; the crash-safety case proves
-append-before-delete ordering (a failure between the two steps loses nothing).
+line byte-for-byte intact apart from appended entries (entry text moved verbatim, no
+rewrap/redact); appended entries are in consolidation order, never re-sorted by fragment
+date. The atomic-commit case proves crash safety: the append and the fragment deletions are
+one commit, so an interrupted run persists neither (recovery resets the uncommitted working
+tree), and a re-run over partly-consumed state is idempotent — no entry lands twice.
 
 ### REQ-B1.4 — Consumer semantics unchanged [test + design-level]
 
 Test: drain-report fixture with and without queue entries — report grammar unchanged,
-counts include the queue. Design-level: `/spec-draft` and `--bookkeeping` instructions
-name the queue in their mining/consolidation steps.
+counts include the queue. Design-level: `/spec-draft` (mining, read-only) and
+`--bookkeeping` (the sole consolidation writer) instructions name the queue in their
+mining/consolidation steps.
+
+### REQ-B1.5 — Hostile-name safety and containment [test]
+
+Task 1 suite: a fragment-name derivation fed a traversal or metacharacter component
+(`../`, an embedded `/`, a non-printable byte) is a clean refusal — the observation is
+dropped-and-flagged, no file is written outside `specs/_observations/queue/`; a valid
+`<taskid>-<run-nonce>` passes. A name echoed into the drain/consolidation output is
+printable-sanitized (an embedded escape sequence does not reach the terminal). Mirrors the
+`orchestration-concurrency` REQ-F1.1 traversal test.
 
 ## REQ-C — Pending-sign-off marker canonicalization
 
@@ -79,19 +95,29 @@ Test: the `--marker` mode rejects bad placement on `--stdin` input (the emit-tim
 Design-level: the CI commit-range invocation is unchanged by Task 4 (diff-inspectable),
 so no historical commit can newly redden a PR.
 
-### REQ-C1.4 — Branch-scoped marker [test]
+### REQ-C1.4 — Branch-scoped marker [test + design-level]
 
-Fixtures: a marker in the PR-title position is rejected by the title lint path; a
-squash-body relic marker on the base side of a `base..head` range is not counted by
-marker-consuming tooling.
+Test: a marker in the PR-title position is rejected by the title lint path (Task 4's
+`--marker` mode). Design-level: the branch-scoped-*consumption* rule (marker consumers scan
+only the PR `base..head` range, never merged mainline where squash relocates relic text) is
+stated in the gate-wiring doctrine and the merge-strategy matrix, and its **existing
+consumer is the pending-sign-off checklist regeneration** (gate-wiring), which rebuilds from
+`[pending-sign-off]` commits ahead of the base and already excludes markers arriving through
+a merge from the base — i.e. it already implements the branch-scoping and the squash-relic
+exclusion. Verification is that Task 4's doctrine wording and that consumer's scan scope
+agree; a marker relic on the base side of a `base..head` range is not counted (exercised
+against the checklist regeneration's existing base-exclusion behavior, manually on the next
+emission).
 
 ## REQ-D — Committed-reference integrity
 
 ### REQ-D1.1 — No reader-unresolvable references [test + manual]
 
 Covered mechanically by the REQ-D1.3 lint fixtures for delivered-layout links, and by the
-REQ-D1.4 repo-wide sweep for `[[name]]` tokens; manual: the fleet-bundle amendment leaves
-no `[[…]]` citation behind.
+**standing** `[[name]]` guard (Task 5/6): a fixture with a `[[foo]]` token in a spec file
+fails the `check:*` guard under `mise run check`, and a clean bundle passes — so a future
+writer that skips neutralization is caught by CI, not just by a one-shot grep. Manual: the
+fleet-bundle amendment leaves no `[[…]]` citation behind in its spec files.
 
 ### REQ-D1.2 — Neutralization step in the writers [design-level + manual]
 
@@ -100,9 +126,9 @@ citation form. Manual: the next drafted bundle commits no `[[name]]` token.
 
 ### REQ-D1.3 — Delivery-safe link convention, linted [test]
 
-Task 5 fixtures: a doctrine file linking `../skills/...` fails; sibling-doctrine and
-`../config/` links pass; in-page anchors unaffected. Runs in `check:links` under
-`mise run check`.
+Task 5 fixtures: a doctrine file linking `../skills/...` fails; sibling-doctrine,
+`../config/`, and `../scripts/` links pass (all three are co-located delivery siblings);
+in-page anchors unaffected. Runs in `check:links` under `mise run check`.
 
 ### REQ-D1.4 — Known violations reconciled [test + manual]
 
@@ -120,9 +146,12 @@ REQ-E1.3 / REQ-E1.4 guidance edits, each verified below.
 ### REQ-E1.2 — Organic completion-annotation stamping [test]
 
 Task 7 suite: a reconcile run over merged-PR evidence stamps the canonical
-`Completed · PR #<n> merged <YYYY-MM-DD>` string on the moved block; the no-remote
-fixture shows date-only or no-stamp degradation and never an invented PR number;
-annotations of non-completion tasks remain byte-for-byte.
+`Completed · PR #<n> merged <YYYY-MM-DD>` string on the moved block; the no-remote fixture
+shows exactly one of the two pinned outputs — `Completed · merged <YYYY-MM-DD>` or the
+annotation left untouched — never an invented PR number and never a third variant;
+annotations of non-completion tasks remain byte-for-byte; and the content anchor
+(`scripts/spec-anchor.sh`) over the bundle is **unchanged** by the stamp (the five
+definition fields are untouched — confirms the additive, non-supersession property).
 
 ### REQ-E1.3 — Brief cite-don't-copy convention [design-level + manual]
 

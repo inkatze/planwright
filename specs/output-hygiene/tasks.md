@@ -1,7 +1,7 @@
 # Output & Accumulator Hygiene — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-07-02
+**Status:** Ready
+**Last reviewed:** 2026-07-07
 **Format-version:** 1
 
 Eight tasks. The `Dependencies:` lines are authoritative (no drawn graph — REQ-E1.4
@@ -15,26 +15,43 @@ Task 1 → Task 2.
 ### Task 1 — Fragment queue and consolidation primitive
 
 - **Deliverables:** `specs/_observations/queue/` convention (fragment filename grammar
-  `<YYYY-MM-DD>-<slug>.md` with hostile-name screening); a lock-guarded, idempotent
-  consolidation routine (append fragment entries to `opportunities.md` chronologically,
-  delete consumed fragments, one commit; crash-safe ordering — append before delete);
-  accumulator-taxonomy doctrine amendment naming the queue surface, its class, reader,
-  and drain ritual.
-- **Done when:** a test creates two fragments as concurrent writers would and
-  consolidation produces a conflict-free, chronologically ordered log with the fragments
-  deleted; a test proves existing log entries survive byte-for-byte apart from appends;
-  the doctrine names the queue surface; `mise run check` passes.
+  `<YYYY-MM-DD>-<taskid>-<run-nonce>.md`: `<taskid>` from the run's task/branch id,
+  `<run-nonce>` a run-unique token chosen once at run start — a stable run/dispatch id where
+  one exists, else a short `^[a-z0-9]+$` random token — so two runs on the same task+date
+  cannot collide; one file per run, all its observations appended to it; both components
+  charset-validated before path interpolation and the derived path containment-checked, with
+  a clean refusal on hostile/malformed input, per REQ-B1.5); a single-writer, idempotent
+  consolidation routine (append the fragments' entries to `opportunities.md` in consolidation
+  order **and** delete the consumed fragments as **one atomic commit**; idempotent — append
+  only entries not already present, delete only fragments still present; on any
+  `opportunities.md` conflict, regenerate from current state, never ours/theirs/union),
+  guarded by a dedicated **global `_observations` advisory lock** (distinct from the per-spec
+  lock — a performance guard against concurrent `--bookkeeping` retries, not the correctness
+  mechanism); branch-/slug-derived names printable-sanitized before any echo (REQ-B1.5);
+  accumulator-taxonomy doctrine amendment naming the queue as a class-3 surface (durable
+  home, canonical reader `/spec-draft`, drain ritual).
+- **Done when:** two runs with distinct identities on the same date produce **different**
+  filenames (asserted directly), and consolidation produces a conflict-free append-ordered
+  log with the fragments deleted; a concurrent-consolidation test proves idempotency (no
+  duplicate entry) and regenerate-on-conflict (no union merge); a test proves existing log
+  entries survive byte-for-byte apart from appends (verbatim, no rewrap); the atomic-commit
+  case proves an interrupted run persists neither the append nor the delete; a traversal /
+  metacharacter fragment name is a clean refusal writing no out-of-tree file, and an echoed
+  name is printable-sanitized; the doctrine names the queue surface; `mise run check` passes.
 - **Dependencies:** none
-- **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.3
-- **Estimated effort:** 2 days
+- **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.5
+- **Estimated effort:** 3 days
 
 ### Task 2 — Consumer wiring for the queue
 
-- **Deliverables:** `/orchestrate --bookkeeping` runs consolidation; `/spec-draft` mines
-  queue plus log and consolidates opportunistically at mining time; the drain pass's
+- **Deliverables:** `/orchestrate --bookkeeping` is the **sole consolidation writer** — it
+  invokes Task 1's routine on the default branch; `/spec-draft` **mines** the queue plus the
+  log (read-only) and never consolidates (it runs in a feature-branch worktree, where a
+  consolidation write would ride the branch PR and collide at merge — D-1); the drain pass's
   observation surface counts queue entries in the unmined count and oldest-age figures.
 - **Done when:** a drain-report fixture with queue entries shows them in the unmined
-  surface; the two skills' instructions name the queue in their mining/bookkeeping steps;
+  surface; `--bookkeeping`'s instructions name it as the consolidation writer and
+  `/spec-draft`'s name the queue as a read-only mining input (no consolidation write);
   `mise run check` passes.
 - **Dependencies:** 1
 - **Citations:** D-1 · REQ-B1.2, REQ-B1.4
@@ -57,10 +74,13 @@ Task 1 → Task 2.
 ### Task 4 — Marker canonicalization and emit-time guard
 
 - **Deliverables:** gate-wiring doctrine pins the canonical end-of-subject placement, the
-  branch-scoped consumption rule, and the merge-strategy matrix; a `--marker` mode in
-  `scripts/check-commit-msgs.sh` (canonical placement passes; pre-prefix, mid-subject,
-  and marker-in-PR-title rejected); skills that write marked commits self-lint via the
-  `--marker` mode before committing; the CI commit-range invocation unchanged.
+  branch-scoped consumption rule (naming the existing consumer — the pending-sign-off
+  checklist regeneration — whose base..head scan already implements it), and the
+  merge-strategy matrix; a `--marker` mode in `scripts/check-commit-msgs.sh` that takes the
+  check **context**: on a commit **subject** (`--stdin` emit-time path) it requires canonical
+  end-of-subject placement (pre-prefix and mid-subject fail); on a **PR title** it rejects
+  any marker; skills that write marked commits self-lint the subject via the `--marker` mode
+  before committing; the CI commit-range invocation unchanged.
 - **Done when:** `--marker` fixtures cover the four placements plus the PR-title case;
   the CI workflow and range-lint invocation are diff-identical apart from any PR-title
   `--marker` addition; emitting skills' instructions name the self-lint step;
@@ -72,11 +92,15 @@ Task 1 → Task 2.
 ### Task 5 — Reference-integrity lint
 
 - **Deliverables:** `scripts/check-doc-links.sh` rule: relative links leaving `doctrine/`
-  other than to `../config/` are errors (sibling doctrine links and in-page anchors
-  unaffected); the guard-catalog delivered-dead link fixed to conform.
+  other than to `../config/` or `../scripts/` are errors (sibling doctrine links, in-page
+  anchors, and the co-located `../config/` + `../scripts/` siblings unaffected); the
+  guard-catalog `../skills/` delivered-dead link fixed to conform (it is the sole real
+  violation — the four `../scripts/` links in `decision-domains.md` and `guard-catalog.md`
+  are permitted siblings and stay as-is).
 - **Done when:** fixtures show a doctrine→`../skills/` link failing and sibling-doctrine
-  plus `../config/` links passing; repo-wide `check:links` is green; `mise run check`
-  passes.
+  plus `../config/` and `../scripts/` links passing; repo-wide `check:links` is green (the
+  guard-catalog `../skills/` fix plus the four permitted `../scripts/` links);
+  `mise run check` passes.
 - **Dependencies:** none
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.3, REQ-D1.4
 - **Estimated effort:** half day
@@ -85,11 +109,26 @@ Task 1 → Task 2.
 
 - **Deliverables:** a `/spec-draft` completion-step rule neutralizing `[[name]]` links
   into prose plus a `## Sources` pointer (the sanctioned observations-log citation form);
-  the orchestration-fleet bundle's `[[…]]` citations reconciled via the expression-only
-  amendment ritual (dated changelog entry, re-anchor).
-- **Done when:** the skill step exists; a repo-wide search finds no `[[name]]` token in
-  committed spec artifacts; the fleet bundle's changelog records the amendment and its
-  brief anchor matches `scripts/spec-anchor.sh` output; `mise run check` passes.
+  a **standing mechanical guard** — a `check:*` under `mise run check` (in
+  `check-doc-links.sh` or a sibling) that flags any `[[name]]` token in a committed spec
+  file, so a future writer skipping neutralization fails CI rather than silently
+  reintroducing the violation (REQ-D1.1); the orchestration-fleet bundle's `[[…]]` citations
+  reconciled via the expression-only amendment ritual (dated changelog entry, re-anchor).
+  **Coordination:** the fleet bundle
+  is `Ready` and may derive `Active`; land the fleet amendment's re-anchor as its own
+  expression-only entry (the sanctioned lane) and sequence it so a concurrent fleet
+  execution does not observe an anchor mismatch — check the fleet spec's In-progress state
+  before amending, and if fleet execution is in flight, coordinate the re-anchor with it
+  rather than racing it.
+- **Done when:** the skill step exists; the standing `[[name]]` guard fails on a fixture
+  spec file carrying a `[[foo]]` token and passes on a clean bundle, and runs under
+  `mise run check`; a repo-wide search finds no `[[name]]` token in the four spec files
+  (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`) of any bundle — already-signed
+  kickoff-brief bodies are append-only and out of this sweep's scope (REQ-D1.2's
+  writer-neutralization keeps new briefs clean going forward); the fleet bundle's
+  `requirements.md` + `design.md` `[[…]]` citations are neutralized via the expression-only
+  amendment ritual, its changelog records the amendment, and its brief anchor matches
+  `scripts/spec-anchor.sh` output; `mise run check` passes.
 - **Dependencies:** 5
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-D1.4
 - **Estimated effort:** 1 day
@@ -100,12 +139,14 @@ Task 1 → Task 2.
   `Completed · PR #<n> merged <YYYY-MM-DD>` in the same write that places a
   completion-evidenced task in `## Completed`, reusing the derivation's existing
   merged-PR evidence batch; honest no-remote degradation (date-only or no stamp);
-  the supersede pointer on `orchestration-concurrency`'s annotations-preserved clause
-  per the ritual (pointer annotation, no prose edits in the Done bundle).
+  the stale `tasks-pr-sync.sh` implementation comment attributing annotation authoring to
+  `/execute-task` corrected to reflect the reconcile-owned completion stamp (no edit to any
+  `orchestration-concurrency` spec file — the change is additive to its contract, D-5).
 - **Done when:** a fixture with merged-PR evidence yields the canonical string on the
   moved block; a no-remote fixture shows the degraded behavior and no invented PR
-  number; non-completion annotations remain byte-for-byte; the supersede pointer exists;
-  `mise run check` passes.
+  number; non-completion annotations remain byte-for-byte; the five task-definition fields
+  are untouched (the content anchor is unchanged, confirming no supersession); the
+  `tasks-pr-sync.sh` comment reflects the new owner; `mise run check` passes.
 - **Dependencies:** none
 - **Citations:** D-5 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** 1 day
@@ -115,12 +156,15 @@ Task 1 → Task 2.
 - **Deliverables:** meta-spec (`doctrine/spec-format.md`) guidance edits: hand-drawn
   dependency graphs dropped from the `tasks.md` intro-prose description in favor of
   `Dependencies:` lines plus the on-demand graph view; kickoff-brief guidance gains the
-  cite-don't-copy convention for derived figures.
-- **Done when:** the meta-spec no longer suggests a drawn graph and names the
-  cite-don't-copy convention; the meta-spec versioning note records the guidance change;
-  `mise run check` passes.
+  cite-don't-copy convention for derived figures; the completion-annotation vocabulary
+  promoted from illustrative to **normative** — `Completed · PR #<n> merged <YYYY-MM-DD>` is
+  the canonical completion annotation and `Completed · merged <YYYY-MM-DD>` its only degraded
+  form (giving REQ-E1.2's "canonical format" an actual doctrine home).
+- **Done when:** the meta-spec no longer suggests a drawn graph, names the cite-don't-copy
+  convention, and states the normative completion-annotation format + its one degraded form;
+  the meta-spec versioning note records the guidance change; `mise run check` passes.
 - **Dependencies:** 5
-- **Citations:** D-5 · REQ-E1.1, REQ-E1.3, REQ-E1.4
+- **Citations:** D-5 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** half day
 
 ## In progress
