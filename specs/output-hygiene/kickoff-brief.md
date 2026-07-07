@@ -359,3 +359,51 @@ Anchor: `b4f1bf1216ea19818d736d84f9de892b87e785d8` — computed as
 `scripts/spec-anchor.sh specs/output-hygiene`
 
 Signed off: 2026-07-07
+
+## 9. Amendment log
+
+### Delta re-walkthrough — 2026-07-07 (post-merge, meaning-class, in-place)
+
+**Trigger:** human-requested delta re-walk to disposition the 5 findings from the
+panel-pairing (gemini) pass over the merged output-hygiene PR #124, applied **before**
+output-hygiene executes (Task 1 would otherwise build the flawed D-1). Freshness at start
+matched (anchor `b4f1bf1`); this is a human-brought delta, not a staleness remedy.
+
+**Ritual decision (recorded deviation):** output-hygiene is `Ready` but its spec PR already
+*merged* (post-merge). Doctrine's literal rule routes post-merge meaning changes to
+supersede-with-new-IDs; applied **in-place** instead (edit D-1/REQ-B directly, this
+amendment-log entry, fresh anchor) because **nothing was built against D-1** (Ready,
+unstarted) — no traceability to protect, and new D-IDs for an unimplemented mechanism would
+be disproportionate. A conscious, recorded deviation (Diego away; proceeded on the
+recommended option).
+
+**Delta lens pass (delta-scoped, walked inline — narrow delta of design-rule refinements to
+one decision; independent variance comes from the separate panel-pairing pass Diego runs on
+his return).**
+
+| Lens | Findings on the delta | Notes |
+| --- | --- | --- |
+| Correctness / logic / edge cases | 1 (watch item) | union-dedup requires each appended entry to retain a fragment-identity association (or a consumed-fragment record) — see watch item below |
+| Concurrency / state | none | union-dedup-by-fragment-identity is loss-and-dup-free even without the lock; lock stays a perf guard |
+| Cross-file consistency | 2 (fixed) | `design.md` Cross-cutting still said "regenerate-on-conflict"; D-4 still said briefs "out of scope" — both reconciled to union / guard-covers-briefs |
+| Security | none | F3 tightens the name-validation set (date component); no new surface |
+| Documentation / naming | none | F5 "carve-out" / "union-of-appends" wording clear |
+| Tests / verification | none new | test-spec updated for union, fragment-identity, mining-log, date, brief-guard |
+| Correctness (F2) | none | mining-from-log removes the double-surface without losing visibility (drain still counts the queue) |
+| Performance / Error-handling | n/a | no change to cost or failure modes beyond the corrected conflict path |
+
+**Dispositions:**
+- **F1** applied — D-1/REQ-B1.1/B1.3: union-of-appends (never regenerate). Rejected-alternative recorded.
+- **F4** applied — idempotency keyed on fragment identity; two identical-text fragments both survive.
+- **F2** applied — `/spec-draft` mines the consolidated log; queue counted-for-visibility only.
+- **F3** applied — REQ-B1.5 validates the `<date>` component.
+- **F5** applied — `[[name]]` guard covers `kickoff-brief.md` with an allowlist carve-out; D-4 + REQ-D1.1 reconciled.
+- **Watch item (Task 1, not a spec edit):** the fragment-identity idempotency + union-dedup requires that each appended log entry retain a fragment-identity marker (or consolidation keep a consumed-fragment record), so union can dedup a fragment appended on two branches. The single-writer + global lock make same-checkout consolidation serial (no dup in the common case); the dedup marker is the cross-checkout backstop. Recorded for the Task 1 implementer.
+
+Class: meaning
+Lens-pass: recorded above (this §9 entry), delta-scoped inline walk, findings dispositioned + 2 stragglers fixed 2026-07-07.
+Last reviewed: bumped to 2026-07-07 on the four spec files (already today; no status flip — stays Ready).
+Anchor: `4636b8d44a20fe69e8aa1afefec236638a6f7463` — computed as
+`scripts/spec-anchor.sh specs/output-hygiene`
+
+Signed off: 2026-07-07

@@ -80,10 +80,14 @@ conflict-free and format-stable under concurrent runs.
 - **REQ-B1.1** Concurrent runs SHALL be able to record observations without colliding on a
   shared textual append point: each run writes to a distinct per-run fragment file (a
   run-unique name — REQ-B1.5), and consolidation of fragments into the shared log SHALL be a
-  single-writer, default-branch operation that is idempotent and, on any log conflict,
-  regenerates from current state rather than resolving by ours/theirs/union.
+  single-writer, default-branch operation whose idempotency is keyed on **fragment identity**
+  (each fragment consolidated at most once by its unique filename; distinct fragments with
+  identical text both land) and whose conflict resolution is **union-of-appends** (keep every
+  entry from both sides, deduped by fragment identity) — never regenerate-from-current-state,
+  which suits the derived `tasks.md` projection but would delete entries from this durable
+  accumulator (REQ-B1.3).
   *(Cites: the drafting invocation (Sources); research: GitHub merge-driver support
-  (Sources); D-1.)*
+  (Sources); D-1; delta re-walkthrough (2026-07-07).)*
 - **REQ-B1.2** The recording mechanism SHALL preserve the accumulator-taxonomy class-3
   contract for the observations log: a durable home, the canonical reader (`/spec-draft`),
   and a drain ritual — here, drain-pass surfacing (unmined count and oldest age) plus the
@@ -97,15 +101,22 @@ conflict-free and format-stable under concurrent runs.
   *(Cites: D-1.)*
 - **REQ-B1.4** The existing consumers (the drain pass's observation surface, `/spec-draft`
   mining and archive trim) SHALL read the new layout with unchanged reported semantics.
-  *(Cites: D-1; accumulator-taxonomy doctrine (Sources).)*
+  `/spec-draft` SHALL mine and archive the **consolidated log** (`opportunities.md`), not raw
+  queue fragments — the queue reaches the reader only via `--bookkeeping` consolidation, so a
+  fragment is never both mined-from-the-queue and re-consolidated as fresh (no double-surface,
+  delta re-walkthrough F2). The drain pass SHALL still count queue entries in the unmined
+  figures for visibility.
+  *(Cites: D-1; accumulator-taxonomy doctrine (Sources); delta re-walkthrough (2026-07-07).)*
 - **REQ-B1.5** Fragment names SHALL be built only from components validated against their
   declared grammars **before** any path interpolation (the task-id grammar for the
-  `<taskid>` segment; `^[a-z0-9]+$` for the `<run-nonce>`), and the derived fragment path
+  `<taskid>` segment; `^[a-z0-9]+$` for the `<run-nonce>`; `^\d{4}-\d{2}-\d{2}$` for the
+  `<date>` segment — no name component reaches a path unvalidated), and the derived fragment path
   SHALL be containment-checked after canonicalization before any read or write; hostile or
   malformed input is a clean refusal (the observation is dropped and flagged, never written
   to an out-of-tree path). Slug- and branch-derived names echoed into reports or commit
   output SHALL be passed through the printable-sanitizer (`scripts/echo-safety.sh`) first.
-  *(Cites: security-posture (Sources); orchestration-concurrency REQ-F1.1 (Sources); D-1.)*
+  *(Cites: security-posture (Sources); orchestration-concurrency REQ-F1.1 (Sources); D-1;
+  delta re-walkthrough (2026-07-07).)*
 
 ## REQ-C — Pending-sign-off marker canonicalization
 
@@ -133,9 +144,12 @@ conflict-free and format-stable under concurrent runs.
   (writer-install or plugin) layout. Enforcement is mechanical and forward-standing: a
   `check:*` guard under `mise run check` SHALL flag any `[[name]]` token in a committed
   spec file (so a future writer that skips neutralization fails CI), and writers neutralize
-  before commit (REQ-D1.2). The standing guard's scope is the four spec files; already-signed
-  kickoff-brief bodies are append-only (their historical `[[…]]` are a bounded, named
-  carve-out reconciled only where the amendment ritual reaches spec files — REQ-D1.4).
+  before commit (REQ-D1.2). The standing guard SHALL cover the four spec files **and
+  `kickoff-brief.md`** (so REQ-D1.2's brief-neutralization rule is mechanically enforced, not
+  behavioral-only — delta re-walkthrough F5), with a **named allowlist carve-out** for the
+  historically-declined pre-existing brief links (the orchestration-fleet brief's `[[…]]`
+  citations), so the guard fails on a *new* regression without reopening an already-signed
+  brief's accepted exceptions.
   *(Cites: observations log 2026-06-29 ([[name]] links) (Sources); observations log
   2026-06-16 (delivered-layout links) (Sources); D-4.)*
 - **REQ-D1.2** `/spec-draft` and kickoff-brief writers SHALL neutralize `[[name]]` links
@@ -220,6 +234,20 @@ conflict-free and format-stable under concurrent runs.
   citation/format fixes incl. the pinned degraded annotation string (REQ-E1.2) and a doctrine
   home for the canonical annotation format (Task 8). **Cluster 6:** goal/collision claims
   scoped, two Sources relabeled consumed, `queue/` name kept.
+- 2026-07-07 — **Delta re-walkthrough (post-merge, meaning-class, in-place)** dispositioning
+  the 5 findings from the panel-pairing (gemini) pass over PR #124, applied before
+  output-hygiene executes. **F1:** D-1/REQ-B1.1/B1.3 conflict resolution changed from
+  "regenerate from current state" to **union-of-appends** — the log is a durable accumulator
+  with no source to regenerate from, so regenerate would delete entries (the `tasks.md`
+  projection pattern does not transfer). **F4:** idempotency re-keyed from entry **content** to
+  **fragment identity** (unique filename), so distinct fragments with identical text both
+  survive. **F2:** `/spec-draft` mines the **consolidated log**, not raw queue fragments
+  (queue counted-for-visibility only), removing the double-surface. **F3:** REQ-B1.5 now
+  validates the `<date>` name component too. **F5:** the `[[name]]` guard extends to
+  `kickoff-brief.md` with an allowlist carve-out for the declined fleet-brief links. In-place
+  edit (not supersede-with-new-IDs) because nothing was built against D-1 (Ready, unstarted) —
+  a conscious deviation from the literal post-merge-supersede rule, recorded here; anchor
+  re-stamped in the brief's amendment log.
 
 ## Sources
 

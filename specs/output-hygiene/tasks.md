@@ -18,26 +18,32 @@ Task 1 → Task 2.
   `<YYYY-MM-DD>-<taskid>-<run-nonce>.md`: `<taskid>` from the run's task/branch id,
   `<run-nonce>` a run-unique token chosen once at run start — a stable run/dispatch id where
   one exists, else a short `^[a-z0-9]+$` random token — so two runs on the same task+date
-  cannot collide; one file per run, all its observations appended to it; both components
-  charset-validated before path interpolation and the derived path containment-checked, with
-  a clean refusal on hostile/malformed input, per REQ-B1.5); a single-writer, idempotent
-  consolidation routine (append the fragments' entries to `opportunities.md` in consolidation
-  order **and** delete the consumed fragments as **one atomic commit**; idempotent — append
-  only entries not already present, delete only fragments still present; on any
-  `opportunities.md` conflict, regenerate from current state, never ours/theirs/union),
-  guarded by a dedicated **global `_observations` advisory lock** (distinct from the per-spec
-  lock — a performance guard against concurrent `--bookkeeping` retries, not the correctness
-  mechanism); branch-/slug-derived names printable-sanitized before any echo (REQ-B1.5);
+  cannot collide; one file per run, all its observations appended to it; all three name
+  components — `<date>` (`^\d{4}-\d{2}-\d{2}$`), `<taskid>`, `<run-nonce>` — charset-validated
+  before path interpolation and the derived path containment-checked, with a clean refusal on
+  hostile/malformed input, per REQ-B1.5); a single-writer consolidation routine (append the
+  fragments' entries to `opportunities.md` in consolidation order **and** delete the consumed
+  fragments as **one atomic commit**; **idempotency keyed on fragment identity** — each
+  fragment consolidated at most once by its unique filename, so re-processing is a no-op but
+  two distinct fragments with identical text both land; on any `opportunities.md` conflict,
+  resolve by **union-of-appends** deduped by fragment identity, **never** regenerate/ours/
+  theirs — the log is a durable accumulator, not a derived projection), guarded by a dedicated
+  **global `_observations` advisory lock** (distinct from the per-spec lock — a performance
+  guard against concurrent `--bookkeeping` retries, not the correctness mechanism);
+  branch-/slug-derived names printable-sanitized before any echo (REQ-B1.5);
   accumulator-taxonomy doctrine amendment naming the queue as a class-3 surface (durable
   home, canonical reader `/spec-draft`, drain ritual).
 - **Done when:** two runs with distinct identities on the same date produce **different**
   filenames (asserted directly), and consolidation produces a conflict-free append-ordered
-  log with the fragments deleted; a concurrent-consolidation test proves idempotency (no
-  duplicate entry) and regenerate-on-conflict (no union merge); a test proves existing log
-  entries survive byte-for-byte apart from appends (verbatim, no rewrap); the atomic-commit
-  case proves an interrupted run persists neither the append nor the delete; a traversal /
-  metacharacter fragment name is a clean refusal writing no out-of-tree file, and an echoed
-  name is printable-sanitized; the doctrine names the queue surface; `mise run check` passes.
+  log with the fragments deleted; a concurrent-consolidation test proves fragment-identity
+  idempotency (no duplicate entry when the same fragment is re-processed) **and** that two
+  distinct fragments with identical text both land (no content-dedup loss); a conflict test
+  proves **union** resolution loses no historical entry (never regenerate/ours/theirs); a test
+  proves existing log entries survive byte-for-byte apart from appends (verbatim, no rewrap);
+  the atomic-commit case proves an interrupted run persists neither the append nor the delete;
+  a traversal / metacharacter fragment name (in any of the three components) is a clean refusal
+  writing no out-of-tree file, and an echoed name is printable-sanitized; the doctrine names
+  the queue surface; `mise run check` passes.
 - **Dependencies:** none
 - **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.5
 - **Estimated effort:** 3 days
@@ -45,14 +51,16 @@ Task 1 → Task 2.
 ### Task 2 — Consumer wiring for the queue
 
 - **Deliverables:** `/orchestrate --bookkeeping` is the **sole consolidation writer** — it
-  invokes Task 1's routine on the default branch; `/spec-draft` **mines** the queue plus the
-  log (read-only) and never consolidates (it runs in a feature-branch worktree, where a
-  consolidation write would ride the branch PR and collide at merge — D-1); the drain pass's
-  observation surface counts queue entries in the unmined count and oldest-age figures.
-- **Done when:** a drain-report fixture with queue entries shows them in the unmined
-  surface; `--bookkeeping`'s instructions name it as the consolidation writer and
-  `/spec-draft`'s name the queue as a read-only mining input (no consolidation write);
-  `mise run check` passes.
+  invokes Task 1's routine on the default branch; `/spec-draft` mines and archives the
+  **consolidated log** (`opportunities.md`) — **not** raw queue fragments (the queue reaches
+  the reader only via `--bookkeeping` consolidation, so a mined fragment can't be
+  re-consolidated as fresh; F2) — and never consolidates (feature-branch worktree write would
+  collide at merge — D-1); the drain pass's observation surface still **counts** queue entries
+  in the unmined count and oldest-age figures for visibility.
+- **Done when:** a drain-report fixture with queue entries shows them counted in the unmined
+  surface; `--bookkeeping`'s instructions name it as the sole consolidation writer and
+  `/spec-draft`'s name `opportunities.md` as its mining/archive source (queue counted for
+  visibility only, never consumed raw); `mise run check` passes.
 - **Dependencies:** 1
 - **Citations:** D-1 · REQ-B1.2, REQ-B1.4
 - **Estimated effort:** 1 day
@@ -110,9 +118,11 @@ Task 1 → Task 2.
 - **Deliverables:** a `/spec-draft` completion-step rule neutralizing `[[name]]` links
   into prose plus a `## Sources` pointer (the sanctioned observations-log citation form);
   a **standing mechanical guard** — a `check:*` under `mise run check` (in
-  `check-doc-links.sh` or a sibling) that flags any `[[name]]` token in a committed spec
-  file, so a future writer skipping neutralization fails CI rather than silently
-  reintroducing the violation (REQ-D1.1); the orchestration-fleet bundle's `[[…]]` citations
+  `check-doc-links.sh` or a sibling) that flags any `[[name]]` token in a committed spec file
+  **or `kickoff-brief.md`**, with a **named allowlist carve-out** for the pre-existing declined
+  orchestration-fleet brief links, so a future writer skipping neutralization fails CI (F5)
+  without reopening an already-signed brief's accepted exceptions (REQ-D1.1); the
+  orchestration-fleet bundle's `[[…]]` citations
   reconciled via the expression-only amendment ritual (dated changelog entry, re-anchor).
   **Coordination:** the fleet bundle
   is `Ready` and may derive `Active`; land the fleet amendment's re-anchor as its own
@@ -121,11 +131,10 @@ Task 1 → Task 2.
   before amending, and if fleet execution is in flight, coordinate the re-anchor with it
   rather than racing it.
 - **Done when:** the skill step exists; the standing `[[name]]` guard fails on a fixture
-  spec file carrying a `[[foo]]` token and passes on a clean bundle, and runs under
-  `mise run check`; a repo-wide search finds no `[[name]]` token in the four spec files
-  (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`) of any bundle — already-signed
-  kickoff-brief bodies are append-only and out of this sweep's scope (REQ-D1.2's
-  writer-neutralization keeps new briefs clean going forward); the fleet bundle's
+  spec file **and** a fixture `kickoff-brief.md` each carrying a `[[foo]]` token, passes on a
+  clean bundle, and honors the allowlist carve-out (the declined fleet-brief links do not fail
+  it), all under `mise run check`; a repo-wide search finds no *unallowlisted* `[[name]]` token
+  in any bundle's four spec files or brief; the fleet bundle's
   `requirements.md` + `design.md` `[[…]]` citations are neutralized via the expression-only
   amendment ritual, its changelog records the amendment, and its brief anchor matches
   `scripts/spec-anchor.sh` output; `mise run check` passes.

@@ -42,8 +42,10 @@ Task 1 suite: two runs with distinct identities on the same date compute **diffe
 fragment filenames (asserted directly — the per-run nonce guarantees it), each writing its
 own file with no shared append point; consolidation by the single writer yields one
 conflict-free log with entries appended in consolidation order. A concurrent-consolidation
-case (two `--bookkeeping` runs over the same queue) proves idempotency: no duplicate entry,
-and a simulated log conflict regenerates from current state rather than resolving by union.
+case (two `--bookkeeping` runs over the same queue) proves **fragment-identity idempotency**:
+re-processing the same fragment produces no duplicate, but two distinct fragments with
+identical text both land; and a simulated `opportunities.md` conflict resolves by
+**union-of-appends** (every entry from both sides survives), never by regenerate/ours/theirs.
 
 ### REQ-B1.2 — Class-3 invariants preserved [test + design-level]
 
@@ -58,21 +60,24 @@ line byte-for-byte intact apart from appended entries (entry text moved verbatim
 rewrap/redact); appended entries are in consolidation order, never re-sorted by fragment
 date. The atomic-commit case proves crash safety: the append and the fragment deletions are
 one commit, so an interrupted run persists neither (recovery resets the uncommitted working
-tree), and a re-run over partly-consumed state is idempotent — no entry lands twice.
+tree), and a re-run over partly-consumed state is idempotent by fragment identity — the same
+fragment never lands twice, and the union-on-conflict case loses no historical entry.
 
 ### REQ-B1.4 — Consumer semantics unchanged [test + design-level]
 
 Test: drain-report fixture with and without queue entries — report grammar unchanged,
-counts include the queue. Design-level: `/spec-draft` (mining, read-only) and
-`--bookkeeping` (the sole consolidation writer) instructions name the queue in their
-mining/consolidation steps.
+counts include the queue. Design-level: `/spec-draft` instructions name **`opportunities.md`
+(the consolidated log)** as its mining/archive source (queue counted for visibility only,
+never consumed raw — F2), and `--bookkeeping` (the sole consolidation writer) names the queue
+in its consolidation step.
 
 ### REQ-B1.5 — Hostile-name safety and containment [test]
 
-Task 1 suite: a fragment-name derivation fed a traversal or metacharacter component
-(`../`, an embedded `/`, a non-printable byte) is a clean refusal — the observation is
+Task 1 suite: a fragment-name derivation fed a traversal or metacharacter component in **any
+of the three parts** — `<date>`, `<taskid>`, or `<run-nonce>` (`../`, an embedded `/`, a
+non-printable byte, a malformed date) — is a clean refusal — the observation is
 dropped-and-flagged, no file is written outside `specs/_observations/queue/`; a valid
-`<taskid>-<run-nonce>` passes. A name echoed into the drain/consolidation output is
+`<date>-<taskid>-<run-nonce>` passes. A name echoed into the drain/consolidation output is
 printable-sanitized (an embedded escape sequence does not reach the terminal). Mirrors the
 `orchestration-concurrency` REQ-F1.1 traversal test.
 
@@ -114,10 +119,12 @@ emission).
 ### REQ-D1.1 — No reader-unresolvable references [test + manual]
 
 Covered mechanically by the REQ-D1.3 lint fixtures for delivered-layout links, and by the
-**standing** `[[name]]` guard (Task 5/6): a fixture with a `[[foo]]` token in a spec file
-fails the `check:*` guard under `mise run check`, and a clean bundle passes — so a future
-writer that skips neutralization is caught by CI, not just by a one-shot grep. Manual: the
-fleet-bundle amendment leaves no `[[…]]` citation behind in its spec files.
+**standing** `[[name]]` guard (Task 5/6): fixtures with a `[[foo]]` token in a **spec file
+and in a `kickoff-brief.md`** each fail the `check:*` guard under `mise run check`, a clean
+bundle passes, and the allowlist carve-out lets the declined fleet-brief links pass (F5) — so
+a future writer that skips neutralization (spec *or* brief) is caught by CI, not just a
+one-shot grep. Manual: the fleet-bundle amendment leaves no `[[…]]` citation behind in its
+spec files.
 
 ### REQ-D1.2 — Neutralization step in the writers [design-level + manual]
 

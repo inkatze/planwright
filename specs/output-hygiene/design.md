@@ -29,21 +29,35 @@ canonicalization (REQ-B1.5) — hostile input is a clean refusal, never a path.
 
 `opportunities.md` remains the canonical consolidated log and the only surface the archive
 ritual touches. **Consolidation is a single-writer, default-branch operation:** the
-`/orchestrate --bookkeeping` reconcile is the sole consolidation writer; `/spec-draft`
-*mines* the queue and the log together (read-only) but never consolidates. Consolidation is
+`/orchestrate --bookkeeping` reconcile is the sole consolidation writer. Consolidation is
 **one atomic git commit** that both appends the fragments' entries to `opportunities.md`
-and deletes the consumed fragment files — no two-step window. It is **idempotent by
-construction**: it appends only entries not already present and deletes only fragments
-still present, so a re-run over partly-consumed state is a no-op; on any `opportunities.md`
-git conflict it **regenerates from current state** rather than resolving by ours/theirs/union
-(mirroring `orchestration-concurrency` REQ-C1.3 for `tasks.md`). A dedicated **global**
-advisory lock (keyed on a fixed `_observations` literal, distinct from the per-spec lock)
-guards the critical section as a performance guard against concurrent-`--bookkeeping`
-retries — not the correctness mechanism, which is the idempotency above. Entries are
-**appended in consolidation order** (monotonic; the single writer processes fragments in
-filename-sorted order), never re-sorted by fragment date; each entry carries its own date
-in its text for the reader. The drain pass counts queue entries plus unconsolidated log
-entries as the unmined surface.
+and deletes the consumed fragment files — no two-step window. **Idempotency is keyed on
+fragment identity, not entry content** (kickoff §delta F4, 2026-07-07): each fragment is
+consolidated at most once, tracked by its unique `<taskid>-<run-nonce>` filename, so
+re-processing the same fragment (a crash-retry, a concurrent second `--bookkeeping`) is a
+no-op, while **two distinct fragments carrying identical text both land** — a legitimate
+second occurrence of the same observation is never dropped (REQ-B1.3). **Conflict resolution
+is union-of-appends, never regenerate** (kickoff §delta F1, 2026-07-07): `opportunities.md`
+is a durable class-3 accumulator, *not* a derived projection like `tasks.md` — it has no
+external source of truth to regenerate from, so `tasks.md`'s regenerate-from-current-state
+pattern (`orchestration-concurrency` REQ-C1.3) does **not** transfer here. A merge conflict
+on `opportunities.md` is between two sets of appends; it resolves by **union** (keep every
+entry from both sides, deduped by fragment identity), so no historical entry is ever lost —
+the exact resolution the real `opportunities.md` conflict on output-hygiene PR #124 required.
+A dedicated **global** advisory lock (keyed on a fixed `_observations` literal, distinct from
+the per-spec lock) guards the critical section as a performance guard against
+concurrent-`--bookkeeping` retries — not the correctness mechanism, which is the
+fragment-identity idempotency + union above. Entries are **appended in consolidation order**
+(monotonic; the single writer processes fragments in filename-sorted order), never re-sorted
+by fragment date; each entry carries its own date in its text for the reader.
+
+**Mining reads the consolidated log, not the raw queue** (kickoff §delta F2, 2026-07-07):
+`/spec-draft` (the canonical reader) mines and archives **`opportunities.md`** — the queue is
+a staging area, consolidated into the log only by `--bookkeeping`, never mined or consumed
+raw. The drain pass still **counts** queue entries (plus unconsolidated log entries) in the
+unmined-surface figures for visibility, but `/spec-draft` never consumes a raw fragment it
+cannot archive, so a fragment cannot be both mined-from-the-queue and later re-consolidated
+into the log as fresh (no double-surface). `/spec-draft` never writes consolidation.
 
 **Alternatives considered:**
 
@@ -70,14 +84,28 @@ entries as the unmined surface.
 - *Task-id-only fragment name (the initial kickoff §3 choice).* Rejected once the lens pass
   showed branch/task id is not run-unique (a retry or a separate same-branch run collides);
   the per-run nonce closes that hole while keeping the readable task-id prefix.
+- *Regenerate-from-current-state on conflict (mirroring `tasks.md`).* Rejected (kickoff
+  §delta F1): `tasks.md` is a derived read-model regenerable from PR/git evidence;
+  `opportunities.md` is a durable accumulator that *is* the source of truth, so "regenerate"
+  has nothing to regenerate from and would **delete** historical entries on any conflict
+  (violating REQ-B1.3). Union-of-appends is the loss-free resolution for an append-only log.
+- *Content-based idempotency (append only entries not already present).* Rejected (kickoff
+  §delta F4): dedup-by-content drops a legitimate second occurrence of the same observation
+  from a different run. Fragment-identity idempotency dedups re-processing without losing
+  distinct-but-identical entries.
+- *`/spec-draft` mines the raw queue directly.* Rejected (kickoff §delta F2): read-only
+  mining cannot archive a raw queue fragment, so `--bookkeeping` would re-consolidate it into
+  the log as fresh (double-surface). Mining reads the consolidated log; the queue only feeds
+  the log via `--bookkeeping`.
 
 **Chosen because:** distinct per-run filenames make the **write** side collision-free by
 construction (no shared append point); a single default-branch consolidator plus
-idempotent-regenerate makes the **consolidation** side safe without cross-branch merge
-collisions and without a lock the primitive cannot provide — the lock is only a performance
-guard. Append-only-in-consolidation-order preserves every existing entry byte-for-byte
-(REQ-B1.3). The model mirrors the sole-writer + regenerate-on-conflict discipline
-`orchestration-concurrency` proved for `tasks.md` placement, and the fragment pattern is
+**fragment-identity idempotency and union-on-conflict** makes the **consolidation** side safe
+and loss-free without cross-branch merge collisions and without a lock the primitive cannot
+provide — the lock is only a performance guard. Append-only-in-consolidation-order preserves
+every existing entry byte-for-byte (REQ-B1.3). The model borrows `orchestration-concurrency`'s
+sole-writer discipline but **not** its regenerate-on-conflict step (that suits a derived
+projection, not this durable accumulator — kickoff §delta F1), and the fragment pattern is
 proven at ecosystem scale by towncrier's news fragments (CPython, attrs, PyInstaller,
 Prefect) — the pattern is adopted, the tool is not (Claude Code primitives only). The
 accumulator-taxonomy doctrine gains the queue as a named class-3 surface with its durable
@@ -161,12 +189,14 @@ a completion-step neutralization: any `[[name]]` memory link in would-be-committ
 rewritten to plain prose plus a `## Sources` entry; the existing Source citation kind covers
 observations-log references, so no new syntax is minted. A mechanical guard backs the rule
 so it does not rot: `check-doc-links.sh` (or a sibling `check:*` under `mise run check`)
-also flags any `[[name]]` token in a committed spec file, so a future `/spec-draft` that
-skips its neutralization step fails CI rather than silently reintroducing the violation.
+also flags any `[[name]]` token in a committed spec file **or `kickoff-brief.md`** (kickoff
+§delta F5), so a future `/spec-draft` or `/spec-kickoff` that skips its neutralization step
+fails CI rather than silently reintroducing the violation. The guard carries a **named
+allowlist carve-out** for the pre-existing declined orchestration-fleet brief links, so it
+fails on a *new* regression without reopening an already-signed brief's accepted exceptions.
 Known violations are reconciled: the guard-catalog delivered-dead link directly, the
 orchestration-fleet `[[…]]` citations in that bundle's **spec files** via the expression-only
-amendment ritual (changelog entry plus re-anchor — it is signed off); already-signed
-kickoff-brief bodies are append-only and out of scope (REQ-D1.4).
+amendment ritual (changelog entry plus re-anchor — it is signed off).
 
 **Alternatives considered:**
 
@@ -258,5 +288,6 @@ the redundant rendering.
   resolves a small conflict — accepted, and itself a live demonstration of the collision
   class D-1 addresses. (The fragment queue removes *new-observation append* contention; the
   consolidation, archive, and trim writes to `opportunities.md` remain single-file edits,
-  made safe by the single-writer + regenerate-on-conflict rule, not by the fragment split —
-  so "collision-free by construction" is scoped to the write side, not to every log edit.)
+  made safe by the single-writer + **union-on-conflict** rule (kickoff §delta F1), not by the
+  fragment split — so "collision-free by construction" is scoped to the write side, not to
+  every log edit.)
