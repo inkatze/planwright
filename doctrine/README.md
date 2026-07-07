@@ -9,6 +9,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | --- | --- | --- |
 | [finding-categorization.md](finding-categorization.md) | The four finding buckets, their predicates, and the act-then-review autonomy gate | REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 |
 | [gate-wiring.md](gate-wiring.md) | The gate's operational wiring: routing order, commit discipline, checklist and audit formats, ladder procedure, pause protocol | REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6 |
+| [autonomous-safe-decision.md](autonomous-safe-decision.md) | The unattended orchestration tower's autonomy policy as a mapping onto the finding-categorization buckets and hard-pause zones (no parallel taxonomy); the never-auto-merge floor and escalation to the decision queue | orchestration-fleet REQ-A1.3, orchestration-fleet REQ-D1.4 · orchestration-fleet D-8, orchestration-fleet D-13 |
 | [discovery-rigor.md](discovery-rigor.md) | Making the finding list complete: lens checklist, coverage table, tool-grounded discovery, fan-out, self-critique | REQ-D1.1 |
 | [validation-rigor.md](validation-rigor.md) | Confirming findings are real (three passes plus adversarial bi-directional re-validation) and solutions are right (including the altitude check and surface-relative whole-system reproduction) | REQ-D1.2, REQ-D1.8, REQ-D1.9 |
 | [refactor-instinct.md](refactor-instinct.md) | Small continuous refactors; low bar in implementation mode, high bar in review mode | REQ-D1.3 |
@@ -23,6 +24,10 @@ resolution path defined below (REQ-I1.1, D-24).
 | [accumulator-taxonomy.md](accumulator-taxonomy.md) | The three accumulator classes and their drain rituals, the `GATE(when:)` convention and its closed grammar (normative home), the shared drain pass behind `/drain` and `--bookkeeping` | REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18, D-31 |
 | [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
 | [interaction-style.md](interaction-style.md) | How spec-authoring skills conduct interactive sessions: progress indicator, progressive disclosure, selectors with recommendations, running summary, small bites | REQ-B3.1 |
+| [backend-capability-contract.md](backend-capability-contract.md) | The dispatch-backend capability contract and advertisement: the five named capabilities, the advertised capability set, orchestrator adaptation, and the existing backends mapped to it | orchestration-fleet REQ-B1.1, REQ-B1.2, REQ-B1.3 · orchestration-fleet D-2 |
+| [context-budget-autoheal.md](context-budget-autoheal.md) | The long-running tower's context-budget monitor (the completed-step-count proxy signal and its knob) and the disposable-tower auto-heal handover (`continue-as-new`): rebuild-from-disk, the wake prompt as handover document, state-safety across the handover, and the never-auto-merge floor | orchestration-fleet REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-A1.2 · orchestration-fleet D-4 |
+| [attention-notification-capability.md](attention-notification-capability.md) | The substrate-agnostic attention/notification capability lifted into core: heartbeat/awareness state under the cross-spec home, the portable status renderer, the alarm-rationalized decision queue, the overlay-valued notification seam, and deferral to a backend's own attention surface | orchestration-fleet REQ-E1.3, REQ-E1.4, REQ-A1.5, REQ-A1.6 · orchestration-fleet D-13 |
+| [inter-orchestrator-coordination.md](inter-orchestrator-coordination.md) | The coordination protocol between towers and workers: the division of labor (tower owns reconcile/dispatch/cleanup, worker owns its branch's conflict resolution) and the "directly" boundary; the attributed, non-impersonating relay against a live worker (buffer-paste steer, capture-pane observe, never send-keys, never answer a permission prompt); the relay security bounds (handles validated, output as data) enforced by `scripts/orchestrate-relay.sh` | orchestration-fleet REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6 · orchestration-fleet D-7 |
 
 ## Resolution convention
 
@@ -60,6 +65,9 @@ Doc names are kebab-case basenames without the `.md` suffix, e.g.
 through the autonomy gate that decides what the agent applies versus what
 waits for the human; [Gate Wiring](gate-wiring.md) is that gate's operational
 procedure (how dispositions are applied, committed, recorded, and surfaced).
+The [Autonomous-Safe-Decision Policy](autonomous-safe-decision.md) reads that
+same gate at the orchestration tier, defining what an unattended tower may
+decide versus what it must escalate to the human.
 [Research Rigor](research-rigor.md) and the
 [Security Posture](security-posture.md) fire on their triggers at any point in
 that flow. [Refactor Instinct](refactor-instinct.md) and

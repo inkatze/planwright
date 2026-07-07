@@ -398,6 +398,147 @@ added rows R12–R17. These append to the §7 register; they do not overwrite it
   captured here so each task pins its term with a test. Early signal: a reviewer
   cannot evaluate a Done-when because the term is still abstract.
 
+### Task 5 research findings — the context-budget signal (2026-07-02)
+
+Resolves risk **R2** (context-budget signal undefined, C1.1/D-4) and informs
+**R12** (auto-heal error paths) and **R5** (safe defaults). Research fired on the
+version-sensitive-capability trigger (how a running Claude Code session can
+introspect its own context budget); sources consulted top-down: current Claude
+Code docs (hooks reference, context-window management, sessions, headless mode),
+2026 recency honored over model memory. Appended per the execution-skill
+risk-register convention (named section, no anchor entry, existing rows
+untouched).
+
+- **Finding — no supported live token-usage introspection.** Claude Code exposes
+  **no** documented programmatic signal of current context-window usage to a
+  command a session runs itself: no environment variable, no hook input field, no
+  CLI query. `/context` is interactive-only (not machine-readable). The session
+  transcript JSONL (`~/.claude/projects/<project>/<session-id>.jsonl`) *does*
+  carry per-message usage, but its schema is documented as **internal and
+  changes between versions** — explicitly unsupported for scripting. Antipattern
+  check: parsing the transcript is the tempting-but-fragile path and is rejected
+  (it breaks on any release, a silent-degradation vector this spec's degrade-safe
+  posture forbids).
+- **Finding — `PreCompact` (matcher `auto`) is the native context-pressure
+  signal.** The documented, stable `PreCompact` hook fires when Claude Code's own
+  auto-compaction is about to run — i.e. it *is* Claude Code's "budget exhausted"
+  event. Limit: it fires **at** the threshold, not before, and registering it in
+  planwright's plugin `hooks/hooks.json` would fire for every adopter's every
+  session (not just towers), needing tower-detection to stay a no-op.
+- **Finding — fresh sessions launch headless.** `claude -p "<prompt>"`
+  (`--output-format json` returns the new `session_id`) is the documented way for
+  a retiring tower to start its replacement and confirm it is alive; the Agent SDK
+  is the richer alternative. No atomic "launch + seed" flag beyond the prompt
+  argument.
+- **Decision (R2 resolved).** The budget signal is a **completed-step-count
+  proxy** — the count of orchestration steps a long-running tower has run since it
+  started — as the **primary, tower-controllable, host-agnostic** signal (needs no
+  unsupported introspection; measurable on every backend). The `context_budget_threshold`
+  knob configures it and `scripts/context-budget-monitor.sh` evaluates it. The
+  `PreCompact auto` hook is documented as the **corroborating native hard-floor**
+  a tower may register in its own worker settings (not a global plugin hook, to
+  bound blast radius). Tradeoffs weighed: reliability (step-count is deterministic
+  and under our control; PreCompact is native but late; transcript-parsing is
+  fragile/unsupported), system-wide implications (no global hook side effect),
+  and safety (the handover is cheap and lossless — rebuild-from-disk — so a
+  conservative default that hands off *early* is the safe default per R5).
+  Proportionality: scope declared — the step-count monitor is built and CI-tested;
+  the PreCompact path is documented, not globally wired.
+
+### Task 12 execution findings — notification-seam injection hardening (2026-07-03)
+
+Informs **R5** (safe defaults for new knobs) and extends the §7 **Security
+surface** note (which enumerated the backend relay/spawn surface but not the
+notification channel's own adapter surface). The write-time security pass fired on
+the subprocess/shell-construction trigger: the `notify` seam hands an untrusted,
+worker-derived summary to a platform notification tool. Appended per the
+execution-skill risk-register convention (named section, no anchor entry, existing
+rows untouched).
+
+- **Finding — `tmux display-message` executes format specifiers.** tmux interprets
+  `#{...}` / `#(...)` FORMAT sequences in a message, and `#(cmd)` runs a shell
+  command — so passing an untrusted summary to it verbatim is a command-injection
+  vector. Mitigation: the `tmux-popup` adapter strips `#` from the summary before
+  the push, neutralizing both format and command expansion. Best-effort: with no
+  attached server the item still lives in the decision queue.
+- **Finding — AppleScript string interpolation is an injection vector.** Building
+  an `osascript -e "display notification \"$summary\""` string interpolates the
+  summary into script text. Mitigation: the `os-notify` adapter passes the summary
+  as **argv data** (`on run argv … item 1 of argv … end run -- "$summary"`), never
+  interpolated into the script; the Linux `notify-send -- "$summary"` path is argv-
+  safe by construction.
+- **Decision (R5 informed).** The default channel is **`none`** (pull-only): it
+  pushes nothing, needs no external tool, and cannot surprise an operator — the
+  safe, quiet default R5 requires. Every channel adapter treats the summary as
+  data: it is first stripped of C0/DEL through the canonical echo-discipline
+  sanitizer, then handled so no format specifier, AppleScript string, or shell
+  metacharacter can execute. Store fields (worker/scope handles, decision text)
+  are grammar-validated before any write, so the store cannot be torn or a path
+  escaped. Proportionality: scope declared — `none` and `editor-toast` are
+  CI-tested; the `tmux-popup` / `os-notify` platform pushes are best-effort
+  adapters exercised manually (per the test-spec `[manual]` classification for
+  substrate-specific behavior), degrading to the queue when their tool is absent.
+
+### Task 11 execution findings — R5 safe-defaults audit (2026-07-04)
+
+Discharges **R5**'s mitigation ("each default must be quiet/safe; audited in
+the Task 11 options-reference"). Appended per the execution-skill
+risk-register convention (named section, no anchor entry, existing rows
+untouched). Audit basis: `config/defaults.yml` against each option's
+options-reference row; the adopter-facing rendering is the capability-vs-style
+knobs table added to `docs/fleet.md` in this task.
+
+- `dispatch_backend: subagent` — non-interactive, present on any host, no
+  external substrate; an unattended run never silently selects an interactive
+  backend. Quiet/safe: yes.
+- `dispatch_isolation: per-step` — bounds context and isolates review
+  perspectives by construction; `per-unit` remains available for constrained
+  hosts. The default-flip from historical `per-unit` is the assigned human
+  decision (D-5), tracked cross-spec as the bootstrap D-38 amendment (R3/R4).
+  Quiet/safe: yes, with the rollout documented.
+- `context_budget_threshold: 50` — conservative step budget; the handover is
+  cheap and lossless, so handing off early is the safe direction; `off`
+  restores the historical single-tower behavior. Quiet/safe: yes.
+- `fleet_max_parallel_units: 3` — holds total fleet concurrency to a single
+  spec's worth, so enabling the opt-in meta-tower never multiplies load until
+  an operator raises it. Quiet/safe: yes.
+- `notification_channel: none` — pull-only, pushes nothing, needs no external
+  tool (the Task 12 injection-hardening section above informed this same
+  default). Quiet/safe: yes.
+- Pre-existing neighbors re-checked, unchanged: `max_parallel_units: 3`,
+  `stale_lock_threshold`/`stale_marker_threshold: 15m`, `review_sequence:
+  [polish]` — all quiet, default-preserving, no new external dependency.
+
+No default fails the quiet/safe bar; no config change was needed. R5 is
+discharged as audited.
+
+### Task 11 execution findings — onboarding hand-off note (2026-07-04)
+
+The hand-off note the Task 11 deliverables name, addressed to the
+packaging/onboarding docs (bootstrap Task 19's territory: `docs/getting-started.md`
+and `docs/release-checklist.md`). Appended per the execution-skill convention
+(named section, no anchor entry, existing rows untouched).
+
+- **What now exists:** `docs/fleet.md` is the complete adopter-facing fleet
+  guide — the approachable-path half (entry command, decision queue,
+  multiplexer-as-plumbing, personas, notification channel) plus the
+  execution-substrate half added by this task (backend contract +
+  advertisement, autodetect-and-ask, degradation ladder + runtime failover +
+  terminal rung, bring-your-own-backend, self-management, meta-tower +
+  coordination, autonomous-safe-decision, the capability-vs-style knobs
+  table). Every fleet option has a `docs/options-reference.md` row.
+- **Indexes updated:** the `docs/getting-started.md` "Where to go next" list
+  and the `README.md` documentation index both point at `docs/fleet.md` with
+  descriptions covering both halves.
+- **What remains for the onboarding docs:** nothing blocking — the
+  getting-started flow needs no fleet step (fleet mode is opt-in via
+  `/orchestrate --fleet` and fully documented at its pointer). Two watch
+  items: `docs/release-checklist.md` was deliberately left untouched (no
+  fleet-specific release step was identified; revisit if a fleet knob ever
+  gains a release-gated default), and the persona-(c) editor integration is a
+  gated deferral (`docs/fleet.md` audit note) whose docs land with that
+  feature, not before.
+
 ## 8. Sign-off
 
 ### Lens review pass (Discovery Rigor)
@@ -477,7 +618,10 @@ Amendment log. Prior expression-only anchor:
 ## Amendment log
 
 Post-sign-off changes to the anchored spec bundle. Signed sections 1–8 above are
-unchanged except the `Anchor:` pointer in §8. Most entries here record
+unchanged except the `Anchor:` pointer in §8 and any **sanctioned execution-time
+risk-register appends** (named subsections an execution skill adds to §7 to record
+research findings — they carry no anchor entry and touch no signed decision; e.g.
+the "Task 5 research findings" subsection). Most entries here record
 expression-only edits that re-anchor the bundle (the only kind a finishing-gauntlet
 worker may make). A **meaning-class** change is recorded here only by the kickoff
 owner via a delta re-walkthrough, and its entry carries `Class: meaning` plus a
@@ -538,3 +682,63 @@ write one).
   Anchor: `d8f10400ec3f379b3052e08c3f9735676df55119` — computed as
   `scripts/spec-anchor.sh specs/orchestration-fleet`
   (prior: `70edfab2b0bbcf798725a044efc78bfa6198e1d0`).
+
+### Expression-only self-re-anchor (2026-07-04, post-execution reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane, drafted by the
+orchestrator at Diego's direction and landed under his sign-off (the T3 worker
+that made the edit should have written it in-flight; it did not, so the anchor
+went stale ahead of the final Task 11 dispatch — REQ-F1.9's named remedy).
+
+**Delta (verified by anchor bisection, not the PR descriptions).** Between the
+kickoff sign-off (anchor `d8f10400…`) and this entry, the *only* change to
+anchored content is a single implementation-detail refinement in **Task 3's
+Deliverables**: the effective-backend record location `<spec-dir>/.orchestrate/`
+now reads "`<spec-dir>/.orchestrate/` by default, relocatable via
+`PLANWRIGHT_ORCH_STATE_DIR`". This contradicts no decision (D-3) and alters no
+REQ's meaning (REQ-B1.4/B1.5/B1.6/A1.4 unchanged); the core deliverable (record
+the effective backend spec-locally, never in `tasks.md`) and the default
+location are unchanged. requirements.md, design.md, test-spec.md, and every
+other task definition are byte-identical to sign-off; the reconcile's task-block
+reordering is anchor-invariant (spec-anchor sorts by id). Confirmed
+expression-only: gap-fill within the accepted decisions, no meaning edit.
+
+Class: expression-only
+Anchor: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
+(prior: `d8f10400ec3f379b3052e08c3f9735676df55119`).
+
+### Expression-only self-re-anchor (2026-07-04, Task 11 execution — derived Active flip)
+
+Written by `/execute-task` (Task 11) per the sanctioned marked-expression-only
+ritual. The pre-flight freshness gate passed against the prior entry
+(`83c83cf…` recomputed and matched on the main view) before any edit was made.
+
+**Delta.** Two machine-derived state changes, both produced by the sole-writer
+reconcile (`scripts/tasks-pr-sync.sh reconcile specs/orchestration-fleet`) run
+at the Task 11 state-move step, plus the changelog line recording them:
+
+1. The `**Status:**` header in `requirements.md`, `design.md`, `tasks.md`,
+   and `test-spec.md` flipped Ready→Active — the derived transition on the
+   first task to derive In-progress (kickoff-lifecycle D-2; `spec-format`
+   transitions). Task 11 is that first task to be dispatched after the
+   reconcile writer shipped: tasks 1–10 and 12 all merged (PRs #110–#120)
+   while the bundle read Ready. The `tasks.md` header flip is anchor-invariant
+   (the canonical extraction digests task-definition content only); the other
+   three files are whole-file digests, which is where the anchor moves.
+2. `tasks.md` placement reconciled (the eleven merged tasks to `## Completed`,
+   Task 11 to `## In progress`) — anchor-invariant by the canonical
+   extraction; listed for completeness.
+3. A dated `## Changelog` entry in `requirements.md` (2026-07-04) recording
+   the derived flip.
+
+No REQ, D-ID, or task-definition meaning changed; every task-definition field
+is byte-identical to the prior entry's content. The anchor moves only because
+the whole-file digests of `requirements.md`/`design.md`/`test-spec.md` include
+the `**Status:**` header and changelog (a gate/derivation interplay recorded
+as an observation for the drain loop).
+
+Class: expression-only
+Anchor: `13496b67e5302666a64a2fb8276fabadacafae49` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
+(prior: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3`).

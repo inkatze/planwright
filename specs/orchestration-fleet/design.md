@@ -1,6 +1,6 @@
 # Orchestration Fleet — Design
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 

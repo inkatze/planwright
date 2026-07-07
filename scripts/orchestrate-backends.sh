@@ -1,0 +1,404 @@
+#!/bin/sh
+# orchestrate-backends.sh — host-backend AUTODETECTION, unattended SELECTION,
+# and the attended two-seam PRESENTATION for /orchestrate (orchestration-fleet
+# Task 2 + Task 10; D-3, D-9, D-12, REQ-B1.4, REQ-E1.2).
+#
+# This is the scripts-level realization of the Task 1 backend capability
+# contract's advertisement mechanism (doctrine/backend-capability-contract.md,
+# D-2): it reports which dispatch backends are actually PRESENT on the host,
+# each with its advertised capability set, and makes the autonomous (no human
+# to ask) backend pick in unattended mode. The attended present-and-ask flow
+# lives in the /orchestrate skill, which calls `detect` for the candidate set
+# and asks the operator — this script never silently picks for an attended run.
+#
+# Subcommands:
+#   detect [pluggable-name...]
+#       Print one TSV row per PRESENT backend, richest rung first:
+#         backend<TAB>interactive<TAB>can_observe<TAB>can_steer_inflight<TAB>\
+#         provides_attention_surface<TAB>supports_parallel<TAB>session_grade
+#       The five advertised booleans are true|false|na (na = a capability that
+#       is structurally inapplicable, distinct from an absent one); session_grade
+#       is yes|no|deferred. `in-session` and `print` are always present;
+#       `subagent` is present by default (the harness-native runtime); `tmux` is
+#       present iff it resolves on PATH. subagent/tmux presence is overridable
+#       with PLANWRIGHT_BACKEND_{SUBAGENT,TMUX} (1/0) so a host or test can force
+#       it. Each pluggable-name arg is present iff a `planwright-backend-<name>`
+#       adapter on PATH answers `advertise` with a well-formed capability set;
+#       an absent or malformed adapter is reported absent (fail-safe — a backend
+#       whose capabilities are unknown is never advertised). A pluggable arg
+#       naming a shipped backend, or a hostile/invalid name, is skipped.
+#
+#   select-unattended <configured>
+#       Print the backend the tower should use with NO human to ask: the
+#       configured backend when it is present AND unattended-eligible
+#       (advertised interactive=false AND session_grade!=deferred), else DEGRADE
+#       down the shipped autonomous chain (subagent -> in-session, the
+#       always-present terminal rung). It NEVER selects an interactive backend
+#       (REQ-B1.4) and never the manual `print` rung. A degrade prints a NOTE to
+#       stderr and still exits 0 with the selection on stdout. Runtime failover,
+#       the full richest-to-safest ladder, and the degrade-capability-never-
+#       safety abort are Task 3; this is the selection-time autonomous pick only.
+#
+#   present
+#       Read detect-format TSV rows on stdin and render the TWO-SEAM
+#       presentation the entry command shows an attended operator (Task 10;
+#       D-9, D-12, REQ-E1.2, REQ-E1.5): picking a backend chooses only how
+#       workers are hosted (the execution seam); the decision queue is the
+#       default attention surface for every pick (the attention seam). Each
+#       backend renders as one block, in input (richest-first) order, with an
+#       execution-quality summary derived from its advertised set — never from
+#       its name. An interactive backend's block carries the
+#       detached-background-plumbing note (the tower can drive it as a detached
+#       server nobody attaches to), so the approachable path is the default
+#       presentation, not a fallback behind multiplexer fluency. A backend
+#       advertising provides_attention_surface=true is marked as owning the
+#       operator's surface and planwright's queue defers (--surface-provided,
+#       D-13). present's stdin is detect's own output, so a malformed row is a
+#       framework bug: it fails closed (exit 2, sanitized diagnostic), never
+#       silently skips. Compose as:
+#         orchestrate-backends.sh detect | orchestrate-backends.sh present
+#
+# Every backend token is treated as DATA: a pluggable name is validated against
+# the anchored identifier charset before it is ever spliced into the
+# `planwright-backend-<name>` command, so a hostile name is refused, never run.
+#
+# Exit codes: 0 success (including every degrade — an absent, malformed, or
+# ineligible configured backend degrades to a shipped rung and still exits 0);
+# 2 usage error (no/unknown subcommand, or a select-unattended configured
+# argument that is empty or fails the identifier charset). No subcommand
+# mutates any file.
+#
+# Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no gawk
+# extensions, input treated as data only (REQ-K1.5).
+set -u
+
+# Pin the C locale so the charset checks below mean exactly their ASCII range
+# on every host (defensive; mirrors the sibling scripts).
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+# An invalid backend name is untrusted DATA: it must be stripped of non-printable
+# bytes before it reaches a diagnostic, so an embedded escape sequence cannot
+# drive the operator's terminal (doctrine/security-posture.md, "Echo
+# discipline"). Sourced like the other framework callers (spec-validate.sh).
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
+
+# ---------------------------------------------------------------------------
+# The advertised capability set of each shipped backend, verbatim from the
+# Task 1 contract table (doctrine/backend-capability-contract.md). Fields, in
+# order: interactive can_observe can_steer_inflight provides_attention_surface
+# supports_parallel session_grade. Keep in lockstep with that table.
+# ---------------------------------------------------------------------------
+caps_for() {
+  case "$1" in
+    tmux) echo "true true true false true yes" ;;
+    subagent) echo "false false false false true no" ;;
+    print) echo "false false false false na deferred" ;;
+    in-session) echo "false na na false false no" ;;
+    *) return 1 ;;
+  esac
+}
+
+# A backend name that names one of the shipped four.
+is_known() {
+  case "$1" in
+    tmux | subagent | print | in-session) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Anchored identifier charset for a pluggable backend name: lowercase alnum and
+# hyphen, must start alnum, <=64 chars (mirrors the spec-id grammar). This runs
+# BEFORE the name is used to build the adapter command, so a traversal, glob, or
+# shell metacharacter is refused rather than interpolated.
+valid_name() {
+  case "$1" in
+    '') return 1 ;;
+    [!a-z0-9]*) return 1 ;;
+    *[!a-z0-9-]*) return 1 ;;
+  esac
+  [ "${#1}" -le 64 ]
+}
+
+# Resolve an env override to presence. $1 = raw env value (possibly empty);
+# $2 = default action when the value is empty/unrecognized:
+#   yes -> present, no -> absent, tmux -> `command -v tmux`.
+env_present() {
+  case "$1" in
+    1 | true | TRUE | on | yes | YES) return 0 ;;
+    0 | false | FALSE | off | no | NO) return 1 ;;
+  esac
+  case "$2" in
+    yes) return 0 ;;
+    no) return 1 ;;
+    tmux) command -v tmux >/dev/null 2>&1 ;;
+  esac
+}
+
+# Is a shipped backend present on this host?
+is_present() {
+  case "$1" in
+    in-session | print) return 0 ;;
+    subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
+    tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
+    *) return 1 ;;
+  esac
+}
+
+# The advertised set of a pluggable backend, obtained from its adapter. Echoes
+# the six validated fields, or returns 1 when there is no adapter on PATH or its
+# output is not a well-formed capability set (the fail-safe absent case).
+adapter_caps() {
+  ac_cmd="planwright-backend-$1"
+  command -v "$ac_cmd" >/dev/null 2>&1 || return 1
+  ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
+  # First line only; default IFS splits on space/tab. A well-formed set is
+  # exactly six known tokens (rest must be empty). The read targets are
+  # `f_`-prefixed so this helper never clobbers a caller's loop variable
+  # (`p`, `rung`) — sh has no lexical scope.
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+$ac_raw
+EOF
+  [ -z "$f_rest" ] || return 1
+  for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
+    case "$f" in
+      true | false | na) ;;
+      *) return 1 ;;
+    esac
+  done
+  case "$f_g" in
+    yes | no | deferred) ;;
+    *) return 1 ;;
+  esac
+  echo "$f_i $f_o $f_s $f_a $f_p $f_g"
+}
+
+# Echo the advertised set of a backend IF it is present, else return 1. Handles
+# both shipped backends (presence probe + static caps) and pluggable ones
+# (adapter presence IS backend presence).
+resolve_caps() {
+  if is_known "$1"; then
+    is_present "$1" || return 1
+    caps_for "$1"
+  else
+    valid_name "$1" || return 1
+    adapter_caps "$1"
+  fi
+}
+
+# Unattended-eligible: an autonomous tower may silently pick it. True iff the
+# advertised set has interactive=false (never strand a run waiting on a human)
+# AND session_grade!=deferred (excludes the manual `print` rung, whose spawn is
+# deferred to a human). Reads the six-field caps string on $1.
+eligible() {
+  f_i='' f_g='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+$1
+EOF
+  [ "$f_i" = false ] && [ "$f_g" != deferred ]
+}
+
+# Print one detect TSV row: $1 backend, $2 six-field caps string. Read targets
+# are `f_`-prefixed so this helper never clobbers a caller's loop variable.
+emit_row() {
+  er_b=$1
+  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+$2
+EOF
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$er_b" "$f_i" "$f_o" "$f_s" "$f_a" "$f_p" "$f_g"
+}
+
+cmd_detect() {
+  # Richest rung first: tmux, then advertised pluggables (arg order), then the
+  # shipped autonomous rung, the terminal rung, and the manual rung.
+  is_present tmux && emit_row tmux "$(caps_for tmux)"
+  seen=' '
+  for p in "$@"; do
+    is_known "$p" && continue
+    if ! valid_name "$p"; then
+      printf '%s\n' "orchestrate-backends: ignoring invalid backend name: $(sanitize_printable "$p" "(unprintable name)")" >&2
+      continue
+    fi
+    case "$seen" in
+      *" $p "*) continue ;;
+    esac
+    seen="$seen$p "
+    if ! caps=$(adapter_caps "$p"); then
+      echo "orchestrate-backends: no usable adapter for pluggable backend: $p" >&2
+      continue
+    fi
+    emit_row "$p" "$caps"
+  done
+  is_present subagent && emit_row subagent "$(caps_for subagent)"
+  emit_row in-session "$(caps_for in-session)"
+  emit_row print "$(caps_for print)"
+  return 0
+}
+
+cmd_select_unattended() {
+  # Exactly one positional: the configured backend name. Reject missing OR extra
+  # args fail-closed (exit 2) rather than silently ignoring trailing args, so a
+  # caller's mistake surfaces instead of being masked. `${1-}` keeps set -u happy
+  # for the single-empty-arg case below.
+  if [ "$#" -ne 1 ]; then
+    echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2
+    return 2
+  fi
+  configured=${1-}
+  if [ -z "$configured" ]; then
+    echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2
+    return 2
+  fi
+  # A pluggable configured name must be a valid identifier before it reaches the
+  # adapter command; a hostile name is a usage error, not a silent degrade.
+  if ! is_known "$configured" && ! valid_name "$configured"; then
+    printf '%s\n' "orchestrate-backends: invalid backend name: $(sanitize_printable "$configured" "(unprintable name)")" >&2
+    return 2
+  fi
+
+  # 1. The configured backend, when present and autonomously selectable, wins.
+  if caps=$(resolve_caps "$configured") && eligible "$caps"; then
+    printf '%s\n' "$configured"
+    return 0
+  fi
+
+  # 2. Degrade down the shipped autonomous chain: subagent, then the always-
+  #    present in-session terminal rung. Never interactive, never manual `print`.
+  for rung in subagent in-session; do
+    if caps=$(resolve_caps "$rung") && eligible "$caps"; then
+      echo "NOTE: unattended backend '$configured' is unavailable or not autonomously selectable; degraded to '$rung' (never an interactive backend)." >&2
+      printf '%s\n' "$rung"
+      return 0
+    fi
+  done
+
+  # in-session is always present and eligible, so the loop always returns; this
+  # is an unreachable fail-closed guard.
+  echo "orchestrate-backends: no eligible backend (the in-session terminal rung was unavailable)" >&2
+  return 1
+}
+
+# Render one backend's presentation block from its validated seven fields.
+# $1..$7 = backend interactive can_observe can_steer_inflight
+# provides_attention_surface supports_parallel session_grade. The summary is
+# derived from the advertised set only (adapt-to-advertised, never name-keyed).
+emit_block() {
+  pb_feats=''
+  pb_add() {
+    if [ -z "$pb_feats" ]; then pb_feats=$1; else pb_feats="$pb_feats, $1"; fi
+  }
+  [ "$2" = true ] && pb_add "interactive"
+  [ "$3" = true ] && pb_add "observe in-flight"
+  [ "$4" = true ] && pb_add "steer in-flight"
+  [ "$6" = true ] && pb_add "parallel workers"
+  case "$7" in
+    yes) pb_add "session-grade workers" ;;
+    deferred) pb_add "manual dispatch (the launch command is printed for you to paste)" ;;
+  esac
+  [ -n "$pb_feats" ] \
+    || pb_feats="synchronous, in the tower's own session (no parallel, no in-flight observe/steer)"
+  printf '* %s: %s\n' "$1" "$pb_feats"
+  if [ "$5" = true ]; then
+    printf '    attention: provides its own attention surface; planwright defers its decision queue to it (--surface-provided)\n'
+  else
+    printf '    attention: planwright decision queue (default)\n'
+  fi
+  if [ "$2" = true ]; then
+    printf '    plumbing: the tower can drive this backend as a detached background server nobody attaches to; attaching is optional, never required\n'
+  fi
+}
+
+cmd_present() {
+  # No positionals: present reads detect rows on stdin only. A stray argument
+  # is a caller mistake and fails closed rather than being silently ignored.
+  if [ "$#" -ne 0 ]; then
+    echo "usage: orchestrate-backends.sh detect [...] | orchestrate-backends.sh present" >&2
+    return 2
+  fi
+  pr_input=$(cat)
+  if [ -z "$pr_input" ]; then
+    echo "orchestrate-backends: present expects detect rows on stdin (detect always emits rows)" >&2
+    return 2
+  fi
+
+  # Validate every row BEFORE rendering anything: stdin is our own detect
+  # output, so any malformed row means a broken producer (or a hand-corrupted
+  # pipe) and the whole presentation is untrustworthy — fail closed, emit
+  # nothing (no partial surface an operator could act on).
+  #
+  # Strict field-count guard first: TAB is IFS whitespace, so the token split
+  # below collapses consecutive tabs (an empty field) and could re-align a
+  # hand-corrupted row into seven valid-looking tokens. A well-formed detect
+  # row has exactly six tabs; anything else fails closed here.
+  pr_tab=$(printf '\t')
+  while IFS= read -r pr_line; do
+    pr_tabs=$(printf '%s' "$pr_line" | tr -cd "$pr_tab")
+    if [ "${#pr_tabs}" -ne 6 ]; then
+      # Show at most the first field, capped: a zero-tab line has no field
+      # boundary to strip at, and an uncapped echo would reproduce an
+      # arbitrarily long corrupted line in the diagnostic.
+      pr_show=$(printf '%.64s' "${pr_line%%"$pr_tab"*}")
+      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$pr_show" "(unprintable name)")" >&2
+      return 2
+    fi
+  done <<EOF
+$pr_input
+EOF
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
+    if ! valid_name "$p_b" || [ -n "$p_rest" ]; then
+      printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+      return 2
+    fi
+    for f in "$p_i" "$p_o" "$p_s" "$p_a" "$p_p"; do
+      case "$f" in
+        true | false | na) ;;
+        *)
+          printf '%s\n' "orchestrate-backends: present: malformed capability field in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+          return 2
+          ;;
+      esac
+    done
+    case "$p_g" in
+      yes | no | deferred) ;;
+      *)
+        printf '%s\n' "orchestrate-backends: present: malformed session_grade in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+        return 2
+        ;;
+    esac
+  done <<EOF
+$pr_input
+EOF
+
+  # The two-seam framing (D-12): the pick below is the execution seam only;
+  # the attention seam is independent and defaults to the decision queue.
+  printf 'Execution backends present on this host, richest rung first. Picking one\n'
+  printf 'chooses only how workers are hosted (the execution seam). What you watch\n'
+  printf 'is independent: the decision queue is the default attention surface for\n'
+  printf 'every pick; a backend that provides its own surface is marked below and\n'
+  printf 'deferred to.\n\n'
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
+    emit_block "$p_b" "$p_i" "$p_o" "$p_s" "$p_a" "$p_p" "$p_g"
+  done <<EOF
+$pr_input
+EOF
+  return 0
+}
+
+sub=${1-}
+[ "$#" -gt 0 ] && shift
+case "$sub" in
+  detect) cmd_detect "$@" ;;
+  select-unattended) cmd_select_unattended "$@" ;;
+  present) cmd_present "$@" ;;
+  '' | help | -h | --help)
+    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured> | present}" >&2
+    exit 2
+    ;;
+  *)
+    printf '%s\n' "orchestrate-backends: unknown subcommand: $(sanitize_printable "$sub" "(unprintable)")" >&2
+    exit 2
+    ;;
+esac

@@ -1,6 +1,6 @@
 # Orchestration Fleet — Tasks
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -34,6 +34,42 @@ space).
 
 ## Forward plan
 
+(none yet)
+
+## In progress
+
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
+### Task 11 — Adopter docs, options reference & onboarding handoff
+
+- **Deliverables:** Adopter-facing documentation of fleet operation — the backend
+  capability contract + advertisement and how to plug in a backend,
+  autodetect-and-ask, the degradation ladder and runtime failover, the synchronous
+  terminal rung, `dispatch_isolation`, the context-budget/auto-heal
+  self-management, meta-orchestration and the coordination protocol, the
+  autonomous-safe-decision policy, the attention/notification capability and the
+  decision queue, and the persona×seam mapping — with every new config option
+  present in `docs/options-reference.md` and a hand-off note for the
+  packaging/onboarding docs.
+- **Done when:** every new option (`dispatch_isolation`, the context-budget
+  threshold, the fleet concurrency bound, the notification channel, any
+  backend-selection option) has a row in `docs/options-reference.md` and
+  `check-options-reference.sh` passes; the fleet capabilities are documented for an
+  adopter who is not a tmux user; the capability-vs-style split (core knob vs
+  overlay value) is stated for each knob; `check-doc-links.sh` and the doc linters
+  pass.
+- **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
+- **Citations:** D-10 · REQ-A1.5, REQ-E1.4
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #122 merged 2026-07-04
+- **Last activity:** 2026-07-04
+
 ### Task 1 — Backend capability contract & advertisement
 
 - **Deliverables:** A definition of the backend **capability contract** — the
@@ -59,6 +95,8 @@ space).
 - **Dependencies:** none
 - **Citations:** D-2 · REQ-B1.1, REQ-B1.2, REQ-B1.3
 - **Estimated effort:** 1.5 days
+- **Status:** Completed · PR #110 merged 2026-07-02
+- **Last activity:** 2026-07-02
 
 ### Task 8 — Autonomous-safe-decision policy
 
@@ -77,6 +115,8 @@ space).
 - **Dependencies:** none
 - **Citations:** D-8 · REQ-A1.3, REQ-D1.4
 - **Estimated effort:** half day
+- **Status:** Completed · PR #111 merged 2026-07-02
+- **Last activity:** 2026-07-02
 
 ### Task 9 — Cross-spec fleet coordination-state home
 
@@ -110,50 +150,8 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-11 · REQ-D1.6, REQ-A1.6
 - **Estimated effort:** 1 day
-
-### Task 2 — Backend autodetection & present-and-ask selection
-
-- **Deliverables:** A host-backend autodetection step (`scripts/`-level detection
-  of tmux, the subagent runtime, and any configured pluggable backend) that
-  collects each candidate's advertised capability set (Task 1), wired into
-  `/orchestrate` so it presents the detected set and asks the operator which to
-  use; in unattended mode, selection comes from resolved config and a missing rich
-  backend degrades down the ladder (Task 3), never silently picking an interactive
-  backend.
-- **Done when:** autodetect reports the backends actually present and their
-  advertised capabilities; attended dispatch presents the set and asks (no silent
-  pick); unattended dispatch reads config and degrades a missing rich backend down
-  the ladder (never to an interactive backend); the selection path is covered by
-  tests; tests pass under `mise run check`.
-- **Dependencies:** 1
-- **Citations:** D-3 · REQ-B1.4
-- **Estimated effort:** 1 day
-
-### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
-
-- **Deliverables:** The **graceful-degradation ladder** (richest to safest:
-  interactive-multiplexer-with-steer → multiplexer-without-steer or headless
-  `claude -p` pool → in-harness subagent → synchronous in-session with strategic
-  context clears), the synchronous terminal rung as a contract implementation
-  (units, and under per-step isolation steps, run one at a time with a context
-  clear between them), and **runtime failover**: on a chosen backend dying mid-run,
-  descend one rung with a logged note + `## Awaiting input` entry, recording the
-  effective backend **spec-locally alongside the sibling's dispatch marker**
-  (`<spec-dir>/.orchestrate/`), never in `tasks.md`. The descent honors
-  **degrade-capability-never-safety**: a descent that would drop a guard
-  (worker-settings deny, never-auto-merge, never-force-push, the freshness gate)
-  aborts instead.
-- **Done when:** with no rich backend available or selected, ready units execute
-  via the synchronous terminal rung with bounded-context clears; runtime failover
-  descends exactly one rung with a logged note + Awaiting-input entry (never a
-  silent downgrade) and records the effective backend spec-locally, not in
-  `tasks.md`; a descent that would drop a named guard is refused; the
-  never-auto-merge invariant and the sibling state-safety contract hold on every
-  rung; tests cover the single-stream run, a simulated failover, and a
-  safety-abort; tests pass under `mise run check`.
-- **Dependencies:** 1, 2
-- **Citations:** D-3 · REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-A1.4
-- **Estimated effort:** 2 days
+- **Status:** Completed · PR #114 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 4 — `dispatch_isolation` knob & per-step dispatch
 
@@ -172,6 +170,104 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-5 · REQ-C1.3, REQ-C1.4
 - **Estimated effort:** 2 days
+- **Status:** Completed · PR #113 merged 2026-07-03
+- **Last activity:** 2026-07-03
+
+### Task 6 — Meta-orchestration (tower of towers)
+
+- **Deliverables:** A meta-tower mode that selects ready units across multiple
+  active specs (reading each spec's live derivation via the sibling's
+  `orchestrate-state.sh`, not the committed snapshot), launches/retires
+  subordinate single-spec towers via the backend contract, and enforces a
+  fleet-level concurrency bound (a documented knob) distinct from per-spec
+  `max_parallel_units`. Each subordinate tower stays an independent disposable step
+  machine; the meta-tower holds no cross-spec state beyond the current step.
+  Honors the autonomous-safe-decision policy (Task 8) in unattended mode.
+- **Done when:** the meta-tower selects across the active specs it supervises,
+  respecting each spec's per-spec lock; the fleet concurrency bound caps total
+  concurrent units across specs and resolves through the overlay layers;
+  subordinate towers run independently and rebuild from disk; unattended decisions
+  follow the Task 8 policy; never-auto-merge holds at the meta tier; the fleet-bound
+  knob is documented; tests/manual cover multi-spec selection; CI passes.
+- **Dependencies:** 1, 2, 8
+- **Citations:** D-6 · REQ-D1.1, REQ-D1.5, REQ-A1.2
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #117 merged 2026-07-03
+- **Last activity:** 2026-07-03
+
+### Task 10 — Approachability: entry command, two-seam UX, persona mapping
+
+- **Deliverables:** One obvious entry command that autodetects/selects a backend
+  (Task 2) and starts the tower(s), rendering the decision queue (Task 12) as the
+  default attention surface; the **execution-substrate / attention-surface
+  decoupling** surfaced as UX, including the
+  multiplexer-as-detached-background-plumbing path (the tower drives a detached
+  server; the human sees only the
+  attention surface); clear per-worker scope presentation; and the documented
+  **persona → (execution backend × attention surface)** mapping (multiplexer
+  users, non-terminal users, editor-feedback users). The approachable path is the
+  default presentation, not a fallback behind tmux.
+- **Done when:** a single documented command starts fleet operation without
+  requiring tmux knowledge; quality (session-grade, steerable workers) is available
+  with the multiplexer running as invisible background plumbing; the decision queue
+  is the default surface readable from a normal terminal/editor; per-worker scope
+  (isolated context, one spec/unit) is legible; the persona×seam mapping is
+  documented; the path is the default, not gated behind tmux; tests/manual cover
+  the surface; CI passes.
+- **Dependencies:** 2, 6, 9, 12
+- **Citations:** D-9, D-12 · REQ-E1.1, REQ-E1.2, REQ-E1.5, REQ-E1.6
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #120 merged 2026-07-04
+- **Last activity:** 2026-07-04
+
+### Task 3 — Degradation ladder, synchronous terminal rung & runtime failover
+
+- **Deliverables:** The **graceful-degradation ladder** (richest to safest:
+  interactive-multiplexer-with-steer → multiplexer-without-steer or headless
+  `claude -p` pool → in-harness subagent → synchronous in-session with strategic
+  context clears), the synchronous terminal rung as a contract implementation
+  (units, and under per-step isolation steps, run one at a time with a context
+  clear between them), and **runtime failover**: on a chosen backend dying mid-run,
+  descend one rung with a logged note + `## Awaiting input` entry, recording the
+  effective backend **spec-locally alongside the sibling's dispatch marker**
+  (`<spec-dir>/.orchestrate/` by default, relocatable via
+  `PLANWRIGHT_ORCH_STATE_DIR`), never in `tasks.md`. The descent honors
+  **degrade-capability-never-safety**: a descent that would drop a guard
+  (worker-settings deny, never-auto-merge, never-force-push, the freshness gate)
+  aborts instead.
+- **Done when:** with no rich backend available or selected, ready units execute
+  via the synchronous terminal rung with bounded-context clears; runtime failover
+  descends exactly one rung with a logged note + Awaiting-input entry (never a
+  silent downgrade) and records the effective backend spec-locally, not in
+  `tasks.md`; a descent that would drop a named guard is refused; the
+  never-auto-merge invariant and the sibling state-safety contract hold on every
+  rung; tests cover the single-stream run, a simulated failover, and a
+  safety-abort; tests pass under `mise run check`.
+- **Dependencies:** 1, 2
+- **Citations:** D-3 · REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-A1.4
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #118 merged 2026-07-04
+- **Last activity:** 2026-07-04
+
+### Task 2 — Backend autodetection & present-and-ask selection
+
+- **Deliverables:** A host-backend autodetection step (`scripts/`-level detection
+  of tmux, the subagent runtime, and any configured pluggable backend) that
+  collects each candidate's advertised capability set (Task 1), wired into
+  `/orchestrate` so it presents the detected set and asks the operator which to
+  use; in unattended mode, selection comes from resolved config and a missing rich
+  backend degrades down the ladder (Task 3), never silently picking an interactive
+  backend.
+- **Done when:** autodetect reports the backends actually present and their
+  advertised capabilities; attended dispatch presents the set and asks (no silent
+  pick); unattended dispatch reads config and degrades a missing rich backend down
+  the ladder (never to an interactive backend); the selection path is covered by
+  tests; tests pass under `mise run check`.
+- **Dependencies:** 1
+- **Citations:** D-3 · REQ-B1.4
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #112 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 5 — Context-budget monitor & auto-heal handover (`continue-as-new`)
 
@@ -193,46 +289,8 @@ space).
 - **Dependencies:** 1
 - **Citations:** D-4 · REQ-C1.1, REQ-C1.2, REQ-C1.4
 - **Estimated effort:** 2 days
-
-### Task 6 — Meta-orchestration (tower of towers)
-
-- **Deliverables:** A meta-tower mode that selects ready units across multiple
-  active specs (reading each spec's live derivation via the sibling's
-  `orchestrate-state.sh`, not the committed snapshot), launches/retires
-  subordinate single-spec towers via the backend contract, and enforces a
-  fleet-level concurrency bound (a documented knob) distinct from per-spec
-  `max_parallel_units`. Each subordinate tower stays an independent disposable step
-  machine; the meta-tower holds no cross-spec state beyond the current step.
-  Honors the autonomous-safe-decision policy (Task 8) in unattended mode.
-- **Done when:** the meta-tower selects across the active specs it supervises,
-  respecting each spec's per-spec lock; the fleet concurrency bound caps total
-  concurrent units across specs and resolves through the overlay layers;
-  subordinate towers run independently and rebuild from disk; unattended decisions
-  follow the Task 8 policy; never-auto-merge holds at the meta tier; the fleet-bound
-  knob is documented; tests/manual cover multi-spec selection; CI passes.
-- **Dependencies:** 1, 2, 8
-- **Citations:** D-6 · REQ-D1.1, REQ-D1.5, REQ-A1.2
-- **Estimated effort:** 2 days
-
-### Task 7 — Inter-orchestrator coordination protocol
-
-- **Deliverables:** The coordination protocol made first-class: the division of
-  labor (tower owns `tasks.md` reconcile/dispatch/merged-worker cleanup; worker
-  owns its branch's conflict resolution and post-merge self-sync) and the
-  attributed, non-impersonating relay that works **against a live, busy worker**
-  (buffer-paste/steer-in-flight delivery, capture-pane/observe-in-flight status
-  reads, never `send-keys` impersonation, never answering worker permission
-  prompts), encoded in the orchestrate/meta skills and a doctrine description.
-  Worker output handled as data; handles validated before use.
-- **Done when:** the division of labor is documented and enforced (no tower edits
-  another tower's/worker's branch state directly); relay is attributed, uses the
-  buffer-paste/steer-in-flight mechanism, and works against a running worker, with
-  a test/manual check that no `send-keys` impersonation path exists and worker
-  permission prompts are never auto-answered; worker output/handles are treated as
-  data with validation before use; doc linters and CI pass.
-- **Dependencies:** 1, 6
-- **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
-- **Estimated effort:** 2 days
+- **Status:** Completed · PR #115 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
 ### Task 12 — Attention/notification capability in core
 
@@ -259,63 +317,30 @@ space).
 - **Dependencies:** 9
 - **Citations:** D-13 · REQ-E1.3, REQ-E1.4, REQ-A1.6
 - **Estimated effort:** 2 days
+- **Status:** Completed · PR #116 merged 2026-07-03
+- **Last activity:** 2026-07-03
 
-### Task 10 — Approachability: entry command, two-seam UX, persona mapping
+### Task 7 — Inter-orchestrator coordination protocol
 
-- **Deliverables:** One obvious entry command that autodetects/selects a backend
-  (Task 2) and starts the tower(s), rendering the decision queue (Task 12) as the
-  default attention surface; the **execution-substrate / attention-surface
-  decoupling** surfaced as UX, including the
-  multiplexer-as-detached-background-plumbing path (the tower drives a detached
-  server; the human sees only the
-  attention surface); clear per-worker scope presentation; and the documented
-  **persona → (execution backend × attention surface)** mapping (multiplexer
-  users, non-terminal users, editor-feedback users). The approachable path is the
-  default presentation, not a fallback behind tmux.
-- **Done when:** a single documented command starts fleet operation without
-  requiring tmux knowledge; quality (session-grade, steerable workers) is available
-  with the multiplexer running as invisible background plumbing; the decision queue
-  is the default surface readable from a normal terminal/editor; per-worker scope
-  (isolated context, one spec/unit) is legible; the persona×seam mapping is
-  documented; the path is the default, not gated behind tmux; tests/manual cover
-  the surface; CI passes.
-- **Dependencies:** 2, 6, 9, 12
-- **Citations:** D-9, D-12 · REQ-E1.1, REQ-E1.2, REQ-E1.5, REQ-E1.6
+- **Deliverables:** The coordination protocol made first-class: the division of
+  labor (tower owns `tasks.md` reconcile/dispatch/merged-worker cleanup; worker
+  owns its branch's conflict resolution and post-merge self-sync) and the
+  attributed, non-impersonating relay that works **against a live, busy worker**
+  (buffer-paste/steer-in-flight delivery, capture-pane/observe-in-flight status
+  reads, never `send-keys` impersonation, never answering worker permission
+  prompts), encoded in the orchestrate/meta skills and a doctrine description.
+  Worker output handled as data; handles validated before use.
+- **Done when:** the division of labor is documented and enforced (no tower edits
+  another tower's/worker's branch state directly); relay is attributed, uses the
+  buffer-paste/steer-in-flight mechanism, and works against a running worker, with
+  a test/manual check that no `send-keys` impersonation path exists and worker
+  permission prompts are never auto-answered; worker output/handles are treated as
+  data with validation before use; doc linters and CI pass.
+- **Dependencies:** 1, 6
+- **Citations:** D-7 · REQ-D1.2, REQ-D1.3, REQ-B1.7, REQ-A1.6
 - **Estimated effort:** 2 days
-
-### Task 11 — Adopter docs, options reference & onboarding handoff
-
-- **Deliverables:** Adopter-facing documentation of fleet operation — the backend
-  capability contract + advertisement and how to plug in a backend,
-  autodetect-and-ask, the degradation ladder and runtime failover, the synchronous
-  terminal rung, `dispatch_isolation`, the context-budget/auto-heal
-  self-management, meta-orchestration and the coordination protocol, the
-  autonomous-safe-decision policy, the attention/notification capability and the
-  decision queue, and the persona×seam mapping — with every new config option
-  present in `docs/options-reference.md` and a hand-off note for the
-  packaging/onboarding docs.
-- **Done when:** every new option (`dispatch_isolation`, the context-budget
-  threshold, the fleet concurrency bound, the notification channel, any
-  backend-selection option) has a row in `docs/options-reference.md` and
-  `check-options-reference.sh` passes; the fleet capabilities are documented for an
-  adopter who is not a tmux user; the capability-vs-style split (core knob vs
-  overlay value) is stated for each knob; `check-doc-links.sh` and the doc linters
-  pass.
-- **Dependencies:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12
-- **Citations:** D-10 · REQ-A1.5, REQ-E1.4
-- **Estimated effort:** 1 day
-
-## In progress
-
-(none yet)
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
+- **Status:** Completed · PR #119 merged 2026-07-04
+- **Last activity:** 2026-07-04
 
 ## Deferred
 

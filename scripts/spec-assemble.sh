@@ -334,12 +334,11 @@ spec_e=$(esc_val "$spec")
 status_e=$(esc_val "$status")
 commit_e=$(esc_val "$commit")
 
-# The one-pager section fragment. The same esc() guards every bundle field; the
-# plain rendering is default-visible, the back-pointer and verbatim source live
-# in reveal-only (.rv) elements the CSS hides until the toggle is engaged
-# (REQ-D1.3). Killer items carry a visible badge (the foregrounding, REQ-C1.2).
-# shellcheck disable=SC2016 # $1..$7/$0 are awk fields, not shell expansions
-onepager_prog='
+# The shared awk HTML-escaper, hoisted once so all six view programs concatenate
+# a single definition instead of carrying byte-identical inline copies (REQ-E1.7).
+# The value is spliced into each *_prog string verbatim, so the generated awk is
+# byte-for-byte what the inline copies produced. No shell-expandable content here.
+esc_fn='
   function esc(s) {
     gsub(/&/, "\\&amp;", s)
     gsub(/</, "\\&lt;", s)
@@ -347,7 +346,14 @@ onepager_prog='
     gsub(/"/, "\\&quot;", s)
     gsub(/\047/, "\\&#39;", s)
     return s
-  }
+  }'
+
+# The one-pager section fragment. The same esc() guards every bundle field; the
+# plain rendering is default-visible, the back-pointer and verbatim source live
+# in reveal-only (.rv) elements the CSS hides until the toggle is engaged
+# (REQ-D1.3). Killer items carry a visible badge (the foregrounding, REQ-C1.2).
+# shellcheck disable=SC2016 # $1..$7/$0 are awk fields, not shell expansions
+onepager_prog="$esc_fn"'
   BEGIN {
     FS = "\t"
     print "<section data-section=\"onepager\" class=\"card section\">"
@@ -386,15 +392,7 @@ onepager_prog='
 # the four-beat shape stays visible rather than collapsing (graceful degradation,
 # REQ-A1.5). The same esc() guards every bundle field (REQ-E1.7).
 # shellcheck disable=SC2016 # $1..$6/$0 are awk fields, not shell expansions
-decisionmap_prog='
-  function esc(s) {
-    gsub(/&/, "\\&amp;", s)
-    gsub(/</, "\\&lt;", s)
-    gsub(/>/, "\\&gt;", s)
-    gsub(/"/, "\\&quot;", s)
-    gsub(/\047/, "\\&#39;", s)
-    return s
-  }
+decisionmap_prog="$esc_fn"'
   function beatlabel(b) {
     if (b == "context")     return "Context"
     if (b == "decision")    return "Decision"
@@ -455,15 +453,7 @@ decisionmap_prog='
 # group per claim, with no column for a verdict or score — the independence
 # firewall is structural (REQ-D1.1). The same esc() guards every field.
 # shellcheck disable=SC2016 # $1..$6/$0 are awk fields, not shell expansions
-teachback_prog='
-  function esc(s) {
-    gsub(/&/, "\\&amp;", s)
-    gsub(/</, "\\&lt;", s)
-    gsub(/>/, "\\&gt;", s)
-    gsub(/"/, "\\&quot;", s)
-    gsub(/\047/, "\\&#39;", s)
-    return s
-  }
+teachback_prog="$esc_fn"'
   function cap(s) { return toupper(substr(s, 1, 1)) substr(s, 2) }
   BEGIN { FS = "\t"; nresp = 0; nsec = 0; ncl = 0 }
   $1 == "RESPONSE" { resp[++nresp] = $2; next }
@@ -519,15 +509,7 @@ teachback_prog='
 # (REQ-D1.3). No xmlns is emitted: the HTML5 parser places inline SVG in the SVG
 # namespace automatically, so an explicit xmlns identifier is redundant here.
 # shellcheck disable=SC2016 # $1..$6/$0 are awk fields, not shell expansions
-graph_prog='
-  function esc(s) {
-    gsub(/&/, "\\&amp;", s)
-    gsub(/</, "\\&lt;", s)
-    gsub(/>/, "\\&gt;", s)
-    gsub(/"/, "\\&quot;", s)
-    gsub(/\047/, "\\&#39;", s)
-    return s
-  }
+graph_prog="$esc_fn"'
   function trunc(s,   t) {
     if (length(s) <= MAXLABEL) return s
     # Reserve three characters for the ellipsis so the rendered label (content +
@@ -603,15 +585,7 @@ graph_prog='
 # (REQ-E1.7). An empty radius (nothing cites the decision) renders a clear note
 # rather than an empty list (REQ-A1.5).
 # shellcheck disable=SC2016 # $1..$5/$0 are awk fields, not shell expansions
-blast_prog='
-  function esc(s) {
-    gsub(/&/, "\\&amp;", s)
-    gsub(/</, "\\&lt;", s)
-    gsub(/>/, "\\&gt;", s)
-    gsub(/"/, "\\&quot;", s)
-    gsub(/\047/, "\\&#39;", s)
-    return s
-  }
+blast_prog="$esc_fn"'
   BEGIN { FS = "\t"; nr = 0; nt = 0 }
   $1 == "TEXT" && $3 == "requirement" { nr++; rref[nr] = $2; rplain[nr] = $4; next }
   $1 == "TEXT" && $3 == "task-title"  { nt++; tref[nt] = $2; tplain[nt] = $4; next }
@@ -659,15 +633,7 @@ blast_prog='
 # records joined to the kept requirement TEXT). Identifiers stay reveal-only;
 # the same esc() guards every field. No tested requirement renders a clear note.
 # shellcheck disable=SC2016 # $1..$5/$0 are awk fields, not shell expansions
-verify_prog='
-  function esc(s) {
-    gsub(/&/, "\\&amp;", s)
-    gsub(/</, "\\&lt;", s)
-    gsub(/>/, "\\&gt;", s)
-    gsub(/"/, "\\&quot;", s)
-    gsub(/\047/, "\\&#39;", s)
-    return s
-  }
+verify_prog="$esc_fn"'
   BEGIN { FS = "\t" }
   $1 == "TEST" { tested[$2] = 1; next }
   $1 == "TEXT" && $3 == "requirement" { plain[$2] = $4; ord[++norder] = $2; next }

@@ -1,6 +1,6 @@
 # Orchestration Fleet — Requirements
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-06-29
 **Format-version:** 1
 
@@ -494,6 +494,15 @@ The hard invariant carried in unchanged: **never auto-merge, at any tier.**
   unambiguously. The recomputed bundle anchor is recorded in the kickoff brief
   Amendment log.
   *(Cites: kickoff-brief Amendment log (2026-06-29); Copilot review thread.)*
+- 2026-07-04: Derived Ready→Active status flip, written by the sole-writer
+  reconcile (`tasks-pr-sync.sh`) on the Task 11 dispatch — the first task to
+  derive In-progress (kickoff-lifecycle D-2; `spec-format` transitions). No
+  REQ/D-ID/task meaning changed: the flip is the derived lifecycle transition
+  the meta-spec prescribes, riding the Task 11 execution PR together with the
+  placement reconcile that moved the eleven merged-PR tasks (1–10, 12) to
+  `## Completed`. The recomputed bundle anchor is recorded in the kickoff
+  brief Amendment log.
+  *(Cites: kickoff-brief Amendment log (2026-07-04); kickoff-lifecycle D-2.)*
 
 ## Sources
 

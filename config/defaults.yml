@@ -23,9 +23,53 @@ commit_on_state_move: true
 # value.
 mark_spec_pr_ready_on_kickoff: true
 
-# Dispatch layer (D-38, REQ-F1.8).
+# Dispatch layer (D-38, REQ-F1.8). Each backend value maps to an advertised
+# capability set defined by doctrine/backend-capability-contract.md (D-2), which
+# specifies how the orchestrator is to adapt to what is advertised rather than
+# special-casing backends by name (contract defined there; the dispatch layer is
+# still backend-keyed pending that wiring).
 dispatch_backend: subagent
 max_parallel_units: 3
+
+# Fleet-level concurrency bound for the meta-tower ("tower of towers",
+# /orchestrate --meta, D-6, REQ-D1.5). Caps the TOTAL number of in-flight
+# execution units summed across ALL specs the meta-tower supervises — distinct
+# from max_parallel_units, which caps one spec. The safe default is
+# conservative: 3 holds total fleet concurrency to a single spec's worth, so
+# enabling the (opt-in) meta-tower never multiplies load until an operator
+# raises it. Resolved through scripts/orchestrate-meta-select.sh via config-get;
+# an absent key keeps this default, a malformed value warns and falls back.
+fleet_max_parallel_units: 3
+
+# How /execute-task sequences a unit's steps (D-5, REQ-C1.3). `per-step` runs
+# implementation and each configured review_sequence skill in its own fresh
+# /resume-seeded session, so context stays bounded and each review's perspective
+# is uncontaminated by prior steps; backends that cannot spawn a fresh session
+# approximate it (the synchronous terminal rung via context clears between
+# steps). `per-unit` keeps today's single-session behavior (one worker session
+# for the whole unit). The default is the assigned human decision (`per-step`);
+# `per-unit` remains supported for constrained hosts. Resolved through
+# scripts/resolve-dispatch-isolation.sh, which validates the enum and applies
+# the REQ-E1.4 by-layer malformed policy. (Flipping this default from the
+# historical per-unit behavior is tracked cross-spec as the required bootstrap
+# D-38 amendment — risk row R3.)
+dispatch_isolation: per-step
+
+# When a long-running tower auto-heals (D-4, REQ-C1.1). The value is a
+# completed-step budget: the number of orchestration steps a tower runs before
+# it hands off to a fresh tower (the continue-as-new pattern) so it never
+# silently degrades from context exhaustion. The signal is a step-count proxy
+# because Claude Code exposes no supported live context-usage introspection
+# (Task 5 research): the transcript is internal/unstable and there is no env
+# var, hook field, or CLI query for remaining budget. `off` disables auto-heal
+# (the historical single-tower behavior). The default is conservative because
+# the handover is cheap and lossless — the fresh tower rebuilds from durable
+# state — so handing off early is the safe direction. Resolved through
+# scripts/resolve-context-budget-threshold.sh, which validates the value (a
+# positive integer or `off`) and applies the REQ-E1.4 by-layer malformed policy;
+# scripts/context-budget-monitor.sh evaluates a step count against it. Adopters
+# on roomier hosts can raise it; constrained hosts lower it.
+context_budget_threshold: 50
 
 # Per-spec advisory lock staleness threshold for /orchestrate (D-10).
 stale_lock_threshold: 15m
@@ -36,6 +80,21 @@ stale_lock_threshold: 15m
 # dispatch that crashed before its first commit cannot wedge the task In
 # progress. Safe to revert because dispatch writes no authoritative state (D-1).
 stale_marker_threshold: 15m
+
+# Which channel the fleet attention/notification seam pushes a notification
+# through (D-13, REQ-E1.4). This is the capability-vs-style split (REQ-A1.5):
+# the notification SEAM lives in core; the specific channel VALUE is
+# overlay-owned. `none` (default) is pull-only — nothing is pushed and the
+# operator reads the decision queue (scripts/fleet-attention.sh queue) on
+# demand; it is dependency-free and behavior-preserving, so it is the safe
+# default. `tmux-popup` pushes a multiplexer popup (the multiplexer-user
+# persona); `os-notify` an OS notification (the non-terminal-user persona);
+# `editor-toast` an editor toast the editor tails (the editor-feedback persona).
+# Resolved through scripts/resolve-notification-channel.sh, which validates the
+# enum and applies the REQ-E1.4 by-layer malformed policy (degrade+warn for
+# adopter/machine-local, hard-fail for repo-tracked); the channel adapters live
+# in scripts/fleet-attention.sh (`notify`).
+notification_channel: none
 
 # The ordered review sequence /execute-task's convergence phase runs (D-6,
 # REQ-D1.3). An inline list of nestable review-skill names (a nestable review
