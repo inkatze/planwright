@@ -407,3 +407,44 @@ Anchor: `4636b8d44a20fe69e8aa1afefec236638a6f7463` — computed as
 `scripts/spec-anchor.sh specs/output-hygiene`
 
 Signed off: 2026-07-07
+
+### Second delta re-walkthrough — 2026-07-07 (single-writer-total redesign, meaning-class, in-place)
+
+**Trigger:** the panel-pairing (gemini) pass over the *first* delta's fixes found they were
+unsound — **union-of-appends resurrects the archive/trim deletions** (the log is not
+append-only), the **fragment-identity dedup was unspecified** (no id on entries / no ledger),
+and mine-log-only had a real blind-spot. Diego approved a proper design pass (option a) and
+then the resulting proposal ("looks right"). This is the second delta on the same day.
+
+**Root cause the panel exposed:** `opportunities.md` is written by *many* actors on *many*
+branches today — appends by every recording skill (`execute-task`, `self-review`,
+`spec-kickoff`, `spec-draft`) **and** deletes by `/spec-draft`'s archive-on-consume ritual —
+so no merge-time rule can reconcile it (union resurrects deletes; regenerate has no source).
+Both the original D-1 and the first delta modeled only the append side.
+
+**Redesign (single-writer-total):** `opportunities.md` is mutated by **exactly one writer, the
+`--bookkeeping` reconcile**, for every mutation. Recording skills drop queue fragments (never
+write the log); `/spec-draft` records a **consumption marker** the reconcile applies
+(archive-move + trim) and **previews the queue read-only** (no blind-spot); a log conflict is a
+**violated-invariant** signal that rebuilds-from-components (committed log ∪ unconsolidated
+queue − recorded-archived) or fails loud — **never** blind union or regenerate. No-loss holds
+by construction (single serial writer). Applied to D-1, REQ-B1.1/B1.3/B1.4, Tasks 1–2
+(Task 2 grows to convert all four recording skills + move archive ownership to the reconcile),
+and the test-spec.
+
+**Delta lens pass (delta-scoped, inline):** validated the redesign dissolves all 4 panel
+findings — F1+F4 (no merge-time dedup needed: single serial writer, fragment-presence key),
+F2 (union rejected; conflict is invariant-violation → rebuild-respecting-deletes / fail-loud),
+F3 (queue read-only preview). Cross-file consistency swept: D-1 title, alternatives (union now
+a rejected alt), Cross-cutting note, and REQ-B/Task/test-spec all reconciled to the new model;
+1 straggler left is the *historical* first-delta changelog line (superseded below it). **This
+redesign is itself being re-checked by a fresh panel pass before any ready-flip** (per the
+agreed loop).
+
+Class: meaning
+Lens-pass: recorded above (this §9 entry), delta-scoped inline walk; a confirming independent panel pass over this redesign is queued before ready-flip.
+Last reviewed: 2026-07-07 on the four spec files (same day; no status flip — stays Ready).
+Anchor: `e29ce01b1ccc87bb14fefd540a32f91139b9665a` — computed as
+`scripts/spec-anchor.sh specs/output-hygiene`
+
+Signed off: 2026-07-07

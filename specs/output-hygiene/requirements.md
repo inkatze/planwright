@@ -77,34 +77,39 @@ conflict-free and format-stable under concurrent runs.
 
 ## REQ-B — Conflict-free observations recording
 
-- **REQ-B1.1** Concurrent runs SHALL be able to record observations without colliding on a
-  shared textual append point: each run writes to a distinct per-run fragment file (a
-  run-unique name — REQ-B1.5), and consolidation of fragments into the shared log SHALL be a
-  single-writer, default-branch operation whose idempotency is keyed on **fragment identity**
-  (each fragment consolidated at most once by its unique filename; distinct fragments with
-  identical text both land) and whose conflict resolution is **union-of-appends** (keep every
-  entry from both sides, deduped by fragment identity) — never regenerate-from-current-state,
-  which suits the derived `tasks.md` projection but would delete entries from this durable
-  accumulator (REQ-B1.3).
+- **REQ-B1.1** Concurrent runs SHALL record observations without colliding on a shared
+  textual append point: each run **drops a distinct per-run fragment file** (a run-unique
+  name — REQ-B1.5) and SHALL NOT write `opportunities.md`. **`opportunities.md` SHALL be
+  mutated by exactly one writer — the `--bookkeeping` reconcile (default branch) — for every
+  mutation, appends and archive/trim deletions alike.** No-loss (REQ-B1.3) thus holds by
+  construction (a single serial writer never races itself); a conflict on `opportunities.md`
+  indicates a violated single-writer invariant and SHALL be resolved by rebuilding from the
+  authoritative components (committed log ∪ unconsolidated queue − recorded-archived) or by
+  failing loud for a human — **never** by blind union (which resurrects archived deletions)
+  or blind regenerate (no external source).
   *(Cites: the drafting invocation (Sources); research: GitHub merge-driver support
-  (Sources); D-1; delta re-walkthrough (2026-07-07).)*
+  (Sources); D-1; delta re-walkthrough (2026-07-07); 2nd delta re-walkthrough (2026-07-07,
+  panel pass).)*
 - **REQ-B1.2** The recording mechanism SHALL preserve the accumulator-taxonomy class-3
   contract for the observations log: a durable home, the canonical reader (`/spec-draft`),
   and a drain ritual — here, drain-pass surfacing (unmined count and oldest age) plus the
   observations log's archive-on-consume. The queue SHALL be named in the accumulator-taxonomy
   doctrine as a class-3 surface with those three attributes stated.
   *(Cites: observations log 2026-06-12 (archive-ritual home) (Sources); D-1.)*
-- **REQ-B1.3** Existing log entries SHALL never be lost, reordered, or rewrapped by the
-  mechanism's consolidation: consolidation appends only (in consolidation order, never
-  re-sorted by fragment date) and moves entry text verbatim, never redacting or rewrapping
-  it.
-  *(Cites: D-1.)*
+- **REQ-B1.3** Existing log entries SHALL never be lost, reordered, or rewrapped: the single
+  reconcile writer appends new entries (in consolidation order, never re-sorted by fragment
+  date) and applies archive/trim deletions atomically, moving entry text verbatim, never
+  redacting or rewrapping. The no-loss guarantee rests on the single-writer invariant (no
+  concurrent mutation to merge), not on a merge-time resolution rule.
+  *(Cites: D-1; 2nd delta re-walkthrough (2026-07-07).)*
 - **REQ-B1.4** The existing consumers (the drain pass's observation surface, `/spec-draft`
-  mining and archive trim) SHALL read the new layout with unchanged reported semantics.
-  `/spec-draft` SHALL mine and archive the **consolidated log** (`opportunities.md`), not raw
-  queue fragments — the queue reaches the reader only via `--bookkeeping` consolidation, so a
-  fragment is never both mined-from-the-queue and re-consolidated as fresh (no double-surface,
-  delta re-walkthrough F2). The drain pass SHALL still count queue entries in the unmined
+  mining, and the archive ritual) SHALL read the new layout with unchanged reported
+  semantics. `/spec-draft` SHALL mine from the **consolidated log** (`opportunities.md`) and
+  **additionally read the queue read-only** so recently-recorded, not-yet-consolidated
+  observations are visible (no blind-spot); it SHALL record consumption via a marker the
+  **reconcile** applies (archive-move + trim), never writing `opportunities.md` itself — so a
+  fragment is never both mined-raw and re-consolidated as fresh (no double-surface). The drain
+  pass SHALL still count queue entries in the unmined
   figures for visibility.
   *(Cites: D-1; accumulator-taxonomy doctrine (Sources); delta re-walkthrough (2026-07-07).)*
 - **REQ-B1.5** Fragment names SHALL be built only from components validated against their
@@ -248,6 +253,19 @@ conflict-free and format-stable under concurrent runs.
   edit (not supersede-with-new-IDs) because nothing was built against D-1 (Ready, unstarted) —
   a conscious deviation from the literal post-merge-supersede rule, recorded here; anchor
   re-stamped in the brief's amendment log.
+- 2026-07-07 — **Second delta re-walkthrough (single-writer-total redesign)** after a
+  panel-pairing pass over the first delta showed its fixes unsound: union-of-appends resurrects
+  the archive/trim **deletions** (the log is not append-only), and fragment-identity dedup was
+  unspecified (no id on entries). Root reframe: `opportunities.md` was written by *many* actors
+  on *many* branches (appends by every recording skill + deletes by `/spec-draft`'s archive
+  ritual), which no merge-time rule can reconcile. **Fix:** make `opportunities.md`
+  **single-writer for every mutation** (the `--bookkeeping` reconcile) — recording skills drop
+  fragments (never write the log), `/spec-draft` records a consumption marker the reconcile
+  applies (archive+trim) and previews the queue read-only (no blind-spot), and a log conflict
+  (violated invariant) rebuilds-from-components or fails loud, never blind union/regenerate.
+  D-1, REQ-B1.1/B1.3/B1.4, Tasks 1–2, and the test-spec updated; Task 2 grows to convert all
+  four recording skills + move archive ownership to the reconcile (effort 1→2 days). Anchor
+  re-stamped in brief §9.
 
 ## Sources
 

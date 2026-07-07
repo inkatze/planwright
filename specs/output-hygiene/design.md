@@ -13,7 +13,7 @@ hand-copied.
 
 ## Decision log
 
-### D-1: Observations recording via per-run fragment files with single-writer consolidation  (drafting-session decision (2026-07-02); reworked at kickoff §Cluster-1, 2026-07-07)
+### D-1: Observations recording — per-run fragment files, `opportunities.md` mutated by a single writer (the reconcile)  (drafting-session decision (2026-07-02); reworked at kickoff §Cluster-1 2026-07-07; single-writer-total redesign at 2nd delta re-walkthrough 2026-07-07 after the panel pass)
 
 **Decision:** Sessions record observations as individual fragment files under
 `specs/_observations/queue/`, **one file per run**, named `<YYYY-MM-DD>-<taskid>-<run-nonce>.md`.
@@ -27,37 +27,50 @@ charsets (task-id grammar; the nonce against `^[a-z0-9]+$`) **before** the name 
 interpolated into a path, and the derived path is containment-checked after
 canonicalization (REQ-B1.5) — hostile input is a clean refusal, never a path.
 
-`opportunities.md` remains the canonical consolidated log and the only surface the archive
-ritual touches. **Consolidation is a single-writer, default-branch operation:** the
-`/orchestrate --bookkeeping` reconcile is the sole consolidation writer. Consolidation is
-**one atomic git commit** that both appends the fragments' entries to `opportunities.md`
-and deletes the consumed fragment files — no two-step window. **Idempotency is keyed on
-fragment identity, not entry content** (kickoff §delta F4, 2026-07-07): each fragment is
-consolidated at most once, tracked by its unique `<taskid>-<run-nonce>` filename, so
-re-processing the same fragment (a crash-retry, a concurrent second `--bookkeeping`) is a
-no-op, while **two distinct fragments carrying identical text both land** — a legitimate
-second occurrence of the same observation is never dropped (REQ-B1.3). **Conflict resolution
-is union-of-appends, never regenerate** (kickoff §delta F1, 2026-07-07): `opportunities.md`
-is a durable class-3 accumulator, *not* a derived projection like `tasks.md` — it has no
-external source of truth to regenerate from, so `tasks.md`'s regenerate-from-current-state
-pattern (`orchestration-concurrency` REQ-C1.3) does **not** transfer here. A merge conflict
-on `opportunities.md` is between two sets of appends; it resolves by **union** (keep every
-entry from both sides, deduped by fragment identity), so no historical entry is ever lost —
-the exact resolution the real `opportunities.md` conflict on output-hygiene PR #124 required.
-A dedicated **global** advisory lock (keyed on a fixed `_observations` literal, distinct from
-the per-spec lock) guards the critical section as a performance guard against
-concurrent-`--bookkeeping` retries — not the correctness mechanism, which is the
-fragment-identity idempotency + union above. Entries are **appended in consolidation order**
-(monotonic; the single writer processes fragments in filename-sorted order), never re-sorted
-by fragment date; each entry carries its own date in its text for the reader.
+**The load-bearing invariant: `opportunities.md` has exactly one writer — the reconcile**
+(second delta re-walkthrough, 2026-07-07, replacing the union/regenerate model that the
+panel pass showed unsound). *Every* mutation of the log — appending newly recorded
+observations **and** archiving/trimming consumed ones — is performed only by the
+`/orchestrate --bookkeeping` reconcile on the default branch. No other skill, run, or branch
+writes `opportunities.md`. This makes the log's no-loss guarantee (REQ-B1.3) hold **by
+construction** (a single serial writer never races itself), rather than by any merge-time
+resolution rule.
 
-**Mining reads the consolidated log, not the raw queue** (kickoff §delta F2, 2026-07-07):
-`/spec-draft` (the canonical reader) mines and archives **`opportunities.md`** — the queue is
-a staging area, consolidated into the log only by `--bookkeeping`, never mined or consumed
-raw. The drain pass still **counts** queue entries (plus unconsolidated log entries) in the
-unmined-surface figures for visibility, but `/spec-draft` never consumes a raw fragment it
-cannot archive, so a fragment cannot be both mined-from-the-queue and later re-consolidated
-into the log as fresh (no double-surface). `/spec-draft` never writes consolidation.
+- **Record** (concurrent, any branch): a skill **drops a queue fragment** (distinct
+  `<date>-<taskid>-<run-nonce>` filename — REQ-B1.5) and **never touches `opportunities.md`**.
+  Distinct filenames make the write side collision-free by construction; a feature-branch
+  merge therefore never conflicts on the log (this is exactly what would have prevented the
+  #124 conflict — the direct appends every recording skill does today become fragment drops,
+  Task 2).
+- **Consolidate** (reconcile only): **one atomic commit** appends the queued fragments'
+  entries to `opportunities.md` in filename-sorted order and deletes the consumed fragments.
+  Idempotency is by **fragment presence**: the single serial writer consolidates a fragment
+  exactly once (delete-after-consolidate), so a crash-retry is a no-op — no embedded
+  fragment-ids or dedup ledger are needed in the sanctioned single-writer flow. Each entry
+  carries its own date in its text; entries are never re-sorted by date.
+- **Archive / consume** (the panel-F2/F4 fix): `/spec-draft`, when it consumes observations
+  into a new bundle, **records which entries it consumed** (a consumption marker) rather than
+  editing the log; the **reconcile** performs the archive-move (to `archive.md`) + trim on the
+  default branch. So `/spec-draft` never writes `opportunities.md` on its feature branch.
+- **Conflict on `opportunities.md`** signals a **violated invariant** (a stray direct-writer,
+  or two reconcile actors across checkouts) — it does not happen in the sanctioned flow. It is
+  therefore **never auto-resolved by union** (which would resurrect archived deletions — the
+  panel finding) **nor by blind regenerate** (the log has no external source). The reconcile
+  **rebuilds the log from its authoritative components** — `committed log ∪ unconsolidated
+  queue − recorded-archived-set` — which respects deletions, or **fails loud** for a human if
+  the components cannot reconcile. The **global `_observations` advisory lock** serializes
+  reconcile runs (so it is now a correctness serializer, not merely a perf guard); cross-
+  checkout reconcile is the only residual concurrency, and if it is ever enabled the rebuild
+  keys on fragment identity — a bounded, named extension, not a load-bearing requirement here.
+
+**Mining reads the consolidated log plus a read-only queue preview** (the panel-F3 fix):
+`/spec-draft` (the canonical reader) mines and archives from the consolidated log
+(`opportunities.md`), and **additionally reads the queue read-only** so observations recorded
+on the current branch but not yet consolidated are still visible to the drafter (no
+blind-spot). Consumption/archival always routes through the reconcile (via the consumption
+marker), so a fragment is never both mined-raw and re-consolidated (no double-surface). The
+drain pass still counts queue entries (plus unconsolidated log entries) in the unmined-surface
+figures.
 
 **Alternatives considered:**
 
@@ -84,28 +97,31 @@ into the log as fresh (no double-surface). `/spec-draft` never writes consolidat
 - *Task-id-only fragment name (the initial kickoff §3 choice).* Rejected once the lens pass
   showed branch/task id is not run-unique (a retry or a separate same-branch run collides);
   the per-run nonce closes that hole while keeping the readable task-id prefix.
-- *Regenerate-from-current-state on conflict (mirroring `tasks.md`).* Rejected (kickoff
-  §delta F1): `tasks.md` is a derived read-model regenerable from PR/git evidence;
-  `opportunities.md` is a durable accumulator that *is* the source of truth, so "regenerate"
-  has nothing to regenerate from and would **delete** historical entries on any conflict
-  (violating REQ-B1.3). Union-of-appends is the loss-free resolution for an append-only log.
-- *Content-based idempotency (append only entries not already present).* Rejected (kickoff
-  §delta F4): dedup-by-content drops a legitimate second occurrence of the same observation
-  from a different run. Fragment-identity idempotency dedups re-processing without losing
-  distinct-but-identical entries.
-- *`/spec-draft` mines the raw queue directly.* Rejected (kickoff §delta F2): read-only
-  mining cannot archive a raw queue fragment, so `--bookkeeping` would re-consolidate it into
-  the log as fresh (double-surface). Mining reads the consolidated log; the queue only feeds
-  the log via `--bookkeeping`.
+- *Regenerate-from-current-state on conflict (mirroring `tasks.md`).* Rejected: `tasks.md` is
+  a derived read-model; `opportunities.md` is a durable accumulator with no source to
+  regenerate from, so regenerate would **delete** entries on conflict (REQ-B1.3).
+- *Union-of-appends on conflict (the first delta's fix).* Rejected on the panel pass (2nd
+  delta): the log is **not** append-only — the archive-on-consume ritual **deletes** consumed
+  entries — so "union (keep every entry from both sides)" would **resurrect archived
+  deletions**. Union is only correct for a pure-append log; this log has deletes.
+- *Content-based / fragment-id idempotency at merge.* Rejected: both presuppose concurrent
+  writers to `opportunities.md`. The redesign removes concurrent writers entirely (single-writer
+  invariant), so idempotency is by fragment-presence in a serial writer — no dedup at merge
+  is needed in the sanctioned flow.
+- *`/spec-draft` writes the log (mines the raw queue, or trims on its branch).* Rejected: any
+  feature-branch write to `opportunities.md` reintroduces the collision. `/spec-draft` records
+  a consumption marker and previews the queue read-only; the reconcile owns every log write.
 
-**Chosen because:** distinct per-run filenames make the **write** side collision-free by
-construction (no shared append point); a single default-branch consolidator plus
-**fragment-identity idempotency and union-on-conflict** makes the **consolidation** side safe
-and loss-free without cross-branch merge collisions and without a lock the primitive cannot
-provide — the lock is only a performance guard. Append-only-in-consolidation-order preserves
-every existing entry byte-for-byte (REQ-B1.3). The model borrows `orchestration-concurrency`'s
-sole-writer discipline but **not** its regenerate-on-conflict step (that suits a derived
-projection, not this durable accumulator — kickoff §delta F1), and the fragment pattern is
+**Chosen because:** the real defect was that `opportunities.md` had **many writers on many
+branches** — appends by every recording skill *and* deletes by `/spec-draft`'s archive ritual
+— which no merge-time rule (union or regenerate) can reconcile correctly (union resurrects
+deletes; regenerate has no source). Making the log **single-writer for every mutation** (the
+reconcile) removes concurrent writes at the root, so no-loss holds by construction and there is
+no conflict to resolve in the sanctioned flow — the honest fallback for a *violated* invariant
+is rebuild-from-components (respecting deletions) or fail-loud, never a silently-wrong auto-merge.
+Distinct per-run fragment filenames keep the **record** side collision-free; the reconcile
+mirrors `orchestration-concurrency`'s sole-writer discipline (here applied to *all* log
+mutation, appends and deletes alike); and the fragment pattern is
 proven at ecosystem scale by towncrier's news fragments (CPython, attrs, PyInstaller,
 Prefect) — the pattern is adopted, the tool is not (Claude Code primitives only). The
 accumulator-taxonomy doctrine gains the queue as a named class-3 surface with its durable
@@ -287,7 +303,7 @@ the redundant rendering.
   trims nine others. One entry pair is hunk-adjacent, so whichever PR merges second
   resolves a small conflict — accepted, and itself a live demonstration of the collision
   class D-1 addresses. (The fragment queue removes *new-observation append* contention; the
-  consolidation, archive, and trim writes to `opportunities.md` remain single-file edits,
-  made safe by the single-writer + **union-on-conflict** rule (kickoff §delta F1), not by the
-  fragment split — so "collision-free by construction" is scoped to the write side, not to
-  every log edit.)
+  consolidation, archive, and trim writes to `opportunities.md` are all funneled through the
+  **single reconcile writer** (2nd delta redesign), so they never race — "collision-free by
+  construction" covers the record side (distinct fragments) and the mutation side (one writer),
+  leaving only a *violated-invariant* conflict, which fails loud rather than auto-merging.)

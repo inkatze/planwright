@@ -21,49 +21,52 @@ Task 1 → Task 2.
   cannot collide; one file per run, all its observations appended to it; all three name
   components — `<date>` (`^\d{4}-\d{2}-\d{2}$`), `<taskid>`, `<run-nonce>` — charset-validated
   before path interpolation and the derived path containment-checked, with a clean refusal on
-  hostile/malformed input, per REQ-B1.5); a single-writer consolidation routine (append the
-  fragments' entries to `opportunities.md` in consolidation order **and** delete the consumed
-  fragments as **one atomic commit**; **idempotency keyed on fragment identity** — each
-  fragment consolidated at most once by its unique filename, so re-processing is a no-op but
-  two distinct fragments with identical text both land; on any `opportunities.md` conflict,
-  resolve by **union-of-appends** deduped by fragment identity, **never** regenerate/ours/
-  theirs — the log is a durable accumulator, not a derived projection), guarded by a dedicated
-  **global `_observations` advisory lock** (distinct from the per-spec lock — a performance
-  guard against concurrent `--bookkeeping` retries, not the correctness mechanism);
+  hostile/malformed input, per REQ-B1.5); a **single-writer reconcile routine that owns every
+  `opportunities.md` mutation** — append queued fragments' entries in consolidation order
+  **and** delete the consumed fragments **and** apply recorded archive/trim deletions, as
+  **one atomic commit**; idempotency is by **fragment presence** (a serial writer consolidates
+  each fragment once, delete-after-consolidate, so a crash-retry is a no-op — no embedded IDs
+  or merge-time dedup); a conflict on `opportunities.md` is a **violated-invariant** signal,
+  resolved by **rebuild-from-components** (committed log ∪ unconsolidated queue −
+  recorded-archived) or **fail-loud**, never blind union/regenerate/ours/theirs; the **global
+  `_observations` advisory lock** serializes reconcile runs (a correctness serializer);
   branch-/slug-derived names printable-sanitized before any echo (REQ-B1.5);
   accumulator-taxonomy doctrine amendment naming the queue as a class-3 surface (durable
   home, canonical reader `/spec-draft`, drain ritual).
 - **Done when:** two runs with distinct identities on the same date produce **different**
-  filenames (asserted directly), and consolidation produces a conflict-free append-ordered
-  log with the fragments deleted; a concurrent-consolidation test proves fragment-identity
-  idempotency (no duplicate entry when the same fragment is re-processed) **and** that two
-  distinct fragments with identical text both land (no content-dedup loss); a conflict test
-  proves **union** resolution loses no historical entry (never regenerate/ours/theirs); a test
-  proves existing log entries survive byte-for-byte apart from appends (verbatim, no rewrap);
-  the atomic-commit case proves an interrupted run persists neither the append nor the delete;
-  a traversal / metacharacter fragment name (in any of the three components) is a clean refusal
-  writing no out-of-tree file, and an echoed name is printable-sanitized; the doctrine names
-  the queue surface; `mise run check` passes.
+  filenames (asserted directly); the reconcile appends queued fragments (in order, deleted
+  after) and applies a recorded archive/trim in the same atomic commit, leaving pre-existing
+  entries byte-for-byte apart from the intended append/delete; a re-run over already-consolidated
+  state is a byte-identical no-op (fragment-presence idempotency); an injected
+  `opportunities.md` conflict is **not** auto-merged — the routine rebuilds from components (or
+  fails loud) and no archived-then-trimmed entry is resurrected; a traversal / metacharacter
+  fragment name (in any of the three components) is a clean refusal writing no out-of-tree
+  file, and an echoed name is printable-sanitized; the doctrine names the queue surface;
+  `mise run check` passes.
 - **Dependencies:** none
 - **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.5
 - **Estimated effort:** 3 days
 
 ### Task 2 — Consumer wiring for the queue
 
-- **Deliverables:** `/orchestrate --bookkeeping` is the **sole consolidation writer** — it
-  invokes Task 1's routine on the default branch; `/spec-draft` mines and archives the
-  **consolidated log** (`opportunities.md`) — **not** raw queue fragments (the queue reaches
-  the reader only via `--bookkeeping` consolidation, so a mined fragment can't be
-  re-consolidated as fresh; F2) — and never consolidates (feature-branch worktree write would
-  collide at merge — D-1); the drain pass's observation surface still **counts** queue entries
-  in the unmined count and oldest-age figures for visibility.
-- **Done when:** a drain-report fixture with queue entries shows them counted in the unmined
-  surface; `--bookkeeping`'s instructions name it as the sole consolidation writer and
-  `/spec-draft`'s name `opportunities.md` as its mining/archive source (queue counted for
-  visibility only, never consumed raw); `mise run check` passes.
+- **Deliverables:** convert **every recording skill** (`/execute-task`, `/self-review`,
+  `/spec-kickoff`, `/spec-draft`) from appending a line to `opportunities.md` to **dropping a
+  queue fragment** (Task 1's grammar) — so no feature branch ever writes the log (the root of
+  the #124 collision); `/orchestrate --bookkeeping` is the **sole `opportunities.md` writer**,
+  invoking Task 1's reconcile routine on the default branch; `/spec-draft` mines the
+  consolidated log **plus a read-only queue preview** (recent, not-yet-consolidated
+  observations stay visible), and instead of trimming the log on its branch it **records a
+  consumption marker** the reconcile applies (archive-move + trim); the drain pass still
+  **counts** queue entries in the unmined/oldest-age figures.
+- **Done when:** each of the four recording skills' instructions name the fragment-drop (no
+  direct `opportunities.md` append remains); a repo search finds no skill appending the log
+  directly; a drain-report fixture with queue entries shows them counted; `--bookkeeping` is
+  named the sole log writer and applies a recorded consumption marker (archive+trim) in its
+  reconcile; `/spec-draft`'s instructions name the log-plus-queue-preview mining source and the
+  consumption-marker hand-off (no branch-side log write); `mise run check` passes.
 - **Dependencies:** 1
-- **Citations:** D-1 · REQ-B1.2, REQ-B1.4
-- **Estimated effort:** 1 day
+- **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.4
+- **Estimated effort:** 2 days
 
 ### Task 3 — PR-body contract
 

@@ -39,13 +39,13 @@ updates keep the structure.
 ### REQ-B1.1 — No shared append point [test]
 
 Task 1 suite: two runs with distinct identities on the same date compute **different**
-fragment filenames (asserted directly — the per-run nonce guarantees it), each writing its
-own file with no shared append point; consolidation by the single writer yields one
-conflict-free log with entries appended in consolidation order. A concurrent-consolidation
-case (two `--bookkeeping` runs over the same queue) proves **fragment-identity idempotency**:
-re-processing the same fragment produces no duplicate, but two distinct fragments with
-identical text both land; and a simulated `opportunities.md` conflict resolves by
-**union-of-appends** (every entry from both sides survives), never by regenerate/ours/theirs.
+fragment filenames (asserted directly), each dropping its own fragment and **not** writing
+`opportunities.md`; the reconcile (single writer) yields one log with entries in consolidation
+order. Fragment-presence idempotency: a re-run over already-consolidated state is a
+byte-identical no-op. And an **injected `opportunities.md` conflict is not auto-merged** — the
+routine rebuilds from components (or fails loud), and crucially an entry that was
+archived-then-trimmed on one side is **not resurrected** (the failure of blind union), proving
+the single-writer-invariant / rebuild rule rather than union or regenerate.
 
 ### REQ-B1.2 — Class-3 invariants preserved [test + design-level]
 
@@ -55,21 +55,23 @@ in the unmined count and oldest-age figures.
 
 ### REQ-B1.3 — No loss, reorder, or rewrap [test]
 
-Task 1 suite: consolidation over a populated `opportunities.md` leaves every pre-existing
-line byte-for-byte intact apart from appended entries (entry text moved verbatim, no
-rewrap/redact); appended entries are in consolidation order, never re-sorted by fragment
-date. The atomic-commit case proves crash safety: the append and the fragment deletions are
-one commit, so an interrupted run persists neither (recovery resets the uncommitted working
-tree), and a re-run over partly-consumed state is idempotent by fragment identity — the same
-fragment never lands twice, and the union-on-conflict case loses no historical entry.
+Task 1 suite: the reconcile over a populated `opportunities.md` leaves every pre-existing
+line byte-for-byte intact apart from the intended append/delete (entry text moved verbatim,
+no rewrap/redact); appended entries are in consolidation order, never re-sorted by fragment
+date; a recorded archive/trim removes exactly the consumed entries. The atomic-commit case
+proves crash safety: append, fragment-delete, and archive-trim are one commit, so an
+interrupted run persists none (recovery resets the uncommitted working tree). No-loss holds
+because a single serial writer never races itself; the injected-conflict (violated-invariant)
+case does not resurrect an archived-then-trimmed entry.
 
 ### REQ-B1.4 — Consumer semantics unchanged [test + design-level]
 
 Test: drain-report fixture with and without queue entries — report grammar unchanged,
-counts include the queue. Design-level: `/spec-draft` instructions name **`opportunities.md`
-(the consolidated log)** as its mining/archive source (queue counted for visibility only,
-never consumed raw — F2), and `--bookkeeping` (the sole consolidation writer) names the queue
-in its consolidation step.
+counts include the queue. Design-level: `/spec-draft` instructions name the **consolidated
+log plus a read-only queue preview** as its mining source (no blind-spot) and a **consumption
+marker** for the reconcile to archive/trim (no branch-side log write); the four recording
+skills name the fragment-drop (no direct log append); `--bookkeeping` is named the sole
+`opportunities.md` writer applying consolidation + recorded archive/trim.
 
 ### REQ-B1.5 — Hostile-name safety and containment [test]
 
