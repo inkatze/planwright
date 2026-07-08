@@ -193,8 +193,11 @@ to and prune; the fragment model dissolves the shared file instead.
   SHALL be containment-checked after canonicalization; hostile input SHALL
   produce a clean refusal, never a path. This binds every surface that
   composes fragment paths — consume as much as record: the consume UID and
-  spec identifier are validated before use (the spec id against its own
-  anchored grammar, before it is written into the `Consumed-by:` line),
+  spec identifier are validated before use (the spec id against the
+  established spec-identifier grammar — `^[a-z0-9][a-z0-9-]*$`, at most
+  64 characters, the spec-format doctrine's identifier discipline
+  (bootstrap REQ-A1.8) — before it is written into the
+  `Consumed-by:` line),
   and annotate/move operate only on regular files, never through symlinks.
   *(Cites: D-7, orchestration-concurrency REQ-F1.1 (Sources), kickoff lens
   pass (2026-07-08).)*
