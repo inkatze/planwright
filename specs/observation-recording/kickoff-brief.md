@@ -297,9 +297,10 @@ the human.)
 - **Cluster E — applied** (4): migration hardening (merge-time
   recompute, keep-when-in-doubt, durable F1–F5 contingency gate,
   rollback note).
-- **Cluster F — applied** (1): the coordination gate reworded to free
-  text (`GATE(when: output-hygiene carve-out amendment has landed)`) so
-  the drain surfaces the hold for its entire window.
+- **Cluster F — applied** (1): the coordination gate reworded from
+  `GATE(when: output-hygiene carve-out amendment has landed)` to plain
+  prose after `**Gate:**`, so the drain surfaces the hold for its entire
+  window.
 - **Cluster G — declined with rationale** (9): G1 performance machinery
   (→ risk row 5), G2 standing prose-leak guard (deliberate REQ-D1.2
   design), G3 entropy verification (untestable directly), G4 marker
@@ -307,7 +308,8 @@ the human.)
   partial-annotation machinery (→ risk row 2), G6 in-flight-branch
   machinery (→ risk row 3), G7 enforced consumed-by union (risk row 1 +
   fixture C6), G8 dedup automation (deliberate `[manual]` escalation),
-  G9 off-main Sources (seed files committed this run; E3's gate).
+  G9 off-main Sources (seed files committed this run; the Cluster E
+  F1–F5 contingency gate).
 
 No finding is undispositioned. No inconsistency halt was triggered; no
 open question is carried.
