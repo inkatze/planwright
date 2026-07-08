@@ -237,8 +237,12 @@ to and prune; the fragment model dissolves the shared file instead.
   (2026-07-08).)*
 - **REQ-E1.2** The recording-contract flip (skills stop appending) and the
   legacy freeze SHALL land as one unit, leaving no window in which some
-  writers append to the frozen log while others drop fragments.
-  *(Cites: D-5.)*
+  *shipped* writer appends to the frozen log while another drops
+  fragments. In-flight branches checked out from pre-migration `main`
+  carry the old skill text until they merge `main`; that residual is
+  accepted and monitored (the risk register's post-freeze append
+  regression row), outside this requirement's guarantee.
+  *(Cites: D-5, kickoff brief §7 risk 3.)*
 - **REQ-E1.3** The accumulator-taxonomy doctrine, the spec-format
   glossary's "Observations log" entry *and* its "Citation syntax and kinds"
   table (which SHALL gain the `obs:<uid>` kind), `doctrine/decision-domains.md`,
