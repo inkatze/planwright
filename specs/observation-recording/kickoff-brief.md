@@ -267,7 +267,12 @@ Lens-coverage table (canonical):
 
 ### Dispositions (2026-07-08, all 42 findings dispositioned with the human)
 
-Presented as seven clusters; the human decided each cluster-wide:
+Presented as seven clusters; the human decided each cluster-wide. (The
+cluster parentheticals below enumerate 52 applied/declined line-items —
+deduped from the 42 findings; some findings produced multiple edits or
+were bundled — so the cluster counts sum past the finding count by
+design; annotation added at the 2026-07-08 self-review pass, decided by
+the human.)
 
 - **Cluster A — applied** (10): mechanical clarity and citation fixes
   (F1–F5 wording, ~156-file count, Task-4 label, `obs:log` pinned,
