@@ -47,7 +47,8 @@ D-9 record the supersession); this bundle retains the other four concerns.
   and migration of the existing log).
 - **Cross-repo / multi-target observation routing.** The multi-source, multi-target
   accumulator design (observations log 2026-06-17, deliberately deferred by its author)
-  is a separate effort; this spec fixes intra-repo recording only.
+  is a separate effort; intra-repo recording is `specs/observation-recording`'s concern —
+  this bundle owns neither.
 - **Input-side parser consolidation.** The spec-parse and scope-grammar duplication
   entries (2026-06-17, 2026-06-18) are shared-library concerns, not output hygiene.
 - **Fleet attention surfaces.** How a human watches running work is `orchestration-fleet`'s
@@ -256,6 +257,9 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
   `**Superseded-by: REQ-<id> (observation-recording)**` places the foreign namespace in a
   trailing qualifier because the validator's supersede marker is anchored on the literal
   `Superseded-by: REQ-` prefix; D-pointers use the namespace-first precedent form.
+  Post-review fix (panel pass, same date): the cross-repo-routing Out-of-scope bullet's
+  "this spec fixes intra-repo recording only" clause updated — intra-repo recording is
+  `specs/observation-recording`'s concern now, not this bundle's.
 
 ## Sources
 
