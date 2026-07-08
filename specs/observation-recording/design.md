@@ -61,8 +61,11 @@ full-filename fail-on-exists remains the final write guard. The
 `obs:<uid>` → exactly-one-file guarantee is structural *within one working
 tree*; across concurrently unmerged branches it stays probabilistic
 (32 bits), so the `check:obs` guard also detects duplicate UIDs
-post-merge — the standing net, with re-minting one UID as the remedy
-(collisions surface before citations to either exist). The UID is the
+post-merge — the standing net, with re-minting one UID as the remedy.
+A citation to one duplicate can exist before the other merges, so the
+remedy is citation-aware: grep `specs/` for `obs:<uid>` first, re-mint
+the uncited duplicate (the younger fragment when neither is cited), and
+update any citations alongside a re-mint. The UID is the
 entry's durable identity and its
 citation key: spec bundles cite an observation as `obs:<uid>` in a Sources
 entry. The slug is renameable; the UID never changes.
