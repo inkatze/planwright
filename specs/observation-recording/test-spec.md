@@ -1,6 +1,6 @@
 # Observation Recording — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-08
 **Format-version:** 1
 
@@ -24,28 +24,40 @@ shipped skill or doctrine text instructs appending to `opportunities.md`.
 ### REQ-A1.2 — filename grammar [test]
 
 `tests/test-obs-record.sh` acceptance/rejection fixtures for every
-component: valid names pass; malformed date (non-calendar, wrong shape),
-uppercase or underscore slug, overlong slug, wrong-length or non-hex UID
-all refuse. The `check:obs` guard (Task 2) re-validates committed names.
+component: valid names pass; malformed date (wrong shape, and well-shaped
+but non-calendar such as `2026-02-30` — rejected by the calendar-validity
+step the grammar alone cannot perform), uppercase or underscore slug,
+overlong slug, wrong-length or non-hex UID all refuse. The `check:obs`
+guard (Task 2) re-validates committed names under `LC_ALL=C`.
 
 ### REQ-A1.3 — fail-on-exists collision retry [test]
 
 `tests/test-obs-record.sh`: a pre-created colliding filename forces the
 retry path; the original file's bytes are untouched and the new fragment
-lands under a fresh UID.
+lands under a fresh UID. A UID colliding only with an *archived* fragment
+(`archive/*-<uid>.md`) also forces the retry, as does a same-directory
+collision under a *different slug* (proving the check keys on the UID,
+not the full filename). Retry exhaustion against a fully pre-seeded UID
+space exits non-zero with no path created.
 
 ### REQ-A1.4 — entry-form content shape [test]
 
 `check:obs` fixtures (Task 2): a fragment whose first content line does not
 match the `- <date> [<scope>]` entry prefix fails; a fragment with a
-trailing `Consumed-by:` metadata line passes.
+trailing `Consumed-by:` metadata line passes; a fragment carrying free
+prose beyond the entry line and recognized metadata lines fails; a
+fragment carrying an unrecognized `Key: value`-shaped metadata line fails
+(whitelist exactness). `tests/test-obs-record.sh`: entry text containing a
+newline or control character is refused at write time.
 
 ### REQ-A1.5 — UID as durable identity [test]
 
 `tests/test-obs-consume.sh`: rename a fragment's slug, then consume by UID —
-the consume succeeds and the archived filename preserves the UID; a citation
-string built as `obs:<uid>` still greps to exactly one file across
-`entries/` + `archive/` after the move.
+the consume succeeds and the archived filename preserves the UID; edit a
+fragment's entry text, then consume by UID — the consume succeeds
+(identity is never keyed on entry text); a citation string built as
+`obs:<uid>` still greps to exactly one file across `entries/` + `archive/`
+after the move.
 
 ### REQ-A1.6 — single recording helper [design-level]
 
@@ -66,14 +78,18 @@ completes with no conflict and both fragments exist.
 `tests/test-obs-consume.sh`: the simulated two-branch fixture (one branch
 adds a fragment, the other consumes a different one) merges clean; the
 consumed fragment exists only in `archive/`, same filename, and no other
-file changed in the consume commit.
+file changed in the consume commit. A same-fragment double-consume
+two-branch fixture produces a merge conflict confined to that one
+fragment (verifying the design's small-and-self-limiting claim).
 
 ### REQ-B1.3 — derived view, never committed [test + design-level]
 
 `[test]` `tests/test-obs-render.sh`: two runs over the same fragment set are
-byte-identical (pure function). `[design-level]` No task in this bundle (nor
-any reconciled skill text) writes a compiled view to the tree; the render
-script writes only to stdout.
+byte-identical (pure function). The `check:obs` unexpected-file fixture
+(Task 2): a seeded compiled-view file under `specs/_observations/` fails
+the guard — the standing enforcement. `[design-level]` No task in this
+bundle (nor any reconciled skill text) writes a compiled view to the tree;
+the render script writes only to stdout.
 
 ## REQ-C — Readers, drain, and the class-3 contract
 
@@ -88,24 +104,32 @@ coverage of that doctrine section is the verification.
 
 `[test]` `tests/test-obs-consume.sh`: annotate-then-move ordering (the
 crash-window fixture finds an annotated-but-unmoved fragment and completes
-it idempotently); legacy in-place annotation fixture appends `— consumed-by:`
-to a frozen-log line without reordering the file. `[manual]` The first real
-`/spec-draft` mining pass after cutover exercises the combined candidate set
-(fragments + legacy) end-to-end.
+it idempotently, leaving exactly one `Consumed-by:` line — the annotate is
+conditional); legacy in-place annotation fixture appends `— consumed-by:`
+to a frozen-log line without reordering the file.
+`tests/test-drain-gates.sh`: an annotated-but-unmoved fragment is excluded
+from the unmined count and surfaced as a stuck consume. `[manual]` The
+first real `/spec-draft` mining pass after cutover exercises the combined
+candidate set (fragments + legacy) end-to-end.
 
 ### REQ-C1.3 — drain surfaces both sources [test]
 
 `tests/test-drain-gates.sh`: a fixture tree with N fragments and M
-unconsumed legacy lines reports count N+M and the correct oldest age, and
-names both surfaces; with the legacy file fully consumed, the report shows
-fragments only.
+unconsumed legacy lines reports count N+M and the correct oldest age
+(clock pinned via `--today`), and names both surfaces; with the legacy
+file fully consumed, the report shows fragments only; with zero unmined
+entries it reports the zero count and omits the age line (null-safe
+globs).
 
 ### REQ-C1.4 — deterministic chronological render [test]
 
 `tests/test-obs-render.sh`: fixture fragments across multiple dates (plus a
-same-date pair ordered by UID) render in order, byte-matched against a
-golden file; the `--archived` flag includes `archive/` entries; the legacy
-interleave fixture merges frozen-log lines chronologically.
+same-date pair ordered by UID, and a same-date legacy-line-plus-fragment
+pair ordered legacy-first per the defined total order) render in order,
+byte-matched against a golden file; the `--archived` flag includes
+`archive/` entries; the legacy interleave fixture merges frozen-log lines
+chronologically; an annotated-but-unmoved fragment is excluded from the
+live view.
 
 ## REQ-D — Security, hygiene, and guards
 
@@ -114,7 +138,12 @@ interleave fixture merges frozen-log lines chronologically.
 `tests/test-obs-record.sh` hostile-input fixtures: path traversal in slug or
 date, absolute-path injection, control characters, locale-dependent
 uppercase under a UTF-8 locale (asserting `LC_ALL=C` behavior) — each exits
-non-zero, creates no path, and prints a sanitized message.
+non-zero, creates no path, and prints a sanitized message; plus a direct
+unit test of the containment check with a grammar-valid composed path only
+containment could refuse. `tests/test-obs-consume.sh` mirrors the bar on
+the consume surface: hostile UID and spec-identifier arguments (traversal,
+glob, newline injection into the `Consumed-by:` line) refuse cleanly, and
+a symlinked fragment is refused before annotate or move.
 
 ### REQ-D1.2 — write-time data hygiene [design-level + manual]
 
@@ -129,20 +158,29 @@ judgment; the repo's `scan:secrets` guard covers token-shaped leaks in CI.
 `tests/test-obs-render.sh` and `tests/test-drain-gates.sh`: a fragment whose
 content carries control bytes and shell metacharacters renders/reports with
 non-printables stripped and no expansion side effects (the hostile-content
-fixture pattern used by the gate evaluator's tests).
+fixture pattern used by the gate evaluator's tests); a hostile *legacy*
+line interleaved by render/drain gets the same treatment.
+`tests/test-obs-consume.sh`: consuming a fragment with hostile content
+moves it verbatim with no expansion side effects.
 
 ### REQ-D1.4 — standing CI guard [test]
 
 Task 2's seeded-violation fixtures: bad name, traversal-shaped name,
-multi-entry file, missing entry line each fail `check:obs`; a clean tree
-passes; the task is wired into the aggregate `mise run check` that CI runs.
+non-calendar date, multi-entry file, missing entry line, free-prose body,
+unrecognized metadata key, duplicate UID across `entries/` + `archive/`,
+and an unexpected top-level file under `specs/_observations/` each fail
+`check:obs` (run under `LC_ALL=C`); a clean tree passes; the task is wired
+into the aggregate `mise run check` that CI runs.
 
 ## REQ-E — Migration and cross-spec coordination
 
 ### REQ-E1.1 — dedup then freeze [manual + test]
 
 `[manual]` The migration PR lists every removed line beside its `archive.md`
-consumed-by record; the human verifies the one-to-one pairing before merge.
+consumed-by record; the human verifies the one-to-one pairing before merge,
+re-checks the recomputed set immediately before merging (appends continue
+until the flip lands), and keeps any candidate plausibly a legitimate
+textual re-occurrence.
 `[test]` Post-state: `check:obs` passes over the created directories, and a
 fixture asserts both frozen files open with their freeze headers.
 
@@ -163,7 +201,10 @@ name the fragment substrate.
 ### REQ-E1.4 — supersession and coordination gate [design-level + manual]
 
 `[design-level]` The Deferred entry with
-`GATE(when: spec observation-recording active)` exists in `tasks.md` and the
-drain pass surfaces it (covered generically by `tests/test-drain-gates.sh`).
+`GATE(when: output-hygiene carve-out amendment has landed)` exists in
+`tasks.md`; as a free-text gate the drain pass surfaces (not evaluates) it
+on every pass until the human resolves it (free-text surfacing covered
+generically by `tests/test-drain-gates.sh`), so the hold stays visible for
+its whole window — including after this spec completes.
 `[manual]` The human performs the output-hygiene carve-out amendment and
 holds its Tasks 1–2 undispatched until then.

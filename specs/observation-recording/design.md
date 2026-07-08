@@ -1,6 +1,6 @@
 # Observation Recording — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-08
 **Format-version:** 1
 
@@ -53,8 +53,17 @@ derived-projection philosophy (the view is regenerated from truth, like
 
 **Decision:** Fragment filenames are `<date>-<slug>-<uid>.md`: `YYYY-MM-DD`
 date, cosmetic kebab-case slug (≤ 40 chars), and an 8-lowercase-hex UID
-minted from a system entropy source with fail-on-exists (mint a fresh UID on
-collision, never overwrite). The UID is the entry's durable identity and its
+minted from a system entropy source. The collision check keys on the UID
+across both `entries/` and `archive/` (`*-<uid>.md`; mint a fresh UID on a
+hit, never overwrite — kickoff decision 2026-07-08); retries are bounded
+and exhaustion or an unavailable entropy source is a clean refusal;
+full-filename fail-on-exists remains the final write guard. The
+`obs:<uid>` → exactly-one-file guarantee is structural *within one working
+tree*; across concurrently unmerged branches it stays probabilistic
+(32 bits), so the `check:obs` guard also detects duplicate UIDs
+post-merge — the standing net, with re-minting one UID as the remedy
+(collisions surface before citations to either exist). The UID is the
+entry's durable identity and its
 citation key: spec bundles cite an observation as `obs:<uid>` in a Sources
 entry. The slug is renameable; the UID never changes.
 
@@ -83,9 +92,22 @@ reno ships 64 bits with only a local existence check, Changesets ships a
 the file from `entries/` to `archive/` with the filename preserved. Ordering
 is annotate-first, move-second: a crash between the two leaves a visibly
 annotated fragment still in `entries/`, and re-running the consume completes
-idempotently (keyed on the UID). The fragment's content contract keeps the
+idempotently (keyed on the UID). Both halves are hardened (kickoff lens
+pass 2026-07-08): the annotate is conditional — skipped when a same-spec
+`Consumed-by:` line already exists — and written atomically (temp file,
+then rename), so re-runs neither duplicate nor tear the annotation; and
+every reader classifies an `entries/` fragment bearing a `Consumed-by:`
+line as consumed (render excludes it from the live view, drain surfaces it
+as a stuck consume, mining completes the move instead of re-mining), so
+the crash window is visible to machines, not only to humans. The
+legacy-consume arm is keyed on line content — the accepted, shrinking
+brittleness D-5 names — because frozen-log lines carry no UID. The
+fragment's content contract keeps the
 existing one-line entry form as its first content line, so entry prose
-conventions and parsers carry over unchanged.
+conventions and parsers carry over unchanged; beyond it only recognized
+metadata lines and blanks are valid (kickoff decision 2026-07-08), so
+one-entry-per-file stays mechanically checkable and readers stay
+line-oriented.
 
 **Alternatives considered:**
 - Delete the consumed fragment (reno's own semantics: git history is the
@@ -103,11 +125,16 @@ describes rather than in a second file that can drift.
 
 ### D-4: The derived view — a render script and drain surfacing over globs  (N)
 
-**Decision:** A small render script (`scripts/obs-render.sh`, exposed as a
-mise task such as `obs:log`) emits the chronological view — live entries
-ordered by date then UID, with a flag to include `archive/` — as a pure,
-byte-deterministic function of the fragment set, interleaving the frozen
-legacy file's unconsumed entries while that file still holds any. The drain
+**Decision:** A small render script (`scripts/obs-render.sh`, exposed as
+the mise task `obs:log`) emits the chronological view — a defined total
+order: by date, same-date legacy lines (in file order) before same-date
+fragments (by UID), chronological to day granularity — with a flag to
+include `archive/`, as a pure, byte-deterministic function of the fragment
+set and legacy-file state, interleaving the frozen legacy file's
+unconsumed entries while that file still holds any. Grammar- or
+shape-invalid files are excluded from the output and named on stderr
+(deterministic skip-and-warn); with zero entries the view is empty and the
+drain report states a zero count with no age line. The drain
 pass (`scripts/drain-gates.sh`) derives the unmined count and oldest-entry
 age from the `entries/` glob plus the legacy file's unconsumed lines, naming
 both surfaces in its report.
@@ -128,7 +155,10 @@ materializing it is optional and can happen anywhere.
 
 **Decision:** One-time cutover: (a) remove each live-log line provably
 consumed per `archive.md`'s consumed-by records — the ~10 resurrected
-duplicates, each removal cited line-by-line in the migration PR; (b) freeze
+duplicates, each removal cited line-by-line in the migration PR, the set
+recomputed against the branch's current state immediately before merge
+(appends continue until the flip lands), and any candidate plausibly a
+legitimate textual re-occurrence kept rather than removed; (b) freeze
 `opportunities.md` and `archive.md` with header notes pointing at the
 fragment substrate; (c) new entries go exclusively to `entries/` from the
 same PR that flips the skill text (no split-brain window, REQ-E1.2). The
@@ -144,7 +174,7 @@ shrinking, low-traffic file.
 - Bulk-convert all ~156 live entries into fragments. Rejected because: it is
   exactly the migration-zone bulk edit the project already rejected once
   (output-hygiene D-2's no-backfill precedent), and it manufactures a
-  166-file review in one PR.
+  ~156-file review in one PR.
 
 **Chosen because:** The dedup is safe by construction (every removed line
 has a consumed-by record proving it was already mined), the freeze stops the
@@ -154,11 +184,22 @@ ritual instead of a rewrite.
 ### D-6: One recording helper and a CI guard, not per-skill conventions  (N)
 
 **Decision:** A single helper script (`scripts/obs-record.sh`) owns UID
-minting, grammar validation, containment checking, collision retry, and
-fragment writing; recording skills invoke it rather than composing paths.
+minting, grammar validation (including calendar-date validity), containment
+checking, bounded collision retry, and atomic fragment writing (temp file,
+then rename); it refuses entry text carrying newlines or control
+characters; recording skills invoke it rather than composing paths, and
+surface a non-zero exit rather than silently dropping the observation. In
+adopter repos the helper resolves plugin-relative while the fragment
+directories are the host repo's — paths anchor at the host repo root,
+never the plugin root.
 A CI guard (a `check:obs` task backed by a script with seeded-violation
-fixtures) validates fragment-name grammar and one-entry-per-file shape for
-both directories on every run of the repo's aggregate check.
+fixtures) runs under `LC_ALL=C` and validates fragment-name grammar
+(calendar dates included), one-entry-per-file shape with an exact metadata
+whitelist, and UID uniqueness across both directories, and fails on
+unexpected files under `specs/_observations/` (the standing block on
+committed compiled views; the two directories and the frozen legacy files
+are the only expected contents) on every run of the repo's aggregate
+check.
 
 **Alternatives considered:**
 - Each skill writes fragments per prose instructions. Rejected because:
@@ -176,12 +217,15 @@ the same shape as the repo's other shared script + guard pairs.
 ### D-7: Security posture — validate, contain, refuse; content is data  (C, orchestration-concurrency REQ-F1.1)
 
 **Decision:** Every filename component is validated against its anchored
-grammar under `LC_ALL=C` before any path use; composed paths are
+grammar under `LC_ALL=C` before any path use — on the consume surface as
+much as the record surface: the UID argument and the spec identifier
+(before it enters the `Consumed-by:` line) are validated, and annotate/move
+operate only on regular files, never through symlinks; composed paths are
 containment-checked after canonicalization; hostile input is a clean refusal
-with a non-zero exit and no path touched. Fragment names and content are
-data only for every reader (render, drain, mining): never evaluated,
-expanded, or used as a pattern or format string; non-printables stripped
-before echo. Content hygiene (no secrets, no internal hostnames) is enforced
+with a non-zero exit and no path touched. Fragment names and content — and
+the legacy file's interleaved lines — are data only for every reader
+(render, drain, mining): never evaluated, expanded, or used as a pattern or
+format string; non-printables stripped before echo. Content hygiene (no secrets, no internal hostnames) is enforced
 at write time by the recording skill per the artifact data-hygiene rule;
 the consume move transfers text verbatim with no implied re-screen.
 
@@ -198,12 +242,22 @@ orchestration-concurrency pattern the seed names.
 ### D-8: Doctrine home — accumulator-taxonomy owns the ritual; skills cite it  (N)
 
 **Decision:** The accumulator-taxonomy doctrine is amended to carry the
-fragment-layout class-3 contract (durable home, canonical reader, drain
-surfacing, archive-on-consume move) as the canonical definition, including
-the `obs:<uid>` citation form; the spec-format glossary's "Observations log"
-entry is updated to name the fragment substrate; skills cite the doctrine
-instead of defining the ritual locally (the current `/spec-draft` skill text
-carries an interim skill-local definition that this supersedes).
+fragment-layout class-3 contract as the canonical definition — the
+doctrine's own classification rule (class, durable home, reader, drain
+ritual), with archive-on-consume stated as this accumulator's *specific*
+ritual, not a universal fourth class-3 attribute (preserving output-hygiene
+REQ-B1.2's deliberate non-promotion) — including the `obs:<uid>` citation
+form and the "class-3" shorthand token itself. The spec-format glossary's
+"Observations log" entry is rewritten to define the substrate: *the
+observations accumulator — per-entry fragment files under
+`specs/_observations/entries/` (live) and `archive/` (consumed), mined by
+`/spec-draft` (its canonical reader), with the chronological view rendered
+on demand and never committed* — replacing the "append-only" file
+characterization (the sibling "Accumulator" entry's reference updates with
+it), and spec-format's "Citation syntax and kinds" table gains the
+`obs:<uid>` kind. Skills cite the doctrine instead of defining the ritual
+locally (the current `/spec-draft` skill text carries an interim
+skill-local definition that this supersedes).
 
 **Alternatives considered:**
 - Leave the ritual defined inside `/spec-draft`'s skill text. Rejected
@@ -219,9 +273,12 @@ drafting this bundle is the evidence.
 
 **Decision:** This spec supersedes output-hygiene's observations-recording
 design (REQ-B, D-1, Tasks 1–2). The carve-out amendment on output-hygiene is
-a separate follow-up (per the seed charter); until it lands, output-hygiene
+a separate follow-up (per the seed brief); until it lands, output-hygiene
 Tasks 1–2 must not be dispatched — tracked as a Deferred coordination gate
-in this bundle's `tasks.md`. The `observation-routing` draft (multi-repo
+in this bundle's `tasks.md`, expressed as a free-text gate naming the
+amendment's landing (a status-atom gate on this spec would fall silent
+exactly when the hold must persist — after this spec completes but before
+the amendment lands; kickoff lens pass 2026-07-08). The `observation-routing` draft (multi-repo
 routing, unmerged branch) is adjacent, not folded: its fan-in inbox and
 route step assume a single-file log and will re-anchor on the fragment
 substrate when that draft revives; recorded here so the contradiction is
@@ -256,9 +313,13 @@ with named remedies instead of implicit knowledge.
   (no auth surface), dependency adoption (explicitly declined — the
   news-fragment pattern is borrowed, no tool is added).
 - **Crash windows.** Recording: mint-then-write with fail-on-exists means a
-  crash before write leaves nothing; a collision on retry mints fresh
-  entropy. Consumption: annotate-then-move (D-3) fails visible-and-forward.
-  Migration: single PR, single revert.
+  crash before write leaves nothing, and the atomic temp-then-rename
+  publish (D-6) means a crash mid-write leaves nothing either; a collision
+  on retry mints fresh entropy. Consumption: annotate-then-move (D-3) fails
+  visible-and-forward, with the annotate itself conditional and atomic.
+  Migration: single PR, single revert — noting the revert restores the log
+  but does not remove fragments recorded after the cutover; those are few,
+  enumerable, and carried over by hand as part of the revert.
 - **Concurrent consumption of the same fragment** (two `/spec-draft` runs
   mining the same entry on different branches): both move the same file;
   the second-to-merge sees a modify/delete or rename/rename conflict on that
@@ -268,3 +329,10 @@ with named remedies instead of implicit knowledge.
 - **Gate-grammar adjacency.** The drain report's observation surfacing
   changes shape (two surfaces while the legacy file drains); the
   `GATE(when:)` grammar itself is untouched.
+- **Scale envelope.** The substrate is designed for the observed entry
+  rate: low thousands of fragments across `entries/` + `archive/` for
+  years (reno runs the same model at far larger scale). Per-record globs,
+  the full-sweep guard, and the stateless render are all O(N) in that
+  population and accepted as such; the risk register carries the
+  threshold signal (~5k files) at which sharding or guard-scoping gets
+  revisited. Nothing is cached and nothing prunes `archive/` by design.
