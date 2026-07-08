@@ -295,16 +295,19 @@ to and prune; the fragment model dissolves the shared file instead.
 - **The seed brief** — `specs/_pending/observation-recording.md`
   (2026-07-07, carve-out charter from output-hygiene; problem statement,
   failure history, constraints, and the five open questions).
-- **The research synthesis** — fable session 2026-07-07,
-  primary-source-verified survey of release-please, Changesets, towncrier,
-  scriv, semantic-release, git-cliff, knope, auto, and reno. Key verified
+- **The research synthesis** —
+  `specs/_pending/observation-recording-research.md` (fable session
+  2026-07-07), primary-source-verified survey of release-please,
+  Changesets, towncrier, scriv, semantic-release, git-cliff, knope,
+  auto, and reno. Key verified
   facts relied on here: GitHub's server-side merge ignores `merge=union`
   (community discussion #9288; kubernetes/kubernetes#70576); no tool prunes
   a committed compiled file across concurrent contributors; reno's
   filename-UID model is the only prior art with conflict-free edit/delete of
   old entries (reno design docs + scanner source); Changesets writes
-  fragments with no existence check. The synthesis document itself is a
-  session artifact; its citations above are the durable references.
+  fragments with no existence check. The synthesis document is a session
+  artifact committed for durable citation (the kickoff resolution, brief
+  §2); the primary-source citations above are the durable references.
 - **output-hygiene kickoff brief §8 and §9** — the sign-off lens pass and
   the two delta re-walkthroughs recording the three failed D-1 designs
   (§9 currently lives on branch `planwright/output-hygiene/spec`).
