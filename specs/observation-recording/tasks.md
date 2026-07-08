@@ -95,8 +95,10 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   line-content-keyed legacy arm annotating the frozen log in place);
   `tests/test-obs-consume.sh` covering the happy path, slug-renamed
   fragment consumed by UID, an entry whose text was edited then consumed
-  by UID, re-run idempotency (single annotation), the crash-window
-  fixture, hostile UID/spec-id refusals (traversal, glob, newline
+  by UID, re-run idempotency (single annotation; a fully archived
+  same-spec consume is a clean no-op), the crash-window
+  fixture, an unknown-UID refusal, a duplicate-UID refusal naming both
+  matches, hostile UID/spec-id refusals (traversal, glob, newline
   injection), a symlinked fragment refused, hostile fragment content
   handled as data, and the legacy in-place annotation.
 - **Done when:** A consumed fragment sits in `archive/` with UID preserved

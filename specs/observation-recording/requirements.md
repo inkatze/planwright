@@ -149,7 +149,12 @@ to and prune; the fragment model dissolves the shared file instead.
   exists) and written atomically, so a re-run neither duplicates nor tears
   the annotation; an `entries/` fragment already bearing a `Consumed-by:`
   line is *consumed* to every reader — mining completes its move rather
-  than re-mining it. Legacy consumption is keyed on line content, an
+  than re-mining it. Consume resolves its UID against `entries/` *and*
+  `archive/`: a fragment already archived with a same-spec annotation is
+  a clean no-op (a completed consume); a UID matching no file is a clean
+  non-zero refusal; a UID matching more than one file (the post-merge
+  duplicate window, D-2) is a refusal naming every match — never a
+  silent pick. Legacy consumption is keyed on line content, an
   accepted brittleness on a shrinking file (D-5).
   *(Cites: D-3, D-5, kickoff lens pass (2026-07-08).)*
 - **REQ-C1.3** The drain pass SHALL derive the unmined count and

@@ -102,7 +102,11 @@ then rename), so re-runs neither duplicate nor tear the annotation; and
 every reader classifies an `entries/` fragment bearing a `Consumed-by:`
 line as consumed (render excludes it from the live view, drain surfaces it
 as a stuck consume, mining completes the move instead of re-mining), so
-the crash window is visible to machines, not only to humans. The
+the crash window is visible to machines, not only to humans. UID
+resolution spans both directories with defined edges: already archived
+with a same-spec annotation → clean no-op; no match → clean non-zero
+refusal; multiple matches (the D-2 duplicate window) → refusal naming
+every match, never a silent pick. The
 legacy-consume arm is keyed on line content — the accepted, shrinking
 brittleness D-5 names — because frozen-log lines carry no UID. The
 fragment's content contract keeps the

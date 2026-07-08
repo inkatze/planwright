@@ -109,6 +109,9 @@ crash-window fixture finds an annotated-but-unmoved fragment and completes
 it idempotently, leaving exactly one `Consumed-by:` line — the annotate is
 conditional); legacy in-place annotation fixture appends `— consumed-by:`
 to a frozen-log line without reordering the file.
+UID-resolution edges: consuming an already-archived fragment with a
+same-spec annotation is a clean no-op; an unknown UID refuses non-zero;
+a seeded duplicate-UID pair refuses naming both matches.
 `tests/test-drain-gates.sh`: an annotated-but-unmoved fragment is excluded
 from the unmined count and surfaced as a stuck consume. `[manual]` The
 first real `/spec-draft` mining pass after cutover exercises the combined
