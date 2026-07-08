@@ -198,8 +198,10 @@ Reconstructed from the `Dependencies:` lines (authoritative):
 - **Deliberate non-edges (do not "fix"):** 4↛3 (independent scripts,
   independent tests); 6's dependency on 3 and 4 is transitive via 5 only;
   the output-hygiene carve-out amendment is *not* a task edge — it is an
-  external human action tracked as the Deferred gate
-  (`GATE(when: spec observation-recording active)`).
+  external human action tracked as the Deferred free-text gate
+  (`**Gate:** the output-hygiene carve-out amendment has landed` — the
+  status-atom form was rejected in D-9 because it falls silent once this
+  spec completes).
 - **Guard-first:** Task 2 deliberately precedes every task whose
   verification it protects, per the guard-infrastructure-first doctrine.
 
