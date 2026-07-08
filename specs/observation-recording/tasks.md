@@ -141,7 +141,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   and the mining path names `obs-consume.sh`;
   `mise run check` (including `check:links` and `check:specs`) is green.
 - **Dependencies:** 1, 2, 3, 4
-- **Citations:** D-8 · REQ-E1.3, REQ-C1.1, REQ-C1.2
+- **Citations:** D-8 · REQ-E1.3, REQ-C1.1, REQ-C1.2, REQ-D1.2
 - **Estimated effort:** 1 day
 
 ### Task 6 — Migration cutover (dedup, freeze, dirs)
