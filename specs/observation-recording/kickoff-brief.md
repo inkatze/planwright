@@ -331,4 +331,50 @@ Anchor: `7b4e2e1f0acf042747ad8f9c29d2285d574588b8` — computed as
 
 ## 9. Amendment log
 
-(none yet)
+### 2026-07-08 — Delta re-walkthrough: gauntlet convergence pass (pre-merge, Ready bundle)
+
+**Scope:** commits `80f6b98..3f2e11d` — 22 `[pending-sign-off]` commits
+produced by the post-kickoff gauntlet (`/self-review`, then
+`/panel-pairing` with the gemini backend), ~180 insertions across the
+four spec files and this brief.
+
+**Delta walked (meaning-class content):** atomic write upgraded to
+atomic *and exclusive* publish (fail-on-exists semantics; a plain rename
+would silently replace, violating REQ-A1.3's never-overwrite); consume
+UID-resolution edges defined (already-archived same-spec = no-op, no
+match = refusal, multi-match = refusal naming every match); legacy
+consume pinned to fixed-string first-unannotated-match with identical
+lines independently consumable; "unconsumed legacy line" defined
+(entry-form lines only); skip-and-warn extended to drain and mining;
+directories create-on-demand with null-safe guard and helper; the
+coordination gate re-expressed as plain prose after `**Gate:**` (the
+`GATE(when:)` wrapper would parse as a malformed structured gate); F1–F5
+consumption corrected to in-place annotation (legacy lines, not
+fragments); REQ-E1.2 scoped to shipped writers with the in-flight-branch
+residual explicitly accepted (risk row 3); entropy-exhaustion fixture
+via a stubbed entropy seam; Task 5 cites REQ-D1.2 and Task 1 cites D-1.
+Expression-only riders: markdownlint autolink, the committed
+research-synthesis path in Sources, brief §8 referent rewords, the
+42-vs-52 tally annotation, the five-item manual sweep in §5.
+
+**Lens review (delta-scoped, path declared):** the delta is itself the
+dispositioned output of two Discovery-Rigor passes over exactly this
+diff — `/self-review`'s nine-lens fan-out (audit record on PR #128, all
+findings dispositioned per the act-then-review buckets) and
+`/panel-pairing`'s external gemini pass (5 raw → 4 applied with human
+sign-off, 1 disproven) — plus the kickoff session's own read-through of
+the full spec-file diff at re-sign-off. No third fan-out was run over
+the same diff; declared here per discovery-rigor's proportionality rule.
+
+**Verification at re-sign-off:** `scripts/spec-validate.sh` 0 errors /
+0 warnings (Ready enforcement); GitHub CI green on head `3f2e11d`
+(`check` SUCCESS); PR #128 ready. No status flip (already Ready);
+`Last reviewed:` already 2026-07-08 on all four files.
+
+Signed off by: Diego Romero (<jd@inkatze.com>), 2026-07-08.
+
+Class: meaning
+Lens-pass: recorded in this entry (the two gauntlet passes over this
+delta, all findings dispositioned 2026-07-08).
+Anchor: `b45ea8b01adfec1b983afbb5a62115ce5d49a538` — computed as
+`scripts/spec-anchor.sh specs/observation-recording`
