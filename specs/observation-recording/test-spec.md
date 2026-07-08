@@ -96,9 +96,11 @@ the render script writes only to stdout.
 ### REQ-C1.1 — class-3 contract restated in doctrine [design-level]
 
 The Task 5 accumulator-taxonomy amendment names all four tuple elements
-(durable home, canonical reader, drain ritual, archive ritual) for the
-fragment layout and defines the `obs:<uid>` citation form; existence plus
-coverage of that doctrine section is the verification.
+(class, durable home, canonical reader, drain ritual) for the fragment
+layout, states archive-on-consume as this accumulator's *specific* ritual —
+not a universal class-3 attribute (the promotion REQ-C1.1 forbids) — and
+defines the `obs:<uid>` citation form; existence plus coverage of that
+doctrine section is the verification.
 
 ### REQ-C1.2 — mining and consumption semantics [test + manual]
 
