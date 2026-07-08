@@ -310,7 +310,7 @@ above is fully dispositioned; `**Status:**` flipped Draft→Ready and
 re-run under Ready (errors-block) enforcement after every edit of this
 run: 0 errors, 0 warnings.
 
-Signed off by: Diego Romero (jd@inkatze.com), 2026-07-08.
+Signed off by: Diego Romero (<jd@inkatze.com>), 2026-07-08.
 
 Class: meaning
 Lens-pass: recorded above (this section), findings dispositioned 2026-07-08.
