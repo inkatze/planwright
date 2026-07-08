@@ -1,7 +1,7 @@
 # Output & Accumulator Hygiene — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-07
+**Last reviewed:** 2026-07-08
 **Format-version:** 1
 
 ## Goal
@@ -17,8 +17,11 @@ refresh owner, and a mis-placed `[pending-sign-off]` commit-subject marker can r
 permanently (history rewrites are forbidden, so a bad subject in the PR range cannot be
 fixed). This spec makes the pipeline outputs it governs human-first — the PR bodies emitted
 by `/execute-task` and `/self-review` (REQ-A scopes the contract to those two skills; other
-generated surfaces are out of this spec's frame) — and every shared accumulator
-conflict-free and format-stable under concurrent runs.
+generated surfaces are out of this spec's frame) — and the shared accumulator surface it
+retains, the `tasks.md` annotation layer, drift-free and format-stable under concurrent
+runs. The conflict-free observations-recording concern (REQ-B, D-1, Tasks 1–2) was carved
+out to `specs/observation-recording` on 2026-07-08 and is superseded there (its REQ-E1.4 /
+D-9 record the supersession); this bundle retains the other four concerns.
 
 ## Scope
 
@@ -26,10 +29,6 @@ conflict-free and format-stable under concurrent runs.
 
 - **A human-first PR-body contract** for `/execute-task` and `/self-review`: concise summary
   first, the full audit record collapsed, prose not hard-wrapped, one normative home.
-- **Conflict-free observations recording**: concurrent runs record observations without
-  colliding on a shared textual append point, preserving the accumulator-taxonomy class-3
-  contract (a durable home, a canonical reader, a drain ritual — the observations log's
-  drain ritual being drain-pass surfacing plus archive-on-consume).
 - **Pending-sign-off marker canonicalization**: one placement, defined in doctrine, emitted
   by skills, guarded at a moment the author can still fix it, branch-scoped for consumers.
 - **Committed-reference integrity**: no reference in a committed or delivered artifact that
@@ -41,6 +40,11 @@ conflict-free and format-stable under concurrent runs.
 
 ### Out of scope
 
+- **Conflict-free observations recording.** Carved out to `specs/observation-recording`
+  (merged Ready 2026-07-08), which supersedes REQ-B, D-1, and Tasks 1–2
+  (observation-recording REQ-E1.4 / D-9 record the supersession; its fragment substrate
+  owns recording, the conflict-freedom invariants, readers/drain, the security guards,
+  and migration of the existing log).
 - **Cross-repo / multi-target observation routing.** The multi-source, multi-target
   accumulator design (observations log 2026-06-17, deliberately deferred by its author)
   is a separate effort; this spec fixes intra-repo recording only.
@@ -77,11 +81,18 @@ conflict-free and format-stable under concurrent runs.
 
 ## REQ-B — Conflict-free observations recording
 
+*(Group superseded 2026-07-08: the observations-recording concern moved to
+`specs/observation-recording` — see Out of scope. Each requirement below carries its
+supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
+
 - **REQ-B1.1** Concurrent runs SHALL be able to record observations without colliding on a
   shared textual append point: each run writes to a distinct per-run fragment file (a
   run-unique name — REQ-B1.5), and consolidation of fragments into the shared log SHALL be a
   single-writer, default-branch operation that is idempotent and, on any log conflict,
   regenerates from current state rather than resolving by ours/theirs/union.
+  **Superseded-by: REQ-A1.1 (observation-recording)** (2026-07-08) — per-entry fragments
+  replace per-run fragments plus consolidation; conflict-freedom by construction is
+  observation-recording REQ-B1.1, the derived view observation-recording REQ-B1.3.
   *(Cites: the drafting invocation (Sources); research: GitHub merge-driver support
   (Sources); D-1.)*
 - **REQ-B1.2** The recording mechanism SHALL preserve the accumulator-taxonomy class-3
@@ -89,14 +100,21 @@ conflict-free and format-stable under concurrent runs.
   and a drain ritual — here, drain-pass surfacing (unmined count and oldest age) plus the
   observations log's archive-on-consume. The queue SHALL be named in the accumulator-taxonomy
   doctrine as a class-3 surface with those three attributes stated.
+  **Superseded-by: REQ-C1.1 (observation-recording)** (2026-07-08) — the class-3
+  contract restated for the fragment layout.
   *(Cites: observations log 2026-06-12 (archive-ritual home) (Sources); D-1.)*
 - **REQ-B1.3** Existing log entries SHALL never be lost, reordered, or rewrapped by the
   mechanism's consolidation: consolidation appends only (in consolidation order, never
   re-sorted by fragment date) and moves entry text verbatim, never redacting or rewrapping
   it.
+  **Superseded-by: REQ-E1.1 (observation-recording)** (2026-07-08) — consolidation is
+  dissolved in the fragment model; the existing log is dedup-then-frozen with entries
+  preserved in place.
   *(Cites: D-1.)*
 - **REQ-B1.4** The existing consumers (the drain pass's observation surface, `/spec-draft`
   mining and archive trim) SHALL read the new layout with unchanged reported semantics.
+  **Superseded-by: REQ-C1.2 (observation-recording)** (2026-07-08) — mining and the
+  drain surface read the fragment layout (with observation-recording REQ-C1.3).
   *(Cites: D-1; accumulator-taxonomy doctrine (Sources).)*
 - **REQ-B1.5** Fragment names SHALL be built only from components validated against their
   declared grammars **before** any path interpolation (the task-id grammar for the
@@ -105,6 +123,9 @@ conflict-free and format-stable under concurrent runs.
   malformed input is a clean refusal (the observation is dropped and flagged, never written
   to an out-of-tree path). Slug- and branch-derived names echoed into reports or commit
   output SHALL be passed through the printable-sanitizer (`scripts/echo-safety.sh`) first.
+  **Superseded-by: REQ-D1.1 (observation-recording)** (2026-07-08) — the
+  validate/contain/refuse and printable-sanitize posture carried to the fragment
+  substrate (with observation-recording REQ-D1.3).
   *(Cites: security-posture (Sources); orchestration-concurrency REQ-F1.1 (Sources); D-1.)*
 
 ## REQ-C — Pending-sign-off marker canonicalization
@@ -220,6 +241,21 @@ conflict-free and format-stable under concurrent runs.
   citation/format fixes incl. the pinned degraded annotation string (REQ-E1.2) and a doctrine
   home for the canonical annotation format (Task 8). **Cluster 6:** goal/collision claims
   scoped, two Sources relabeled consumed, `queue/` name kept.
+
+- 2026-07-08 — Scope-down delta re-walkthrough (meaning-class): the conflict-free
+  observations-recording concern carved out to `specs/observation-recording` (merged Ready
+  2026-07-08), which supersedes it (observation-recording REQ-E1.4 / D-9). REQ-B1.1,
+  REQ-B1.2, REQ-B1.3, REQ-B1.4, and REQ-B1.5 marked `Superseded-by` observation-recording
+  REQ-A1.1 / REQ-C1.1 / REQ-E1.1 / REQ-C1.2 / REQ-D1.1 respectively (bodies frozen); D-1
+  marked `Superseded-by: observation-recording D-1` in place; Tasks 1 and 2 moved whole to
+  `tasks.md` `## Out of scope` (blocks preserved, never dispatched); the REQ-B test-spec
+  entries removed with the group; the Scope In-scope bullet dropped and an Out-of-scope
+  pointer added; the Goal notes the carve-out and scopes its accumulator claim to the
+  retained `tasks.md` annotation layer; the `tasks.md` intro dependency note updated
+  (remaining graph: Task 5 → {3, 4, 6, 8}; Task 7 standalone). The pointer form
+  `**Superseded-by: REQ-<id> (observation-recording)**` places the foreign namespace in a
+  trailing qualifier because the validator's supersede marker is anchored on the literal
+  `Superseded-by: REQ-` prefix; D-pointers use the namespace-first precedent form.
 
 ## Sources
 
