@@ -155,7 +155,9 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   the fragment substrate and this spec (`entries/` and `archive/` need no
   migration step — the helpers create them on demand, never committed
   empty); the four log entries covering findings F1–F5
-  archived as consumed-by this spec if `chore/log-oh-findings` has merged
+  annotated in place as consumed by this spec (the legacy-consume arm —
+  they are frozen-log lines, not fragments, so the archive move does not
+  apply) if `chore/log-oh-findings` has merged
   by then (otherwise recorded as a new Deferred entry in this `tasks.md`
   with a free-text gate on that branch's merge — never only PR-body
   prose). Lands in the same PR as Task 5's flip (cohesion bundle,

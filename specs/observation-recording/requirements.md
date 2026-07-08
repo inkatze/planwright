@@ -299,8 +299,9 @@ to and prune; the fragment model dissolves the shared file instead.
 - **The F1–F5 panel findings** — four log entries of 2026-07-07 covering
   the five findings F1–F5 (F3 and F5 share one
   `spec-findings(output-hygiene, minor, F3+F5)` entry) on branch
-  `chore/log-oh-findings` (commit 7ac4c2c); archive-on-consume for these
-  entries is deferred to the migration task since they are not yet on
+  `chore/log-oh-findings` (commit 7ac4c2c); their consumption (in-place
+  annotation — the legacy arm, they are log lines, not fragments) is
+  deferred to the migration task since they are not yet on
   `main`.
 - **accumulator-taxonomy doctrine** — the class-3 contract this spec
   restates for the fragment layout.
