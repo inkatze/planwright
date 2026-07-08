@@ -158,11 +158,16 @@ to and prune; the fragment model dissolves the shared file instead.
   non-zero refusal; a UID matching more than one file (the post-merge
   duplicate window, D-2) is a refusal naming every match — never a
   silent pick. Legacy consumption is keyed on line content, an
-  accepted brittleness on a shrinking file (D-5).
+  accepted brittleness on a shrinking file (D-5): the line is located by
+  fixed-string match (never content-as-pattern, REQ-D1.3), exactly one
+  line is annotated — the first unannotated exact match — and textually
+  identical unconsumed lines are each independently consumable.
   *(Cites: D-3, D-5, kickoff lens pass (2026-07-08).)*
 - **REQ-C1.3** The drain pass SHALL derive the unmined count and
   oldest-entry age from the fragment directory plus the frozen legacy file's
-  unconsumed lines, naming both surfaces in the report while the legacy file
+  unconsumed lines (entry-form lines — `- <date> [<scope>] …` — without a
+  consumed-by annotation; the freeze header and non-entry prose are never
+  counted), naming both surfaces in the report while the legacy file
   still holds unconsumed entries. An `entries/` fragment bearing a
   `Consumed-by:` line is excluded from the unmined count and surfaced as a
   stuck consume. A grammar- or shape-invalid file is excluded from the

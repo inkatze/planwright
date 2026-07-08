@@ -108,7 +108,12 @@ with a same-spec annotation → clean no-op; no match → clean non-zero
 refusal; multiple matches (the D-2 duplicate window) → refusal naming
 every match, never a silent pick. The
 legacy-consume arm is keyed on line content — the accepted, shrinking
-brittleness D-5 names — because frozen-log lines carry no UID. The
+brittleness D-5 names — because frozen-log lines carry no UID; the line
+is located by fixed-string comparison (its content never used as a
+pattern or format string, per D-7), the annotation lands on exactly one
+line — the first unannotated exact match — and textually identical
+unconsumed lines (the REQ-E1.1 keep-when-in-doubt rule can produce them)
+are each independently consumable. The
 fragment's content contract keeps the
 existing one-line entry form as its first content line, so entry prose
 conventions and parsers carry over unchanged; beyond it only recognized
@@ -138,7 +143,13 @@ order: by date, same-date legacy lines (in file order) before same-date
 fragments (by UID), chronological to day granularity — with a flag to
 include `archive/`, as a pure, byte-deterministic function of the fragment
 set and legacy-file state, interleaving the frozen legacy file's
-unconsumed entries while that file still holds any. Grammar- or
+unconsumed entries while that file still holds any. A legacy *entry* is a
+line matching the one-line entry form (`- <date> [<scope>] …`); the freeze
+header, blank lines, and any other prose are not entries and are ignored
+by render, drain, and mining alike, and an entry-form line whose date does
+not parse is skip-and-warned like an invalid fragment. The frozen
+`archive.md` is never a render source (pre-fragment history;
+`--archived` includes only `archive/` fragments). Grammar- or
 shape-invalid files are excluded from the output and named on stderr
 (deterministic skip-and-warn — and the same rule binds every reader:
 drain excludes an invalid fragment from its counts and mining from its

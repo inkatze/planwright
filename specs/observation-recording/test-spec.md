@@ -112,8 +112,12 @@ to a frozen-log line without reordering the file.
 UID-resolution edges: consuming an already-archived fragment with a
 same-spec annotation is a clean no-op; an unknown UID refuses non-zero;
 a seeded duplicate-UID pair refuses naming both matches.
+A duplicate-identical-line fixture (two byte-identical unconsumed frozen
+lines) annotates exactly one — the first unannotated match — and a second
+consume annotates the other.
 `tests/test-drain-gates.sh`: an annotated-but-unmoved fragment is excluded
-from the unmined count and surfaced as a stuck consume. `[manual]` The
+from the unmined count and surfaced as a stuck consume; the freeze header
+and non-entry prose are never counted as unconsumed lines. `[manual]` The
 first real `/spec-draft` mining pass after cutover exercises the combined
 candidate set (fragments + legacy) end-to-end.
 
