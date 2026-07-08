@@ -166,8 +166,8 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   a consumed-by citation; `check:obs` passes over the tree (null-safe
   while either fragment directory is still absent);
   no skill text on the branch still appends to the frozen log (Task 5 in the
-  same unit); the F1–F5 archival is either done or gated in Deferred;
-  `mise run check` is green.
+  same unit); the F1–F5 in-place consumption is either done or gated in
+  Deferred; `mise run check` is green.
 - **Dependencies:** 2, 5
 - **Citations:** D-5, D-9 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
