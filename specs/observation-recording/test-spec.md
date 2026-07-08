@@ -37,8 +37,11 @@ retry path; the original file's bytes are untouched and the new fragment
 lands under a fresh UID. A UID colliding only with an *archived* fragment
 (`archive/*-<uid>.md`) also forces the retry, as does a same-directory
 collision under a *different slug* (proving the check keys on the UID,
-not the full filename). Retry exhaustion against a fully pre-seeded UID
-space exits non-zero with no path created.
+not the full filename). Retry exhaustion is forced through a stubbed
+entropy source (a PATH-shimmed reader returning a constant whose UID is
+already present, the suite's usual command-stub seam — the 2³² UID space
+cannot be pre-seeded), so every bounded retry collides; the helper exits
+non-zero with no path created.
 
 ### REQ-A1.4 — entry-form content shape [test]
 
