@@ -140,7 +140,10 @@ include `archive/`, as a pure, byte-deterministic function of the fragment
 set and legacy-file state, interleaving the frozen legacy file's
 unconsumed entries while that file still holds any. Grammar- or
 shape-invalid files are excluded from the output and named on stderr
-(deterministic skip-and-warn); with zero entries the view is empty and the
+(deterministic skip-and-warn — and the same rule binds every reader:
+drain excludes an invalid fragment from its counts and mining from its
+candidate set, each naming the skipped file rather than silently
+dropping an observation); with zero entries the view is empty and the
 drain report states a zero count with no age line. The drain
 pass (`scripts/drain-gates.sh`) derives the unmined count and oldest-entry
 age from the `entries/` glob plus the legacy file's unconsumed lines, naming

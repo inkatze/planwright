@@ -162,8 +162,11 @@ to and prune; the fragment model dissolves the shared file instead.
   unconsumed lines, naming both surfaces in the report while the legacy file
   still holds unconsumed entries. An `entries/` fragment bearing a
   `Consumed-by:` line is excluded from the unmined count and surfaced as a
-  stuck consume. With zero unmined entries the report states the zero count
-  and omits the age line; all globs are null-safe.
+  stuck consume. A grammar- or shape-invalid file is excluded from the
+  count and named (D-4's deterministic skip-and-warn binds drain and
+  mining as much as render — an invalid fragment is never a silently
+  lost observation). With zero unmined entries the report states the zero
+  count and omits the age line; all globs are null-safe.
   *(Cites: D-4, accumulator-taxonomy REQ-H1.4 (Sources), kickoff lens pass
   (2026-07-08).)*
 - **REQ-C1.4** A render command SHALL emit the chronological view of live

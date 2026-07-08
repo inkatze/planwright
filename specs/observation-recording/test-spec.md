@@ -121,7 +121,9 @@ candidate set (fragments + legacy) end-to-end.
 
 `tests/test-drain-gates.sh`: a fixture tree with N fragments and M
 unconsumed legacy lines reports count N+M and the correct oldest age
-(clock pinned via `--today`), and names both surfaces; with the legacy
+(clock pinned via `--today`), and names both surfaces; a grammar-invalid
+fragment in the fixture tree is excluded from the count and named
+(skip-and-warn); with the legacy
 file fully consumed, the report shows fragments only; with zero unmined
 entries it reports the zero count and omits the age line (null-safe
 globs).
