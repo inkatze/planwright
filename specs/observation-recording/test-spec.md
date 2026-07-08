@@ -59,11 +59,17 @@ fragment's entry text, then consume by UID — the consume succeeds
 `obs:<uid>` still greps to exactly one file across `entries/` + `archive/`
 after the move.
 
-### REQ-A1.6 — single recording helper [design-level]
+### REQ-A1.6 — single recording helper [test + design-level]
 
-Task 5's reconciliation: every recording skill's instructions invoke
-`obs-record.sh` (mechanical grep across `skills/`); no skill text composes a
-fragment path by hand.
+`[test]` `tests/test-obs-record.sh` (Task 1, which owns the helper
+contract): a simulated failure between temp-write and publish leaves no
+file and no temp residue under `entries/` (no reader ever sees a torn
+fragment), and the exclusive publish refuses an existing destination
+rather than replacing it. `[design-level]` Task 5's reconciliation: every
+recording skill's instructions invoke `obs-record.sh` (mechanical grep
+across `skills/`), no skill text composes a fragment path by hand, and
+each skill's text states that a non-zero helper exit is surfaced rather
+than silently dropped.
 
 ## REQ-B — Conflict-freedom invariants
 
