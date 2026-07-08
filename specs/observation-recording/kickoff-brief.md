@@ -55,9 +55,10 @@ amendment lands (the Deferred coordination gate).
   no new appends, drains in place via `— consumed-by:` annotations.
 - **Unconsumed legacy entry** — a frozen-log line with no consumed-by
   annotation.
-- **Recording skills** — the seven named in REQ-E1.3 (`/spec-draft`,
+- **Recording skills** — the ten named in REQ-E1.3 (`/spec-draft`,
   `/spec-kickoff`, `/execute-task`, `/self-review`, `/polish`, `/drain`,
-  `/orchestrate`).
+  `/orchestrate`, `/builder`, `/resume`, `/spec-walkthrough` — every
+  shipped skill carries at least the drift-log write).
 - **Render** — the derived chronological view: stdout only, date-then-UID
   order, `--archived` opt-in, legacy interleave while unconsumed legacy
   entries exist.
@@ -106,7 +107,7 @@ every reader, standing `check:obs` CI guard. The guard's body-shape
 underspecification became decision 2 below.
 
 **REQ-E — Migration and coordination.** Confirmed: dedup-then-freeze, the
-Tasks 5+6 one-unit cutover (REQ-E1.2), seven-skill reconciliation, and the
+Tasks 5+6 one-unit cutover (REQ-E1.2), ten-skill reconciliation, and the
 explicit supersession of output-hygiene REQ-B / D-1 / Tasks 1–2 with the
 Deferred gate. The `archive.md` 12-consumed-by vs "~10 duplicates" delta
 is absorbed by REQ-E1.1's line-by-line `[manual]` verification.
