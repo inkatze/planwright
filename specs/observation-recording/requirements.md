@@ -98,8 +98,12 @@ to and prune; the fragment model dissolves the shared file instead.
   *(Cites: D-2, D-3.)*
 - **REQ-A1.6** A single shared recording helper SHALL mint, validate, and
   write fragments; recording skills SHALL invoke it rather than composing
-  fragment paths themselves. The write publishes atomically (temp file,
-  then rename), so no reader ever sees a torn fragment. On a non-zero
+  fragment paths themselves. The write publishes atomically *and
+  exclusively* (temp file, then a publish that fails on an existing
+  destination — hard-link-then-unlink or equivalent `O_EXCL` semantics; a
+  plain rename silently replaces its target and cannot honor REQ-A1.3's
+  never-overwrite guard), so no reader ever sees a torn fragment and a
+  racing writer cannot clobber one. On a non-zero
   helper exit the invoking skill SHALL surface the failure rather than
   silently dropping the observation.
   *(Cites: D-6, kickoff lens pass (2026-07-08).)*

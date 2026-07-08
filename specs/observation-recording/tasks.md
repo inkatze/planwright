@@ -21,7 +21,8 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   canonicalization, bounded fail-on-exists collision retry with clean
   refusal on exhaustion or entropy failure, clean refusal on hostile input
   and on entry text carrying newlines or control characters, atomic
-  fragment write — temp file, then rename — with the one-line entry form);
+  exclusive fragment write — temp file, then a fail-on-exists publish,
+  never a destination-replacing rename — with the one-line entry form);
   `tests/test-obs-record.sh` covering the happy path, collision retry, and
   hostile-input refusals (traversal, uppercase, control characters,
   overlong slug, malformed and non-calendar date, multi-line entry text),

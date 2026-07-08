@@ -185,8 +185,11 @@ ritual instead of a rewrite.
 
 **Decision:** A single helper script (`scripts/obs-record.sh`) owns UID
 minting, grammar validation (including calendar-date validity), containment
-checking, bounded collision retry, and atomic fragment writing (temp file,
-then rename); it refuses entry text carrying newlines or control
+checking, bounded collision retry, and atomic exclusive fragment writing
+(temp file, then a fail-on-exists publish — hard-link-then-unlink or
+equivalent `O_EXCL` semantics, never a destination-replacing rename, which
+would silently overwrite on collision); it refuses entry text carrying
+newlines or control
 characters; recording skills invoke it rather than composing paths, and
 surface a non-zero exit rather than silently dropping the observation. In
 adopter repos the helper resolves plugin-relative while the fragment
@@ -313,8 +316,8 @@ with named remedies instead of implicit knowledge.
   (no auth surface), dependency adoption (explicitly declined — the
   news-fragment pattern is borrowed, no tool is added).
 - **Crash windows.** Recording: mint-then-write with fail-on-exists means a
-  crash before write leaves nothing, and the atomic temp-then-rename
-  publish (D-6) means a crash mid-write leaves nothing either; a collision
+  crash before write leaves nothing, and the atomic exclusive publish
+  (D-6) means a crash mid-write leaves nothing either; a collision
   on retry mints fresh entropy. Consumption: annotate-then-move (D-3) fails
   visible-and-forward, with the annotate itself conditional and atomic.
   Migration: single PR, single revert — noting the revert restores the log
