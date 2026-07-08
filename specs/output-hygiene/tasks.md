@@ -1,61 +1,19 @@
 # Output & Accumulator Hygiene — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-07
+**Last reviewed:** 2026-07-08
 **Format-version:** 1
 
-Eight tasks. The `Dependencies:` lines are authoritative (no drawn graph — REQ-E1.4
-applied to this bundle from birth). The guard-first lesson (bootstrap selection-policy
-observation, 2026-06-11) is encoded as edges: Task 5's link lint protects every
-doc-writing task, so Tasks 3, 4, 6, and 8 depend on it explicitly. Critical path:
-Task 1 → Task 2.
+Six live tasks (Tasks 1–2 were superseded 2026-07-08 — the observations-recording
+concern moved to `specs/observation-recording`; their blocks are preserved under
+`## Out of scope` and are never dispatched). The `Dependencies:` lines are authoritative
+(no drawn graph — REQ-E1.4 applied to this bundle from birth). The guard-first lesson
+(bootstrap selection-policy observation, 2026-06-11) is encoded as edges: Task 5's link
+lint protects every doc-writing task, so Tasks 3, 4, 6, and 8 depend on it explicitly.
+Remaining graph: Task 5 → {3, 4, 6, 8}; Task 7 standalone. Critical path:
+Task 5 → any of {3, 4, 6} (1.5 days).
 
 ## Forward plan
-
-### Task 1 — Fragment queue and consolidation primitive
-
-- **Deliverables:** `specs/_observations/queue/` convention (fragment filename grammar
-  `<YYYY-MM-DD>-<taskid>-<run-nonce>.md`: `<taskid>` from the run's task/branch id,
-  `<run-nonce>` a run-unique token chosen once at run start — a stable run/dispatch id where
-  one exists, else a short `^[a-z0-9]+$` random token — so two runs on the same task+date
-  cannot collide; one file per run, all its observations appended to it; both components
-  charset-validated before path interpolation and the derived path containment-checked, with
-  a clean refusal on hostile/malformed input, per REQ-B1.5); a single-writer, idempotent
-  consolidation routine (append the fragments' entries to `opportunities.md` in consolidation
-  order **and** delete the consumed fragments as **one atomic commit**; idempotent — append
-  only entries not already present, delete only fragments still present; on any
-  `opportunities.md` conflict, regenerate from current state, never ours/theirs/union),
-  guarded by a dedicated **global `_observations` advisory lock** (distinct from the per-spec
-  lock — a performance guard against concurrent `--bookkeeping` retries, not the correctness
-  mechanism); branch-/slug-derived names printable-sanitized before any echo (REQ-B1.5);
-  accumulator-taxonomy doctrine amendment naming the queue as a class-3 surface (durable
-  home, canonical reader `/spec-draft`, drain ritual).
-- **Done when:** two runs with distinct identities on the same date produce **different**
-  filenames (asserted directly), and consolidation produces a conflict-free append-ordered
-  log with the fragments deleted; a concurrent-consolidation test proves idempotency (no
-  duplicate entry) and regenerate-on-conflict (no union merge); a test proves existing log
-  entries survive byte-for-byte apart from appends (verbatim, no rewrap); the atomic-commit
-  case proves an interrupted run persists neither the append nor the delete; a traversal /
-  metacharacter fragment name is a clean refusal writing no out-of-tree file, and an echoed
-  name is printable-sanitized; the doctrine names the queue surface; `mise run check` passes.
-- **Dependencies:** none
-- **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.5
-- **Estimated effort:** 3 days
-
-### Task 2 — Consumer wiring for the queue
-
-- **Deliverables:** `/orchestrate --bookkeeping` is the **sole consolidation writer** — it
-  invokes Task 1's routine on the default branch; `/spec-draft` **mines** the queue plus the
-  log (read-only) and never consolidates (it runs in a feature-branch worktree, where a
-  consolidation write would ride the branch PR and collide at merge — D-1); the drain pass's
-  observation surface counts queue entries in the unmined count and oldest-age figures.
-- **Done when:** a drain-report fixture with queue entries shows them in the unmined
-  surface; `--bookkeeping`'s instructions name it as the consolidation writer and
-  `/spec-draft`'s name the queue as a read-only mining input (no consolidation write);
-  `mise run check` passes.
-- **Dependencies:** 1
-- **Citations:** D-1 · REQ-B1.2, REQ-B1.4
-- **Estimated effort:** 1 day
 
 ### Task 3 — PR-body contract
 
@@ -185,9 +143,61 @@ Task 1 → Task 2.
 
 ## Out of scope
 
+- Conflict-free observations recording — carved out to `specs/observation-recording`
+  (2026-07-08); Tasks 1–2 below are superseded with it and preserved as frozen records
+  (stable IDs, definition fields intact — bootstrap D-20), never dispatched.
 - Cross-repo / multi-target observation routing — the deferred accumulator redesign
   (see requirements Out of scope).
 - Input-side parser consolidation (spec-parse and scope-grammar duplication entries).
 - Retroactive edits to already-merged PR bodies.
 - The escaper/sanitizer consolidation — extracted to the standalone
   `chore/esc-consolidation` (2026-07-02).
+
+### Task 1 — Fragment queue and consolidation primitive
+
+- **Deliverables:** `specs/_observations/queue/` convention (fragment filename grammar
+  `<YYYY-MM-DD>-<taskid>-<run-nonce>.md`: `<taskid>` from the run's task/branch id,
+  `<run-nonce>` a run-unique token chosen once at run start — a stable run/dispatch id where
+  one exists, else a short `^[a-z0-9]+$` random token — so two runs on the same task+date
+  cannot collide; one file per run, all its observations appended to it; both components
+  charset-validated before path interpolation and the derived path containment-checked, with
+  a clean refusal on hostile/malformed input, per REQ-B1.5); a single-writer, idempotent
+  consolidation routine (append the fragments' entries to `opportunities.md` in consolidation
+  order **and** delete the consumed fragments as **one atomic commit**; idempotent — append
+  only entries not already present, delete only fragments still present; on any
+  `opportunities.md` conflict, regenerate from current state, never ours/theirs/union),
+  guarded by a dedicated **global `_observations` advisory lock** (distinct from the per-spec
+  lock — a performance guard against concurrent `--bookkeeping` retries, not the correctness
+  mechanism); branch-/slug-derived names printable-sanitized before any echo (REQ-B1.5);
+  accumulator-taxonomy doctrine amendment naming the queue as a class-3 surface (durable
+  home, canonical reader `/spec-draft`, drain ritual).
+- **Done when:** two runs with distinct identities on the same date produce **different**
+  filenames (asserted directly), and consolidation produces a conflict-free append-ordered
+  log with the fragments deleted; a concurrent-consolidation test proves idempotency (no
+  duplicate entry) and regenerate-on-conflict (no union merge); a test proves existing log
+  entries survive byte-for-byte apart from appends (verbatim, no rewrap); the atomic-commit
+  case proves an interrupted run persists neither the append nor the delete; a traversal /
+  metacharacter fragment name is a clean refusal writing no out-of-tree file, and an echoed
+  name is printable-sanitized; the doctrine names the queue surface; `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.5
+- **Estimated effort:** 3 days
+- **Status:** superseded — moved to `specs/observation-recording` (delta re-walkthrough
+  2026-07-08); never dispatched.
+
+### Task 2 — Consumer wiring for the queue
+
+- **Deliverables:** `/orchestrate --bookkeeping` is the **sole consolidation writer** — it
+  invokes Task 1's routine on the default branch; `/spec-draft` **mines** the queue plus the
+  log (read-only) and never consolidates (it runs in a feature-branch worktree, where a
+  consolidation write would ride the branch PR and collide at merge — D-1); the drain pass's
+  observation surface counts queue entries in the unmined count and oldest-age figures.
+- **Done when:** a drain-report fixture with queue entries shows them in the unmined
+  surface; `--bookkeeping`'s instructions name it as the consolidation writer and
+  `/spec-draft`'s name the queue as a read-only mining input (no consolidation write);
+  `mise run check` passes.
+- **Dependencies:** 1
+- **Citations:** D-1 · REQ-B1.2, REQ-B1.4
+- **Estimated effort:** 1 day
+- **Status:** superseded — moved to `specs/observation-recording` (delta re-walkthrough
+  2026-07-08); never dispatched.
