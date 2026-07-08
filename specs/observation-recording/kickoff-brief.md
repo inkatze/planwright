@@ -165,14 +165,16 @@ Signed off: 2026-07-08
 - **Coverage mix (21 REQs):** `[test]` shell fixtures under `tests/`,
   run by `mise run check` in GitHub Actions (`ci.yml`); `[design-level]`
   artifact checks and mechanical greps folded into task done-whens
-  (chiefly Task 5's zero-matches grep); `[manual]` four items.
+  (chiefly Task 5's zero-matches grep); `[manual]` five items.
 - **Ownership:** CI owns every `[test]` path. The human owns the
   `[manual]` sweep: (1) line-by-line dedup review at the Tasks 5+6
   migration PR (REQ-E1.1); (2) the output-hygiene carve-out amendment and
   holding its Tasks 1–2 undispatched (REQ-E1.4); (3) the first
   post-cutover `/spec-draft` mining pass exercising the combined candidate
   set (REQ-C1.2); (4) write-time prose-leak screening, backed by
-  `scan:secrets` for token-shaped leaks (REQ-D1.2). `[design-level]`
+  `scan:secrets` for token-shaped leaks (REQ-D1.2); (5) confirming at the
+  Tasks 5+6 PR that the flip and the freeze land together (REQ-E1.2).
+  `[design-level]`
   items verify inside the owning task's done-when at PR review.
 - **Dead paths:** none — every REQ's named verification can run; each
   `[manual]` item has an owner and a concrete occasion.
