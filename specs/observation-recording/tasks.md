@@ -185,7 +185,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   a status atom on this spec would fall silent once this spec completes,
   while the hold must persist until the amendment lands (kickoff lens pass
   2026-07-08). Confidence: high.
-  **Gate:** GATE(when: output-hygiene carve-out amendment has landed).
+  **Gate:** the output-hygiene carve-out amendment has landed.
   Citations: D-9, REQ-E1.4, the seed brief (Sources).
 
 ## Out of scope

@@ -200,9 +200,12 @@ name the fragment substrate.
 
 ### REQ-E1.4 — supersession and coordination gate [design-level + manual]
 
-`[design-level]` The Deferred entry with
-`GATE(when: output-hygiene carve-out amendment has landed)` exists in
-`tasks.md`; as a free-text gate the drain pass surfaces (not evaluates) it
+`[design-level]` The Deferred entry with the free-text gate
+`**Gate:** the output-hygiene carve-out amendment has landed` exists in
+`tasks.md` — plain prose after `**Gate:**`, per the accumulator-taxonomy
+grammar; wrapped in `GATE(when: …)` it would parse as a structured gate
+with an unrecognized atom and report as MALFORMED instead of surfacing.
+As a free-text gate the drain pass surfaces (not evaluates) it
 on every pass until the human resolves it (free-text surfacing covered
 generically by `tests/test-drain-gates.sh`), so the hold stays visible for
 its whole window — including after this spec completes.
