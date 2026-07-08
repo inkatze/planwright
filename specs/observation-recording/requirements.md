@@ -97,7 +97,10 @@ to and prune; the fragment model dissolves the shared file instead.
   survive slug rename, content edit, and the archive move.
   *(Cites: D-2, D-3.)*
 - **REQ-A1.6** A single shared recording helper SHALL mint, validate, and
-  write fragments; recording skills SHALL invoke it rather than composing
+  write fragments, creating `entries/` on demand (`mkdir -p`; git cannot
+  commit an empty directory and a placeholder file would fail the
+  REQ-D1.4 grammar, so the directories are never committed empty);
+  recording skills SHALL invoke it rather than composing
   fragment paths themselves. The write publishes atomically *and
   exclusively* (temp file, then a publish that fails on an existing
   destination — hard-link-then-unlink or equivalent `O_EXCL` semantics; a
@@ -206,7 +209,9 @@ to and prune; the fragment model dissolves the shared file instead.
   `archive/`, and SHALL fail on unexpected files under
   `specs/_observations/` (anything beyond the two directories and the
   frozen legacy files — the standing block on committed compiled views),
-  failing on seeded violations.
+  failing on seeded violations. The guard SHALL be null-safe over absent
+  directories (they are created on demand — REQ-A1.6 — and may not exist
+  yet in a given tree).
   *(Cites: D-6, kickoff lens pass (2026-07-08).)*
 
 ## REQ-E — Migration and cross-spec coordination

@@ -176,7 +176,9 @@ Task 2's seeded-violation fixtures: bad name, traversal-shaped name,
 non-calendar date, multi-entry file, missing entry line, free-prose body,
 unrecognized metadata key, duplicate UID across `entries/` + `archive/`,
 and an unexpected top-level file under `specs/_observations/` each fail
-`check:obs` (run under `LC_ALL=C`); a clean tree passes; the task is wired
+`check:obs` (run under `LC_ALL=C`); a clean tree passes; a tree with one
+or both fragment directories absent passes (null-safe — they are created
+on demand); the task is wired
 into the aggregate `mise run check` that CI runs.
 
 ## REQ-E — Migration and cross-spec coordination
@@ -188,8 +190,9 @@ consumed-by record; the human verifies the one-to-one pairing before merge,
 re-checks the recomputed set immediately before merging (appends continue
 until the flip lands), and keeps any candidate plausibly a legitimate
 textual re-occurrence.
-`[test]` Post-state: `check:obs` passes over the created directories, and a
-fixture asserts both frozen files open with their freeze headers.
+`[test]` Post-state: `check:obs` passes over the post-migration tree
+(null-safe while the on-demand fragment directories are still absent), and
+a fixture asserts both frozen files open with their freeze headers.
 
 ### REQ-E1.2 — no split-brain window [design-level + manual]
 

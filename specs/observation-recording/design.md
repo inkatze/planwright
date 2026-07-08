@@ -204,7 +204,11 @@ characters; recording skills invoke it rather than composing paths, and
 surface a non-zero exit rather than silently dropping the observation. In
 adopter repos the helper resolves plugin-relative while the fragment
 directories are the host repo's — paths anchor at the host repo root,
-never the plugin root.
+never the plugin root. The helper creates `entries/` on demand and the
+consume script creates `archive/` on demand (`mkdir -p`): git cannot
+commit an empty directory, a placeholder file would violate the guard's
+grammar, and create-on-demand bootstraps adopter repos with no migration
+step; the guard and every reader are null-safe over absent directories.
 A CI guard (a `check:obs` task backed by a script with seeded-violation
 fixtures) runs under `LC_ALL=C` and validates fragment-name grammar
 (calendar dates included), one-entry-per-file shape with an exact metadata

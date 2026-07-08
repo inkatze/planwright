@@ -47,7 +47,8 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   dates included) and the one-entry-per-file content shape with an exact
   metadata whitelist, checking UID uniqueness across both directories, and
   failing on unexpected files under `specs/_observations/` (the two
-  directories and the frozen legacy files are the only expected contents);
+  directories and the frozen legacy files are the only expected contents;
+  null-safe over absent directories);
   a `check:obs` mise task wired into the aggregate `check`;
   seeded-violation fixtures in `tests/`.
 - **Done when:** Each seeded violation (bad name, traversal-shaped name,
@@ -151,15 +152,17 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   recomputed against the branch's current state immediately before merge;
   any candidate plausibly a legitimate textual re-occurrence kept, not
   removed); freeze headers on `opportunities.md` and `archive.md` naming
-  the fragment substrate and this spec; `entries/` and `archive/`
-  directories created; the four log entries covering findings F1–F5
+  the fragment substrate and this spec (`entries/` and `archive/` need no
+  migration step — the helpers create them on demand, never committed
+  empty); the four log entries covering findings F1–F5
   archived as consumed-by this spec if `chore/log-oh-findings` has merged
   by then (otherwise recorded as a new Deferred entry in this `tasks.md`
   with a free-text gate on that branch's merge — never only PR-body
   prose). Lands in the same PR as Task 5's flip (cohesion bundle,
   REQ-E1.2).
 - **Done when:** The frozen files carry their headers; no removed line lacks
-  a consumed-by citation; `check:obs` passes over the created directories;
+  a consumed-by citation; `check:obs` passes over the tree (null-safe
+  while either fragment directory is still absent);
   no skill text on the branch still appends to the frozen log (Task 5 in the
   same unit); the F1–F5 archival is either done or gated in Deferred;
   `mise run check` is green.
