@@ -38,6 +38,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Citations:** D-1, D-2, D-6, D-7 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4,
   REQ-A1.6, REQ-B1.1, REQ-D1.1, REQ-D1.3
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-09
 
 ### Task 2 — Fragment CI guard (`check:obs`)
 
