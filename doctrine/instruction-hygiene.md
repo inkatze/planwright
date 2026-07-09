@@ -7,8 +7,9 @@ land, and instruction-following measurably degrades as that load grows. This
 doc is the authoring law that keeps the instruction layer within budget: the
 authoring rule, the doctrine manifest, the loading convention and its safety
 floor, the size budgets, the test-and-measure principle, and the kept
-prompt-eval convention. The size guard (`scripts/check-instructions.sh`, wired
-into `mise run check`) enforces the budgets; this doc governs the writing.
+prompt-eval convention. The size guard (`scripts/check-instructions.sh`,
+wired into `mise run check`; both delivered by prompt-hygiene Task 2)
+enforces the budgets; this doc governs the writing.
 
 Citations: prompt-hygiene REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.6 ·
 D-1, D-2, D-3, D-5, D-6, D-7, D-8, D-9, D-10, D-11.
@@ -150,9 +151,10 @@ charges every skill that front-loads it. Per-file floors are the cheap
 early-warning signal. Threshold comparison is boundary-inclusive: a count
 equal to a threshold trips it (`>=`).
 
-Values live as `instruction_budget_*` knobs in `config/defaults.yml`,
-overlay-tunable; the mechanism is core. The `doctrine/README.md` index is
-excluded from the per-file walk (an index, not run-start law). Two suppression
+Values live as `instruction_budget_*` knobs in `config/defaults.yml` (another
+Task 2 deliverable), overlay-tunable; the mechanism is core. The
+`doctrine/README.md` index is excluded from the per-file walk (an index, not
+run-start law). Two suppression
 forms exist, each requiring a recorded reason: a **permanent exemption**
 (per-file floor only, never start-load or closure, standing rationale) and a
 **transitional `pending diet (Task N)` allowance** (any budget, temporary,
@@ -193,8 +195,8 @@ still degrades behavior.
 - **Cadence.** On demand, and when the instruction files under eval change.
   Never per-commit: the suite is not part of `mise run check` and never runs
   in GitHub CI (cost, nondeterministic gating, and an API-key requirement in
-  a public repo). A standing CI-exclusion check enforces that no eval task is
-  wired into a CI workflow.
+  a public repo). A standing CI-exclusion check (a prompt-hygiene Task 4
+  deliverable) enforces that no eval task is wired into a CI workflow.
 - **Artifact hygiene.** A recorded eval artifact carries the per-fixture
   graded outcome, the fixture identifier (the paired comparison needs it),
   and the per-run cost — and nothing more. It is scrubbed of machine-local
