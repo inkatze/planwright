@@ -368,3 +368,48 @@ Class: meaning
 Lens-pass: recorded above (this section), findings dispositioned 2026-07-09.
 Anchor: `00964548b7ca20d42f55bc8486ea1bca9a084491` — computed as
 `scripts/spec-anchor.sh specs/prompt-hygiene`
+
+### Amendment 1 (2026-07-09) — independent-model panel pass
+
+**Class:** meaning (amendment; supersedes the anchor above).
+
+An independent-model panel pass (`/panel-pairing`, gemini backend) ran after
+kickoff to catch what the same-session Discovery-Rigor lens might have missed,
+focused on the redesigned Task 7.5 / REQ-B1.3 transitional-allowance mechanism
+and the sign-off additions (REQ-A1.4/B1.7/B1.8/B1.9/C1.6). It returned five
+cross-file / interaction findings, none in the start-load fix itself (that
+redesign's arithmetic and dependency graph were independently re-derived and
+hold). All five were validated (three-pass) as real and accepted by the human
+as meaning-class amendments:
+
+- **F1 (deadlock, Needs human judgment → accepted):** Task 2 wires the guard
+  into `mise run check` before Task 3 adds manifests, yet test-spec REQ-A1.2 /
+  Task 3 treated an absent manifest as a hard error → Task 2 deadlocks Task 3.
+  Fix (Option 1): a skill declaring **no** manifest scores start-load body-only
+  (not an error); the hard missing-manifest error is reserved for a *malformed*
+  manifest (REQ-A1.2, REQ-B1.8); a manifest-completeness assertion (wired at
+  Task 3) guards silent under-report; test-spec REQ-A1.2 + Task 3 wording fixed.
+- **F2 (asymmetry, Needs human judgment → accepted):** the transitional
+  `pending diet` allowance covered per-file and start-load but not
+  reachable-closure — the isomorphic deadlock the redesign fixed for start-load,
+  left open for closure. Fix: extend REQ-B1.3(b) to cover reachable-closure too
+  (REQ-D1.4, Task 8, test-spec updated in lockstep).
+- **F3 (proportionality, Needs human judgment → accepted):** REQ-B1.8 made an
+  unextractable injected-context hook a hard error, contradicting D-13 / REQ-B1.7's
+  never-fail surface. Fix: carve the injected-context hook out of B1.8's fail-loud
+  (which now governs only the deterministic manifest/exemption/knob inputs); an
+  unextractable hook is a parse-failure **warning** (REQ-B1.7).
+- **F4 (Needs sign-off → accepted):** REQ-C1.6 / Task 4 "carry only graded
+  outcome + cost" omitted the fixture identifier, which the D-7 paired
+  before/after comparison needs. Fix: retain the per-fixture identifier.
+- **F5 (Needs sign-off → accepted):** REQ-B1.7 "exceeds the floor" → "meets or
+  exceeds the floor" (align with REQ-B1.8's `≥`).
+
+Validator re-run after the amendment: `0 error(s), 0 warning(s)`; 23 REQs,
+full bidirectional REQ↔test-spec coverage; markdownlint 0; links resolve.
+`specs/_observations/opportunities.md` merge conflict with main resolved as a
+union (all three log entries kept).
+
+Class: meaning
+Anchor: `3c669ae9526f929c0078bd150ca5344ded8a6a87` — computed as
+`scripts/spec-anchor.sh specs/prompt-hygiene`

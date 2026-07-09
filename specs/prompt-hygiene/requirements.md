@@ -77,7 +77,15 @@ enforceable proxies; semantic quality stays review-time judgment.
 - **REQ-A1.2** The tool SHALL compute, per skill, the mandatory-at-start
   load (the SKILL.md plus the rule docs its manifest requires at run start)
   and the reachable closure (plus every rule doc the manifest defers to
-  point of use), derived mechanically from the skill's doctrine manifest.
+  point of use), derived mechanically from the skill's doctrine manifest. A
+  skill that declares **no** manifest is not an error: its run-start set is
+  empty, so its mandatory-at-start is scored as its SKILL.md body alone (the
+  missing-manifest error is reserved for a *malformed* manifest, REQ-B1.8).
+  Separately, the guard SHALL carry a **manifest-completeness assertion** —
+  every `skills/*/SKILL.md` declares a doctrine manifest — so a manifest-less
+  skill cannot silently under-report its start-load once manifests are the
+  corpus norm; that assertion is wired in when the manifests land (Task 3),
+  not before.
   *(Cites: D-1, D-3.)*
 - **REQ-A1.3** The audit SHALL produce a ranked offender shortlist — files
   over their per-file floors **and** skills over the mandatory-at-start or
@@ -117,13 +125,17 @@ enforceable proxies; semantic quality stays review-time judgment.
   floor, **never** the mandatory-at-start or reachable-closure budgets, and
   carries a standing rationale; and
   (b) a **transitional `pending diet (Task N)` allowance**, which temporarily
-  permits one named over-budget offender — per-file **or** mandatory-at-start —
-  to not fail the check for the duration of its diet, is removed by that
-  task's own PR, and SHALL be forbidden at closeout (REQ-D1.4). The
-  transitional allowance is the only form that may cover a mandatory-at-start
-  offender, and only transiently; no permanent exemption ever suppresses the
-  start-load or closure budgets.
-  *(Cites: D-5, kickoff sign-off lens pass (2026-07-09).)*
+  permits one named over-budget offender — per-file, mandatory-at-start, **or**
+  reachable-closure — to not fail the check for the duration of its diet, is
+  removed by that task's own PR, and SHALL be forbidden at closeout (REQ-D1.4).
+  The transitional allowance is the only form that may cover a mandatory-at-start
+  or reachable-closure offender, and only transiently; no permanent exemption
+  ever suppresses the start-load or closure budgets. (Covering closure too is the
+  symmetric deadlock fix: a closure offender the manifest computation surfaces
+  needs a content diet no single task pre-scopes, and without a transitional
+  escape it would deadlock the graph exactly as an unexemptible start-load
+  offender once did.)
+  *(Cites: D-5, kickoff sign-off lens pass (2026-07-09), amendment (2026-07-09).)*
 - **REQ-B1.4** Every config knob this spec introduces SHALL have a row in
   `docs/options-reference.md`.
   *(Cites: bootstrap D-43.)*
@@ -138,22 +150,31 @@ enforceable proxies; semantic quality stays review-time judgment.
   unresolvable reference SHALL fail the check.
   *(Cites: D-3, drafting-session decision (2026-07-08).)*
 - **REQ-B1.7** The injected static prose measured under REQ-A1.4 SHALL carry
-  a warn-level floor only: an injected-context hook whose static prose exceeds
-  the floor SHALL be reported as a warning, and SHALL NOT fail the check
+  a warn-level floor only: an injected-context hook whose static prose meets or
+  exceeds the floor SHALL be reported as a warning, and SHALL NOT fail the check
   (the surface is per-session and partly dynamic). The floor gates only the
-  warning, never the report row (which REQ-A1.4 always emits). The floor's
+  warning, never the report row (which REQ-A1.4 always emits). An injected-context
+  hook whose static prose the guard cannot extract SHALL likewise be reported as a
+  warning (a parse-failure warning), never a hard error: this surface never fails
+  the check, so its fail-loud carve-out is explicit (contrast REQ-B1.8, whose
+  fail-loud governs the deterministic manifest/exemption/knob inputs). The floor's
   default SHALL live in `config/defaults.yml`, overlay-tunable, with its
   `docs/options-reference.md` row (REQ-B1.4).
-  *(Cites: D-13, D-5, kickoff §3 (2026-07-08).)*
-- **REQ-B1.8** The guard SHALL fail loud on measurement input it cannot
-  parse: a malformed or unrecognized doctrine-manifest entry, a malformed
-  exemption/allowance entry, a missing or non-numeric threshold knob, or an
-  injected-context hook whose static prose it cannot extract SHALL be an
-  error, never a silent skip, a silent zero, or a pass. An input that cannot
-  be measured is not counted as under budget. Threshold comparison SHALL be
-  boundary-defined: a count **equal to** an error threshold is an error, and
-  a count equal to a warn threshold is a warning (`≥`, not `>`).
-  *(Cites: D-5, kickoff sign-off lens pass (2026-07-09).)*
+  *(Cites: D-13, D-5, kickoff §3 (2026-07-08), amendment (2026-07-09).)*
+- **REQ-B1.8** The guard SHALL fail loud on the deterministic measurement
+  input it cannot parse: a malformed or unrecognized doctrine-manifest entry, a
+  malformed exemption/allowance entry, or a missing or non-numeric threshold
+  knob SHALL be an error, never a silent skip, a silent zero, or a pass. An
+  input that cannot be measured is not counted as under budget. A skill that
+  declares **no** doctrine manifest is not an error (its start-load is scored
+  body-only per REQ-A1.2); the missing-manifest error is reserved for a manifest
+  that is present but malformed. The injected-context surface is carved out of
+  this fail-loud rule: an injected-context hook whose static prose cannot be
+  extracted is warn-only per REQ-B1.7, since that surface never fails the check.
+  Threshold comparison SHALL be boundary-defined: a count **equal to** an error
+  threshold is an error, and a count equal to a warn threshold is a warning
+  (`≥`, not `>`).
+  *(Cites: D-5, kickoff sign-off lens pass (2026-07-09), amendment (2026-07-09).)*
 - **REQ-B1.9** The guard and audit run in CI over repository files that are
   PR-controllable (manifest entries, exemption/allowance text, rule-doc
   names, hook scripts). They SHALL treat that content as untrusted: no
@@ -188,9 +209,13 @@ enforceable proxies; semantic quality stays review-time judgment.
   *(Cites: D-10, drafting-session decision (2026-07-08).)*
 - **REQ-C1.6** The kept-eval convention SHALL require artifact hygiene and a
   standing CI-exclusion guard: recorded eval artifacts (results, cost) SHALL
-  carry only the graded outcome and cost, scrubbed of machine-local paths,
-  usernames, and session identifiers, so no operational detail lands in a
-  committed (public) artifact; and the "evals never run in CI" invariant
+  carry the per-fixture graded outcome, the fixture identifier, and cost — and
+  nothing more — scrubbed of machine-local paths, usernames, and session
+  identifiers, so no operational detail lands in a committed (public) artifact.
+  The fixture identifier is retained deliberately: without it the D-7 paired
+  before/after comparison (REQ-D1.3) cannot pair a baseline result to its
+  post-diet counterpart on the identical fixture. And the "evals never run in CI"
+  invariant
   (D-8) SHALL be enforced by a standing check over the CI workflow files —
   not by mere absence from the `check` aggregate — that fails if an eval task
   is wired into CI.
@@ -216,10 +241,10 @@ enforceable proxies; semantic quality stays review-time judgment.
 - **REQ-D1.4** After the diets, the guard SHALL pass with zero grandfathered
   errors: the suppression list carries only permanent recorded exemptions
   (REQ-B1.3a), with no transitional `pending diet` allowances (REQ-B1.3b)
-  remaining — per-file or mandatory-at-start. A lingering start-load offender
-  therefore surfaces as a lingering `pending diet` allowance, so the closeout
-  check catches it.
-  *(Cites: drafting-session decision (2026-07-08), kickoff sign-off lens pass (2026-07-09).)*
+  remaining — per-file, mandatory-at-start, or reachable-closure. A lingering
+  start-load or closure offender therefore surfaces as a lingering `pending diet`
+  allowance, so the closeout check catches it.
+  *(Cites: drafting-session decision (2026-07-08), kickoff sign-off lens pass (2026-07-09), amendment (2026-07-09).)*
 
 ## Changelog
 
@@ -248,6 +273,23 @@ enforceable proxies; semantic quality stays review-time judgment.
   input + boundary semantics), REQ-B1.9 (untrusted-input safety), REQ-C1.6
   (eval artifact hygiene + evals-never-in-CI standing guard). Terminology
   normalized.
+
+- 2026-07-09 — Amendment (meaning-class), post-kickoff independent-model panel
+  pass (gemini backend): five cross-file/interaction findings the same-session
+  lens missed, all accepted. (F1) REQ-A1.2 / REQ-B1.8: a skill declaring no
+  manifest scores start-load body-only (not an error); the hard missing-manifest
+  error is reserved for a *malformed* manifest, and a manifest-completeness
+  assertion (wired at Task 3) guards against silent under-report — resolving the
+  Task-2-wires-guard-before-Task-3-adds-manifests deadlock. (F2) REQ-B1.3b /
+  REQ-D1.4 / Task 8: the transitional `pending diet` allowance now also covers
+  reachable-closure, the symmetric fix to the start-load deadlock. (F3) REQ-B1.8 /
+  REQ-B1.7: an injected-context hook whose static prose cannot be extracted is
+  warn-only, carved out of B1.8's fail-loud (which now governs only the
+  deterministic manifest/exemption/knob inputs), consistent with D-13's never-fail
+  surface. (F4) REQ-C1.6 / Task 4: recorded eval artifacts retain the per-fixture
+  identifier so the D-7 paired comparison survives the scrub. (F5) REQ-B1.7:
+  "exceeds the floor" → "meets or exceeds the floor" (align with B1.8's `≥`).
+  Anchor recomputed; test-spec, tasks, and design updated in lockstep.
 
 ## Sources
 

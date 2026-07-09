@@ -23,8 +23,13 @@ counts present. Runs under `mise run test` in GitHub CI.
 ### REQ-A1.2 — Start-load and closure computation [test]
 
 Fixture skill with a manifest naming run-start and point-of-use docs of
-known sizes; assert the computed mandatory-at-start and closure sums; a
-skill without a manifest yields the defined missing-manifest error.
+known sizes; assert the computed mandatory-at-start and closure sums. A skill
+with a **malformed** manifest yields the defined missing-manifest error; a
+skill with **no** manifest is scored body-only (start-load = SKILL.md words,
+no error). The manifest-completeness assertion flags a manifest-less skill
+when the assertion is active (a fixture with the assertion on and a
+manifest-less skill errors; with it off, the same skill scores body-only and
+passes).
 
 ### REQ-A1.3 — Offender shortlist and diet plans [test + manual]
 
@@ -66,8 +71,9 @@ A permanent-exempted over-floor file passes with its reason echoed; the same
 file still counts toward start-load/closure sums (assert a start-load and a
 closure error survive the permanent exemption); an entry of either form
 without a reason is an error. A transitional `pending diet (Task N)` allowance
-on a start-load offender lets the check pass (the one form that may cover a
-start-load offender, transiently); removing it re-fails the offender.
+on a start-load offender — and, identically, on a reachable-closure offender —
+lets the check pass (the only form that may cover a start-load or closure
+offender, transiently); removing it re-fails the offender.
 
 ### REQ-B1.4 — Options-reference rows [test]
 
@@ -89,19 +95,25 @@ run-start entries.
 
 ### REQ-B1.7 — Injected-context warn floor [test]
 
-Fixture injected-context payload over the warn floor makes `--audit` /
-`check:instructions` emit a warning but exit zero (never fails CI); under the
-floor still emits the report row but no warning (the floor gates the warning,
-not the row — REQ-A1.4); a floor override via a temp
+Fixture injected-context payload at or over the warn floor makes `--audit` /
+`check:instructions` emit a warning but exit zero (never fails CI); a payload
+exactly at the floor warns (`≥`, matching REQ-B1.8); under the floor still
+emits the report row but no warning (the floor gates the warning, not the row —
+REQ-A1.4). A fixture hook whose static prose cannot be extracted emits a
+parse-failure **warning** and still exits zero (never a hard error — the
+injected surface never fails CI). A floor override via a temp
 `.claude/planwright.local.yml` moves the warn boundary (config-get layering
 exercised).
 
 ### REQ-B1.8 — Fail-loud on malformed input and boundary semantics [test]
 
-For each malformed-input class — a garbled/unrecognized manifest entry, a
-malformed exemption/allowance entry, a missing/non-numeric threshold knob, a
-hook whose static prose cannot be extracted — a fixture asserts the guard
-errors (never silently skips, zeroes, or passes). Boundary fixtures at exactly
+For each deterministic malformed-input class — a garbled/unrecognized manifest
+entry, a malformed exemption/allowance entry, a missing/non-numeric threshold
+knob — a fixture asserts the guard errors (never silently skips, zeroes, or
+passes). A skill with **no** manifest is scored body-only and does **not** error
+here (the missing-manifest error is malformed-only; REQ-A1.2). An injected-context
+hook whose static prose cannot be extracted is out of scope for this fail-loud
+assertion — it is a warn (REQ-B1.7), not an error. Boundary fixtures at exactly
 the error and warn thresholds assert error and warn respectively (`≥`).
 
 ### REQ-B1.9 — Untrusted-input safety [test]
@@ -150,8 +162,10 @@ The merged guard catalog contains id `instruction-hygiene`
 ### REQ-C1.6 — Eval artifact hygiene and CI-exclusion guard [test]
 
 `[test]`: against the stubbed-`claude` output, assert the recorded artifact
-contains only graded outcome + cost and no machine-local path / username /
-session id (a fixture stub payload carrying those is scrubbed). The
+contains the per-fixture graded outcome, the fixture identifier, and cost, and
+no machine-local path / username / session id (a fixture stub payload carrying
+those is scrubbed; the fixture identifier is retained so the paired comparison
+survives — REQ-D1.3). The
 CI-exclusion guard (part of `mise run check`) fails on a fixture workflow that
 wires an eval task into CI, and passes on the real workflow set.
 
@@ -185,8 +199,9 @@ for review (cost is reported, not gated). Not a CI path by design (D-8).
 ### REQ-D1.4 — Zero grandfathered errors [test + manual]
 
 `[test]`: a check (Task 8) fails if any suppression entry is a `pending diet`
-allowance (per-file or start-load) — since a start-load offender can only be
-carried by such an allowance (REQ-B1.3b), this catches a lingering start-load
-offender, not just per-file ones. `[manual]`: Task 8's closing audit re-run is
+allowance (per-file, start-load, or closure) — since a start-load or closure
+offender can only be carried by such an allowance (REQ-B1.3b), this catches a
+lingering start-load or closure offender, not just per-file ones. `[manual]`:
+Task 8's closing audit re-run is
 recorded and confirms every skill under the mandatory-at-start error
 threshold.

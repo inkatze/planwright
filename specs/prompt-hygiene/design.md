@@ -279,9 +279,12 @@ The guard enforces this class at a **warn-level floor only** — growth is
 surfaced, CI never hard-fails on it. Every identified injected-context hook
 is always reported as a row (REQ-A1.4); the floor gates only whether that row
 also raises a warning (REQ-B1.7), so the audit report and the warn gate do not
-disagree. Hook discovery is over `hooks.json`-registered hooks and the static
-prose is read, never executed (REQ-A1.4, REQ-B1.9) — the injected surface is
-measured without running the hook.
+disagree. Because the surface never hard-fails, a hook whose static prose the
+guard cannot extract raises a **parse-failure warning**, not a hard error — it
+is carved out of REQ-B1.8's fail-loud rule, which governs only the deterministic
+manifest/exemption/knob inputs (amendment 2026-07-09). Hook discovery is over
+`hooks.json`-registered hooks and the static prose is read, never executed
+(REQ-A1.4, REQ-B1.9) — the injected surface is measured without running the hook.
 
 **Alternatives considered:**
 - Leave injected context out of scope (a static file-walk cannot rank a
@@ -334,7 +337,12 @@ audit scope to injected templates; warn-floor mechanism chosen.)*
   point-of-use reclassification (Task 7.5), which reduces the start-load sum
   but not the reachable closure (the doc stays reachable) — so Task 7.5 is
   scoped to the **start-load** budget, and a hypothetical closure offender
-  would need a content diet, not reclassification.
+  would need a content diet, not reclassification. Per the 2026-07-09 amendment,
+  such a closure offender carries a transitional `pending diet` closure allowance
+  (REQ-B1.3b) while that content diet is pending — the symmetric fix to the
+  start-load deadlock below, so an unforeseen closure offender surfaced by Task
+  3's real computation cannot deadlock the graph the way an unexemptible
+  start-load offender once did.
   **Transitional-allowance sequencing (Approach A):** because honest
   manifests (Task 3) surface `/spec-draft`'s start-load error immediately, and
   no *permanent* exemption may ever suppress start-load (REQ-B1.3a), Task 3

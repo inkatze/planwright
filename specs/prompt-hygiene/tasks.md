@@ -36,7 +36,9 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 - **Deliverables:** `scripts/check-instructions.sh` (per-file budgets with
   the `doctrine/README.md` index excluded, manifest-derived start-load and
-  closure budgets, resolution check, the two suppression forms (permanent
+  closure budgets (a skill declaring no manifest scores start-load body-only,
+  not an error, REQ-A1.2/B1.8 — so the guard wires cleanly into `check` at this
+  task before Task 3 adds manifests), resolution check, the two suppression forms (permanent
   exemption + transitional `pending diet` allowance, REQ-B1.3),
   injected-context measurement over `hooks.json`-registered hooks read
   statically (interpolation lines excluded, REQ-A1.4) with a warn-only floor,
@@ -49,8 +51,10 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   (the transitional start-load allowance for `/spec-draft` is seeded at Task 3,
   when manifests first make start-load computable — not here, where the
   manifests do not yet exist); fail-loud handling of malformed manifest /
-  exemption / allowance / knob / hook input and boundary-defined thresholds
-  (REQ-B1.8); untrusted-input safety over PR-controllable content (REQ-B1.9);
+  exemption / allowance / knob input and boundary-defined thresholds (REQ-B1.8),
+  with the injected-context hook carved out — an unextractable hook is a
+  parse-failure *warning*, never a hard error (REQ-B1.7); untrusted-input safety
+  over PR-controllable content (REQ-B1.9);
   a `check:instructions` task in the `mise run check`
   aggregate; seeded-violation fixtures and `tests/test-check-instructions.sh`;
   the initial per-file audit run's diet plans recorded for Tasks 5-7.
@@ -58,7 +62,9 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   per-file allowances in place; the seeded-violation fixture suite proves
   error, warn, at-threshold boundary (REQ-B1.8), permanent exemption
   (including reason-less error and start-load/closure-not-suppressed),
-  transitional allowance, fail-loud on each malformed-input class,
+  transitional allowance (per-file, start-load, and closure), fail-loud on each
+  malformed-input class, absent-manifest scored body-only (no error), an
+  injected-context hook parse-failure reported as a warning (not a hard error),
   injected-context warn-floor (reported, non-failing, always-a-row), and
   unresolvable-manifest-reference behavior; a knob override via
   `.claude/planwright.local.yml` changes the outcome in a test.
@@ -73,14 +79,20 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Deliverables:** the Task 1 manifest added to every `skills/*/SKILL.md`
   (run-start and point-of-use classification of each skill's current
   doctrine reads; no slimming yet), making mandatory-at-start and
-  reachable-closure budgets computable corpus-wide. In the **same PR**, seed a
-  transitional `pending diet (Task 7.5)` allowance (REQ-B1.3b) for every
-  start-load offender the computation now surfaces (notably `/spec-draft`),
-  and record their point-of-use-reclassification diet plans for Task 7.5 — the
-  start-load offenders that Task 2's pre-manifest audit could not yet see.
-- **Done when:** `scripts/check-instructions.sh` computes mandatory-at-start
-  and reachable-closure for all ten skills with zero missing-manifest errors;
-  every surfaced start-load offender carries its transitional allowance; the
+  reachable-closure budgets computable corpus-wide; the guard's
+  manifest-completeness assertion (REQ-A1.2) wired in the **same PR** so a
+  future manifest-less skill cannot silently under-report start-load. In the
+  **same PR**, seed a transitional `pending diet (Task 7.5)` allowance
+  (REQ-B1.3b) for every start-load offender the computation now surfaces
+  (notably `/spec-draft`) — and, should the computation surface a
+  reachable-closure offender (none expected at kickoff), a transitional closure
+  allowance likewise (REQ-B1.3b) — and record their
+  point-of-use-reclassification diet plans for Task 7.5 — the start-load (and
+  any closure) offenders that Task 2's pre-manifest audit could not yet see.
+- **Done when:** the manifest-completeness assertion confirms all ten skills
+  declare a manifest (zero absent); `scripts/check-instructions.sh` computes
+  mandatory-at-start and reachable-closure for all ten skills; every surfaced
+  start-load (and any closure) offender carries its transitional allowance; the
   resolution check passes; `mise run check` stays green **with the transitional
   allowances in place**.
 - **Dependencies:** Task 1, Task 2
@@ -97,8 +109,10 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   `/orchestrate` fixture scenarios (print backend: correct unit selected,
   dispatch marker written, launch command printed, non-Ready/non-Active
   spec refused); artifact-hygiene scrubbing so recorded results/cost carry
-  only graded outcome + cost, stripped of machine-local paths, usernames, and
-  session ids (REQ-C1.6); a standing CI-exclusion guard that fails if an eval
+  the per-fixture graded outcome, the fixture identifier, and cost, stripped of
+  machine-local paths, usernames, and session ids (REQ-C1.6; the fixture
+  identifier is retained so the paired before/after comparison is not broken by
+  the scrub); a standing CI-exclusion guard that fails if an eval
   task is wired into the CI workflow files (REQ-C1.6, not mere absence from
   the aggregate); the pre-diet baseline run recorded.
 - **Done when:** the stubbed suite passes in `mise run test`; a real
@@ -168,7 +182,8 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   no contract change; gating law is never deferred, REQ-C1.2), and the
   transitional allowance removed. (Reclassification reduces start-load, not
   closure; a closure offender — none surfaced at kickoff — would need a
-  content diet, not this task's mechanism.)
+  content diet, not this task's mechanism, and would carry a transitional
+  closure allowance (REQ-B1.3b) until that diet lands.)
 - **Done when:** every skill passes the mandatory-at-start error threshold
   with no transitional allowance remaining; `mise run check` green.
 - **Dependencies:** Task 3, Task 5, Task 6, Task 7
@@ -181,11 +196,12 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   `config/guard-catalog.yaml`); pointers from `docs/conventions.md` and
   the doctrine README narrative; a closing `--audit` re-run recorded; the
   suppression list verified to carry only permanent reasoned exemptions, with
-  no transitional `pending diet` allowances (per-file or start-load) remaining.
+  no transitional `pending diet` allowances (per-file, start-load, or closure)
+  remaining.
 - **Done when:** `scripts/resolve-catalog.sh guard-catalog` (or the
   catalog's documented merged view) contains id `instruction-hygiene`;
-  grep finds no `pending diet` allowance (per-file or start-load); the closing
-  audit shows every skill under the mandatory-at-start error threshold;
+  grep finds no `pending diet` allowance (per-file, start-load, or closure); the
+  closing audit shows every skill under the mandatory-at-start error threshold;
   `mise run check` green.
 - **Dependencies:** Task 5, Task 6, Task 7, Task 7.5
 - **Citations:** D-10 · REQ-C1.5, REQ-D1.4
