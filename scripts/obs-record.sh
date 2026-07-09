@@ -21,8 +21,9 @@
 # a real calendar date YYYY-MM-DD, <slug> is a cosmetic kebab-case token
 # [a-z0-9]+(-[a-z0-9]+)* of at most 40 chars, and <uid> is exactly 8 lowercase
 # hex characters. Fragment content is the established one-line entry form
-# `- <date> [<scope>] <text>` (REQ-A1.4); the date is minted (today), never a
-# caller argument (no backfill exists — bulk conversion is out of scope).
+# `- <date> [<scope>] <text>` (REQ-A1.4); the date is minted as today, never a
+# caller-facing backfill date; `--today` only pins the minted date for tests
+# (no backfill exists — bulk conversion is out of scope).
 #
 # Security posture (REQ-D1.1, D-7 — carried from orchestration-concurrency
 # REQ-F1.1): validate, contain, refuse. Every component is grammar-checked
