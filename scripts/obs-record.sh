@@ -26,11 +26,15 @@
 # (no backfill exists — bulk conversion is out of scope).
 #
 # Security posture (REQ-D1.1, D-7 — carried from orchestration-concurrency
-# REQ-F1.1): validate, contain, refuse. Every component is grammar-checked
-# under the pinned C locale before any path use; a hostile component (path
-# traversal, absolute path, uppercase, control byte) is a clean non-zero
-# refusal with no path touched and no raw input echoed to the terminal; entry
-# text carrying a newline or control character is refused at write time.
+# REQ-F1.1): validate, contain, refuse. The filename-shaping inputs (slug and
+# date) and the scope token are grammar-checked under the pinned C locale
+# before any path use; a value breaking its own grammar (path traversal, an
+# absolute path, an uppercase byte in the lowercase slug, a control byte) is a
+# clean non-zero refusal with no path touched and no raw input echoed to the
+# terminal. The --obs-dir is contained rather than grammar-checked: a leading
+# '-' is refused, a symlinked root or entries/ is rejected, and the composed
+# path is canonicalized and confinement-checked. Entry text carrying a newline
+# or control character is refused at write time.
 #
 # Usage:
 #   obs-record.sh --slug <slug> --scope <scope> --text <text>
