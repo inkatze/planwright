@@ -36,6 +36,8 @@
 #      temp-write and publish leaves no fragment and no temp residue under
 #      entries/ (no reader ever sees a torn fragment). 8b: an ln failure whose
 #      destination now exists is a racing-writer retry, not an fs-error refusal.
+#      8c: a fatal signal (TERM) mid-publish terminates the loop (exit 143)
+#      rather than running the cleanup trap and resuming into the publish.
 #   9. Concurrent adds never conflict (REQ-B1.1): two branches from a common
 #      base each record a same-day, same-slug observation; git merge completes
 #      with no conflict and both fragments exist.
@@ -78,6 +80,14 @@ fail() {
 }
 
 [ -x "$REC" ] || fail "scripts/obs-record.sh missing or not executable"
+
+# Resolve the real `ln` once, now, while PATH is still unshadowed. Section 8b
+# shadows `ln` on PATH with a failing stub, so the stub cannot reach the real
+# `ln` by name (a bare `ln` would recurse into the stub) and a hard-coded
+# /bin/ln is not portable (some environments ship ln only under /usr/bin or a
+# store path). `command -v` finds it wherever this environment keeps it (house
+# convention, see tests/test-tool-discovery.sh's `command -v git`).
+REAL_LN=$(command -v ln) || fail "cannot locate 'ln' on PATH"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -386,7 +396,7 @@ cat >"$lnstub2/ln" <<EOF
 # First call: simulate a racing writer that already created dest (\$2), then
 # fail without -f. Later calls: perform the real link via an absolute path.
 if [ -f "$lnstub2/called" ]; then
-  exec /bin/ln "\$@"
+  exec "$REAL_LN" "\$@"
 fi
 : >"$lnstub2/called"
 : >"\$2"
@@ -400,6 +410,37 @@ PATH="$lnstub2:$tmp/od8b:$PATH" "$REC" --obs-dir "$o" --slug race \
 [ -f "$o/entries/2026-07-09-race-c0ffee22.md" ] \
   || fail "8b: the retry did not land on the fresh UID"
 echo "ok 8b: a dest-exists publish failure retries with a fresh UID"
+
+# --- 8c. A fatal signal terminates the publish loop, it does not resume ---
+
+# A cleanup-only INT/TERM trap runs its handler and then *resumes* the
+# interrupted shell (a trapped signal does not itself exit in POSIX sh), so a
+# Ctrl-C mid-publish would silently carry on. The helper instead re-`exit`s on
+# INT/TERM (re-entering the EXIT cleanup). Assert the process ends on the TERM
+# signal code (143), not a resumed clean exit (0). The `ln` stub blocks in the
+# main control flow — not inside a command substitution, where the interruption
+# point is masked by subshell teardown and cannot tell resume from exit.
+o=$(new_obs "$tmp/o8c")
+sigbin="$tmp/sigbin"
+mkdir -p "$sigbin"
+printf '#!/bin/sh\nprintf deadbeef\n' >"$sigbin/od"
+chmod +x "$sigbin/od"
+cat >"$sigbin/ln" <<EOF
+#!/bin/sh
+sleep 1
+exec "$REAL_LN" "\$@"
+EOF
+chmod +x "$sigbin/ln"
+PATH="$sigbin:$PATH" "$REC" --obs-dir "$o" --slug sig --scope planwright \
+  --text 'x' --today 2026-07-09 >/dev/null 2>&1 &
+_sigpid=$!
+sleep 0.3
+kill -TERM "$_sigpid" 2>/dev/null || true
+_sigrc=0
+wait "$_sigpid" || _sigrc=$?
+[ "$_sigrc" -eq 143 ] \
+  || fail "8c: TERM mid-publish expected exit 143 (signal), got $_sigrc (resumed?)"
+echo "ok 8c: a fatal signal terminates the publish loop instead of resuming"
 
 # --- 9. Concurrent adds never conflict -----------------------------------
 

@@ -319,7 +319,15 @@ entry_line="- $entry_date [$scope] $text"
 # --- mint, then atomic exclusive publish with bounded retry --------------
 
 _tmp=""
-trap 'if [ -n "$_tmp" ]; then rm -f "$_tmp"; fi' EXIT INT TERM
+# EXIT is the cleanup; INT/TERM re-`exit` rather than share the EXIT handler.
+# A trapped signal does not itself terminate the shell in POSIX sh, so a
+# cleanup-only INT/TERM handler would run and then *resume* the publish loop
+# (surprising after a Ctrl-C, and out of step with the sibling scripts). The
+# re-`exit` re-enters the EXIT trap, so the temp is still removed. House idiom,
+# see scripts/fleet-attention.sh.
+trap 'if [ -n "$_tmp" ]; then rm -f "$_tmp"; fi' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 attempt=0
 while [ "$attempt" -lt "$MAX_RETRIES" ]; do
