@@ -50,15 +50,19 @@ command -v jq >/dev/null 2>&1 || fail "jq required to run this suite"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# --- gh stub: deterministic, no network. Returns nothing for pr list (so the
-# derivation falls back to git-only) but answers headRefName so the merge hook
-# can resolve a head ref from a non-convention branch.
+# --- gh stub: deterministic, no network. Returns nothing for pr list by default
+# (so the derivation falls back to git-only), but emits canned TSV lines from
+# GH_PRLIST when set (the merged-PR evidence batch the Task 7 stamp reuses:
+# headRef<TAB>state<TAB>number<TAB>mergedAt). It also answers headRefName so the
+# merge hook can resolve a head ref from a non-convention branch.
 stub=$tmp/bin
 mkdir -p "$stub"
 cat >"$stub/gh" <<'EOF'
 #!/bin/sh
 case "$*" in
-  *"pr list"*) exit 0 ;;
+  *"pr list"*)
+    if [ -n "${GH_PRLIST:-}" ]; then printf '%s\n' "$GH_PRLIST"; fi
+    exit 0 ;;
   *headRefName*)
     if [ -n "${GH_HEADREF:-}" ]; then printf '%s\n' "$GH_HEADREF"; exit 0; fi
     exit 1 ;;
@@ -1576,5 +1580,226 @@ reconcile_status "$repo" specs/kl >/dev/null 2>&1 \
   && fail "RS-H: reconcile-status on a taskless tasks.md did not fail closed"
 k6_assert_all "$sd" Active "REQ-A1.7 taskless bundle's header left untouched on a failed derivation"
 echo "ok: reconcile-status fails closed on a present-but-taskless tasks.md; header untouched (REQ-A1.7)"
+
+# ===========================================================================
+# T7 — Organic completion-annotation stamping (output-hygiene REQ-E1.2, D-5).
+# When the reconcile places a completion-evidenced block in ## Completed it stamps
+# the canonical `- **Status:** Completed · PR #<n> merged <YYYY-MM-DD>`, reusing
+# the derivation's merged-PR evidence batch (no new per-task lookups). With no
+# remote it degrades to the pinned date-only form `Completed · merged
+# <YYYY-MM-DD>` (branch evidence) or leaves the annotation untouched — never an
+# invented PR number, never a third variant, never a downgrade of an existing
+# full stamp. Non-completion annotations and the content anchor stay invariant.
+t7_init() { # $1 = repo dir
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  git -C "$1" config user.email t7@example.com
+  git -C "$1" config user.name t7
+  git -C "$1" config commit.gpgsign false
+}
+t7_heads() { # $1 = spec dir
+  mkdir -p "$1"
+  printf '%s\n' '# T7 — Requirements' '' '**Status:** Active' >"$1/requirements.md"
+  printf '%s\n' '# T7 — Design' >"$1/design.md"
+  printf '%s\n' '# T7 — Test Spec' >"$1/test-spec.md"
+}
+
+# --- T7-A: canonical PR stamp from the merged-PR evidence batch. Task 1 is
+# completed via a gh MERGED PR (number + mergedAt from the batch); Task 2 is a
+# gh-OPEN in-progress task carrying a `- **Status:** implementing` annotation
+# that must survive byte-for-byte (it is not a completion block). The stamp is
+# anchor-excluded and idempotent.
+repo=$tmp/t7a
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Merged via PR
+
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — In flight
+
+- **Status:** implementing
+- **Deliverables:** Another thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.2
+- **Estimated effort:** 1 day
+
+## In progress
+
+(none yet)
+
+## Completed
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" remote add origin https://example.invalid/demo.git
+anchor_before=$("$ANCHOR" "$sd")
+GH_PRLIST=$(printf 'planwright/demo/task-1\tMERGED\t42\t2026-07-01T12:00:00Z\nplanwright/demo/task-2\tOPEN\t43\t')
+export GH_PRLIST
+reconcile "$repo" specs/demo || fail "T7-A reconcile non-zero"
+[ "$(section_of "$sd/tasks.md" 1)" = "Completed" ] || fail "T7-A: Task 1 not placed in Completed"
+block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:** Completed · PR #42 merged 2026-07-01' \
+  || fail "T7-A: canonical PR completion stamp not written on the moved block"
+[ "$(section_of "$sd/tasks.md" 2)" = "In progress" ] || fail "T7-A: Task 2 not in In progress"
+block_of "$sd/tasks.md" 2 | grep -qF -- '- **Status:** implementing' \
+  || fail "T7-A: a non-completion Status annotation was not preserved byte-for-byte"
+anchor_after=$("$ANCHOR" "$sd")
+[ "$anchor_before" = "$anchor_after" ] || fail "T7-A: the completion stamp changed the content anchor (must be anchor-excluded)"
+snap=$tmp/t7a-snap.md
+cp "$sd/tasks.md" "$snap"
+reconcile "$repo" specs/demo || fail "T7-A second reconcile non-zero"
+cmp -s "$sd/tasks.md" "$snap" || fail "T7-A: the stamp is not idempotent (second reconcile changed tasks.md)"
+unset GH_PRLIST
+echo "ok: reconcile stamps the canonical PR completion annotation; anchor + non-completion annotations invariant; idempotent (REQ-E1.2)"
+
+# --- T7-B: degraded date-only stamp from branch evidence with no remote. Task 1
+# is merged locally with its branch kept (branch-merged evidence) and no gh, so
+# the stamp is the pinned `Completed · merged <date>` with NO invented PR number.
+repo=$tmp/t7b
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Merged locally, branch kept
+
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — Still ahead
+
+- **Deliverables:** Another thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.2
+- **Estimated effort:** 1 day
+
+## Completed
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/demo/task-1
+git -C "$repo" checkout -q planwright/demo/task-1
+git -C "$repo" commit -q --allow-empty -m "task 1 work"
+git -C "$repo" checkout -q main
+git -C "$repo" merge -q --no-ff -m "merge task 1" planwright/demo/task-1
+# Task 2 stays in Forward plan so the derived bundle Status stays Active (a flip
+# would change the anchor via the not-yet-excluded bundle Status header, which is
+# a separate known effect from the completion stamp under test).
+anchor_before=$("$ANCHOR" "$sd")
+expected_date=$(git -C "$repo" log -1 --format=%cs planwright/demo/task-1)
+reconcile "$repo" specs/demo || fail "T7-B reconcile non-zero"
+[ "$(section_of "$sd/tasks.md" 1)" = "Completed" ] || fail "T7-B: Task 1 not placed in Completed"
+block_of "$sd/tasks.md" 1 | grep -qF -- "- **Status:** Completed · merged $expected_date" \
+  || fail "T7-B: degraded date-only stamp not written (expected 'merged $expected_date')"
+block_of "$sd/tasks.md" 1 | grep -qF 'PR #' \
+  && fail "T7-B: the degraded stamp invented a PR number"
+anchor_after=$("$ANCHOR" "$sd")
+[ "$anchor_before" = "$anchor_after" ] || fail "T7-B: the degraded stamp changed the content anchor"
+echo "ok: no-remote branch evidence yields the pinned date-only stamp, no invented PR number (REQ-E1.2)"
+
+# --- T7-C: no evidence for a date (trailer-only completion, branch gone, no
+# remote) leaves the annotation untouched rather than inventing a bare stamp.
+repo=$tmp/t7c
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Merged, branch gone
+
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+## Completed
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" commit -q --allow-empty -m "task 1 done
+
+Planwright-Task: demo/1"
+reconcile "$repo" specs/demo || fail "T7-C reconcile non-zero"
+[ "$(section_of "$sd/tasks.md" 1)" = "Completed" ] || fail "T7-C: Task 1 not placed in Completed"
+block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:**' \
+  && fail "T7-C: a stamp was invented with neither a PR number nor a date (must leave the annotation untouched)"
+echo "ok: trailer-only completion with no remote and no branch leaves the annotation untouched (REQ-E1.2)"
+
+# --- T7-D: no downgrade. A block already carrying a full canonical PR stamp is
+# reconciled under degraded (no-remote) evidence whose best output is date-only;
+# the reconcile must keep the richer existing stamp, never dropping the PR number.
+repo=$tmp/t7d
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Completed
+
+### Task 1 — Already stamped
+
+- **Status:** Completed · PR #99 merged 2026-06-01
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+## Forward plan
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/demo/task-1
+git -C "$repo" checkout -q planwright/demo/task-1
+git -C "$repo" commit -q --allow-empty -m "task 1 work"
+git -C "$repo" checkout -q main
+git -C "$repo" merge -q --no-ff -m "merge task 1" planwright/demo/task-1
+reconcile "$repo" specs/demo || fail "T7-D reconcile non-zero"
+block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:** Completed · PR #99 merged 2026-06-01' \
+  || fail "T7-D: a degraded reconcile downgraded an existing full PR stamp (lost the PR number)"
+echo "ok: a degraded reconcile never downgrades an existing full PR completion stamp (REQ-E1.2)"
 
 echo "PASS: all tasks-pr-sync tests passed"
