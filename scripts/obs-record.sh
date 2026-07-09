@@ -283,6 +283,18 @@ _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 
 # --- directory setup + containment ---------------------------------------
 
+# A leading '-' is refused before any path use (validate, contain, refuse; D-7).
+# A '-'-prefixed --obs-dir is read as an option by mkdir/tooling, and a bare
+# '-' makes `cd "$obsdir"` a `cd -` that switches to $OLDPWD — so the store
+# would silently root outside the named directory (the fragment lands in
+# $OLDPWD/entries while stdout still reports "-/entries/..."). A `--` terminator
+# does not close this: '-' stays a special *operand* to `cd`. Absolute paths
+# never begin with '-' and no caller legitimately names the store '-', so a
+# hyphen-leading obs-dir is hostile/erroneous input, not a real directory name.
+case "$obsdir" in
+  -*) refuse 1 "observations directory must not begin with a hyphen" ;;
+esac
+
 # Validate/contain before create (D-7). Create only the observations root
 # first and canonicalize it, so the containment check runs against a resolved
 # base rather than riding an entries/ that a mkdir followed through a symlink.

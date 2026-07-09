@@ -49,7 +49,9 @@
 #      containment units — entries/ a symlink escaping to an existing dir, and
 #      to a non-existent target (proving the escape target is never
 #      materialized as a side effect), and the observations root itself a
-#      symlink (the obs-dir guard, refused before canonicalization).
+#      symlink (the obs-dir guard, refused before canonicalization); plus a
+#      hyphen-leading --obs-dir refused before mkdir/cd (a bare '-' would make
+#      `cd "$obsdir"` a `cd -` that roots the store at $OLDPWD).
 #  11. Exit-code contract (REQ-A1.6, D-6): missing required flags, an unknown
 #      flag, a flag without its value, and a trailing token all exit 2
 #      (usage); present-but-empty --slug/--scope exit 2 while empty --text is a
@@ -583,6 +585,27 @@ grep -qF 'LEAKMARKER' "$_err" \
   && fail "10: mkdir echoed the raw --obs-dir path into the terminal"
 _clean=$(tr -d '\000-\010\013\014\016-\037\177' <"$_err")
 [ "$_clean" = "$(cat "$_err")" ] || fail "10: obs-dir failure emitted raw control bytes"
+
+# A hyphen-leading --obs-dir is refused before any mkdir/cd. A bare '-' makes
+# `cd "$obsdir"` a `cd -` (switch to $OLDPWD), so the store would silently root
+# outside the named directory (the fragment lands in $OLDPWD/entries while
+# stdout still reports "-/entries/..."). A `--` terminator does not close this
+# ('-' stays a special cd operand), so the helper refuses up front. Run in a
+# subshell from a scratch cwd with OLDPWD set to a decoy: assert exit 1, that no
+# '-' directory was created (the guard beat `mkdir -p`), and nothing escaped to
+# $OLDPWD.
+ohy="$tmp/o10hy"
+mkdir -p "$ohy/cwd" "$ohy/oldpwd/entries"
+_rc=0
+(
+  cd "$ohy/cwd" \
+    && OLDPWD="$ohy/oldpwd" "$REC" --obs-dir - --slug ok --scope planwright \
+      --text 'x' --today 2026-07-09 >/dev/null 2>&1
+) || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: a hyphen-leading --obs-dir expected exit 1, got $_rc"
+[ ! -e "$ohy/cwd/-" ] || fail "10: a '-' directory was created (guard ran after mkdir)"
+[ "$(frag_count "$ohy/oldpwd/entries")" -eq 0 ] \
+  || fail "10: a fragment escaped to \$OLDPWD via cd -"
 
 echo "ok 10: hostile input and containment escapes refuse cleanly (exit 1, no echo)"
 
