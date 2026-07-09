@@ -13,8 +13,8 @@
 #   3. Filename/component-grammar acceptance/rejection (REQ-A1.2): malformed
 #      date shape, non-calendar date (2026-02-30) and month (2026-13-01), and
 #      leap discrimination (non-leap 2026-/1900-02-29 reject, leap 2024-/
-#      2000-02-29 accept); slug rejects (uppercase, underscore, leading- and
-#      doubled-hyphen, >40) and the scope-grammar rejects (whitespace,
+#      2000-02-29 accept); slug rejects (uppercase, underscore, leading-,
+#      trailing- and doubled-hyphen, >40) and the scope-grammar rejects (whitespace,
 #      non-alnum lead, bracket, >64); the 40-char slug and 64-char scope
 #      boundaries accept.
 #   4. UID minting is entropy-sourced and shape-checked (REQ-A1.2, REQ-A1.3):
@@ -219,6 +219,7 @@ reject "century non-leap Feb 29 (1900)" --slug ok --today 1900-02-29
 reject "uppercase slug" --slug BadSlug --today 2026-07-09
 reject "underscore slug" --slug bad_slug --today 2026-07-09
 reject "leading-hyphen slug" --slug -bad --today 2026-07-09
+reject "trailing-hyphen slug" --slug bad- --today 2026-07-09
 reject "double-hyphen slug" --slug a--b --today 2026-07-09
 # Scope grammar rejection (the charset/leading-char guard, distinct from the
 # slug grammar above): a scope with whitespace, one opening with a non-alnum,
@@ -496,8 +497,11 @@ hostile() {
     >/dev/null 2>"$_err" || _rc=$?
   [ "$_rc" -eq 1 ] || fail "10: $_label expected exit 1, got $_rc"
   [ "$(frag_count "$o/entries")" -eq 0 ] || fail "10: $_label created a path"
-  # No raw control bytes in the message.
-  clean=$(tr -d '\000-\010\013\014\016-\037\177' <"$_err")
+  # No raw control bytes in the message: strip every C0 byte and DEL except
+  # newline (\012), the one control byte a refuse message legitimately carries
+  # (its trailing echo newline). TAB and CR are stripped too — both are unsafe
+  # to emit raw to a terminal, so a leaked one must trip this equality check.
+  clean=$(tr -d '\000-\011\013-\037\177' <"$_err")
   [ "$clean" = "$(cat "$_err")" ] || fail "10: $_label emitted raw control bytes"
   # No verbatim echo of the untrusted value (catches a message that pastes the
   # raw slug/date back — printable input the control-byte check cannot see).
@@ -583,7 +587,9 @@ _rc=0
 [ "$_rc" -eq 1 ] || fail "10: an uncreatable obs-dir expected exit 1, got $_rc"
 grep -qF 'LEAKMARKER' "$_err" \
   && fail "10: mkdir echoed the raw --obs-dir path into the terminal"
-_clean=$(tr -d '\000-\010\013\014\016-\037\177' <"$_err")
+# Same C0-except-newline scrub as the hostile() helper above (TAB and CR
+# included): a raw control byte leaked from the failing path must trip this.
+_clean=$(tr -d '\000-\011\013-\037\177' <"$_err")
 [ "$_clean" = "$(cat "$_err")" ] || fail "10: obs-dir failure emitted raw control bytes"
 
 # A hyphen-leading --obs-dir is refused before any mkdir/cd. A bare '-' makes
