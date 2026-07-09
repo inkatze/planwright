@@ -111,5 +111,6 @@ already wired (D-11): `/spec-draft` pins seed claims during seed gathering,
 resolves altitude before design when a trigger fires, and restates the
 claimed altitude in every phase-end summary; `/spec-kickoff`'s lens pass
 verifies that a triggered bundle carries the altitude D-ID cited from its
-goal. The reflex itself stays skill-agnostic: any flow that closes a ceremony
-gap — authoring or runtime — walks the same six steps.
+goal and that the task decomposition matches it. The reflex itself stays
+skill-agnostic: any flow that closes a ceremony gap — authoring or runtime —
+walks the same six steps.
