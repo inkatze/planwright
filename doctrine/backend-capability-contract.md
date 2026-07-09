@@ -170,7 +170,7 @@ cannot be steered, so its ambiguity routes to the queue.
 A new terminal or multiplexer becomes a backend by **implementing and
 advertising** the contract — no edit to the consuming skills. Backend selection
 stays in the `dispatch_backend` config option (see
-[`docs/options-reference.md`](../docs/options-reference.md)), resolved through
+`docs/options-reference.md`), resolved through
 the four overlay layers; `/orchestrate` autodetects candidates, reads each
 advertised set, and adapts as above. planwright stays declarative — a backend is
 a small adapter that answers the contract, not an arbitrary-code extension host —
