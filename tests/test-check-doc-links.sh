@@ -294,6 +294,76 @@ case "$out" in
   *) echo "ok: 10b's resolved link stays resolved in the 10c scan" ;;
 esac
 
+# 11. Doctrine delivery-restriction (D-4, output-hygiene Task 5): a file under
+#     doctrine/ may relative-link only ../config/, ../scripts/, and sibling
+#     doctrine docs — the trees co-located beside doctrine/ in every delivery
+#     mode. A link to ../skills/ or ../docs/ resolves in-repo but is dead once
+#     installed (writer-install ships neither as a doctrine sibling), so it is
+#     an error even though the target exists. Reference such targets by
+#     resolution path in backticks instead.
+mkdir -p "$tmp/dr/doctrine" "$tmp/dr/config" "$tmp/dr/scripts" \
+  "$tmp/dr/skills/demo" "$tmp/dr/docs"
+cat >"$tmp/dr/skills/demo/SKILL.md" <<'EOF'
+# Skill
+EOF
+cat >"$tmp/dr/config/x.yaml" <<'EOF'
+x: 1
+EOF
+cat >"$tmp/dr/scripts/y.sh" <<'EOF'
+echo y
+EOF
+cat >"$tmp/dr/docs/z.md" <<'EOF'
+# Z
+EOF
+cat >"$tmp/dr/doctrine/sibling.md" <<'EOF'
+# Sibling
+EOF
+
+# 11a. A doctrine link to ../skills/ fails even though the target resolves
+#      in-repo (it is delivered-dead), and the failure names the target.
+cat >"$tmp/dr/doctrine/bad-skills.md" <<'EOF'
+See the [builder skill](../skills/demo/SKILL.md).
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/dr/doctrine/bad-skills.md" 2>&1)"
+assert "doctrine link to ../skills/ fails (delivered-dead)" 1 $?
+case "$out" in
+  *skills/demo/SKILL.md*)
+    echo "ok: the ../skills/ restriction names the target"
+    ;;
+  *)
+    echo "FAIL: ../skills/ restriction did not name the target: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 11b. A doctrine link to ../docs/ fails for the same reason (docs/ is not
+#      shipped in the writer-install layout).
+cat >"$tmp/dr/doctrine/bad-docs.md" <<'EOF'
+See [the guide](../docs/z.md).
+EOF
+/bin/bash "$CHECKER" "$tmp/dr/doctrine/bad-docs.md" >/dev/null 2>&1
+assert "doctrine link to ../docs/ fails (not delivered)" 1 $?
+
+# 11c. Permitted forms all pass: ../config/, ../scripts/, a sibling doctrine
+#      doc (no ../), and an in-page #anchor.
+cat >"$tmp/dr/doctrine/good.md" <<'EOF'
+# Good Heading
+
+See [config](../config/x.yaml), [script](../scripts/y.sh),
+[sibling](sibling.md), and [self](#good-heading).
+EOF
+/bin/bash "$CHECKER" "$tmp/dr/doctrine/good.md" >/dev/null 2>&1
+assert "doctrine ../config, ../scripts, sibling, and anchor links pass" 0 $?
+
+# 11d. The restriction is scoped to doctrine/ files only: a non-doctrine file
+#      (here under docs/) linking ../skills/ is unaffected — no delivery rule
+#      applies to it, and the target resolves.
+cat >"$tmp/dr/docs/uses-skill.md" <<'EOF'
+See [the skill](../skills/demo/SKILL.md).
+EOF
+/bin/bash "$CHECKER" "$tmp/dr/docs/uses-skill.md" >/dev/null 2>&1
+assert "non-doctrine file linking ../skills/ is not restricted" 0 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

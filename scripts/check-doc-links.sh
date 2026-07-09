@@ -126,6 +126,28 @@ for f in "${files[@]}"; do
     # File part: resolve it relative to the linking file (unless this is a
     # pure same-page #anchor, where the anchor's file is the linking file).
     if [ -n "$path" ]; then
+      # Doctrine delivery-restriction (D-4, output-hygiene Task 5). A file under
+      # doctrine/ may relative-link only to sibling doctrine docs (no leading
+      # ../), ../config/, and ../scripts/ — the trees co-located beside
+      # doctrine/ in every delivery mode (the plugin cache and the writer-install
+      # <root>/planwright/, verified against install.sh). Any other ../ link
+      # (e.g. ../skills/, ../docs/) resolves in-repo but is dead once installed,
+      # because those trees do not ship as doctrine siblings; it is an error even
+      # when the in-repo target exists. Reference such targets by resolution path
+      # in backticks instead. Scoped to doctrine/ files by their parent dir, so
+      # docs/, skills/, and README cross-references are unaffected.
+      case "$dir" in
+        */doctrine)
+          case "$path" in
+            ../config | ../config/* | ../scripts | ../scripts/*) : ;;
+            ../*)
+              echo "check-doc-links: $f links outside doctrine/ to a non-sibling tree: $path (doctrine may relative-link only ../config/, ../scripts/, and sibling doctrine docs; reference others by resolution path in backticks — D-4)" >&2
+              status=1
+              continue
+              ;;
+          esac
+          ;;
+      esac
       checked=$((checked + 1))
       if [ ! -e "$dir/$path" ]; then
         echo "check-doc-links: $f links to missing target: $path" >&2
