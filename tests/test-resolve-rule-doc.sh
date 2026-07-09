@@ -495,6 +495,23 @@ case "$err" in
     ;;
 esac
 
+# 24. The shipped autopilot-reflex doctrine doc resolves through the standard
+#     chain (autopilot-reflex REQ-A1.1, REQ-A1.5): with PLANWRIGHT_ROOT pinned
+#     to this repo and every overlay layer cleared, the resolver lands on the
+#     repo's own doctrine/autopilot-reflex.md. The index link asserted below is
+#     what puts the doc under the doctrine link-check's coverage.
+out="$(PLANWRIGHT_ROOT="$REPO_ROOT" CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+  /bin/bash "$RESOLVER" autopilot-reflex 2>/dev/null)"
+assert_eq "shipped autopilot-reflex doc resolves" \
+  "$REPO_ROOT/doctrine/autopilot-reflex.md" "$out"
+if grep -q "(autopilot-reflex.md)" "$REPO_ROOT/doctrine/README.md"; then
+  echo "ok: doctrine index links autopilot-reflex.md"
+else
+  echo "FAIL: doctrine/README.md does not link autopilot-reflex.md" >&2
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
