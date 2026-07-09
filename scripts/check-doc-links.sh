@@ -6,6 +6,14 @@
 # [text](target) link in the given markdown files is resolved against the
 # linking file's own directory; a missing target is an error.
 #
+# Doctrine delivery-restriction (D-4): a file under doctrine/ may relative-link
+# only to sibling doctrine docs, ../config/, and ../scripts/ — the trees
+# co-located beside it in every delivery mode (the plugin cache and the
+# writer-install <root>/planwright/). Any other ../ link (e.g. ../skills/,
+# ../docs/) is an error even when it resolves in-repo, because those trees are
+# not shipped as doctrine siblings; reference them by resolution path in
+# backticks instead. Scoped to doctrine/ files by their parent directory.
+#
 # Usage: check-doc-links.sh [<file.md>...]
 #   With no arguments, scans the repo's curated prose: README.md,
 #   doctrine/*.md, docs/*.md, and skills/ markdown recursively (the

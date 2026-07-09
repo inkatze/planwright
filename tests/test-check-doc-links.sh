@@ -355,6 +355,23 @@ EOF
 /bin/bash "$CHECKER" "$tmp/dr/doctrine/good.md" >/dev/null 2>&1
 assert "doctrine ../config, ../scripts, sibling, and anchor links pass" 0 $?
 
+# 11c-pre. The restriction fires before the existence check: a ../skills/ link
+#      whose target does NOT exist is still reported as the delivery violation
+#      (not as a missing target), pinning that the delivered-dead rule is
+#      independent of in-repo existence.
+cat >"$tmp/dr/doctrine/bad-skills-missing.md" <<'EOF'
+See [gone](../skills/demo/absent.md).
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/dr/doctrine/bad-skills-missing.md" 2>&1)"
+assert "doctrine ../skills/ link fails even when the target is absent" 1 $?
+case "$out" in
+  *non-sibling*) echo "ok: the absent ../skills/ target is reported as the restriction" ;;
+  *)
+    echo "FAIL: absent ../skills/ target not reported as the restriction: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 # 11d. The restriction is scoped to doctrine/ files only: a non-doctrine file
 #      (here under docs/) linking ../skills/ is unaffected — no delivery rule
 #      applies to it, and the target resolves.
