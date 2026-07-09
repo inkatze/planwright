@@ -108,6 +108,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** none
 - **Citations:** D-5 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-09
 
 ### Task 8 — Derived-content authoring guidance
 
