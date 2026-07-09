@@ -446,3 +446,41 @@ Anchor: `8d37221962ead5104868dafff88636da992608e6` — computed as
 `scripts/spec-anchor.sh specs/output-hygiene`
 
 Signed off: 2026-07-08
+
+### Delta re-walkthrough — anchor reconciliation (2026-07-09)
+
+**Mode:** delta re-walkthrough on the Ready spec (post-merge of scope-down PR #129; nothing
+dispatched), triggered by the execution freshness gate: every task dispatch halts on the
+anchor mismatch until this entry lands. Run from spec commit `1993673`; scope and the
+expression-only classification declared by the human via the fleet-run relay (2026-07-09).
+Validator at pre-flight: 0 errors / 0 warnings under Ready enforcement.
+
+**Trigger.** The 2026-07-08 entry above records anchor `8d372219…`, computed before that
+entry's post-review fix (panel pass, same date: the cross-repo-routing Out-of-scope
+bullet's "this spec fixes intra-repo recording only" clause reworded to point at
+`specs/observation-recording`) was applied, and both landed in the same squash (PR #129) —
+so the recorded anchor never matched any committed state of the bundle. Verified this run,
+corroborating the Task-7 execution worker's three-way diagnosis: recomputation over the
+merged bundle at spec commit `1993673` yielded `02e6f3a28df866ac1f166eeaba6dc2c1884440b0`,
+and git history shows no spec-file commit since the entry was recorded, so the staleness
+was baked into the recording commit itself.
+
+**Delta.** No spec content change: the merged bundle is correct and intended. The reword is
+a gap-fill consistent with the signed scope-down's accepted decisions (the carve-out
+already assigns intra-repo recording to `specs/observation-recording`), which is the
+REQ-A3.3 definition of expression-only. This run edits only the `requirements.md`
+Changelog (dated 2026-07-09 entry) and its `Last reviewed:` line — both anchored content,
+so the anchor below is recomputed after those edits, not the pre-edit `02e6f3a2…`. Lens
+pass: skipped (expression-only, per REQ-A3.3 and the spec-format amendment ritual).
+
+**Re-validation after applying:** `spec-validate` 0 errors / 0 warnings under Ready
+enforcement; `Last reviewed:` 2026-07-09 on `requirements.md` (the only file touched);
+Status stays Ready (no flip on a delta re-walkthrough).
+
+Class: expression-only
+Changelog: `requirements.md` `## Changelog`, 2026-07-09 entry (this run); the underlying
+reword is recorded in that changelog's 2026-07-08 entry, post-review-fix line.
+Anchor: `4cb5688d30b20d8baca91e9da958845593aa9bc6` — computed as
+`scripts/spec-anchor.sh specs/output-hygiene`
+
+Signed off: 2026-07-09
