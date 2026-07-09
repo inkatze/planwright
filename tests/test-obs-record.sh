@@ -451,16 +451,18 @@ _rc=0
   --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
 [ "$_rc" -eq 1 ] || fail "11: an unusable obs-dir expected exit 1, got $_rc"
 
-# Default-date path: with no --today the helper mints the system date; the
-# fragment name carries it (captured from the same clock, so deterministic).
+# Default-date path: with no --today the helper mints the system date. Bracket
+# the invocation with two clock reads and accept either, so a midnight straddle
+# between the helper's internal `date` and the test's cannot flake.
 od=$(new_obs "$tmp/o11d")
+d1=$(date +%F)
 "$REC" --obs-dir "$od" --slug defdate --scope planwright --text 'x' \
   >/dev/null || fail "11: default-date invocation failed"
-sysdate=$(date +%F)
+d2=$(date +%F)
 defbase=$(basename "$(echo "$od"/entries/*.md)")
 case "$defbase" in
-  "$sysdate"-defdate-*) : ;;
-  *) fail "11: default-date fragment [$defbase] lacks the system date $sysdate" ;;
+  "$d1"-defdate-* | "$d2"-defdate-*) : ;;
+  *) fail "11: default-date fragment [$defbase] lacks the system date ($d1/$d2)" ;;
 esac
 echo "ok 11: usage errors, unusable obs-dir, and the default-date path are contract-correct"
 
