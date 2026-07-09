@@ -191,6 +191,25 @@ reject "uppercase slug" --slug BadSlug --today 2026-07-09
 reject "underscore slug" --slug bad_slug --today 2026-07-09
 reject "leading-hyphen slug" --slug -bad --today 2026-07-09
 reject "double-hyphen slug" --slug a--b --today 2026-07-09
+# Scope grammar rejection (the charset/leading-char guard, distinct from the
+# slug grammar above): a scope with whitespace, one opening with a non-alnum,
+# and an overlong (>64) scope each refuse. `reject` fixes --scope planwright,
+# so drive these through a bespoke check with an explicit --scope.
+scope_reject() {
+  _label=$1
+  shift
+  _rc=0
+  "$REC" --obs-dir "$o" --slug ok --text 'x' --today 2026-07-09 "$@" \
+    >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -eq 1 ] || fail "3: $_label expected exit 1, got $_rc"
+  [ "$(frag_count "$o/entries")" -eq 0 ] \
+    || fail "3: $_label created a path on refusal"
+}
+scope_reject "scope with whitespace" --scope 'bad scope'
+scope_reject "scope opening with a dot" --scope .hidden
+scope_reject "scope with a bracket" --scope 'a[b]'
+longscope=$(printf 'a%.0s' $(seq 1 65))
+scope_reject "overlong scope" --scope "$longscope"
 # overlong slug: 41 chars
 long=$(printf 'a%.0s' $(seq 1 41))
 reject "overlong slug" --slug "$long" --today 2026-07-09
@@ -455,6 +474,18 @@ usage_err "unknown flag" --obs-dir "$o" --slug s --scope planwright --text x --b
 usage_err "flag without value" --obs-dir "$o" --slug
 usage_err "trailing token after --" --obs-dir "$o" --slug s --scope planwright \
   --text x --today 2026-07-09 -- extra
+# Present-but-empty required flags: --slug/--scope carry the flag with an empty
+# value, so the parse consumes them but the non-empty guard fails — a usage
+# error (exit 2), distinct from the flag being absent above.
+usage_err "empty --slug" --obs-dir "$o" --slug "" --scope planwright --text x --today 2026-07-09
+usage_err "empty --scope" --obs-dir "$o" --slug s --scope "" --text x --today 2026-07-09
+# Empty --text is a content refusal (exit 1), not a usage error: have_text is
+# set, so the parse passes and the empty-text guard refuses at validation.
+_rc=0
+"$REC" --obs-dir "$o" --slug s --scope planwright --text "" --today 2026-07-09 \
+  >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "11: empty --text expected exit 1 (refusal), got $_rc"
+[ "$(frag_count "$o/entries")" -eq 0 ] || fail "11: empty --text refusal created a path"
 
 # Unusable obs-dir (a regular file): creating entries/ under it fails, a clean
 # exit-1 filesystem refusal with no path.
