@@ -170,7 +170,11 @@ esac
 # The only paths added are entries/ contents (the dir pre-existed).
 printf '%s\n' "$before" >"$tmp/before1"
 printf '%s\n' "$after" >"$tmp/after1"
-extra=$(comm -13 "$tmp/before1" "$tmp/after1" | grep -v "^$frag$" || true)
+# Fixed-string, whole-line match: `$frag` is a path carrying `.` (and other
+# regex metacharacters from the temp dir), so a regex `^$frag$` would also
+# match near-miss lines and silently hide a genuinely unexpected path (the very
+# thing this assertion guards). -Fx pins it to the literal fragment line.
+extra=$(comm -13 "$tmp/before1" "$tmp/after1" | grep -Fxv -- "$frag" || true)
 [ -z "$extra" ] || fail "1: invocation touched unexpected paths: $extra"
 # The helper reports the created fragment path on stdout.
 [ "$out" = "$frag" ] || fail "1: stdout [$out] is not the created fragment path [$frag]"
