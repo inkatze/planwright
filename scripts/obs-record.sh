@@ -286,7 +286,11 @@ _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 # Validate/contain before create (D-7). Create only the observations root
 # first and canonicalize it, so the containment check runs against a resolved
 # base rather than riding an entries/ that a mkdir followed through a symlink.
-mkdir -p "$obsdir" || refuse 1 "cannot create the observations directory"
+# Suppress mkdir's stderr (as the sibling `cd` canonicalizations do): on
+# failure it echoes the caller-supplied --obs-dir path, and the sanitized
+# `refuse` message is the only terminal output the echo-discipline posture
+# permits.
+mkdir -p "$obsdir" 2>/dev/null || refuse 1 "cannot create the observations directory"
 # Reject a symlinked observations root before canonicalizing it — the same
 # escape vector the entries/ guard below closes, one level up. `cd ... && pwd -P`
 # would silently resolve a symlinked obs-dir to its target and root the whole
@@ -303,7 +307,7 @@ archive="$canon_obs/archive"
 # whose mkdir -p would follow it.
 [ ! -L "$entries" ] || refuse 1 "entries path must not be a symlink"
 
-mkdir -p "$entries" || refuse 1 "cannot create the entries directory"
+mkdir -p "$entries" 2>/dev/null || refuse 1 "cannot create the entries directory"
 
 # Re-canonicalize entries/ after creation and confirm it resolves to exactly
 # <obs-dir>/entries. `entries` is the canonical path, used verbatim for the

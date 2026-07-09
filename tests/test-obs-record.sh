@@ -561,6 +561,25 @@ _rc=0
 [ "$_rc" -eq 1 ] || fail "10: a symlinked obs-dir root expected exit 1, got $_rc"
 [ "$(frag_count "$escroot")" -eq 0 ] \
   || fail "10: a fragment escaped through the symlinked obs-dir root"
+
+# Echo-discipline on the --obs-dir failure path: a mkdir that fails names the
+# caller-supplied path on its own stderr, so the helper suppresses it (only the
+# sanitized `refuse` message may reach the terminal). Force the failure with an
+# obs-dir whose parent component is a regular file (mkdir -p: "Not a
+# directory"); the marker in that component must not appear in stderr.
+oleak="$tmp/o10f"
+mkdir -p "$oleak"
+: >"$oleak/LEAKMARKER"
+_err="$tmp/err10f"
+_rc=0
+"$REC" --obs-dir "$oleak/LEAKMARKER/sub" --slug ok --scope planwright \
+  --text 'x' --today 2026-07-09 >/dev/null 2>"$_err" || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: an uncreatable obs-dir expected exit 1, got $_rc"
+grep -qF 'LEAKMARKER' "$_err" \
+  && fail "10: mkdir echoed the raw --obs-dir path into the terminal"
+_clean=$(tr -d '\000-\010\013\014\016-\037\177' <"$_err")
+[ "$_clean" = "$(cat "$_err")" ] || fail "10: obs-dir failure emitted raw control bytes"
+
 echo "ok 10: hostile input and containment escapes refuse cleanly (exit 1, no echo)"
 
 # --- 11. Exit-code contract: usage errors, defaults, internal errors ------
