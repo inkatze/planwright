@@ -37,10 +37,18 @@
 #  10. Validate / contain / refuse (REQ-D1.1): path-traversal slug or date,
 #      absolute-path slug, control-character slug, and a locale-dependent
 #      uppercase slug under a UTF-8 locale (asserting LC_ALL=C behavior) each
-#      exit non-zero, create no path, and print a message carrying no raw
-#      bytes; plus a direct unit test of the containment check with a
-#      grammar-valid composed path only containment could refuse (entries/ a
-#      symlink escaping the observations dir).
+#      exit 1, create no path, and print a message carrying neither raw
+#      control bytes nor the untrusted value echoed verbatim; plus direct
+#      containment units — entries/ a symlink escaping to an existing dir, and
+#      to a non-existent target (proving the escape target is never
+#      materialized as a side effect).
+#  11. Exit-code contract (REQ-A1.6, D-6): missing required flags, an unknown
+#      flag, a flag without its value, and a trailing token all exit 2
+#      (usage); an unusable observations dir exits 1; the default-date path
+#      (no --today) mints the system date into the fragment name.
+#
+# Exit codes asserted throughout: 1 refusal/fs-error, 2 usage, 3 collision
+# exhaustion, 4 entropy failure — the header contract of scripts/obs-record.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor) and /bin/sh.
 set -eu
@@ -165,13 +173,14 @@ echo "ok 2: same-day same-slug invocations produce distinct surviving files"
 
 o=$(new_obs "$tmp/o3")
 reject() {
-  # reject <label> <extra-args...> — asserts a refusal that writes no path.
+  # reject <label> <extra-args...> — asserts a grammar refusal (exit 1) that
+  # writes no path.
   _label=$1
   shift
-  if "$REC" --obs-dir "$o" --scope planwright --text 'x' "$@" \
-    >/dev/null 2>&1; then
-    fail "3: expected refusal for $_label"
-  fi
+  _rc=0
+  "$REC" --obs-dir "$o" --scope planwright --text 'x' "$@" >/dev/null 2>&1 \
+    || _rc=$?
+  [ "$_rc" -eq 1 ] || fail "3: $_label expected exit 1, got $_rc"
   [ "$(frag_count "$o/entries")" -eq 0 ] \
     || fail "3: $_label created a path on refusal"
 }
@@ -194,19 +203,21 @@ echo "ok 3: composite-grammar rejections refuse and write no path"
 # --- 4. Entropy-source shape check ---------------------------------------
 
 o=$(new_obs "$tmp/o4")
-make_od_stub "$tmp/badentropy" "nothex01"
-if PATH="$tmp/badentropy:$PATH" "$REC" --obs-dir "$o" --slug e --scope planwright \
-  --text 'x' --today 2026-07-09 >/dev/null 2>&1; then
-  fail "4: a non-hex minted UID must be refused"
-fi
-[ "$(frag_count "$o/entries")" -eq 0 ] || fail "4: entropy failure created a path"
-make_od_stub "$tmp/shortentropy" "dead"
-if PATH="$tmp/shortentropy:$PATH" "$REC" --obs-dir "$o" --slug e \
-  --scope planwright --text 'x' --today 2026-07-09 >/dev/null 2>&1; then
-  fail "4: a short minted UID must be refused"
-fi
-[ "$(frag_count "$o/entries")" -eq 0 ] || fail "4: short-UID failure created a path"
-echo "ok 4: a bad entropy read is a clean refusal, never a path"
+entropy_reject() {
+  # entropy_reject <label> <stub-dir> <minted-value> — a minted UID that is
+  # not exactly 8 hex is a clean entropy refusal (exit 4), never a path.
+  _label=$1
+  make_od_stub "$2" "$3"
+  _rc=0
+  PATH="$2:$PATH" "$REC" --obs-dir "$o" --slug e --scope planwright \
+    --text 'x' --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -eq 4 ] || fail "4: $_label expected exit 4 (entropy), got $_rc"
+  [ "$(frag_count "$o/entries")" -eq 0 ] || fail "4: $_label created a path"
+}
+entropy_reject "non-hex UID" "$tmp/badentropy" "nothex01"
+entropy_reject "short UID" "$tmp/shortentropy" "dead"
+entropy_reject "over-length UID" "$tmp/longentropy" "deadbeef0"
+echo "ok 4: a bad entropy read (non-hex, short, or over-length) is a clean refusal"
 
 # --- 5. Fail-on-exists collision retry (keys on the UID) -----------------
 
@@ -254,10 +265,10 @@ echo "ok 5: collision retry keys on the UID across entries/ and archive/"
 o=$(new_obs "$tmp/o6")
 printf 'KEEP\n' >"$o/entries/2026-07-09-x-abadcafe.md"
 make_od_stub "$tmp/od6" abadcafe
-if PATH="$tmp/od6:$PATH" "$REC" --obs-dir "$o" --slug x --scope planwright \
-  --text 'x' --today 2026-07-09 >/dev/null 2>&1; then
-  fail "6: a constant colliding UID must exhaust the bounded retry"
-fi
+_rc=0
+PATH="$tmp/od6:$PATH" "$REC" --obs-dir "$o" --slug x --scope planwright \
+  --text 'x' --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 3 ] || fail "6: constant-collision exhaustion expected exit 3, got $_rc"
 [ "$(cat "$o/entries/2026-07-09-x-abadcafe.md")" = "KEEP" ] \
   || fail "6: the exclusive publish replaced an existing destination"
 [ "$(frag_count "$o/entries")" -eq 1 ] \
@@ -288,21 +299,22 @@ echo "ok 7: entry text with newlines or control chars is refused at write time"
 # --- 8. Atomic exclusive publish: no torn fragment, no residue -----------
 
 # A stubbed `ln` that always fails simulates a failure between temp-write and
-# publish. Every retry writes a temp then fails to publish; the helper must
-# leave no fragment and no temp residue under entries/.
+# publish. The destination never appears, so the helper classifies this as a
+# filesystem failure (exit 1), not a collision exhaustion, and leaves no
+# fragment and no temp residue under entries/.
 o=$(new_obs "$tmp/o8")
 lnstub="$tmp/lnstub"
 mkdir -p "$lnstub"
 printf '#!/bin/sh\nexit 1\n' >"$lnstub/ln"
 chmod +x "$lnstub/ln"
-if PATH="$lnstub:$PATH" "$REC" --obs-dir "$o" --slug t --scope planwright \
-  --text 'x' --today 2026-07-09 >/dev/null 2>&1; then
-  fail "8: a failing publish must not report success"
-fi
+_rc=0
+PATH="$lnstub:$PATH" "$REC" --obs-dir "$o" --slug t --scope planwright \
+  --text 'x' --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "8: a broken publish expected exit 1 (fs error), got $_rc"
 [ "$(frag_count "$o/entries")" -eq 0 ] || fail "8: a torn fragment was left behind"
 resid=$(find "$o/entries" -type f | head -1 || true)
 [ -z "$resid" ] || fail "8: temp residue left under entries/: $resid"
-echo "ok 8: a failed publish leaves no fragment and no temp residue"
+echo "ok 8: a broken publish exits fs-error (1) with no fragment and no residue"
 
 # --- 9. Concurrent adds never conflict -----------------------------------
 
@@ -340,50 +352,116 @@ echo "ok 9: concurrent same-day same-slug adds merge without conflict"
 
 o=$(new_obs "$tmp/o10")
 hostile() {
-  # hostile <label> <extra-args...> — refusal, no path, message carries no
-  # raw control bytes (the sanitized-message property).
+  # hostile <label> <sensitive-value> <extra-args...> — a clean refusal
+  # (exit 1) that writes no path and whose message carries neither raw control
+  # bytes nor the untrusted value echoed verbatim (the echo-discipline bar).
   _label=$1
-  shift
+  _val=$2
+  shift 2
   _err="$tmp/err10"
-  if "$REC" --obs-dir "$o" --scope planwright --text 'x' "$@" \
-    >/dev/null 2>"$_err"; then
-    fail "10: expected refusal for $_label"
-  fi
+  _rc=0
+  "$REC" --obs-dir "$o" --scope planwright --text 'x' "$@" \
+    >/dev/null 2>"$_err" || _rc=$?
+  [ "$_rc" -eq 1 ] || fail "10: $_label expected exit 1, got $_rc"
   [ "$(frag_count "$o/entries")" -eq 0 ] || fail "10: $_label created a path"
-  # The message must carry no raw control bytes.
-  if [ -s "$_err" ]; then
-    clean=$(tr -d '\000-\010\013\014\016-\037\177' <"$_err")
-    orig=$(cat "$_err")
-    [ "$clean" = "$orig" ] || fail "10: $_label emitted raw control bytes"
+  # No raw control bytes in the message.
+  clean=$(tr -d '\000-\010\013\014\016-\037\177' <"$_err")
+  [ "$clean" = "$(cat "$_err")" ] || fail "10: $_label emitted raw control bytes"
+  # No verbatim echo of the untrusted value (catches a message that pastes the
+  # raw slug/date back — printable input the control-byte check cannot see).
+  if [ -n "$_val" ] && grep -qF -- "$_val" "$_err"; then
+    fail "10: $_label echoed the raw untrusted value into its message"
   fi
 }
-hostile "traversal slug" --slug ../evil --today 2026-07-09
-hostile "absolute-path slug" --slug /etc/passwd --today 2026-07-09
-hostile "traversal date" --slug ok --today ../../etc
+hostile "traversal slug" "../evil" --slug ../evil --today 2026-07-09
+hostile "absolute-path slug" "/etc/passwd" --slug /etc/passwd --today 2026-07-09
+hostile "traversal date" "../../etc" --slug ok --today ../../etc
 ctlslug=$(printf 'ev\011il')
-hostile "control-char slug" --slug "$ctlslug" --today 2026-07-09
+hostile "control-char slug" "$ctlslug" --slug "$ctlslug" --today 2026-07-09
 
 # Locale-dependent uppercase: under a UTF-8 locale the slug charset check must
-# still reject an uppercase byte (asserting the helper pins LC_ALL=C).
-if LC_ALL=en_US.UTF-8 LC_CTYPE=en_US.UTF-8 "$REC" --obs-dir "$o" --slug BADCASE \
-  --scope planwright --text 'x' --today 2026-07-09 >/dev/null 2>&1; then
-  fail "10: uppercase slug accepted under a UTF-8 locale (LC_ALL=C not pinned)"
+# still reject an uppercase byte (asserting the helper pins LC_ALL=C). This
+# guard is load-bearing only where collation is locale-sensitive (BSD/macOS);
+# skip with a notice when the UTF-8 locale is absent so a C-fallback pass is
+# never mistaken for proof of the pin.
+if locale -a 2>/dev/null | grep -qiE '^en_US\.utf-?8$'; then
+  _rc=0
+  LC_ALL=en_US.UTF-8 LC_CTYPE=en_US.UTF-8 "$REC" --obs-dir "$o" --slug BADCASE \
+    --scope planwright --text 'x' --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -eq 1 ] \
+    || fail "10: uppercase slug accepted under a UTF-8 locale (LC_ALL=C not pinned)"
+  [ "$(frag_count "$o/entries")" -eq 0 ] || fail "10: uppercase-locale slug created a path"
+else
+  echo "note 10: en_US.UTF-8 unavailable; skipping the locale-pin assertion"
 fi
-[ "$(frag_count "$o/entries")" -eq 0 ] || fail "10: uppercase-locale slug created a path"
 
-# Direct containment unit: entries/ is a symlink escaping the observations
+# Direct containment unit: entries/ is a symlink escaping to an *existing*
 # dir. A grammar-valid slug must still be refused, and no fragment lands in
 # the escape target.
 oc="$tmp/o10c"
 escape="$tmp/escape10c"
 mkdir -p "$oc" "$escape"
 ln -s "$escape" "$oc/entries"
-if "$REC" --obs-dir "$oc" --slug ok --scope planwright --text 'x' \
-  --today 2026-07-09 >/dev/null 2>&1; then
-  fail "10: an escaping entries/ symlink must be refused by containment"
-fi
+_rc=0
+"$REC" --obs-dir "$oc" --slug ok --scope planwright --text 'x' \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: an escaping entries/ symlink expected exit 1, got $_rc"
 [ "$(frag_count "$escape")" -eq 0 ] \
   || fail "10: a fragment escaped into the symlink target"
-echo "ok 10: hostile input and containment escapes refuse cleanly"
+
+# entries/ a symlink to a *non-existent* target: refuse, create no fragment,
+# and never materialize the escape target as a side effect (validate/contain
+# runs before any mkdir).
+od2="$tmp/o10d"
+esc2="$tmp/escape10d-target"
+mkdir -p "$od2"
+ln -s "$esc2" "$od2/entries"
+_rc=0
+"$REC" --obs-dir "$od2" --slug ok --scope planwright --text 'x' \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: a dangling escaping entries/ symlink expected exit 1, got $_rc"
+[ ! -e "$esc2" ] || fail "10: the escape target was materialized as a side effect"
+echo "ok 10: hostile input and containment escapes refuse cleanly (exit 1, no echo)"
+
+# --- 11. Exit-code contract: usage errors, defaults, internal errors ------
+
+o=$(new_obs "$tmp/o11")
+usage_err() {
+  # usage_err <label> <args...> — asserts an exit-2 usage error.
+  _label=$1
+  shift
+  _rc=0
+  "$REC" "$@" >/dev/null 2>&1 || _rc=$?
+  [ "$_rc" -eq 2 ] || fail "11: $_label expected exit 2 (usage), got $_rc"
+}
+usage_err "missing --slug" --obs-dir "$o" --scope planwright --text x --today 2026-07-09
+usage_err "missing --scope" --obs-dir "$o" --slug s --text x --today 2026-07-09
+usage_err "missing --text" --obs-dir "$o" --slug s --scope planwright --today 2026-07-09
+usage_err "unknown flag" --obs-dir "$o" --slug s --scope planwright --text x --bogus
+usage_err "flag without value" --obs-dir "$o" --slug
+usage_err "trailing token after --" --obs-dir "$o" --slug s --scope planwright \
+  --text x --today 2026-07-09 -- extra
+
+# Unusable obs-dir (a regular file): creating entries/ under it fails, a clean
+# exit-1 filesystem refusal with no path.
+notdir="$tmp/o11file"
+: >"$notdir"
+_rc=0
+"$REC" --obs-dir "$notdir" --slug s --scope planwright --text x \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "11: an unusable obs-dir expected exit 1, got $_rc"
+
+# Default-date path: with no --today the helper mints the system date; the
+# fragment name carries it (captured from the same clock, so deterministic).
+od=$(new_obs "$tmp/o11d")
+"$REC" --obs-dir "$od" --slug defdate --scope planwright --text 'x' \
+  >/dev/null || fail "11: default-date invocation failed"
+sysdate=$(date +%F)
+defbase=$(basename "$(echo "$od"/entries/*.md)")
+case "$defbase" in
+  "$sysdate"-defdate-*) : ;;
+  *) fail "11: default-date fragment [$defbase] lacks the system date $sysdate" ;;
+esac
+echo "ok 11: usage errors, unusable obs-dir, and the default-date path are contract-correct"
 
 echo "PASS: test-obs-record.sh"

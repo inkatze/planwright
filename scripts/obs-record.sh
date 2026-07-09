@@ -208,6 +208,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# This helper takes no positional arguments; any token surviving the parse
+# (e.g. after a `--`) is unexpected, so refuse rather than silently drop it.
+[ $# -eq 0 ] || {
+  usage
+  exit 2
+}
+
 [ -n "$slug" ] || {
   usage
   exit 2
@@ -224,14 +231,18 @@ done
 # --- component validation (before any filesystem write) ------------------
 
 # Date: mint today when unset, then validate shape + calendar validity for
-# every source (a --today argument is untrusted like any other input).
-[ -n "$today" ] || today=$(date +%F)
+# every source (a --today argument is untrusted like any other input). The
+# `|| refuse` keeps an unavailable/broken `date` a clean refusal rather than a
+# bare set -e abort mid-assignment.
+if [ -z "$today" ]; then
+  today=$(date +%F) || refuse 1 "cannot determine the current date"
+fi
 case "$today" in
   [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) : ;;
   *) refuse 1 "date is not a well-formed YYYY-MM-DD" ;;
 esac
 valid_calendar_date "$today" || refuse 1 "date is not a real calendar date"
-date=$today
+entry_date=$today
 
 # Slug: 1..40 chars, kebab-case [a-z0-9]+(-[a-z0-9]+)*, no leading/trailing or
 # doubled hyphen, lowercase alnum + single hyphens only. The charset check
@@ -271,23 +282,33 @@ _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 
 # --- directory setup + containment ---------------------------------------
 
-entries="$obsdir/entries"
-archive="$obsdir/archive"
+# Validate/contain before create (D-7). Create only the observations root
+# first and canonicalize it, so the containment check runs against a resolved
+# base rather than riding an entries/ that a mkdir followed through a symlink.
+mkdir -p "$obsdir" || refuse 1 "cannot create the observations directory"
+canon_obs=$(cd "$obsdir" 2>/dev/null && pwd -P) \
+  || refuse 1 "cannot resolve the observations directory"
+entries="$canon_obs/entries"
+archive="$canon_obs/archive"
+
+# A real entries/ is always a directory; a symlink is precisely the escape
+# vector containment exists to close. Reject it here — before any mkdir — so a
+# dangling escape target is never materialized as a side effect on a platform
+# whose mkdir -p would follow it.
+[ ! -L "$entries" ] || refuse 1 "entries path must not be a symlink"
 
 mkdir -p "$entries" || refuse 1 "cannot create the entries directory"
 
-# Containment (D-7): canonicalize entries/ and its parent and confirm entries/
-# resolves to exactly <obs-dir>/entries. An entries/ that is a symlink (or sits
-# behind one) escaping the observations dir is refused before any write, even
-# though every filename component is grammar-valid.
-canon_obs=$(cd "$obsdir" 2>/dev/null && pwd -P) \
-  || refuse 1 "cannot resolve the observations directory"
+# Re-canonicalize entries/ after creation and confirm it resolves to exactly
+# <obs-dir>/entries. `entries` is the canonical path, used verbatim for the
+# write below, so nothing is reopened by a non-canonical name between this
+# check and the publish.
 canon_entries=$(cd "$entries" 2>/dev/null && pwd -P) \
   || refuse 1 "cannot resolve the entries directory"
-[ "$canon_entries" = "$canon_obs/entries" ] \
+[ "$canon_entries" = "$entries" ] \
   || refuse 1 "entries path escapes the observations directory"
 
-entry_line="- $date [$scope] $text"
+entry_line="- $entry_date [$scope] $text"
 
 # --- mint, then atomic exclusive publish with bounded retry --------------
 
@@ -309,7 +330,8 @@ while [ "$attempt" -lt "$MAX_RETRIES" ]; do
     continue
   fi
 
-  dest="$entries/$date-$slug-$uid.md"
+  fragname="$entry_date-$slug-$uid.md"
+  dest="$entries/$fragname"
 
   # Atomic exclusive publish: write a temp file in entries/ (same filesystem),
   # then hard-link it into place. `ln` without -f fails when the destination
@@ -317,17 +339,24 @@ while [ "$attempt" -lt "$MAX_RETRIES" ]; do
   # above and this publish is caught here — never overwritten.
   _tmp=$(mktemp "$entries/.obs-record.XXXXXX") \
     || refuse 1 "cannot create a temporary fragment file"
-  printf '%s\n' "$entry_line" >"$_tmp"
+  printf '%s\n' "$entry_line" >"$_tmp" \
+    || refuse 1 "cannot write the fragment (filesystem error)"
   if ln "$_tmp" "$dest" 2>/dev/null; then
     rm -f "$_tmp"
     _tmp=""
-    printf '%s\n' "$dest"
+    # Report the fragment in the caller's own frame (the passed --obs-dir),
+    # not the canonicalized path used internally for the write.
+    printf '%s\n' "$obsdir/entries/$fragname"
     exit 0
   fi
-  # Publish failed (the destination appeared, or ln is unusable): drop the temp
-  # and retry with a freshly minted UID.
+  # Publish failed. Drop the temp, then distinguish the two causes: if the
+  # destination now exists, a racing writer won the name — retry with a fresh
+  # UID. If it does not exist, `ln` itself is unusable (a filesystem failure,
+  # not a collision): refuse cleanly rather than burning retries and
+  # mislabeling it as exhaustion.
   rm -f "$_tmp"
   _tmp=""
+  [ -e "$dest" ] || refuse 1 "cannot publish the fragment (filesystem error)"
 done
 
 refuse 3 "collision retry exhausted; no fragment written"
