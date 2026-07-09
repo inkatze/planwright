@@ -34,6 +34,7 @@ of the release chain after T1 and can run in parallel throughout.
 - **Citations:** D-1, D-2, D-11 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4,
   REQ-A1.5
 - **Estimated effort:** 1.0d
+- **Last activity:** 2026-07-09
 
 ### Task 2 — Release-tagging policy doctrine note
 
