@@ -10,8 +10,8 @@ floor, the size budgets, the test-and-measure principle, and the kept
 prompt-eval convention. The size guard (`scripts/check-instructions.sh`, wired
 into `mise run check`) enforces the budgets; this doc governs the writing.
 
-Citations: prompt-hygiene REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 · D-2, D-3,
-D-6, D-7, D-8, D-9, D-10, D-11.
+Citations: prompt-hygiene REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.6 ·
+D-2, D-3, D-6, D-7, D-8, D-9, D-10, D-11.
 
 ## Why: instruction-following degrades with instruction load
 
