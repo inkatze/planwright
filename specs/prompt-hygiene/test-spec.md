@@ -1,15 +1,16 @@
 # Prompt Hygiene — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-07-08
+**Status:** Ready
+**Last reviewed:** 2026-07-09
 **Format-version:** 1
 
-Coverage mix: 11 of 16 REQs carry `[test]` (all deterministic, run by
+Coverage mix: 18 of 23 REQs carry `[test]` (all deterministic, run by
 GitHub CI via `mise run check` / `mise run test`; the eval runner's logic
 is tested against a stubbed `claude` on PATH so no CI run spends tokens);
-4 doctrine-prose REQs are `[design-level]`; judgment-shaped verifications
-are `[manual]` with their recorded artifact named. Real behavioral eval
-runs never execute in CI (D-8).
+4 REQs are `[design-level]` (the doctrine-prose REQs C1.1–C1.3 plus the
+threshold-derivation record B1.5); judgment-shaped verifications are
+`[manual]` with their recorded artifact named. Real behavioral eval runs
+never execute in CI (D-8).
 
 ## REQ-A — Measurement & audit
 
@@ -28,9 +29,20 @@ skill without a manifest yields the defined missing-manifest error.
 ### REQ-A1.3 — Offender shortlist and diet plans [test + manual]
 
 `[test]`: fixtures straddling the thresholds; assert the shortlist
-contains exactly the over-threshold files, ranked. `[manual]`: the diet
-plans recorded by Task 2's audit run are reviewed at the Task 5–7 PRs;
+contains exactly the over-threshold offenders (files over per-file floors
+and skills over the start-load/closure budget), ranked. `[manual]`: the diet
+plans recorded by Task 2's audit run are reviewed at the Task 5–7.5 PRs;
 the recorded plans are the artifact.
+
+### REQ-A1.4 — Injected-context measurement [test]
+
+Fixture `hooks.json` registering a hook whose script emits an
+`additionalContext` payload (literal prose plus a line with a `$(…)`
+interpolation); assert `--audit` reports the injected-context class with the
+static word count computed by excluding the interpolation line, and that the
+hook is never executed (a fixture hook that would side-effect on execution
+leaves no trace). A registered hook that is under the warn floor still yields
+a report row (presence is always reported; the warning is REQ-B1.7's).
 
 ## REQ-B — Instruction guard
 
@@ -48,11 +60,14 @@ vs pass; a threshold override via a temp
 `.claude/planwright.local.yml` flips a failing fixture to passing
 (config-get layering exercised).
 
-### REQ-B1.3 — Exemptions [test]
+### REQ-B1.3 — Exemptions and transitional allowances [test]
 
-An exempted over-floor file passes with its reason echoed; the same file
-still counts toward start-load/closure sums (assert a closure error
-survives the exemption); an exemption entry without a reason is an error.
+A permanent-exempted over-floor file passes with its reason echoed; the same
+file still counts toward start-load/closure sums (assert a start-load and a
+closure error survive the permanent exemption); an entry of either form
+without a reason is an error. A transitional `pending diet (Task N)` allowance
+on a start-load offender lets the check pass (the one form that may cover a
+start-load offender, transiently); removing it re-fails the offender.
 
 ### REQ-B1.4 — Options-reference rows [test]
 
@@ -72,6 +87,31 @@ Fixture manifest naming a nonexistent rule doc fails with the offending
 name; existing docs pass; point-of-use entries are checked identically to
 run-start entries.
 
+### REQ-B1.7 — Injected-context warn floor [test]
+
+Fixture injected-context payload over the warn floor makes `--audit` /
+`check:instructions` emit a warning but exit zero (never fails CI); under the
+floor still emits the report row but no warning (the floor gates the warning,
+not the row — REQ-A1.4); a floor override via a temp
+`.claude/planwright.local.yml` moves the warn boundary (config-get layering
+exercised).
+
+### REQ-B1.8 — Fail-loud on malformed input and boundary semantics [test]
+
+For each malformed-input class — a garbled/unrecognized manifest entry, a
+malformed exemption/allowance entry, a missing/non-numeric threshold knob, a
+hook whose static prose cannot be extracted — a fixture asserts the guard
+errors (never silently skips, zeroes, or passes). Boundary fixtures at exactly
+the error and warn thresholds assert error and warn respectively (`≥`).
+
+### REQ-B1.9 — Untrusted-input safety [test]
+
+Fixtures with hostile PR-controllable content — a manifest entry / rule-doc
+name containing shell metacharacters or `../` traversal, an exemption reason
+with metacharacters — assert the guard neither shell-evaluates the content nor
+resolves outside the resolution roots, and (with REQ-A1.4) never executes a
+hook script.
+
 ## REQ-C — Authoring doctrine
 
 ### REQ-C1.1 — Authoring rule doc [design-level]
@@ -84,7 +124,8 @@ lint:md and check:links guard its mechanics.
 
 The doc defines always-loaded core vs point-of-use bulk and the safety
 floor (gating law never deferred); application is exercised by the Task
-5–7 diets and their manifests.
+5–7.5 diets and their manifests (Task 7.5 is the flagship point-of-use
+reclassification).
 
 ### REQ-C1.3 — Test-and-measure principle [design-level]
 
@@ -106,29 +147,46 @@ the artifact.
 The merged guard catalog contains id `instruction-hygiene`
 (`scripts/resolve-catalog.sh` view asserted in the test suite).
 
+### REQ-C1.6 — Eval artifact hygiene and CI-exclusion guard [test]
+
+`[test]`: against the stubbed-`claude` output, assert the recorded artifact
+contains only graded outcome + cost and no machine-local path / username /
+session id (a fixture stub payload carrying those is scrubbed). The
+CI-exclusion guard (part of `mise run check`) fails on a fixture workflow that
+wires an eval task into CI, and passes on the real workflow set.
+
 ## REQ-D — Diets & verification
 
 ### REQ-D1.1 — Offenders under budget [test + manual]
 
 `[test]`: post-diet, `check:instructions` passes with the dieted files
-absent from the exemption list. `[manual]`: "law moved verbatim in
-meaning, no contract change" is reviewed on each diet PR against the
-Task 2 diet plan.
+carrying no suppression (permanent exemption or transitional allowance).
+`[manual]`: "law moved verbatim in meaning, no contract change" is reviewed on
+each diet PR against the Task 2 diet plan.
 
-### REQ-D1.2 — Moved law resolvable [test]
+### REQ-D1.2 — Moved law resolvable [test + manual]
 
-Covered mechanically by the REQ-B1.6 check over the updated manifests;
-the diet PRs keep `mise run check` green.
+`[test]`: the REQ-B1.6 resolution check over the updated manifests confirms
+every reference **resolves** (and the diet PRs keep `mise run check` green).
+`[manual]`: resolution proves the reference points at an existing doc, not
+that the law's *content* landed there — content-presence ("verbatim in
+meaning") is the REQ-D1.1 `[manual]` review on each diet PR. The tag is split
+so the mechanical claim is not overstated.
 
 ### REQ-D1.3 — Pilot before/after eval [manual]
 
 The recorded artifacts are the verification: Task 4's baseline run and
 Task 5's post-diet run on identical fixtures, pass^3 both sides, paired
-comparison and per-run cost recorded under `tests/prompt-evals/`. Not a
-CI path by design (D-8).
+comparison and per-run cost recorded under `tests/prompt-evals/`. "No
+regression" is defined as: post-diet holds pass^3 on every paired fixture
+(a fixture that passed pre-diet must still pass) and per-run cost is recorded
+for review (cost is reported, not gated). Not a CI path by design (D-8).
 
 ### REQ-D1.4 — Zero grandfathered errors [test + manual]
 
-`[test]`: a check (Task 8) fails if any exemption reason matches
-`pending diet`. `[manual]`: Task 8's closing audit re-run is recorded and
-confirms every skill under the start-load error threshold.
+`[test]`: a check (Task 8) fails if any suppression entry is a `pending diet`
+allowance (per-file or start-load) — since a start-load offender can only be
+carried by such an allowance (REQ-B1.3b), this catches a lingering start-load
+offender, not just per-file ones. `[manual]`: Task 8's closing audit re-run is
+recorded and confirms every skill under the mandatory-at-start error
+threshold.

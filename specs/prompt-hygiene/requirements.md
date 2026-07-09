@@ -1,7 +1,7 @@
 # Prompt Hygiene — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-07-08
+**Status:** Ready
+**Last reviewed:** 2026-07-09
 **Format-version:** 1
 
 ## Goal
@@ -70,18 +70,32 @@ enforceable proxies; semantic quality stays review-time judgment.
 
 - **REQ-A1.1** A measurement tool SHALL compute word counts (with line
   counts reported informationally) for every instruction file
-  (`skills/*/SKILL.md`, `doctrine/*.md`) and emit a ranked report.
-  *(Cites: the invocation seed (Sources), D-2.)*
+  (`skills/*/SKILL.md`, `doctrine/*.md`) and emit a ranked report. The
+  `doctrine/README.md` index SHALL be excluded from the per-file walk: it is
+  an index, not run-start law, and no skill's manifest loads it.
+  *(Cites: the invocation seed (Sources), D-2, kickoff §3 (2026-07-08).)*
 - **REQ-A1.2** The tool SHALL compute, per skill, the mandatory-at-start
   load (the SKILL.md plus the rule docs its manifest requires at run start)
   and the reachable closure (plus every rule doc the manifest defers to
   point of use), derived mechanically from the skill's doctrine manifest.
   *(Cites: D-1, D-3.)*
-- **REQ-A1.3** The audit SHALL produce a ranked offender shortlist with a
-  diet plan per shortlisted file naming what moves to rule docs, what
-  collapses to a reference, what is cut, and what defers to point-of-use
-  loading.
-  *(Cites: the invocation seed (Sources), drafting-session decision (2026-07-08).)*
+- **REQ-A1.3** The audit SHALL produce a ranked offender shortlist — files
+  over their per-file floors **and** skills over the mandatory-at-start or
+  reachable-closure budgets — with a diet plan per shortlisted offender
+  naming what moves to rule docs, what collapses to a reference, what is cut,
+  and what defers to point-of-use loading.
+  *(Cites: the invocation seed (Sources), drafting-session decision (2026-07-08), kickoff §3 (2026-07-08).)*
+- **REQ-A1.4** The audit SHALL identify injected-context hooks — the hooks
+  registered in the plugin's `hooks.json` whose scripts emit
+  `additionalContext` / `hookSpecificOutput` — and measure the **static**
+  injected prose each contributes, reported as a distinct injected-context
+  class in the ranked report. Discovery SHALL be over registered hooks, not
+  an arbitrary file grep. Measurement SHALL be **static**: the hook script is
+  read, never executed; a line containing a `$(…)` or `${…}` interpolation is
+  excluded from the static count (its dynamic contribution is noted, not
+  counted). Every identified injected-context hook SHALL appear as a row in
+  the report (its warn state is REQ-B1.7's concern, not its presence).
+  *(Cites: D-13, kickoff §3 (2026-07-08), kickoff sign-off lens pass (2026-07-09).)*
 
 ## REQ-B — Instruction guard
 
@@ -90,15 +104,26 @@ enforceable proxies; semantic quality stays review-time judgment.
   check; warn-threshold violations are reported without failing.
   *(Cites: the invocation seed (Sources), D-4.)*
 - **REQ-B1.2** The guard SHALL enforce per-file floors, a tight
-  mandatory-at-start budget, and a loose reachable-closure budget; every
-  threshold SHALL be a config knob with its default in
+  mandatory-at-start budget (the *start-load*: SKILL.md plus run-start rule
+  docs), and a loose reachable-closure budget (start-load plus point-of-use
+  docs); every threshold SHALL be a config knob with its default in
   `config/defaults.yml`, overlay-tunable per the customization boundary.
+  ("Start-load" and "mandatory-at-start" name the same budget throughout.)
   *(Cites: D-1, D-5.)*
-- **REQ-B1.3** The guard SHALL support an exemption mechanism naming the
-  exempt file and a recorded reason; an exemption SHALL suppress only that
-  file's per-file floor, never the start-load or closure budgets, and an
-  exemption without a reason SHALL be an error.
-  *(Cites: D-5.)*
+- **REQ-B1.3** The guard SHALL support two distinct suppression forms, each
+  naming its target and a recorded reason (a reason-less entry of either form
+  SHALL be an error):
+  (a) a **permanent exemption**, which suppresses only a file's per-file
+  floor, **never** the mandatory-at-start or reachable-closure budgets, and
+  carries a standing rationale; and
+  (b) a **transitional `pending diet (Task N)` allowance**, which temporarily
+  permits one named over-budget offender — per-file **or** mandatory-at-start —
+  to not fail the check for the duration of its diet, is removed by that
+  task's own PR, and SHALL be forbidden at closeout (REQ-D1.4). The
+  transitional allowance is the only form that may cover a mandatory-at-start
+  offender, and only transiently; no permanent exemption ever suppresses the
+  start-load or closure budgets.
+  *(Cites: D-5, kickoff sign-off lens pass (2026-07-09).)*
 - **REQ-B1.4** Every config knob this spec introduces SHALL have a row in
   `docs/options-reference.md`.
   *(Cites: bootstrap D-43.)*
@@ -112,6 +137,30 @@ enforceable proxies; semantic quality stays review-time judgment.
   point-of-use alike, resolves through the rule-doc resolution chain; an
   unresolvable reference SHALL fail the check.
   *(Cites: D-3, drafting-session decision (2026-07-08).)*
+- **REQ-B1.7** The injected static prose measured under REQ-A1.4 SHALL carry
+  a warn-level floor only: an injected-context hook whose static prose exceeds
+  the floor SHALL be reported as a warning, and SHALL NOT fail the check
+  (the surface is per-session and partly dynamic). The floor gates only the
+  warning, never the report row (which REQ-A1.4 always emits). The floor's
+  default SHALL live in `config/defaults.yml`, overlay-tunable, with its
+  `docs/options-reference.md` row (REQ-B1.4).
+  *(Cites: D-13, D-5, kickoff §3 (2026-07-08).)*
+- **REQ-B1.8** The guard SHALL fail loud on measurement input it cannot
+  parse: a malformed or unrecognized doctrine-manifest entry, a malformed
+  exemption/allowance entry, a missing or non-numeric threshold knob, or an
+  injected-context hook whose static prose it cannot extract SHALL be an
+  error, never a silent skip, a silent zero, or a pass. An input that cannot
+  be measured is not counted as under budget. Threshold comparison SHALL be
+  boundary-defined: a count **equal to** an error threshold is an error, and
+  a count equal to a warn threshold is a warning (`≥`, not `>`).
+  *(Cites: D-5, kickoff sign-off lens pass (2026-07-09).)*
+- **REQ-B1.9** The guard and audit run in CI over repository files that are
+  PR-controllable (manifest entries, exemption/allowance text, rule-doc
+  names, hook scripts). They SHALL treat that content as untrusted: no
+  content is passed to a shell for evaluation, rule-doc resolution is confined
+  to the resolution roots (no path traversal outside them), and hook scripts
+  are read statically, never executed (REQ-A1.4).
+  *(Cites: security-posture, kickoff sign-off lens pass (2026-07-09).)*
 
 ## REQ-C — Authoring doctrine
 
@@ -137,13 +186,24 @@ enforceable proxies; semantic quality stays review-time judgment.
 - **REQ-C1.5** The guard catalog SHALL gain an instruction-hygiene entry so
   the builder can recommend the guard and the eval convention to adopters.
   *(Cites: D-10, drafting-session decision (2026-07-08).)*
+- **REQ-C1.6** The kept-eval convention SHALL require artifact hygiene and a
+  standing CI-exclusion guard: recorded eval artifacts (results, cost) SHALL
+  carry only the graded outcome and cost, scrubbed of machine-local paths,
+  usernames, and session identifiers, so no operational detail lands in a
+  committed (public) artifact; and the "evals never run in CI" invariant
+  (D-8) SHALL be enforced by a standing check over the CI workflow files —
+  not by mere absence from the `check` aggregate — that fails if an eval task
+  is wired into CI.
+  *(Cites: D-8, security-posture, kickoff sign-off lens pass (2026-07-09).)*
 
 ## REQ-D — Diets & verification
 
 - **REQ-D1.1** Each shortlisted offender SHALL be slimmed per its diet plan
-  until it passes the guard; moved law SHALL be relocated verbatim in
-  meaning (no contract change rides a diet).
-  *(Cites: the invocation seed (Sources), D-5.)*
+  until it passes the guard (including a skill over the mandatory-at-start or
+  reachable-closure budget, not only a file over its per-file floor); moved
+  law SHALL be relocated verbatim in meaning (no contract change rides a
+  diet).
+  *(Cites: the invocation seed (Sources), D-5, kickoff §3 (2026-07-08).)*
 - **REQ-D1.2** Law moved out of a skill SHALL land in a resolved rule doc,
   with the skill retaining a resolution-path reference recorded in its
   doctrine manifest.
@@ -154,9 +214,12 @@ enforceable proxies; semantic quality stays review-time judgment.
   and cost recorded.
   *(Cites: D-7, D-12.)*
 - **REQ-D1.4** After the diets, the guard SHALL pass with zero grandfathered
-  errors: the exemption list carries only permanent recorded exemptions,
-  with no `pending diet` entries remaining.
-  *(Cites: drafting-session decision (2026-07-08).)*
+  errors: the suppression list carries only permanent recorded exemptions
+  (REQ-B1.3a), with no transitional `pending diet` allowances (REQ-B1.3b)
+  remaining — per-file or mandatory-at-start. A lingering start-load offender
+  therefore surfaces as a lingering `pending diet` allowance, so the closeout
+  check catches it.
+  *(Cites: drafting-session decision (2026-07-08), kickoff sign-off lens pass (2026-07-09).)*
 
 ## Changelog
 
@@ -164,6 +227,27 @@ enforceable proxies; semantic quality stays review-time judgment.
   all nine non-terminal bundles; overlap with `specs/output-hygiene` judged
   a family boundary, spin-new triggers fired; zero observations-log entries
   consumed).
+- 2026-07-08 — `/spec-kickoff` §3 (meaning-class): added REQ-A1.4 +
+  REQ-B1.7 (injected-context measurement with a warn-only floor; new D-13);
+  REQ-A1.1 excludes the `doctrine/README.md` index; REQ-A1.3 / REQ-D1.1
+  clarified that the offender shortlist covers skills over the mandatory-at-start
+  or reachable-closure budget, not only files over per-file floors; added Task 7.5
+  (residual start-load diets) and a spec-format-coupling note on Task 7.
+  Prompted by the corpus measurement (`/spec-draft` mandatory-at-start
+  ≈10,460, over the 10,000 error threshold, with no diet task).
+- 2026-07-09 — `/spec-kickoff` sign-off lens pass (meaning-class): the
+  Discovery-Rigor fan-out found the Task-7.5 start-load remediation deadlocked
+  (non-exemptible start-load + downstream-only fix) with an arithmetic error in
+  the spec-format coupling. Redesign (Approach A): REQ-B1.3 now distinguishes a
+  permanent exemption from a transitional `pending diet` allowance that may
+  cover a start-load offender during its diet (seeded at Task 3, liquidated by
+  Task 7.5, forbidden at Task 8); Task 7.5 scoped to start-load; coupling note
+  corrected. Also: REQ-A1.4 fully specified (registered-hook discovery, static
+  extraction rule, never-executed); REQ-B1.7 reconciled with REQ-A1.4 (row
+  always shown, warn only above floor); added REQ-B1.8 (fail-loud on malformed
+  input + boundary semantics), REQ-B1.9 (untrusted-input safety), REQ-C1.6
+  (eval artifact hygiene + evals-never-in-CI standing guard). Terminology
+  normalized.
 
 ## Sources
 

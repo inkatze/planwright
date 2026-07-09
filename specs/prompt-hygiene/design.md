@@ -1,7 +1,7 @@
 # Prompt Hygiene — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-07-08
+**Status:** Ready
+**Last reviewed:** 2026-07-09
 **Format-version:** 1
 
 Origin tags: `N` = new decision, this bundle. Foreign IDs are
@@ -268,6 +268,40 @@ after its diet, gated per D-7.
 worker processes: correct unit selected, dispatch marker written, launch
 command printed, non-Ready/non-Active spec refused.
 
+### D-13: Injected-context surfaces are measured, warn-floor only  (N)
+
+**Decision:** The audit's instruction-surface set extends beyond the two
+static globs to hook scripts that emit model-loaded context
+(`additionalContext` / `hookSpecificOutput`; today the SessionStart
+`tool-discovery.sh`): their static injected prose is measured and reported as
+a distinct injected-context class (dynamic interpolations noted, not counted).
+The guard enforces this class at a **warn-level floor only** — growth is
+surfaced, CI never hard-fails on it. Every identified injected-context hook
+is always reported as a row (REQ-A1.4); the floor gates only whether that row
+also raises a warning (REQ-B1.7), so the audit report and the warn gate do not
+disagree. Hook discovery is over `hooks.json`-registered hooks and the static
+prose is read, never executed (REQ-A1.4, REQ-B1.9) — the injected surface is
+measured without running the hook.
+
+**Alternatives considered:**
+- Leave injected context out of scope (a static file-walk cannot rank a
+  dynamically generated surface). Rejected because: it is genuine
+  model-loaded instruction context every session pays, and a spec whose
+  thesis is "measure so bloat cannot recur silently" that ignored a growing
+  injected surface would have a blind spot exactly where the ethos applies.
+- Full error budget on injected prose, same as file budgets. Rejected
+  because: the guard would have to robustly separate static from dynamic
+  prose inside shell scripts — real implementation burden for a ~40-word
+  present-day surface — and hard-gating a partly-dynamic per-session load
+  courts false failures. The warn floor gets the visibility without the
+  brittleness.
+
+**Chosen because:** measurement is cheap and the surface is real; enforcement
+is proportional to a small, partly-dynamic target. The warn floor keeps
+growth visible (the spec's whole point) while reserving hard CI failure for
+the deterministic static budgets. *(Kickoff §3 (2026-07-08): human expanded
+audit scope to injected templates; warn-floor mechanism chosen.)*
+
 ## Cross-cutting concerns
 
 - **Family boundary with `specs/output-hygiene`:** that spec governs what
@@ -288,3 +322,54 @@ command printed, non-Ready/non-Active spec refused.
 - **Self-application:** the doctrine doc and this bundle's own additions
   are subject to the budgets they introduce; `doctrine/
   instruction-hygiene.md` must pass the guard it defines.
+- **Start-load offenders exceed the per-file offender set (kickoff §3,
+  2026-07-08; redesigned at sign-off lens pass, 2026-07-09):** the corpus
+  measurement confirms exactly three SKILL.md files (`/orchestrate`,
+  `/execute-task`, `/spec-kickoff`) over the per-file error threshold and
+  exactly one doctrine file (`spec-format.md`) — Tasks 5/6/7's targets. But
+  the *primary* budget (D-1, mandatory-at-start, error 10,000) is
+  manifest-derived and catches doctrine-heavy small-bodied skills the per-file
+  dimension misses: `/spec-draft` measures ≈10,460 at kickoff purely through
+  run-start doctrine loads, with no per-file diet task. Its only fix is
+  point-of-use reclassification (Task 7.5), which reduces the start-load sum
+  but not the reachable closure (the doc stays reachable) — so Task 7.5 is
+  scoped to the **start-load** budget, and a hypothetical closure offender
+  would need a content diet, not reclassification.
+  **Transitional-allowance sequencing (Approach A):** because honest
+  manifests (Task 3) surface `/spec-draft`'s start-load error immediately, and
+  no *permanent* exemption may ever suppress start-load (REQ-B1.3a), Task 3
+  seeds a transitional `pending diet (Task 7.5)` allowance (REQ-B1.3b) in the
+  same PR that adds the manifests — keeping CI green through the diet sequence
+  while the debt stays visible and self-liquidating (the same pattern the
+  per-file offenders already use). Task 7.5 removes it; Task 8's closeout
+  forbids any leftover (REQ-D1.4). This is the transitional allowance that the
+  original kickoff-§3 draft wrongly denied start-load offenders, which
+  deadlocked the graph (the fix that only a downstream task could deliver
+  gating every upstream task's green-check Done-when).
+  **spec-format coupling, corrected:** `spec-format.md` (4,099) is the
+  dominant run-start load for both `/spec-draft` and `/spec-kickoff`, but a
+  *compliant trim* removes only ~99 words (floor 4,000), far short of the
+  ~461 `/spec-draft` must shed — so point-of-use reclassification (Task 7.5)
+  is required **regardless** of Task 7's trim-or-exempt choice for spec-format.
+  Task 7's disposition and Task 7.5's reclassification are largely
+  independent; the earlier "exempt strands, trim spares" conditional was an
+  arithmetic error.
+- **`doctrine/README.md` exclusion (kickoff §3, 2026-07-08):** the index is
+  matched by the `doctrine/*.md` glob but is not run-start law and is loaded
+  by no manifest; the guard excludes it from the per-file walk (REQ-A1.1)
+  rather than budgeting an index.
+- **Sign-off lens-pass hardening (2026-07-09):** a full-bundle Discovery-Rigor
+  fan-out surfaced that the guard/audit and the eval runner are the spec's
+  trust and safety surfaces. Three requirements now make the ethos explicit
+  rather than implicit: the guard **fails loud** on malformed measurement
+  input (REQ-B1.8) instead of silently under-counting — the exact silent-skip
+  D-5 rejects, now applied to every parse path, plus defined threshold-boundary
+  semantics; the guard treats PR-controllable repo content processed in CI as
+  **untrusted** (REQ-B1.9, no shell-eval / no path-traversal / hooks read
+  statically); and the eval runner practices **artifact hygiene** with a
+  standing CI-exclusion guard (REQ-C1.6) so no machine-local path or secret
+  reaches a committed artifact and "evals never in CI" (D-8) is enforced by a
+  check, not by absence. Finer-grained concurrency and performance findings
+  (eval worktree naming/isolation, exemption-file merge contention across
+  parallel diets, guard memoization) are recorded as risk-register rows for
+  execution rather than pre-decided here.
