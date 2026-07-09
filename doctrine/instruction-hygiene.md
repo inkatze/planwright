@@ -12,7 +12,7 @@ wired into `mise run check`; both delivered by prompt-hygiene Task 2)
 enforces the budgets; this doc governs the writing.
 
 Citations: prompt-hygiene REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.6 ·
-D-1, D-2, D-3, D-5, D-6, D-7, D-8, D-9, D-10, D-11.
+prompt-hygiene D-1, D-2, D-3, D-5, D-6, D-7, D-8, D-9, D-10, D-11.
 
 ## Why: instruction-following degrades with instruction load
 
