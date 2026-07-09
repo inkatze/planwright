@@ -286,6 +286,11 @@ _slen=$(printf '%s' "$text" | tr -d '\000-\037\177' | wc -c | tr -d ' ')
 # first and canonicalize it, so the containment check runs against a resolved
 # base rather than riding an entries/ that a mkdir followed through a symlink.
 mkdir -p "$obsdir" || refuse 1 "cannot create the observations directory"
+# Reject a symlinked observations root before canonicalizing it — the same
+# escape vector the entries/ guard below closes, one level up. `cd ... && pwd -P`
+# would silently resolve a symlinked obs-dir to its target and root the whole
+# store there; refuse it so the fragment store stays where the caller named it.
+[ ! -L "$obsdir" ] || refuse 1 "observations directory path must not be a symlink"
 canon_obs=$(cd "$obsdir" 2>/dev/null && pwd -P) \
   || refuse 1 "cannot resolve the observations directory"
 entries="$canon_obs/entries"

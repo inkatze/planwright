@@ -421,6 +421,20 @@ _rc=0
   --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
 [ "$_rc" -eq 1 ] || fail "10: a dangling escaping entries/ symlink expected exit 1, got $_rc"
 [ ! -e "$esc2" ] || fail "10: the escape target was materialized as a side effect"
+
+# The observations root itself a symlink escaping to an *existing* dir: the
+# obs-dir guard must refuse before canonicalization would resolve it to the
+# target and root the store there, and no fragment lands in the escape target.
+oe="$tmp/o10e"
+escroot="$tmp/escape10e"
+mkdir -p "$escroot"
+ln -s "$escroot" "$oe"
+_rc=0
+"$REC" --obs-dir "$oe" --slug ok --scope planwright --text 'x' \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "10: a symlinked obs-dir root expected exit 1, got $_rc"
+[ "$(frag_count "$escroot")" -eq 0 ] \
+  || fail "10: a fragment escaped through the symlinked obs-dir root"
 echo "ok 10: hostile input and containment escapes refuse cleanly (exit 1, no echo)"
 
 # --- 11. Exit-code contract: usage errors, defaults, internal errors ------
