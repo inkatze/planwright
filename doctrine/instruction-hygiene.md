@@ -11,7 +11,7 @@ prompt-eval convention. The size guard (`scripts/check-instructions.sh`, wired
 into `mise run check`) enforces the budgets; this doc governs the writing.
 
 Citations: prompt-hygiene REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.6 ·
-D-2, D-3, D-6, D-7, D-8, D-9, D-10, D-11.
+D-1, D-2, D-3, D-5, D-6, D-7, D-8, D-9, D-10, D-11.
 
 ## Why: instruction-following degrades with instruction load
 
@@ -79,7 +79,8 @@ Doctrine: point-of-use <doc-name> (<site note>)
   doc. Parsers take the class and doc name and ignore the note; the note is
   for the reading model.
 - Tokens are separated by horizontal whitespace; nothing else may follow the
-  entry on the line.
+  entry on the line (trailing horizontal whitespace before the newline is
+  ignored, not malformed).
 - A doc name appears at most once in a skill's manifest, in one class.
   Duplicates, or the same doc in both classes, are malformed.
 - The prefix match is exact and case-sensitive. A guard SHOULD treat a
