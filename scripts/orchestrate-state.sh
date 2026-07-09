@@ -602,22 +602,35 @@ while IFS="$TAB" read -r id evstate evidence contra deps; do
     c_branch="planwright/$spec_id/task-$id"
     c_pr=""
     c_date=""
+    # The canonical `PR #<n> merged <date>` form requires BOTH the PR number and
+    # gh's own merge date from the batch. A PR number without a valid gh merge
+    # date does NOT become a full stamp paired with some other date (a branch-tip
+    # date is not the merge date): drop the number and fall to the degraded
+    # date-only path below, so the annotation never misrepresents its evidence.
     c_ghinfo=$(gh_prinfo_for "$c_branch")
     if [ -n "$c_ghinfo" ]; then
-      c_pr=${c_ghinfo%%"$TAB"*}
-      c_merged=${c_ghinfo#*"$TAB"}
-      c_date=${c_merged%%T*} # ISO 8601 date part
+      c_ghpr=${c_ghinfo%%"$TAB"*}
+      c_ghmerged=${c_ghinfo#*"$TAB"}
+      c_ghdate=${c_ghmerged%%T*} # ISO 8601 date part
+      case "$c_ghpr" in
+        '' | *[!0-9]*) c_ghpr="" ;;
+      esac
+      if [ -n "$c_ghdate" ] && ! printf '%s\n' "$c_ghdate" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+        c_ghdate=""
+      fi
+      if [ -n "$c_ghpr" ] && [ -n "$c_ghdate" ]; then
+        c_pr=$c_ghpr
+        c_date=$c_ghdate
+      fi
     fi
-    case "$c_pr" in
-      '' | *[!0-9]*) c_pr="" ;;
-    esac
-    if [ -n "$c_date" ] && ! printf '%s\n' "$c_date" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
-      c_date=""
-    fi
-    # No usable gh merge date: fall back to the task branch tip's committer date
-    # (short YYYY-MM-DD), the degraded branch-evidence path. A branch that no
-    # longer exists (merged and deleted) yields no date -> untouched.
+    # Degraded branch-evidence date (date-only, NO PR number) when the gh batch
+    # did not yield a full stamp. A branch that no longer exists (merged and
+    # deleted) yields no date -> the reconcile leaves the annotation untouched.
     if [ -z "$c_date" ] && branch_exists "$c_branch"; then
+      # $c_branch is a REVISION here, not a pathspec, so no `--` terminator (it
+      # would make git read the branch name as a path and find nothing). Safe
+      # unquoted-of-options: the name is grammar-validated (planwright/<spec>/
+      # task-<id>) so it can neither begin with `-` nor carry a metacharacter.
       c_bd=$(git -C "$repo_root" log -1 --format=%cs "$c_branch" 2>/dev/null) || c_bd=""
       if printf '%s\n' "$c_bd" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
         c_date=$c_bd

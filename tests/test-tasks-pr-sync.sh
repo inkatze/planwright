@@ -1657,16 +1657,25 @@ reconcile "$repo" specs/demo || fail "T7-A reconcile non-zero"
 block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:** Completed · PR #42 merged 2026-07-01' \
   || fail "T7-A: canonical PR completion stamp not written on the moved block"
 [ "$(section_of "$sd/tasks.md" 2)" = "In progress" ] || fail "T7-A: Task 2 not in In progress"
-block_of "$sd/tasks.md" 2 | grep -qF -- '- **Status:** implementing' \
-  || fail "T7-A: a non-completion Status annotation was not preserved byte-for-byte"
+# Byte-for-byte (exact line equality, not a substring): a preserved non-completion
+# annotation must be left verbatim, with no trailing mutation.
+t7a_t2status=$(block_of "$sd/tasks.md" 2 | grep -F -- '- **Status:**')
+[ "$t7a_t2status" = '- **Status:** implementing' ] \
+  || fail "T7-A: a non-completion Status annotation was not preserved byte-for-byte (got '$t7a_t2status')"
 anchor_after=$("$ANCHOR" "$sd")
 [ "$anchor_before" = "$anchor_after" ] || fail "T7-A: the completion stamp changed the content anchor (must be anchor-excluded)"
+# The stamped snapshot must satisfy the committed-ledger corruption guard: the
+# canonical stamp is recognized as a completion Status by check-ledger's
+# classify(), so the Completed-section placement is consistent (cross-file
+# consistency: the stamp format and the ledger recognizer stay in lockstep).
+/bin/bash "$here/../scripts/check-ledger.sh" "$sd/tasks.md" \
+  || fail "T7-A: the canonical stamp is not recognized as a completion Status by check-ledger"
 snap=$tmp/t7a-snap.md
 cp "$sd/tasks.md" "$snap"
 reconcile "$repo" specs/demo || fail "T7-A second reconcile non-zero"
 cmp -s "$sd/tasks.md" "$snap" || fail "T7-A: the stamp is not idempotent (second reconcile changed tasks.md)"
 unset GH_PRLIST
-echo "ok: reconcile stamps the canonical PR completion annotation; anchor + non-completion annotations invariant; idempotent (REQ-E1.2)"
+echo "ok: reconcile stamps the canonical PR completion annotation; anchor + non-completion annotations invariant; idempotent; ledger-consistent (REQ-E1.2)"
 
 # --- T7-B: degraded date-only stamp from branch evidence with no remote. Task 1
 # is merged locally with its branch kept (branch-merged evidence) and no gh, so
@@ -1723,7 +1732,17 @@ block_of "$sd/tasks.md" 1 | grep -qF 'PR #' \
   && fail "T7-B: the degraded stamp invented a PR number"
 anchor_after=$("$ANCHOR" "$sd")
 [ "$anchor_before" = "$anchor_after" ] || fail "T7-B: the degraded stamp changed the content anchor"
-echo "ok: no-remote branch evidence yields the pinned date-only stamp, no invented PR number (REQ-E1.2)"
+# The degraded stamp is also a valid completion Status for the ledger guard.
+/bin/bash "$here/../scripts/check-ledger.sh" "$sd/tasks.md" \
+  || fail "T7-B: the degraded stamp is not recognized as a completion Status by check-ledger"
+# Idempotent: the degraded path is NOT covered by the no-downgrade guard (it
+# overwrites its own date-only line each run), so its byte-stability across
+# repeated reconciles must be asserted directly.
+snapb=$tmp/t7b-snap.md
+cp "$sd/tasks.md" "$snapb"
+reconcile "$repo" specs/demo || fail "T7-B second reconcile non-zero"
+cmp -s "$sd/tasks.md" "$snapb" || fail "T7-B: the degraded stamp is not idempotent (second reconcile changed tasks.md)"
+echo "ok: no-remote branch evidence yields the pinned date-only stamp, no invented PR number, idempotent, ledger-consistent (REQ-E1.2)"
 
 # --- T7-C: no evidence for a date (trailer-only completion, branch gone, no
 # remote) leaves the annotation untouched rather than inventing a bare stamp.
@@ -1760,7 +1779,12 @@ reconcile "$repo" specs/demo || fail "T7-C reconcile non-zero"
 [ "$(section_of "$sd/tasks.md" 1)" = "Completed" ] || fail "T7-C: Task 1 not placed in Completed"
 block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:**' \
   && fail "T7-C: a stamp was invented with neither a PR number nor a date (must leave the annotation untouched)"
-echo "ok: trailer-only completion with no remote and no branch leaves the annotation untouched (REQ-E1.2)"
+# Idempotent: a second reconcile over the untouched-completion state is a no-op.
+snapc=$tmp/t7c-snap.md
+cp "$sd/tasks.md" "$snapc"
+reconcile "$repo" specs/demo || fail "T7-C second reconcile non-zero"
+cmp -s "$sd/tasks.md" "$snapc" || fail "T7-C: the untouched path is not idempotent (second reconcile changed tasks.md)"
+echo "ok: trailer-only completion with no remote and no branch leaves the annotation untouched, idempotent (REQ-E1.2)"
 
 # --- T7-D: no downgrade. A block already carrying a full canonical PR stamp is
 # reconciled under degraded (no-remote) evidence whose best output is date-only;
@@ -1801,5 +1825,126 @@ reconcile "$repo" specs/demo || fail "T7-D reconcile non-zero"
 block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:** Completed · PR #99 merged 2026-06-01' \
   || fail "T7-D: a degraded reconcile downgraded an existing full PR stamp (lost the PR number)"
 echo "ok: a degraded reconcile never downgrades an existing full PR completion stamp (REQ-E1.2)"
+
+# --- T7-E: a MERGED PR whose mergedAt is absent must NOT fabricate a full stamp
+# by pairing the PR number with a local branch date (that date is not the merge
+# date). The honest output is the degraded date-only form (branch evidence) with
+# no PR number, or untouched — never `PR #<n> merged <branch-date>`.
+repo=$tmp/t7e
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Merged PR, no mergedAt
+
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — Still ahead
+
+- **Deliverables:** Another thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.2
+- **Estimated effort:** 1 day
+
+## Completed
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" remote add origin https://example.invalid/demo.git
+# Branch kept (a local branch-tip date is available) AND a MERGED PR whose
+# mergedAt column is empty (null in gh) — the exact null-mergedAt edge.
+git -C "$repo" branch planwright/demo/task-1
+git -C "$repo" checkout -q planwright/demo/task-1
+git -C "$repo" commit -q --allow-empty -m "task 1 work"
+git -C "$repo" checkout -q main
+git -C "$repo" merge -q --no-ff -m "merge task 1" planwright/demo/task-1
+branch_date=$(git -C "$repo" log -1 --format=%cs planwright/demo/task-1)
+GH_PRLIST=$(printf 'planwright/demo/task-1\tMERGED\t42\t')
+export GH_PRLIST
+reconcile "$repo" specs/demo || fail "T7-E reconcile non-zero"
+unset GH_PRLIST
+[ "$(section_of "$sd/tasks.md" 1)" = "Completed" ] || fail "T7-E: Task 1 not placed in Completed"
+block_of "$sd/tasks.md" 1 | grep -qF 'PR #' \
+  && fail "T7-E: fabricated a full 'PR #<n> merged <date>' stamp from a branch date (mergedAt was absent)"
+block_of "$sd/tasks.md" 1 | grep -qF -- "- **Status:** Completed · merged $branch_date" \
+  || fail "T7-E: expected the honest degraded date-only stamp from branch evidence"
+echo "ok: a MERGED PR with no mergedAt degrades to the honest date-only stamp, never a fabricated merge date (REQ-E1.2)"
+
+# --- T7-F: sibling annotations (Last activity / Dispatch) on a block that MOVES
+# to ## Completed ride along untouched while the completion stamp replaces only
+# the Status line (the corrected implementation comment's promise).
+repo=$tmp/t7f
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Merged via PR
+
+- **Status:** implementing
+- **Last activity:** 2026-06-30
+- **Dispatch:** worker-7
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — Still ahead
+
+- **Deliverables:** Another thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.2
+- **Estimated effort:** 1 day
+
+## Completed
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" remote add origin https://example.invalid/demo.git
+GH_PRLIST=$(printf 'planwright/demo/task-1\tMERGED\t42\t2026-07-01T12:00:00Z')
+export GH_PRLIST
+reconcile "$repo" specs/demo || fail "T7-F reconcile non-zero"
+unset GH_PRLIST
+[ "$(section_of "$sd/tasks.md" 1)" = "Completed" ] || fail "T7-F: Task 1 not placed in Completed"
+# The stale Status is replaced by the canonical stamp (in place)...
+block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:** Completed · PR #42 merged 2026-07-01' \
+  || fail "T7-F: the stale Status was not replaced by the canonical stamp"
+block_of "$sd/tasks.md" 1 | grep -qF -- '- **Status:** implementing' \
+  && fail "T7-F: the stale 'implementing' Status survived alongside the stamp"
+# ...and only one Status line remains (the ledger's >1-Status lint).
+[ "$(block_of "$sd/tasks.md" 1 | grep -cF -- '- **Status:**')" = 1 ] \
+  || fail "T7-F: the stamp did not replace the Status line in place (duplicate Status)"
+# ...while the sibling annotations survive byte-for-byte.
+t7f_la=$(block_of "$sd/tasks.md" 1 | grep -F -- '- **Last activity:**')
+[ "$t7f_la" = '- **Last activity:** 2026-06-30' ] \
+  || fail "T7-F: the Last activity annotation was not preserved byte-for-byte (got '$t7f_la')"
+t7f_dp=$(block_of "$sd/tasks.md" 1 | grep -F -- '- **Dispatch:**')
+[ "$t7f_dp" = '- **Dispatch:** worker-7' ] \
+  || fail "T7-F: the Dispatch annotation was not preserved byte-for-byte (got '$t7f_dp')"
+echo "ok: sibling annotations survive on a stamped Completed block; the stamp replaces only the Status line (REQ-E1.2)"
 
 echo "PASS: all tasks-pr-sync tests passed"

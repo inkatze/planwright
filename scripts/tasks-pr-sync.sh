@@ -149,14 +149,23 @@ function sec_for(id,   s) {
 # number). Replaces the first Status line in place, or appends one after the
 # last line of the block when none exists. The stamp is a task-level annotation,
 # so it is excluded from the content anchor (scripts/spec-anchor.sh).
-function stamp(text, id,   want, has_pr, n, a, i, line, e, out, done) {
+function stamp(text, id,   want, has_pr, pr, dt, n, a, i, line, e, out, done) {
+  # Defense in depth: only trust a digits-only PR number and an ISO date at this
+  # write boundary, even though the derivation already validated them — the value
+  # lands in a committed artifact, so an alternate or future producer feeding a
+  # malformed map column must never reach tasks.md. (Interval-free regexes for
+  # the bash-3.2 / BSD awk floor.)
+  pr = prnum[id]
+  dt = cdate[id]
+  if (pr !~ /^[0-9]+$/) pr = ""
+  if (dt !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) dt = ""
   want = ""
   has_pr = 0
-  if (prnum[id] != "" && cdate[id] != "") {
-    want = "Completed · PR #" prnum[id] " merged " cdate[id]
+  if (pr != "" && dt != "") {
+    want = "Completed · PR #" pr " merged " dt
     has_pr = 1
-  } else if (cdate[id] != "") {
-    want = "Completed · merged " cdate[id]
+  } else if (dt != "") {
+    want = "Completed · merged " dt
   }
   if (want == "") return text
   n = split(text, a, "\n")
