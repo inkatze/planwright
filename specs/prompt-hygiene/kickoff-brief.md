@@ -307,6 +307,26 @@ instead — see §8).
 
 Signed off: 2026-07-08
 
+### Execution research log (appended by /execute-task; not part of the signed contract)
+
+- **Task 1 (2026-07-09) — manifest grammar design.** D-3 delegates the exact
+  manifest syntax to the doctrine doc. Chosen: a reserved column-zero line
+  prefix (`Doctrine: <class> <doc-name>`), one entry per line, outside code
+  fences, optional parenthesized site note on point-of-use entries.
+  Considered: (a) a fenced block with an info string — rejected, D-3 requires
+  entries *outside* fences so quoted examples stay inert; (b) HTML-comment
+  markers — rejected, the manifest also feeds the skill's reading model and
+  belongs in the visible prose; (c) multi-doc lines — rejected, per-line
+  entries give REQ-B1.8's fail-loud a clean per-entry hook and cleaner diffs.
+  The reserved prefix closes the grammar (any `Doctrine:` line must parse or
+  is a guard error, satisfying REQ-B1.8); duplicate or dual-class doc names
+  are malformed; doc names reuse the resolution chain's
+  `^[a-z0-9][a-z0-9-]*$` identifier discipline (REQ-B1.6, REQ-B1.9 — the name
+  is validated before any path is formed). Precedents consulted: the repo's
+  `Planwright-Task:` trailer and `GATE(when:)` closed grammar; Anthropic
+  skill-authoring guidance (progressive disclosure, one-level-deep
+  references) per D-9/D-11's session survey.
+
 <!-- Component 8: Sign-off -->
 
 ## 8. Sign-off
