@@ -74,16 +74,23 @@ Doctrine: point-of-use <doc-name> (<site note>)
   `^[a-z0-9][a-z0-9-]*$` (the resolution chain's identifier discipline), no
   `.md` suffix, no path. Every named doc must resolve through the rule-doc
   resolution chain; an unresolvable reference fails the resolution check.
-- An optional trailing parenthesized note names the step or branch that reads
-  a point-of-use doc. Parsers take the doc name and ignore the note; the note
-  is for the reading model.
+- An optional trailing parenthesized note may follow the doc name on any
+  entry; by convention it names the step or branch that reads a point-of-use
+  doc. Parsers take the class and doc name and ignore the note; the note is
+  for the reading model.
 - Tokens are separated by horizontal whitespace; nothing else may follow the
   entry on the line.
 - A doc name appears at most once in a skill's manifest, in one class.
   Duplicates, or the same doc in both classes, are malformed.
+- The prefix match is exact and case-sensitive. A guard SHOULD treat a
+  column-zero case variant such as `doctrine:` as a malformed entry rather
+  than ignore it: a near miss that silently drops an entry under-reports the
+  start-load.
 - Parsers MUST track fenced code blocks (``` and ~~~) and ignore fenced
   content; that is what lets this doc and others quote example entries safely.
   Indented or quoted lines are not at column zero and are never entries.
+  Parsers do not track HTML comments: an entry line inside one still counts,
+  so never comment an entry out to disable it; delete it.
 
 The skill's manifest is the set of all its entry lines. Convention places
 them as one contiguous block in the skill's doctrine section, but position
