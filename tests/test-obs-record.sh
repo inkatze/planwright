@@ -57,7 +57,9 @@
 #      (usage); present-but-empty --slug/--scope exit 2 while empty --text is a
 #      content refusal (exit 1); an unusable observations dir exits 1;
 #      -h/--help prints usage and exits 0; the default-date path (no --today)
-#      mints the system date into the fragment name.
+#      mints the system date into the fragment name; and the default --obs-dir
+#      (no flag) roots the store at ./specs/_observations with a matching
+#      relative stdout path.
 #
 # Exit codes asserted throughout: 1 refusal/fs-error, 2 usage, 3 collision
 # exhaustion, 4 entropy failure — the header contract of scripts/obs-record.sh.
@@ -668,6 +670,24 @@ case "$defbase" in
   "$d1"-defdate-* | "$d2"-defdate-*) : ;;
   *) fail "11: default-date fragment [$defbase] lacks the system date ($d1/$d2)" ;;
 esac
+
+# Default --obs-dir: omitting the flag roots the store at ./specs/_observations
+# (relative to cwd) and reports the fragment in that same relative frame — a
+# documented CLI contract every other check bypasses by passing --obs-dir. Run
+# in a subshell from a scratch cwd so the default resolves there, with a stubbed
+# od for a deterministic UID; assert both the store location and the stdout shape.
+odef="$tmp/o11def"
+mkdir -p "$odef/specs/_observations/entries"
+make_od_stub "$tmp/od11def" abcd1234
+defout=$(
+  cd "$odef" \
+    && PATH="$tmp/od11def:$PATH" "$REC" --slug topic --scope planwright \
+      --text 'default store' --today 2026-07-09
+) || fail "11: default --obs-dir invocation failed"
+[ "$defout" = "specs/_observations/entries/2026-07-09-topic-abcd1234.md" ] \
+  || fail "11: default --obs-dir stdout [$defout] is not the expected relative path"
+[ -f "$odef/specs/_observations/entries/2026-07-09-topic-abcd1234.md" ] \
+  || fail "11: default --obs-dir did not write under ./specs/_observations/entries"
 
 # -h/--help prints the usage synopsis and exits 0 — the sole exit-0 non-record
 # path; a regression flipping it to a usage error (exit 2) would be invisible.
