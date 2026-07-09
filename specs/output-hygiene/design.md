@@ -1,10 +1,12 @@
 # Output & Accumulator Hygiene — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-07-07
+**Last reviewed:** 2026-07-08
 **Format-version:** 1
 
-Five load-bearing decisions. The recurring shape they answer: an artifact was written for
+Five load-bearing decisions, four live (D-1 was superseded 2026-07-08 — the
+observations-recording concern moved to `specs/observation-recording`; its record below
+is frozen). The recurring shape they answer: an artifact was written for
 the convenience of the process that emitted it, and the reader — human or tool, sometimes
 weeks later, sometimes a concurrent run — pays for it. The recurring answers: one normative
 home per contract; collision-free by construction rather than by etiquette; enforcement at
@@ -14,6 +16,13 @@ hand-copied.
 ## Decision log
 
 ### D-1: Observations recording via per-run fragment files with single-writer consolidation  (drafting-session decision (2026-07-02); reworked at kickoff §Cluster-1, 2026-07-07)
+
+**Superseded-by: observation-recording D-1** (2026-07-08) — the observations-recording
+concern was carved out to `specs/observation-recording`, whose reno-model fragment
+substrate (per-entry fragment files, filename-UID identity, derived render; its D-1–D-9)
+replaces this per-run-fragment + single-writer-consolidation design. The supersession is
+declared by observation-recording REQ-E1.4 / D-9; the record below is frozen
+(bootstrap D-20).
 
 **Decision:** Sessions record observations as individual fragment files under
 `specs/_observations/queue/`, **one file per run**, named `<YYYY-MM-DD>-<taskid>-<run-nonce>.md`.
@@ -234,6 +243,15 @@ a write that rides an existing trigger, a convention that removes the copy, or d
 the redundant rendering.
 
 ## Cross-cutting concerns
+
+*(Amended at delta re-walkthrough 2026-07-08: the fragment-queue material below — the
+D-1 rows of the catalog walk, the data-hygiene sentences on fragment files,
+consolidation, and archive-on-consume, and the concurrent-edit note's D-1 framing — is
+frozen history; that concern now lives in `specs/observation-recording`, whose own
+cross-cutting posture governs it. What continues to govern here: the catalog rows tied
+to the retained decisions (D-2–D-5) and the data-hygiene rule as it applies to PR bodies —
+committed artifacts carry no secrets, credentials, internal hostnames, or sensitive
+operational detail.)*
 
 - **Decision-domains catalog walk (merged core + overlays, ten domains).** Touched and
   decided: data-storage (D-1 layout), concurrency (D-1 single-writer + idempotent-regenerate

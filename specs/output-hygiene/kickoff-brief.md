@@ -359,3 +359,90 @@ Anchor: `b4f1bf1216ea19818d736d84f9de892b87e785d8` — computed as
 `scripts/spec-anchor.sh specs/output-hygiene`
 
 Signed off: 2026-07-07
+
+## 9. Amendment log
+
+### Delta re-walkthrough — scope-down: observations recording carved out (2026-07-08)
+
+**Mode:** delta re-walkthrough on the Ready spec (post-merge of spec PR #124; nothing
+dispatched), declared by the scope-down brief; run from spec commit `1af51af`. Validator
+at pre-flight: 0/0; freshness check: recorded anchor `b4f1bf12…` matched recomputation
+(no staleness — the delta is human-declared).
+
+**Trigger.** The conflict-free observations-recording concern (REQ-B, D-1, Tasks 1–2)
+proved unsound under the PR-only, squash-merge, never-auto-merge regime across three
+redesigns. (The two §9 delta entries that recorded those redesigns lived only on the
+pre-#127 spec branch, discarded when PR #127 was closed and its branch deleted — they
+never merged; the failure history is recorded in `specs/observation-recording`'s Goal
+and Sources.) The concern was carved into `specs/observation-recording` (merged Ready
+2026-07-08, PR #128), whose REQ-E1.4 / D-9 declare the supersession and whose scope
+fully owns the fragment substrate, conflict-freedom invariants, readers/drain/class-3
+contract, security guards, and migration of the existing log (coverage cross-checked
+REQ-by-REQ against that bundle's In-scope and test-spec; no gap). This entry performs
+the carve-out amendment that observation-recording's Deferred coordination gate awaits;
+landing this PR satisfies the gate as worded (the human clears the Deferred entry on a
+later drain pass — dispatch of Tasks 1–2 is meanwhile impossible via section membership).
+
+**Delta applied (mechanism per the meta-spec's post-merge supersede ritual):**
+
+- REQ-B1.1–B1.5 marked superseded in place, bodies frozen, each pointing at its
+  observation-recording successor: B1.1 → REQ-A1.1 (with REQ-B1.1/B1.3), B1.2 → REQ-C1.1,
+  B1.3 → REQ-E1.1, B1.4 → REQ-C1.2 (with REQ-C1.3), B1.5 → REQ-D1.1 (with REQ-D1.3).
+  Pointer form: `**Superseded-by: REQ-<id> (observation-recording)**` — trailing
+  namespace qualifier because the validator anchors the supersede marker on the literal
+  `Superseded-by: REQ-` prefix; D-pointers use the namespace-first precedent form.
+- D-1 marked `**Superseded-by: observation-recording D-1**`, record frozen; the design
+  intro and the cross-cutting section carry amendment notes scoping what remains live.
+- Tasks 1–2 moved whole (definition fields intact, `Status: superseded` annotations) from
+  `## Forward plan` to `## Out of scope` — kept as frozen records per the stable-ID rule;
+  never dispatched, excluded from Done determination by section membership (verified
+  against the reconcile's status derivation and the selector).
+- Scope: In-scope bullet dropped; Out-of-scope pointer bullets added (requirements +
+  tasks); the Goal's accumulator claim narrowed to the retained `tasks.md` annotation
+  layer. test-spec `## REQ-B` entries removed with the group (tombstone note; verification
+  lives in observation-recording's test-spec — every live REQ here keeps exact-ID
+  coverage). tasks.md intro updated; dated Changelog entry names every superseded ID.
+
+**§6/§7 figures superseded by this delta:** the task-graph section's effort figures are
+now historical — the live graph is Task 5 → {3, 4, 6, 8} with Task 7 standalone, two
+roots (5, 7), peak width ≈5, critical path Task 5 → any of {3, 4, 6} = 1.5 days
+(replacing Task 1 → Task 2 = 3 days; the §6 guard-first criterion's Task 1 exemplar is
+likewise historical). Risk register rows 2 and 4's consolidation-writer/`opportunities.md`
+collision content moved with the concern (now governed by observation-recording); row 5
+(Task 6 ↔ fleet re-anchor) stands unchanged.
+
+**Lens pass (delta-scoped, fan-out — nine read-only sub-agents, one per canonical
+lens; severity-pruning forbidden):**
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness / logic / edge cases | 3 | cross-cutting banner self-contradiction (fixed); domain-walk and concurrent-edit-note staleness (covered by the reworded banner); graph arithmetic and supersession mapping verified correct |
+| Security | none | REQ-B1.5's four elements each verified against a live observation-recording successor (REQ-D1.1/D1.3/D1.4) down to test fixtures; new prose hygiene-clean |
+| Error handling / failure modes | 2 | section-blind in-flight accounting → phantom-slot hazard (hypothetical — no evidence exists or can be framework-minted; declined as spec edit, routed to observation); anchor/reconcile/drain/validator all verified clean on the new layout |
+| Performance | 3 | intro arithmetic verified correct; §6's 3-day critical path, roots {1,5,7}, peak ≈6 stale (superseded by this entry, above) |
+| Concurrency / state | none | gate satisfied on landing; no governance gap (baseline single-file doctrine governs until observation-recording executes); Done derivation correct via section membership; stale `observation-routing` branch flagged to the human |
+| Naming / readability / structure | 5 | pointer-form deviation (declined — validator-forced, documented in Changelog); rationale relocated to Changelog (fixed); markers moved above Cites lines (fixed); task-blocks-in-Out-of-scope + test-spec tombstone (declined with rationale, doctrine gap → observation); markdownlint 0 errors |
+| Documentation | 1 | no live doc surface misleads (queue design never propagated — Tasks 1–2 never dispatched); the flagged missing §9 amendment entry is this entry |
+| Tests / verification | none | all 16 live REQs covered exact-ID; no stale fixtures; validator coverage exemption for superseded REQs confirmed by design; no verification orphan |
+| Cross-file consistency | 3 | Goal head-claim over-promise (fixed); banner tension (fixed with correctness lens); bare D-20 qualified to bootstrap D-20 (fixed); mirrors/references/counts/mapping all verified |
+
+**Dispositions:** 6 findings applied as spec edits this entry (Goal claim narrowed;
+cross-cutting banner made precise; three bare D-20 citations qualified; five supersede
+markers reordered above their Cites lines; pointer-form rationale relocated to the
+Changelog); 3 declined with recorded rationale (pointer form — validator-forced;
+task blocks in Out of scope and the test-spec tombstone — no sanctioned alternative, a
+spec-format doctrine gap); 2 routed to the observations log (the doctrine gap; the
+section-blind in-flight accounting), appended this run; the stale-§6/§7-figures findings
+are resolved by the superseding paragraph above (signed sections are append-only). No
+finding left undispositioned.
+
+**Re-validation after applying:** `spec-validate` 0 errors / 0 warnings under Ready
+enforcement; markdownlint 0 errors; `Last reviewed:` 2026-07-08 on all four files;
+Status stays Ready (no flip on a delta re-walkthrough).
+
+Class: meaning
+Lens-pass: recorded above (this entry, §9), delta-scoped fan-out, findings dispositioned 2026-07-08.
+Anchor: `8d37221962ead5104868dafff88636da992608e6` — computed as
+`scripts/spec-anchor.sh specs/output-hygiene`
+
+Signed off: 2026-07-08

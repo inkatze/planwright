@@ -1,7 +1,7 @@
 # Output & Accumulator Hygiene — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-07
+**Last reviewed:** 2026-07-08
 **Format-version:** 1
 
 Coverage mix: the mechanical REQs are `[test]` (suites under `tests/`, run by the
@@ -36,45 +36,9 @@ updates keep the structure.
 
 ## REQ-B — Conflict-free observations recording
 
-### REQ-B1.1 — No shared append point [test]
-
-Task 1 suite: two runs with distinct identities on the same date compute **different**
-fragment filenames (asserted directly — the per-run nonce guarantees it), each writing its
-own file with no shared append point; consolidation by the single writer yields one
-conflict-free log with entries appended in consolidation order. A concurrent-consolidation
-case (two `--bookkeeping` runs over the same queue) proves idempotency: no duplicate entry,
-and a simulated log conflict regenerates from current state rather than resolving by union.
-
-### REQ-B1.2 — Class-3 invariants preserved [test + design-level]
-
-Design-level: the accumulator-taxonomy amendment names the queue's durable home, canonical
-reader, and drain ritual. Test: the drain-report fixture (Task 2) surfaces queue entries
-in the unmined count and oldest-age figures.
-
-### REQ-B1.3 — No loss, reorder, or rewrap [test]
-
-Task 1 suite: consolidation over a populated `opportunities.md` leaves every pre-existing
-line byte-for-byte intact apart from appended entries (entry text moved verbatim, no
-rewrap/redact); appended entries are in consolidation order, never re-sorted by fragment
-date. The atomic-commit case proves crash safety: the append and the fragment deletions are
-one commit, so an interrupted run persists neither (recovery resets the uncommitted working
-tree), and a re-run over partly-consumed state is idempotent — no entry lands twice.
-
-### REQ-B1.4 — Consumer semantics unchanged [test + design-level]
-
-Test: drain-report fixture with and without queue entries — report grammar unchanged,
-counts include the queue. Design-level: `/spec-draft` (mining, read-only) and
-`--bookkeeping` (the sole consolidation writer) instructions name the queue in their
-mining/consolidation steps.
-
-### REQ-B1.5 — Hostile-name safety and containment [test]
-
-Task 1 suite: a fragment-name derivation fed a traversal or metacharacter component
-(`../`, an embedded `/`, a non-printable byte) is a clean refusal — the observation is
-dropped-and-flagged, no file is written outside `specs/_observations/queue/`; a valid
-`<taskid>-<run-nonce>` passes. A name echoed into the drain/consolidation output is
-printable-sanitized (an embedded escape sequence does not reach the terminal). Mirrors the
-`orchestration-concurrency` REQ-F1.1 traversal test.
+*(Group superseded 2026-07-08: the REQ-B requirements moved to
+`specs/observation-recording` and their verification lives in that bundle's test-spec;
+the entries were removed with the group — see requirements `## Changelog`.)*
 
 ## REQ-C — Pending-sign-off marker canonicalization
 
