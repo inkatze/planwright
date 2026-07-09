@@ -1947,4 +1947,54 @@ t7f_dp=$(block_of "$sd/tasks.md" 1 | grep -F -- '- **Dispatch:**')
   || fail "T7-F: the Dispatch annotation was not preserved byte-for-byte (got '$t7f_dp')"
 echo "ok: sibling annotations survive on a stamped Completed block; the stamp replaces only the Status line (REQ-E1.2)"
 
+# --- T7-G: the no-downgrade guard recognizes ONLY the exact canonical stamp. A
+# block carrying a MALFORMED near-canonical Status (a PR number with a non-ISO
+# date, e.g. slashes — a shape this reconcile never writes, so a foreign/human
+# edit) reconciled under degraded (no-remote) evidence must NOT be preserved as
+# if canonical: the guard is a strict `Completed · PR #<n> merged <YYYY-MM-DD>`
+# recognizer, so the malformed stamp is regenerated to the honest degraded
+# date-only form rather than silently kept. Mirrors the function's own
+# defense-in-depth posture (only an ISO date is trusted at the write boundary).
+repo=$tmp/t7g
+t7_init "$repo"
+sd=$repo/specs/demo
+t7_heads "$sd"
+cat >"$sd/tasks.md" <<'EOF'
+# T7 — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Completed
+
+### Task 1 — Malformed existing stamp
+
+- **Status:** Completed · PR #99 merged 2026/06/01
+- **Deliverables:** A thing.
+- **Done when:** Done.
+- **Dependencies:** none
+- **Citations:** REQ-T1.1
+- **Estimated effort:** 1 day
+
+## Forward plan
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm fixture
+git -C "$repo" branch planwright/demo/task-1
+git -C "$repo" checkout -q planwright/demo/task-1
+git -C "$repo" commit -q --allow-empty -m "task 1 work"
+git -C "$repo" checkout -q main
+git -C "$repo" merge -q --no-ff -m "merge task 1" planwright/demo/task-1
+expected_date=$(git -C "$repo" log -1 --format=%cs planwright/demo/task-1)
+reconcile "$repo" specs/demo || fail "T7-G reconcile non-zero"
+block_of "$sd/tasks.md" 1 | grep -qF -- '2026/06/01' \
+  && fail "T7-G: a malformed non-canonical stamp was preserved by the no-downgrade guard (must not match the canonical recognizer)"
+block_of "$sd/tasks.md" 1 | grep -qF -- "- **Status:** Completed · merged $expected_date" \
+  || fail "T7-G: the malformed stamp was not regenerated to the honest degraded date-only form (expected 'merged $expected_date')"
+/bin/bash "$here/../scripts/check-ledger.sh" "$sd/tasks.md" \
+  || fail "T7-G: the regenerated degraded stamp is not recognized as a completion Status by check-ledger"
+echo "ok: the no-downgrade guard preserves ONLY the exact canonical stamp; a malformed near-canonical stamp is regenerated under degraded evidence (REQ-E1.2)"
+
 echo "PASS: all tasks-pr-sync tests passed"

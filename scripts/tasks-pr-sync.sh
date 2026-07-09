@@ -179,8 +179,13 @@ function stamp(text, id,   want, has_pr, pr, dt, n, a, i, line, e, out, done) {
       if (!has_pr) {
         e = line
         sub(/^- \*\*Status:\*\* /, "", e)
-        # Keep an existing full canonical stamp rather than downgrade it.
-        if (e ~ /^Completed · PR #[0-9]+ merged [0-9]/) {
+        # Keep an existing full canonical stamp rather than downgrade it. Match
+        # the canonical shape EXACTLY (`PR #<n> merged <YYYY-MM-DD>`, strict ISO,
+        # end-anchored) so a malformed near-canonical Status a foreign/human edit
+        # left behind (e.g. a non-ISO date) is regenerated, not silently kept —
+        # mirrors the ISO-only date trust at the write boundary above. (Interval-
+        # free regex for the bash-3.2 / BSD awk floor.)
+        if (e ~ /^Completed · PR #[0-9]+ merged [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
           out = out line "\n"
           continue
         }
