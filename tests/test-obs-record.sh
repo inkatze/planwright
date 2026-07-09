@@ -10,10 +10,13 @@
 #      path (before/after tree listing, REQ-A1.1, REQ-A1.4).
 #   2. Two same-day, same-slug invocations produce distinct filenames and both
 #      files survive (REQ-A1.1, REQ-A1.3, REQ-A1.5).
-#   3. Filename-grammar acceptance/rejection for every component (REQ-A1.2):
-#      malformed date shape, well-shaped non-calendar date (2026-02-30),
-#      uppercase slug, underscore slug, overlong slug (>40) all refuse; a
-#      valid name passes.
+#   3. Filename/component-grammar acceptance/rejection (REQ-A1.2): malformed
+#      date shape, non-calendar date (2026-02-30) and month (2026-13-01), and
+#      leap discrimination (non-leap 2026-/1900-02-29 reject, leap 2024-/
+#      2000-02-29 accept); slug rejects (uppercase, underscore, leading- and
+#      doubled-hyphen, >40) and the scope-grammar rejects (whitespace,
+#      non-alnum lead, bracket, >64); the 40-char slug and 64-char scope
+#      boundaries accept.
 #   4. UID minting is entropy-sourced and shape-checked (REQ-A1.2, REQ-A1.3):
 #      a stubbed reader returning a non-hex / wrong-length value is a clean
 #      refusal (entropy failure), never a written path.
@@ -27,10 +30,12 @@
 #      non-zero with no path created and the colliding file untouched (the
 #      exclusive publish refuses an existing destination, never replaces it).
 #   7. Entry-content refusal (REQ-A1.4): entry text carrying a newline or a
-#      control character is refused at write time, no path created.
+#      control character is refused at write time (exact exit 1), no path
+#      created; legitimate C1/UTF-8 prose (an em-dash) is instead accepted.
 #   8. Atomic exclusive publish (REQ-A1.6): a simulated failure between
 #      temp-write and publish leaves no fragment and no temp residue under
-#      entries/ (no reader ever sees a torn fragment).
+#      entries/ (no reader ever sees a torn fragment). 8b: an ln failure whose
+#      destination now exists is a racing-writer retry, not an fs-error refusal.
 #   9. Concurrent adds never conflict (REQ-B1.1): two branches from a common
 #      base each record a same-day, same-slug observation; git merge completes
 #      with no conflict and both fragments exist.
@@ -41,11 +46,14 @@
 #      control bytes nor the untrusted value echoed verbatim; plus direct
 #      containment units — entries/ a symlink escaping to an existing dir, and
 #      to a non-existent target (proving the escape target is never
-#      materialized as a side effect).
+#      materialized as a side effect), and the observations root itself a
+#      symlink (the obs-dir guard, refused before canonicalization).
 #  11. Exit-code contract (REQ-A1.6, D-6): missing required flags, an unknown
 #      flag, a flag without its value, and a trailing token all exit 2
-#      (usage); an unusable observations dir exits 1; the default-date path
-#      (no --today) mints the system date into the fragment name.
+#      (usage); present-but-empty --slug/--scope exit 2 while empty --text is a
+#      content refusal (exit 1); an unusable observations dir exits 1;
+#      -h/--help prints usage and exits 0; the default-date path (no --today)
+#      mints the system date into the fragment name.
 #
 # Exit codes asserted throughout: 1 refusal/fs-error, 2 usage, 3 collision
 # exhaustion, 4 entropy failure — the header contract of scripts/obs-record.sh.
@@ -187,6 +195,11 @@ reject() {
 reject "malformed date shape" --slug ok --today 2026-7-9
 reject "non-calendar date 2026-02-30" --slug ok --today 2026-02-30
 reject "non-calendar month" --slug ok --today 2026-13-01
+# Leap-year discrimination: 2026-02-30 above rejects whether _max is 28 or 29,
+# so it cannot tell a broken leap rule from a working one. A non-leap Feb 29
+# and a century-non-leap Feb 29 must reject (the accept side is asserted below).
+reject "non-leap Feb 29 (2026)" --slug ok --today 2026-02-29
+reject "century non-leap Feb 29 (1900)" --slug ok --today 1900-02-29
 reject "uppercase slug" --slug BadSlug --today 2026-07-09
 reject "underscore slug" --slug bad_slug --today 2026-07-09
 reject "leading-hyphen slug" --slug -bad --today 2026-07-09
@@ -213,11 +226,23 @@ scope_reject "overlong scope" --scope "$longscope"
 # overlong slug: 41 chars
 long=$(printf 'a%.0s' $(seq 1 41))
 reject "overlong slug" --slug "$long" --today 2026-07-09
+# Accept-side boundaries (kept after every reject above, since each writes a
+# fragment and the reject helpers assert an empty entries/).
 # A 40-char slug is accepted (boundary).
 ok40=$(printf 'a%.0s' $(seq 1 40))
 "$REC" --obs-dir "$o" --slug "$ok40" --scope planwright --text 'x' \
   --today 2026-07-09 >/dev/null || fail "3: a 40-char slug must be accepted"
-echo "ok 3: composite-grammar rejections refuse and write no path"
+# A 64-char scope is accepted (the scope-length boundary, mirroring the slug).
+ok64=$(printf 'a%.0s' $(seq 1 64))
+"$REC" --obs-dir "$o" --slug ok --scope "$ok64" --text 'x' \
+  --today 2026-07-09 >/dev/null || fail "3: a 64-char scope must be accepted"
+# Leap Feb 29 must be ACCEPTED for a /4-non-/100 year and a /400 year — the
+# accept side of the same rule the non-leap rejects above guard.
+"$REC" --obs-dir "$o" --slug ok --scope planwright --text 'x' \
+  --today 2024-02-29 >/dev/null || fail "3: leap-year Feb 29 (2024) must be accepted"
+"$REC" --obs-dir "$o" --slug ok --scope planwright --text 'x' \
+  --today 2000-02-29 >/dev/null || fail "3: 400-year leap Feb 29 (2000) must be accepted"
+echo "ok 3: composite-grammar rejects refuse (write no path); boundaries accept"
 
 # --- 4. Entropy-source shape check ---------------------------------------
 
@@ -302,18 +327,29 @@ echo "ok 6: bounded retry exhausts cleanly; the publish never overwrites"
 o=$(new_obs "$tmp/o7")
 nl='line one
 line two'
-if "$REC" --obs-dir "$o" --slug c --scope planwright --text "$nl" \
-  --today 2026-07-09 >/dev/null 2>&1; then
-  fail "7: entry text with a newline must be refused"
-fi
+# Assert the exact content-refusal code (1), not merely non-zero: a regression
+# exiting 2/3/4 or crashing under set -e must not pass as a content refusal.
+_rc=0
+"$REC" --obs-dir "$o" --slug c --scope planwright --text "$nl" \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "7: newline text expected exit 1 (content refusal), got $_rc"
 [ "$(frag_count "$o/entries")" -eq 0 ] || fail "7: newline text created a path"
 ctl=$(printf 'bell\007here')
-if "$REC" --obs-dir "$o" --slug c --scope planwright --text "$ctl" \
-  --today 2026-07-09 >/dev/null 2>&1; then
-  fail "7: entry text with a control character must be refused"
-fi
+_rc=0
+"$REC" --obs-dir "$o" --slug c --scope planwright --text "$ctl" \
+  --today 2026-07-09 >/dev/null 2>&1 || _rc=$?
+[ "$_rc" -eq 1 ] || fail "7: control-char text expected exit 1 (content refusal), got $_rc"
 [ "$(frag_count "$o/entries")" -eq 0 ] || fail "7: control-char text created a path"
-echo "ok 7: entry text with newlines or control chars is refused at write time"
+# C1 bytes (0x80-0x9F) are the continuation bytes of legitimate UTF-8 prose
+# (here an em-dash, 0xE2 0x80 0x94); the content filter refuses only C0 + DEL,
+# so such prose is ACCEPTED and writes exactly one fragment (header contract).
+oc=$(new_obs "$tmp/o7c")
+emdash=$(printf 'before \342\200\224 after')
+"$REC" --obs-dir "$oc" --slug c --scope planwright --text "$emdash" \
+  --today 2026-07-09 >/dev/null || fail "7: UTF-8 em-dash prose must be accepted"
+[ "$(frag_count "$oc/entries")" -eq 1 ] \
+  || fail "7: accepted C1/UTF-8 text must write exactly one fragment"
+echo "ok 7: C0/DEL text refused (exit 1); legitimate C1/UTF-8 prose accepted"
 
 # --- 8. Atomic exclusive publish: no torn fragment, no residue -----------
 
@@ -334,6 +370,36 @@ PATH="$lnstub:$PATH" "$REC" --obs-dir "$o" --slug t --scope planwright \
 resid=$(find "$o/entries" -type f | head -1 || true)
 [ -z "$resid" ] || fail "8: temp residue left under entries/: $resid"
 echo "ok 8: a broken publish exits fs-error (1) with no fragment and no residue"
+
+# --- 8b. ln fails because the destination now exists -> retry, not fs-error --
+
+# The publish distinguishes two ln failures: dest absent = filesystem failure
+# (exit 1, section 8); dest present = a racing writer won the name, so retry
+# with a fresh UID. Section 8 covers only the absent arm. A stateful ln stub
+# fails its first call while creating the destination (simulating the race),
+# then really links on its second call, driving the retry-to-success arm.
+o=$(new_obs "$tmp/o8b")
+lnstub2="$tmp/lnstub2"
+mkdir -p "$lnstub2"
+cat >"$lnstub2/ln" <<EOF
+#!/bin/sh
+# First call: simulate a racing writer that already created dest (\$2), then
+# fail without -f. Later calls: perform the real link via an absolute path.
+if [ -f "$lnstub2/called" ]; then
+  exec /bin/ln "\$@"
+fi
+: >"$lnstub2/called"
+: >"\$2"
+exit 1
+EOF
+chmod +x "$lnstub2/ln"
+make_od_stub "$tmp/od8b" c0ffee11 c0ffee22
+PATH="$lnstub2:$tmp/od8b:$PATH" "$REC" --obs-dir "$o" --slug race \
+  --scope planwright --text 'x' --today 2026-07-09 >/dev/null \
+  || fail "8b: a dest-exists ln failure must retry to success, not refuse"
+[ -f "$o/entries/2026-07-09-race-c0ffee22.md" ] \
+  || fail "8b: the retry did not land on the fresh UID"
+echo "ok 8b: a dest-exists publish failure retries with a fresh UID"
 
 # --- 9. Concurrent adds never conflict -----------------------------------
 
@@ -509,6 +575,16 @@ case "$defbase" in
   "$d1"-defdate-* | "$d2"-defdate-*) : ;;
   *) fail "11: default-date fragment [$defbase] lacks the system date ($d1/$d2)" ;;
 esac
-echo "ok 11: usage errors, unusable obs-dir, and the default-date path are contract-correct"
+
+# -h/--help prints the usage synopsis and exits 0 — the sole exit-0 non-record
+# path; a regression flipping it to a usage error (exit 2) would be invisible.
+"$REC" --help >/dev/null 2>&1 || fail "11: --help must exit 0"
+"$REC" -h >/dev/null 2>&1 || fail "11: -h must exit 0"
+helpout=$("$REC" --help 2>&1 || true)
+case "$helpout" in
+  *"usage:"*) : ;;
+  *) fail "11: --help must print the usage synopsis" ;;
+esac
+echo "ok 11: usage errors, unusable obs-dir, --help, and the default-date path are contract-correct"
 
 echo "PASS: test-obs-record.sh"
