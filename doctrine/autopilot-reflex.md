@@ -52,8 +52,9 @@ Walk them in order; each step constrains the ones after it.
    doctrine rots, and doctrine buried in a script is invisible. Where a piece
    requires no judgment, prefer a mechanical tool over LLM judgment: a
    comparator script cannot be pencil-whipped; an instruction an LLM follows
-   can. The capability-vs-style boundary call this step keeps forcing is the
-   [customization-boundary](customization-boundary.md)'s territory.
+   can. This step keeps forcing the capability-vs-style boundary call; that
+   call is the [customization-boundary](customization-boundary.md)'s
+   territory.
 
 6. **Capture the reasoning as the reusable asset.** Record why the gates are
    where they are, which alternatives lost and why, and what the tradeoffs
