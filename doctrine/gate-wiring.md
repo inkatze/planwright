@@ -146,9 +146,8 @@ summary, and in the draft PR body as the audit record review works from (the
 parent skill assembles that body per the PR-body assembly section below, which
 places this record collapsed beneath the human summary; REQ-E1.5). Table
 content is a committed artifact: finding text and captured output must respect
-artifact
-data-hygiene ([Security Posture](security-posture.md)) before they land in
-a PR body.
+artifact data-hygiene ([Security Posture](security-posture.md)) before they
+land in a PR body.
 
 ## Resolution ladder procedure
 
