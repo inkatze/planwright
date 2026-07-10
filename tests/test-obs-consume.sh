@@ -605,6 +605,26 @@ grep -Fxq -e "$NEIGH$cr" "$o/opportunities.md" \
   || fail "12d: a neighbor line lost its CR (pass-through lines must stay verbatim)"
 echo "ok 12d: a CRLF-saved legacy line stays consumable, neighbors verbatim"
 
+# --- 12e. Legacy line already consumed by another spec → not found (exit 3) -
+# Pins the accepted fragment/legacy asymmetry recorded in this spec's
+# opportunities.md observation: a frozen line carries no bare copy once
+# annotated, so a *different* spec consuming it exits 3 (not-found) rather than
+# unioning a second `— consumed-by:` citation the way the fragment arm does for
+# an already-archived fragment (§11c). Locks the behavior against silent drift.
+
+o=$(new_obs "$tmp/o12e")
+BASE='- 2026-06-10 [planwright] a cross-spec legacy line'
+printf '%s\n' '# frozen' '' "$BASE — consumed-by: specs/spec-one (2026-07-09)" \
+  >"$o/opportunities.md"
+before=$(cat "$o/opportunities.md")
+rc=0
+"$CONSUME" --obs-dir "$o" --legacy --line "$BASE" --spec spec-two --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "12e: a line consumed by another spec expected exit 3, got $rc"
+[ "$(cat "$o/opportunities.md")" = "$before" ] \
+  || fail "12e: the cross-spec refusal mutated the frozen log"
+echo "ok 12e: a legacy line consumed by another spec is a not-found refusal (exit 3)"
+
 # --- 13. Two-branch conflict-freedom -------------------------------------
 
 repo="$tmp/repo13"
