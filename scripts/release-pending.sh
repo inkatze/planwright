@@ -12,13 +12,16 @@
 # Output (stdout, exit 0):
 #   pending<TAB><version>   the version of truth is ahead of the latest release
 #                           tag, or there is no release tag yet (first release)
-#   none                    the version of truth equals the latest release tag
+#   none                    the version of truth is NOT ahead of the latest
+#                           release tag (equal — nothing to release; a version of
+#                           truth strictly behind the latest tag is also `none`,
+#                           since there is likewise nothing to cut)
 # On a malformed version of truth or an unreadable version_file: a diagnostic on
 # stderr and exit 2. Usage error: exit 2.
 #
 # Usage: release-pending.sh
 #   Run inside the repo. The version_file knob (config-get.sh) selects the
-#   version of truth; the default is `.claude-plugin/plugin.json#$.version`.
+#   version of truth; the default is `.claude-plugin/plugin.json::$.version`.
 
 set -u
 LC_ALL=C
@@ -26,6 +29,8 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
 # shellcheck source=scripts/release-lib.sh
 . "$script_dir/release-lib.sh"
 
@@ -39,14 +44,27 @@ IFS=$(printf '\t')
 read -r vf_path vf_sel < <(rl_resolve_version_file "$script_dir")
 unset IFS
 
-if [ -z "$vf_path" ] || [ ! -f "$vf_path" ]; then
-  echo "release-pending: version_file not found: ${vf_path:-<empty>}" >&2
+# Guard path access (security-posture.md): the parsed version_file path must be
+# repo-relative — an absolute path or `..` traversal is a clean refusal.
+case "$vf_path" in
+  /* | "")
+    echo "release-pending: version_file must be a non-empty repo-relative path: '$(sanitize_printable "$vf_path")'" >&2
+    exit 2
+    ;;
+  *..*)
+    echo "release-pending: version_file must not contain '..': '$(sanitize_printable "$vf_path")'" >&2
+    exit 2
+    ;;
+esac
+
+if [ ! -f "$vf_path" ]; then
+  echo "release-pending: version_file not found: $(sanitize_printable "$vf_path")" >&2
   exit 2
 fi
 
 vot=$(rl_extract_version "$vf_sel" <"$vf_path") || exit 2
 if [ -z "$vot" ] || ! rl_valid_semver "$vot"; then
-  echo "release-pending: version of truth is not valid SemVer: '${vot}'" >&2
+  echo "release-pending: version of truth is not valid SemVer: '$(sanitize_printable "$vot")'" >&2
   exit 2
 fi
 

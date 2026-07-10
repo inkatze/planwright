@@ -16,7 +16,24 @@
 # REQ-D1.6): a version string is validated against the SemVer grammar before it
 # is compared or used to build a tag; the `version_file` selector is treated as
 # DATA — parsed against a fixed grammar and the key handed to jq via `--arg`,
-# never interpolated into an executed jq program or a shell command.
+# never interpolated into an executed jq program or a shell command. Untrusted
+# values echoed on an error path are stripped of terminal-control bytes first
+# (`_rl_safe`, the sourced-lib inline of scripts/echo-safety.sh's discipline).
+#
+# Locale contract: callers MUST have `LC_ALL=C` in effect before sourcing this
+# lib (both release-pending.sh and release-publish.sh set and export it). The
+# SemVer regex bracket classes and the ASCII string comparison in rl_version_gt
+# are only correct under the C locale; a non-C collation would mis-rank
+# prerelease identifiers.
+
+# _rl_safe <value> — strip C0/DEL/C1 control bytes so an error-path echo of an
+# untrusted (invalid) version/selector value cannot drive the terminal. The
+# doctrine's canonical sanitizer is scripts/echo-safety.sh; this is the
+# sanctioned self-contained inline copy for the sourced lib (same posture as
+# spec-assemble.sh's inline copy).
+_rl_safe() {
+  printf '%s' "${1-}" | tr -d '\000-\037\177\200-\237'
+}
 
 # The SemVer core+prerelease+build grammar (semver.org 2.0.0), as a POSIX ERE.
 # Kept in one place so validation and the tag/label paths cannot drift.
@@ -24,8 +41,11 @@ RL_SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+
 
 # rl_valid_semver <version> — exit 0 when <version> is a well-formed SemVer
 # string (no leading `v`), non-zero otherwise. The single validation boundary.
+# Uses bash `[[ =~ ]]` (whole-string match), not `grep -Eq` (which matches any
+# LINE): a multi-line value — e.g. a JSON `.version` carrying an embedded
+# newline — must be rejected, not validated on its first line.
 rl_valid_semver() {
-  printf '%s' "${1-}" | grep -Eq "$RL_SEMVER_RE"
+  [[ ${1-} =~ $RL_SEMVER_RE ]]
 }
 
 # rl_version_gt <a> <b> — exit 0 when SemVer <a> is strictly greater than <b> by
@@ -122,13 +142,13 @@ rl_extract_version() {
   if [[ "$sel" =~ $sel_re ]]; then
     key="${BASH_REMATCH[1]}"
     if ! command -v jq >/dev/null 2>&1; then
-      echo "release: jq is required to read a JSON version_file selector ($sel)" >&2
+      echo "release: jq is required to read a JSON version_file selector ($(_rl_safe "$sel"))" >&2
       return 2
     fi
     jq -r --arg k "$key" '.[$k] // empty'
     return 0
   fi
-  echo "release: unsupported version_file selector (expected \$.<key> or whole-file): $sel" >&2
+  echo "release: unsupported version_file selector (expected \$.<key> or whole-file): $(_rl_safe "$sel")" >&2
   return 2
 }
 

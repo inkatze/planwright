@@ -64,27 +64,27 @@ trap 'rm -rf "$tmp"' EXIT
 r="$tmp/ahead"
 make_repo "$r" 0.2.0
 gitc "$r" tag v0.1.0
-out=$(cd "$r" && "$PENDING")
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "ahead-of-tag reports pending with the version" "$out" "pending${TAB}0.2.0"
 
 # 2. Equal to the latest tag → none.
 r="$tmp/equal"
 make_repo "$r" 0.1.0
 gitc "$r" tag v0.1.0
-out=$(cd "$r" && "$PENDING")
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "version equal to the latest tag reports none" "$out" "none"
 
 # 3. No release tags at all → pending (the first release).
 r="$tmp/first"
 make_repo "$r" 0.1.0
-out=$(cd "$r" && "$PENDING")
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "no tags reports the first release as pending" "$out" "pending${TAB}0.1.0"
 
 # 4. Malformed version of truth → exit 2, nothing on stdout.
 r="$tmp/bad"
 make_repo "$r" "not-a-version"
 rc=0
-out=$(cd "$r" && "$PENDING" 2>/dev/null) || rc=$?
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
 assert_eq "malformed version exits 2" "$rc" "2"
 assert_eq "malformed version prints nothing on stdout" "$out" ""
 
@@ -94,24 +94,34 @@ make_repo "$r" 0.10.0
 gitc "$r" tag v0.1.0
 gitc "$r" tag v0.2.0
 gitc "$r" tag v0.10.0
-out=$(cd "$r" && "$PENDING")
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "0.10.0 == latest (numeric precedence, not lexical) → none" "$out" "none"
 # And one past it is pending.
 r="$tmp/precedence2"
 make_repo "$r" 0.11.0
 gitc "$r" tag v0.2.0
 gitc "$r" tag v0.10.0
-out=$(cd "$r" && "$PENDING")
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "0.11.0 ahead of v0.10.0 → pending" "$out" "pending${TAB}0.11.0"
 
-# 6. CDPATH regression (REQ-D1.9): a hostile CDPATH must not corrupt the
-#    script's `cd "$(dirname "$0")"` (it calls `unset CDPATH`). With CDPATH set,
-#    an un-guarded cd would echo the path into a command substitution or land
-#    elsewhere; the comparator must still report correctly.
-r="$tmp/cdpath"
-make_repo "$r" 0.2.0
-gitc "$r" tag v0.1.0
-out=$(cd "$r" && CDPATH=. PATH="$PATH" "$PENDING")
+# 6. CDPATH regression (REQ-D1.9): a hostile CDPATH with a decoy `scripts/` must
+#    not corrupt the script's `cd "$(dirname "$0")"` (it calls `unset CDPATH`).
+#    Per the house pattern (tests/test-check-options-reference.sh:124), the script
+#    is copied under `scripts/` in the cwd and invoked by the BARE relative name
+#    `scripts/release-pending.sh` — the only shape where CDPATH actually bites an
+#    un-guarded cd (a `../`-prefixed or absolute path bypasses CDPATH entirely, so
+#    invoking "$PENDING" by its absolute path would prove nothing).
+work="$tmp/cdpath"
+mkdir -p "$work/scripts" "$work/.claude-plugin" "$tmp/decoy/scripts"
+cp "$here/../scripts/release-pending.sh" "$here/../scripts/release-lib.sh" \
+  "$here/../scripts/echo-safety.sh" "$work/scripts/"
+printf '{\n  "name": "fixture",\n  "version": "0.2.0"\n}\n' >"$work/.claude-plugin/plugin.json"
+gitc "$work" init -q
+gitc "$work" add -A
+gitc "$work" commit -q -m "version 0.2.0"
+gitc "$work" tag v0.1.0
+out=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  scripts/release-pending.sh)
 assert_eq "a hostile CDPATH does not corrupt the comparator (unset CDPATH)" \
   "$out" "pending${TAB}0.2.0"
 

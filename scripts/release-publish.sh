@@ -45,6 +45,8 @@ export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
 # shellcheck source=scripts/release-lib.sh
 . "$script_dir/release-lib.sh"
 
@@ -52,7 +54,10 @@ MAIN_REF="main"
 ORIGIN_MAIN_REF="origin/main"
 
 die() {
-  # die <gate-or-context> — refuse, naming the gate, without side effects.
+  # die <gate-or-context> — refuse, naming the gate, without side effects. Echo
+  # discipline is the caller's job: any untrusted value (a version/config string)
+  # interpolated into $1 is passed through sanitize_printable first, so a control
+  # byte in a rejected value cannot drive the terminal (security-posture.md).
   echo "release-publish: $1" >&2
   exit 1
 }
@@ -74,17 +79,25 @@ IFS=$(printf '\t')
 read -r vf_path vf_sel < <(rl_resolve_version_file "$script_dir")
 unset IFS
 
+# Guard path access (security-posture.md): the version_file path is parsed config
+# input, so it must be a repo-relative path — an absolute path or a `..` traversal
+# is a clean refusal, never a read.
+case "$vf_path" in
+  /* | "") die "version_file must be a non-empty repo-relative path: '$(sanitize_printable "$vf_path")'" ;;
+  *..*) die "version_file must not contain '..': '$(sanitize_printable "$vf_path")'" ;;
+esac
+
 git rev-parse -q --verify "$MAIN_REF" >/dev/null 2>&1 \
   || die "no local '$MAIN_REF' branch to publish from"
 
 # Provisional target from main's tip, then the landing SHA, then the definitive
 # target re-read from that commit's tree (REQ-D1.2: never the working tree).
 provisional=$(rl_version_at "$MAIN_REF" "$vf_path" "$vf_sel") \
-  || die "could not read the version_file ($vf_path) at $MAIN_REF"
+  || die "could not read the version_file ($(sanitize_printable "$vf_path")) at $MAIN_REF"
 [ -n "$provisional" ] \
-  || die "no version found in $vf_path at $MAIN_REF"
+  || die "no version found in $(sanitize_printable "$vf_path") at $MAIN_REF"
 rl_valid_semver "$provisional" \
-  || die "version of truth is not valid SemVer: '$provisional'"
+  || die "version of truth is not valid SemVer: '$(sanitize_printable "$provisional")'"
 
 # The release-merge SHA is the newest first-parent commit on main where the
 # version_file became the target — so an unrelated commit landing after the
@@ -107,11 +120,11 @@ while IFS= read -r c; do
 done < <(git rev-list --first-parent "$MAIN_REF")
 
 [ -n "$release_sha" ] \
-  || die "could not identify the release-merge commit for version $provisional on $MAIN_REF"
+  || die "could not identify the release-merge commit for version $(sanitize_printable "$provisional") on $MAIN_REF"
 
 target=$(rl_version_at "$release_sha" "$vf_path" "$vf_sel")
 rl_valid_semver "$target" \
-  || die "version at the release commit is not valid SemVer: '$target'"
+  || die "version at the release commit is not valid SemVer: '$(sanitize_printable "$target")'"
 tag="v$target"
 
 # --- Idempotency gate + partial-publish detection (REQ-D1.3) ----------------
@@ -121,16 +134,30 @@ release_exists() {
   gh release view "$tag" >/dev/null 2>&1
 }
 
-resume=0
-if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
-  die "idempotency gate: tag $tag already exists locally (resolve it before publishing)"
+# Probe the tag on origin first; a query FAILURE (network/auth) is not "absent" —
+# it fails closed rather than proceeding to create a tag that may already exist
+# remotely. The origin state, not the local tag, decides the path: a partial
+# publish leaves BOTH a local and an origin tag, so keying resume off the origin
+# tag (not "local tag absent") is what makes the resume reachable on a same-machine
+# re-run (REQ-D1.3 idempotency exception, REQ-D1.7).
+if ! ls_remote_out=$(git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null); then
+  die "idempotency gate: could not query origin for tag $tag (git ls-remote failed); resolve connectivity and re-run"
 fi
-if [ -n "$(git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null)" ]; then
+origin_has=0
+[ -n "$ls_remote_out" ] && origin_has=1
+local_has=0
+git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && local_has=1
+
+resume=0
+if [ "$origin_has" -eq 1 ]; then
   if release_exists; then
     die "idempotency gate: tag $tag and its GitHub Release already exist (already published)"
   fi
-  # Partial publish: tag pushed, Release missing — resume by creating it.
+  # Partial publish: the tag is on origin but its Release is missing — resume by
+  # creating the Release, whether or not a local tag also lingers.
   resume=1
+elif [ "$local_has" -eq 1 ]; then
+  die "idempotency gate: tag $tag exists locally but not on origin — push it (git push origin $tag) then re-run to create the Release, or delete it (git tag -d $tag) to re-publish"
 fi
 
 # --- Creation gates (skipped on a resume; the tag is already validated) -----
@@ -155,22 +182,36 @@ if [ "$resume" -eq 0 ]; then
     die "sync gate: local $MAIN_REF is not synced with $ORIGIN_MAIN_REF"
   fi
 
-  # GitHub CI green on the release SHA — the real external state via gh.
+  # GitHub CI green on the release SHA — the real external state via gh. Uses the
+  # GraphQL statusCheckRollup (server-aggregated across ALL check-runs AND commit
+  # statuses) rather than the REST check-runs list, whose default 30-item page
+  # could hide a failing run on a later page and report a false green. The rollup
+  # is one state; SUCCESS is the only green. A repo with no checks at all reports
+  # a null rollup (RL_CI_STATE=NONE) and is refused: a release gate requires
+  # positive CI confirmation, so "no CI" fails closed by design (an adopter
+  # without CI adds it before publishing). A gh/query failure is distinct from a
+  # red verdict (return 2) so an infra outage is not misreported as red CI.
+  RL_CI_STATE=""
   ci_green() {
-    local sha="$1" raw verdict
-    raw=$(gh api "repos/{owner}/{repo}/commits/$sha/check-runs" 2>/dev/null) || return 1
-    verdict=$(printf '%s' "$raw" | jq -r '
-      if (.check_runs | length) > 0
-         and (all(.check_runs[];
-                  .status == "completed"
-                  and (.conclusion == "success"
-                       or .conclusion == "neutral"
-                       or .conclusion == "skipped")))
-      then "green" else "red" end' 2>/dev/null) || return 1
-    [ "$verdict" = "green" ]
+    local sha="$1" nwo owner repo raw
+    nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
+    owner=${nwo%%/*}
+    repo=${nwo#*/}
+    # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
+    raw=$(gh api graphql \
+      -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{state}}}}}' \
+      -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
+    RL_CI_STATE=$(printf '%s' "$raw" \
+      | jq -r '.data.repository.object.statusCheckRollup.state // "NONE"' 2>/dev/null) || return 2
+    [ "$RL_CI_STATE" = "SUCCESS" ]
   }
-  ci_green "$release_sha" \
-    || die "ci gate: GitHub CI is not green on the release commit $release_sha"
+  ci_rc=0
+  ci_green "$release_sha" || ci_rc=$?
+  if [ "$ci_rc" -eq 2 ]; then
+    die "ci gate: could not verify GitHub CI on $release_sha (gh query failed); resolve connectivity/auth and re-run"
+  elif [ "$ci_rc" -ne 0 ]; then
+    die "ci gate: GitHub CI is not green on the release commit $release_sha (rollup state: ${RL_CI_STATE:-unknown})"
+  fi
 fi
 
 # --- Create + verify + push the tag (skipped on a resume) -------------------
@@ -183,7 +224,7 @@ if [ "$resume" -eq 0 ]; then
   [ -n "$mode" ] || mode="auto"
   case "$mode" in
     auto | require | never) : ;;
-    *) die "config: require_signed_tags must be auto|require|never, got '$mode'" ;;
+    *) die "config: require_signed_tags must be auto|require|never, got '$(sanitize_printable "$mode")'" ;;
   esac
 
   signing_configured=0
@@ -221,7 +262,7 @@ if [ "$resume" -eq 0 ]; then
   fi
 
   if ! git push origin "refs/tags/$tag"; then
-    echo "release-publish: pushing $tag failed; the local tag is kept — re-run after resolving the push" >&2
+    echo "release-publish: pushing $tag failed; the local tag is kept — push it (git push origin $tag) then re-run to create the Release, or delete it (git tag -d $tag) to re-publish" >&2
     exit 1
   fi
 fi
@@ -229,26 +270,30 @@ fi
 # --- Create the GitHub Release from the CHANGELOG section (REQ-D1.7) ---------
 
 changelog_notes() {
-  # Print the CHANGELOG.md section for $target, from its `## [x.y.z]` heading to
-  # the next `## ` heading; empty when the file or the section is absent.
-  local file="CHANGELOG.md"
-  [ -f "$file" ] || return 0
-  awk -v marker="[$target]" '
+  # Print the CHANGELOG.md section for $target as of the RELEASE SHA (not the
+  # working tree — a commit after the release merge could have edited the file,
+  # and the notes must reflect the tagged commit's content, D-6). From the
+  # version's `## [x.y.z]` heading to the next `## ` heading; empty when the file
+  # or the section is absent at that ref.
+  local content
+  content=$(git show "$release_sha:CHANGELOG.md" 2>/dev/null) || return 0
+  [ -n "$content" ] || return 0
+  printf '%s\n' "$content" | awk -v marker="[$target]" '
     /^## / {
       if (inSec) exit
       if (index($0, marker) > 0) { inSec = 1; print; next }
     }
     inSec { print }
-  ' "$file"
+  '
 }
 
-notes_file=$(mktemp)
+notes_file=$(mktemp) || die "could not create a temp file for the release notes"
 trap 'rm -f "$notes_file"' EXIT
 notes=$(changelog_notes)
 if [ -n "$notes" ]; then
   printf '%s\n' "$notes" >"$notes_file"
 else
-  echo "release-publish: no CHANGELOG.md section for $target; using a minimal release note" >&2
+  echo "release-publish: no CHANGELOG.md section for $tag at the release commit; using a minimal release note" >&2
   printf 'Release %s\n' "$tag" >"$notes_file"
 fi
 

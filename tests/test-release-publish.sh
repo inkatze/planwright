@@ -104,9 +104,10 @@ seed_version() {
 }
 
 # --- gh stub -----------------------------------------------------------------
-# Logs each invocation to $GH_LOG; `release view` exits per GH_RELEASE_EXISTS;
-# `api .../check-runs` prints canned JSON per GH_CI; `release create` copies its
-# --notes-file to $GH_NOTES and logs. Everything else is a benign success.
+# Logs each invocation to $GH_LOG. `repo view` prints a canned nameWithOwner;
+# `api graphql` prints a statusCheckRollup per GH_CI (green→SUCCESS, red→FAILURE,
+# none→null rollup); `release view` exits per GH_RELEASE_EXISTS; `release create`
+# copies its --notes-file to $GH_NOTES. Everything else is a benign success.
 make_gh_stub() {
   local dir="$1"
   mkdir -p "$dir"
@@ -114,6 +115,7 @@ make_gh_stub() {
 #!/bin/sh
 printf '%s\n' "$*" >>"${GH_LOG:-/dev/null}"
 case "$1" in
+  repo) printf 'testowner/testrepo\n'; exit 0 ;;
   release)
     case "$2" in
       view) [ "${GH_RELEASE_EXISTS:-0}" = 1 ] && exit 0 || exit 1 ;;
@@ -130,11 +132,12 @@ case "$1" in
     exit 0
     ;;
   api)
-    if [ "${GH_CI:-green}" = green ]; then
-      printf '{"check_runs":[{"status":"completed","conclusion":"success"}]}\n'
-    else
-      printf '{"check_runs":[{"status":"completed","conclusion":"failure"}]}\n'
-    fi
+    # The only `gh api` call is the statusCheckRollup GraphQL query.
+    case "${GH_CI:-green}" in
+      green) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"SUCCESS"}}}}}\n' ;;
+      none) printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n' ;;
+      *) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"FAILURE"}}}}}\n' ;;
+    esac
     exit 0
     ;;
 esac
@@ -195,6 +198,14 @@ want "first release: local tag v0.1.0 created" local_has_tag "$r" v0.1.0
 want "first release: tag pushed to origin" origin_has_tag "$r" v0.1.0
 want "first release: gh release create invoked" gh_called "$LOG" "release create"
 want "first release: --verify-tag passed to gh" gh_called "$LOG" "verify-tag"
+# auto + no signing configured (git isolated in run_publish) → the OTHER half of
+# REQ-D1.1: an unsigned annotated tag plus a warning (behavioral teeth, A3).
+if git -C "$r" cat-file tag v0.1.0 2>/dev/null | grep -q 'BEGIN SSH SIGNATURE'; then
+  bad "first release: auto path produced a signed tag with no signing configured"
+else
+  pass "first release: auto with no signing → an unsigned annotated tag"
+fi
+assert_contains "first release: warns that no signing is configured" "$ERR" "no signing configured"
 
 # ===========================================================================
 # 3. Tags the observed release-merge SHA, not HEAD, under a post-merge race
@@ -242,6 +253,7 @@ gc "$r" tag -d v0.1.0 >/dev/null
 run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=1
 assert_ne "gate/origin-tag: exits non-zero" "$RC" "0"
 assert_contains "gate/origin-tag: names already-published" "$ERR" "already published"
+deny "gate/origin-tag: no Release create attempted (no side effect)" gh_called "$LOG" "release create"
 
 # 4c. non-monotonic version.
 r="$tmp/gate-monotonic"
@@ -272,6 +284,17 @@ gc "$r" commit -q --allow-empty -m "local only"
 run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
 assert_ne "gate/diverged: exits non-zero" "$RC" "0"
 assert_contains "gate/diverged: names the sync gate" "$ERR" "sync gate"
+deny "gate/diverged: no local tag created (no side effect)" local_has_tag "$r" v0.1.0
+
+# 4g. GitHub CI reports no checks at all (null rollup) → refuse (strict: a
+#     release gate requires positive CI confirmation).
+r="$tmp/gate-nochecks"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_RELEASE_EXISTS=0
+assert_ne "gate/no-checks: exits non-zero (no CI → refuse)" "$RC" "0"
+assert_contains "gate/no-checks: names the ci gate with the rollup state" "$ERR" "rollup state: NONE"
+deny "gate/no-checks: no local tag created" local_has_tag "$r" v0.1.0
 
 # 4f. CI not green.
 r="$tmp/gate-ci"
@@ -310,6 +333,13 @@ if command -v ssh-keygen >/dev/null 2>&1; then
     pass "sign/auto: the tag is signed"
   else
     bad "sign/auto: the tag is not signed"
+  fi
+  # Positive verify-before-push (A4, REQ-D1.5): the pushed tag verifies against
+  # the allowed-signers file, i.e. `git tag -v` would (and did) pass before push.
+  if git -C "$r" -c gpg.ssh.allowedSignersFile="$r.keys/allowed_signers" tag -v v0.1.0 >/dev/null 2>&1; then
+    pass "sign/auto: the signed tag verifies (git tag -v gates the push)"
+  else
+    bad "sign/auto: the signed tag does not verify"
   fi
 
   # 5b. never + signing configured → an UNSIGNED annotated tag.
@@ -421,17 +451,114 @@ else
   pass "changelog: notes stop at the next version heading"
 fi
 
-# 7b. partial publish: tag pushed, Release absent → resume, create the Release.
+# 7b. partial publish in the REAL post-failure state: the local tag is present
+#     (created + pushed), the tag is on origin, and the Release is absent (gh
+#     release create failed). A same-machine re-run must RESUME, not die on the
+#     local tag. (Keeping the local tag is the key: an earlier version deleted it
+#     and masked that the resume branch was unreachable with a local tag present.)
 r="$tmp/partial"
 new_repo "$r"
 seed_version "$r" 0.1.0
 gc "$r" tag v0.1.0
 gc "$r" push -q origin v0.1.0 2>/dev/null
-gc "$r" tag -d v0.1.0 >/dev/null
 run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
-assert_eq "partial: exit 0 (resumed)" "$RC" "0"
+assert_eq "partial: exit 0 (resumed with the local tag still present)" "$RC" "0"
 assert_contains "partial: reports a resume" "$OUT" "resumed"
 want "partial: gh release create invoked on resume" gh_called "$LOG" "release create"
+
+# 7c. local tag present but NOT on origin (e.g. a push that never landed) → a
+#     clean refusal with actionable guidance, never a silent resume.
+r="$tmp/localonly"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "local-only tag: exits non-zero" "$RC" "0"
+assert_contains "local-only tag: names the idempotency gate with guidance" "$ERR" "exists locally but not on origin"
+deny "local-only tag: no Release create attempted" gh_called "$LOG" "release create"
+
+# 7d. release notes come from CHANGELOG at the RELEASE SHA, not the working tree
+#     (F3, D-6): a commit after the release merge rewrites the section, but the
+#     notes must reflect the tagged commit's content.
+r="$tmp/changelog-sha"
+new_repo "$r"
+write_plugin "$r" 0.3.0
+cat >"$r/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [0.3.0] - 2026-07-09
+
+- notes AS OF the release commit
+EOF
+git -C "$r" add -A
+git -C "$r" -c user.name=test -c user.email=t@e -c commit.gpgsign=false commit -q -m "chore: release 0.3.0"
+# A later commit on main rewrites the same section (the interleaving the SHA
+# pinning defends against) — this must NOT reach the notes.
+cat >"$r/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [0.3.0] - 2026-07-09
+
+- REWRITTEN after the release merge
+EOF
+git -C "$r" add -A
+git -C "$r" -c user.name=test -c user.email=t@e -c commit.gpgsign=false commit -q -m "docs: tweak changelog"
+git -C "$r" push -q -u origin main 2>/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_eq "changelog-sha: exit 0" "$RC" "0"
+assert_contains "changelog-sha: notes are the release-commit content" "$(cat "$NOTES")" "notes AS OF the release commit"
+if grep -q "REWRITTEN" "$NOTES"; then
+  bad "changelog-sha: notes leaked the post-merge working-tree rewrite"
+else
+  pass "changelog-sha: post-merge CHANGELOG rewrite does not reach the notes"
+fi
+
+# 8. Input hardening (security-posture.md): a multi-line version (F9) is rejected,
+#    not validated on its first line; a hostile version_file path is refused.
+r="$tmp/multiline"
+new_repo "$r"
+mkdir -p "$r/.claude-plugin"
+printf '{\n  "name": "fixture",\n  "version": "0.1.0\\nrm -rf /"\n}\n' >"$r/.claude-plugin/plugin.json"
+git -C "$r" add -A
+git -C "$r" -c user.name=test -c user.email=t@e -c commit.gpgsign=false commit -q -m "chore: release"
+git -C "$r" push -q -u origin main 2>/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "hardening/multiline: a multi-line version is rejected" "$RC" "0"
+assert_contains "hardening/multiline: names the SemVer failure" "$ERR" "not valid SemVer"
+deny "hardening/multiline: no tag created" local_has_tag "$r" v0.1.0
+
+r="$tmp/badpath"
+new_repo "$r"
+seed_version "$r" 0.1.0
+mkdir -p "$r/.claude"
+printf 'version_file: /etc/passwd\n' >"$r/.claude/planwright.local.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "hardening/abspath: an absolute version_file is refused" "$RC" "0"
+assert_contains "hardening/abspath: names the repo-relative requirement" "$ERR" "repo-relative"
+
+# 9. CDPATH regression for the publish script (A2, REQ-D1.9): a hostile CDPATH
+#    with a decoy `scripts/` must not corrupt the script's `cd "$(dirname "$0")"`
+#    (the script calls `unset CDPATH`). Per the house pattern
+#    (tests/test-check-options-reference.sh:124), invoke by a BARE relative name
+#    `scripts/release-publish.sh` from the repo root — a `../`-prefixed path would
+#    bypass CDPATH entirely, so the script must live under `scripts/` in the cwd.
+r="$tmp/cdpath"
+new_repo "$r"
+printf 'scripts/\n' >>"$r/.gitignore" # the copied scripts are test scaffolding
+seed_version "$r" 0.1.0
+mkdir -p "$r/scripts" "$tmp/decoy-pub/scripts"
+cp scripts/release-publish.sh scripts/release-lib.sh scripts/echo-safety.sh "$r/scripts/"
+LOG="$tmp/ghlog.cd"
+NOTES="$tmp/ghnotes.cd"
+: >"$LOG"
+: >"$NOTES"
+RC=0
+OUT=$(cd "$r" && env PATH="$stub:$PATH" GH_LOG="$LOG" GH_NOTES="$NOTES" \
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null CDPATH="$tmp/decoy-pub" \
+  GH_CI=green GH_RELEASE_EXISTS=0 \
+  scripts/release-publish.sh 2>/dev/null) || RC=$?
+assert_eq "cdpath: publish still succeeds under a hostile CDPATH" "$RC" "0"
+want "cdpath: tag created under a hostile CDPATH" local_has_tag "$r" v0.1.0
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
