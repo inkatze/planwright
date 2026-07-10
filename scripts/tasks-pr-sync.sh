@@ -58,10 +58,21 @@
 #     and is renamed into place, so a racy stale lock-break cannot observe a
 #     half-written tasks.md.
 #   * Definition invariance (REQ-B1.1): the five task-definition fields move
-#     byte-for-byte and the task-level Status / Last activity / Dispatch
-#     annotations ride along untouched (those are /execute-task's to write, and
-#     are excluded from the content anchor — scripts/spec-anchor.sh — so a
-#     placement move never changes the anchor).
+#     byte-for-byte. The task-level Last activity / Dispatch annotations, and a
+#     Status annotation on any block NOT moving to ## Completed, ride along
+#     untouched. The one annotation this reconcile itself AUTHORS is the
+#     completion Status: when it places a completion-evidenced block in
+#     ## Completed it stamps the canonical `- **Status:** Completed · PR #<n>
+#     merged <YYYY-MM-DD>` from the derivation's merged-PR evidence batch
+#     (orchestrate-state.sh; output-hygiene Task 7, D-5, REQ-E1.2), degrading to
+#     the date-only `Completed · merged <YYYY-MM-DD>` (branch evidence) or
+#     leaving the annotation untouched with no remote — never an invented PR
+#     number, never a downgrade of an existing full stamp. (The earlier phase
+#     annotations were the dispatching skill's to write; the completion stamp is
+#     this reconcile's, the level-triggered owner that sees the merge.) All
+#     task-level annotations are excluded from the content anchor
+#     (scripts/spec-anchor.sh), so neither a placement move nor the completion
+#     stamp ever changes the anchor.
 #   * Bundle Status reconcile (kickoff-lifecycle Task 6): the bundle `**Status:**`
 #     header (distinct from the task-level `- **Status:**` annotations above) is
 #     derived and rewritten across the four files by do_status. CAVEAT: that
@@ -127,6 +138,66 @@ function sec_for(id,   s) {
   if (s == "in-progress") return "In progress"
   return "Forward plan"
 }
+# Completion stamp (output-hygiene Task 7, D-5, REQ-E1.2). Given a block that is
+# being placed in ## Completed, set its `- **Status:**` annotation to the
+# canonical completion string derived from the merged-PR evidence:
+#   full     `Completed · PR #<n> merged <YYYY-MM-DD>`  (PR number + date)
+#   degraded `Completed · merged <YYYY-MM-DD>`          (date only, no remote)
+#   none     leave the block untouched                   (no date -> no stamp)
+# Never invents a PR number, and never downgrades an existing full stamp to the
+# date-only form (a transient no-remote reconcile must not drop a known PR
+# number). Replaces the first Status line in place, or appends one after the
+# last line of the block when none exists. The stamp is a task-level annotation,
+# so it is excluded from the content anchor (scripts/spec-anchor.sh).
+function stamp(text, id,   want, has_pr, pr, dt, n, a, i, line, e, out, done) {
+  # Defense in depth: only trust a digits-only PR number and an ISO date at this
+  # write boundary, even though the derivation already validated them — the value
+  # lands in a committed artifact, so an alternate or future producer feeding a
+  # malformed map column must never reach tasks.md. (Interval-free regexes for
+  # the bash-3.2 / BSD awk floor.)
+  pr = prnum[id]
+  dt = cdate[id]
+  if (pr !~ /^[0-9]+$/) pr = ""
+  if (dt !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) dt = ""
+  want = ""
+  has_pr = 0
+  if (pr != "" && dt != "") {
+    want = "Completed · PR #" pr " merged " dt
+    has_pr = 1
+  } else if (dt != "") {
+    want = "Completed · merged " dt
+  }
+  if (want == "") return text
+  n = split(text, a, "\n")
+  out = ""
+  done = 0
+  for (i = 1; i <= n; i++) {
+    if (i == n && a[i] == "") continue
+    line = a[i]
+    if (!done && line ~ /^- \*\*Status:\*\* /) {
+      done = 1
+      if (!has_pr) {
+        e = line
+        sub(/^- \*\*Status:\*\* /, "", e)
+        # Keep an existing full canonical stamp rather than downgrade it. Match
+        # the canonical shape EXACTLY (`PR #<n> merged <YYYY-MM-DD>`, strict ISO,
+        # end-anchored) so a malformed near-canonical Status a foreign/human edit
+        # left behind (e.g. a non-ISO date) is regenerated, not silently kept —
+        # mirrors the ISO-only date trust at the write boundary above. (Interval-
+        # free regex for the bash-3.2 / BSD awk floor.)
+        if (e ~ /^Completed · PR #[0-9]+ merged [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
+          out = out line "\n"
+          continue
+        }
+      }
+      out = out "- **Status:** " want "\n"
+      continue
+    }
+    out = out line "\n"
+  }
+  if (!done) out = out "- **Status:** " want "\n"
+  return out
+}
 function flush_block() {
   if (bcap && bid != "" && !(bid in seenid)) {
     seenid[bid] = 1
@@ -189,10 +260,16 @@ BEGIN {
   curtype = "none"
   noth = 0
 }
-# First file: the derivation state map (id<TAB>state). Default FS splits on the
-# tab, so $1 is the id and $2 the state.
+# First file: the derivation state map (id<TAB>state<TAB>pr<TAB>date). Split on
+# the tab explicitly rather than via the default FS: the pr and date columns are
+# empty for a git-only / no-remote completion, and default whitespace-FS would
+# COLLAPSE an empty interior field and shift the columns. split() keeps empties
+# positional (Task 7 completion stamp; D-5, REQ-E1.2).
 FNR == NR {
-  state[$1] = $2
+  nmap = split($0, mf, "\t")
+  state[mf[1]] = mf[2]
+  prnum[mf[1]] = (nmap >= 3) ? mf[3] : ""
+  cdate[mf[1]] = (nmap >= 4) ? mf[4] : ""
   next
 }
 # Strip git conflict markers from tasks.md (REQ-C1.3: regenerate from truth, do
@@ -298,7 +375,8 @@ END {
               no++
               O[no] = ""
             }
-            push_lines(blktext[i])
+            if (S == "Completed") push_lines(stamp(blktext[i], blkid[i]))
+            else push_lines(blktext[i])
             first = 0
           }
         }
@@ -540,14 +618,20 @@ do_placement() {
     rm -f "$dp_raw"
     return 1
   }
-  # Keep only the `task` records, projected to `id<TAB>state`; the diagnostic
-  # records (contradiction / degraded / refused / malformed-deps) are not
-  # placement input. A failed projection (e.g. a full TMPDIR while the spec dir
-  # still has space) would leave a partial map, which the placement program
-  # below would read as "these tasks have no derived state" and wrongly sink to
-  # Forward plan; treat it like any other derivation failure and leave tasks.md
-  # untouched (same discipline as the $state_sh check above).
-  if ! awk -F'\t' '$1 == "task" { print $2 "\t" $3 }' "$dp_raw" >"$dp_map"; then
+  # Project to `id<TAB>state<TAB>pr<TAB>date`: the `task` records give the state,
+  # the `completion` records (output-hygiene Task 7, D-5) give the merged-PR
+  # evidence for the completion stamp (pr/date empty when git-only / no remote).
+  # The other diagnostic records (contradiction / degraded / refused /
+  # malformed-deps) are not placement input. A failed projection (e.g. a full
+  # TMPDIR while the spec dir still has space) would leave a partial map, which
+  # the placement program below would read as "these tasks have no derived state"
+  # and wrongly sink to Forward plan; treat it like any other derivation failure
+  # and leave tasks.md untouched (same discipline as the $state_sh check above).
+  if ! awk -F'\t' '
+        $1 == "task" { st[$2] = $3; if (!($2 in seen)) { seen[$2] = 1; ord[++n] = $2 } }
+        $1 == "completion" { pr[$2] = $3; dt[$2] = $4 }
+        END { for (i = 1; i <= n; i++) { id = ord[i]; print id "\t" st[id] "\t" pr[id] "\t" dt[id] } }
+      ' "$dp_raw" >"$dp_map"; then
     rm -f "$dp_raw" "$dp_map"
     log "state projection failed for $dp_dir; tasks.md unchanged"
     return 1

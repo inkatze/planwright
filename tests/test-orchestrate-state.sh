@@ -978,4 +978,64 @@ rc=0
 [ "$rc" = 2 ] || fail "missing spec dir: exit $rc, expected 2"
 echo "ok: fails closed (exit 2) on a missing spec dir"
 
+# ---------------------------------------------------------------------------
+# 8. Completion-annotation evidence (output-hygiene Task 7, D-5, REQ-E1.2): a
+#    completed task carries a `completion<TAB>id<TAB>pr<TAB>date` record. The PR
+#    number + merge date come from the gh batch already fetched (no new per-task
+#    query); a git-only completion (no gh number, branch kept) degrades to the
+#    branch-tip date with an empty PR number — never an invented one.
+# ---------------------------------------------------------------------------
+completion_field() { # <output> <id> <col> -> value
+  printf '%s\n' "$1" | awk -F"$TAB" -v i="$2" -v c="$3" '$1=="completion" && $2==i {print $c; exit}'
+}
+
+# 8a. gh MERGED evidence → PR number + merge date on the completion record.
+crepo="$tmp/completion-gh"
+cspec="$crepo/specs/demo"
+mkdir -p "$cspec"
+gitc_init "$crepo"
+cat >"$cspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged PR, gh evidence
+- **Dependencies:** none
+EOF
+gitc "$crepo" add -A
+gitc "$crepo" commit -q -m base
+gitc "$crepo" remote add origin https://example.invalid/demo.git
+cstub="$tmp/bincompletion"
+make_gh_stub "$cstub" "planwright/demo/task-1${TAB}MERGED${TAB}42${TAB}2026-07-01T12:00:00Z"
+cout=$(PATH="$cstub:$PATH" "$STATE" "$cspec") || fail "completion-gh: engine non-zero"
+assert_state "$cout" 1 completed "completion-gh: gh MERGED derives completed"
+has_record "$cout" completion 1 || fail "completion-gh: no completion record for the merged task"
+[ "$(completion_field "$cout" 1 3)" = 42 ] || fail "completion-gh: PR number not surfaced from the gh batch"
+[ "$(completion_field "$cout" 1 4)" = 2026-07-01 ] || fail "completion-gh: merge date not surfaced from the gh batch"
+echo "ok: a gh-merged task surfaces its PR number + merge date on a completion record (REQ-E1.2)"
+
+# 8b. git-only completion (a branch merged locally and kept, no gh) → a
+#     branch-tip date with NO PR number.
+brepo="$tmp/completion-git"
+bspec="$brepo/specs/demo"
+mkdir -p "$bspec"
+gitc_init "$brepo"
+cat >"$bspec/tasks.md" <<'EOF'
+# Demo — Tasks
+## Forward plan
+### Task 1 — merged locally, branch kept
+- **Dependencies:** none
+EOF
+gitc "$brepo" add -A
+gitc "$brepo" commit -q -m base
+gitc "$brepo" checkout -q -b planwright/demo/task-1
+gitc "$brepo" commit -q --allow-empty -m "task 1 work"
+gitc "$brepo" checkout -q main
+gitc "$brepo" merge -q --no-ff -m "merge task 1" planwright/demo/task-1
+bexpect=$(gitc "$brepo" log -1 --format=%cs planwright/demo/task-1)
+bout=$("$STATE" "$bspec") || fail "completion-git: engine non-zero"
+assert_state "$bout" 1 completed "completion-git: branch-merged derives completed"
+has_record "$bout" completion 1 || fail "completion-git: no completion record for the merged branch"
+[ -z "$(completion_field "$bout" 1 3)" ] || fail "completion-git: a PR number was invented with no gh evidence"
+[ "$(completion_field "$bout" 1 4)" = "$bexpect" ] || fail "completion-git: branch-tip merge date not surfaced"
+echo "ok: a git-only completion surfaces a branch-tip date with no invented PR number (REQ-E1.2)"
+
 echo "PASS: test-orchestrate-state.sh"
