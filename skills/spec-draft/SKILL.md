@@ -259,13 +259,27 @@ committed prose neutralizes them.
 
 1. **Write the bundle** at `specs/<spec>/` in the spec worktree (plus the
    observations-log archive trim, when entries were consumed).
-2. **Commit** (D-41) when `commit_on_draft` is true: one commit on
+2. **Neutralize machine-local references (REQ-D1.1, REQ-D1.2, D-4).** Before
+   committing, rewrite every `[[name]]` memory-link token in would-be-committed
+   spec prose into plain prose plus a `## Sources` pointer. A `[[name]]` link
+   resolves only against the authoring session's private memory store, never
+   for a reader of the committed bundle, so state the fact in prose and cite the
+   source: for an observations-log reference the sanctioned form is a `## Sources`
+   entry naming the log line (no new citation syntax — the existing Source kind
+   covers it). When the prose must *mention* the token syntax itself (a spec
+   about this rule does), wrap the mention in an inline code span (`` `[[name]]` ``)
+   so it reads as documentation, not a live link. This is mechanically
+   backstopped: `check:memory-links` (`scripts/check-memory-links.sh`, under
+   `mise run check`) flags any bare `[[name]]` token in a committed spec file
+   (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`), so a draft that
+   skips this step fails CI rather than shipping an unresolvable reference.
+3. **Commit** (D-41) when `commit_on_draft` is true: one commit on
    `planwright/<spec>/spec` containing the four files and the
    `_observations` trim, message `feat(spec): draft specs/<spec> bundle`
    (extend mode: `feat(spec): extend specs/<spec> — <summary>`). New commits
    only — never force-push, amend, squash, or rebase (REQ-J1.4). Opt-out
    set: leave the work uncommitted and say so explicitly.
-3. **Hand off.** Report: the bundle path and branch, validator outcome,
+4. **Hand off.** Report: the bundle path and branch, validator outcome,
    seeds consumed (and archived), fold-detection outcome, and the next step —
    `/spec-kickoff specs/<spec>` for the walkthrough and sign-off. Push, PR,
    and the Active flip all belong to kickoff and the human. This skill stops

@@ -47,6 +47,10 @@ fi
 description = "doctrine cross-reference link-check"
 run = "/bin/bash scripts/check-doc-links.sh"
 
+[tasks."check:memory-links"]
+description = "flag machine-local [[name]] memory links in committed spec files (REQ-D1.1, D-4)"
+run = "/bin/bash scripts/check-memory-links.sh"
+
 [tasks."check:specs"]
 description = "planwright spec validator over specs/ (enforced; REQ-A2.1)"
 run = '''
@@ -77,6 +81,10 @@ run = "/bin/bash scripts/check-options-reference.sh"
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
 run = "/bin/bash scripts/check-ledger.sh"
 
+[tasks."check:obs"]
+description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
+run = "/bin/bash scripts/check-obs.sh"
+
 [tasks."scan:secrets"]
 description = "gitleaks over the full git history (redacted so a found secret never lands in logs)"
 run = "gitleaks detect --no-banner --redact --source ."
@@ -93,8 +101,10 @@ depends = [
   "lint:plugin-schema",
   "lint:commits",
   "check:links",
+  "check:memory-links",
   "check:options",
   "check:ledger",
+  "check:obs",
   "check:specs",
   "scan:secrets",
 ]
