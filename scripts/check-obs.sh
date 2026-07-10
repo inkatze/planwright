@@ -102,9 +102,13 @@ esac
 status=0
 
 # fail <message> — record a violation on stderr and mark the run failed. Runs in
-# the main shell (never a pipe/subshell), so the status mutation sticks.
+# the main shell (never a pipe/subshell), so the status mutation sticks. printf,
+# not echo: the message embeds an untrusted (safe()'d) fragment name, and a
+# `#!/bin/sh` `echo` re-expands backslash sequences (`\t`, `\c`, `\033`) that
+# safe() does not strip — verified live on this host — re-injecting the very
+# control bytes the echo-discipline posture exists to keep out of CI logs (D-7).
 fail() {
-  echo "$prog: $1" >&2
+  printf '%s\n' "$prog: $1" >&2
   status=1
 }
 
@@ -203,6 +207,11 @@ valid_name() {
 # valid. Content is data only: awk matches it, never evaluates it.
 check_content() {
   awk '
+    # Strip a trailing CR first so a CRLF-saved (merge-mangled) fragment parses
+    # like an LF one — otherwise a CRLF blank separator fails the blank-line rule
+    # while a single-line CRLF fragment slips through (opposite verdicts from one
+    # defect). Mirrors scripts/check-ledger.sh / drain-gates.sh.
+    { sub(/\r$/, "") }
     NR == 1 {
       if ($0 !~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] \[[^][]+\] .+/) {
         print "first line is not the entry form \"- <date> [<scope>] <text>\""
@@ -217,7 +226,7 @@ check_content() {
       bad = 1
       exit
     }
-    /^Consumed-by: / { next }   # the sole whitelisted metadata key
+    /^Consumed-by: .+/ { next }   # the sole whitelisted metadata key (non-empty value)
     {
       print "unexpected content line (only blank lines and Consumed-by: metadata may follow the entry)"
       bad = 1
@@ -240,9 +249,20 @@ scan_dir() {
   _dir=$1
   _label=$2
   [ -d "$_dir" ] || return 0
+  # A symlinked fragment directory is refused at the top-level layout check
+  # below; do not traverse through it here (never read through a symlink — D-7).
+  [ ! -L "$_dir" ] || return 0
   for _f in "$_dir"/*; do
     [ -e "$_f" ] || continue # empty glob
     _name=${_f##*/}
+    # A symlink passes `-f` when it points at a regular file, so refuse it
+    # explicitly before the type check: a fragment is a real file the recording
+    # helper wrote, never a link that could read through to outside the tree (D-7,
+    # the containment symmetry obs-record.sh holds at write time).
+    if [ -L "$_f" ]; then
+      fail "$_label/$(safe "$_name"): a fragment must be a regular file, not a symlink"
+      continue
+    fi
     if [ ! -f "$_f" ]; then
       fail "$_label/$(safe "$_name"): expected a regular fragment file"
       continue
@@ -251,9 +271,13 @@ scan_dir() {
       fail "$_label/$(safe "$_name"): invalid fragment filename (grammar or calendar date)"
       continue
     fi
+    # Honor check_content's exit code, not just its message: an awk read failure
+    # (e.g. an embedded NUL some awks abort on) exits non-zero with empty stdout,
+    # and treating that as valid would silently pass an unvalidated fragment.
     _msg=$(check_content "$_f")
-    if [ -n "$_msg" ]; then
-      fail "$_label/$(safe "$_name"): $_msg"
+    _crc=$?
+    if [ "$_crc" -ne 0 ] || [ -n "$_msg" ]; then
+      fail "$_label/$(safe "$_name"): ${_msg:-content validation failed}"
       continue
     fi
     _stem=${_name%.md}
@@ -264,16 +288,38 @@ scan_dir() {
 
 # --- top-level unexpected-file check -------------------------------------
 
+# A symlinked observations root would let the whole store resolve to somewhere
+# outside the tree; refuse it before the null-safe test resolves it (D-7,
+# mirroring obs-record.sh's obs-dir guard).
+if [ -L "$obsdir" ]; then
+  printf '%s\n' "$prog: the observations root must not be a symlink" >&2
+  exit 1
+fi
+
 # An absent observations root is a clean pass (null-safe): nothing to validate.
 if [ ! -d "$obsdir" ]; then
   exit 0
 fi
 
+# Only the two fragment directories and the frozen legacy files are expected
+# directly under the root (REQ-D1.4). Enforce the type too, so a whitelisted
+# name of the wrong kind — a regular file named `entries`, a symlinked
+# `archive`, a directory named `opportunities.md` — cannot slip past as an
+# unscanned no-op (scan_dir would `-d`-skip it silently otherwise).
 for _e in "$obsdir"/*; do
   [ -e "$_e" ] || continue # empty glob
   _b=${_e##*/}
   case "$_b" in
-    entries | archive | opportunities.md | archive.md) : ;;
+    entries | archive)
+      if [ -L "$_e" ] || [ ! -d "$_e" ]; then
+        fail "\"$(safe "$_b")\" under the observations root must be a real directory, not a symlink or file"
+      fi
+      ;;
+    opportunities.md | archive.md)
+      if [ -L "$_e" ] || [ ! -f "$_e" ]; then
+        fail "the frozen legacy file \"$(safe "$_b")\" must be a regular file, not a symlink or directory"
+      fi
+      ;;
     *) fail "unexpected path directly under the observations root: $(safe "$_b")" ;;
   esac
 done
@@ -281,7 +327,7 @@ done
 # --- fragment validation + UID uniqueness --------------------------------
 
 uidledger=$(mktemp) || {
-  echo "$prog: cannot create a temporary work file" >&2
+  printf '%s\n' "$prog: cannot create a temporary work file" >&2
   exit 2
 }
 trap 'rm -f "$uidledger"' EXIT INT TERM
@@ -305,7 +351,7 @@ if [ -s "$uidledger" ]; then
     IFS='
 '
     for _line in $dupes; do
-      echo "$prog: duplicate UID across entries/ and archive/ (breaks obs:<uid>): $_line" >&2
+      printf '%s\n' "$prog: duplicate UID across entries/ and archive/ (breaks obs:<uid>): $_line" >&2
     done
     IFS=$oldifs
   fi

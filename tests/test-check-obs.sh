@@ -119,7 +119,8 @@ echo "ok 2: absent fragment directories and root are null-safe"
 # --- 3. Filename-grammar violations fail ---------------------------------
 
 # name_reject <label> <filename> — seed a single fragment under entries/ whose
-# NAME is the violation, assert exit 1 and that the name is surfaced.
+# NAME is the violation, assert exit 1 AND that the guard failed for the name
+# reason (not some unrelated failure — a wrong-reason exit 1 must not pass).
 name_reject() {
   _label=$1
   _name=$2
@@ -128,23 +129,46 @@ name_reject() {
   entry "$_o/entries/$_name"
   run_guard "$_o"
   [ "$RC" -eq 1 ] || fail "3: $_label expected exit 1, got $RC"
+  grep -q 'invalid fragment filename' "$ERR" \
+    || fail "3: $_label did not fail for the filename-grammar reason: $(cat "$ERR")"
 }
 name_reject "bad name" "not-a-fragment.md"
 name_reject "traversal-shaped slug" "2026-07-09-..-deadbeef.md"
 name_reject "non-calendar date" "2026-02-30-topic-deadbeef.md"
 name_reject "non-calendar month" "2026-13-01-topic-deadbeef.md"
+# Leap-year discrimination (the %4/%100/%400 branch is otherwise unexercised):
+# a non-leap and a century-non-leap Feb 29 must reject; the leap accepts are
+# asserted in the clean-tree-ish accept check below.
+name_reject "non-leap Feb 29 (2026)" "2026-02-29-topic-deadbeef.md"
+name_reject "century non-leap Feb 29 (1900)" "1900-02-29-topic-deadbeef.md"
 name_reject "uppercase slug" "2026-07-09-BadSlug-deadbeef.md"
 name_reject "underscore slug" "2026-07-09-bad_slug-deadbeef.md"
 name_reject "short UID" "2026-07-09-topic-dead.md"
 name_reject "non-hex UID" "2026-07-09-topic-nothex01.md"
 name_reject "missing slug" "2026-07-09-deadbeef.md"
 name_reject "non-md extension" "2026-07-09-topic-deadbeef.txt"
-echo "ok 3: filename-grammar violations fail the guard"
+# Slug-length boundary: 41 chars rejects (the `-le 40` guard).
+slug41=$(printf 'a%.0s' $(seq 1 41))
+name_reject "overlong slug (41)" "2026-07-09-$slug41-deadbeef.md"
+
+# Accept side of the same rules (a fragment the guard must PASS): a 40-char slug
+# and the two leap-year Feb-29 dates that ARE valid (/4-non-/100, and /400).
+oacc="$tmp/name-accept"
+new_tree "$oacc"
+slug40=$(printf 'a%.0s' $(seq 1 40))
+entry "$oacc/entries/2026-07-09-$slug40-deadbeef.md"
+entry "$oacc/entries/2024-02-29-leap-cafebabe.md"
+entry "$oacc/entries/2000-02-29-leap-cafed00d.md"
+run_guard "$oacc"
+[ "$RC" -eq 0 ] || fail "3: a 40-char slug and valid leap dates must pass: $(cat "$ERR")"
+echo "ok 3: filename-grammar violations fail; boundary/leap accepts pass"
 
 # --- 4. Content-shape violations fail ------------------------------------
 
 # body_reject <label> <content> — seed a grammar-valid-NAMED fragment whose
-# CONTENT is the violation, assert exit 1.
+# CONTENT is the violation, assert exit 1 AND that it failed on a CONTENT reason
+# (never the filename path — the name is valid here, so a filename finding would
+# mean the wrong thing broke).
 body_reject() {
   _label=$1
   _content=$2
@@ -153,6 +177,9 @@ body_reject() {
   printf '%s' "$_content" >"$_o/entries/2026-07-09-topic-deadbeef.md"
   run_guard "$_o"
   [ "$RC" -eq 1 ] || fail "4: $_label expected exit 1, got $RC"
+  grep -q 'invalid fragment filename' "$ERR" \
+    && fail "4: $_label failed on the filename path, not a content reason"
+  [ -s "$ERR" ] || fail "4: $_label produced no finding message"
 }
 body_reject "multi-entry file" \
   '- 2026-07-09 [planwright] first entry
@@ -179,16 +206,32 @@ echo "ok 4: content-shape violations fail the guard"
 
 # --- 5. UID uniqueness across entries/ + archive/ ------------------------
 
-o="$tmp/dupuid"
+# 5a. Cross-directory duplicate: same UID on a fragment in entries/ and archive/.
+o="$tmp/dupuid-cross"
 new_tree "$o"
 entry "$o/entries/2026-07-09-topic-abcd1234.md"
 printf -- '- 2026-06-01 [planwright] older\nConsumed-by: specs/foo (2026-06-02)\n' \
   >"$o/archive/2026-06-01-old-abcd1234.md"
 run_guard "$o"
-[ "$RC" -eq 1 ] || fail "5: a duplicate UID across directories expected exit 1, got $RC"
-# Both colliding paths are named in the finding.
-grep -q 'abcd1234' "$ERR" || fail "5: the duplicate UID is not named in the finding"
-echo "ok 5: a UID reused across entries/ and archive/ fails"
+[ "$RC" -eq 1 ] || fail "5a: a cross-dir duplicate UID expected exit 1, got $RC"
+grep -q 'abcd1234' "$ERR" || fail "5a: the duplicate UID is not named in the finding"
+# Both colliding paths are named (not just the bare UID) — the finding must let
+# a human locate each fragment.
+grep -q 'entries/2026-07-09-topic-abcd1234.md' "$ERR" \
+  || fail "5a: the entries/ fragment is not named in the finding"
+grep -q 'archive/2026-06-01-old-abcd1234.md' "$ERR" \
+  || fail "5a: the archive/ fragment is not named in the finding"
+
+# 5b. Same-directory duplicate: two entries/ fragments under different slugs but
+# the same UID (the check keys on the UID, not the full filename).
+o="$tmp/dupuid-same"
+new_tree "$o"
+entry "$o/entries/2026-07-09-topic-a-abcd1234.md"
+entry "$o/entries/2026-07-09-topic-b-abcd1234.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "5b: a same-dir duplicate UID expected exit 1, got $RC"
+grep -q 'abcd1234' "$ERR" || fail "5b: the same-dir duplicate UID is not named"
+echo "ok 5: a UID reused across or within directories fails, naming both fragments"
 
 # --- 6. Unexpected files fail --------------------------------------------
 
@@ -210,5 +253,110 @@ printf 'stray\n' >"$o/entries/README"
 run_guard "$o"
 [ "$RC" -eq 1 ] || fail "6b: a stray file under entries/ expected exit 1, got $RC"
 echo "ok 6: unexpected files under the observations root and entries/ fail"
+
+# --- 7. Content edge cases: metadata whitelist, CRLF -----------------------
+
+# 7a. A positive whitelist case in isolation: an entry followed by a valid
+# non-empty Consumed-by: line passes (the accept side of the whitelist).
+o="$tmp/consumed-ok"
+new_tree "$o"
+printf -- '- 2026-07-09 [planwright] a real observation\nConsumed-by: specs/foo (2026-07-08)\n' \
+  >"$o/entries/2026-07-09-topic-deadbeef.md"
+run_guard "$o"
+[ "$RC" -eq 0 ] || fail "7a: a valid Consumed-by: metadata line must pass: $(cat "$ERR")"
+
+# 7b. An empty-valued Consumed-by: line fails (whitelist exactness — the key
+# alone, with no value, is not a legitimate annotation).
+body_reject "empty-valued Consumed-by" \
+  '- 2026-07-09 [planwright] a real observation
+Consumed-by:
+'
+
+# 7c. A CRLF-saved (merge-mangled) but otherwise valid fragment passes: the
+# guard strips the trailing CR before validating, so line endings alone never
+# decide the verdict. Includes a blank separator line, the case that would
+# false-reject without the CR strip.
+o="$tmp/crlf-ok"
+new_tree "$o"
+printf -- '- 2026-07-09 [planwright] a real observation\r\n\r\nConsumed-by: specs/foo (2026-07-08)\r\n' \
+  >"$o/entries/2026-07-09-topic-deadbeef.md"
+run_guard "$o"
+[ "$RC" -eq 0 ] || fail "7c: a CRLF-saved valid fragment must pass (CR stripped): $(cat "$ERR")"
+echo "ok 7: metadata whitelist accepts a valid Consumed-by, rejects an empty one; CRLF is normalized"
+
+# --- 8. Symlink / type containment (D-7) ----------------------------------
+
+# 8a. A symlinked fragment file is refused (never read through a symlink), even
+# when it points at a grammar-valid, well-formed fragment.
+o="$tmp/symlink-frag"
+new_tree "$o"
+real="$tmp/real-frag.md"
+entry "$real"
+ln -s "$real" "$o/entries/2026-07-09-topic-deadbeef.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8a: a symlinked fragment expected exit 1, got $RC"
+grep -q 'symlink' "$ERR" || fail "8a: the finding does not name the symlink cause"
+
+# 8b. A symlinked entries/ directory is refused (not traversed through).
+o="$tmp/symlink-entries"
+mkdir -p "$o"
+realdir="$tmp/realdir-entries"
+mkdir -p "$realdir"
+entry "$realdir/2026-07-09-topic-deadbeef.md"
+ln -s "$realdir" "$o/entries"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8b: a symlinked entries/ dir expected exit 1, got $RC"
+
+# 8c. A regular FILE named `entries` under the root is refused (type confusion —
+# it would otherwise be whitelisted by name and then -d-skipped, a silent pass).
+o="$tmp/entries-not-dir"
+mkdir -p "$o"
+printf 'not a dir\n' >"$o/entries"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8c: a non-directory named entries/ expected exit 1, got $RC"
+
+# 8d. A symlinked observations root is refused before it resolves to its target.
+realroot="$tmp/realroot"
+new_tree "$realroot"
+entry "$realroot/entries/2026-07-09-topic-deadbeef.md"
+linkroot="$tmp/linkroot"
+ln -s "$realroot" "$linkroot"
+run_guard "$linkroot"
+[ "$RC" -eq 1 ] || fail "8d: a symlinked observations root expected exit 1, got $RC"
+echo "ok 8: symlinked fragments/dirs/root and a mistyped entries/ are refused"
+
+# --- 9. Usage contract + mise wiring --------------------------------------
+
+# 9a. An unknown flag is a usage error (exit 2), distinct from a violation (1).
+RC=0
+"$GUARD" --bogus >/dev/null 2>&1 || RC=$?
+[ "$RC" -eq 2 ] || fail "9a: an unknown flag expected exit 2 (usage), got $RC"
+# 9b. --obs-dir without a value is a usage error.
+RC=0
+"$GUARD" --obs-dir >/dev/null 2>&1 || RC=$?
+[ "$RC" -eq 2 ] || fail "9b: --obs-dir without a value expected exit 2, got $RC"
+# 9c. A hyphen-leading --obs-dir is refused (exit 2), never used as a path.
+RC=0
+"$GUARD" --obs-dir -x >/dev/null 2>&1 || RC=$?
+[ "$RC" -eq 2 ] || fail "9c: a hyphen-leading --obs-dir expected exit 2, got $RC"
+
+# 9d. The guard is wired into the aggregate `mise run check` that CI runs
+# (REQ-D1.4 "wired into the aggregate"): the task exists and is a dependency of
+# `check`. Asserted mechanically so dropping it from the depends array fails CI.
+misefile="$here/../mise.toml"
+grep -q '\[tasks."check:obs"\]' "$misefile" \
+  || fail "9d: mise.toml defines no [tasks.\"check:obs\"] task"
+grep -q '"check:obs"' "$misefile" \
+  || fail "9d: check:obs is not referenced in mise.toml (aggregate depends)"
+# The reference must sit inside the aggregate `check` task's depends list, not
+# only in its own task header: extract the depends array and look for it there.
+awk '
+  /^\[tasks\.check\]/ { in_check = 1; next }
+  /^\[/ { in_check = 0 }
+  in_check && /"check:obs"/ { found = 1 }
+  END { exit found ? 0 : 1 }
+' "$misefile" \
+  || fail "9d: check:obs is not in the aggregate check.depends array"
+echo "ok 9: usage contract holds; check:obs is wired into the aggregate check"
 
 echo "PASS: test-check-obs.sh"
