@@ -118,7 +118,20 @@ case "$1" in
   repo) printf 'testowner/testrepo\n'; exit 0 ;;
   release)
     case "$2" in
-      view) [ "${GH_RELEASE_EXISTS:-0}" = 1 ] && exit 0 || exit 1 ;;
+      view)
+        # Model real gh: exists → exit 0; genuinely absent → "release not found"
+        # on stderr + exit 1; a transient failure → a generic error on stderr +
+        # exit 1 (GH_RELEASE_VIEW_ERR selects this so the fail-closed path is
+        # testable). release_state classifies on the stderr text, so the stub must
+        # emit the real "release not found" phrasing for the absent case.
+        if [ "${GH_RELEASE_VIEW_ERR:-0}" = 1 ]; then
+          echo "error connecting to api.github.com" >&2
+          exit 1
+        fi
+        [ "${GH_RELEASE_EXISTS:-0}" = 1 ] && exit 0
+        echo "release not found" >&2
+        exit 1
+        ;;
       create)
         nf=""
         while [ "$#" -gt 0 ]; do
@@ -255,6 +268,23 @@ run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=1
 assert_ne "gate/origin-tag: exits non-zero" "$RC" "0"
 assert_contains "gate/origin-tag: names already-published" "$ERR" "already published"
 deny "gate/origin-tag: no Release create attempted (no side effect)" gh_called "$LOG" "release create"
+
+# 4b-2. A TRANSIENT gh failure during resume-detection must fail closed, not read
+#       as "Release absent" (which would flip resume=1 and fire a misleading
+#       gh release create + repeated wasted retries on every outage). Origin has
+#       the tag; gh release view errors transiently → die naming the query
+#       failure, no resume, no Release create. Before the fix, release_exists
+#       treated any gh failure as absent, so this published (RC 0).
+r="$tmp/gate-releaseview-err"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_VIEW_ERR=1
+assert_ne "gate/release-view-error: exits non-zero" "$RC" "0"
+assert_contains "gate/release-view-error: names the query failure, not absence" "$ERR" "could not query the GitHub Release"
+deny "gate/release-view-error: no Release create attempted (fail closed)" gh_called "$LOG" "release create"
 
 # 4c. non-monotonic version.
 r="$tmp/gate-monotonic"

@@ -133,9 +133,23 @@ tag="v$target"
 
 # --- Idempotency gate + partial-publish detection (REQ-D1.3) ----------------
 
-release_exists() {
-  # A GitHub Release for the tag exists (real external state, via gh).
-  gh release view "$tag" >/dev/null 2>&1
+release_state() {
+  # Classify the GitHub Release for $tag against real external state (gh),
+  # DISTINGUISHING a genuine absence from a query failure so a transient gh error
+  # (network/auth/rate-limit) is not misread as "absent" and does not trigger a
+  # misleading resume. Same fail-closed posture as the ls-remote and CI gates:
+  #   0 = the Release exists
+  #   1 = the Release is genuinely absent (gh reported "release not found")
+  #   2 = the query itself failed — the caller fails closed
+  local err
+  err=$(gh release view "$tag" 2>&1 >/dev/null) && return 0
+  # Non-zero exit: only gh's definitive "release not found" / HTTP 404 is an
+  # absence; every other failure (connection, auth, rate limit) is a query error
+  # we must not read as "absent".
+  case "$err" in
+    *"release not found"* | *"Release not found"* | *"Not Found"* | *"not found"* | *"HTTP 404"*) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 # Probe the tag on origin first; a query FAILURE (network/auth) is not "absent" —
@@ -154,11 +168,16 @@ git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && local_has=1
 
 resume=0
 if [ "$origin_has" -eq 1 ]; then
-  if release_exists; then
+  release_state
+  rel_rc=$?
+  if [ "$rel_rc" -eq 2 ]; then
+    die "idempotency gate: could not query the GitHub Release for $tag (gh release view failed); resolve connectivity/auth and re-run"
+  elif [ "$rel_rc" -eq 0 ]; then
     die "idempotency gate: tag $tag and its GitHub Release already exist (already published)"
   fi
-  # Partial publish: the tag is on origin but its Release is missing — resume by
-  # creating the Release, whether or not a local tag also lingers.
+  # rel_rc == 1: the tag is on origin but its Release is genuinely absent — a
+  # partial publish; resume by creating the Release, whether or not a local tag
+  # also lingers.
   resume=1
 elif [ "$local_has" -eq 1 ]; then
   die "idempotency gate: tag $tag exists locally but not on origin — push it (git push origin $tag) then re-run to create the Release, or delete it (git tag -d $tag) to re-publish"
