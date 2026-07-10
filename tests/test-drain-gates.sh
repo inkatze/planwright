@@ -756,4 +756,38 @@ if [ "$(id -u)" -ne 0 ]; then
     && fail "the sweep read the store through a symlinked observations root"
 fi
 
+# 32. An unreadable fragment is excluded and named, never an abort (REQ-C1.3,
+#     D-4). Regression (F1): the fragment loop lacked an -r guard, so the read
+#     open failed; under a strict-POSIX /bin/sh (dash, the CI shell) that
+#     aborts the whole sweep under set -e - no report emitted. Skip runs as
+#     root (mode 000 is still readable). The sweep must still report, count
+#     only the readable fragment, and name the unreadable one.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs28/_observations/entries"
+  printf -- '- 2026-09-01 [planwright] readable and counted\n' \
+    >"$tmp/specs28/_observations/entries/2026-09-01-good-aaaaaaaa.md"
+  printf -- '- 2026-09-02 [planwright] cannot be read\n' \
+    >"$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  chmod 000 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  drc=0
+  out28=$("$drain" --today 2026-09-10 "$tmp/specs28") || drc=$?
+  chmod 644 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  [ "$drc" -eq 0 ] \
+    || fail "an unreadable fragment aborted the whole drain sweep (exit $drc)"
+  printf '%s\n' "$out28" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
+    || fail "an unreadable fragment was counted, or the readable one was lost: $(printf '%s\n' "$out28" | grep -F unmined)"
+  printf '%s\n' "$out28" | grep -F 'unreadable fragment' | grep -F '2026-09-02-noread-bbbbbbbb.md' >/dev/null \
+    || fail "the unreadable fragment was not named in the report"
+
+  # Lock the CI-shell portability regression directly under dash.
+  if command -v dash >/dev/null 2>&1; then
+    chmod 000 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+    drc=0
+    dash "$drain" --today 2026-09-10 "$tmp/specs28" >/dev/null 2>&1 || drc=$?
+    chmod 644 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+    [ "$drc" -eq 0 ] \
+      || fail "an unreadable fragment aborts the drain sweep under dash (exit $drc)"
+  fi
+fi
+
 echo "PASS: test-drain-gates.sh"

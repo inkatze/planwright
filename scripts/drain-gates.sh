@@ -599,6 +599,7 @@ report() {
   frag_dates=""
   stuck=""
   invalid=""
+  unreadable=""
   if [ "$obsroot_ok" -eq 1 ] && [ -d "$entries" ] && [ ! -L "$entries" ]; then
     for _f in "$entries"/*.md; do
       [ -e "$_f" ] || continue
@@ -610,6 +611,16 @@ report() {
       fi
       if ! valid_name "$_name"; then
         invalid="$invalid$(obs_safe "$_name")
+"
+        continue
+      fi
+      # An unreadable fragment is named and excluded, never read. Without this
+      # guard the `done <"$_f"` open below fails, and under a strict-POSIX
+      # /bin/sh (dash, the CI shell) that redirect failure aborts the whole
+      # sweep under set -e - no report emitted at all. Mirrors the legacy-file
+      # -r guard below and scripts/obs-render.sh.
+      if [ ! -r "$_f" ]; then
+        unreadable="$unreadable$(obs_safe "$_name")
 "
         continue
       fi
@@ -772,6 +783,15 @@ report() {
 '
     for _iv in $invalid; do
       printf 'skipped invalid fragment (excluded from count): entries/%s\n' "$_iv"
+    done
+    IFS=$_oifs
+  fi
+  if [ -n "$unreadable" ]; then
+    _oifs=$IFS
+    IFS='
+'
+    for _ur in $unreadable; do
+      printf 'unreadable fragment (excluded from count): entries/%s\n' "$_ur"
     done
     IFS=$_oifs
   fi

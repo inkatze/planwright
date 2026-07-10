@@ -295,6 +295,16 @@ collect_frags() {
       warn "skipping invalid fragment name: $(safe "$_name")"
       continue
     fi
+    # An unreadable fragment must be skip-and-warned, never read. Without this
+    # guard the `done <"$_f"` open below fails, and under a strict-POSIX
+    # /bin/sh (dash, the CI shell) that redirect failure aborts the whole
+    # render under set -e — losing every observation and exiting non-zero,
+    # the opposite of the skip-and-warn contract. Mirrors the legacy-file
+    # -r guard below.
+    if [ ! -r "$_f" ]; then
+      warn "skipping unreadable fragment: $(safe "$_name")"
+      continue
+    fi
     # One pure-shell pass over the (tiny) fragment: capture the first content
     # line and whether any `Consumed-by:` metadata line is present. No
     # subprocess per fragment, so the O(N) sweep stays cheap at scale.
@@ -335,7 +345,12 @@ fi
 
 # --- frozen legacy file (unconsumed entry lines) -------------------------
 
-if [ -f "$legacy" ] && [ ! -L "$legacy" ] && [ -r "$legacy" ]; then
+if [ -f "$legacy" ] && [ ! -L "$legacy" ] && [ ! -r "$legacy" ]; then
+  # A present-but-unreadable legacy file is named, not silently dropped: its
+  # entries would otherwise vanish from the view with no signal (drain surfaces
+  # the same case as an error). Skip-and-warn keeps the fragment view intact.
+  warn "skipping unreadable legacy file: $(safe "$legacy")"
+elif [ -f "$legacy" ] && [ ! -L "$legacy" ]; then
   _idx=0
   while IFS= read -r _line || [ -n "$_line" ]; do
     _idx=$((_idx + 1))

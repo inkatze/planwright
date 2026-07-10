@@ -280,4 +280,56 @@ rc=0
 [ "$rc" -eq 2 ] || fail "7: a symlinked observations root must refuse (exit 2), got $rc"
 echo "ok 7: skip-and-warn paths and symlink containment hold"
 
+# --- 8. Unreadable files skip-and-warn, never abort or silently drop -----
+# Regression (F1): the fragment loop lacked an -r guard, so an unreadable
+# fragment reached `done <"$_f"`; under a strict-POSIX /bin/sh (dash, the CI
+# shell) the failed redirect aborts the whole render under set -e — losing
+# every observation and exiting non-zero, the opposite of the header's
+# skip-and-warn contract. An unreadable *legacy* file was dropped with no
+# warning (drain surfaced it). Both must skip-and-warn and keep the rest of
+# the view.
+o8="$tmp/o8"
+mkdir -p "$o8/entries"
+printf -- '- 2026-08-01 [planwright] readable stays\n' \
+  >"$o8/entries/2026-08-01-good-aaaaaaaa.md"
+printf -- '- 2026-08-02 [planwright] cannot be read\n' \
+  >"$o8/entries/2026-08-02-noread-bbbbbbbb.md"
+chmod 000 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
+rc=0
+"$REN" --obs-dir "$o8" >"$tmp/out8" 2>"$tmp/err8" || rc=$?
+chmod 644 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
+[ "$rc" -eq 0 ] || fail "8: an unreadable fragment must not abort the render (exit $rc)"
+grep -F '2026-08-01 [planwright] readable stays' "$tmp/out8" >/dev/null \
+  || fail "8: a readable fragment was lost when a sibling was unreadable"
+grep -F 'unreadable fragment' "$tmp/err8" >/dev/null \
+  || fail "8: an unreadable fragment was not skip-and-warned on stderr"
+
+# An unreadable legacy file warns rather than silently vanishing from the view.
+o8b="$tmp/o8b"
+mkdir -p "$o8b/entries"
+printf -- '- 2026-08-03 [planwright] fragment still renders\n' \
+  >"$o8b/entries/2026-08-03-good-cccccccc.md"
+printf -- '- 2026-08-01 [planwright] legacy line\n' >"$o8b/opportunities.md"
+chmod 000 "$o8b/opportunities.md"
+rc=0
+"$REN" --obs-dir "$o8b" >"$tmp/out8b" 2>"$tmp/err8b" || rc=$?
+chmod 644 "$o8b/opportunities.md"
+[ "$rc" -eq 0 ] || fail "8: an unreadable legacy file must not abort the render (exit $rc)"
+grep -F '2026-08-03 [planwright] fragment still renders' "$tmp/out8b" >/dev/null \
+  || fail "8: the fragment was lost when the legacy file was unreadable"
+grep -F 'unreadable' "$tmp/err8b" >/dev/null \
+  || fail "8: an unreadable legacy file was silently dropped (no warning)"
+
+# Lock the CI-shell portability regression directly: under dash (the Linux
+# /bin/sh) the pre-fix read-without-guard aborts the whole render; the guard
+# makes it a clean skip-and-warn with exit 0.
+if command -v dash >/dev/null 2>&1; then
+  chmod 000 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
+  rc=0
+  dash "$REN" --obs-dir "$o8" >/dev/null 2>&1 || rc=$?
+  chmod 644 "$o8/entries/2026-08-02-noread-bbbbbbbb.md"
+  [ "$rc" -eq 0 ] || fail "8: an unreadable fragment aborts the render under dash (exit $rc)"
+fi
+echo "ok 8: unreadable files skip-and-warn, never abort or silently drop"
+
 echo "PASS: test-obs-render.sh"
