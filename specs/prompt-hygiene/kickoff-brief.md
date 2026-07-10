@@ -312,7 +312,8 @@ Signed off: 2026-07-08
 - **Task 1 (2026-07-09) — manifest grammar design.** D-3 delegates the exact
   manifest syntax to the doctrine doc. Chosen: a reserved column-zero line
   prefix (`Doctrine: <class> <doc-name>`), one entry per line, outside code
-  fences, optional parenthesized site note on point-of-use entries.
+  fences; an optional parenthesized site note may follow on any entry, by
+  convention naming the reading site of a point-of-use doc.
   Considered: (a) a fenced block with an info string — rejected, D-3 requires
   entries *outside* fences so quoted examples stay inert; (b) HTML-comment
   markers — rejected, the manifest also feeds the skill's reading model and
