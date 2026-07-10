@@ -107,6 +107,30 @@ EOF
   chmod +x "$_d/od"
 }
 
+# make_awk_stub <dir> <code1> [<code2> ...] — an `awk` on PATH that exits with
+# the given codes in call order (the last code repeats for further calls), used
+# to fault-inject an awk runtime error (exit >1) into the legacy arm's two awk
+# passes. It ignores the program and file arguments and produces no output — the
+# script must not publish on an error exit, so the empty temp is discarded.
+make_awk_stub() {
+  _d=$1
+  shift
+  mkdir -p "$_d"
+  : >"$_d/codes"
+  for _c in "$@"; do printf '%s\n' "$_c" >>"$_d/codes"; done
+  printf '0\n' >"$_d/an"
+  cat >"$_d/awk" <<EOF
+#!/bin/sh
+n=\$(cat "$_d/an" 2>/dev/null || echo 0)
+n=\$((n + 1))
+echo "\$n" >"$_d/an"
+code=\$(sed -n "\${n}p" "$_d/codes")
+[ -n "\$code" ] || code=\$(tail -n 1 "$_d/codes")
+exit "\$code"
+EOF
+  chmod +x "$_d/awk"
+}
+
 # record <obs> <uid> <slug> <text> — record one fragment with a deterministic
 # UID and a fixed date, echoing the created fragment's basename.
 record() {
@@ -624,6 +648,32 @@ rc=0
 [ "$(cat "$o/opportunities.md")" = "$before" ] \
   || fail "12e: the cross-spec refusal mutated the frozen log"
 echo "ok 12e: a legacy line consumed by another spec is a not-found refusal (exit 3)"
+
+# --- 12f. A legacy-arm awk runtime error is a filesystem refusal (exit 1) --
+# The two awk passes exit 0 (matched), 1 (no match), or >1 (runtime/read error).
+# An error exit must map to the header's filesystem-error refusal (exit 1), not
+# be misread as not-found (exit 3). Fault-inject via an `awk` PATH stub.
+
+o=$(new_obs "$tmp/o12f")
+printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] present' >"$o/opportunities.md"
+
+# (a) The rewrite awk errors (exit 2) → exit 1, not 3.
+stub="$tmp/awkstub-a"
+make_awk_stub "$stub" 2
+rc=0
+PATH="$stub:$PATH" "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] present' \
+  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "12f: a rewrite-awk runtime error expected exit 1, got $rc"
+
+# (b) The rewrite awk reports no match (exit 1) but the no-op probe awk errors
+# (exit 2) → exit 1, not 3.
+stub="$tmp/awkstub-b"
+make_awk_stub "$stub" 1 2
+rc=0
+PATH="$stub:$PATH" "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] present' \
+  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "12f: a probe-awk runtime error expected exit 1, got $rc"
+echo "ok 12f: a legacy-arm awk runtime error is a filesystem refusal (exit 1)"
 
 # --- 13. Two-branch conflict-freedom -------------------------------------
 

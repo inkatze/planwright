@@ -478,16 +478,26 @@ consume_legacy() {
   rm -f "$_tmp"
   _tmp=""
 
+  # awk exits 0 (matched, handled above), 1 (no match), or >1 (runtime/read
+  # error). An error exit is a filesystem/internal refusal (exit 1), never the
+  # not-found path below — honoring the header exit-code contract rather than
+  # masking a read failure as a benign "nothing to consume".
+  [ "$_arc" -eq 1 ] || refuse 1 "cannot rewrite the frozen legacy file (filesystem error)"
+
   # No unannotated exact match. If a same-spec annotated copy already exists the
   # consume is idempotently done (clean no-op), keyed date-insensitively so a
   # re-run on a later date still recognizes it; otherwise the line is unknown
-  # (absent, or consumed only by another spec) — a clean not-found refusal.
-  if OBS_PREFIX="$line$legacy_same_spec" awk \
+  # (absent, or consumed only by another spec) — a clean not-found refusal. The
+  # probe awk gets the same exit-code discipline: >1 is a read error (exit 1).
+  _chk=0
+  OBS_PREFIX="$line$legacy_same_spec" awk \
     'BEGIN { p = ENVIRON["OBS_PREFIX"] }
      index($0, p) == 1 { found = 1 }
-     END { exit found ? 0 : 1 }' "$frozen"; then
+     END { exit found ? 0 : 1 }' "$frozen" || _chk=$?
+  if [ "$_chk" -eq 0 ]; then
     exit 0
   fi
+  [ "$_chk" -eq 1 ] || refuse 1 "cannot read the frozen legacy file (filesystem error)"
   refuse 3 "no matching unconsumed legacy line"
 }
 
