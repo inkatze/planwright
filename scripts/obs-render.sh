@@ -284,7 +284,11 @@ collect_frags() {
     return 0
   }
   for _f in "$_fdir"/*.md; do
-    [ -e "$_f" ] || continue
+    # `-e` is false both for the literal unmatched glob and for a dangling
+    # symlink (target missing); `|| -L` keeps a broken symlink in play so it
+    # reaches the warn below instead of vanishing with no signal, matching
+    # check-obs.sh's `[ -e ] || [ -L ]` posture (D-7).
+    [ -e "$_f" ] || [ -L "$_f" ] || continue
     _name=${_f##*/}
     if [ -L "$_f" ]; then
       warn "skipping symlinked fragment: $(safe "$_name")"

@@ -790,4 +790,20 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
+# 33. A dangling symlink fragment (target missing) is named as invalid, not
+#     silently skipped (D-7). `-e` is false for a broken symlink, so the
+#     enumeration must treat it as present (`|| -L`) to name it, matching
+#     check-obs.sh and scripts/obs-render.sh.
+mkdir -p "$tmp/specs29/_observations/entries"
+printf -- '- 2026-09-05 [planwright] a real live fragment\n' \
+  >"$tmp/specs29/_observations/entries/2026-09-05-live-aaaaaaaa.md"
+ln -s "$tmp/specs29-missing-target.md" \
+  "$tmp/specs29/_observations/entries/2026-09-06-dangle-bbbbbbbb.md"
+out29=$("$drain" --today 2026-09-10 "$tmp/specs29") \
+  || fail "dangling-symlink fixture broke the sweep"
+printf '%s\n' "$out29" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
+  || fail "a dangling symlink was counted, or the live fragment was lost: $(printf '%s\n' "$out29" | grep -F unmined)"
+printf '%s\n' "$out29" | grep -F 'skipped invalid fragment' | grep -F '2026-09-06-dangle-bbbbbbbb.md' >/dev/null \
+  || fail "a dangling symlink fragment was silently skipped instead of named"
+
 echo "PASS: test-drain-gates.sh"

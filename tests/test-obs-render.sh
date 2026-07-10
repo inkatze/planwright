@@ -242,6 +242,16 @@ grep -F 'via a symlink' "$tmp/out7b" >/dev/null \
 grep -F 'symlinked fragment' "$tmp/err7b" >/dev/null \
   || fail "7: symlinked fragment not skip-and-warned"
 
+# A DANGLING symlink (target missing) is still named, not silently skipped:
+# `-e` is false for it, so the enumeration must treat it as present (`|| -L`)
+# to reach the symlink warn, matching check-obs.sh's `[ -e ] || [ -L ]` posture
+# (D-7). Otherwise a broken symlink vanishes from every reader with no signal.
+ln -s "$tmp/o7-missing-target.md" "$o7/entries/2026-06-06-dangle-ffffffff.md"
+"$REN" --obs-dir "$o7" >"$tmp/out7f" 2>"$tmp/err7f" || fail "7: dangling-symlink render failed"
+grep -F 'symlinked fragment' "$tmp/err7f" | grep -F '2026-06-06-dangle-ffffffff.md' >/dev/null \
+  || fail "7: a dangling symlinked fragment was silently skipped instead of warned"
+rm -f "$o7/entries/2026-06-06-dangle-ffffffff.md"
+
 # A symlinked entries/ directory is not traversed.
 o7c="$tmp/o7c"
 mkdir -p "$o7c" "$tmp/o7c-realentries"

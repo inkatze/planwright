@@ -602,7 +602,11 @@ report() {
   unreadable=""
   if [ "$obsroot_ok" -eq 1 ] && [ -d "$entries" ] && [ ! -L "$entries" ]; then
     for _f in "$entries"/*.md; do
-      [ -e "$_f" ] || continue
+      # `-e` is false for the literal unmatched glob and for a dangling symlink;
+      # `|| -L` keeps a broken symlink in play so it is named as invalid below
+      # rather than silently skipped, matching check-obs.sh and obs-render.sh
+      # (D-7).
+      [ -e "$_f" ] || [ -L "$_f" ] || continue
       _name=${_f##*/}
       if [ -L "$_f" ] || [ ! -f "$_f" ]; then
         invalid="$invalid$(obs_safe "$_name")
