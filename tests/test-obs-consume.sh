@@ -250,6 +250,19 @@ after=$(find "$o" | sort)
 [ "$before" = "$after" ] || fail "7: unknown-UID refusal touched a path"
 echo "ok 7: an unknown UID is a clean not-found refusal (exit 3)"
 
+# --- 7b. Absent observations directory is a not-found refusal (exit 3) -----
+# Consume refuses when the store does not exist (fragments must have been
+# recorded into it first) — unlike obs-record.sh, which creates it. Named in the
+# header exit-code contract; distinct from the unknown-UID case above (there the
+# dir exists) and from §12c's absent-frozen-file case (there --obs-dir exists).
+
+rc=0
+"$CONSUME" --obs-dir "$tmp/o7b-absent" --uid deadbeef --spec my-spec \
+  --today 2026-07-10 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "7b: an absent obs-dir expected exit 3, got $rc"
+[ ! -e "$tmp/o7b-absent" ] || fail "7b: consume created the absent obs-dir"
+echo "ok 7b: an absent observations directory is a not-found refusal (exit 3)"
+
 # --- 8. Duplicate-UID refusal --------------------------------------------
 
 o=$(new_obs "$tmp/o8")
