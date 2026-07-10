@@ -600,6 +600,13 @@ report() {
   stuck=""
   invalid=""
   unreadable=""
+  # A symlinked entries/ is surfaced as a note and not traversed (D-7), the
+  # same posture obs-render.sh holds on a symlinked fragment directory and drain
+  # holds on a symlinked root; otherwise a misconfigured store hides behind
+  # unmined: 0 with no signal.
+  if [ "$obsroot_ok" -eq 1 ] && [ -L "$entries" ]; then
+    printf 'note: observations entries/ is a symlink; not traversed (D-7)\n'
+  fi
   if [ "$obsroot_ok" -eq 1 ] && [ -d "$entries" ] && [ ! -L "$entries" ]; then
     for _f in "$entries"/*.md; do
       # `-e` is false for the literal unmatched glob and for a dangling symlink;

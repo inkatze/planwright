@@ -328,8 +328,10 @@ lane_lacks SATISFIED '- Gate: -'
 [ "$before" = "$after" ] || fail "evaluator modified a swept file"
 
 # 8. Observations stats: the reworked line names the legacy surface, the count,
-#    and the oldest-entry age (2026-06-01 → 11 days). Match the whole line, not
-#    a substring, so `unmined: 3` cannot be satisfied by `unmined: 30`.
+#    and the oldest-entry age (2026-06-01 → 11 days). has() is a grep -F
+#    substring match; asserting the full line as a fixed string is specific
+#    enough that `unmined: 30` cannot satisfy it, since the trailing
+#    ` (legacy: 3) - oldest: ...` disambiguates the count.
 has 'unmined: 3 (legacy: 3) - oldest: 2026-06-01 (11 days)'
 
 # 9. Low-confidence first within a lane, independent of file order (the
@@ -805,5 +807,23 @@ printf '%s\n' "$out29" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
   || fail "a dangling symlink was counted, or the live fragment was lost: $(printf '%s\n' "$out29" | grep -F unmined)"
 printf '%s\n' "$out29" | grep -F 'skipped invalid fragment' | grep -F '2026-09-06-dangle-bbbbbbbb.md' >/dev/null \
   || fail "a dangling symlink fragment was silently skipped instead of named"
+
+# 34. A symlinked entries/ directory is surfaced as a note, not silently
+#     treated as "no fragments" (D-7). obs-render.sh already warns on a
+#     symlinked fragment directory and drain already notes a symlinked root,
+#     so drain must note a symlinked entries/ too rather than hiding a
+#     misconfigured store behind unmined: 0.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs30/_observations" "$tmp/specs30-realentries"
+  printf -- '- 2020-01-01 [planwright] would leak if traversed\n' \
+    >"$tmp/specs30-realentries/2020-01-01-leak-abcdabcd.md"
+  ln -s "$tmp/specs30-realentries" "$tmp/specs30/_observations/entries"
+  out30=$("$drain" --today 2026-09-10 "$tmp/specs30") \
+    || fail "symlinked-entries fixture broke the sweep"
+  printf '%s\n' "$out30" | grep -F 'entries/ is a symlink' >/dev/null \
+    || fail "a symlinked entries/ directory was not surfaced as a note"
+  printf '%s\n' "$out30" | grep -F '2020-01-01' >/dev/null \
+    && fail "the sweep read the store through a symlinked entries/ directory"
+fi
 
 echo "PASS: test-drain-gates.sh"

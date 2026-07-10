@@ -294,7 +294,13 @@ collect_frags() {
       warn "skipping symlinked fragment: $(safe "$_name")"
       continue
     fi
-    [ -f "$_f" ] || continue
+    # A non-regular path matching *.md (a directory, a fifo) is named, not
+    # silently skipped: drain excludes-and-names one, so render warns to keep
+    # the "same rule binds every reader" skip-and-warn contract (D-4).
+    if [ ! -f "$_f" ]; then
+      warn "skipping non-regular fragment: $(safe "$_name")"
+      continue
+    fi
     if ! valid_name "$_name"; then
       warn "skipping invalid fragment name: $(safe "$_name")"
       continue

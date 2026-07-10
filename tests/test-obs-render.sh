@@ -252,6 +252,15 @@ grep -F 'symlinked fragment' "$tmp/err7f" | grep -F '2026-06-06-dangle-ffffffff.
   || fail "7: a dangling symlinked fragment was silently skipped instead of warned"
 rm -f "$o7/entries/2026-06-06-dangle-ffffffff.md"
 
+# A non-regular path matching *.md (a directory, or a fifo) is named, not
+# silently skipped: drain already excludes-and-names one, so render must too
+# (the "same rule binds every reader" skip-and-warn contract, D-4).
+mkdir "$o7/entries/2026-06-07-dir-99999999.md"
+"$REN" --obs-dir "$o7" >"$tmp/out7g" 2>"$tmp/err7g" || fail "7: non-regular-path render failed"
+grep -F 'non-regular fragment' "$tmp/err7g" | grep -F '2026-06-07-dir-99999999.md' >/dev/null \
+  || fail "7: a non-regular fragment path was silently skipped instead of warned"
+rmdir "$o7/entries/2026-06-07-dir-99999999.md"
+
 # A symlinked entries/ directory is not traversed.
 o7c="$tmp/o7c"
 mkdir -p "$o7c" "$tmp/o7c-realentries"
