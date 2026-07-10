@@ -395,6 +395,35 @@ rc=0
 [ "$rc" -eq 1 ] || fail "10b: a dangling-symlink obs-dir expected exit 1, got $rc"
 echo "ok 10b: a dangling-symlink obs-dir refuses as a symlink (exit 1)"
 
+# --- 10c. obs-dir containment refusals (exit 1) ---------------------------
+# The three remaining --obs-dir containment guards, each a validate/contain/
+# refuse point (D-7): a leading-hyphen path (a bare '-' would make `cd` a `cd -`
+# rerooting the store at $OLDPWD), a symlinked root pointing at a *real* dir (an
+# escape vector), and a root that exists but is a plain file. Each refuses exit 1
+# and touches nothing.
+
+rc=0
+"$CONSUME" --obs-dir '-notadir' --uid cafe0003 --spec my-spec --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "10c: a leading-hyphen obs-dir expected exit 1, got $rc"
+
+realdir="$tmp/o10c-real"
+mkdir -p "$realdir/entries" "$realdir/archive"
+link="$tmp/o10c-link"
+ln -s "$realdir" "$link"
+rc=0
+"$CONSUME" --obs-dir "$link" --uid cafe0004 --spec my-spec --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "10c: a symlinked (live) obs-dir expected exit 1, got $rc"
+
+filedir="$tmp/o10c-file"
+printf 'not a dir\n' >"$filedir"
+rc=0
+"$CONSUME" --obs-dir "$filedir" --uid cafe0005 --spec my-spec --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "10c: a not-a-directory obs-dir expected exit 1, got $rc"
+echo "ok 10c: leading-hyphen, symlinked, and non-directory obs-dir all refuse (exit 1)"
+
 # --- 11. Hostile fragment content is data --------------------------------
 
 o=$(new_obs "$tmp/o11")
