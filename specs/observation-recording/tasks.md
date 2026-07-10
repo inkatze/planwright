@@ -116,6 +116,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1, 2
 - **Citations:** D-3, D-7 · REQ-B1.2, REQ-C1.2, REQ-A1.5
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-10
 
 ### Task 5 — Doctrine and skill reconciliation
 
