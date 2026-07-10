@@ -195,11 +195,30 @@ fi
 
 if [ "$resume" -eq 0 ]; then
   # Monotonicity: target strictly greater than the latest release tag; vacuous
-  # when there are no release tags yet (the first release).
-  latest=$(rl_latest_release_tag)
+  # when there are no release tags yet (the first release). Read ORIGIN's tags
+  # (read-only, via the same ls-remote probe the idempotency gate uses) rather
+  # than the local `git tag -l` cache, which can be stale/incomplete when the
+  # publisher has not fetched tags — a stale cache would let a non-monotonic
+  # version through. Fail closed if the query fails; the gate cannot be confirmed
+  # against origin blind.
+  if ! origin_tags=$(git ls-remote --tags origin 2>/dev/null); then
+    die "monotonicity gate: could not query origin tags to confirm the latest release; resolve connectivity and re-run"
+  fi
+  latest=""
+  latest_ver=""
+  while IFS= read -r ref; do
+    t=${ref##*refs/tags/}
+    case "$t" in "" | *"^{}") continue ;; esac # blank + dereferenced annotated-tag rows
+    ver=${t#v}
+    rl_valid_semver "$ver" || continue
+    if [ -z "$latest" ] || rl_version_gt "$ver" "$latest_ver"; then
+      latest="$t"
+      latest_ver="$ver"
+    fi
+  done < <(printf '%s\n' "$origin_tags")
   if [ -n "$latest" ]; then
-    rl_version_gt "$target" "${latest#v}" \
-      || die "monotonicity gate: target $target is not strictly greater than the latest release $latest"
+    rl_version_gt "$target" "$latest_ver" \
+      || die "monotonicity gate: target $target is not strictly greater than the latest release $latest (on origin)"
   fi
 
   # Clean working tree.

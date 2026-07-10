@@ -318,6 +318,21 @@ assert_ne "gate/monotonic: exits non-zero" "$RC" "0"
 assert_contains "gate/monotonic: names the monotonicity gate" "$ERR" "monotonicity gate"
 deny "gate/monotonic: no v0.1.0 tag pushed" origin_has_tag "$r" v0.1.0
 
+# 4c-2. Monotonicity reads ORIGIN's tags, not the local cache. A higher release
+#       tag on origin that is ABSENT locally (stale/un-fetched clone) must still
+#       block a lower publish. Before the fix rl_latest_release_tag read local
+#       `git tag -l` only, so the stale clone saw no tags and published.
+r="$tmp/gate-monotonic-origin"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.5.0
+gc "$r" push -q origin v0.5.0 2>/dev/null
+gc "$r" tag -d v0.5.0 >/dev/null # local clone no longer has the tag (stale cache)
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "gate/monotonic-origin: exits non-zero (origin tag beats a stale local cache)" "$RC" "0"
+assert_contains "gate/monotonic-origin: names the monotonicity gate" "$ERR" "monotonicity gate"
+deny "gate/monotonic-origin: no v0.1.0 tag pushed" origin_has_tag "$r" v0.1.0
+
 # 4d. dirty working tree.
 r="$tmp/gate-dirty"
 new_repo "$r"
