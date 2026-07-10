@@ -49,6 +49,7 @@ of the release chain after T1 and can run in parallel throughout.
 - **Dependencies:** Task 1.
 - **Citations:** D-2, D-3, D-5, D-7, D-13 · REQ-B1.1, REQ-B1.2
 - **Estimated effort:** 0.5d
+- **Last activity:** 2026-07-09
 
 ### Task 3 — Catalog entries: guard-catalog + decision-domains
 
