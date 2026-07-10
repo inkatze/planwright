@@ -46,39 +46,59 @@ RL_SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+
 # newline — must be rejected, not validated on its first line.
 #
 # The regex enforces no-leading-zero on the numeric version core, but its
-# prerelease class (`[0-9A-Za-z.-]+`) cannot express two SemVer 2.0.0 §9 rules
-# for the dot-separated identifiers inside a prerelease, so a second pass
-# enforces both:
-#   - "Identifiers MUST NOT be empty": a leading dot, a trailing dot, or two
-#     consecutive dots in the prerelease yields an empty identifier (`1.0.0-.1`,
-#     `1.0.0-a.`, `1.0.0-a..b`). This is checked on the raw prerelease string,
-#     not the split fields, because `IFS=. read` drops a trailing empty field
-#     and so would silently miss the trailing-dot form.
-#   - "Numeric identifiers MUST NOT include leading zeroes": any numeric
-#     identifier of length > 1 with a leading zero (`1.0.0-01`, `1.0.0-a.01`).
-# Without the numeric rule, `1.0.0-01` and `1.0.0-1` both validate yet compare
-# equal (rl_version_gt), so one spelling can mask a pending release; without the
-# empty rule, a malformed empty identifier validates and then mis-ranks (an
-# empty field is rl_version_gt's "fewer fields → lower" sentinel). Build
-# metadata is exempt (§10 imposes no such rule on it).
+# prerelease and build classes (`[0-9A-Za-z.-]+`) cannot express the SemVer 2.0.0
+# "identifiers MUST NOT be empty" rule (they permit dots anywhere), so a second
+# pass enforces it for BOTH the prerelease (§9) and the build metadata (§10):
+#   - Prerelease (§9): "Identifiers MUST NOT be empty" — a leading dot, a trailing
+#     dot, or two consecutive dots yields an empty identifier (`1.0.0-.1`,
+#     `1.0.0-a.`, `1.0.0-a..b`); checked on the raw prerelease string, not the
+#     split fields, because `IFS=. read` drops a trailing empty field and would
+#     miss `a.`. Plus "Numeric identifiers MUST NOT include leading zeroes": any
+#     numeric identifier of length > 1 with a leading zero (`1.0.0-01`).
+#   - Build metadata (§10): "Identifiers MUST NOT be empty" applies here too, so
+#     `1.2.3+build..1`, `1.2.3+.foo`, and `1.2.3+foo.` are invalid. §10 imposes NO
+#     numeric/leading-zero rule (build metadata carries no precedence), so only
+#     the empty-identifier check runs on the build part.
+# Without the prerelease numeric rule, `1.0.0-01` and `1.0.0-1` both validate yet
+# compare equal (rl_version_gt), so one spelling can mask a pending release;
+# without the empty rules, a malformed empty identifier validates and then, for a
+# prerelease, mis-ranks (an empty field is rl_version_gt's "fewer fields → lower"
+# sentinel).
 rl_valid_semver() {
   [[ ${1-} =~ $RL_SEMVER_RE ]] || return 1
-  local pre="${1-}"
-  [[ "$pre" == *-* ]] || return 0 # no prerelease → nothing more to check
-  pre="${pre%%+*}"                # drop build metadata
-  pre="${pre#*-}"                 # keep only the prerelease part
-  case "$pre" in
-    .* | *. | *..*) return 1 ;; # empty identifier (leading/trailing/double dot)
-  esac
-  local -a ids
-  IFS=. read -ra ids <<<"$pre"
-  local id
-  for id in "${ids[@]}"; do
-    case "$id" in
-      *[!0-9]*) : ;;   # alphanumeric identifier — the numeric rule is N/A
-      0?*) return 1 ;; # numeric, length > 1, leading zero → invalid
+  local v="${1-}" rest pre build
+
+  # Split build metadata (§10) off at the first '+', then the prerelease (§9) off
+  # the remainder at its first '-'. A version may carry build metadata with no
+  # prerelease (`1.2.3+build`), so the build part is validated independently and
+  # is NOT reachable through the prerelease branch.
+  build=""
+  [[ "$v" == *+* ]] && build="${v#*+}"
+  rest="${v%%+*}"
+  pre=""
+  [[ "$rest" == *-* ]] && pre="${rest#*-}"
+
+  if [[ -n "$pre" ]]; then
+    case "$pre" in
+      .* | *. | *..*) return 1 ;; # empty identifier (leading/trailing/double dot)
     esac
-  done
+    local -a ids
+    IFS=. read -ra ids <<<"$pre"
+    local id
+    for id in "${ids[@]}"; do
+      case "$id" in
+        *[!0-9]*) : ;;   # alphanumeric identifier — the numeric rule is N/A
+        0?*) return 1 ;; # numeric, length > 1, leading zero → invalid
+      esac
+    done
+  fi
+
+  if [[ -n "$build" ]]; then
+    case "$build" in
+      .* | *. | *..*) return 1 ;; # empty build identifier (§10)
+    esac
+  fi
+
   return 0
 }
 

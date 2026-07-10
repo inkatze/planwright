@@ -129,6 +129,28 @@ make_repo "$r" "1.0.0-rc.1"
 out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "a valid prerelease version reports pending" "$out" "pending${TAB}1.0.0-rc.1"
 
+# 4f. A build-metadata identifier MUST NOT be empty (SemVer 2.0.0 §10): a leading,
+#     trailing, or double dot in the build part yields an empty identifier. The
+#     grammar's build class permits dots anywhere, so a second-pass check on the
+#     build metadata (mirroring the prerelease empty-identifier rule) rejects it.
+#     Regression guard: before the §10 fix these validated and reported pending.
+for bad in "1.2.3+build..1" "1.2.3+.foo" "1.2.3+foo."; do
+  r="$tmp/badbuild-$(printf '%s' "$bad" | tr -dc 'a-z0-9')"
+  make_repo "$r" "$bad"
+  rc=0
+  out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+  assert_eq "empty build-metadata identifier ($bad) exits 2" "$rc" "2"
+  assert_eq "empty build-metadata identifier ($bad) prints nothing on stdout" "$out" ""
+done
+
+# 4g. A well-formed build-metadata version is accepted and flows through as
+#     pending (positive coverage for the build-metadata validation path, §10
+#     imposes no numeric/leading-zero rule so a leading-zero build id is fine).
+r="$tmp/build-ok"
+make_repo "$r" "1.0.0+build.001"
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "a valid build-metadata version reports pending" "$out" "pending${TAB}1.0.0+build.001"
+
 # 5. Latest tag chosen by SemVer precedence, not lexically (0.10.0 > 0.2.0).
 r="$tmp/precedence"
 make_repo "$r" 0.10.0
