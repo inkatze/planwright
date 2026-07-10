@@ -328,10 +328,6 @@ fragment_annotated() {
   ' "$1"
 }
 
-# annotate_fragment <file> — append the Consumed-by metadata line atomically
-# (temp file in the same directory, then a replacing rename), preserving the
-# existing content verbatim and guaranteeing a separating newline. A crash
-# leaves either the old file or the fully rewritten one, never a torn fragment.
 # ends_in_newline <file> — 0 if the file's final byte is a line feed, else 1.
 # Reads the last byte through `od` rather than `$(tail -c1)`: command
 # substitution silently drops a trailing NUL, which would misreport a

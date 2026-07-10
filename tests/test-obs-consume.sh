@@ -401,7 +401,23 @@ body_after=$(od -An -tx1 "$o/archive/$frag" | tr -d ' \n')
   || fail "11: control-byte content not preserved byte-exact with annotation appended"
 [ "$(consumed_count "$o/archive/$frag")" -eq 1 ] \
   || fail "11: annotation did not land on its own line"
-echo "ok 11: hostile / control-byte fragment content is moved verbatim as data"
+
+# A fragment body WITHOUT a trailing newline must still get the annotation on
+# its own line (exercises the ends_in_newline "add a separator" branch — the
+# whole reason the od probe exists). `printf` with no \n leaves the last byte a
+# non-newline.
+o=$(new_obs "$tmp/o11d")
+frag=$(record "$o" beef0004 topic 'placeholder')
+printf '%s' '- 2026-07-09 [planwright] no trailing newline here' >"$o/entries/$frag"
+[ "$(tail -c1 "$o/entries/$frag" | od -An -tx1 | tr -d ' \n')" != "0a" ] \
+  || fail "11d: fixture unexpectedly ends in a newline"
+"$CONSUME" --obs-dir "$o" --uid beef0004 --spec my-spec --today 2026-07-10 \
+  || fail "11d: consume of a newline-less fragment exited non-zero"
+[ "$(consumed_count "$o/archive/$frag")" -eq 1 ] \
+  || fail "11d: annotation joined the last line (missing separator) — not on its own line"
+grep -Fxq -e '- 2026-07-09 [planwright] no trailing newline here' "$o/archive/$frag" \
+  || fail "11d: the original last line was mangled by the appended annotation"
+echo "ok 11 (incl. 11d): fragment content moved verbatim; annotation always on its own line"
 
 # --- 11c. Archived fragment consumed by a *different* spec unions the citation
 
