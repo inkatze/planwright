@@ -77,6 +77,10 @@ run = "/bin/bash scripts/check-options-reference.sh"
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
 run = "/bin/bash scripts/check-ledger.sh"
 
+[tasks."check:obs"]
+description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2)"
+run = "/bin/bash scripts/check-obs.sh"
+
 [tasks."scan:secrets"]
 description = "gitleaks over the full git history (redacted so a found secret never lands in logs)"
 run = "gitleaks detect --no-banner --redact --source ."
@@ -95,6 +99,7 @@ depends = [
   "check:links",
   "check:options",
   "check:ledger",
+  "check:obs",
   "check:specs",
   "scan:secrets",
 ]
