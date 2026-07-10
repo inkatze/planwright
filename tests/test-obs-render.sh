@@ -214,4 +214,52 @@ rc=0
 "$REN" --help >/dev/null 2>&1 || fail "6: --help must exit 0"
 echo "ok 6: usage and exit-code contract holds"
 
+# --- 7. Skip-and-warn paths and symlink containment ----------------------
+
+o7="$tmp/o7"
+mkdir -p "$o7/entries"
+# A grammar-valid name whose first content line is NOT the entry form: skipped.
+printf 'this is not an entry line\n' \
+  >"$o7/entries/2026-06-01-shape-aaaaaaaa.md"
+# A live, valid fragment that must still render.
+printf -- '- 2026-06-02 [planwright] the valid one\n' \
+  >"$o7/entries/2026-06-02-good-bbbbbbbb.md"
+"$REN" --obs-dir "$o7" >"$tmp/out7" 2>"$tmp/err7" || fail "7: skip-path render failed"
+grep -F '2026-06-02 [planwright] the valid one' "$tmp/out7" >/dev/null \
+  || fail "7: the valid fragment did not render"
+grep -F 'this is not an entry line' "$tmp/out7" >/dev/null \
+  && fail "7: a shape-invalid fragment leaked into the view"
+grep -F 'first line is not the entry form' "$tmp/err7" >/dev/null \
+  || fail "7: shape-invalid fragment not skip-and-warned on stderr"
+
+# A symlinked fragment file is refused (never read through, D-7).
+target="$tmp/o7target.md"
+printf -- '- 2026-06-03 [planwright] via a symlink\n' >"$target"
+ln -s "$target" "$o7/entries/2026-06-03-linked-cccccccc.md"
+"$REN" --obs-dir "$o7" >"$tmp/out7b" 2>"$tmp/err7b" || fail "7: symlink-fragment render failed"
+grep -F 'via a symlink' "$tmp/out7b" >/dev/null \
+  && fail "7: render read a fragment through a symlink"
+grep -F 'symlinked fragment' "$tmp/err7b" >/dev/null \
+  || fail "7: symlinked fragment not skip-and-warned"
+
+# A symlinked entries/ directory is not traversed.
+o7c="$tmp/o7c"
+mkdir -p "$o7c" "$tmp/o7c-realentries"
+printf -- '- 2026-06-04 [planwright] should not appear\n' \
+  >"$tmp/o7c-realentries/2026-06-04-x-dddddddd.md"
+ln -s "$tmp/o7c-realentries" "$o7c/entries"
+"$REN" --obs-dir "$o7c" >"$tmp/out7c" 2>/dev/null || fail "7: symlink-entries render failed"
+[ ! -s "$tmp/out7c" ] || fail "7: render traversed a symlinked entries/ directory"
+
+# A symlinked observations root is refused before any read (exit 2, D-7).
+o7d="$tmp/o7d"
+mkdir -p "$tmp/o7d-realroot/entries"
+printf -- '- 2026-06-05 [planwright] escape target\n' \
+  >"$tmp/o7d-realroot/entries/2026-06-05-x-eeeeeeee.md"
+ln -s "$tmp/o7d-realroot" "$o7d"
+rc=0
+"$REN" --obs-dir "$o7d" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "7: a symlinked observations root must refuse (exit 2), got $rc"
+echo "ok 7: skip-and-warn paths and symlink containment hold"
+
 echo "PASS: test-obs-render.sh"

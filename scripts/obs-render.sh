@@ -230,6 +230,15 @@ case "$obsdir" in
     exit 2
     ;;
 esac
+# A symlinked observations root would let the whole store resolve to somewhere
+# outside the tree; refuse it before deriving the entries/archive paths, the
+# same root-level guard obs-record.sh and check-obs.sh hold (D-7). The per-dir
+# and per-file symlink checks below cover entries/, archive/, and the fragment
+# files, but not the root itself.
+[ ! -L "$obsdir" ] || {
+  echo "$prog: observations directory must not be a symlink" >&2
+  exit 2
+}
 
 entries="$obsdir/entries"
 archive="$obsdir/archive"

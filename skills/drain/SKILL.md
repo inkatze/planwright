@@ -60,9 +60,12 @@ this order:
    human can judge each condition.
 5. **PENDING / DORMANT** — not yet actionable; summarize counts, with
    detail on request.
-6. **Observations** — the log's unmined count and oldest-entry age, plus
-   the reminder that its canonical reader is `/spec-draft` (mining happens
-   there, not here).
+6. **Observations** — the unmined count and oldest-entry age, derived from
+   the fragment store (`entries/`) and the frozen legacy file's unconsumed
+   lines and naming both surfaces, plus any stuck consumes (fragments
+   annotated `Consumed-by:` but not yet moved to `archive/`) and skipped
+   invalid fragments; the reminder that its canonical reader is `/spec-draft`
+   (mining happens there, not here).
 
 Items within each lane of each spec's section arrive ordered
 low-confidence first (REQ-H1.5); when merging lanes across specs, re-sort

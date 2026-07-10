@@ -327,9 +327,10 @@ lane_lacks SATISFIED '- Gate: -'
 # 7. The sweep is read-only over everything under the root.
 [ "$before" = "$after" ] || fail "evaluator modified a swept file"
 
-# 8. Observations stats: count and oldest-entry age (2026-06-01 → 11 days).
-has 'unmined: 3'
-has 'oldest: 2026-06-01 (11 days)'
+# 8. Observations stats: the reworked line names the legacy surface, the count,
+#    and the oldest-entry age (2026-06-01 → 11 days). Match the whole line, not
+#    a substring, so `unmined: 3` cannot be satisfied by `unmined: 30`.
+has 'unmined: 3 (legacy: 3) - oldest: 2026-06-01 (11 days)'
 
 # 9. Low-confidence first within a lane, independent of file order (the
 #    [low] entry is third in the file); substring and gate-text matches
@@ -380,7 +381,7 @@ printf '%s\n' '- 2027-01-01 [demo] From the future.' \
   >"$tmp/specs2/_observations/opportunities.md"
 out2=$("$drain" --today 2026-06-12 "$tmp/specs2") \
   || fail "future-dated observations broke the sweep"
-printf '%s\n' "$out2" | grep -F 'oldest: 2027-01-01 (0 days)' >/dev/null \
+printf '%s\n' "$out2" | grep -F 'unmined: 1 (legacy: 1) - oldest: 2027-01-01 (0 days)' >/dev/null \
   || fail "future-dated observation age not clamped at zero"
 
 # 14. Permission failures are surfaced, not silently skipped (skipped when
@@ -509,10 +510,8 @@ printf '%s\n' '- 2026-00-00 [demo] Invalid date.' \
   >"$tmp/specs9/_observations/opportunities.md"
 out9=$("$drain" --today 2026-06-12 "$tmp/specs9") \
   || fail "invalid-date observation broke the sweep"
-printf '%s\n' "$out9" | grep -F 'unmined: 2' >/dev/null \
-  || fail "invalid-dated observation not counted as unmined"
-printf '%s\n' "$out9" | grep -F 'oldest: 2026-06-10 (2 days)' >/dev/null \
-  || fail "calendar-invalid observation date polluted the oldest-entry age"
+printf '%s\n' "$out9" | grep -F 'unmined: 2 (legacy: 2) - oldest: 2026-06-10 (2 days)' >/dev/null \
+  || fail "invalid-dated legacy line: expected count-2 with the valid date as oldest"
 
 # 20. A NUL byte in tasks.md cannot silently hide a gate: awk truncates
 #     records at NUL, so the file is flagged as an error instead of
@@ -694,5 +693,67 @@ printf '%s\n' "$out23" | grep -F 'unmined: 2 (fragments: 1, legacy: 1)' >/dev/nu
   || fail "hostile-but-valid fragment/legacy line not counted as data"
 printf '%s' "$out23" | tr -d '\012' | LC_ALL=C grep '[^ -~]' >/dev/null \
   && fail "hostile observation content leaked non-printable bytes into the report"
+
+# 28. Oldest age can come from the FRAGMENT surface (REQ-C1.3): a fragment
+#     older than every legacy line becomes the reported oldest, exercising the
+#     fragment-date age derivation and the cross-surface min branch (the other
+#     obs fixtures all take their oldest from the legacy surface).
+mkdir -p "$tmp/specs24/_observations/entries"
+printf -- '- 2026-05-01 [planwright] the oldest, a fragment\n' \
+  >"$tmp/specs24/_observations/entries/2026-05-01-old-11112222.md"
+printf '%s\n' '# Observations log' '' \
+  '- 2026-06-01 [planwright] a newer legacy line.' \
+  >"$tmp/specs24/_observations/opportunities.md"
+out24=$("$drain" --today 2026-07-01 "$tmp/specs24") \
+  || fail "fragment-oldest fixture broke the sweep"
+printf '%s\n' "$out24" | grep -F 'unmined: 2 (fragments: 1, legacy: 1) - oldest: 2026-05-01 (61 days)' >/dev/null \
+  || fail "oldest age not derived from the older fragment surface: $(printf '%s\n' "$out24" | grep unmined)"
+
+# 29. obs_safe strips control bytes — including a NEWLINE — from a fragment name
+#     before it is surfaced (REQ-D1.3, D-7). A newline is the byte the final
+#     report strip keeps (for structure), so only obs_safe guards it: an
+#     invalid fragment name carrying an embedded newline must surface as ONE
+#     row, never forging a second, and the report must carry no non-printables.
+mkdir -p "$tmp/specs25/_observations/entries"
+forged=$(printf '2026-01-01-a\nFORGEDROW-deadbeef.md')
+: >"$tmp/specs25/_observations/entries/$forged"
+out25=$("$drain" --today 2026-07-01 "$tmp/specs25") \
+  || fail "control-byte-name fixture broke the sweep"
+rows=$(printf '%s\n' "$out25" | grep -c 'skipped invalid fragment')
+[ "$rows" -eq 1 ] \
+  || fail "obs_safe did not strip the newline; the name forged $rows rows"
+printf '%s\n' "$out25" | grep -F 'FORGEDROW' | grep -qv 'skipped invalid fragment' \
+  && fail "the post-newline name fragment surfaced as its own forged row"
+printf '%s' "$out25" | tr -d '\012' | LC_ALL=C grep '[^ -~]' >/dev/null \
+  && fail "a control byte in a fragment name leaked into the report"
+
+# 30. Drain and render agree on which legacy lines are entries: a malformed
+#     `- <date> [scope` (no closing bracket) is an entry to neither surface, so
+#     drain must not count it (the entry-form recognition is shared).
+mkdir -p "$tmp/specs26/_observations"
+printf '%s\n' '# Observations log' '' \
+  '- 2026-06-01 [planwright] a real entry line.' \
+  '- 2026-06-02 [malformed-no-close' \
+  >"$tmp/specs26/_observations/opportunities.md"
+out26=$("$drain" --today 2026-07-01 "$tmp/specs26") \
+  || fail "malformed-legacy fixture broke the sweep"
+printf '%s\n' "$out26" | grep -F 'unmined: 1 (legacy: 1)' >/dev/null \
+  || fail "a malformed legacy line (no closing bracket) was miscounted as an entry"
+
+# 31. A symlinked observations root is not traversed (D-7): the sweep notes it
+#     and reports zero rather than reading the store through the symlink.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs27real/entries"
+  printf -- '- 2020-01-01 [planwright] would leak if traversed\n' \
+    >"$tmp/specs27real/entries/2020-01-01-leak-abcdabcd.md"
+  mkdir -p "$tmp/specs27"
+  ln -s "$tmp/specs27real" "$tmp/specs27/_observations"
+  out27=$("$drain" --today 2026-07-01 "$tmp/specs27") \
+    || fail "symlinked observations root broke the sweep"
+  printf '%s\n' "$out27" | grep -F 'observations root is a symlink' >/dev/null \
+    || fail "a symlinked observations root was not noted"
+  printf '%s\n' "$out27" | grep -F '2020-01-01' >/dev/null \
+    && fail "the sweep read the store through a symlinked observations root"
+fi
 
 echo "PASS: test-drain-gates.sh"

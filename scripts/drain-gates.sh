@@ -578,6 +578,17 @@ report() {
   entries="$obsroot/entries"
   legacy="$obsroot/opportunities.md"
 
+  # A symlinked observations root would resolve the whole store outside the
+  # tree; do not traverse through it (D-7, the root-level guard obs-record.sh
+  # and check-obs.sh hold). The per-dir/per-file symlink checks below cover
+  # entries/ and the legacy file, but not the root itself. Surfaced as a note,
+  # not a hard error, so one odd directory never aborts the sweep.
+  obsroot_ok=1
+  if [ -L "$obsroot" ]; then
+    printf 'note: observations root is a symlink; not traversed (D-7)\n'
+    obsroot_ok=0
+  fi
+
   # Live fragments: entries/*.md that pass the filename grammar and open with
   # the entry form and carry no `Consumed-by:` line. A grammar- or shape-invalid
   # file is excluded from the count and named (skip-and-warn, D-4); a
@@ -588,7 +599,7 @@ report() {
   frag_dates=""
   stuck=""
   invalid=""
-  if [ -d "$entries" ] && [ ! -L "$entries" ]; then
+  if [ "$obsroot_ok" -eq 1 ] && [ -d "$entries" ] && [ ! -L "$entries" ]; then
     for _f in "$entries"/*.md; do
       [ -e "$_f" ] || continue
       _name=${_f##*/}
@@ -644,7 +655,7 @@ report() {
   # count as unmined (never a silent drop) but never become the oldest entry.
   leg_count=0
   leg_oldest=""
-  if [ -f "$legacy" ] && [ ! -L "$legacy" ]; then
+  if [ "$obsroot_ok" -eq 1 ] && [ -f "$legacy" ] && [ ! -L "$legacy" ]; then
     if [ ! -r "$legacy" ]; then
       printf 'error: observations log unreadable\n'
       n_err=$((n_err + 1))
@@ -667,7 +678,14 @@ report() {
             dim = (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 29 : 28
           return dd <= dim
         }
-        /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] \[/ {
+        # Entry form `- <date> [<scope>] <text>`: require the closing `] `,
+        # so this reader agrees with obs-render.sh is_entry_form on exactly
+        # which legacy lines are entries (a bare `- <date> [scope` with no
+        # close is not an entry to either surface). Calendar-invalid dates
+        # still count as unmined (never silently dropped) but never become the
+        # oldest — the deliberate render/drain asymmetry: render skips them,
+        # drain keeps them counted (REQ-C1.3 vs D-4).
+        /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] \[.*\] / {
           if (index($0, "consumed-by:") > 0) next
           n++
           d = substr($0, 3, 10)
