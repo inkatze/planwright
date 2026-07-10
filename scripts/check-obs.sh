@@ -347,7 +347,16 @@ uidledger=$(mktemp) || {
   printf '%s\n' "$prog: cannot create a temporary work file" >&2
   exit 2
 }
-trap 'rm -f "$uidledger"' EXIT INT TERM
+# A trapped signal does not itself terminate the shell in POSIX sh: after the
+# handler runs, control resumes at the interrupted point. Folding INT/TERM into
+# the EXIT cleanup would rm the ledger mid-scan and then keep going (scan_dir
+# re-creates it via `>>`), so a Ctrl-C would not stop the guard and the dedup
+# pass could run over a truncated ledger. Split them so a signal re-exits with
+# the conventional 128+signo code; the EXIT trap still cleans up on that exit
+# (mirrors scripts/obs-record.sh).
+trap 'rm -f "$uidledger"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 scan_dir "$obsdir/entries" entries
 scan_dir "$obsdir/archive" archive
