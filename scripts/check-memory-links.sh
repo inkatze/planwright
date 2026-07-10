@@ -41,7 +41,8 @@
 #
 # Exit codes: 0 no live memory link found (or only skipped bundles), 1 a
 # `[[name]]` token found in a scanned spec file, 2 usage error (a path argument
-# that does not exist or is not a directory).
+# that does not exist or is not a directory, or a spec file that exists but
+# cannot be read — fail-closed, never reported as clean).
 #
 # Portable bash 3.2 / BSD tooling; no fish/mise/tmux/Ansible (REQ-K1.5).
 set -u
@@ -87,7 +88,7 @@ fi
 # empty string when requirements.md is absent or carries no Status line.
 bundle_status() {
   local req="$1/requirements.md"
-  [ -f "$req" ] || return 0
+  { [ -f "$req" ] && [ -r "$req" ]; } || return 0
   sed -n 's/^\*\*Status:\*\*[[:space:]]*\([A-Za-z]*\).*/\1/p' "$req" | head -n 1
 }
 
@@ -130,6 +131,12 @@ for d in "${dirs[@]}"; do
   for f in requirements.md design.md tasks.md test-spec.md; do
     file="$d/$f"
     [ -f "$file" ] || continue
+    # A file the guard cannot scan must not be reported as free of memory links
+    # (fail-closed, mirroring check-doc-links.sh).
+    if [ ! -r "$file" ]; then
+      echo "check-memory-links: spec file not readable: $file" >&2
+      exit 2
+    fi
     scanned=$((scanned + 1))
     hits="$(scan_file "$file")"
     [ -z "$hits" ] && continue

@@ -120,6 +120,39 @@ assert "bundle missing requirements.md is skipped, not failed" 0 $?
 /bin/bash "$CHECKER" "$tmp/does-not-exist" >/dev/null 2>&1
 assert "non-existent bundle path is a usage error" 2 $?
 
+# 9. An unreadable spec file is a usage error, not a silent clean pass: a file
+#    the guard cannot scan must not be reported as free of memory links
+#    (fail-closed parity with check-doc-links.sh). Skipped under root, where
+#    mode 000 is still readable.
+if [ "$(id -u)" -ne 0 ]; then
+  mkbundle "$tmp/unreadable" "Draft"
+  printf '# T\n\n**Status:** Draft\n\nSee [[hidden]].\n' >"$tmp/unreadable/tasks.md"
+  chmod 000 "$tmp/unreadable/tasks.md"
+  /bin/bash "$CHECKER" "$tmp/unreadable" >/dev/null 2>&1
+  assert "unreadable spec file is a usage error (fail-closed)" 2 $?
+  chmod 644 "$tmp/unreadable/tasks.md"
+fi
+
+# 10. A bare token sharing a line with an inline code span is still caught: the
+#     code span is stripped, the bare token remains.
+mkbundle "$tmp/mixed" "Draft"
+cat >"$tmp/mixed/tasks.md" <<'EOF'
+# T
+
+**Status:** Draft
+
+The `[[ok]]` mention and a bare [[live]] link.
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/mixed" 2>&1)"
+assert "bare token beside a code span is caught" 1 $?
+case "$out" in
+  *'[[live]]'*) echo "ok: the bare token, not the code-span mention, is flagged" ;;
+  *)
+    echo "FAIL: expected [[live]] flagged (not [[ok]]): $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
