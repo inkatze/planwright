@@ -251,6 +251,24 @@ ln -s "$tmp/o7c-realentries" "$o7c/entries"
 "$REN" --obs-dir "$o7c" >"$tmp/out7c" 2>/dev/null || fail "7: symlink-entries render failed"
 [ ! -s "$tmp/out7c" ] || fail "7: render traversed a symlinked entries/ directory"
 
+# A legacy entry-form line with a calendar-invalid date is skip-and-warned out
+# of the view (D-4); render never displays a line it cannot chronologically
+# place. (Drain deliberately still counts it — REQ-C1.3 — the intended
+# render/drain asymmetry.)
+o7e="$tmp/o7e"
+mkdir -p "$o7e/entries"
+printf '%s\n' '# Observations log' \
+  '- 2026-02-30 [planwright] impossible date, skipped' \
+  '- 2026-02-15 [planwright] real date, rendered' \
+  >"$o7e/opportunities.md"
+"$REN" --obs-dir "$o7e" >"$tmp/out7e" 2>"$tmp/err7e" || fail "7: invalid-legacy-date render failed"
+grep -F 'impossible date' "$tmp/out7e" >/dev/null \
+  && fail "7: a calendar-invalid legacy line was rendered"
+grep -F 'real date, rendered' "$tmp/out7e" >/dev/null \
+  || fail "7: the valid legacy line did not render"
+grep -F 'invalid date' "$tmp/err7e" >/dev/null \
+  || fail "7: calendar-invalid legacy line not skip-and-warned"
+
 # A symlinked observations root is refused before any read (exit 2, D-7).
 o7d="$tmp/o7d"
 mkdir -p "$tmp/o7d-realroot/entries"
