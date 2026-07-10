@@ -85,6 +85,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1, 2
 - **Citations:** D-4, D-7 · REQ-B1.3, REQ-C1.3, REQ-C1.4, REQ-D1.3
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-10
 
 ### Task 4 — Consumption and archival mechanics
 

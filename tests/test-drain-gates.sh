@@ -588,4 +588,111 @@ printf '%s\n' "$out13" | grep -F 'requirements.md missing' >/dev/null \
 printf '%s\n' "$out13" | grep '^MALFORMED' | grep -F 'Needs kappa' >/dev/null \
   || fail "status atom against a status-less spec must stay malformed"
 
+# 24. Observation surfacing derives from the fragment store plus the frozen
+#     legacy file's unconsumed lines (REQ-C1.3, D-4): the count is N+M, the
+#     oldest age spans both surfaces (here the oldest is a legacy line), and
+#     both surfaces are named while the legacy file still holds entries.
+mkdir -p "$tmp/specs20/_observations/entries"
+printf -- '- 2026-06-10 [planwright] first live fragment\n' \
+  >"$tmp/specs20/_observations/entries/2026-06-10-alpha-11111111.md"
+printf -- '- 2026-06-20 [planwright] second live fragment\n' \
+  >"$tmp/specs20/_observations/entries/2026-06-20-beta-22222222.md"
+printf '%s\n' '# Observations log' '' \
+  '- 2026-06-01 [planwright] oldest legacy line.' \
+  '- 2026-06-05 [planwright] middle legacy line.' \
+  '- 2026-06-08 [planwright] newest legacy line.' \
+  >"$tmp/specs20/_observations/opportunities.md"
+out20=$("$drain" --today 2026-07-01 "$tmp/specs20") \
+  || fail "fragment+legacy surfacing broke the sweep"
+printf '%s\n' "$out20" | grep -F 'unmined: 5 (fragments: 2, legacy: 3)' >/dev/null \
+  || fail "combined count/surfaces not reported: $(printf '%s\n' "$out20" | grep -F unmined)"
+printf '%s\n' "$out20" | grep -F 'oldest: 2026-06-01 (30 days)' >/dev/null \
+  || fail "oldest age across both surfaces incorrect"
+
+# 25. Skip-and-warn and stuck consumes (REQ-C1.3, REQ-C1.2): a grammar-invalid
+#     name and a shape-invalid fragment are excluded from the count and named;
+#     a consumed-but-unmoved fragment (Consumed-by present in entries/) is
+#     excluded and surfaced as a stuck consume; the freeze header and non-entry
+#     prose are never counted.
+mkdir -p "$tmp/specs21/_observations/entries"
+printf -- '- 2026-06-15 [planwright] the one live fragment\n' \
+  >"$tmp/specs21/_observations/entries/2026-06-15-live-aaaaaaaa.md"
+printf -- '- 2026-06-10 [planwright] annotated but not moved\nConsumed-by: specs/foo (2026-07-01)\n' \
+  >"$tmp/specs21/_observations/entries/2026-06-10-stuck-bbbbbbbb.md"
+printf -- '- 2026-06-12 [planwright] fine text\n' \
+  >"$tmp/specs21/_observations/entries/not-a-valid-fragment-name.md"
+printf 'this first line is not the entry form\n' \
+  >"$tmp/specs21/_observations/entries/2026-06-13-shape-cccccccc.md"
+printf '%s\n' '# Observations log' '' \
+  'This is prose, not an entry, and must never be counted.' '' \
+  '- 2026-06-04 [planwright] the one unconsumed legacy line.' \
+  >"$tmp/specs21/_observations/opportunities.md"
+out21=$("$drain" --today 2026-07-01 "$tmp/specs21") \
+  || fail "skip-and-warn fixture broke the sweep"
+printf '%s\n' "$out21" | grep -F 'unmined: 2 (fragments: 1, legacy: 1)' >/dev/null \
+  || fail "invalid/stuck fragments or prose leaked into the count: $(printf '%s\n' "$out21" | grep -F unmined)"
+printf '%s\n' "$out21" | grep -F 'stuck consume' | grep -F '2026-06-10-stuck-bbbbbbbb.md' >/dev/null \
+  || fail "stuck consume not surfaced and named"
+printf '%s\n' "$out21" | grep -F 'skipped invalid fragment' | grep -F 'not-a-valid-fragment-name.md' >/dev/null \
+  || fail "grammar-invalid fragment not named as skipped"
+printf '%s\n' "$out21" | grep -F 'skipped invalid fragment' | grep -F '2026-06-13-shape-cccccccc.md' >/dev/null \
+  || fail "shape-invalid fragment not named as skipped"
+
+# 26. Fragments-only surfacing, zero state, and null-safety (REQ-C1.3): a fully
+#     consumed legacy file leaves only the fragment surface named; a tree with
+#     zero unmined entries reports the zero count with no age line; and an
+#     observations root with neither fragments nor a legacy file is null-safe.
+mkdir -p "$tmp/specs22a/_observations/entries"
+printf -- '- 2026-06-01 [planwright] the only live fragment\n' \
+  >"$tmp/specs22a/_observations/entries/2026-06-01-solo-11112222.md"
+printf '%s\n' \
+  '- 2026-05-15 [planwright] fully consumed — consumed-by: specs/x (2026-06-01)' \
+  >"$tmp/specs22a/_observations/opportunities.md"
+out22a=$("$drain" --today 2026-07-01 "$tmp/specs22a") \
+  || fail "fragments-only fixture broke the sweep"
+printf '%s\n' "$out22a" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
+  || fail "consumed legacy should leave fragments-only surfacing"
+printf '%s\n' "$out22a" | grep '^unmined:' | grep -F 'legacy:' >/dev/null \
+  && fail "a fully consumed legacy file must not be named as a surface"
+
+mkdir -p "$tmp/specs22b/_observations/entries"
+printf '%s\n' \
+  '- 2026-05-15 [planwright] consumed — consumed-by: specs/x (2026-06-01)' \
+  >"$tmp/specs22b/_observations/opportunities.md"
+out22b=$("$drain" --today 2026-07-01 "$tmp/specs22b") \
+  || fail "zero-unmined fixture broke the sweep"
+zline=$(printf '%s\n' "$out22b" | grep '^unmined:') \
+  || fail "zero-unmined fixture printed no unmined line"
+[ "$zline" = "unmined: 0" ] || fail "zero unmined must be a bare 'unmined: 0', got: $zline"
+printf '%s\n' "$out22b" | grep -F 'oldest:' >/dev/null \
+  && fail "zero unmined must omit the age line"
+
+mkdir -p "$tmp/specs22c/_observations"
+out22c=$("$drain" --today 2026-07-01 "$tmp/specs22c") \
+  || fail "null-safe observations fixture broke the sweep"
+printf '%s\n' "$out22c" | grep -F 'unmined: 0' >/dev/null \
+  || fail "an observations root with no fragments and no legacy file is not null-safe"
+
+# 27. Content is data only (REQ-D1.3, D-7): a fragment and a legacy line whose
+#     content carries shell metacharacters and control bytes are read as data —
+#     never evaluated (no canary is created) — the live fragment is still
+#     counted, and the report carries no non-printable bytes.
+mkdir -p "$tmp/specs23/_observations/entries"
+# shellcheck disable=SC2016 # the unexpanded $(...)/backticks ARE the fixture
+printf -- '- 2026-06-01 [planwright] hostile $(touch %s/CANARYD) `touch %s/CANARYE` \033[31m x\n' \
+  "$tmp" "$tmp" >"$tmp/specs23/_observations/entries/2026-06-01-hostile-deadbeef.md"
+# shellcheck disable=SC2016
+printf -- '- 2026-06-02 [planwright] legacy hostile $(touch %s/CANARYG) \007 end\n' \
+  "$tmp" >"$tmp/specs23/_observations/opportunities.md"
+out23=$("$drain" --today 2026-07-01 "$tmp/specs23") \
+  || fail "hostile-content fixture broke the sweep"
+for canary in CANARYD CANARYE CANARYG; do
+  find "$tmp" -name "$canary" | grep . >/dev/null \
+    && fail "hostile observation content was evaluated: $canary created"
+done
+printf '%s\n' "$out23" | grep -F 'unmined: 2 (fragments: 1, legacy: 1)' >/dev/null \
+  || fail "hostile-but-valid fragment/legacy line not counted as data"
+printf '%s' "$out23" | tr -d '\012' | LC_ALL=C grep '[^ -~]' >/dev/null \
+  && fail "hostile observation content leaked non-printable bytes into the report"
+
 echo "PASS: test-drain-gates.sh"
