@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "pull-request-title-pattern": "chore: release ${version}",
+  "pull-request-header": "🚀 Release proposal. **Merging this PR approves the release** — no CI path merges it (merge is the human's). After merge, run `scripts/release-publish.sh` to sign and publish the annotated tag; CI never tags, publishing is human-gated and signed per your repo policy. The version bump and release notes are below.",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    }
+  }
+}

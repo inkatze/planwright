@@ -1,0 +1,59 @@
+# planwright-adopter-template: release-please PR-only release proposal.
+#
+# OPT-IN. This file is a TEMPLATE, not an active workflow. It lives under
+# templates/ so planwright never auto-lands a workflow in your repo (REQ-G1.3,
+# customization-boundary doctrine). The builder's release-tagging guard
+# scaffolds it on your consent; nothing here runs until you copy it in.
+#
+# To adopt:
+#   1. Copy this file to .github/workflows/release-please.yml in your repo.
+#   2. Copy templates/release-please/release-please-config.json and
+#      templates/release-please/.release-please-manifest.json to your repo root
+#      (or wherever you point config-file / manifest-file below).
+#   3. In the config, set the `extra-files` path + jsonpath to YOUR version
+#      source of truth (the `version_file` value, default
+#      .claude-plugin/plugin.json $.version), and set `changelog-path`.
+#   4. Seed the manifest with your last released version.
+#   5. Wire your signed publish step: after merge, the release is published by
+#      your human-gated `scripts/release-publish.sh` (planwright core), never
+#      by CI. This workflow is PROPOSAL-ONLY.
+#
+# This template assumes GitHub Actions as the forge. release-please computes
+# the next SemVer from conventional commits and maintains ONE standing release
+# PR; PR-only means it never tags or cuts a Release (skip-github-release: true).
+#
+# "on" is quoted so yamllint's truthy rule does not flag the key.
+name: release-please
+
+# Gate the proposal on your CI's success on the release branch so a release is
+# never proposed off a red main. Replace `ci` with your CI workflow's name.
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+# Least-privilege, no secrets: the default GITHUB_TOKEN with exactly the two
+# scopes release-please needs. No PAT, no stored secret.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pin to a full commit SHA (supply-chain discipline). Check
+      # https://github.com/googleapis/release-please-action/releases for the
+      # current release and its SHA before adopting; bump SHA + comment together.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # PR-only: maintain the release PR, never tag or cut a Release.
+          skip-github-release: true
