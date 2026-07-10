@@ -109,14 +109,21 @@ rl_valid_semver "$provisional" \
 # the true release commit regardless of interleaving (D-6, REQ-D1.2, REQ-E1.4).
 release_sha=""
 while IFS= read -r c; do
-  cver=$(rl_version_at "$c" "$vf_path" "$vf_sel")
+  # A read FAILURE (rc 2: JSON parse error / unsupported selector / missing jq)
+  # fails closed. This is distinct from an empty-but-successful read (rc 0), which
+  # is what an ABSENT version_file at an older ref yields — that empty is a
+  # legitimate "the version was introduced here" boundary, not a failure, so it
+  # must not die (it is what makes the first-release commit detectable).
+  cver=$(rl_version_at "$c" "$vf_path" "$vf_sel") \
+    || die "could not read the version_file ($(sanitize_printable "$vf_path")) at $c while scanning for the release commit"
   [ "$cver" = "$provisional" ] || continue
   parent=$(git rev-parse -q --verify "$c^1" 2>/dev/null) || parent=""
   if [ -z "$parent" ]; then
     release_sha="$c"
     break
   fi
-  pver=$(rl_version_at "$parent" "$vf_path" "$vf_sel")
+  pver=$(rl_version_at "$parent" "$vf_path" "$vf_sel") \
+    || die "could not read the version_file ($(sanitize_printable "$vf_path")) at $parent while scanning for the release commit"
   if [ "$pver" != "$provisional" ]; then
     release_sha="$c"
     break

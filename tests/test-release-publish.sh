@@ -286,6 +286,27 @@ assert_ne "gate/release-view-error: exits non-zero" "$RC" "0"
 assert_contains "gate/release-view-error: names the query failure, not absence" "$ERR" "could not query the GitHub Release"
 deny "gate/release-view-error: no Release create attempted (fail closed)" gh_called "$LOG" "release create"
 
+# 4b-3. The release-merge SHA scan fails closed on a version_file it cannot PARSE
+#       at a historical ref (rl_version_at rc 2), rather than ignoring the exit
+#       status and treating the empty read as a version boundary. An ABSENT file
+#       at an older ref (rc 0, empty) remains a legitimate boundary — only a
+#       genuine parse failure dies. Before the fix the scan ignored the status and
+#       published.
+r="$tmp/scan-parse-error"
+new_repo "$r"
+mkdir -p "$r/.claude-plugin"
+printf '{ "name": "fixture", "version": ' >"$r/.claude-plugin/plugin.json" # malformed history commit
+gc "$r" add -A
+gc "$r" commit -q -m "chore: malformed version_file (history)"
+write_plugin "$r" 0.2.0 # valid version of truth at the tip
+gc "$r" add -A
+gc "$r" commit -q -m "chore: release 0.2.0"
+gc "$r" push -q origin main 2>/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "scan/parse-error: exits non-zero (fails closed)" "$RC" "0"
+assert_contains "scan/parse-error: names the scanning read failure" "$ERR" "while scanning for the release commit"
+deny "scan/parse-error: no tag pushed" origin_has_tag "$r" v0.2.0
+
 # 4c. non-monotonic version.
 r="$tmp/gate-monotonic"
 new_repo "$r"
