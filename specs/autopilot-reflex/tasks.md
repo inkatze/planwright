@@ -216,7 +216,25 @@ of the release chain after T1 and can run in parallel throughout.
 
 ## Awaiting input
 
-(none yet)
+- **Task 5** (branch `planwright/autopilot-reflex/task-5`): the PR-only config,
+  adopter template, and tests are implemented, committed, and CI-green, but the
+  `/polish` correctness pass surfaced two release-mechanism design gaps the
+  bundle does not capture. Parked for a human/design decision before the PR is
+  opened (per the dispatch brief: park on branch-protection interaction and
+  PR-only-vs-auto-behavior ambiguity). Both are logged in
+  `specs/_observations/opportunities.md` (2026-07-10).
+  - **Fork A — multi-cycle break.** `skip-github-release` (D-3's PR-only path)
+    never clears the merged release PR's `autorelease: pending` label, so
+    release-please aborts the *next* cycle's PR (googleapis/release-please#1561).
+    REQ-C1.1 holds only for cycle 1. Decision needed: give the publish step
+    (Task 4) the relabel/clear responsibility (spec amendment), add a
+    label-clearing workflow step, or accept-for-v1 and verify at the organic
+    proof (Task 11).
+  - **Fork B — required-CI interaction.** A `GITHUB_TOKEN`-authored release PR
+    does not trigger the `ci` `pull_request` run; if Task 6 makes that check
+    required, the release PR can never be merged. Decision needed: this is a
+    Task 6 branch-protection design call that interacts with the kickoff
+    token-posture decision (no PAT/secrets, risk row 3).
 
 ## Completed
 
