@@ -228,6 +228,7 @@ assert_eq "race: exit 0" "$RC" "0"
 TAGGED=$(git -C "$r" rev-parse "v0.2.0^{commit}" 2>/dev/null || echo none)
 assert_eq "race: tag lands on the release-merge SHA, not HEAD" "$TAGGED" "$MERGE_SHA"
 assert_ne "race: HEAD is past the merge (the race is real)" "$MERGE_SHA" "$(git -C "$r" rev-parse HEAD)"
+want "race: CI gate queried GitHub for the release-merge SHA, not HEAD" gh_called "$LOG" "sha=$MERGE_SHA"
 
 # ===========================================================================
 # 4. Safety gates each refuse WITHOUT side effects (REQ-D1.3).
