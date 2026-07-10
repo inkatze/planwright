@@ -52,10 +52,11 @@ definitions govern wherever this skill names a concept:
 - `discovery-rigor` — the lens checklist, canonical lens-coverage table,
   fan-out, and self-critique pass behind the sign-off lens review.
 - `autopilot-reflex` — the altitude gate (D-11): the trigger classes and the
-  trigger-scoped altitude record whose presence, goal-citation, and
-  task-decomposition match the sign-off lens pass verifies for a triggered
-  bundle (the kickoff-specific check item in Sign-off step 1). This skill
-  cites `doctrine/autopilot-reflex.md` rather than restating it.
+  trigger-scoped altitude record. For a triggered bundle the sign-off lens
+  pass verifies that the altitude D-ID exists, is cited from the goal, and
+  that the task decomposition matches the claimed altitude (the
+  kickoff-specific check item in Sign-off step 1). This skill cites
+  `doctrine/autopilot-reflex.md` rather than restating it.
 - `validation-rigor` — validation of lens-pass findings before they are
   dispositioned.
 - `security-posture` — artifact data-hygiene: the brief is a committed
@@ -326,8 +327,8 @@ not walked.
    a mid-flow signal was handled, not as a trigger class in its own right, per
    `doctrine/autopilot-reflex.md`. For a **triggered** bundle, verify the
    altitude D-ID exists, is cited from the bundle's goal, and that the task
-   decomposition matches the claimed altitude; a doctrine-first bundle whose
-   tasks are all mechanism is a finding, dispositioned like any other. An
+   decomposition matches the claimed altitude; a doctrine-first bundle with
+   only mechanism tasks is a finding, dispositioned like any other. An
    **untriggered** bundle requires no altitude record (per `proportionality`):
    record the check as not-applicable and move on.
    Validate findings per `validation-rigor`, then disposition every one

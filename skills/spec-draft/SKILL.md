@@ -132,7 +132,8 @@ class `doctrine/autopilot-reflex.md` names ("that's a doctrine gap", "this is
 a first-class concern", "we keep doing X manually"). Each is an altitude
 assertion the elicitation must reconcile against, not a throwaway phrase, and
 it is easy to under-weight in the rush toward mechanism. Record each pinned
-claim as a `## Sources` entry so the altitude signal is **bundle-local** — the
+claim as a `## Sources` entry in `requirements.md` so the altitude signal is
+**bundle-local** — the
 REQ-H1.3 kickoff check reads it from the bundle, never from drafting-session
 memory. A pinned claim is one of the two altitude trigger classes; when a
 trigger fires, the firing rule in Elicitation resolves the altitude before the
