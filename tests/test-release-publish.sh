@@ -556,7 +556,7 @@ new_repo "$r"
 printf 'scripts/\n' >>"$r/.gitignore" # the copied scripts are test scaffolding
 seed_version "$r" 0.1.0
 mkdir -p "$r/scripts" "$tmp/decoy-pub/scripts"
-cp scripts/release-publish.sh scripts/release-lib.sh scripts/echo-safety.sh "$r/scripts/"
+cp "$here/../scripts/release-publish.sh" "$here/../scripts/release-lib.sh" "$here/../scripts/echo-safety.sh" "$r/scripts/"
 LOG="$tmp/ghlog.cd"
 NOTES="$tmp/ghnotes.cd"
 : >"$LOG"
