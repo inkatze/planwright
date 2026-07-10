@@ -53,8 +53,9 @@
 #
 # Exit codes: 0 success or clean no-op; 1 refusal (grammar, containment,
 #   content, symlink, or an internal filesystem error); 2 usage error; 3 not
-#   found (unknown UID, or no matching unconsumed legacy line); 4 ambiguous
-#   (a UID matching more than one fragment — the D-2 duplicate window).
+#   found (unknown UID, no matching unconsumed legacy line, or an absent
+#   observations directory — nothing to consume); 4 ambiguous (a UID matching
+#   more than one fragment — the D-2 duplicate window).
 #
 # Portable: POSIX sh + BSD tooling (bash 3.2 / BSD compatible); no eval, input
 # treated as data only (the framework-script safety rule).
@@ -72,6 +73,19 @@ unset CDPATH
 
 prog=obs-consume
 
+# Tracks the current temp file so the EXIT trap removes it if a refusal or a
+# signal fires between mktemp and the publishing rename (mirrors obs-record.sh /
+# check-obs.sh). Cleared to "" once a rename has consumed the temp. INT/TERM
+# re-exit rather than share the cleanup-only handler: a trapped signal does not
+# itself terminate POSIX sh, so a cleanup-only handler would run and then resume
+# the interrupted work; the re-exit re-enters the EXIT trap so the temp is still
+# removed. Left committed under entries//archive//the root, a stray temp fails
+# check-obs (invalid fragment name, or unexpected top-level file).
+_tmp=""
+trap 'if [ -n "$_tmp" ]; then rm -f "$_tmp"; fi' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 usage() {
   cat >&2 <<EOF
 usage: $prog --uid <uid> --spec <spec> [--today <YYYY-MM-DD>] [--obs-dir <dir>]
@@ -86,6 +100,16 @@ EOF
 refuse() {
   echo "$prog: $2" >&2
   exit "$1"
+}
+
+# safe <string> — strip C0 control bytes, DEL, and the C1 range so an untrusted
+# on-disk fragment name embedded in a finding cannot smuggle an escape sequence
+# into a terminal or CI log (echo discipline, D-7). Mirrors check-obs.sh's
+# inline sanitizer (and echo-safety.sh's sanitize_printable): the duplicate-UID
+# path below reports names that entered the tree by hand or merge — never
+# validated by obs-record.sh — so their bytes are untrusted.
+safe() {
+  printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
 }
 
 # strip0 <digits> — drop leading zeros so arithmetic never reads 08/09 as octal.
@@ -243,6 +267,11 @@ if [ "$legacy" -eq 0 ]; then
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) : ;;
     *) refuse 1 "uid must be exactly 8 lowercase hex characters" ;;
   esac
+else
+  # Legacy line: a frozen-log entry is a non-empty line. Refuse an empty --line
+  # (typically an unset variable expanded into the flag): awk's `$0 == ""` would
+  # otherwise match — and rewrite — the first blank line of the frozen log.
+  [ -n "$line" ] || refuse 1 "legacy line content must not be empty"
 fi
 
 # Date: mint today when unset, then validate shape + calendar validity for
@@ -278,9 +307,13 @@ archive="$canon_obs/archive"
 
 # The annotation written inside a fragment (a metadata line) and appended to a
 # legacy line (a suffix). The spec id is grammar-validated above, the date is
-# calendar-validated; neither can carry a metacharacter.
+# calendar-validated; neither can carry a metacharacter. `legacy_same_spec` is
+# the date-*insensitive* prefix a prior same-spec consume produced, so a re-run
+# on a later date recognizes it as already-done (mirrors the fragment arm's
+# fragment_annotated, which likewise omits the date).
 consume_meta="Consumed-by: specs/$spec ($today)"
 legacy_suffix=" — consumed-by: specs/$spec ($today)"
+legacy_same_spec=" — consumed-by: specs/$spec ("
 
 # fragment_annotated <file> — 0 if the fragment already carries a same-spec
 # `Consumed-by: specs/<spec> (` line. Exact-prefix match via awk index(): the
@@ -299,6 +332,20 @@ fragment_annotated() {
 # (temp file in the same directory, then a replacing rename), preserving the
 # existing content verbatim and guaranteeing a separating newline. A crash
 # leaves either the old file or the fully rewritten one, never a torn fragment.
+# ends_in_newline <file> — 0 if the file's final byte is a line feed, else 1.
+# Reads the last byte through `od` rather than `$(tail -c1)`: command
+# substitution silently drops a trailing NUL, which would misreport a
+# NUL-terminated (non-newline) file as newline-ended and join the annotation
+# onto the last line. Byte-exact, so a hostile trailing byte can never tear it.
+ends_in_newline() {
+  [ -s "$1" ] || return 1
+  [ "$(tail -c 1 "$1" | od -An -tx1 | tr -d ' \n')" = "0a" ]
+}
+
+# annotate_fragment <file> — append the Consumed-by metadata line atomically
+# (temp file in the same directory, then a replacing rename), preserving the
+# existing content verbatim and guaranteeing a separating newline. A crash
+# leaves either the old file or the fully rewritten one, never a torn fragment.
 annotate_fragment() {
   _src=$1
   _dir=${_src%/*}
@@ -306,21 +353,13 @@ annotate_fragment() {
     || refuse 1 "cannot create a temporary fragment file"
   # Preserve the source bytes exactly, then ensure a trailing newline before the
   # appended metadata so the annotation never joins the previous line.
-  cat "$_src" >"$_tmp" || {
-    rm -f "$_tmp"
-    refuse 1 "cannot read the fragment (filesystem error)"
-  }
-  if [ -s "$_src" ] && [ -n "$(tail -c 1 "$_src")" ]; then
-    printf '\n' >>"$_tmp"
-  fi
-  printf '%s\n' "$consume_meta" >>"$_tmp" || {
-    rm -f "$_tmp"
-    refuse 1 "cannot write the fragment annotation (filesystem error)"
-  }
-  mv -f "$_tmp" "$_src" || {
-    rm -f "$_tmp"
-    refuse 1 "cannot publish the fragment annotation (filesystem error)"
-  }
+  cat "$_src" >"$_tmp" || refuse 1 "cannot read the fragment (filesystem error)"
+  ends_in_newline "$_src" || printf '\n' >>"$_tmp"
+  printf '%s\n' "$consume_meta" >>"$_tmp" \
+    || refuse 1 "cannot write the fragment annotation (filesystem error)"
+  mv -f "$_tmp" "$_src" \
+    || refuse 1 "cannot publish the fragment annotation (filesystem error)"
+  _tmp=""
 }
 
 # --- fragment arm --------------------------------------------------------
@@ -341,7 +380,10 @@ consume_fragment() {
     for _f in "$_d"/*-"$uid".md; do
       [ -e "$_f" ] || [ -L "$_f" ] || continue
       _base=${_f##*/}
-      matches="$matches${matches:+ }${_d##*/}/$_base"
+      # Sanitize each name for the finding message: a duplicate-UID name entered
+      # by hand or merge (never obs-record-minted), so its slug/date bytes are
+      # untrusted and must not reach the terminal raw (D-7 echo discipline).
+      matches="$matches${matches:+ }${_d##*/}/$(safe "$_base")"
       _n=$((_n + 1))
       match=$_f
       matchdir=$_d
@@ -350,7 +392,9 @@ consume_fragment() {
 
   [ "$_n" -ne 0 ] || refuse 3 "no fragment found for the given UID"
   if [ "$_n" -gt 1 ]; then
-    echo "$prog: UID matches more than one fragment (re-mint one; D-2): $matches" >&2
+    # printf, not echo: a #!/bin/sh echo re-expands backslash sequences that
+    # safe() does not strip, re-injecting control bytes (mirrors check-obs.sh).
+    printf '%s\n' "$prog: UID matches more than one fragment (re-mint one; D-2): $matches" >&2
     exit 4
   fi
 
@@ -420,19 +464,19 @@ consume_legacy() {
   if [ "$_arc" -eq 0 ]; then
     # A line was annotated: publish the rewrite atomically.
     mv -f "$_tmp" "$frozen" \
-      || {
-        rm -f "$_tmp"
-        refuse 1 "cannot publish the legacy annotation (filesystem error)"
-      }
+      || refuse 1 "cannot publish the legacy annotation (filesystem error)"
+    _tmp=""
     exit 0
   fi
 
   rm -f "$_tmp"
+  _tmp=""
 
   # No unannotated exact match. If a same-spec annotated copy already exists the
-  # consume is idempotently done (clean no-op); otherwise the line is unknown
+  # consume is idempotently done (clean no-op), keyed date-insensitively so a
+  # re-run on a later date still recognizes it; otherwise the line is unknown
   # (absent, or consumed only by another spec) — a clean not-found refusal.
-  if OBS_PREFIX="$line$legacy_suffix" awk \
+  if OBS_PREFIX="$line$legacy_same_spec" awk \
     'BEGIN { p = ENVIRON["OBS_PREFIX"] }
      index($0, p) == 1 { found = 1 }
      END { exit found ? 0 : 1 }' "$frozen"; then

@@ -267,7 +267,20 @@ printf '%s\n' "$out" | grep -q "2026-07-09-other-abcd0001.md" \
   || fail "8: refusal must name the second match"
 after=$(find "$o" | sort)
 [ "$before" = "$after" ] || fail "8: duplicate-UID refusal touched a path"
-echo "ok 8: a duplicate UID refuses (exit 4) naming every match"
+
+# A duplicate-UID name that entered by hand/merge can carry control bytes; the
+# exit-4 message reports on-disk names, so they must be sanitized (D-7 echo
+# discipline) — no raw escape byte reaches the terminal / CI log.
+o=$(new_obs "$tmp/o8b")
+frag=$(record "$o" abcd0002 topic 'first copy')
+esc=$(printf 'x\033]0;pwn\007y')
+cp "$o/entries/$frag" "$o/archive/2026-07-09-$esc-abcd0002.md"
+msg=$("$CONSUME" --obs-dir "$o" --uid abcd0002 --spec my-spec --today 2026-07-10 \
+  2>&1) && fail "8: hostile duplicate name must refuse" || rc=$?
+[ "$rc" -eq 4 ] || fail "8: hostile duplicate expected exit 4, got $rc"
+printf '%s' "$msg" | LC_ALL=C tr -d '\040-\176\n' | grep -q . \
+  && fail "8: duplicate-UID message carried a raw control byte"
+echo "ok 8: a duplicate UID refuses (exit 4) naming every (sanitized) match"
 
 # --- 9. Hostile UID / spec refusals --------------------------------------
 
@@ -298,9 +311,13 @@ hostile_uid newline 'aaaa
 # hostile_spec <label> <spec>
 hostile_spec() {
   _rc=0
-  "$CONSUME" --obs-dir "$o" --uid 99990000 --spec "$2" --today 2026-07-10 \
-    >/dev/null 2>&1 && fail "9: hostile spec [$1] must refuse" || _rc=$?
+  _msg=$("$CONSUME" --obs-dir "$o" --uid 99990000 --spec "$2" --today 2026-07-10 \
+    2>&1) && fail "9: hostile spec [$1] must refuse" || _rc=$?
   [ "$_rc" -ne 0 ] || fail "9: hostile spec [$1] returned 0"
+  # No control byte survives to the message (the newline-injection case in
+  # particular must not reach the Consumed-by line or the terminal).
+  printf '%s' "$_msg" | LC_ALL=C tr -d '\040-\176\n' | grep -q . \
+    && fail "9: hostile spec [$1] message carried a control byte"
   # The fragment is never annotated or moved on a spec refusal.
   [ -f "$o/entries/$frag" ] || fail "9: hostile spec [$1] moved the fragment"
   [ "$(consumed_count "$o/entries/$frag")" -eq 0 ] \
@@ -325,7 +342,7 @@ ln -s "$tmp/target10.md" "$o/entries/2026-07-09-topic-cafe0001.md"
 rc=0
 "$CONSUME" --obs-dir "$o" --uid cafe0001 --spec my-spec --today 2026-07-10 \
   >/dev/null 2>&1 || rc=$?
-[ "$rc" -ne 0 ] || fail "10: a symlinked fragment must be refused"
+[ "$rc" -eq 1 ] || fail "10: a symlinked fragment expected exit 1, got $rc"
 [ -L "$o/entries/2026-07-09-topic-cafe0001.md" ] \
   || fail "10: the symlink was moved/rewritten instead of refused"
 [ ! -e "$o/archive/2026-07-09-topic-cafe0001.md" ] \
@@ -367,7 +384,48 @@ printf '%s\n' '- 2026-07-09 [planwright] $(touch '"$tmp"'/PWNED) `id` && rm -rf 
 # shellcheck disable=SC2016 # matching the literal '$(touch' substring, not expanding it
 grep -Fq '$(touch' "$o/archive/$frag" \
   || fail "11: hostile content not moved verbatim"
-echo "ok 11: hostile fragment content is moved verbatim as data"
+
+# Control bytes in the content are moved verbatim too (byte-exact), and the
+# annotation lands on its own line rather than joining a non-newline-terminated
+# body (the od-based trailing-newline probe).
+o=$(new_obs "$tmp/o11b")
+frag=$(record "$o" beef0002 topic 'ctrl below')
+printf '%s\033[31m%s\n' '- 2026-07-09 [planwright] esc ' 'here' >"$o/entries/$frag"
+body_before=$(od -An -tx1 "$o/entries/$frag" | tr -d ' \n')
+"$CONSUME" --obs-dir "$o" --uid beef0002 --spec my-spec --today 2026-07-10 \
+  || fail "11: consuming control-byte content exited non-zero"
+# The archived file is the original bytes followed by exactly the annotation line.
+annot=$(printf 'Consumed-by: specs/my-spec (2026-07-10)\n' | od -An -tx1 | tr -d ' \n')
+body_after=$(od -An -tx1 "$o/archive/$frag" | tr -d ' \n')
+[ "$body_after" = "$body_before$annot" ] \
+  || fail "11: control-byte content not preserved byte-exact with annotation appended"
+[ "$(consumed_count "$o/archive/$frag")" -eq 1 ] \
+  || fail "11: annotation did not land on its own line"
+echo "ok 11: hostile / control-byte fragment content is moved verbatim as data"
+
+# --- 11c. Archived fragment consumed by a *different* spec unions the citation
+
+o=$(new_obs "$tmp/o11c")
+frag=$(record "$o" beef0003 topic 'archived by another')
+# Simulate a fragment already consumed + archived by spec-one.
+mv "$o/entries/$frag" "$o/archive/$frag"
+printf 'Consumed-by: specs/spec-one (2026-07-09)\n' >>"$o/archive/$frag"
+"$CONSUME" --obs-dir "$o" --uid beef0003 --spec spec-two --today 2026-07-10 \
+  || fail "11c: consuming an already-archived fragment by a new spec exited non-zero"
+[ -f "$o/archive/$frag" ] || fail "11c: fragment left archive/ (should stay, no move)"
+[ ! -e "$o/entries/$frag" ] || fail "11c: fragment reappeared in entries/"
+[ "$(consumed_count "$o/archive/$frag")" -eq 2 ] \
+  || fail "11c: cross-spec consume did not union a second Consumed-by line"
+grep -Fxq 'Consumed-by: specs/spec-one (2026-07-09)' "$o/archive/$frag" \
+  || fail "11c: original spec-one citation lost"
+grep -Fxq 'Consumed-by: specs/spec-two (2026-07-10)' "$o/archive/$frag" \
+  || fail "11c: spec-two citation not added"
+# A re-run by spec-two is now a clean no-op (single spec-two line).
+"$CONSUME" --obs-dir "$o" --uid beef0003 --spec spec-two --today 2026-07-11 \
+  || fail "11c: re-run by spec-two must be a clean no-op"
+[ "$(consumed_count "$o/archive/$frag")" -eq 2 ] \
+  || fail "11c: re-run duplicated the spec-two citation"
+echo "ok 11c: an archived fragment consumed by a new spec unions the citation, idempotent"
 
 # --- 12. Legacy in-place annotation --------------------------------------
 
@@ -403,7 +461,55 @@ n=$(grep -Fc -e "$DUP — consumed-by: specs/my-spec (2026-07-10)" "$o/opportuni
   || fail "12: exhausted duplicate-line consume must be a clean no-op"
 n=$(grep -Fc -e "$DUP — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md")
 [ "$n" -eq 2 ] || fail "12: no-op re-run annotated a third time (got $n)"
+# A same-spec re-run on a LATER date is a clean no-op too (date-insensitive,
+# mirroring the fragment arm) — not a spurious not-found.
+"$CONSUME" --obs-dir "$o" --legacy --line "$LINE1" --spec my-spec --today 2026-08-01 \
+  || fail "12: same-spec cross-date re-run must be a clean no-op (exit 0)"
+[ "$(grep -Fc -e "$LINE1 — consumed-by:" "$o/opportunities.md")" -eq 1 ] \
+  || fail "12: cross-date re-run added a second annotation"
 echo "ok 12: legacy lines annotate in place, duplicates independently consumable"
+
+# --- 12b. Legacy line content is data (metacharacters matched literally) ---
+
+o=$(new_obs "$tmp/o12b")
+# shellcheck disable=SC2016 # the metacharacters are literal legacy-line data, must NOT expand
+META='- 2026-06-13 [planwright] awk & regex .* [x] %s `id` $(touch z) end'
+cat >"$o/opportunities.md" <<EOF
+# frozen
+
+$META
+- 2026-06-14 [planwright] untouched neighbor
+EOF
+"$CONSUME" --obs-dir "$o" --legacy --line "$META" --spec my-spec --today 2026-07-10 \
+  || fail "12b: legacy consume of a metacharacter line exited non-zero"
+grep -Fxq -e "$META — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md" \
+  || fail "12b: metacharacter line not matched/annotated literally"
+grep -Fxq -e '- 2026-06-14 [planwright] untouched neighbor' "$o/opportunities.md" \
+  || fail "12b: a neighbor line was altered (content used as a pattern?)"
+echo "ok 12b: legacy --line content is matched as fixed-string data, not a pattern"
+
+# --- 12c. Legacy not-found refusals (exit 3) ------------------------------
+
+o=$(new_obs "$tmp/o12c")
+rc=0
+"$CONSUME" --obs-dir "$o" --legacy --line 'anything' --spec my-spec --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "12c: absent frozen file expected exit 3, got $rc"
+printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] present' >"$o/opportunities.md"
+rc=0
+"$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] ABSENT' \
+  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || fail "12c: an absent legacy line expected exit 3, got $rc"
+# An empty --line is refused, never allowed to annotate the blank header line.
+rc=0
+"$CONSUME" --obs-dir "$o" --legacy --line '' --spec my-spec --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "12c: an empty --line expected refusal exit 1, got $rc"
+# Nothing was annotated (the blank header line in particular is untouched).
+if grep -q 'consumed-by' "$o/opportunities.md"; then
+  fail "12c: an empty --line annotated a line"
+fi
+echo "ok 12c: legacy not-found / empty-line inputs refuse cleanly"
 
 # --- 13. Two-branch conflict-freedom -------------------------------------
 
@@ -472,12 +578,14 @@ gitc "$repo" checkout -q c1
 rc=0
 gitc "$repo" merge -q --no-edit c2 >/dev/null 2>&1 || rc=$?
 [ "$rc" -ne 0 ] || fail "13b: same-fragment double-consume merged without conflict"
-# The conflict is confined to that one fragment's paths.
+# The conflict is confined to that one fragment: every conflicted path must be
+# that fragment's, and there must be at least one (REQ-B1.2 "confined to that
+# one fragment").
 conflicted=$(gitc "$repo" diff --name-only --diff-filter=U | sort)
-case "$conflicted" in
-  *"$fb"*) : ;;
-  *) fail "13b: conflict not on the contested fragment: $conflicted" ;;
-esac
+[ -n "$conflicted" ] || fail "13b: no conflicted path reported"
+outside=$(printf '%s\n' "$conflicted" | grep -v "/$fb\$" || :)
+[ -z "$outside" ] \
+  || fail "13b: conflict not confined to the contested fragment; also: $outside"
 gitc "$repo" merge --abort 2>/dev/null || :
 echo "ok 13b: same-fragment double-consume conflicts on that one fragment only"
 
@@ -506,5 +614,33 @@ usage_err "line without legacy" --obs-dir "$o" --line x --spec my-spec
 "$CONSUME" -h >/dev/null 2>&1 || fail "14: -h must exit 0"
 "$CONSUME" --help >/dev/null 2>&1 || fail "14: --help must exit 0"
 echo "ok 14: usage / exit-code contract holds"
+
+# --- 15. A consumed fragment passes the check:obs CI guard ----------------
+# Cross-script contract: the annotation obs-consume writes must satisfy the
+# metadata whitelist check-obs.sh enforces, so a consumed/archived fragment
+# never fails CI. Also asserts no `.obs-consume.*` temp residue is left behind
+# (the cleanup trap).
+
+GUARD="$here/../scripts/check-obs.sh"
+if [ -x "$GUARD" ]; then
+  o=$(new_obs "$tmp/o15")
+  frag=$(record "$o" ba5eba11 topic 'guard me')
+  "$CONSUME" --obs-dir "$o" --uid ba5eba11 --spec my-spec --today 2026-07-10 \
+    || fail "15: consume exited non-zero"
+  # Seed a consumed legacy line too, so the guard sees both frozen files present.
+  printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] legacy line' \
+    >"$o/opportunities.md"
+  : >"$o/archive.md"
+  "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] legacy line' \
+    --spec my-spec --today 2026-07-10 || fail "15: legacy consume exited non-zero"
+  /bin/bash "$GUARD" --obs-dir "$o" \
+    || fail "15: check-obs rejected a consumed/archived fragment (format drift)"
+  # No temp residue anywhere under the observations dir.
+  resid=$(find "$o" -name '.obs-consume.*' 2>/dev/null)
+  [ -z "$resid" ] || fail "15: obs-consume left a temp file: $resid"
+  echo "ok 15: a consumed fragment passes check:obs; no temp residue"
+else
+  echo "note 15: scripts/check-obs.sh absent; skipping the cross-guard check"
+fi
 
 echo "PASS: all obs-consume checks"
