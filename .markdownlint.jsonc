@@ -1,9 +1,10 @@
 {
   // planwright markdownlint baseline (consumed by mise run lint:md).
-  // Line length 100: the default 80 is a terminal-era convention that fights
-  // readable prose; 100 keeps diffs reviewable with room to breathe.
-  // Tables cannot wrap and code blocks (commands, paths) often cannot either,
-  // so both are exempt from line length.
-  // Task 2 (self-hosting CI) owns evolving this config; keep changes there.
-  "MD013": { "line_length": 100, "tables": false, "code_blocks": false }
+  // Line length (MD013) is off: enforcing a prose column limit fights readable
+  // authoring, hard-wraps text that GitHub and editors soft-wrap anyway, and
+  // forces reflow churn on edits. specs/.markdownlint.jsonc already disables it
+  // for anchored bundles; this keeps the same posture for README/doctrine/docs/
+  // skills prose. Structural rules (headings, links, fences) stay on — those
+  // catch real authoring mistakes.
+  "MD013": false
 }
