@@ -153,6 +153,50 @@ case "$out" in
     ;;
 esac
 
+# 11. A multi-backtick code span (CommonMark: a run of N backticks closes on a
+#     run of exactly N) is a documentation mention and passes. The earlier
+#     single-backtick regex stripped the two empty `` delimiter pairs and
+#     falsely surfaced the inner token; the run-aware stripper must ignore the
+#     whole span.
+mkbundle "$tmp/multibt" "Draft"
+cat >"$tmp/multibt/tasks.md" <<'EOF'
+# T
+
+**Status:** Draft
+
+The ``[[name]]`` mention wraps a literal backtick in a double-backtick span.
+EOF
+/bin/bash "$CHECKER" "$tmp/multibt" >/dev/null 2>&1
+assert "double-backtick code span mention passes (run-aware)" 0 $?
+
+# 12. A bare token beside a multi-backtick code span is still caught: the span is
+#     stripped as a unit, the bare token remains and is the one flagged.
+mkbundle "$tmp/multimixed" "Draft"
+cat >"$tmp/multimixed/tasks.md" <<'EOF'
+# T
+
+**Status:** Draft
+
+The ``[[ok]]`` mention and a bare [[live]] link.
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/multimixed" 2>&1)"
+assert "bare token beside a multi-backtick span is caught" 1 $?
+case "$out" in
+  *'[[live]]'*)
+    case "$out" in
+      *'[[ok]]'*)
+        echo "FAIL: the double-backtick mention [[ok]] was wrongly flagged: $out" >&2
+        failures=$((failures + 1))
+        ;;
+      *) echo "ok: only the bare token, not the multi-backtick mention, is flagged" ;;
+    esac
+    ;;
+  *)
+    echo "FAIL: expected [[live]] flagged: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

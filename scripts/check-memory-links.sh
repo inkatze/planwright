@@ -25,15 +25,18 @@
 #     whose `[[…]]` reconcile is deferred to its future reopen) without
 #     excluding any live authoring surface.
 #
-# Matching — code-span-aware. Inline code spans (backtick-delimited runs) are
-# stripped from each line before the token search, so a documentation mention
-# of the syntax itself — `[[name]]`, `[[foo]]` inside backticks — is not a live
-# link and passes, while a bare `[[slug]]` is flagged. A spec that is *about*
-# the `[[name]]` rule (this very bundle) can therefore discuss it in code spans
-# and still pass. Parser constraint (documented, like check-doc-links.sh): only
-# paired same-line backtick spans are recognized; a `[[slug]]` inside a fenced
-# code block on its own line is still flagged (a fenced example should use an
-# inline span or a placeholder to opt out).
+# Matching — code-span-aware. Inline code spans are stripped from each line
+# before the token search, so a documentation mention of the syntax itself —
+# `[[name]]`, `[[foo]]` inside backticks — is not a live link and passes, while
+# a bare `[[slug]]` is flagged. A spec that is *about* the `[[name]]` rule (this
+# very bundle) can therefore discuss it in code spans and still pass. Spans are
+# recognized CommonMark-style: a run of N backticks opens the span and the next
+# run of exactly N closes it, so a multi-backtick delimiter that wraps a literal
+# backtick — ``[[name]]`` — is stripped as a unit rather than mis-parsed as two
+# empty spans. Parser constraint (documented, like check-doc-links.sh): only
+# same-line spans are recognized; a `[[slug]]` inside a fenced code block on its
+# own line is still flagged (a fenced example should use an inline span or a
+# placeholder to opt out).
 #
 # Usage: check-memory-links.sh [<spec-dir>...]
 #   With no arguments, scans every non-accumulator bundle under specs/.
@@ -97,9 +100,37 @@ bundle_status() {
 # clean.
 scan_file() {
   awk '
+    # strip_code_spans <line> — drop inline code spans, CommonMark-style: a span
+    # opens with a run of N backticks and closes on the next run of exactly N.
+    # Runs of a different length in between are span content; a backtick run with
+    # no matching-length closer is literal text and is left in place. This
+    # ignores multi-backtick delimiters (``[[name]]``) as a unit, where a plain
+    # single-backtick regex would strip the two empty `` pairs and falsely
+    # surface the inner token.
+    function strip_code_spans(s,   out, n, i, run, j, k, found) {
+      out = ""
+      n = length(s)
+      i = 1
+      while (i <= n) {
+        if (substr(s, i, 1) != "`") { out = out substr(s, i, 1); i++; continue }
+        run = 0
+        while (i + run <= n && substr(s, i + run, 1) == "`") run++
+        j = i + run
+        found = 0
+        while (j <= n) {
+          if (substr(s, j, 1) != "`") { j++; continue }
+          k = 0
+          while (j + k <= n && substr(s, j + k, 1) == "`") k++
+          if (k == run) { found = 1; break }
+          j += k
+        }
+        if (found) { i = j + run; continue }      # drop the span incl. delimiters
+        out = out substr(s, i, run); i += run      # unmatched run: literal text
+      }
+      return out
+    }
     {
-      line = $0
-      gsub(/`[^`]*`/, "", line)          # drop inline code spans (documentation mentions)
+      line = strip_code_spans($0)
       while (match(line, /\[\[[^]]*\]\]/)) {
         tok = substr(line, RSTART, RLENGTH)
         print FNR ":" tok
