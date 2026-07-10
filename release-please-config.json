@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "71ea089f0c26fd4cefb60329a6227fb06ce1958c",
   "include-component-in-tag": false,
   "pull-request-title-pattern": "chore: release ${version}",
   "pull-request-header": "🚀 Release proposal. **Merging this PR approves the release** — no CI path merges it (merge is the human's, REQ-C1.4). After merge, run `scripts/release-publish.sh` to sign and publish the annotated tag; CI never tags (REQ-C1.3), publishing is human-gated and signed per repo policy (see `doctrine/release-tagging.md`). The version bump and release notes are below.",

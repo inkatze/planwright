@@ -48,7 +48,12 @@ is configuration). Nothing here runs until you copy it in.
    `package.json` `$.version`), or release-please will try to bump a file you
    do not have.
 3. Seed `.release-please-manifest.json` with your last released version (use
-   `0.0.0` for a fresh project with no prior release).
+   `0.0.0` for a fresh project with no prior release). **Migrating from
+   hand-made tags?** Also set `"bootstrap-sha": "<commit of your last release>"`
+   at the top level of `release-please-config.json`. Without it, the first
+   release PR can dump your entire commit history into the changelog because
+   release-please cannot find a prior release-please release to anchor on.
+   `bootstrap-sha` is used only on the first run and ignored afterward.
 4. In the workflow, replace `ci` with the name of your CI workflow so the
    proposal is gated on CI success. Keep the action pinned to a full commit
    SHA and bump the `# vX.Y.Z` comment alongside it.

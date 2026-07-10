@@ -75,6 +75,18 @@ else
   fail "C1.2 manifest baseline '$manifest_version' != plugin.json '$plugin_version'"
 fi
 
+# Migration anchor: this repo carries hand-made release tags predating
+# release-please, so the live config pins bootstrap-sha to the last release
+# commit — without it the first release PR can dump full history into the
+# changelog. Assert it is present and a 40-hex SHA (guards accidental removal
+# before the first automated release; harmless/ignored afterward).
+bootstrap_sha="$(jq -r '.["bootstrap-sha"] // ""' "$CONFIG" 2>/dev/null)"
+if printf '%s' "$bootstrap_sha" | grep -qE '^[0-9a-f]{40}$'; then
+  pass "C1.2 live config pins a 40-hex bootstrap-sha migration anchor"
+else
+  fail "C1.2 live config bootstrap-sha missing or not a 40-hex SHA ('$bootstrap_sha')"
+fi
+
 # --- REQ-C1.3: CI never tags — PR-only, no tag/Release from CI ---------------
 # skip-github-release: true must be present, and never set false.
 for wf in "$WORKFLOW" "$TEMPLATE_WORKFLOW"; do
