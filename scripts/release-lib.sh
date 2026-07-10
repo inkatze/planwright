@@ -199,7 +199,20 @@ rl_extract_version() {
       echo "release: jq is required to read a JSON version_file selector ($(_rl_safe "$sel"))" >&2
       return 2
     fi
-    jq -r --arg k "$key" '.[$k] // empty'
+    # Capture jq's exit status: on malformed JSON, jq exits non-zero and writes a
+    # parse error to stderr. The prior code ignored that and returned 0 with empty
+    # stdout, so a corrupt version_file surfaced downstream as a generic "no
+    # version found" / "not valid SemVer" (with jq's raw stderr leaking through).
+    # Fail closed with a specific message instead, matching the jq-missing branch
+    # above. `.[$k] // empty` still yields empty (exit 0) when the KEY is absent
+    # from well-formed JSON, so a missing key is unchanged, not treated as a parse
+    # failure. Output has no trailing newline, consistent with whole-file mode.
+    local out
+    if ! out=$(jq -r --arg k "$key" '.[$k] // empty' 2>/dev/null); then
+      echo "release: could not parse JSON version_file (jq failed on selector $(_rl_safe "$sel"))" >&2
+      return 2
+    fi
+    printf '%s' "$out"
     return 0
   fi
   echo "release: unsupported version_file selector (expected \$.<key> or whole-file): $(_rl_safe "$sel")" >&2

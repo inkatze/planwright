@@ -151,6 +151,26 @@ make_repo "$r" "1.0.0+build.001"
 out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "a valid build-metadata version reports pending" "$out" "pending${TAB}1.0.0+build.001"
 
+# 4h. A malformed JSON version_file fails closed with a SPECIFIC parse error, not
+#     a silent empty read. Before the fix, rl_extract_version ignored jq's
+#     non-zero exit (returned 0 with empty stdout), so a corrupt file surfaced as
+#     the generic "not valid SemVer: ''" message with jq's raw parse error leaking
+#     to stderr. Both spellings exit 2; the discriminating signal is the message.
+r="$tmp/badjson"
+mkdir -p "$r/.claude-plugin"
+printf '{ "name": "fixture", "version": ' >"$r/.claude-plugin/plugin.json" # truncated → invalid JSON
+gitc "$r" init -q
+gitc "$r" add -A
+gitc "$r" commit -q -m "malformed version_file"
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "malformed JSON version_file exits 2" "$rc" "2"
+case "$err" in
+  *"could not parse JSON version_file"*) hit=yes ;;
+  *) hit=no ;;
+esac
+assert_eq "malformed JSON version_file names the parse failure (no leaked jq error)" "$hit" "yes"
+
 # 5. Latest tag chosen by SemVer precedence, not lexically (0.10.0 > 0.2.0).
 r="$tmp/precedence"
 make_repo "$r" 0.10.0
