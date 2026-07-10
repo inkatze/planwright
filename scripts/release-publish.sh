@@ -126,7 +126,8 @@ done < <(git rev-list --first-parent "$MAIN_REF")
 [ -n "$release_sha" ] \
   || die "could not identify the release-merge commit for version $(sanitize_printable "$provisional") on $MAIN_REF"
 
-target=$(rl_version_at "$release_sha" "$vf_path" "$vf_sel")
+target=$(rl_version_at "$release_sha" "$vf_path" "$vf_sel") \
+  || die "could not read the version_file ($(sanitize_printable "$vf_path")) at the release commit $release_sha"
 rl_valid_semver "$target" \
   || die "version at the release commit is not valid SemVer: '$(sanitize_printable "$target")'"
 tag="v$target"
