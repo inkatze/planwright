@@ -343,6 +343,15 @@ ln -s "$realroot" "$linkroot"
 run_guard "$linkroot"
 [ "$RC" -eq 1 ] || fail "8d: a symlinked observations root expected exit 1, got $RC"
 
+# 8d'. A root that EXISTS but is a regular file (not a directory) is malformed,
+# not absent: it must fail (exit 1), never be treated as a null-safe clean pass
+# that would bypass the unexpected-file block and all fragment validation.
+rootfile="$tmp/root-is-a-file"
+printf 'i am a regular file, not the observations root\n' >"$rootfile"
+run_guard "$rootfile"
+[ "$RC" -eq 1 ] || fail "8d': a non-directory observations root expected exit 1, got $RC"
+grep -q 'not a directory' "$ERR" || fail "8d': the non-directory root finding is not named: $(cat "$ERR")"
+
 # 8e. A DANGLING symlink fragment (points at a nonexistent target) is still
 # refused — `-e` is false for it, so the empty-glob guard must not skip it.
 o="$tmp/dangling-frag"
@@ -410,6 +419,11 @@ RC=0
 RC=0
 "$GUARD" --obs-dir -x >/dev/null 2>&1 || RC=$?
 [ "$RC" -eq 2 ] || fail "9c: a hyphen-leading --obs-dir expected exit 2, got $RC"
+# 9c'. An empty --obs-dir is a usage error (exit 2), never a silent absent-root
+# pass — an unset variable expanded into the flag must not bypass validation.
+RC=0
+"$GUARD" --obs-dir "" >/dev/null 2>&1 || RC=$?
+[ "$RC" -eq 2 ] || fail "9c': an empty --obs-dir expected exit 2, got $RC"
 
 # 9d. The guard is wired into the aggregate `mise run check` that CI runs
 # (REQ-D1.4 "wired into the aggregate"): the task exists and is a dependency of

@@ -95,6 +95,15 @@ done
   exit 2
 }
 
+# An empty obs-dir is refused up front: `--obs-dir ""` (typically an unset
+# variable expanded into the flag) would otherwise fall through to the null-safe
+# root check and exit 0, silently bypassing all validation. An explicit empty
+# path is a caller error, not "no observations root".
+[ -n "$obsdir" ] || {
+  echo "$prog: observations directory must not be empty" >&2
+  exit 2
+}
+
 # A hyphen-leading obs-dir is refused up front: it is read as an option by the
 # tooling below and no caller legitimately names the store '-' (mirrors the
 # obs-record.sh guard).
@@ -328,7 +337,17 @@ if [ -L "$obsdir" ]; then
   exit 1
 fi
 
-# An absent observations root is a clean pass (null-safe): nothing to validate.
+# A root that exists but is not a directory (e.g. a regular file committed at
+# specs/_observations) is malformed, not absent: fail rather than treating it as
+# a null-safe clean pass, which would silently bypass the unexpected-file block
+# and all fragment validation (REQ-D1.4).
+if [ -e "$obsdir" ] && [ ! -d "$obsdir" ]; then
+  printf '%s\n' "$prog: the observations root exists but is not a directory" >&2
+  exit 1
+fi
+
+# A genuinely absent observations root is a clean pass (null-safe): nothing to
+# validate (the fragment dirs are created on demand; REQ-A1.6, REQ-D1.4).
 if [ ! -d "$obsdir" ]; then
   exit 0
 fi
