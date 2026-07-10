@@ -368,6 +368,20 @@ rc=0
   || fail "10: a fragment was annotated through a symlinked directory"
 echo "ok 10: a symlinked fragment (and fragment directory) is refused"
 
+# --- 10b. A dangling-symlink --obs-dir is a symlink refusal (exit 1) -------
+# The observations root is an escape vector: a symlinked root must refuse (exit
+# 1), never be followed. A *dangling* symlink must not slip through the
+# existence probe as a benign "does not exist" (exit 3) — the symlink check has
+# to win so the escape vector reads as what it is.
+
+odir="$tmp/o10b-link"
+ln -s "$tmp/o10b-nonexistent-target" "$odir"
+rc=0
+"$CONSUME" --obs-dir "$odir" --uid cafe0002 --spec my-spec --today 2026-07-10 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "10b: a dangling-symlink obs-dir expected exit 1, got $rc"
+echo "ok 10b: a dangling-symlink obs-dir refuses as a symlink (exit 1)"
+
 # --- 11. Hostile fragment content is data --------------------------------
 
 o=$(new_obs "$tmp/o11")

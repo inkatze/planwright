@@ -296,9 +296,11 @@ esac
 
 # The observations root must already exist for a consume (fragments were
 # recorded into it); a symlinked root would resolve the store outside the tree,
-# so refuse it before canonicalizing (D-7, mirroring obs-record.sh).
-[ -e "$obsdir" ] || refuse 3 "observations directory does not exist (nothing to consume)"
+# so refuse it before canonicalizing (D-7, mirroring obs-record.sh). The symlink
+# check precedes the existence probe: a *dangling* symlink is `! -e`, so probing
+# first would mislabel the escape vector as a benign "does not exist" (exit 3).
 [ ! -L "$obsdir" ] || refuse 1 "observations directory path must not be a symlink"
+[ -e "$obsdir" ] || refuse 3 "observations directory does not exist (nothing to consume)"
 [ -d "$obsdir" ] || refuse 1 "observations root exists but is not a directory"
 canon_obs=$(cd "$obsdir" 2>/dev/null && pwd -P) \
   || refuse 1 "cannot resolve the observations directory"
