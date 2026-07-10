@@ -243,7 +243,12 @@ check_content() {
       bad = 1
       exit
     }
-    /^Consumed-by: .+/ { next }   # the sole whitelisted metadata key (non-empty value)
+    # The sole whitelisted metadata key. Require a non-blank value: `.+` alone
+    # accepts a whitespace-only value (`Consumed-by:   `), which is effectively
+    # empty and should fail like the bare `Consumed-by:` case, so demand at least
+    # one non-space/non-tab byte in the value ([[:space:]] is portable across the
+    # target awks under LC_ALL=C).
+    /^Consumed-by: .*[^[:space:]]/ { next }
     {
       print "unexpected content line (only blank lines and Consumed-by: metadata may follow the entry)"
       bad = 1

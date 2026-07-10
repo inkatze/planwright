@@ -278,6 +278,19 @@ body_reject "empty-valued Consumed-by" \
 Consumed-by:
 ' 'unexpected content line'
 
+# 7b'. A whitespace-only Consumed-by: value fails too — effectively empty, so it
+# must reject like the bare-key case rather than sneaking through on `.+`. The
+# spaces sit mid-string before `\n` in the printf format (not at a source
+# line-end) so trailing-whitespace trimming cannot silently defang the case.
+o="$tmp/ws-consumed"
+new_tree "$o"
+printf -- '- 2026-07-09 [planwright] a real observation\nConsumed-by:   \n' \
+  >"$o/entries/2026-07-09-topic-deadbeef.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "7b': a whitespace-only Consumed-by must fail (got $RC): $(cat "$ERR")"
+grep -q 'unexpected content line' "$ERR" \
+  || fail "7b': whitespace-only Consumed-by failed for the wrong reason: $(cat "$ERR")"
+
 # 7c. A CRLF-saved (merge-mangled) but otherwise valid fragment passes: the
 # guard strips the trailing CR before validating, so line endings alone never
 # decide the verdict. Includes a blank separator line, the case that would
