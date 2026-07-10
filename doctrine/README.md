@@ -19,6 +19,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [composability.md](composability.md) | Composability by default, in adopter code and in planwright itself | REQ-D2.1 |
 | [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference (toolchain pinned, defaults owned), the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
 | [customization-boundary.md](customization-boundary.md) | The capability-vs-style boundary: when a preference belongs in core (as an opt-in config knob) vs an overlay; decision-time criteria, the default tilt to overlay, two worked examples | customization-overlay REQ-C1.1, customization-overlay REQ-C1.2, customization-overlay REQ-C1.3 · customization-overlay D-10 |
+| [autopilot-reflex.md](autopilot-reflex.md) | The six-step reflex for closing recurring-manual-ceremony gaps; altitude triggers, the phase re-anchor, the trigger-scoped altitude-D-ID rule | autopilot-reflex REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5 · autopilot-reflex D-1, D-2, D-11 |
 | [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
 | [guard-catalog.md](guard-catalog.md) | The builder's core guard catalog: guard categories, entry format, breadth dimensions, the extension model, the dogfood contract | REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 |
 | [instruction-hygiene.md](instruction-hygiene.md) | The instruction-layer authoring law: flow in skills / law in rule docs, the doctrine-manifest grammar, the loading convention and its safety floor, the word budgets, the test-and-measure principle, and the kept prompt-eval convention | prompt-hygiene REQ-C1.1, prompt-hygiene REQ-C1.2, prompt-hygiene REQ-C1.3, prompt-hygiene REQ-C1.4, prompt-hygiene REQ-C1.6 · prompt-hygiene D-1, prompt-hygiene D-2, prompt-hygiene D-3, prompt-hygiene D-5, prompt-hygiene D-6, prompt-hygiene D-7, prompt-hygiene D-8, prompt-hygiene D-9, prompt-hygiene D-10, prompt-hygiene D-11 |
@@ -83,7 +84,12 @@ load-bearing decision. What any of these defer instead of deciding lands in an
 accumulator, and the [Accumulator Taxonomy](accumulator-taxonomy.md)
 guarantees it re-surfaces (no write-only deferral).
 [Proportionality](proportionality.md) governs how strictly
-all of the above scale with what is at stake. The instruction layer carrying
+all of the above scale with what is at stake. The
+[Autopilot Reflex](autopilot-reflex.md) is the thought process for closing a
+recurring-manual-ceremony gap — automate up to the irreducible human gates,
+never through them — and supplies the altitude discipline (triggers,
+re-anchor, the trigger-scoped altitude D-ID) the authoring skills apply while
+producing specs. The instruction layer carrying
 all of it is itself governed: [Instruction Hygiene](instruction-hygiene.md)
 is the authoring law for skills and these docs — what loads when, within what
 budget, verified how. Upstream of execution,

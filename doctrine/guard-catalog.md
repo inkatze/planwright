@@ -13,7 +13,7 @@ breadth dimensions, the extension model, and the line between what the
 builder applies on its own and what it must escalate. The machine view is
 [`config/guard-catalog.yaml`](../config/guard-catalog.yaml), read by
 `scripts/builder-guards.sh` (the builder's testable detection core); the
-[builder skill](../skills/builder/SKILL.md) drives that script and layers
+builder skill (`skills/builder/SKILL.md`) drives that script and layers
 judgment on top.
 
 Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32.

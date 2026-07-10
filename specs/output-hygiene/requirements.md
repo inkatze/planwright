@@ -1,7 +1,7 @@
 # Output & Accumulator Hygiene — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-08
+**Last reviewed:** 2026-07-09
 **Format-version:** 1
 
 ## Goal
@@ -260,6 +260,13 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
   Post-review fix (panel pass, same date): the cross-repo-routing Out-of-scope bullet's
   "this spec fixes intra-repo recording only" clause updated — intra-repo recording is
   `specs/observation-recording`'s concern now, not this bundle's.
+- 2026-07-09 — Delta re-walkthrough (expression-only): anchor reconciliation. The 2026-07-08
+  §9 entry's recorded anchor (`8d372219…`) was computed before that entry's post-review fix
+  (the cross-repo-routing Out-of-scope bullet reword, directly above) was applied, and both
+  landed in the same squash (PR #129), so the recorded anchor never matched the committed
+  bundle and every task dispatch halted on the execution freshness gate. No spec content
+  changed this run beyond this entry and the `Last reviewed:` bump; the §9 re-anchor entry
+  records the anchor of the bundle as merged.
 
 ## Sources
 

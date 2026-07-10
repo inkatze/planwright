@@ -319,8 +319,12 @@ if [ "$have_remote" -eq 1 ] && command -v gh >/dev/null 2>&1; then
   # would silently truncate PR evidence on any repo carrying more PRs than that
   # and mis-derive a task whose PR sits beyond the page. The probe keys by head
   # ref and over-fetching is harmless, so request a generous ceiling.
+  # The batch also carries `number` and `mergedAt` so the completion-annotation
+  # stamp (output-hygiene Task 7, D-5, REQ-E1.2) reuses this one query — no new
+  # per-task lookup. Columns: headRefName<TAB>state<TAB>number<TAB>mergedAt.
   if gh_out=$(cd "$repo_root" && gh pr list --state all --limit 1000 \
-    --json state,headRefName --jq '.[] | [.headRefName, .state] | @tsv' 2>/dev/null); then
+    --json state,headRefName,number,mergedAt \
+    --jq '.[] | [.headRefName, .state, (.number|tostring), (.mergedAt // "")] | @tsv' 2>/dev/null); then
     gh_lines=$gh_out
   else
     printf 'degraded%sgh%sgh query failed; deriving git-only\n' "$TAB" "$TAB"
@@ -330,6 +334,12 @@ fi
 gh_state_for() {
   # echo the gh state (OPEN|CLOSED|MERGED) for a head ref, empty if none.
   printf '%s\n' "$gh_lines" | awk -F"$TAB" -v b="$1" '$1==b {print $2; exit}'
+}
+
+gh_prinfo_for() {
+  # echo "<number><TAB><mergedAt>" for a MERGED PR on this head ref, empty
+  # otherwise. Feeds the Task 7 completion stamp (D-5, REQ-E1.2).
+  printf '%s\n' "$gh_lines" | awk -F"$TAB" -v b="$1" '$1==b && $2=="MERGED" {print $3 "\t" $4; exit}'
 }
 
 # Pass 1: parse the task records (ids + dependency lists, in file order) and,
@@ -578,5 +588,56 @@ while IFS="$TAB" read -r id evstate evidence contra deps; do
   if [ "$contra" = 1 ]; then
     printf 'contradiction%s%s%scompletion attested in git but the PR is still open\n' \
       "$TAB" "$id" "$TAB"
+  fi
+
+  # Completion-annotation evidence (output-hygiene Task 7, D-5, REQ-E1.2): for a
+  # completed task, surface the PR number + merge date the reconcile stamps as
+  # `Completed · PR #<n> merged <YYYY-MM-DD>`. Order: the gh merged-PR batch
+  # already fetched (number + mergedAt, no new per-task query); else a local
+  # branch-tip date (branch evidence, no PR number); else nothing — the reconcile
+  # then leaves the annotation untouched. gh/git output is validated as data
+  # (REQ-F1.1): a non-numeric PR or a non-ISO date is dropped, never an invented
+  # value. Emit only when there is something to stamp.
+  if [ "$st" = completed ]; then
+    c_branch="planwright/$spec_id/task-$id"
+    c_pr=""
+    c_date=""
+    # The canonical `PR #<n> merged <date>` form requires BOTH the PR number and
+    # gh's own merge date from the batch. A PR number without a valid gh merge
+    # date does NOT become a full stamp paired with some other date (a branch-tip
+    # date is not the merge date): drop the number and fall to the degraded
+    # date-only path below, so the annotation never misrepresents its evidence.
+    c_ghinfo=$(gh_prinfo_for "$c_branch")
+    if [ -n "$c_ghinfo" ]; then
+      c_ghpr=${c_ghinfo%%"$TAB"*}
+      c_ghmerged=${c_ghinfo#*"$TAB"}
+      c_ghdate=${c_ghmerged%%T*} # ISO 8601 date part
+      case "$c_ghpr" in
+        '' | *[!0-9]*) c_ghpr="" ;;
+      esac
+      if [ -n "$c_ghdate" ] && ! printf '%s\n' "$c_ghdate" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+        c_ghdate=""
+      fi
+      if [ -n "$c_ghpr" ] && [ -n "$c_ghdate" ]; then
+        c_pr=$c_ghpr
+        c_date=$c_ghdate
+      fi
+    fi
+    # Degraded branch-evidence date (date-only, NO PR number) when the gh batch
+    # did not yield a full stamp. A branch that no longer exists (merged and
+    # deleted) yields no date -> the reconcile leaves the annotation untouched.
+    if [ -z "$c_date" ] && branch_exists "$c_branch"; then
+      # $c_branch is a REVISION here, not a pathspec, so no `--` terminator (it
+      # would make git read the branch name as a path and find nothing). Safe
+      # unquoted-of-options: the name is grammar-validated (planwright/<spec>/
+      # task-<id>) so it can neither begin with `-` nor carry a metacharacter.
+      c_bd=$(git -C "$repo_root" log -1 --format=%cs "$c_branch" 2>/dev/null) || c_bd=""
+      if printf '%s\n' "$c_bd" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+        c_date=$c_bd
+      fi
+    fi
+    if [ -n "$c_pr" ] || [ -n "$c_date" ]; then
+      printf 'completion%s%s%s%s%s%s\n' "$TAB" "$id" "$TAB" "$c_pr" "$TAB" "$c_date"
+    fi
   fi
 done <"$work"
