@@ -51,12 +51,17 @@ definitions govern wherever this skill names a concept:
   the writer the meta-spec's sign-off rules name; it follows them exactly.
 - `discovery-rigor` — the lens checklist, canonical lens-coverage table,
   fan-out, and self-critique pass behind the sign-off lens review.
+- `autopilot-reflex` — the altitude gate (D-11): the trigger classes and the
+  trigger-scoped altitude record whose presence, goal-citation, and
+  task-decomposition match the sign-off lens pass verifies for a triggered
+  bundle (the kickoff-specific check item in Sign-off step 1). This skill
+  cites `doctrine/autopilot-reflex.md` rather than restating it.
 - `validation-rigor` — validation of lens-pass findings before they are
   dispositioned.
 - `security-posture` — artifact data-hygiene: the brief is a committed
   artifact and its risk register invites operational detail.
 
-If any of those four does not resolve, halt with a clear message naming the
+If any of those five does not resolve, halt with a clear message naming the
 missing doc and the chain consulted (REQ-K1.7: the clear message is the
 graceful arm; signing a contract without the rules that define it is the
 opaque failure). Two more resolve with graceful degradation instead:
@@ -311,6 +316,18 @@ not walked.
    sub-agent per canonical lens for any non-trivial delta per the
    `discovery-rigor` doc; walk inline only for small, narrow deltas, and
    declare which path was taken. Emit the canonical lens-coverage table.
+   **Kickoff-specific altitude check (REQ-H1.3).** In addition to the canonical
+   lenses — the `discovery-rigor` lens list is untouched, this is a
+   kickoff-specific check item, not a new canonical lens — run one altitude
+   check: determine **bundle-locally** whether drafting fired an altitude
+   trigger (the pinned seed claims recorded in the bundle's `## Sources`, and
+   any altitude D-ID present — never drafting-session memory), per
+   `doctrine/autopilot-reflex.md`. For a **triggered** bundle, verify the
+   altitude D-ID exists, is cited from the bundle's goal, and that the task
+   decomposition matches the claimed altitude; a doctrine-first bundle whose
+   tasks are all mechanism is a finding, dispositioned like any other. An
+   **untriggered** bundle requires no altitude record (per `proportionality`):
+   record the check as not-applicable and move on.
    Validate findings per `validation-rigor`, then disposition every one
    with the human (applied as a spec edit, declined with rationale, or
    deferred to a named backlog in the brief) — an undispositioned finding
