@@ -425,7 +425,7 @@ if [ -s "$uidledger" ]; then
     IFS='
 '
     for _line in $dupes; do
-      printf '%s\n' "$prog: duplicate UID across entries/ and archive/ (breaks obs:<uid>): $_line" >&2
+      printf '%s\n' "$prog: duplicate UID in the fragment store (entries/ + archive/) (breaks obs:<uid>): $_line" >&2
     done
     IFS=$oldifs
   fi
