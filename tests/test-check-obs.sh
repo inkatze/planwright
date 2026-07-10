@@ -165,13 +165,17 @@ echo "ok 3: filename-grammar violations fail; boundary/leap accepts pass"
 
 # --- 4. Content-shape violations fail ------------------------------------
 
-# body_reject <label> <content> — seed a grammar-valid-NAMED fragment whose
-# CONTENT is the violation, assert exit 1 AND that it failed on a CONTENT reason
-# (never the filename path — the name is valid here, so a filename finding would
-# mean the wrong thing broke).
+# body_reject <label> <content> <reason> — seed a grammar-valid-NAMED fragment
+# whose CONTENT is the violation, assert exit 1, that it failed on a CONTENT
+# reason (never the filename path — the name is valid here), AND that the finding
+# names the SPECIFIC <reason>. Asserting the exact message keeps the distinct
+# content branches (bad-first-line / multi-entry / unexpected-line / empty) from
+# collapsing into each other under a future regression that swaps their messages
+# (the file's "wrong-reason exit 1 must not pass" discipline, applied per case).
 body_reject() {
   _label=$1
   _content=$2
+  _reason=$3
   _o="$tmp/br-$(printf '%s' "$_label" | tr -c 'a-z0-9' -)"
   new_tree "$_o"
   printf '%s' "$_content" >"$_o/entries/2026-07-09-topic-deadbeef.md"
@@ -180,29 +184,31 @@ body_reject() {
   grep -q 'invalid fragment filename' "$ERR" \
     && fail "4: $_label failed on the filename path, not a content reason"
   [ -s "$ERR" ] || fail "4: $_label produced no finding message"
+  grep -q "$_reason" "$ERR" \
+    || fail "4: $_label did not fail for the expected reason ($_reason): $(cat "$ERR")"
 }
 body_reject "multi-entry file" \
   '- 2026-07-09 [planwright] first entry
 - 2026-07-09 [planwright] second entry
-'
+' 'multiple entry lines'
 body_reject "missing entry line (leading blank)" \
   '
 - 2026-07-09 [planwright] entry not on the first line
-'
+' 'first line is not the entry form'
 body_reject "missing entry line (leading metadata)" \
   'Consumed-by: specs/foo (2026-06-02)
 - 2026-07-09 [planwright] entry after metadata
-'
+' 'first line is not the entry form'
 body_reject "free-prose body" \
   '- 2026-07-09 [planwright] a real observation
 some free prose that is not metadata
-'
+' 'unexpected content line'
 body_reject "unrecognized metadata key" \
   '- 2026-07-09 [planwright] a real observation
 Author: someone
-'
-body_reject "empty file (missing entry line)" ''
-echo "ok 4: content-shape violations fail the guard"
+' 'unexpected content line'
+body_reject "empty file (missing entry line)" '' 'empty fragment'
+echo "ok 4: content-shape violations fail the guard, each for its specific reason"
 
 # --- 5. UID uniqueness across entries/ + archive/ ------------------------
 
@@ -270,7 +276,7 @@ run_guard "$o"
 body_reject "empty-valued Consumed-by" \
   '- 2026-07-09 [planwright] a real observation
 Consumed-by:
-'
+' 'unexpected content line'
 
 # 7c. A CRLF-saved (merge-mangled) but otherwise valid fragment passes: the
 # guard strips the trailing CR before validating, so line endings alone never
