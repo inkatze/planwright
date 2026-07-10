@@ -233,10 +233,12 @@ concern became row 1.
 | 4 | Manifest bootstrap vs the gapped manual lineage (v0.2.4 skipped): first release PR could propose a wrong version | T5 Done-when requires the observed bump be correct. Signal: first PR's version ≠ expected |
 | 5 | Fleet-wide merge blocking during the untagged window (by design, but ~3 releases/day cadence blocks concurrent tower PRs) | Publish promptly; T10 armed mode shrinks the window to merge-to-sign. Signal: unrelated PRs failing the release-pending check |
 | 6 | release-please supply chain: third-party action with write permissions | Pin by SHA at T5 (dependency-adoption checklist via D-3) |
+| 7 | **T5 dependency-adoption note (2026-07-10):** D-3 named a "pinned action (v4-era)"; current stable is `googleapis/release-please-action` **v5.0.0** (2026-04-22). Adopted v5.0.0, pinned by SHA `45996ed1`. Researched: v5.0.0's sole breaking change is the node20→node24 runtime (release notes / `action.yml`); the input surface is unchanged (`skip-github-release`, `config-file`, `manifest-file` all present), so the PR-only invocation D-3 specifies works verbatim. Reversible (a one-line SHA bump). CI gate realized via `workflow_run` on the `ci` workflow's success on main (REQ-C1.1). | Low stake, reversible. Signal: action deprecation or an input rename on a future bump |
 
 No open questions: row 2 is an explicit accepted risk, row 3 is a recorded
-decision, all rows carry mitigation and early signal. Data hygiene checked:
-no secrets, hostnames, or private-repo identifiers.
+decision, row 7 is a recorded T5 execution note, all rows carry mitigation
+and early signal. Data hygiene checked: no secrets, hostnames, or
+private-repo identifiers.
 
 Signed off: 2026-07-02
 
