@@ -80,11 +80,13 @@ jobs:
 
       # Length is enforced on the PR title instead: it becomes the
       # squash-merge subject and, unlike a pushed commit, stays editable.
-      # The title is passed via env (never interpolated into the shell) per
-      # script-injection hardening practice.
+      # --marker title additionally rejects a [pending-sign-off] marker in the
+      # title (REQ-C1.4): the title must stay marker-free so the squash subject
+      # never carries a relic marker. The title is passed via env (never
+      # interpolated into the shell) per script-injection hardening practice.
       - if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           printf '%s\n' "$PR_TITLE" \
-            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --stdin
+            | /bin/bash scripts/check-commit-msgs.sh --max-length 100 --marker title --stdin

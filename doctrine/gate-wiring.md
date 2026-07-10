@@ -77,6 +77,55 @@ part of the contract (and history is never rewritten; new commits only).
 - Regression tests written for Agent-resolvable items land in the same
   commit as the fix they prove.
 
+## The `[pending-sign-off]` marker
+
+**Canonical placement (REQ-C1.1).** The marker sits at the very end of the
+subject, after the conventional prefix and description:
+
+```text
+type(scope): description [pending-sign-off]
+```
+
+End-of-subject is the one canonical position. A pre-prefix marker
+(`[pending-sign-off] type(scope): …`) also breaks the conventional format;
+a mid-subject marker is grep-fragile and slips the format check. Keeping the
+type prefix first means the conventional lint passes by construction, and a
+single trailing token is what the branch-range consumer below scans for.
+
+**Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
+commit self-lints the subject before committing —
+`check-commit-msgs.sh --marker subject --stdin` — which requires the canonical
+placement (pre-prefix, mid-subject, and duplicate markers fail) on top of the
+conventional check. The guard fires while the author can still reword. It is
+deliberately *not* wired into the CI commit-range lint: history is never
+rewritten (new commits only), so a range rule over a mis-placed historical
+marker would redden the PR permanently — the exact unfixable-red trap this
+placement discipline exists to prevent. The range lint stays marker-agnostic.
+
+**Branch-scoped consumption (REQ-C1.4).** The marker is meaningful only on the
+PR branch. Its sole consumer is the pending-sign-off checklist regeneration
+(below), which rebuilds from the `[pending-sign-off]`-marked commits in the
+PR's `base..head` range — never from mainline. That base..head scan already
+*is* the branch-scoping: markers that arrive through a merge from the base
+were approved when their own PR merged and never re-enter the checklist. The
+marker must never appear in the **PR title**: the title becomes the
+squash-merge subject, so a title-borne marker would land on mainline. The
+PR-title lint rejects it there (`--marker title`), safely, because the title
+stays editable.
+
+**Merge-strategy matrix.** Where a branch's marked subjects end up depends on
+the merge strategy:
+
+| Strategy | Marked subjects | Merge subject |
+| --- | --- | --- |
+| Squash (sanctioned) | concatenated into the squash **body** as relic text | the PR title — kept marker-free by `--marker title` |
+| Merge commit | persist as ancestor history (an accurate record) | the merge subject itself is clean |
+| Rebase-merge | would land marked subjects directly on mainline | **forbidden framework-wide** (never rebase); excluded by invariant, not handled |
+
+Because squash relocates the marked subjects into the commit body (the same
+relocation that moved the `Planwright-Task` trailer mid-body), consumers scan
+only the branch range and never mainline history.
+
 ## Pending-sign-off checklist
 
 The canonical format for the draft PR description (REQ-C1.3). Generated, not
