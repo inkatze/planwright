@@ -311,7 +311,7 @@ changelog_notes() {
   '
 }
 
-notes_file=$(mktemp) || die "could not create a temp file for the release notes"
+notes_file=$(mktemp "${TMPDIR:-/tmp}/release-publish-notes.XXXXXX") || die "could not create a temp file for the release notes"
 trap 'rm -f "$notes_file"' EXIT
 notes=$(changelog_notes)
 if [ -n "$notes" ]; then
