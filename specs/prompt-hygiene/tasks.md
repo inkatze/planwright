@@ -31,6 +31,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Citations:** D-2, D-3, D-6, D-7, D-8, D-9, D-10, D-11 ·
   REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-09
 
 ### Task 2 — Guard script, knobs, and audit mode
 

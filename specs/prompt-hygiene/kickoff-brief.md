@@ -307,6 +307,43 @@ instead — see §8).
 
 Signed off: 2026-07-08
 
+### Execution research log (appended by /execute-task; not part of the signed contract)
+
+- **Task 1 (2026-07-09) — manifest grammar design.** D-3 delegates the exact
+  manifest syntax to the doctrine doc. Chosen: a reserved column-zero line
+  prefix (`Doctrine: <class> <doc-name>`), one entry per line, outside code
+  fences; an optional parenthesized site note may follow on any entry, by
+  convention naming the reading site of a point-of-use doc.
+  Considered: (a) a fenced block with an info string — rejected, D-3 requires
+  entries *outside* fences so quoted examples stay inert; (b) HTML-comment
+  markers — rejected, the manifest also feeds the skill's reading model and
+  belongs in the visible prose; (c) multi-doc lines — rejected, per-line
+  entries give REQ-B1.8's fail-loud a clean per-entry hook and cleaner diffs.
+  The reserved prefix closes the grammar (any `Doctrine:` line must parse or
+  is a guard error, satisfying REQ-B1.8); duplicate or dual-class doc names
+  are malformed; doc names reuse the resolution chain's
+  `^[a-z0-9][a-z0-9-]*$` identifier discipline (REQ-B1.6, REQ-B1.9 — the name
+  is validated before any path is formed). Precedents consulted: the repo's
+  `Planwright-Task:` trailer and `GATE(when:)` closed grammar; Anthropic
+  skill-authoring guidance (progressive disclosure, one-level-deep
+  references) per D-9/D-11's session survey.
+
+- **Task 1 (2026-07-09) — doc citation-block completeness rule.** Review
+  passes kept arguing individual IDs into the doctrine doc's citation block,
+  so the block was settled once under a closed rule: the doc cites its
+  content contract (the REQ-C IDs that mandate what the doc defines,
+  including REQ-C1.6, whose subject is the kept-eval convention's content)
+  plus every D-ID whose decision the doc restates normatively. Guard-frame
+  requirements (REQ-A/B/D families, "the guard/audit/diet SHALL ...") stay
+  with the guard tasks even where the doc carries a one-line gist of them,
+  per the doc's own restate-at-most-the-gist rule. Sweep result: added
+  REQ-C1.6, D-1 (the Budgets section restates its tight-start-load /
+  loose-closure / per-file-secondary decision), and D-5 (knob placement and
+  the two suppression forms); excluded D-4 (pointer sentence only), D-12 and
+  D-13 (not covered by the doc), and all REQ-A/B/D items. The block is
+  closed under this rule; future additions need new stated law, not
+  re-argument.
+
 <!-- Component 8: Sign-off -->
 
 ## 8. Sign-off

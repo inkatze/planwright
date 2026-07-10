@@ -20,8 +20,10 @@ resolution path defined below (REQ-I1.1, D-24).
 | [engineering-decisions.md](engineering-decisions.md) | The engineering decision process: idioms first, tooling deference (toolchain pinned, defaults owned), the ecosystem-research move, the no-flattening escalation rule, the dependency-adoption checklist, priority balancing | REQ-G1.1, REQ-G1.3, REQ-G1.6 · D-15, D-16 |
 | [customization-boundary.md](customization-boundary.md) | The capability-vs-style boundary: when a preference belongs in core (as an opt-in config knob) vs an overlay; decision-time criteria, the default tilt to overlay, two worked examples | customization-overlay REQ-C1.1, customization-overlay REQ-C1.2, customization-overlay REQ-C1.3 · customization-overlay D-10 |
 | [autopilot-reflex.md](autopilot-reflex.md) | The six-step reflex for closing recurring-manual-ceremony gaps; altitude triggers, the phase re-anchor, the trigger-scoped altitude-D-ID rule | autopilot-reflex REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5 · autopilot-reflex D-1, D-2, D-11 |
+| [release-tagging.md](release-tagging.md) | The release-tagging policy (autopilot-reflex instantiation A): the five policy points (detection automated, approval = human merge, publish human-gated + signed per policy, window locked, merge/publish never autonomous) and the capability/mechanism/value altitude split | autopilot-reflex REQ-B1.1, REQ-B1.2 · autopilot-reflex D-2, D-3, D-5, D-7, D-13 |
 | [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the ten seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
 | [guard-catalog.md](guard-catalog.md) | The builder's core guard catalog: guard categories, entry format, breadth dimensions, the extension model, the dogfood contract | REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 |
+| [instruction-hygiene.md](instruction-hygiene.md) | The instruction-layer authoring law: flow in skills / law in rule docs, the doctrine-manifest grammar, the loading convention and its safety floor, the word budgets, the test-and-measure principle, and the kept prompt-eval convention | prompt-hygiene REQ-C1.1, prompt-hygiene REQ-C1.2, prompt-hygiene REQ-C1.3, prompt-hygiene REQ-C1.4, prompt-hygiene REQ-C1.6 · prompt-hygiene D-1, prompt-hygiene D-2, prompt-hygiene D-3, prompt-hygiene D-5, prompt-hygiene D-6, prompt-hygiene D-7, prompt-hygiene D-8, prompt-hygiene D-9, prompt-hygiene D-10, prompt-hygiene D-11 |
 | [accumulator-taxonomy.md](accumulator-taxonomy.md) | The three accumulator classes and their drain rituals, the `GATE(when:)` convention and its closed grammar (normative home), the shared drain pass behind `/drain` and `--bookkeeping` | REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18, D-31 |
 | [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
 | [interaction-style.md](interaction-style.md) | How spec-authoring skills conduct interactive sessions: progress indicator, progressive disclosure, selectors with recommendations, running summary, small bites | REQ-B3.1 |
@@ -88,7 +90,10 @@ all of the above scale with what is at stake. The
 recurring-manual-ceremony gap — automate up to the irreducible human gates,
 never through them — and supplies the altitude discipline (triggers,
 re-anchor, the trigger-scoped altitude D-ID) the authoring skills apply while
-producing specs. Upstream of execution,
+producing specs. The instruction layer carrying
+all of it is itself governed: [Instruction Hygiene](instruction-hygiene.md)
+is the authoring law for skills and these docs — what loads when, within what
+budget, verified how. Upstream of execution,
 [Interaction Style](interaction-style.md) governs how the spec-authoring
 skills conduct the interactive sessions that produce the specs everything
 above executes against, and the
