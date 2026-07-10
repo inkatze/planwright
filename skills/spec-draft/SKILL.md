@@ -29,6 +29,10 @@ convention (`scripts/resolve-rule-doc.sh <doc-name>` or the documented
 the bundle must conform to — its conventions govern every file this skill
 writes), `interaction-style` (governs every exchange in the flow),
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
+`autopilot-reflex` (D-11 wires its altitude gate into drafting the same way
+research-rigor is wired — the seed-claim and mid-flow trigger classes, the
+phase re-anchor, and the trigger-scoped altitude record; this skill cites
+`doctrine/autopilot-reflex.md` rather than restating it),
 `security-posture` (artifact data-hygiene for everything committed),
 `engineering-decisions` (governs design-phase recommendations), and
 `proportionality`, plus `customization-boundary` (the capability-vs-style
@@ -122,6 +126,19 @@ D-IDs it framed cite it (the meta-spec's citation kinds; `drafting-session
 decision (<date>)` covers choices made live in the session that mint no
 D-ID).
 
+**Pin altitude seed claims (REQ-H1.1).** While gathering seeds, extract every
+explicit statement about the deliverable's *nature* — the seed-claim trigger
+class `doctrine/autopilot-reflex.md` names ("that's a doctrine gap", "this is
+a first-class concern", "we keep doing X manually"). Each is an altitude
+assertion the elicitation must reconcile against, not a throwaway phrase, and
+it is easy to under-weight in the rush toward mechanism. Record each pinned
+claim as a `## Sources` entry in `requirements.md` so the altitude signal is
+**bundle-local** — the
+REQ-H1.3 kickoff check reads it from the bundle, never from drafting-session
+memory. A pinned claim is one of the two altitude trigger classes; when a
+trigger fires, the firing rule in Elicitation resolves the altitude before the
+design phase.
+
 **Archive-on-consume.** When the bundle is written, move each consumed
 observations-log entry from `specs/_observations/opportunities.md` to
 `specs/_observations/archive.md` (create with a `# Consumed observations`
@@ -194,9 +211,14 @@ Operates on the existing bundle per the meta-spec's stable-ID discipline:
 Six phases, each governed by the interaction-style rules: show the progress
 indicator (`[<phase> <n>/6]`), work in small bites, present decisions as
 selectors with a recommendation, end each phase with the running summary of
-everything decided so far. The meta-spec (`spec-format`) defines every
-structural convention referenced here; follow it exactly so the bundle passes
-the validator the first time.
+everything decided so far — and, per the phase re-anchor
+(`doctrine/autopilot-reflex.md`, REQ-H1.2), that summary **restates the
+claimed altitude and flags any drift** between the claim and what the
+elicitation is currently producing ("the seed claimed doctrine; the last phase
+produced only mechanism tasks"). The restatement is cheap; its absence is how
+a session that opened at one altitude silently slides to another. The meta-spec
+(`spec-format`) defines every structural convention referenced here; follow it
+exactly so the bundle passes the validator the first time.
 
 1. **Goal & scope.** The problem, the one-paragraph goal, in-scope /
    out-of-scope lists. Elicit what the feature must *not* do — out-of-scope
@@ -205,7 +227,21 @@ the validator the first time.
    requirement a single SHALL/MUST bullet with a stable ID and a citation.
    Derive candidate REQs from the seeds and goal, present per group for
    correction; the human supplies judgment, not formatting.
-3. **Design.** For each load-bearing choice, a D-ID with all three fields
+3. **Design.** **Altitude gate first (REQ-H1.1).** Before designing any
+   mechanism, check whether an altitude trigger has fired — a pinned seed
+   claim (seed gathering above) or a mid-flow signal surfaced during
+   elicitation (a recurring capability-vs-style call, an "is this even core?"
+   hesitation, a mechanism acquiring rules that read like doctrine): the two
+   trigger classes `doctrine/autopilot-reflex.md` defines. If one has fired,
+   resolve the deliverable's altitude **now**, and record the call as an early
+   **altitude D-ID** cited from the bundle's goal (the trigger-scoped altitude
+   record the doctrine requires — a conversational resolution with no artifact
+   can be pencil-whipped, so the D-ID is what the REQ-H1.3 kickoff check
+   verifies). Designing first and retrofitting the altitude is how a doctrine
+   deliverable ends up specced as a one-repo script. No trigger fired: no
+   record is required (per `proportionality`, the ceremony is scoped to the
+   specs that exhibited the risk) — proceed. Then, for each load-bearing
+   choice, a D-ID with all three fields
    (Decision / Alternatives considered / Chosen because). This phase fires
    Research Rigor triggers (new dependency, unfamiliar domain,
    security-touching pattern, version-sensitive API, mature-project
