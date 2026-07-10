@@ -88,6 +88,18 @@ out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$P
 assert_eq "malformed version exits 2" "$rc" "2"
 assert_eq "malformed version prints nothing on stdout" "$out" ""
 
+# 4b. A numeric prerelease identifier with a leading zero is malformed per
+#     SemVer 2.0.0 §9 ("Numeric identifiers MUST NOT include leading zeroes"):
+#     the grammar is strict on the version core, so it must be strict on the
+#     prerelease numeric identifiers too, or two spellings of one version
+#     (1.0.0-01 vs 1.0.0-1) collapse and a pending release can be misreported.
+r="$tmp/leadingzero"
+make_repo "$r" "1.0.0-01"
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "leading-zero numeric prerelease identifier exits 2" "$rc" "2"
+assert_eq "leading-zero numeric prerelease prints nothing on stdout" "$out" ""
+
 # 5. Latest tag chosen by SemVer precedence, not lexically (0.10.0 > 0.2.0).
 r="$tmp/precedence"
 make_repo "$r" 0.10.0

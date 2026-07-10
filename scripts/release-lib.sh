@@ -44,8 +44,31 @@ RL_SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+
 # Uses bash `[[ =~ ]]` (whole-string match), not `grep -Eq` (which matches any
 # LINE): a multi-line value — e.g. a JSON `.version` carrying an embedded
 # newline — must be rejected, not validated on its first line.
+#
+# The regex enforces no-leading-zero on the numeric version core, but its
+# prerelease class (`[0-9A-Za-z.-]+`) cannot express the same rule for the
+# dot-separated numeric identifiers inside a prerelease. SemVer 2.0.0 §9 —
+# "Numeric identifiers MUST NOT include leading zeroes" — applies there too, so
+# a second pass rejects any numeric prerelease identifier of length > 1 with a
+# leading zero (`1.0.0-01`). Without it, `1.0.0-01` and `1.0.0-1` both validate
+# yet compare equal (rl_version_gt), so one spelling can mask a pending release.
+# Build metadata is exempt (§10 imposes no numeric rule on it).
 rl_valid_semver() {
-  [[ ${1-} =~ $RL_SEMVER_RE ]]
+  [[ ${1-} =~ $RL_SEMVER_RE ]] || return 1
+  local pre="${1-}"
+  [[ "$pre" == *-* ]] || return 0 # no prerelease → nothing more to check
+  pre="${pre%%+*}"                # drop build metadata
+  pre="${pre#*-}"                 # keep only the prerelease part
+  local -a ids
+  IFS=. read -ra ids <<<"$pre"
+  local id
+  for id in "${ids[@]}"; do
+    case "$id" in
+      *[!0-9]*) : ;;   # alphanumeric identifier — the numeric rule is N/A
+      0?*) return 1 ;; # numeric, length > 1, leading zero → invalid
+    esac
+  done
+  return 0
 }
 
 # rl_version_gt <a> <b> — exit 0 when SemVer <a> is strictly greater than <b> by
