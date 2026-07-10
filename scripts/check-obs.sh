@@ -253,7 +253,11 @@ scan_dir() {
   # below; do not traverse through it here (never read through a symlink — D-7).
   [ ! -L "$_dir" ] || return 0
   for _f in "$_dir"/*; do
-    [ -e "$_f" ] || continue # empty glob
+    # `-e` is false for the literal unmatched glob AND for a dangling symlink, so
+    # test `-L` too: skip only a truly-absent entry, never let a dangling symlink
+    # slip past the refusal below (a committed symlink to a nonexistent target is
+    # a real git artifact that must still be rejected).
+    [ -e "$_f" ] || [ -L "$_f" ] || continue
     _name=${_f##*/}
     # A symlink passes `-f` when it points at a regular file, so refuse it
     # explicitly before the type check: a fragment is a real file the recording
@@ -307,7 +311,9 @@ fi
 # `archive`, a directory named `opportunities.md` — cannot slip past as an
 # unscanned no-op (scan_dir would `-d`-skip it silently otherwise).
 for _e in "$obsdir"/*; do
-  [ -e "$_e" ] || continue # empty glob
+  # As in scan_dir: `-L` too, so a dangling symlink (name whitelisted or not) is
+  # not skipped as "absent" before the type/unexpected checks run.
+  [ -e "$_e" ] || [ -L "$_e" ] || continue
   _b=${_e##*/}
   case "$_b" in
     entries | archive)

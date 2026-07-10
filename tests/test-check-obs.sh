@@ -323,7 +323,25 @@ linkroot="$tmp/linkroot"
 ln -s "$realroot" "$linkroot"
 run_guard "$linkroot"
 [ "$RC" -eq 1 ] || fail "8d: a symlinked observations root expected exit 1, got $RC"
-echo "ok 8: symlinked fragments/dirs/root and a mistyped entries/ are refused"
+
+# 8e. A DANGLING symlink fragment (points at a nonexistent target) is still
+# refused — `-e` is false for it, so the empty-glob guard must not skip it.
+o="$tmp/dangling-frag"
+new_tree "$o"
+ln -s "$tmp/no-such-target" "$o/entries/2026-07-09-topic-deadbeef.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8e: a dangling symlink fragment expected exit 1, got $RC"
+grep -q 'symlink' "$ERR" || fail "8e: the dangling-symlink finding does not name the cause"
+
+# 8f. A dangling symlink with an UNEXPECTED name directly under the root is still
+# caught (it must not slip past the compiled-view block as "absent").
+o="$tmp/dangling-top"
+new_tree "$o"
+entry "$o/entries/2026-07-09-topic-deadbeef.md"
+ln -s "$tmp/no-such-target" "$o/rendered-log.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8f: a dangling top-level symlink expected exit 1, got $RC"
+echo "ok 8: symlinked (incl. dangling) fragments/dirs/root and a mistyped entries/ are refused"
 
 # --- 9. Usage contract + mise wiring --------------------------------------
 
