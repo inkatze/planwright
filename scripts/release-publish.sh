@@ -80,11 +80,15 @@ read -r vf_path vf_sel < <(rl_resolve_version_file "$script_dir")
 unset IFS
 
 # Guard path access (security-posture.md): the version_file path is parsed config
-# input, so it must be a repo-relative path — an absolute path or a `..` traversal
-# is a clean refusal, never a read.
+# input, so it must be a repo-relative path — an absolute path or a `..` path
+# component (traversal) is a clean refusal, never a read. The `..` test is on a
+# COMPONENT (`/../`), so a legitimate filename that merely contains two dots
+# (e.g. `v..x`) is not falsely rejected.
 case "$vf_path" in
   /* | "") die "version_file must be a non-empty repo-relative path: '$(sanitize_printable "$vf_path")'" ;;
-  *..*) die "version_file must not contain '..': '$(sanitize_printable "$vf_path")'" ;;
+esac
+case "/$vf_path/" in
+  */../*) die "version_file must not use a '..' path component: '$(sanitize_printable "$vf_path")'" ;;
 esac
 
 git rev-parse -q --verify "$MAIN_REF" >/dev/null 2>&1 \

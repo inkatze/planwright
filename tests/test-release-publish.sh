@@ -536,6 +536,15 @@ run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
 assert_ne "hardening/abspath: an absolute version_file is refused" "$RC" "0"
 assert_contains "hardening/abspath: names the repo-relative requirement" "$ERR" "repo-relative"
 
+r="$tmp/traversal"
+new_repo "$r"
+seed_version "$r" 0.1.0
+mkdir -p "$r/.claude"
+printf 'version_file: ../../../etc/passwd\n' >"$r/.claude/planwright.local.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "hardening/traversal: a '..' path component is refused" "$RC" "0"
+assert_contains "hardening/traversal: names the '..' component rule" "$ERR" "'..' path component"
+
 # 9. CDPATH regression for the publish script (A2, REQ-D1.9): a hostile CDPATH
 #    with a decoy `scripts/` must not corrupt the script's `cd "$(dirname "$0")"`
 #    (the script calls `unset CDPATH`). Per the house pattern

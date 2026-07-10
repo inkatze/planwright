@@ -45,14 +45,18 @@ read -r vf_path vf_sel < <(rl_resolve_version_file "$script_dir")
 unset IFS
 
 # Guard path access (security-posture.md): the parsed version_file path must be
-# repo-relative — an absolute path or `..` traversal is a clean refusal.
+# repo-relative — an absolute path or a `..` path component (traversal) is a clean
+# refusal. The `..` test is on a COMPONENT (`/../`), so a legitimate filename that
+# merely contains two dots (e.g. `v..x`) is not falsely rejected.
 case "$vf_path" in
   /* | "")
     echo "release-pending: version_file must be a non-empty repo-relative path: '$(sanitize_printable "$vf_path")'" >&2
     exit 2
     ;;
-  *..*)
-    echo "release-pending: version_file must not contain '..': '$(sanitize_printable "$vf_path")'" >&2
+esac
+case "/$vf_path/" in
+  */../*)
+    echo "release-pending: version_file must not use a '..' path component: '$(sanitize_printable "$vf_path")'" >&2
     exit 2
     ;;
 esac
