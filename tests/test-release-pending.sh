@@ -100,6 +100,35 @@ out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$P
 assert_eq "leading-zero numeric prerelease identifier exits 2" "$rc" "2"
 assert_eq "leading-zero numeric prerelease prints nothing on stdout" "$out" ""
 
+# 4c. A leading zero in a NON-first numeric prerelease identifier is malformed
+#     too — the §9 rule applies to every dot-separated identifier, not just the
+#     first (a loop that only checked ids[0] would wrongly accept this).
+r="$tmp/leadingzero-multi"
+make_repo "$r" "1.0.0-alpha.01"
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "leading-zero in a later prerelease identifier exits 2" "$rc" "2"
+
+# 4d. An EMPTY prerelease identifier is malformed per SemVer 2.0.0 §9
+#     ("Identifiers MUST NOT be empty"): a leading dot, a trailing dot, or two
+#     consecutive dots in the prerelease all produce an empty identifier. The
+#     trailing-dot form matters specifically because `IFS=. read` drops the
+#     trailing empty field, so a per-identifier loop alone would miss it.
+for bad in "1.2.0-alpha..1" "1.2.0-.1" "1.2.0-rc1."; do
+  r="$tmp/empty-$(printf '%s' "$bad" | tr -dc 'a-z0-9')"
+  make_repo "$r" "$bad"
+  rc=0
+  out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+  assert_eq "empty prerelease identifier ($bad) exits 2" "$rc" "2"
+done
+
+# 4e. A well-formed prerelease version is accepted and flows through as pending
+#     (positive coverage for the prerelease validation path, not just rejection).
+r="$tmp/prerelease-ok"
+make_repo "$r" "1.0.0-rc.1"
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "a valid prerelease version reports pending" "$out" "pending${TAB}1.0.0-rc.1"
+
 # 5. Latest tag chosen by SemVer precedence, not lexically (0.10.0 > 0.2.0).
 r="$tmp/precedence"
 make_repo "$r" 0.10.0

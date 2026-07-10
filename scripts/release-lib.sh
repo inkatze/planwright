@@ -46,19 +46,30 @@ RL_SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+
 # newline — must be rejected, not validated on its first line.
 #
 # The regex enforces no-leading-zero on the numeric version core, but its
-# prerelease class (`[0-9A-Za-z.-]+`) cannot express the same rule for the
-# dot-separated numeric identifiers inside a prerelease. SemVer 2.0.0 §9 —
-# "Numeric identifiers MUST NOT include leading zeroes" — applies there too, so
-# a second pass rejects any numeric prerelease identifier of length > 1 with a
-# leading zero (`1.0.0-01`). Without it, `1.0.0-01` and `1.0.0-1` both validate
-# yet compare equal (rl_version_gt), so one spelling can mask a pending release.
-# Build metadata is exempt (§10 imposes no numeric rule on it).
+# prerelease class (`[0-9A-Za-z.-]+`) cannot express two SemVer 2.0.0 §9 rules
+# for the dot-separated identifiers inside a prerelease, so a second pass
+# enforces both:
+#   - "Identifiers MUST NOT be empty": a leading dot, a trailing dot, or two
+#     consecutive dots in the prerelease yields an empty identifier (`1.0.0-.1`,
+#     `1.0.0-a.`, `1.0.0-a..b`). This is checked on the raw prerelease string,
+#     not the split fields, because `IFS=. read` drops a trailing empty field
+#     and so would silently miss the trailing-dot form.
+#   - "Numeric identifiers MUST NOT include leading zeroes": any numeric
+#     identifier of length > 1 with a leading zero (`1.0.0-01`, `1.0.0-a.01`).
+# Without the numeric rule, `1.0.0-01` and `1.0.0-1` both validate yet compare
+# equal (rl_version_gt), so one spelling can mask a pending release; without the
+# empty rule, a malformed empty identifier validates and then mis-ranks (an
+# empty field is rl_version_gt's "fewer fields → lower" sentinel). Build
+# metadata is exempt (§10 imposes no such rule on it).
 rl_valid_semver() {
   [[ ${1-} =~ $RL_SEMVER_RE ]] || return 1
   local pre="${1-}"
   [[ "$pre" == *-* ]] || return 0 # no prerelease → nothing more to check
   pre="${pre%%+*}"                # drop build metadata
   pre="${pre#*-}"                 # keep only the prerelease part
+  case "$pre" in
+    .* | *. | *..*) return 1 ;; # empty identifier (leading/trailing/double dot)
+  esac
   local -a ids
   IFS=. read -ra ids <<<"$pre"
   local id
