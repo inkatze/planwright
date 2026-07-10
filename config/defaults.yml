@@ -105,3 +105,26 @@ notification_channel: none
 # scripts/resolve-review-sequence.sh, which validates each name and applies the
 # REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
 review_sequence: [polish]
+
+# Release-tagging policy (autopilot-reflex D-4, D-13; REQ-D1.4, REQ-D1.6). The
+# publish (scripts/release-publish.sh) and comparator (scripts/release-pending.sh)
+# read these; see doctrine/release-tagging.md for the altitude split (the
+# capability is core, this is the value).
+
+# Signing policy for the release tag (D-4, REQ-D1.4). `auto` (default) signs when
+# the repo has signing configured (git user.signingkey), otherwise creates an
+# annotated UNSIGNED tag with a warning; `require` refuses to tag unless signing
+# is configured and succeeds; `never` always creates an unsigned annotated tag.
+# Signing is delegated entirely to the repo's git config (gpg.format,
+# user.signingkey, gpg.ssh.program) — no signer is named in the script, and no
+# signing material ever enters CI. planwright's own repo sets `require` through a
+# repo-level overlay (its signing enforcement lands with the signing task).
+require_signed_tags: auto
+
+# Where the version of truth lives (D-13, REQ-D1.6), as `<path>::<selector>`. The
+# selector is `$.<key>` for a top-level JSON field (extracted with jq, the key
+# passed as data, never executed) or absent for a whole-file plain VERSION file.
+# The `::` separator (not `#`) avoids config-get's YAML `#comment` stripping. The
+# default reads $.version from the plugin manifest; override it to port to a
+# package.json, a mix.exs-style file, or a plain VERSION file.
+version_file: .claude-plugin/plugin.json::$.version
