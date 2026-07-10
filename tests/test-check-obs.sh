@@ -1,10 +1,12 @@
 #!/bin/sh
 # Unit test for scripts/check-obs.sh — the standing CI guard over the
 # observation fragment store (observation-recording Task 2, REQ-D1.4, REQ-A1.2;
-# D-6, D-7). The guard re-validates committed fragment names and content shape
-# that scripts/obs-record.sh (Task 1) enforces at write time, so a
-# hand-edited or merge-mangled fragment cannot slip past CI. Grammar and
-# content-shape semantics are normative in
+# D-6, D-7). The guard re-validates the structural invariants obs-record.sh
+# (Task 1) enforces at write time — the fragment filename grammar, the
+# one-entry-per-file content shape, and UID uniqueness — so a hand-edited or
+# merge-mangled fragment cannot slip past CI. It does NOT re-check the writer's
+# full `[<scope>]` charset (only the bracket shape), matching check-obs.sh's
+# own header; grammar and content-shape semantics are normative in
 # specs/observation-recording/{requirements,design}.md.
 #
 # Properties verified (numbered to match the body's check sections):
