@@ -365,7 +365,11 @@ done
 
 # --- fragment validation + UID uniqueness --------------------------------
 
-uidledger=$(mktemp) || {
+# Explicit template under TMPDIR: a bare `mktemp` default template is the repo's
+# lone divergence from the house pattern (see scripts/builder-guards.sh,
+# scripts/spec-graph.sh) and is not portable to BSD mktemp variants that require
+# a template argument.
+uidledger=$(mktemp "${TMPDIR:-/tmp}/check-obs.XXXXXX") || {
   printf '%s\n' "$prog: cannot create a temporary work file" >&2
   exit 2
 }
