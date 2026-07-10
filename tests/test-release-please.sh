@@ -87,26 +87,62 @@ for wf in "$WORKFLOW" "$TEMPLATE_WORKFLOW"; do
   if grep -qE '^[[:space:]]*skip-github-release:[[:space:]]*false' "$wf"; then
     fail "C1.3 $label sets skip-github-release: false"
   fi
-  # No direct tagging / Release creation in the workflow itself.
-  if grep -nE '(^|[^#])(git tag|gh release create|gh api[^#]*releases)' "$wf" \
-    | grep -vE '#' >/dev/null 2>&1; then
+  # No direct tagging / Release creation in the workflow itself. Strip only
+  # whole-line comments (leading `#`), so an inline-commented tag/Release
+  # command on a live line is still caught (a `#` anywhere no longer hides it).
+  if grep -nE '(git tag|gh release create|gh api[^#]*releases)' "$wf" \
+    | grep -vE ':[0-9]+:[[:space:]]*#' | grep -q .; then
     fail "C1.3 $label contains a direct tag/Release-creation command"
   else
     pass "C1.3 $label contains no direct tag/Release-creation command"
   fi
+  # SHA-pin (supply-chain invariant): the action must be pinned to a full
+  # 40-hex commit SHA, never a mutable @vN / @main ref.
+  if grep -qE 'uses:[[:space:]]*googleapis/release-please-action@[0-9a-f]{40}([[:space:]]|$)' "$wf"; then
+    pass "C1.3 $label pins release-please-action to a 40-hex commit SHA"
+  else
+    fail "C1.3 $label does not pin release-please-action to a full commit SHA"
+  fi
+  # Gated on CI success on main (REQ-C1.1): the workflow_run trigger plus the
+  # success + main guards. A regression that drops the conclusion guard would
+  # propose releases off a red main; this catches it.
+  if grep -qE '^[[:space:]]*workflow_run:' "$wf" \
+    && grep -qE "conclusion[[:space:]]*==[[:space:]]*'success'" "$wf" \
+    && grep -qE "head_branch[[:space:]]*==[[:space:]]*'main'" "$wf"; then
+    pass "C1.1 $label gates on workflow_run + CI success on main"
+  else
+    fail "C1.1 $label missing the workflow_run / success / main gate"
+  fi
 done
+
+# The live workflow's workflow_run references a workflow named `ci`; that
+# workflow must actually exist, or release-please is silently never triggered.
+if grep -qE '^[[:space:]]*workflows:[[:space:]]*\[[[:space:]]*ci[[:space:]]*\]' "$WORKFLOW"; then
+  if grep -rlE '^name:[[:space:]]*ci[[:space:]]*$' "$REPO_ROOT/.github/workflows" >/dev/null 2>&1; then
+    pass "C1.1 the referenced 'ci' workflow exists (workflow_run wiring is live)"
+  else
+    fail "C1.1 workflow_run references 'ci' but no .github/workflows file is named ci"
+  fi
+fi
 
 # --- REQ-C1.4: merge is the human's — no merge INVOCATION on any surface ------
 # Scan shipped executable/prose surfaces for a merge invocation of the release
-# PR: the gh CLI merge, the REST/GraphQL merge APIs, and auto-merge. Comment
-# lines and the worker-settings deny-rule token (which BANS merging, the
-# opposite of a violation) are excluded — they are not invocations.
+# PR: the gh CLI merge, the REST/GraphQL merge APIs, and auto-merge. Two
+# exclusions, each narrowly justified and NOT a blanket substring filter (so a
+# future genuine invocation cannot hide merely by resembling them):
+#   - whole-line comments (leading `#`) are documentation, not code;
+#   - config/worker-settings.json is the Claude Code PERMISSIONS POLICY, whose
+#     `gh pr merge` token is a DENY rule (it BANS merging) — the opposite of a
+#     violation. It is excluded by PATH, and separately asserted to be a deny.
+# Note the detection code in scripts/tasks-pr-sync.sh uses the `gh_pr` wrapper
+# (underscore), which never matches the literal `gh pr merge` scanned here.
+POLICY_FILE="config/worker-settings.json"
 merge_hits="$(
-  grep -rnE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge|gh pr merge --auto' \
+  grep -rnE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge' \
     "$REPO_ROOT/scripts" "$REPO_ROOT/skills" "$REPO_ROOT/.github" \
     "$REPO_ROOT/templates" "$REPO_ROOT/config" "$REPO_ROOT/hooks" 2>/dev/null \
     | grep -vE ':[0-9]+:[[:space:]]*#' \
-    | grep -vE 'Bash\(gh pr merge' \
+    | grep -vE "/${POLICY_FILE}:" \
     || true
 )"
 if [ -z "$merge_hits" ]; then
@@ -114,6 +150,15 @@ if [ -z "$merge_hits" ]; then
 else
   fail "C1.4 found a merge invocation:"
   printf '%s\n' "$merge_hits" >&2
+fi
+
+# The one excluded file must actually DENY merging, not allow it: prove the
+# exclusion is safe rather than assume it.
+if grep -qE '"deny"' "$REPO_ROOT/$POLICY_FILE" 2>/dev/null \
+  && grep -qE 'Bash\(gh pr merge' "$REPO_ROOT/$POLICY_FILE" 2>/dev/null; then
+  pass "C1.4 $POLICY_FILE denies gh pr merge (exclusion is a ban, not an invocation)"
+else
+  fail "C1.4 $POLICY_FILE no longer denies gh pr merge — re-verify the exclusion"
 fi
 
 # The release workflow and template must not merge (strict, zero tolerance).

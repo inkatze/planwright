@@ -26,7 +26,11 @@
 name: release-please
 
 # Gate the proposal on your CI's success on the release branch so a release is
-# never proposed off a red main. Replace `ci` with your CI workflow's name.
+# never proposed off a red main. Two things to adjust for your repo:
+#   - replace `ci` with YOUR CI workflow's `name:`;
+#   - replace every `main` here AND in the `if:` guard below with your default
+#     branch (e.g. master/trunk). The guard fails CLOSED — a mismatched branch
+#     name means the workflow never proposes a release rather than misfiring.
 "on":
   workflow_run:
     workflows: [ci]
@@ -38,6 +42,12 @@ name: release-please
 permissions:
   contents: write
   pull-requests: write
+
+# Serialize overlapping runs (back-to-back merges can fire two workflow_run
+# events that would otherwise race on the same release branch/PR).
+concurrency:
+  group: release-please
+  cancel-in-progress: false
 
 jobs:
   release-please:

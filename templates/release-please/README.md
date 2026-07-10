@@ -3,8 +3,15 @@
 An adopter-facing mechanism template: a GitHub Actions workflow that runs
 [release-please](https://github.com/googleapis/release-please) in **PR-only
 mode**. It maintains a standing release PR from your conventional commits and
-**never creates a tag or a GitHub Release** — tagging is done by planwright's
-human-gated, signed publish step (`scripts/release-publish.sh`), never by CI.
+**never creates a tag or a GitHub Release** — tagging is done by a separate,
+human-gated, signed publish step, never by CI.
+
+**The publish step is not part of this template.** planwright core ships one
+(`scripts/release-publish.sh`) that signs and pushes the annotated tag. If you
+adopt this workflow **without** planwright core, you must supply your own
+signed-tag publish step and name it wherever this template says
+`scripts/release-publish.sh` (the workflow header and the config's PR body).
+The template gets you the proposal PR; the signed publish is yours to wire.
 
 This template is **opt-in**. It lives under `templates/` so planwright never
 auto-lands a workflow in your repository (the customization-boundary rule:
@@ -34,8 +41,12 @@ is configuration). Nothing here runs until you copy it in.
 
 1. Copy the three files to the destinations above.
 2. In `release-please-config.json`, point `extra-files` at **your** version
-   source of truth (`version_file`, default `.claude-plugin/plugin.json`
-   `$.version`) and set `changelog-path`.
+   source of truth and set `changelog-path`. **The shipped default targets
+   `.claude-plugin/plugin.json` `$.version`, which is planwright-specific** —
+   leave it unchanged only if your repo actually has that file; otherwise
+   change the `path`/`jsonpath` to your own `version_file` (e.g.
+   `package.json` `$.version`), or release-please will try to bump a file you
+   do not have.
 3. Seed `.release-please-manifest.json` with your last released version (use
    `0.0.0` for a fresh project with no prior release).
 4. In the workflow, replace `ci` with the name of your CI workflow so the

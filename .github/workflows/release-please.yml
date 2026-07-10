@@ -37,6 +37,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# Serialize: back-to-back merges to main can complete CI close together and
+# fire two workflow_run events; without this they could race on the same
+# release branch/PR. Queue (no cancel) so an in-flight PR update finishes.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     if: >-
