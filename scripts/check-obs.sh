@@ -252,13 +252,19 @@ scan_dir() {
   # A symlinked fragment directory is refused at the top-level layout check
   # below; do not traverse through it here (never read through a symlink — D-7).
   [ ! -L "$_dir" ] || return 0
-  for _f in "$_dir"/*; do
+  # Enumerate dotfiles too (`.*`): a POSIX `*` glob never matches a leading-dot
+  # name, so a hidden fragment — a committed obs-record `.obs-record.XXXXXX` temp,
+  # or any `.`-prefixed hand-edit — would otherwise escape both name and content
+  # validation AND never reach the UID ledger (a hidden dup would defeat the
+  # cross-directory uniqueness check). The `.`/`..` self/parent links are skipped.
+  for _f in "$_dir"/* "$_dir"/.*; do
     # `-e` is false for the literal unmatched glob AND for a dangling symlink, so
     # test `-L` too: skip only a truly-absent entry, never let a dangling symlink
     # slip past the refusal below (a committed symlink to a nonexistent target is
     # a real git artifact that must still be rejected).
     [ -e "$_f" ] || [ -L "$_f" ] || continue
     _name=${_f##*/}
+    case "$_name" in . | ..) continue ;; esac
     # A symlink passes `-f` when it points at a regular file, so refuse it
     # explicitly before the type check: a fragment is a real file the recording
     # helper wrote, never a link that could read through to outside the tree (D-7,
@@ -310,12 +316,17 @@ fi
 # name of the wrong kind — a regular file named `entries`, a symlinked
 # `archive`, a directory named `opportunities.md` — cannot slip past as an
 # unscanned no-op (scan_dir would `-d`-skip it silently otherwise).
-for _e in "$obsdir"/*; do
+# Enumerate dotfiles too (`.*`): a POSIX `*` glob never matches a leading-dot
+# name, so a hidden compiled view (e.g. `.rendered-log.md`) committed directly
+# under the root would otherwise slip past the standing block on unexpected files
+# (REQ-B1.3). The `.`/`..` self/parent links are skipped.
+for _e in "$obsdir"/* "$obsdir"/.*; do
   # As in scan_dir: `-L` too, so a dangling symlink (name whitelisted or not) is
   # not skipped as "absent" before the type/unexpected checks run.
   [ -e "$_e" ] || [ -L "$_e" ] || continue
   _b=${_e##*/}
   case "$_b" in
+    . | ..) continue ;;
     entries | archive)
       if [ -L "$_e" ] || [ ! -d "$_e" ]; then
         fail "\"$(safe "$_b")\" under the observations root must be a real directory, not a symlink or file"

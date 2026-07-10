@@ -343,6 +343,40 @@ run_guard "$o"
 [ "$RC" -eq 1 ] || fail "8f: a dangling top-level symlink expected exit 1, got $RC"
 echo "ok 8: symlinked (incl. dangling) fragments/dirs/root and a mistyped entries/ are refused"
 
+# --- 8g-8i. Dotfile containment (a POSIX `*` glob skips leading-dot names) ------
+
+# 8g. A hidden compiled view committed directly under the root is still caught as
+# an unexpected file (it must not slip past the REQ-B1.3 block via a leading dot).
+o="$tmp/dotfile-top"
+new_tree "$o"
+entry "$o/entries/2026-07-09-topic-deadbeef.md"
+printf '# hidden compiled view\n' >"$o/.rendered-log.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8g: a hidden top-level file expected exit 1, got $RC"
+grep -q '.rendered-log.md' "$ERR" || fail "8g: the hidden unexpected file is not named"
+
+# 8h. A hidden file inside entries/ is name-checked (and rejected) rather than
+# skipped — e.g. a leftover obs-record `.obs-record.XXXXXX` temp or a `.`-hand-edit.
+o="$tmp/dotfile-entry"
+new_tree "$o"
+entry "$o/entries/2026-07-09-topic-deadbeef.md"
+printf 'stray\n' >"$o/entries/.obs-record.hidden"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8h: a hidden file under entries/ expected exit 1, got $RC"
+
+# 8i. A hidden fragment cannot smuggle in a duplicate UID: a `.`-prefixed name
+# fails the filename grammar (the leading dot breaks the date prefix) and so is
+# rejected before it could reach the UID ledger — the hidden file is enumerated
+# and caught, never silently skipped as it was before the `.*` glob was added.
+o="$tmp/dotfile-dup"
+new_tree "$o"
+entry "$o/entries/2026-07-09-topic-abcd1234.md"
+printf -- '- 2026-07-09 [planwright] hidden dup\n' >"$o/entries/.2026-07-09-hidden-abcd1234.md"
+run_guard "$o"
+[ "$RC" -eq 1 ] || fail "8i: a hidden fragment-shaped name expected exit 1, got $RC"
+grep -q 'invalid fragment filename' "$ERR" || fail "8i: the hidden name was not caught by the grammar check"
+echo "ok 8g-i: hidden (dot-prefixed) files under the root and entries/ are enumerated, not skipped"
+
 # --- 9. Usage contract + mise wiring --------------------------------------
 
 # 9a. An unknown flag is a usage error (exit 2), distinct from a violation (1).
