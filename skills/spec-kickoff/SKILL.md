@@ -320,7 +320,8 @@ not walked.
    lenses — the `discovery-rigor` lens list is untouched, this is a
    kickoff-specific check item, not a new canonical lens — run one altitude
    check: determine **bundle-locally** whether drafting fired an altitude
-   trigger (the pinned seed claims recorded in the bundle's `## Sources`, and
+   trigger (the pinned seed claims recorded in the bundle's `## Sources`
+   section in `requirements.md`, and
    any altitude D-ID present — never drafting-session memory), per
    `doctrine/autopilot-reflex.md`. For a **triggered** bundle, verify the
    altitude D-ID exists, is cited from the bundle's goal, and that the task
