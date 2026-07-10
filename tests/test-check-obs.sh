@@ -417,4 +417,34 @@ awk '
   || fail "9d: check:obs is not in the aggregate check.depends array"
 echo "ok 9: usage contract holds; check:obs is wired into the aggregate check"
 
+# --- 10. Echo discipline: C1 control bytes are stripped from findings ----------
+
+# 10. A fragment name carrying a raw C1 byte (0x9B, 8-bit CSI) must not reach the
+# finding message intact — safe() strips the C0+DEL+C1 set so a terminal reading
+# 8-bit control codes cannot be driven from a committed filename. Seed an
+# unexpected top-level file whose name embeds 0x9B, assert the guard fails (exit
+# 1) and that the captured stderr contains ZERO 0x9B bytes while still naming the
+# file's printable remainder. Fails on the pre-C1-strip guard (the byte survives).
+#
+# The injection vector is a *committed* filename, so it is reachable on the Linux
+# filesystems CI runs on (arbitrary bytes but `/`\0 allowed). A UTF-8-normalizing
+# filesystem (macOS/APFS) refuses to create the name at all, which neutralizes the
+# vector there; when file creation is refused, skip rather than fail — CI on Linux
+# is where the assertion has teeth.
+o="$tmp/c1-strip"
+new_tree "$o"
+entry "$o/entries/2026-07-09-topic-deadbeef.md"
+c1=$(printf '\233') # 0x9B, 8-bit CSI, under LC_ALL=C
+if (: >"$o/stray${c1}view.md") 2>/dev/null; then
+  run_guard "$o"
+  [ "$RC" -eq 1 ] || fail "10: an unexpected C1-named file expected exit 1, got $RC"
+  c1count=$(tr -cd "$c1" <"$ERR" | wc -c | tr -d ' ')
+  [ "$c1count" -eq 0 ] || fail "10: a 0x9B byte survived into the finding ($c1count present)"
+  grep -q 'strayview.md' "$ERR" \
+    || fail "10: the C1-stripped name is not shown in the finding: $(cat "$ERR")"
+  echo "ok 10: a C1 (0x9B) byte in a fragment name is stripped from the finding message"
+else
+  echo "ok 10: SKIP — this filesystem refuses C1-byte filenames (vector needs a Linux-class FS)"
+fi
+
 echo "PASS: test-check-obs.sh"
