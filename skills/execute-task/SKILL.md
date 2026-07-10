@@ -48,8 +48,8 @@ definitions govern wherever this skill names a concept:
   loop (targeted test, wider suite, altitude check).
 - `finding-categorization` and `gate-wiring` — the buckets, hard-disqualifier
   zones, pending-sign-off checklist, and pause protocol the convergence step
-  (the `review_sequence` knob, `/polish` by default) applies and this skill
-  folds into the PR.
+  (the `review_sequence` knob, `/polish` by default) applies, plus the PR-body
+  assembly layout this skill cites when it folds the audit record into the PR.
 - `proportionality` — rigor and research depth scale with stake and
   reversibility; scoping is declared, never silent.
 
@@ -447,16 +447,19 @@ amendment axis:
    `--title` and `--body` (headless `gh` prompts or fails without them). The
    title is conventional and passes the project's PR-title lint
    (`scripts/check-commit-msgs.sh`, enforced on PR titles in CI):
-   `feat(<scope>): <task title>` or the fitting type. The body carries:
-   - the **kickoff brief path** (`specs/<spec>/kickoff-brief.md`);
-   - the **task IDs** this PR implements;
-   - the **REQs satisfied**, from the task `Citations:`;
-   - the **test additions** and what they verify;
-   - **Polish's audit record**: the pending-sign-off checklist (the human
-     approves each item by leaving its commit, rejects with the named revert,
-     at PR review), the four tables, the declined log, and the queued forks;
-   - **implementation notes**: key decisions, especially any extending beyond
-     the brief's assumptions.
+   `feat(<scope>): <task title>` or the fitting type. Assemble the body per the
+   **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
+   the complete audit record collapsed in `<details>`, prose never
+   hard-wrapped, the same structure preserved on updates) — the single
+   normative home for the layout (D-2), which this skill cites rather than
+   copies. This skill supplies the summary inputs: the kickoff brief path
+   (`specs/<spec>/kickoff-brief.md`), the task IDs this PR implements, the REQs
+   satisfied (from the task `Citations:`), the test additions and what they
+   verify, and implementation notes (key decisions, especially any extending
+   beyond the brief's assumptions). The collapsed audit record is the review
+   sequence's (`/polish`'s) output — the four tables, the declined log, the
+   pending-sign-off checklist (the human approves each item by leaving its
+   commit, rejects with the named revert, at PR review), and any queued forks.
 
    The PR is always a draft. Never mark it ready and never merge.
 3. **Annotate the unit.** Update only the task block's `- **Last activity:**
