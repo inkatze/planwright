@@ -95,6 +95,7 @@ of the release chain after T1 and can run in parallel throughout.
 - **Citations:** D-4, D-6, D-8, D-13 · REQ-D1.1, REQ-D1.2, REQ-D1.3,
   REQ-D1.4, REQ-D1.5, REQ-D1.6, REQ-D1.7, REQ-D1.8, REQ-D1.9, REQ-E1.4
 - **Estimated effort:** 2.0d
+- **Last activity:** 2026-07-09
 
 ### Task 5 — release-please PR-only config on this repo + adopter template
 
