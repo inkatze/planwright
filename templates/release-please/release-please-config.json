@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "pull-request-title-pattern": "chore: release ${version}",
+  "pull-request-header": "🚀 Release proposal. **Merging this PR approves the release** — no CI path merges it (merge is the human's). After merge, run your signed-tag publish step to sign and publish the annotated tag (planwright core ships `scripts/release-publish.sh`; a bare adopter wires their own). CI never tags — publishing is human-gated and signed per your repo policy. Edit this line to name your own publish command. The version bump and release notes are below.",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": ".claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    }
+  }
+}

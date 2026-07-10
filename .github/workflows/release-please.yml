@@ -1,0 +1,63 @@
+---
+# planwright release proposal — release-please in PR-only mode (Task 5,
+# specs/autopilot-reflex; REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-F1.1; D-3).
+#
+# release-please computes the next SemVer from conventional commits on main
+# and maintains ONE standing release PR that bumps the version source of truth
+# (.claude-plugin/plugin.json $.version, via the JSON-path extra-file in
+# release-please-config.json) and updates CHANGELOG.md. That PR is the
+# detection surface, the correction surface (edit it), the cancellation
+# surface (close it), and the approval gate (merge it) — four needs, one
+# artifact (D-3).
+#
+# PR-ONLY: `skip-github-release: true` means this workflow NEVER creates a tag
+# or a GitHub Release. Tagging is the human-gated, signed publish step
+# (scripts/release-publish.sh, Task 4), never CI (REQ-C1.3). Merging the
+# release PR is the release approval and stays a human act; no path here
+# merges it (REQ-C1.4).
+#
+# "on" is quoted so yamllint's truthy rule (which this repo runs on .github/)
+# does not flag the key, matching ci.yml.
+name: release-please
+
+# Gated on CI success on main (REQ-C1.1): this runs only after the `ci`
+# workflow completes successfully on main, so a release is never proposed off
+# a red main. workflow_run fires on the default branch's workflows; the job's
+# conclusion guard keeps it to green runs.
+"on":
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+# Least-privilege, no secrets: the default GITHUB_TOKEN with exactly the two
+# scopes release-please needs to open and maintain the PR. No PAT, no stored
+# secret — consistent with D-4's zero-CI-secrets posture (risk register row 3).
+permissions:
+  contents: write
+  pull-requests: write
+
+# Serialize: back-to-back merges to main can complete CI close together and
+# fire two workflow_run events; without this they could race on the same
+# release branch/PR. Queue (no cancel) so an in-flight PR update finishes.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to a full commit SHA (supply-chain discipline; risk register
+      # row 6). Bump the SHA and the version comment together.
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # PR-only: maintain the release PR, never tag or cut a Release.
+          skip-github-release: true
