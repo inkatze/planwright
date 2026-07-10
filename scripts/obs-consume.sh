@@ -352,7 +352,10 @@ annotate_fragment() {
   # Preserve the source bytes exactly, then ensure a trailing newline before the
   # appended metadata so the annotation never joins the previous line.
   cat "$_src" >"$_tmp" || refuse 1 "cannot read the fragment (filesystem error)"
-  ends_in_newline "$_src" || printf '\n' >>"$_tmp"
+  if ! ends_in_newline "$_src"; then
+    printf '\n' >>"$_tmp" \
+      || refuse 1 "cannot write the fragment separator (filesystem error)"
+  fi
   printf '%s\n' "$consume_meta" >>"$_tmp" \
     || refuse 1 "cannot write the fragment annotation (filesystem error)"
   mv -f "$_tmp" "$_src" \
