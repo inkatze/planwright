@@ -22,7 +22,8 @@
 #     whitelisted metadata (`Consumed-by:`) — free prose and any other
 #     `Key: value` line fail (whitelist exactness; REQ-A1.4);
 #   * UIDs are unique across entries/ AND archive/ together, so `obs:<uid>`
-#     stays a one-file citation after a consume moves a fragment;
+#     stays a one-file citation after a consume moves a fragment (REQ-A1.3, whose
+#     write-time collision check this re-validates post-merge);
 #   * nothing unexpected sits directly under specs/_observations/: the two
 #     fragment directories and the frozen legacy files (opportunities.md,
 #     archive.md) are the only expected contents — the standing block on
