@@ -90,6 +90,16 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.2, REQ-D1.4
 - **Estimated effort:** 1 day
+- **Deferral note:** the REQ-D1.4 orchestration-fleet `[[…]]` reconciliation sub-deliverable
+  is deferred (never-reopen-Done): the fleet bundle went `Done` (#123) after this spec was
+  signed, and a `Done` bundle's contract is frozen — changing it requires a Done→Draft reopen
+  plus a scoped `/spec-kickoff` (`doctrine/spec-format.md`), not the expression-only amendment
+  lane this task assumed when the fleet was `Ready`. The two links (`requirements.md:569`,
+  `design.md:542`) are owed that future reopen; deferral recorded in the observations log. The
+  standing `check:memory-links` guard skips terminal bundles, so it re-engages automatically
+  the moment the fleet reopens to Draft. The skill rule, the guard, and the output-hygiene
+  self-re-anchor all land in this PR.
+- **Last activity:** 2026-07-10
 
 ### Task 7 — Organic completion-annotation stamping
 
