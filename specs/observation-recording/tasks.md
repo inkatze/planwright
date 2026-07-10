@@ -60,6 +60,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1
 - **Citations:** D-6, D-7 · REQ-D1.4, REQ-A1.2
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-09
 
 ### Task 3 — Render command and drain surfacing
 
