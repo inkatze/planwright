@@ -443,8 +443,11 @@ consume_fragment() {
 
 consume_legacy() {
   frozen="$canon_obs/opportunities.md"
-  [ -e "$frozen" ] || refuse 3 "no frozen legacy file to consume from"
+  # Symlink check before the existence probe: a *dangling* symlink is `! -e`, so
+  # probing first would mislabel the escape vector as a benign "no frozen file"
+  # (exit 3) instead of the symlink refusal (exit 1) — mirrors the obs-dir guard.
   [ ! -L "$frozen" ] || refuse 1 "the frozen legacy file must not be a symlink"
+  [ -e "$frozen" ] || refuse 3 "no frozen legacy file to consume from"
   [ -f "$frozen" ] || refuse 1 "the frozen legacy file is not a regular file"
 
   # Locate and annotate the first line that exactly equals the target content

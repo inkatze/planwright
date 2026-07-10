@@ -675,6 +675,35 @@ PATH="$stub:$PATH" "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [plan
 [ "$rc" -eq 1 ] || fail "12f: a probe-awk runtime error expected exit 1, got $rc"
 echo "ok 12f: a legacy-arm awk runtime error is a filesystem refusal (exit 1)"
 
+# --- 12g. A symlinked frozen legacy file is a symlink refusal (exit 1) -----
+# The frozen `opportunities.md` is a containment surface like the fragment dirs:
+# a symlinked frozen file must refuse (exit 1), never be followed. A *dangling*
+# symlink must not slip through the existence probe as a benign "no frozen file"
+# (exit 3) — the symlink check has to precede `[ -e ]`, mirroring the obs-dir
+# root guard.
+
+o=$(new_obs "$tmp/o12g")
+ln -s "$tmp/o12g-frozen-nonexistent" "$o/opportunities.md"
+rc=0
+"$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] x' \
+  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "12g: a dangling-symlink frozen file expected exit 1, got $rc"
+
+# A live symlink to a real frozen file is refused too, and the target is never
+# annotated through the link.
+real="$tmp/o12g-real-frozen"
+printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] present' >"$real"
+before=$(cat "$real")
+rm -f "$o/opportunities.md"
+ln -s "$real" "$o/opportunities.md"
+rc=0
+"$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] present' \
+  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "12g: a live-symlink frozen file expected exit 1, got $rc"
+[ "$(cat "$real")" = "$before" ] \
+  || fail "12g: the frozen symlink target was annotated through the link"
+echo "ok 12g: a symlinked frozen legacy file refuses (exit 1), target untouched"
+
 # --- 13. Two-branch conflict-freedom -------------------------------------
 
 repo="$tmp/repo13"
