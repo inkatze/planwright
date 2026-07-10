@@ -196,7 +196,7 @@ rl_extract_version() {
   if [[ "$sel" =~ $sel_re ]]; then
     key="${BASH_REMATCH[1]}"
     if ! command -v jq >/dev/null 2>&1; then
-      echo "release: jq is required to read a JSON version_file selector ($(_rl_safe "$sel"))" >&2
+      echo "release-lib: jq is required to read a JSON version_file selector ($(_rl_safe "$sel"))" >&2
       return 2
     fi
     # Capture jq's exit status: on malformed JSON, jq exits non-zero and writes a
@@ -209,13 +209,13 @@ rl_extract_version() {
     # failure. Output has no trailing newline, consistent with whole-file mode.
     local out
     if ! out=$(jq -r --arg k "$key" '.[$k] // empty' 2>/dev/null); then
-      echo "release: could not parse JSON version_file (jq failed on selector $(_rl_safe "$sel"))" >&2
+      echo "release-lib: could not parse JSON version_file (jq failed on selector $(_rl_safe "$sel"))" >&2
       return 2
     fi
     printf '%s' "$out"
     return 0
   fi
-  echo "release: unsupported version_file selector (expected \$.<key> or whole-file): $(_rl_safe "$sel")" >&2
+  echo "release-lib: unsupported version_file selector (expected \$.<key> or whole-file): $(_rl_safe "$sel")" >&2
   return 2
 }
 
