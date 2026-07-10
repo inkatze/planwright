@@ -484,3 +484,46 @@ Anchor: `4cb5688d30b20d8baca91e9da958845593aa9bc6` — computed as
 `scripts/spec-anchor.sh specs/output-hygiene`
 
 Signed off: 2026-07-09
+
+### Self-re-anchor — Task 6 code-span reformat (2026-07-10)
+
+**Mode:** marked expression-only self-re-anchor written from `/execute-task` during Task 6
+execution (the one anchor entry an execution skill may author — the sanctioned
+marked-expression-only ritual, spec-format / D-44). Scope and the expression-only
+classification declared by the human via the fleet-run relay (2026-07-10, directive "1a + 2").
+Validator at pre-flight: 0 errors / 0 warnings under Ready enforcement; the prior anchor
+(`4cb5688d…`) recomputed clean, so this run started from a freshness-valid bundle.
+
+**Trigger.** Task 6 adds a standing `check:memory-links` guard (REQ-D1.1) that flags bare
+`[[name]]` tokens in the four spec files of non-terminal bundles. This bundle is itself
+*about* the `[[name]]` rule, so it mentions the token throughout; all but two mentions were
+already inside inline code spans. The two bare ones — `requirements.md`'s REQ-D1.1 Cites line
+and the `Observations log 2026-06-29 (…)` Sources entry — would have failed the new guard,
+so they were wrapped in code spans to read as documentation of the syntax rather than as
+live links.
+
+**Delta.** No spec content change: no REQ, decision, or task-definition field is altered. The
+edit is a pure code-span reformat of two metalinguistic mentions, a gap-fill consistent with
+the accepted D-4 decision (memory-link mentions are documentation, live `[[…]]` are the
+violation), which is the REQ-A3.3 definition of expression-only. Only `requirements.md` is
+touched among the anchored files (its `## Changelog` 2026-07-10 entry, `Last reviewed:`, and
+the two reformatted lines); the `tasks.md` deferral note and `Last activity` are
+anchor-excluded annotations, so the anchor below moves solely on the `requirements.md` edit.
+Lens pass: skipped (expression-only, per REQ-A3.3 and the spec-format amendment ritual).
+
+**Deferred (REQ-D1.4 fleet half).** The orchestration-fleet `[[…]]` reconciliation is *not*
+done here: that bundle went `Done` (#123) after this spec was signed, and a `Done` contract
+is frozen — reconciling it needs a Done→Draft reopen + scoped kickoff, not this expression-only
+lane (the lane the task assumed when the fleet was `Ready`). Recorded as an observation and in
+`tasks.md`; the guard skips terminal bundles and re-engages when the fleet reopens.
+
+**Re-validation after applying:** `spec-validate` 0 errors / 0 warnings under Ready
+enforcement; `check:ledger` clean; `Last reviewed:` 2026-07-10 on `requirements.md` (the only
+anchored file touched); Status stays Ready.
+
+Class: expression-only
+Changelog: `requirements.md` `## Changelog`, 2026-07-10 entry (this run).
+Anchor: `87ec82e0dd046f4c8c94b110f745554d03e8fcbe` — computed as
+`scripts/spec-anchor.sh specs/output-hygiene`
+
+Signed off: 2026-07-10

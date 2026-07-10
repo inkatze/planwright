@@ -47,6 +47,10 @@ fi
 description = "doctrine cross-reference link-check"
 run = "/bin/bash scripts/check-doc-links.sh"
 
+[tasks."check:memory-links"]
+description = "flag machine-local [[name]] memory links in committed spec files (REQ-D1.1, D-4)"
+run = "/bin/bash scripts/check-memory-links.sh"
+
 [tasks."check:specs"]
 description = "planwright spec validator over specs/ (enforced; REQ-A2.1)"
 run = '''
@@ -93,6 +97,7 @@ depends = [
   "lint:plugin-schema",
   "lint:commits",
   "check:links",
+  "check:memory-links",
   "check:options",
   "check:ledger",
   "check:specs",
