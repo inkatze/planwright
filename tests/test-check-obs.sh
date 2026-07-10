@@ -27,8 +27,8 @@
 #      compiled views) fails; a stray file inside entries/ that is not a
 #      grammar-valid fragment fails too.
 #
-# Exit codes asserted: 0 clean, 1 violation, 2 usage — the header contract of
-# scripts/check-obs.sh.
+# Exit codes asserted: 0 clean, 1 violation, 2 usage or internal error — the
+# header contract of scripts/check-obs.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor) and /bin/sh.
 set -eu

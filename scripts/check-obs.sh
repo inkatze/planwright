@@ -1,9 +1,13 @@
 #!/bin/sh
 # check-obs.sh — the standing CI guard over the observation fragment store
 # (observation-recording Task 2, REQ-D1.4, REQ-A1.2; D-6, D-7). It re-validates,
-# on every commit, the invariants scripts/obs-record.sh (Task 1) and
-# scripts/obs-consume.sh (Task 4) enforce at write time, so a hand-edited fragment,
-# a merge-mangled name, or a stray committed compiled view cannot slip past CI.
+# on every commit, the structural invariants scripts/obs-record.sh (Task 1) and
+# scripts/obs-consume.sh (Task 4) enforce at write time — the filename grammar,
+# the one-entry-per-file content shape, and UID uniqueness — so a hand-edited
+# fragment, a merge-mangled name, or a stray committed compiled view cannot slip
+# past CI. (The `[<scope>]` token is checked only for bracket shape, not the
+# writer's full scope charset; that grammar is uncharacterized in the spec and is
+# tracked as an open drift in specs/_observations/opportunities.md.)
 #
 # What it checks under the pinned C locale (REQ-D1.4):
 #   * every file under entries/ and archive/ matches the fragment filename
@@ -11,7 +15,7 @@
 #     date, `<slug>` a kebab-case token of at most 40 chars, and `<uid>` exactly
 #     8 lowercase hex characters — the same grammar the recording helper mints;
 #   * every fragment carries exactly one entry-form line (`- <date> [<scope>]
-#     <text>`) as its first content line, and beyond it only blank lines and
+#     <text>`) as its literal first line, and beyond it only blank lines and
 #     whitelisted metadata (`Consumed-by:`) — free prose and any other
 #     `Key: value` line fail (whitelist exactness; REQ-A1.4);
 #   * UIDs are unique across entries/ AND archive/ together, so `obs:<uid>`
@@ -35,7 +39,9 @@
 #   --obs-dir  the observations dir holding entries/ + archive/ and the frozen
 #              legacy files; defaults to specs/_observations under the repo cwd.
 #
-# Exit codes: 0 clean, 1 one or more violations, 2 usage error.
+# Exit codes: 0 clean, 1 one or more violations, 2 usage or internal error
+# (an argument-parse failure, or an environment failure such as mktemp — never
+# conflated with 1, so a broken environment cannot read as a clean/violation run).
 #
 # Portable: POSIX sh + awk (bash 3.2 / BSD compatible); no eval, input treated
 # as data only (the framework-script safety rule).
