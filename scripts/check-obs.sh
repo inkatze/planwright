@@ -1,13 +1,16 @@
 #!/bin/sh
 # check-obs.sh — the standing CI guard over the observation fragment store
 # (observation-recording Task 2, REQ-D1.4, REQ-A1.2; D-6, D-7). It re-validates,
-# on every commit, the structural invariants scripts/obs-record.sh (Task 1) and
-# scripts/obs-consume.sh (Task 4) enforce at write time — the filename grammar,
-# the one-entry-per-file content shape, and UID uniqueness — so a hand-edited
-# fragment, a merge-mangled name, or a stray committed compiled view cannot slip
-# past CI. (The `[<scope>]` token is checked only for bracket shape, not the
-# writer's full scope charset; that grammar is uncharacterized in the spec and is
-# tracked as an open drift in specs/_observations/opportunities.md.)
+# on every commit, the structural invariants scripts/obs-record.sh (Task 1)
+# enforces at write time — the filename grammar, the one-entry-per-file content
+# shape, and UID uniqueness — so a hand-edited fragment, a merge-mangled name, or
+# a stray committed compiled view cannot slip past CI. (The consume step that
+# writes the `Consumed-by:` annotation and moves fragments into archive/ arrives
+# in Task 4 as scripts/obs-consume.sh, not yet present; the guard already
+# validates the archived shape it will produce, including cross-directory UID
+# uniqueness after a move.) The `[<scope>]` token is checked only for bracket
+# shape, not the writer's full scope charset; that grammar is uncharacterized in
+# the spec and is tracked as an open drift in specs/_observations/opportunities.md.
 #
 # What it checks under the pinned C locale (REQ-D1.4):
 #   * every file under entries/ and archive/ matches the fragment filename
