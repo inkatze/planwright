@@ -59,6 +59,7 @@ jobs:
       # yamllint, plugin-manifest JSON lint, plugin/marketplace schema
       # validation (claude plugin validate; enforced here because the step
       # above installs the Claude Code CLI on the runner), doctrine link-check, the
+      # machine-local [[name]] memory-link guard over spec files (REQ-D1.1), the
       # options-reference drift check (REQ-K1.8), the tasks.md ledger
       # structural-corruption + duplicate-Status guards (REQ-E1.1, REQ-E1.2),
       # the spec validator (enforced, REQ-A2.1), and the full-history
