@@ -450,9 +450,14 @@ consume_legacy() {
   # `|| _arc=$?` keeps awk's "no bare match" exit (1) from tripping `set -e`
   # before it is inspected; the redirect still lands the (unchanged) copy.
   _arc=0
+  # Compare CR-insensitively so a CRLF-saved frozen log (a merge/editor artifact)
+  # still matches — mirrors the `sub(/\r$/, "")` in check-obs.sh / check-ledger.sh
+  # / drain-gates.sh. Only the probe is stripped; pass-through lines print `$0`
+  # verbatim (CR intact), and the annotation `a` is built from the CR-free --line.
   OBS_LINE="$line" OBS_ANNOT="$line$legacy_suffix" awk '
     BEGIN { c = ENVIRON["OBS_LINE"]; a = ENVIRON["OBS_ANNOT"]; done = 0 }
-    (!done && $0 == c) { print a; done = 1; next }
+    { probe = $0; sub(/\r$/, "", probe) }
+    (!done && probe == c) { print a; done = 1; next }
     { print }
     END { exit done ? 0 : 1 }
   ' "$frozen" >"$_tmp" || _arc=$?

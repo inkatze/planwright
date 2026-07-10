@@ -527,6 +527,28 @@ if grep -q 'consumed-by' "$o/opportunities.md"; then
 fi
 echo "ok 12c: legacy not-found / empty-line inputs refuse cleanly"
 
+# --- 12d. CRLF frozen log: a present line stays consumable -----------------
+# A frozen legacy file saved with CRLF endings (a merge/editor artifact — the
+# exact case check-obs.sh / check-ledger.sh / drain-gates.sh strip `\r$` for)
+# must still match by content: the comparison is CR-insensitive, so the line is
+# consumed, not misreported as absent. The annotation lands LF-terminated and
+# untouched neighbor lines keep their bytes (CR included).
+
+o=$(new_obs "$tmp/o12d")
+cr=$(printf '\r')
+CRLINE='- 2026-06-10 [planwright] crlf saved line'
+NEIGH='- 2026-06-11 [planwright] crlf neighbor'
+printf '# frozen\r\n\r\n%s\r\n%s\r\n' "$CRLINE" "$NEIGH" >"$o/opportunities.md"
+"$CONSUME" --obs-dir "$o" --legacy --line "$CRLINE" --spec my-spec --today 2026-07-10 \
+  || fail "12d: a CRLF-saved legacy line must stay consumable (not exit 3)"
+# The annotation lands LF-terminated (no stray CR carried into the consumed line).
+grep -Fxq -e "$CRLINE — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md" \
+  || fail "12d: the CRLF line was not annotated (or the annotation kept a CR)"
+# The untouched neighbor keeps its original trailing CR (pass-through is verbatim).
+grep -Fxq -e "$NEIGH$cr" "$o/opportunities.md" \
+  || fail "12d: a neighbor line lost its CR (pass-through lines must stay verbatim)"
+echo "ok 12d: a CRLF-saved legacy line stays consumable, neighbors verbatim"
+
 # --- 13. Two-branch conflict-freedom -------------------------------------
 
 repo="$tmp/repo13"
