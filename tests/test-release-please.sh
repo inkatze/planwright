@@ -67,8 +67,8 @@ done
 
 # The live manifest's baseline matches the current plugin.json version, so
 # release-please computes the next bump from the right base.
-plugin_version="$(jq -r '.version' "$PLUGIN" 2>/dev/null)"
-manifest_version="$(jq -r '.["."]' "$MANIFEST" 2>/dev/null)"
+plugin_version="$(jq -r '.version // empty' "$PLUGIN" 2>/dev/null)"
+manifest_version="$(jq -r '.["."] // empty' "$MANIFEST" 2>/dev/null)"
 if [ -n "$plugin_version" ] && [ "$plugin_version" = "$manifest_version" ]; then
   pass "C1.2 manifest baseline ($manifest_version) matches plugin.json ($plugin_version)"
 else
