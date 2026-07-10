@@ -121,16 +121,18 @@ fail() {
 # safe <string> — strip C0 control bytes, DEL, and the C1 range so an untrusted
 # fragment name embedded in a finding cannot smuggle an escape sequence into CI
 # logs (echo discipline, D-7). This is a *display*-path sanitizer: its output goes
-# only to finding messages on stderr, so it mirrors the sibling display sanitizer
-# scripts/drain-gates.sh, which strips C1 (0x80-0x9F) too — otherwise byte 0x9B
-# (8-bit CSI) and friends survive as a live terminal-injection vector even after
-# ESC (0x1B) is neutralized. The cost is that a legitimate multibyte UTF-8 byte in
-# the 0x80-0x9F range renders mangled in the message, but the name being reported
-# is already invalid/unexpected, so display fidelity yields to injection safety.
-# (Scoped to this guard: the write-time storage path in obs-record.sh deliberately
-# preserves C1 as UTF-8 continuation bytes, and the shared echo-safety.sh sanitizer
-# still strips C0+DEL only — the repo-wide "should every display sanitizer strip
-# C1" question is left open as an observation.)
+# only to finding messages on stderr, so it strips C1 (0x80-0x9F) too — otherwise
+# byte 0x9B (8-bit CSI) and friends survive as a live terminal-injection vector
+# even after ESC (0x1B) is neutralized. The cost is that a legitimate multibyte
+# UTF-8 byte in 0x80-0x9F renders mangled in the message, but the name being
+# reported is already invalid/unexpected, so display fidelity yields to injection
+# safety. This matches the canonical shared display sanitizer
+# scripts/echo-safety.sh (sanitize_printable), which strips the same C0+DEL+C1 set
+# (its C1 coverage was widened in PR #112) and is sourced by spec-validate.sh /
+# spec-walkthrough.sh; check-obs.sh keeps its own inline copy of the rule rather
+# than sourcing that helper, as scripts/spec-scope.sh and scripts/spec-assemble.sh
+# also still do — folding these onto echo-safety.sh is a tracked follow-up. The
+# write-time storage path in obs-record.sh deliberately preserves C1 as UTF-8.
 safe() {
   printf '%s' "$1" | tr -d '\000-\037\177\200-\237'
 }
