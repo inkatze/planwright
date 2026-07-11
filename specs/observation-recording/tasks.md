@@ -202,6 +202,23 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
   **Gate:** the output-hygiene carve-out amendment has landed.
   Citations: D-9, REQ-E1.4, the seed brief (Sources).
 
+- **F1–F5 legacy-log in-place consumption.** The four 2026-07-07 log entries
+  covering output-hygiene panel findings F1–F5 (F3 and F5 share one
+  `spec-findings(output-hygiene, minor, F3+F5)` entry) live on branch
+  `chore/log-oh-findings` (commit 7ac4c2c) and are not yet on `main`, so the
+  Task 6 cutover cannot annotate them consumed in place: they are not present
+  in this branch's `opportunities.md`. Per Task 6's done-when the consumption
+  is deferred behind a free-text gate on that branch's merge — never PR-body
+  prose alone, and never a status atom (a status atom would fall silent once
+  this spec completes, while the hold must persist until the entries reach
+  `main`). When `chore/log-oh-findings` merges, run the legacy-consume arm
+  (`scripts/obs-consume.sh --legacy --line ...`) to annotate each of the four
+  entries in the frozen `opportunities.md` as consumed by
+  `specs/observation-recording`. Confidence: high.
+  **Gate:** branch `chore/log-oh-findings` (the F1–F5 panel-findings log
+  entries, commit 7ac4c2c) has merged to `main`.
+  Citations: D-5, D-9, REQ-E1.1, REQ-E1.2, the F1–F5 findings (Sources).
+
 ## Out of scope
 
 - Re-solving output-hygiene's four retained concerns (PR-body contract,
