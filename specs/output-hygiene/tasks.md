@@ -47,6 +47,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-3 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-10
 
 ### Task 5 — Reference-integrity lint
 
@@ -136,6 +137,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-5 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-10
 
 ## In progress
 

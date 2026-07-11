@@ -142,6 +142,99 @@ assert "range mode passes a clean range" 0 $?
 /bin/bash "$CHECKER" >/dev/null 2>&1
 assert "no arguments is a usage error" 2 $?
 
+# 8. --marker mode (Task 4, REQ-C1.1/C1.3/C1.4): a context-sensitive
+#    [pending-sign-off] placement guard layered on the conventional check.
+#    Subject context requires canonical end-of-subject placement; title
+#    context rejects the marker outright.
+marker_subj() {
+  printf '%s\n' "$1" | /bin/bash "$CHECKER" --marker subject --stdin >/dev/null 2>&1
+}
+marker_title() {
+  printf '%s\n' "$1" | /bin/bash "$CHECKER" --marker title --stdin >/dev/null 2>&1
+}
+
+# 8a. Subject context — the four placements.
+marker_subj "feat(gate): resolve the finding [pending-sign-off]"
+assert "subject: canonical end-of-subject marker passes" 0 $?
+marker_subj "[pending-sign-off] feat(gate): resolve the finding"
+assert "subject: pre-prefix marker fails" 1 $?
+marker_subj "feat(gate): resolve [pending-sign-off] the finding"
+assert "subject: mid-subject marker fails" 1 $?
+marker_subj "feat(gate): resolve the finding"
+assert "subject: no marker on a well-formed subject passes" 0 $?
+
+# 8b. The misplacement failure names the offending subject.
+out="$(printf 'feat(gate): resolve [pending-sign-off] the finding\n' \
+  | /bin/bash "$CHECKER" --marker subject --stdin 2>&1)"
+case "$out" in
+  *"[pending-sign-off]"*"feat(gate): resolve [pending-sign-off] the finding"* | \
+    *"feat(gate): resolve [pending-sign-off] the finding"*)
+    echo "ok: subject marker failure names the subject"
+    ;;
+  *)
+    echo "FAIL: subject marker failure does not name the subject: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 8c. A second (duplicate) marker before an otherwise-canonical suffix fails.
+marker_subj "feat(gate): [pending-sign-off] resolve it [pending-sign-off]"
+assert "subject: duplicate marker fails even with canonical tail" 1 $?
+
+# 8d. Subject context still enforces conventional format and composes with
+#     --max-length (the emit-time self-lint is one invocation, not three).
+marker_subj "resolve the finding [pending-sign-off]"
+assert "subject: non-conventional marked subject fails" 1 $?
+printf '%s\n' "feat(gate): resolve the finding [pending-sign-off]" \
+  | /bin/bash "$CHECKER" --marker subject --stdin --max-length 100 >/dev/null 2>&1
+assert "subject: canonical marker under --max-length passes" 0 $?
+
+# 8e. Title context (REQ-C1.4) — the PR-title case: any marker is rejected,
+#     a marker-free title passes, and conventional/length still apply.
+marker_title "feat(gate): resolve the finding [pending-sign-off]"
+assert "title: any marker is rejected" 1 $?
+marker_title "feat(gate): resolve the finding"
+assert "title: marker-free title passes" 0 $?
+out="$(printf 'feat(gate): resolve the finding [pending-sign-off]\n' \
+  | /bin/bash "$CHECKER" --marker title --stdin 2>&1)"
+case "$out" in
+  *"[pending-sign-off]"*) echo "ok: title marker failure names the marker" ;;
+  *)
+    echo "FAIL: title marker failure message unclear: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+printf '%s\n' "not conventional [pending-sign-off]" \
+  | /bin/bash "$CHECKER" --marker title --stdin >/dev/null 2>&1
+assert "title: marker mode still enforces conventional format" 1 $?
+
+# 8f. An unknown --marker context is a usage error, not a silent no-op.
+printf 'feat: x\n' | /bin/bash "$CHECKER" --marker bogus --stdin >/dev/null 2>&1
+assert "unknown --marker context is a usage error" 2 $?
+printf 'feat: x\n' | /bin/bash "$CHECKER" --marker --stdin >/dev/null 2>&1
+assert "--marker consuming the source token is a usage error" 2 $?
+
+# 8g. Canonical placement is space-anchored: the marker must be the last token,
+#     separated from the description by whitespace (the `*" $marker"` glob
+#     requires at least one space before the marker and nothing after it). A
+#     marker glued to the description (no space) and a marker with trailing
+#     whitespace both fail — these pin the end-anchor so a future loosening to
+#     `*"$marker"` (which would silently accept mid-glued markers) is caught.
+marker_subj "feat(gate): resolve the finding[pending-sign-off]"
+assert "subject: marker glued to description (no space) fails" 1 $?
+marker_subj "feat(gate): resolve the finding [pending-sign-off] "
+assert "subject: marker with trailing whitespace fails" 1 $?
+
+# 8h. --marker is an emit-time guard and requires --stdin: pairing it with a
+#     git range is a usage error, never a range scan. A range-time marker check
+#     would scan history and recreate the unfixable-red trap REQ-C1.3 forbids,
+#     so the CLI refuses the combination outright. Reuse the fixture repo from
+#     section 6.
+(cd "$tmp" && /bin/bash "$CHECKER" --marker subject "HEAD~1..HEAD" >/dev/null 2>&1)
+assert "--marker subject with a git range is a usage error" 2 $?
+(cd "$tmp" && /bin/bash "$CHECKER" --marker title "HEAD~1..HEAD" >/dev/null 2>&1)
+assert "--marker title with a git range is a usage error" 2 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

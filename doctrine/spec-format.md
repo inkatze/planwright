@@ -163,9 +163,8 @@ amendment-annotation format below.
 ## `tasks.md`
 
 `tasks.md` is the canonical orchestration state record: there is no parallel
-state file (D-2). After the header block and optional intro prose (for
-example a dependency-graph view, which is derived; the `Dependencies:` lines
-are authoritative), it contains these H2 state sections:
+state file (D-2). After the header block and optional intro prose, it contains
+these H2 state sections:
 
 | Section | Holds |
 | --- | --- |
@@ -179,6 +178,14 @@ are authoritative), it contains these H2 state sections:
 Empty sections are written with a `(none yet)` placeholder rather than
 omitted. Section *order* is presentation choice; section *membership* is the
 state machine.
+
+**No hand-drawn dependency graph.** Each task block's `Dependencies:` field is
+the sole source of truth for the task graph; intro prose does not embed a
+hand-drawn or ASCII rendering of it. A drawn graph is derived content that
+drifts from the `Dependencies:` lines the moment a block is added or an edge
+changes (observed on first authoring). When a reader wants the graph, the
+on-demand `scripts/spec-graph.sh` view renders it from the `Dependencies:`
+lines, so no committed copy has to be kept fresh.
 
 **Task block format.** A task is an H3 block carrying five definition fields:
 
@@ -222,6 +229,20 @@ and are excluded from the content anchor:
   the backend's worker handle (`window=<name>` for tmux, an agent id for
   subagents; omitted for print, which has no process until the human launches
   one).
+
+**The completion annotation is normative.** The
+`Completed · PR #<n> merged <YYYY-MM-DD>` value in the `Status:` list above is
+the one **normative** entry in that otherwise-illustrative set. It is the
+canonical completion annotation, stamped by the level-triggered reconcile in
+the same write that places a block in `## Completed` from merged-PR evidence —
+the named refresh owner, so completion text is regenerated, never hand-copied.
+With no remote configured it degrades to exactly one of two pinned outputs: the
+date-only form `Completed · merged <YYYY-MM-DD>` (from branch evidence), or the
+annotation left unstamped when even the date is unknown. Never an invented PR
+number, and never a third free-form variant — the two degradation outputs are
+exactly these, so the two-coexisting-styles drift cannot reappear. (Free-form
+phase vocabulary elsewhere in the `Status:` list stays illustrative; only the
+completion annotation is pinned.)
 
 **Deferred entries.** A deferral is a bullet (not a task block) carrying a
 bolded title, the rationale, a structured gate, a confidence level where the
@@ -361,6 +382,16 @@ re-reading the spec. Required structure:
 9. **Amendment log:** appended amendment, re-walkthrough, and re-anchor
    entries, each carrying a sign-off record (below).
 
+**Cite derived figures; do not copy them.** Where a brief section reports a
+figure derived from the bundle — a task count, a REQ tally, a field or ID
+list, the parallelism and critical-path summary of section 6 — it cites the
+source file or section it is derived from rather than transcribing the value. A
+copied tally drifts from its source the moment the bundle changes (observed
+across three brief sections); citing the source keeps the brief and the bundle
+in agreement. A recompute checker for these figures is deferred as
+disproportionate — the convention removes the copied figure rather than
+validating it.
+
 ## Sign-off records and content anchors
 
 Every brief sign-off, amendment, re-walkthrough, and self-re-anchor ends with
@@ -427,9 +458,9 @@ The extraction maps `tasks.md` to a normalized byte stream:
 
 1. **Select task blocks.** A task block starts at a line matching
    `^### Task <id>` and ends at the next H2/H3 heading or end of file.
-   Everything outside task blocks (header, intro prose, dependency-graph
-   view, section headings, Deferred / Out-of-scope bullets, placeholders) is
-   excluded.
+   Everything outside task blocks (header, intro prose, any pasted graph
+   rendering, section headings, Deferred / Out-of-scope bullets, placeholders)
+   is excluded.
 2. **Keep definition lines only.** Within a block, keep: the heading line,
    and the five definition field bullets — `Deliverables`, `Done when`,
    `Dependencies`, `Citations`, `Estimated effort` — each with its indented
@@ -572,3 +603,15 @@ This document is format-version 1. Changes to the format bump the version;
 bundles keep working under the version they declare, and the validator
 applies the rules for the declared version. A bundle migrates by updating
 its `Format-version:` line and conforming to the new version's rules.
+
+Guidance refinements that do not change the format's rules are recorded here
+without a version bump — a bundle authored to version 1 stays conformant:
+
+- 2026-07-10 — Derived-content authoring guidance. The `tasks.md` guidance no
+  longer suggests a hand-drawn dependency graph in intro prose (`Dependencies:`
+  lines are the sole source of truth; `scripts/spec-graph.sh` renders the
+  on-demand view); the kickoff-brief guidance gains the cite-don't-copy
+  convention for derived figures; and the
+  `Completed · PR #<n> merged <YYYY-MM-DD>` completion annotation is promoted
+  from illustrative to normative, with its single degraded form
+  `Completed · merged <YYYY-MM-DD>` and the unstamped fallback pinned.
