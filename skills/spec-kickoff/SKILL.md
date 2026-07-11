@@ -395,7 +395,7 @@ not walked.
    line) only when the human classified the entire delta expression-only.
 5. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` containing the brief, the four spec files,
-   and the observations-log append when one rode this run —
+   and the observation fragment when one rode this run —
    first activation: `feat(spec): <spec> kickoff, brief + Ready flip`;
    later events: `docs(spec): <spec> <event>` (e.g.
    `delta re-walkthrough`, `amendment`), the same shapes the PR titles

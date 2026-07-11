@@ -103,8 +103,8 @@ Each iteration:
    iteration counter, and loop.
 
 Finding fixes commit inside the pass per the `gate-wiring` commit
-discipline (loop-level writes, such as observation appends, take their own
-chore commit at the iteration boundary):
+discipline (loop-level writes, such as observation fragment writes, take their
+own chore commit at the iteration boundary):
 Needs-sign-off items one commit per finding with the `[pending-sign-off]`
 subject marker, action items batched per iteration, regression tests landing with the
 fix they prove. Polish never amends, squashes, rebases, or force-pushes; each

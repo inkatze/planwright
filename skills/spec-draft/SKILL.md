@@ -302,15 +302,18 @@ committed prose neutralizes them.
 ## Completion
 
 1. **Write the bundle** at `specs/<spec>/` in the spec worktree (plus the
-   observations-log archive trim, when entries were consumed).
+   `_observations` consumption writes — fragment moves into `archive/` and
+   any frozen-legacy in-place annotations — when entries were consumed).
 2. **Neutralize machine-local references (REQ-D1.1, REQ-D1.2, D-4).** Before
    committing, rewrite every `[[name]]` memory-link token in would-be-committed
    spec prose into plain prose plus a `## Sources` pointer. A `[[name]]` link
    resolves only against the authoring session's private memory store, never
    for a reader of the committed bundle, so state the fact in prose and cite the
-   source: for an observations-log reference the sanctioned form is a `## Sources`
-   entry naming the log line (no new citation syntax — the existing Source kind
-   covers it). When the prose must *mention* the token syntax itself (a spec
+   source: a recorded observation carries a fragment UID and is cited as
+   `obs:<uid>` (the Observation citation kind — see Archive-on-consume above),
+   while any other machine-local reference — including an unconsumed frozen
+   legacy line, which has no UID — becomes a `## Sources` entry naming the
+   source. When the prose must *mention* the token syntax itself (a spec
    about this rule does), wrap the mention in an inline code span (`` `[[name]]` ``)
    so it reads as documentation, not a live link. This is mechanically
    backstopped: `check:memory-links` (`scripts/check-memory-links.sh`, under
@@ -319,7 +322,7 @@ committed prose neutralizes them.
    skips this step fails CI rather than shipping an unresolvable reference.
 3. **Commit** (D-41) when `commit_on_draft` is true: one commit on
    `planwright/<spec>/spec` containing the four files and the
-   `_observations` trim, message `feat(spec): draft specs/<spec> bundle`
+   `_observations` consumption writes, message `feat(spec): draft specs/<spec> bundle`
    (extend mode: `feat(spec): extend specs/<spec> — <summary>`). New commits
    only — never force-push, amend, squash, or rebase (REQ-J1.4). Opt-out
    set: leave the work uncommitted and say so explicitly.
