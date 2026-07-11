@@ -147,6 +147,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1, 2, 3, 4
 - **Citations:** D-8 · REQ-E1.3, REQ-C1.1, REQ-C1.2, REQ-D1.2
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-10
 
 ### Task 6 — Migration cutover (dedup, freeze, dirs)
 
@@ -175,6 +176,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 2, 5
 - **Citations:** D-5, D-9 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-10
 
 ## In progress
 
