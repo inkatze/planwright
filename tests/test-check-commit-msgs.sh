@@ -214,6 +214,16 @@ assert "unknown --marker context is a usage error" 2 $?
 printf 'feat: x\n' | /bin/bash "$CHECKER" --marker --stdin >/dev/null 2>&1
 assert "--marker consuming the source token is a usage error" 2 $?
 
+# 8g. Canonical placement is space-anchored: the end-of-subject match requires
+#     a single separating space. A marker glued to the description (no space)
+#     and a marker with trailing whitespace both fail — these pin the
+#     `*" $marker"` end-anchor so a future loosening to `*"$marker"` (which
+#     would silently accept mid-glued markers) is caught.
+marker_subj "feat(gate): resolve the finding[pending-sign-off]"
+assert "subject: marker glued to description (no space) fails" 1 $?
+marker_subj "feat(gate): resolve the finding [pending-sign-off] "
+assert "subject: marker with trailing whitespace fails" 1 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
