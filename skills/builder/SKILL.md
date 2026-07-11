@@ -122,9 +122,10 @@ design / Needs-human-judgment decision and route it into the deferral
 mechanism as a `GATE(when: …)` entry per `gate-wiring`, with the considerations
 the catalog names recorded. Domains overlapping the hard-disqualifier zones
 (auth, secrets, migrations) always escalate. A decision in a domain the
-catalog does not cover yet writes an observation to
-`specs/_observations/opportunities.md` (the catalog grows through the drain
-loop). This is the rule that keeps the builder from flattening a load-bearing
+catalog does not cover yet records an observation fragment through the
+shared helper (`scripts/obs-record.sh`; the fragment lands under
+`specs/_observations/entries/` — the catalog grows through the drain loop).
+This is the rule that keeps the builder from flattening a load-bearing
 decision into a checkbox.
 
 ## Lifecycle wiring (REQ-G1.4)
@@ -168,10 +169,12 @@ categories, breadth dimensions, the extension model), `decision-domains`
 (triggers and dispositions), and `engineering-decisions` (the no-flattening
 rule). If a concept this skill names has changed meaning, gained or lost a
 step, or moved between docs — or if `config/guard-catalog.yaml` has grown
-guards this skill's prose does not reflect — append a drift observation to
-`specs/_observations/opportunities.md` (format: `- <YYYY-MM-DD> [<repo>]
-<observation>`, prefixed `skill-drift(builder):`; in repositories without
-`specs/`, surface the drift to the user instead of writing the log), commit
-the append as its own chore commit, and tell the user what drifted. Do not
-edit this skill or the doctrine docs to resolve the drift; the observations
-log's reader (`/spec-draft`) owns folding drift into spec amendments.
+guards this skill's prose does not reflect — record a drift observation
+through the shared helper (`scripts/obs-record.sh --slug skill-drift
+--scope <repo> --text 'skill-drift(builder): <what>'` — the entry text keeps
+the `skill-drift(...)` prefix; in repositories without `specs/`, surface the
+drift to the user instead of recording it), commit the fragment as its own
+chore commit, and tell the user what drifted; surface a non-zero helper exit
+rather than silently dropping the observation. Do not edit this skill or the
+doctrine docs to resolve the drift; the accumulator's canonical reader
+(`/spec-draft`) owns folding drift into spec amendments.

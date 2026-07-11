@@ -482,12 +482,14 @@ written.
 
 When anything outside this kickoff's scope surfaces during the walk
 (doctrine gaps, tooling gaps, recurring friction, an uncatalogued decision
-domain), append one line per item to
-`specs/_observations/opportunities.md` — format
-`- <YYYY-MM-DD> [<repo>] <observation>` — and commit the append (with the
-sign-off commit, or as its own chore commit). Do not act on observations
-during the kickoff; they are seed material for `/spec-draft`, the log's
-canonical reader.
+domain), record one fragment per item through the shared helper —
+`scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
+(resolved under the planwright root; it composes the one-line entry form
+and writes one file under the host repo's `specs/_observations/entries/`) —
+and commit the fragment (with the sign-off commit, or as its own chore
+commit); surface a non-zero helper exit rather than silently dropping the
+observation. Do not act on observations during the kickoff; they are seed
+material for `/spec-draft`, the accumulator's canonical reader.
 
 ## Maintenance
 
@@ -498,10 +500,12 @@ resolved doctrine docs listed above (REQ-B3.2, D-42) — especially
 `spec-format` (brief structure, sign-off record format, sanctioned anchor
 command forms, amendment ritual) and `decision-domains` (lifecycle wiring).
 If a concept this skill names has changed meaning, gained or lost a step,
-or moved between docs, append a drift observation to
-`specs/_observations/opportunities.md` (format above, prefixed
-`skill-drift(spec-kickoff):`; in repositories without `specs/`, surface
-the drift to the user instead of writing the log), commit the append as
-its own chore commit, and tell the user what drifted. Do not edit this
-skill or the doctrine docs to resolve the drift; the observation log's
-reader owns folding drift into spec amendments.
+or moved between docs, record a drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(spec-kickoff): <what>'` — the entry text keeps the
+`skill-drift(...)` prefix; in repositories without `specs/`, surface the
+drift to the user instead of recording it), commit the fragment as its own
+chore commit, and tell the user what drifted; surface a non-zero helper
+exit rather than silently dropping the observation. Do not edit this skill
+or the doctrine docs to resolve the drift; the accumulator's canonical
+reader (`/spec-draft`) owns folding drift into spec amendments.
