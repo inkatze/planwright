@@ -108,8 +108,9 @@ chore commit at the iteration boundary):
 Needs-sign-off items one commit per finding with the `[pending-sign-off]`
 subject marker, action items batched per iteration, regression tests landing with the
 fix they prove. Before committing a marked finding, self-lint the subject with
-`scripts/check-commit-msgs.sh --marker subject --stdin` so the marker sits at
-the canonical end-of-subject position (`gate-wiring`); a mis-placed marker
+`scripts/check-commit-msgs.sh --marker subject --stdin` (under the resolved
+planwright root) so the marker sits at the canonical end-of-subject position
+(`gate-wiring`); a mis-placed marker
 caught here is reworded before it reaches history, never after. Polish never
 amends, squashes, rebases, or force-pushes; each iteration's commits stand as
 the per-iteration audit trail.

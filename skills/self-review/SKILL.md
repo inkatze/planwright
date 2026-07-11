@@ -165,8 +165,9 @@ this skill executes:
 - Needs-sign-off items are applied on the branch, one commit per finding
   with the `[pending-sign-off]` subject marker, and entered in the
   pending-sign-off checklist. Before committing, self-lint the subject with
-  `scripts/check-commit-msgs.sh --marker subject --stdin` so the marker sits
-  at the canonical end-of-subject position (`gate-wiring`), reworded now
+  `scripts/check-commit-msgs.sh --marker subject --stdin` (under the resolved
+  planwright root) so the marker sits at the canonical end-of-subject position
+  (`gate-wiring`), reworded now
   rather than after it reaches history.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
