@@ -225,6 +225,16 @@ assert "subject: marker glued to description (no space) fails" 1 $?
 marker_subj "feat(gate): resolve the finding [pending-sign-off] "
 assert "subject: marker with trailing whitespace fails" 1 $?
 
+# 8h. --marker is an emit-time guard and requires --stdin: pairing it with a
+#     git range is a usage error, never a range scan. A range-time marker check
+#     would scan history and recreate the unfixable-red trap REQ-C1.3 forbids,
+#     so the CLI refuses the combination outright. Reuse the fixture repo from
+#     section 6.
+(cd "$tmp" && /bin/bash "$CHECKER" --marker subject "HEAD~1..HEAD" >/dev/null 2>&1)
+assert "--marker subject with a git range is a usage error" 2 $?
+(cd "$tmp" && /bin/bash "$CHECKER" --marker title "HEAD~1..HEAD" >/dev/null 2>&1)
+assert "--marker title with a git range is a usage error" 2 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

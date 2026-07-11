@@ -26,11 +26,14 @@
 # mid-subject marker must never redden the range lint — REQ-C1.3).
 #
 # Usage:
-#   check-commit-msgs.sh [--max-length N] [--marker subject|title] <git-range>
+#   check-commit-msgs.sh [--max-length N] <git-range>
 #                                      lint `git log <range>`
 #                                      (CI passes the PR's base..head range)
 #   check-commit-msgs.sh [--max-length N] [--marker subject|title] --stdin
 #                                      one subject per line
+# --marker is an emit-time guard and requires --stdin: pairing it with a
+# <git-range> is a usage error (a range-time marker check would recreate the
+# unfixable-red trap REQ-C1.3 forbids).
 #
 # Exit codes: 0 all subjects conform, 1 violation found, 2 usage error
 # (including an empty range/input: an empty PR range upstream should be
@@ -47,7 +50,7 @@ export LC_ALL
 unset CDPATH
 
 usage() {
-  echo "usage: check-commit-msgs.sh [--max-length N] [--marker subject|title] (<git-range> | --stdin)" >&2
+  echo "usage: check-commit-msgs.sh [--max-length N] (<git-range> | [--marker subject|title] --stdin)" >&2
   exit 2
 }
 
@@ -80,6 +83,13 @@ while [ "$#" -gt 0 ]; do
 done
 
 [ -n "$source" ] || usage
+
+# --marker is an emit-time guard, meaningful only against --stdin input. Pairing
+# it with a git range is a usage error: a range-time marker check would scan
+# history and recreate the unfixable-red trap REQ-C1.3 forbids (design D-3).
+if [ -n "$marker_ctx" ] && [ "$source" != "--stdin" ]; then
+  usage
+fi
 
 if [ "$source" = "--stdin" ]; then
   subjects="$(cat)"
