@@ -327,9 +327,12 @@ lane_lacks SATISFIED '- Gate: -'
 # 7. The sweep is read-only over everything under the root.
 [ "$before" = "$after" ] || fail "evaluator modified a swept file"
 
-# 8. Observations stats: count and oldest-entry age (2026-06-01 → 11 days).
-has 'unmined: 3'
-has 'oldest: 2026-06-01 (11 days)'
+# 8. Observations stats: the reworked line names the legacy surface, the count,
+#    and the oldest-entry age (2026-06-01 → 11 days). has() is a grep -F
+#    substring match; asserting the full line as a fixed string is specific
+#    enough that `unmined: 30` cannot satisfy it, since the trailing
+#    ` (legacy: 3) - oldest: ...` disambiguates the count.
+has 'unmined: 3 (legacy: 3) - oldest: 2026-06-01 (11 days)'
 
 # 9. Low-confidence first within a lane, independent of file order (the
 #    [low] entry is third in the file); substring and gate-text matches
@@ -380,7 +383,7 @@ printf '%s\n' '- 2027-01-01 [demo] From the future.' \
   >"$tmp/specs2/_observations/opportunities.md"
 out2=$("$drain" --today 2026-06-12 "$tmp/specs2") \
   || fail "future-dated observations broke the sweep"
-printf '%s\n' "$out2" | grep -F 'oldest: 2027-01-01 (0 days)' >/dev/null \
+printf '%s\n' "$out2" | grep -F 'unmined: 1 (legacy: 1) - oldest: 2027-01-01 (0 days)' >/dev/null \
   || fail "future-dated observation age not clamped at zero"
 
 # 14. Permission failures are surfaced, not silently skipped (skipped when
@@ -509,10 +512,8 @@ printf '%s\n' '- 2026-00-00 [demo] Invalid date.' \
   >"$tmp/specs9/_observations/opportunities.md"
 out9=$("$drain" --today 2026-06-12 "$tmp/specs9") \
   || fail "invalid-date observation broke the sweep"
-printf '%s\n' "$out9" | grep -F 'unmined: 2' >/dev/null \
-  || fail "invalid-dated observation not counted as unmined"
-printf '%s\n' "$out9" | grep -F 'oldest: 2026-06-10 (2 days)' >/dev/null \
-  || fail "calendar-invalid observation date polluted the oldest-entry age"
+printf '%s\n' "$out9" | grep -F 'unmined: 2 (legacy: 2) - oldest: 2026-06-10 (2 days)' >/dev/null \
+  || fail "invalid-dated legacy line: expected count-2 with the valid date as oldest"
 
 # 20. A NUL byte in tasks.md cannot silently hide a gate: awk truncates
 #     records at NUL, so the file is flagged as an error instead of
@@ -587,5 +588,242 @@ printf '%s\n' "$out13" | grep -F 'requirements.md missing' >/dev/null \
   || fail "missing requirements.md not noted"
 printf '%s\n' "$out13" | grep '^MALFORMED' | grep -F 'Needs kappa' >/dev/null \
   || fail "status atom against a status-less spec must stay malformed"
+
+# 24. Observation surfacing derives from the fragment store plus the frozen
+#     legacy file's unconsumed lines (REQ-C1.3, D-4): the count is N+M, the
+#     oldest age spans both surfaces (here the oldest is a legacy line), and
+#     both surfaces are named while the legacy file still holds entries.
+mkdir -p "$tmp/specs20/_observations/entries"
+printf -- '- 2026-06-10 [planwright] first live fragment\n' \
+  >"$tmp/specs20/_observations/entries/2026-06-10-alpha-11111111.md"
+printf -- '- 2026-06-20 [planwright] second live fragment\n' \
+  >"$tmp/specs20/_observations/entries/2026-06-20-beta-22222222.md"
+printf '%s\n' '# Observations log' '' \
+  '- 2026-06-01 [planwright] oldest legacy line.' \
+  '- 2026-06-05 [planwright] middle legacy line.' \
+  '- 2026-06-08 [planwright] newest legacy line.' \
+  >"$tmp/specs20/_observations/opportunities.md"
+out20=$("$drain" --today 2026-07-01 "$tmp/specs20") \
+  || fail "fragment+legacy surfacing broke the sweep"
+printf '%s\n' "$out20" | grep -F 'unmined: 5 (fragments: 2, legacy: 3)' >/dev/null \
+  || fail "combined count/surfaces not reported: $(printf '%s\n' "$out20" | grep -F unmined)"
+printf '%s\n' "$out20" | grep -F 'oldest: 2026-06-01 (30 days)' >/dev/null \
+  || fail "oldest age across both surfaces incorrect"
+
+# 25. Skip-and-warn and stuck consumes (REQ-C1.3, REQ-C1.2): a grammar-invalid
+#     name and a shape-invalid fragment are excluded from the count and named;
+#     a consumed-but-unmoved fragment (Consumed-by present in entries/) is
+#     excluded and surfaced as a stuck consume; the freeze header and non-entry
+#     prose are never counted.
+mkdir -p "$tmp/specs21/_observations/entries"
+printf -- '- 2026-06-15 [planwright] the one live fragment\n' \
+  >"$tmp/specs21/_observations/entries/2026-06-15-live-aaaaaaaa.md"
+printf -- '- 2026-06-10 [planwright] annotated but not moved\nConsumed-by: specs/foo (2026-07-01)\n' \
+  >"$tmp/specs21/_observations/entries/2026-06-10-stuck-bbbbbbbb.md"
+printf -- '- 2026-06-12 [planwright] fine text\n' \
+  >"$tmp/specs21/_observations/entries/not-a-valid-fragment-name.md"
+printf 'this first line is not the entry form\n' \
+  >"$tmp/specs21/_observations/entries/2026-06-13-shape-cccccccc.md"
+printf '%s\n' '# Observations log' '' \
+  'This is prose, not an entry, and must never be counted.' '' \
+  '- 2026-06-04 [planwright] the one unconsumed legacy line.' \
+  >"$tmp/specs21/_observations/opportunities.md"
+out21=$("$drain" --today 2026-07-01 "$tmp/specs21") \
+  || fail "skip-and-warn fixture broke the sweep"
+printf '%s\n' "$out21" | grep -F 'unmined: 2 (fragments: 1, legacy: 1)' >/dev/null \
+  || fail "invalid/stuck fragments or prose leaked into the count: $(printf '%s\n' "$out21" | grep -F unmined)"
+printf '%s\n' "$out21" | grep -F 'stuck consume' | grep -F '2026-06-10-stuck-bbbbbbbb.md' >/dev/null \
+  || fail "stuck consume not surfaced and named"
+printf '%s\n' "$out21" | grep -F 'skipped invalid fragment' | grep -F 'not-a-valid-fragment-name.md' >/dev/null \
+  || fail "grammar-invalid fragment not named as skipped"
+printf '%s\n' "$out21" | grep -F 'skipped invalid fragment' | grep -F '2026-06-13-shape-cccccccc.md' >/dev/null \
+  || fail "shape-invalid fragment not named as skipped"
+
+# 26. Fragments-only surfacing, zero state, and null-safety (REQ-C1.3): a fully
+#     consumed legacy file leaves only the fragment surface named; a tree with
+#     zero unmined entries reports the zero count with no age line; and an
+#     observations root with neither fragments nor a legacy file is null-safe.
+mkdir -p "$tmp/specs22a/_observations/entries"
+printf -- '- 2026-06-01 [planwright] the only live fragment\n' \
+  >"$tmp/specs22a/_observations/entries/2026-06-01-solo-11112222.md"
+printf '%s\n' \
+  '- 2026-05-15 [planwright] fully consumed — consumed-by: specs/x (2026-06-01)' \
+  >"$tmp/specs22a/_observations/opportunities.md"
+out22a=$("$drain" --today 2026-07-01 "$tmp/specs22a") \
+  || fail "fragments-only fixture broke the sweep"
+printf '%s\n' "$out22a" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
+  || fail "consumed legacy should leave fragments-only surfacing"
+printf '%s\n' "$out22a" | grep '^unmined:' | grep -F 'legacy:' >/dev/null \
+  && fail "a fully consumed legacy file must not be named as a surface"
+
+mkdir -p "$tmp/specs22b/_observations/entries"
+printf '%s\n' \
+  '- 2026-05-15 [planwright] consumed — consumed-by: specs/x (2026-06-01)' \
+  >"$tmp/specs22b/_observations/opportunities.md"
+out22b=$("$drain" --today 2026-07-01 "$tmp/specs22b") \
+  || fail "zero-unmined fixture broke the sweep"
+zline=$(printf '%s\n' "$out22b" | grep '^unmined:') \
+  || fail "zero-unmined fixture printed no unmined line"
+[ "$zline" = "unmined: 0" ] || fail "zero unmined must be a bare 'unmined: 0', got: $zline"
+printf '%s\n' "$out22b" | grep -F 'oldest:' >/dev/null \
+  && fail "zero unmined must omit the age line"
+
+mkdir -p "$tmp/specs22c/_observations"
+out22c=$("$drain" --today 2026-07-01 "$tmp/specs22c") \
+  || fail "null-safe observations fixture broke the sweep"
+printf '%s\n' "$out22c" | grep -F 'unmined: 0' >/dev/null \
+  || fail "an observations root with no fragments and no legacy file is not null-safe"
+
+# 27. Content is data only (REQ-D1.3, D-7): a fragment and a legacy line whose
+#     content carries shell metacharacters and control bytes are read as data —
+#     never evaluated (no canary is created) — the live fragment is still
+#     counted, and the report carries no non-printable bytes.
+mkdir -p "$tmp/specs23/_observations/entries"
+# shellcheck disable=SC2016 # the unexpanded $(...)/backticks ARE the fixture
+printf -- '- 2026-06-01 [planwright] hostile $(touch %s/CANARYD) `touch %s/CANARYE` \033[31m x\n' \
+  "$tmp" "$tmp" >"$tmp/specs23/_observations/entries/2026-06-01-hostile-deadbeef.md"
+# shellcheck disable=SC2016
+printf -- '- 2026-06-02 [planwright] legacy hostile $(touch %s/CANARYG) \007 end\n' \
+  "$tmp" >"$tmp/specs23/_observations/opportunities.md"
+out23=$("$drain" --today 2026-07-01 "$tmp/specs23") \
+  || fail "hostile-content fixture broke the sweep"
+for canary in CANARYD CANARYE CANARYG; do
+  find "$tmp" -name "$canary" | grep . >/dev/null \
+    && fail "hostile observation content was evaluated: $canary created"
+done
+printf '%s\n' "$out23" | grep -F 'unmined: 2 (fragments: 1, legacy: 1)' >/dev/null \
+  || fail "hostile-but-valid fragment/legacy line not counted as data"
+printf '%s' "$out23" | tr -d '\012' | LC_ALL=C grep '[^ -~]' >/dev/null \
+  && fail "hostile observation content leaked non-printable bytes into the report"
+
+# 28. Oldest age can come from the FRAGMENT surface (REQ-C1.3): a fragment
+#     older than every legacy line becomes the reported oldest, exercising the
+#     fragment-date age derivation and the cross-surface min branch (the other
+#     obs fixtures all take their oldest from the legacy surface).
+mkdir -p "$tmp/specs24/_observations/entries"
+printf -- '- 2026-05-01 [planwright] the oldest, a fragment\n' \
+  >"$tmp/specs24/_observations/entries/2026-05-01-old-11112222.md"
+printf '%s\n' '# Observations log' '' \
+  '- 2026-06-01 [planwright] a newer legacy line.' \
+  >"$tmp/specs24/_observations/opportunities.md"
+out24=$("$drain" --today 2026-07-01 "$tmp/specs24") \
+  || fail "fragment-oldest fixture broke the sweep"
+printf '%s\n' "$out24" | grep -F 'unmined: 2 (fragments: 1, legacy: 1) - oldest: 2026-05-01 (61 days)' >/dev/null \
+  || fail "oldest age not derived from the older fragment surface: $(printf '%s\n' "$out24" | grep unmined)"
+
+# 29. obs_safe strips control bytes — including a NEWLINE — from a fragment name
+#     before it is surfaced (REQ-D1.3, D-7). A newline is the byte the final
+#     report strip keeps (for structure), so only obs_safe guards it: an
+#     invalid fragment name carrying an embedded newline must surface as ONE
+#     row, never forging a second, and the report must carry no non-printables.
+mkdir -p "$tmp/specs25/_observations/entries"
+forged=$(printf '2026-01-01-a\nFORGEDROW-deadbeef.md')
+: >"$tmp/specs25/_observations/entries/$forged"
+out25=$("$drain" --today 2026-07-01 "$tmp/specs25") \
+  || fail "control-byte-name fixture broke the sweep"
+rows=$(printf '%s\n' "$out25" | grep -c 'skipped invalid fragment')
+[ "$rows" -eq 1 ] \
+  || fail "obs_safe did not strip the newline; the name forged $rows rows"
+printf '%s\n' "$out25" | grep -F 'FORGEDROW' | grep -qv 'skipped invalid fragment' \
+  && fail "the post-newline name fragment surfaced as its own forged row"
+printf '%s' "$out25" | tr -d '\012' | LC_ALL=C grep '[^ -~]' >/dev/null \
+  && fail "a control byte in a fragment name leaked into the report"
+
+# 30. Drain and render agree on which legacy lines are entries: a malformed
+#     `- <date> [scope` (no closing bracket) is an entry to neither surface, so
+#     drain must not count it (the entry-form recognition is shared).
+mkdir -p "$tmp/specs26/_observations"
+printf '%s\n' '# Observations log' '' \
+  '- 2026-06-01 [planwright] a real entry line.' \
+  '- 2026-06-02 [malformed-no-close' \
+  >"$tmp/specs26/_observations/opportunities.md"
+out26=$("$drain" --today 2026-07-01 "$tmp/specs26") \
+  || fail "malformed-legacy fixture broke the sweep"
+printf '%s\n' "$out26" | grep -F 'unmined: 1 (legacy: 1)' >/dev/null \
+  || fail "a malformed legacy line (no closing bracket) was miscounted as an entry"
+
+# 31. A symlinked observations root is not traversed (D-7): the sweep notes it
+#     and reports zero rather than reading the store through the symlink.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs27real/entries"
+  printf -- '- 2020-01-01 [planwright] would leak if traversed\n' \
+    >"$tmp/specs27real/entries/2020-01-01-leak-abcdabcd.md"
+  mkdir -p "$tmp/specs27"
+  ln -s "$tmp/specs27real" "$tmp/specs27/_observations"
+  out27=$("$drain" --today 2026-07-01 "$tmp/specs27") \
+    || fail "symlinked observations root broke the sweep"
+  printf '%s\n' "$out27" | grep -F 'observations root is a symlink' >/dev/null \
+    || fail "a symlinked observations root was not noted"
+  printf '%s\n' "$out27" | grep -F '2020-01-01' >/dev/null \
+    && fail "the sweep read the store through a symlinked observations root"
+fi
+
+# 32. An unreadable fragment is excluded and named, never an abort (REQ-C1.3,
+#     D-4). Regression (F1): the fragment loop lacked an -r guard, so the read
+#     open failed; under a strict-POSIX /bin/sh (dash, the CI shell) that
+#     aborts the whole sweep under set -e - no report emitted. Skip runs as
+#     root (mode 000 is still readable). The sweep must still report, count
+#     only the readable fragment, and name the unreadable one.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs28/_observations/entries"
+  printf -- '- 2026-09-01 [planwright] readable and counted\n' \
+    >"$tmp/specs28/_observations/entries/2026-09-01-good-aaaaaaaa.md"
+  printf -- '- 2026-09-02 [planwright] cannot be read\n' \
+    >"$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  chmod 000 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  drc=0
+  out28=$("$drain" --today 2026-09-10 "$tmp/specs28") || drc=$?
+  chmod 644 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+  [ "$drc" -eq 0 ] \
+    || fail "an unreadable fragment aborted the whole drain sweep (exit $drc)"
+  printf '%s\n' "$out28" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
+    || fail "an unreadable fragment was counted, or the readable one was lost: $(printf '%s\n' "$out28" | grep -F unmined)"
+  printf '%s\n' "$out28" | grep -F 'unreadable fragment' | grep -F '2026-09-02-noread-bbbbbbbb.md' >/dev/null \
+    || fail "the unreadable fragment was not named in the report"
+
+  # Lock the CI-shell portability regression directly under dash.
+  if command -v dash >/dev/null 2>&1; then
+    chmod 000 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+    drc=0
+    dash "$drain" --today 2026-09-10 "$tmp/specs28" >/dev/null 2>&1 || drc=$?
+    chmod 644 "$tmp/specs28/_observations/entries/2026-09-02-noread-bbbbbbbb.md"
+    [ "$drc" -eq 0 ] \
+      || fail "an unreadable fragment aborts the drain sweep under dash (exit $drc)"
+  fi
+fi
+
+# 33. A dangling symlink fragment (target missing) is named as invalid, not
+#     silently skipped (D-7). `-e` is false for a broken symlink, so the
+#     enumeration must treat it as present (`|| -L`) to name it, matching
+#     check-obs.sh and scripts/obs-render.sh.
+mkdir -p "$tmp/specs29/_observations/entries"
+printf -- '- 2026-09-05 [planwright] a real live fragment\n' \
+  >"$tmp/specs29/_observations/entries/2026-09-05-live-aaaaaaaa.md"
+ln -s "$tmp/specs29-missing-target.md" \
+  "$tmp/specs29/_observations/entries/2026-09-06-dangle-bbbbbbbb.md"
+out29=$("$drain" --today 2026-09-10 "$tmp/specs29") \
+  || fail "dangling-symlink fixture broke the sweep"
+printf '%s\n' "$out29" | grep -F 'unmined: 1 (fragments: 1)' >/dev/null \
+  || fail "a dangling symlink was counted, or the live fragment was lost: $(printf '%s\n' "$out29" | grep -F unmined)"
+printf '%s\n' "$out29" | grep -F 'skipped invalid fragment' | grep -F '2026-09-06-dangle-bbbbbbbb.md' >/dev/null \
+  || fail "a dangling symlink fragment was silently skipped instead of named"
+
+# 34. A symlinked entries/ directory is surfaced as a note, not silently
+#     treated as "no fragments" (D-7). obs-render.sh already warns on a
+#     symlinked fragment directory and drain already notes a symlinked root,
+#     so drain must note a symlinked entries/ too rather than hiding a
+#     misconfigured store behind unmined: 0.
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir -p "$tmp/specs30/_observations" "$tmp/specs30-realentries"
+  printf -- '- 2020-01-01 [planwright] would leak if traversed\n' \
+    >"$tmp/specs30-realentries/2020-01-01-leak-abcdabcd.md"
+  ln -s "$tmp/specs30-realentries" "$tmp/specs30/_observations/entries"
+  out30=$("$drain" --today 2026-09-10 "$tmp/specs30") \
+    || fail "symlinked-entries fixture broke the sweep"
+  printf '%s\n' "$out30" | grep -F 'entries/ is a symlink' >/dev/null \
+    || fail "a symlinked entries/ directory was not surfaced as a note"
+  printf '%s\n' "$out30" | grep -F '2020-01-01' >/dev/null \
+    && fail "the sweep read the store through a symlinked entries/ directory"
+fi
 
 echo "PASS: test-drain-gates.sh"

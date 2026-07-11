@@ -37,7 +37,8 @@ definitions govern wherever this skill names a concept:
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder
 - `gate-wiring` — routing order, commit discipline, checklist and audit
-  formats, ladder procedure, pause protocol, loop-end handoff
+  formats, ladder procedure, pause protocol, loop-end handoff, PR-body
+  assembly
 - `research-rigor` — the resolution ladder's research rung: source
   hierarchy, recency discipline, antipattern check
 - `refactor-instinct` (review mode), `security-posture` (artifact
@@ -219,14 +220,17 @@ nothing is left behind unpushed.
    what failed and stop.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
    otherwise `gh pr create --draft` with an explicit `--title` and `--body`
-   (headless `gh` prompts or fails without them). The body carries the
-   audit-record sections above (lens-coverage table, four tables, declined
-   log, pending-sign-off checklist, pass summary). On update, regenerate
-   those sections in place rather than appending, and never overwrite body
-   content outside them (handwritten notes survive); re-runs never
-   duplicate entries. The PR is always a draft; never mark it
-   ready and never merge (the draft→ready flip is the human's universal
-   review gate).
+   (headless `gh` prompts or fails without them). Assemble the body per the
+   **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
+   the audit record collapsed in `<details>`, prose never hard-wrapped, the
+   structure preserved on updates) — the single normative home for the layout
+   (D-2), which this pass cites rather than copies. The collapsed audit record
+   is this pass's own: the lens-coverage table, the four tables, the declined
+   log, the pending-sign-off checklist, and the pass summary. On update,
+   regenerate the generated sections in place rather than appending, and never
+   overwrite body content outside them (handwritten notes survive); re-runs
+   never duplicate entries. The PR is always a draft; never mark it ready and
+   never merge (the draft→ready flip is the human's universal review gate).
 
 ## Observations
 

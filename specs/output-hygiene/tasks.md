@@ -28,6 +28,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-2 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-10
 
 ### Task 4 — Marker canonicalization and emit-time guard
 

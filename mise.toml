@@ -85,6 +85,10 @@ run = "/bin/bash scripts/check-ledger.sh"
 description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
 run = "/bin/bash scripts/check-obs.sh"
 
+[tasks."obs:log"]
+description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
+run = "/bin/sh scripts/obs-render.sh"
+
 [tasks."scan:secrets"]
 description = "gitleaks over the full git history (redacted so a found secret never lands in logs)"
 run = "gitleaks detect --no-banner --redact --source ."
