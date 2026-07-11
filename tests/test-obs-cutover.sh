@@ -23,6 +23,10 @@
 #   5. Post-migration guard (REQ-E1.1): scripts/check-obs.sh exits 0 over the
 #      real specs/_observations tree (null-safe while the on-demand fragment
 #      directories are still absent).
+#   6. Dedup invariant (REQ-E1.1): no live opportunities.md entry, once any
+#      consumed-by annotation is stripped, exactly matches an already-consumed
+#      archive.md entry — i.e. no resurrected duplicate survives or is
+#      reintroduced. This is the standing guard over Task 6's dedup deliverable.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor) and /bin/sh.
 set -eu
@@ -92,5 +96,25 @@ grep -q 'obs-consume\.sh' "$root/skills/spec-draft/SKILL.md" \
 if ! /bin/sh "$root/scripts/check-obs.sh" --obs-dir "$root/specs/_observations" >/dev/null 2>&1; then
   fail "check-obs.sh fails over the post-migration specs/_observations tree (REQ-E1.1)"
 fi
+
+# --- 6. no resurrected duplicate survives in the frozen live log -------------
+
+# The union-of-appends merge bug resurrected already-consumed lines back into
+# opportunities.md; Task 6's dedup removed them. A "resurrected duplicate" is a
+# live entry whose text — with any consumed-by annotation stripped — exactly
+# matches a consumed archive.md entry (its own annotation likewise stripped).
+# A frozen legacy line consumed in place keeps its text and only gains an
+# annotation, so it never matches an archived (moved-fragment) entry; only a
+# genuine resurrection collides. LC_ALL=C is already pinned above so the
+# em-dash bytes compare literally.
+resurrected=$(awk '
+  function norm(s) {
+    sub(/[ \t]*(—|--)[ \t]*consumed-by:.*$/, "", s); sub(/[ \t]+$/, "", s); return s
+  }
+  FNR==NR { if ($0 ~ /^- /) archived[norm($0)] = 1; next }
+  /^- /   { n = norm($0); if (n in archived) print $0 }
+' "$root/specs/_observations/archive.md" "$root/specs/_observations/opportunities.md")
+[ -z "$resurrected" ] || fail "resurrected duplicate(s) survive in opportunities.md (REQ-E1.1):
+$resurrected"
 
 echo "PASS: test-obs-cutover"
