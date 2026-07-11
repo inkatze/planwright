@@ -96,7 +96,7 @@ single trailing token is what the branch-range consumer below scans for.
 
 **Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
 commit self-lints the subject before committing —
-`check-commit-msgs.sh --marker subject --stdin` — which requires the canonical
+`scripts/check-commit-msgs.sh --marker subject --stdin` — which requires the canonical
 placement (pre-prefix, mid-subject, and duplicate markers fail) on top of the
 conventional check. The guard fires while the author can still reword. It is
 deliberately *not* wired into the CI commit-range lint: history is never

@@ -167,8 +167,8 @@ this skill executes:
   pending-sign-off checklist. Before committing, self-lint the subject with
   `scripts/check-commit-msgs.sh --marker subject --stdin` (under the resolved
   planwright root) so the marker sits at the canonical end-of-subject position
-  (`gate-wiring`), reworded now
-  rather than after it reaches history.
+  (`gate-wiring`); a mis-placed marker caught here is reworded before it
+  reaches history, never after.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
   options.
