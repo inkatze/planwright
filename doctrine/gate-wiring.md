@@ -9,6 +9,8 @@ two documents share one contract; where this one names a bucket, predicate,
 or zone, the categorization doctrine's definition governs.
 
 Citations: REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-C1.6, REQ-C1.7 · D-4, D-5, D-6.
+The PR-body assembly section additionally realizes output-hygiene
+REQ-A1.1–REQ-A1.4 and D-2.
 
 ## Input contract
 
@@ -140,12 +142,12 @@ Declined findings remain visible at PR review and are re-raisable there
 (REQ-C1.6); the log in the PR body is what makes the re-raise possible.
 
 Both the tables and the declined log emit twice: in the loop's handoff
-summary, and in the draft PR body as the audit record review works from
-(assembling the PR body is the parent skill's job per REQ-E1.5; this
-document defines the formats it assembles). Table content is a committed
-artifact: finding text and captured output must respect artifact
-data-hygiene ([Security Posture](security-posture.md)) before they land in
-a PR body.
+summary, and in the draft PR body as the audit record review works from (the
+parent skill assembles that body per the PR-body assembly section below, which
+places this record collapsed beneath the human summary; REQ-E1.5). Table
+content is a committed artifact: finding text and captured output must respect
+artifact data-hygiene ([Security Posture](security-posture.md)) before they
+land in a PR body.
 
 ## Resolution ladder procedure
 
@@ -206,7 +208,117 @@ At loop end, emit in this order: the four tables, the declined log, the
 pending-sign-off checklist, and the queued irreducible forks with their
 bespoke options. The forks are the only items that ask the human a question
 at handoff; everything else is audit. The parent skill folds the checklist,
-tables, and declined log into the draft PR body it owns (REQ-E1.5).
+tables, and declined log into the draft PR body it owns, laid out per the
+PR-body assembly section below (REQ-E1.5).
+
+## PR-body assembly
+
+The audit record is the review's substance, but a PR body that leads with it
+buries the summary a reviewer reads first. This section is the single
+normative home (output-hygiene D-2) for how the emitting skills —
+`/execute-task` and `/self-review` — assemble the draft PR body from the
+loop-end handoff. Both skills **cite this section** rather than carrying their
+own body layout, so the contract lives and updates in one place (REQ-A1.4).
+The layout is judgment-applied by the emitting skill, not template-expanded:
+each skill supplies its own summary inputs; this section fixes the shape they
+land in.
+
+**Summary first, audit collapsed.**
+
+1. **A human summary, above the fold** (REQ-A1.1): what changed and why, how to
+   review it, the task IDs the PR implements, the REQs satisfied, and the open
+   pending-sign-off items. Prose plus a short fact list a reviewer reads
+   without expanding anything. Each emitting skill names which inputs feed the
+   summary (its task IDs, its REQ citations, its test additions); the summary's
+   *shape* is fixed here, its *content* is the skill's.
+2. **The complete audit record, collapsed** (REQ-A1.2): the loop-end handoff —
+   the four bucket tables, the declined log, the pending-sign-off checklist,
+   and any queued forks (plus `/self-review`'s lens-coverage table and pass
+   summary) — inside a `<details>` block, so it never buries the summary.
+   Collapsed is not abridged: no audit content is dropped relative to the
+   handoff; every table and row the wiring emits is present inside the block.
+
+**Prose is never hard-wrapped** (REQ-A1.3). GitHub reflows markdown to the
+reader's viewport, so a fixed-column wrap only inserts ragged mid-sentence
+breaks. Line breaks in the emitted body appear only where markdown is
+structural — list items, table rows, code fences, headings — never
+mid-paragraph. (This rule governs the emitted PR body, a rendered artifact;
+it does not govern this doctrine file's own source, which wraps per the
+repo's markdownlint baseline. The example below is code-fenced for exactly
+that reason — a fence is line-length-exempt, so it shows the unwrapped body
+verbatim.)
+
+**Updates keep the structure** (REQ-A1.4). Re-emitting the body on a later
+push regenerates the summary and the collapsed audit in place, preserving this
+layout: never a second summary, never a second audit block, never the audit
+flattened out of its `<details>`. Body content outside the generated sections
+(handwritten notes) survives the update.
+
+**Pending-sign-off items appear in both places** by design: named in the
+summary, so a reviewer sees the open decisions without expanding the audit,
+and in full inside the collapsed checklist (the commit `sha` and the named
+revert per item). The summary lists them; the checklist is authoritative.
+
+### Example
+
+An `/execute-task` body follows; a `/self-review` body has the same shape,
+with the lens-coverage table and pass summary added inside the collapsed
+record and no kickoff-brief or task-graph inputs in the summary.
+
+```markdown
+## Summary
+
+Stamps the organic completion annotation from the level-triggered reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>` in the same write that places it in `## Completed`, with honest no-remote degradation to a date-only form or no stamp. This closes the unowned-refresh gap the REQ-E1 group names.
+
+**How to review:** start with `scripts/tasks-pr-sync.sh` (the stamp write) and its new fixtures under `tests/`; the normative annotation format lives in `doctrine/spec-format.md`.
+
+- **Tasks:** output-hygiene/7
+- **REQs:** REQ-E1.1, REQ-E1.2
+- **Brief:** `specs/output-hygiene/kickoff-brief.md`
+- **Tests:** `tests/tasks-pr-sync.bats` — merged-PR evidence yields the canonical string; a no-remote fixture yields the degraded form and never an invented PR number.
+- **Pending sign-off:** PS-1 (annotation-format wording) — see the collapsed checklist.
+
+<details>
+<summary>Audit record</summary>
+
+## Auto-applicable
+
+| # | Finding | Tool + rule | Fix | Commit |
+| --- | --- | --- | --- | --- |
+| 1 | unquoted expansion in the stamp path | shellcheck SC2086 | quoted the expansion | `abc1234` |
+
+## Agent-resolvable
+
+| # | Finding | Test | Before → after | CI | Brief alignment | Commit |
+| --- | --- | --- | --- | --- | --- | --- |
+| none | | | | | | |
+
+## Needs sign-off
+
+| # | Finding | Fix applied | Route reason | Commit | Checklist ID |
+| --- | --- | --- | --- | --- | --- |
+| 1 | annotation wording touches a documented output format | reworded the degraded-case string | user-observable doc contract a downstream reader parses | `def5678` | PS-1 |
+
+## Needs human judgment
+
+| # | Fork | Ladder record | Outcome | Options |
+| --- | --- | --- | --- | --- |
+| none | | | | |
+
+## Declined log
+
+| # | Finding | Validation summary | Rationale | Where re-raisable |
+| --- | --- | --- | --- | --- |
+| none | | | | |
+
+## Pending sign-off
+
+- [ ] **PS-1** annotation-format wording reworded for the no-remote case · commit `def5678`
+  - Route reason: touches a documented output format a downstream reader parses
+  - Reject with: `git revert def5678`
+
+</details>
+```
 
 ## Consumers and conformance
 
