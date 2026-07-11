@@ -126,6 +126,7 @@ bodies. The recognized kinds:
 | Kickoff / brief | a kickoff-brief section or recorded decision | `kickoff §2 REQ-D (2026-06-10)` |
 | Amendment / re-walkthrough | a brief amendment or re-walkthrough entry | `brief Amendment 5 (2026-06-11)`, `delta re-walkthrough (2026-06-11)` |
 | Research | an external document, named inline | `research: TC39 process doc` |
+| Observation | `obs:<uid>` — a recorded observation's fragment UID (durable across slug rename, content edit, and the archive move) | `obs:9f3c21ab` |
 
 The lightweight kinds (drafting-session decision, kickoff, amendment,
 research) exist so adopters can satisfy the citation-per-requirement rule
@@ -525,8 +526,9 @@ the declared format-version:
 - **Drain** — the ritual by which an accumulator's contents reach a reader
   or decision. Nothing is auto-resolved or auto-dropped; draining surfaces.
 - **Accumulator** — any surface that collects deferred work or decisions
-  (`_pending/`, the observations log, Deferred sections). Every accumulator
-  has a named reader and a drain ritual (no write-only deferral).
+  (`_pending/`, the observations fragment store, Deferred sections). Every
+  accumulator has a named reader and a drain ritual (no write-only
+  deferral).
 - **Adopter** — the non-author operator persona: someone who installs
   planwright without inheriting the author's toolchain. The format's success
   criterion is that an adopter can operate it from the docs alone.
@@ -537,9 +539,13 @@ the declared format-version:
   Auto-applicable, Agent-resolvable, Needs sign-off, Needs human judgment.
 - **Tower** — the dispatching `/orchestrate` session (control tower). It
   holds no in-memory state beyond the current step and is disposable.
-- **Observations log** — the canonical name for
-  `specs/_observations/opportunities.md`: the append-only accumulator of
-  improvement observations, mined by `/spec-draft` (its canonical reader).
+- **Observations log** — the canonical name for the observations
+  accumulator: per-entry fragment files under
+  `specs/_observations/entries/` (live) and `specs/_observations/archive/`
+  (consumed), plus the frozen legacy `opportunities.md` while it drains,
+  mined by `/spec-draft` (its canonical reader), with the chronological
+  view rendered on demand and never committed. The accumulator-taxonomy
+  doctrine carries the canonical class-3 definition and drain ritual.
 - **Dispatch step** — one atomic `/orchestrate` step: select a ready unit,
   take the lock, move state, dispatch, release, exit.
 - **Content anchor** — the manifest-style hash over the four spec files
