@@ -624,7 +624,12 @@ fi
 # counted.
 # shellcheck disable=SC2016 # a single-quoted awk program; the $-forms are awk's
 extract_injected='
-  function is_interp(s) { return (s ~ /\$\(/ || s ~ /\$\{/ || s ~ /\$[A-Za-z_]/) }
+  # interpolation forms: $(...), ${...}, a $name reference, and the shell
+  # special/positional parameters ($?, $@, $*, $#, $-, $0-$9). A line carrying
+  # any of these is runtime-expanded, so it is excluded from the static count
+  # (REQ-A1.4). ($$ and $! are not covered — an accepted imprecision on this
+  # warn-only surface; over/under-counting here can only shift a warning.)
+  function is_interp(s) { return (s ~ /\$\(/ || s ~ /\$\{/ || s ~ /\$[A-Za-z_@*#?0-9-]/) }
   function count_words(s,   m, a) {
     gsub(/^[ \t]+|[ \t]+$/, "", s)
     if (s == "") return 0

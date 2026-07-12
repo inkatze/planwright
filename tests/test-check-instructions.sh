@@ -283,6 +283,36 @@ EOF
 aud="$(/bin/bash "$CHECKER" --audit --root "$t4" 2>&1)"
 assert_contains "hook registered with CLI args still gets a row" "hooks/inject.sh static=10" "$aud"
 
+# 4c. Interpolation detection covers shell special and positional parameters
+#     ($?, $@, $#, $1, ...): such a line is runtime-expanded, so it is EXCLUDED
+#     from the static count (REQ-A1.4). Two 5-word prose lines (=10) bracket a
+#     `$?` line that must not be counted; a naive `$[A-Za-z_]`-only interp test
+#     would miscount it as 4 static words (static=14).
+t4c="$tmproot/t4c"
+scaffold "$t4c"
+# fully-quoted outer heredoc: the hook is written verbatim (never expanded at
+# fixture-build time and never executed by the guard, only read statically).
+cat >"$t4c/hooks/inject.sh" <<'EOF'
+#!/bin/sh
+payload=$(cat <<'BODY'
+one two three four five
+exit status code $?
+six seven eight nine ten
+BODY
+)
+printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":%s}}\n' \
+  "$(printf '%s' "$payload" | jq -Rs .)"
+EOF
+chmod +x "$t4c/hooks/inject.sh"
+cat >"$t4c/hooks/hooks.json" <<'EOF'
+{ "hooks": { "SessionStart": [ { "hooks": [
+  { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/inject.sh" }
+] } ] } }
+EOF
+aud="$(/bin/bash "$CHECKER" --audit --root "$t4c" 2>&1)"
+assert_exit "special-param interpolation scan does not fail the check" 0 $?
+assert_contains "special-param interpolation line excluded from static count" "hooks/inject.sh static=10" "$aud"
+
 ########################################################################
 # 5. Check-aggregate wiring (REQ-B1.1): an over-error file fails; the task is
 #    present in the mise.toml check aggregate.
