@@ -234,11 +234,12 @@ concern became row 1.
 | 5 | Fleet-wide merge blocking during the untagged window (by design, but ~3 releases/day cadence blocks concurrent tower PRs) | Publish promptly; T10 armed mode shrinks the window to merge-to-sign. Signal: unrelated PRs failing the release-pending check |
 | 6 | release-please supply chain: third-party action with write permissions | Pin by SHA at T5 (dependency-adoption checklist via D-3) |
 | 7 | **T5 dependency-adoption note (2026-07-10):** D-3 named a "pinned action (v4-era)"; current stable is `googleapis/release-please-action` **v5.0.0** (2026-04-22). Adopted v5.0.0, pinned by SHA `45996ed1`. Researched: v5.0.0's sole breaking change is the node20→node24 runtime (release notes / `action.yml`); the input surface is unchanged (`skip-github-release`, `config-file`, `manifest-file` all present), so the PR-only invocation D-3 specifies works verbatim. Reversible (a one-line SHA bump). CI gate realized via `workflow_run` on the `ci` workflow's success on main (REQ-C1.1). | Low stake, reversible. Signal: action deprecation or an input rename on a future bump |
+| 8 | **T6 execution note (2026-07-12) — window-lock reads a ref, not the PR head:** the lock check must evaluate `main`'s state, not the PR head, or the release PR (which bumps the version) trips its own lock and can never merge (the chicken-and-egg D-7 rejects). First cut checked `main` out wholesale — but that broke on the introducing PR (the check script isn't on `main` yet → CI exit 127). Fixed: the workflow checks out the PR (script present), fetches `origin/main` and the tags with an explicit refspec (`git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main` — a bare `git fetch origin main` would not populate `refs/remotes/origin/main` under checkout's narrow PR refspec), and runs `release-window-check.sh --ref origin/main` (a new `--ref` mode reading the version of truth from a git ref via `release-lib.sh`, the shared REQ-D1.8 definition; the working-tree path still delegates to `release-pending.sh`). The `merge_group` trigger stays listed or the queue stalls (GitHub required-check semantics). Low stake, reversible (workflow + Task-6-owned script only). | Low stake, reversible. Signal: merge queue enabled but the release PR is blocked by its own window check (a head-read regression), or CI 127 on a fresh checkout |
 
 No open questions: row 2 is an explicit accepted risk, row 3 is a recorded
-decision, row 7 is a recorded T5 execution note, all rows carry mitigation
-and early signal. Data hygiene checked: no secrets, hostnames, or
-private-repo identifiers.
+decision, rows 7–8 are recorded execution notes (T5 dependency-adoption, T6
+window-lock base-reading), all rows carry mitigation and early signal. Data
+hygiene checked: no secrets, hostnames, or private-repo identifiers.
 
 Signed off: 2026-07-02
 

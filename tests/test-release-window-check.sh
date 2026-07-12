@@ -1,0 +1,287 @@
+#!/bin/bash
+# Tests for scripts/release-window-check.sh — the untagged-window lock, a
+# required CI check reusing the shared release comparator (autopilot-reflex
+# Task 6; D-7; REQ-E1.1, REQ-E1.2).
+#
+# Contract under test:
+#   - IN the window (version of truth ahead of the latest tag) → exit 1, and the
+#     failure names the publish command (scripts/release-publish.sh);
+#   - a first release (no tags yet, so a version is pending) → exit 1, command
+#     named — the window is open;
+#   - OUTSIDE the window (version equals the latest tag) → exit 0;
+#   - a non-bump PR (an extra commit that does not touch the version, version
+#     still equal to the tag) → exit 0, unaffected (REQ-E1.2);
+#   - a malformed/unreadable version of truth → the comparator exits 2 and the
+#     check FAILS CLOSED (exit 2), never passing silently;
+#   - any argument → usage error (exit 2).
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor).
+set -eu
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+CHECK="$here/../scripts/release-window-check.sh"
+PUBLISH_CMD="scripts/release-publish.sh"
+failures=0
+
+[ -x "$CHECK" ] || {
+  echo "FAIL: scripts/release-window-check.sh missing or not executable" >&2
+  exit 1
+}
+
+gitc() {
+  repo="$1"
+  shift
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid \
+    -c commit.gpgsign=false -c init.defaultBranch=main "$@"
+}
+
+# make_repo <dir> <version> — a fixture repo whose plugin.json holds <version>.
+make_repo() {
+  mkdir -p "$1/.claude-plugin"
+  cat >"$1/.claude-plugin/plugin.json" <<EOF
+{
+  "name": "fixture",
+  "version": "$2"
+}
+EOF
+  gitc "$1" init -q
+  gitc "$1" add -A
+  gitc "$1" commit -q -m "version $2"
+}
+
+# bump_version <dir> <version> — rewrite plugin.json to <version> and commit it
+# (simulates a release PR's version bump landing as a new commit).
+bump_version() {
+  cat >"$1/.claude-plugin/plugin.json" <<EOF
+{
+  "name": "fixture",
+  "version": "$2"
+}
+EOF
+  gitc "$1" add -A
+  gitc "$1" commit -q -m "chore: bump to $2"
+}
+
+# run_check <dir> — run the check inside <dir>, capturing combined output and the
+# exit code (globals: OUT, RC). Global git config is neutralized so a developer's
+# signing/config never leaks into the fixture.
+run_check() {
+  RC=0
+  OUT=$(cd "$1" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    "$CHECK" 2>&1) || RC=$?
+}
+
+assert_eq() {
+  if [ "$2" = "$3" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 — expected [$3], got [$2]" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+assert_contains() {
+  case "$2" in
+    *"$3"*) echo "ok: $1" ;;
+    *)
+      echo "FAIL: $1 — output did not contain [$3]" >&2
+      echo "  output was: $2" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+}
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# 1. In the window: version of truth ahead of the latest tag → fail (exit 1),
+#    naming the publish command (REQ-E1.1).
+r="$tmp/in-window"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+run_check "$r"
+assert_eq "in-window: fails with exit 1" "$RC" "1"
+assert_contains "in-window: names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# 2. First release (no tags yet) → the window is open → fail, command named.
+r="$tmp/first-release"
+make_repo "$r" 0.1.0
+run_check "$r"
+assert_eq "first-release (no tags): fails with exit 1" "$RC" "1"
+assert_contains "first-release: names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# 3. Outside the window: version equals the latest tag → pass (exit 0).
+r="$tmp/out-of-window"
+make_repo "$r" 0.1.0
+gitc "$r" tag v0.1.0
+run_check "$r"
+assert_eq "out-of-window (version == tag): passes with exit 0" "$RC" "0"
+
+# 4. Non-bump PR unaffected: an extra commit that does NOT touch the version,
+#    version still equal to the latest tag → pass (REQ-E1.2).
+r="$tmp/non-bump-pr"
+make_repo "$r" 0.1.0
+gitc "$r" tag v0.1.0
+echo "a feature change, no version bump" >"$r/FEATURE.txt"
+gitc "$r" add -A
+gitc "$r" commit -q -m "feat: something unrelated to releases"
+run_check "$r"
+assert_eq "non-bump PR (version still == tag): unaffected, exit 0" "$RC" "0"
+
+# 5. Fail closed: a malformed version of truth makes the comparator exit 2; the
+#    check must FAIL (exit 2), never pass silently. Assert the message too: exit 2
+#    is emitted by four different branches (usage, the -x guard, the comparator
+#    failure, the unexpected-output default), so the code alone does not pin this
+#    to the intended comparator-failure branch (lines checking `if ! status_line`).
+r="$tmp/malformed"
+make_repo "$r" "not-a-version"
+run_check "$r"
+assert_eq "malformed version of truth fails closed (exit 2)" "$RC" "2"
+assert_contains "malformed: pins the comparator-failure branch" "$OUT" "comparator failed"
+
+# 6. Usage error: any argument → exit 2. Assert the usage message so the code
+#    alone (shared with every fail-closed branch) cannot pass for the wrong reason.
+RC=0
+OUT=$(cd "$tmp" && "$CHECK" unexpected-arg 2>&1) || RC=$?
+assert_eq "an argument is a usage error (exit 2)" "$RC" "2"
+assert_contains "stray arg: pins the usage() path" "$OUT" "usage:"
+
+# 7. CDPATH regression (REQ-D1.9 portability): a hostile CDPATH with a decoy
+#    `scripts/` must not corrupt the script's `cd "$(dirname "$0")"` (it calls
+#    `unset CDPATH`). Per the house pattern (test-release-pending.sh), the
+#    script and its siblings are copied under `scripts/` in the cwd and invoked
+#    by the BARE relative name — the only shape where CDPATH actually bites.
+work="$tmp/cdpath"
+mkdir -p "$work/scripts" "$work/.claude-plugin" "$tmp/decoy/scripts"
+cp "$here/../scripts/release-window-check.sh" "$here/../scripts/release-pending.sh" \
+  "$here/../scripts/release-lib.sh" "$here/../scripts/echo-safety.sh" "$work/scripts/"
+printf '{\n  "name": "fixture",\n  "version": "0.2.0"\n}\n' \
+  >"$work/.claude-plugin/plugin.json"
+gitc "$work" init -q
+gitc "$work" add -A
+gitc "$work" commit -q -m "version 0.2.0"
+gitc "$work" tag v0.1.0
+RC=0
+OUT=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null \
+  GIT_CONFIG_SYSTEM=/dev/null scripts/release-window-check.sh 2>&1) || RC=$?
+assert_eq "a hostile CDPATH does not corrupt the check (in-window → exit 1)" "$RC" "1"
+assert_contains "cdpath fixture still names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# --- Base-reading (--ref): the CI path evaluates a ref's version, not the
+#     working tree, so the SCRIPT runs from the PR checkout while the STATE
+#     judged is main's (REQ-E1.1; the chicken-and-egg D-7 rejects). ---
+
+# 8. The release PR is NOT blocked by its own bump: main (the ref) is at the tag
+#    (out of window) while the working tree bumps the version. --ref main → 0.
+r="$tmp/base-read-releasepr"
+make_repo "$r" 0.1.0
+gitc "$r" tag v0.1.0
+main_sha=$(gitc "$r" rev-parse HEAD)
+bump_version "$r" 0.2.0 # the "release PR head" bumps ahead of the tag
+run_check_ref() {
+  RC=0
+  OUT=$(cd "$1" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    "$CHECK" --ref "$2" 2>&1) || RC=$?
+}
+run_check_ref "$r" "$main_sha"
+assert_eq "base-read: release PR (head bumped) not blocked; --ref main → exit 0" "$RC" "0"
+
+# 9. Main in the window → --ref → exit 1, command named. A genuine ref-vs-tree
+#    discriminator: the working tree is back AT the tag (a tree-read would give
+#    exit 0) while --ref points at the window commit, so exit 1 can only come
+#    from reading the ref. This is what blocks every subsequent merge.
+r="$tmp/base-read-window"
+make_repo "$r" 0.2.0 # commit A: version ahead of the tag → window open
+gitc "$r" tag v0.1.0
+window_sha=$(gitc "$r" rev-parse HEAD)
+bump_version "$r" 0.1.0 # commit B: working tree back to == tag (tree-read → 0)
+run_check_ref "$r" "$window_sha"
+assert_eq "base-read: main in window → --ref (window commit) → exit 1" "$RC" "1"
+assert_contains "base-read window: names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# 10. An unreadable ref (or a ref lacking the version_file) fails closed → exit 2.
+#     Assert the message so this pins the `git show` read-failure branch, not any
+#     of the other exit-2 branches it shares the code with.
+r="$tmp/base-read-badref"
+make_repo "$r" 0.1.0
+gitc "$r" tag v0.1.0
+run_check_ref "$r" does-not-exist
+assert_eq "base-read: unreadable ref fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read unreadable: pins the read-failure branch" "$OUT" "cannot read version_file"
+
+# 11. --ref with no value (`--ref` as the last token) is a usage error (exit 2).
+#     Assert the usage message so it cannot pass via a later fail-closed exit 2.
+RC=0
+OUT=$(cd "$tmp" && "$CHECK" --ref 2>&1) || RC=$?
+assert_eq "--ref with no value is a usage error (exit 2)" "$RC" "2"
+assert_contains "--ref with no value: pins the usage() path" "$OUT" "usage:"
+
+# 12. Base-read malformed SemVer: the ref carries a version_file whose value is
+#     not valid SemVer. This is the --ref counterpart to case 5 (which only
+#     covers the working-tree path); it exercises the ref-path SemVer guard
+#     (release-window-check.sh's "not valid SemVer" branch), distinct from case
+#     13's extraction failure. Fails closed → exit 2.
+r="$tmp/base-read-malformed"
+make_repo "$r" "not-a-version" # valid JSON, invalid SemVer → extraction succeeds, guard rejects
+bad_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$bad_sha"
+assert_eq "base-read: malformed SemVer at ref fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read malformed: names the SemVer guard" "$OUT" "not valid SemVer"
+
+# 13. Base-read extraction failure: the ref carries an unparseable version_file
+#     (broken JSON), so the extractor itself fails (jq errors) rather than the
+#     SemVer guard. This pins the "could not extract" branch, a different failure
+#     mode from case 12's post-extraction rejection. Fails closed → exit 2.
+r="$tmp/base-read-unextractable"
+mkdir -p "$r/.claude-plugin"
+printf '{ this is not valid json ' >"$r/.claude-plugin/plugin.json"
+gitc "$r" init -q
+gitc "$r" add -A
+gitc "$r" commit -q -m "unparseable version_file"
+bad_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$bad_sha"
+assert_eq "base-read: unextractable version at ref fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read unextractable: names the extraction failure" "$OUT" "could not extract"
+
+# 14. Base-read first release (no tags yet): the ONLY coverage of the --ref path's
+#     own `[ -z "$latest" ]` branch. Case 2's first-release path runs through
+#     release-pending.sh (the working-tree delegate) — a separate code path from
+#     the ref-path inline pending computation. No tags → window open → exit 1.
+r="$tmp/base-read-first-release"
+make_repo "$r" 0.1.0 # a version, but no `git tag` → no release tags
+first_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$first_sha"
+assert_eq "base-read: first release (no tags) → --ref → exit 1" "$RC" "1"
+assert_contains "base-read first-release: names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# 15. Base-read absent version key: valid JSON with no `version` field, so
+#     rl_extract_version SUCCEEDS with empty output and the `[ -z "$vot" ]` guard
+#     fires — a third distinct exit-2 path, between case 12 (a non-empty invalid
+#     value) and case 13 (unparseable JSON). Fails closed → exit 2.
+r="$tmp/base-read-absent-key"
+mkdir -p "$r/.claude-plugin"
+printf '{\n  "name": "fixture"\n}\n' >"$r/.claude-plugin/plugin.json"
+gitc "$r" init -q
+gitc "$r" add -A
+gitc "$r" commit -q -m "version_file with no version key"
+absent_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$absent_sha"
+assert_eq "base-read: absent version key fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read absent-key: pins the empty-value SemVer guard" "$OUT" "not valid SemVer"
+
+# 16. `--ref ""` (a present-but-empty value) is a usage error via the explicit
+#     `[ -n "$ref" ]` guard — a distinct branch from case 11's `--ref` as the last
+#     token (which trips the arg-count guard). Exit 2, usage message.
+RC=0
+OUT=$(cd "$tmp" && "$CHECK" --ref "" 2>&1) || RC=$?
+assert_eq "--ref with an empty value is a usage error (exit 2)" "$RC" "2"
+assert_contains "--ref empty value: pins the usage() path" "$OUT" "usage:"
+
+if [ "$failures" -gt 0 ]; then
+  echo "$failures failure(s)" >&2
+  exit 1
+fi
+echo "PASS: test-release-window-check.sh"
