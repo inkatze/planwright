@@ -83,6 +83,7 @@ of the release chain after T1 and can run in parallel throughout.
 - **Dependencies:** Task 4.
 - **Citations:** D-4 · REQ-D1.4, REQ-D1.5
 - **Estimated effort:** 0.5d
+- **Last activity:** 2026-07-12
 
 ### Task 10 — Armed/watch mode (sequenced follow-up)
 
