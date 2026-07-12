@@ -98,7 +98,7 @@ work.
 
 - **The lock never makes tagging correct** — it only closes the forget-window.
   Publish correctness comes from the publish step tagging the observed
-  release-merge commit under any merge interleaving (REQ-E1.4); the lock is
-  belt, not suspenders.
+  release-merge commit under any merge interleaving (REQ-E1.4); the lock is a
+  redundant safety layer on top of that, not the source of correctness.
 - **No secrets, least privilege.** The check reads git and a file only —
   `contents: read`, no `gh`, no signing material in CI.
