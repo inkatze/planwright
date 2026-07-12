@@ -212,7 +212,90 @@ Three customization mechanisms exist, all of which avoid editing core:
 > environment layer and reference them indirectly. See [`docs/overlays.md`
 > §6](overlays.md#6-secrets-and-data-hygiene--read-this).
 
-## 5. Where to go next
+## 5. Releasing planwright
+
+Cutting a release follows the [release-tagging policy](../doctrine/release-tagging.md):
+detection and proposal are automated, **approval is your merge** of the release
+PR, and **publish is a conscious, signed, human-run step**. Nothing is tagged or
+published by CI. This section is the operational how-to for a publisher; the
+policy and the altitude split behind it live in the doctrine.
+
+### The flow, end to end
+
+1. **A release PR is proposed automatically.** release-please runs in PR-only
+   mode: conventional commits landing on `main` open (or update) a standing
+   release PR that bumps the version of truth
+   (`.claude-plugin/plugin.json`) and updates `CHANGELOG.md`. Editing the PR
+   corrects the proposal; closing it cancels. CI never creates a tag or Release.
+2. **You merge the release PR.** The merge *is* the release approval, and it
+   stays a human act in GitHub's UI — no planwright command merges it. Merging
+   lands the version bump on `main` and opens the **untagged window**.
+3. **A required CI check locks the untagged window.** While the version of truth
+   is ahead of the latest release tag, a required check fails on `main` and names
+   the publish command in its output, so the pending publish is pushed to you by
+   a red check rather than left to memory.
+4. **You publish.** Run the publish command (below) after the merge. It cuts the
+   signed annotated tag on the observed release-merge commit, verifies the
+   signature, pushes the tag, and creates the GitHub Release from the version's
+   `CHANGELOG.md` section. The window closes and the required check goes green.
+
+Merge (step 2) and publish (step 4) are the two irreversible, externally-visible
+acts; both are always conscious human steps. planwright automates everything up
+to them and nothing through them — no auto-merge, no background auto-sign, no
+bypass flag.
+
+### The publish command
+
+```sh
+scripts/release-publish.sh
+```
+
+The script is signer-agnostic and refuses **without side effects** on any safety
+gate: a dirty tree, a local `main` out of sync with `origin/main`, the target
+tag already present locally or on `origin` (idempotency), the target version not
+strictly greater than the latest release tag (monotonicity), or GitHub CI not
+green on the release commit (checked against the real external state via `gh`). A
+partial publish — tag pushed but its Release missing — resumes by creating the
+Release rather than refusing. It tags the observed release-merge commit, never
+`HEAD`.
+
+### The signing policy
+
+This repo requires **genuinely signed** annotated release tags. The
+`require_signed_tags` knob is set to `require` in this repo's repo-tracked
+overlay ([`.claude/planwright.yml`](../.claude/planwright.yml)), so the publish
+script **refuses to tag unless git signing is configured and the signature
+succeeds**, and it verifies the tag with `git tag -v` before pushing it (the
+[`require_signed_tags` option](options-reference.md) documents the `auto` /
+`require` / `never` modes).
+
+Signing is delegated **entirely to this repo's git config** — no signer is named
+in the script and **no signing material ever enters CI**. planwright's own
+publisher signs SSH tags via 1Password's `op-ssh-sign` (the same key that signs
+commits); the per-release biometric tap is itself the conscious human gate on the
+irreversible publish. Any git-supported signer works: GPG, a plain SSH key, or an
+agent-held key. The relevant git config is `gpg.format`, `user.signingkey`, and
+(for SSH) `gpg.ssh.program`.
+
+**Manual prerequisite — register your SSH key as a GitHub *signing* key.** For a
+signed tag to render **Verified** on GitHub, the public key must be added to your
+GitHub account as a **Signing Key** (Settings → *SSH and GPG keys* → *New SSH
+key* → **Key type: Signing Key**). This is separate from an *Authentication Key*:
+the key you already use to `git push` over SSH does **not** make signatures render
+Verified until the same public key is also added with the *Signing Key* type. Do
+this once per signing key; it is an account action planwright cannot perform for
+you.
+
+> **Release-tag pushes vs. the worker push guardrails.** planwright's
+> [worker-settings profile](../config/worker-settings.json) denies force pushes
+> and any push whose destination is `main`, to keep the never-force-push /
+> never-touch-`main` invariants intact for autonomous workers. A release-tag push
+> (`git push origin refs/tags/v*`, what the publish step runs) matches none of
+> those deny rules and stays allowed — the guardrails and the human publish path
+> coexist. The publish step is a conscious human action and does not run under the
+> worker profile in any case.
+
+## 6. Where to go next
 
 - [`README.md`](../README.md) — the one-screen overview and repository layout.
 - [`docs/overlays.md`](overlays.md) — customizing planwright with overlays: the

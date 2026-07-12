@@ -1,0 +1,23 @@
+# planwright repo-tracked config overlay (team-shared, committed).
+#
+# This is the repo-tracked layer of the four-layer config overlay (core
+# defaults < adopter < repo-tracked < machine-local), read by
+# scripts/config-get.sh via scripts/resolve-overlay-root.sh. It holds the
+# values that are this repo's policy of record, overriding the core defaults in
+# config/defaults.yml. Keep it flat `key: value` YAML — the reader is a
+# line-oriented flat reader, and a nested structure hard-fails this shared layer
+# (config-get exit 4).
+#
+# Machine-local and personal overrides do NOT belong here; they go in the
+# gitignored .claude/planwright.local.yml (machine-local layer).
+
+# Release-tag signing is REQUIRED on this repo (autopilot-reflex D-4, REQ-D1.4).
+# scripts/release-publish.sh refuses to cut a tag unless git signing is
+# configured and the signature succeeds; the signed tag is verified with
+# `git tag -v` before push (REQ-D1.5). Signing is delegated entirely to this
+# repo's git config (gpg.format / user.signingkey / gpg.ssh.program) — no signer
+# is named and no signing material ever enters CI. planwright's live v0.2.x tags
+# are already SSH-signed annotated tags; this makes that practice enforced, not
+# incidental. See doctrine/release-tagging.md and docs/getting-started.md
+# ("Releasing planwright").
+require_signed_tags: require
