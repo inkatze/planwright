@@ -54,6 +54,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7,
   REQ-B1.8, REQ-B1.9
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-12
 
 ### Task 3 — Doctrine manifests in all skills
 

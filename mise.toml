@@ -85,6 +85,10 @@ run = "/bin/bash scripts/check-ledger.sh"
 description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
 run = "/bin/bash scripts/check-obs.sh"
 
+[tasks."check:instructions"]
+description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement (prompt-hygiene Task 2)"
+run = "/bin/bash scripts/check-instructions.sh"
+
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
 run = "/bin/sh scripts/obs-render.sh"
@@ -109,6 +113,7 @@ depends = [
   "check:options",
   "check:ledger",
   "check:obs",
+  "check:instructions",
   "check:specs",
   "scan:secrets",
 ]
