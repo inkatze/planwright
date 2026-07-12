@@ -1,0 +1,58 @@
+---
+# planwright untagged-window lock (autopilot-reflex Task 6; D-7; REQ-E1.1,
+# REQ-E1.2, REQ-E1.3). A required status check that FAILS while `main` carries a
+# version bump with no matching release tag (the untagged window) and PASSES
+# otherwise. After a release PR merges, this check goes red on `main` and, via
+# require-branches-up-to-date + the merge queue, on every other PR — so no
+# further merge can land until the signed tag is published
+# (scripts/release-publish.sh). Surfacing by forcing-function, never by pull
+# (reflex step 4): forgetting to publish becomes structurally impossible.
+#
+# The lock is a property of `main`, so this job evaluates `main`'s state, never
+# the PR head: on a pull_request or merge_group it checks out the BASE branch
+# (`main`). Reading the release-PR head instead would re-create the
+# chicken-and-egg D-7 rejects — the release PR bumps the version, so a head read
+# would block the very PR that opens (and is about to close) the window.
+#
+# This check reuses scripts/release-window-check.sh → scripts/release-pending.sh,
+# the one shared definition of "pending" (REQ-D1.8). It needs only git (with
+# tags) and jq, both present on ubuntu-latest; no signing material, no `gh`, no
+# secret enters this workflow.
+#
+# "on" is quoted so yamllint's truthy rule (run on .github/) does not flag the
+# key, matching ci.yml.
+name: release-window
+
+"on":
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-window-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  window-lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Evaluate `main`'s state (base-reading, not the PR head). On push the
+      # base fallbacks are empty and github.ref is already the pushed main.
+      # fetch-depth: 0 brings the tags the comparator needs to find the latest
+      # release tag.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          ref: >-
+            ${{ github.event.pull_request.base.ref
+            || github.event.merge_group.base_ref
+            || github.ref }}
+          fetch-depth: 0
+
+      # Fail (exit 1) in the window, naming the publish command; pass (exit 0)
+      # outside it; fail closed (exit 2) if the release state cannot be read.
+      - run: /bin/bash scripts/release-window-check.sh
