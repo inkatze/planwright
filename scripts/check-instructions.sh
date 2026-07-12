@@ -314,6 +314,17 @@ if [ "${#files_to_measure[@]}" -gt 0 ]; then
     { w += NF; l++ }
     END { if (f != "") print f "\t" w "\t" l }
   ' "${files_to_measure[@]}")"
+  awk_rc=$?
+  # Fail loud if the measure pass could not read an instruction file: awk skips
+  # an unopenable file (printing to stderr) and exits non-zero, so `measured`
+  # would hold only partial results and the missing file would fall through the
+  # cache to a 0-word score — silently under budget. An input that cannot be
+  # measured is never counted as under budget (REQ-B1.8), symmetric with the
+  # knob fail-loud abort above.
+  if [ "$awk_rc" -ne 0 ]; then
+    echo "check-instructions: ERROR: one or more instruction files could not be measured (awk exit $awk_rc); an unmeasurable file is never scored as under budget (REQ-B1.8)" >&2
+    exit 1
+  fi
   while IFS="$(printf '\t')" read -r mp mw ml; do
     [ -n "$mp" ] || continue
     mpaths+=("$mp")

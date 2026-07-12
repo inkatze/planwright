@@ -609,6 +609,25 @@ else
   echo "ok: hostile exemption reason is data, never evaluated"
 fi
 
+########################################################################
+# 12. Unreadable instruction file is fail-loud, never silently scored 0.
+#     An input that cannot be measured is never counted as under budget
+#     (REQ-B1.8), symmetric with the knob fail-loud path: an over-floor
+#     SKILL.md that awk cannot open must hard-fail, not slip under the floor
+#     because its unmeasured word count defaulted to 0.
+########################################################################
+t12="$tmproot/t12"
+scaffold "$t12"
+# a body well over the 4250 error floor; readable, it fails the guard.
+make_skill "$t12" unreadable 5000
+chmod 000 "$t12/skills/unreadable/SKILL.md"
+out="$(/bin/bash "$CHECKER" --root "$t12" 2>&1)"
+rc=$?
+# restore read permission so the trap's `rm -rf` can clean the fixture up.
+chmod 644 "$t12/skills/unreadable/SKILL.md"
+assert_exit "unreadable instruction file is a fail-loud error" 1 "$rc"
+assert_contains "unreadable-file failure is diagnosed" "could not be measured" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
