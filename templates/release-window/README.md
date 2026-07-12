@@ -66,8 +66,11 @@ tag and names your publish command, and point the final `run:` step at it.
 3. If you are not using planwright core, replace the final `run:` step with your
    own comparator (see above).
 4. **Make the check required, but only once the window is closed.** In branch
-   protection for your default branch, add the workflow's status check
-   (`release-window / window-lock`) to the required checks. Enabling it *while a
+   protection for your default branch, add the status check named `window-lock`
+   to the required checks. That is the job name, which is the context string
+   branch-protection rules and the API match on; GitHub's PR checks UI displays
+   it grouped under the workflow as `release-window / window-lock`, but the
+   ruleset/required-check entry is the bare `window-lock`. Enabling it *while a
    release is pending* turns the branch red instantly and blocks all merges, so
    flip it to required only when your version of truth already equals the latest
    tag (nothing pending). Publish any open release first, then require the
