@@ -13,26 +13,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 1 — Instruction-hygiene doctrine doc
-
-- **Deliverables:** `doctrine/instruction-hygiene.md` carrying the
-  authoring rule (flow in skills, law in rule docs, references one level
-  deep), the doctrine-manifest convention (run-start and point-of-use
-  classes, exact machine-parseable syntax), the loading convention with
-  the safety floor (gating law never deferred), the test-and-measure
-  principle, the kept prompt-eval convention (fixture format, runner
-  contract, pass^k, cadence, cost capture), and the degradation citation
-  set; registered in `doctrine/README.md`.
-- **Done when:** the doc resolves via `scripts/resolve-rule-doc.sh
-  instruction-hygiene`; `doctrine/README.md` has its index row; `mise run
-  check` doc guards (lint:md, check:links) pass; the doc itself is under
-  the doctrine per-file budget it defines.
-- **Dependencies:** none
-- **Citations:** D-2, D-3, D-6, D-7, D-8, D-9, D-10, D-11 ·
-  REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4
-- **Estimated effort:** half day
-- **Last activity:** 2026-07-09
-
 ### Task 2 — Guard script, knobs, and audit mode
 
 - **Deliverables:** `scripts/check-instructions.sh` (per-file budgets with
@@ -218,7 +198,26 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Completed
 
-(none yet)
+### Task 1 — Instruction-hygiene doctrine doc
+
+- **Deliverables:** `doctrine/instruction-hygiene.md` carrying the
+  authoring rule (flow in skills, law in rule docs, references one level
+  deep), the doctrine-manifest convention (run-start and point-of-use
+  classes, exact machine-parseable syntax), the loading convention with
+  the safety floor (gating law never deferred), the test-and-measure
+  principle, the kept prompt-eval convention (fixture format, runner
+  contract, pass^k, cadence, cost capture), and the degradation citation
+  set; registered in `doctrine/README.md`.
+- **Done when:** the doc resolves via `scripts/resolve-rule-doc.sh
+  instruction-hygiene`; `doctrine/README.md` has its index row; `mise run
+  check` doc guards (lint:md, check:links) pass; the doc itself is under
+  the doctrine per-file budget it defines.
+- **Dependencies:** none
+- **Citations:** D-2, D-3, D-6, D-7, D-8, D-9, D-10, D-11 ·
+  REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4
+- **Estimated effort:** half day
+- **Status:** Completed · PR #133 merged 2026-07-10
+- **Last activity:** 2026-07-09
 
 ## Deferred
 
