@@ -148,7 +148,8 @@ assert_contains "a hostile CDPATH does not corrupt the surface" "$out" "0.2.0"
 # 7. Malformed comparator output: the comparator exists and exits 0 but emits an
 #    unexpected shape — no TAB, a non-`pending` state, or an empty version. The
 #    surface must honor its documented fail-safe contract (header + the defensive
-#    split): degrade silently, nothing on stdout, exit 0. This is the branch the
+#    split): degrade to a no-op — nothing on stdout, a one-line stderr
+#    diagnostic, exit 0. This is the branch the
 #    repo's real single-source comparator never reaches, so a stub comparator
 #    that echoes a caller-supplied $STUB_OUT is what exercises it. No git repo or
 #    plugin.json is needed — the stub replaces every git-touching step.
@@ -169,7 +170,7 @@ for spec in "no-tab:::garbage-no-tab" "wrong-state:::notpending${tab}1.2.3" "emp
   rc=0
   out=$(cd "$tmp/stub$i" && env STUB_OUT="$raw" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
     scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
-  assert_eq "malformed comparator output ($name) degrades silently (exit 0)" "$rc" "0"
+  assert_eq "malformed comparator output ($name) degrades to a no-op (exit 0)" "$rc" "0"
   assert_eq "malformed comparator output ($name) prints nothing on stdout" "$out" ""
 done
 

@@ -52,7 +52,8 @@ fi
 
 # Run the shared comparator. On a non-zero exit (e.g. a malformed version of
 # truth) it has already written its own diagnostic to stderr; add one line of
-# our own context and degrade to a silent no-op rather than propagating failure.
+# our own context and degrade to a no-op — silent on stdout, one-line diagnostic
+# on stderr — rather than propagating failure.
 if ! report=$("$comparator"); then
   echo "release-bookkeeping: release-pending.sh reported an error; skipping the release report" >&2
   exit 0
@@ -66,7 +67,8 @@ case "$report" in
 esac
 
 # Otherwise the comparator emitted `pending<TAB><version>`. Split on the tab and
-# validate the shape defensively; anything unexpected degrades silently.
+# validate the shape defensively; anything unexpected degrades to a no-op that is
+# silent on stdout (with a one-line stderr diagnostic) and exits 0.
 tab=$(printf '\t')
 state=${report%%"$tab"*}
 version=${report#*"$tab"}
