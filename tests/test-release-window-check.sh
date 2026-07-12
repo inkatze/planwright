@@ -208,6 +208,33 @@ RC=0
 OUT=$(cd "$tmp" && "$CHECK" --ref 2>&1) || RC=$?
 assert_eq "--ref with no value is a usage error (exit 2)" "$RC" "2"
 
+# 12. Base-read malformed SemVer: the ref carries a version_file whose value is
+#     not valid SemVer. This is the --ref counterpart to case 5 (which only
+#     covers the working-tree path); it exercises the ref-path SemVer guard
+#     (release-window-check.sh's "not valid SemVer" branch), distinct from case
+#     13's extraction failure. Fails closed → exit 2.
+r="$tmp/base-read-malformed"
+make_repo "$r" "not-a-version" # valid JSON, invalid SemVer → extraction succeeds, guard rejects
+bad_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$bad_sha"
+assert_eq "base-read: malformed SemVer at ref fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read malformed: names the SemVer guard" "$OUT" "not valid SemVer"
+
+# 13. Base-read extraction failure: the ref carries an unparseable version_file
+#     (broken JSON), so the extractor itself fails (jq errors) rather than the
+#     SemVer guard. This pins the "could not extract" branch, a different failure
+#     mode from case 12's post-extraction rejection. Fails closed → exit 2.
+r="$tmp/base-read-unextractable"
+mkdir -p "$r/.claude-plugin"
+printf '{ this is not valid json ' >"$r/.claude-plugin/plugin.json"
+gitc "$r" init -q
+gitc "$r" add -A
+gitc "$r" commit -q -m "unparseable version_file"
+bad_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$bad_sha"
+assert_eq "base-read: unextractable version at ref fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read unextractable: names the extraction failure" "$OUT" "could not extract"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
