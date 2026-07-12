@@ -740,7 +740,7 @@ scan_injected() {
     [ -f "$hook_path" ] || continue
     [ -r "$hook_path" ] || continue
     # injected-context iff the script emits additionalContext/hookSpecificOutput.
-    grep -q 'additionalContext\|hookSpecificOutput' "$hook_path" 2>/dev/null || continue
+    grep -Eq 'additionalContext|hookSpecificOutput' "$hook_path" 2>/dev/null || continue
 
     ex="$(awk "$extract_injected" "$hook_path")"
     iwords="$(printf '%s\n' "$ex" | sed -n 's/^WORDS //p')"
