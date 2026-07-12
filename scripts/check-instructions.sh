@@ -366,8 +366,11 @@ record_perfile() {
   elif in_list "$rel" "$pd_file_paths"; then
     suppress="pending-diet"
   fi
+  # Write the suppression field as a literal `none` when empty: a tab is IFS
+  # whitespace, so an empty interior field would collapse under the audit
+  # reader's `read`, sliding `kind` into the suppression-tag slot.
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$words" "$rel" "$lines" "$state" "$suppress" "$6" >>"$perfile_list"
+    "$words" "$rel" "$lines" "$state" "${suppress:-none}" "$6" >>"$perfile_list"
 
   if [ "$state" = ERROR ]; then
     # Every over-floor file is an offender and goes on the shortlist (it needs a
@@ -584,7 +587,12 @@ if [ -d "$doctrine_dir" ]; then
     [ -f "$doc" ] || continue
     base="${doc##*/}"
     [ "$base" = "README.md" ] && continue
-    mget "$doc" || continue
+    # A zero-line (empty) doc is absent from the measure cache; report it as a
+    # 0-word row rather than dropping it ("every instruction file", REQ-A1.1),
+    # symmetric with the skill walk's empty-file handling.
+    MW=0
+    ML=0
+    mget "$doc" || true
     record_perfile "doctrine/$base" "$MW" "$ML" \
       "$t_doc_warn" "$t_doc_error" doctrine
   done
@@ -689,6 +697,11 @@ scan_injected() {
       *) rel="$c" ;;
     esac
     rel="${rel#/}"
+    # Drop any CLI arguments: a registered command may pass flags to the hook
+    # (e.g. `<root>/hooks/x.sh --session-start`); the first token is the script
+    # path. Without this the hook would resolve to a non-existent path and be
+    # silently omitted rather than reported as a row (REQ-A1.4).
+    rel="${rel%% *}"
     case "$rel" in
       *..*)
         warn "hook path contains '..' traversal; skipped: $cmd"
@@ -732,7 +745,7 @@ if [ "$audit" -eq 1 ]; then
   echo "Per-file (ranked by words):"
   sort -rn "$perfile_list" | while IFS="$(printf '\t')" read -r w rel l st sup _; do
     tag=""
-    [ -n "$sup" ] && tag=" [$sup]"
+    [ "$sup" != none ] && tag=" [$sup]"
     printf '  words=%s lines=%s %s %s%s\n' "$w" "$l" "$rel" "$st" "$tag"
   done
   echo

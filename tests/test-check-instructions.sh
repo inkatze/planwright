@@ -158,13 +158,19 @@ scaffold "$t1"
 make_skill "$t1" alpha 100
 make_skill "$t1" beta 50
 make_doc "$t1" ruleone 200
-make_doc "$t1" README 9999 # index: must be EXCLUDED from the walk
+make_doc "$t1" README 9999     # index: must be EXCLUDED from the walk
+: >"$t1/doctrine/emptyrule.md" # empty doc: still a row, 0 words (REQ-A1.1)
 aud="$(/bin/bash "$CHECKER" --audit --root "$t1" 2>&1)"
 assert_contains "ranked report includes a skill file" "skills/alpha/SKILL.md" "$aud"
 assert_contains "ranked report includes a doctrine file" "doctrine/ruleone.md" "$aud"
 assert_contains "ranked report shows word counts" "words=" "$aud"
 assert_contains "ranked report shows line counts" "lines=" "$aud"
 assert_absent "doctrine/README.md excluded from per-file walk" "doctrine/README.md" "$aud"
+assert_contains "empty doctrine doc still appears as a 0-word row" "words=0 lines=0 doctrine/emptyrule.md" "$aud"
+# An unsuppressed file must carry NO suppression tag: the kind column ([skill]/
+# [doctrine]) must not leak into the tag slot for a file with no exemption.
+assert_absent "unsuppressed skill carries no leaked [skill] tag" "[skill]" "$aud"
+assert_absent "unsuppressed doc carries no leaked [doctrine] tag" "[doctrine]" "$aud"
 # Ranked: alpha(100+) must appear before beta(50+) in the per-file section.
 alpha_pos="${aud%%skills/alpha/SKILL.md*}"
 beta_pos="${aud%%skills/beta/SKILL.md*}"
@@ -267,6 +273,16 @@ else
   echo "ok: hook script is read statically, never executed"
 fi
 
+# 4b. A hook command that passes CLI arguments still resolves to its script and
+#     gets a row (REQ-A1.4: every registered injected hook is a row).
+cat >"$t4/hooks/hooks.json" <<'EOF'
+{ "hooks": { "SessionStart": [ { "hooks": [
+  { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/inject.sh --session-start" }
+] } ] } }
+EOF
+aud="$(/bin/bash "$CHECKER" --audit --root "$t4" 2>&1)"
+assert_contains "hook registered with CLI args still gets a row" "hooks/inject.sh static=10" "$aud"
+
 ########################################################################
 # 5. Check-aggregate wiring (REQ-B1.1): an over-error file fails; the task is
 #    present in the mise.toml check aggregate.
@@ -341,6 +357,16 @@ out="$(/bin/bash "$CHECKER" --root "$t7b" 2>&1)"
 assert_exit "reason-less exemption is an error" 1 $?
 assert_contains "reason-less error is diagnosed" "reason" "$out"
 
+# a reason-less pending-diet allowance is likewise an error (either form).
+t7b2="$tmproot/t7b2"
+scaffold "$t7b2"
+make_skill "$t7b2" y 5000
+printf 'pending-diet|file|skills/y/SKILL.md|Task 9|\n' \
+  >"$t7b2/config/instruction-budget-exemptions.txt"
+out="$(/bin/bash "$CHECKER" --root "$t7b2" 2>&1)"
+assert_exit "reason-less pending-diet allowance is an error" 1 $?
+assert_contains "reason-less pending-diet is diagnosed" "reason" "$out"
+
 # 7b2. transitional pending-diet allowance on a PER-FILE offender lets the check
 #      pass; removing it re-fails (the per-file transitional form).
 t7pf="$tmproot/t7pf"
@@ -371,6 +397,11 @@ pending-diet|start-load|heavy|Task 7.5|reclassified to point-of-use in Task 7.5
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t7c" 2>&1)"
 assert_exit "start-load pending-diet allowance lets the check pass" 0 $?
+# The start-load offender still appears in the --audit shortlist even suppressed
+# (REQ-A1.3: the shortlist targets skills over the start-load budget).
+aud="$(/bin/bash "$CHECKER" --audit --root "$t7c" 2>&1)"
+sl="${aud##*Offender shortlist}"
+assert_contains "shortlist names the start-load offender" "start-load heavy" "$sl"
 
 # 7d. transitional pending-diet allowance on a CLOSURE offender (symmetric fix).
 t7d="$tmproot/t7d"
@@ -389,6 +420,9 @@ pending-diet|closure|wide|Task 9|content diet pending
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t7d" 2>&1)"
 assert_exit "closure pending-diet allowance lets the check pass" 0 $?
+aud="$(/bin/bash "$CHECKER" --audit --root "$t7d" 2>&1)"
+sl="${aud##*Offender shortlist}"
+assert_contains "shortlist names the closure offender" "closure wide" "$sl"
 
 ########################################################################
 # 8. Resolution check (REQ-B1.6): a manifest naming a nonexistent doc fails,
