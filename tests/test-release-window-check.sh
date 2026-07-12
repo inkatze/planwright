@@ -52,6 +52,19 @@ EOF
   gitc "$1" commit -q -m "version $2"
 }
 
+# bump_version <dir> <version> — rewrite plugin.json to <version> and commit it
+# (simulates a release PR's version bump landing as a new commit).
+bump_version() {
+  cat >"$1/.claude-plugin/plugin.json" <<EOF
+{
+  "name": "fixture",
+  "version": "$2"
+}
+EOF
+  gitc "$1" add -A
+  gitc "$1" commit -q -m "chore: bump to $2"
+}
+
 # run_check <dir> — run the check inside <dir>, capturing combined output and the
 # exit code (globals: OUT, RC). Global git config is neutralized so a developer's
 # signing/config never leaks into the fixture.
@@ -150,6 +163,50 @@ OUT=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null \
   GIT_CONFIG_SYSTEM=/dev/null scripts/release-window-check.sh 2>&1) || RC=$?
 assert_eq "a hostile CDPATH does not corrupt the check (in-window → exit 1)" "$RC" "1"
 assert_contains "cdpath fixture still names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# --- Base-reading (--ref): the CI path evaluates a ref's version, not the
+#     working tree, so the SCRIPT runs from the PR checkout while the STATE
+#     judged is main's (REQ-E1.1; the chicken-and-egg D-7 rejects). ---
+
+# 8. The release PR is NOT blocked by its own bump: main (the ref) is at the tag
+#    (out of window) while the working tree bumps the version. --ref main → 0.
+r="$tmp/base-read-releasepr"
+make_repo "$r" 0.1.0
+gitc "$r" tag v0.1.0
+main_sha=$(gitc "$r" rev-parse HEAD)
+bump_version "$r" 0.2.0 # the "release PR head" bumps ahead of the tag
+run_check_ref() {
+  RC=0
+  OUT=$(cd "$1" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    "$CHECK" --ref "$2" 2>&1) || RC=$?
+}
+run_check_ref "$r" "$main_sha"
+assert_eq "base-read: release PR (head bumped) not blocked; --ref main → exit 0" "$RC" "0"
+
+# 9. Main in the window → --ref → exit 1, command named. A genuine ref-vs-tree
+#    discriminator: the working tree is back AT the tag (a tree-read would give
+#    exit 0) while --ref points at the window commit, so exit 1 can only come
+#    from reading the ref. This is what blocks every subsequent merge.
+r="$tmp/base-read-window"
+make_repo "$r" 0.2.0 # commit A: version ahead of the tag → window open
+gitc "$r" tag v0.1.0
+window_sha=$(gitc "$r" rev-parse HEAD)
+bump_version "$r" 0.1.0 # commit B: working tree back to == tag (tree-read → 0)
+run_check_ref "$r" "$window_sha"
+assert_eq "base-read: main in window → --ref (window commit) → exit 1" "$RC" "1"
+assert_contains "base-read window: names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# 10. An unreadable ref (or a ref lacking the version_file) fails closed → exit 2.
+r="$tmp/base-read-badref"
+make_repo "$r" 0.1.0
+gitc "$r" tag v0.1.0
+run_check_ref "$r" does-not-exist
+assert_eq "base-read: unreadable ref fails closed (exit 2)" "$RC" "2"
+
+# 11. --ref with no value is a usage error (exit 2).
+RC=0
+OUT=$(cd "$tmp" && "$CHECK" --ref 2>&1) || RC=$?
+assert_eq "--ref with no value is a usage error (exit 2)" "$RC" "2"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

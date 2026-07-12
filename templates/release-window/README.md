@@ -27,20 +27,23 @@ configuration). Nothing here runs until you copy it in.
 - Ordinary PRs that do not bump the version are unaffected outside the window
   (REQ-E1.2).
 
-## Why it reads the base branch, not the PR head
+## Why it reads the default branch, not the PR head
 
 The lock is a property of your **default branch**, so the workflow evaluates
-that branch's state, never the PR head. On a `pull_request` or `merge_group` it
-checks out the **base** branch.
+that branch's state, never the PR head. It checks out the PR (so the check
+script is present) but passes `--ref origin/main`, so the *state* judged is the
+default branch's, not the merge candidate's.
 
 This is deliberate. If the check read the PR head instead, the **release PR
 itself** — which bumps the version — would trip the lock and could never merge:
 the signed tag can only exist *after* the bump lands, so requiring the tag on
-the release PR is an unsolvable chicken-and-egg. Base-reading lets the release
-PR through (the base is still at the tag when it merges) while blocking every
+the release PR is an unsolvable chicken-and-egg. Ref-reading lets the release PR
+through (the branch is still at the tag when it merges) while blocking every
 *subsequent* merge once the bump has landed. That is exactly the serialization
 you want: the release PR opens the window, the publish closes it, nothing else
-slips in between.
+slips in between. (Reading a ref rather than checking the branch out wholesale
+also keeps the check working on the very PR that introduces the script, before
+the default branch has it.)
 
 ## Files
 

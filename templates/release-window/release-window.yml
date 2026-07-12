@@ -8,17 +8,19 @@
 # until the signed tag is published. Forgetting to publish becomes structurally
 # impossible instead of merely discouraged.
 #
-# The lock is a property of the default branch, so this job evaluates that
-# branch's state, never the PR head: on a pull_request or merge_group it checks
-# out the BASE branch. Reading the PR head instead would block the very release
+# The lock is a property of the default branch, so the check judges that
+# branch's state, not the PR head: it runs the PR checkout's script but passes
+# `--ref origin/main`. Reading the PR head instead would block the very release
 # PR that opens (and is about to close) the window — a chicken-and-egg the
-# base-read avoids.
+# ref-read avoids. Reading a ref (not checking the branch out wholesale) also
+# keeps the check working on the PR that first introduces the script.
 #
 # REQUIRES a "pending" comparator. planwright core ships one
-# (scripts/release-window-check.sh → scripts/release-pending.sh). If you adopt
-# this WITHOUT planwright core, supply your own check that exits non-zero while
-# your version of truth is ahead of the latest release tag and names your
-# publish command, and point the final step at it.
+# (scripts/release-window-check.sh → scripts/release-pending.sh /
+# scripts/release-lib.sh). If you adopt this WITHOUT planwright core, supply your
+# own check that exits non-zero while your version of truth is ahead of the
+# latest release tag and names your publish command, and point the final step at
+# it (evaluating your default branch's state, not the PR head).
 #
 # "on" is quoted so a yamllint truthy rule does not flag the key.
 name: release-window
@@ -42,18 +44,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # Base-read the default branch's state. On push the base fallbacks are
-      # empty and github.ref is already the pushed default branch. fetch-depth:
-      # 0 brings the tags the comparator needs.
+      # Check out the PR/triggering ref so the check SCRIPT is present. Then pin
+      # origin/<default-branch> (the STATE to judge) and the tags the comparator
+      # needs. fetch-depth: 0 brings history.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
-          ref: >-
-            ${{ github.event.pull_request.base.ref
-            || github.event.merge_group.base_ref
-            || github.ref }}
           fetch-depth: 0
+
+      # Explicit refspec: actions/checkout configures a narrow fetch refspec on
+      # pull_request/merge_group, so a bare `git fetch origin main` would not
+      # populate refs/remotes/origin/main. Adjust `main` to your default branch.
+      - run: git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
 
       # Fail (exit 1) in the window, naming your publish command; pass (exit 0)
       # outside it; fail closed (exit 2) if the release state cannot be read.
       # Replace with your own comparator if not using planwright core.
-      - run: /bin/bash scripts/release-window-check.sh
+      - run: /bin/bash scripts/release-window-check.sh --ref origin/main

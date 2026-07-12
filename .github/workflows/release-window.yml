@@ -8,16 +8,18 @@
 # (scripts/release-publish.sh). Surfacing by forcing-function, never by pull
 # (reflex step 4): forgetting to publish becomes structurally impossible.
 #
-# The lock is a property of `main`, so this job evaluates `main`'s state, never
-# the PR head: on a pull_request or merge_group it checks out the BASE branch
-# (`main`). Reading the release-PR head instead would re-create the
-# chicken-and-egg D-7 rejects — the release PR bumps the version, so a head read
-# would block the very PR that opens (and is about to close) the window.
+# The lock is a property of `main`, so the check judges `main`'s state, not the
+# PR head: it runs the PR checkout's script but passes `--ref origin/main`.
+# Reading the PR head instead would re-create the chicken-and-egg D-7 rejects —
+# the release PR bumps the version, so a head read would block the very PR that
+# opens (and is about to close) the window. Reading a ref (rather than checking
+# `main` out wholesale) also keeps the check working on the PR that first
+# introduces the script, when `main` does not have it yet.
 #
-# This check reuses scripts/release-window-check.sh → scripts/release-pending.sh,
-# the one shared definition of "pending" (REQ-D1.8). It needs only git (with
-# tags) and jq, both present on ubuntu-latest; no signing material, no `gh`, no
-# secret enters this workflow.
+# This check reuses scripts/release-window-check.sh → the shared "pending"
+# definition (release-pending.sh / release-lib.sh, REQ-D1.8). It needs only git
+# (with tags) and jq, both present on ubuntu-latest; no signing material, no
+# `gh`, no secret enters this workflow.
 #
 # "on" is quoted so yamllint's truthy rule (run on .github/) does not flag the
 # key, matching ci.yml.
@@ -42,18 +44,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      # Evaluate `main`'s state (base-reading, not the PR head). On push the
-      # base fallbacks are empty and github.ref is already the pushed main.
-      # fetch-depth: 0 brings the tags the comparator needs to find the latest
-      # release tag.
+      # Check out the PR/triggering ref so the check SCRIPT is present (it does
+      # not yet live on main on the PR that introduces it). fetch-depth: 0
+      # brings history; the explicit fetch below pins origin/main and the tags
+      # the comparator needs.
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
-          ref: >-
-            ${{ github.event.pull_request.base.ref
-            || github.event.merge_group.base_ref
-            || github.ref }}
           fetch-depth: 0
 
-      # Fail (exit 1) in the window, naming the publish command; pass (exit 0)
-      # outside it; fail closed (exit 2) if the release state cannot be read.
-      - run: /bin/bash scripts/release-window-check.sh
+      # Pin origin/main (the STATE to judge) and the release tags. The explicit
+      # refspec is required: actions/checkout configures a narrow fetch refspec
+      # on pull_request/merge_group, so a bare `git fetch origin main` would not
+      # populate refs/remotes/origin/main.
+      - run: git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main
+
+      # Fail (exit 1) if main is in the window, naming the publish command; pass
+      # (exit 0) outside it; fail closed (exit 2) if the state cannot be read.
+      - run: /bin/bash scripts/release-window-check.sh --ref origin/main
