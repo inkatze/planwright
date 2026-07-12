@@ -1,6 +1,6 @@
 # Observation Recording — Tasks
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-07-08
 **Format-version:** 1
 
@@ -13,64 +13,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 
 ## Forward plan
 
-### Task 5 — Doctrine and skill reconciliation
-
-- **Deliverables:** accumulator-taxonomy amended as the canonical home of
-  the fragment drain ritual (the class/home/reader/drain classification
-  rule restated with archive-on-consume as this accumulator's specific
-  ritual, the `obs:<uid>` citation form, and the "class-3" shorthand
-  token); spec-format glossary "Observations log" entry rewritten per D-8
-  (dropping "append-only"; the sibling "Accumulator" entry's reference
-  updated) and the "Citation syntax and kinds" table given the `obs:<uid>`
-  kind; `doctrine/decision-domains.md` and `docs/CONTRIBUTING.md` recording
-  instructions reconciled; recording and reading instructions reconciled in
-  all ten skills — `/spec-draft` (seed gathering + archive-on-consume
-  sections), `/spec-kickoff`, `/execute-task`, `/self-review`, `/polish`,
-  `/drain`, `/orchestrate` (`--bookkeeping` surfacing), `/builder`,
-  `/resume`, and `/spec-walkthrough` (the drift-log Maintenance write in
-  every skill routes through `obs-record.sh`, keeping the
-  `skill-drift(...)` entry form and the no-`specs/` fallback) — all
-  pointing at the shared helpers; the "shared blackboard" framing in
-  `doctrine/inter-orchestrator-coordination.md` reviewed against the
-  fragment model.
-- **Done when:** A search across `skills/`, `doctrine/`, and `docs/` finds
-  no shipped text instructing an append to `opportunities.md` or to a
-  shared observations file; every recording skill names `obs-record.sh`
-  and the mining path names `obs-consume.sh`;
-  `mise run check` (including `check:links` and `check:specs`) is green.
-- **Dependencies:** 1, 2, 3, 4
-- **Citations:** D-8 · REQ-E1.3, REQ-C1.1, REQ-C1.2, REQ-D1.2
-- **Estimated effort:** 1 day
-- **Last activity:** 2026-07-10
-
-### Task 6 — Migration cutover (dedup, freeze, dirs)
-
-- **Deliverables:** The one-time migration: remove each resurrected
-  duplicate line from `opportunities.md` (each removal cited to its
-  `archive.md` consumed-by record in the PR body; the removal set
-  recomputed against the branch's current state immediately before merge;
-  any candidate plausibly a legitimate textual re-occurrence kept, not
-  removed); freeze headers on `opportunities.md` and `archive.md` naming
-  the fragment substrate and this spec (`entries/` and `archive/` need no
-  migration step — the helpers create them on demand, never committed
-  empty); the four log entries covering findings F1–F5
-  annotated in place as consumed by this spec (the legacy-consume arm —
-  they are frozen-log lines, not fragments, so the archive move does not
-  apply) if `chore/log-oh-findings` has merged
-  by then (otherwise recorded as a new Deferred entry in this `tasks.md`
-  with a free-text gate on that branch's merge — never only PR-body
-  prose). Lands in the same PR as Task 5's flip (cohesion bundle,
-  REQ-E1.2).
-- **Done when:** The frozen files carry their headers; no removed line lacks
-  a consumed-by citation; `check:obs` passes over the tree (null-safe
-  while either fragment directory is still absent);
-  no skill text on the branch still appends to the frozen log (Task 5 in the
-  same unit); the F1–F5 in-place consumption is either done or gated in
-  Deferred; `mise run check` is green.
-- **Dependencies:** 2, 5
-- **Citations:** D-5, D-9 · REQ-E1.1, REQ-E1.2
-- **Estimated effort:** half day
-- **Last activity:** 2026-07-10
+(none — all live tasks complete)
 
 ## In progress
 
@@ -190,6 +133,67 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Citations:** D-3, D-7 · REQ-B1.2, REQ-C1.2, REQ-A1.5
 - **Estimated effort:** half day
 - **Status:** Completed · PR #147 merged 2026-07-10
+- **Last activity:** 2026-07-10
+
+### Task 5 — Doctrine and skill reconciliation
+
+- **Deliverables:** accumulator-taxonomy amended as the canonical home of
+  the fragment drain ritual (the class/home/reader/drain classification
+  rule restated with archive-on-consume as this accumulator's specific
+  ritual, the `obs:<uid>` citation form, and the "class-3" shorthand
+  token); spec-format glossary "Observations log" entry rewritten per D-8
+  (dropping "append-only"; the sibling "Accumulator" entry's reference
+  updated) and the "Citation syntax and kinds" table given the `obs:<uid>`
+  kind; `doctrine/decision-domains.md` and `docs/CONTRIBUTING.md` recording
+  instructions reconciled; recording and reading instructions reconciled in
+  all ten skills — `/spec-draft` (seed gathering + archive-on-consume
+  sections), `/spec-kickoff`, `/execute-task`, `/self-review`, `/polish`,
+  `/drain`, `/orchestrate` (`--bookkeeping` surfacing), `/builder`,
+  `/resume`, and `/spec-walkthrough` (the drift-log Maintenance write in
+  every skill routes through `obs-record.sh`, keeping the
+  `skill-drift(...)` entry form and the no-`specs/` fallback) — all
+  pointing at the shared helpers; the "shared blackboard" framing in
+  `doctrine/inter-orchestrator-coordination.md` reviewed against the
+  fragment model.
+- **Done when:** A search across `skills/`, `doctrine/`, and `docs/` finds
+  no shipped text instructing an append to `opportunities.md` or to a
+  shared observations file; every recording skill names `obs-record.sh`
+  and the mining path names `obs-consume.sh`;
+  `mise run check` (including `check:links` and `check:specs`) is green.
+- **Dependencies:** 1, 2, 3, 4
+- **Citations:** D-8 · REQ-E1.3, REQ-C1.1, REQ-C1.2, REQ-D1.2
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #152 merged 2026-07-12
+- **Last activity:** 2026-07-10
+
+### Task 6 — Migration cutover (dedup, freeze, dirs)
+
+- **Deliverables:** The one-time migration: remove each resurrected
+  duplicate line from `opportunities.md` (each removal cited to its
+  `archive.md` consumed-by record in the PR body; the removal set
+  recomputed against the branch's current state immediately before merge;
+  any candidate plausibly a legitimate textual re-occurrence kept, not
+  removed); freeze headers on `opportunities.md` and `archive.md` naming
+  the fragment substrate and this spec (`entries/` and `archive/` need no
+  migration step — the helpers create them on demand, never committed
+  empty); the four log entries covering findings F1–F5
+  annotated in place as consumed by this spec (the legacy-consume arm —
+  they are frozen-log lines, not fragments, so the archive move does not
+  apply) if `chore/log-oh-findings` has merged
+  by then (otherwise recorded as a new Deferred entry in this `tasks.md`
+  with a free-text gate on that branch's merge — never only PR-body
+  prose). Lands in the same PR as Task 5's flip (cohesion bundle,
+  REQ-E1.2).
+- **Done when:** The frozen files carry their headers; no removed line lacks
+  a consumed-by citation; `check:obs` passes over the tree (null-safe
+  while either fragment directory is still absent);
+  no skill text on the branch still appends to the frozen log (Task 5 in the
+  same unit); the F1–F5 in-place consumption is either done or gated in
+  Deferred; `mise run check` is green.
+- **Dependencies:** 2, 5
+- **Citations:** D-5, D-9 · REQ-E1.1, REQ-E1.2
+- **Estimated effort:** half day
+- **Status:** Completed · PR #152 merged 2026-07-12
 - **Last activity:** 2026-07-10
 
 ## Deferred
