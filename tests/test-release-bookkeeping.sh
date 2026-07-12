@@ -145,6 +145,34 @@ out=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_S
   scripts/release-bookkeeping.sh)
 assert_contains "a hostile CDPATH does not corrupt the surface" "$out" "0.2.0"
 
+# 7. Malformed comparator output: the comparator exists and exits 0 but emits an
+#    unexpected shape — no TAB, a non-`pending` state, or an empty version. The
+#    surface must honor its documented fail-safe contract (header + the defensive
+#    split): degrade silently, nothing on stdout, exit 0. This is the branch the
+#    repo's real single-source comparator never reaches, so a stub comparator
+#    that echoes a caller-supplied $STUB_OUT is what exercises it. No git repo or
+#    plugin.json is needed — the stub replaces every git-touching step.
+tab=$(printf '\t')
+i=0
+for spec in "no-tab:::garbage-no-tab" "wrong-state:::notpending${tab}1.2.3" "empty-version:::pending${tab}"; do
+  name=${spec%%:::*}
+  raw=${spec#*:::}
+  i=$((i + 1))
+  sw="$tmp/stub$i/scripts"
+  mkdir -p "$sw"
+  cp "$here/../scripts/release-bookkeeping.sh" "$here/../scripts/echo-safety.sh" "$sw/"
+  # $STUB_OUT is written literally into the stub so it expands at the stub's
+  # runtime (from the invocation env below), not here — single quotes are intended.
+  # shellcheck disable=SC2016
+  printf '#!/bin/sh\nprintf "%%s\\n" "$STUB_OUT"\n' >"$sw/release-pending.sh"
+  chmod +x "$sw/release-pending.sh"
+  rc=0
+  out=$(cd "$tmp/stub$i" && env STUB_OUT="$raw" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
+  assert_eq "malformed comparator output ($name) degrades silently (exit 0)" "$rc" "0"
+  assert_eq "malformed comparator output ($name) prints nothing on stdout" "$out" ""
+done
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
