@@ -81,8 +81,9 @@ Selected from `$ARGUMENTS` at pre-flight:
   independent, atomic step; `--watch` is a convenience over re-invocation, not
   a stateful long-running process.
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
-  PRs into `tasks.md`, evaluate open gates (no auto-drop), and surface the
-  observations log's staleness. Dispatches nothing. See its own section.
+  PRs into `tasks.md`, evaluate open gates (no auto-drop), surface the
+  observations log's staleness, and report any pending release
+  (belt-and-suspenders). Dispatches nothing. See its own section.
 - **`--meta`.** The **meta-tower** ("tower of towers", D-6): supervise **several
   Ready/Active specs at once**, advancing one unit across the whole fleet per
   step under a fleet-level concurrency bound, by launching subordinate
@@ -680,6 +681,16 @@ The out-of-session drain pass. Dispatches nothing; it:
    legacy file's unconsumed lines, naming both surfaces while the legacy
    file drains, with stuck consumes and skipped invalid fragments called out
    (seed pressure for the next `/spec-draft`).
+4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
+   `scripts/release-bookkeeping.sh`, the belt-and-suspenders surface over the
+   shared comparator (`release-pending.sh`, the one definition of "pending" the
+   untagged-window lock also reads, REQ-D1.8). In the untagged window it prints
+   a one-line report naming the pending version and the publish command; outside
+   the window it stays silent on releases. This is the deliberately-redundant
+   third surfacing layer — the standing release PR (push) and the untagged-window
+   lock (forcing-function) are the primary ones (D-7); the report never blocks
+   the pass (it degrades to a silent no-op on any comparator trouble and always
+   exits 0).
 
 On `--bookkeeping`, missing prerequisites degrade with a message (it is not a
 dispatch path); it still never merges and never pushes.
