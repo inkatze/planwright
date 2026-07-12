@@ -11,6 +11,10 @@ markdownlint-cli2 = "0.19.0"
 yamllint = "1.37"
 gitleaks = "8.30.0"
 
+[tasks.release]
+description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
+run = "scripts/release-publish.sh"
+
 [tasks.test]
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor)"
 run = 'for t in tests/*.sh; do /bin/bash "$t" || exit 1; done'
@@ -85,6 +89,10 @@ run = "/bin/bash scripts/check-ledger.sh"
 description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
 run = "/bin/bash scripts/check-obs.sh"
 
+[tasks."check:instructions"]
+description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement (prompt-hygiene Task 2)"
+run = "/bin/bash scripts/check-instructions.sh"
+
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
 run = "/bin/sh scripts/obs-render.sh"
@@ -109,6 +117,7 @@ depends = [
   "check:options",
   "check:ledger",
   "check:obs",
+  "check:instructions",
   "check:specs",
   "scan:secrets",
 ]

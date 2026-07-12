@@ -131,3 +131,27 @@ require_signed_tags: auto
 # point at another top-level JSON string field (e.g. a package.json's $.version)
 # or, with no selector, a plain VERSION file.
 version_file: .claude-plugin/plugin.json::$.version
+
+# Instruction-hygiene size budgets (prompt-hygiene D-1, D-2, D-5). The guard
+# scripts/check-instructions.sh enforces these in words (wc -w, wrap-invariant);
+# thresholds are boundary-inclusive (a count >= a threshold trips it). Defaults
+# derive from the published 500-line SKILL.md authoring ceiling converted through
+# the measured corpus density (~8.5 words/line in skills/, ~7.9 in doctrine/),
+# recorded in D-2. Every knob is overlay-tunable; the mechanism is core, the
+# values are style. See doctrine/instruction-hygiene.md for the budget model.
+# Per-file floors (secondary signal): SKILL.md body and doctrine rule doc.
+instruction_budget_skill_warn: 3000
+instruction_budget_skill_error: 4250
+instruction_budget_doctrine_warn: 2500
+instruction_budget_doctrine_error: 4000
+# Mandatory-at-start (the primary budget: SKILL.md body + run-start rule docs).
+instruction_budget_startload_warn: 8000
+instruction_budget_startload_error: 10000
+# Reachable closure (start-load + point-of-use rule docs).
+instruction_budget_closure_warn: 15000
+instruction_budget_closure_error: 20000
+# Injected-context warn floor (static prose an additionalContext-emitting hook
+# contributes, REQ-A1.4/B1.7). Warn-only: this partly-dynamic per-session
+# surface never fails the check. Grounded in the ~40-word present surface
+# (tool-discovery.sh) plus headroom, same test-and-measure discipline (D-13).
+instruction_budget_injected_warn: 200

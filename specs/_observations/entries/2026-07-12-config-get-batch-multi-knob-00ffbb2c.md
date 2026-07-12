@@ -1,0 +1,1 @@
+- 2026-07-12 [planwright] config-get is one-key-per-invocation; a guard reading many knobs (check-instructions.sh reads 9 instruction_budget_* knobs) pays one process spawn per knob. A batched multi-key config-get (or a documented read-all-then-cache pattern) would cut multi-knob guard startup cost — R10-adjacent, beyond prompt-hygiene scope.
