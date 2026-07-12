@@ -60,9 +60,12 @@ tag and names your publish command, and point the final `run:` step at it.
 ## Adopting
 
 1. Copy `release-window.yml` to `.github/workflows/release-window.yml`.
-2. In the workflow, set `push.branches` to your default branch if it is not
-   `main`. Keep the `actions/checkout` pin at a full commit SHA and bump the
-   `# vX.Y.Z` comment alongside it.
+2. In the workflow, set **both** `pull_request.branches` and `push.branches` to
+   your default branch if it is not `main` (both keys are annotated
+   `# your default branch`; leaving `pull_request.branches` at `main` means PRs
+   against your real default branch never trigger the check). Keep the
+   `actions/checkout` pin at a full commit SHA and bump the `# vX.Y.Z` comment
+   alongside it.
 3. If you are not using planwright core, replace the final `run:` step with your
    own comparator (see above).
 4. **Make the check required, but only once the window is closed.** In branch
