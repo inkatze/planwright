@@ -25,6 +25,7 @@ name: release-window
 
 "on":
   pull_request:
+    branches: [main]  # your default branch
   merge_group:
   push:
     branches: [main]  # your default branch

@@ -25,6 +25,7 @@ name: release-window
 
 "on":
   pull_request:
+    branches: [main]
   merge_group:
   push:
     branches: [main]
