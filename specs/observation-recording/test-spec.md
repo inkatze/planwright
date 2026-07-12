@@ -1,6 +1,6 @@
 # Observation Recording — Test Spec
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-07-08
 **Format-version:** 1
 

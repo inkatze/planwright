@@ -1,6 +1,6 @@
 # Observation Recording — Tasks
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-07-08
 **Format-version:** 1
 
@@ -12,6 +12,18 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 (REQ-E1.2) — dispatch Tasks 5–6 as a cohesion bundle.
 
 ## Forward plan
+
+(none — all live tasks complete)
+
+## In progress
+
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
 
 ### Task 1 — Recording substrate and helper
 
@@ -38,6 +50,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Citations:** D-1, D-2, D-6, D-7 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4,
   REQ-A1.6, REQ-B1.1, REQ-D1.1, REQ-D1.3
 - **Estimated effort:** 1 day
+- **Status:** Completed · PR #135 merged 2026-07-10
 - **Last activity:** 2026-07-09
 
 ### Task 2 — Fragment CI guard (`check:obs`)
@@ -60,6 +73,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1
 - **Citations:** D-6, D-7 · REQ-D1.4, REQ-A1.2
 - **Estimated effort:** half day
+- **Status:** Completed · PR #139 merged 2026-07-10
 - **Last activity:** 2026-07-09
 
 ### Task 3 — Render command and drain surfacing
@@ -85,6 +99,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1, 2
 - **Citations:** D-4, D-7 · REQ-B1.3, REQ-C1.3, REQ-C1.4, REQ-D1.3
 - **Estimated effort:** 1 day
+- **Status:** Completed · PR #146 merged 2026-07-11
 - **Last activity:** 2026-07-10
 
 ### Task 4 — Consumption and archival mechanics
@@ -117,6 +132,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1, 2
 - **Citations:** D-3, D-7 · REQ-B1.2, REQ-C1.2, REQ-A1.5
 - **Estimated effort:** half day
+- **Status:** Completed · PR #147 merged 2026-07-10
 - **Last activity:** 2026-07-10
 
 ### Task 5 — Doctrine and skill reconciliation
@@ -147,6 +163,7 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 1, 2, 3, 4
 - **Citations:** D-8 · REQ-E1.3, REQ-C1.1, REQ-C1.2, REQ-D1.2
 - **Estimated effort:** 1 day
+- **Status:** Completed · PR #152 merged 2026-07-12
 - **Last activity:** 2026-07-10
 
 ### Task 6 — Migration cutover (dedup, freeze, dirs)
@@ -176,19 +193,8 @@ skill text; Task 6 is the cutover and must land with Task 5 as one unit
 - **Dependencies:** 2, 5
 - **Citations:** D-5, D-9 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** half day
+- **Status:** Completed · PR #152 merged 2026-07-12
 - **Last activity:** 2026-07-10
-
-## In progress
-
-(none yet)
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 

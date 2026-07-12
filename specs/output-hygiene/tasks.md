@@ -1,6 +1,6 @@
 # Output & Accumulator Hygiene — Tasks
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-07-08
 **Format-version:** 1
 
@@ -15,6 +15,18 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 
 ## Forward plan
 
+(none — all live tasks complete)
+
+## In progress
+
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
 ### Task 3 — PR-body contract
 
 - **Deliverables:** a PR-body assembly section in the gate-wiring doctrine (summary-first
@@ -28,6 +40,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-2 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4
 - **Estimated effort:** 1 day
+- **Status:** Completed · PR #149 merged 2026-07-11
 - **Last activity:** 2026-07-10
 
 ### Task 4 — Marker canonicalization and emit-time guard
@@ -47,6 +60,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-3 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4
 - **Estimated effort:** 1 day
+- **Status:** Completed · PR #150 merged 2026-07-11
 - **Last activity:** 2026-07-10
 
 ### Task 5 — Reference-integrity lint
@@ -64,6 +78,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** none
 - **Citations:** D-4 · REQ-D1.1, REQ-D1.3, REQ-D1.4
 - **Estimated effort:** half day
+- **Status:** Completed · PR #132 merged 2026-07-09
 
 ### Task 6 — `[[name]]` neutralization and fleet-citation reconciliation
 
@@ -101,6 +116,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
   standing `check:memory-links` guard skips terminal bundles, so it re-engages automatically
   the moment the fleet reopens to Draft. The skill rule, the guard, and the output-hygiene
   self-re-anchor all land in this PR.
+- **Status:** Completed · PR #141 merged 2026-07-10
 - **Last activity:** 2026-07-10
 
 ### Task 7 — Organic completion-annotation stamping
@@ -120,6 +136,7 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** none
 - **Citations:** D-5 · REQ-E1.1, REQ-E1.2
 - **Estimated effort:** 1 day
+- **Status:** Completed · PR #136 merged 2026-07-09
 - **Last activity:** 2026-07-09
 
 ### Task 8 — Derived-content authoring guidance
@@ -137,19 +154,8 @@ Task 5 → any of {3, 4, 6} (1.5 days).
 - **Dependencies:** 5
 - **Citations:** D-5 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** half day
+- **Status:** Completed · PR #151 merged 2026-07-11
 - **Last activity:** 2026-07-10
-
-## In progress
-
-(none yet)
-
-## Awaiting input
-
-(none yet)
-
-## Completed
-
-(none yet)
 
 ## Deferred
 

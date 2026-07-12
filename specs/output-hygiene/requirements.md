@@ -1,6 +1,6 @@
 # Output & Accumulator Hygiene — Requirements
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-07-10
 **Format-version:** 1
 
