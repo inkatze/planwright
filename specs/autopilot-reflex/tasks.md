@@ -66,6 +66,7 @@ of the release chain after T1 and can run in parallel throughout.
 - **Dependencies:** Task 4, Task 5.
 - **Citations:** D-7, D-8 · REQ-F1.2, REQ-F1.3
 - **Estimated effort:** 0.5d
+- **Last activity:** 2026-07-12
 
 ### Task 9 — Signing prerequisites & enforcement on this repo + docs
 
