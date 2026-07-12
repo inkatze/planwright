@@ -52,8 +52,8 @@ fi
 
 # Run the shared comparator. On a non-zero exit (e.g. a malformed version of
 # truth) it has already written its own diagnostic to stderr; add one line of
-# our own context and degrade to a no-op — silent on stdout, one-line diagnostic
-# on stderr — rather than propagating failure.
+# our own context on top and degrade to a no-op — silent on stdout, a diagnostic
+# on stderr (ours plus the comparator's) — rather than propagating failure.
 if ! report=$("$comparator"); then
   echo "release-bookkeeping: release-pending.sh reported an error; skipping the release report" >&2
   exit 0

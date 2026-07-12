@@ -114,10 +114,14 @@ err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$B
 assert_contains "comparator error surfaces a diagnostic on stderr" "$err" "release-bookkeeping"
 
 # 5. Comparator absent: the surface degrades with a message (missing prerequisite
-#    on a non-dispatch path), nothing on stdout, exit 0.
+#    on a non-dispatch path), nothing on stdout, exit 0. echo-safety.sh IS copied
+#    so release-pending.sh is the *only* missing prerequisite — the script sources
+#    echo-safety.sh (line ~39) before the comparator check, so omitting it would
+#    add a separate `source` error to stderr and let the test pass for the wrong
+#    reason, masking whether the missing-comparator diagnostic actually fires.
 work="$tmp/no-comparator/scripts"
 mkdir -p "$work"
-cp "$here/../scripts/release-bookkeeping.sh" "$work/"
+cp "$here/../scripts/release-bookkeeping.sh" "$here/../scripts/echo-safety.sh" "$work/"
 r="$tmp/no-comparator"
 make_repo "$r" 0.2.0
 gitc "$r" tag v0.1.0
@@ -125,6 +129,8 @@ rc=0
 out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
 assert_eq "a missing comparator degrades (exit 0)" "$rc" "0"
 assert_eq "a missing comparator prints nothing on stdout" "$out" ""
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
+assert_contains "a missing comparator surfaces a diagnostic on stderr" "$err" "comparator scripts/release-pending.sh is missing"
 
 # 6. CDPATH regression (REQ-D1.9): a hostile CDPATH with a decoy `scripts/` must
 #    not corrupt the script's `cd "$(dirname "$0")"` (it calls `unset CDPATH`).
@@ -148,9 +154,10 @@ assert_contains "a hostile CDPATH does not corrupt the surface" "$out" "0.2.0"
 # 7. Malformed comparator output: the comparator exists and exits 0 but emits an
 #    unexpected shape — no TAB, a non-`pending` state, or an empty version. The
 #    surface must honor its documented fail-safe contract (header + the defensive
-#    split): degrade to a no-op — nothing on stdout, a one-line stderr
-#    diagnostic, exit 0. This is the branch the
-#    repo's real single-source comparator never reaches, so a stub comparator
+#    split): degrade to a no-op — nothing on stdout, a one-line stderr diagnostic
+#    (this path is genuinely one line: the stub comparator exits 0, so only our
+#    own guard writes to stderr), exit 0. This is the branch the repo's real
+#    single-source comparator never reaches, so a stub comparator
 #    that echoes a caller-supplied $STUB_OUT is what exercises it. No git repo or
 #    plugin.json is needed — the stub replaces every git-touching step.
 tab=$(printf '\t')
@@ -172,6 +179,9 @@ for spec in "no-tab:::garbage-no-tab" "wrong-state:::notpending${tab}1.2.3" "emp
     scripts/release-bookkeeping.sh 2>/dev/null) || rc=$?
   assert_eq "malformed comparator output ($name) degrades to a no-op (exit 0)" "$rc" "0"
   assert_eq "malformed comparator output ($name) prints nothing on stdout" "$out" ""
+  err=$(cd "$tmp/stub$i" && env STUB_OUT="$raw" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    scripts/release-bookkeeping.sh 2>&1 >/dev/null) || true
+  assert_contains "malformed comparator output ($name) surfaces a diagnostic on stderr" "$err" "unexpected comparator output"
 done
 
 if [ "$failures" -gt 0 ]; then

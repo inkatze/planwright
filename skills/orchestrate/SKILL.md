@@ -690,7 +690,7 @@ The out-of-session drain pass. Dispatches nothing; it:
    third surfacing layer — the standing release PR (push) and the untagged-window
    lock (forcing-function) are the primary ones (D-7); the report never blocks
    the pass (on any comparator trouble it degrades to a no-op that is silent on
-   stdout — a one-line stderr diagnostic — and always exits 0).
+   stdout — a diagnostic on stderr — and always exits 0).
 
 On `--bookkeeping`, missing prerequisites degrade with a message (it is not a
 dispatch path); it still never merges and never pushes.
