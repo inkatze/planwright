@@ -132,16 +132,22 @@ run_check "$r"
 assert_eq "non-bump PR (version still == tag): unaffected, exit 0" "$RC" "0"
 
 # 5. Fail closed: a malformed version of truth makes the comparator exit 2; the
-#    check must FAIL (exit 2), never pass silently.
+#    check must FAIL (exit 2), never pass silently. Assert the message too: exit 2
+#    is emitted by four different branches (usage, the -x guard, the comparator
+#    failure, the unexpected-output default), so the code alone does not pin this
+#    to the intended comparator-failure branch (lines checking `if ! status_line`).
 r="$tmp/malformed"
 make_repo "$r" "not-a-version"
 run_check "$r"
 assert_eq "malformed version of truth fails closed (exit 2)" "$RC" "2"
+assert_contains "malformed: pins the comparator-failure branch" "$OUT" "comparator failed"
 
-# 6. Usage error: any argument → exit 2.
+# 6. Usage error: any argument → exit 2. Assert the usage message so the code
+#    alone (shared with every fail-closed branch) cannot pass for the wrong reason.
 RC=0
 OUT=$(cd "$tmp" && "$CHECK" unexpected-arg 2>&1) || RC=$?
 assert_eq "an argument is a usage error (exit 2)" "$RC" "2"
+assert_contains "stray arg: pins the usage() path" "$OUT" "usage:"
 
 # 7. CDPATH regression (REQ-D1.9 portability): a hostile CDPATH with a decoy
 #    `scripts/` must not corrupt the script's `cd "$(dirname "$0")"` (it calls
@@ -197,16 +203,21 @@ assert_eq "base-read: main in window → --ref (window commit) → exit 1" "$RC"
 assert_contains "base-read window: names the publish command" "$OUT" "$PUBLISH_CMD"
 
 # 10. An unreadable ref (or a ref lacking the version_file) fails closed → exit 2.
+#     Assert the message so this pins the `git show` read-failure branch, not any
+#     of the other exit-2 branches it shares the code with.
 r="$tmp/base-read-badref"
 make_repo "$r" 0.1.0
 gitc "$r" tag v0.1.0
 run_check_ref "$r" does-not-exist
 assert_eq "base-read: unreadable ref fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read unreadable: pins the read-failure branch" "$OUT" "cannot read version_file"
 
-# 11. --ref with no value is a usage error (exit 2).
+# 11. --ref with no value (`--ref` as the last token) is a usage error (exit 2).
+#     Assert the usage message so it cannot pass via a later fail-closed exit 2.
 RC=0
 OUT=$(cd "$tmp" && "$CHECK" --ref 2>&1) || RC=$?
 assert_eq "--ref with no value is a usage error (exit 2)" "$RC" "2"
+assert_contains "--ref with no value: pins the usage() path" "$OUT" "usage:"
 
 # 12. Base-read malformed SemVer: the ref carries a version_file whose value is
 #     not valid SemVer. This is the --ref counterpart to case 5 (which only
