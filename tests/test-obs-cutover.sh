@@ -64,13 +64,26 @@ done
 
 # --- 2. no shipped append instruction ---------------------------------------
 
-# Newline-insensitive window match: an "append…" token within a sentence-sized
-# window of the shared-log filename, in either order. Legitimate mentions of
-# the frozen file (mining source, legacy-consume arm) carry no append verb.
+# Sentence-scoped, newline-insensitive proximity match: an "append…" verb and
+# the shared-log filename in the same period-delimited sentence, in either
+# order. Legitimate mentions of the frozen file (mining source, legacy-consume
+# arm) sit in sentences that carry no append verb. Implemented in awk (single
+# linear pass) rather than a flattened-line regex: the `[^.]{0,140}` window form
+# backtracks pathologically under some POSIX greps (ugrep measured ~47s/file),
+# while the sentence split runs in constant time under any awk.
 offenders=""
 for f in $(find "$root/skills" "$root/doctrine" "$root/docs" -name '*.md' | sort); do
-  if tr '\n' ' ' <"$f" \
-    | grep -Eiq 'append[a-z]*[^.]{0,140}opportunities\.md|opportunities\.md[^.]{0,140}append'; then
+  if awk '
+    { buf = buf " " tolower($0) }
+    END {
+      # Neutralize the filename period so the token survives the sentence split.
+      gsub(/opportunities\.md/, " oppmd ", buf)
+      m = split(buf, s, /\./)
+      for (i = 1; i <= m; i++)
+        if (s[i] ~ /oppmd/ && s[i] ~ /append/) { exit 0 }
+      exit 1
+    }
+  ' "$f"; then
     offenders="$offenders ${f#"$root"/}"
   fi
 done
