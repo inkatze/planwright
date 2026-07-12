@@ -232,9 +232,10 @@ policy and the altitude split behind it live in the doctrine.
    lands the version bump on `main` and opens the **untagged window**.
 3. **The untagged window is locked by a required CI check.** This is the
    [release-tagging policy](../doctrine/release-tagging.md)'s forcing function:
-   while the version of truth is ahead of the latest release tag, the required
-   check fails on `main` and names the publish command in its output, so the
-   pending publish is pushed to you by a red check rather than left to memory.
+   once the untagged-window lock is enabled as a required check on the repo,
+   any time the version of truth is ahead of the latest release tag the check
+   fails on `main` and names the publish command in its output, so the pending
+   publish is pushed to you by a red check rather than left to memory.
 4. **You publish.** Run the publish command (below) after the merge. It cuts the
    signed annotated tag on the observed release-merge commit, verifies the
    signature, pushes the tag, and creates the GitHub Release from the version's
