@@ -1,0 +1,27 @@
+# Instruction-budget suppression list (prompt-hygiene REQ-B1.3).
+#
+# scripts/check-instructions.sh reads this file as DATA (never evaluated,
+# REQ-B1.9). Blank lines and lines beginning with '#' are ignored. Two forms
+# exist; each REQUIRES a recorded reason (a reason-less entry of either form is
+# an error, REQ-B1.3 / REQ-B1.8):
+#
+#   exempt|<path>|<reason>
+#       Permanent per-file-floor exemption ONLY. It suppresses a file's per-file
+#       floor and NEVER the mandatory-at-start or reachable-closure budgets
+#       (REQ-B1.3a). Carries a standing rationale.
+#
+#   pending-diet|<budget>|<target>|Task <N>|<reason>
+#       Transitional allowance. The only form that may cover a mandatory-at-start
+#       or reachable-closure offender, and only transiently. Removed by that
+#       diet task's own PR, and forbidden at closeout (REQ-B1.3b, REQ-D1.4).
+#       <budget> is one of: file | start-load | closure
+#       <target>  is a file path (file) or a skill name (start-load | closure)
+#
+# Seeded below: the per-file offenders the initial audit surfaced, each carrying
+# a transitional allowance until its diet task lands (Tasks 5/6/7). The
+# start-load allowance for /spec-draft is seeded at Task 3, when manifests first
+# make start-load computable — not here, where no manifest yet exists.
+pending-diet|file|skills/orchestrate/SKILL.md|Task 5|/orchestrate SKILL.md is over the per-file SKILL floor; dieted in Task 5 (the /orchestrate pilot).
+pending-diet|file|skills/execute-task/SKILL.md|Task 6|/execute-task SKILL.md is over the per-file SKILL floor; dieted in Task 6.
+pending-diet|file|skills/spec-kickoff/SKILL.md|Task 7|/spec-kickoff SKILL.md is over the per-file SKILL floor; dieted in Task 7.
+pending-diet|file|doctrine/spec-format.md|Task 7|spec-format.md is over the per-file doctrine floor; trimmed or permanently exempted in Task 7.
