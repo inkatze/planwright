@@ -88,10 +88,14 @@ scripts stay plain portable bash with no mise dependency.
 
 Found something out of scope while working — complexity growth, an outdated
 pattern, a newly available dependency feature, an uncatalogued decision domain?
-Append one line to `specs/_observations/opportunities.md`
-(`- <YYYY-MM-DD> [<repo>] <observation>`) and commit it within the same change.
-Do not act on it in the current task; it is seed material for `/spec-draft`, the
-log's canonical reader.
+Record it as its own observation fragment through the shared helper:
+`scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
+composes the one-line entry form for you and writes one fragment under
+`specs/_observations/entries/` (created on demand). Commit the fragment within
+the same change, and surface a non-zero helper exit rather than dropping the
+observation. Do not act on it in the current task; it is seed material for
+`/spec-draft`, the accumulator's canonical reader. Render the chronological
+view any time with `mise run obs:log`.
 
 ## Reporting issues
 

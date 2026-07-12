@@ -156,10 +156,13 @@ file set and identifier discipline this command reads, and the data-hygiene rule
 for the artifact it writes) and REQ-F1.4 (the completion-time drift-observation
 contract). If a concept this skill names (the bundle file set, the identifier
 charset, the path-containment gate, or the artifact data-hygiene rule) has
-changed meaning, gained or lost a step, or moved between docs, append a one-line
-drift observation to `specs/_observations/opportunities.md` in the standard
-format (`- <YYYY-MM-DD> [<repo>] skill-drift(spec-walkthrough): <what>`) and
-commit the append as its own chore commit, per REQ-B3.2 / D-42. In repositories
-without `specs/`, surface the drift to the user instead of writing the log. Do
-not edit this skill or the doctrine docs to resolve the drift; the observation
-log's reader owns folding drift into spec amendments.
+changed meaning, gained or lost a step, or moved between docs, record a
+one-line drift observation through the shared helper (`scripts/obs-record.sh
+--slug skill-drift --scope <repo> --text 'skill-drift(spec-walkthrough):
+<what>'` — the entry text keeps the `skill-drift(...)` prefix) and commit the
+fragment as its own chore commit, per REQ-B3.2 / D-42; surface a non-zero
+helper exit rather than silently dropping the observation. In repositories
+without `specs/`, surface the drift to the user instead of recording it. Do
+not edit this skill or the doctrine docs to resolve the drift; the
+accumulator's canonical reader (`/spec-draft`) owns folding drift into spec
+amendments.

@@ -18,7 +18,8 @@ hygiene) · orchestration-fleet D-7.
 ## Division of labor
 
 Coordination is message-passing over a shared blackboard (`tasks.md` plus the
-observations log), never direct agent-to-agent mutation of each other's state.
+observations fragment store, where concurrent writers land distinct files by
+construction), never direct agent-to-agent mutation of each other's state.
 Each actor owns a disjoint slice of the work, and no actor reaches into
 another's slice:
 
