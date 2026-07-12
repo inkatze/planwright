@@ -448,12 +448,24 @@ resolve_doc() {
 #   BAD <verbatim line>
 # shellcheck disable=SC2016 # a single-quoted awk program; $0/$fields are awk's
 parse_manifest='
-  BEGIN { fence = 0 }
+  BEGIN { fence = 0; fence_char = "" }
   {
     line = $0
-    # fenced-code tracking: a ``` or ~~~ marker at column zero toggles.
-    if (line ~ /^```/ || line ~ /^~~~/) { fence = 1 - fence; next }
-    if (fence) next
+    # fenced-code tracking: a ``` or ~~~ marker at column zero opens a block, and
+    # only a marker of the SAME fence character closes it. Treating ``` and ~~~ as
+    # one interchangeable toggle would let a different-type fence shown as content
+    # (the idiomatic way to display a fence example, e.g. a ```-block inside a ~~~
+    # wrapper) close the block early and expose the enclosed Doctrine: example
+    # lines as live entries — a false manifest error or a start-load inflation on
+    # documentation.
+    if (fence == 0) {
+      if (line ~ /^```/) { fence = 1; fence_char = "`"; next }
+      if (line ~ /^~~~/) { fence = 1; fence_char = "~"; next }
+    } else {
+      if (fence_char == "`" && line ~ /^```/) { fence = 0; fence_char = "" }
+      else if (fence_char == "~" && line ~ /^~~~/) { fence = 0; fence_char = "" }
+      next
+    }
     # only column-zero lines are entries; indented/quoted lines never are.
     if (line ~ /^[ \t]/) next
     if (line ~ /^Doctrine:/) {

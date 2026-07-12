@@ -658,6 +658,70 @@ chmod 644 "$t12/skills/unreadable/SKILL.md"
 assert_exit "unreadable instruction file is a fail-loud error" 1 "$rc"
 assert_contains "unreadable-file failure is diagnosed" "could not be measured" "$out"
 
+########################################################################
+# 13. Fenced Doctrine examples are documentation, not live manifest entries.
+#     The manifest parser tracks the fence CHARACTER (``` vs ~~~) so a
+#     different-type fence shown as content inside a block does not close the
+#     block early and expose the enclosed Doctrine: example as a real entry —
+#     which would raise a false malformed-manifest error (or inflate start-load)
+#     on a SKILL.md that merely documents the manifest format.
+########################################################################
+# 13a. a malformed Doctrine EXAMPLE inside a ```-block wrapped in a ~~~ block
+#      must NOT be parsed (no false error, exit 0).
+t13="$tmproot/t13"
+scaffold "$t13"
+mkdir -p "$t13/skills/fenced"
+{
+  words 100
+  echo
+  echo '~~~markdown'
+  # shellcheck disable=SC2016 # a literal fenced example, never expanded
+  echo '```'
+  echo 'Doctrine: sometime not-a-real-class'
+  # shellcheck disable=SC2016
+  echo '```'
+  echo '~~~'
+} >"$t13/skills/fenced/SKILL.md"
+out="$(/bin/bash "$CHECKER" --root "$t13" 2>&1)"
+assert_exit "nested-fenced Doctrine example is not parsed as a live entry" 0 $?
+assert_absent "fenced example raises no manifest error" "manifest" "$out"
+
+# 13b. a well-formed Doctrine EXAMPLE inside the same nesting must NOT inflate
+#      start-load: the skill is scored body-only (the fenced example doc, though
+#      large, is documentation and is never loaded). start-load = the SKILL.md's
+#      own wc -w (which includes the fenced lines as body prose), NOT + 9000.
+t13b="$tmproot/t13b"
+scaffold "$t13b"
+make_doc "$t13b" bigexample 9000 # would blow start-load if wrongly counted
+mkdir -p "$t13b/skills/docskill"
+{
+  words 100
+  echo
+  echo '~~~markdown'
+  # shellcheck disable=SC2016 # a literal fenced example, never expanded
+  echo '```'
+  echo 'Doctrine: run-start bigexample'
+  # shellcheck disable=SC2016
+  echo '```'
+  echo '~~~'
+} >"$t13b/skills/docskill/SKILL.md"
+lift_doctrine_floor "$t13b"
+body_b=$(wc -w <"$t13b/skills/docskill/SKILL.md" | tr -d ' ')
+out="$(/bin/bash "$CHECKER" --audit --root "$t13b" 2>&1)"
+assert_exit "well-formed fenced example does not inflate start-load (exit 0)" 0 $?
+assert_contains "fenced example skill scored body-only" "docskill start-load=$body_b" "$out"
+
+# 13c. a REAL (unfenced, column-zero) manifest entry is still parsed after the
+#      fence-tracking change — the fix must not stop reading genuine manifests.
+t13c="$tmproot/t13c"
+scaffold "$t13c"
+make_doc "$t13c" realdoc 200
+make_skill "$t13c" realmani 100 "Doctrine: run-start realdoc"
+sw_c=$(wc -w <"$t13c/skills/realmani/SKILL.md" | tr -d ' ')
+exp_c=$((sw_c + 200))
+out="$(/bin/bash "$CHECKER" --audit --root "$t13c" 2>&1)"
+assert_contains "a genuine unfenced manifest entry is still counted" "realmani start-load=$exp_c" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
