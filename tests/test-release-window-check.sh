@@ -246,6 +246,40 @@ run_check_ref "$r" "$bad_sha"
 assert_eq "base-read: unextractable version at ref fails closed (exit 2)" "$RC" "2"
 assert_contains "base-read unextractable: names the extraction failure" "$OUT" "could not extract"
 
+# 14. Base-read first release (no tags yet): the ONLY coverage of the --ref path's
+#     own `[ -z "$latest" ]` branch. Case 2's first-release path runs through
+#     release-pending.sh (the working-tree delegate) — a separate code path from
+#     the ref-path inline pending computation. No tags → window open → exit 1.
+r="$tmp/base-read-first-release"
+make_repo "$r" 0.1.0 # a version, but no `git tag` → no release tags
+first_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$first_sha"
+assert_eq "base-read: first release (no tags) → --ref → exit 1" "$RC" "1"
+assert_contains "base-read first-release: names the publish command" "$OUT" "$PUBLISH_CMD"
+
+# 15. Base-read absent version key: valid JSON with no `version` field, so
+#     rl_extract_version SUCCEEDS with empty output and the `[ -z "$vot" ]` guard
+#     fires — a third distinct exit-2 path, between case 12 (a non-empty invalid
+#     value) and case 13 (unparseable JSON). Fails closed → exit 2.
+r="$tmp/base-read-absent-key"
+mkdir -p "$r/.claude-plugin"
+printf '{\n  "name": "fixture"\n}\n' >"$r/.claude-plugin/plugin.json"
+gitc "$r" init -q
+gitc "$r" add -A
+gitc "$r" commit -q -m "version_file with no version key"
+absent_sha=$(gitc "$r" rev-parse HEAD)
+run_check_ref "$r" "$absent_sha"
+assert_eq "base-read: absent version key fails closed (exit 2)" "$RC" "2"
+assert_contains "base-read absent-key: pins the empty-value SemVer guard" "$OUT" "not valid SemVer"
+
+# 16. `--ref ""` (a present-but-empty value) is a usage error via the explicit
+#     `[ -n "$ref" ]` guard — a distinct branch from case 11's `--ref` as the last
+#     token (which trips the arg-count guard). Exit 2, usage message.
+RC=0
+OUT=$(cd "$tmp" && "$CHECK" --ref "" 2>&1) || RC=$?
+assert_eq "--ref with an empty value is a usage error (exit 2)" "$RC" "2"
+assert_contains "--ref empty value: pins the usage() path" "$OUT" "usage:"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
