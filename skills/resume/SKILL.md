@@ -144,8 +144,8 @@ continuing the work is a separate, human-initiated step.
 ## Invariants
 
 These hold at every step. The skill's one and only write is the REQ-B3.2
-self-healing drift-log note (Maintenance section): appending a line to
-`specs/_observations/opportunities.md` and committing it as its own chore
+self-healing drift-log note (Maintenance section): recording one observation
+fragment through `scripts/obs-record.sh` and committing it as its own chore
 commit. That chore never touches the resumed work; every invariant below
 describes the read-only guarantee over that work, and the drift-log note is
 the sole carved-out exception.
@@ -155,9 +155,9 @@ the sole carved-out exception.
   (REQ-F2.1); D-30 specifically forbids auto-resolving uncommitted state.
 - **Never** push, create or update a PR, or merge.
 - **Never** edit `tasks.md`, the brief, or any spec bundle file. The
-  observations log under `specs/_observations/` is the carved-out drift-log
-  exception above, not a spec file. State moves belong to `/orchestrate` and
-  `/execute-task`, not to a context loader.
+  observations fragment store under `specs/_observations/` is the carved-out
+  drift-log exception above, not a spec file. State moves belong to
+  `/orchestrate` and `/execute-task`, not to a context loader.
 - **Never** hard-fail opaquely on a missing prerequisite: outside a git repo,
   stop with a clear message (Step 1); for every other missing prerequisite,
   degrade with a clear note and load what is available (REQ-K1.7).
@@ -170,10 +170,12 @@ do not auto-resolve), REQ-A1.8 (the spec-identifier charset gate on `<spec>`
 before path use), and the `spec-format` doc's two-brief model, brief
 structure, and branch convention. If the brief structure, the handover-brief
 location, the identifier charset, or the branch convention have drifted from
-what this skill describes, append a one-line drift observation to
-`specs/_observations/opportunities.md` in the standard format
-(`- <YYYY-MM-DD> [<repo>] skill-drift(resume): <what>`) and commit the
-append as its own chore commit, per REQ-B3.2 / D-42. In repositories
-without `specs/`, surface the drift to the user instead of writing the log.
-Do not edit this skill or the doctrine docs to resolve the drift; the
-observation log's reader owns folding drift into spec amendments.
+what this skill describes, record a one-line drift observation through the
+shared helper (`scripts/obs-record.sh --slug skill-drift --scope <repo>
+--text 'skill-drift(resume): <what>'` — the entry text keeps the
+`skill-drift(...)` prefix) and commit the fragment as its own chore commit,
+per REQ-B3.2 / D-42; surface a non-zero helper exit rather than silently
+dropping the observation. In repositories without `specs/`, surface the
+drift to the user instead of recording it. Do not edit this skill or the
+doctrine docs to resolve the drift; the accumulator's canonical reader
+(`/spec-draft`) owns folding drift into spec amendments.

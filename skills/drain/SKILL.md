@@ -86,10 +86,12 @@ After each run, compare these instructions against the doctrine and spec
 they implement: the `accumulator-taxonomy` doctrine doc (lanes, grammar,
 drain-pass contract) and REQ-H1.3/REQ-H1.4/REQ-H1.5. If the evaluator's
 report format, lanes, or grammar have drifted from what this skill
-describes, append a one-line drift observation to
-`specs/_observations/opportunities.md` in the standard format
-(`- <YYYY-MM-DD> [<repo>] skill-drift(drain): <what>`) and commit the
-append as its own chore commit, per REQ-B3.2 / D-42. In repositories
-without `specs/`, surface the drift to the user instead of writing the
-log. Do not edit this skill or the doctrine docs to resolve the drift; the
-observation log's reader owns folding drift into spec amendments.
+describes, record a one-line drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(drain): <what>'` — the entry text keeps the `skill-drift(...)`
+prefix) and commit the fragment as its own chore commit, per REQ-B3.2 /
+D-42; surface a non-zero helper exit rather than silently dropping the
+observation. In repositories without `specs/`, surface the drift to the
+user instead of recording it. Do not edit this skill or the doctrine docs
+to resolve the drift; the accumulator's canonical reader (`/spec-draft`)
+owns folding drift into spec amendments.

@@ -64,10 +64,11 @@ format above, with no edits to the skills that consume it. Two growth
 paths:
 
 - **Through the drain loop.** Execution hitting a domain decision the
-  catalog does not cover writes an observation to the observations log
-  (`specs/_observations/opportunities.md`). Recurring observations are the
-  evidence a domain has earned an entry; the entry is added when the log
-  is mined.
+  catalog does not cover records an observation fragment through the shared
+  helper (`scripts/obs-record.sh`; the fragment lands under
+  `specs/_observations/entries/`). Recurring observations are the evidence
+  a domain has earned an entry; the entry is added when the accumulator is
+  mined.
 - **By the adopter.** Projects with domains this seed list does not cover
   (payments, ML model lifecycle, firmware rollout) add their own entries in the
   same format through the overlay mechanism, leaving this shipped doc unedited.

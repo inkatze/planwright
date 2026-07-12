@@ -538,16 +538,21 @@ These hold at every step:
 
 ## Observations
 
-`/execute-task` only runs on a Ready or Active planwright spec, so `specs/` and the
-observations log necessarily exist. When something outside the unit's scope
-surfaces during implementation or convergence — complexity growth, an
-outdated pattern, a newly available dependency feature, an uncatalogued
-decision domain — append one line to `specs/_observations/opportunities.md`,
-format `- <YYYY-MM-DD> [<repo>] <observation>`, and commit the append within
-the iteration that produced it (its action commit, or its own chore commit)
-so the tree returns to clean. Do not act on observations during the unit; they
-are seed material for `/spec-draft`, the log's canonical reader (REQ-E2.1,
-REQ-H1.6).
+`/execute-task` only runs on a Ready or Active planwright spec, so `specs/`
+necessarily exists (the fragment store is created on demand). When something
+outside the unit's scope surfaces during implementation or convergence —
+complexity growth, an outdated pattern, a newly available dependency feature,
+an uncatalogued decision domain — record it as its own fragment through the
+shared helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
+'<observation>'` (resolved under the planwright root; it composes the
+one-line entry form and writes one file under the host repo's
+`specs/_observations/entries/`). Commit the fragment within the iteration
+that produced it (its action commit, or its own chore commit) so the tree
+returns to clean; on a non-zero helper exit, surface the failure rather than
+silently dropping the observation. Do not act on observations during the
+unit; they are seed material for `/spec-draft`, the accumulator's canonical
+reader (REQ-E2.1, REQ-H1.6; the accumulator-taxonomy doctrine carries the
+canonical drain ritual).
 
 ## Maintenance
 
@@ -556,8 +561,11 @@ resolved doctrine docs (REQ-B3.2, D-42) — especially `spec-format` (the
 anchor command forms, sign-off record format, and amendment ritual),
 `gate-wiring`, `research-rigor`, `security-posture`, and `decision-domains`.
 If a concept this skill names has changed meaning, gained or lost a step, or
-moved between docs, append a drift observation to
-`specs/_observations/opportunities.md` (format above, prefixed
-`skill-drift(execute-task):`), commit it as its own chore commit, and tell the
-user what drifted. Do not edit this skill or the doctrine docs to resolve the
-drift; the observation log's reader owns folding drift into spec amendments.
+moved between docs, record a drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(execute-task): <what>'` — the entry text keeps the
+`skill-drift(...)` prefix), commit the fragment as its own chore commit, and
+tell the user what drifted; surface a non-zero helper exit rather than
+silently dropping the observation. Do not edit this skill or the doctrine
+docs to resolve the drift; the accumulator's canonical reader (`/spec-draft`)
+owns folding drift into spec amendments.

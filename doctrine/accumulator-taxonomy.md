@@ -40,9 +40,10 @@ aspirational.
 3. **Manually- or condition-drained seed accumulators.** Collect material
    until a canonical reader consumes it or a gate re-surfaces it; nothing
    drains them as a side effect, which is exactly why each one must name its
-   reader and its re-surfacing ritual. Examples: the observations log
-   (`specs/_observations/opportunities.md`; canonical reader `/spec-draft`,
-   REQ-H1.6, with the drain pass surfacing its unmined count and age);
+   reader and its re-surfacing ritual. Examples: the observations
+   accumulator (the fragment store under `specs/_observations/`; canonical
+   reader `/spec-draft`, REQ-H1.6, with the drain pass surfacing its unmined
+   count and age — its canonical definition is the next section);
    `_pending/notes.md` (local-only, gitignored; owner: the human who wrote
    it); `tasks.md` Deferred entries (re-surfaced by their `GATE(when:)`
    conditions through the drain pass). Ritual: the `GATE(when:)` convention
@@ -53,6 +54,55 @@ can hold deferred work or decisions, name its class, its durable home, its
 reader or owner, and its drain ritual. A surface for which any of those four
 cannot be named is a write-only deferral and must not be introduced
 (REQ-H1.2).
+
+## The observations accumulator (canonical class-3 definition)
+
+This section is the canonical home of the observations accumulator's
+contract and drain ritual (observation-recording D-8, REQ-C1.1): skills and
+docs cite it rather than defining the ritual locally. "Class-3", used as a
+shorthand token anywhere in this repo, means class 3 of the taxonomy above —
+a manually- or condition-drained seed accumulator. The observations
+accumulator's classification four-tuple:
+
+- **Class** — 3 (manually-drained seed accumulator).
+- **Durable home** — per-entry fragment files, one observation per file,
+  under `specs/_observations/entries/` (live) and
+  `specs/_observations/archive/` (consumed), plus the frozen legacy
+  `opportunities.md` while its remaining unconsumed lines drain. The
+  fragment directories are created on demand by the helpers, never committed
+  empty, and there is no committed compiled view: the chronological view is
+  a derived render, produced on demand (`scripts/obs-render.sh`, the
+  `obs:log` mise task) and never written to the tree.
+- **Reader** — `/spec-draft`, the canonical reader (REQ-H1.6). Mining reads
+  the live fragments and the frozen legacy file's unconsumed lines as one
+  candidate set.
+- **Drain ritual** — the drain pass surfaces the accumulator's state (the
+  unmined count and oldest-entry age across both surfaces, stuck consumes,
+  and skipped invalid fragments), and consumption archives:
+  `scripts/obs-consume.sh` writes a `Consumed-by: specs/<spec> (<date>)`
+  line inside the fragment (annotate first), then moves the file to
+  `archive/` with its filename preserved (move second; idempotent on
+  re-run, keyed on the UID). A frozen-log line is consumed by in-place
+  annotation instead (`--legacy` — legacy lines carry no UID).
+
+**Archive-on-consume is this accumulator's *specific* ritual, not a fourth
+universal class-3 attribute** (output-hygiene REQ-B1.2 deliberately declined
+that promotion; this definition preserves it). Other class-3 surfaces —
+`_pending/` notes, Deferred entries — drain by their own rituals, and the
+classification rule remains the four-tuple above.
+
+**Recording (the write side).** Every recording skill drops one fragment
+through the shared helper `scripts/obs-record.sh` — never composing a
+fragment path by hand and never writing a shared committed file — and
+surfaces a non-zero helper exit rather than silently dropping the
+observation.
+
+**Citation form.** A spec bundle cites an observation as `obs:<uid>`, the
+fragment filename's 8-lowercase-hex UID: the entry's durable identity, which
+survives slug rename, content edit, and the archive move, so the citation
+stays a one-file reference across the fragment's whole life. The
+[spec format meta-spec](spec-format.md)'s citation-kinds table carries the
+kind.
 
 ## The `GATE(when:)` convention
 
@@ -171,9 +221,13 @@ The pass:
   condition, or removing the entry — is an edit a human makes or sanctions.
   The bookkeeping pass may move a re-surfaced item to Awaiting input or
   flag it in its report, never to In progress (D-17).
-- **Surfaces the observations log's state** (REQ-H1.4, surface only): the
-  unmined entry count and the oldest entry's age. Mining the log remains
-  its canonical reader's job (`/spec-draft`, REQ-H1.6).
+- **Surfaces the observations accumulator's state** (REQ-H1.4, surface
+  only): the unmined entry count and the oldest entry's age, derived from
+  the `entries/` fragments plus the frozen legacy file's unconsumed lines —
+  naming both surfaces while the legacy file drains — along with stuck
+  consumes (a fragment annotated `Consumed-by:` but still in `entries/`)
+  and skipped invalid fragments. Mining the accumulator remains its
+  canonical reader's job (`/spec-draft`, REQ-H1.6).
 - **Completes regardless of malformed gates**: a malformed entry is report
   content tallied under the `malformed:` summary field (the separate
   `errors:` field counts unreadable, NUL-carrying, or mid-sweep-changed
