@@ -34,9 +34,9 @@ this skill names a concept. Per `doctrine/instruction-hygiene.md`, `run-start`
 entries load before work begins, `point-of-use` entries at the named step or
 branch.
 
-If a **run-start** doc does not resolve, halt naming the missing doc and the
-chain consulted: `/execute-task` runs only on a dispatch path, where a missing
-prerequisite fails closed (REQ-K1.7). `decision-domains` degrades gracefully
+If a manifest doc does not resolve — at run start or at its point of use —
+halt naming the missing doc and the chain consulted (REQ-K1.7).
+`decision-domains` degrades gracefully
 instead: absent, note it in one line, skip the drift check, and rely on the
 engineering judgment the catalog would otherwise structure.
 
@@ -123,7 +123,8 @@ it and wait instead.
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own
    is `mise run check`); a `package.json` `ci`/`test` script; a `Makefile`
    `ci`/`test` target; a `lefthook.yml` `pre-commit` stack; a language
-   toolchain's check (`mix ci`, `cargo test && cargo clippy`, pytest+ruff+mypy).
+   toolchain's check (`mix ci`, `cargo test && cargo clippy -- -D warnings`,
+   pytest+ruff+mypy).
    Prefer the aggregate over a bare test run. If none can be derived, ask. Record
    the command for implementation.
 10. **Resolve `dispatch_isolation`** (D-5, REQ-C1.3). Run
