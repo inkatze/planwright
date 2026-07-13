@@ -226,3 +226,29 @@ Anchor: `e31b1a646b42273cfc09c9b373be2d1c8bbe9d6b` — computed as
 `scripts/spec-anchor.sh specs/inception`
 
 Signed off: 2026-07-13 — first activation; Draft→Ready flip on all four spec files.
+
+## 9. Amendment log
+
+### 2026-07-13 — Delta re-sign-off (panel-pairing iteration 1)
+
+Pre-merge correction of the Ready bundle (REQ-D1.4), four edits from an independent
+`/panel-pairing` gemini pass, all operator-approved this session:
+
+- **G15** (expression) — Task 2/12 stub-renderer ownership made explicit ("Task 2 ships a
+  dashboard-fields-only stub renderer … Task 12 replaces it").
+- **F1** (traceability) — Task 8 gains the REQ-J1.4 citation + a per-venture in-session status-view
+  deliverable (REQ-J1.4 was orphaned from all task citations).
+- **F2** (traceability) — Task 11 gains the REQ-J1.6 citation + graduation-never-auto-chains
+  wording (REQ-J1.6 was orphaned).
+- **G8** (meaning) — REQ-A1.6 pins the registry rebuild to fire automatically on read-time
+  detection of a torn / missing / unparseable registry (operator chose auto-on-read over manual /
+  accept-as-is), completing the R7 self-heal decision.
+
+Class: meaning (G8 adds behavior; F1/F2/G15 are traceability / expression).
+Lens-pass: independent `/panel-pairing` gemini pass (iteration 1) — 7 findings dropped as not-real
+(validated false positives / hallucinations), 6 clarity nits skipped by operator, 4 applied;
+validation green (spec-validate 0/0, lint:md, check:links 227 resolve, check:ledger PASS).
+Anchor: `139c46769786e15661b7bcc6f4b8ff57586897ba` — computed as
+`scripts/spec-anchor.sh specs/inception`
+
+Signed off: 2026-07-13 — delta re-sign-off; no status change (stays Ready).

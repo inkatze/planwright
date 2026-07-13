@@ -34,8 +34,9 @@ infrastructure leads: the format doctrine and validator gate everything that wri
   register and gate-record integrity, `Format-version:` gating with fail-closed on unsupported
   versions, the new register fields; seeded-violation fixtures under `tests/`, including an
   unsupported-version fixture); the venture repo scaffold (`.gitignore`, commit-time secret
-  screening hook-in, pre-commit export-regeneration step (satisfied by the skeleton's stub renderer
-  until Task 12), remote-rung secret-scan CI template); rung-scaled wiring notes.
+  screening hook-in, pre-commit export-regeneration step — Task 2 ships a dashboard-fields-only stub
+  renderer that satisfies this step until Task 12 replaces it — remote-rung secret-scan CI
+  template); rung-scaled wiring notes.
 - **Done when:** validator fixtures pass under `mise run test`; each enforced rule has a
   seeded-violation fixture; scaffold files are emitted by a tested helper.
 - **Dependencies:** 1
@@ -88,12 +89,13 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 - **Deliverables:** plugin-data helpers for the venture registry (atomic write-temp-then-rename
   mutations, and scan-rebuild recovery from `ventures_root` per REQ-A1.6), catalog telemetry, and
-  the pending-observations drop; the no-arg portfolio listing with attention flags and
-  catalog-health notes; overlap-scan wiring into pre-flight.
+  the pending-observations drop; the per-venture in-session status view (gate readiness, blockers,
+  kill dates) and the no-arg portfolio listing with attention flags and catalog-health notes;
+  overlap-scan wiring into pre-flight.
 - **Done when:** helper round-trip tests pass; the portfolio view renders fixture registries;
   drop entries are read by a planwright-repo seed-gathering probe with neutralization.
 - **Dependencies:** 1
-- **Citations:** D-8 · REQ-A1.6–A1.7, REQ-H1.6, REQ-J1.7–J1.8
+- **Citations:** D-8 · REQ-A1.6–A1.7, REQ-H1.6, REQ-J1.4, REQ-J1.7–J1.8
 - **Estimated effort:** 2 days
 
 ### Task 12 — renderer: dashboard + pitch modes
@@ -102,8 +104,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
   escaper helper), dashboard and pitch-narrative modes, regenerate-on-commit wiring via the
   scaffolded pre-commit step (every rung), the offered Artifact publish step with the per-venture
   auto-republish knob (default off); the renderer refuses an unsupported `Format-version:` rather
-  than rendering it (REQ-C1.7). A stub renderer
-  (dashboard fields only) ships with the skeleton arc and is replaced here.
+  than rendering it (REQ-C1.7). The dashboard-fields-only stub renderer shipped by Task 2 is
+  replaced here.
 - **Done when:** determinism and escaping fixtures pass; dashboard reflects fixture registers;
   publish is offer-only in a scripted run.
 - **Dependencies:** 1
@@ -164,12 +166,14 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 - **Deliverables:** the gate move (minimum-core evaluation, completeness check, kill-criteria
   trip surfacing, four outcomes, dated structured machine-readable gate records with decider from
-  the stakeholder map, evidence cited, and thresholds evaluated); the graduation seed package;
-  bidirectional lineage records; kill/abandon archival with post-mortem note and registry update.
+  the stakeholder map, evidence cited, and thresholds evaluated); the graduation seed package
+  (prepared for the human to invoke `/spec-draft`; graduation never auto-chains downstream,
+  REQ-J1.6); bidirectional lineage records; kill/abandon archival with post-mortem note and
+  registry update.
 - **Done when:** gate fixtures cover all four outcomes and the completeness check; a graduated
   fixture seed is consumed by `/spec-draft` seed-gathering in a probe run.
 - **Dependencies:** 7, 10
-- **Citations:** D-14, D-15 · REQ-E1.1–E1.6, REQ-F1.1–F1.4, REQ-J1.5
+- **Citations:** D-14, D-15 · REQ-E1.1–E1.6, REQ-F1.1–F1.4, REQ-J1.5, REQ-J1.6
 - **Estimated effort:** 2 days
 
 ### Task 13 — adapter seam & Notion reference adapter

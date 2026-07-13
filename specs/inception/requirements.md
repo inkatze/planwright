@@ -102,7 +102,9 @@ doctrine-first (D-20).
   reads a torn or partial registry; a lost update from two sessions racing is tolerated because the
   registry is rebuildable by scanning `ventures_root` for bundles, with every recovered identifier
   re-validated per REQ-A1.8 — that scan-rebuild is the recovery path for a corrupt, lost, or
-  clobbered registry.
+  clobbered registry. The rebuild SHALL trigger automatically when a session detects a torn,
+  missing, or unparseable registry at read time (scan `ventures_root`, re-validate each recovered
+  identifier per REQ-A1.8, then proceed); no manual step is required.
   *(Cites: D-8; kickoff §3 REQ-A (2026-07-10); kickoff §7 R7 (2026-07-13).)*
 - **REQ-A1.7** On invocation with a new idea, the skill SHALL scan registered ventures for
   semantic overlap and surface an extend-vs-new selector; it SHALL NOT silently fold or create a
