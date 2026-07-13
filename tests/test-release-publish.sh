@@ -462,6 +462,7 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=pending GH_RELEASE_EXISTS=0
 assert_ne "gate/pending: an in-progress check blocks publish" "$RC" "0"
 assert_contains "gate/pending: names the ci gate" "$ERR" "ci gate"
+assert_contains "gate/pending: classified PENDING (waits, not FAILURE)" "$ERR" "rollup state: PENDING"
 deny "gate/pending: no tag created while CI is pending" local_has_tag "$r" v0.1.0
 
 # 4h-6. StatusContext (legacy commit-status) path publishes on a green status.
@@ -508,6 +509,7 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=green GH_HASNEXTPAGE=true GH_RELEASE_EXISTS=0
 assert_ne "gate/pagination: hasNextPage fails closed despite a green visible page" "$RC" "0"
 assert_contains "gate/pagination: names the ci gate" "$ERR" "ci gate"
+assert_contains "gate/pagination: classified TOO_MANY (an unseen page could be red)" "$ERR" "rollup state: TOO_MANY"
 deny "gate/pagination: no tag created when checks exceed one page" local_has_tag "$r" v0.1.0
 
 # 4h-9. Positive-confirmation requirement. A run whose only non-excluded check is
@@ -520,6 +522,7 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=neutral GH_RELEASE_EXISTS=0
 assert_ne "gate/neutral-only: a neutral-only run is not positive confirmation" "$RC" "0"
 assert_contains "gate/neutral-only: names the ci gate" "$ERR" "ci gate"
+assert_contains "gate/neutral-only: classified NONE (no positive confirmation)" "$ERR" "rollup state: NONE"
 deny "gate/neutral-only: no tag created with only neutral checks" local_has_tag "$r" v0.1.0
 
 # 4h-10. MIXED-VERDICT PRECEDENCE: a green check must not mask a red one. Two
