@@ -146,7 +146,11 @@ assert_contains "audit marks a seeded offender pending-diet" "pending-diet" "$au
 # transitional allowance keeps CI green (suppression governs the exit code, not
 # offender status — the shortlist drives the Task 5-7 diet plans, REQ-A1.3).
 sl="${aud##*Offender shortlist}"
-assert_contains "shortlist names orchestrate offender" "skills/orchestrate/SKILL.md" "$sl"
+# Post-Task-5 the dieted /orchestrate passes with no suppression of its own
+# (REQ-D1.1), so it is off the shortlist; the still-seeded Task 6/7 offenders
+# remain on it until their diets land.
+assert_absent "shortlist no longer names the dieted orchestrate" "skills/orchestrate/SKILL.md" "$sl"
+assert_contains "shortlist names execute-task offender" "skills/execute-task/SKILL.md" "$sl"
 assert_contains "shortlist names spec-format offender" "doctrine/spec-format.md" "$sl"
 
 ########################################################################

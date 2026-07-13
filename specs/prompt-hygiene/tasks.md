@@ -79,6 +79,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 2, Task 3, Task 4
 - **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-13
 
 ### Task 6 — Diet /execute-task
 
