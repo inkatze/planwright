@@ -1,0 +1,146 @@
+#!/bin/bash
+# Tests for scripts/check-no-ci-evals.sh — the standing CI-exclusion guard
+# (prompt-hygiene Task 4; REQ-C1.6). The kept prompt-eval suite must never run
+# in GitHub CI (cost, nondeterministic gating, and an API-key requirement in a
+# public repo — D-8). This guard enforces that invariant structurally: it fails
+# if any eval task (the `eval:` mise namespace) is wired into a workflow file,
+# rather than relying on the eval task's mere absence from the `check`
+# aggregate. Workflow files are PR-controllable, so the guard treats their
+# contents as untrusted data (grep over text; no eval, no path expansion).
+set -u
+unset CDPATH
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+GUARD="$REPO_ROOT/scripts/check-no-ci-evals.sh"
+
+failures=0
+assert_exit() {
+  # assert_exit <label> <expected-exit> <actual-exit>
+  if [ "$2" -eq "$3" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 (expected exit $2, got $3)" >&2
+    failures=$((failures + 1))
+  fi
+}
+assert_contains() {
+  # assert_contains <label> <needle> <haystack>
+  case "$3" in
+    *"$2"*) echo "ok: $1" ;;
+    *)
+      echo "FAIL: $1 (missing '$2')" >&2
+      echo "----- output -----" >&2
+      printf '%s\n' "$3" >&2
+      echo "------------------" >&2
+      failures=$((failures + 1))
+      ;;
+  esac
+}
+
+if [ ! -f "$GUARD" ]; then
+  echo "FAIL: guard script missing at $GUARD" >&2
+  exit 1
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# A benign workflow: the aggregate gate only, no eval task wired in.
+mk_benign() {
+  dir="$1"
+  mkdir -p "$dir"
+  cat >"$dir/ci.yml" <<'EOF'
+name: ci
+"on":
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: mise run check
+      - run: mise run lint:shell
+EOF
+}
+
+# ---- benign workflow set passes ----
+mk_benign "$TMP/benign"
+out="$("$GUARD" "$TMP/benign" 2>&1)"
+assert_exit "benign workflow set passes" 0 $?
+
+# ---- `mise run eval:skill` in a workflow fails, names the file ----
+mkdir -p "$TMP/wired1"
+cat >"$TMP/wired1/evals.yml" <<'EOF'
+name: nightly-evals
+"on":
+  schedule:
+    - cron: "0 3 * * *"
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - run: mise run eval:skill
+EOF
+out="$("$GUARD" "$TMP/wired1" 2>&1)"
+rc=$?
+assert_exit "mise run eval:skill wired in CI fails" 1 "$rc"
+assert_contains "names the offending workflow file" "evals.yml" "$out"
+
+# ---- bare `mise eval:skill` (no run subcommand) also fails ----
+mkdir -p "$TMP/wired2"
+cat >"$TMP/wired2/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise eval:skill
+EOF
+out="$("$GUARD" "$TMP/wired2" 2>&1)"
+assert_exit "bare mise eval:skill wired in CI fails" 1 $?
+
+# ---- a future eval task under the eval: namespace also fails ----
+mkdir -p "$TMP/wired3"
+cat >"$TMP/wired3/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run eval:corpus
+EOF
+out="$("$GUARD" "$TMP/wired3" 2>&1)"
+assert_exit "any eval: namespace task wired in CI fails" 1 $?
+
+# ---- a benign task whose name merely contains 'eval' is NOT flagged ----
+# `evaluate-release` is not in the `eval:` namespace; a substring match would
+# be a false positive that blocks legitimate task names.
+mkdir -p "$TMP/falsepos"
+cat >"$TMP/falsepos/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run evaluate-release
+      - run: echo "retrieval eval discussion in a comment is fine"
+EOF
+out="$("$GUARD" "$TMP/falsepos" 2>&1)"
+assert_exit "non-eval-namespace task named *eval* is not flagged" 0 $?
+
+# ---- no workflow directory: vacuously clean ----
+out="$("$GUARD" "$TMP/does-not-exist" 2>&1)"
+assert_exit "absent workflow dir passes vacuously" 0 $?
+
+# ---- the REAL repo workflow set passes ----
+out="$("$GUARD" "$REPO_ROOT/.github/workflows" 2>&1)"
+assert_exit "real repo workflow set passes" 0 $?
+
+# ---- default arg resolves to .github/workflows and passes ----
+out="$(cd "$REPO_ROOT" && "$GUARD" 2>&1)"
+assert_exit "default (.github/workflows) passes on the real repo" 0 $?
+
+if [ "$failures" -ne 0 ]; then
+  echo "$failures test(s) failed" >&2
+  exit 1
+fi
+echo "all check-no-ci-evals tests passed"
