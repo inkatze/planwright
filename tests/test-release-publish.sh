@@ -106,8 +106,14 @@ seed_version() {
 # --- gh stub -----------------------------------------------------------------
 # Logs each invocation to $GH_LOG. `repo view` prints a canned nameWithOwner;
 # `api graphql` prints a statusCheckRollup per GH_CI (green→SUCCESS, red→FAILURE,
-# none→null rollup); `release view` exits per GH_RELEASE_EXISTS; `release create`
-# copies its --notes-file to $GH_NOTES. Everything else is a benign success.
+# none→null rollup) with per-check `contexts` so the publish gate's window-lock
+# exclusion is exercised; GH_WINDOW_LOCK (red|green), when set, adds a
+# `window-lock` check-run alongside the `ci` quality check. The top-level rollup
+# `state` stays server-accurate (FAILURE whenever any check — window-lock
+# included — is red) so a gate that reads only the aggregate still sees the
+# real, deadlocking state. `release view` exits per GH_RELEASE_EXISTS; `release
+# create` copies its --notes-file to $GH_NOTES. Everything else is a benign
+# success.
 make_gh_stub() {
   local dir="$1"
   mkdir -p "$dir"
@@ -145,12 +151,32 @@ case "$1" in
     exit 0
     ;;
   api)
-    # The only `gh api` call is the statusCheckRollup GraphQL query.
+    # The only `gh api` call is the statusCheckRollup GraphQL query. Build a
+    # rollup with per-check `contexts` (plus an accurate top-level `state`).
+    # GH_CI drives the `ci` quality check (green|red|pending|none); GH_WINDOW_LOCK
+    # (red|green), when set, adds a `window-lock` check-run. With no checks at all
+    # (GH_CI=none and no window lock) the rollup is null.
+    nodes=""
+    st="SUCCESS"
     case "${GH_CI:-green}" in
-      green) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"SUCCESS"}}}}}\n' ;;
-      none) printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n' ;;
-      *) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"FAILURE"}}}}}\n' ;;
+      green) nodes='{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
+      red) nodes='{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
+      pending) nodes='{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null}'; st="PENDING" ;;
+      none) nodes="" ;;
     esac
+    case "${GH_WINDOW_LOCK:-}" in
+      red) wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
+      green) wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
+      *) wl="" ;;
+    esac
+    if [ -n "$wl" ]; then
+      if [ -n "$nodes" ]; then nodes="$nodes,$wl"; else nodes="$wl"; fi
+    fi
+    if [ -z "$nodes" ]; then
+      printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n'
+    else
+      printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":false},"nodes":[%s]}}}}}}\n' "$st" "$nodes"
+    fi
     exit 0
     ;;
 esac
@@ -371,6 +397,52 @@ run_publish "$r" GH_CI=red GH_RELEASE_EXISTS=0
 assert_ne "gate/ci: exits non-zero" "$RC" "0"
 assert_contains "gate/ci: names the ci gate" "$ERR" "ci gate"
 deny "gate/ci: no local tag created" local_has_tag "$r" v0.1.0
+
+# 4h. THE UNTAGGED-WINDOW DEADLOCK FIX (REQ-E1.1 vs REQ-D1.3). The window-lock
+#     check (release-window.yml) is RED BY DESIGN on `main` throughout the
+#     untagged window — from a release PR's merge until this script publishes the
+#     tag — so the server-aggregated rollup is FAILURE. It is a MERGE gate, never
+#     a PUBLISH gate: gating publish on it deadlocks (the window cannot close
+#     because the open window makes the rollup red, and publishing the tag is the
+#     only thing that closes it). With every OTHER check green, publish MUST
+#     proceed. Before the fix the gate read the aggregate rollup and refused here.
+r="$tmp/window-lock-red"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_eq "window-lock/deadlock: publish proceeds with window-lock red + quality green" "$RC" "0"
+want "window-lock/deadlock: tag created despite the expected-red window lock" local_has_tag "$r" v0.1.0
+want "window-lock/deadlock: tag pushed to origin" origin_has_tag "$r" v0.1.0
+
+# 4h-2. The carve-out is SURGICAL: window-lock red is tolerated, but a red
+#       QUALITY check still fails the gate closed (only window-lock is excluded).
+r="$tmp/window-lock-and-ci-red"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=red GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_ne "window-lock/quality-red: a red quality check still fails with window-lock excluded" "$RC" "0"
+assert_contains "window-lock/quality-red: names the ci gate" "$ERR" "ci gate"
+deny "window-lock/quality-red: no tag created when a quality check is red" local_has_tag "$r" v0.1.0
+
+# 4h-3. If window-lock is the ONLY check present, the gate still fails closed:
+#       after excluding it there is no positive CI confirmation, and a release
+#       gate requires a real green check, not merely "nothing else failed".
+r="$tmp/window-lock-only"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_ne "window-lock/only: window-lock alone is not positive CI confirmation" "$RC" "0"
+assert_contains "window-lock/only: names the ci gate (no confirming check)" "$ERR" "ci gate"
+deny "window-lock/only: no tag created with only the window lock present" local_has_tag "$r" v0.1.0
+
+# 4h-4. Outside the window (window-lock green) with quality green → publishes; the
+#       exclusion never turns a genuine green into a refusal.
+r="$tmp/window-lock-green"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_WINDOW_LOCK=green GH_RELEASE_EXISTS=0
+assert_eq "window-lock/green: green window lock + green quality publishes" "$RC" "0"
+want "window-lock/green: tag created" local_has_tag "$r" v0.1.0
 
 # ===========================================================================
 # 5. require_signed_tags modes (REQ-D1.4) + verify-before-push (REQ-D1.5).
