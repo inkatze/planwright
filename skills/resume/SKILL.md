@@ -45,6 +45,11 @@ Because `/resume` is a read-only loader, a doc that does not resolve is a
 one-line degradation note, not a halt: fall back to reading the brief and
 `tasks.md` directly and proceed (REQ-K1.7).
 
+Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
+`run-start` loads before work begins):
+
+Doctrine: run-start spec-format
+
 ## Procedure
 
 ### 1. Establish location and prerequisites

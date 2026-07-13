@@ -37,6 +37,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 1, Task 2
 - **Citations:** D-3, D-1 · REQ-A1.2, REQ-A1.3, REQ-B1.3, REQ-B1.6
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-12
 
 ### Task 4 — Kept-eval runner, /orchestrate fixtures, baseline
 

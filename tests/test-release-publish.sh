@@ -105,9 +105,24 @@ seed_version() {
 
 # --- gh stub -----------------------------------------------------------------
 # Logs each invocation to $GH_LOG. `repo view` prints a canned nameWithOwner;
-# `api graphql` prints a statusCheckRollup per GH_CI (green→SUCCESS, red→FAILURE,
-# none→null rollup); `release view` exits per GH_RELEASE_EXISTS; `release create`
-# copies its --notes-file to $GH_NOTES. Everything else is a benign success.
+# `api graphql` prints a statusCheckRollup whose `ci` CheckRun node is set by
+# GH_CI (green→conclusion SUCCESS, red→conclusion FAILURE, pending→status
+# IN_PROGRESS, neutral→conclusion NEUTRAL, none→no `ci` node; with no nodes at
+# all the rollup is null). These are per-node attributes, not rollup states: the
+# top-level `state` is derived separately (see below), and there is no PENDING/
+# NEUTRAL rollup-state shorthand here. The rollup carries per-check
+# `contexts` so the publish gate's per-check evaluation and window-lock exclusion
+# are exercised; GH_WINDOW_LOCK (red|green) adds a `window-lock` check-run;
+# GH_STATUS_CONTEXT (success|error|pending) adds a legacy StatusContext
+# (commit-status) node, named via GH_STATUS_CONTEXT_NAME (default legacy-ci) so a
+# commit-status can be named `window-lock` to prove the carve-out is CheckRun-
+# scoped; GH_HASNEXTPAGE=true forces the pagination guard. The top-level rollup
+# `state` is computed with GitHub's rollup precedence (FAILURE > PENDING >
+# SUCCESS — max severity, not last-writer-wins) so it stays server-accurate even
+# when checks of differing severity coexist, and a gate that reads only the
+# aggregate still sees the real, deadlocking state. `release view` exits per
+# GH_RELEASE_EXISTS; `release create` copies its --notes-file to $GH_NOTES.
+# Everything else is a benign success.
 make_gh_stub() {
   local dir="$1"
   mkdir -p "$dir"
@@ -145,12 +160,51 @@ case "$1" in
     exit 0
     ;;
   api)
-    # The only `gh api` call is the statusCheckRollup GraphQL query.
+    # The only `gh api` call is the statusCheckRollup GraphQL query. Build a
+    # rollup with per-check `contexts` (plus an accurate top-level `state`).
+    # GH_CI drives the `ci` quality CheckRun (green|red|pending|neutral|none);
+    # GH_WINDOW_LOCK (red|green), when set, adds a `window-lock` CheckRun;
+    # GH_STATUS_CONTEXT (success|error|pending), when set, adds a legacy
+    # StatusContext (commit-status) node named via GH_STATUS_CONTEXT_NAME
+    # (default legacy-ci) so the gate's non-CheckRun branch is exercised;
+    # GH_HASNEXTPAGE=true forces hasNextPage so the >100-check pagination guard
+    # (TOO_MANY) is exercised even with a green visible page. With no checks at
+    # all the rollup is null. The top-level `state` stays server-accurate so a
+    # gate that (wrongly) read only the aggregate would still see the real state.
+    nodes=""
+    st="SUCCESS"
+    add_node() { if [ -n "$nodes" ]; then nodes="$nodes,$1"; else nodes="$1"; fi; }
+    # Track the worst check state with GitHub's rollup precedence
+    # (FAILURE > PENDING > SUCCESS) so the top-level `state` stays server-accurate
+    # even when checks of differing severity coexist (a red check plus a pending
+    # one). A plain per-branch `st=...` would be last-writer-wins and could report
+    # PENDING while a FAILURE is present, contradicting the real rollup.
+    worsen() { case "$1" in FAILURE) st="FAILURE" ;; PENDING) [ "$st" = "SUCCESS" ] && st="PENDING" ;; esac; }
     case "${GH_CI:-green}" in
-      green) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"SUCCESS"}}}}}\n' ;;
-      none) printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n' ;;
-      *) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"FAILURE"}}}}}\n' ;;
+      green) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
+      red) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'; worsen FAILURE ;;
+      pending) add_node '{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null}'; worsen PENDING ;;
+      neutral) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"NEUTRAL"}' ;;
+      none) : ;;
     esac
+    case "${GH_WINDOW_LOCK:-}" in
+      red) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; worsen FAILURE ;;
+      green) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
+    esac
+    # GH_STATUS_CONTEXT_NAME overrides the legacy commit-status context name
+    # (default legacy-ci) so a StatusContext can be named "window-lock" to prove
+    # the carve-out is CheckRun-scoped and does NOT drop a same-named commit-status.
+    sc_name="${GH_STATUS_CONTEXT_NAME:-legacy-ci}"
+    case "${GH_STATUS_CONTEXT:-}" in
+      success) add_node '{"__typename":"StatusContext","context":"'"$sc_name"'","state":"SUCCESS"}' ;;
+      error) add_node '{"__typename":"StatusContext","context":"'"$sc_name"'","state":"ERROR"}'; worsen FAILURE ;;
+      pending) add_node '{"__typename":"StatusContext","context":"'"$sc_name"'","state":"PENDING"}'; worsen PENDING ;;
+    esac
+    if [ -z "$nodes" ]; then
+      printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n'
+    else
+      printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":%s},"nodes":[%s]}}}}}}\n' "$st" "${GH_HASNEXTPAGE:-false}" "$nodes"
+    fi
     exit 0
     ;;
 esac
@@ -371,6 +425,176 @@ run_publish "$r" GH_CI=red GH_RELEASE_EXISTS=0
 assert_ne "gate/ci: exits non-zero" "$RC" "0"
 assert_contains "gate/ci: names the ci gate" "$ERR" "ci gate"
 deny "gate/ci: no local tag created" local_has_tag "$r" v0.1.0
+
+# 4h. THE UNTAGGED-WINDOW DEADLOCK FIX (REQ-E1.1 vs REQ-D1.3). The window-lock
+#     check (release-window.yml) is RED BY DESIGN on `main` throughout the
+#     untagged window — from a release PR's merge until this script publishes the
+#     tag — so the server-aggregated rollup is FAILURE. It is a MERGE gate, never
+#     a PUBLISH gate: gating publish on it deadlocks (the window cannot close
+#     because the open window makes the rollup red, and publishing the tag is the
+#     only thing that closes it). With every OTHER check green, publish MUST
+#     proceed. Before the fix the gate read the aggregate rollup and refused here.
+r="$tmp/window-lock-red"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_eq "window-lock/deadlock: publish proceeds with window-lock red + quality green" "$RC" "0"
+want "window-lock/deadlock: tag created despite the expected-red window lock" local_has_tag "$r" v0.1.0
+want "window-lock/deadlock: tag pushed to origin" origin_has_tag "$r" v0.1.0
+
+# 4h-2. The carve-out is SURGICAL: window-lock red is tolerated, but a red
+#       QUALITY check still fails the gate closed (only window-lock is excluded).
+r="$tmp/window-lock-and-ci-red"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=red GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_ne "window-lock/quality-red: a red quality check still fails with window-lock excluded" "$RC" "0"
+assert_contains "window-lock/quality-red: names the ci gate" "$ERR" "ci gate"
+deny "window-lock/quality-red: no tag created when a quality check is red" local_has_tag "$r" v0.1.0
+
+# 4h-3. If window-lock is the ONLY check present, the gate still fails closed:
+#       after excluding it there is no positive CI confirmation, and a release
+#       gate requires a real green check, not merely "nothing else failed".
+r="$tmp/window-lock-only"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_ne "window-lock/only: window-lock alone is not positive CI confirmation" "$RC" "0"
+assert_contains "window-lock/only: names the ci gate (no confirming check)" "$ERR" "ci gate"
+deny "window-lock/only: no tag created with only the window lock present" local_has_tag "$r" v0.1.0
+
+# 4h-4. Outside the window (window-lock green) with quality green → publishes; the
+#       exclusion never turns a genuine green into a refusal.
+r="$tmp/window-lock-green"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_WINDOW_LOCK=green GH_RELEASE_EXISTS=0
+assert_eq "window-lock/green: green window lock + green quality publishes" "$RC" "0"
+want "window-lock/green: tag created" local_has_tag "$r" v0.1.0
+
+# 4h-5. Fail-closed on PENDING (REQ-D1.3). A non-excluded check still in progress
+#       blocks publish — the gate waits for CI to finish, it never races it.
+r="$tmp/ci-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=pending GH_RELEASE_EXISTS=0
+assert_ne "gate/pending: an in-progress check blocks publish" "$RC" "0"
+assert_contains "gate/pending: names the ci gate" "$ERR" "ci gate"
+assert_contains "gate/pending: classified PENDING (waits, not FAILURE)" "$ERR" "rollup state: PENDING"
+deny "gate/pending: no tag created while CI is pending" local_has_tag "$r" v0.1.0
+
+# 4h-6. StatusContext (legacy commit-status) path publishes on a green status.
+#       Here the ONLY check is a StatusContext (GH_CI=none), so the non-CheckRun
+#       branch (state==SUCCESS as positive confirmation) is exercised in isolation
+#       and a bug in it surfaces on its own. Mixed CheckRun + StatusContext
+#       rollups are covered by 4h-10/4h-11.
+r="$tmp/status-context-green"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=success GH_RELEASE_EXISTS=0
+assert_eq "gate/status-context: a green commit status publishes" "$RC" "0"
+want "gate/status-context: tag created from a green StatusContext" local_has_tag "$r" v0.1.0
+
+# 4h-7. StatusContext error fails closed. A commit status in ERROR maps to
+#       FAILURE (not SUCCESS), blocking publish — guards the non-CheckRun state
+#       mapping against a false green on a legacy status.
+r="$tmp/status-context-error"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=error GH_RELEASE_EXISTS=0
+assert_ne "gate/status-context-error: an ERROR commit status blocks publish" "$RC" "0"
+assert_contains "gate/status-context-error: names the ci gate" "$ERR" "ci gate"
+deny "gate/status-context-error: no tag created on an ERROR status" local_has_tag "$r" v0.1.0
+
+# 4h-7b. StatusContext pending fails closed. A legacy commit status still PENDING
+#        maps to PENDING (not SUCCESS), blocking publish — the non-CheckRun branch
+#        must wait for an in-progress status just like a CheckRun.
+r="$tmp/status-context-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=pending GH_RELEASE_EXISTS=0
+assert_ne "gate/status-context-pending: a PENDING commit status blocks publish" "$RC" "0"
+assert_contains "gate/status-context-pending: names the ci gate" "$ERR" "ci gate"
+deny "gate/status-context-pending: no tag created while a status is pending" local_has_tag "$r" v0.1.0
+
+# 4h-8. Pagination guard (TOO_MANY). More checks than one page can hold
+#       (hasNextPage) fails closed EVEN with a green visible page — an unseen
+#       later page could hold a red check, so the gate refuses rather than trust
+#       a partial view. This is the blind spot the per-check rewrite closes.
+r="$tmp/too-many-checks"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_HASNEXTPAGE=true GH_RELEASE_EXISTS=0
+assert_ne "gate/pagination: hasNextPage fails closed despite a green visible page" "$RC" "0"
+assert_contains "gate/pagination: names the ci gate" "$ERR" "ci gate"
+assert_contains "gate/pagination: classified TOO_MANY (an unseen page could be red)" "$ERR" "rollup state: TOO_MANY"
+deny "gate/pagination: no tag created when checks exceed one page" local_has_tag "$r" v0.1.0
+
+# 4h-9. Positive-confirmation requirement. A run whose only non-excluded check is
+#       NEUTRAL/SKIPPED resolves to NONE (not SUCCESS) and fails closed — absence
+#       of failure is not confirmation. Distinct jq branch from window-lock-only
+#       (which drops to length==0); here a check survives but confirms nothing.
+r="$tmp/neutral-only"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=neutral GH_RELEASE_EXISTS=0
+assert_ne "gate/neutral-only: a neutral-only run is not positive confirmation" "$RC" "0"
+assert_contains "gate/neutral-only: names the ci gate" "$ERR" "ci gate"
+assert_contains "gate/neutral-only: classified NONE (no positive confirmation)" "$ERR" "rollup state: NONE"
+deny "gate/neutral-only: no tag created with only neutral checks" local_has_tag "$r" v0.1.0
+
+# 4h-10. MIXED-VERDICT PRECEDENCE: a green check must not mask a red one. Two
+#        non-excluded checks coexist — a green `ci` CheckRun AND a legacy
+#        StatusContext in ERROR — so the rollup carries [SUCCESS, FAILURE]. The
+#        re-aggregation must resolve FAILURE (a failing check dominates a passing
+#        one); were the precedence inverted (SUCCESS scanned before FAILURE), one
+#        green check would publish a broken release and every other test would
+#        still pass. This is also the ONLY scenario exercising both node-type
+#        branches (CheckRun + StatusContext) in a single evaluation pass.
+r="$tmp/mixed-success-failure"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=error GH_RELEASE_EXISTS=0
+assert_ne "gate/mixed-fail: a green check does not mask a red one" "$RC" "0"
+assert_contains "gate/mixed-fail: classified FAILURE, not green" "$ERR" "rollup state: FAILURE"
+deny "gate/mixed-fail: no tag created when any non-excluded check is red" local_has_tag "$r" v0.1.0
+
+# 4h-11. MIXED-VERDICT PRECEDENCE: a green check must not mask a pending one. A
+#        green `ci` CheckRun coexists with a still-PENDING legacy status →
+#        [SUCCESS, PENDING] → PENDING (wait for CI per REQ-D1.3), never SUCCESS.
+#        Pins that positive confirmation cannot race an in-progress check merely
+#        because another check already finished green.
+r="$tmp/mixed-success-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=pending GH_RELEASE_EXISTS=0
+assert_ne "gate/mixed-pending: a green check does not mask a pending one" "$RC" "0"
+assert_contains "gate/mixed-pending: classified PENDING, not green" "$ERR" "rollup state: PENDING"
+deny "gate/mixed-pending: no tag created while any non-excluded check is pending" local_has_tag "$r" v0.1.0
+
+# 4h-12. CheckRun-SCOPED carve-out (Copilot #163 review thread). The window-lock
+#        exclusion drops ONLY the Actions CheckRun of that name; a legacy
+#        commit-status (StatusContext) named `window-lock` is NOT excluded, so a
+#        red one still fails the gate closed. Before the type-scoping the bare
+#        name match dropped it, and a green `ci` alongside would have published a
+#        release while a check named window-lock was red.
+r="$tmp/status-context-named-window-lock"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=error GH_STATUS_CONTEXT_NAME=window-lock GH_RELEASE_EXISTS=0
+assert_ne "gate/sc-window-lock: a red commit-status named window-lock is NOT carved out" "$RC" "0"
+assert_contains "gate/sc-window-lock: classified FAILURE (StatusContext judged, not excluded)" "$ERR" "rollup state: FAILURE"
+deny "gate/sc-window-lock: no tag created (the same-named commit-status still blocks)" local_has_tag "$r" v0.1.0
+
+# 4h-13. The gh stub's top-level rollup `state` is server-accurate under mixed
+#        severities (Copilot #163 review thread): a FAILURE alongside a later
+#        PENDING aggregates to FAILURE (max severity), not last-writer-wins
+#        PENDING — else a gate reading the aggregate could be misled and the
+#        fixture would contradict its own "server-accurate" contract. Asserts the
+#        stub directly (its `state` is the fixture's model of the real rollup).
+state=$(env PATH="$stub:$PATH" GH_CI=red GH_STATUS_CONTEXT=pending gh api graphql -f query=x 2>/dev/null \
+  | jq -r '.data.repository.object.statusCheckRollup.state')
+assert_eq "stub/state-accuracy: red + pending aggregates to FAILURE (max severity)" "$state" "FAILURE"
 
 # ===========================================================================
 # 5. require_signed_tags modes (REQ-D1.4) + verify-before-push (REQ-D1.5).

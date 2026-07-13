@@ -25,3 +25,16 @@ pending-diet|file|skills/orchestrate/SKILL.md|Task 5|/orchestrate SKILL.md is ov
 pending-diet|file|skills/execute-task/SKILL.md|Task 6|/execute-task SKILL.md is over the per-file SKILL floor; dieted in Task 6.
 pending-diet|file|skills/spec-kickoff/SKILL.md|Task 7|/spec-kickoff SKILL.md is over the per-file SKILL floor; dieted in Task 7.
 pending-diet|file|doctrine/spec-format.md|Task 7|spec-format.md is over the per-file doctrine floor; trimmed or permanently exempted in Task 7.
+
+# Start-load allowances seeded at Task 3, when manifests first made mandatory-at-start
+# computable (REQ-A1.2, REQ-B1.3b). Each start-load offender the manifest computation
+# surfaced is carried transiently until its diet lands; a start-load offender has no
+# permanent-exemption escape valve (REQ-B1.3a forbids it), so this is the only form
+# that can keep the check green while the diet is pending. No reachable-closure offender
+# surfaced (every skill's closure is under the 20,000 error threshold), so no closure
+# allowance is seeded. Each is removed by its diet task's own PR (Tasks 5/6/7 shed both
+# their per-file and start-load allowances; /spec-draft's start-load diet is Task 7.5).
+pending-diet|start-load|orchestrate|Task 5|/orchestrate mandatory-at-start is over budget (body + run-start doctrine); dieted in Task 5 (the pilot: content moved to rule docs, rare mode branches reclassified to point-of-use).
+pending-diet|start-load|execute-task|Task 6|/execute-task mandatory-at-start is over budget (body + run-start doctrine); dieted in Task 6.
+pending-diet|start-load|spec-kickoff|Task 7|/spec-kickoff mandatory-at-start is over budget (body + run-start doctrine); dieted in Task 7.
+pending-diet|start-load|spec-draft|Task 7.5|/spec-draft mandatory-at-start is over budget purely through run-start doctrine (body under the per-file floor, so invisible to Task 2's pre-manifest audit); dieted in Task 7.5 by point-of-use reclassification.

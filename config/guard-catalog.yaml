@@ -170,3 +170,12 @@ breadth:
     category: breadth
     tool: arch-guidance
     detect: "manual"
+  # Release tagging (Task 3, REQ-G1.1). Advisory breadth dimension, two facets:
+  # detection — a versioned artifact with no release automation → recommend the
+  # guard; scaffold — the opt-in release-PR + window-lock templates and the core
+  # publish-script wiring. Facet detail lives in doctrine/guard-catalog.md; this
+  # machine view carries the advisory entry (detect: manual, never auto-fires).
+  - id: release-tagging
+    category: breadth
+    tool: release-tagging-guard
+    detect: "manual"
