@@ -13,49 +13,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 2 — Guard script, knobs, and audit mode
-
-- **Deliverables:** `scripts/check-instructions.sh` (per-file budgets with
-  the `doctrine/README.md` index excluded, manifest-derived start-load and
-  closure budgets (a skill declaring no manifest scores start-load body-only,
-  not an error, REQ-A1.2/B1.8 — so the guard wires cleanly into `check` at this
-  task before Task 3 adds manifests), resolution check, the two suppression forms (permanent
-  exemption + transitional `pending diet` allowance, REQ-B1.3),
-  injected-context measurement over `hooks.json`-registered hooks read
-  statically (interpolation lines excluded, REQ-A1.4) with a warn-only floor,
-  `--audit` mode emitting the ranked report — every registered hook a row,
-  including the injected-context class — and offender shortlist);
-  `instruction_budget_*`
-  knobs in `config/defaults.yml` (including the injected-context warn floor)
-  with `docs/options-reference.md` rows; the suppression list (REQ-B1.3)
-  seeded with the **per-file** offenders annotated `pending diet (Task 5|6|7)`
-  (the transitional start-load allowance for `/spec-draft` is seeded at Task 3,
-  when manifests first make start-load computable — not here, where the
-  manifests do not yet exist); fail-loud handling of malformed manifest /
-  exemption / allowance / knob input and boundary-defined thresholds (REQ-B1.8),
-  with the injected-context hook carved out — an unextractable hook is a
-  parse-failure *warning*, never a hard error (REQ-B1.7); untrusted-input safety
-  over PR-controllable content (REQ-B1.9);
-  a `check:instructions` task in the `mise run check`
-  aggregate; seeded-violation fixtures and `tests/test-check-instructions.sh`;
-  the initial per-file audit run's diet plans recorded for Tasks 5-7.
-- **Done when:** `mise run check` passes on the repo with the transitional
-  per-file allowances in place; the seeded-violation fixture suite proves
-  error, warn, at-threshold boundary (REQ-B1.8), permanent exemption
-  (including reason-less error and start-load/closure-not-suppressed),
-  transitional allowance (per-file, start-load, and closure), fail-loud on each
-  malformed-input class, absent-manifest scored body-only (no error), an
-  injected-context hook parse-failure reported as a warning (not a hard error),
-  injected-context warn-floor (reported, non-failing, always-a-row), and
-  unresolvable-manifest-reference behavior; a knob override via
-  `.claude/planwright.local.yml` changes the outcome in a test.
-- **Dependencies:** Task 1
-- **Citations:** D-1, D-2, D-4, D-5, D-13 · REQ-A1.1, REQ-A1.3, REQ-A1.4,
-  REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7,
-  REQ-B1.8, REQ-B1.9
-- **Estimated effort:** 2 days
-- **Last activity:** 2026-07-12
-
 ### Task 3 — Doctrine manifests in all skills
 
 - **Deliverables:** the Task 1 manifest added to every `skills/*/SKILL.md`
@@ -219,6 +176,50 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Estimated effort:** half day
 - **Status:** Completed · PR #133 merged 2026-07-10
 - **Last activity:** 2026-07-09
+
+### Task 2 — Guard script, knobs, and audit mode
+
+- **Deliverables:** `scripts/check-instructions.sh` (per-file budgets with
+  the `doctrine/README.md` index excluded, manifest-derived start-load and
+  closure budgets (a skill declaring no manifest scores start-load body-only,
+  not an error, REQ-A1.2/B1.8 — so the guard wires cleanly into `check` at this
+  task before Task 3 adds manifests), resolution check, the two suppression forms (permanent
+  exemption + transitional `pending diet` allowance, REQ-B1.3),
+  injected-context measurement over `hooks.json`-registered hooks read
+  statically (interpolation lines excluded, REQ-A1.4) with a warn-only floor,
+  `--audit` mode emitting the ranked report — every registered hook a row,
+  including the injected-context class — and offender shortlist);
+  `instruction_budget_*`
+  knobs in `config/defaults.yml` (including the injected-context warn floor)
+  with `docs/options-reference.md` rows; the suppression list (REQ-B1.3)
+  seeded with the **per-file** offenders annotated `pending diet (Task 5|6|7)`
+  (the transitional start-load allowance for `/spec-draft` is seeded at Task 3,
+  when manifests first make start-load computable — not here, where the
+  manifests do not yet exist); fail-loud handling of malformed manifest /
+  exemption / allowance / knob input and boundary-defined thresholds (REQ-B1.8),
+  with the injected-context hook carved out — an unextractable hook is a
+  parse-failure *warning*, never a hard error (REQ-B1.7); untrusted-input safety
+  over PR-controllable content (REQ-B1.9);
+  a `check:instructions` task in the `mise run check`
+  aggregate; seeded-violation fixtures and `tests/test-check-instructions.sh`;
+  the initial per-file audit run's diet plans recorded for Tasks 5-7.
+- **Done when:** `mise run check` passes on the repo with the transitional
+  per-file allowances in place; the seeded-violation fixture suite proves
+  error, warn, at-threshold boundary (REQ-B1.8), permanent exemption
+  (including reason-less error and start-load/closure-not-suppressed),
+  transitional allowance (per-file, start-load, and closure), fail-loud on each
+  malformed-input class, absent-manifest scored body-only (no error), an
+  injected-context hook parse-failure reported as a warning (not a hard error),
+  injected-context warn-floor (reported, non-failing, always-a-row), and
+  unresolvable-manifest-reference behavior; a knob override via
+  `.claude/planwright.local.yml` changes the outcome in a test.
+- **Dependencies:** Task 1
+- **Citations:** D-1, D-2, D-4, D-5, D-13 · REQ-A1.1, REQ-A1.3, REQ-A1.4,
+  REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7,
+  REQ-B1.8, REQ-B1.9
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #157 merged 2026-07-12
+- **Last activity:** 2026-07-12
 
 ## Deferred
 

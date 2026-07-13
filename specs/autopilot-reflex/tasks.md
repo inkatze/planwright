@@ -37,56 +37,6 @@ of the release chain after T1 and can run in parallel throughout.
 - **Citations:** D-9, D-13 · REQ-G1.1, REQ-G1.2, REQ-G1.3
 - **Estimated effort:** 0.5d
 
-### Task 6 — Untagged-window lock + merge serialization
-
-- **Deliverables:** A required CI check (reusing `release-pending.sh`) that
-  fails on `main` and PRs while the version of truth is ahead of the latest
-  release tag, naming the publish command in its failure output; branch
-  protection updated (required check + merge queue, require-up-to-date as
-  minimum) on planwright's repo; adopter guidance documenting the lock and
-  when a merge queue is proportionate. Opt-in workflow template for
-  adopters.
-- **Done when:** The check's logic has unit tests (in-window fails with the
-  command named, out-of-window passes, non-bump PRs unaffected); repo branch
-  protection shows the check required and the queue enabled; guidance and
-  template shipped.
-- **Dependencies:** Task 4, Task 5.
-- **Citations:** D-7 · REQ-E1.1, REQ-E1.2, REQ-E1.3
-- **Estimated effort:** 1.0d
-- **Last activity:** 2026-07-12
-
-### Task 7 — Bookkeeping surfacing + mise wrapper
-
-- **Deliverables:** `/orchestrate --bookkeeping` reports a pending release
-  via `release-pending.sh` (belt-and-suspenders); a `mise run release` task
-  wrapping the publish script on this repo.
-- **Done when:** A bookkeeping run in the untagged window reports the pending
-  version and publish command; `mise run release` invokes the script; outside
-  the window bookkeeping stays silent on releases.
-- **Dependencies:** Task 4, Task 5.
-- **Citations:** D-7, D-8 · REQ-F1.2, REQ-F1.3
-- **Estimated effort:** 0.5d
-- **Last activity:** 2026-07-12
-
-### Task 9 — Signing prerequisites & enforcement on this repo + docs
-
-- **Deliverables:** `require_signed_tags: require` in this repo's planwright
-  config layer; tag-signing wired (config or explicit `-s` — verified
-  end-to-end once with `git tag -v`); the author's SSH key registered as a
-  GitHub *signing* key so tags render Verified (documented as a manual
-  prerequisite); the worker-settings push-deny globs audited to confirm
-  release-tag pushes (`refs/tags/v*`) by the human path are not blocked while
-  branch protections stay intact; docs updates (getting-started /
-  conventions: the release flow, the publish command, the signing policy).
-- **Done when:** A dry-run signed tag on a scratch ref verifies locally and
-  renders Verified on GitHub; the deny-glob audit is recorded; docs describe
-  the end-to-end flow; options-reference rows for the repo's `require` value
-  present.
-- **Dependencies:** Task 4.
-- **Citations:** D-4 · REQ-D1.4, REQ-D1.5
-- **Estimated effort:** 0.5d
-- **Last activity:** 2026-07-12
-
 ### Task 10 — Armed/watch mode (sequenced follow-up)
 
 - **Deliverables:** An armed mode for the publish flow: invoked before the
@@ -210,6 +160,39 @@ of the release chain after T1 and can run in parallel throughout.
 - **Status:** Completed · PR #142 merged 2026-07-10
 - **Last activity:** 2026-07-10
 
+### Task 6 — Untagged-window lock + merge serialization
+
+- **Deliverables:** A required CI check (reusing `release-pending.sh`) that
+  fails on `main` and PRs while the version of truth is ahead of the latest
+  release tag, naming the publish command in its failure output; branch
+  protection updated (required check + merge queue, require-up-to-date as
+  minimum) on planwright's repo; adopter guidance documenting the lock and
+  when a merge queue is proportionate. Opt-in workflow template for
+  adopters.
+- **Done when:** The check's logic has unit tests (in-window fails with the
+  command named, out-of-window passes, non-bump PRs unaffected); repo branch
+  protection shows the check required and the queue enabled; guidance and
+  template shipped.
+- **Dependencies:** Task 4, Task 5.
+- **Citations:** D-7 · REQ-E1.1, REQ-E1.2, REQ-E1.3
+- **Estimated effort:** 1.0d
+- **Status:** Completed · PR #154 merged 2026-07-12
+- **Last activity:** 2026-07-12
+
+### Task 7 — Bookkeeping surfacing + mise wrapper
+
+- **Deliverables:** `/orchestrate --bookkeeping` reports a pending release
+  via `release-pending.sh` (belt-and-suspenders); a `mise run release` task
+  wrapping the publish script on this repo.
+- **Done when:** A bookkeeping run in the untagged window reports the pending
+  version and publish command; `mise run release` invokes the script; outside
+  the window bookkeeping stays silent on releases.
+- **Dependencies:** Task 4, Task 5.
+- **Citations:** D-7, D-8 · REQ-F1.2, REQ-F1.3
+- **Estimated effort:** 0.5d
+- **Status:** Completed · PR #155 merged 2026-07-12
+- **Last activity:** 2026-07-12
+
 ### Task 8 — Altitude gate in `/spec-draft` + `/spec-kickoff` lens check
 
 - **Deliverables:** `/spec-draft`: seed-claim pinning in seed gathering
@@ -229,6 +212,26 @@ of the release chain after T1 and can run in parallel throughout.
 - **Estimated effort:** 1.0d
 - **Status:** Completed · PR #143 merged 2026-07-10
 - **Last activity:** 2026-07-10
+
+### Task 9 — Signing prerequisites & enforcement on this repo + docs
+
+- **Deliverables:** `require_signed_tags: require` in this repo's planwright
+  config layer; tag-signing wired (config or explicit `-s` — verified
+  end-to-end once with `git tag -v`); the author's SSH key registered as a
+  GitHub *signing* key so tags render Verified (documented as a manual
+  prerequisite); the worker-settings push-deny globs audited to confirm
+  release-tag pushes (`refs/tags/v*`) by the human path are not blocked while
+  branch protections stay intact; docs updates (getting-started /
+  conventions: the release flow, the publish command, the signing policy).
+- **Done when:** A dry-run signed tag on a scratch ref verifies locally and
+  renders Verified on GitHub; the deny-glob audit is recorded; docs describe
+  the end-to-end flow; options-reference rows for the repo's `require` value
+  present.
+- **Dependencies:** Task 4.
+- **Citations:** D-4 · REQ-D1.4, REQ-D1.5
+- **Estimated effort:** 0.5d
+- **Status:** Completed · PR #156 merged 2026-07-13
+- **Last activity:** 2026-07-12
 
 ## Deferred
 
