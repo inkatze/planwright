@@ -513,6 +513,16 @@ assert_contains "surfaces the setup.sh stderr header" "setup.sh stderr:" "$out"
 assert_contains "surfaces the setup's diagnostic message" \
   "setup diagnostic: seed repo could not be created" "$out"
 
+# ---- 30. no stray capture files leak into the work base ----------------------
+# Every $work sibling — the .jsonl transcript and the .setup-err / .probe-err
+# stderr captures — must be removed by the inline teardown (clean path) or by
+# cleanup() (interrupt path). By now the suite has exercised passing, failing,
+# setup-failing and probe-failing fixtures, so any sibling the teardown forgets
+# would linger here. The work base must hold no files (directories are covered
+# by test 12).
+strayfiles="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "no stray capture files (.jsonl/.setup-err/.probe-err) leaked" 0 "$strayfiles"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1

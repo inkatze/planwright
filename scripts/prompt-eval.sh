@@ -257,13 +257,15 @@ overall_rc=0
 note_fail() { [ "$overall_rc" -eq 0 ] && overall_rc=1; }
 
 # Interrupt-safe cleanup (R8 re-runnability): a run in flight tracks its work
-# tree so an INT/TERM/normal EXIT never leaves it (or its transcript) behind.
-# The per-fixture prune-first is the crash-recovery backstop; this is the clean
-# path. Cleared after each teardown so a stale path is never re-removed.
+# tree so an INT/TERM/normal EXIT never leaves it — or any of its sibling capture
+# files ($work.jsonl transcript, $work.setup-err / $work.probe-err stderr) —
+# behind. The per-fixture prune-first is the crash-recovery backstop; this is the
+# clean path. Cleared after each teardown so a stale path is never re-removed.
 current_work=""
 # shellcheck disable=SC2329  # invoked indirectly via the traps below
 cleanup() {
-  [ -n "$current_work" ] && rm -rf "$current_work" "$current_work.jsonl" 2>/dev/null
+  [ -n "$current_work" ] && rm -rf "$current_work" "$current_work.jsonl" \
+    "$current_work.setup-err" "$current_work.probe-err" 2>/dev/null
 }
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
