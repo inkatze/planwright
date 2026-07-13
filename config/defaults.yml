@@ -118,8 +118,9 @@ review_sequence: [polish]
 # is configured and succeeds; `never` always creates an unsigned annotated tag.
 # Signing is delegated entirely to the repo's git config (gpg.format,
 # user.signingkey, gpg.ssh.program) — no signer is named in the script, and no
-# signing material ever enters CI. planwright's own repo sets `require` through a
-# repo-level overlay (its signing enforcement lands with the signing task).
+# signing material ever enters CI. planwright's own repo sets `require` through
+# its repo-tracked overlay (.claude/planwright.yml); this default stays `auto` so
+# a fresh adopter without signing configured still gets an annotated tag.
 require_signed_tags: auto
 
 # Where the version of truth lives (D-13, REQ-D1.6), as `<path>::<selector>`. The
