@@ -81,6 +81,15 @@ fi
 #     a boundary elsewhere (a trailing `echo "eval: …"`) over-blocks. That is far
 #     rarer than a real `retrieval:` task and only causes a spurious CI failure,
 #     never a silent bypass.
+#     A second residual, accepted in the under-block direction: a `run: |` block
+#     that splits the invocation across a backslash-newline continuation
+#     (`mise run \` then `eval:skill` on the next line) executes but evades the
+#     same-line match. This guard is a backstop against ACCIDENTAL wiring, not a
+#     boundary against a committer who controls the workflow file (who could just
+#     delete the guard or rename the task out of the `eval:` namespace), and an
+#     accidental multi-line split of `mise run eval:skill` does not happen in
+#     practice — so the line-based match is kept deliberately over a
+#     continuation-aware state machine.
 #   * a direct call to the runner script, bypassing mise entirely.
 # -H forces the filename prefix even for a single file (file:line:match report).
 mise_eval="$(grep -HnE '(^|[^[:alnum:]_-])mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
