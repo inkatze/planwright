@@ -15,7 +15,7 @@ Citations: REQ-G1.8, REQ-G1.4 · D-39, D-16.
 
 The prose entries below are the catalog's normative home. Their machine view
 for overlay merging is [`config/decision-domains.yaml`](../config/decision-domains.yaml)
-(the ten seed domains keyed by stable id), the core seed
+(the eleven seed domains keyed by stable id), the core seed
 [`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) unions with
 adopter / team / machine-local overlays — see *Growth and adopter extension*.
 The doc/yaml split mirrors [guard-catalog.md](guard-catalog.md) /
@@ -233,3 +233,31 @@ paths:
   runtime dependencies, anything in a hard-disqualifier zone (auth,
   crypto, secrets), and anything parsing untrusted input escalate the
   adoption as a design decision.
+
+### 11. Versioning scheme
+
+- **Trigger.** Choosing or changing how a shipped artifact is versioned:
+  cutting a project's first release, picking the tag or version-string
+  format, or switching an already-released artifact's scheme.
+- **Considerations.** The artifact type decides more than taste does. Is
+  this a **compatibility-signaling** artifact — a library, a plugin, a
+  public API — whose consumers (and any marketplace or dependency resolver)
+  reason about breaking changes? Or a **continuously-shipped application**
+  where "when did this ship" carries more information than "what broke"?
+  Then: what does an existing version lineage already commit you to; what do
+  the ecosystem's tooling and consumers expect to parse; how loud is a
+  breaking change for the people downstream.
+- **Disposition.** Artifact type is the heuristic: a compatibility-bearing
+  artifact takes **SemVer** (`vX.Y.Z`, so a major bump *is* the
+  break signal consumers key on); a continuously-shipped application takes
+  **CalVer** (`YYYY.MINOR.PATCH`, where ship date is the salient axis); an
+  internal-only artifact nobody else depends on may stay **unversioned**.
+  Picking a scheme for a fresh artifact is a low-stake, reversible call that
+  proceeds with the reasoning recorded; **switching** the scheme of an
+  already-released artifact escalates — it breaks the lineage consumers and
+  tooling have been reading. *Worked example (D-9):* planwright versions its
+  plugin by SemVer precisely because a plugin is a compatibility-bearing
+  artifact — the marketplace and adopters reason about breaking changes,
+  which SemVer signals and CalVer does not — while the author's
+  continuously-shipped application repo uses CalVer, the same heuristic
+  landing on the opposite answer for the opposite artifact type.
