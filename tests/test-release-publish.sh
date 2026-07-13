@@ -109,8 +109,8 @@ seed_version() {
 # pending→in-progress, neutral→NEUTRAL, none→null rollup) with per-check
 # `contexts` so the publish gate's per-check evaluation and window-lock exclusion
 # are exercised; GH_WINDOW_LOCK (red|green) adds a `window-lock` check-run;
-# GH_STATUS_CONTEXT (success|error) adds a legacy StatusContext (commit-status)
-# node; GH_HASNEXTPAGE=true forces the pagination guard. The top-level rollup
+# GH_STATUS_CONTEXT (success|error|pending) adds a legacy StatusContext
+# (commit-status) node; GH_HASNEXTPAGE=true forces the pagination guard. The top-level rollup
 # `state` stays server-accurate (FAILURE whenever any check — window-lock
 # included — is red) so a gate that reads only the aggregate still sees the
 # real, deadlocking state. `release view` exits per GH_RELEASE_EXISTS; `release
@@ -180,6 +180,7 @@ case "$1" in
     case "${GH_STATUS_CONTEXT:-}" in
       success) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"SUCCESS"}' ;;
       error) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"ERROR"}'; st="FAILURE" ;;
+      pending) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"PENDING"}'; st="PENDING" ;;
     esac
     if [ -z "$nodes" ]; then
       printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n'
@@ -484,6 +485,17 @@ run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=error GH_RELEASE_EXISTS=0
 assert_ne "gate/status-context-error: an ERROR commit status blocks publish" "$RC" "0"
 assert_contains "gate/status-context-error: names the ci gate" "$ERR" "ci gate"
 deny "gate/status-context-error: no tag created on an ERROR status" local_has_tag "$r" v0.1.0
+
+# 4h-7b. StatusContext pending fails closed. A legacy commit status still PENDING
+#        maps to PENDING (not SUCCESS), blocking publish — the non-CheckRun branch
+#        must wait for an in-progress status just like a CheckRun.
+r="$tmp/status-context-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=pending GH_RELEASE_EXISTS=0
+assert_ne "gate/status-context-pending: a PENDING commit status blocks publish" "$RC" "0"
+assert_contains "gate/status-context-pending: names the ci gate" "$ERR" "ci gate"
+deny "gate/status-context-pending: no tag created while a status is pending" local_has_tag "$r" v0.1.0
 
 # 4h-8. Pagination guard (TOO_MANY). More checks than one page can hold
 #       (hasNextPage) fails closed EVEN with a green visible page — an unseen
