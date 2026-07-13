@@ -236,12 +236,21 @@ suite_micros=0
 budget_micros=""
 if [ -n "$suite_budget" ]; then
   is_number "$suite_budget" || die_usage "--suite-budget-usd must be a number"
+  # The budget is the ceiling itself, so floor it: the effective cap must never
+  # sit ABOVE the value the operator asked for. A sub-micro budget floors to 0,
+  # which — with run costs rounded up (see to_micros) — still fires on the first
+  # real spend. The awk truncation ("%d" of a float) is that floor.
   budget_micros="$(printf '%s' "$suite_budget" | awk '{printf "%d", $1 * 1000000}')"
 fi
 
-# to_micros <decimal-usd> — dollars to integer micro-dollars via awk.
+# to_micros <decimal-usd> — dollars to integer micro-dollars, rounded UP. Costs
+# feed a spend ceiling, so rounding up is fail-closed: a run below 1e-6 (which
+# is_number deliberately accepts, jq renders it as e.g. 5E-7) must count as at
+# least 1 micro rather than truncate to 0 and vanish from the totals / budget.
+# The 1e-9 epsilon absorbs float noise (v*1e6 landing at N.0000000001) so a value
+# that is already an exact integer number of micros is not spuriously bumped up.
 to_micros() {
-  printf '%s' "$1" | awk '{printf "%d", $1 * 1000000}'
+  printf '%s' "$1" | awk '{v = $1 * 1000000; c = int(v); if (v - c > 1e-9) c++; printf "%d", c}'
 }
 
 overall_rc=0

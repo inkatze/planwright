@@ -468,6 +468,32 @@ assert_contains "--help shows the usage synopsis" "Usage:" "$out"
 assert_absent "--help does not leak the 'set -u' code line" "set -u" "$out"
 assert_absent "--help does not leak the 'LC_ALL=C' code line" "LC_ALL=C" "$out"
 
+# ---- 27. a sub-micro-dollar cost is accounted, not truncated to zero ---------
+# is_number() deliberately accepts costs below 1e-6 (jq renders them in
+# scientific notation), so to_micros() must not silently drop them: a run
+# costing 5E-7 ($0.0000005) rounds UP to 1 micro-dollar (fail-closed), and three
+# such runs must sum to 0.000003 in the recorded total, not 0.000000.
+fx="$(mk_fixture submicro '.is_error == false')"
+reset_counter
+printf 'ok\nok\nok\n' >"$TMP/plan"
+mkdir -p "$TMP/submicrores"
+out="$(STUB_PLAN="$TMP/plan" STUB_COST="5E-7" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --record "$TMP/submicrores" "$fx" 2>&1)"
+subtotal="$(jq -r '.cost_usd' "$TMP/submicrores/submicro.json" 2>/dev/null)"
+assert_contains "sub-micro run cost is not dropped from the total" "0.000003" "$subtotal"
+
+# ---- 28. a sub-micro suite budget triggers once a real run spends against it --
+# With run costs rounded up fail-closed, a budget below 1e-6 (floored to 0
+# micros) must still fire on the first real spend rather than silently never
+# triggering. STUB_COST 5E-7 rounds up to 1 micro > 0-micro budget -> exit 6.
+fx="$(mk_fixture submicrobudget '.is_error == false')"
+reset_counter
+printf 'ok\nok\nok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_COST="5E-7" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --suite-budget-usd 0.0000005 "$fx" 2>&1)"
+rc=$?
+assert_exit "sub-micro suite budget triggers fail-closed (exit 6)" 6 "$rc"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1
