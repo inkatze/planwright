@@ -521,6 +521,35 @@ assert_ne "gate/neutral-only: a neutral-only run is not positive confirmation" "
 assert_contains "gate/neutral-only: names the ci gate" "$ERR" "ci gate"
 deny "gate/neutral-only: no tag created with only neutral checks" local_has_tag "$r" v0.1.0
 
+# 4h-10. MIXED-VERDICT PRECEDENCE: a green check must not mask a red one. Two
+#        non-excluded checks coexist — a green `ci` CheckRun AND a legacy
+#        StatusContext in ERROR — so the rollup carries [SUCCESS, FAILURE]. The
+#        re-aggregation must resolve FAILURE (a failing check dominates a passing
+#        one); were the precedence inverted (SUCCESS scanned before FAILURE), one
+#        green check would publish a broken release and every other test would
+#        still pass. This is also the ONLY scenario exercising both node-type
+#        branches (CheckRun + StatusContext) in a single evaluation pass.
+r="$tmp/mixed-success-failure"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=error GH_RELEASE_EXISTS=0
+assert_ne "gate/mixed-fail: a green check does not mask a red one" "$RC" "0"
+assert_contains "gate/mixed-fail: classified FAILURE, not green" "$ERR" "rollup state: FAILURE"
+deny "gate/mixed-fail: no tag created when any non-excluded check is red" local_has_tag "$r" v0.1.0
+
+# 4h-11. MIXED-VERDICT PRECEDENCE: a green check must not mask a pending one. A
+#        green `ci` CheckRun coexists with a still-PENDING legacy status →
+#        [SUCCESS, PENDING] → PENDING (wait for CI per REQ-D1.3), never SUCCESS.
+#        Pins that positive confirmation cannot race an in-progress check merely
+#        because another check already finished green.
+r="$tmp/mixed-success-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=pending GH_RELEASE_EXISTS=0
+assert_ne "gate/mixed-pending: a green check does not mask a pending one" "$RC" "0"
+assert_contains "gate/mixed-pending: classified PENDING, not green" "$ERR" "rollup state: PENDING"
+deny "gate/mixed-pending: no tag created while any non-excluded check is pending" local_has_tag "$r" v0.1.0
+
 # ===========================================================================
 # 5. require_signed_tags modes (REQ-D1.4) + verify-before-push (REQ-D1.5).
 # ===========================================================================
