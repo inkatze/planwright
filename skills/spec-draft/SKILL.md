@@ -29,6 +29,10 @@ convention (`scripts/resolve-rule-doc.sh <doc-name>` or the documented
 the bundle must conform to — its conventions govern every file this skill
 writes), `interaction-style` (governs every exchange in the flow),
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
+`autopilot-reflex` (D-11 wires its altitude gate into drafting the same way
+research-rigor is wired — the seed-claim and mid-flow trigger classes, the
+phase re-anchor, and the trigger-scoped altitude record; this skill cites
+`doctrine/autopilot-reflex.md` rather than restating it),
 `security-posture` (artifact data-hygiene for everything committed),
 `engineering-decisions` (governs design-phase recommendations), and
 `proportionality`, plus `customization-boundary` (the capability-vs-style
@@ -41,6 +45,20 @@ resolve `decision-domains` (the design phase walks its catalog) — this one
 degrades instead of halting: if absent, the design phase notes the missing
 catalog in one line and proceeds (the builder/catalog wiring is a hook
 point, not a dependency).
+
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start interaction-style
+Doctrine: run-start research-rigor
+Doctrine: run-start autopilot-reflex
+Doctrine: run-start security-posture
+Doctrine: run-start engineering-decisions
+Doctrine: run-start proportionality
+Doctrine: run-start customization-boundary
+Doctrine: point-of-use decision-domains (the design-phase catalog walk)
 
 ## Pre-flight
 
@@ -103,16 +121,22 @@ question; seeds answer questions the human would otherwise repeat.
    prompt.
 2. **Pending notes** — files under `specs/_pending/`. Read them; ask which
    apply if more than one plausibly does.
-3. **The observations log** — `specs/_observations/opportunities.md`, mined
-   as a first-class seed source (D-23; this skill is its canonical reader,
-   REQ-H1.6). Read every entry; select the ones relevant to the feature being
-   drafted; present the selection to the human (selector with the relevant
-   set pre-marked) so nothing is consumed silently.
+3. **The observations accumulator** — the live fragments under
+   `specs/_observations/entries/` plus the frozen legacy
+   `opportunities.md`'s unconsumed lines, read as **one candidate set** and
+   mined as a first-class seed source (D-23; this skill is its canonical
+   reader, REQ-H1.6; `mise run obs:log` renders the chronological view). An
+   `entries/` fragment already bearing a `Consumed-by:` line is consumed,
+   not a candidate — complete its archive move (below) rather than
+   re-mining it, and skip-and-warn any grammar-invalid file rather than
+   silently dropping it. Read every candidate; select the ones relevant to
+   the feature being drafted; present the selection to the human (selector
+   with the relevant set pre-marked) so nothing is consumed silently.
 4. **Transcripts and documents** the human offers.
 
-An absent `specs/_pending/`, observations log, or `specs/` directory
-entirely (a first-run repo) is not an error: note what was absent and
-proceed with the seeds that exist.
+An absent `specs/_pending/`, fragment directory, legacy log, or `specs/`
+directory entirely (a first-run repo) is not an error: note what was absent
+and proceed with the seeds that exist.
 
 Every identifier a seed proposes (a spec name, a path segment) is
 re-validated against REQ-A1.8 at consumption, before any interpolation —
@@ -122,24 +146,39 @@ D-IDs it framed cite it (the meta-spec's citation kinds; `drafting-session
 decision (<date>)` covers choices made live in the session that mint no
 D-ID).
 
-**Archive-on-consume.** When the bundle is written, move each consumed
-observations-log entry from `specs/_observations/opportunities.md` to
-`specs/_observations/archive.md` (create with a `# Consumed observations`
-heading if absent), appending the annotation `— consumed-by: specs/<spec>
-(<date>)` (space-separated) to the entry line. Before archiving, re-read
-each consumed entry against the data-hygiene rule below: archive.md is a
-committed artifact, so sensitive operational detail a raw entry carries is
-neutralized in the archived copy (the unconsumed original was already
-committed; neutralizing the copy adds no new exposure but stops carrying it
-forward). Order the move so a failure cannot lose entries: append to
-`archive.md` first, trim `opportunities.md` second (the same crash-safe
-ordering REQ-F1.10 uses for anchor lines); if the archive append fails,
-surface it and leave the log untouched. Touch only the consumed entries;
-the log is append-only for everyone else, and unconsumed entries stay
-byte-for-byte. The trim rides the
-spec branch and lands on main with the spec PR, keeping it one revert from
-undone. (The accumulator-taxonomy doctrine, when it ships, is the canonical
-home of this drain ritual; until then this section defines it.)
+**Pin altitude seed claims (REQ-H1.1).** While gathering seeds, extract every
+explicit statement about the deliverable's *nature* — the seed-claim trigger
+class `doctrine/autopilot-reflex.md` names ("that's a doctrine gap", "this is
+a first-class concern", "we keep doing X manually"). Each is an altitude
+assertion the elicitation must reconcile against, not a throwaway phrase, and
+it is easy to under-weight in the rush toward mechanism. Record each pinned
+claim as a `## Sources` entry in `requirements.md` so the altitude signal is
+**bundle-local** — the
+REQ-H1.3 kickoff check reads it from the bundle, never from drafting-session
+memory. A pinned claim is one of the two altitude trigger classes; when a
+trigger fires, the firing rule in Elicitation resolves the altitude before the
+design phase.
+
+**Archive-on-consume.** When the bundle is written, consume each mined
+entry through the shared helper `scripts/obs-consume.sh` (resolved under
+the planwright root) — never by hand-composing paths or annotations. A
+fragment is consumed by UID: `scripts/obs-consume.sh --uid <uid> --spec
+<spec>` writes the `Consumed-by: specs/<spec> (<date>)` line inside the
+fragment and moves it from `entries/` to `archive/` with its filename
+preserved (annotate first, move second; idempotent on re-run, and it
+completes a crashed half-consume found still in `entries/`). A frozen
+legacy line is consumed in place: `scripts/obs-consume.sh --legacy --line
+'<exact line>' --spec <spec>` annotates the line where it sits. Surface a
+non-zero helper exit — an unknown UID, an ambiguous duplicate-UID match
+(named, never silently picked), a refused argument — rather than papering
+over it. Unconsumed entries stay byte-for-byte; consumption moves content
+verbatim (write-time hygiene screened it when it was recorded, and the
+move implies no re-screen — REQ-D1.2). Cite a consumed fragment as
+`obs:<uid>` in the bundle's `## Sources` entry (the UID survives the
+archive move, so the citation never dangles). The consume commits ride the
+spec branch and land on main with the spec PR, keeping them one revert
+from undone. The accumulator-taxonomy doctrine is the canonical home of
+this drain ritual; this section applies it, not defines it.
 
 ## Fold-detection (REQ-B1.3, D-21, D-22)
 
@@ -194,9 +233,14 @@ Operates on the existing bundle per the meta-spec's stable-ID discipline:
 Six phases, each governed by the interaction-style rules: show the progress
 indicator (`[<phase> <n>/6]`), work in small bites, present decisions as
 selectors with a recommendation, end each phase with the running summary of
-everything decided so far. The meta-spec (`spec-format`) defines every
-structural convention referenced here; follow it exactly so the bundle passes
-the validator the first time.
+everything decided so far — and, per the phase re-anchor
+(`doctrine/autopilot-reflex.md`, REQ-H1.2), that summary **restates the
+claimed altitude and flags any drift** between the claim and what the
+elicitation is currently producing ("the seed claimed doctrine; the last phase
+produced only mechanism tasks"). The restatement is cheap; its absence is how
+a session that opened at one altitude silently slides to another. The meta-spec
+(`spec-format`) defines every structural convention referenced here; follow it
+exactly so the bundle passes the validator the first time.
 
 1. **Goal & scope.** The problem, the one-paragraph goal, in-scope /
    out-of-scope lists. Elicit what the feature must *not* do — out-of-scope
@@ -205,7 +249,21 @@ the validator the first time.
    requirement a single SHALL/MUST bullet with a stable ID and a citation.
    Derive candidate REQs from the seeds and goal, present per group for
    correction; the human supplies judgment, not formatting.
-3. **Design.** For each load-bearing choice, a D-ID with all three fields
+3. **Design.** **Altitude gate first (REQ-H1.1).** Before designing any
+   mechanism, check whether an altitude trigger has fired — a pinned seed
+   claim (seed gathering above) or a mid-flow signal surfaced during
+   elicitation (a recurring capability-vs-style call, an "is this even core?"
+   hesitation, a mechanism acquiring rules that read like doctrine): the two
+   trigger classes `doctrine/autopilot-reflex.md` defines. If one has fired,
+   resolve the deliverable's altitude **now**, and record the call as an early
+   **altitude D-ID** cited from the bundle's goal (the trigger-scoped altitude
+   record the doctrine requires — a conversational resolution with no artifact
+   can be pencil-whipped, so the D-ID is what the REQ-H1.3 kickoff check
+   verifies). Designing first and retrofitting the altitude is how a doctrine
+   deliverable ends up specced as a one-repo script. No trigger fired: no
+   record is required (per `proportionality`, the ceremony is scoped to the
+   specs that exhibited the risk) — proceed. Then, for each load-bearing
+   choice, a D-ID with all three fields
    (Decision / Alternatives considered / Chosen because). This phase fires
    Research Rigor triggers (new dependency, unfamiliar domain,
    security-touching pattern, version-sensitive API, mature-project
@@ -258,14 +316,31 @@ committed prose neutralizes them.
 ## Completion
 
 1. **Write the bundle** at `specs/<spec>/` in the spec worktree (plus the
-   observations-log archive trim, when entries were consumed).
-2. **Commit** (D-41) when `commit_on_draft` is true: one commit on
+   `_observations` consumption writes — fragment moves into `archive/` and
+   any frozen-legacy in-place annotations — when entries were consumed).
+2. **Neutralize machine-local references (REQ-D1.1, REQ-D1.2, D-4).** Before
+   committing, rewrite every `[[name]]` memory-link token in would-be-committed
+   spec prose into plain prose plus a `## Sources` pointer. A `[[name]]` link
+   resolves only against the authoring session's private memory store, never
+   for a reader of the committed bundle, so state the fact in prose and cite the
+   source: a recorded observation carries a fragment UID and is cited as
+   `obs:<uid>` (the Observation citation kind — see Archive-on-consume above),
+   while any other machine-local reference — including an unconsumed frozen
+   legacy line, which has no UID — becomes a `## Sources` entry naming the
+   source. When the prose must *mention* the token syntax itself (a spec
+   about this rule does), wrap the mention in an inline code span (`` `[[name]]` ``)
+   so it reads as documentation, not a live link. This is mechanically
+   backstopped: `check:memory-links` (`scripts/check-memory-links.sh`, under
+   `mise run check`) flags any bare `[[name]]` token in a committed spec file
+   (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`), so a draft that
+   skips this step fails CI rather than shipping an unresolvable reference.
+3. **Commit** (D-41) when `commit_on_draft` is true: one commit on
    `planwright/<spec>/spec` containing the four files and the
-   `_observations` trim, message `feat(spec): draft specs/<spec> bundle`
+   `_observations` consumption writes, message `feat(spec): draft specs/<spec> bundle`
    (extend mode: `feat(spec): extend specs/<spec> — <summary>`). New commits
    only — never force-push, amend, squash, or rebase (REQ-J1.4). Opt-out
    set: leave the work uncommitted and say so explicitly.
-3. **Hand off.** Report: the bundle path and branch, validator outcome,
+4. **Hand off.** Report: the bundle path and branch, validator outcome,
    seeds consumed (and archived), fold-detection outcome, and the next step —
    `/spec-kickoff specs/<spec>` for the walkthrough and sign-off. Push, PR,
    and the Active flip all belong to kickoff and the human. This skill stops
@@ -283,10 +358,13 @@ After the run completes (or halts), compare these instructions against the
 resolved doctrine docs listed above (REQ-B3.2, D-42) — especially
 `spec-format` (file conventions, citation kinds, status lifecycle) and
 `interaction-style`. If a concept this skill names has changed meaning,
-gained or lost a step, or moved between docs, append a drift observation to
-`specs/_observations/opportunities.md` (format: `- <YYYY-MM-DD> [<repo>]
-<observation>`, prefixed `skill-drift(spec-draft):`; in repositories without
-`specs/`, surface the drift to the user instead of writing the log), commit
-the append as its own chore commit, and tell the user what drifted. Do not
-edit this skill or the doctrine docs to resolve the drift; the observation
-log's reader owns folding drift into spec amendments.
+gained or lost a step, or moved between docs, record a one-line drift
+observation through the shared helper (`scripts/obs-record.sh --slug
+skill-drift --scope <repo> --text 'skill-drift(spec-draft): <what>'` — the
+entry text keeps the `skill-drift(...)` prefix) and commit the fragment as
+its own chore commit, per REQ-B3.2 / D-42; surface a non-zero helper exit
+rather than silently dropping the observation, and tell the user what
+drifted. In repositories without `specs/`, surface the drift to the user
+instead of recording it. Do not edit this skill or the doctrine docs to
+resolve the drift; the accumulator's canonical reader (`/spec-draft`) owns
+folding drift into spec amendments.

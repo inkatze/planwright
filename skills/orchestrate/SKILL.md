@@ -40,11 +40,13 @@ rebases (REQ-J1.4). It creates draft PRs only, by way of `/execute-task`.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve and read these rule docs at
-run start via the rule-doc resolution convention
-(`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
-or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
-definitions govern wherever this skill names a concept:
+This skill is procedure, not doctrine. Resolve these rule docs via the
+rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>`
+under the resolved planwright root, or the documented
+`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); the doctrine manifest below
+marks which load at run start and which load at point of use (the
+`--bookkeeping` and `--watch` mode branches). Their definitions govern
+wherever this skill names a concept:
 
 - `spec-format` — the meta-spec: status lifecycle, the kickoff-brief and
   sign-off-record structure, content anchors, and the sanctioned anchor
@@ -70,6 +72,17 @@ clear message naming the missing doc and the chain consulted. On the
 **non-dispatching** paths (`--bookkeeping`, a read-only status step), a missing
 doc degrades — note it in one line and continue with what remains possible.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start proportionality
+Doctrine: point-of-use accumulator-taxonomy (--bookkeeping / gate drain)
+Doctrine: point-of-use context-budget-autoheal (the --watch long-running loop)
+
 ## Modes
 
 Selected from `$ARGUMENTS` at pre-flight:
@@ -81,8 +94,9 @@ Selected from `$ARGUMENTS` at pre-flight:
   independent, atomic step; `--watch` is a convenience over re-invocation, not
   a stateful long-running process.
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
-  PRs into `tasks.md`, evaluate open gates (no auto-drop), and surface the
-  observations log's staleness. Dispatches nothing. See its own section.
+  PRs into `tasks.md`, evaluate open gates (no auto-drop), surface the
+  observations log's staleness, and report any pending release
+  (belt-and-suspenders). Dispatches nothing. See its own section.
 - **`--meta`.** The **meta-tower** ("tower of towers", D-6): supervise **several
   Ready/Active specs at once**, advancing one unit across the whole fleet per
   step under a fleet-level concurrency bound, by launching subordinate
@@ -674,8 +688,22 @@ The out-of-session drain pass. Dispatches nothing; it:
    evaluator `/drain` also uses. **Nothing is auto-resolved or auto-dropped**
    (REQ-H1.4): a satisfied gate is **re-surfaced** for a human to act on, not
    closed. Read `accumulator-taxonomy` before interpreting the lanes.
-3. **Surfaces observation staleness**: report the observations log's unmined
-   count and oldest-entry age (seed pressure for the next `/spec-draft`).
+3. **Surfaces observation staleness**: report the observations accumulator's
+   unmined count and oldest-entry age as the evaluator derives them — from
+   the live fragments under `specs/_observations/entries/` plus the frozen
+   legacy file's unconsumed lines, naming both surfaces while the legacy
+   file drains, with stuck consumes and skipped invalid fragments called out
+   (seed pressure for the next `/spec-draft`).
+4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
+   `scripts/release-bookkeeping.sh`, the belt-and-suspenders surface over the
+   shared comparator (`release-pending.sh`, the one definition of "pending" the
+   untagged-window lock also reads, REQ-D1.8). In the untagged window it prints
+   a one-line report naming the pending version and the publish command; outside
+   the window it stays silent on releases. This is the deliberately-redundant
+   third surfacing layer — the standing release PR (push) and the untagged-window
+   lock (forcing-function) are the primary ones (D-7); the report never blocks
+   the pass (on any comparator trouble it degrades to a no-op that is silent on
+   stdout — a diagnostic on stderr — and always exits 0).
 
 On `--bookkeeping`, missing prerequisites degrade with a message (it is not a
 dispatch path); it still never merges and never pushes.
@@ -750,15 +778,18 @@ These hold at every step:
 
 ## Observations
 
-`/orchestrate` only runs on a Ready or Active planwright spec, so `specs/` and the
-observations log necessarily exist. When something outside the current step's
-scope surfaces — a selection-policy gap, a dispatch-backend rough edge, a
-config-model wrinkle, a drift in a shared script — append one line to
-`specs/_observations/opportunities.md`, format
-`- <YYYY-MM-DD> [<repo>] <observation>`, and commit the append within the step
-that produced it so the tree returns to clean. Do not act on observations
-during the step; they are seed material for `/spec-draft`, the log's canonical
-reader.
+`/orchestrate` only runs on a Ready or Active planwright spec, so `specs/`
+necessarily exists (the fragment store is created on demand). When something
+outside the current step's scope surfaces — a selection-policy gap, a
+dispatch-backend rough edge, a config-model wrinkle, a drift in a shared
+script — record it as its own fragment through the shared helper:
+`scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
+(resolved under the planwright root; it composes the one-line entry form and
+writes one file under the host repo's `specs/_observations/entries/`). Commit
+the fragment within the step that produced it so the tree returns to clean;
+on a non-zero helper exit, surface the failure rather than silently dropping
+the observation. Do not act on observations during the step; they are seed
+material for `/spec-draft`, the accumulator's canonical reader.
 
 ## Maintenance
 
@@ -766,8 +797,11 @@ After the run completes (or halts), compare these instructions against the
 resolved doctrine docs (REQ-B3.2, D-42) — especially `spec-format` (anchor
 command forms, sign-off record format), `accumulator-taxonomy` (gate grammar
 and drain semantics), and `gate-wiring`. If a concept this skill names has
-changed meaning, gained or lost a step, or moved between docs, append a drift
-observation to `specs/_observations/opportunities.md` (format above, prefixed
-`skill-drift(orchestrate):`), commit it as its own chore commit, and tell the
-user what drifted. Do not edit this skill or the doctrine docs to resolve the
-drift; the observation log's reader owns folding drift into spec amendments.
+changed meaning, gained or lost a step, or moved between docs, record a drift
+observation through the shared helper (`scripts/obs-record.sh --slug
+skill-drift --scope <repo> --text 'skill-drift(orchestrate): <what>'` — the
+entry text keeps the `skill-drift(...)` prefix), commit the fragment as its
+own chore commit, and tell the user what drifted; surface a non-zero helper
+exit rather than silently dropping the observation. Do not edit this skill or
+the doctrine docs to resolve the drift; the accumulator's canonical reader
+(`/spec-draft`) owns folding drift into spec amendments.

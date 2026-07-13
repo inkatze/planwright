@@ -51,12 +51,18 @@ definitions govern wherever this skill names a concept:
   the writer the meta-spec's sign-off rules name; it follows them exactly.
 - `discovery-rigor` — the lens checklist, canonical lens-coverage table,
   fan-out, and self-critique pass behind the sign-off lens review.
+- `autopilot-reflex` — the altitude gate (D-11): the trigger classes and the
+  trigger-scoped altitude record. For a triggered bundle the sign-off lens
+  pass verifies that the altitude D-ID exists, is cited from the goal, and
+  that the task decomposition matches the claimed altitude (the
+  kickoff-specific check item in Sign-off step 1). This skill cites
+  `doctrine/autopilot-reflex.md` rather than restating it.
 - `validation-rigor` — validation of lens-pass findings before they are
   dispositioned.
 - `security-posture` — artifact data-hygiene: the brief is a committed
   artifact and its risk register invites operational detail.
 
-If any of those four does not resolve, halt with a clear message naming the
+If any of those five does not resolve, halt with a clear message naming the
 missing doc and the chain consulted (REQ-K1.7: the clear message is the
 graceful arm; signing a contract without the rules that define it is the
 opaque failure). Two more resolve with graceful degradation instead:
@@ -68,6 +74,18 @@ opaque failure). Two more resolve with graceful degradation instead:
 - `interaction-style` — governs the exchanges in the flow. Absent: follow
   the summary inline here (progress indicator, small bites, selectors with
   a recommendation, running summary) and note the missing doc.
+
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start discovery-rigor
+Doctrine: run-start autopilot-reflex
+Doctrine: run-start validation-rigor
+Doctrine: run-start security-posture
+Doctrine: run-start interaction-style
+Doctrine: point-of-use decision-domains (the sign-off gap check)
 
 ## Modes
 
@@ -311,6 +329,20 @@ not walked.
    sub-agent per canonical lens for any non-trivial delta per the
    `discovery-rigor` doc; walk inline only for small, narrow deltas, and
    declare which path was taken. Emit the canonical lens-coverage table.
+   **Kickoff-specific altitude check (REQ-H1.3).** In addition to the canonical
+   lenses — the `discovery-rigor` lens list is untouched, this is a
+   kickoff-specific check item, not a new canonical lens — run one altitude
+   check: determine **bundle-locally** whether drafting fired an altitude
+   trigger from the pinned seed claims recorded in the bundle's `## Sources`
+   section in `requirements.md` (never drafting-session memory); a present
+   altitude D-ID is the record a fired trigger leaves, so read it as evidence
+   a mid-flow signal was handled, not as a trigger class in its own right, per
+   `doctrine/autopilot-reflex.md`. For a **triggered** bundle, verify the
+   altitude D-ID exists, is cited from the bundle's goal, and that the task
+   decomposition matches the claimed altitude; a doctrine-first bundle with
+   only mechanism tasks is a finding, dispositioned like any other. An
+   **untriggered** bundle requires no altitude record (per `proportionality`):
+   record the check as not-applicable and move on.
    Validate findings per `validation-rigor`, then disposition every one
    with the human (applied as a spec edit, declined with rationale, or
    deferred to a named backlog in the brief) — an undispositioned finding
@@ -375,7 +407,7 @@ not walked.
    line) only when the human classified the entire delta expression-only.
 5. **Commit** (D-41) when `commit_on_kickoff` is true: one commit on
    `planwright/<spec>/spec` containing the brief, the four spec files,
-   and the observations-log append when one rode this run —
+   and the observation fragment when one rode this run —
    first activation: `feat(spec): <spec> kickoff, brief + Ready flip`;
    later events: `docs(spec): <spec> <event>` (e.g.
    `delta re-walkthrough`, `amendment`), the same shapes the PR titles
@@ -462,12 +494,14 @@ written.
 
 When anything outside this kickoff's scope surfaces during the walk
 (doctrine gaps, tooling gaps, recurring friction, an uncatalogued decision
-domain), append one line per item to
-`specs/_observations/opportunities.md` — format
-`- <YYYY-MM-DD> [<repo>] <observation>` — and commit the append (with the
-sign-off commit, or as its own chore commit). Do not act on observations
-during the kickoff; they are seed material for `/spec-draft`, the log's
-canonical reader.
+domain), record one fragment per item through the shared helper —
+`scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
+(resolved under the planwright root; it composes the one-line entry form
+and writes one file under the host repo's `specs/_observations/entries/`) —
+and commit the fragment (with the sign-off commit, or as its own chore
+commit); surface a non-zero helper exit rather than silently dropping the
+observation. Do not act on observations during the kickoff; they are seed
+material for `/spec-draft`, the accumulator's canonical reader.
 
 ## Maintenance
 
@@ -478,10 +512,12 @@ resolved doctrine docs listed above (REQ-B3.2, D-42) — especially
 `spec-format` (brief structure, sign-off record format, sanctioned anchor
 command forms, amendment ritual) and `decision-domains` (lifecycle wiring).
 If a concept this skill names has changed meaning, gained or lost a step,
-or moved between docs, append a drift observation to
-`specs/_observations/opportunities.md` (format above, prefixed
-`skill-drift(spec-kickoff):`; in repositories without `specs/`, surface
-the drift to the user instead of writing the log), commit the append as
-its own chore commit, and tell the user what drifted. Do not edit this
-skill or the doctrine docs to resolve the drift; the observation log's
-reader owns folding drift into spec amendments.
+or moved between docs, record a drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(spec-kickoff): <what>'` — the entry text keeps the
+`skill-drift(...)` prefix; in repositories without `specs/`, surface the
+drift to the user instead of recording it), commit the fragment as its own
+chore commit, and tell the user what drifted; surface a non-zero helper
+exit rather than silently dropping the observation. Do not edit this skill
+or the doctrine docs to resolve the drift; the accumulator's canonical
+reader (`/spec-draft`) owns folding drift into spec amendments.

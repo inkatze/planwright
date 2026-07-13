@@ -13,7 +13,7 @@ breadth dimensions, the extension model, and the line between what the
 builder applies on its own and what it must escalate. The machine view is
 [`config/guard-catalog.yaml`](../config/guard-catalog.yaml), read by
 `scripts/builder-guards.sh` (the builder's testable detection core); the
-[builder skill](../skills/builder/SKILL.md) drives that script and layers
+builder skill (`skills/builder/SKILL.md`) drives that script and layers
 judgment on top.
 
 Citations: REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32.
@@ -93,6 +93,45 @@ the dimension and the consideration rather than auto-applying a tool, and an
 entry earns a concrete tool and `core: true` only when the dimension has
 matured and the project opts in. Breadth entries never participate in the
 mechanical dogfood set.
+
+### Release tagging
+
+A versioned artifact with no release automation is a recurring ceremony gap
+(the [autopilot-reflex](autopilot-reflex.md) reflex): the version bump and the
+signed tag fire only when a human remembers them. The `release-tagging` breadth
+entry lets the builder recommend closing that gap. It is **advisory-only** —
+surfaced through the builder's existing consent flow, never auto-applied, and
+absent from the `--core` mechanical set (REQ-G1.1, D-13). It has two facets:
+
+- **Detection facet.** The signal that the guard is worth recommending: the
+  repo ships a **versioned artifact** (a `plugin.json`, `package.json`,
+  `Cargo.toml`, `pyproject.toml`, or similar with a version field) **and has no
+  release automation** (no release-PR workflow, no tag-publishing step). When
+  the builder sees a versioned artifact whose releases are still cut by hand, it
+  recommends the release-tagging machinery — it does not apply it. (The machine
+  view carries `detect: manual`: like every breadth entry the guard never
+  auto-fires from a file glob; the detection heuristic here is the builder's
+  judgment prompt, not a mechanical trigger.)
+- **Scaffold facet.** What the recommendation offers once accepted, all
+  **opt-in** and resolved by the builder — never landed in an adopter repo
+  without consent (REQ-G1.3, the [customization-boundary](customization-boundary.md)
+  rule):
+  - the **release-PR mechanism template** — `templates/release-please/`, a
+    release-please PR-only workflow that maintains the proposal PR and never
+    tags;
+  - the **untagged-window lock template** — `templates/release-window/`, the
+    required check that locks the window between the release-PR merge and the
+    signed tag;
+  - the **publish-script wiring** — planwright core's
+    [`scripts/release-publish.sh`](../scripts/release-publish.sh), the
+    signer-agnostic step that cuts the signed annotated tag on the observed
+    release-merge commit.
+
+The policy the scaffold realizes — detection and proposal automated, approval
+is the human merge, publish is human-gated and signed, the window is locked, and
+merge and publish are never autonomous — is [release-tagging.md](release-tagging.md);
+this entry is the builder-facing consent surface that doc's mechanism row
+(capability in core, mechanism as opt-in template, value as config) points at.
 
 ## Extension
 

@@ -37,7 +37,8 @@ definitions govern wherever this skill names a concept:
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder
 - `gate-wiring` — routing order, commit discipline, checklist and audit
-  formats, ladder procedure, pause protocol, loop-end handoff
+  formats, ladder procedure, pause protocol, loop-end handoff, PR-body
+  assembly
 - `research-rigor` — the resolution ladder's research rung: source
   hierarchy, recency discipline, antipattern check
 - `refactor-instinct` (review mode), `security-posture` (artifact
@@ -47,6 +48,18 @@ If a rule doc does not resolve, halt with a clear message naming the missing
 doc and the resolution chain consulted. The docs are the rules this skill
 applies; reviewing without them would silently substitute improvisation for
 doctrine.
+
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+
+Doctrine: run-start discovery-rigor
+Doctrine: run-start validation-rigor
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start research-rigor
+Doctrine: run-start refactor-instinct
+Doctrine: run-start security-posture
+Doctrine: run-start proportionality
 
 ## Invocation modes
 
@@ -163,7 +176,12 @@ this skill executes:
   to fail for the finding's exact reason before the fix.
 - Needs-sign-off items are applied on the branch, one commit per finding
   with the `[pending-sign-off]` subject marker, and entered in the
-  pending-sign-off checklist.
+  pending-sign-off checklist. Before committing, self-lint the subject by
+  piping it in —
+  `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
+  (under the resolved planwright root) — so the marker sits at the canonical end-of-subject position
+  (`gate-wiring`); a mis-placed marker caught here is reworded before it
+  reaches history, never after.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
   options.
@@ -216,36 +234,45 @@ nothing is left behind unpushed.
    what failed and stop.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
    otherwise `gh pr create --draft` with an explicit `--title` and `--body`
-   (headless `gh` prompts or fails without them). The body carries the
-   audit-record sections above (lens-coverage table, four tables, declined
-   log, pending-sign-off checklist, pass summary). On update, regenerate
-   those sections in place rather than appending, and never overwrite body
-   content outside them (handwritten notes survive); re-runs never
-   duplicate entries. The PR is always a draft; never mark it
-   ready and never merge (the draft→ready flip is the human's universal
-   review gate).
+   (headless `gh` prompts or fails without them). Assemble the body per the
+   **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
+   the audit record collapsed in `<details>`, prose never hard-wrapped, the
+   structure preserved on updates) — the single normative home for the layout
+   (D-2), which this pass cites rather than copies. The collapsed audit record
+   is this pass's own: the lens-coverage table, the four tables, the declined
+   log, the pending-sign-off checklist, and the pass summary. On update,
+   regenerate the generated sections in place rather than appending, and never
+   overwrite body content outside them (handwritten notes survive); re-runs
+   never duplicate entries. The PR is always a draft; never mark it ready and
+   never merge (the draft→ready flip is the human's universal review gate).
 
 ## Observations
 
 When the repository has adopted planwright (a `specs/` directory with at
-least one spec bundle exists), append anything noticed during the pass that
+least one spec bundle exists), record anything noticed during the pass that
 is outside the branch's scope (complexity growth, outdated patterns, tooling
-gaps, doctrine gaps) to `specs/_observations/opportunities.md`, one line per
-observation: `- <YYYY-MM-DD> [<repo>] <observation>`. Commit the append
-within the pass (the action commit, or its own chore commit when nothing
-else landed); never leave the log dirty at a pass boundary. Do not act on
-observations during the pass; they are seed material for `/spec-draft`
-(REQ-E2.1, REQ-H1.6). Skip this step entirely in repositories without
-`specs/`.
+gaps, doctrine gaps) as one fragment per observation through the shared
+helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
+'<observation>'` (resolved under the planwright root; it composes the
+one-line entry form and writes one file under the host repo's
+`specs/_observations/entries/`). Commit the fragment within the pass (the
+action commit, or its own chore commit when nothing else landed); never
+leave the tree dirty at a pass boundary, and surface a non-zero helper exit
+rather than silently dropping the observation. Do not act on observations
+during the pass; they are seed material for `/spec-draft` (REQ-E2.1,
+REQ-H1.6). Skip this step entirely in repositories without `specs/`.
 
 ## Maintenance
 
 After the pass completes (or halts), compare these instructions against the
 resolved doctrine docs listed above (REQ-B3.2, D-42). If a concept this skill
 names has changed meaning, gained or lost a step, or moved between docs,
-append a drift observation to `specs/_observations/opportunities.md` (format
-above, prefixed `skill-drift(self-review):`; in repositories without
-`specs/`, surface the drift to the user instead of writing the log), commit
-the append (its own chore commit), and tell the user what drifted.
-Do not edit this skill or the doctrine docs to resolve the drift; the
-observation log's reader owns folding drift into spec amendments.
+record a drift observation through the shared helper (`scripts/obs-record.sh
+--slug skill-drift --scope <repo> --text 'skill-drift(self-review): <what>'`
+— the entry text keeps the `skill-drift(...)` prefix; in repositories
+without `specs/`, surface the drift to the user instead of recording it),
+commit the fragment (its own chore commit), and tell the user what drifted;
+surface a non-zero helper exit rather than silently dropping the
+observation. Do not edit this skill or the doctrine docs to resolve the
+drift; the accumulator's canonical reader (`/spec-draft`) owns folding drift
+into spec amendments.

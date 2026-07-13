@@ -1,7 +1,7 @@
 # Output & Accumulator Hygiene — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-07-08
+**Status:** Done
+**Last reviewed:** 2026-07-10
 **Format-version:** 1
 
 ## Goal
@@ -158,7 +158,7 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
   before commit (REQ-D1.2). The standing guard's scope is the four spec files; already-signed
   kickoff-brief bodies are append-only (their historical `[[…]]` are a bounded, named
   carve-out reconciled only where the amendment ritual reaches spec files — REQ-D1.4).
-  *(Cites: observations log 2026-06-29 ([[name]] links) (Sources); observations log
+  *(Cites: observations log 2026-06-29 (`[[name]]` links) (Sources); observations log
   2026-06-16 (delivered-layout links) (Sources); D-4.)*
 - **REQ-D1.2** `/spec-draft` and kickoff-brief writers SHALL neutralize `[[name]]` links
   into plain prose plus a `## Sources` pointer before commit; the sanctioned citation form
@@ -260,6 +260,24 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
   Post-review fix (panel pass, same date): the cross-repo-routing Out-of-scope bullet's
   "this spec fixes intra-repo recording only" clause updated — intra-repo recording is
   `specs/observation-recording`'s concern now, not this bundle's.
+- 2026-07-09 — Delta re-walkthrough (expression-only): anchor reconciliation. The 2026-07-08
+  §9 entry's recorded anchor (`8d372219…`) was computed before that entry's post-review fix
+  (the cross-repo-routing Out-of-scope bullet reword, directly above) was applied, and both
+  landed in the same squash (PR #129), so the recorded anchor never matched the committed
+  bundle and every task dispatch halted on the execution freshness gate. No spec content
+  changed this run beyond this entry and the `Last reviewed:` bump; the §9 re-anchor entry
+  records the anchor of the bundle as merged.
+- 2026-07-10 — Task 6 execution (expression-only): two metalinguistic `[[name]]` mentions
+  in this file — the REQ-D1.1 Cites line and the `Observations log 2026-06-29 (…)` Sources
+  entry — were wrapped in inline code spans so they read as documentation of the token
+  syntax, not as live memory links. This lets the bundle pass the standing
+  `check:memory-links` guard Task 6 adds (which flags bare `[[name]]` tokens in the four
+  spec files of non-terminal bundles) without a self-exemption. No REQ meaning changed; a
+  pure code-span reformat, and the re-anchor rides Task 6's PR. The orchestration-fleet
+  `[[…]]` reconciliation half of REQ-D1.4 is **deferred**: that bundle is `Done` and its
+  contract is frozen, so its two links are owed a future Done→Draft reopen + scoped kickoff
+  (spec-format), not the expression-only lane; deferral recorded in the observations log
+  and `tasks.md`.
 
 ## Sources
 
@@ -288,7 +306,7 @@ supersede pointer; bodies are frozen per the stable-ID rule (bootstrap D-20).)*
   placement inconsistent across 19 commits. Consumed; archived 2026-07-02. Sharpened
   during drafting by reproduction: pre-prefix placement fails the conventional lint and is
   unfixable in a CI-linted range.
-- **Observations log 2026-06-29 ([[name]] links)** — machine-local memory links in
+- **Observations log 2026-06-29 (`[[name]]` links)** — machine-local memory links in
   committed spec artifacts. Consumed; archived 2026-07-02.
 - **Observations log 2026-06-12 (worker union-merge ritual)** — the append-collision
   workaround under concurrency; grounds D-1's rejected "worker merge etiquette" alternative.

@@ -1,0 +1,1 @@
+- 2026-07-12 [planwright] skill-drift(self-review): the Observations + Maintenance steps still instruct raw-appending to specs/_observations/opportunities.md (frozen 2026-07-11); recording now routes through scripts/obs-record.sh into entries/. Same drift the 2026-07-12 execute-task/polish fragment records, applies to self-review too.

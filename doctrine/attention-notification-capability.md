@@ -84,7 +84,7 @@ path ever writes into the sibling's spec-local `.orchestrate/` dir — that is
 ## The notification channel is the overlay value
 
 `notification_channel`
-([`docs/options-reference.md`](../docs/options-reference.md); resolved through
+(`docs/options-reference.md`; resolved through
 [`scripts/resolve-notification-channel.sh`](../scripts/resolve-notification-channel.sh))
 is the capability-vs-style split: the notification *seam* is a core capability;
 the specific *channel* is overlay-owned, resolved through the four config layers.
@@ -100,7 +100,7 @@ the specific *channel* is overlay-owned, resolved through the four config layers
 Each persona resolves as a combination of the two seams — an execution backend
 times an attention surface, never a separate system; the full persona mapping
 and the approachable entry path are documented in the
-[fleet operation guide](../docs/fleet.md).
+fleet operation guide (`docs/fleet.md`).
 
 The channel adapters treat the summary as data: it is stripped of control bytes,
 and each adapter passes it so that no format specifier, AppleScript string, or

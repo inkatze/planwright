@@ -1,5 +1,12 @@
 # Consumed observations
 
+> **Frozen — 2026-07-11.** This shared consumed-observations log is superseded
+> by the per-observation fragment substrate introduced by
+> `specs/observation-recording`: consumption now appends a `Consumed-by:` line
+> inside a fragment and moves the file into `specs/_observations/archive/` via
+> `scripts/obs-consume.sh`. No new records are added below; the entries here are
+> retained as the legacy consumed-by history for provenance.
+
 - 2026-06-11 [planwright] The decision-domains catalog's adopter-extension channel (where project-level entries live and how skills merge them with the core seed list) is named abstractly in doctrine but has no config-model home yet; needs pinning when T16's builder consumes the catalog (or in T1's options reference); surfaced while authoring the catalog doctrine (T15). — consumed-by: specs/customization-overlay (2026-06-15)
 - 2026-06-11 [planwright] REQ-D1.2's non-convergence rule ("drop or downgrade") has no decision tree (2-of-3 vs 1-of-3 pass agreement); skills will improvise differently; candidate spec amendment surfaced while migrating Validation Rigor (T3). — consumed-by: specs/bootstrap (2026-06-16)
 - 2026-06-15 [planwright] Need a sanctioned doctrine/process customization (overlay) mechanism (Diego, 2026-06-15): adopters and the author must be able to layer personal/team preferences (e.g. a per-task review-gauntlet ordering, dispatch-isolation defaults) onto planwright WITHOUT editing core doctrine/skills, so core stays general for adopters (REQ-I class). Today this lives ad hoc in personal memory / dotfiles CLAUDE.md. Plan a dedicated spec: a precedence model (core defaults < adopter overlay < repo overlay), where overlays live, how skills resolve them, and the boundary between "general capability (lands in core, opt-in via config)" vs "personal style (stays in overlay)". Seeds a new post-bootstrap spec via /spec-draft. — consumed-by: specs/customization-overlay (2026-06-15)

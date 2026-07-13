@@ -19,6 +19,11 @@ own. Normative semantics (accumulator classes, grammar productions, lanes,
 data-only handling) live in the `accumulator-taxonomy` doctrine doc — read
 it via the rule-doc resolution path before interpreting the report.
 
+Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
+`run-start` loads before work begins):
+
+Doctrine: run-start accumulator-taxonomy
+
 ## Procedure
 
 ### 1. Resolve the evaluator and the specs root
@@ -60,9 +65,12 @@ this order:
    human can judge each condition.
 5. **PENDING / DORMANT** — not yet actionable; summarize counts, with
    detail on request.
-6. **Observations** — the log's unmined count and oldest-entry age, plus
-   the reminder that its canonical reader is `/spec-draft` (mining happens
-   there, not here).
+6. **Observations** — the unmined count and oldest-entry age, derived from
+   the fragment store (`entries/`) and the frozen legacy file's unconsumed
+   lines and naming both surfaces, plus any stuck consumes (fragments
+   annotated `Consumed-by:` but not yet moved to `archive/`) and skipped
+   invalid fragments; the reminder that its canonical reader is `/spec-draft`
+   (mining happens there, not here).
 
 Items within each lane of each spec's section arrive ordered
 low-confidence first (REQ-H1.5); when merging lanes across specs, re-sort
@@ -83,10 +91,12 @@ After each run, compare these instructions against the doctrine and spec
 they implement: the `accumulator-taxonomy` doctrine doc (lanes, grammar,
 drain-pass contract) and REQ-H1.3/REQ-H1.4/REQ-H1.5. If the evaluator's
 report format, lanes, or grammar have drifted from what this skill
-describes, append a one-line drift observation to
-`specs/_observations/opportunities.md` in the standard format
-(`- <YYYY-MM-DD> [<repo>] skill-drift(drain): <what>`) and commit the
-append as its own chore commit, per REQ-B3.2 / D-42. In repositories
-without `specs/`, surface the drift to the user instead of writing the
-log. Do not edit this skill or the doctrine docs to resolve the drift; the
-observation log's reader owns folding drift into spec amendments.
+describes, record a one-line drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(drain): <what>'` — the entry text keeps the `skill-drift(...)`
+prefix) and commit the fragment as its own chore commit, per REQ-B3.2 /
+D-42; surface a non-zero helper exit rather than silently dropping the
+observation. In repositories without `specs/`, surface the drift to the
+user instead of recording it. Do not edit this skill or the doctrine docs
+to resolve the drift; the accumulator's canonical reader (`/spec-draft`)
+owns folding drift into spec amendments.

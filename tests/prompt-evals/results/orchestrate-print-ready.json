@@ -1,0 +1,8 @@
+{
+  "fixture": "orchestrate-print-ready",
+  "outcome": "fail",
+  "cost_usd": 0.606124,
+  "per_run_cost_usd": [
+    0.60612325
+  ]
+}

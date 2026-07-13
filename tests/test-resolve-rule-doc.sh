@@ -495,6 +495,29 @@ case "$err" in
     ;;
 esac
 
+# 24. The shipped autopilot-reflex doctrine doc resolves through the standard
+#     chain (autopilot-reflex REQ-A1.1, REQ-A1.5): with PLANWRIGHT_ROOT pinned
+#     to this repo and every overlay layer cleared — including CLAUDE_DIR/HOME,
+#     which would otherwise leave the writer-mode adopter arm derivable from
+#     the ambient environment (same isolation as 19c) — the resolver lands on
+#     the repo's own doctrine/autopilot-reflex.md. The index-row link asserted
+#     below is what puts the doc under the doctrine link-check's coverage; it
+#     is anchored to the index table row so a prose mention alone cannot
+#     satisfy it.
+out="$(PLANWRIGHT_ROOT="$REPO_ROOT" CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" \
+  CLAUDE_DIR="" HOME="" \
+  PLANWRIGHT_ADOPTER_OVERLAY="" PLANWRIGHT_REPO_ROOT="$tmp/no-repo" \
+  /bin/bash "$RESOLVER" autopilot-reflex 2>/dev/null)"
+assert "shipped autopilot-reflex doc resolves" 0 $?
+assert_eq "shipped autopilot-reflex doc path" \
+  "$REPO_ROOT/doctrine/autopilot-reflex.md" "$out"
+if grep -qF "| [autopilot-reflex.md](autopilot-reflex.md) |" "$REPO_ROOT/doctrine/README.md"; then
+  echo "ok: doctrine index row links autopilot-reflex.md"
+else
+  echo "FAIL: doctrine/README.md index row link for autopilot-reflex.md missing" >&2
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

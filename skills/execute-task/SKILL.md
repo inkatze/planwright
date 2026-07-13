@@ -48,8 +48,8 @@ definitions govern wherever this skill names a concept:
   loop (targeted test, wider suite, altitude check).
 - `finding-categorization` and `gate-wiring` — the buckets, hard-disqualifier
   zones, pending-sign-off checklist, and pause protocol the convergence step
-  (the `review_sequence` knob, `/polish` by default) applies and this skill
-  folds into the PR.
+  (the `review_sequence` knob, `/polish` by default) applies, plus the PR-body
+  assembly layout this skill cites when it folds the audit record into the PR.
 - `proportionality` — rigor and research depth scale with stake and
   reversibility; scoping is declared, never silent.
 
@@ -63,6 +63,19 @@ opaque failure. One doc resolves with graceful degradation instead:
   (an adopter who has not installed the catalog, or a resolution failure):
   note the missing catalog in one line, skip the drift check, and rely on the
   engineering judgment the catalog would otherwise structure.
+
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start research-rigor
+Doctrine: run-start security-posture
+Doctrine: run-start validation-rigor
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start proportionality
+Doctrine: point-of-use decision-domains (the decision-domain drift check)
 
 ## Pre-flight
 
@@ -447,16 +460,19 @@ amendment axis:
    `--title` and `--body` (headless `gh` prompts or fails without them). The
    title is conventional and passes the project's PR-title lint
    (`scripts/check-commit-msgs.sh`, enforced on PR titles in CI):
-   `feat(<scope>): <task title>` or the fitting type. The body carries:
-   - the **kickoff brief path** (`specs/<spec>/kickoff-brief.md`);
-   - the **task IDs** this PR implements;
-   - the **REQs satisfied**, from the task `Citations:`;
-   - the **test additions** and what they verify;
-   - **Polish's audit record**: the pending-sign-off checklist (the human
-     approves each item by leaving its commit, rejects with the named revert,
-     at PR review), the four tables, the declined log, and the queued forks;
-   - **implementation notes**: key decisions, especially any extending beyond
-     the brief's assumptions.
+   `feat(<scope>): <task title>` or the fitting type. Assemble the body per the
+   **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
+   the complete audit record collapsed in `<details>`, prose never
+   hard-wrapped, the same structure preserved on updates) — the single
+   normative home for the layout (D-2), which this skill cites rather than
+   copies. This skill supplies the summary inputs: the kickoff brief path
+   (`specs/<spec>/kickoff-brief.md`), the task IDs this PR implements, the REQs
+   satisfied (from the task `Citations:`), the test additions and what they
+   verify, and implementation notes (key decisions, especially any extending
+   beyond the brief's assumptions). The collapsed audit record is the review
+   sequence's (`/polish`'s) output — the four tables, the declined log, the
+   pending-sign-off checklist (the human approves each item by leaving its
+   commit, rejects with the named revert, at PR review), and any queued forks.
 
    The PR is always a draft. Never mark it ready and never merge.
 3. **Annotate the unit.** Update only the task block's `- **Last activity:**
@@ -535,16 +551,21 @@ These hold at every step:
 
 ## Observations
 
-`/execute-task` only runs on a Ready or Active planwright spec, so `specs/` and the
-observations log necessarily exist. When something outside the unit's scope
-surfaces during implementation or convergence — complexity growth, an
-outdated pattern, a newly available dependency feature, an uncatalogued
-decision domain — append one line to `specs/_observations/opportunities.md`,
-format `- <YYYY-MM-DD> [<repo>] <observation>`, and commit the append within
-the iteration that produced it (its action commit, or its own chore commit)
-so the tree returns to clean. Do not act on observations during the unit; they
-are seed material for `/spec-draft`, the log's canonical reader (REQ-E2.1,
-REQ-H1.6).
+`/execute-task` only runs on a Ready or Active planwright spec, so `specs/`
+necessarily exists (the fragment store is created on demand). When something
+outside the unit's scope surfaces during implementation or convergence —
+complexity growth, an outdated pattern, a newly available dependency feature,
+an uncatalogued decision domain — record it as its own fragment through the
+shared helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
+'<observation>'` (resolved under the planwright root; it composes the
+one-line entry form and writes one file under the host repo's
+`specs/_observations/entries/`). Commit the fragment within the iteration
+that produced it (its action commit, or its own chore commit) so the tree
+returns to clean; on a non-zero helper exit, surface the failure rather than
+silently dropping the observation. Do not act on observations during the
+unit; they are seed material for `/spec-draft`, the accumulator's canonical
+reader (REQ-E2.1, REQ-H1.6; the accumulator-taxonomy doctrine carries the
+canonical drain ritual).
 
 ## Maintenance
 
@@ -553,8 +574,11 @@ resolved doctrine docs (REQ-B3.2, D-42) — especially `spec-format` (the
 anchor command forms, sign-off record format, and amendment ritual),
 `gate-wiring`, `research-rigor`, `security-posture`, and `decision-domains`.
 If a concept this skill names has changed meaning, gained or lost a step, or
-moved between docs, append a drift observation to
-`specs/_observations/opportunities.md` (format above, prefixed
-`skill-drift(execute-task):`), commit it as its own chore commit, and tell the
-user what drifted. Do not edit this skill or the doctrine docs to resolve the
-drift; the observation log's reader owns folding drift into spec amendments.
+moved between docs, record a drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(execute-task): <what>'` — the entry text keeps the
+`skill-drift(...)` prefix), commit the fragment as its own chore commit, and
+tell the user what drifted; surface a non-zero helper exit rather than
+silently dropping the observation. Do not edit this skill or the doctrine
+docs to resolve the drift; the accumulator's canonical reader (`/spec-draft`)
+owns folding drift into spec amendments.

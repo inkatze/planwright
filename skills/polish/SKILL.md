@@ -34,6 +34,18 @@ Their definitions govern wherever this skill names a concept. If a rule doc
 does not resolve, halt with a clear message naming the missing doc and the
 chain consulted.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+
+Doctrine: run-start discovery-rigor
+Doctrine: run-start validation-rigor
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start research-rigor
+Doctrine: run-start refactor-instinct
+Doctrine: run-start security-posture
+Doctrine: run-start proportionality
+
 ## Invocation modes
 
 Read the literal flag `--nested` from `$ARGUMENTS` at the start of the run:
@@ -103,12 +115,18 @@ Each iteration:
    iteration counter, and loop.
 
 Finding fixes commit inside the pass per the `gate-wiring` commit
-discipline (loop-level writes, such as observation appends, take their own
-chore commit at the iteration boundary):
+discipline (loop-level writes, such as observation fragment writes, take their
+own chore commit at the iteration boundary):
 Needs-sign-off items one commit per finding with the `[pending-sign-off]`
 subject marker, action items batched per iteration, regression tests landing with the
-fix they prove. Polish never amends, squashes, rebases, or force-pushes; each
-iteration's commits stand as the per-iteration audit trail.
+fix they prove. Before committing a marked finding, self-lint the subject by
+piping it in —
+`printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
+(under the resolved planwright root) — so the marker sits at the canonical end-of-subject position
+(`gate-wiring`); a mis-placed marker
+caught here is reworded before it reaches history, never after. Polish never
+amends, squashes, rebases, or force-pushes; each iteration's commits stand as
+the per-iteration audit trail.
 
 ## Safety conditions (mandatory handoff)
 
@@ -174,23 +192,29 @@ These hold at every step, in both modes:
 ## Observations
 
 When the repository has adopted planwright (a `specs/` directory with at
-least one spec bundle exists), append anything the loop surfaced that is
+least one spec bundle exists), record anything the loop surfaced that is
 outside the branch's scope (recurring tooling gaps, doctrine gaps, complexity
-trends) to `specs/_observations/opportunities.md`, one line per observation:
-`- <YYYY-MM-DD> [<repo>] <observation>` (REQ-E2.1, REQ-H1.6). Commit appends
-within the iteration that produced them (its action commit, or a chore
-commit), so the tree returns to clean at every iteration boundary. Skip this
-step entirely in repositories without `specs/`.
+trends) as one fragment per observation through the shared helper:
+`scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
+(resolved under the planwright root; it composes the one-line entry form and
+writes one file under the host repo's `specs/_observations/entries/`)
+(REQ-E2.1, REQ-H1.6). Commit fragments within the iteration that produced
+them (its action commit, or a chore commit), so the tree returns to clean at
+every iteration boundary; surface a non-zero helper exit rather than
+silently dropping the observation. Skip this step entirely in repositories
+without `specs/`.
 
 ## Maintenance
 
 After the loop exits (converged or stopped), compare these instructions
 against the resolved doctrine docs listed above (REQ-B3.2, D-42). If a
 concept this skill names has changed meaning, gained or lost a step, or moved
-between docs, append a drift observation to
-`specs/_observations/opportunities.md` (format above, prefixed
-`skill-drift(polish):`; in repositories without `specs/`, surface the drift
-to the user instead of writing the log), commit the append (its own chore
-commit), and tell the user what drifted. Do not edit this
-skill or the doctrine docs to resolve the drift; the observation log's reader
-owns folding drift into spec amendments.
+between docs, record a drift observation through the shared helper
+(`scripts/obs-record.sh --slug skill-drift --scope <repo> --text
+'skill-drift(polish): <what>'` — the entry text keeps the `skill-drift(...)`
+prefix; in repositories without `specs/`, surface the drift to the user
+instead of recording it), commit the fragment (its own chore commit), and
+tell the user what drifted; surface a non-zero helper exit rather than
+silently dropping the observation. Do not edit this skill or the doctrine
+docs to resolve the drift; the accumulator's canonical reader
+(`/spec-draft`) owns folding drift into spec amendments.

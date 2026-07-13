@@ -11,6 +11,10 @@ markdownlint-cli2 = "0.19.0"
 yamllint = "1.37"
 gitleaks = "8.30.0"
 
+[tasks.release]
+description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
+run = "scripts/release-publish.sh"
+
 [tasks.test]
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor)"
 run = 'for t in tests/*.sh; do /bin/bash "$t" || exit 1; done'
@@ -24,8 +28,8 @@ description = "shfmt diff check (style comes from .editorconfig; shfmt -w to fix
 run = "shfmt -d scripts/*.sh tests/*.sh"
 
 [tasks."lint:md"]
-description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation)"
-run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md'"
+description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation; the _observations accumulator is data, excluded)"
+run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' '!specs/_observations/**'"
 
 [tasks."lint:yaml"]
 description = "yamllint on tracked config and workflows"
@@ -46,6 +50,10 @@ fi
 [tasks."check:links"]
 description = "doctrine cross-reference link-check"
 run = "/bin/bash scripts/check-doc-links.sh"
+
+[tasks."check:memory-links"]
+description = "flag machine-local [[name]] memory links in committed spec files (REQ-D1.1, D-4)"
+run = "/bin/bash scripts/check-memory-links.sh"
 
 [tasks."check:specs"]
 description = "planwright spec validator over specs/ (enforced; REQ-A2.1)"
@@ -77,6 +85,26 @@ run = "/bin/bash scripts/check-options-reference.sh"
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
 run = "/bin/bash scripts/check-ledger.sh"
 
+[tasks."check:obs"]
+description = "observation fragment store guard: filename grammar, one-entry shape, UID uniqueness, no stray files (REQ-D1.4, REQ-A1.2, REQ-A1.3, REQ-A1.4)"
+run = "/bin/bash scripts/check-obs.sh"
+
+[tasks."check:instructions"]
+description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement (prompt-hygiene Task 2)"
+run = "/bin/bash scripts/check-instructions.sh"
+
+[tasks."check:no-ci-evals"]
+description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"
+run = "/bin/sh scripts/check-no-ci-evals.sh"
+
+[tasks."eval:skill"]
+description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
+run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
+
+[tasks."obs:log"]
+description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
+run = "/bin/sh scripts/obs-render.sh"
+
 [tasks."scan:secrets"]
 description = "gitleaks over the full git history (redacted so a found secret never lands in logs)"
 run = "gitleaks detect --no-banner --redact --source ."
@@ -93,8 +121,12 @@ depends = [
   "lint:plugin-schema",
   "lint:commits",
   "check:links",
+  "check:memory-links",
   "check:options",
   "check:ledger",
+  "check:obs",
+  "check:instructions",
+  "check:no-ci-evals",
   "check:specs",
   "scan:secrets",
 ]
