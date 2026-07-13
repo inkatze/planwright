@@ -38,6 +38,20 @@ scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures \
   --expect-plugin-commit "$(git rev-parse HEAD)"
 ```
 
+Record a post-diet run beside it (same fixtures, dieted plugin) and pair the
+two by fixture identifier:
+
+```sh
+scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures \
+  --record tests/prompt-evals/results/post-diet \
+  --expect-plugin-commit "$(git rev-parse HEAD)"
+```
+
+`results/*.json` is the committed pre-diet baseline (Task 4, bound to the
+pre-diet commit recorded in that run's PR); `results/post-diet/*.json` is the
+post-diet re-run on the identical fixtures; `results/comparison.md` records
+the paired before/after comparison and the pilot verdict (REQ-D1.3).
+
 The runner needs a Claude Code CLI on `PATH` and, because it runs `--bare`, an
 `ANTHROPIC_API_KEY` (OAuth and keychain are never read in `--bare` mode). Each
 run costs tokens; the caps below bound that.
