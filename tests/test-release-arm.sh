@@ -213,6 +213,7 @@ case "$1" in
       green) q='{"__typename":"CheckRun","name":"check","status":"COMPLETED","conclusion":"SUCCESS","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
       red) q='{"__typename":"CheckRun","name":"check","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
       pending) q='{"__typename":"CheckRun","name":"check","status":"IN_PROGRESS","conclusion":null,"checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+      neutral) q='{"__typename":"CheckRun","name":"check","status":"COMPLETED","conclusion":"NEUTRAL","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
       *) q='' ;;
     esac
     wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"'"${ARM_WINDOW_CONCLUSION:-FAILURE}"'","checkSuite":{"workflowRun":{"workflow":{"name":"release-window"}}}}'
@@ -345,6 +346,22 @@ assert_ne "pv/ci: exits non-zero" "$RC" "0"
 assert_contains "pv/ci: names the ci gate specifically" "$ERR" "ci gate"
 deny "pv/ci: no tag created" local_has_tag "$r" v0.2.0
 deny "pv/ci: never published" gh_called "$LOG" "release create"
+
+# 3b-2. Positive-confirmation gate: a NEUTRAL/SKIPPED-only quality check (after the
+#       window lock is excluded) is NOT a green light — it neither fails nor
+#       confirms, so arm must refuse rather than arm-and-fire into a publish whose
+#       own ci_green (release-publish.sh, positive-confirmation model) would then
+#       refuse on the identical NONE verdict. rl_ci_verdict must mirror publish:
+#       GREEN requires at least one SUCCESS; a neutral-only set is NONE (fail
+#       closed), matching release-publish.sh:305-309.
+r="$tmp/pv-ci-neutral"
+setup_release_pr "$r" 0.2.0 88
+run_arm "$r" 88 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_FINAL_STATE=MERGED ARM_HEAD_CI=neutral GH_RELEASE_EXISTS=0
+assert_ne "pv/ci-neutral: exits non-zero (neutral-only is not positive confirmation)" "$RC" "0"
+assert_contains "pv/ci-neutral: names the ci gate specifically" "$ERR" "ci gate"
+deny "pv/ci-neutral: no tag created" local_has_tag "$r" v0.2.0
+deny "pv/ci-neutral: never published" gh_called "$LOG" "release create"
 
 # 3c. A tag for the proposed version already exists on origin (idempotency).
 r="$tmp/pv-tag"

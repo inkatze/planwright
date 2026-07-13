@@ -143,11 +143,13 @@ esac
 
 # --- Release-gating CI verdict (window-lock-excluding; step 1 + fire) ---------
 # rl_ci_verdict <sha> — echo the release-gating CI verdict for <sha>, one of:
-#   GREEN   every release-gating check has succeeded (at least one is present)
+#   GREEN   at least one release-gating check succeeded and none failed or is
+#           pending (NEUTRAL/SKIPPED checks neither confirm nor block)
 #   RED     a release-gating check failed — it will not self-heal, so refuse
 #   PENDING a release-gating check is still running — keep waiting
-#   NONE    no release-gating check is present yet — fail closed (keep waiting,
-#           refuse on timeout); "no CI" is never a green light
+#   NONE    no positive CI confirmation yet — no checks, or only the excluded
+#           lock, or only NEUTRAL/SKIPPED left — fail closed (keep waiting,
+#           refuse on timeout); "no CI" and "no success" are never a green light
 # EXCLUDING the untagged-window lock ($WINDOW_LOCK_WORKFLOW / $WINDOW_LOCK_NAME),
 # which is red BY DESIGN during the untagged window and gates merges, not the
 # publish. Excluding it here is what lets arm see the *quality* CI go green on a
@@ -171,8 +173,14 @@ rl_ci_verdict() {
     -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
   # Partition the rollup contexts into the excluded window lock and the release-
   # gating remainder, then fold the remainder to a single verdict. A CheckRun is
-  # PENDING until COMPLETED; a completed non-SUCCESS/NEUTRAL/SKIPPED conclusion is
-  # FAIL. Legacy StatusContexts map SUCCESS/PENDING/EXPECTED/other the same way.
+  # PENDING until COMPLETED; SUCCESS is the only positive confirmation ("OK");
+  # NEUTRAL/SKIPPED neither confirm nor fail ("SKIP"); any other completed
+  # conclusion is FAIL. Legacy StatusContexts map SUCCESS/PENDING/EXPECTED/other
+  # the same way (commit statuses carry no NEUTRAL/SKIPPED concept). This mirrors
+  # release-publish.sh's ci_green positive-confirmation model exactly (a
+  # neutral-only remainder folds to NONE, not GREEN): a release gate requires at
+  # least one real SUCCESS, so arm never arms-and-fires on a state whose own
+  # publish-side ci_green would then refuse on the identical NONE verdict.
   printf '%s' "$raw" | jq -r --arg wf "$WINDOW_LOCK_WORKFLOW" --arg nm "$WINDOW_LOCK_NAME" '
     (.data.repository.object.statusCheckRollup.contexts.nodes // []) as $n
     | [ $n[]
@@ -181,8 +189,9 @@ rl_ci_verdict() {
                       or (((.name // "") | ascii_downcase) | contains($nm)) ),
               res: ( if .status != "COMPLETED" then "PENDING"
                      else ( (.conclusion // "") as $c
-                            | if ($c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED")
-                              then "OK" else "FAIL" end )
+                            | if $c == "SUCCESS" then "OK"
+                              elif ($c == "NEUTRAL" or $c == "SKIPPED") then "SKIP"
+                              else "FAIL" end )
                      end ) }
           elif .__typename == "StatusContext" then
             { excl: ( (((.context // "") | ascii_downcase) | contains($nm))
@@ -196,7 +205,8 @@ rl_ci_verdict() {
     | if length == 0 then "NONE"
       elif any(.[]; .res == "FAIL") then "RED"
       elif any(.[]; .res == "PENDING") then "PENDING"
-      else "GREEN" end
+      elif any(.[]; .res == "OK") then "GREEN"
+      else "NONE" end
   ' 2>/dev/null || return 2
 }
 
