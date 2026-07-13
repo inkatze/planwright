@@ -75,8 +75,8 @@ it and wait instead.
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
-   started) and `Active` (work in flight) are both executable; refuse Draft,
-   Done, Retired, and Superseded. The spec file **stays `Ready`** during
+   started) and `Active` (work in flight) are both executable; refuse
+   Draft, Done, Retired, and Superseded. The spec file **stays `Ready`** during
    execution: Ready↔Active is **derived, not stored** (D-2), written only by
    `orchestration-concurrency`'s single level-triggered reconcile writer (D-3),
    so a dispatched task normally runs against a `Ready` spec — demanding a stored
@@ -171,9 +171,9 @@ work or the order.
 - **`per-step`** (the assigned-decision default): each step runs in its **own
   fresh `/resume`-seeded session**, so context stays bounded and each review's
   perspective is uncontaminated by prior steps. The sequence is unchanged, but
-  steps share no context: each is seeded from durable state alone (the brief,
-  the `tasks.md` snapshot, the git log, the open PR) and commits its own work
-  with the `Planwright-Task:` trailer. Realization is the backend's job (D-2): a
+  steps share no context: each is seeded from durable state alone (brief,
+  `tasks.md` snapshot, git log, open PR) and commits its own work with the
+  `Planwright-Task:` trailer. Realization is the backend's job (D-2): a
   session-grade backend spawns a session per step; the terminal rung (D-3)
   approximates it with a context clear + `/resume` reseed between steps; a
   backend that can do neither degrades to `per-unit` (degrade capability, never
@@ -203,8 +203,8 @@ printf '%s\n' "$message" \
 
 For a **bundle**, pass one ref per task (`… <spec>/<id1> <spec>/<id2> …`); the
 helper emits one trailer per task. The trailer is footer-only and additive — no
-subject-line change, no Claude/co-author attribution — so the no-attribution
-commit rule is unaffected.
+subject-line change, no Claude/co-author attribution — so the no-attribution rule
+is unaffected.
 
 ### Test-first development (REQ-E1.1, `validation-rigor`)
 
@@ -243,8 +243,7 @@ model memory, and run the antipattern check before adopting a pattern.
 rows, and never as an anchor entry (the risk register is not the contract
 surface the gate hashes). Declare the research depth's scoping per
 `proportionality`. If research surfaces a significant risk the brief did not
-anticipate, that is a stop condition: record it and hand off for a human
-decision.
+anticipate, that is a stop condition: record it and hand off.
 
 ### Write-time security pass (REQ-D1.6, `security-posture`)
 
@@ -301,8 +300,7 @@ After CI passes, run the **review sequence** as the convergence step. The
 sequence is the `review_sequence` config knob (D-6, REQ-D1.3): an ordered list
 of nestable review-skill names, resolved through the four-layer config overlay.
 The default is the single `polish`, so out of the box this is exactly today's
-`/polish --nested` convergence; an overlay can reorder or extend it (for example
-`[self-review, polish]`).
+`/polish --nested` convergence; an overlay can reorder or extend it.
 
 **Resolve the sequence.** Run `scripts/resolve-review-sequence.sh` (under the
 resolved planwright root). It reads `review_sequence` *through* `config-get` (no
@@ -384,12 +382,16 @@ amendment axis (the `spec-format` amendment ritual):
    commit, rejects with the named revert, at PR review), and any queued forks.
 
    The PR is always a draft. Never mark it ready and never merge.
-3. **Annotate the unit.** As in pre-flight step 11, update only the task block's
-   `- **Last activity:** <today>` annotation and write **no** `Status` line.
-   Section placement (and the `Status` text) is the `tasks-pr-sync` reconcile's
-   sole job, moved on the `gh pr create`/`merge` events (REQ-B1.1, D-1); a
-   `PR #<N> draft` Status here would race the fail-soft reconcile and leave a
-   section/status contradiction on a `Forward plan` block (REQ-E1.1, REQ-E1.2).
+3. **Annotate the unit.** Update only the task block's `- **Last activity:**
+   <today>` annotation; write **no** `Status` line. Section placement is the
+   `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1); the reconcile preserves
+   annotations untouched and does not author the `Status` text. Writing a
+   `PR #<N> draft` Status here would race the reconcile: the hook is fail-soft on
+   a busy lock (a clean no-op), so the block can still sit in `## Forward plan`,
+   an in-progress `Status` there being exactly the section/status contradiction
+   `scripts/check-ledger.sh` flags (REQ-E1.1, REQ-E1.2). The Last-activity
+   annotation is anchor-excluded and is not a `Status` line, so it trips neither
+   guard.
 
 **Hand off.** Report: the unit and spec, the freshness-gate result, the tests
 written and CI outcome, the convergence summary, the verified anchor, the
@@ -475,6 +477,6 @@ skill names has changed meaning, gained or lost a step, or moved between docs,
 record a drift observation through the shared helper (`scripts/obs-record.sh
 --slug skill-drift --scope <repo> --text 'skill-drift(execute-task): <what>'` —
 keeping the `skill-drift(...)` prefix), commit it as its own chore commit, and
-tell the user what drifted. Do not edit this skill or the doctrine docs to
-resolve the drift; the accumulator's canonical reader (`/spec-draft`) owns
-folding drift into spec amendments.
+tell the user. Do not edit this skill or the doctrine docs to resolve the drift;
+the accumulator's canonical reader (`/spec-draft`) owns folding drift into spec
+amendments.
