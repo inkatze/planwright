@@ -465,9 +465,10 @@ assert_contains "gate/pending: names the ci gate" "$ERR" "ci gate"
 deny "gate/pending: no tag created while CI is pending" local_has_tag "$r" v0.1.0
 
 # 4h-6. StatusContext (legacy commit-status) path publishes on a green status.
-#       The rollup mixes CheckRun and StatusContext nodes; the gate judges the
-#       non-CheckRun branch (state==SUCCESS) as positive confirmation. Here the
-#       ONLY check is a StatusContext, so a bug in that branch would surface.
+#       Here the ONLY check is a StatusContext (GH_CI=none), so the non-CheckRun
+#       branch (state==SUCCESS as positive confirmation) is exercised in isolation
+#       and a bug in it surfaces on its own. Mixed CheckRun + StatusContext
+#       rollups are covered by 4h-10/4h-11.
 r="$tmp/status-context-green"
 new_repo "$r"
 seed_version "$r" 0.1.0
