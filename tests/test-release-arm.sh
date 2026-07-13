@@ -179,21 +179,45 @@ case "$1" in
     exit 0
     ;;
   api)
+    # statusCheckRollup keyed by the queried sha, returning BOTH the aggregate
+    # `state` (what release-publish.sh's unchanged ci_green reads) AND the
+    # `contexts` node list (what release-arm.sh's rl_ci_verdict reads). The list
+    # always carries the window-lock CheckRun (FAILURE by default — red by design)
+    # plus, unless the quality selector is `none`, the `ci`/`check` quality
+    # CheckRun. This lets a test model "aggregate red from the window lock, but the
+    # quality check green" — the exact case arm's exclusion must handle.
+    #   ARM_HEAD_CI / ARM_MERGE_CI  quality selector per sha: green|red|pending|none
+    #   ARM_HEAD_STATE / ARM_MERGE_STATE  aggregate `.state` per sha (default SUCCESS)
+    #   ARM_WINDOW_CONCLUSION       window-lock CheckRun conclusion (default FAILURE)
+    #   ARM_MERGE_CI_GREEN_AFTER    merge quality check is `pending` until the api
+    #                               call count passes this, then green (settle lag)
     sha=""
     for a in "$@"; do
       case "$a" in sha=*) sha=${a#sha=} ;; esac
     done
-    sel=green
+    an=0
+    if [ -n "${ARM_API_CALLS_FILE:-}" ] && [ -f "$ARM_API_CALLS_FILE" ]; then an=$(cat "$ARM_API_CALLS_FILE"); fi
+    an=$((an + 1))
+    [ -n "${ARM_API_CALLS_FILE:-}" ] && printf '%s' "$an" >"$ARM_API_CALLS_FILE"
     if [ -n "${ARM_HEAD_OID:-}" ] && [ "$sha" = "${ARM_HEAD_OID}" ]; then
-      sel=${ARM_HEAD_CI:-green}
+      qsel=${ARM_HEAD_CI:-green}
+      astate=${ARM_HEAD_STATE:-SUCCESS}
     else
-      sel=${ARM_MERGE_CI:-green}
+      qsel=${ARM_MERGE_CI:-green}
+      astate=${ARM_MERGE_STATE:-SUCCESS}
+      if [ -n "${ARM_MERGE_CI_GREEN_AFTER:-}" ] && [ "$an" -le "${ARM_MERGE_CI_GREEN_AFTER}" ]; then
+        qsel=pending
+      fi
     fi
-    case "$sel" in
-      green) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"SUCCESS"}}}}}\n' ;;
-      none) printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n' ;;
-      *) printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"FAILURE"}}}}}\n' ;;
+    case "$qsel" in
+      green) q='{"__typename":"CheckRun","name":"check","status":"COMPLETED","conclusion":"SUCCESS","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+      red) q='{"__typename":"CheckRun","name":"check","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+      pending) q='{"__typename":"CheckRun","name":"check","status":"IN_PROGRESS","conclusion":null,"checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+      *) q='' ;;
     esac
+    wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"'"${ARM_WINDOW_CONCLUSION:-FAILURE}"'","checkSuite":{"workflowRun":{"workflow":{"name":"release-window"}}}}'
+    if [ -n "$q" ]; then nodes="$q,$wl"; else nodes="$wl"; fi
+    printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"nodes":[%s]}}}}}}\n' "$astate" "$nodes"
     exit 0
     ;;
   release)
@@ -231,12 +255,15 @@ run_arm() {
   LOG="$tmp/ghlog.$$"
   NOTES="$tmp/ghnotes.$$"
   CALLS="$tmp/calls.$$"
+  APICALLS="$tmp/apicalls.$$"
   : >"$LOG"
   : >"$NOTES"
   : >"$CALLS"
+  : >"$APICALLS"
   RC=0
   OUT=$(cd "$dir" && env PATH="$stub:$PATH" GH_LOG="$LOG" GH_NOTES="$NOTES" \
-    ARM_CALLS_FILE="$CALLS" RELEASE_ARM_POLL_SECONDS=0 RELEASE_ARM_MAX_POLLS=5 \
+    ARM_CALLS_FILE="$CALLS" ARM_API_CALLS_FILE="$APICALLS" \
+    RELEASE_ARM_POLL_SECONDS=0 RELEASE_ARM_MAX_POLLS=5 \
     GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$@" \
     "$ARM" "$prnum" 2>"$tmp/err.$$") || RC=$?
   ERR=$(cat "$tmp/err.$$")
@@ -462,6 +489,129 @@ run_arm "$r" 19 ARM_HEAD_OID="$HEAD_OID" \
 assert_ne "fire/not-on-origin: exits non-zero" "$RC" "0"
 assert_contains "fire/not-on-origin: names the origin-confirmation refusal" "$ERR" "not on origin/main"
 deny "fire/not-on-origin: never published" gh_called "$LOG" "release create"
+
+# ===========================================================================
+# 6. Window-lock-excluding CI gate (A1), merged-state tag re-derivation (A2),
+#    and the fire-time on-main recheck (B1). The window-lock check is red BY
+#    DESIGN on the merge commit (untagged window open); arm must exclude it from
+#    the release-gating verdict, not deadlock against it. Diego decision: the
+#    window lock gates merges, not the publish (mirrors fix/publish-ci-gate-
+#    window-lock). The stub always emits a window-lock CheckRun=FAILURE alongside
+#    the quality `check` CheckRun, so every §6 case exercises the exclusion.
+# ===========================================================================
+
+# 6a. Pre-validation excludes the window lock: the PR head's AGGREGATE rollup is
+#     red (ARM_HEAD_STATE=FAILURE) purely because the window-lock check is red,
+#     but the quality `check` is green — arm must still ARM and publish. A verdict
+#     built on the aggregate `.state` (the pre-A1 behavior) would refuse here.
+r="$tmp/a1-preval-excl"
+setup_release_pr "$r" 0.2.0 20
+run_arm "$r" 20 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_HEAD_STATE=FAILURE ARM_HEAD_CI=green \
+  ARM_MERGE_STATE=SUCCESS ARM_MERGE_CI=green GH_RELEASE_EXISTS=0
+assert_eq "a1/preval-excl: arms despite aggregate-red-from-window-lock on the head (exit 0)" "$RC" "0"
+want "a1/preval-excl: the release is published" local_has_tag "$r" v0.2.0
+assert_contains "a1/preval-excl: reports waiting for green CI on the merge" "$OUT" "window lock excluded"
+
+# 6b. THE safety regression: the quality `check` is RED on the merged commit, but
+#     the AGGREGATE is green (ARM_MERGE_STATE=SUCCESS) — so a naive aggregate
+#     check, or the pre-A1 no-settle-gate arm, would fire publish. Arm's verdict
+#     reads the quality check, sees RED, and REFUSES without publishing.
+r="$tmp/a1-merge-red"
+setup_release_pr "$r" 0.2.0 21
+run_arm "$r" 21 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_MERGE_CI=red ARM_MERGE_STATE=SUCCESS GH_RELEASE_EXISTS=0
+assert_ne "a1/merge-red: refuses when the quality CI is red on the merge (non-zero)" "$RC" "0"
+assert_contains "a1/merge-red: names the fire-time ci gate on the merged commit" "$ERR" "red on the merged commit"
+deny "a1/merge-red: never published" gh_called "$LOG" "release create"
+deny "a1/merge-red: no tag created" local_has_tag "$r" v0.2.0
+
+# 6c. Fail-closed on persistent pending: the merged commit's quality CI never
+#     settles within the poll budget → arm times out and refuses, publishing
+#     nothing (never fires on unconfirmed CI).
+r="$tmp/a1-settle-timeout"
+setup_release_pr "$r" 0.2.0 22
+run_arm "$r" 22 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_MERGE_CI=pending RELEASE_ARM_MAX_POLLS=3 GH_RELEASE_EXISTS=0
+assert_ne "a1/settle-timeout: exits non-zero" "$RC" "0"
+assert_contains "a1/settle-timeout: names the CI-not-green disarm" "$ERR" "did not go green"
+deny "a1/settle-timeout: never published" gh_called "$LOG" "release create"
+
+# 6d. Settle-poll recovers: the merged quality CI is pending for the first polls
+#     then goes green → arm waits, then fires and publishes.
+r="$tmp/a1-settle-recover"
+setup_release_pr "$r" 0.2.0 23
+run_arm "$r" 23 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_MERGE_CI_GREEN_AFTER=2 GH_RELEASE_EXISTS=0
+assert_eq "a1/settle-recover: waits past pending CI then publishes (exit 0)" "$RC" "0"
+want "a1/settle-recover: the release is published" local_has_tag "$r" v0.2.0
+
+# 6e. A2 — the tag is re-derived from the MERGED state, never the arm-time
+#     proposal. The PR head proposes 0.2.0, but the merged commit carries 0.3.0
+#     (a version change between arm and merge); publish correctly tags v0.3.0. A
+#     cross-check against the stale arm-time v0.2.0 would raise a false "tag
+#     absent" on a release that actually succeeded.
+r="$tmp/a2-rederive"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" checkout -q -b relprep
+write_plugin "$r" 0.2.0 # the PR head proposes 0.2.0
+gc "$r" add -A
+gc "$r" commit -q -m "chore: release 0.2.0"
+A2_HEAD=$(git -C "$r" rev-parse HEAD)
+# Push relprep so its head object lives in origin (the pull ref below needs it);
+# relprep is NOT merged into main — main diverges to 0.3.0 — so the object would
+# otherwise be absent from the bare origin.
+gc "$r" push -q origin relprep 2>/dev/null
+gc "$r" checkout -q main
+write_plugin "$r" 0.3.0 # but the merged commit carries 0.3.0
+gc "$r" add -A
+gc "$r" commit -q -m "chore: release 0.3.0 (#24)"
+A2_MERGE=$(git -C "$r" rev-parse HEAD)
+gc "$r" push -q origin main 2>/dev/null
+git -C "$r.git" update-ref "refs/pull/24/head" "$A2_HEAD"
+run_arm "$r" 24 ARM_HEAD_OID="$A2_HEAD" ARM_MERGE_OID="$A2_MERGE" \
+  ARM_OPEN_CALLS=1 GH_RELEASE_EXISTS=0
+assert_eq "a2/rederive: publishes despite a version change between arm and merge (exit 0)" "$RC" "0"
+want "a2/rederive: the MERGED version's tag v0.3.0 is created" local_has_tag "$r" v0.3.0
+deny "a2/rederive: the stale arm-time tag v0.2.0 is NOT created" local_has_tag "$r" v0.2.0
+assert_contains "a2/rederive: reports the re-derived tag" "$OUT" "published v0.3.0"
+
+# 6f. B1 — HEAD is re-confirmed to be main at fire time. A git shim flips the
+#     `symbolic-ref HEAD` answer to a non-main branch on its SECOND call (arm's
+#     first is at pre-validation, on main; the second is the fire-time recheck),
+#     modelling a branch switch in the worktree during the watch. Arm must refuse
+#     to fast-forward the wrong branch and publish nothing.
+r="$tmp/b1-head-flip"
+setup_release_pr "$r" 0.2.0 25
+b1bin="$tmp/b1bin"
+mkdir -p "$b1bin"
+REAL_GIT=$(command -v git)
+cat >"$b1bin/git" <<B1STUB
+#!/bin/sh
+if [ "\$1" = "symbolic-ref" ]; then
+  n=0; [ -f "\$SREF_FILE" ] && n=\$(cat "\$SREF_FILE"); n=\$((n + 1)); printf '%s' "\$n" >"\$SREF_FILE"
+  if [ "\$n" -ge "\${SREF_FLIP_AT:-999999}" ]; then printf 'otherbranch\n'; exit 0; fi
+fi
+exec "$REAL_GIT" "\$@"
+B1STUB
+chmod +x "$b1bin/git"
+SREF="$tmp/sref.$$"
+: >"$SREF"
+RC=0
+LOG="$tmp/ghlog.b1.$$"
+: >"$LOG"
+OUT=$(cd "$r" && env PATH="$b1bin:$stub:$PATH" GH_LOG="$LOG" GH_NOTES="$tmp/n.b1" \
+  ARM_CALLS_FILE="$tmp/c.b1" ARM_API_CALLS_FILE="$tmp/a.b1" \
+  SREF_FILE="$SREF" SREF_FLIP_AT=2 \
+  ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" ARM_OPEN_CALLS=1 \
+  RELEASE_ARM_POLL_SECONDS=0 RELEASE_ARM_MAX_POLLS=5 \
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  "$ARM" 25 2>"$tmp/err.b1") || RC=$?
+ERR=$(cat "$tmp/err.b1")
+assert_ne "b1/head-flip: refuses when HEAD left main before the fast-forward (non-zero)" "$RC" "0"
+assert_contains "b1/head-flip: names the no-longer-on-main refusal" "$ERR" "no longer on main"
+deny "b1/head-flip: never published" gh_called "$LOG" "release create"
 
 # ===========================================================================
 # 5. Argument validation (REQ-D1.9 conventions): usage error is exit 2.

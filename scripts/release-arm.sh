@@ -23,13 +23,19 @@
 #      checkout is on main, clean, and synced with origin/main; the target PR is
 #      OPEN; the version the PR head proposes is valid SemVer, strictly greater
 #      than the latest release tag (monotonicity), and has no existing tag
-#      locally or on origin (idempotency); GitHub CI is green on the PR head.
+#      locally or on origin (idempotency); the release-gating GitHub CI is green
+#      on the PR head, EXCLUDING the untagged-window lock (which gates merges,
+#      not the publish — see WINDOW_LOCK_WORKFLOW below).
 #   2. Arm + watch: poll the PR until it is MERGED (fire) or CLOSED (disarm
 #      cleanly, publishing nothing), up to a bounded poll cap.
-#   3. On the observed merge: fast-forward local main to origin/main (new commits
-#      only, never a rewrite), confirm the observed merge commit is on
-#      origin/main, then run scripts/release-publish.sh. Finally verify the tag
-#      publish created lands on the OBSERVED merge commit (the Done-when).
+#   3. On the observed merge: confirm the merge is on origin/main, re-confirm HEAD
+#      is still main, and fast-forward local main to origin/main (new commits
+#      only, never a rewrite). Then WAIT for the release-gating CI to go green on
+#      the merged commit (again excluding the window lock, which is red by design
+#      there; firing before CI settles would only make publish refuse), and run
+#      scripts/release-publish.sh. Finally verify the tag publish created — its
+#      name RE-DERIVED from the merged commit's version, never the arm-time
+#      proposal — lands within the OBSERVED merge commit (the Done-when).
 #
 # Security posture (doctrine/security-posture.md, framework-script rules): the PR
 # number is validated as a positive integer before any interpolation; version
@@ -46,8 +52,9 @@
 #   timeout, or a publish/operational failure (the message names the cause); 2
 #   on a usage error.
 #
-# Knobs (environment; sane defaults, overridable):
-#   RELEASE_ARM_POLL_SECONDS   seconds between watch polls (default 15)
+# Knobs (environment; sane defaults, overridable). Both the merge watch (step 2)
+# and the fire-time CI-settle wait (step 3) share the same interval and cap:
+#   RELEASE_ARM_POLL_SECONDS   seconds between polls (default 15)
 #   RELEASE_ARM_MAX_POLLS      max polls before disarming on timeout (default
 #                              240 — ~1h at the default interval)
 
@@ -65,6 +72,17 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 PUBLISH="$script_dir/release-publish.sh"
 MAIN_REF="main"
 ORIGIN_MAIN_REF="origin/main"
+
+# The untagged-window lock check, EXCLUDED from arm's release-gating CI verdict.
+# It is red BY DESIGN while the untagged window is open — after the release PR
+# merges, `main` carries the version bump with no matching tag, so the lock goes
+# red on the merge commit and stays red until publish tags it. The lock gates
+# merges, not the publish (Diego decision; mirrors fix/publish-ci-gate-window-
+# lock), so counting it would deadlock arm against a check that only publish can
+# turn green. Matched by workflow name OR a check-name substring so a rename of
+# either still excludes it.
+WINDOW_LOCK_WORKFLOW="release-window"
+WINDOW_LOCK_NAME="window-lock"
 
 poll_seconds=${RELEASE_ARM_POLL_SECONDS:-15}
 max_polls=${RELEASE_ARM_MAX_POLLS:-240}
@@ -123,28 +141,63 @@ case "/$vf_path/" in
   */../*) die "version_file must not use a '..' path component: '$(sanitize_printable "$vf_path")'" ;;
 esac
 
-# --- CI rollup check (inline; same shape as release-publish.sh's ci gate) ----
-# rl_ci_state <sha> — set RL_CI_STATE to the server-aggregated statusCheckRollup
-# state for <sha> and return 0 iff it is SUCCESS. Returns 2 on a query failure
-# (distinct from a red verdict) so an infra outage fails closed rather than being
-# misread as red CI. A null rollup (a repo with no checks) is RL_CI_STATE=NONE
-# and refused: a release gate requires positive CI confirmation. Deliberately the
-# same logic release-publish.sh applies to the merge SHA — kept an inline copy so
-# release-publish.sh stays byte-for-byte the unchanged fallback (D-12); a shared
-# rl_ci_state in release-lib.sh is a noted follow-up.
-RL_CI_STATE=""
-rl_ci_state() {
+# --- Release-gating CI verdict (window-lock-excluding; step 1 + fire) ---------
+# rl_ci_verdict <sha> — echo the release-gating CI verdict for <sha>, one of:
+#   GREEN   every release-gating check has succeeded (at least one is present)
+#   RED     a release-gating check failed — it will not self-heal, so refuse
+#   PENDING a release-gating check is still running — keep waiting
+#   NONE    no release-gating check is present yet — fail closed (keep waiting,
+#           refuse on timeout); "no CI" is never a green light
+# EXCLUDING the untagged-window lock ($WINDOW_LOCK_WORKFLOW / $WINDOW_LOCK_NAME),
+# which is red BY DESIGN during the untagged window and gates merges, not the
+# publish. Excluding it here is what lets arm see the *quality* CI go green on a
+# merge commit whose aggregate rollup is red purely because the lock engaged.
+# This mirrors the publish-side window-lock exclusion (fix/publish-ci-gate-window-
+# lock) so arm and publish agree on the release-gating verdict; it is deliberately
+# an inline copy so release-publish.sh stays byte-for-byte the unchanged fallback
+# (D-12) — a shared helper in release-lib.sh is a noted follow-up, to be reused
+# here if the publish hotfix lands one first.
+#
+# Returns 0 with the verdict on stdout; returns 2 (empty stdout) on a query
+# failure, so the caller fails closed and distinguishes an infra outage from RED.
+rl_ci_verdict() {
   local sha="$1" nwo owner repo raw
   nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
   owner=${nwo%%/*}
   repo=${nwo#*/}
   # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
   raw=$(gh api graphql \
-    -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{state}}}}}' \
+    -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}}' \
     -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
-  RL_CI_STATE=$(printf '%s' "$raw" \
-    | jq -r '.data.repository.object.statusCheckRollup.state // "NONE"' 2>/dev/null) || return 2
-  [ "$RL_CI_STATE" = "SUCCESS" ]
+  # Partition the rollup contexts into the excluded window lock and the release-
+  # gating remainder, then fold the remainder to a single verdict. A CheckRun is
+  # PENDING until COMPLETED; a completed non-SUCCESS/NEUTRAL/SKIPPED conclusion is
+  # FAIL. Legacy StatusContexts map SUCCESS/PENDING/EXPECTED/other the same way.
+  printf '%s' "$raw" | jq -r --arg wf "$WINDOW_LOCK_WORKFLOW" --arg nm "$WINDOW_LOCK_NAME" '
+    (.data.repository.object.statusCheckRollup.contexts.nodes // []) as $n
+    | [ $n[]
+        | if .__typename == "CheckRun" then
+            { excl: ( ((.checkSuite.workflowRun.workflow.name // "") == $wf)
+                      or (((.name // "") | ascii_downcase) | contains($nm)) ),
+              res: ( if .status != "COMPLETED" then "PENDING"
+                     else ( (.conclusion // "") as $c
+                            | if ($c == "SUCCESS" or $c == "NEUTRAL" or $c == "SKIPPED")
+                              then "OK" else "FAIL" end )
+                     end ) }
+          elif .__typename == "StatusContext" then
+            { excl: ( (((.context // "") | ascii_downcase) | contains($nm))
+                      or ((.context // "") == $wf) ),
+              res: ( if .state == "SUCCESS" then "OK"
+                     elif (.state == "PENDING" or .state == "EXPECTED") then "PENDING"
+                     else "FAIL" end ) }
+          else { excl: false, res: "PENDING" } end
+      ]
+    | map(select(.excl | not))
+    | if length == 0 then "NONE"
+      elif any(.[]; .res == "FAIL") then "RED"
+      elif any(.[]; .res == "PENDING") then "PENDING"
+      else "GREEN" end
+  ' 2>/dev/null || return 2
 }
 
 # A 40- or 64-hex commit oid (SHA-1 / SHA-256), validated before use as a git ref.
@@ -241,14 +294,20 @@ if [ -n "$latest_ver" ]; then
     || die "pre-validation: monotonicity gate — proposed $proposed is not strictly greater than the latest release v$latest_ver (on origin)"
 fi
 
-# GitHub CI green on the PR head — the real external state via gh.
-ci_rc=0
-rl_ci_state "$head_oid" || ci_rc=$?
-if [ "$ci_rc" -eq 2 ]; then
-  die "pre-validation: could not verify GitHub CI on the PR head $head_oid (gh query failed); resolve connectivity/auth and re-run"
-elif [ "$ci_rc" -ne 0 ]; then
-  die "pre-validation: ci gate — GitHub CI is not green on the PR head $head_oid (rollup state: ${RL_CI_STATE:-unknown})"
-fi
+# GitHub CI green on the PR head — the real external state via gh, EXCLUDING the
+# untagged-window lock (it gates merges, not the publish, so it must not block
+# arming; without the exclusion a release pending elsewhere would falsely fail
+# this gate). Pre-validation requires a settled GREEN: a still-running head is a
+# refusal to arm now, not a wait.
+head_ci=""
+head_ci=$(rl_ci_verdict "$head_oid") \
+  || die "pre-validation: could not verify GitHub CI on the PR head $head_oid (gh query failed); resolve connectivity/auth and re-run"
+case "$head_ci" in
+  GREEN) : ;;
+  RED) die "pre-validation: ci gate — a release-gating check is red on the PR head $head_oid (window lock excluded)" ;;
+  PENDING) die "pre-validation: ci gate — release-gating CI is still running on the PR head $head_oid; wait for it to settle green before arming" ;;
+  *) die "pre-validation: ci gate — no release-gating CI on the PR head $head_oid (a release gate requires positive CI confirmation)" ;;
+esac
 
 echo "release-arm: armed for release PR #$pr (proposed $tag) — pre-validation passed; watching for the merge"
 
@@ -309,16 +368,55 @@ done
 
 echo "release-arm: observed the merge of PR #$pr at $merge_oid — syncing $MAIN_REF and publishing"
 
-# --- Fire: sync main, then delegate to the unchanged publish (step 3) -------
+# --- Fire: sync main, wait for green CI, then delegate to publish (step 3) ---
 
 # New commits only — fetch and fast-forward; never rewrite (REQ-J1.4 discipline).
 git fetch origin >/dev/null 2>&1 \
   || die "could not fetch origin after the observed merge; main is unchanged — publish manually with $PUBLISH once synced"
 git merge-base --is-ancestor "$merge_oid" "$ORIGIN_MAIN_REF" 2>/dev/null \
   || die "the observed merge $merge_oid is not on $ORIGIN_MAIN_REF after fetch; refusing to publish a state origin does not confirm"
+
+# Re-confirm HEAD is still $MAIN_REF before fast-forwarding. The on-main check at
+# arm time can go stale across a long watch (a branch switch in this worktree),
+# and `git merge --ff-only` moves whatever branch is checked out — fast-forwarding
+# the wrong branch would silently corrupt it.
+cur_branch_now=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || cur_branch_now=""
+[ "$cur_branch_now" = "$MAIN_REF" ] \
+  || die "fire: no longer on $MAIN_REF (on '$(sanitize_printable "${cur_branch_now:-detached HEAD}")') at fire time; refusing to fast-forward a non-$MAIN_REF branch — publish manually with $PUBLISH from a $MAIN_REF checkout"
+
 if ! git merge --ff-only "$ORIGIN_MAIN_REF" >/dev/null 2>&1; then
   die "could not fast-forward $MAIN_REF to $ORIGIN_MAIN_REF (a non-ff divergence); resolve manually, then publish with $PUBLISH"
 fi
+
+# Wait for the release-gating CI to go green on the merged commit before firing
+# publish — EXCLUDING the untagged-window lock, which is red here BY DESIGN (the
+# merge just opened the untagged window; see WINDOW_LOCK_WORKFLOW above) and gates
+# merges, not the publish. Without this wait arm would fire the instant the merge
+# is observed, when the merge commit's CI has not even started, and publish's own
+# CI gate would refuse. Fail closed: a red release-gating check refuses outright;
+# an absent or persistently-pending verdict times out and refuses (arm never fires
+# on unconfirmed CI). A transient query error retries within the poll budget.
+echo "release-arm: waiting for release-gating CI to go green on $merge_oid (window lock excluded)"
+j=0
+while :; do
+  j=$((j + 1))
+  merge_ci=""
+  vrc=0
+  merge_ci=$(rl_ci_verdict "$merge_oid") || vrc=$?
+  [ "$vrc" -eq 2 ] && merge_ci="QUERY_ERROR" # transient — retry within budget
+  case "$merge_ci" in
+    GREEN) break ;;
+    RED)
+      die "fire: ci gate — a release-gating check is red on the merged commit $merge_oid (window lock excluded); refusing to publish — investigate CI, then publish manually with $PUBLISH once green"
+      ;;
+    *) # PENDING | NONE | QUERY_ERROR — keep waiting within the poll budget
+      if [ "$j" -ge "$max_polls" ]; then
+        die "fire: release-gating CI did not go green on $merge_oid within $max_polls polls (last: $(sanitize_printable "$merge_ci")); disarming — publish manually with $PUBLISH once CI is green"
+      fi
+      sleep "$poll_seconds"
+      ;;
+  esac
+done
 
 # Delegate to the unchanged post-merge publish — the single tag authority. It
 # recomputes the release-merge SHA itself (D-6) and re-enforces every gate.
@@ -327,8 +425,13 @@ if ! "$PUBLISH"; then
 fi
 
 # Verify the tag publish created lands within the OBSERVED merge (Done-when,
-# REQ-D1.2). Publish's own D-6 scan is the authority; this is the belt-and-
-# suspenders cross-check that arm watched the change that actually got tagged.
+# REQ-D1.2). Re-derive the tag from the MERGED state (the version at the observed
+# merge commit), NEVER the arm-time proposed version: if the PR's version changed
+# between arming and merge, publish (correctly) tags the merged version, and a
+# check against the stale arm-time tag would raise a false "tag absent" on a
+# release that actually succeeded. Publish's own D-6 scan is the authority; this
+# is the belt-and-suspenders cross-check that arm watched the change that got
+# tagged.
 #
 # The predicate is "tagged is an ancestor of, or equal to, the observed merge
 # oid", NOT strict equality. For squash and merge-commit strategies publish tags
@@ -338,10 +441,17 @@ fi
 # which is an ancestor of that tip. Strict equality would raise a false "D-6
 # mismatch" on a perfectly correct rebase-merge publish; the ancestor test still
 # catches a genuine anomaly (publish tagging a commit outside the merged range).
-tagged=$(git rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null) \
-  || die "publish reported success but tag $tag is absent"
+merged_ver=$(rl_version_at "$merge_oid" "$vf_path" "$vf_sel") \
+  || die "publish reported success but the version_file ($(sanitize_printable "$vf_path")) could not be read at the observed merge $merge_oid to verify the tag"
+[ -n "$merged_ver" ] \
+  || die "publish reported success but no version was found in $(sanitize_printable "$vf_path") at the observed merge $merge_oid"
+rl_valid_semver "$merged_ver" \
+  || die "publish reported success but the version at the observed merge is not valid SemVer: '$(sanitize_printable "$merged_ver")'"
+published_tag="v$merged_ver"
+tagged=$(git rev-parse -q --verify "refs/tags/$published_tag^{commit}" 2>/dev/null) \
+  || die "publish reported success but tag $published_tag is absent"
 git merge-base --is-ancestor "$tagged" "$merge_oid" 2>/dev/null \
-  || die "the published tag $tag is on $tagged, which is not within the observed merge $merge_oid (D-6 mismatch — investigate before trusting the release)"
+  || die "the published tag $published_tag is on $tagged, which is not within the observed merge $merge_oid (D-6 mismatch — investigate before trusting the release)"
 
-echo "release-arm: published $tag on the observed merge $merge_oid"
+echo "release-arm: published $published_tag on the observed merge $merge_oid"
 exit 0
