@@ -199,6 +199,25 @@ out="$("$GUARD" "$TMP/retrieval" 2>&1)"
 rc=$?
 assert_exit "a namespace ending in 'eval' (retrieval:) is not flagged" 0 "$rc"
 
+# ---- a word ENDING in 'mise' (premise) is NOT a mise invocation ----
+# `grep 'mise[[:space:]]'` matches `premise ` as a substring; without a leading
+# token boundary a benign line that merely contains the word `premise` AND an
+# `eval:` mention (e.g. a prose comment) false-positives and spuriously fails CI.
+# `mise` must sit at a token boundary, same as the `eval:` stage.
+mkdir -p "$TMP/premise"
+cat >"$TMP/premise/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      # our premise here: the eval: namespace stays manual-only, never CI
+      - run: mise run check
+EOF
+out="$("$GUARD" "$TMP/premise" 2>&1)"
+rc=$?
+assert_exit "a word ending in 'mise' (premise) is not flagged" 0 "$rc"
+
 # ---- no workflow directory: vacuously clean ----
 out="$("$GUARD" "$TMP/does-not-exist" 2>&1)"
 assert_exit "absent workflow dir passes vacuously" 0 $?

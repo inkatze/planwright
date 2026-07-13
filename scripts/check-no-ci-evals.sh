@@ -69,10 +69,12 @@ fi
 
 # Two alternatives (see the header):
 #   * a `mise` invocation whose line names an `eval:` task — matched in two
-#     stages so BOTH conditions hold on the line: the line invokes `mise`, and
-#     it carries an `eval:` at a TOKEN BOUNDARY (preceded by a non-word char, so
-#     the `eval` namespace triggers but a substring inside `retrieval:` /
-#     `medieval:` / `evaluate-release` does not). This covers the `run`/`r`
+#     stages so BOTH conditions hold on the line: the line invokes `mise` (at a
+#     TOKEN BOUNDARY, so a word merely ending in `mise` like `premise` does not
+#     trigger), and it carries an `eval:` at a TOKEN BOUNDARY (preceded by a
+#     non-word char, so the `eval` namespace triggers but a substring inside
+#     `retrieval:` / `medieval:` / `evaluate-release` does not). Both stages use
+#     the same `(^|[^[:alnum:]_-])` anchor. This covers the `run`/`r`
 #     alias, an interposed flag, and a quoted task, since `eval:` always sits at
 #     an argument boundary. A residual, accepted in the fail-loud direction: a
 #     contrived line that both invokes mise AND writes the literal `eval:` after
@@ -81,7 +83,7 @@ fi
 #     never a silent bypass.
 #   * a direct call to the runner script, bypassing mise entirely.
 # -H forces the filename prefix even for a single file (file:line:match report).
-mise_eval="$(grep -HnE 'mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
+mise_eval="$(grep -HnE '(^|[^[:alnum:]_-])mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
 direct="$(grep -HnE 'prompt-eval\.sh' "$@" 2>/dev/null || true)"
 hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort -u || true)"
 

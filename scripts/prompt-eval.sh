@@ -522,9 +522,11 @@ while IFS= read -r fx; do
   [ -n "$fx" ] || continue
   run_fixture "$fx"
   rc=$?
+  # run_fixture records a graded fixture failure itself (via note_fail, which
+  # sets overall_rc) and returns 0; any non-zero rc is a fatal harness error
+  # (setup, JSON, or record failure) that aborts the whole suite.
   case "$rc" in
     0) : ;;
-    1) note_fail ;;
     *) exit "$rc" ;;
   esac
 done <<EOF
