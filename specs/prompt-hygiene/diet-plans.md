@@ -122,7 +122,7 @@ Start-load offenders the computation surfaced (error threshold 10,000):
 
 | Skill | Start-load | Closure | Diet task | Allowance |
 | --- | --- | --- | --- | --- |
-| `/orchestrate` | 16,353 | 19,771 (warn) | Task 5 | `pending-diet start-load` |
+| `/orchestrate` | 16,371 | 19,789 (warn) | Task 5 | `pending-diet start-load` |
 | `/execute-task` | 16,429 | 18,091 (warn) | Task 6 | `pending-diet start-load` |
 | `/spec-kickoff` | 13,055 | 14,717 | Task 7 | `pending-diet start-load` |
 | `/spec-draft` | 12,636 | 14,298 | **Task 7.5** | `pending-diet start-load` |
@@ -135,8 +135,12 @@ Task 2's pre-manifest audit could not see it — its diet is **Task 7.5**,
 point-of-use reclassification. No reachable-closure offender surfaced (every
 skill's closure is under the 20,000 error threshold; `/orchestrate` and
 `/execute-task` warn), so no closure allowance is seeded — matching the kickoff
-expectation. `/builder` (start-load 4,340), `/self-review` (9,994, warn), and
-`/polish` (9,591, warn) are under the error threshold and carry no allowance.
+expectation. `/builder` (start-load 7,334 — its `decision-domains` and
+`finding-categorization` reads are run-start: the former is the escalate-vs-
+auto-apply permission gate walked before applying, which the safety floor keeps
+out of point-of-use, the latter drives the recommend-vs-apply call and the audit
+output on every run), `/self-review` (9,994, warn), and `/polish` (9,591, warn)
+are under the error threshold and carry no allowance.
 
 Each start-load allowance is seeded in `config/instruction-budget-exemptions.txt`
 and removed by its diet task's own PR (Task 8 forbids any lingering `pending diet`

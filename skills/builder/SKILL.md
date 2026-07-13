@@ -29,11 +29,13 @@ marks a PR ready, and never auto-defaults a load-bearing decision.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve and read these rule docs at
-run start via the rule-doc resolution convention
-(`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
-or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
-definitions govern wherever this skill names a concept:
+This skill is procedure, not doctrine. Resolve these rule docs via the
+rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>`
+under the resolved planwright root, or the documented
+`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); the doctrine manifest below
+marks which load at run start and which load at point of use (the escalation,
+adoption, and interactive branches). Their definitions govern wherever this
+skill names a concept:
 
 - `guard-catalog` — the normative core catalog: guard categories, the entry
   format, breadth dimensions, the extension model, and the dogfood contract.
@@ -67,8 +69,8 @@ Doctrine manifest (the reading model above in machine-parseable form, per
 Doctrine: run-start guard-catalog
 Doctrine: run-start engineering-decisions
 Doctrine: run-start proportionality
-Doctrine: point-of-use decision-domains (the escalate-vs-auto-apply catalog)
-Doctrine: point-of-use finding-categorization (an escalated decision's routing)
+Doctrine: run-start decision-domains
+Doctrine: run-start finding-categorization
 Doctrine: point-of-use gate-wiring (the GATE deferral an escalation routes into)
 Doctrine: point-of-use research-rigor (when a guard or tool is being adopted)
 Doctrine: point-of-use interaction-style (the interactive recommend/confirm mode)
