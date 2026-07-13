@@ -457,6 +457,17 @@ assert_contains "surfaces the probe.sh stderr header" "probe.sh stderr:" "$out"
 assert_contains "surfaces the probe's diagnostic message" \
   "probe diagnostic: could not find the branch" "$out"
 
+# ---- 26. --help prints only the comment header, no leaked code lines ---------
+# print_help slices the header comment block out of the script; an off-by-one in
+# the line range leaks the first line(s) of actual code (`set -u`, `LC_ALL=C`)
+# into the usage output. Assert the help text stays within the comment block.
+out="$("$RUNNER" --help 2>&1)"
+rc=$?
+assert_exit "--help exits 0" 0 "$rc"
+assert_contains "--help shows the usage synopsis" "Usage:" "$out"
+assert_absent "--help does not leak the 'set -u' code line" "set -u" "$out"
+assert_absent "--help does not leak the 'LC_ALL=C' code line" "LC_ALL=C" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1
