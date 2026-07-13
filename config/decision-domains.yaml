@@ -2,7 +2,7 @@
 # planwright decision-domains catalog — machine view (Task 5; REQ-B1.3, D-5).
 #
 # doctrine/decision-domains.md is the normative prose home: entry format,
-# lifecycle wiring, the ten seed domains in full, and the growth model. THIS
+# lifecycle wiring, the eleven seed domains in full, and the growth model. THIS
 # file is its machine view — the core seed scripts/resolve-catalog.sh merges
 # with the adopter / repo-tracked / machine-local overlay catalogs
 # (append/union, supersede-by-id). Adding a domain here, or via an overlay

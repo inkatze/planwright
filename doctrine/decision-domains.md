@@ -15,7 +15,7 @@ Citations: REQ-G1.8, REQ-G1.4 · D-39, D-16.
 
 The prose entries below are the catalog's normative home. Their machine view
 for overlay merging is [`config/decision-domains.yaml`](../config/decision-domains.yaml)
-(the ten seed domains keyed by stable id), the core seed
+(the eleven seed domains keyed by stable id), the core seed
 [`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) unions with
 adopter / team / machine-local overlays — see *Growth and adopter extension*.
 The doc/yaml split mirrors [guard-catalog.md](guard-catalog.md) /
