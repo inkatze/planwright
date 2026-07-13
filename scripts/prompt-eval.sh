@@ -503,8 +503,20 @@ record_result() {
   r_outcome="$2"
   r_cost="$3"
   r_runs="$4"
-  runs_json="$(printf '%s' "$r_runs" | jq -R 'select(length>0) | tonumber' 2>/dev/null | jq -sc . 2>/dev/null)"
-  [ -n "$runs_json" ] || runs_json="[]"
+  # Encode the captured per-run costs (each already validated by is_number
+  # before capture) as a JSON array. No runs -> an empty array is correct; but
+  # if runs WERE captured and encoding still yields nothing, that is a
+  # jq/environment failure — fail closed rather than silently writing an
+  # artifact whose empty per_run_cost_usd masks the loss.
+  if [ -n "$r_runs" ]; then
+    runs_json="$(printf '%s' "$r_runs" | jq -R 'select(length>0) | tonumber' 2>/dev/null | jq -sc . 2>/dev/null)"
+    if [ -z "$runs_json" ]; then
+      echo "prompt-eval: [$r_id] fail-closed — could not encode captured per-run costs" >&2
+      return 1
+    fi
+  else
+    runs_json="[]"
+  fi
   artifact="$(jq -n \
     --arg fx "$r_id" \
     --arg oc "$r_outcome" \
