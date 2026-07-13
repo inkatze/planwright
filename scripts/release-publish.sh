@@ -63,6 +63,9 @@ ORIGIN_MAIN_REF="origin/main"
 # below therefore evaluates every OTHER check on the release commit and treats
 # this one as expected-red. The name is the release-window.yml job id, which is
 # its GitHub check-run name; a repo without that job simply has nothing to skip.
+# The carve-out is scoped to the Actions CheckRun of this name: a legacy
+# commit-status (StatusContext) that happens to carry the same name is NOT
+# excluded, so it still fails the gate closed rather than being silently dropped.
 RELEASE_WINDOW_CHECK="window-lock"
 
 die() {
@@ -277,8 +280,9 @@ if [ "$resume" -eq 0 ]; then
       -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{state contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}' \
       -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
     # Judge each check to SUCCESS/PENDING/FAILURE/NEUTRAL, drop the release-window
-    # lock by name, then re-aggregate. Any jq error (malformed response, missing
-    # field) fails closed via the surrounding `|| return 2`.
+    # lock (matched by name AND CheckRun type, so a legacy commit-status of the
+    # same name is still judged), then re-aggregate. Any jq error (malformed
+    # response, missing field) fails closed via the surrounding `|| return 2`.
     RL_CI_STATE=$(printf '%s' "$raw" | jq -r --arg excl "$RELEASE_WINDOW_CHECK" '
       .data.repository.object.statusCheckRollup as $roll
       | if $roll == null then "NONE"
@@ -286,18 +290,18 @@ if [ "$resume" -eq 0 ]; then
         else
           [ ($roll.contexts.nodes // [])[]
             | if .__typename == "CheckRun"
-              then { name: .name, v: (
+              then { type: "CheckRun", name: .name, v: (
                   if .status != "COMPLETED" then "PENDING"
                   elif .conclusion == "SUCCESS" then "SUCCESS"
                   elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "NEUTRAL"
                   else "FAILURE" end) }
-              else { name: .context, v: (
+              else { type: "StatusContext", name: .context, v: (
                   if .state == "SUCCESS" then "SUCCESS"
                   elif (.state == "PENDING" or .state == "EXPECTED") then "PENDING"
                   else "FAILURE" end) }
               end
           ]
-          | map(select(.name != $excl)) | map(.v) as $vs
+          | map(select(.type != "CheckRun" or .name != $excl)) | map(.v) as $vs
           | if ($vs | length) == 0 then "NONE"
             elif any($vs[]; . == "FAILURE") then "FAILURE"
             elif any($vs[]; . == "PENDING") then "PENDING"

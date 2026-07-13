@@ -110,10 +110,13 @@ seed_version() {
 # `contexts` so the publish gate's per-check evaluation and window-lock exclusion
 # are exercised; GH_WINDOW_LOCK (red|green) adds a `window-lock` check-run;
 # GH_STATUS_CONTEXT (success|error|pending) adds a legacy StatusContext
-# (commit-status) node; GH_HASNEXTPAGE=true forces the pagination guard. The top-level rollup
-# `state` stays server-accurate (FAILURE whenever any check — window-lock
-# included — is red) so a gate that reads only the aggregate still sees the
-# real, deadlocking state. `release view` exits per GH_RELEASE_EXISTS; `release
+# (commit-status) node, named via GH_STATUS_CONTEXT_NAME (default legacy-ci) so a
+# commit-status can be named `window-lock` to prove the carve-out is CheckRun-
+# scoped; GH_HASNEXTPAGE=true forces the pagination guard. The top-level rollup
+# `state` is computed with GitHub's rollup precedence (FAILURE > PENDING >
+# SUCCESS — max severity, not last-writer-wins) so it stays server-accurate even
+# when checks of differing severity coexist, and a gate that reads only the
+# aggregate still sees the real, deadlocking state. `release view` exits per GH_RELEASE_EXISTS; `release
 # create` copies its --notes-file to $GH_NOTES. Everything else is a benign
 # success.
 make_gh_stub() {
@@ -166,21 +169,31 @@ case "$1" in
     nodes=""
     st="SUCCESS"
     add_node() { if [ -n "$nodes" ]; then nodes="$nodes,$1"; else nodes="$1"; fi; }
+    # Track the worst check state with GitHub's rollup precedence
+    # (FAILURE > PENDING > SUCCESS) so the top-level `state` stays server-accurate
+    # even when checks of differing severity coexist (a red check plus a pending
+    # one). A plain per-branch `st=...` would be last-writer-wins and could report
+    # PENDING while a FAILURE is present, contradicting the real rollup.
+    worsen() { case "$1" in FAILURE) st="FAILURE" ;; PENDING) [ "$st" = "SUCCESS" ] && st="PENDING" ;; esac; }
     case "${GH_CI:-green}" in
       green) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
-      red) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
-      pending) add_node '{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null}'; st="PENDING" ;;
+      red) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'; worsen FAILURE ;;
+      pending) add_node '{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null}'; worsen PENDING ;;
       neutral) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"NEUTRAL"}' ;;
       none) : ;;
     esac
     case "${GH_WINDOW_LOCK:-}" in
-      red) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
+      red) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; worsen FAILURE ;;
       green) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
     esac
+    # GH_STATUS_CONTEXT_NAME overrides the legacy commit-status context name
+    # (default legacy-ci) so a StatusContext can be named "window-lock" to prove
+    # the carve-out is CheckRun-scoped and does NOT drop a same-named commit-status.
+    sc_name="${GH_STATUS_CONTEXT_NAME:-legacy-ci}"
     case "${GH_STATUS_CONTEXT:-}" in
-      success) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"SUCCESS"}' ;;
-      error) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"ERROR"}'; st="FAILURE" ;;
-      pending) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"PENDING"}'; st="PENDING" ;;
+      success) add_node '{"__typename":"StatusContext","context":"'"$sc_name"'","state":"SUCCESS"}' ;;
+      error) add_node '{"__typename":"StatusContext","context":"'"$sc_name"'","state":"ERROR"}'; worsen FAILURE ;;
+      pending) add_node '{"__typename":"StatusContext","context":"'"$sc_name"'","state":"PENDING"}'; worsen PENDING ;;
     esac
     if [ -z "$nodes" ]; then
       printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n'
@@ -553,6 +566,30 @@ run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=pending GH_RELEASE_EXISTS=0
 assert_ne "gate/mixed-pending: a green check does not mask a pending one" "$RC" "0"
 assert_contains "gate/mixed-pending: classified PENDING, not green" "$ERR" "rollup state: PENDING"
 deny "gate/mixed-pending: no tag created while any non-excluded check is pending" local_has_tag "$r" v0.1.0
+
+# 4h-12. CheckRun-SCOPED carve-out (Copilot #163 review thread). The window-lock
+#        exclusion drops ONLY the Actions CheckRun of that name; a legacy
+#        commit-status (StatusContext) named `window-lock` is NOT excluded, so a
+#        red one still fails the gate closed. Before the type-scoping the bare
+#        name match dropped it, and a green `ci` alongside would have published a
+#        release while a check named window-lock was red.
+r="$tmp/status-context-named-window-lock"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=error GH_STATUS_CONTEXT_NAME=window-lock GH_RELEASE_EXISTS=0
+assert_ne "gate/sc-window-lock: a red commit-status named window-lock is NOT carved out" "$RC" "0"
+assert_contains "gate/sc-window-lock: classified FAILURE (StatusContext judged, not excluded)" "$ERR" "rollup state: FAILURE"
+deny "gate/sc-window-lock: no tag created (the same-named commit-status still blocks)" local_has_tag "$r" v0.1.0
+
+# 4h-13. The gh stub's top-level rollup `state` is server-accurate under mixed
+#        severities (Copilot #163 review thread): a FAILURE alongside a later
+#        PENDING aggregates to FAILURE (max severity), not last-writer-wins
+#        PENDING — else a gate reading the aggregate could be misled and the
+#        fixture would contradict its own "server-accurate" contract. Asserts the
+#        stub directly (its `state` is the fixture's model of the real rollup).
+state=$(env PATH="$stub:$PATH" GH_CI=red GH_STATUS_CONTEXT=pending gh api graphql -f query=x 2>/dev/null \
+  | jq -r '.data.repository.object.statusCheckRollup.state')
+assert_eq "stub/state-accuracy: red + pending aggregates to FAILURE (max severity)" "$state" "FAILURE"
 
 # ===========================================================================
 # 5. require_signed_tags modes (REQ-D1.4) + verify-before-push (REQ-D1.5).
