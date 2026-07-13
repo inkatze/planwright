@@ -105,8 +105,12 @@ seed_version() {
 
 # --- gh stub -----------------------------------------------------------------
 # Logs each invocation to $GH_LOG. `repo view` prints a canned nameWithOwner;
-# `api graphql` prints a statusCheckRollup per GH_CI (green→SUCCESS, red→FAILURE,
-# pending→in-progress, neutral→NEUTRAL, none→null rollup) with per-check
+# `api graphql` prints a statusCheckRollup whose `ci` CheckRun node is set by
+# GH_CI (green→conclusion SUCCESS, red→conclusion FAILURE, pending→status
+# IN_PROGRESS, neutral→conclusion NEUTRAL, none→no `ci` node; with no nodes at
+# all the rollup is null). These are per-node attributes, not rollup states: the
+# top-level `state` is derived separately (see below), and there is no PENDING/
+# NEUTRAL rollup-state shorthand here. The rollup carries per-check
 # `contexts` so the publish gate's per-check evaluation and window-lock exclusion
 # are exercised; GH_WINDOW_LOCK (red|green) adds a `window-lock` check-run;
 # GH_STATUS_CONTEXT (success|error|pending) adds a legacy StatusContext
