@@ -179,13 +179,15 @@ case "$1" in
     exit 0
     ;;
   api)
-    # statusCheckRollup keyed by the queried sha, returning BOTH the aggregate
-    # `state` (what release-publish.sh's unchanged ci_green reads) AND the
-    # `contexts` node list (what release-arm.sh's rl_ci_verdict reads). The list
-    # always carries the window-lock CheckRun (FAILURE by default — red by design)
-    # plus, unless the quality selector is `none`, the `ci`/`check` quality
-    # CheckRun. This lets a test model "aggregate red from the window lock, but the
-    # quality check green" — the exact case arm's exclusion must handle.
+    # statusCheckRollup keyed by the queried sha, returning the per-check
+    # `contexts` node list (with `pageInfo.hasNextPage`) plus the aggregate
+    # `state`. BOTH release-arm.sh's rl_ci_verdict AND release-publish.sh's
+    # ci_green now judge the per-check `contexts` (release-publish.sh reads the
+    # aggregate `state` only for the null-rollup case, never as the verdict). The
+    # list always carries the window-lock CheckRun (FAILURE by default — red by
+    # design) plus, unless the quality selector is `none`, the `ci`/`check`
+    # quality CheckRun. This lets a test model "aggregate red from the window
+    # lock, but the quality check green" — the exact case the exclusion handles.
     #   ARM_HEAD_CI / ARM_MERGE_CI  quality selector per sha: green|red|pending|none
     #   ARM_HEAD_STATE / ARM_MERGE_STATE  aggregate `.state` per sha (default SUCCESS)
     #   ARM_WINDOW_CONCLUSION       window-lock CheckRun conclusion (default FAILURE)
@@ -226,7 +228,11 @@ case "$1" in
       sc='{"__typename":"StatusContext","context":"window-lock","state":"'"${ARM_STATUS_WINDOWLOCK}"'"}'
       nodes="$nodes,$sc"
     fi
-    printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"nodes":[%s]}}}}}}\n' "$astate" "$nodes"
+    # ARM_HAS_NEXT_PAGE  model >100 check contexts (a second page): both
+    #   rl_ci_verdict and release-publish.sh's ci_green must fail closed (TOO_MANY)
+    #   rather than trust an incomplete first-page read. Default false.
+    hnp=${ARM_HAS_NEXT_PAGE:-false}
+    printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":%s},"nodes":[%s]}}}}}}\n' "$astate" "$hnp" "$nodes"
     exit 0
     ;;
   release)
@@ -394,6 +400,22 @@ assert_ne "pv/ci-statuslock: exits non-zero (legacy status named window-lock is 
 assert_contains "pv/ci-statuslock: refuses at the CI gate, not the watch budget" "$ERR" "ci gate"
 deny "pv/ci-statuslock: no tag created" local_has_tag "$r" v0.2.0
 deny "pv/ci-statuslock: never published" gh_called "$LOG" "release create"
+
+# 3b-4. Pagination fail-closed: >100 check contexts (hasNextPage) means the read
+#       is incomplete, so a failing/pending check could hide on an unread page.
+#       rl_ci_verdict must emit TOO_MANY and refuse (never GREEN), exactly as
+#       release-publish.sh's ci_green does — even though the visible first-page
+#       check is green. Pinned OPEN so a regression (evaluating the incomplete set
+#       as GREEN) shows as a watch-budget timeout (no "page" message), not a fire.
+r="$tmp/pv-ci-toomany"
+setup_release_pr "$r" 0.2.0 87
+run_arm "$r" 87 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_FINAL_STATE=OPEN ARM_HEAD_CI=green \
+  ARM_HAS_NEXT_PAGE=true GH_RELEASE_EXISTS=0
+assert_ne "pv/ci-toomany: exits non-zero (incomplete check page is not positive confirmation)" "$RC" "0"
+assert_contains "pv/ci-toomany: names the >100-check pagination refusal" "$ERR" "more than one page"
+deny "pv/ci-toomany: no tag created" local_has_tag "$r" v0.2.0
+deny "pv/ci-toomany: never published" gh_called "$LOG" "release create"
 
 # 3c. A tag for the proposed version already exists on origin (idempotency).
 r="$tmp/pv-tag"

@@ -160,6 +160,9 @@ esac
 #   NONE    no positive CI confirmation yet — no checks, or only the excluded
 #           lock, or only NEUTRAL/SKIPPED left — fail closed (keep waiting,
 #           refuse on timeout); "no CI" and "no success" are never a green light
+#   TOO_MANY more than one page of checks (>100) — the read is incomplete, so a
+#           failing/pending check could hide unread; fail closed (refuse now, do
+#           not wait) exactly as release-publish.sh does
 # EXCLUDING the untagged-window lock (the CheckRun named $WINDOW_LOCK_NAME),
 # which is red BY DESIGN during the untagged window and gates merges, not the
 # publish. Excluding it here is what lets arm see the *quality* CI go green on a
@@ -179,7 +182,7 @@ rl_ci_verdict() {
   repo=${nwo#*/}
   # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
   raw=$(gh api graphql \
-    -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{contexts(first:100){nodes{__typename ... on CheckRun{name status conclusion checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}}' \
+    -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}}' \
     -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
   # Partition the rollup contexts into the excluded window lock and the release-
   # gating remainder, then fold the remainder to a single verdict. A CheckRun is
@@ -191,8 +194,17 @@ rl_ci_verdict() {
   # neutral-only remainder folds to NONE, not GREEN): a release gate requires at
   # least one real SUCCESS, so arm never arms-and-fires on a state whose own
   # publish-side ci_green would then refuse on the identical NONE verdict.
+  #
+  # Pagination: the query reads only the first 100 contexts. If more exist
+  # (hasNextPage), a failing/pending check could hide on an unread page, so the
+  # fold cannot be trusted — emit TOO_MANY and fail closed, exactly as
+  # release-publish.sh's ci_green does. Both callers treat TOO_MANY as a refusal
+  # (never GREEN), so arm never arms/fires on an incompletely-read CI set.
   printf '%s' "$raw" | jq -r --arg nm "$WINDOW_LOCK_NAME" '
-    (.data.repository.object.statusCheckRollup.contexts.nodes // []) as $n
+    .data.repository.object.statusCheckRollup as $roll
+    | if ($roll.contexts.pageInfo.hasNextPage // false) then "TOO_MANY"
+      else
+    ($roll.contexts.nodes // []) as $n
     | [ $n[]
         | if .__typename == "CheckRun" then
             { excl: ((.name // "") == $nm),
@@ -215,6 +227,7 @@ rl_ci_verdict() {
       elif any(.[]; .res == "PENDING") then "PENDING"
       elif any(.[]; .res == "OK") then "GREEN"
       else "NONE" end
+      end
   ' 2>/dev/null || return 2
 }
 
@@ -324,6 +337,7 @@ case "$head_ci" in
   GREEN) : ;;
   RED) die "pre-validation: ci gate — a release-gating check is red on the PR head $head_oid (window lock excluded)" ;;
   PENDING) die "pre-validation: ci gate — release-gating CI is still running on the PR head $head_oid; wait for it to settle green before arming" ;;
+  TOO_MANY) die "pre-validation: ci gate — the PR head $head_oid has more than one page of checks (>100); CI completeness cannot be verified from a single read — publish manually with $PUBLISH after confirming CI" ;;
   *) die "pre-validation: ci gate — no release-gating CI on the PR head $head_oid (a release gate requires positive CI confirmation)" ;;
 esac
 
@@ -426,6 +440,12 @@ while :; do
     GREEN) break ;;
     RED)
       die "fire: ci gate — a release-gating check is red on the merged commit $merge_oid (window lock excluded); refusing to publish — investigate CI, then publish manually with $PUBLISH once green"
+      ;;
+    TOO_MANY)
+      # Will not self-heal by waiting: refuse now, like RED (and like publish's
+      # own fail-closed on >100 checks). Waiting the whole budget would only
+      # delay the same refusal.
+      die "fire: ci gate — the merged commit $merge_oid has more than one page of checks (>100); CI completeness cannot be verified from a single read — refusing to publish, run $PUBLISH manually after confirming CI"
       ;;
     *) # PENDING | NONE | QUERY_ERROR — keep waiting within the poll budget
       if [ "$j" -ge "$max_polls" ]; then
