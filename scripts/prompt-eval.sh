@@ -335,11 +335,21 @@ run_fixture() {
     current_work="$work" # armed for the interrupt-safe cleanup trap
 
     if [ -f "$fx_dir/setup.sh" ]; then
-      if ! (cd "$work" && sh "$fx_dir/setup.sh" "$work") >/dev/null 2>&1; then
+      # Capture setup.sh stderr rather than discarding it: a failing seed is a
+      # fixture-authoring error, and its diagnostics are what the human needs to
+      # fix it. Terminal-only, never recorded, so artifact hygiene is unaffected
+      # (mirrors the probe.sh handling below). stdout stays discarded as noise.
+      setup_err="$work.setup-err"
+      if ! (cd "$work" && sh "$fx_dir/setup.sh" "$work") >/dev/null 2>"$setup_err"; then
         echo "prompt-eval: [$fx_id run $run] setup.sh failed" >&2
-        rm -rf "$work" "$raw"
+        if [ -s "$setup_err" ]; then
+          echo "prompt-eval: [$fx_id run $run] setup.sh stderr:" >&2
+          sed 's/^/  /' "$setup_err" >&2
+        fi
+        rm -rf "$work" "$raw" "$setup_err"
         return 4
       fi
+      rm -f "$setup_err"
     fi
 
     # The graded run: headless, hermetic, budget-capped. Failures of the binary

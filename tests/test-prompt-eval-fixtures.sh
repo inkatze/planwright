@@ -12,7 +12,8 @@
 #     refuses);
 #   * each assert.jq is a syntactically valid jq program.
 # The plugin's own spec-validate.sh / spec-anchor.sh are the graders, resolved
-# via PLANWRIGHT_ROOT/CLAUDE_PLUGIN_ROOT with a plugin-cache fallback.
+# via PLANWRIGHT_ROOT, then CLAUDE_PLUGIN_ROOT, then a repo-root fallback (in
+# this repo planwright IS the checkout, so its scripts sit at REPO_ROOT).
 set -u
 unset CDPATH
 

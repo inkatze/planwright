@@ -494,6 +494,25 @@ out="$(STUB_PLAN="$TMP/plan" STUB_COST="5E-7" \
 rc=$?
 assert_exit "sub-micro suite budget triggers fail-closed (exit 6)" 6 "$rc"
 
+# ---- 29. a failing setup.sh's stderr is surfaced for debuggability -----------
+# Mirrors the probe.sh handling: a failing seed is a fixture-authoring error, so
+# its stderr must reach the operator rather than vanish into /dev/null behind a
+# generic "setup.sh failed" line.
+fx="$(mk_fixture noisysetup '.is_error == false')"
+cat >"$fx/setup.sh" <<'EOF'
+#!/bin/sh
+echo "setup diagnostic: seed repo could not be created" >&2
+exit 1
+EOF
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "noisy failing setup.sh is fail-closed (exit 4)" 4 "$rc"
+assert_contains "surfaces the setup.sh stderr header" "setup.sh stderr:" "$out"
+assert_contains "surfaces the setup's diagnostic message" \
+  "setup diagnostic: seed repo could not be created" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1
