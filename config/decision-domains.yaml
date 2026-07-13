@@ -58,3 +58,7 @@ domains:
     trigger: "Adding a library, service, or tool the project does not already use"
     considerations: "Stdlib/existing cover it first; supply chain, maintenance, license, weight"
     disposition: "Dev tooling proceeds with checklist; runtime/untrusted-input deps escalate"
+  - id: versioning-scheme
+    trigger: "Versioning a shipped artifact: a first release, a version format, or a scheme switch"
+    considerations: "Artifact type (compat-signaling lib/plugin vs shipped app); lineage; tooling"
+    disposition: "SemVer if compat-bearing, CalVer if shipped, else unversioned; switch escalates"

@@ -37,6 +37,7 @@ fi
 # The output contract is tab-separated `<id>\t<category>\t<tool>` lines.
 tools_of() { awk -F'\t' '{print $3}'; }
 cats_of() { awk -F'\t' '{print $2}'; }
+ids_of() { awk -F'\t' '{print $1}'; }
 
 # ---------------------------------------------------------------------------
 # 1. Dogfood (REQ-G1.7): --core against planwright reproduces Task 2's guards.
@@ -61,6 +62,30 @@ if printf '%s\n' "$(printf '%s\n' "$core_out" | cats_of)" | grep -qx "type-check
   fail "dogfood wrongly recommends a type-checker for a shell-only project"
 else
   pass "dogfood recommends no type-checker (shell has none)"
+fi
+
+# ---------------------------------------------------------------------------
+# 1b. Breadth: the release-tagging dimension (Task 3, REQ-G1.1) is surfaced by a
+#     FULL (non-core) run and is advisory-only — it never joins the --core set.
+# ---------------------------------------------------------------------------
+full_out="$(/bin/bash "$SCRIPT" "$REPO_ROOT" 2>/dev/null)"
+assert_exit "full (non-core) run exits clean" 0 $?
+if printf '%s\n' "$full_out" | ids_of | grep -qx "release-tagging"; then
+  pass "full run surfaces the release-tagging breadth dimension (REQ-G1.1)"
+else
+  fail "full run missing the release-tagging breadth dimension"
+fi
+# Advisory-only: a breadth guard carries category `breadth`, never a core one,
+# and must be absent from the --core dogfood set (it is not a mechanical guard).
+if printf '%s\n' "$full_out" | awk -F'\t' '$1=="release-tagging"{print $2}' | grep -qx "breadth"; then
+  pass "release-tagging is categorized as an advisory breadth dimension"
+else
+  fail "release-tagging is not categorized breadth"
+fi
+if printf '%s\n' "$core_out" | ids_of | grep -qx "release-tagging"; then
+  fail "release-tagging (breadth) wrongly appeared in the --core set"
+else
+  pass "release-tagging omitted from --core (advisory, not a mechanical guard)"
 fi
 
 # ---------------------------------------------------------------------------

@@ -334,7 +334,7 @@ out="$(rc "$sb" testcat -- 2>/dev/null)"
 assert "trailing bare -- after the name is valid" 0 $?
 
 # ---------------------------------------------------------------------------
-# 11. real decision-domains seed resolves to the ten domains (smoke)
+# 11. real decision-domains seed resolves to the eleven domains (smoke)
 # ---------------------------------------------------------------------------
 sb="$tmp/realdd"
 mkdir -p "$sb/repo"
@@ -342,12 +342,13 @@ out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
   /bin/bash "$RESOLVER" decision-domains 2>/dev/null)"
 assert "real decision-domains: exit 0" 0 $?
 for id in data-storage caching queues-async api-surface auth secrets-config \
-  concurrency observability deploy-migration dependency-adoption; do
+  concurrency observability deploy-migration dependency-adoption \
+  versioning-scheme; do
   assert_contains "real decision-domains: $id present" "id: $id" "$out"
 done
 exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
   /bin/bash "$RESOLVER" decision-domains --explain 2>/dev/null | grep -c '	core$')"
-assert_eq "real decision-domains: ten core entries via --explain" "10" "$exp"
+assert_eq "real decision-domains: eleven core entries via --explain" "11" "$exp"
 
 # ---------------------------------------------------------------------------
 # 12. fast-path is byte-identical to the core seed (REQ-B1.2): with only the
