@@ -96,7 +96,9 @@ case "$poll_seconds" in
   '' | *[!0-9]*) die "RELEASE_ARM_POLL_SECONDS must be a non-negative integer: '$(sanitize_printable "$poll_seconds")'" ;;
 esac
 case "$max_polls" in
-  '' | *[!0-9]* | 0) die "RELEASE_ARM_MAX_POLLS must be a positive integer: '$(sanitize_printable "$max_polls")'" ;;
+  # Reject a leading zero as well as a bare 0: `-ge` reads "00"/"000" as 0, which
+  # would silently make the poll budget zero and fire an immediate timeout.
+  '' | *[!0-9]* | 0*) die "RELEASE_ARM_MAX_POLLS must be a positive integer with no leading zero: '$(sanitize_printable "$max_polls")'" ;;
 esac
 
 command -v git >/dev/null 2>&1 || die "git is required"
@@ -178,7 +180,8 @@ fi
 pr_state=$(printf '%s' "$pr_json" | jq -r '.state // ""' 2>/dev/null) || die "pre-validation: could not parse gh pr view output for #$pr"
 [ "$pr_state" = "OPEN" ] \
   || die "pre-validation: release PR #$pr is not OPEN (state: $(sanitize_printable "${pr_state:-unknown}")); arm only an open release PR (a merged/closed PR has nothing to watch)"
-head_oid=$(printf '%s' "$pr_json" | jq -r '.headRefOid // ""' 2>/dev/null)
+head_oid=$(printf '%s' "$pr_json" | jq -r '.headRefOid // ""' 2>/dev/null) \
+  || die "pre-validation: could not parse the head oid from gh pr view output for #$pr"
 is_hex_oid "$head_oid" \
   || die "pre-validation: gh returned no valid head commit oid for #$pr: '$(sanitize_printable "$head_oid")'"
 
@@ -206,25 +209,33 @@ if ! origin_tags=$(git ls-remote --tags origin 2>/dev/null); then
   die "pre-validation: could not query origin tags (git ls-remote failed); resolve connectivity and re-run"
 fi
 
-# Idempotency: no tag for the proposed version, locally or on origin.
+# Idempotency (local): no tag for the proposed version in the local cache.
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 \
   && die "pre-validation: tag $tag already exists locally (idempotency); nothing to arm"
-case "$origin_tags" in
-  *"refs/tags/$tag"*) die "pre-validation: tag $tag already exists on origin (idempotency); the release is already published or in flight" ;;
-esac
 
-# Monotonicity: proposed strictly greater than the latest release tag on origin
-# (vacuous when there are no release tags yet — the first release).
+# One pass over origin's tags computes BOTH the origin-idempotency check and the
+# latest release version. The idempotency test compares the WHOLE ref name for
+# EQUALITY (`$t = $tag`), not a substring of the full ls-remote blob: a substring
+# test would false-positive against any prefix-colliding tag — e.g. a prerelease
+# `v1.2.0-rc.1` contains the substring `refs/tags/v1.2.0` and would spuriously
+# block arming the real `1.2.0`.
+tag_on_origin=0
 latest_ver=""
 while IFS= read -r ref; do
   t=${ref##*refs/tags/}
   case "$t" in "" | *"^{}") continue ;; esac
+  [ "$t" = "$tag" ] && tag_on_origin=1
   ver=${t#v}
   rl_valid_semver "$ver" || continue
   if [ -z "$latest_ver" ] || rl_version_gt "$ver" "$latest_ver"; then
     latest_ver="$ver"
   fi
 done < <(printf '%s\n' "$origin_tags")
+[ "$tag_on_origin" -eq 0 ] \
+  || die "pre-validation: tag $tag already exists on origin (idempotency); the release is already published or in flight"
+
+# Monotonicity: proposed strictly greater than the latest release tag on origin
+# (vacuous when there are no release tags yet — the first release).
 if [ -n "$latest_ver" ]; then
   rl_version_gt "$proposed" "$latest_ver" \
     || die "pre-validation: monotonicity gate — proposed $proposed is not strictly greater than the latest release v$latest_ver (on origin)"
@@ -256,11 +267,32 @@ while :; do
     sleep "$poll_seconds"
     continue
   fi
-  watch_state=$(printf '%s' "$watch_json" | jq -r '.state // ""' 2>/dev/null)
+  # A gh success with unparseable JSON is a transient read, not an OPEN verdict:
+  # treat it like the fetch-failure branch (retry within budget), so the
+  # exhaustion message names the real cause rather than "still not merged".
+  if ! watch_state=$(printf '%s' "$watch_json" | jq -r '.state // ""' 2>/dev/null); then
+    if [ "$i" -ge "$max_polls" ]; then
+      die "watch: could not parse PR #$pr state after $max_polls polls (malformed gh output); disarming — publish manually after the merge with $PUBLISH"
+    fi
+    sleep "$poll_seconds"
+    continue
+  fi
   case "$watch_state" in
     MERGED)
       merge_oid=$(printf '%s' "$watch_json" | jq -r '.mergeCommit.oid // ""' 2>/dev/null)
-      break
+      # GitHub can report state=MERGED a replication tick BEFORE mergeCommit.oid
+      # is populated (most visible on squash/rebase merges — exactly when arm
+      # polls). An unpopulated oid here is transient, not fatal: re-poll within
+      # the remaining budget rather than refuse a merge that just landed. The
+      # loop only breaks once a valid hex oid is in hand, so the post-loop use of
+      # merge_oid is guaranteed valid.
+      if is_hex_oid "$merge_oid"; then
+        break
+      fi
+      if [ "$i" -ge "$max_polls" ]; then
+        die "watch: PR #$pr is MERGED but gh never returned a merge commit oid after $max_polls polls; disarming — publish manually with $PUBLISH"
+      fi
+      sleep "$poll_seconds"
       ;;
     CLOSED)
       echo "release-arm: release PR #$pr was closed without merging; nothing to publish (disarmed)"
@@ -274,9 +306,6 @@ while :; do
       ;;
   esac
 done
-
-is_hex_oid "$merge_oid" \
-  || die "watch: PR #$pr reported MERGED but gh returned no valid merge commit oid: '$(sanitize_printable "$merge_oid")'"
 
 echo "release-arm: observed the merge of PR #$pr at $merge_oid — syncing $MAIN_REF and publishing"
 
@@ -297,13 +326,22 @@ if ! "$PUBLISH"; then
   die "publish failed after the observed merge; $MAIN_REF is synced — resolve and re-run $PUBLISH"
 fi
 
-# Verify the tag publish created lands on the OBSERVED merge commit (Done-when,
+# Verify the tag publish created lands within the OBSERVED merge (Done-when,
 # REQ-D1.2). Publish's own D-6 scan is the authority; this is the belt-and-
-# suspenders cross-check that arm watched the commit that actually got tagged.
+# suspenders cross-check that arm watched the change that actually got tagged.
+#
+# The predicate is "tagged is an ancestor of, or equal to, the observed merge
+# oid", NOT strict equality. For squash and merge-commit strategies publish tags
+# exactly `mergeCommit.oid`, so the two coincide and the ancestor test holds
+# trivially. For rebase-and-merge, `mergeCommit.oid` is the TIP of the rebased
+# range while publish (correctly) tags the commit that changed the version —
+# which is an ancestor of that tip. Strict equality would raise a false "D-6
+# mismatch" on a perfectly correct rebase-merge publish; the ancestor test still
+# catches a genuine anomaly (publish tagging a commit outside the merged range).
 tagged=$(git rev-parse -q --verify "refs/tags/$tag^{commit}" 2>/dev/null) \
   || die "publish reported success but tag $tag is absent"
-[ "$tagged" = "$merge_oid" ] \
-  || die "the published tag $tag is on $tagged, not the observed merge $merge_oid (D-6 mismatch — investigate before trusting the release)"
+git merge-base --is-ancestor "$tagged" "$merge_oid" 2>/dev/null \
+  || die "the published tag $tag is on $tagged, which is not within the observed merge $merge_oid (D-6 mismatch — investigate before trusting the release)"
 
 echo "release-arm: published $tag on the observed merge $merge_oid"
 exit 0
