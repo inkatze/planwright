@@ -124,12 +124,17 @@ Start-load offenders the computation surfaced (error threshold 10,000):
 | --- | --- | --- | --- | --- |
 | `/orchestrate` | 16,371 | 19,789 (warn) | Task 5 | `pending-diet start-load` |
 | `/execute-task` | 16,429 | 18,091 (warn) | Task 6 | `pending-diet start-load` |
-| `/spec-kickoff` | 13,055 | 14,717 | Task 7 | `pending-diet start-load` |
+| `/spec-kickoff` | 13,055 | 14,717 | **Task 7.5** | `pending-diet start-load` |
 | `/spec-draft` | 12,636 | 14,298 | **Task 7.5** | `pending-diet start-load` |
 
 `/orchestrate`, `/execute-task`, and `/spec-kickoff` are already per-file
-offenders with diet tasks (their start-load allowance rides the same task, and
-their own diet PR sheds both allowances). `/spec-draft` is the offender only the
+offenders with diet tasks. `/orchestrate` and `/execute-task` shed both their
+per-file and start-load allowances in their own diet PR. `/spec-kickoff` is the
+exception Task 7 surfaced: its start-load is led by `spec-format`, which
+REQ-C1.2 forbids deferring (gating law), so Task 7 sheds only its per-file
+allowance and its start-load allowance is carried to Task 7.5's point-of-use
+reclassification of the non-gating reads (see the spec-format disposition above
+and kickoff risk R3). `/spec-draft` is the offender only the
 start-load budget catches: its body (3,201) is under the per-file floor, so
 Task 2's pre-manifest audit could not see it — its diet is **Task 7.5**,
 point-of-use reclassification. No reachable-closure offender surfaced (every
