@@ -1,7 +1,7 @@
 # Inception — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-07-09
+**Status:** Ready
+**Last reviewed:** 2026-07-13
 **Format-version:** 1
 
 Origin tags: `N` = new decision minted in this bundle. Research citations name the session
@@ -14,7 +14,12 @@ research reports (see `requirements.md` Sources) with the load-bearing primary s
 **Decision:** The bundle (`brief.md`, `disciplines.md`, `assumptions.md`, `decisions.md`,
 `plan.md`, plus `spikes/` and `exports/`) is defined normatively in a new `inception-format`
 doctrine doc, format-versioned from birth, inheriting the meta-spec's conventions (stable IDs,
-append-only supersession, status headers, changelog, sources register) without its files.
+append-only supersession, status headers, changelog, sources register) without its files. The
+format evolves additively within a major version (new fields and sections optional, existing
+fields never renamed or repurposed); readers gate on the `Format-version:` header and fail closed
+on an unsupported version (REQ-C1.7, enforced via D-12), so a bundle authored by one plugin
+version is never silently misparsed by another, and a breaking change increments the major
+version and owns its migration path.
 
 **Alternatives considered:**
 - Reuse `requirements/design/tasks/test-spec` with venture semantics bolted on. Rejected because:
@@ -22,9 +27,15 @@ append-only supersession, status headers, changelog, sources register) without i
   forks with owners, and kill criteria do not map onto REQ/D-ID semantics without abuse.
 - Freeform markdown per venture. Rejected because: nothing to validate, render, or gate against.
 
-**Chosen because:** the prior-art sweep found no existing composed format to adopt (assumption
-register + decision backlog + validation plan exists in no surveyed tool), and sharing conventions
-keeps validator and tooling patterns reusable while keeping each format honest about its domain.
+**Chosen because:** the prior-art sweep, re-checked adversarially (2026-07-10), found no existing
+format that composes the triad as first-class artifacts — an evidence-graded assumption register, a
+standalone decision *backlog* (open decisions, not just a log of taken ones), and a thresholded
+validation plan — at venture scope and git-native. The nearest misses are feature-scoped or
+partial: speckit-product-forge composes a discovery gate + decision *log* + hypothesis list but
+keeps assumptions narrative and lives inside an existing codebase; GLIDR AI composes
+hypotheses + experiments + success definitions but has no decision backlog and is a hosted SaaS
+canvas. Sharing the meta-spec's conventions keeps validator and tooling patterns reusable while
+keeping each format honest about its domain.
 
 ### D-2: Fan-out topology: parallel seats, single synthesis, one premortem challenge pass  (N)
 
@@ -32,7 +43,13 @@ keeps validator and tooling patterns reusable while keeping each format honest a
 communication; a single synthesis writer merges with a mandatory agreements / tensions /
 open-questions table and per-claim convergence marks; exactly one challenge pass follows
 (premortem plus key-assumptions check, seeing synthesis and frame only); synthesis may amend once.
-RAPID encoding: seats I, synthesizer R, challenger risk-scoped A, human D.
+RAPID encoding: seats I, synthesizer R, challenger risk-scoped A, human D. Seat outputs reach the
+synthesis writer anonymized and order-shuffled; the orchestrator (which holds the seat↔label map)
+re-attaches attribution into the human-facing table after synthesis, the writer working blind. The
+synthesis and challenge steps run persona-free (plain task instructions); persona framing aids
+generative coverage but degrades discriminative judgment. Convergence marks are a weak,
+inflation-prone signal — annotated by claim type (extractive versus interpretive), with outlier
+seats named rather than averaged, never presented as a calibrated probability.
 
 **Alternatives considered:**
 - Live multi-round debate. Rejected because: debate homogenizes and fails to beat
@@ -49,17 +66,26 @@ RAPID encoding: seats I, synthesizer R, challenger risk-scoped A, human D.
 
 **Chosen because:** the only topology every strong result supports; MASS
 (<https://arxiv.org/abs/2502.02533>) shows seat-prompt quality dominates topology cleverness, so
-the design invests in cards and keeps the topology simple.
+the design invests in cards and keeps the topology simple. A 2026 result (arXiv:2606.02646,
+re-verify at build time) adds convergent support: debate gains track re-evaluation more than peer
+influence, and model-family diversity is the main lever that escapes saturation, so 3–5 diverse
+seats plus one challenge-then-amend pass captures the available gain without a debate loop. Known
+tension (revisit-when): a separate critic can add gains over 3–5 rounds; v1 caps at one amendment,
+trading a small residual gain for loop-safety, and if that cap is revisited the evidenced shape is
+confidence-gated escalation (debate only on low-confidence claims), not a fixed loop.
 
 ### D-3: Cards are task-framings compiled to dispatchable seat briefs  (N)
 
 **Decision:** Card schema: name/description, one operational role sentence, mandate (3–7 first
-questions), frameworks with misuse caveats, grounding requirements, input subscription, artifact
-template with done-when, capability boundary (tier + per-activity exceptions), escalation
-contract, register rules, anti-patterns for the synthesizer, RAPID letters, bench flag with
-pull-in triggers, staleness metadata (reviewed date + rot rate), optional model/effort override.
-Explicitly excluded: backstories, personalities, credentials, debate configuration, any
-auto-decide authority.
+questions, each answerable only against this venture's frame), frameworks ordered into a working
+sequence with misuse caveats, grounding requirements naming the concrete evidence sources the seat
+must consult, input subscription, artifact template with done-when, capability boundary (tier +
+per-activity exceptions + an out-of-scope line), escalation contract, register rules, anti-patterns
+for the synthesizer, documented blind spots, conflict / deference rules, an optional stance axis
+(optimist–skeptic) orthogonal to discipline, RAPID letters, bench flag with pull-in triggers,
+staleness metadata (reviewed date + rot rate), optional model/effort override. Explicitly
+excluded: backstories, personalities, credentials, debate configuration, any auto-decide
+authority.
 
 **Alternatives considered:**
 - Role/goal/backstory personas (CrewAI-style). Rejected because: identity personas show null
@@ -82,7 +108,11 @@ doors; only humans close one-way doors"); enforcement is structural: mandatory "
 cannot make" sections, hypothesis/briefing grammar by tier, forced structured choices at the
 human gate. Default placements: software engineering and AI-architecture agent-senior; product
 strategy, pricing, org design structure-only; IP human-authority (the unauthorized-practice
-line).
+line). The capability boundary carries an explicit out-of-scope negative line (what the seat must
+not opine on); escalation triggers are typed, not prose (irreversibility / missing-domain-authority
+/ confidence-floor / contract-policy-change), each naming the receiving human's power (disregard /
+override / reverse / halt); a seat cannot validate its own discipline's claims (a card property),
+and the persona-free challenge pass needs no per-discipline standing.
 
 **Alternatives considered:**
 - Per-discipline labels. Rejected because: the capability frontier is jagged within disciplines
@@ -117,7 +147,9 @@ persistence mechanism working identically across Claude Code CLI, desktop, web, 
 
 **Decision:** Gate 1 (frame + staffing confirmation, with cost and backend disclosed) and Gate 2
 (silent-read table review, forks and human-authority items as structured forced choices) run in
-the main thread; seats return escalations in their artifacts or via the orchestrator relay.
+the main thread; seats return escalations in their artifacts or via the orchestrator relay. Each
+escalated human-authority item at Gate 2 names the human's available power over it (disregard /
+override / reverse / halt), per the typed escalation contract (D-4).
 
 **Alternatives considered:**
 - Seats prompting the human directly. Rejected because: not available on the subagent rung
@@ -137,7 +169,11 @@ degradation ladder). tmux-rung seats are full Claude Code instances (observable,
 per-seat model/effort); subagent is the baseline; in-session approximates independence per the
 dispatch-isolation doctrine; print emits seat briefs for manual execution. Relay is
 orchestrator-to-seat only; inter-seat communication stays forbidden on every rung. Backend choice
-is part of the Gate 1 disclosure.
+is part of the Gate 1 disclosure. A stake / reversibility-scored triage SHOULD inform the seat
+count within the 3–5 band when the signal is cheap (defaulting to three otherwise); per-seat
+model/effort override is exercised where the backend already advertises it (model-family diversity
+is the strongest decorrelation lever), and the lost decorrelation is reported as a degradation
+where it cannot.
 
 **Alternatives considered:**
 - Hardcode subagents. Rejected because: forfeits heterogeneity, observability, and steering where
@@ -158,8 +194,11 @@ drafting session (two research workers ran as tmux-hosted Claude instances).
 status, attention flags), catalog telemetry (frame-derived disciplines, unstaffed occurrences),
 and a pending-observations drop for planwright-about learnings surfaced in venture repos;
 planwright-repo `/spec-draft` and bookkeeping read the drop as a seed source with neutralization.
-Recorded as interim: re-anchors on the `observation-routing` effort when it revives, the same
-supersession ritual the output-hygiene carve-out demonstrated.
+Registry mutations are atomic (write-temp-then-rename) so no session reads a torn registry; a lost
+update from a rare concurrent race is tolerated because the scan-rebuild (REQ-A1.6) re-discovers
+ventures from `ventures_root` — that scan is the recovery path for a corrupt, lost, or clobbered
+registry. Recorded as interim: re-anchors on the `observation-routing` effort when it revives,
+the same supersession ritual the output-hygiene carve-out demonstrated.
 
 **Alternatives considered:**
 - Cross-repo git routing now. Rejected because: that is `observation-routing`'s deferred domain;
@@ -178,7 +217,11 @@ home), and the interim positioning is recorded rather than implicit.
 consolidated helpers such as the escaper) parses the inception format per its doctrine definition
 and emits a self-contained, escaped, offline HTML export with two modes: dashboard-first status
 view and pitch narrative. It is the export's named refresh owner, regenerated on every
-bundle-changing commit; Artifact publish is a separate, always-confirmed step with a per-venture
+bundle-changing commit via a scaffolded pre-commit step (REQ-A1.9) so out-of-session edits
+(expert-mode manual commits, Cowork edits) refresh the export on every rung, not only in-session
+or under CI; the hook stages the regenerated export on success and warns without blocking the
+commit on a render failure, staging only the export path to avoid the git-add-in-hook
+partial-commit trap. Artifact publish is a separate, always-confirmed step with a per-venture
 opt-in auto-republish knob (default off).
 
 **Alternatives considered:**
@@ -198,8 +241,13 @@ verification honest.
 REST, PR comments) → per-item human triage (apply / skip / modify) → agent implements accepted
 items as attributed commits citing their source → re-export. Notion is the v1 reference adapter
 (machine-local integration token). Re-import patches at section granularity; IDs and gate records
-are untouchable. Google Docs and SharePoint adapters are deferred (see `tasks.md`); Coda is
-rejected outright.
+are untouchable. Notion's comment API is unresolved-only, with no resolved field, no text-range
+anchor, and no resolve-via-API, so the repo triage ledger is the only record of item disposition;
+the adapter pins a Notion API version (breaking version churn is documented) and uses the Notion
+Markdown Content API to cut export lossiness (a platform claim re-verified at build time). Google Docs and SharePoint adapters are deferred (see
+`tasks.md`), and Outline is added to the deferred list as the only surveyed tool with markdown
+round-trip, resolve-via-API, and text anchors (self-hostable, limited stakeholder reach); Coda is
+rejected outright (no comments API; also since rebranded under Superhuman).
 
 **Alternatives considered:**
 - Symmetric file synchronization. Rejected because: the surveyed failure trio (lossy conversion,
@@ -207,8 +255,11 @@ rejected outright.
   machinery.
 - Auto-applying harvested feedback. Rejected because: stakeholder text is adversarial-capable
   untrusted input, and stakeholders are not authorities over the bundle.
-- Google Docs as the reference adapter. Rejected for v1 because: best comment UX but the heaviest
-  auth story (GCP OAuth); the seam keeps the per-venture choice open.
+- Google Docs as the reference adapter. Deferred for v1, not rejected: it has the richest comment
+  model (resolved status, anchors, API resolve) and its auth is lighter than first assumed — the
+  `drive.file` scope covers app-created files and needs no CASA assessment for the
+  export-then-harvest cycle (a GCP project + OAuth consent screen is still required). Strong v2
+  candidate; the seam keeps the per-venture choice open.
 
 **Chosen because:** every surviving two-way tool in the wild degrades to exactly this shape; the
 human-triage step matches the acceptance discipline everything else in the bundle uses.
@@ -218,7 +269,11 @@ human-triage step matches the acceptance discipline everything else in the bundl
 **Decision:** Venture repos ship a sync-protocol instructions file (the file Cowork's agent reads
 in the folder): read freely; edits as commits with plain-language messages; pull before edit,
 push after; never alter IDs, register statuses, or gate records — propose those as notes for the
-operator.
+operator. The scaffold also imports the protocol from the venture's root `CLAUDE.md` (the file
+Cowork honors today), hedging against Cowork's undocumented filename contract; the protocol
+instructs Cowork's own agent to degrade gracefully when egress blocks push/pull (commit locally,
+tell the operator) — planwright cannot intercept Cowork's git client, so this stays advisory, with
+the D-12 validator guard plus git history as the actual enforcement, not the instructions file.
 
 **Alternatives considered:**
 - Waiting for a Cowork orchestration API. Rejected because: none exists; the file costs nothing
@@ -232,8 +287,9 @@ copy IS the repo; zero conversion), and this is the cheapest forward-compatible 
 ### D-12: One validator, rung-scaled enforcement  (N)
 
 **Decision:** An inception-format validator (minimum core, ID grammar and uniqueness, register
-and gate-record integrity) ships plugin-side and runs everywhere: in-session at bundle writes on
-all rungs, as a CI guard where the venture repo has CI, and as the stakeholder-commit guard. The
+and gate-record integrity, and `Format-version:` gating that fails closed on an unsupported version
+per REQ-C1.7) ships plugin-side and runs everywhere: in-session at bundle writes on all rungs, as a
+CI guard where the venture repo has CI, and as the stakeholder-commit guard. The
 hygiene scaffold (`.gitignore`, commit-time secret screening, remote-rung secret-scan guard) is
 created with the repo.
 
@@ -248,7 +304,10 @@ created with the repo.
 ### D-13: The venture-task contract is a lighter sibling of `/execute-task`, keyed on kind  (N)
 
 **Decision:** Task kinds spike / research / analysis / demand-signal / alignment; deliverable is
-a findings or outcome document committed directly (no PR, no CI gauntlet, no polish loop);
+a findings or outcome document committed directly (no PR, no CI gauntlet, no polish loop); each
+task carries a pre-committed time/cost cap alongside the threshold it tests (making "Hold because
+tests got expensive" a detectable state), and tasks order lowest-confidence-highest-blocking-first
+with the single limiting constraint as the tie-breaker (REQ-C1.5);
 demand-signal and alignment tasks produce prepared materials and a recorded outcome — the agent
 never contacts external humans; acceptance is human; accepted changes update linked registers
 atomically; spike code is disposable in `spikes/`. Venture task state lives in the bundle's
@@ -266,9 +325,11 @@ proportional to exploratory work.
 ### D-14: The gate is an interactive move with four outcomes and no anchors in v1  (N)
 
 **Decision:** Gate runs evaluate the minimum core plus the completeness check, surface tripped
-kill criteria, and end in Graduate / Hold / Recycle / Kill recorded as dated entries (outcome,
-rationale, decider from the stakeholder map). No content-anchor machinery in v1; gate records are
-the audit trail. Revisit-when: orchestrated multi-session venture work demonstrates drift pain.
+kill criteria, and end in Graduate / Hold / Recycle / Kill recorded as dated, structured
+machine-readable entries (outcome, date, decider from the stakeholder map, evidence cited,
+thresholds evaluated, rationale) mirroring planwright's sign-off record, not prose only. No
+content-anchor machinery in v1; gate records are the audit trail. Revisit-when: orchestrated
+multi-session venture work demonstrates drift pain.
 
 **Alternatives considered:**
 - Kickoff-style sign-off with content anchors. Rejected for v1 because: anchors' false-halt cost
@@ -284,7 +345,10 @@ venture-studio evidence without importing spec-grade ceremony.
 **Decision:** Graduate writes a structured seed (brief extract, decided forks with alternatives,
 validated assumptions with evidence grades, open questions, source citations) into the chosen
 destination plus bidirectional lineage records; `/spec-draft` consumes it through normal
-seed-gathering; holes found downstream route back as venture register entries.
+seed-gathering; holes found downstream route back as venture register entries. The seed stays
+format-clean enough that a future adapter could emit a Spec Kit `/specify` input as readily as a
+planwright `/spec-draft` seed (the upstream-of-spec slot is being actively colonized by Spec Kit
+extensions); no v1 work, an interop constraint on the seed shape.
 
 **Alternatives considered:**
 - Auto-generating the four-file bundle from the venture. Rejected because: bypasses
@@ -353,6 +417,21 @@ modes of one skill, dispatched on arguments plus registry and bundle state.
 
 **Chosen because:** matches the `/spec-draft` precedent (draft plus extend behind one entry) and
 keeps the non-engineer surface minimal.
+
+### D-20: `/inception` sits at the product / doctrine altitude, upstream of `/spec-draft`  (N)
+
+**Decision:** The bundle is placed one altitude above `/spec-draft`: it orients a fuzzy,
+multi-discipline, repo-less idea rather than specifying a feature, and its task decomposition leads
+doctrine-first (inception-format, validator, card and evidence doctrine before the skill and
+mechanism tasks). The altitude is cited from the Goal.
+
+**Alternatives considered:**
+- Leave the altitude implicit. Rejected because: a doctrine-first, product-level bundle with no
+  recorded altitude is exactly the case the autopilot-reflex altitude gate exists to catch; the
+  record is cheap insurance even though the decomposition already matches the claim.
+
+**Chosen because:** the seed invocation was explicitly "work one level of abstraction higher", and
+recording the altitude makes the doctrine-first sequencing auditable rather than incidental.
 
 ## Cross-cutting concerns
 

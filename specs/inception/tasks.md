@@ -1,7 +1,7 @@
 # Inception — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-07-09
+**Status:** Ready
+**Last reviewed:** 2026-07-13
 **Format-version:** 1
 
 Sequencing intent (derived view; the `Dependencies:` lines are authoritative): the
@@ -17,23 +17,29 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 - **Deliverables:** `doctrine/inception-format.md`: bundle file set and grammar, frame template,
   A-ID/T-ID/decision-ID grammars, venture lifecycle (including Abandoned and On-hold), kill
-  criteria and gate-record forms, minimum core, format-version rules.
+  criteria and structured machine-readable gate-record forms, the MADR decision fields, the
+  assumption evidence-ladder + fail-condition + synthetic-grade format, plan-task time/cost caps
+  and constraint-ordering, the sources register and stakeholder/decision-rights map grammars,
+  minimum core, and format-version rules (additive-within-major evolution + reader version-gating
+  with a fail-closed non-zero exit).
 - **Done when:** the doc defines every structure REQ-C names; `check-doc-links` passes; the
   doctrine README indexes it.
 - **Dependencies:** none
-- **Citations:** D-1, D-18 · REQ-C1.1–C1.10, REQ-I1.1
+- **Citations:** D-1, D-18 · REQ-C1.1–C1.11, REQ-I1.1
 - **Estimated effort:** 2 days
 
 ### Task 2 — inception validator & venture hygiene scaffold
 
 - **Deliverables:** `scripts/inception-validate.sh` (minimum core, ID grammar and uniqueness,
-  register and gate-record integrity; seeded-violation fixtures under `tests/`); the venture repo
-  scaffold (`.gitignore`, commit-time secret screening hook-in, remote-rung secret-scan CI
-  template); rung-scaled wiring notes.
+  register and gate-record integrity, `Format-version:` gating with fail-closed on unsupported
+  versions, the new register fields; seeded-violation fixtures under `tests/`, including an
+  unsupported-version fixture); the venture repo scaffold (`.gitignore`, commit-time secret
+  screening hook-in, pre-commit export-regeneration step (satisfied by the skeleton's stub renderer
+  until Task 12), remote-rung secret-scan CI template); rung-scaled wiring notes.
 - **Done when:** validator fixtures pass under `mise run test`; each enforced rule has a
   seeded-violation fixture; scaffold files are emitted by a tested helper.
 - **Dependencies:** 1
-- **Citations:** D-12 · REQ-A1.9, REQ-C1.8, REQ-G1.5
+- **Citations:** D-12 · REQ-A1.9, REQ-C1.7, REQ-C1.8, REQ-G1.1, REQ-G1.5
 - **Estimated effort:** 2 days
 
 ### Task 3 — doctrine extensions: domains, lenses, evidence, storage classes
@@ -41,19 +47,24 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 - **Deliverables:** decision-domains additions (product strategy, packaging/pricing, domain and
   knowledge engineering, org design, IP posture, LLM-output quality, human-comprehension, and the
   existing-seam-reuse domain); the non-code lens set selected by artifact class; the
-  evidence-quality doctrine (falsifiability format, pre-committed thresholds, evidence grades);
-  the storage-classes rule.
+  evidence-quality doctrine (believe/verify/measure/right-if falsifiability format, pre-committed
+  thresholds expressible as fail conditions, the commitment-weighted evidence ladder with a named
+  synthetic-evidence grade excluded from desirability Graduate thresholds); the storage-classes
+  rule.
 - **Done when:** each doc resolves via the rule-doc chain; the seam-reuse domain names the core
   seams; the lens-selection rule states when code lenses do not apply.
 - **Dependencies:** none
-- **Citations:** D-17 · REQ-I1.2–I1.5
-- **Estimated effort:** 2 days
+- **Citations:** D-1, D-17 · REQ-I1.2–I1.5
+- **Estimated effort:** 3 days
 
 ### Task 4 — card schema doctrine, authoring recipe, product-strategy card
 
-- **Deliverables:** the card schema and register rules as doctrine; the card-authoring recipe
-  (research-grounded distillation method); the product-strategy card (from the worked example,
-  primary sources re-verified).
+- **Deliverables:** the card schema and register rules as doctrine (including the out-of-scope
+  line, documented blind spots, conflict/deference rules, the own-discipline independence note (a
+  seat cannot self-validate), optional stance axis, named knowledge-sources, ordered framework
+  sequence, and the typed escalation-trigger taxonomy); the card-authoring recipe (research-grounded
+  distillation method); the product-strategy card (from the worked example, primary sources
+  re-verified).
 - **Done when:** the card lints against its own schema; the recipe is followable without this
   spec's session context; anti-authority styling rules are explicit.
 - **Dependencies:** 3
@@ -65,7 +76,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 - **Deliverables:** the `/inception` skill: pre-flight (identifier derivation and validation,
   ventures_root resolution, ask-once home selection, ladder detection, ephemeral-env arm, repo
   creation with scaffold), phased elicitation (seed intake, discipline-catalog walk, reframing
-  checkpoint, proportionality with skip-with-reason), bundle writing, resume.
+  checkpoint, proportionality with skip-with-reason), bundle writing, resume; the skill refuses an
+  unsupported `Format-version:` rather than parsing it (REQ-C1.7).
 - **Done when:** a scripted dry run produces a validator-clean bundle in a fresh venture repo on
   both home arms; every degradation is reported at pre-flight and handoff.
 - **Dependencies:** 1, 2, 3
@@ -74,9 +86,10 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ### Task 8 — registry, telemetry, feedback drop, portfolio view
 
-- **Deliverables:** plugin-data helpers for the venture registry, catalog telemetry, and the
-  pending-observations drop; the no-arg portfolio listing with attention flags and catalog-health
-  notes; overlap-scan wiring into pre-flight.
+- **Deliverables:** plugin-data helpers for the venture registry (atomic write-temp-then-rename
+  mutations, and scan-rebuild recovery from `ventures_root` per REQ-A1.6), catalog telemetry, and
+  the pending-observations drop; the no-arg portfolio listing with attention flags and
+  catalog-health notes; overlap-scan wiring into pre-flight.
 - **Done when:** helper round-trip tests pass; the portfolio view renders fixture registries;
   drop entries are read by a planwright-repo seed-gathering probe with neutralization.
 - **Dependencies:** 1
@@ -86,8 +99,10 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 ### Task 12 — renderer: dashboard + pitch modes
 
 - **Deliverables:** the inception renderer (POSIX shell, self-contained escaped HTML; shared
-  escaper helper), dashboard and pitch-narrative modes, regenerate-on-commit wiring, the offered
-  Artifact publish step with the per-venture auto-republish knob (default off). A stub renderer
+  escaper helper), dashboard and pitch-narrative modes, regenerate-on-commit wiring via the
+  scaffolded pre-commit step (every rung), the offered Artifact publish step with the per-venture
+  auto-republish knob (default off); the renderer refuses an unsupported `Format-version:` rather
+  than rendering it (REQ-C1.7). A stub renderer
   (dashboard fields only) ships with the skeleton arc and is replaced here.
 - **Done when:** determinism and escaping fixtures pass; dashboard reflects fixture registers;
   publish is offer-only in a scripted run.
@@ -119,12 +134,17 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 ### Task 9 — persona fan-out
 
 - **Deliverables:** frame authoring per the normative template; seat dispatch through the backend
-  capability contract (card-to-brief compilation, Gate 1 staffing and cost disclosure); the
-  synthesis writer (agreements/tensions/open-questions table, convergence marks); the challenge
-  pass; Gate 2 mechanics; staffing-table honesty with unstaffed-risk auto-filing.
+  capability contract (card-to-brief compilation, stake-scored seat-count triage where the signal
+  is cheap, per-seat model override where the backend advertises it, Gate 1 staffing and cost
+  disclosure); the synthesis writer working blind on anonymized, order-shuffled seat inputs
+  (agreements/tensions/open-questions table, claim-type-annotated convergence marks with named
+  outliers) with the orchestrator re-attaching seat attribution into the table; the persona-free
+  challenge pass; Gate 2 mechanics with typed human-power choices; staffing-table honesty with
+  unstaffed-risk auto-filing and the zero-seat collapse row.
 - **Done when:** one full fan-out completes on the subagent rung and one on the tmux rung against
   a fixture venture; every seat artifact ends with the mandatory escalation section; gates are
-  main-thread structured choices.
+  main-thread structured choices; the synthesis writer's input carries no seat identity or
+  ordering cue, and attribution is re-attached only in the final table.
 - **Dependencies:** 4, 7
 - **Citations:** D-2, D-6, D-7, D-18 · REQ-P1.3–P1.9, REQ-B1.3
 - **Estimated effort:** 4 days
@@ -143,9 +163,9 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 ### Task 11 — gate & graduation
 
 - **Deliverables:** the gate move (minimum-core evaluation, completeness check, kill-criteria
-  trip surfacing, four outcomes, dated gate records, decider from the stakeholder map); the
-  graduation seed package; bidirectional lineage records; kill/abandon archival with post-mortem
-  note and registry update.
+  trip surfacing, four outcomes, dated structured machine-readable gate records with decider from
+  the stakeholder map, evidence cited, and thresholds evaluated); the graduation seed package;
+  bidirectional lineage records; kill/abandon archival with post-mortem note and registry update.
 - **Done when:** gate fixtures cover all four outcomes and the completeness check; a graduated
   fixture seed is consumed by `/spec-draft` seed-gathering in a probe run.
 - **Dependencies:** 7, 10
@@ -155,19 +175,23 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 ### Task 13 — adapter seam & Notion reference adapter
 
 - **Deliverables:** the adapter seam contract (one-way-per-cycle, untrusted-input triage,
-  section-granularity re-import, ID and gate-record protection); the Notion adapter (markdown
-  export, unresolved-comment harvest, per-item triage, attributed commits).
+  section-granularity re-import, ID and gate-record protection); the Notion adapter
+  (pinned-API-version markdown export via the Markdown Content API, unresolved-comment harvest with
+  the repo triage ledger as the only disposition record, per-item triage, attributed commits).
 - **Done when:** harvest parser fixtures pass on canned API payloads; one full cycle runs against
   a sandbox workspace; no code path applies feedback without human triage.
 - **Dependencies:** 12
 - **Citations:** D-10 · REQ-G1.6, REQ-G1.7
-- **Estimated effort:** 2 days
+- **Estimated effort:** 3 days
 
 ### Task 14 — Cowork bridge & environment detection
 
-- **Deliverables:** the sync-protocol instructions file emitted into venture repos; pre-flight
-  capability detection (git present, plugin loaded, ephemeral filesystem); the "planwright loads
-  in Cowork" validation run with findings recorded.
+- **Deliverables:** the sync-protocol instructions file emitted into venture repos (also imported
+  from the venture root `CLAUDE.md`, with graceful egress-blocked-push/pull degradation);
+  pre-flight capability detection (git present, plugin loaded, ephemeral filesystem); the
+  "planwright loads in Cowork" validation run with findings recorded; a build-time re-verification
+  step for the fast-rotting platform claims (Cowork behavior, web-sandbox persistence, Notion API)
+  per the design's staleness concern.
 - **Done when:** detection selects the right rung under env stubs; the Cowork validation is
   performed on a real Cowork install and its outcome logged (pass or documented blockers).
 - **Dependencies:** 7
@@ -204,7 +228,8 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 - **Done when:** at least one real venture has traversed idea → bundle → validation tasks → gate
   outcome using the shipped skill; telemetry and observations from the runs are recorded; format
   amendments are filed or explicitly found unnecessary.
-- **Dependencies:** 7, 8, 12
+- **Dependencies:** 7, 8, 12 to start; its completion criteria additionally exercise 9, 10, 11 as
+  those layers land (the dogfood runs continuously, not as a terminal gate)
 - **Citations:** D-17 · REQ-P1.11, REQ-J1.8
 - **Estimated effort:** 2 days
 
@@ -222,9 +247,16 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 
 ## Deferred
 
-- **Google Docs review-cycle adapter.** Best commenting UX of the surveyed tools, heaviest auth
-  (GCP OAuth); the seam keeps the per-venture choice open. Confidence: medium.
+- **Google Docs review-cycle adapter.** Richest comment model of the surveyed tools (resolved
+  status, anchors, API resolve); auth is lighter than first assumed — the `drive.file` scope covers
+  app-created files with no CASA assessment for the export-then-harvest cycle (a GCP project +
+  OAuth consent screen still required). Strong v2 candidate. Confidence: medium.
   **Gate:** a venture whose stakeholders are Docs-native requests a two-way review cycle.
+  Citations: D-10.
+- **Outline review-cycle adapter.** The only surveyed tool with markdown round-trip, resolve-via-API,
+  and text-anchored comments; self-hostable, fitting the own-your-truth posture. Limited reach:
+  stakeholders live in Notion/Docs, not Outline. Confidence: medium.
+  **Gate:** a venture whose stakeholders already use a shared Outline instance.
   Citations: D-10.
 - **UX-research and GTM discipline cards.** Named parked candidates; no logged demand evidence
   yet. Confidence: high.
@@ -256,5 +288,5 @@ infrastructure leads: the format doctrine and validator gate everything that wri
   drop is interim and re-anchors there).
 - Concurrent multi-operator operation of a single venture (v1 is single-operator; a follow-on
   rides `orchestration-concurrency` patterns if demand appears).
-- A Coda adapter (no comments API, lossy exports, no prior art).
+- A Coda adapter (no comments API, lossy exports, no prior art; now rebranded under Superhuman).
 - Generating the pitch itself; the skill structures ideas, it does not invent them.

@@ -1,7 +1,7 @@
 # Inception — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-07-09
+**Status:** Ready
+**Last reviewed:** 2026-07-13
 **Format-version:** 1
 
 ## Goal
@@ -20,7 +20,9 @@ creates and wraps (invisible git for non-engineers, the standard workflow for ex
 stakeholder-facing surfaces produced through an export seam. Validation work (spikes, research,
 demand signals, alignment) runs PR-less under a lighter execution contract. A gate with four
 outcomes (Graduate / Hold / Recycle / Kill) governs each track; graduation hands a seed package to
-one or more `/spec-draft` runs. The skill never auto-chains downstream.
+one or more `/spec-draft` runs. The skill never auto-chains downstream. Altitude: `/inception` sits
+one level above `/spec-draft`, at the product / doctrine altitude, and its task decomposition leads
+doctrine-first (D-20).
 
 ## Scope
 
@@ -66,7 +68,9 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
   machine-local feedback drop is an interim mechanism recorded as re-anchoring there).
 - Concurrent multi-operator ventures: v1 ventures are single-operator; concurrent operation of
   one venture is a follow-on that rides `orchestration-concurrency` patterns if demand appears.
-- Replacing `/spec-draft` for ideas that already have a home repo.
+- Replacing `/spec-draft` for ideas that already have a home repo. (Not a ban: a home-repo idea
+  MAY still opt into a venture when the operator wants inception-grade orientation; the D-16
+  routing heuristics stay recommend-only in both directions.)
 - A Coda adapter (rejected on evidence: no comments API, lossy exports, no prior art).
 - claude.ai chat as an operator surface (reader-only via published exports; an Agent-Skill
   repackaging is a separate effort).
@@ -88,22 +92,34 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
   content off-machine by default.
   *(Cites: D-5; drafting-session decision (2026-07-07).)*
 - **REQ-A1.5** On ephemeral environments (no durable local filesystem), the local-only arm SHALL
-  be presented as session-only or unavailable, never silently offered.
-  *(Cites: D-5; research: Claude Code web sandbox persistence model (Sources).)*
+  be presented as session-only or unavailable, never silently offered; an operator who declines a
+  durable home proceeds session-only-warned per the REQ-H1.1 ladder floor (bundle files in the
+  session, explicit warning it does not persist), never a silent refusal.
+  *(Cites: D-5; REQ-H1.1; research: Claude Code web sandbox persistence model (Sources).)*
 - **REQ-A1.6** The skill SHALL maintain a venture registry in the plugin data directory
-  recording each venture's identifier, path, and lifecycle status plus attention flags.
-  *(Cites: D-8.)*
+  recording each venture's identifier, path, and lifecycle status plus attention flags. Registry
+  mutations SHALL be atomic (write-temp-then-rename) so a concurrent `/inception` session never
+  reads a torn or partial registry; a lost update from two sessions racing is tolerated because the
+  registry is rebuildable by scanning `ventures_root` for bundles, with every recovered identifier
+  re-validated per REQ-A1.8 — that scan-rebuild is the recovery path for a corrupt, lost, or
+  clobbered registry.
+  *(Cites: D-8; kickoff §3 REQ-A (2026-07-10); kickoff §7 R7 (2026-07-13).)*
 - **REQ-A1.7** On invocation with a new idea, the skill SHALL scan registered ventures for
   semantic overlap and surface an extend-vs-new selector; it SHALL NOT silently fold or create a
-  duplicate venture.
-  *(Cites: D-8; bootstrap REQ-B1.3 (fold-detection precedent).)*
+  duplicate venture. Venture creation SHALL detect an existing unregistered directory at the
+  target path and offer adopt-vs-rename; it SHALL NOT overwrite.
+  *(Cites: D-8; bootstrap REQ-B1.3 (fold-detection precedent); kickoff §3 REQ-A (2026-07-10).)*
 - **REQ-A1.8** Every identifier proposed by a seed, registry entry, or extend target SHALL be
   re-validated at consumption; registry contents are unscreened input.
   *(Cites: D-8; the security-posture doctrine (Sources).)*
 - **REQ-A1.9** Venture repo creation SHALL scaffold hygiene guards scaled to the rung: a
-  `.gitignore` covering machine-local files, commit-time secret screening by the skill, and a
-  secret-scan CI guard where the venture has a remote with CI.
-  *(Cites: D-12; drafting-session decision (2026-07-08, blind-spot sweep).)*
+  `.gitignore` covering machine-local files, commit-time secret screening by the skill, a
+  pre-commit export-regeneration step so the HTML export stays current with out-of-session edits
+  (REQ-G1.1) — it regenerates, stages the export on success, and warns without blocking the commit
+  on a render failure (never dead-ending a wrapped-mode commit) — and a secret-scan CI guard where
+  the venture has a remote with CI.
+  *(Cites: D-9, D-12; drafting-session decision (2026-07-08, blind-spot sweep); kickoff §7
+  (2026-07-13).)*
 
 ## REQ-B — The elicitation flow
 
@@ -128,8 +144,10 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 - **REQ-B1.6** Seed-material hygiene SHALL be relative to the venture repo's visibility boundary:
   material may be stored verbatim when the repo's access matches its sensitivity, and SHALL be
   neutralized when it does not; anything flowing back into planwright's own artifacts is always
-  neutralized.
-  *(Cites: D-8; drafting-session decision (2026-07-08, pitch dry-run).)*
+  neutralized. The sensitivity-vs-visibility call is human: the skill classifies conservatively
+  and surfaces its judgment; the operator confirms verbatim storage once per seed source.
+  *(Cites: D-8; drafting-session decision (2026-07-08, pitch dry-run); kickoff §3 REQ-B
+  (2026-07-10).)*
 - **REQ-B1.7** The skill SHALL resume an existing venture: pick up mid-elicitation, or re-enter
   later to update registers and re-run the gate.
   *(Cites: D-19.)*
@@ -146,27 +164,41 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
   channels); a strategy-fit section (adjacent initiatives and inherited constraints); and the
   actor-to-behavior-change-to-goal chain.
   *(Cites: D-1; research: prior-art gaps list (Sources); drafting-session decision (2026-07-08).)*
-- **REQ-C1.3** `assumptions.md` entries SHALL carry stable A-IDs with: a falsifiable statement, a
-  risk-if-wrong, a four-risk tag (value / usability / feasibility / viability), a pass/fail
-  threshold defined before the test runs, a commitment-weighted evidence grade, a blocking flag,
-  a validation-task link, and a status.
-  *(Cites: D-1; REQ-I1.4; research: Strategyzer test cards, Mom Test, pretotyping (Sources).)*
-- **REQ-C1.4** `decisions.md` entries SHALL carry stable IDs with alternatives, an owning
-  discipline, a status (open / decided / deferred), and a feed-forward note naming what future
-  spec consumes the decision.
-  *(Cites: D-1.)*
+- **REQ-C1.3** `assumptions.md` entries SHALL carry stable A-IDs with: a falsifiable statement
+  (believe / verify / measure / right-if skeleton, per REQ-I1.4), a risk-if-wrong, a four-risk tag
+  (value / usability / feasibility / viability), a pass/fail threshold defined before the test runs
+  and expressible as a fail condition, a commitment-weighted evidence grade drawn from the named
+  evidence ladder (REQ-I1.4), a blocking flag, a validation-task link, and a status. Synthetic or
+  simulated evidence (persona-panel output) carries the named low grade and SHALL NOT satisfy a
+  Graduate threshold on a value- or usability-tagged (desirability) assumption (REQ-E1.1, REQ-I1.4).
+  *(Cites: D-1; REQ-I1.4; research: Strategyzer test/learning cards, Mom Test, pretotyping,
+  Kromatic fail-conditions, synthetic-user evidence limits (Sources).)*
+- **REQ-C1.4** `decisions.md` entries SHALL carry stable IDs with alternatives (considered
+  options), an owning discipline, deciders, a status (open / decided / deferred), consequences, and
+  a feed-forward note naming what future spec consumes the decision (MADR-shaped fields). On a
+  remote-backed venture, merging the decision's change is its ratification.
+  *(Cites: D-1; research: MADR decision-record schema (Sources).)*
 - **REQ-C1.5** `plan.md` tasks SHALL carry stable T-IDs, a kind (spike / research / analysis /
-  demand-signal / alignment), evaluable done-when conditions, and ordering by lowest-confidence,
-  highest-blocking assumptions first.
-  *(Cites: D-1, D-13; research: assumption-mapping prioritization (Sources).)*
+  demand-signal / alignment), evaluable done-when conditions, a pre-committed time/cost cap
+  alongside the threshold they test, and ordering by lowest-confidence, highest-blocking
+  assumptions first, with the single limiting constraint (the one assumption gating the others) as
+  the tie-breaker.
+  *(Cites: D-1, D-13; research: assumption-mapping prioritization, budget-capped RATs,
+  theory-of-constraints framing (Sources).)*
 - **REQ-C1.6** The venture SHALL have a lifecycle status with Abandoned and On-hold as
   first-class states, pre-committed kill criteria as state-plus-date pairs, and a named gate
   decider drawn from the stakeholder map.
   *(Cites: D-1, D-14; research: Stage-Gate, venture-studio kill discipline, Duke kill criteria
   (Sources).)*
 - **REQ-C1.7** All bundle IDs SHALL be stable and append-only with meta-spec-style supersession;
-  the bundle format itself SHALL be format-versioned.
-  *(Cites: D-1; the spec-format meta-spec (Sources).)*
+  the bundle format itself SHALL be format-versioned. The validator SHALL gate on the
+  `Format-version:` header and fail closed with a plain-language message (a non-zero exit) on an
+  unsupported version, never silently misparsing; the renderer and skill SHALL likewise refuse an
+  unsupported version rather than parse it, deferring to the validator's check. The format SHALL
+  evolve additively within a major version (new fields and sections optional, existing fields
+  never renamed or repurposed), and a breaking change SHALL increment the major format-version and
+  own its migration path.
+  *(Cites: D-1, D-12; the spec-format meta-spec (Sources).)*
 - **REQ-C1.8** The gate-enforced minimum core SHALL be: blocking assumptions enumerated, open
   forks recorded, kill criteria set, success metric named. All other fields are prompts,
   skippable with an explicit reason.
@@ -179,6 +211,11 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
   targets reference it.
   *(Cites: D-1; research: RAPID and named-gatekeeper prior art (Sources); drafting-session
   decision (2026-07-08, pitch dry-run).)*
+- **REQ-C1.11** The bundle SHALL support optional track labels on assumptions, decisions, and
+  plan tasks; a single-track venture requires none; gate records MAY carry per-track outcomes;
+  partial graduation (REQ-F1.3) keys on track labels where present. The inception-format doctrine
+  defines the label grammar.
+  *(Cites: D-1; kickoff §2 (2026-07-10).)*
 
 ## REQ-D — Validation task execution
 
@@ -209,8 +246,9 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 
 - **REQ-E1.1** The gate SHALL evaluate the minimum core: every blocking assumption resolved with
   graded evidence or consciously waived with reason; load-bearing forks decided or deferred with
-  reason; kill criteria and success metric present.
-  *(Cites: D-14; REQ-C1.8.)*
+  reason; kill criteria and success metric present. Synthetic-grade evidence SHALL NOT satisfy a
+  Graduate threshold on a value- or usability-tagged (desirability) assumption (REQ-I1.4).
+  *(Cites: D-14; REQ-C1.8, REQ-I1.4.)*
 - **REQ-E1.2** Gate outcomes SHALL be four first-class states: Graduate / Hold / Recycle / Kill,
   recorded with rationale by the named decider.
   *(Cites: D-14; research: Stage-Gate outcome vocabulary (Sources).)*
@@ -220,8 +258,9 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 - **REQ-E1.4** The gate SHALL run a completeness check: every blocking assumption maps to a
   completed or planned task, and every task traces to an assumption or fork.
   *(Cites: D-14; research: MECE completeness discipline (Sources).)*
-- **REQ-E1.5** Gate runs SHALL be recorded in the bundle as dated entries (outcome, rationale,
-  decider); these records are the venture's audit trail.
+- **REQ-E1.5** Gate runs SHALL be recorded in the bundle as dated, structured machine-readable
+  entries (outcome, date, decider, evidence cited, thresholds evaluated, rationale); these records
+  are the venture's audit trail.
   *(Cites: D-14.)*
 - **REQ-E1.6** A killed or abandoned venture SHALL be archived with a brief post-mortem note and
   a registry update; dead ventures feed the observation stream.
@@ -246,8 +285,9 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 ## REQ-G — Exports & stakeholder surfaces
 
 - **REQ-G1.1** A deterministic renderer SHALL produce a self-contained HTML export of the bundle,
-  regenerated as part of every bundle-changing commit (the export's named refresh owner).
-  *(Cites: D-9; output-hygiene derived-content hygiene (Sources).)*
+  regenerated as part of every bundle-changing commit (the export's named refresh owner) via the
+  scaffolded pre-commit step on every rung (REQ-A1.9), not only in-session or under CI.
+  *(Cites: D-9; REQ-A1.9; output-hygiene derived-content hygiene (Sources).)*
 - **REQ-G1.2** The export SHALL open with a status dashboard: gate readiness, blocking
   assumptions, approaching kill dates, open forks, blockers.
   *(Cites: D-9; drafting-session decision (2026-07-08).)*
@@ -293,7 +333,9 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 - **REQ-H1.5** Every degradation SHALL be reported at pre-flight and repeated in the handoff.
   *(Cites: D-5; bootstrap REQ-K1.7 (graceful-degradation precedent).)*
 - **REQ-H1.6** A missing or unavailable registry SHALL degrade to skipping the cross-venture
-  overlap scan with a notice; everything else proceeds.
+  overlap scan with a notice; everything else proceeds. An overlap scan that fails mid-run (a
+  corrupt registered brief, a timeout) SHALL likewise degrade to a notice and proceed, never
+  blocking venture creation.
   *(Cites: D-8.)*
 
 ## REQ-I — Doctrine & catalog extensions
@@ -312,9 +354,17 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
   non-code artifacts, selected by artifact class; code-oriented lenses SHALL NOT be force-applied
   to inception artifacts.
   *(Cites: D-17; observations log 2026-06-16 (Sources).)*
-- **REQ-I1.4** An evidence-quality doctrine SHALL define the falsifiability format, pre-committed
-  thresholds, and commitment-weighted evidence grades that `assumptions.md` and the gate cite.
-  *(Cites: D-1; research: Mom Test, Strategyzer, pretotyping (Sources).)*
+- **REQ-I1.4** An evidence-quality doctrine SHALL define the falsifiability format (the
+  believe / verify / measure / right-if skeleton), pre-committed thresholds expressible as fail
+  conditions, and commitment-weighted evidence grades naming the evidence ladder
+  (opinion → stated-intent → costly-signal → real-world behavior), that `assumptions.md` and the
+  gate cite. The doctrine SHALL define desirability as the value-risk plus usability-risk tags
+  (REQ-C1.3's four-risk set) so the exclusion below is programmatic. The ladder SHALL place a named
+  low grade for synthetic / simulated evidence below real-human anecdote and above pure reasoning,
+  excluded from a Graduate threshold on a value- or usability-tagged (desirability) assumption.
+  *(Cites: D-1; research: Mom Test commitment currencies, Strategyzer test/learning cards, Savoia's
+  skin-in-the-game point scale, Kromatic fail-conditions, synthetic-user evidence limits
+  (Sources).)*
 - **REQ-I1.5** A storage-classes doctrine rule SHALL distinguish framework config, framework
   runtime state, and user work products, assigning each its canonical home.
   *(Cites: D-8; drafting-session decision (2026-07-08).)*
@@ -357,43 +407,77 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 ## REQ-P — The discipline-persona layer
 
 - **REQ-P1.1** Discipline cards SHALL be task-framings, not identities: one operational role
-  sentence, a mandate of three to seven first questions with no silent pruning, named frameworks
-  with their misuse caveats, grounding requirements, an artifact template with done-when, a
-  capability boundary, an escalation contract, register rules, anti-patterns, and staleness
-  metadata. Backstories, credentials, and seniority styling SHALL NOT appear in cards or outputs.
-  *(Cites: D-3; research: persona-null evidence and lever ranking (Sources).)*
+  sentence, a mandate of three to seven first questions with no silent pruning (each answerable
+  only against this venture's frame, not generically), named frameworks ordered into a working
+  sequence with their misuse caveats, grounding requirements naming the concrete evidence sources
+  the seat must consult, an artifact template with done-when, a capability boundary, an escalation
+  contract, register rules, anti-patterns, documented blind spots, conflict / deference rules
+  (whose view prevails on whose turf), an independence note (the seat cannot validate its own
+  discipline's claims), an optional stance axis (e.g. optimist–skeptic) orthogonal to discipline,
+  and staleness metadata. Backstories, credentials, and seniority styling SHALL NOT appear in cards
+  or outputs.
+  *(Cites: D-3; research: persona-null evidence and lever ranking, AI-board blind-spots/conflict
+  rules, stance-axis decorrelation, named knowledge-sources, frame-specific lens questions
+  (Sources).)*
 - **REQ-P1.2** Each card SHALL carry a default capability tier (agent-senior / structure-only /
-  human-authority) with per-activity exceptions; one-way-door decisions are always
-  human-authority regardless of tier.
-  *(Cites: D-4; research: jagged-frontier and professional-norms evidence (Sources).)*
+  human-authority) with per-activity exceptions and an explicit out-of-scope line (what this seat
+  must not opine on); one-way-door decisions are always human-authority regardless of tier.
+  *(Cites: D-4; research: jagged-frontier and professional-norms evidence, Model-Card
+  out-of-scope-use field (Sources).)*
 - **REQ-P1.3** Fan-out SHALL run seats as independent parallel units (read-only, same frame, no
   inter-seat communication), merged by a single synthesis writer producing a mandatory
-  agreements / tensions / open-questions table with per-claim convergence marks.
-  *(Cites: D-2, D-7; research: topology evidence (Sources).)*
+  agreements / tensions / open-questions table with per-claim convergence marks. Seat outputs
+  SHALL reach the synthesis writer anonymized and order-shuffled (no seat names or ordering cues);
+  the orchestrator, not the synthesis writer, holds the stable seat↔label mapping and re-attaches
+  seat attribution into the human-facing table after synthesis (the writer works blind, keying
+  claims by anonymized label).
+  *(Cites: D-2, D-7; research: topology evidence, identity-bias anonymization (Sources).)*
 - **REQ-P1.4** Exactly one challenge pass SHALL follow synthesis: a premortem plus
   key-assumptions check, seeing synthesis and frame but not per-seat output; synthesis may amend
-  once; no debate loop.
-  *(Cites: D-2; research: premortem versus devil's-advocate evidence (Sources).)*
+  once; no debate loop. The synthesis and challenge steps SHALL run persona-free (plain task
+  instructions, no card role line): persona framing aids generative coverage but degrades
+  discriminative judgment.
+  *(Cites: D-2; research: premortem versus devil's-advocate evidence, generative-vs-discriminative
+  persona effects (Sources).)*
 - **REQ-P1.5** Every seat artifact SHALL end with a mandatory "Decisions I cannot make" section
   (decision, tier and reason, owning role, evidence needed); human-authority items reach the
-  human as structured forced choices at the gate, never as disclaimers.
-  *(Cites: D-4; research: forcing-function versus disclaimer evidence (Sources).)*
+  human as structured forced choices at the gate, never as disclaimers. Escalation triggers SHALL
+  be typed, not prose (irreversibility / missing-domain-authority / confidence-floor /
+  contract-policy-change), each naming the receiving human's power (disregard / override / reverse
+  / halt). The seat's own-discipline independence (a seat cannot validate its own discipline's
+  claims) is a card property (REQ-P1.1); the challenge pass runs persona-free (REQ-P1.4) and needs
+  no per-discipline standing.
+  *(Cites: D-4, D-6; research: forcing-function versus disclaimer evidence, EU AI Act Art. 14 typed
+  human powers, typed escalation-trigger registers, SR 11-7 effective-challenge independence
+  (Sources).)*
 - **REQ-P1.6** The default seat count SHALL be small (three, capped near five) with a bench of
-  on-call cards; estimated cost and backend are surfaced at Gate 1 before any seat spawns; seats
-  SHOULD vary model or effort where the host allows.
-  *(Cites: D-2, D-7; research: token economics and heterogeneity evidence (Sources).)*
+  on-call cards; a stake / reversibility-scored triage SHOULD inform the count within that band
+  when the signal is cheap, defaulting to three otherwise; estimated cost and backend are surfaced
+  at Gate 1 before any seat spawns; seats SHOULD vary model or effort where the backend already
+  advertises the capability (model-family diversity is the strongest decorrelation lever), and when
+  they cannot the lost decorrelation SHALL be reported as a degradation (REQ-H1.5).
+  *(Cites: D-2, D-7; research: token economics and heterogeneity evidence, stake-scored panel
+  sizing, model-family decorrelation (Sources).)*
 - **REQ-P1.7** Human gates SHALL live in the main conversation: Gate 1 confirms frame and
   staffing; Gate 2 is the table read with proceed / park / kill / re-run-seat / pull-bench
   outcomes; seats route escalations through the orchestrator, never to the human directly.
   *(Cites: D-2, D-6, D-7.)*
 - **REQ-P1.8** The staffing table SHALL record each touched discipline as agent-persona,
   named-human, or unstaffed; every unstaffed senior discipline SHALL auto-file as an
-  assumption-register risk, including the no-card-exists case.
-  *(Cites: D-17; research: coverage-honesty prior art (Sources).)*
+  assumption-register risk, including the no-card-exists case. A deliberate zero-seat run
+  (REQ-B1.5) SHALL collapse the per-discipline auto-files into a single "personas waived
+  (zero-seat); N disciplines unstaffed" risk row, preserving coverage honesty without flooding a
+  small venture's register.
+  *(Cites: D-17; REQ-B1.5; research: coverage-honesty prior art (Sources).)*
 - **REQ-P1.9** Confidence SHALL be expressed only as convergence across independent seats or
   cited evidence, never verbalized self-confidence; structure-only output uses hypothesis
-  grammar, human-authority-adjacent output uses briefing grammar.
-  *(Cites: D-4; research: calibration and overreliance evidence (Sources).)*
+  grammar, human-authority-adjacent output uses briefing grammar. Convergence marks are a weak,
+  inflation-prone signal: they SHALL be annotated by claim type (extractive / factual versus
+  interpretive / evaluative), SHALL name outlier seats rather than averaging them away, and SHALL
+  NOT be presented as a calibrated probability; grounding (checkable citations per claim) outranks
+  the vote count as evidence.
+  *(Cites: D-4; research: calibration and overreliance evidence, correlated-error and
+  consensus-is-not-verification findings (Sources).)*
 - **REQ-P1.10** Cards SHALL be overlay-extensible: the seven researched core cards ship in core;
   company-specific cards live in adopter or team overlays; RAPID letters are recorded per card
   and the human always holds the D.
@@ -409,6 +493,17 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
   2026-07-09), including two commissioned research passes (prior-art and bundle ergonomics;
   discipline-persona evidence), a pitch dry-run evaluation against a proprietary specimen
   (analyzed in-session only), and an operator blind-spot sweep.
+- 2026-07-10 — Kickoff walkthrough edits (kickoff §2–§3): home-repo opt-in clarified in Out of
+  scope; REQ-C1.11 (optional track labels) added; registry rebuild + creation collision check
+  (REQ-A1.6/A1.7); operator-confirmed visibility-hygiene call (REQ-B1.6).
+- 2026-07-13 — Kickoff walkthrough continued (§3–§7 + sign-off): SOTA re-check findings folded
+  (evidence ladder + fail-conditions + Strategyzer skeleton, REQ-C1.3/I1.4; synthetic-evidence
+  grade + Graduate exclusion, REQ-C1.3/E1.1; MADR decision fields, REQ-C1.4; plan.md caps +
+  constraint ordering, REQ-C1.5; card-schema additions and persona-topology refinements,
+  REQ-P1.1–P1.9; version-gating + additive evolution, REQ-C1.7); probe resolutions (pre-commit
+  export regen, REQ-A1.9/G1.1; zero-seat collapse, REQ-P1.8; ephemeral session-only-warned,
+  REQ-A1.5); atomic registry writes (REQ-A1.6, D-8). See `kickoff-brief.md` §3–§7 for the full
+  disposition ledger.
 
 ## Sources
 
@@ -446,3 +541,16 @@ one or more `/spec-draft` runs. The skill never auto-chains downstream.
 - **Drafting-session decisions (2026-07-07 through 2026-07-09)** — operator choices recorded
   during elicitation, including the walking-skeleton sequencing, catalog epistemics, backend-seam
   catch, pitch dry-run amendments, and blind-spot sweep dispositions.
+- **Session SOTA re-check (2026-07-10)** — three commissioned state-of-the-art sweeps run before
+  the kickoff walkthrough (upstream-of-spec tooling and the D-1 adversarial check;
+  discipline-persona topology, calibration, and card-schema prior art; storage/collaboration seams
+  and the evidence doctrine); retained operator-side under `research/sota-*.md`, not committed. Its
+  adopt/adapt findings are folded into the kickoff §3–§7 edits and cited inline here and in
+  `design.md` with their primary sources.
+- **Convergent agent-native discovery practice (pm-skills, discovery-pack, and peers)** — GitHub
+  skill collections repackaging product-discovery practice as plain-markdown Claude Code skills;
+  convergent evidence that the plain-text register / backlog / plan direction this bundle takes is
+  where the field is moving, and that no standardized composed schema exists to adopt.
+- **This kickoff walkthrough (`kickoff-brief.md`, 2026-07-10 / 2026-07-13)** — the durable contract
+  this bundle was walked and signed off against, and the source for the `kickoff §…` citations
+  above; its §3–§7 disposition ledger records the SOTA-fold and probe decisions.

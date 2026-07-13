@@ -1,7 +1,7 @@
 # Inception — Test Spec
 
-**Status:** Draft
-**Last reviewed:** 2026-07-09
+**Status:** Ready
+**Last reviewed:** 2026-07-13
 **Format-version:** 1
 
 Coverage mix: `[test]` entries run under `mise run check` / `mise run test` via the shell-test
@@ -38,11 +38,17 @@ Env-stub fixtures: ephemeral detection presents local-only as session-only/unava
 
 ### REQ-A1.6 — venture registry [test]
 
-Registry helper round-trip: create, read, update status, attention flags.
+Registry helper round-trip: create, read, update status, attention flags. Rebuild fixture: a
+`ventures_root` scan recovers fixture ventures with identifiers re-validated; hostile directory
+names rejected. Concurrency fixture: interleaved writes leave the registry parseable (atomic
+write-temp-then-rename); a simulated clobbered or corrupt registry is recovered by the
+`ventures_root` scan-rebuild.
 
-### REQ-A1.7 — cross-venture overlap scan [manual]
+### REQ-A1.7 — cross-venture overlap scan [manual + test]
 
-Dogfood: a second overlapping idea surfaces the extend-vs-new selector; no silent fold.
+Dogfood: a second overlapping idea surfaces the extend-vs-new selector; no silent fold. Collision
+fixture: creation targeting an existing unregistered directory offers adopt-vs-rename and never
+overwrites.
 
 ### REQ-A1.8 — identifier re-validation at consumption [test]
 
@@ -51,7 +57,8 @@ Fixtures: hostile registry and seed identifiers (traversal, charset) rejected at
 ### REQ-A1.9 — hygiene scaffold [test]
 
 Scaffold helper emits `.gitignore` and screening wiring; remote-rung fixture includes the
-secret-scan guard; local-only rung omits CI pieces.
+secret-scan guard; local-only rung omits CI pieces but keeps the pre-commit export-regeneration
+step.
 
 ## REQ-B — The elicitation flow
 
@@ -80,7 +87,8 @@ Dogfood on a small venture: skipped areas carry one-line reasons; zero-seat run 
 ### REQ-B1.6 — visibility-relative hygiene [design-level + manual]
 
 The rule is stated in the skill and inception-format doctrine; dogfood stores a sensitive seed in
-a private venture repo and confirms neutralization on anything crossing to planwright artifacts.
+a private venture repo and confirms neutralization on anything crossing to planwright artifacts,
+and confirms operator confirmation precedes any verbatim storage.
 
 ### REQ-B1.7 — resume [Gherkin]
 
@@ -101,16 +109,19 @@ usefulness.
 ### REQ-C1.3 — assumption entry fields [test]
 
 Fixtures: full entry passes; missing threshold, missing evidence grade, missing four-risk tag,
-duplicate A-ID each fail.
+duplicate A-ID each fail; the evidence grade resolves against the named ladder; a synthetic-grade
+entry cannot satisfy a Graduate threshold on a value- or usability-tagged (desirability) assumption.
 
 ### REQ-C1.4 — decision entry fields [test]
 
-Fixtures: alternatives, owner, status enum, feed-forward note enforced; duplicate IDs rejected.
+Fixtures: alternatives, owner, deciders, status enum, consequences, feed-forward note enforced
+(MADR fields); duplicate IDs rejected.
 
 ### REQ-C1.5 — plan task fields and ordering [test]
 
-Fixtures: kind enum, done-when presence, T-ID grammar; ordering rule verified against a fixture
-register (lowest-confidence blocking first).
+Fixtures: kind enum, done-when presence, time/cost cap presence, T-ID grammar; ordering rule
+verified against a fixture register (lowest-confidence blocking first, single-limiting-constraint
+tie-break).
 
 ### REQ-C1.6 — lifecycle, kill criteria, decider [test]
 
@@ -119,7 +130,10 @@ present and resolvable against the stakeholder map.
 
 ### REQ-C1.7 — stable IDs and format version [test]
 
-Fixtures: ID reuse rejected; supersession pointer accepted; format-version header required.
+Fixtures: ID reuse rejected; supersession pointer accepted; format-version header required; a
+bundle with an unsupported `Format-version:` fails closed with a plain-language message (never
+silently parsed); a design-level check confirms the inception-format doctrine states the
+additive-within-major evolution rule.
 
 ### REQ-C1.8 — minimum core [test]
 
@@ -134,6 +148,11 @@ Validator fixture: register present; entries parse.
 
 Fixture: decides/aligned/informed roles parse; gate decider and alignment targets resolve to map
 entries.
+
+### REQ-C1.11 — optional track labels [test]
+
+Fixtures: labels parse on all three registers; an unlabeled single-track bundle passes; a
+partial-graduation fixture keys on labels; a gate record with per-track outcomes parses.
 
 ## REQ-D — Validation task execution
 
@@ -176,7 +195,8 @@ automated path exists to contact external humans.
 ### REQ-E1.1 — minimum-core evaluation [test]
 
 Gate fixtures: unresolved blocking assumption blocks; waived-with-reason passes; missing metric
-or kill criteria blocks.
+or kill criteria blocks; a value- or usability-tagged (desirability) assumption resting only on
+synthetic-grade evidence blocks a Graduate outcome.
 
 ### REQ-E1.2 — four outcomes [test]
 
@@ -192,7 +212,8 @@ Fixtures: unmapped blocking assumption fails; orphan task fails; complete mappin
 
 ### REQ-E1.5 — gate records [test]
 
-Fixture: dated record with outcome, rationale, decider parses; missing fields flagged.
+Fixture: dated machine-readable record with outcome, decider, evidence cited, thresholds
+evaluated, and rationale parses; missing fields flagged.
 
 ### REQ-E1.6 — kill/abandon archival [Gherkin]
 
@@ -288,7 +309,8 @@ Output assertions: every degraded run names the degradation at pre-flight and in
 
 ### REQ-H1.6 — registry-absent degrade [test]
 
-Stub: missing plugin-data dir skips the overlap scan with a notice; run proceeds.
+Stub: missing plugin-data dir skips the overlap scan with a notice; run proceeds; an overlap scan
+that errors mid-run (corrupt brief, timeout stub) likewise degrades to a notice and proceeds.
 
 ## REQ-I — Doctrine & catalog extensions
 
@@ -361,27 +383,33 @@ re-anchor pointer is present in the doctrine text.
 ### REQ-P1.1 — cards as task-framings [test]
 
 Card lint over all shipped cards: schema fields present; forbidden fields (backstory,
-credentials) absent; mandate size within bounds.
+credentials) absent; mandate size within bounds; blind-spots, conflict/deference rules, ordered
+framework sequence, named knowledge-sources, the own-discipline independence note, and an optional
+stance-axis field present/parse; a generic mandate question (answerable about any product) is
+flagged.
 
 ### REQ-P1.2 — tier placements [test]
 
-Card lint: default tier and per-activity exceptions present; one-way-door items listed as
-human-authority.
+Card lint: default tier and per-activity exceptions present; the out-of-scope line present;
+one-way-door items listed as human-authority.
 
 ### REQ-P1.3 — independent seats, single synthesis [design-level + manual]
 
 Topology stated in the skill with citations; the fan-out dry runs (Task 9) confirm no inter-seat
-channel exists and the synthesis table is mandatory.
+channel exists and the synthesis table is mandatory; the synthesis writer's input is confirmed
+anonymized and order-shuffled (the orchestrator, not the writer, holds the seat↔label map), with
+attribution re-attached only in the final table.
 
 ### REQ-P1.4 — single challenge pass [Gherkin]
 
 Scenario: challenge runs once post-synthesis, sees synthesis and frame only; synthesis amends at
-most once.
+most once; the challenge and synthesis steps run persona-free (no card role line in their prompts).
 
 ### REQ-P1.5 — escalation sections and forced choices [test + manual]
 
-Template check: every seat artifact ends with the section; dogfood confirms human-authority items
-arrive as structured gate choices.
+Template check: every seat artifact ends with the section; escalation triggers are typed (the
+four-class taxonomy) and each names the receiving human's power; dogfood confirms human-authority
+items arrive as structured gate choices.
 
 ### REQ-P1.6 — seat economics [manual]
 
@@ -394,12 +422,15 @@ the human.
 
 ### REQ-P1.8 — staffing honesty [test]
 
-Fixture: an unstaffed discipline (including no-card-exists) auto-files a register risk.
+Fixture: an unstaffed discipline (including no-card-exists) auto-files a register risk; a
+zero-seat run collapses to a single "personas waived; N unstaffed" row rather than one per
+discipline.
 
 ### REQ-P1.9 — convergence-based confidence [manual]
 
 Fan-out outputs reviewed for hypothesis/briefing grammar and convergence marks; no verbalized
-self-confidence.
+self-confidence; convergence marks are annotated by claim type and name outlier seats, never
+presented as a probability.
 
 ### REQ-P1.10 — overlay-extensible cards [test]
 
