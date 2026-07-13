@@ -155,3 +155,12 @@ instruction_budget_closure_error: 20000
 # surface never fails the check. Grounded in the ~40-word present surface
 # (tool-discovery.sh) plus headroom, same test-and-measure discipline (D-13).
 instruction_budget_injected_warn: 200
+# Manifest-completeness assertion (prompt-hygiene REQ-A1.2, wired at Task 3). When
+# true, every skills/*/SKILL.md must declare a doctrine manifest, so a manifest-less
+# skill cannot silently under-report its start-load once manifests are the corpus
+# norm. Distinct from the scoring rule (a manifest-less skill is still scored
+# body-only) and the malformed-manifest error (REQ-B1.8). This repo ships all ten
+# skills with manifests, so it is true here; an adopter not yet on the manifest
+# convention can set it false (the assertion then does not fire) — absent in every
+# layer it defaults off. Overlay-tunable; the mechanism is core.
+instruction_manifest_completeness_required: true

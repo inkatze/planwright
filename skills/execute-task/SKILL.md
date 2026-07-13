@@ -64,6 +64,19 @@ opaque failure. One doc resolves with graceful degradation instead:
   note the missing catalog in one line, skip the drift check, and rely on the
   engineering judgment the catalog would otherwise structure.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start research-rigor
+Doctrine: run-start security-posture
+Doctrine: run-start validation-rigor
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start proportionality
+Doctrine: point-of-use decision-domains (the decision-domain drift check)
+
 ## Pre-flight
 
 Run once per invocation, in order. Any halt records the unit to the spec's

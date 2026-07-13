@@ -75,6 +75,18 @@ opaque failure). Two more resolve with graceful degradation instead:
   the summary inline here (progress indicator, small bites, selectors with
   a recommendation, running summary) and note the missing doc.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start discovery-rigor
+Doctrine: run-start autopilot-reflex
+Doctrine: run-start validation-rigor
+Doctrine: run-start security-posture
+Doctrine: run-start interaction-style
+Doctrine: point-of-use decision-domains (the sign-off gap check)
+
 ## Modes
 
 Three modes, selected at pre-flight from the spec's status and the brief's
