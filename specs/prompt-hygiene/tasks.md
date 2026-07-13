@@ -62,6 +62,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 1
 - **Citations:** D-6, D-7, D-8, D-12 · REQ-C1.4, REQ-C1.6, REQ-D1.3
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-12
 
 ### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
 
