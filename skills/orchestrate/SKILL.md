@@ -171,7 +171,9 @@ unit with the next consecutive ready task(s) **only** when together they form
 one coherent, revertable, single-purpose deliverable (same module/concern,
 shared dependencies). Combined size is a guardrail against bloat, not the
 primary signal. Non-cohesive ready tasks ship as separate units/PRs. A bundle
-takes a single `planwright/<spec>/task-<id>-<id>` branch (D-36).
+takes a single `planwright/<spec>/task-<id>-<id>` branch (D-36). Bundling,
+dispatch ceremony, and reconcile caution scale with stake and reversibility
+per `proportionality` (run-start); scoping is declared, never silent.
 
 ## The dispatch record (the locked window) — REQ-A1.1, REQ-F1.9, D-1, D-10
 
@@ -270,7 +272,9 @@ in this order:
   — it emits a `NOTE:` on stderr; log it — not a halt. Selection-time descent
   is the *choosing* end of the degradation ladder; **runtime failover** (a
   chosen backend dying mid-run) is the other end — read `orchestration-modes`
-  when either branch is taken.
+  when either branch is taken. A failover descends only to a guard-preserving
+  rung (non-interactive, never the manual `print` rung — degrade capability,
+  never safety) and otherwise **escalates** rather than descending.
 
 Concurrency is capped by `max_parallel_units` (default 3, via config-get): if
 that many units already derive **In progress** for this spec — counted from
@@ -339,11 +343,8 @@ when `context_budget_threshold` is `off`.
 
 ## Meta-tower and fleet entry (`--meta` / `--fleet`)
 
-Rare mode arms, defined in `orchestration-modes` (read when the arm is taken):
-`--meta` supervises several Ready/Active specs by launching subordinate
-single-spec towers under the fleet lock and the live fleet-wide bound
-(`fleet_max_parallel_units`); `--fleet` is `--meta --watch` with the attention
-surface as the default watch surface. Every invariant below holds unchanged at
+Rare mode arms, defined in `orchestration-modes` (read when the arm is
+taken; see the Modes list above). Every invariant below holds unchanged at
 every tier; backend selection law applies unchanged.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
@@ -389,7 +390,8 @@ The out-of-session drain pass. Dispatches nothing; it:
    stuck consumes and skipped invalid fragments called out.
 4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
    `scripts/release-bookkeeping.sh`, the belt-and-suspenders surface over the
-   shared comparator (`release-pending.sh`). In the untagged window it prints
+   shared comparator (`release-pending.sh`, the one definition of "pending"
+   the untagged-window lock also reads, REQ-D1.8). In the untagged window it prints
    one line naming the pending version and the publish command; outside it,
    silence. On comparator trouble it degrades to a silent no-op (diagnostic
    on stderr) and always exits 0; it never blocks the pass.

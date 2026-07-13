@@ -6,9 +6,6 @@ precedes the runtime marker, what the per-spec lock does and does not cover,
 and the tightened predicate governing how in-flight work is reconciled or
 orphaned. The skill body keeps the ordered steps; this doc keeps the law and
 its reasons, read at the dispatch-record window and the reconcile sweep.
-Moved here verbatim in meaning from `skills/orchestrate/SKILL.md` by the
-prompt-hygiene Task 5 diet (REQ-D1.1, REQ-D1.2); the IDs cited inline are the
-ones the skill has always cited for these rules.
 
 Citations: orchestration-concurrency REQ-A1.1, REQ-A1.2 ·
 orchestration-concurrency D-1, D-3, D-10 · REQ-F1.1, REQ-F1.9.
@@ -56,8 +53,8 @@ Branch names are built only from grammar-validated spec and task ids
 ## Marker semantics (D-3)
 
 The marker covers the branch-create → first-commit window: a zero-commit
-branch is not yet In-progress evidence, so the marker holds the task In
-progress until its branch carries a commit, after which branch evidence
+branch is not yet In-progress evidence (REQ-C1.1), so the marker holds the
+task In progress until its branch carries a commit, after which branch evidence
 supersedes it — and a stale orphan marker (marker without a surviving branch)
 reverts the task to Ready. A bundle writes one marker per component task id,
 never a single `<id>-<id>` marker. The writer (`orchestrate-marker.sh`)

@@ -48,9 +48,10 @@ scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures \
 ```
 
 `results/*.json` is the committed pre-diet baseline (Task 4, bound to the
-pre-diet commit recorded in that run's PR); `results/post-diet/*.json` is the
-post-diet re-run on the identical fixtures; `results/comparison.md` records
-the paired before/after comparison and the pilot verdict (REQ-D1.3).
+pre-diet commit recorded in that run's PR). Task 5's post-diet re-run on the
+identical fixtures lands in `results/post-diet/*.json`, and the paired
+before/after comparison with the pilot verdict is recorded in
+`results/comparison.md` (REQ-D1.3).
 
 The runner needs a Claude Code CLI on `PATH` and, because it runs `--bare`, an
 `ANTHROPIC_API_KEY` (OAuth and keychain are never read in `--bare` mode). Each

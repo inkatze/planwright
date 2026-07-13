@@ -4,11 +4,9 @@ The rare mode branches of `/orchestrate`, read at the branch that takes them:
 the **degradation ladder and runtime failover** (a chosen backend dying or
 proving unavailable), the **meta-tower** (`--meta`, supervising several specs
 at once), and the **fleet entry** (`--fleet`, the one obvious command).
-Moved here verbatim in meaning from `skills/orchestrate/SKILL.md` by the
-prompt-hygiene Task 5 diet (REQ-D1.1, REQ-D1.2); the IDs cited inline are the
-ones the skill has always cited for these rules. Every invariant in the
-skill's always-loaded core — never merge, never mark ready, never loosen an
-invariant at any tier — holds unchanged in every mode described here.
+Every invariant in the skill's always-loaded core — never merge, never mark
+ready, never loosen an invariant at any tier — holds unchanged in every mode
+described here.
 
 Citations: orchestration-fleet REQ-B1.5, REQ-B1.6, REQ-D1.1, REQ-D1.2,
 REQ-D1.5, REQ-E1.1, REQ-E1.2, REQ-E1.5 · orchestration-fleet D-3, D-6, D-9,
@@ -140,8 +138,8 @@ Unattended, the meta-tower honors the autonomous-safe-decision policy exactly
 as a single tower does — no looser autonomy, no fleet-only decision category;
 every escalation routes to the owning spec's `## Awaiting input`, the one
 cross-spec decision queue a human drains. Never-auto-merge holds at every
-tier: the meta-tower and every subordinate create draft PRs only; the
-draft→ready flip and the merge stay the human's two reserved controls.
+tier (REQ-A1.2): the meta-tower and every subordinate create draft PRs only;
+the draft→ready flip and the merge stay the human's two reserved controls.
 
 ## Fleet entry — the one obvious command (`--fleet`; D-9, D-12, REQ-E1.1, REQ-E1.2, REQ-E1.5)
 
