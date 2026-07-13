@@ -60,6 +60,19 @@ and proceed where the remaining docs allow it, rather than failing opaquely.
 A missing `guard-catalog` / `config/guard-catalog.yaml` is the one hard stop:
 without the catalog there is nothing to detect against — say so and halt.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start guard-catalog
+Doctrine: run-start engineering-decisions
+Doctrine: run-start proportionality
+Doctrine: point-of-use decision-domains (the escalate-vs-auto-apply catalog)
+Doctrine: point-of-use finding-categorization (an escalated decision's routing)
+Doctrine: point-of-use gate-wiring (the GATE deferral an escalation routes into)
+Doctrine: point-of-use research-rigor (when a guard or tool is being adopted)
+Doctrine: point-of-use interaction-style (the interactive recommend/confirm mode)
+
 ## Detection
 
 The mechanical detect-and-map step is `scripts/builder-guards.sh` (resolved

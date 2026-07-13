@@ -186,6 +186,83 @@ if [ "$knob_ok" -ne 1 ]; then
   exit 1
 fi
 
+# Manifest-completeness assertion toggle (REQ-A1.2): a boolean knob, distinct
+# from the numeric thresholds above. When on, every skills/*/SKILL.md must
+# declare a doctrine manifest (asserted after the skill walk below), so a
+# manifest-less skill cannot silently under-report its start-load once manifests
+# are the corpus norm — the assertion wired in at Task 3, when the manifests
+# land. Absent in every config layer it defaults OFF (an adopter not yet on the
+# manifest convention is not forced into it; planwright's own config/defaults.yml
+# sets it true). A present but non-boolean value is fail-loud (REQ-B1.8), read
+# through config-get like the numeric knobs so overlay layering applies.
+# getbool runs in a command substitution, so — like getknob — it cannot set the
+# parent's status; it prints the resolved 0/1 on stdout, prints any diagnostic to
+# the shared stderr, and returns non-zero on a fail-loud condition. The caller
+# records the failure via `|| completeness_knob_ok=0`.
+getbool() {
+  # getbool <key> -> echoes 1 (true) / 0 (false or absent); returns 0 normally,
+  # 1 on a fail-loud condition (a present but non-boolean value, or a read
+  # failure). Absent in every layer is NOT an error (the caller's default is OFF).
+  bk="$1"
+  if [ ! -x "$config_get" ]; then
+    echo "check-instructions: ERROR: config-get.sh missing or not executable at $config_get" >&2
+    echo 0
+    return 1
+  fi
+  if [ "$fixture_mode" -eq 1 ]; then
+    bval="$(
+      PLANWRIGHT_CONFIG_DEFAULTS="$config_defaults" \
+        PLANWRIGHT_REPO_ROOT="$root" \
+        CLAUDE_PLUGIN_ROOT="" CLAUDE_PLUGIN_DATA="" \
+        PLANWRIGHT_ADOPTER_OVERLAY="$root/.no-adopter-overlay" \
+        PLANWRIGHT_LOCAL_CONFIG="" PLANWRIGHT_ROOT="" \
+        "$config_get" "$bk" 2>/dev/null
+    )"
+    brc=$?
+  else
+    bval="$(
+      PLANWRIGHT_CONFIG_DEFAULTS="$config_defaults" \
+        PLANWRIGHT_REPO_ROOT="$root" \
+        "$config_get" "$bk" 2>/dev/null
+    )"
+    brc=$?
+  fi
+  # config-get exit 3 = key absent in every layer (a normal, non-error state for
+  # a boolean toggle); any other non-zero is a real read failure surfaced loud.
+  if [ "$brc" -eq 3 ]; then
+    echo 0
+    return 0
+  fi
+  if [ "$brc" -ne 0 ]; then
+    echo "check-instructions: ERROR: boolean knob '$bk' could not be read (config-get exit $brc)" >&2
+    echo 0
+    return 1
+  fi
+  case "$bval" in
+    true)
+      echo 1
+      return 0
+      ;;
+    false)
+      echo 0
+      return 0
+      ;;
+    *)
+      echo "check-instructions: ERROR: boolean knob '$bk' is not a boolean (true|false): '$bval'" >&2
+      echo 0
+      return 1
+      ;;
+  esac
+}
+completeness_knob_ok=1
+manifest_completeness_required="$(getbool instruction_manifest_completeness_required)" \
+  || completeness_knob_ok=0
+if [ "$completeness_knob_ok" -ne 1 ]; then
+  # A present-but-non-boolean toggle is a deterministic malformed input: fail
+  # loud rather than silently defaulting the assertion off (REQ-B1.8).
+  status=1
+fi
+
 ########################################################################
 # Suppression list — permanent exemptions and transitional allowances.
 # Grammar (pipe-delimited, one entry per non-blank/non-comment line):
@@ -501,6 +578,9 @@ parse_manifest='
   }
 '
 
+# manifest-completeness assertion (REQ-A1.2): collect the skills that declare no
+# doctrine manifest (zero entry lines); asserted after the walk if the knob is on.
+manifestless_skills=""
 if [ -d "$skills_dir" ]; then
   for skill_md in "$skills_dir"/*/SKILL.md; do
     [ -f "$skill_md" ] || continue
@@ -519,9 +599,14 @@ if [ -d "$skills_dir" ]; then
     seen_docs=""
     malformed=0
     unresolved=0
+    mani_entries=0
 
     while IFS= read -r rec; do
       [ -n "$rec" ] || continue
+      # every parsed Doctrine: line (OK or BAD) means the skill declared a
+      # manifest — a malformed entry is still a declaration, so a garbled-only
+      # manifest is not additionally flagged manifest-less (its BAD error stands).
+      mani_entries=$((mani_entries + 1))
       tag="${rec%% *}"
       if [ "$tag" = BAD ]; then
         err "malformed doctrine manifest entry in skills/$sname/SKILL.md: ${rec#BAD }"
@@ -562,6 +647,13 @@ $name"
 $(awk "$parse_manifest" "$skill_md")
 EOF
 
+    # A here-doc-fed while loop runs in the current shell, so mani_entries
+    # survives it: zero parsed entries means this skill declares no manifest.
+    if [ "$mani_entries" -eq 0 ]; then
+      manifestless_skills="$manifestless_skills
+$sname"
+    fi
+
     if [ "$malformed" -eq 1 ] || [ "$unresolved" -eq 1 ]; then
       # A skill whose manifest cannot be trusted is not scored under budget.
       printf '%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
@@ -600,6 +692,18 @@ EOF
       warn "closure warn: $sname ($closure words >= $t_cl_warn)"
     fi
   done
+
+  # Manifest-completeness assertion (REQ-A1.2): once the manifest convention is
+  # the corpus norm, a skill declaring no manifest silently under-reports its
+  # start-load (its run-start docs go uncounted). When the toggle is on, that is
+  # an error, distinct from the malformed-manifest error (REQ-B1.8) and from the
+  # scoring rule that a manifest-less skill is still scored body-only.
+  if [ "$manifest_completeness_required" -eq 1 ]; then
+    for ml in $manifestless_skills; do
+      [ -n "$ml" ] || continue
+      err "manifest-completeness assertion: skills/$ml/SKILL.md declares no doctrine manifest (every skill must declare one; set instruction_manifest_completeness_required=false to disable)"
+    done
+  fi
 fi
 
 # Doctrine rule docs: per-file floor only (they carry no manifest of their own;

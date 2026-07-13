@@ -722,6 +722,82 @@ exp_c=$((sw_c + 200))
 out="$(/bin/bash "$CHECKER" --audit --root "$t13c" 2>&1)"
 assert_contains "a genuine unfenced manifest entry is still counted" "realmani start-load=$exp_c" "$out"
 
+########################################################################
+# 14. Manifest-completeness assertion (REQ-A1.2). A separate corpus-wide check
+#     wired in at Task 3: every skills/*/SKILL.md must declare a doctrine
+#     manifest. It is gated by the boolean knob
+#     instruction_manifest_completeness_required (config/defaults.yml, true in
+#     the shipped repo); absent in every layer it defaults OFF (an adopter not
+#     yet on the manifest convention is not forced into it). Distinct from the
+#     scoring rule (a manifest-less skill still scores body-only, REQ-A1.2) and
+#     from the malformed-manifest error (REQ-B1.8).
+########################################################################
+# helper: append the completeness knob to a fixture's scaffolded defaults.
+set_completeness() {
+  # set_completeness <root> <true|false>
+  printf 'instruction_manifest_completeness_required: %s\n' "$2" >>"$1/config/defaults.yml"
+}
+
+# 14a. assertion ON + a manifest-less skill -> error, naming the skill.
+t14="$tmproot/t14"
+scaffold "$t14"
+set_completeness "$t14" true
+make_skill "$t14" nomani 100 # no manifest lines
+make_doc "$t14" somedoc 200
+make_skill "$t14" hasmani 100 "Doctrine: run-start somedoc"
+out="$(/bin/bash "$CHECKER" --root "$t14" 2>&1)"
+assert_exit "manifest-completeness ON: a manifest-less skill errors" 1 $?
+assert_contains "completeness error names the manifest-less skill" "nomani" "$out"
+assert_absent "completeness error does not flag the skill that has a manifest" \
+  "hasmani" "$out"
+
+# 14b. same tree, assertion OFF (absent knob) -> body-only score, exit 0.
+t14b="$tmproot/t14b"
+scaffold "$t14b" # no completeness knob written -> default OFF
+make_skill "$t14b" nomani 100
+out="$(/bin/bash "$CHECKER" --audit --root "$t14b" 2>&1)"
+assert_exit "manifest-completeness absent-knob defaults OFF: no error" 0 $?
+assert_contains "manifest-less skill still scored body-only when OFF" \
+  "nomani start-load=100" "$out"
+
+# 14c. assertion explicitly false -> manifest-less skill passes.
+t14c="$tmproot/t14c"
+scaffold "$t14c"
+set_completeness "$t14c" false
+make_skill "$t14c" nomani 100
+out="$(/bin/bash "$CHECKER" --root "$t14c" 2>&1)"
+assert_exit "manifest-completeness explicitly OFF: manifest-less skill passes" 0 $?
+
+# 14d. assertion ON + every skill declares a manifest -> passes.
+t14d="$tmproot/t14d"
+scaffold "$t14d"
+set_completeness "$t14d" true
+make_doc "$t14d" somedoc 200
+make_skill "$t14d" a 100 "Doctrine: run-start somedoc"
+make_skill "$t14d" b 100 "Doctrine: point-of-use somedoc (at the step)"
+out="$(/bin/bash "$CHECKER" --root "$t14d" 2>&1)"
+assert_exit "manifest-completeness ON with all manifests present passes" 0 $?
+
+# 14e. a present-but-non-boolean knob is fail-loud (REQ-B1.8).
+t14e="$tmproot/t14e"
+scaffold "$t14e"
+set_completeness "$t14e" maybe
+make_skill "$t14e" nomani 100
+out="$(/bin/bash "$CHECKER" --root "$t14e" 2>&1)"
+assert_exit "non-boolean completeness knob is a fail-loud error" 1 $?
+
+# 14f. a skill with only a MALFORMED manifest entry has still 'declared' a
+#      manifest (it carries a Doctrine: line): the completeness assertion does
+#      not additionally flag it manifest-less (its malformed error stands alone).
+t14f="$tmproot/t14f"
+scaffold "$t14f"
+set_completeness "$t14f" true
+make_skill "$t14f" garbled 100 "Doctrine: sometime somedoc"
+out="$(/bin/bash "$CHECKER" --root "$t14f" 2>&1)"
+assert_exit "malformed-manifest skill errors" 1 $?
+assert_absent "completeness assertion does not double-flag a malformed-manifest skill" \
+  "declares no doctrine manifest" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

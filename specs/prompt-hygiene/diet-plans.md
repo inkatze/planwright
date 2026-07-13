@@ -104,3 +104,75 @@ Task 7 chooses one:
   authorable-from-alone contract and the start-load coupling. A permanent
   exemption never suppresses start-load/closure, so it does not strand the
   dependents — Task 7.5 owns their start-load fix.
+
+## Task 3 update (2026-07-12): start-load now computable
+
+Task 3 added a doctrine manifest to every `skills/*/SKILL.md` (current-reads
+classification, no slimming) and wired the manifest-completeness assertion
+(REQ-A1.2). With the manifests in place, `scripts/check-instructions.sh --audit`
+computes each skill's mandatory-at-start and reachable closure. The manifests
+record the **current** reading model — the skills front-load their core doctrine
+at run start (D-9's rejected "keep run-start front-loading of all doctrine" is
+the state as it stands); a doc is marked `point-of-use` only where the skill's
+own prose reads it on a conditional branch or mode (an escalation, `--watch`,
+`--bookkeeping`, a decision-domain catalog walk). The diets (Tasks 5/6/7/7.5)
+reclassify further and move law to rule docs.
+
+Start-load offenders the computation surfaced (error threshold 10,000):
+
+| Skill | Start-load | Closure | Diet task | Allowance |
+| --- | --- | --- | --- | --- |
+| `/orchestrate` | 16,353 | 19,771 (warn) | Task 5 | `pending-diet start-load` |
+| `/execute-task` | 16,429 | 18,091 (warn) | Task 6 | `pending-diet start-load` |
+| `/spec-kickoff` | 13,055 | 14,717 | Task 7 | `pending-diet start-load` |
+| `/spec-draft` | 12,636 | 14,298 | **Task 7.5** | `pending-diet start-load` |
+
+`/orchestrate`, `/execute-task`, and `/spec-kickoff` are already per-file
+offenders with diet tasks (their start-load allowance rides the same task, and
+their own diet PR sheds both allowances). `/spec-draft` is the offender only the
+start-load budget catches: its body (3,201) is under the per-file floor, so
+Task 2's pre-manifest audit could not see it — its diet is **Task 7.5**,
+point-of-use reclassification. No reachable-closure offender surfaced (every
+skill's closure is under the 20,000 error threshold; `/orchestrate` and
+`/execute-task` warn), so no closure allowance is seeded — matching the kickoff
+expectation. `/builder` (start-load 4,340), `/self-review` (9,994, warn), and
+`/polish` (9,591, warn) are under the error threshold and carry no allowance.
+
+Each start-load allowance is seeded in `config/instruction-budget-exemptions.txt`
+and removed by its diet task's own PR (Task 8 forbids any lingering `pending diet`
+allowance, REQ-D1.4).
+
+### `/spec-draft` → Task 7.5 (point-of-use reclassification)
+
+`/spec-draft`'s start-load (12,636) is dominated by run-start doctrine, not its
+body: `spec-format` (4,568) plus `interaction-style`, `research-rigor`,
+`autopilot-reflex`, `security-posture`, `engineering-decisions`, `proportionality`,
+and `customization-boundary`. Its per-file body (3,201) only warns, so there is
+no body diet to lean on; the fix is manifest reclassification, moving law
+**verbatim in meaning** (no contract change, REQ-D1.1) and never deferring
+gating law (the safety floor, REQ-C1.2).
+
+- **Reclassify run-start → point-of-use (read at the step that needs them):**
+  - `engineering-decisions` and `customization-boundary` — read only in the
+    **design phase** (design.md recommendations and the capability-vs-style
+    scoping call); reclassify to `point-of-use` with that site, joining
+    `decision-domains` (already point-of-use for the design-phase catalog walk).
+  - `autopilot-reflex` — read at the **altitude-gate** step (seed-claim /
+    mid-flow trigger check and the trigger-scoped altitude record); reclassify
+    to `point-of-use` if the trigger-scan summary the flow needs at start can be
+    stated inline (gating law stays; only the bulk defers).
+- **Keep in run-start core:** `spec-format` (the meta-spec every file must
+  conform to, needed throughout), `interaction-style` (governs every exchange),
+  `security-posture` (artifact data-hygiene for everything committed), and
+  `research-rigor` (its triggers are checked before drafting) — plus
+  `proportionality`.
+- **Target:** mandatory-at-start under 10,000 with no transitional allowance
+  remaining. Reclassifying `engineering-decisions` (1,027) + `customization-boundary`
+  (1,129) alone sheds ~2,156, bringing start-load to ≈10,480 — still over, so
+  `autopilot-reflex` (988) must also reclassify (→ ≈9,492) or the body must
+  shed the balance. Task 7.5 owns the final split; whichever combination lands,
+  gating law stays run-start (escalate the threshold-vs-safety tension rather
+  than defer a permission gate — instruction-hygiene safety floor).
+
+The verbatim-in-meaning move and the "no gating law deferred" check are the
+`[manual]` review on the Task 7.5 PR (REQ-D1.1, REQ-C1.2).

@@ -19,6 +19,11 @@ own. Normative semantics (accumulator classes, grammar productions, lanes,
 data-only handling) live in the `accumulator-taxonomy` doctrine doc — read
 it via the rule-doc resolution path before interpreting the report.
 
+Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
+`run-start` loads before work begins):
+
+Doctrine: run-start accumulator-taxonomy
+
 ## Procedure
 
 ### 1. Resolve the evaluator and the specs root

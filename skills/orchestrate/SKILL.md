@@ -70,6 +70,17 @@ clear message naming the missing doc and the chain consulted. On the
 **non-dispatching** paths (`--bookkeeping`, a read-only status step), a missing
 doc degrades — note it in one line and continue with what remains possible.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start proportionality
+Doctrine: point-of-use accumulator-taxonomy (--bookkeeping / gate drain)
+Doctrine: point-of-use context-budget-autoheal (the --watch long-running loop)
+
 ## Modes
 
 Selected from `$ARGUMENTS` at pre-flight:
