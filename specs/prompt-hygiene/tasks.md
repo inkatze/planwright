@@ -13,31 +13,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 4 — Kept-eval runner, /orchestrate fixtures, baseline
-
-- **Deliverables:** `tests/prompt-evals/` layout and fixture format; the
-  POSIX-sh runner (hermetic `claude -p --bare --plugin-dir` runs, init-event
-  plugin verification, jq assertions, pass^k aggregation, budget caps,
-  worktree teardown, per-run cost capture); a stubbed-`claude` test suite
-  covering the runner's logic deterministically; an `eval:skill` mise task;
-  `/orchestrate` fixture scenarios (print backend: correct unit selected,
-  dispatch marker written, launch command printed, non-Ready/non-Active
-  spec refused); artifact-hygiene scrubbing so recorded results/cost carry
-  the per-fixture graded outcome, the fixture identifier, and cost, stripped of
-  machine-local paths, usernames, and session ids (REQ-C1.6; the fixture
-  identifier is retained so the paired before/after comparison is not broken by
-  the scrub); a standing CI-exclusion guard that fails if an eval
-  task is wired into the CI workflow files (REQ-C1.6, not mere absence from
-  the aggregate); the pre-diet baseline run recorded.
-- **Done when:** the stubbed suite passes in `mise run test`; a real
-  baseline run against the pre-diet `/orchestrate` completes pass^3 with
-  its scrubbed results and cost recorded under `tests/prompt-evals/`; the
-  CI-exclusion guard passes (no eval task in the workflow) and is itself part
-  of `mise run check`; the eval task is absent from the `check` aggregate.
-- **Dependencies:** Task 1
-- **Citations:** D-6, D-7, D-8, D-12 · REQ-C1.4, REQ-C1.6, REQ-D1.3
-- **Estimated effort:** 2 days
-
 ### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
 
 - **Deliverables:** `/orchestrate` slimmed per its Task 2 diet plan (law
@@ -221,6 +196,33 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Citations:** D-3, D-1 · REQ-A1.2, REQ-A1.3, REQ-B1.3, REQ-B1.6
 - **Estimated effort:** half day
 - **Status:** Completed · PR #160 merged 2026-07-13
+- **Last activity:** 2026-07-13
+
+### Task 4 — Kept-eval runner, /orchestrate fixtures, baseline
+
+- **Deliverables:** `tests/prompt-evals/` layout and fixture format; the
+  POSIX-sh runner (hermetic `claude -p --bare --plugin-dir` runs, init-event
+  plugin verification, jq assertions, pass^k aggregation, budget caps,
+  worktree teardown, per-run cost capture); a stubbed-`claude` test suite
+  covering the runner's logic deterministically; an `eval:skill` mise task;
+  `/orchestrate` fixture scenarios (print backend: correct unit selected,
+  dispatch marker written, launch command printed, non-Ready/non-Active
+  spec refused); artifact-hygiene scrubbing so recorded results/cost carry
+  the per-fixture graded outcome, the fixture identifier, and cost, stripped of
+  machine-local paths, usernames, and session ids (REQ-C1.6; the fixture
+  identifier is retained so the paired before/after comparison is not broken by
+  the scrub); a standing CI-exclusion guard that fails if an eval
+  task is wired into the CI workflow files (REQ-C1.6, not mere absence from
+  the aggregate); the pre-diet baseline run recorded.
+- **Done when:** the stubbed suite passes in `mise run test`; a real
+  baseline run against the pre-diet `/orchestrate` completes pass^3 with
+  its scrubbed results and cost recorded under `tests/prompt-evals/`; the
+  CI-exclusion guard passes (no eval task in the workflow) and is itself part
+  of `mise run check`; the eval task is absent from the `check` aggregate.
+- **Dependencies:** Task 1
+- **Citations:** D-6, D-7, D-8, D-12 · REQ-C1.4, REQ-C1.6, REQ-D1.3
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #162 merged 2026-07-13
 - **Last activity:** 2026-07-13
 
 ## Deferred
