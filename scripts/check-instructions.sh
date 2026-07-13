@@ -196,9 +196,10 @@ fi
 # sets it true). A present but non-boolean value is fail-loud (REQ-B1.8), read
 # through config-get like the numeric knobs so overlay layering applies.
 # getbool runs in a command substitution, so — like getknob — it cannot set the
-# parent's status; it prints the resolved 0/1 on stdout, prints any diagnostic to
-# the shared stderr, and returns non-zero on a fail-loud condition. The caller
-# records the failure via `|| completeness_knob_ok=0`.
+# parent's status; it prints the resolved 0/1 on stdout, prints its own fail-loud
+# diagnostics to the shared stderr (config-get's own stderr is suppressed by the
+# 2>/dev/null on the invocations below), and returns non-zero on a fail-loud
+# condition. The caller records the failure via `|| completeness_knob_ok=0`.
 getbool() {
   # getbool <key> -> echoes 1 (true) / 0 (false or absent); returns 0 normally,
   # 1 on a fail-loud condition (a present but non-boolean value, or a read
