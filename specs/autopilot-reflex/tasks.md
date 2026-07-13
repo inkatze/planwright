@@ -51,6 +51,7 @@ of the release chain after T1 and can run in parallel throughout.
 - **Dependencies:** Task 4, Task 6.
 - **Citations:** D-12 · REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 1.0d
+- **Last activity:** 2026-07-12
 
 ### Task 11 — Organic proof: planwright's first automated signed release
 
