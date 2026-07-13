@@ -218,6 +218,14 @@ case "$1" in
     esac
     wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"'"${ARM_WINDOW_CONCLUSION:-FAILURE}"'","checkSuite":{"workflowRun":{"workflow":{"name":"release-window"}}}}'
     if [ -n "$q" ]; then nodes="$q,$wl"; else nodes="$wl"; fi
+    # ARM_STATUS_WINDOWLOCK  a LEGACY commit-status (StatusContext) named
+    #   window-lock at the given state — a foreign/legacy node that shares the
+    #   lock's display name. publish judges it (CheckRun-typed exclusion only);
+    #   arm must judge it too, never exclude it, so a red one blocks.
+    if [ -n "${ARM_STATUS_WINDOWLOCK:-}" ]; then
+      sc='{"__typename":"StatusContext","context":"window-lock","state":"'"${ARM_STATUS_WINDOWLOCK}"'"}'
+      nodes="$nodes,$sc"
+    fi
     printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"nodes":[%s]}}}}}}\n' "$astate" "$nodes"
     exit 0
     ;;
@@ -362,6 +370,30 @@ assert_ne "pv/ci-neutral: exits non-zero (neutral-only is not positive confirmat
 assert_contains "pv/ci-neutral: names the ci gate specifically" "$ERR" "ci gate"
 deny "pv/ci-neutral: no tag created" local_has_tag "$r" v0.2.0
 deny "pv/ci-neutral: never published" gh_called "$LOG" "release create"
+
+# 3b-3. Exclusion parity with publish: the window lock is ONLY the Actions
+#       CheckRun named window-lock (release-window.yml has a single job). A LEGACY
+#       commit-status (StatusContext) that merely shares the name is judged, not
+#       excluded — exactly as release-publish.sh's ci_green does
+#       (`select(.type != "CheckRun" or .name != $excl)`). A red such status must
+#       therefore BLOCK arm, or arm would say GREEN while publish says FAILURE and
+#       arm-and-fire into a publish that then refuses. The green quality `check` is
+#       present so only the mis-excluded status could flip the verdict.
+# ARM_FINAL_STATE=OPEN keeps the PR from merging: the refusal we assert is a
+# PRE-VALIDATION one (the red legacy status makes the head verdict RED), so arm
+# must die BEFORE the watch loop. Pinning the PR open means a regression that let
+# arm past the CI gate would exhaust the watch budget with a "still not merged"
+# message (no "ci gate") — a clean failing-first signal — rather than driving into
+# the fire/publish path.
+r="$tmp/pv-ci-statuslock"
+setup_release_pr "$r" 0.2.0 89
+run_arm "$r" 89 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_FINAL_STATE=OPEN ARM_HEAD_CI=green \
+  ARM_STATUS_WINDOWLOCK=FAILURE GH_RELEASE_EXISTS=0
+assert_ne "pv/ci-statuslock: exits non-zero (legacy status named window-lock is judged, not excluded)" "$RC" "0"
+assert_contains "pv/ci-statuslock: refuses at the CI gate, not the watch budget" "$ERR" "ci gate"
+deny "pv/ci-statuslock: no tag created" local_has_tag "$r" v0.2.0
+deny "pv/ci-statuslock: never published" gh_called "$LOG" "release create"
 
 # 3c. A tag for the proposed version already exists on origin (idempotency).
 r="$tmp/pv-tag"

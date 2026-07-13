@@ -25,7 +25,7 @@
 #      than the latest release tag (monotonicity), and has no existing tag
 #      locally or on origin (idempotency); the release-gating GitHub CI is green
 #      on the PR head, EXCLUDING the untagged-window lock (which gates merges,
-#      not the publish — see WINDOW_LOCK_WORKFLOW below).
+#      not the publish — see WINDOW_LOCK_NAME below).
 #   2. Arm + watch: poll the PR until it is MERGED (fire) or CLOSED (disarm
 #      cleanly, publishing nothing), up to a bounded poll cap.
 #   3. On the observed merge: confirm the merge is on origin/main, re-confirm HEAD
@@ -79,9 +79,19 @@ ORIGIN_MAIN_REF="origin/main"
 # red on the merge commit and stays red until publish tags it. The lock gates
 # merges, not the publish (Diego decision; mirrors fix/publish-ci-gate-window-
 # lock), so counting it would deadlock arm against a check that only publish can
-# turn green. Matched by workflow name OR a check-name substring so a rename of
-# either still excludes it.
-WINDOW_LOCK_WORKFLOW="release-window"
+# turn green.
+#
+# Matched EXACTLY as release-publish.sh's ci_green matches it (`.type == CheckRun`
+# AND `.name == window-lock`): only the Actions check-run named window-lock is
+# carved out. A legacy commit-status (StatusContext) that merely shares the name
+# is JUDGED, not excluded — publish does the same, so a red foreign status blocks
+# both. Identical predicate = identical verdict, which is the whole point: arm
+# must never say GREEN on a state publish would refuse. The broader match arm
+# briefly used (workflow-name OR name-substring, also covering StatusContexts) was
+# a superset of publish's and reintroduced the very arm/publish divergence the
+# exclusion exists to close; the workflow-scoping HARDENING is tracked as a shared
+# follow-up that must land in BOTH scripts together (release-lib.sh helper), never
+# in arm alone.
 WINDOW_LOCK_NAME="window-lock"
 
 poll_seconds=${RELEASE_ARM_POLL_SECONDS:-15}
@@ -150,7 +160,7 @@ esac
 #   NONE    no positive CI confirmation yet — no checks, or only the excluded
 #           lock, or only NEUTRAL/SKIPPED left — fail closed (keep waiting,
 #           refuse on timeout); "no CI" and "no success" are never a green light
-# EXCLUDING the untagged-window lock ($WINDOW_LOCK_WORKFLOW / $WINDOW_LOCK_NAME),
+# EXCLUDING the untagged-window lock (the CheckRun named $WINDOW_LOCK_NAME),
 # which is red BY DESIGN during the untagged window and gates merges, not the
 # publish. Excluding it here is what lets arm see the *quality* CI go green on a
 # merge commit whose aggregate rollup is red purely because the lock engaged.
@@ -181,12 +191,11 @@ rl_ci_verdict() {
   # neutral-only remainder folds to NONE, not GREEN): a release gate requires at
   # least one real SUCCESS, so arm never arms-and-fires on a state whose own
   # publish-side ci_green would then refuse on the identical NONE verdict.
-  printf '%s' "$raw" | jq -r --arg wf "$WINDOW_LOCK_WORKFLOW" --arg nm "$WINDOW_LOCK_NAME" '
+  printf '%s' "$raw" | jq -r --arg nm "$WINDOW_LOCK_NAME" '
     (.data.repository.object.statusCheckRollup.contexts.nodes // []) as $n
     | [ $n[]
         | if .__typename == "CheckRun" then
-            { excl: ( ((.checkSuite.workflowRun.workflow.name // "") == $wf)
-                      or (((.name // "") | ascii_downcase) | contains($nm)) ),
+            { excl: ((.name // "") == $nm),
               res: ( if .status != "COMPLETED" then "PENDING"
                      else ( (.conclusion // "") as $c
                             | if $c == "SUCCESS" then "OK"
@@ -194,8 +203,7 @@ rl_ci_verdict() {
                               else "FAIL" end )
                      end ) }
           elif .__typename == "StatusContext" then
-            { excl: ( (((.context // "") | ascii_downcase) | contains($nm))
-                      or ((.context // "") == $wf) ),
+            { excl: false,
               res: ( if .state == "SUCCESS" then "OK"
                      elif (.state == "PENDING" or .state == "EXPECTED") then "PENDING"
                      else "FAIL" end ) }
@@ -400,7 +408,7 @@ fi
 
 # Wait for the release-gating CI to go green on the merged commit before firing
 # publish — EXCLUDING the untagged-window lock, which is red here BY DESIGN (the
-# merge just opened the untagged window; see WINDOW_LOCK_WORKFLOW above) and gates
+# merge just opened the untagged window; see WINDOW_LOCK_NAME above) and gates
 # merges, not the publish. Without this wait arm would fire the instant the merge
 # is observed, when the merge commit's CI has not even started, and publish's own
 # CI gate would refuse. Fail closed: a red release-gating check refuses outright;
