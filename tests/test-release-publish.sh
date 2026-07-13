@@ -106,9 +106,11 @@ seed_version() {
 # --- gh stub -----------------------------------------------------------------
 # Logs each invocation to $GH_LOG. `repo view` prints a canned nameWithOwner;
 # `api graphql` prints a statusCheckRollup per GH_CI (green→SUCCESS, red→FAILURE,
-# none→null rollup) with per-check `contexts` so the publish gate's window-lock
-# exclusion is exercised; GH_WINDOW_LOCK (red|green), when set, adds a
-# `window-lock` check-run alongside the `ci` quality check. The top-level rollup
+# pending→in-progress, neutral→NEUTRAL, none→null rollup) with per-check
+# `contexts` so the publish gate's per-check evaluation and window-lock exclusion
+# are exercised; GH_WINDOW_LOCK (red|green) adds a `window-lock` check-run;
+# GH_STATUS_CONTEXT (success|error) adds a legacy StatusContext (commit-status)
+# node; GH_HASNEXTPAGE=true forces the pagination guard. The top-level rollup
 # `state` stays server-accurate (FAILURE whenever any check — window-lock
 # included — is red) so a gate that reads only the aggregate still sees the
 # real, deadlocking state. `release view` exits per GH_RELEASE_EXISTS; `release
@@ -153,29 +155,36 @@ case "$1" in
   api)
     # The only `gh api` call is the statusCheckRollup GraphQL query. Build a
     # rollup with per-check `contexts` (plus an accurate top-level `state`).
-    # GH_CI drives the `ci` quality check (green|red|pending|none); GH_WINDOW_LOCK
-    # (red|green), when set, adds a `window-lock` check-run. With no checks at all
-    # (GH_CI=none and no window lock) the rollup is null.
+    # GH_CI drives the `ci` quality CheckRun (green|red|pending|neutral|none);
+    # GH_WINDOW_LOCK (red|green), when set, adds a `window-lock` CheckRun;
+    # GH_STATUS_CONTEXT (success|error), when set, adds a legacy StatusContext
+    # (commit-status) node so the gate's non-CheckRun branch is exercised;
+    # GH_HASNEXTPAGE=true forces hasNextPage so the >100-check pagination guard
+    # (TOO_MANY) is exercised even with a green visible page. With no checks at
+    # all the rollup is null. The top-level `state` stays server-accurate so a
+    # gate that (wrongly) read only the aggregate would still see the real state.
     nodes=""
     st="SUCCESS"
+    add_node() { if [ -n "$nodes" ]; then nodes="$nodes,$1"; else nodes="$1"; fi; }
     case "${GH_CI:-green}" in
-      green) nodes='{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
-      red) nodes='{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
-      pending) nodes='{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null}'; st="PENDING" ;;
-      none) nodes="" ;;
+      green) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
+      red) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
+      pending) add_node '{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null}'; st="PENDING" ;;
+      neutral) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"NEUTRAL"}' ;;
+      none) : ;;
     esac
     case "${GH_WINDOW_LOCK:-}" in
-      red) wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
-      green) wl='{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
-      *) wl="" ;;
+      red) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; st="FAILURE" ;;
+      green) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
     esac
-    if [ -n "$wl" ]; then
-      if [ -n "$nodes" ]; then nodes="$nodes,$wl"; else nodes="$wl"; fi
-    fi
+    case "${GH_STATUS_CONTEXT:-}" in
+      success) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"SUCCESS"}' ;;
+      error) add_node '{"__typename":"StatusContext","context":"legacy-ci","state":"ERROR"}'; st="FAILURE" ;;
+    esac
     if [ -z "$nodes" ]; then
       printf '{"data":{"repository":{"object":{"statusCheckRollup":null}}}}\n'
     else
-      printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":false},"nodes":[%s]}}}}}}\n' "$st" "$nodes"
+      printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":%s},"nodes":[%s]}}}}}}\n' "$st" "${GH_HASNEXTPAGE:-false}" "$nodes"
     fi
     exit 0
     ;;
@@ -443,6 +452,62 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=green GH_WINDOW_LOCK=green GH_RELEASE_EXISTS=0
 assert_eq "window-lock/green: green window lock + green quality publishes" "$RC" "0"
 want "window-lock/green: tag created" local_has_tag "$r" v0.1.0
+
+# 4h-5. Fail-closed on PENDING (REQ-D1.3). A non-excluded check still in progress
+#       blocks publish — the gate waits for CI to finish, it never races it.
+r="$tmp/ci-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=pending GH_RELEASE_EXISTS=0
+assert_ne "gate/pending: an in-progress check blocks publish" "$RC" "0"
+assert_contains "gate/pending: names the ci gate" "$ERR" "ci gate"
+deny "gate/pending: no tag created while CI is pending" local_has_tag "$r" v0.1.0
+
+# 4h-6. StatusContext (legacy commit-status) path publishes on a green status.
+#       The rollup mixes CheckRun and StatusContext nodes; the gate judges the
+#       non-CheckRun branch (state==SUCCESS) as positive confirmation. Here the
+#       ONLY check is a StatusContext, so a bug in that branch would surface.
+r="$tmp/status-context-green"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=success GH_RELEASE_EXISTS=0
+assert_eq "gate/status-context: a green commit status publishes" "$RC" "0"
+want "gate/status-context: tag created from a green StatusContext" local_has_tag "$r" v0.1.0
+
+# 4h-7. StatusContext error fails closed. A commit status in ERROR maps to
+#       FAILURE (not SUCCESS), blocking publish — guards the non-CheckRun state
+#       mapping against a false green on a legacy status.
+r="$tmp/status-context-error"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_STATUS_CONTEXT=error GH_RELEASE_EXISTS=0
+assert_ne "gate/status-context-error: an ERROR commit status blocks publish" "$RC" "0"
+assert_contains "gate/status-context-error: names the ci gate" "$ERR" "ci gate"
+deny "gate/status-context-error: no tag created on an ERROR status" local_has_tag "$r" v0.1.0
+
+# 4h-8. Pagination guard (TOO_MANY). More checks than one page can hold
+#       (hasNextPage) fails closed EVEN with a green visible page — an unseen
+#       later page could hold a red check, so the gate refuses rather than trust
+#       a partial view. This is the blind spot the per-check rewrite closes.
+r="$tmp/too-many-checks"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_HASNEXTPAGE=true GH_RELEASE_EXISTS=0
+assert_ne "gate/pagination: hasNextPage fails closed despite a green visible page" "$RC" "0"
+assert_contains "gate/pagination: names the ci gate" "$ERR" "ci gate"
+deny "gate/pagination: no tag created when checks exceed one page" local_has_tag "$r" v0.1.0
+
+# 4h-9. Positive-confirmation requirement. A run whose only non-excluded check is
+#       NEUTRAL/SKIPPED resolves to NONE (not SUCCESS) and fails closed — absence
+#       of failure is not confirmation. Distinct jq branch from window-lock-only
+#       (which drops to length==0); here a check survives but confirms nothing.
+r="$tmp/neutral-only"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=neutral GH_RELEASE_EXISTS=0
+assert_ne "gate/neutral-only: a neutral-only run is not positive confirmation" "$RC" "0"
+assert_contains "gate/neutral-only: names the ci gate" "$ERR" "ci gate"
+deny "gate/neutral-only: no tag created with only neutral checks" local_has_tag "$r" v0.1.0
 
 # ===========================================================================
 # 5. require_signed_tags modes (REQ-D1.4) + verify-before-push (REQ-D1.5).
