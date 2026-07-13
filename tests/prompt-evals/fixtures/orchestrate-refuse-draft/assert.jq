@@ -4,4 +4,4 @@
 #     spec-kickoff), rather than a silent no-op.
 (.marker_written == false)
 and (.branch_created == false)
-and (.result | test("draft|not ready|ready or active|spec-kickoff|refus"; "i"))
+and ((.result // "") | test("draft|not ready|ready or active|spec-kickoff|refus"; "i"))

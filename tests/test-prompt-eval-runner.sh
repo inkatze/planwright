@@ -291,6 +291,125 @@ assert_exit "no fixtures is a usage error" 2 $?
 out="$("$RUNNER" --plugin-dir "$REPO_ROOT" --k 0 "$TMP/fx/ok3" 2>&1)"
 assert_exit "--k 0 is a usage error" 2 $?
 
+# ---- 14. --plugin-dir that is not a plugin is a usage error (exit 2) ---------
+out="$("$RUNNER" --plugin-dir "$TMP" "$TMP/fx/ok3" 2>&1)"
+rc=$?
+assert_exit "--plugin-dir without plugin.json is a usage error" 2 "$rc"
+assert_contains "names the not-a-plugin cause" "not a plugin" "$out"
+
+# ---- 15. multi-fixture run where one fixture fails: exit 1, others still run --
+mkdir -p "$TMP/mixed/good1" "$TMP/mixed/bad" "$TMP/mixed/good2"
+for n in good1 bad good2; do
+  echo "go" >"$TMP/mixed/$n/prompt.txt"
+  echo '.is_error == false' >"$TMP/mixed/$n/assert.jq"
+done
+reset_counter
+# Fixtures run in glob (alphabetical) order: bad, good1, good2. Plan: bad
+# ok,fail (early-exit, 2 invocations) · good1 ok,ok,ok · good2 ok,ok,ok.
+printf 'ok\nfail\nok\nok\nok\nok\nok\nok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --suite "$TMP/mixed" 2>&1)"
+rc=$?
+assert_exit "a failing fixture makes the suite exit 1" 1 "$rc"
+assert_contains "the failing fixture is reported" "[bad] FAIL" "$out"
+assert_contains "a later fixture still runs after an earlier fail" "[good1] PASS" "$out"
+assert_contains "the last fixture still runs too" "[good2] PASS" "$out"
+
+# ---- 16. --record per-run cost array has the right length and values ---------
+fx="$(mk_fixture costs '.is_error == false')"
+reset_counter
+printf 'ok\nok\nok\n' >"$TMP/plan"
+mkdir -p "$TMP/costres"
+out="$(STUB_PLAN="$TMP/plan" STUB_COST="0.020000" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --record "$TMP/costres" "$fx" 2>&1)"
+# jq 1.7+ preserves the number literal, so 0.020000 stays as written.
+arr="$(jq -c '.per_run_cost_usd | length' "$TMP/costres/costs.json" 2>/dev/null)"
+assert_contains "per-run cost array has all k entries" "3" "$arr"
+firstcost="$(jq -r '.per_run_cost_usd[0]' "$TMP/costres/costs.json" 2>/dev/null)"
+assert_contains "per-run cost value is the stub cost" "0.02" "$firstcost"
+total="$(jq -r '.cost_usd' "$TMP/costres/costs.json" 2>/dev/null)"
+assert_contains "total cost sums the runs" "0.06" "$total"
+
+# ---- 17. --expect-plugin-commit: match proceeds, mismatch aborts fail-closed -
+head_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)"
+fx="$(mk_fixture commitok '.is_error == false')"
+reset_counter
+printf 'ok\nok\nok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --expect-plugin-commit "$head_sha" "$fx" 2>&1)"
+assert_exit "matching --expect-plugin-commit proceeds" 0 $?
+out="$(STUB_PLAN="$TMP/plan" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --expect-plugin-commit "deadbeefdeadbeef" "$fx" 2>&1)"
+rc=$?
+assert_exit "mismatching --expect-plugin-commit aborts fail-closed (exit 4)" 4 "$rc"
+assert_contains "names the pre-diet-commit binding" "pre-diet commit" "$out"
+
+# ---- 18. setup.sh failure is fail-closed (exit 4) ----------------------------
+fx="$(mk_fixture setupfail '.is_error == false')"
+cat >"$fx/setup.sh" <<'EOF'
+#!/bin/sh
+echo "seed exploded" >&2
+exit 1
+EOF
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "setup.sh failure is fail-closed (exit 4)" 4 "$rc"
+assert_contains "names the setup failure" "setup.sh failed" "$out"
+
+# ---- 19. probe.sh emitting invalid JSON is fail-closed (exit 4), not silent --
+fx="$(mk_fixture badprobe '.marker_written == true')"
+cat >"$fx/probe.sh" <<'EOF'
+#!/bin/sh
+echo "this is not json"
+EOF
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "invalid probe JSON is fail-closed (exit 4)" 4 "$rc"
+assert_contains "names the probe disposition" "probe.sh failed or emitted invalid JSON" "$out"
+
+# ---- 20. probe.sh exiting non-zero is fail-closed (exit 4) -------------------
+fx="$(mk_fixture crashprobe '.marker_written == true')"
+cat >"$fx/probe.sh" <<'EOF'
+#!/bin/sh
+echo '{"marker_written": false}'
+exit 7
+EOF
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "probe non-zero exit is fail-closed (exit 4)" 4 "$rc"
+
+# ---- 21. a broken assert.jq (compile error) is fail-closed, not a graded fail-
+fx="$(mk_fixture badassert 'this is (not valid jq')"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "broken assert.jq is fail-closed (exit 4), not a graded fail" 4 "$rc"
+assert_contains "names the assert.jq error" "assert.jq error" "$out"
+
+# ---- 22. a zero-byte prompt.txt is a usage error (exit 2) --------------------
+fx="$TMP/fx/emptyprompt"
+mkdir -p "$fx"
+: >"$fx/prompt.txt"
+echo '.is_error == false' >"$fx/assert.jq"
+out="$("$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "empty prompt.txt is a usage error (exit 2)" 2 "$rc"
+
+# ---- 23. a scientific-notation cost is parsed, not mis-aborted ----------------
+fx="$(mk_fixture scicost '.is_error == false')"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_COST="5E-7" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "scientific-notation cost parses (not fail-closed)" 0 "$rc"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1

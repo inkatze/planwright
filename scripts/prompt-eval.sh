@@ -210,13 +210,12 @@ read_conf() {
   return 0
 }
 
-# is_number <str> — true for an integer or decimal (no sign, no exponent).
+# is_number <str> — true for a non-negative integer or decimal, with an optional
+# exponent. The exponent form matters: jq renders a `total_cost_usd` below 1e-6
+# in scientific notation (e.g. "5E-7"), which a bare `[0-9.]` test would reject
+# and mis-abort as an unparseable cost. Rejects a lone "." and multi-dot input.
 is_number() {
-  case "$1" in
-    '' | *[!0-9.]*) return 1 ;;
-    *.*.*) return 1 ;;
-    *) return 0 ;;
-  esac
+  printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'
 }
 
 # cumulative suite cost (integer micro-dollars, to avoid float arithmetic in sh)
@@ -235,6 +234,19 @@ to_micros() {
 overall_rc=0
 note_fail() { [ "$overall_rc" -eq 0 ] && overall_rc=1; }
 
+# Interrupt-safe cleanup (R8 re-runnability): a run in flight tracks its work
+# tree so an INT/TERM/normal EXIT never leaves it (or its transcript) behind.
+# The per-fixture prune-first is the crash-recovery backstop; this is the clean
+# path. Cleared after each teardown so a stale path is never re-removed.
+current_work=""
+# shellcheck disable=SC2329  # invoked indirectly via the traps below
+cleanup() {
+  [ -n "$current_work" ] && rm -rf "$current_work" "$current_work.jsonl" 2>/dev/null
+}
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+
 # ---- per-fixture evaluation --------------------------------------------------
 run_fixture() {
   fx_dir="$1"
@@ -252,8 +264,11 @@ run_fixture() {
       ;;
   esac
 
-  [ -f "$fx_dir/prompt.txt" ] || {
-    echo "prompt-eval: fixture '$fx_id' has no prompt.txt" >&2
+  # A zero-byte prompt.txt would invoke the skill with no scenario and then
+  # grade the empty run as a skill failure — a fixture-authoring defect, not a
+  # skill result. Require it non-empty (usage error, not a graded fail).
+  [ -s "$fx_dir/prompt.txt" ] || {
+    echo "prompt-eval: fixture '$fx_id' has a missing or empty prompt.txt" >&2
     return 2
   }
   [ -f "$fx_dir/assert.jq" ] || {
@@ -295,6 +310,7 @@ run_fixture() {
       echo "prompt-eval: cannot create work tree '$work'" >&2
       return 5
     }
+    current_work="$work" # armed for the interrupt-safe cleanup trap
 
     if [ -f "$fx_dir/setup.sh" ]; then
       if ! (cd "$work" && sh "$fx_dir/setup.sh" "$work") >/dev/null 2>&1; then
@@ -359,18 +375,46 @@ run_fixture() {
       run_pass=1
     else
       # Filesystem/side-effect probe (optional), merged into the outcome jq sees.
+      # A probe that exits non-zero or emits non-JSON is a harness/authoring
+      # error, not a "no side effect" result: fail-closed (R12), never silently
+      # degrade to {} — that would spuriously fail a positive assert or, worse,
+      # silently pass a `not`-style absence assert on a probe that never ran.
       probe="{}"
       if [ -f "$fx_dir/probe.sh" ]; then
-        probe="$(cd "$work" && sh "$fx_dir/probe.sh" "$work" 2>/dev/null)"
-        printf '%s' "$probe" | jq -e . >/dev/null 2>&1 || probe="{}"
+        if probe_out="$(cd "$work" && sh "$fx_dir/probe.sh" "$work" 2>/dev/null)" \
+          && printf '%s' "$probe_out" | jq -e . >/dev/null 2>&1; then
+          probe="$probe_out"
+        else
+          echo "prompt-eval: [$fx_id run $run] fail-closed — probe.sh failed or emitted invalid JSON" >&2
+          rm -rf "$work" "$raw"
+          current_work=""
+          return 4
+        fi
       fi
       base="$(printf '%s' "$result" | jq -c '{is_error, subtype, result, num_turns, plugin_loaded: true, cost_usd: .total_cost_usd}' 2>/dev/null)"
       outcome="$(jq -cn --argjson b "$base" --argjson p "$probe" '$b + $p' 2>/dev/null)"
-      if [ -n "$outcome" ] && printf '%s' "$outcome" | jq -e -f "$fx_dir/assert.jq" >/dev/null 2>&1; then
-        run_pass=0
-      else
-        run_pass=1
+      if [ -z "$outcome" ]; then
+        echo "prompt-eval: [$fx_id run $run] fail-closed — could not build the outcome to grade" >&2
+        rm -rf "$work" "$raw"
+        current_work=""
+        return 4
       fi
+      # Grade, distinguishing a genuine false (graded fail) from a broken
+      # assert.jq (compile/runtime/no-result). jq -e exits 0 truthy, 1 false or
+      # null, and >=2 on a program/runtime error — the last is a harness error,
+      # fail-closed, not silently a graded fail (R12).
+      printf '%s' "$outcome" | jq -e -f "$fx_dir/assert.jq" >/dev/null 2>&1
+      grade_rc=$?
+      case "$grade_rc" in
+        0) run_pass=0 ;;
+        1) run_pass=1 ;;
+        *)
+          echo "prompt-eval: [$fx_id run $run] fail-closed — assert.jq error (jq exit $grade_rc)" >&2
+          rm -rf "$work" "$raw"
+          current_work=""
+          return 4
+          ;;
+      esac
     fi
 
     # Teardown (R8): remove the tree; a teardown failure is a re-runnability
@@ -379,6 +423,7 @@ run_fixture() {
       echo "prompt-eval: [$fx_id run $run] fail-closed — teardown failed for '$work'" >&2
       return 5
     fi
+    current_work="" # disarmed: the tree is gone
 
     if [ "$run_pass" -ne 0 ]; then
       fx_pass=0

@@ -121,6 +121,35 @@ else
   fail "refuse-draft bundle is not Status: Draft"
 fi
 
+# ---- each assert.jq actually grades: passing outcome true, failing false -----
+# Compile-only would pass a tautological "always false" assert; feed each a
+# known-good and known-bad outcome and require the right verdict.
+grades() {
+  # grades <label> <assert.jq> <outcome-json> <expected: true|false>
+  got="$(printf '%s' "$3" | jq -e "$(cat "$2")" >/dev/null 2>&1 && echo true || echo false)"
+  if [ "$got" = "$4" ]; then ok "$1"; else fail "$1 (got $got, wanted $4)"; fi
+}
+
+PR="$FIX/orchestrate-print-ready/assert.jq"
+grades "print-ready assert grades a good outcome true" "$PR" \
+  '{"is_error":false,"marker_written":true,"result":"run: claude /execute-task demo task-1"}' true
+grades "print-ready assert grades a no-marker outcome false" "$PR" \
+  '{"is_error":false,"marker_written":false,"result":"run: claude /execute-task demo task-1"}' false
+grades "print-ready assert grades an errored outcome false" "$PR" \
+  '{"is_error":true,"marker_written":true,"result":"execute-task demo task-1"}' false
+grades "print-ready assert tolerates a null result (false, no jq error)" "$PR" \
+  '{"is_error":false,"marker_written":true,"result":null}' false
+
+RD="$FIX/orchestrate-refuse-draft/assert.jq"
+grades "refuse-draft assert grades a clean refusal true" "$RD" \
+  '{"marker_written":false,"branch_created":false,"result":"refused: spec is Draft, not Ready or Active"}' true
+grades "refuse-draft assert grades a dispatch (marker) false" "$RD" \
+  '{"marker_written":true,"branch_created":false,"result":"refused: Draft"}' false
+grades "refuse-draft assert grades a silent no-op (no refusal text) false" "$RD" \
+  '{"marker_written":false,"branch_created":false,"result":"nothing to do"}' false
+grades "refuse-draft assert tolerates a null result (false, no jq error)" "$RD" \
+  '{"marker_written":false,"branch_created":false,"result":null}' false
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures fixture check(s) failed" >&2
   exit 1

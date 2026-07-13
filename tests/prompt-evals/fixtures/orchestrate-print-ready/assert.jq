@@ -7,5 +7,5 @@
 # command surfaced. "task 1" / "task-1" tolerates either phrasing.
 (.is_error == false)
 and (.marker_written == true)
-and (.result | test("execute-task"; "i"))
-and (.result | test("task[ -]?1|demo"; "i"))
+and ((.result // "") | test("execute-task"; "i"))
+and ((.result // "") | test("task[ -]?1|demo"; "i"))
