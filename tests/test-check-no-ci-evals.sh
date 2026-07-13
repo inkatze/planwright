@@ -111,6 +111,60 @@ EOF
 out="$("$GUARD" "$TMP/wired3" 2>&1)"
 assert_exit "any eval: namespace task wired in CI fails" 1 $?
 
+# ---- the `run` alias `mise r eval:` must not bypass the guard ----
+mkdir -p "$TMP/alias"
+cat >"$TMP/alias/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise r eval:skill
+EOF
+out="$("$GUARD" "$TMP/alias" 2>&1)"
+assert_exit "mise r eval:skill (run alias) is caught" 1 $?
+
+# ---- a flag between `run` and the task must not bypass the guard ----
+mkdir -p "$TMP/flag"
+cat >"$TMP/flag/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run --verbose eval:skill
+EOF
+out="$("$GUARD" "$TMP/flag" 2>&1)"
+assert_exit "mise run --verbose eval:skill is caught" 1 $?
+
+# ---- a quoted task name must not bypass the guard ----
+mkdir -p "$TMP/quoted"
+cat >"$TMP/quoted/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run "eval:skill"
+EOF
+out="$("$GUARD" "$TMP/quoted" 2>&1)"
+assert_exit "mise run \"eval:skill\" (quoted) is caught" 1 $?
+
+# ---- invoking the runner script directly must not bypass the guard ----
+mkdir -p "$TMP/direct"
+cat >"$TMP/direct/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures
+EOF
+out="$("$GUARD" "$TMP/direct" 2>&1)"
+rc=$?
+assert_exit "direct sh scripts/prompt-eval.sh is caught" 1 "$rc"
+assert_contains "names the direct-runner offender" "direct/ci.yml" "$out"
+
 # ---- a benign task whose name merely contains 'eval' is NOT flagged ----
 # `evaluate-release` is not in the `eval:` namespace; a substring match would
 # be a false positive that blocks legitimate task names.

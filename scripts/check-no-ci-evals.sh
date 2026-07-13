@@ -7,11 +7,22 @@
 # which a future edit could silently undo — by scanning the workflow files for
 # any wiring of an eval task and failing loud if one is found.
 #
-# What counts as an eval task: any mise task in the `eval:` namespace (the
-# sibling of `check:`, `lint:`, `scan:`), invoked as `mise run eval:<x>` or the
-# bare `mise eval:<x>`. Matching the namespace (not the substring "eval")
-# avoids flagging a legitimately-named task like `evaluate-release` or a comment
-# that merely mentions evaluation.
+# What counts as an eval task being wired in — two forms, both caught:
+#   1. Any mise task in the `eval:` namespace (the sibling of `check:`, `lint:`,
+#      `scan:`), in ANY invocation form: `mise run eval:<x>`, the `run` alias
+#      `mise r eval:<x>`, the implicit `mise eval:<x>`, a flag or quote between
+#      `run` and the task (`mise run --verbose eval:<x>`, `mise run "eval:<x>"`).
+#      The rule is "a `mise` invocation whose line reaches an `eval:` task",
+#      matched by `mise` followed anywhere on the line by `eval:` — deliberately
+#      permissive, because a security control should fail loud on a near-miss
+#      rather than let a novel invocation form through. Matching the `eval:`
+#      namespace (not the bare substring "eval") still spares a legitimately
+#      named task like `evaluate-release` and prose that merely says "eval".
+#   2. Invoking the runner script directly, bypassing mise entirely
+#      (`sh scripts/prompt-eval.sh …`, `./scripts/prompt-eval.sh …`).
+# A residual this guard does NOT cover (out of REQ-C1.6's "workflow files"
+# scope): an eval task reached transitively through a mise.toml `depends` chain
+# from a CI-run task. That is recorded as an observation, not enforced here.
 #
 # Untrusted input: workflow files are PR-controllable. They are read as text and
 # matched with grep only; no content is ever executed. The scanned directory is
@@ -56,12 +67,13 @@ if [ "$#" -eq 0 ]; then
   exit 0
 fi
 
-# An eval-task invocation: `mise`, optional `run`, then a task in the `eval:`
-# namespace. [[:space:]] rather than a literal space so tabs and multiple
-# spaces match; `eval:` (namespace colon) rather than a bare `eval` word so
-# only real eval tasks trip the guard. -H forces the filename prefix even when a
-# single file is scanned, giving a file:line:match report.
-pattern='mise([[:space:]]+run)?[[:space:]]+eval:'
+# Two alternatives (see the header): a `mise` invocation whose line reaches an
+# `eval:` task in any form, or a direct call to the runner script. `mise`
+# followed by whitespace then anything then `eval:` covers the `run`/`r` alias,
+# an interposed flag, and a quoted task; `eval:` (namespace colon) rather than a
+# bare `eval` word still spares `evaluate-release` and prose. -H forces the
+# filename prefix even for a single file, giving a file:line:match report.
+pattern='mise[[:space:]].*eval:|prompt-eval\.sh'
 hits="$(grep -HnE "$pattern" "$@" 2>/dev/null || true)"
 
 if [ -n "$hits" ]; then
