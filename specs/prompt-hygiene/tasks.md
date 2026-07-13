@@ -13,32 +13,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 3 — Doctrine manifests in all skills
-
-- **Deliverables:** the Task 1 manifest added to every `skills/*/SKILL.md`
-  (run-start and point-of-use classification of each skill's current
-  doctrine reads; no slimming yet), making mandatory-at-start and
-  reachable-closure budgets computable corpus-wide; the guard's
-  manifest-completeness assertion (REQ-A1.2) wired in the **same PR** so a
-  future manifest-less skill cannot silently under-report start-load. In the
-  **same PR**, seed a transitional `pending diet (Task 7.5)` allowance
-  (REQ-B1.3b) for every start-load offender the computation now surfaces
-  (notably `/spec-draft`) — and, should the computation surface a
-  reachable-closure offender (none expected at kickoff), a transitional closure
-  allowance likewise (REQ-B1.3b) — and record their
-  point-of-use-reclassification diet plans for Task 7.5 — the start-load (and
-  any closure) offenders that Task 2's pre-manifest audit could not yet see.
-- **Done when:** the manifest-completeness assertion confirms all ten skills
-  declare a manifest (zero absent); `scripts/check-instructions.sh` computes
-  mandatory-at-start and reachable-closure for all ten skills; every surfaced
-  start-load (and any closure) offender carries its transitional allowance; the
-  resolution check passes; `mise run check` stays green **with the transitional
-  allowances in place**.
-- **Dependencies:** Task 1, Task 2
-- **Citations:** D-3, D-1 · REQ-A1.2, REQ-A1.3, REQ-B1.3, REQ-B1.6
-- **Estimated effort:** half day
-- **Last activity:** 2026-07-12
-
 ### Task 4 — Kept-eval runner, /orchestrate fixtures, baseline
 
 - **Deliverables:** `tests/prompt-evals/` layout and fixture format; the
@@ -221,6 +195,33 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Estimated effort:** 2 days
 - **Status:** Completed · PR #157 merged 2026-07-12
 - **Last activity:** 2026-07-12
+
+### Task 3 — Doctrine manifests in all skills
+
+- **Deliverables:** the Task 1 manifest added to every `skills/*/SKILL.md`
+  (run-start and point-of-use classification of each skill's current
+  doctrine reads; no slimming yet), making mandatory-at-start and
+  reachable-closure budgets computable corpus-wide; the guard's
+  manifest-completeness assertion (REQ-A1.2) wired in the **same PR** so a
+  future manifest-less skill cannot silently under-report start-load. In the
+  **same PR**, seed a transitional `pending diet (Task 7.5)` allowance
+  (REQ-B1.3b) for every start-load offender the computation now surfaces
+  (notably `/spec-draft`) — and, should the computation surface a
+  reachable-closure offender (none expected at kickoff), a transitional closure
+  allowance likewise (REQ-B1.3b) — and record their
+  point-of-use-reclassification diet plans for Task 7.5 — the start-load (and
+  any closure) offenders that Task 2's pre-manifest audit could not yet see.
+- **Done when:** the manifest-completeness assertion confirms all ten skills
+  declare a manifest (zero absent); `scripts/check-instructions.sh` computes
+  mandatory-at-start and reachable-closure for all ten skills; every surfaced
+  start-load (and any closure) offender carries its transitional allowance; the
+  resolution check passes; `mise run check` stays green **with the transitional
+  allowances in place**.
+- **Dependencies:** Task 1, Task 2
+- **Citations:** D-3, D-1 · REQ-A1.2, REQ-A1.3, REQ-B1.3, REQ-B1.6
+- **Estimated effort:** half day
+- **Status:** Completed · PR #160 merged 2026-07-13
+- **Last activity:** 2026-07-13
 
 ## Deferred
 

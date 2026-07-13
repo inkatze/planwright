@@ -18,26 +18,6 @@ of the release chain after T1 and can run in parallel throughout.
 
 ## Forward plan
 
-### Task 3 — Catalog entries: guard-catalog + decision-domains
-
-- **Deliverables:** (a) A release-tagging breadth entry in
-  `doctrine/guard-catalog.md` and its machine view
-  `config/guard-catalog.yaml`: detection facet (versioned artifact + no
-  release automation → recommend) and scaffold facet (release-PR mechanism
-  template, lock workflow template, publish-script wiring), advisory-only per
-  the builder's consent flow. (b) A versioning-scheme domain in
-  `doctrine/decision-domains.md` and its machine view
-  `config/decision-domains.yaml`: SemVer / CalVer / unversioned with
-  artifact-type heuristics, planwright's D-9 SemVer call as the worked
-  example.
-- **Done when:** Both catalog entries exist with the facets/heuristics named;
-  the builder skill's catalog walk and `/spec-draft`'s decision-domains walk
-  pick them up without wiring changes; link-check passes.
-- **Dependencies:** Task 2.
-- **Citations:** D-9, D-13 · REQ-G1.1, REQ-G1.2, REQ-G1.3
-- **Estimated effort:** 0.5d
-- **Last activity:** 2026-07-12
-
 ### Task 10 — Armed/watch mode (sequenced follow-up)
 
 - **Deliverables:** An armed mode for the publish flow: invoked before the
@@ -52,22 +32,6 @@ of the release chain after T1 and can run in parallel throughout.
 - **Dependencies:** Task 4, Task 6.
 - **Citations:** D-12 · REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 1.0d
-
-### Task 11 — Organic proof: planwright's first automated signed release
-
-- **Deliverables:** planwright's next release cut end-to-end through the
-  machinery: the release PR proposed automatically, the human merges it, the
-  publish produces the signed annotated tag on the observed merge SHA and the
-  GitHub Release from the CHANGELOG section; the lock observed red in the
-  window and green after. Human-gated organic acceptance: the framework
-  prepares and verifies; the human merges and signs.
-- **Done when:** `git tag -v` verifies the published release tag; the GitHub
-  Release exists with the CHANGELOG-section body; the tagged SHA is the
-  release-merge SHA; `release-pending.sh` reports none; the required check is
-  green on `main`.
-- **Dependencies:** Task 5, Task 6, Task 7, Task 9.
-- **Citations:** D-1, D-3, D-4, D-5, D-6 · REQ-I1.1, REQ-I1.2
-- **Estimated effort:** 0.25d
 
 ## In progress
 
@@ -113,6 +77,27 @@ of the release chain after T1 and can run in parallel throughout.
 - **Estimated effort:** 0.5d
 - **Status:** Completed · PR #138 merged 2026-07-10
 - **Last activity:** 2026-07-09
+
+### Task 3 — Catalog entries: guard-catalog + decision-domains
+
+- **Deliverables:** (a) A release-tagging breadth entry in
+  `doctrine/guard-catalog.md` and its machine view
+  `config/guard-catalog.yaml`: detection facet (versioned artifact + no
+  release automation → recommend) and scaffold facet (release-PR mechanism
+  template, lock workflow template, publish-script wiring), advisory-only per
+  the builder's consent flow. (b) A versioning-scheme domain in
+  `doctrine/decision-domains.md` and its machine view
+  `config/decision-domains.yaml`: SemVer / CalVer / unversioned with
+  artifact-type heuristics, planwright's D-9 SemVer call as the worked
+  example.
+- **Done when:** Both catalog entries exist with the facets/heuristics named;
+  the builder skill's catalog walk and `/spec-draft`'s decision-domains walk
+  pick them up without wiring changes; link-check passes.
+- **Dependencies:** Task 2.
+- **Citations:** D-9, D-13 · REQ-G1.1, REQ-G1.2, REQ-G1.3
+- **Estimated effort:** 0.5d
+- **Status:** Completed · PR #159 merged 2026-07-13
+- **Last activity:** 2026-07-13
 
 ### Task 4 — Publish + comparator scripts, config knobs, tests
 
@@ -233,6 +218,24 @@ of the release chain after T1 and can run in parallel throughout.
 - **Estimated effort:** 0.5d
 - **Status:** Completed · PR #156 merged 2026-07-13
 - **Last activity:** 2026-07-12
+
+### Task 11 — Organic proof: planwright's first automated signed release
+
+- **Deliverables:** planwright's next release cut end-to-end through the
+  machinery: the release PR proposed automatically, the human merges it, the
+  publish produces the signed annotated tag on the observed merge SHA and the
+  GitHub Release from the CHANGELOG section; the lock observed red in the
+  window and green after. Human-gated organic acceptance: the framework
+  prepares and verifies; the human merges and signs.
+- **Done when:** `git tag -v` verifies the published release tag; the GitHub
+  Release exists with the CHANGELOG-section body; the tagged SHA is the
+  release-merge SHA; `release-pending.sh` reports none; the required check is
+  green on `main`.
+- **Dependencies:** Task 5, Task 6, Task 7, Task 9.
+- **Citations:** D-1, D-3, D-4, D-5, D-6 · REQ-I1.1, REQ-I1.2
+- **Estimated effort:** 0.25d
+- **Status:** Completed · v0.4.0 released 2026-07-13
+- **Last activity:** 2026-07-13
 
 ## Deferred
 
