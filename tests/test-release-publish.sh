@@ -116,9 +116,9 @@ seed_version() {
 # `state` is computed with GitHub's rollup precedence (FAILURE > PENDING >
 # SUCCESS — max severity, not last-writer-wins) so it stays server-accurate even
 # when checks of differing severity coexist, and a gate that reads only the
-# aggregate still sees the real, deadlocking state. `release view` exits per GH_RELEASE_EXISTS; `release
-# create` copies its --notes-file to $GH_NOTES. Everything else is a benign
-# success.
+# aggregate still sees the real, deadlocking state. `release view` exits per
+# GH_RELEASE_EXISTS; `release create` copies its --notes-file to $GH_NOTES.
+# Everything else is a benign success.
 make_gh_stub() {
   local dir="$1"
   mkdir -p "$dir"
@@ -160,8 +160,9 @@ case "$1" in
     # rollup with per-check `contexts` (plus an accurate top-level `state`).
     # GH_CI drives the `ci` quality CheckRun (green|red|pending|neutral|none);
     # GH_WINDOW_LOCK (red|green), when set, adds a `window-lock` CheckRun;
-    # GH_STATUS_CONTEXT (success|error), when set, adds a legacy StatusContext
-    # (commit-status) node so the gate's non-CheckRun branch is exercised;
+    # GH_STATUS_CONTEXT (success|error|pending), when set, adds a legacy
+    # StatusContext (commit-status) node named via GH_STATUS_CONTEXT_NAME
+    # (default legacy-ci) so the gate's non-CheckRun branch is exercised;
     # GH_HASNEXTPAGE=true forces hasNextPage so the >100-check pagination guard
     # (TOO_MANY) is exercised even with a green visible page. With no checks at
     # all the rollup is null. The top-level `state` stays server-accurate so a
