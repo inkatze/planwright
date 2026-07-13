@@ -410,6 +410,53 @@ out="$(STUB_PLAN="$TMP/plan" STUB_COST="5E-7" \
 rc=$?
 assert_exit "scientific-notation cost parses (not fail-closed)" 0 "$rc"
 
+# ---- 24. artifact-hygiene scrubber catches machine-local leaks ---------------
+# The recorded artifact is built by allowlist from scalars, so a leak can only
+# arise from a future edit that widens the allowlist. Guard that backstop by
+# exercising the runner's OWN pattern (extracted here so the test cannot drift
+# from the script): every common home/temp root plus a session UUID in either
+# case must be caught, and benign artifact content must not false-positive.
+scrub_re="$(sed -n "s/^machine_local_re='\(.*\)'\$/\1/p" "$RUNNER")"
+assert_contains "scrubber pattern is defined in the runner" "private/var" "$scrub_re"
+scrub_hits() { printf '%s' "$1" | grep -Eqi "$scrub_re"; }
+for leak in \
+  "/Users/diego/x" "/home/diego/x" "/root/x" "/opt/x" "/private/var/folders/xy/z" \
+  "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE" "11111111-2222-3333-4444-555555555555"; do
+  if scrub_hits "$leak"; then
+    echo "ok: scrubber catches machine-local leak '$leak'"
+  else
+    echo "FAIL: scrubber missed machine-local leak '$leak'" >&2
+    failures=$((failures + 1))
+  fi
+done
+for clean in \
+  '{"fixture":"orchestrate-print-ready","outcome":"pass","cost_usd":0.06}' \
+  "0.020000" "pass"; do
+  if scrub_hits "$clean"; then
+    echo "FAIL: scrubber false-positived on benign content '$clean'" >&2
+    failures=$((failures + 1))
+  else
+    echo "ok: scrubber passes benign content '$clean'"
+  fi
+done
+
+# ---- 25. a failing probe's stderr is surfaced for debuggability --------------
+fx="$(mk_fixture noisyprobe '.marker_written == true')"
+cat >"$fx/probe.sh" <<'EOF'
+#!/bin/sh
+echo "probe diagnostic: could not find the branch" >&2
+echo "not valid json either"
+exit 3
+EOF
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "noisy failing probe is fail-closed (exit 4)" 4 "$rc"
+assert_contains "surfaces the probe.sh stderr header" "probe.sh stderr:" "$out"
+assert_contains "surfaces the probe's diagnostic message" \
+  "probe diagnostic: could not find the branch" "$out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1

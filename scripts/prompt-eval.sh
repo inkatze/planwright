@@ -13,6 +13,11 @@
 # never fires tasks-pr-sync against a real checkout; teardown removes the tree
 # and a teardown failure is surfaced fail-closed, never swallowed. A baseline can
 # be bound to a specific pre-diet commit with --expect-plugin-commit.
+# Known limitation: the prune-first reaps EVERY tree for the fixture id, so a
+# single runner invocation per fixture is assumed. Two concurrent runs of the
+# SAME fixture are unsupported — the second's prune would reap the first's
+# in-flight tree. The on-demand runner never does this; it is a deliberate
+# tradeoff (crash-recovery pruning over concurrency safety), not a defect.
 #
 # Bounded cost (risk R11): per-run caps (--max-budget-usd, --max-turns) plus a
 # suite-level ceiling (--suite-budget-usd) that aborts fail-closed once crossed;
@@ -218,6 +223,14 @@ is_number() {
   printf '%s' "$1" | grep -Eq '^[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$'
 }
 
+# machine_local_re — the artifact-hygiene leak pattern (used case-insensitively,
+# grep -Eqi, so an upper-hex session UUID cannot slip past). Covers the common
+# absolute home/temp roots (/Users, /home, /root, /opt, and macOS's /private/var)
+# plus the session-id UUID shape. Defense in depth: the artifact is already built
+# by allowlist from scalars, so nothing machine-local should reach this check at
+# all — it is the backstop for a future edit that widens the allowlist.
+machine_local_re='/(Users|home|root|opt)/|/private/var/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
 # cumulative suite cost (integer micro-dollars, to avoid float arithmetic in sh)
 suite_micros=0
 budget_micros=""
@@ -381,12 +394,22 @@ run_fixture() {
       # silently pass a `not`-style absence assert on a probe that never ran.
       probe="{}"
       if [ -f "$fx_dir/probe.sh" ]; then
-        if probe_out="$(cd "$work" && sh "$fx_dir/probe.sh" "$work" 2>/dev/null)" \
+        # Capture the probe's stderr rather than discarding it: a failing probe
+        # is a fixture-authoring error, and its diagnostics are what the human
+        # needs to fix it. The capture goes to the operator's terminal only,
+        # never to the recorded artifact, so it does not weaken artifact hygiene.
+        probe_err="$work.probe-err"
+        if probe_out="$(cd "$work" && sh "$fx_dir/probe.sh" "$work" 2>"$probe_err")" \
           && printf '%s' "$probe_out" | jq -e . >/dev/null 2>&1; then
           probe="$probe_out"
+          rm -f "$probe_err"
         else
           echo "prompt-eval: [$fx_id run $run] fail-closed — probe.sh failed or emitted invalid JSON" >&2
-          rm -rf "$work" "$raw"
+          if [ -s "$probe_err" ]; then
+            echo "prompt-eval: [$fx_id run $run] probe.sh stderr:" >&2
+            sed 's/^/  /' "$probe_err" >&2
+          fi
+          rm -rf "$work" "$raw" "$probe_err"
           current_work=""
           return 4
         fi
@@ -479,7 +502,7 @@ record_result() {
     echo "prompt-eval: [$r_id] fail-closed — artifact carries disallowed keys: $extra_keys" >&2
     return 1
   fi
-  if printf '%s' "$artifact" | grep -Eq '/Users/|/home/|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'; then
+  if printf '%s' "$artifact" | grep -Eqi "$machine_local_re"; then
     echo "prompt-eval: [$r_id] fail-closed — artifact contains a machine-local substring" >&2
     return 1
   fi

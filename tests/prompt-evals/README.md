@@ -62,12 +62,22 @@ Each fixture drives one skill headlessly and grades observable outcomes.
 - **`assert.jq`** — a jq program over the merged outcome; a truthy result is a
   pass. The outcome carries `is_error`, `subtype`, `result` (the model's final
   text), `num_turns`, `plugin_loaded`, `cost_usd`, plus any `probe.sh` fields.
+  The program **must yield a boolean verdict**: truthy passes, `false`/`null`
+  is a graded fail. Producing *no output* (e.g. a bare `select(...)` that
+  filters everything away on a non-match) is treated as a broken assert and
+  aborts fail-closed, **not** as a graded fail — so end the chain with an
+  explicit boolean (`... != null`, `... | test(...)`, `any(...)`, `contains(...)`)
+  rather than a `select` whose only signal is presence-or-absence of output.
 
 ## Runner contract (`scripts/prompt-eval.sh`)
 
 - **Hermetic.** `claude -p --bare --plugin-dir <plugin>`; the plugin is pinned,
   hooks are skipped, and each run gets a uniquely-named disposable work tree,
-  pruned before and torn down after (isolation & re-runnability, R8).
+  pruned before and torn down after (isolation & re-runnability, R8). The
+  prune-first reaps *every* tree for the fixture id, so a single runner
+  invocation per fixture is assumed; two concurrent runs of the same fixture are
+  a known, unsupported limitation (the second's prune would reap the first's
+  in-flight tree).
 - **Plugin-load verification.** A run that never loaded the planwright plugin
   (checked from the `system/init` event) is **INVALID**, not a graded failure.
 - **pass^k gating.** All `k` runs must pass (default `k=3`); the loop
