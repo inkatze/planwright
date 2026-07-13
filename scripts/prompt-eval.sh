@@ -400,9 +400,12 @@ run_fixture() {
         return 4
       fi
       # Grade, distinguishing a genuine false (graded fail) from a broken
-      # assert.jq (compile/runtime/no-result). jq -e exits 0 truthy, 1 false or
-      # null, and >=2 on a program/runtime error — the last is a harness error,
-      # fail-closed, not silently a graded fail (R12).
+      # assert.jq. jq -e exits 0 (truthy → pass), 1 (false or null → graded
+      # fail), 2 (usage), 3 (compile error), 4 (valid program but no output), or
+      # 5 (runtime error). A grading assert MUST yield a boolean verdict, so
+      # everything but 0/1 is a harness/authoring error → fail-closed (R12), not
+      # silently a graded fail. Exit 4 (empty output) lands here deliberately: a
+      # select-style assert that yields nothing has no verdict to grade.
       printf '%s' "$outcome" | jq -e -f "$fx_dir/assert.jq" >/dev/null 2>&1
       grade_rc=$?
       case "$grade_rc" in

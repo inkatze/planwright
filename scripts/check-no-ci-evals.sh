@@ -67,14 +67,23 @@ if [ "$#" -eq 0 ]; then
   exit 0
 fi
 
-# Two alternatives (see the header): a `mise` invocation whose line reaches an
-# `eval:` task in any form, or a direct call to the runner script. `mise`
-# followed by whitespace then anything then `eval:` covers the `run`/`r` alias,
-# an interposed flag, and a quoted task; `eval:` (namespace colon) rather than a
-# bare `eval` word still spares `evaluate-release` and prose. -H forces the
-# filename prefix even for a single file, giving a file:line:match report.
-pattern='mise[[:space:]].*eval:|prompt-eval\.sh'
-hits="$(grep -HnE "$pattern" "$@" 2>/dev/null || true)"
+# Two alternatives (see the header):
+#   * a `mise` invocation whose line names an `eval:` task — matched in two
+#     stages so BOTH conditions hold on the line: the line invokes `mise`, and
+#     it carries an `eval:` at a TOKEN BOUNDARY (preceded by a non-word char, so
+#     the `eval` namespace triggers but a substring inside `retrieval:` /
+#     `medieval:` / `evaluate-release` does not). This covers the `run`/`r`
+#     alias, an interposed flag, and a quoted task, since `eval:` always sits at
+#     an argument boundary. A residual, accepted in the fail-loud direction: a
+#     contrived line that both invokes mise AND writes the literal `eval:` after
+#     a boundary elsewhere (a trailing `echo "eval: …"`) over-blocks. That is far
+#     rarer than a real `retrieval:` task and only causes a spurious CI failure,
+#     never a silent bypass.
+#   * a direct call to the runner script, bypassing mise entirely.
+# -H forces the filename prefix even for a single file (file:line:match report).
+mise_eval="$(grep -HnE 'mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
+direct="$(grep -HnE 'prompt-eval\.sh' "$@" 2>/dev/null || true)"
+hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort -u || true)"
 
 if [ -n "$hits" ]; then
   echo "check-no-ci-evals: an eval task is wired into a CI workflow (D-8 forbids it)." >&2

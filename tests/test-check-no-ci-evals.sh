@@ -181,6 +181,24 @@ EOF
 out="$("$GUARD" "$TMP/falsepos" 2>&1)"
 assert_exit "non-eval-namespace task named *eval* is not flagged" 0 $?
 
+# ---- a namespace whose name ENDS in 'eval' is NOT flagged ----
+# `retrieval:`, `medieval:` contain the substring `eval:` but are not the eval
+# namespace (eval must sit at a token boundary). This is the regression the
+# token-boundary match fixes.
+mkdir -p "$TMP/retrieval"
+cat >"$TMP/retrieval/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run retrieval:index
+      - run: mise run medieval:build
+EOF
+out="$("$GUARD" "$TMP/retrieval" 2>&1)"
+rc=$?
+assert_exit "a namespace ending in 'eval' (retrieval:) is not flagged" 0 "$rc"
+
 # ---- no workflow directory: vacuously clean ----
 out="$("$GUARD" "$TMP/does-not-exist" 2>&1)"
 assert_exit "absent workflow dir passes vacuously" 0 $?
