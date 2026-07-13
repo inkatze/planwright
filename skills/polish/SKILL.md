@@ -34,6 +34,18 @@ Their definitions govern wherever this skill names a concept. If a rule doc
 does not resolve, halt with a clear message naming the missing doc and the
 chain consulted.
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+
+Doctrine: run-start discovery-rigor
+Doctrine: run-start validation-rigor
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start research-rigor
+Doctrine: run-start refactor-instinct
+Doctrine: run-start security-posture
+Doctrine: run-start proportionality
+
 ## Invocation modes
 
 Read the literal flag `--nested` from `$ARGUMENTS` at the start of the run:

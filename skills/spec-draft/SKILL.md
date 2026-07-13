@@ -46,6 +46,20 @@ degrades instead of halting: if absent, the design phase notes the missing
 catalog in one line and proceeds (the builder/catalog wiring is a hook
 point, not a dependency).
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start interaction-style
+Doctrine: run-start research-rigor
+Doctrine: run-start autopilot-reflex
+Doctrine: run-start security-posture
+Doctrine: run-start engineering-decisions
+Doctrine: run-start proportionality
+Doctrine: run-start customization-boundary
+Doctrine: point-of-use decision-domains (the design-phase catalog walk)
+
 ## Pre-flight
 
 1. **Parse arguments.** `$ARGUMENTS` carries the proposed feature name —

@@ -43,6 +43,12 @@ halt with a clear message naming the missing doc and the chain consulted
 (REQ-K1.7: a clear message is the graceful arm; proceeding without doctrine is
 the opaque failure).
 
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+
+Doctrine: run-start spec-format
+Doctrine: run-start security-posture
+
 ## Invocation
 
 Run from the repository root (the scaffold resolves `specs/` relative to the

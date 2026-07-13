@@ -40,11 +40,13 @@ rebases (REQ-J1.4). It creates draft PRs only, by way of `/execute-task`.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve and read these rule docs at
-run start via the rule-doc resolution convention
-(`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
-or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
-definitions govern wherever this skill names a concept:
+This skill is procedure, not doctrine. Resolve these rule docs via the
+rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>`
+under the resolved planwright root, or the documented
+`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); the doctrine manifest below
+marks which load at run start and which load at point of use (the
+`--bookkeeping` and `--watch` mode branches). Their definitions govern
+wherever this skill names a concept:
 
 - `spec-format` — the meta-spec: status lifecycle, the kickoff-brief and
   sign-off-record structure, content anchors, and the sanctioned anchor
@@ -69,6 +71,17 @@ contract whose defining rules cannot be read is the opaque failure. Halt with a
 clear message naming the missing doc and the chain consulted. On the
 **non-dispatching** paths (`--bookkeeping`, a read-only status step), a missing
 doc degrades — note it in one line and continue with what remains possible.
+
+Doctrine manifest (the reading model above in machine-parseable form, per
+`doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
+`point-of-use` loads at the named step or branch):
+
+Doctrine: run-start spec-format
+Doctrine: run-start finding-categorization
+Doctrine: run-start gate-wiring
+Doctrine: run-start proportionality
+Doctrine: point-of-use accumulator-taxonomy (--bookkeeping / gate drain)
+Doctrine: point-of-use context-budget-autoheal (the --watch long-running loop)
 
 ## Modes
 
