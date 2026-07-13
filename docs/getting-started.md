@@ -261,6 +261,28 @@ partial publish — tag pushed but its Release missing — resumes by creating t
 Release rather than refusing. It tags the observed release-merge commit, never
 `HEAD`.
 
+### Armed mode (optional — shrinks the locked window)
+
+The publish above runs *after* you merge, so the untagged window stays open for
+however long it takes you to come back and publish. If you would rather shrink
+that window to merge-to-sign, **arm** the release before you merge:
+
+```sh
+scripts/release-arm.sh <release-pr-number>
+```
+
+Armed mode pre-validates everything checkable ahead of the merge (the PR is
+open, its CI is green, the proposed version is monotonic and untagged, your
+`main` is clean and synced), **refuses to arm with a reason if any pre-check
+fails**, then watches the release PR and runs the publish the instant it
+observes the merge — so the tag lands on the observed merge commit with the
+smallest possible gap. It is a convenience wrapper, not a new authority: it
+merges nothing (your merge is still the approval), and on the observed merge it
+delegates to `scripts/release-publish.sh`, which re-enforces every safety gate
+and does the signing. If the PR is closed without merging, arm disarms and
+publishes nothing. The post-merge command above remains the unchanged fallback —
+use it directly whenever you do not want to hold a watching session.
+
 ### The signing policy
 
 This repo requires **genuinely signed** annotated release tags. The
