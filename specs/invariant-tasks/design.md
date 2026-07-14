@@ -216,8 +216,8 @@ into a v2 bundle.)*
 
 **Decision:** For v2 bundles, unit selection computes candidacy as:
 dependencies met and not completed/in-progress (both from the derivation
-engine) and not parked (no Awaiting-input bullet, not listed in Deferred or
-Out of scope — read from the committed human-payload sections). Gate
+engine) and not parked (no live reference bullet naming the task in any
+human-payload section, D-3). Gate
 evaluation resolves task-completion atoms through the derivation engine
 instead of `## Completed` membership.
 

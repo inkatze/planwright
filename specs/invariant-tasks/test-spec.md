@@ -105,9 +105,9 @@ writer performs no write (directory digest unchanged after invocation).
 ### REQ-C1.2 — selection without placement [test]
 
 Selector fixtures (Task 5): a v2 fixture with equivalent state to a v1
-fixture yields the same candidate set; parked tasks (Awaiting-input bullet,
-Deferred, Out of scope) are excluded; completed/in-progress exclusion comes
-from derivation evidence, not sections.
+fixture yields the same candidate set; parked tasks (a live reference
+bullet in any human-payload section) are excluded; completed/in-progress
+exclusion comes from derivation evidence, not sections.
 
 ### REQ-C1.3 — gate evaluation via derivation [test]
 

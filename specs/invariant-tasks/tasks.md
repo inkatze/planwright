@@ -119,7 +119,8 @@ v2 content, so it cannot dispatch after the work it protects.
 - **Deliverables:** `scripts/orchestrate-select.sh` computing v2 candidacy
   without committed placement (dependencies-met and
   not-completed/in-progress via the derivation engine; parked-ness via
-  Awaiting-input bullets and the Deferred / Out of scope sections);
+  reference bullets in the human-payload sections, with bullet task ids
+  validated against the grammar before use, REQ-C1.9);
   `scripts/drain-gates.sh` resolving task-completion atoms through the
   derivation engine.
 - **Done when:** selection on a v2 fixture picks the same candidates the
@@ -130,7 +131,8 @@ v2 content, so it cannot dispatch after the work it protects.
   unresolved; both scripts fail closed on an unparseable `Format-version:`
   fixture; v1 behavior unchanged; `mise run check` passes.
 - **Dependencies:** 1, 3
-- **Citations:** D-8 · REQ-C1.2, REQ-C1.3, REQ-B1.5, REQ-C1.8
+- **Citations:** D-8, D-3 · REQ-C1.2, REQ-C1.3, REQ-B1.5, REQ-C1.8,
+  REQ-C1.9
 - **Estimated effort:** 1 day
 
 ### Task 6 — Migration script and live-bundle migration
