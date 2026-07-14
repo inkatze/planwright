@@ -13,57 +13,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 3 — Doctrine manifests in all skills
-
-- **Deliverables:** the Task 1 manifest added to every `skills/*/SKILL.md`
-  (run-start and point-of-use classification of each skill's current
-  doctrine reads; no slimming yet), making mandatory-at-start and
-  reachable-closure budgets computable corpus-wide; the guard's
-  manifest-completeness assertion (REQ-A1.2) wired in the **same PR** so a
-  future manifest-less skill cannot silently under-report start-load. In the
-  **same PR**, seed a transitional `pending diet (Task 7.5)` allowance
-  (REQ-B1.3b) for every start-load offender the computation now surfaces
-  (notably `/spec-draft`) — and, should the computation surface a
-  reachable-closure offender (none expected at kickoff), a transitional closure
-  allowance likewise (REQ-B1.3b) — and record their
-  point-of-use-reclassification diet plans for Task 7.5 — the start-load (and
-  any closure) offenders that Task 2's pre-manifest audit could not yet see.
-- **Done when:** the manifest-completeness assertion confirms all ten skills
-  declare a manifest (zero absent); `scripts/check-instructions.sh` computes
-  mandatory-at-start and reachable-closure for all ten skills; every surfaced
-  start-load (and any closure) offender carries its transitional allowance; the
-  resolution check passes; `mise run check` stays green **with the transitional
-  allowances in place**.
-- **Dependencies:** Task 1, Task 2
-- **Citations:** D-3, D-1 · REQ-A1.2, REQ-A1.3, REQ-B1.3, REQ-B1.6
-- **Estimated effort:** half day
-- **Last activity:** 2026-07-12
-
-### Task 4 — Kept-eval runner, /orchestrate fixtures, baseline
-
-- **Deliverables:** `tests/prompt-evals/` layout and fixture format; the
-  POSIX-sh runner (hermetic `claude -p --bare --plugin-dir` runs, init-event
-  plugin verification, jq assertions, pass^k aggregation, budget caps,
-  worktree teardown, per-run cost capture); a stubbed-`claude` test suite
-  covering the runner's logic deterministically; an `eval:skill` mise task;
-  `/orchestrate` fixture scenarios (print backend: correct unit selected,
-  dispatch marker written, launch command printed, non-Ready/non-Active
-  spec refused); artifact-hygiene scrubbing so recorded results/cost carry
-  the per-fixture graded outcome, the fixture identifier, and cost, stripped of
-  machine-local paths, usernames, and session ids (REQ-C1.6; the fixture
-  identifier is retained so the paired before/after comparison is not broken by
-  the scrub); a standing CI-exclusion guard that fails if an eval
-  task is wired into the CI workflow files (REQ-C1.6, not mere absence from
-  the aggregate); the pre-diet baseline run recorded.
-- **Done when:** the stubbed suite passes in `mise run test`; a real
-  baseline run against the pre-diet `/orchestrate` completes pass^3 with
-  its scrubbed results and cost recorded under `tests/prompt-evals/`; the
-  CI-exclusion guard passes (no eval task in the workflow) and is itself part
-  of `mise run check`; the eval task is absent from the `check` aggregate.
-- **Dependencies:** Task 1
-- **Citations:** D-6, D-7, D-8, D-12 · REQ-C1.4, REQ-C1.6, REQ-D1.3
-- **Estimated effort:** 2 days
-
 ### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
 
 - **Deliverables:** `/orchestrate` slimmed per its Task 2 diet plan (law
@@ -78,39 +27,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 2, Task 3, Task 4
 - **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 2 days
-
-### Task 6 — Diet /execute-task
-
-- **Deliverables:** `/execute-task` slimmed per its diet plan (same moves
-  as Task 5; manifest updated); its transitional `pending diet` allowance
-  removed.
-- **Done when:** `/execute-task` passes the guard with no suppression of its
-  own; `mise run check` green (remaining transitional allowances still in
-  place).
-- **Dependencies:** Task 2, Task 3
-- **Citations:** D-9 · REQ-D1.1, REQ-D1.2
-- **Estimated effort:** 1 day
-
-### Task 7 — Diet /spec-kickoff; spec-format disposition
-
-- **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
-  updated; exemption removed); an explicit disposition for
-  `doctrine/spec-format.md` (trim under the doctrine budget, or a
-  permanent recorded exemption citing its authorable-from-alone contract).
-  The disposition SHALL record its (limited) coupling: `spec-format.md` is the
-  dominant run-start load for `/spec-draft` and `/spec-kickoff`, but a
-  compliant trim removes only ~99 words (floor 4,000) — far short of what those
-  dependents must shed — so their start-load compliance rests on Task 7.5's
-  point-of-use reclassification **regardless** of the trim-vs-exempt choice
-  here. Task 7's disposition is therefore largely independent of Task 7.5.
-- **Done when:** `/spec-kickoff` passes the guard with no permanent exemption
-  of its own body; `spec-format.md` either passes or carries a permanent
-  reasoned exemption whose text names the start-load coupling; `mise run check`
-  green (any remaining transitional allowances still in place).
-- **Dependencies:** Task 2, Task 3
-- **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
-- **Estimated effort:** 1 day
-- **Last activity:** 2026-07-13
 
 ### Task 7.5 — Diet residual start-load offenders
 
@@ -150,7 +66,27 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## In progress
 
-(none yet)
+### Task 7 — Diet /spec-kickoff; spec-format disposition
+
+- **Status:** PR #166 draft
+- **Last activity:** 2026-07-14
+- **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
+  updated; exemption removed); an explicit disposition for
+  `doctrine/spec-format.md` (trim under the doctrine budget, or a
+  permanent recorded exemption citing its authorable-from-alone contract).
+  The disposition SHALL record its (limited) coupling: `spec-format.md` is the
+  dominant run-start load for `/spec-draft` and `/spec-kickoff`, but a
+  compliant trim removes only ~99 words (floor 4,000) — far short of what those
+  dependents must shed — so their start-load compliance rests on Task 7.5's
+  point-of-use reclassification **regardless** of the trim-vs-exempt choice
+  here. Task 7's disposition is therefore largely independent of Task 7.5.
+- **Done when:** `/spec-kickoff` passes the guard with no permanent exemption
+  of its own body; `spec-format.md` either passes or carries a permanent
+  reasoned exemption whose text names the start-load coupling; `mise run check`
+  green (any remaining transitional allowances still in place).
+- **Dependencies:** Task 2, Task 3
+- **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
+- **Estimated effort:** 1 day
 
 ## Awaiting input
 
@@ -222,6 +158,74 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Estimated effort:** 2 days
 - **Status:** Completed · PR #157 merged 2026-07-12
 - **Last activity:** 2026-07-12
+
+### Task 3 — Doctrine manifests in all skills
+
+- **Deliverables:** the Task 1 manifest added to every `skills/*/SKILL.md`
+  (run-start and point-of-use classification of each skill's current
+  doctrine reads; no slimming yet), making mandatory-at-start and
+  reachable-closure budgets computable corpus-wide; the guard's
+  manifest-completeness assertion (REQ-A1.2) wired in the **same PR** so a
+  future manifest-less skill cannot silently under-report start-load. In the
+  **same PR**, seed a transitional `pending diet (Task 7.5)` allowance
+  (REQ-B1.3b) for every start-load offender the computation now surfaces
+  (notably `/spec-draft`) — and, should the computation surface a
+  reachable-closure offender (none expected at kickoff), a transitional closure
+  allowance likewise (REQ-B1.3b) — and record their
+  point-of-use-reclassification diet plans for Task 7.5 — the start-load (and
+  any closure) offenders that Task 2's pre-manifest audit could not yet see.
+- **Done when:** the manifest-completeness assertion confirms all ten skills
+  declare a manifest (zero absent); `scripts/check-instructions.sh` computes
+  mandatory-at-start and reachable-closure for all ten skills; every surfaced
+  start-load (and any closure) offender carries its transitional allowance; the
+  resolution check passes; `mise run check` stays green **with the transitional
+  allowances in place**.
+- **Dependencies:** Task 1, Task 2
+- **Citations:** D-3, D-1 · REQ-A1.2, REQ-A1.3, REQ-B1.3, REQ-B1.6
+- **Estimated effort:** half day
+- **Status:** Completed · PR #160 merged 2026-07-13
+- **Last activity:** 2026-07-13
+
+### Task 4 — Kept-eval runner, /orchestrate fixtures, baseline
+
+- **Deliverables:** `tests/prompt-evals/` layout and fixture format; the
+  POSIX-sh runner (hermetic `claude -p --bare --plugin-dir` runs, init-event
+  plugin verification, jq assertions, pass^k aggregation, budget caps,
+  worktree teardown, per-run cost capture); a stubbed-`claude` test suite
+  covering the runner's logic deterministically; an `eval:skill` mise task;
+  `/orchestrate` fixture scenarios (print backend: correct unit selected,
+  dispatch marker written, launch command printed, non-Ready/non-Active
+  spec refused); artifact-hygiene scrubbing so recorded results/cost carry
+  the per-fixture graded outcome, the fixture identifier, and cost, stripped of
+  machine-local paths, usernames, and session ids (REQ-C1.6; the fixture
+  identifier is retained so the paired before/after comparison is not broken by
+  the scrub); a standing CI-exclusion guard that fails if an eval
+  task is wired into the CI workflow files (REQ-C1.6, not mere absence from
+  the aggregate); the pre-diet baseline run recorded.
+- **Done when:** the stubbed suite passes in `mise run test`; a real
+  baseline run against the pre-diet `/orchestrate` completes pass^3 with
+  its scrubbed results and cost recorded under `tests/prompt-evals/`; the
+  CI-exclusion guard passes (no eval task in the workflow) and is itself part
+  of `mise run check`; the eval task is absent from the `check` aggregate.
+- **Dependencies:** Task 1
+- **Citations:** D-6, D-7, D-8, D-12 · REQ-C1.4, REQ-C1.6, REQ-D1.3
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #162 merged 2026-07-13
+- **Last activity:** 2026-07-13
+
+### Task 6 — Diet /execute-task
+
+- **Deliverables:** `/execute-task` slimmed per its diet plan (same moves
+  as Task 5; manifest updated); its transitional `pending diet` allowance
+  removed.
+- **Done when:** `/execute-task` passes the guard with no suppression of its
+  own; `mise run check` green (remaining transitional allowances still in
+  place).
+- **Dependencies:** Task 2, Task 3
+- **Citations:** D-9 · REQ-D1.1, REQ-D1.2
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #167 merged 2026-07-13
+- **Last activity:** 2026-07-13
 
 ## Deferred
 

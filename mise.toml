@@ -93,6 +93,14 @@ run = "/bin/bash scripts/check-obs.sh"
 description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement (prompt-hygiene Task 2)"
 run = "/bin/bash scripts/check-instructions.sh"
 
+[tasks."check:no-ci-evals"]
+description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"
+run = "/bin/sh scripts/check-no-ci-evals.sh"
+
+[tasks."eval:skill"]
+description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
+run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
+
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
 run = "/bin/sh scripts/obs-render.sh"
@@ -118,6 +126,7 @@ depends = [
   "check:ledger",
   "check:obs",
   "check:instructions",
+  "check:no-ci-evals",
   "check:specs",
   "scan:secrets",
 ]

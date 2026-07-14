@@ -1,0 +1,10 @@
+{
+  "fixture": "orchestrate-refuse-draft",
+  "outcome": "pass",
+  "cost_usd": 0.179226,
+  "per_run_cost_usd": [
+    0.05200774999999999,
+    0.06566975,
+    0.06154775
+  ]
+}
