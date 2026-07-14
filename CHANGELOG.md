@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.5.0](https://github.com/inkatze/planwright/compare/v0.4.0...v0.5.0) (2026-07-14)
+
+
+### Features
+
+* **catalog:** add release-tagging guard + versioning-scheme domain (Task 3) ([#159](https://github.com/inkatze/planwright/issues/159)) ([fe235bb](https://github.com/inkatze/planwright/commit/fe235bbdb354f53467ca3f44d1ffba50e6d4222f))
+* **gate-wiring:** canonicalize pending-sign-off marker and add emit-time guard ([#150](https://github.com/inkatze/planwright/issues/150)) ([564aeaf](https://github.com/inkatze/planwright/commit/564aeaf12811c363d6328342a6fd1f60179052c9))
+* **gate-wiring:** human-first PR-body assembly contract ([#149](https://github.com/inkatze/planwright/issues/149)) ([8197e2c](https://github.com/inkatze/planwright/commit/8197e2c20b5ca14950144b97aacca94d403edede))
+* **instruction-hygiene:** diet /execute-task under size budgets (Task 6) ([#167](https://github.com/inkatze/planwright/issues/167)) ([f2587b3](https://github.com/inkatze/planwright/commit/f2587b3d53ea5975ee06cd2cdb9a88c31e06f7b7))
+* **instruction-hygiene:** doctrine manifests in all skills (Task 3) ([#160](https://github.com/inkatze/planwright/issues/160)) ([b0765bc](https://github.com/inkatze/planwright/commit/b0765bc1781278fdd10c59877e4ac82f6e8ade52))
+* **instruction-hygiene:** size guard, budget knobs, and audit mode (Task 2) ([#157](https://github.com/inkatze/planwright/issues/157)) ([38b15b3](https://github.com/inkatze/planwright/commit/38b15b3c4e01c3a857d8fbef4f3cfc3452ad58b6))
+* **obs-consume:** consumption and archival mechanics (Task 4) ([#147](https://github.com/inkatze/planwright/issues/147)) ([ed800ac](https://github.com/inkatze/planwright/commit/ed800ac5abbeff4e22b2a00893e2b495a8368c87))
+* **observations:** fragment-substrate cutover — skill reconciliation + migration (Tasks 5–6) ([#152](https://github.com/inkatze/planwright/issues/152)) ([84145b4](https://github.com/inkatze/planwright/commit/84145b4004b951b01130f1eeaa3734d360cdcf04))
+* **observations:** render command and drain fragment surfacing (Task 3) ([#146](https://github.com/inkatze/planwright/issues/146)) ([51c5199](https://github.com/inkatze/planwright/commit/51c5199df737493491599270ad93694539ebf9e9))
+* **orchestrate:** diet /orchestrate + eval-harness hardening; pilot deferred (Task 5) ([#169](https://github.com/inkatze/planwright/issues/169)) ([78f31bf](https://github.com/inkatze/planwright/commit/78f31bfb0c53a41e45e1ef40a7b7dc77ddfceeaa))
+* **prompt-evals:** kept-eval runner, /orchestrate fixtures, CI-exclusion guard (Task 4) ([#162](https://github.com/inkatze/planwright/issues/162)) ([85942fd](https://github.com/inkatze/planwright/commit/85942fd79be51eabbfa48f2b9c2767d9e2463673))
+* **release-window:** lock the untagged window with a required CI check ([#154](https://github.com/inkatze/planwright/issues/154)) ([9f3ea17](https://github.com/inkatze/planwright/commit/9f3ea17ef54dd9c3b87b9ae282405171f0b5276f))
+* **release:** armed/watch mode for the signed publish flow (Task 10) ([#161](https://github.com/inkatze/planwright/issues/161)) ([68f2cfa](https://github.com/inkatze/planwright/commit/68f2cfa59fad9533a9bc018932995e05e1afc1d9))
+* **release:** bookkeeping surfacing + mise run release wrapper ([#155](https://github.com/inkatze/planwright/issues/155)) ([92bca79](https://github.com/inkatze/planwright/commit/92bca79c9dbeed393195bb1c2003365bc7a64761))
+* **release:** require signed release tags on this repo + release docs ([#156](https://github.com/inkatze/planwright/issues/156)) ([b932222](https://github.com/inkatze/planwright/commit/b93222284830870334aec05e4b48b1039a5a7313))
+* **spec-format:** derived-content authoring guidance ([#151](https://github.com/inkatze/planwright/issues/151)) ([f42cb50](https://github.com/inkatze/planwright/commit/f42cb506d358b7bf4c8defa6146d2b6b3db23bb1))
+* **spec:** inception kickoff sign-off ([#168](https://github.com/inkatze/planwright/issues/168)) ([3fbdbac](https://github.com/inkatze/planwright/commit/3fbdbacb26ee45587c93fb51034202c9db40d91c))
+
+
+### Bug Fixes
+
+* **release:** exclude window-lock from publish CI gate (unblock untagged-window publish) ([#163](https://github.com/inkatze/planwright/issues/163)) ([6983f2c](https://github.com/inkatze/planwright/commit/6983f2c39ec42434368333c35c1495fd52b631a6))
+
 ## [0.4.0](https://github.com/inkatze/planwright/compare/v0.3.0...v0.4.0) (2026-07-10)
 
 
