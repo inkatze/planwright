@@ -43,10 +43,10 @@ engineering judgment the catalog would otherwise structure.
 Doctrine: run-start spec-format (status lifecycle, anchors, sign-off/amendment — freshness gate)
 Doctrine: run-start proportionality (rigor scales with stake; scoping declared)
 Doctrine: point-of-use research-rigor (the Research Rigor step)
-Doctrine: point-of-use security-posture (the write-time security pass)
+Doctrine: point-of-use security-posture (the write-time security pass; data-hygiene at PR/hand-off)
 Doctrine: point-of-use validation-rigor (the test-first solution-validation angles)
 Doctrine: point-of-use finding-categorization (the convergence audit buckets)
-Doctrine: point-of-use gate-wiring (pause protocol, pending-sign-off checklist, PR-body assembly)
+Doctrine: point-of-use gate-wiring (pause protocol at any halt; pending-sign-off checklist; PR body)
 Doctrine: point-of-use decision-domains (the decision-domain drift check)
 
 ## Pre-flight
@@ -145,10 +145,8 @@ it and wait instead.
     **no** `Status` line. Section placement is the `tasks-pr-sync` reconcile's
     sole job (REQ-B1.1, D-1); a block still sitting in `## Forward plan` while
     its branch is in flight is intentional snapshot lag, not corruption
-    (REQ-B1.2). A `Status` here would trip the structural-corruption guard: an
-    in-progress `Status` on a `Forward plan` block is a section/status
-    contradiction (REQ-E1.1, REQ-E1.2, `scripts/check-ledger.sh`), and the
-    placement is not yours to move. The only edit is the block's
+    (REQ-B1.2). A `Status` here would trip the section/status corruption guard
+    (see PR creation step 3). The only edit is the block's
     `- **Last activity:** <today>` annotation, which is anchor-excluded
     (`spec-format` canonical extraction) and is not a `Status` line, so it trips
     neither guard; the reconcile later relocates the block on the PR events this
@@ -331,9 +329,9 @@ After each returns:
 
 - **Normal exit** (converged, or handed off with queued forks): continue to the
   next skill; once the whole sequence has run, proceed to PR creation, folding
-  each skill's audit record — the four bucket tables, the declined log, the
-  pending-sign-off checklist, and any queued Needs-human-judgment forks — into
-  the PR body.
+  each skill's audit record — the four bucket tables (per `finding-categorization`),
+  the declined log, the pending-sign-off checklist, and any queued
+  Needs-human-judgment forks — into the PR body.
 - **Safety stop** (wider-suite failure, loop detection, iteration cap): the
   branch may be known-broken. Surface the stop reason and halt; do not run later
   review-sequence skills and do not open a PR over a broken branch.
@@ -478,6 +476,7 @@ skill names has changed meaning, gained or lost a step, or moved between docs,
 record a drift observation through the shared helper (`scripts/obs-record.sh
 --slug skill-drift --scope <repo> --text 'skill-drift(execute-task): <what>'` —
 keeping the `skill-drift(...)` prefix), commit it as its own chore commit, and
-tell the user. Do not edit this skill or the doctrine docs to resolve the drift;
+tell the user; surface a non-zero helper exit rather than silently dropping it.
+Do not edit this skill or the doctrine docs to resolve the drift;
 the accumulator's canonical reader (`/spec-draft`) owns folding drift into spec
 amendments.
