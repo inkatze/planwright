@@ -97,9 +97,12 @@ override signal.
 **Decision:** The v2 stored header carries only Draft, Ready, Retired, or
 Superseded — the states a human declares. Active and Done are derived: a
 bundle is Active iff any task derives In-progress or Completed with work
-remaining, Done when every task derives Completed and no live
-Awaiting-input bullet remains — an open question blocks Done; Deferred and
-Out-of-scope bullets are not tasks and never count (the existing derivation
+remaining, Done when every task in the Done universe derives Completed and
+no live Awaiting-input bullet remains — an open question blocks Done, while
+tasks parked by a Deferred or Out-of-scope reference bullet are excluded
+from the Done universe rather than blocking it (open Deferred gates do not
+block Done, per the meta-spec lifecycle); Deferred and Out-of-scope bullets
+that name no task are not tasks and never count (the existing derivation
 rules, consumed unchanged). After sign-off the stored value rests
 at Ready; the reopen cycle becomes Ready→Draft; Retired/Superseded stay
 stored terminal declarations. Derivation is computed only for stored-Ready

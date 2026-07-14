@@ -87,7 +87,9 @@ dispatches nothing; gate completion atoms resolve as unresolved.
 Render fixtures (Task 3): a stored-Draft, Retired, or Superseded fixture
 renders its stored state with no execution claim; a zero-task v2 fixture
 reports no tasks and never derives Done; an all-completed fixture with a
-live Awaiting-input bullet derives not-Done at the bundle level.
+live Awaiting-input bullet derives not-Done at the bundle level; an
+all-completed fixture with one task parked by a Deferred bullet derives
+Done (excluded from the Done universe, not blocking).
 
 ## REQ-C — Machinery reconciliation
 

@@ -134,7 +134,9 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   render their stored state with no execution claim. A bundle with zero
   task blocks SHALL never derive Done (the render reports it has no
   tasks), and a live Awaiting-input bullet SHALL block derived Done at the
-  bundle level.
+  bundle level. Tasks parked by a Deferred or Out-of-scope bullet are
+  excluded from the Done universe rather than blocking it (open Deferred
+  gates do not block Done).
   *(Cites: D-4; kickoff sign-off (2026-07-14).)*
 
 ## REQ-C — Machinery reconciliation
