@@ -1,0 +1,1 @@
+- 2026-07-13 [planwright] tests/test-check-instructions.sh section 0 asserts the real repo offender shortlist, so every diet task (6, 7, 7.5) must update its expected-offender assertions in the same PR; Task 5 hit this (orchestrate absent + execute-task present swap) — consider deriving section-0 expectations from the suppression list instead of hardcoding names
