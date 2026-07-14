@@ -220,14 +220,23 @@ mkdir -p "$WORKBASE" || {
 # the per-fixture prune glob, so a later run never reaps it) instead of
 # tearing them down. Returns 0 when preserved (current_work disarmed), 1 when
 # the seam is off or preservation failed — the caller then discards as usual.
+# All-or-nothing: a partial move is unwound (the transcript put back, the
+# kept.* dir removed) so return 1 always means both artifacts are still in
+# place for the caller's discard — never a destroyed work tree beside a
+# silently stranded transcript, never a partial kept.* dir left behind.
 # Machine-local scratch only; nothing preserved is ever recorded or committed.
 preserve_run() {
   [ "${PROMPT_EVAL_KEEP_FAILED:-0}" = "1" ] || return 1
   kept="$WORKBASE/kept.$fx_id.run$run.$$"
   mkdir -p "$kept" 2>/dev/null || return 1
-  mv "$raw" "$kept/transcript.jsonl" 2>/dev/null || return 1
-  if [ -d "$work" ]; then
-    mv "$work" "$kept/work" 2>/dev/null || return 1
+  if ! mv "$raw" "$kept/transcript.jsonl" 2>/dev/null; then
+    rmdir "$kept" 2>/dev/null
+    return 1
+  fi
+  if [ -d "$work" ] && ! mv "$work" "$kept/work" 2>/dev/null; then
+    mv "$kept/transcript.jsonl" "$raw" 2>/dev/null
+    rm -rf "$kept" 2>/dev/null
+    return 1
   fi
   echo "prompt-eval: [$fx_id run $run] failing run preserved at $kept (PROMPT_EVAL_KEEP_FAILED=1)" >&2
   current_work=""
