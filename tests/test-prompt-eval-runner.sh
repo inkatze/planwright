@@ -614,6 +614,28 @@ kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -pa
 assert_exit "kept dir holds the transcript" 1 "$kept_tr"
 rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepfail.* # leave the base clean
 
+# ---- 34b. a failed preservation move falls back to normal teardown -----------
+# If preserve_run's mv fails, it must return 1 (per its contract) so the caller
+# discards as usual: no "preserved at" claim, no work tree leaked under the
+# workbase with the cleanup trap disarmed. A stub `mv` that always fails is
+# prepended to PATH for the runner invocation only (the runner's sole bare
+# `mv` calls live in preserve_run).
+MVSTUB_DIR="$TMP/mvstub"
+mkdir -p "$MVSTUB_DIR"
+printf '#!/bin/sh\nexit 1\n' >"$MVSTUB_DIR/mv"
+chmod +x "$MVSTUB_DIR/mv"
+fx="$(mk_fixture mvfail '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(PATH="$MVSTUB_DIR:$PATH" STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "failed preservation keeps the graded-fail exit" 1 "$rc"
+assert_absent "failed preservation does not claim 'preserved at'" "preserved at" "$out"
+leaked="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d ! -path "$PROMPT_EVAL_WORKBASE" ! -name 'kept.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed preservation leaks no work tree (teardown ran)" 0 "$leaked"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.mvfail.* # a partial kept dir may remain; leave the base clean
+
 # ---- 35. --bare default and the PROMPT_EVAL_NO_BARE toggle -------------------
 # By default the runner passes --bare; with PROMPT_EVAL_NO_BARE=1 it must not
 # (skill injection: --bare suppresses slash-expansion). Assert on the argv the

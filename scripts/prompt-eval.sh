@@ -225,8 +225,10 @@ preserve_run() {
   [ "${PROMPT_EVAL_KEEP_FAILED:-0}" = "1" ] || return 1
   kept="$WORKBASE/kept.$fx_id.run$run.$$"
   mkdir -p "$kept" 2>/dev/null || return 1
-  mv "$raw" "$kept/transcript.jsonl" 2>/dev/null || true
-  [ -d "$work" ] && mv "$work" "$kept/work" 2>/dev/null
+  mv "$raw" "$kept/transcript.jsonl" 2>/dev/null || return 1
+  if [ -d "$work" ]; then
+    mv "$work" "$kept/work" 2>/dev/null || return 1
+  fi
   echo "prompt-eval: [$fx_id run $run] failing run preserved at $kept (PROMPT_EVAL_KEEP_FAILED=1)" >&2
   current_work=""
   return 0
