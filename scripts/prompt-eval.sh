@@ -53,11 +53,22 @@
 #   -h, --help                   this help
 #
 # Test seams (env): PROMPT_EVAL_CLAUDE overrides the `claude` binary;
-# PROMPT_EVAL_WORKBASE overrides the disposable-tree base dir.
+# PROMPT_EVAL_WORKBASE overrides the disposable-tree base dir;
+# PROMPT_EVAL_KEEP_FAILED=1 preserves a failing/invalid run's transcript and
+# work tree under WORKBASE/kept.* for diagnosis (machine-local, never recorded).
+#
+# Skill-injection validity (Task 5 erratum): headless -p exposes no Skill tool,
+# so a skill enters context only via CLI expansion of a literal slash-command
+# prompt. When fixture.conf names a `skill`, each run's transcript must carry
+# that SKILL.md's H1 line or the run is INVALID (exit 3), not a graded fail —
+# plugin registration alone proved insufficient (the pre-erratum baseline
+# graded a bare model improvising over the repo).
 #
 # Exit: 0 every fixture passed pass^k; 1 a fixture graded fail; 2 usage; 3 an
-# invalid run (plugin not loaded); 4 fail-closed harness error (missing result /
-# bad cost); 5 teardown/prune failure; 6 suite ceiling exceeded.
+# invalid run (plugin not loaded, or the fixture's skill never entered
+# context); 4 fail-closed harness error (missing result / bad cost /
+# unverifiable skill sentinel); 5 teardown/prune failure; 6 suite ceiling
+# exceeded.
 #
 # Portable POSIX sh + jq + git; bash 3.2 / BSD tooling. No eval; every fixture
 # input is treated as data. C locale pinned for stable matching.
@@ -86,7 +97,7 @@ die_usage() {
 }
 
 print_help() {
-  sed -n '2,63p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,74p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ---- argument parsing --------------------------------------------------------
@@ -201,6 +212,23 @@ mkdir -p "$WORKBASE" || {
 
 # read_conf <fixture-dir> <key> — echo the value of an allowlisted key from
 # fixture.conf, or nothing. Parsed as data: split on first '=', no sourcing.
+# preserve_run — opt-in diagnosis seam (PROMPT_EVAL_KEEP_FAILED=1): move the
+# current run's transcript + work tree to a kept.* dir under WORKBASE (outside
+# the per-fixture prune glob, so a later run never reaps it) instead of
+# tearing them down. Returns 0 when preserved (current_work disarmed), 1 when
+# the seam is off or preservation failed — the caller then discards as usual.
+# Machine-local scratch only; nothing preserved is ever recorded or committed.
+preserve_run() {
+  [ "${PROMPT_EVAL_KEEP_FAILED:-0}" = "1" ] || return 1
+  kept="$WORKBASE/kept.$fx_id.run$run.$$"
+  mkdir -p "$kept" 2>/dev/null || return 1
+  mv "$raw" "$kept/transcript.jsonl" 2>/dev/null || true
+  [ -d "$work" ] && mv "$work" "$kept/work" 2>/dev/null
+  echo "prompt-eval: [$fx_id run $run] failing run preserved at $kept (PROMPT_EVAL_KEEP_FAILED=1)" >&2
+  current_work=""
+  return 0
+}
+
 read_conf() {
   cf="$1/fixture.conf"
   [ -f "$cf" ] || return 0
@@ -313,6 +341,45 @@ run_fixture() {
     '' | *[!0-9]*) max_turns="30" ;;
   esac
 
+  # Skill-injection sentinel (Task 5 erratum). Headless `-p` exposes no Skill
+  # tool, so the SKILL.md enters context only when prompt.txt IS the literal
+  # slash-command invocation the CLI expands; plugin registration in
+  # system/init does not prove that (the Task 4 baseline graded a bare model
+  # improvising over the repo this way). When fixture.conf names a `skill`,
+  # resolve its H1 line once per fixture as the transcript grep sentinel;
+  # a named skill that cannot yield a sentinel is a fixture-authoring error,
+  # fail-closed (R12) — never silently skipped.
+  fx_skill="$(read_conf "$fx_dir" skill)"
+  skill_sentinel=""
+  if [ -n "$fx_skill" ]; then
+    case "$fx_skill" in
+      [a-z0-9]*) ;;
+      *)
+        echo "prompt-eval: [$fx_id] fail-closed — invalid skill name in fixture.conf: '$fx_skill'" >&2
+        return 4
+        ;;
+    esac
+    case "$fx_skill" in
+      *[!a-z0-9-]*)
+        echo "prompt-eval: [$fx_id] fail-closed — invalid skill name in fixture.conf: '$fx_skill'" >&2
+        return 4
+        ;;
+    esac
+    sk_md="$plugin_dir/skills/$fx_skill/SKILL.md"
+    if [ ! -f "$sk_md" ]; then
+      echo "prompt-eval: [$fx_id] fail-closed — fixture names skill '$fx_skill' but $sk_md is missing" >&2
+      return 4
+    fi
+    # The sentinel is the FULL H1 line, `# ` prefix included: the bare skill
+    # name is a substring of the (unexpanded) prompt itself, so only the
+    # heading line proves the SKILL.md body entered the transcript.
+    skill_sentinel="$(grep -m1 '^# ' "$sk_md")"
+    if [ -z "$skill_sentinel" ]; then
+      echo "prompt-eval: [$fx_id] fail-closed — skills/$fx_skill/SKILL.md has no H1 line to use as the injection sentinel" >&2
+      return 4
+    fi
+  fi
+
   # Prune-first (R8): clear any stale disposable trees for this fixture id.
   for stale in "$WORKBASE/$fx_id".*; do
     [ -e "$stale" ] || continue
@@ -370,6 +437,16 @@ run_fixture() {
     if [ "$loaded" != "true" ]; then
       echo "prompt-eval: [$fx_id run $run] INVALID — planwright plugin not loaded from system/init" >&2
       rm -rf "$work" "$raw"
+      return 3
+    fi
+
+    # Skill-injection verification: the plugin check's necessary complement.
+    # The run is INVALID (harness/fixture broken, not a graded skill failure)
+    # unless the skill's H1 sentinel appears in the transcript — a prose
+    # prompt grades a bare model, not the skill under eval.
+    if [ -n "$skill_sentinel" ] && ! grep -Fq "$skill_sentinel" "$raw"; then
+      echo "prompt-eval: [$fx_id run $run] INVALID — skill '$fx_skill' never entered context (H1 sentinel '$skill_sentinel' absent from the transcript); prompt.txt must be the literal slash-command invocation" >&2
+      preserve_run || rm -rf "$work" "$raw"
       return 3
     fi
 
@@ -465,12 +542,16 @@ run_fixture() {
     fi
 
     # Teardown (R8): remove the tree; a teardown failure is a re-runnability
-    # hazard and is surfaced fail-closed.
-    if ! rm -rf "$work" "$raw"; then
+    # hazard and is surfaced fail-closed. A failing run may instead be
+    # preserved for diagnosis via the opt-in PROMPT_EVAL_KEEP_FAILED seam —
+    # twice now an assertion failure left nothing to inspect.
+    if [ "$run_pass" -ne 0 ] && preserve_run; then
+      : # preserved in place of teardown; preserve_run disarmed current_work
+    elif ! rm -rf "$work" "$raw"; then
       echo "prompt-eval: [$fx_id run $run] fail-closed — teardown failed for '$work'" >&2
       return 5
     fi
-    current_work="" # disarmed: the tree is gone
+    current_work="" # disarmed: the tree is gone (or preserved out of the way)
 
     if [ "$run_pass" -ne 0 ]; then
       fx_pass=0

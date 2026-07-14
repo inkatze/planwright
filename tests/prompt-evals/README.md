@@ -62,10 +62,17 @@ run costs tokens; the caps below bound that.
 Each fixture drives one skill headlessly and grades observable outcomes.
 
 - **`fixture.conf`** — `KEY=value` lines, read as data (never sourced):
-  `id` (stable identifier; defaults to the directory name), `skill`
-  (informational), `k` (pass^k runs; default 3), `max_budget_usd` and
-  `max_turns` (per-run caps).
-- **`prompt.txt`** — the scenario text piped to `claude -p`.
+  `id` (stable identifier; defaults to the directory name), `skill` (names the
+  skill under eval and drives the runner's skill-injection validity check),
+  `k` (pass^k runs; default 3), `max_budget_usd` and `max_turns` (per-run
+  caps).
+- **`prompt.txt`** — the prompt piped to `claude -p`. It MUST be the literal
+  slash-command invocation, one line (e.g.
+  `/planwright:orchestrate specs/demo --backend print --unattended`): headless
+  `-p` exposes no Skill tool, so only CLI expansion of a leading slash command
+  puts the SKILL.md in context — a prose prompt ("Run /orchestrate on …")
+  silently grades a bare model improvising over the repo, which is exactly how
+  the original Task 4 baseline was invalidated.
 - **`setup.sh <work-tree>`** — seeds the disposable work tree before each run
   (e.g. a spec bundle for `/orchestrate` to act on). `PROMPT_EVAL_PLUGIN_DIR`
   points at the planwright plugin so setup can call its scripts (e.g.
@@ -95,6 +102,15 @@ Each fixture drives one skill headlessly and grades observable outcomes.
   in-flight tree).
 - **Plugin-load verification.** A run that never loaded the planwright plugin
   (checked from the `system/init` event) is **INVALID**, not a graded failure.
+- **Skill-injection verification.** Plugin registration alone is insufficient:
+  when `fixture.conf` names a `skill`, the run's transcript must carry that
+  SKILL.md's full H1 line (the `# /…` heading only the injected body can
+  contribute; the bare skill name is a substring of the prompt itself and
+  proves nothing) or the run is **INVALID** (exit 3), not a graded failure.
+- **Failure diagnosis seam.** `PROMPT_EVAL_KEEP_FAILED=1` preserves a failing
+  or invalid run's transcript and work tree under the work base's `kept.*`
+  (machine-local scratch; never recorded, never committed) — by default
+  teardown leaves an assertion failure with nothing to inspect.
 - **pass^k gating.** All `k` runs must pass (default `k=3`); the loop
   early-exits on the first failing run. Before/after diet comparisons pair on
   the fixture identifier.

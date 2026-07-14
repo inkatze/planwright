@@ -90,6 +90,13 @@ else
   printf '{"type":"system","subtype":"init","plugins":[{"name":"planwright","path":"/some/path"},{"name":"lsp","path":"/y"}],"session_id":"%s"}\n' "$sid"
 fi
 
+# Optionally simulate the CLI's slash-command expansion: a user event whose
+# content carries the skill body (the runner's skill-injection check greps the
+# raw transcript for the SKILL.md H1 text).
+if [ -n "${STUB_SKILL_LINE:-}" ]; then
+  printf '{"type":"user","message":{"content":"%s"}}\n' "$STUB_SKILL_LINE"
+fi
+
 # On an ok directive, optionally simulate a side effect (a marker file).
 if [ "$directive" = "ok" ] && [ -n "${STUB_MARKER:-}" ]; then
   mkdir -p "$(dirname "$STUB_MARKER")" 2>/dev/null || true
@@ -522,6 +529,79 @@ assert_contains "surfaces the setup's diagnostic message" \
 # by test 12).
 strayfiles="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "no stray capture files (.jsonl/.setup-err/.probe-err) leaked" 0 "$strayfiles"
+
+# ---- 31. skill-injection check: sentinel present -> graded normally ----------
+# A plugin dir whose skills/testskill/SKILL.md carries a distinctive H1; the
+# stub emits a user event containing that H1 (simulating CLI slash-command
+# expansion), so the run is valid and grades as usual (Task 5 erratum).
+PLUG="$TMP/plug"
+mkdir -p "$PLUG/skills/testskill" "$PLUG/.claude-plugin"
+printf '{"name": "planwright"}\n' >"$PLUG/.claude-plugin/plugin.json"
+cat >"$PLUG/skills/testskill/SKILL.md" <<'EOF'
+---
+name: testskill
+---
+
+# /testskill unmistakable-sentinel
+
+body text
+EOF
+fx="$(mk_fixture skillok '.is_error == false')"
+printf 'skill=testskill\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_SKILL_LINE="expanded: # /testskill unmistakable-sentinel body" \
+  "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "skill sentinel present grades normally (pass)" 0 "$rc"
+
+# A transcript carrying only the UNEXPANDED prompt (the skill name without its
+# H1 heading line) must still be INVALID — the bare name is a substring of the
+# prompt itself and proves nothing about injection.
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_SKILL_LINE="prompt echo: /testskill unmistakable-sentinel" \
+  "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "bare skill name without the H1 line is still INVALID" 3 "$rc"
+
+# ---- 32. skill-injection check: sentinel absent -> INVALID (exit 3) ----------
+# Same fixture, but the stub emits no expansion event: the skill never entered
+# context, so the run is INVALID — not a graded skill failure (the pre-erratum
+# baseline graded a bare model exactly this way).
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "missing skill sentinel is INVALID (exit 3)" 3 "$rc"
+assert_contains "invalid-injection diagnostic names the cause" \
+  "never entered context" "$out"
+
+# ---- 33. skill named but unresolvable in the plugin dir -> fail-closed -------
+fx="$(mk_fixture skillmissing '.is_error == false')"
+printf 'skill=nosuchskill\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "unresolvable fixture skill is fail-closed (exit 4)" 4 "$rc"
+
+# ---- 34. PROMPT_EVAL_KEEP_FAILED preserves a failing run's evidence ----------
+# A graded fail with the seam on keeps transcript + work tree under a kept.*
+# dir (outside the per-fixture prune glob) instead of tearing them down.
+fx="$(mk_fixture keepfail '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "failing run with keep seam still exits 1" 1 "$rc"
+assert_contains "preservation is reported" "preserved at" "$out"
+kept_count="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.keepfail.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept.* dir exists for the failing run" 1 "$kept_count"
+kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -path '*kept.keepfail*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept dir holds the transcript" 1 "$kept_tr"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepfail.* # leave the base clean
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
