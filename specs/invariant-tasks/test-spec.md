@@ -11,6 +11,8 @@ in CI; the format and doctrine requirements (REQ-A, REQ-E1.1) are
 migration of this repo's own bundles and the skill reconciliation carry a
 `[manual]` arm where a human exercises the surface.
 
+## REQ-A — The invariant committed ledger (format-version 2)
+
 ### REQ-A1.1 — v2 tasks.md content [test + design-level]
 
 Format-version 2's shape is normatively defined in `doctrine/spec-format.md`
@@ -40,6 +42,8 @@ re-anchoring lifecycle write D-9 names.
 Migration fixture test (Task 6): the canonical `tasks.md` extraction digest
 is byte-identical before and after v1→v2 migration, proving IDs, definition
 fields, and dependency lines survive unchanged.
+
+## REQ-B — Derived status as the read surface
 
 ### REQ-B1.1 — derived render [test]
 
@@ -84,6 +88,8 @@ Render fixtures (Task 3): a stored-Draft, Retired, or Superseded fixture
 renders its stored state with no execution claim; a zero-task v2 fixture
 reports no tasks and never derives Done; an all-completed fixture with a
 live Awaiting-input bullet derives not-Done at the bundle level.
+
+## REQ-C — Machinery reconciliation
 
 ### REQ-C1.1 — version-keyed writer [test]
 
@@ -151,6 +157,8 @@ bullet text and header values are stripped from echoed output
 (`sanitize_printable`); a reference bullet whose task id violates the
 task-id grammar is rejected.
 
+## REQ-D — Migration & coexistence
+
 ### REQ-D1.1 — coexistence [test]
 
 Version-keying tests across Tasks 2, 4, 5: every touched script asserts both
@@ -174,6 +182,8 @@ Test: after Task 6, `spec-validate` passes every bundle in `specs/`, live
 bundles at v2, Done/terminal bundles byte-identical (git diff empty for
 them). Manual: the human reviews the migration PR's diff confirming only
 live bundles changed.
+
+## REQ-E — Doctrine, skills, config, and lineage
 
 ### REQ-E1.1 — meta-spec v2 [design-level]
 
