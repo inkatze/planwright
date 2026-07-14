@@ -21,11 +21,11 @@ tests/prompt-evals/
   README.md                 this file
   fixtures/<id>/            one directory per fixture
     fixture.conf            id, skill, k, budget caps (KEY=VALUE, data only)
-    prompt.txt              the scenario piped to `claude -p`
+    prompt.txt              the literal slash-command prompt, passed as the -p argument
     setup.sh                seeds the hermetic work tree (optional)
     probe.sh                emits observable side effects as JSON (optional)
     assert.jq              grades the outcome; true = pass
-  results/                  scrubbed, committed baseline/post-diet artifacts
+  results/                  scrubbed, committed baseline artifacts + pilot record
 ```
 
 ## Running it
@@ -55,10 +55,13 @@ scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures \
 ```
 
 `results/*.json` is the committed pre-diet baseline (Task 4, bound to the
-pre-diet commit recorded in that run's PR). Task 5's post-diet re-run on the
-identical fixtures lands in `results/post-diet/*.json`, and the paired
-before/after comparison with the pilot verdict is recorded in
-`results/comparison.md` (REQ-D1.3).
+pre-diet commit recorded in that run's PR; post-hoc bare-model INVALID — see
+the standing status above). Task 5's post-diet re-run was deferred with the
+pilot: `results/post-diet/` does not exist yet. Once the injection follow-up
+reactivates the suite, the post-diet run on the identical fixtures will land
+in `results/post-diet/*.json` and pair by fixture identifier. The paired
+comparison record and the pilot verdict live in `results/comparison.md`
+(REQ-D1.3).
 
 The runner needs a Claude Code CLI on `PATH` and, because it runs `--bare`, an
 `ANTHROPIC_API_KEY` (OAuth and keychain are never read in `--bare` mode). Each
