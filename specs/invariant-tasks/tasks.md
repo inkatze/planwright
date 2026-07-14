@@ -6,9 +6,10 @@
 
 The canonical orchestration state record for `specs/invariant-tasks`.
 Dependency edges are the sole source of truth for the task graph
-(`scripts/spec-graph.sh` renders the view on demand). Guard-first note: the
-validator task (Task 2) carries explicit edges from every task that produces
-v2 content, so it cannot dispatch after the work it protects.
+(`scripts/spec-graph.sh` renders the view on demand). Guard-first note:
+every task that produces committed v2 spec content carries an explicit
+edge to the validator task (Task 2), so none of them can dispatch before
+the guard that protects their output exists.
 
 ## Forward plan
 

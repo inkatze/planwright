@@ -238,7 +238,7 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   `/spec-kickoff`'s delta/amendment mode selection reads derived
   status (the stored header rests at Ready); Awaiting-input writes stay
   committed.
-  *(Cites: D-6, D-7, D-3; kickoff sign-off (2026-07-14).)*
+  *(Cites: D-6, D-7, D-8, D-3; kickoff sign-off (2026-07-14).)*
 - **REQ-E1.3** Config knobs made vacuous for v2 (`commit_on_state_move`)
   SHALL be documented as v1-only in the options reference.
   *(Cites: D-7.)*

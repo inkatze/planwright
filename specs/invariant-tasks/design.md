@@ -261,9 +261,10 @@ mechanics keep v1 and v2 bundles verifiable by the same gate.
 ### D-10: Migration — one-shot script, byte-stable definitions, live bundles only  (N)
 
 **Decision:** A one-shot migration script (in the mold of the existing
-status-lifecycle migration) converts a v1 bundle to v2: collapse the state
-sections into `## Tasks` sorted by task id, strip state annotation bullets,
-convert any relocated Awaiting-input blocks to reference bullets, restrict
+status-lifecycle migration) converts a v1 bundle to v2: collapse the
+placement sections into `## Tasks` sorted by task id, strip state
+annotation bullets, convert any relocated parked blocks (in any
+human-payload section) to reference bullets, restrict
 the header value, add the pointer line, and bump `Format-version:` to 2.
 Task definition lines are preserved byte-for-byte, so the canonical
 `tasks.md` extraction — and therefore that file's contribution to the
