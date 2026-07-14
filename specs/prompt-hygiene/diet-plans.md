@@ -164,6 +164,14 @@ left the manifest (orchestrate applies no finding buckets;
 removed; the guard passes with no suppression of `/orchestrate`'s own.
 Remaining offenders (Tasks 6/7/7.5) unchanged.
 
+The behavioral pilot (REQ-D1.3) was **deferred at ship**: headless CLI
+slash-path skill injection proved unavailable, so no eval cell has ever
+measured the instruction file — the honest verdict, the bare-model root
+cause, the harness hardening that ships instead (injection sentinel, prompt
+delivery fix, cap recalibration, diagnosis seams), and the follow-up path
+are recorded in `tests/prompt-evals/results/comparison.md` and the
+`behavioral-pilot-injection-design` observation.
+
 ### `/spec-draft` → Task 7.5 (point-of-use reclassification)
 
 `/spec-draft`'s start-load (12,636) is dominated by run-start doctrine, not its

@@ -1,5 +1,12 @@
 # Kept prompt-evals
 
+> **Standing status (2026-07-14):** the suite is **guarded-inoperative** —
+> headless CLI slash-path skill injection is unavailable, so every cell
+> correctly aborts INVALID (exit 3) at the skill-injection sentinel instead
+> of grading a bare model. See `results/comparison.md` for the full record
+> and the `behavioral-pilot-injection-design` follow-up observation for the
+> path to reactivation.
+
 The behavioral backstop for the instruction-hygiene size guard (prompt-hygiene
 Task 4; `doctrine/instruction-hygiene.md`, REQ-C1.4/C1.6/D1.3, D-6/D-7/D-8/D-12).
 The size guard is the cheap always-on proxy; this fixture suite is the
