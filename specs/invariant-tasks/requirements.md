@@ -83,8 +83,9 @@ meta-spec), per the altitude trigger the drafting invocation fired.
 - **REQ-A1.2** A committed edit to a task block SHALL occur only for
   definition changes (via the amendment ritual); derived execution-state
   changes SHALL NOT produce commits to the bundle. Committed writes to the
-  human-payload sections (parking and unparking under D-3) are
-  human-authored payload, not execution state.
+  human-payload sections (parking and unparking under D-3, whether written
+  by the human or a halting skill) are human-owned payload, not execution
+  state.
   *(Cites: D-2, D-3; orchestration-concurrency D-1 (Sources).)*
 - **REQ-A1.3** The stored `Status:` header SHALL be restricted to
   human-gated states (Draft, Ready, Retired, Superseded); Active and Done
@@ -115,9 +116,10 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   pushed to a remote mirror.
   *(Cites: D-6.)*
 - **REQ-B1.4** A committed reference bullet SHALL be authoritative for its
-  task's state in the derivation: human-authored parked state (an
-  Awaiting-input, Deferred, or Out-of-scope bullet naming the task id)
-  outranks git-evidence inference for that task. Bullet authority applies
+  task's state in the derivation: human-owned parked state (an
+  Awaiting-input, Deferred, or Out-of-scope bullet naming the task id,
+  authored by the human or a halting skill per D-3) outranks git-evidence
+  inference for that task. Bullet authority applies
   to bullets on the derivation's read surface (the primary checkout's main
   view); a bullet committed only on an unmerged task branch takes effect
   when it lands, the task deriving in-progress from its branch evidence
@@ -231,7 +233,9 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   selection and `/drain`'s gate evaluation read the derivation engine via
   their scripts (D-6, D-8); `/orchestrate`'s dead-worker orphan reconcile
   parks via an Awaiting-input bullet (a halting-skill payload write per
-  REQ-A1.2); `/spec-kickoff`'s delta/amendment mode selection reads derived
+  REQ-A1.2) written on the derivation's read surface — the primary
+  checkout's main view (REQ-B1.4), never the dead worker's branch;
+  `/spec-kickoff`'s delta/amendment mode selection reads derived
   status (the stored header rests at Ready); Awaiting-input writes stay
   committed.
   *(Cites: D-6, D-7, D-3; kickoff sign-off (2026-07-14).)*
