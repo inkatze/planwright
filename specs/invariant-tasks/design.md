@@ -323,9 +323,12 @@ supersession record names both homes. *(Amended at kickoff sign-off
 **Decision:** The committed snapshot this bundle removes was, per
 orchestration-concurrency's own kickoff record, the read-model cache; no
 replacement cache is introduced. Every consumer derives per invocation
-(local git scans plus one `gh pr list` call): all consumers are
-low-frequency — the human render on demand, drain passes, one selection per
-dispatch step. Within one orchestrate step, reusing a single derivation
+(local git scans plus one `gh pr list` call): the session-driven consumers
+are low-frequency — the human render on demand, drain passes, one selection
+per dispatch step — and the one standing consumer, the fleet decision
+queue, already polls the live derivation across specs today; its aggregate
+cadence is exactly what the revisit signals below watch. Within one
+orchestrate step, reusing a single derivation
 result across selection, gating, and any render is encouraged but
 non-normative. No latency bound is pinned; the kickoff brief's risk
 register carries the revisit signals (render latency complaints, gh
