@@ -36,16 +36,14 @@ answer outside the offered set; the selector is a scaffold, not a fence.
 Decisions the agent can resolve from already-recorded answers, the seed
 material, or framework doctrine are resolved and reported, not asked.
 
-### Self-contained selectors
-
-The selector prompt carries everything needed to answer it. In a terminal the
-open selector hides the prose emitted before it, so the human answering sees
-only the question, the options, and their previews. Never assume they can read
-what came earlier, and never tell them to scroll up. Restate the decision and
-its load-bearing context in the question text; put each option's consequence
-in that option's description; put comparative or long content (diffs, tables,
-side-by-side snippets) in option previews. Pre-selector prose is a short status
-line only, never the place a load-bearing detail lives.
+**Self-contained.** The selector prompt carries everything needed to answer
+it. In a terminal the open selector hides the prose emitted before it, so the
+human answering sees only the question, the options, and their previews. Never
+assume they can read what came earlier, and never tell them to scroll up.
+Restate the decision and its load-bearing context in the question text; put
+each option's consequence in that option's description; put comparative or long
+content (diffs, tables, side-by-side snippets) in option previews. Pre-selector
+prose is a short status line only, never the place a load-bearing detail lives.
 
 ### Running summary
 
