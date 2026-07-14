@@ -55,7 +55,10 @@
 # Test seams (env): PROMPT_EVAL_CLAUDE overrides the `claude` binary;
 # PROMPT_EVAL_WORKBASE overrides the disposable-tree base dir;
 # PROMPT_EVAL_KEEP_FAILED=1 preserves a failing/invalid run's transcript and
-# work tree under WORKBASE/kept.* for diagnosis (machine-local, never recorded).
+# work tree under WORKBASE/kept.* for diagnosis (machine-local, never recorded);
+# PROMPT_EVAL_NO_BARE=1 drops --bare (skill injection: --bare suppresses
+# slash-expansion; costs hermeticity — the operator's settings/hooks/CLAUDE.md
+# load, and auth may fall to OAuth so verify reported cost is non-zero).
 #
 # Skill-injection validity (Task 5 erratum): headless -p exposes no Skill tool,
 # so a skill enters context only via CLI expansion of a literal slash-command
@@ -421,19 +424,34 @@ run_fixture() {
       rm -f "$setup_err"
     fi
 
-    # The graded run: headless, hermetic, budget-capped. Failures of the binary
-    # itself surface below as a missing/invalid transcript, not a crash here.
+    # The graded run: headless, budget-capped. Failures of the binary itself
+    # surface below as a missing/invalid transcript, not a crash here.
     # The prompt is passed as the -p ARGUMENT, never piped on stdin: the CLI
     # slash-expands a skill invocation only in the prompt string (per the
     # headless docs), and a stdin-piped `/plugin:skill` reaches the model as
     # literal text with the SKILL.md never entering context — the
     # skill-injection sentinel below caught exactly that.
+    # PROMPT_EVAL_NO_BARE=1 drops --bare: --bare was observed to suppress
+    # slash-expansion entirely (sentinel-INVALID probes, 2026-07-14), so real
+    # skill injection needs a non-bare session. The toggle trades hermeticity
+    # for injection — without --bare the operator's user settings, hooks, and
+    # CLAUDE.md load and the session may authenticate via OAuth instead of
+    # ANTHROPIC_API_KEY (verify the probe reports a non-zero cost, or the
+    # budget caps cannot bind). The sentinel below stays the proof either way.
     fx_prompt="$(cat "$fx_dir/prompt.txt")"
-    (cd "$work" && "$CLAUDE_BIN" -p "$fx_prompt" \
-      --bare --plugin-dir "$plugin_dir" \
-      --output-format stream-json --verbose \
-      --max-budget-usd "$max_budget" --max-turns "$max_turns") \
-      </dev/null >"$raw" 2>/dev/null || true
+    if [ "${PROMPT_EVAL_NO_BARE:-0}" = "1" ]; then
+      (cd "$work" && "$CLAUDE_BIN" -p "$fx_prompt" \
+        --plugin-dir "$plugin_dir" \
+        --output-format stream-json --verbose \
+        --max-budget-usd "$max_budget" --max-turns "$max_turns") \
+        </dev/null >"$raw" 2>/dev/null || true
+    else
+      (cd "$work" && "$CLAUDE_BIN" -p "$fx_prompt" \
+        --bare --plugin-dir "$plugin_dir" \
+        --output-format stream-json --verbose \
+        --max-budget-usd "$max_budget" --max-turns "$max_turns") \
+        </dev/null >"$raw" 2>/dev/null || true
+    fi
 
     # Plugin-load verification (doctrine): a run that never loaded the plugin is
     # INVALID — the harness/env is broken, not the skill. Abort, do not grade.

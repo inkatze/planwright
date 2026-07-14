@@ -113,6 +113,13 @@ Each fixture drives one skill headlessly and grades observable outcomes.
   or invalid run's transcript and work tree under the work base's `kept.*`
   (machine-local scratch; never recorded, never committed) — by default
   teardown leaves an assertion failure with nothing to inspect.
+- **Injection seam.** `PROMPT_EVAL_NO_BARE=1` drops `--bare`: `--bare` was
+  observed to suppress slash-command expansion entirely, so real skill
+  injection needs a non-bare session. The trade is hermeticity — without
+  `--bare` the operator's user settings, hooks, and CLAUDE.md load (the run
+  measures skill + ambient config), and auth may fall to OAuth (verify the
+  reported cost is non-zero or the budget caps cannot bind). The sentinel
+  check remains the proof of injection either way.
 - **pass^k gating.** All `k` runs must pass (default `k=3`); the loop
   early-exits on the first failing run. Before/after diet comparisons pair on
   the fixture identifier.

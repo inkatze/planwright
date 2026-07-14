@@ -68,6 +68,12 @@ set -u
 # Drain stdin (the prompt) so the caller's redirect never blocks.
 cat >/dev/null 2>&1 || true
 
+# Optionally record the argv (one arg per line) so tests can assert on the
+# flags the runner actually passed (e.g. --bare present/absent).
+if [ -n "${STUB_ARGS_OUT:-}" ]; then
+  printf '%s\n' "$@" >"$STUB_ARGS_OUT" 2>/dev/null || true
+fi
+
 n=1
 if [ -n "${STUB_COUNTER:-}" ]; then
   [ -f "$STUB_COUNTER" ] && n="$(cat "$STUB_COUNTER")"
@@ -602,6 +608,43 @@ assert_exit "kept.* dir exists for the failing run" 1 "$kept_count"
 kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -path '*kept.keepfail*' 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "kept dir holds the transcript" 1 "$kept_tr"
 rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepfail.* # leave the base clean
+
+# ---- 35. --bare default and the PROMPT_EVAL_NO_BARE toggle -------------------
+# By default the runner passes --bare; with PROMPT_EVAL_NO_BARE=1 it must not
+# (skill injection: --bare suppresses slash-expansion). Assert on the argv the
+# stub actually received.
+fx="$(mk_fixture bareflag '.is_error == false')"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_ARGS_OUT="$TMP/args-default" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "default invocation still passes" 0 "$rc"
+if grep -qx -- '--bare' "$TMP/args-default"; then
+  echo "ok: default invocation carries --bare"
+else
+  echo "FAIL: default invocation is missing --bare" >&2
+  failures=$((failures + 1))
+fi
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_ARGS_OUT="$TMP/args-nobare" PROMPT_EVAL_NO_BARE=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "no-bare invocation still passes" 0 "$rc"
+if grep -qx -- '--bare' "$TMP/args-nobare"; then
+  echo "FAIL: PROMPT_EVAL_NO_BARE=1 still passes --bare" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: PROMPT_EVAL_NO_BARE=1 drops --bare"
+fi
+# Both forms deliver the prompt as the -p argument (never stdin).
+if grep -qx -- 'drive the skill' "$TMP/args-nobare"; then
+  echo "ok: prompt delivered as the -p argument"
+else
+  echo "FAIL: prompt not delivered as the -p argument" >&2
+  failures=$((failures + 1))
+fi
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
