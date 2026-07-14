@@ -21,7 +21,6 @@
 # a transitional allowance until its diet task lands (Tasks 5/6/7). The
 # start-load allowance for /spec-draft is seeded at Task 3, when manifests first
 # make start-load computable — not here, where no manifest yet exists.
-pending-diet|file|skills/orchestrate/SKILL.md|Task 5|/orchestrate SKILL.md is over the per-file SKILL floor; dieted in Task 5 (the /orchestrate pilot).
 exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), Task 7 disposition. spec-format.md is the meta-spec: its authorable-from-alone contract requires it to stay self-contained (a compliant four-file bundle is authorable from this doc alone), and a compliant trim removes only ~99 words against the ~570-word gap to the 4,000 floor without weakening that contract, so it is exempted rather than trimmed. Start-load coupling: spec-format.md is the dominant run-start load for /spec-draft and /spec-kickoff, but a permanent per-file exemption never suppresses the mandatory-at-start or reachable-closure budgets, so it does not strand those dependents — their start-load compliance rests on Task 7.5's point-of-use reclassification of their non-gating doctrine reads, not on shrinking this doc.
 
 # Start-load allowances seeded at Task 3, when manifests first made mandatory-at-start
@@ -35,6 +34,5 @@ exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), T
 # per-file allowance, but its start-load is led by spec-format — gating law REQ-C1.2
 # forbids deferring — so its start-load allowance is carried to Task 7.5's point-of-use
 # reclassification of the non-gating reads. /spec-draft's start-load diet is Task 7.5 too.
-pending-diet|start-load|orchestrate|Task 5|/orchestrate mandatory-at-start is over budget (body + run-start doctrine); dieted in Task 5 (the pilot: content moved to rule docs, rare mode branches reclassified to point-of-use).
 pending-diet|start-load|spec-kickoff|Task 7.5|/spec-kickoff mandatory-at-start is over budget. Task 7 dieted the SKILL body (per-file allowance shed) but the start-load is dominated by run-start doctrine led by spec-format (gating law that REQ-C1.2 forbids deferring to point-of-use), so start-load compliance rests on Task 7.5's point-of-use reclassification of the non-gating lens-pass reads (discovery-rigor, autopilot-reflex, validation-rigor); carried here until Task 7.5 lands.
 pending-diet|start-load|spec-draft|Task 7.5|/spec-draft mandatory-at-start is over budget purely through run-start doctrine (body under the per-file floor, so invisible to Task 2's pre-manifest audit); dieted in Task 7.5 by point-of-use reclassification.

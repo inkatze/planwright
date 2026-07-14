@@ -13,21 +13,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
-
-- **Deliverables:** `/orchestrate` slimmed per its Task 2 diet plan (law
-  moved to rule docs verbatim in meaning, restatements collapsed, rare
-  branches deferred to point of use, manifest updated); the post-diet eval
-  run on the Task 4 fixtures; the paired before/after comparison recorded;
-  its transitional `pending diet` allowance removed.
-- **Done when:** `/orchestrate` passes the guard with no suppression of its
-  own; the post-diet eval passes pass^3 with no regression against the
-  baseline on paired fixtures; `mise run check` green (its allowance removed;
-  the remaining offenders' transitional allowances still in place).
-- **Dependencies:** Task 2, Task 3, Task 4
-- **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
-- **Estimated effort:** 2 days
-
 ### Task 7.5 — Diet residual start-load offenders
 
 - **Deliverables:** for every skill carrying a transitional start-load
@@ -65,6 +50,22 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Estimated effort:** half day
 
 ## In progress
+
+### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
+
+- **Deliverables:** `/orchestrate` slimmed per its Task 2 diet plan (law
+  moved to rule docs verbatim in meaning, restatements collapsed, rare
+  branches deferred to point of use, manifest updated); the post-diet eval
+  run on the Task 4 fixtures; the paired before/after comparison recorded;
+  its transitional `pending diet` allowance removed.
+- **Done when:** `/orchestrate` passes the guard with no suppression of its
+  own; the post-diet eval passes pass^3 with no regression against the
+  baseline on paired fixtures; `mise run check` green (its allowance removed;
+  the remaining offenders' transitional allowances still in place).
+- **Dependencies:** Task 2, Task 3, Task 4
+- **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
+- **Estimated effort:** 2 days
+- **Last activity:** 2026-07-14
 
 ### Task 7 — Diet /spec-kickoff; spec-format disposition
 
@@ -225,7 +226,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Citations:** D-9 · REQ-D1.1, REQ-D1.2
 - **Estimated effort:** 1 day
 - **Status:** Completed · PR #167 merged 2026-07-14
-- **Last activity:** 2026-07-13
+- **Last activity:** 2026-07-14
 
 ## Deferred
 

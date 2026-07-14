@@ -65,8 +65,20 @@ cat >"$STUB" <<'STUB_EOF'
 # Deterministic stub for `claude -p ...`. Reads a per-invocation directive and
 # emits stream-json (init + assistant + result). Controlled entirely by env.
 set -u
-# Drain stdin (the prompt) so the caller's redirect never blocks.
-cat >/dev/null 2>&1 || true
+# Drain stdin so the caller's redirect never blocks; optionally capture it so
+# tests can assert the runner delivered the prompt as the -p argument and sent
+# NOTHING on stdin (the erratum's </dev/null contract).
+if [ -n "${STUB_STDIN_OUT:-}" ]; then
+  cat >"$STUB_STDIN_OUT" 2>/dev/null || true
+else
+  cat >/dev/null 2>&1 || true
+fi
+
+# Optionally record the argv (one arg per line) so tests can assert on the
+# flags the runner actually passed (e.g. --bare present/absent).
+if [ -n "${STUB_ARGS_OUT:-}" ]; then
+  printf '%s\n' "$@" >"$STUB_ARGS_OUT" 2>/dev/null || true
+fi
 
 n=1
 if [ -n "${STUB_COUNTER:-}" ]; then
@@ -88,6 +100,13 @@ if [ "$directive" = "noplugin" ]; then
   printf '{"type":"system","subtype":"init","plugins":[{"name":"other","path":"/x"}],"session_id":"%s"}\n' "$sid"
 else
   printf '{"type":"system","subtype":"init","plugins":[{"name":"planwright","path":"/some/path"},{"name":"lsp","path":"/y"}],"session_id":"%s"}\n' "$sid"
+fi
+
+# Optionally simulate the CLI's slash-command expansion: a user event whose
+# content carries the skill body (the runner's skill-injection check greps the
+# raw transcript for the SKILL.md H1 text).
+if [ -n "${STUB_SKILL_LINE:-}" ]; then
+  printf '{"type":"user","message":{"content":"%s"}}\n' "$STUB_SKILL_LINE"
 fi
 
 # On an ok directive, optionally simulate a side effect (a marker file).
@@ -467,6 +486,26 @@ assert_exit "--help exits 0" 0 "$rc"
 assert_contains "--help shows the usage synopsis" "Usage:" "$out"
 assert_absent "--help does not leak the 'set -u' code line" "set -u" "$out"
 assert_absent "--help does not leak the 'LC_ALL=C' code line" "LC_ALL=C" "$out"
+# The converse failure: a header that grew past the sliced range truncates the
+# help tail. Derive the header's real last line from the script itself so this
+# assertion tracks future header edits instead of hardcoding prose.
+last_header_line="$(sed -n '2,/^[^#]/p' "$RUNNER" | sed '$d' | sed 's/^# \{0,1\}//' | tail -n 1)"
+assert_contains "--help prints the full header (no tail truncation)" "$last_header_line" "$out"
+
+# ---- 26b. --help tracks header growth (no hardcoded end line) -----------------
+# print_help must derive the header's end from the script itself: a header that
+# gains a line must show up in --help without anyone bumping a line range. Grow
+# a copy of the runner by one header line (appended just before the first code
+# line) and assert --help prints it while still leaking no code.
+first_code_line="$(awk 'NR > 1 && !/^#/ { print NR; exit }' "$RUNNER")"
+awk -v n="$first_code_line" 'NR == n { print "# ZZZ-help-growth-marker" } { print }' \
+  "$RUNNER" >"$TMP/runner-grown.sh"
+chmod +x "$TMP/runner-grown.sh"
+out="$(sh "$TMP/runner-grown.sh" --help 2>&1)"
+rc=$?
+assert_exit "grown-header --help exits 0" 0 "$rc"
+assert_contains "--help tracks a grown header without a range bump" "ZZZ-help-growth-marker" "$out"
+assert_absent "grown-header --help still leaks no code" "set -u" "$out"
 
 # ---- 27. a sub-micro-dollar cost is accounted, not truncated to zero ---------
 # is_number() deliberately accepts costs below 1e-6 (jq renders them in
@@ -522,6 +561,308 @@ assert_contains "surfaces the setup's diagnostic message" \
 # by test 12).
 strayfiles="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "no stray capture files (.jsonl/.setup-err/.probe-err) leaked" 0 "$strayfiles"
+
+# ---- 31. skill-injection check: sentinel present -> graded normally ----------
+# A plugin dir whose skills/testskill/SKILL.md carries a distinctive H1; the
+# stub emits a user event containing that H1 (simulating CLI slash-command
+# expansion), so the run is valid and grades as usual (Task 5 erratum).
+PLUG="$TMP/plug"
+mkdir -p "$PLUG/skills/testskill" "$PLUG/.claude-plugin"
+printf '{"name": "planwright"}\n' >"$PLUG/.claude-plugin/plugin.json"
+cat >"$PLUG/skills/testskill/SKILL.md" <<'EOF'
+---
+name: testskill
+---
+
+# /testskill unmistakable-sentinel
+
+body text
+EOF
+fx="$(mk_fixture skillok '.is_error == false')"
+printf 'skill=testskill\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_SKILL_LINE="expanded: # /testskill unmistakable-sentinel body" \
+  "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "skill sentinel present grades normally (pass)" 0 "$rc"
+
+# A transcript carrying only the UNEXPANDED prompt (the skill name without its
+# H1 heading line) must still be INVALID — the bare name is a substring of the
+# prompt itself and proves nothing about injection.
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_SKILL_LINE="prompt echo: /testskill unmistakable-sentinel" \
+  "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "bare skill name without the H1 line is still INVALID" 3 "$rc"
+
+# ---- 32. skill-injection check: sentinel absent -> INVALID (exit 3) ----------
+# Same fixture, but the stub emits no expansion event: the skill never entered
+# context, so the run is INVALID — not a graded skill failure (the pre-erratum
+# baseline graded a bare model exactly this way).
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "missing skill sentinel is INVALID (exit 3)" 3 "$rc"
+assert_contains "invalid-injection diagnostic names the cause" \
+  "never entered context" "$out"
+
+# ---- 33. skill named but unresolvable in the plugin dir -> fail-closed -------
+fx="$(mk_fixture skillmissing '.is_error == false')"
+printf 'skill=nosuchskill\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "unresolvable fixture skill is fail-closed (exit 4)" 4 "$rc"
+
+# ---- 34. PROMPT_EVAL_KEEP_FAILED preserves a failing run's evidence ----------
+# A graded fail with the seam on keeps transcript + work tree under a kept.*
+# dir (outside the per-fixture prune glob) instead of tearing them down.
+fx="$(mk_fixture keepfail '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "failing run with keep seam still exits 1" 1 "$rc"
+assert_contains "preservation is reported" "preserved at" "$out"
+kept_count="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.keepfail.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept.* dir exists for the failing run" 1 "$kept_count"
+kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -path '*kept.keepfail*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept dir holds the transcript" 1 "$kept_tr"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepfail.* # leave the base clean
+
+# ---- 34b. a failed preservation move falls back to normal teardown -----------
+# If preserve_run's mv fails, it must return 1 (per its contract) so the caller
+# discards as usual: no "preserved at" claim, no work tree leaked under the
+# workbase with the cleanup trap disarmed, and — all-or-nothing — no kept.*
+# dir left behind either. A stub `mv` that always fails is prepended to PATH
+# for the runner invocation only (the runner's sole bare `mv` calls live in
+# preserve_run).
+MVSTUB_DIR="$TMP/mvstub"
+mkdir -p "$MVSTUB_DIR"
+printf '#!/bin/sh\nexit 1\n' >"$MVSTUB_DIR/mv"
+chmod +x "$MVSTUB_DIR/mv"
+fx="$(mk_fixture mvfail '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(PATH="$MVSTUB_DIR:$PATH" STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "failed preservation keeps the graded-fail exit" 1 "$rc"
+assert_absent "failed preservation does not claim 'preserved at'" "preserved at" "$out"
+leaked="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d ! -path "$PROMPT_EVAL_WORKBASE" ! -name 'kept.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed preservation leaks no work tree (teardown ran)" 0 "$leaked"
+kept_left="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.mvfail.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed preservation leaves no kept.* dir (all-or-nothing)" 0 "$kept_left"
+
+# ---- 34c. a PARTIAL preservation unwinds all-or-nothing ----------------------
+# The asymmetric failure: mv succeeds for the transcript, fails for the work
+# tree. preserve_run must put the transcript back and let the caller discard
+# BOTH — never destroy the work tree while silently keeping the transcript,
+# never leave a partial kept.* dir. The stub mv fails only for the */work
+# target and delegates everything else to the real mv.
+MVPART_DIR="$TMP/mvpart"
+mkdir -p "$MVPART_DIR"
+cat >"$MVPART_DIR/mv" <<'EOF'
+#!/bin/sh
+case "${2:-}" in */work) exit 1 ;; esac
+exec /bin/mv "$@"
+EOF
+chmod +x "$MVPART_DIR/mv"
+fx="$(mk_fixture mvpart '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(PATH="$MVPART_DIR:$PATH" STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "partial preservation keeps the graded-fail exit" 1 "$rc"
+assert_absent "partial preservation does not claim 'preserved at'" "preserved at" "$out"
+kept_left="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.mvpart.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "no partial kept.* dir remains (all-or-nothing)" 0 "$kept_left"
+leftover="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 ! -path "$PROMPT_EVAL_WORKBASE" 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "workbase fully clean: both artifacts discarded together" 0 "$leftover"
+
+# ---- 34d. a failed UNWIND never deletes the evidence --------------------------
+# The unwind's own failure mode: the work-tree move fails AND the transcript
+# cannot be moved back. Deleting the kept.* dir then would destroy the only
+# transcript evidence while the seam is explicitly on. preserve_run must leave
+# the partial kept.* dir in place and say so loudly (fail-loud doctrine), still
+# returning 1 so the caller's discard runs. The stub mv fails for the */work
+# target and for any move whose source sits inside a kept.* dir (the unwind),
+# delegating the rest to the real mv.
+MVUNWIND_DIR="$TMP/mvunwind"
+mkdir -p "$MVUNWIND_DIR"
+cat >"$MVUNWIND_DIR/mv" <<'EOF'
+#!/bin/sh
+case "${2:-}" in */work) exit 1 ;; esac
+case "${1:-}" in */kept.*/transcript.jsonl) exit 1 ;; esac
+exec /bin/mv "$@"
+EOF
+chmod +x "$MVUNWIND_DIR/mv"
+fx="$(mk_fixture mvunwind '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(PATH="$MVUNWIND_DIR:$PATH" STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "failed unwind keeps the graded-fail exit" 1 "$rc"
+assert_absent "failed unwind does not claim 'preserved at'" "preserved at" "$out"
+assert_contains "failed unwind is reported loudly" "unwind failed" "$out"
+kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -path '*kept.mvunwind*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed unwind leaves the transcript evidence in kept.*" 1 "$kept_tr"
+leaked="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d ! -path "$PROMPT_EVAL_WORKBASE" ! -name 'kept.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed unwind leaks no work tree (caller discard ran)" 0 "$leaked"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.mvunwind.* # leave the base clean
+
+# ---- 35. --bare default and the PROMPT_EVAL_NO_BARE toggle -------------------
+# By default the runner passes --bare; with PROMPT_EVAL_NO_BARE=1 it must not
+# (skill injection: --bare suppresses slash-expansion). Assert on the argv the
+# stub actually received.
+fx="$(mk_fixture bareflag '.is_error == false')"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_ARGS_OUT="$TMP/args-default" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "default invocation still passes" 0 "$rc"
+if grep -qx -- '--bare' "$TMP/args-default"; then
+  echo "ok: default invocation carries --bare"
+else
+  echo "FAIL: default invocation is missing --bare" >&2
+  failures=$((failures + 1))
+fi
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_ARGS_OUT="$TMP/args-nobare" PROMPT_EVAL_NO_BARE=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "no-bare invocation still passes" 0 "$rc"
+if grep -qx -- '--bare' "$TMP/args-nobare"; then
+  echo "FAIL: PROMPT_EVAL_NO_BARE=1 still passes --bare" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: PROMPT_EVAL_NO_BARE=1 drops --bare"
+fi
+# Both forms deliver the prompt as the -p argument (never stdin).
+if grep -qx -- 'drive the skill' "$TMP/args-nobare"; then
+  echo "ok: prompt delivered as the -p argument"
+else
+  echo "FAIL: prompt not delivered as the -p argument" >&2
+  failures=$((failures + 1))
+fi
+
+# ---- 36. keep seam also preserves a plugin-load-INVALID run ------------------
+# The seam's documented scope is "a failing/invalid run" (header + README); the
+# plugin-not-loaded INVALID path must preserve exactly like the
+# sentinel-INVALID path does — it is the prototypical broken-harness/env case
+# the seam exists to diagnose.
+fx="$(mk_fixture keepnoplug '.is_error == false')"
+reset_counter
+printf 'noplugin\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "plugin-load INVALID with keep seam still exits 3" 3 "$rc"
+assert_contains "plugin-load-INVALID run is preserved" "preserved at" "$out"
+kept_count="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.keepnoplug.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept.* dir exists for the invalid run" 1 "$kept_count"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepnoplug.* # leave the base clean
+
+# ---- 37. fixture ids in the reserved kept.* namespace are rejected -----------
+# A fixture id of `kept` (or `kept.<x>`) makes the prune-first glob
+# "$WORKBASE/$fx_id".* match preserved kept.* dirs and reap them, breaking the
+# preserve_run guarantee that a later run never reaps a kept dir. The id is
+# rejected fail-closed (usage error, like the unsafe-character case) and a
+# pre-existing preserved dir survives the attempt.
+mkdir -p "$PROMPT_EVAL_WORKBASE/kept.other.run1.999"
+: >"$PROMPT_EVAL_WORKBASE/kept.other.run1.999/transcript.jsonl"
+fx="$(mk_fixture keptname '.is_error == false')"
+printf 'id=kept\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "reserved fixture id 'kept' is rejected (exit 2)" 2 "$rc"
+assert_contains "diagnostic names the reserved namespace" "reserved" "$out"
+kept_alive="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.other.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "pre-existing preserved dir survives the reserved-id attempt" 1 "$kept_alive"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.other.* # leave the base clean
+
+# ---- 38. malformed skill= names are fail-closed (exit 4) ---------------------
+# Both validation branches: a bad leading character (path-escape shapes like
+# `../x`) and a bad character anywhere (`bad/name`). Neither may reach the
+# path interpolation; both are fixture-authoring errors, never graded.
+fx="$(mk_fixture skillbadlead '.is_error == false')"
+printf 'skill=../escape\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "skill name with bad leading char is fail-closed (exit 4)" 4 "$rc"
+assert_contains "diagnostic names the invalid skill name (lead)" "invalid skill name" "$out"
+fx="$(mk_fixture skillbadchar '.is_error == false')"
+printf 'skill=bad/name\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "skill name with bad char anywhere is fail-closed (exit 4)" 4 "$rc"
+assert_contains "diagnostic names the invalid skill name (charset)" "invalid skill name" "$out"
+
+# ---- 39. a named skill whose SKILL.md has no H1 line is fail-closed ----------
+# Without an H1 there is no injection sentinel; silently skipping the check
+# would re-open the graded-bare-model erratum, so it must be exit 4.
+mkdir -p "$PLUG/skills/noh1skill"
+cat >"$PLUG/skills/noh1skill/SKILL.md" <<'EOF'
+---
+name: noh1skill
+---
+
+body text with no heading line at all
+EOF
+fx="$(mk_fixture skillnoh1 '.is_error == false')"
+printf 'skill=noh1skill\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "H1-less SKILL.md is fail-closed (exit 4)" 4 "$rc"
+assert_contains "diagnostic names the missing H1 sentinel" "no H1 line" "$out"
+
+# ---- 40. the prompt rides the -p argument and stdin carries ZERO bytes -------
+# The erratum's load-bearing delivery change: reverting to piping prompt.txt
+# on stdin (even alongside -p) must fail this, so the stub captures its stdin.
+fx="$(mk_fixture stdincap '.is_error == false')"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" STUB_STDIN_OUT="$TMP/stdin-cap" \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "stdin-capture invocation still passes" 0 "$rc"
+stdin_bytes="$(wc -c <"$TMP/stdin-cap" | tr -d ' ')"
+assert_exit "runner sends zero bytes on stdin (prompt is the -p argument)" 0 "$stdin_bytes"
+
+# ---- 41. keep seam preserves a sentinel-INVALID run (call-site coverage) -----
+# Tests 31-32 cover the sentinel verdicts and test 34 the graded-fail preserve;
+# this pins the preserve wiring at the sentinel-INVALID call site itself.
+fx="$(mk_fixture keepsentinel '.is_error == false')"
+printf 'skill=testskill\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$PLUG" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "sentinel-INVALID with keep seam still exits 3" 3 "$rc"
+assert_contains "sentinel-INVALID run is preserved" "preserved at" "$out"
+kept_count="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.keepsentinel.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept.* dir exists for the sentinel-INVALID run" 1 "$kept_count"
+kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -path '*kept.keepsentinel*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept dir holds the transcript" 1 "$kept_tr"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepsentinel.* # leave the base clean
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2

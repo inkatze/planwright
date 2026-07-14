@@ -1,3 +1,1 @@
-Run /orchestrate on specs/demo using the print backend (--backend print). Do not
-dispatch a worker or open a session; only prepare the ready unit, write its
-dispatch marker, and print the exact /execute-task launch command, then stop.
+/planwright:orchestrate specs/demo --backend print --unattended
