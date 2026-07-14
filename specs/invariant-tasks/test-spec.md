@@ -49,7 +49,9 @@ fields, and dependency lines survive unchanged.
 
 Render fixture tests (Task 3): merged-PR, open-PR, branch-only, marker-only,
 commit-trailer, and parked-task fixtures each derive the expected per-task
-status and bundle effective status; the render writes no file.
+status and bundle effective status; the merged-PR fixture asserts the PR
+number and merge date are rendered (REQ-C1.7's completion-readability
+successor leans on this); the render writes no file.
 
 ### REQ-B1.2 — no-remote degradation [test]
 
@@ -170,8 +172,9 @@ a reference bullet whose task id violates the task-id grammar is rejected.
 
 Version-keying tests across Tasks 2, 4, 5: every touched script asserts both
 a v1-fixture arm (behavior unchanged) and a v2-fixture arm (new behavior);
-`specs/` in this repo holds both versions during migration and
-`mise run check` passes throughout.
+the Task 4 parser-family sweep asserts `spec-model.sh` and its consumers
+tolerate the v2 shape; `specs/` in this repo holds both versions during
+migration and `mise run check` passes throughout.
 
 ### REQ-D1.2 — migration path [test]
 
@@ -198,7 +201,8 @@ live bundles changed.
 
 The artifact's existence and coverage is the verification: the
 format-version 2 section in `doctrine/spec-format.md` defines the v2 shape,
-vocabulary, pointer line, and read surface such that a compliant bundle can
+vocabulary, pointer line, reference-bullet forms with their data-hygiene
+note (REQ-C1.9), and read surface such that a compliant bundle can
 be authored from it alone; reviewed at the Task 1 PR.
 
 ### REQ-E1.2 — skill reconciliation [design-level + manual]

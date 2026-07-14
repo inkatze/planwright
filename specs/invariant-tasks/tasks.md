@@ -27,6 +27,7 @@ the guard that protects their output exists.
   scoped to v1; the stale `Dispatch`-annotation writer claim corrected.
 - **Done when:** `doctrine/spec-format.md` defines format-version 2
   normatively (a reader can author a compliant v2 bundle from it alone);
+  the v2 definition carries the bullet data-hygiene note (REQ-C1.9);
   v1 text is unchanged in meaning; the meta-spec's versioning section
   records the bump and the v1 scoping of the completion-annotation entry;
   `mise run check` passes.
@@ -48,9 +49,11 @@ the guard that protects their output exists.
 - **Done when:** each banned placement heading (Forward plan, In progress,
   Completed) and each banned annotation token (Status, Last activity,
   Dispatch) has its own failing v2 fixture; an Active/Done header, a
-  missing or non-canonical pointer line, an unknown-id or duplicate
-  reference bullet, and an unparseable `Format-version:` each fail; a
-  compliant v2 fixture and every existing v1 bundle pass;
+  missing or non-canonical pointer line, an unknown-id, duplicate, or
+  grammar-violating reference bullet, and an unparseable `Format-version:`
+  each fail; each violation warns rather than errors on a Draft fixture;
+  escape-byte fixtures confirm sanitized error output for bullet text and
+  header values; a compliant v2 fixture and every existing v1 bundle pass;
   `mise run check` passes.
 - **Dependencies:** 1
 - **Citations:** D-7, D-5, D-3 · REQ-C1.5, REQ-C1.8, REQ-C1.9, REQ-D1.1
