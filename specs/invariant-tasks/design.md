@@ -274,7 +274,10 @@ only; a Draft has no brief to re-anchor). Applied to planwright's own live
 rewritten. The migration is idempotent (an already-v2 bundle is a clean
 no-op), per-bundle atomic, and re-runnable after a partial run; parked task
 blocks found under any human-payload section — not only Awaiting input —
-convert to reference bullets. *(Amended at kickoff 2026-07-14: Draft
+convert to reference bullets. The per-bundle unit includes a signed
+bundle's expression-only re-anchor entry: idempotency keys on both
+artifacts, so a re-run completes a missing re-anchor rather than no-oping
+past a file that already reads v2. *(Amended at kickoff 2026-07-14: Draft
 bundles included in the migration population. Amended again at kickoff
 sign-off 2026-07-14: idempotency, atomicity, and re-runnability pinned;
 parked-block conversion generalized per the D-3 amendment.)*

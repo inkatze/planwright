@@ -181,7 +181,9 @@ annotations, Active header) migrates to a v2 bundle that validates cleanly
 with the parked blocks converted to reference bullets; the extraction
 digest is unchanged; a raw line-level diff confirms the definition lines
 survive byte-for-byte; running the migration a second time is a byte-level
-no-op; the re-anchor entry is written as expression-only.
+no-op; the re-anchor entry is written as expression-only; a seeded
+partial-run fixture (file migrated to v2, re-anchor entry missing) is
+completed — not skipped — by a re-run.
 
 ### REQ-D1.3 — own-bundle migration [test + manual]
 

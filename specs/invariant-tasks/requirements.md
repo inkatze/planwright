@@ -208,7 +208,8 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   extraction is unchanged; the required re-anchor rides the migration as
   expression-only. The migration SHALL be idempotent (an already-v2 bundle
   is a clean no-op), per-bundle atomic, and re-runnable after a partial
-  run.
+  run; the per-bundle unit includes a signed bundle's re-anchor entry, and
+  a re-run SHALL complete a missing re-anchor rather than no-op past it.
   *(Cites: D-10; kickoff sign-off (2026-07-14).)*
 - **REQ-D1.3** planwright's own live (Draft/Ready/Active) bundles SHALL be
   migrated to v2; Done and terminal bundles SHALL stay v1 untouched. A
