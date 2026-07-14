@@ -423,11 +423,17 @@ run_fixture() {
 
     # The graded run: headless, hermetic, budget-capped. Failures of the binary
     # itself surface below as a missing/invalid transcript, not a crash here.
-    (cd "$work" && "$CLAUDE_BIN" -p \
+    # The prompt is passed as the -p ARGUMENT, never piped on stdin: the CLI
+    # slash-expands a skill invocation only in the prompt string (per the
+    # headless docs), and a stdin-piped `/plugin:skill` reaches the model as
+    # literal text with the SKILL.md never entering context — the
+    # skill-injection sentinel below caught exactly that.
+    fx_prompt="$(cat "$fx_dir/prompt.txt")"
+    (cd "$work" && "$CLAUDE_BIN" -p "$fx_prompt" \
       --bare --plugin-dir "$plugin_dir" \
       --output-format stream-json --verbose \
       --max-budget-usd "$max_budget" --max-turns "$max_turns") \
-      <"$fx_dir/prompt.txt" >"$raw" 2>/dev/null || true
+      </dev/null >"$raw" 2>/dev/null || true
 
     # Plugin-load verification (doctrine): a run that never loaded the plugin is
     # INVALID — the harness/env is broken, not the skill. Abort, do not grade.

@@ -66,8 +66,10 @@ Each fixture drives one skill headlessly and grades observable outcomes.
   skill under eval and drives the runner's skill-injection validity check),
   `k` (pass^k runs; default 3), `max_budget_usd` and `max_turns` (per-run
   caps).
-- **`prompt.txt`** — the prompt piped to `claude -p`. It MUST be the literal
-  slash-command invocation, one line (e.g.
+- **`prompt.txt`** — the prompt, passed to `claude -p` **as the prompt
+  argument** (the runner never pipes it on stdin: the CLI slash-expands only
+  the prompt string, and a stdin-piped command reaches the model as literal
+  text). It MUST be the literal slash-command invocation, one line (e.g.
   `/planwright:orchestrate specs/demo --backend print --unattended`): headless
   `-p` exposes no Skill tool, so only CLI expansion of a leading slash command
   puts the SKILL.md in context — a prose prompt ("Run /orchestrate on …")
