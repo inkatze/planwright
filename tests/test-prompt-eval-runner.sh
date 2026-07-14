@@ -492,6 +492,21 @@ assert_absent "--help does not leak the 'LC_ALL=C' code line" "LC_ALL=C" "$out"
 last_header_line="$(sed -n '2,/^[^#]/p' "$RUNNER" | sed '$d' | sed 's/^# \{0,1\}//' | tail -n 1)"
 assert_contains "--help prints the full header (no tail truncation)" "$last_header_line" "$out"
 
+# ---- 26b. --help tracks header growth (no hardcoded end line) -----------------
+# print_help must derive the header's end from the script itself: a header that
+# gains a line must show up in --help without anyone bumping a line range. Grow
+# a copy of the runner by one header line (appended just before the first code
+# line) and assert --help prints it while still leaking no code.
+first_code_line="$(awk 'NR > 1 && !/^#/ { print NR; exit }' "$RUNNER")"
+awk -v n="$first_code_line" 'NR == n { print "# ZZZ-help-growth-marker" } { print }' \
+  "$RUNNER" >"$TMP/runner-grown.sh"
+chmod +x "$TMP/runner-grown.sh"
+out="$(sh "$TMP/runner-grown.sh" --help 2>&1)"
+rc=$?
+assert_exit "grown-header --help exits 0" 0 "$rc"
+assert_contains "--help tracks a grown header without a range bump" "ZZZ-help-growth-marker" "$out"
+assert_absent "grown-header --help still leaks no code" "set -u" "$out"
+
 # ---- 27. a sub-micro-dollar cost is accounted, not truncated to zero ---------
 # is_number() deliberately accepts costs below 1e-6 (jq renders them in
 # scientific notation), so to_micros() must not silently drop them: a run
@@ -670,6 +685,38 @@ kept_left="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.mvpart
 assert_exit "no partial kept.* dir remains (all-or-nothing)" 0 "$kept_left"
 leftover="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 ! -path "$PROMPT_EVAL_WORKBASE" 2>/dev/null | wc -l | tr -d ' ')"
 assert_exit "workbase fully clean: both artifacts discarded together" 0 "$leftover"
+
+# ---- 34d. a failed UNWIND never deletes the evidence --------------------------
+# The unwind's own failure mode: the work-tree move fails AND the transcript
+# cannot be moved back. Deleting the kept.* dir then would destroy the only
+# transcript evidence while the seam is explicitly on. preserve_run must leave
+# the partial kept.* dir in place and say so loudly (fail-loud doctrine), still
+# returning 1 so the caller's discard runs. The stub mv fails for the */work
+# target and for any move whose source sits inside a kept.* dir (the unwind),
+# delegating the rest to the real mv.
+MVUNWIND_DIR="$TMP/mvunwind"
+mkdir -p "$MVUNWIND_DIR"
+cat >"$MVUNWIND_DIR/mv" <<'EOF'
+#!/bin/sh
+case "${2:-}" in */work) exit 1 ;; esac
+case "${1:-}" in */kept.*/transcript.jsonl) exit 1 ;; esac
+exec /bin/mv "$@"
+EOF
+chmod +x "$MVUNWIND_DIR/mv"
+fx="$(mk_fixture mvunwind '.is_error == false')"
+reset_counter
+printf 'fail\n' >"$TMP/plan"
+out="$(PATH="$MVUNWIND_DIR:$PATH" STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "failed unwind keeps the graded-fail exit" 1 "$rc"
+assert_absent "failed unwind does not claim 'preserved at'" "preserved at" "$out"
+assert_contains "failed unwind is reported loudly" "unwind failed" "$out"
+kept_tr="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 2 -name 'transcript.jsonl' -path '*kept.mvunwind*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed unwind leaves the transcript evidence in kept.*" 1 "$kept_tr"
+leaked="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d ! -path "$PROMPT_EVAL_WORKBASE" ! -name 'kept.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "failed unwind leaks no work tree (caller discard ran)" 0 "$leaked"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.mvunwind.* # leave the base clean
 
 # ---- 35. --bare default and the PROMPT_EVAL_NO_BARE toggle -------------------
 # By default the runner passes --bare; with PROMPT_EVAL_NO_BARE=1 it must not

@@ -100,7 +100,9 @@ die_usage() {
 }
 
 print_help() {
-  sed -n '2,77p' "$0" | sed 's/^# \{0,1\}//'
+  # The header's end is derived from the script itself (everything up to the
+  # first non-# line), so header edits never truncate the help or leak code.
+  sed -n '2,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
 }
 
 # ---- argument parsing --------------------------------------------------------
@@ -221,9 +223,11 @@ mkdir -p "$WORKBASE" || {
 # tearing them down. Returns 0 when preserved (current_work disarmed), 1 when
 # the seam is off or preservation failed — the caller then discards as usual.
 # All-or-nothing: a partial move is unwound (the transcript put back, the
-# kept.* dir removed) so return 1 always means both artifacts are still in
+# kept.* dir removed) so return 1 normally means both artifacts are still in
 # place for the caller's discard — never a destroyed work tree beside a
-# silently stranded transcript, never a partial kept.* dir left behind.
+# silently stranded transcript, never a partial kept.* dir left behind. If the
+# unwind itself fails, the partial kept.* dir is left in place and announced
+# loudly instead of being deleted — evidence is never silently destroyed.
 # Machine-local scratch only; nothing preserved is ever recorded or committed.
 preserve_run() {
   [ "${PROMPT_EVAL_KEEP_FAILED:-0}" = "1" ] || return 1
@@ -234,8 +238,11 @@ preserve_run() {
     return 1
   fi
   if [ -d "$work" ] && ! mv "$work" "$kept/work" 2>/dev/null; then
-    mv "$kept/transcript.jsonl" "$raw" 2>/dev/null
-    rm -rf "$kept" 2>/dev/null
+    if mv "$kept/transcript.jsonl" "$raw" 2>/dev/null; then
+      rm -rf "$kept" 2>/dev/null
+    else
+      echo "prompt-eval: [$fx_id run $run] preservation unwind failed — transcript left at $kept/transcript.jsonl" >&2
+    fi
     return 1
   fi
   echo "prompt-eval: [$fx_id run $run] failing run preserved at $kept (PROMPT_EVAL_KEEP_FAILED=1)" >&2
