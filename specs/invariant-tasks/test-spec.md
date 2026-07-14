@@ -80,7 +80,10 @@ their tasks the same way.
 Fixtures with a configured-but-failing remote (Tasks 3 and 5): the render
 reports the fetch failure distinctly from the no-remote mode (exit code
 pinned) instead of presenting partial evidence as status; the selector
-dispatches nothing; gate completion atoms resolve as unresolved.
+dispatches nothing; gate completion atoms resolve as unresolved; a
+no-PR-found response derives branch-only evidence (not failure); and
+reference-bullet parked state, which needs no remote, still reports during
+the failure.
 
 ### REQ-B1.6 — derived-status determination rules [test]
 

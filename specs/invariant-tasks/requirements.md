@@ -106,7 +106,8 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   *(Cites: D-6; orchestration-concurrency REQ-C1.1 (Sources).)*
 - **REQ-B1.2** The render SHALL work with no remote configured, degrading
   per the existing evidence-fallback rules; the solo/prototyping flow stays
-  first-class.
+  first-class. (A configured-but-failing remote is not this mode; that
+  case is carved out to REQ-B1.5.)
   *(Cites: D-6.)*
 - **REQ-B1.3** For v2 bundles the render SHALL be the canonical
   execution-status read surface; skills and docs SHALL reference it rather
@@ -127,7 +128,12 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   from the no-remote mode, and SHALL fail closed on it: the render reports
   the failure rather than presenting partial evidence as status, unit
   selection dispatches nothing, and gate task-completion atoms resolve as
-  unresolved.
+  unresolved. The derivation engine SHALL signal the failure distinctly (a
+  documented signal its consumers branch on); a definitive negative result
+  (no PR exists for a branch) is evidence, not failure. Locally-determinable
+  facts (the stored header, reference-bullet parked state) do not depend on
+  the remote and are still reported during a transient failure, marked as
+  the only facts available.
   *(Cites: D-6, D-8; kickoff sign-off (2026-07-14).)*
 - **REQ-B1.6** Derived bundle status SHALL be computed only for bundles
   whose stored header reads Ready; Draft, Retired, and Superseded bundles
