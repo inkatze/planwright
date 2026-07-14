@@ -145,10 +145,12 @@ readability on v2 is covered functionally by REQ-B1.1's render fixtures
 
 ### REQ-C1.8 — fail-closed version keying [test]
 
-Fixtures with a missing or unparseable `Format-version:` line (Tasks 2, 4):
-each version-keyed script performs no write (spec-directory digest
-unchanged after invocation) and the validator reports an error; no script
-applies the v1 write path.
+Fixtures with a missing or unparseable `Format-version:` line (Tasks 2–6):
+every version-keyed script — the validator, the sync writer, the ledger
+guard, the render, the selector, the gate evaluator, and the migration —
+fails closed on it: no write is performed (spec-directory digest unchanged
+after invocation), an error is reported, and no script applies the v1
+write path.
 
 ### REQ-C1.9 — security binding [test]
 

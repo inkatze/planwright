@@ -76,12 +76,13 @@ v2 content, so it cannot dispatch after the work it protects.
   its stored state with no execution claim; a zero-task fixture reports no
   tasks and never Done; an all-completed fixture with a live
   Awaiting-input bullet derives not-Done; a configured-but-failing remote
-  reports the failure (distinct exit) instead of partial status; embedded
+  reports the failure (distinct exit) instead of partial status; a fixture
+  with a missing or unparseable `Format-version:` fails closed; embedded
   terminal-escape bytes in bullet text are sanitized in output; nothing is
   written to any committed file; `mise run check` passes.
 - **Dependencies:** 1
 - **Citations:** D-6, D-3, D-4, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3,
-  REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.9
+  REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9
 - **Estimated effort:** 1 day
 
 ### Task 4 — Writer version-keyed no-op and guard scope
@@ -103,8 +104,10 @@ v2 content, so it cannot dispatch after the work it protects.
 - **Done when:** the churn-free fixture test passes (including the
   parking-commit anchor-equality arm); on v2 fixtures, structural
   violations still fail check-ledger while placement/annotation coherence
-  checks do not fire; v1 fixture behavior of both scripts is unchanged;
-  the hook fires harmlessly on v2 bundles; `mise run check` passes.
+  checks do not fire; the writer and guard fail closed on an unparseable
+  `Format-version:` fixture (no write, error reported); v1 fixture
+  behavior of both scripts is unchanged; the hook fires harmlessly on v2
+  bundles; `mise run check` passes.
 - **Dependencies:** 1, 2
 - **Citations:** D-7, D-9 · REQ-C1.1, REQ-C1.4, REQ-C1.6, REQ-C1.8,
   REQ-C1.9, REQ-A1.2
@@ -123,9 +126,10 @@ v2 content, so it cannot dispatch after the work it protects.
   parked-task exclusion; drain-gate completion atoms resolve correctly on
   a v2 fixture with no `## Completed` section; on a failing-remote fixture
   the selector dispatches nothing and completion atoms resolve as
-  unresolved; v1 behavior unchanged; `mise run check` passes.
+  unresolved; both scripts fail closed on an unparseable `Format-version:`
+  fixture; v1 behavior unchanged; `mise run check` passes.
 - **Dependencies:** 1, 3
-- **Citations:** D-8 · REQ-C1.2, REQ-C1.3, REQ-B1.5
+- **Citations:** D-8 · REQ-C1.2, REQ-C1.3, REQ-B1.5, REQ-C1.8
 - **Estimated effort:** 1 day
 
 ### Task 6 — Migration script and live-bundle migration
@@ -146,13 +150,15 @@ v2 content, so it cannot dispatch after the work it protects.
   digest and a valid v2 result, including a seeded parked block under
   Deferred/Out of scope converting to a reference bullet; a second run on
   the migrated fixture is a byte-level no-op; a hostile-input fixture is
-  refused cleanly; every live bundle in this repo validates as v2;
+  refused cleanly; a bundle with an unparseable `Format-version:` is
+  refused (fail closed); every live bundle in this repo validates as v2;
   Done/terminal bundles are byte-identical to before; the
   orchestration-concurrency Deferred entry carries the closure annotation
   (mechanically present-checked in the fixture suite);
   `mise run check` passes.
 - **Dependencies:** 1, 2, 4, 5
-- **Citations:** D-10, D-3 · REQ-D1.2, REQ-D1.3, REQ-E1.4, REQ-C1.9
+- **Citations:** D-10, D-3 · REQ-D1.2, REQ-D1.3, REQ-E1.4, REQ-C1.8,
+  REQ-C1.9
 - **Estimated effort:** 1 day
 
 ### Task 7 — Skill reconciliation
