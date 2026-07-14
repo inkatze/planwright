@@ -249,14 +249,32 @@ meta-spec), per the altitude trigger the drafting invocation fired.
 
 ## Changelog
 
+- 2026-07-14 — Self-review delta (gauntlet pass 1; brief Amendment 1).
+  Done universe pinned for Deferred/Out-of-scope-parked tasks (D-4,
+  REQ-B1.6); fail-closed version-keying extended to every version-keyed
+  script (REQ-C1.8 coverage, Tasks 3–6); echo-sanitize scope broadened to
+  evidence- and remote-derived text (REQ-C1.9, cross-cutting note); the
+  derivation failure signal, absent-evidence boundary, and local-facts
+  reporting defined (REQ-B1.5; REQ-B1.2 cross-reference); the migration
+  atomic unit extended to cover the re-anchor entry (D-10, REQ-D1.2);
+  halting-skill authorship named (REQ-A1.2, REQ-B1.4) and the orphan-park
+  write target pinned to the main view (REQ-E1.2); parked-ness unified on
+  reference bullets (D-8, Task 5); D-10's primary clause and the
+  guard-first note aligned; the fleet queue added to D-12's consumer
+  inventory; verification alignment across task Done-whens and test-spec
+  entries; test-spec heading structure fixed (MD001). Applied as
+  PS-1–PS-10 pending sign-off on the spec PR.
 - 2026-07-14 — Kickoff walkthrough and sign-off lens pass (kickoff-brief
   §§2–7 and sign-off). Walkthrough edits: migration population widened to
   Draft/Ready/Active (REQ-D1.3, D-10, Task 6); REQ-A1.2 gained the
   "derived" qualifier and human-payload clause; REQ-C1.5 gained the
-  pointer-line and bullet-integrity invariants; D-4's Done clause restated
-  to engine semantics. Lens-pass edits: D-3 reference bullets generalized
+  pointer-line invariant (bullet integrity followed at the lens pass);
+  D-4's Done clause restated to engine semantics; D-6's machine-surface
+  clarification (§7). Lens-pass edits: REQ-B1.4 generalized with the
+  read-surface limitation; REQ-D1.2 idempotency/atomicity; D-3 reference
+  bullets generalized
   to all three human-payload sections; D-4 stored-status gating + zero-task
-  rule; D-6 machine-surface clarification + ported-derivation scope; D-7
+  rule; D-6 ported-derivation scope; D-7
   fail-closed version-keying; D-10 idempotency/atomicity + parked-block
   conversion; D-11 second normative home named; D-12 (no-cache decision)
   added; new REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9; REQ-E1.2 read-surface

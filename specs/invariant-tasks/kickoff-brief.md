@@ -303,4 +303,47 @@ Anchor: `a8cfcf9a86febcd22d946098548e0953aaab4c93` — computed as
 
 ## Amendment log
 
-(none yet)
+### Amendment 1 — self-review delta re-sign-off (2026-07-14)
+
+**Scope:** the gauntlet's `/self-review` pass over the spec branch: four
+grouped read-only reviewers covering all nine canonical lenses over the
+post-sign-off final state; 42 raw findings merged to 16. Project tooling:
+`mise run check` — `lint:md` failed (MD001, test-spec heading structure),
+all other tasks green including `check:specs` (0/0); suite fully green
+after the fix.
+
+**Dispositions:** 1 Auto-applicable (the MD001 heading fix; tool-grounded,
+action commit); 10 applied pending sign-off, one commit each on the spec PR
+(PS-1 Done universe for deferred/OoS-parked tasks; PS-2 fail-closed
+version-keying coverage; PS-3 sanitize scope; PS-4 failure-signal contract;
+PS-5 migration re-anchor atomic unit; PS-6 halting-skill authorship +
+orphan-park target; PS-7 parked-ness unification; PS-8 D-10/guard-note
+alignment; PS-9 D-12 fleet consumer; PS-10 verification alignment); 3
+declined with rationale (observation-fragment file mode — git stores
+100644 regardless; the "two-tower" deployment mention — acceptable
+shape-of-risk detail per security-posture, watch item; D-12 resting
+task-cited only — the citation convention binds REQs, not D-IDs, and
+Task 3 cites it); 2 recorded as the brief corrections below.
+
+**Brief corrections** (sections above are append-only; recorded here):
+
+- §4 ledger: D-12, added at the sign-off lens pass, was absent from the
+  table — disposition **Confirmed**; the ledger's every-decision claim now
+  reads D-1–D-12.
+- §8 tally: the 3 declined findings sat outside the 21 clustered
+  dispositions (screened during validation); the sign-off's totals were 24
+  merged findings — 18 applied, 3 register rows, 3 declined.
+- §3 stale prose: "the Awaiting-input bullet is the single human override
+  signal" predates the D-3 generalization (any reference bullet now
+  overrides); "the render runs on any bundle" predates REQ-B1.6's
+  stored-status gating.
+- The kickoff Changelog entry's walkthrough-vs-lens-pass attribution was
+  corrected in place (D-6 machine-surface = walkthrough §7; C1.5 bullet
+  integrity = lens pass; REQ-B1.4/REQ-D1.2 named in the lens-pass list).
+
+Class: meaning (additions rule, REQ-A3.3 — the delta adds requirement
+sentences and fixtures)
+Lens-pass: this amendment's self-review pass, recorded above; findings
+dispositioned 2026-07-14.
+Anchor: `770aa876f32cb70d90298af66747793ace63b62e` — computed as
+`scripts/spec-anchor.sh specs/invariant-tasks`
