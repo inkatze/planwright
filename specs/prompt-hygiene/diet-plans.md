@@ -146,6 +146,32 @@ Each start-load allowance is seeded in `config/instruction-budget-exemptions.txt
 and removed by its diet task's own PR (Task 8 forbids any lingering `pending diet`
 allowance, REQ-D1.4).
 
+## Task 5 outcome (2026-07-13): `/orchestrate` dieted
+
+Executed per the plan above, with the deviations recorded on the Task 5 PR
+for the REQ-D1.1 `[manual]` review. Results: body 7,200 → ~4,180 words
+(error floor 4,250; warn stands), mandatory-at-start 16,371 → ~4,470 (error
+10,000; no warn), closure 19,789 → ~19,440 (warn stands, error 20,000). Law
+moved verbatim in meaning to two new point-of-use rule docs:
+`doctrine/orchestration-concurrency.md` (dispatch-record/lock/marker law,
+reconcile predicate) and `doctrine/orchestration-modes.md` (degradation
+ladder & failover, meta-tower, fleet entry). Beyond the plan's literal list —
+required to reach the non-exemptible start-load budget — `spec-format` and
+`gate-wiring` reclassified run-start → point-of-use (their gating law stays
+in the body; only format/record detail defers), and `finding-categorization`
+left the manifest (orchestrate applies no finding buckets;
+`/execute-task` → `/polish` own them downstream). Both Task 5 allowances
+removed; the guard passes with no suppression of `/orchestrate`'s own.
+Remaining offenders (Tasks 6/7/7.5) unchanged.
+
+The behavioral pilot (REQ-D1.3) was **deferred at ship**: headless CLI
+slash-path skill injection proved unavailable, so no eval cell has ever
+measured the instruction file — the honest verdict, the bare-model root
+cause, the harness hardening that ships instead (injection sentinel, prompt
+delivery fix, cap recalibration, diagnosis seams), and the follow-up path
+are recorded in `tests/prompt-evals/results/comparison.md` and the
+`behavioral-pilot-injection-design` observation.
+
 ### `/spec-draft` → Task 7.5 (point-of-use reclassification)
 
 `/spec-draft`'s start-load (12,636) is dominated by run-start doctrine, not its
