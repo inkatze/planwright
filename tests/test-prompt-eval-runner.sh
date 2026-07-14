@@ -483,7 +483,7 @@ assert_absent "--help does not leak the 'LC_ALL=C' code line" "LC_ALL=C" "$out"
 # The converse failure: a header that grew past the sliced range truncates the
 # help tail. Derive the header's real last line from the script itself so this
 # assertion tracks future header edits instead of hardcoding prose.
-last_header_line="$(sed -n '2,/^[^#]/p' "$RUNNER" | sed '$d' | sed 's/^# \{0,1\}//' | tail -1)"
+last_header_line="$(sed -n '2,/^[^#]/p' "$RUNNER" | sed '$d' | sed 's/^# \{0,1\}//' | tail -n 1)"
 assert_contains "--help prints the full header (no tail truncation)" "$last_header_line" "$out"
 
 # ---- 27. a sub-micro-dollar cost is accounted, not truncated to zero ---------
