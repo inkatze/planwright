@@ -156,6 +156,14 @@ assert_absent "shortlist no longer names the dieted execute-task" "skills/execut
 assert_absent "shortlist no longer names the dieted spec-kickoff body" "skills/spec-kickoff/SKILL.md" "$sl"
 assert_contains "shortlist names the spec-kickoff start-load carry" "start-load spec-kickoff" "$sl"
 assert_contains "shortlist names spec-format offender" "doctrine/spec-format.md" "$sl"
+# Pin the suppression tags to their rows (the Task 7 config transition):
+# name-only matches passed identically before and after the exempt retag, so
+# the carry must show transitional [pending-diet] and spec-format the
+# permanent [exempt] on their own shortlist rows.
+kick_row="$(printf '%s\n' "$sl" | grep 'start-load spec-kickoff')"
+assert_contains "spec-kickoff start-load carry is tagged pending-diet" "[pending-diet]" "$kick_row"
+sf_row="$(printf '%s\n' "$sl" | grep 'doctrine/spec-format.md')"
+assert_contains "spec-format offender is tagged exempt" "[exempt]" "$sf_row"
 
 ########################################################################
 # 1. Ranked report (REQ-A1.1): every file ranked by words, line counts present,

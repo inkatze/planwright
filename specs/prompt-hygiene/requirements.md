@@ -291,6 +291,16 @@ enforceable proxies; semantic quality stays review-time judgment.
   "exceeds the floor" → "meets or exceeds the floor" (align with B1.8's `≥`).
   Anchor recomputed; test-spec, tasks, and design updated in lockstep.
 
+- 2026-07-14 — Expression-only (Task 7 gauntlet stage 2, human-approved):
+  tasks.md Task 7.5 deliverable reworded to match the shipped Task 7
+  disposition (Tasks 5/6 shed their own start-load allowances; `/spec-draft`
+  **and** `/spec-kickoff` are the residual Task 7.5 start-load targets — the
+  old wording implied Task 7 brought `/spec-kickoff` under budget); Task 7
+  block's `Status`/`Last activity` annotations moved below the definition
+  fields per spec-format's annotation-placement rule. No REQ, decision, or
+  task contract altered. Anchor recomputed (self-re-anchor entry in the
+  brief's amendment log).
+
 ## Sources
 
 - **The invocation seed** — operator idea captured 2026-07-08 during the

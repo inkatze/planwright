@@ -17,8 +17,10 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 - **Deliverables:** for every skill carrying a transitional start-load
   `pending diet (Task 7.5)` allowance (seeded at Task 3) and not already
-  brought under budget by Tasks 5/6/7 — notably `/spec-draft`
-  (mandatory-at-start ≈10,460 at kickoff) — the run-start doctrine loads
+  brought under budget by Tasks 5/6 — `/spec-draft` (mandatory-at-start
+  ≈10,460 at kickoff) and `/spec-kickoff` (12,607 after Task 7's body diet;
+  its start-load allowance is carried here, per the Task 7 disposition) — the
+  run-start doctrine loads
   reclassified to point-of-use in the skill's manifest until the
   mandatory-at-start budget passes on its own (law moved verbatim in meaning,
   no contract change; gating law is never deferred, REQ-C1.2), and the
@@ -26,6 +28,9 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   closure; a closure offender — none surfaced at kickoff — would need a
   content diet, not this task's mechanism, and would carry a transitional
   closure allowance (REQ-B1.3b) until that diet lands.)
+  *(Amended at Task 7 gauntlet stage 2 2026-07-14: residual-target wording
+  aligned with the shipped Task 7 disposition — Tasks 5/6 shed their own
+  start-load allowances; `/spec-kickoff`'s carry joins `/spec-draft` here.)*
 - **Done when:** every skill passes the mandatory-at-start error threshold
   with no transitional allowance remaining; `mise run check` green.
 - **Dependencies:** Task 3, Task 5, Task 6, Task 7
@@ -69,8 +74,6 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ### Task 7 — Diet /spec-kickoff; spec-format disposition
 
-- **Status:** PR #166 draft
-- **Last activity:** 2026-07-14
 - **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
   updated; exemption removed); an explicit disposition for
   `doctrine/spec-format.md` (trim under the doctrine budget, or a
@@ -88,6 +91,8 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 2, Task 3
 - **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
 - **Estimated effort:** 1 day
+- **Status:** PR #166 draft
+- **Last activity:** 2026-07-14
 
 ## Awaiting input
 

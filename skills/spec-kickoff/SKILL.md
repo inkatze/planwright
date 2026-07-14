@@ -343,7 +343,8 @@ not walked.
    already-signed spec there is no flip to revert, and the stale anchor keeps
    dispatch blocked). Never sign off over an erroring bundle. Validator absent
    (the pre-flight consent path — re-ask on a resumed session that never saw
-   step 3): record "signed off unvalidated (validator absent, human-consented)"
+   pre-flight step 3): record "signed off unvalidated (validator absent,
+   human-consented)"
    in the sign-off section, adding "including the Draft→Ready flip" only when
    this run actually flipped, so the degradation is auditable rather than
    silent.
