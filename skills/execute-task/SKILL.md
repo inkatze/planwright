@@ -36,9 +36,9 @@ branch.
 
 If a manifest doc does not resolve — at run start or at its point of use —
 halt naming the missing doc and the chain consulted (REQ-K1.7).
-`decision-domains` degrades gracefully
-instead: absent, note it in one line, skip the drift check, and rely on the
-engineering judgment the catalog would otherwise structure.
+`decision-domains` degrades gracefully instead: absent, note it in one line,
+skip the drift check, and rely on the engineering judgment the catalog would
+otherwise structure.
 
 Doctrine: run-start spec-format (status lifecycle, anchors, sign-off/amendment — freshness gate)
 Doctrine: run-start proportionality (rigor scales with stake; scoping declared)
@@ -70,8 +70,8 @@ it and wait instead.
    `Ready` or `Active`; (d) ask, listing the available bundles
    (underscore-prefixed accumulators are not bundles). Verify the directory
    holds `requirements.md`, `design.md`, `tasks.md`, and `test-spec.md`.
-3. **Resolve the doctrine docs** (above). Halt on a run-start-doc resolution
-   failure; note a degraded `decision-domains`.
+3. **Resolve the run-start doctrine docs** (above); halt on a resolution
+   failure. Point-of-use docs resolve at their named steps.
 4. **Verify the spec is Ready or Active** (REQ-C1.1, superseding the bootstrap
    non-Active refusal REQ-J1.2, D-33; kickoff-lifecycle D-2, D-3). Read the
    `**Status:**` line in `requirements.md`. `Ready` (signed off, no work
