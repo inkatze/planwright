@@ -36,6 +36,15 @@ answer outside the offered set; the selector is a scaffold, not a fence.
 Decisions the agent can resolve from already-recorded answers, the seed
 material, or framework doctrine are resolved and reported, not asked.
 
+**Self-contained.** The selector prompt carries everything needed to answer
+it. In a terminal the open selector hides the prose emitted before it, so the
+human answering sees only the question, the options, and their previews. Never
+assume they can read what came earlier, and never tell them to scroll up.
+Restate the decision and its load-bearing context in the question text; put
+each option's consequence in that option's description; put comparative or long
+content (diffs, tables, side-by-side snippets) in option previews. Pre-selector
+prose is a short status line only, never the place a load-bearing detail lives.
+
 ### Running summary
 
 After each phase (and at any natural pause), restate what has been decided so
@@ -60,7 +69,7 @@ together and say why.
   auto-answered.
 - The rules are a floor, not a script: skills choose the phase names and
   granularity that fit their flow, but every authoring flow shows the
-  indicator, discloses progressively, offers recommended selectors, keeps a
-  running summary, and works in small bites.
+  indicator, discloses progressively, offers recommended selectors that are
+  self-contained, keeps a running summary, and works in small bites.
 - Verification is design-level (REQ-B3.1): the rules are documented here, and
   each authoring skill's instructions show the indicator and selectors.
