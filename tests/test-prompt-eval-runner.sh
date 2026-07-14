@@ -673,6 +673,43 @@ else
   failures=$((failures + 1))
 fi
 
+# ---- 36. keep seam also preserves a plugin-load-INVALID run ------------------
+# The seam's documented scope is "a failing/invalid run" (header + README); the
+# plugin-not-loaded INVALID path must preserve exactly like the
+# sentinel-INVALID path does — it is the prototypical broken-harness/env case
+# the seam exists to diagnose.
+fx="$(mk_fixture keepnoplug '.is_error == false')"
+reset_counter
+printf 'noplugin\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" PROMPT_EVAL_KEEP_FAILED=1 \
+  "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "plugin-load INVALID with keep seam still exits 3" 3 "$rc"
+assert_contains "plugin-load-INVALID run is preserved" "preserved at" "$out"
+kept_count="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.keepnoplug.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "kept.* dir exists for the invalid run" 1 "$kept_count"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.keepnoplug.* # leave the base clean
+
+# ---- 37. fixture ids in the reserved kept.* namespace are rejected -----------
+# A fixture id of `kept` (or `kept.<x>`) makes the prune-first glob
+# "$WORKBASE/$fx_id".* match preserved kept.* dirs and reap them, breaking the
+# preserve_run guarantee that a later run never reaps a kept dir. The id is
+# rejected fail-closed (usage error, like the unsafe-character case) and a
+# pre-existing preserved dir survives the attempt.
+mkdir -p "$PROMPT_EVAL_WORKBASE/kept.other.run1.999"
+: >"$PROMPT_EVAL_WORKBASE/kept.other.run1.999/transcript.jsonl"
+fx="$(mk_fixture keptname '.is_error == false')"
+printf 'id=kept\n' >"$fx/fixture.conf"
+reset_counter
+printf 'ok\n' >"$TMP/plan"
+out="$(STUB_PLAN="$TMP/plan" "$RUNNER" --plugin-dir "$REPO_ROOT" --k 1 "$fx" 2>&1)"
+rc=$?
+assert_exit "reserved fixture id 'kept' is rejected (exit 2)" 2 "$rc"
+assert_contains "diagnostic names the reserved namespace" "reserved" "$out"
+kept_alive="$(find "$PROMPT_EVAL_WORKBASE" -maxdepth 1 -type d -name 'kept.other.*' 2>/dev/null | wc -l | tr -d ' ')"
+assert_exit "pre-existing preserved dir survives the reserved-id attempt" 1 "$kept_alive"
+rm -rf "$PROMPT_EVAL_WORKBASE"/kept.other.* # leave the base clean
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1

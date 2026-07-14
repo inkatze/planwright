@@ -16,7 +16,7 @@ do not depend on the eval:
 
 - the size guard: body 7,200 → 4,178 words (error floor 4,250),
   mandatory-at-start 16,371 → 4,471 (error 10,000), reachable closure
-  19,789 → 19,468 (warn; error 20,000), with both Task 5 `pending diet`
+  19,789 → 19,440 (warn; error 20,000), with both Task 5 `pending diet`
   allowances removed and no suppression of `/orchestrate`'s own (REQ-D1.1
   `[test]`);
 - the REQ-D1.1 `[manual]` meaning-preservation review (law moved verbatim in

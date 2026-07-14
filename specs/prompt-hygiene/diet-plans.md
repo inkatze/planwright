@@ -151,7 +151,7 @@ allowance, REQ-D1.4).
 Executed per the plan above, with the deviations recorded on the Task 5 PR
 for the REQ-D1.1 `[manual]` review. Results: body 7,200 → ~4,180 words
 (error floor 4,250; warn stands), mandatory-at-start 16,371 → ~4,470 (error
-10,000; no warn), closure 19,789 → ~19,470 (warn stands, error 20,000). Law
+10,000; no warn), closure 19,789 → ~19,440 (warn stands, error 20,000). Law
 moved verbatim in meaning to two new point-of-use rule docs:
 `doctrine/orchestration-concurrency.md` (dispatch-record/lock/marker law,
 reconcile predicate) and `doctrine/orchestration-modes.md` (degradation

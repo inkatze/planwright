@@ -320,6 +320,17 @@ run_fixture() {
       return 2
       ;;
   esac
+  # The kept.* names are reserved for preserve_run's preserved dirs: a fixture
+  # id of `kept` (or `kept.<x>`) would make the prune-first glob
+  # "$WORKBASE/$fx_id".* match them and reap preserved evidence, breaking the
+  # never-reaps-a-kept-dir guarantee. Reject fail-closed, like the
+  # unsafe-character case (a fixture-authoring error, not a graded fail).
+  case "$fx_id" in
+    kept | kept.*)
+      echo "prompt-eval: fixture id '$fx_id' collides with the reserved kept.* preservation namespace" >&2
+      return 2
+      ;;
+  esac
 
   # A zero-byte prompt.txt would invoke the skill with no scenario and then
   # grade the empty run as a skill failure — a fixture-authoring defect, not a
@@ -462,7 +473,7 @@ run_fixture() {
     [ -n "$init" ] && loaded="$(printf '%s' "$init" | jq -r 'any(.plugins[]?; .name=="planwright") // false' 2>/dev/null)"
     if [ "$loaded" != "true" ]; then
       echo "prompt-eval: [$fx_id run $run] INVALID — planwright plugin not loaded from system/init" >&2
-      rm -rf "$work" "$raw"
+      preserve_run || rm -rf "$work" "$raw"
       return 3
     fi
 
