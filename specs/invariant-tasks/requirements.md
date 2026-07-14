@@ -1,6 +1,6 @@
 # Invariant Tasks — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -14,8 +14,12 @@ block sits in, `Status` / `Last activity` / `Dispatch` annotations, the bundle
 file, is the truth — yet every state change still means editing a committed
 file: section moves, annotation stamps, reconcile commits, anchor churn, and
 (on shared checkouts) index races that forced one deployment to disable
-state-move commits outright. The snapshot earns its keep less and less: the
-fleet meta-tower already reads the live derivation, not the committed file.
+state-move commits outright. The gate orchestration-concurrency set on this
+graduation — the fleet spec surfacing a concrete need to drop the committed
+snapshot — is met on its own terms: fleet-scale operation (the two-tower
+shared-checkout deployment) hit the snapshot as a write-race liability, and
+the fleet meta-tower already bypasses it, reading the live derivation, not
+the committed file.
 
 This bundle graduates to the sanctioned Maximal variant that
 orchestration-concurrency deliberately deferred: the committed `tasks.md`
@@ -48,8 +52,8 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   hook, the `check-ledger` guard, output-hygiene's normative completion
   annotation (supersede ritual where contracts change), and the content
   anchor's churn profile.
-- Migration of this repo's live (Ready/Active) bundles to v2; Done and
-  terminal bundles stay v1 untouched.
+- Migration of this repo's live (Draft/Ready/Active) bundles to v2; Done
+  and terminal bundles stay v1 untouched.
 
 ### Out of scope
 
@@ -77,9 +81,11 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   (Status / Last activity / Dispatch).
   *(Cites: D-2, D-3.)*
 - **REQ-A1.2** A committed edit to a task block SHALL occur only for
-  definition changes (via the amendment ritual); execution-state changes
-  SHALL NOT produce commits to the bundle.
-  *(Cites: D-2; orchestration-concurrency D-1 (Sources).)*
+  definition changes (via the amendment ritual); derived execution-state
+  changes SHALL NOT produce commits to the bundle. Committed writes to the
+  human-payload sections (parking and unparking under D-3) are
+  human-authored payload, not execution state.
+  *(Cites: D-2, D-3; orchestration-concurrency D-1 (Sources).)*
 - **REQ-A1.3** The stored `Status:` header SHALL be restricted to
   human-gated states (Draft, Ready, Retired, Superseded); Active and Done
   SHALL be derived from evidence and rendered on demand, never stored.
@@ -107,10 +113,29 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   than committed sections, and no derived-status artifact is committed or
   pushed to a remote mirror.
   *(Cites: D-6.)*
-- **REQ-B1.4** A committed Awaiting-input entry SHALL be authoritative for
-  its task's state in the derivation: human-authored parked state outranks
-  git-evidence inference for that task.
-  *(Cites: D-3.)*
+- **REQ-B1.4** A committed reference bullet SHALL be authoritative for its
+  task's state in the derivation: human-authored parked state (an
+  Awaiting-input, Deferred, or Out-of-scope bullet naming the task id)
+  outranks git-evidence inference for that task. Bullet authority applies
+  to bullets on the derivation's read surface (the primary checkout's main
+  view); a bullet committed only on an unmerged task branch takes effect
+  when it lands, the task deriving in-progress from its branch evidence
+  until then (documented limitation; risk register).
+  *(Cites: D-3; kickoff sign-off (2026-07-14).)*
+- **REQ-B1.5** The derivation SHALL distinguish a transient evidence-fetch
+  failure (remote configured but unreachable, rate-limited, or erroring)
+  from the no-remote mode, and SHALL fail closed on it: the render reports
+  the failure rather than presenting partial evidence as status, unit
+  selection dispatches nothing, and gate task-completion atoms resolve as
+  unresolved.
+  *(Cites: D-6, D-8; kickoff sign-off (2026-07-14).)*
+- **REQ-B1.6** Derived bundle status SHALL be computed only for bundles
+  whose stored header reads Ready; Draft, Retired, and Superseded bundles
+  render their stored state with no execution claim. A bundle with zero
+  task blocks SHALL never derive Done (the render reports it has no
+  tasks), and a live Awaiting-input bullet SHALL block derived Done at the
+  bundle level.
+  *(Cites: D-4; kickoff sign-off (2026-07-14).)*
 
 ## REQ-C — Machinery reconciliation
 
@@ -130,11 +155,13 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   heading form, duplicate task IDs) for v2 bundles; placement-vs-annotation
   coherence checks SHALL apply to v1 bundles only.
   *(Cites: D-7.)*
-- **REQ-C1.5** The validator SHALL enforce the v2 invariants — no state
-  sections, no state annotations, stored header restricted to the
-  human-gated set — as errors on non-Draft v2 bundles, keeping v1 rules for
-  v1 bundles.
-  *(Cites: D-7.)*
+- **REQ-C1.5** The validator SHALL enforce the v2 invariants — no
+  placement sections, no state annotations, stored header restricted to
+  the human-gated set, the static `Execution:` pointer line present (in
+  its fixed vocabulary), and reference-bullet integrity (every bullet
+  names an existing task id; at most one bullet per task per section) — as
+  errors on non-Draft v2 bundles, keeping v1 rules for v1 bundles.
+  *(Cites: D-7, D-5, D-3.)*
 - **REQ-C1.6** No orchestration or execution act on a v2 bundle SHALL
   change its content anchor: state changes touch no committed spec file, so
   anchor churn from state movement is impossible by construction.
@@ -143,6 +170,19 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   v2 bundles: completion is derived render content, and the supersession
   against output-hygiene's contract is recorded via the supersede ritual.
   *(Cites: D-11.)*
+- **REQ-C1.8** A bundle whose `Format-version:` line is missing or
+  unparseable SHALL be handled fail-closed by every version-keyed script:
+  no writes are performed and the validator reports an error; no script
+  falls open to the v1 write path.
+  *(Cites: D-7; kickoff sign-off (2026-07-14).)*
+- **REQ-C1.9** The framework-script security rules SHALL be bound in the
+  touched machinery: the migration validates identifiers, containment-checks
+  paths, and refuses hostile input with a clean error; the render and the
+  new v2 validator/guard error paths sanitize echoed spec-file content
+  (`sanitize_printable`); reference-bullet task ids are validated against
+  the task-id grammar before any use; the v2 format definition carries the
+  artifact data-hygiene note for bullet free text.
+  *(Cites: D-3, D-10; kickoff sign-off (2026-07-14).)*
 
 ## REQ-D — Migration & coexistence
 
@@ -151,16 +191,22 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   indefinitely.
   *(Cites: D-7.)*
 - **REQ-D1.2** A migration path SHALL convert a live v1 bundle to v2
-  (collapse state sections into the single task list, strip state
-  annotations, restrict the header, add the pointer line), preserving task
-  definition lines byte-for-byte so the `tasks.md` canonical extraction is
-  unchanged; the required re-anchor rides the migration as expression-only.
-  *(Cites: D-10.)*
-- **REQ-D1.3** planwright's own live (Ready/Active) bundles SHALL be
-  migrated to v2; Done and terminal bundles SHALL stay v1 untouched.
-  *(Cites: D-10.)*
+  (collapse placement sections into the single task list, strip state
+  annotations, convert parked task blocks in any human-payload section to
+  reference bullets, restrict the header, add the pointer line), preserving
+  task definition lines byte-for-byte so the `tasks.md` canonical
+  extraction is unchanged; the required re-anchor rides the migration as
+  expression-only. The migration SHALL be idempotent (an already-v2 bundle
+  is a clean no-op), per-bundle atomic, and re-runnable after a partial
+  run.
+  *(Cites: D-10; kickoff sign-off (2026-07-14).)*
+- **REQ-D1.3** planwright's own live (Draft/Ready/Active) bundles SHALL be
+  migrated to v2; Done and terminal bundles SHALL stay v1 untouched. A
+  Draft bundle takes the same byte-stable transform; having no signed
+  brief, it takes no re-anchor entry.
+  *(Cites: D-10; kickoff §2 (2026-07-14).)*
 
-## REQ-E — Doctrine, skills, and lineage
+## REQ-E — Doctrine, skills, config, and lineage
 
 - **REQ-E1.1** `doctrine/spec-format.md` SHALL define format-version 2 via
   the meta-spec's own versioning ritual: the v2 `tasks.md` shape, the
@@ -169,10 +215,15 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   *(Cites: D-1, D-2, D-5.)*
 - **REQ-E1.2** Every skill that writes or reads the committed state layer
   SHALL be reconciled for v2: `/spec-draft` authors v2 bundles;
-  `/execute-task` drops the `Last activity` write; `/orchestrate`,
-  `/resume`, and `/drain` read execution status through the render;
-  Awaiting-input writes stay committed.
-  *(Cites: D-6, D-7.)*
+  `/execute-task` drops the `Last activity` write; `/resume` and every
+  human-facing status summary read the render, while `/orchestrate`'s
+  selection and `/drain`'s gate evaluation read the derivation engine via
+  their scripts (D-6, D-8); `/orchestrate`'s dead-worker orphan reconcile
+  parks via an Awaiting-input bullet (a halting-skill payload write per
+  REQ-A1.2); `/spec-kickoff`'s delta/amendment mode selection reads derived
+  status (the stored header rests at Ready); Awaiting-input writes stay
+  committed.
+  *(Cites: D-6, D-7, D-3; kickoff sign-off (2026-07-14).)*
 - **REQ-E1.3** Config knobs made vacuous for v2 (`commit_on_state_move`)
   SHALL be documented as v1-only in the options reference.
   *(Cites: D-7.)*
@@ -183,6 +234,20 @@ meta-spec), per the altitude trigger the drafting invocation fired.
 
 ## Changelog
 
+- 2026-07-14 — Kickoff walkthrough and sign-off lens pass (kickoff-brief
+  §§2–7 and sign-off). Walkthrough edits: migration population widened to
+  Draft/Ready/Active (REQ-D1.3, D-10, Task 6); REQ-A1.2 gained the
+  "derived" qualifier and human-payload clause; REQ-C1.5 gained the
+  pointer-line and bullet-integrity invariants; D-4's Done clause restated
+  to engine semantics. Lens-pass edits: D-3 reference bullets generalized
+  to all three human-payload sections; D-4 stored-status gating + zero-task
+  rule; D-6 machine-surface clarification + ported-derivation scope; D-7
+  fail-closed version-keying; D-10 idempotency/atomicity + parked-block
+  conversion; D-11 second normative home named; D-12 (no-cache decision)
+  added; new REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9; REQ-E1.2 read-surface
+  split; Goal/Sources argue the Maximal gate in its own terms and scope the
+  kickoff-lifecycle deferral to its Active/Done half; task and test-spec
+  alignment and strengthening throughout.
 - 2026-07-14 — Initial draft elicited via `/spec-draft`. Fold-detection
   found the overlap with `orchestration-concurrency` (Done); the D-21
   spin-new triggers fired (meta-spec format change, independently ownable),
@@ -204,7 +269,10 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   bundle's Goal.
 - **kickoff-lifecycle out-of-scope deferral.** "Fully deriving the bundle
   `Status:` header (dropping the stored value)" was explicitly deferred to
-  the same Maximal graduation.
+  the same Maximal graduation. This bundle completes the derivable
+  (Active/Done) half; the stored human declarations are deliberately
+  retained (D-4's rejected alternative records why full derivation was not
+  taken).
 - **orchestration-fleet live-derivation reads.** The meta-tower reads each
   spec's live derivation, not the committed snapshot — evidence the
   snapshot is becoming vestigial.

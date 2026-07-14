@@ -1,6 +1,6 @@
 # Invariant Tasks — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -63,13 +63,21 @@ dependency-edge contract unchanged (REQ-A1.4).
 the surviving sections each hold content only a human (or a halting skill)
 can author.
 
-### D-3: Awaiting-input entries are reference bullets, not relocated blocks  (N)
+### D-3: Parked state is reference bullets, not relocated blocks  (N)
 
-**Decision:** Parking a task for human input writes a bullet under
-`## Awaiting input` — the task id plus the question — while the task block
-itself stays in `## Tasks`, untouched. The bullet is authoritative in the
-derivation (REQ-B1.4): a task with a live Awaiting-input bullet derives as
-awaiting-input regardless of git evidence. Unparking removes the bullet.
+**Decision:** Parking a task writes a reference bullet — the task id plus
+the human payload — under the relevant human-payload section, while the
+task block itself stays in `## Tasks`, untouched: `## Awaiting input` (the
+question; also written by a halting skill, including `/orchestrate`'s
+dead-worker orphan reconcile), `## Deferred` (the gate), `## Out of scope`
+(the exclusion rationale). A live reference bullet is authoritative in the
+derivation (REQ-B1.4): its task derives as awaiting-input / deferred /
+out-of-scope regardless of git evidence. Unparking removes the bullet.
+"Parked" is defined here, in the broad sense: a task named by any live
+reference bullet. *(Amended at kickoff sign-off 2026-07-14: generalized
+from Awaiting-input-only to all three human-payload sections — the drafted
+form left deferred and excluded tasks unrepresentable in v2, and migration
+would have silently un-parked v1 blocks relocated into those sections.)*
 
 **Alternatives considered:**
 - Relocate the block into `## Awaiting input` (the v1 shape). Rejected
@@ -89,10 +97,21 @@ override signal.
 **Decision:** The v2 stored header carries only Draft, Ready, Retired, or
 Superseded — the states a human declares. Active and Done are derived: a
 bundle is Active iff any task derives In-progress or Completed with work
-remaining, Done when all non-parked tasks derive Completed (the existing
-derivation rules, consumed unchanged). After sign-off the stored value rests
+remaining, Done when every task derives Completed and no live
+Awaiting-input bullet remains — an open question blocks Done; Deferred and
+Out-of-scope bullets are not tasks and never count (the existing derivation
+rules, consumed unchanged). After sign-off the stored value rests
 at Ready; the reopen cycle becomes Ready→Draft; Retired/Superseded stay
-stored terminal declarations.
+stored terminal declarations. Derivation is computed only for stored-Ready
+bundles: Draft, Retired, and Superseded render their stored state with no
+execution claim, and a zero-task bundle never derives Done (REQ-B1.6).
+*(Amended at kickoff 2026-07-14: the Done clause restated to match the
+consumed derivation rules — the drafted "all non-parked tasks" wording
+would have let an open Awaiting-input question derive Done. Amended again
+at kickoff sign-off 2026-07-14: stored-status gating and the zero-task
+rule added — ungated derivation could assert Active/Done over a reopened
+Draft or a terminal bundle, and an empty bundle would derive a vacuous
+Done.)*
 
 **Alternatives considered:**
 - Keep the reconcile-written Ready/Active/Done header (v1 behavior).
@@ -135,7 +154,18 @@ cost.
 (the derivation engine surfaced as a command) and is never committed, never
 pushed to a PR body, pinned issue, or generated file. GitHub shows
 definitions; execution state is read locally (or via the fleet decision
-queue, which already consumes the live derivation).
+queue, which already consumes the live derivation). Machine consumers read
+the derivation engine directly (the selector, gate evaluator, and fleet
+queue already do); the render's text is a human-facing view with no
+stability promise — a machine-readable mode would be an additive follow-up,
+not part of this bundle. The render also owns the bundle-status
+determination itself: that logic lives today in the sync writer's awk
+(keyed on section membership) and is ported into the render, re-sourced
+from reference bullets — "consumed unchanged" refers to the
+evidence-precedence rules, not to the code's current home. *(Amended at
+kickoff 2026-07-14: machine-surface clarification added. Amended again at
+kickoff sign-off 2026-07-14: the ported-derivation scope made explicit;
+Task 3 owns the port.)*
 
 **Alternatives considered:**
 - A PR-surface mirror (rendered status block refreshed into the spec PR
@@ -173,7 +203,11 @@ gate (see `tasks.md` Deferred).
 
 **Chosen because:** the declaration is already in every bundle's header,
 already validated, and already the meta-spec's versioning contract — no new
-switch needed.
+switch needed. A missing or unparseable `Format-version:` fails closed:
+version-keyed writers write nothing and the validator errors (REQ-C1.8);
+no script falls open to the v1 write path. *(Amended at kickoff sign-off
+2026-07-14: the fail-closed rule added — failing open would write v1 state
+into a v2 bundle.)*
 
 ### D-8: Selector and gate evaluator re-source from derivation plus committed parked state  (N)
 
@@ -231,9 +265,16 @@ the header value, add the pointer line, and bump `Format-version:` to 2.
 Task definition lines are preserved byte-for-byte, so the canonical
 `tasks.md` extraction — and therefore that file's contribution to the
 anchor — is unchanged; the header edits still change the manifest, and that
-re-anchor rides the migration as an expression-only entry. Applied to
-planwright's own live (Ready/Active) bundles; Done and terminal bundles are
-never rewritten.
+re-anchor rides the migration as an expression-only entry (signed bundles
+only; a Draft has no brief to re-anchor). Applied to planwright's own live
+(Draft/Ready/Active) bundles; Done and terminal bundles are never
+rewritten. The migration is idempotent (an already-v2 bundle is a clean
+no-op), per-bundle atomic, and re-runnable after a partial run; parked task
+blocks found under any human-payload section — not only Awaiting input —
+convert to reference bullets. *(Amended at kickoff 2026-07-14: Draft
+bundles included in the migration population. Amended again at kickoff
+sign-off 2026-07-14: idempotency, atomicity, and re-runnability pinned;
+parked-block conversion generalized per the D-3 amendment.)*
 
 **Alternatives considered:**
 - Migrate every bundle including Done/terminal. Rejected because: finished
@@ -263,15 +304,51 @@ remains normative for v1 bundles and is not edited retroactively).
 
 **Chosen because:** the annotation existed to make completion readable in a
 file that no longer claims to show state; the render is its successor
-surface.
+surface. The same scoping covers the annotation's second normative home:
+the meta-spec's own 2026-07-10 versioning entry in
+`doctrine/spec-format.md` promoted the annotation to normative there too,
+so Task 1's v2 definition scopes that entry to v1 bundles and Task 8's
+supersession record names both homes. *(Amended at kickoff sign-off
+2026-07-14: the second normative home named.)*
+
+### D-12: No replacement cache — per-invocation derivation accepted  (N)
+
+**Decision:** The committed snapshot this bundle removes was, per
+orchestration-concurrency's own kickoff record, the read-model cache; no
+replacement cache is introduced. Every consumer derives per invocation
+(local git scans plus one `gh pr list` call): all consumers are
+low-frequency — the human render on demand, drain passes, one selection per
+dispatch step. Within one orchestrate step, reusing a single derivation
+result across selection, gating, and any render is encouraged but
+non-normative. No latency bound is pinned; the kickoff brief's risk
+register carries the revisit signals (render latency complaints, gh
+secondary-rate-limit hits).
+
+**Alternatives considered:**
+- A within-step or on-disk derivation cache. Rejected because: a cache is
+  the committed-snapshot liability in a new coat (a refresh owner,
+  staleness, invalidation); observed consumer frequencies do not justify
+  it.
+- Pinning a latency budget in Done-when clauses. Rejected because: no
+  baseline exists yet; a number would be invented, not measured.
+
+**Chosen because:** the honest completion of the graduation is naming the
+cost and accepting it deliberately, with recorded signals that reopen the
+decision if reality disagrees.
 
 ## Cross-cutting concerns
 
-- **Security posture.** No new parsing surfaces: the render and the
-  version-keying read the same validated headers and task-id grammar the
-  existing scripts read. The migration script handles committed spec files
-  as untrusted input per framework-script rules (validated identifiers,
-  containment-checked paths, sanitized echo).
+- **Security posture.** Two new parsing surfaces are introduced and bound
+  by REQ-C1.9: the reference bullet (a derivation-authoritative parse of a
+  task id plus free text) and the migration's consumption of whole v1
+  bundles as input. Bullet task ids are validated against the task-id
+  grammar before any use; the migration validates identifiers,
+  containment-checks paths, and refuses hostile input with a clean error;
+  the render and the new validator/guard error paths sanitize echoed spec
+  content (`sanitize_printable`); the v2 format definition carries the
+  artifact data-hygiene note for bullet free text. *(Corrected at kickoff
+  sign-off 2026-07-14: the drafted "no new parsing surfaces" claim
+  under-declared the bullet surface.)*
 - **Research grounding.** Peer comparison run at drafting (Sources): the
   closest spec-driven peer (GitHub spec-kit) tracks status as manual
   checkboxes with staleness complaints on record; git-native trackers

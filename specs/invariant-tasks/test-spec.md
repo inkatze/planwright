@@ -1,6 +1,6 @@
 # Invariant Tasks — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -18,17 +18,22 @@ Format-version 2's shape is normatively defined in `doctrine/spec-format.md`
 a v2 fixture carrying a placement section or a state annotation bullet fails
 validation, a compliant v2 fixture passes.
 
-### REQ-A1.2 — no commits for execution-state changes [test]
+### REQ-A1.2 — no commits for derived execution-state changes [test]
 
 The churn-free fixture test (Task 4): a full state transition (dispatch →
-in-progress evidence → merged-PR evidence) exercised against a v2 fixture
-bundle produces zero diff under the spec directory. Runs in `mise run check`.
+in-progress evidence → merged-PR evidence, plus a parking and an unparking
+write) exercised against a v2 fixture bundle produces zero diff under the
+spec directory for the derived transitions; the parking/unparking commits
+are asserted to be legitimate human-payload writes that leave the content
+anchor unchanged. Runs in `mise run check`.
 
 ### REQ-A1.3 — restricted stored header [test]
 
 Validator fixtures (Task 2): a v2 fixture with a stored `Active` or `Done`
 header value fails; Draft/Ready/Retired/Superseded pass. The render (Task 3)
-reports derived Active/Done on fixtures whose stored header reads Ready.
+reports derived Active/Done on fixtures whose stored header reads Ready. A
+reopen fixture (Ready→Draft header write) validates cleanly and is the
+re-anchoring lifecycle write D-9 names.
 
 ### REQ-A1.4 — format continuity [test]
 
@@ -39,27 +44,46 @@ fields, and dependency lines survive unchanged.
 ### REQ-B1.1 — derived render [test]
 
 Render fixture tests (Task 3): merged-PR, open-PR, branch-only, marker-only,
-and parked-task fixtures each derive the expected per-task status and bundle
-effective status; the render writes no file.
+commit-trailer, and parked-task fixtures each derive the expected per-task
+status and bundle effective status; the render writes no file.
 
 ### REQ-B1.2 — no-remote degradation [test]
 
 Render fixture with no remote configured (Task 3): status derives from
 branch/commit evidence with the documented degraded outputs; exit code and
-output pinned.
+the derived status facts pinned (not literal render text, per D-6's
+no-stability promise).
 
 ### REQ-B1.3 — render as canonical read surface [design-level + manual]
 
 Design-level: Task 7's done-when requires every reconciled skill to
-reference the render, and no committed or remote-mirrored status artifact
-exists in the design (D-6). Manual: a human reads a live v2 bundle's status
-via the render and confirms no other surface claims to show it.
+reference the correct read surface (the render for human-facing status, the
+derivation engine for machine logic, per REQ-E1.2), and no committed or
+remote-mirrored status artifact exists in the design (D-6). Manual: a human
+reads a live v2 bundle's status via the render and confirms no other
+surface claims to show it.
 
-### REQ-B1.4 — Awaiting-input authority [test]
+### REQ-B1.4 — reference-bullet authority [test]
 
-Render fixture (Task 3): a task with completed-PR git evidence plus a live
-Awaiting-input bullet derives as awaiting-input, not completed; removing the
-bullet restores evidence-derived status.
+Render fixtures (Task 3): a task with completed-PR git evidence plus a live
+Awaiting-input bullet derives as awaiting-input, not completed (and is
+flagged as a stale-bullet anomaly); removing the bullet restores
+evidence-derived status; Deferred and Out-of-scope reference bullets park
+their tasks the same way.
+
+### REQ-B1.5 — transient evidence failure fails closed [test]
+
+Fixtures with a configured-but-failing remote (Tasks 3 and 5): the render
+reports the fetch failure distinctly from the no-remote mode (exit code
+pinned) instead of presenting partial evidence as status; the selector
+dispatches nothing; gate completion atoms resolve as unresolved.
+
+### REQ-B1.6 — derived-status determination rules [test]
+
+Render fixtures (Task 3): a stored-Draft, Retired, or Superseded fixture
+renders its stored state with no execution claim; a zero-task v2 fixture
+reports no tasks and never derives Done; an all-completed fixture with a
+live Awaiting-input bullet derives not-Done at the bundle level.
 
 ### REQ-C1.1 — version-keyed writer [test]
 
@@ -83,21 +107,25 @@ unchanged.
 ### REQ-C1.4 — ledger guard scope [test]
 
 check-ledger fixtures (Task 4): on v2, structural violations (malformed
-heading, duplicate id) still fail while placement/annotation coherence
+heading, duplicate id, a task block outside any recognized section) still
+fail — with `## Tasks` recognized — while placement/annotation coherence
 checks do not fire; on v1, existing coherence tests stay green.
 
 ### REQ-C1.5 — validator v2 invariants [test]
 
-Validator fixtures (Task 2): each v2 invariant violation (state section,
-state annotation, non-restricted header, missing pointer line) fails as an
-error on a Ready fixture and warns on a Draft fixture; v1 bundles validate
-under v1 rules.
+Validator fixtures (Task 2): each v2 invariant violation fails as an error
+on a Ready fixture and warns on a Draft fixture — per-token fixtures for
+each banned placement heading (Forward plan, In progress, Completed) and
+each banned annotation (Status, Last activity, Dispatch), a non-restricted
+header, a missing pointer line, a pointer line with non-canonical
+vocabulary, and reference-bullet integrity violations (unknown task id,
+duplicate bullet); v1 bundles validate under v1 rules.
 
 ### REQ-C1.6 — churn-free anchor [test]
 
 The Task 4 churn-free test additionally recomputes the content anchor
-(canonical form) before and after the exercised state transition and asserts
-equality.
+(canonical form) before and after the exercised state transitions —
+including the parking/unparking writes — and asserts equality.
 
 ### REQ-C1.7 — completion-annotation supersession [design-level]
 
@@ -106,6 +134,22 @@ dated changelog entry recording that the normative completion annotation
 does not apply to v2 bundles, with output-hygiene's text unedited. Completion
 readability on v2 is covered functionally by REQ-B1.1's render fixtures
 (merged-PR case shows PR number and merge date).
+
+### REQ-C1.8 — fail-closed version keying [test]
+
+Fixtures with a missing or unparseable `Format-version:` line (Tasks 2, 4):
+each version-keyed script performs no write (spec-directory digest
+unchanged after invocation) and the validator reports an error; no script
+applies the v1 write path.
+
+### REQ-C1.9 — security binding [test]
+
+Migration fixtures (Task 6): hostile identifiers and out-of-containment
+paths are refused with a clean error. Render and guard fixtures (Tasks 3,
+4) and validator fixtures (Task 2): embedded terminal-escape bytes in
+bullet text and header values are stripped from echoed output
+(`sanitize_printable`); a reference bullet whose task id violates the
+task-id grammar is rejected.
 
 ### REQ-D1.1 — coexistence [test]
 
@@ -117,9 +161,12 @@ a v1-fixture arm (behavior unchanged) and a v2-fixture arm (new behavior);
 ### REQ-D1.2 — migration path [test]
 
 Migration fixtures (Task 6): a seeded v1 bundle (with relocated
-Awaiting-input block, annotations, Active header) migrates to a v2 bundle
-that validates cleanly; the extraction digest is unchanged; the re-anchor
-entry is written as expression-only.
+Awaiting-input block, a parked block under Deferred/Out of scope,
+annotations, Active header) migrates to a v2 bundle that validates cleanly
+with the parked blocks converted to reference bullets; the extraction
+digest is unchanged; a raw line-level diff confirms the definition lines
+survive byte-for-byte; running the migration a second time is a byte-level
+no-op; the re-anchor entry is written as expression-only.
 
 ### REQ-D1.3 — own-bundle migration [test + manual]
 
@@ -147,10 +194,10 @@ correctly at each step.
 
 `scripts/check-options-reference.sh` (already in `mise run check`) keeps the
 `commit_on_state_move` row present; the Task 8 change adds the v1-only note
-and the docs check passes.
+and the docs check asserts the note's content is present in the row.
 
-### REQ-E1.4 — lineage closure [design-level]
+### REQ-E1.4 — lineage closure [design-level + test]
 
 The annotation on orchestration-concurrency's Deferred "Maximal variant"
 entry, citing this bundle, is the verification artifact; its presence is
-asserted in the Task 6 done-when and reviewed at that PR.
+mechanically checked in the Task 6 fixture suite and reviewed at that PR.
