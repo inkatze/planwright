@@ -73,8 +73,9 @@ dead-worker orphan reconcile), `## Deferred` (the gate), `## Out of scope`
 (the exclusion rationale). A live reference bullet is authoritative in the
 derivation (REQ-B1.4): its task derives as awaiting-input / deferred /
 out-of-scope regardless of git evidence. Unparking removes the bullet.
-"Parked" is defined here, in the broad sense: a task named by any live
-reference bullet. *(Amended at kickoff sign-off 2026-07-14: generalized
+A task is parked in at most one section at a time (the validator enforces
+cross-section exclusivity, REQ-C1.5). "Parked" is defined here, in the
+broad sense: a task named by any live reference bullet. *(Amended at kickoff sign-off 2026-07-14: generalized
 from Awaiting-input-only to all three human-payload sections — the drafted
 form left deferred and excluded tasks unrepresentable in v2, and migration
 would have silently un-parked v1 blocks relocated into those sections.)*
@@ -132,9 +133,9 @@ exactly the execution facts — the same split the rest of the design applies.
 ### D-5: The v2 header carries a static derived-execution pointer line  (N)
 
 **Decision:** The v2 header block includes one constant line after
-`Format-version:`, e.g. `**Execution:** derived — see the status render`.
-The text is fixed vocabulary defined by the meta-spec (never per-bundle
-prose), so it never churns; it exists so a reader browsing the committed
+`Format-version:` — `**Execution:** derived — see the status render`.
+That exact text is fixed vocabulary defined by the meta-spec (never
+per-bundle prose, not customizable), so it never churns; it exists so a reader browsing the committed
 file — where a finished spec reads `Status: Ready` — is pointed at the
 render instead of concluding the spec never started.
 
@@ -276,9 +277,10 @@ rewritten. The migration is idempotent (an already-v2 bundle is a clean
 no-op), per-bundle atomic, and re-runnable after a partial run; parked task
 blocks found under any human-payload section — not only Awaiting input —
 convert to reference bullets. The per-bundle unit includes a signed
-bundle's expression-only re-anchor entry: idempotency keys on both
-artifacts, so a re-run completes a missing re-anchor rather than no-oping
-past a file that already reads v2. *(Amended at kickoff 2026-07-14: Draft
+bundle's expression-only re-anchor entry plus the dated changelog line the
+entry cites (the meta-spec's execution-validity condition): idempotency
+keys on all of these artifacts, so a re-run completes a missing re-anchor
+or changelog line rather than no-oping past a file that already reads v2. *(Amended at kickoff 2026-07-14: Draft
 bundles included in the migration population. Amended again at kickoff
 sign-off 2026-07-14: idempotency, atomicity, and re-runnability pinned;
 parked-block conversion generalized per the D-3 amendment.)*

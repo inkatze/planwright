@@ -51,10 +51,12 @@ the guard that protects their output exists.
   Dispatch) has its own failing v2 fixture; an Active/Done header, a
   missing or non-canonical pointer line, an unknown-id, duplicate, or
   grammar-violating reference bullet, and an unparseable `Format-version:`
-  each fail; each violation warns rather than errors on a Draft fixture;
-  escape-byte fixtures confirm sanitized error output for bullet text and
-  header values; a compliant v2 fixture and every existing v1 bundle pass;
-  `mise run check` passes.
+  each fail; each v2-invariant violation warns rather than errors on a
+  Draft fixture, except the unparseable-`Format-version:` case, which
+  errors at every status (REQ-C1.8 — the rules to apply cannot be known
+  without a parsed version); escape-byte fixtures confirm sanitized error
+  output for bullet text and header values; a compliant v2 fixture and
+  every existing v1 bundle pass; `mise run check` passes.
 - **Dependencies:** 1
 - **Citations:** D-7, D-5, D-3 · REQ-C1.5, REQ-C1.8, REQ-C1.9, REQ-D1.1
 - **Estimated effort:** 1 day
@@ -150,7 +152,8 @@ the guard that protects their output exists.
   out-of-containment paths with a clean error — with fixture tests
   asserting the canonical `tasks.md` extraction digest is unchanged;
   planwright's own live (Draft/Ready/Active) bundles migrated, each signed
-  bundle with its expression-only re-anchor (a Draft has none);
+  bundle with its expression-only re-anchor and the dated changelog line
+  it cites (a Draft has neither);
   orchestration-concurrency's Deferred "Maximal variant" entry annotated
   closed, citing this bundle.
 - **Done when:** the migration fixture test proves an unchanged extraction
@@ -183,7 +186,9 @@ the guard that protects their output exists.
 - **Done when:** each named skill's instructions reference the correct
   read surface for v2 execution status (the render for human-facing
   status, the derivation engine for machine logic — never committed
-  sections); `/spec-draft`'s emitted skeleton validates as v2; no skill
+  sections); every reconciliation is version-keyed (skill instructions
+  branch on the declared `Format-version:`; v1-bundle behavior is
+  unchanged); `/spec-draft`'s emitted skeleton validates as v2; no skill
   instructs writing a placement section, state annotation, or derived
   header value to a v2 bundle; `mise run check` (including the
   instruction-budget guards) passes.

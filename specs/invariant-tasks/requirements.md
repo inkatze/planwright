@@ -169,7 +169,8 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   placement sections, no state annotations, stored header restricted to
   the human-gated set, the static `Execution:` pointer line present (in
   its fixed vocabulary), and reference-bullet integrity (every bullet
-  names an existing task id; at most one bullet per task per section) — as
+  names an existing task id; at most one bullet per task across all
+  human-payload sections — a task is parked in one section at a time) — as
   errors on non-Draft v2 bundles, keeping v1 rules for v1 bundles.
   *(Cites: D-7, D-5, D-3.)*
 - **REQ-C1.6** No orchestration or execution act on a v2 bundle SHALL
@@ -210,8 +211,11 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   extraction is unchanged; the required re-anchor rides the migration as
   expression-only. The migration SHALL be idempotent (an already-v2 bundle
   is a clean no-op), per-bundle atomic, and re-runnable after a partial
-  run; the per-bundle unit includes a signed bundle's re-anchor entry, and
-  a re-run SHALL complete a missing re-anchor rather than no-op past it.
+  run; the per-bundle unit includes a signed bundle's re-anchor entry
+  together with the dated Changelog line it cites (appended to the
+  bundle's `requirements.md`, per the meta-spec's execution-validity rule
+  for expression-only entries), and a re-run SHALL complete a missing
+  re-anchor rather than no-op past it.
   *(Cites: D-10; kickoff sign-off (2026-07-14).)*
 - **REQ-D1.3** planwright's own live (Draft/Ready/Active) bundles SHALL be
   migrated to v2; Done and terminal bundles SHALL stay v1 untouched. A
@@ -227,8 +231,11 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   derivation as the read surface.
   *(Cites: D-1, D-2, D-5.)*
 - **REQ-E1.2** Every skill that writes or reads the committed state layer
-  SHALL be reconciled for v2: `/spec-draft` authors v2 bundles;
-  `/execute-task` drops the `Last activity` write; `/resume` and every
+  SHALL be reconciled for v2, keyed off the bundle's declared
+  `Format-version:` exactly as the scripts are (D-7) — v1 bundles keep
+  today's skill behavior: `/spec-draft` authors v2 bundles;
+  `/execute-task` drops the `Last activity` write on v2 bundles; `/resume`
+  and every
   human-facing status summary read the render, while `/orchestrate`'s
   selection and `/drain`'s gate evaluation read the derivation engine via
   their scripts (D-6, D-8); `/orchestrate`'s dead-worker orphan reconcile
@@ -249,6 +256,15 @@ meta-spec), per the altitude trigger the drafting invocation fired.
 
 ## Changelog
 
+- 2026-07-14 — Panel delta (gauntlet pass 2, gemini backend; brief
+  Amendment 2; all five findings human-approved). Reference-bullet
+  cross-section exclusivity (REQ-C1.5, D-3, test-spec C1.5); the
+  unparseable-`Format-version:` case errors at every status, carved out of
+  the Draft-warns arm (Task 2, REQ-C1.8); skill reconciliation
+  version-keyed with v1 behavior preserved (REQ-E1.2, Task 7); the
+  migration's re-anchor entry cites a dated changelog line the migration
+  appends (REQ-D1.2, D-10, Task 6, test-spec D1.2); D-5's pointer-line
+  text pinned as canonical, "e.g." dropped.
 - 2026-07-14 — Self-review delta (gauntlet pass 1; brief Amendment 1).
   Done universe pinned for Deferred/Out-of-scope-parked tasks (D-4,
   REQ-B1.6); fail-closed version-keying extended to every version-keyed

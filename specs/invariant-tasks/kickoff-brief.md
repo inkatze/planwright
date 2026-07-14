@@ -347,3 +347,47 @@ Lens-pass: this amendment's self-review pass, recorded above; findings
 dispositioned 2026-07-14.
 Anchor: `770aa876f32cb70d90298af66747793ace63b62e` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
+
+### Amendment 2 — panel delta re-sign-off (2026-07-14)
+
+**Scope:** the gauntlet's `/panel-pairing` pass (backend: gemini 0.45.2,
+per `panel-backends`; repo-class solo; Agent-resolvable bucket unavailable
+— no Active spec pre-merge). Iteration 1 of 15: seven backend findings,
+validated per the three-pass rigor; five confirmed, two refuted. No
+Auto-applicable items, so the loop stopped at Human attention required;
+the human directed **apply all five**, which are therefore
+human-approved (not pending sign-off):
+
+1. Reference-bullet cross-section exclusivity: a task is parked in one
+   section at a time; validator enforces it (REQ-C1.5, D-3, test-spec).
+2. The unparseable-`Format-version:` case errors at every status — carved
+   out of Task 2's Draft-warns arm (REQ-C1.8 consistency).
+3. Skill reconciliation version-keyed; v1 bundles keep today's skill
+   behavior (REQ-E1.2, Task 7).
+4. The migration's re-anchor entry cites a dated changelog line the
+   migration appends; idempotency covers both artifacts (REQ-D1.2, D-10,
+   Task 6, test-spec D1.2).
+5. D-5's pointer-line text pinned as canonical ("e.g." dropped).
+
+**Declined with rationale:** (a) a Task 5→Task 4 dependency — the
+corruption precondition (a live v2 bundle before both land) cannot occur:
+in-repo v2 bundles appear only via Task 6, which depends on both, and
+adopter releases ship all scripts atomically; recorded as a deliberate
+non-edge alongside §6's list. (b) zero-task derived state undefined —
+REQ-B1.6 defines it (never Done, "no tasks" report, stored value renders).
+
+**Tooling:** `mise run check` on the pre-panel head — every task green
+except `[test]`, whose failure was diagnosed as machine-local (a global
+`~/.gitignore` entry shadows `specs/_observations/` inside the obs-suite
+fixture repos, so their `git add` stages nothing; verified via
+`git check-ignore` in a fresh fixture and unrelated to this branch's
+markdown-only diff; recorded as observation
+`2026-07-14-global-gitignore-shadows-obs`). GitHub CI on the pushed head
+is the arbiter. Validator 0/0 and `lint:md` 0 errors after the panel
+edits.
+
+Class: meaning (additions rule, REQ-A3.3)
+Lens-pass: the panel pass plus this session's three-pass validation,
+recorded above; findings dispositioned by the human 2026-07-14.
+Anchor: `b4d0819fcf23112545bff18d42bdce24f234ce73` — computed as
+`scripts/spec-anchor.sh specs/invariant-tasks`
