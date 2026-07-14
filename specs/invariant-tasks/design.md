@@ -341,17 +341,21 @@ decision if reality disagrees.
 
 ## Cross-cutting concerns
 
-- **Security posture.** Two new parsing surfaces are introduced and bound
-  by REQ-C1.9: the reference bullet (a derivation-authoritative parse of a
-  task id plus free text) and the migration's consumption of whole v1
-  bundles as input. Bullet task ids are validated against the task-id
-  grammar before any use; the migration validates identifiers,
-  containment-checks paths, and refuses hostile input with a clean error;
-  the render and the new validator/guard error paths sanitize echoed spec
-  content (`sanitize_printable`); the v2 format definition carries the
-  artifact data-hygiene note for bullet free text. *(Corrected at kickoff
-  sign-off 2026-07-14: the drafted "no new parsing surfaces" claim
-  under-declared the bullet surface.)*
+- **Security posture.** Three new untrusted-content surfaces are
+  introduced and bound by REQ-C1.9: the reference bullet (a
+  derivation-authoritative parse of a task id plus free text), the
+  migration's consumption of whole v1 bundles as input, and the render as
+  a new terminal-output surface echoing evidence-derived strings (branch
+  names, PR metadata, remote error text). Bullet task ids are validated
+  against the task-id grammar before any use; the migration validates
+  identifiers, containment-checks paths, and refuses hostile input with a
+  clean, sanitized error; the render and the new validator/guard error
+  paths sanitize all echoed untrusted content (`sanitize_printable`); the
+  v2 format definition carries the artifact data-hygiene note for bullet
+  free text. *(Corrected at kickoff sign-off 2026-07-14: the drafted "no
+  new parsing surfaces" claim under-declared the bullet surface. Amended
+  at self-review 2026-07-14: the render counted as an output surface and
+  the sanitize scope broadened beyond spec-file content.)*
 - **Research grounding.** Peer comparison run at drafting (Sources): the
   closest spec-driven peer (GitHub spec-kit) tracks status as manual
   checkboxes with staleness complaints on record; git-native trackers

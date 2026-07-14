@@ -78,8 +78,9 @@ v2 content, so it cannot dispatch after the work it protects.
   Awaiting-input bullet derives not-Done; a configured-but-failing remote
   reports the failure (distinct exit) instead of partial status; a fixture
   with a missing or unparseable `Format-version:` fails closed; embedded
-  terminal-escape bytes in bullet text are sanitized in output; nothing is
-  written to any committed file; `mise run check` passes.
+  terminal-escape bytes in bullet text, branch names, and remote error
+  text are sanitized in output; nothing is written to any committed file;
+  `mise run check` passes.
 - **Dependencies:** 1
 - **Citations:** D-6, D-3, D-4, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3,
   REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9

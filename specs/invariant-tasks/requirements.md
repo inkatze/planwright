@@ -179,11 +179,13 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   *(Cites: D-7; kickoff sign-off (2026-07-14).)*
 - **REQ-C1.9** The framework-script security rules SHALL be bound in the
   touched machinery: the migration validates identifiers, containment-checks
-  paths, and refuses hostile input with a clean error; the render and the
-  new v2 validator/guard error paths sanitize echoed spec-file content
-  (`sanitize_printable`); reference-bullet task ids are validated against
-  the task-id grammar before any use; the v2 format definition carries the
-  artifact data-hygiene note for bullet free text.
+  paths, and refuses hostile input with a clean, sanitized error; the
+  render, the migration's output, and the new v2 validator/guard error
+  paths sanitize all echoed untrusted content (`sanitize_printable`) —
+  spec-file values, reference-bullet text, branch names, and evidence- or
+  remote-derived text alike; reference-bullet task ids are validated
+  against the task-id grammar before any use; the v2 format definition
+  carries the artifact data-hygiene note for bullet free text.
   *(Cites: D-3, D-10; kickoff sign-off (2026-07-14).)*
 
 ## REQ-D — Migration & coexistence

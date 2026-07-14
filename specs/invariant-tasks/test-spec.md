@@ -155,11 +155,11 @@ write path.
 ### REQ-C1.9 — security binding [test]
 
 Migration fixtures (Task 6): hostile identifiers and out-of-containment
-paths are refused with a clean error. Render and guard fixtures (Tasks 3,
-4) and validator fixtures (Task 2): embedded terminal-escape bytes in
-bullet text and header values are stripped from echoed output
-(`sanitize_printable`); a reference bullet whose task id violates the
-task-id grammar is rejected.
+paths are refused with a clean error whose output is sanitized. Render and
+guard fixtures (Tasks 3, 4) and validator fixtures (Task 2): embedded
+terminal-escape bytes in bullet text, header values, branch names, and
+remote error text are stripped from echoed output (`sanitize_printable`);
+a reference bullet whose task id violates the task-id grammar is rejected.
 
 ## REQ-D — Migration & coexistence
 
