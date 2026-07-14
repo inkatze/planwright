@@ -224,7 +224,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 2, Task 3
 - **Citations:** D-9 · REQ-D1.1, REQ-D1.2
 - **Estimated effort:** 1 day
-- **Status:** Completed · PR #167 merged 2026-07-13
+- **Status:** Completed · PR #167 merged 2026-07-14
 - **Last activity:** 2026-07-13
 
 ## Deferred
