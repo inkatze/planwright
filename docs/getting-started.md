@@ -238,8 +238,12 @@ policy and the altitude split behind it live in the doctrine.
    publish is pushed to you by a red check rather than left to memory.
 4. **You publish.** Run the publish command (below) after the merge. It cuts the
    signed annotated tag on the observed release-merge commit, verifies the
-   signature, pushes the tag, and creates the GitHub Release from the version's
-   `CHANGELOG.md` section. The window closes and the required check goes green.
+   signature, pushes the tag, creates the GitHub Release from the version's
+   `CHANGELOG.md` section, and relabels the merged release PR from
+   `autorelease: pending` to `autorelease: tagged` (best-effort — a failure here
+   only warns, it never blocks the publish) so release-please's own state
+   tracking stays in sync and doesn't deadlock on the next run. The window
+   closes and the required check goes green.
 
 Merge (step 2) and publish (step 4) are the two irreversible, externally-visible
 acts; both are always conscious human steps. planwright automates everything up
