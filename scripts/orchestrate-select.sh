@@ -3,9 +3,14 @@
 # critical-path-first (Task 13, REQ-F1.2, D-7, D-8), and emit the critical path
 # for the comprehension graph view (Task 7 of specs/spec-comprehension, D-6).
 #
-# A ready task is one in the `## Forward plan` section that the LIVE DERIVATION
-# reports neither completed nor in-progress, and whose every dependency the
-# derivation reports completed. Among ready tasks the selector prefers the head
+# A ready task is one the LIVE DERIVATION reports neither completed nor
+# in-progress, whose every dependency the derivation reports completed, and that
+# is a candidate under the bundle's declared format version (invariant-tasks
+# Task 5, D-8, REQ-C1.2): on a v1 bundle a candidate sits in `## Forward plan`;
+# on a v2 bundle (no placement sections) a candidate is any task NOT parked by a
+# live reference bullet (`- **Task <id>**` under ## Awaiting input / ## Deferred
+# / ## Out of scope — bullet task ids are grammar-validated before use,
+# REQ-C1.9). Among ready tasks the selector prefers the head
 # of the effort-weighted longest dependent chain — the unit that unblocks the
 # most downstream remaining work — and breaks ties FIFO, by first appearance in
 # tasks.md. This turns REQ-F1.2's critical-path-first rule into a deterministic,
@@ -46,10 +51,17 @@
 #       visualization. On a bundle with nothing completed the two coincide.
 #
 # Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
-# unit this step; 2 the tasks.md is missing, unreadable, or holds no task
-# records, or (selection only) the derivation engine is missing / not executable
-# or its derivation fails (no git work tree, invalid spec id) — fail closed: a
-# malformed file or unavailable live truth must not silently report "nothing".
+# unit this step; 2 the tasks.md is missing, unreadable, holds no task
+# records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
+# candidacy rules cannot be known without a parsed version; both modes refuse
+# rather than guess), or (selection only) the derivation engine is missing /
+# not executable or its derivation fails (no git work tree, invalid spec id) —
+# fail closed: a malformed file or unavailable live truth must not silently
+# report "nothing"; 3 (selection only, v2) transient evidence failure — the
+# remote is configured but the evidence fetch failed (the engine's `degraded`
+# record), so nothing is dispatched rather than selecting against partial
+# evidence (REQ-B1.5). v1 selection keeps its documented degraded-but-proceed
+# behavior (the record is forwarded to stderr) — v1 behavior unchanged.
 #
 # Portable POSIX sh + awk (bash 3.2 / BSD awk compatible): no gawk-only
 # constructs (3-arg match, gensub), no eval, input treated as data. The
@@ -69,6 +81,17 @@ TAB=$(printf '\t')
 # Resolve this script's directory so the sibling derivation engine
 # (orchestrate-state.sh) is found regardless of the caller's working directory.
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+
+# echo-safety.sh is sourced (not executed): require it readable and fail closed
+# when a broken install omits it. It sanitizes untrusted spec content (rejected
+# bullet ids, engine diagnostics) before it reaches stderr (REQ-C1.9).
+echo_safety="$script_dir/echo-safety.sh"
+if [ ! -r "$echo_safety" ]; then
+  echo "orchestrate-select: required helper $echo_safety missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$echo_safety"
 
 # Mode: the optional leading --critical-path flag selects the path-emitting mode
 # (D-6); without it the script is the unchanged ready-unit selector.
@@ -91,6 +114,26 @@ if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
   exit 2
 fi
 
+# --- Format-version (REQ-C1.8): missing or unparseable fails closed. -------
+# The candidacy rules are version-keyed (v1 section membership vs v2 bullet
+# parking, D-8), so the version must parse before either rule is applied; no
+# fallback to either version's rules on a bad value. --critical-path is
+# structurally identical at both versions but refuses too rather than guessing.
+# Trailing trim: a Markdown hard-break or CRLF checkout must not make a valid
+# value unrecognizable (mirrors spec-status.sh).
+fv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$tasks_md")
+case "$fv" in
+  1 | 2) ;;
+  '')
+    echo "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+    exit 2
+    ;;
+  *)
+    echo "orchestrate-select: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+    exit 2
+    ;;
+esac
+
 # Live-truth state (Task 5, D-3, REQ-B1.2). In selection mode the completed /
 # in-progress sets come from the derivation engine, never from tasks.md section
 # placement. --critical-path stays purely structural (full DAG,
@@ -99,6 +142,58 @@ fi
 # unambiguous whole-token membership test in the awk below.
 completed=" "
 inprogress=" "
+
+# v2 parked map (select mode only; D-3, D-8, REQ-C1.2): a live reference bullet
+# whose bolded lead is `**Task <id>**` under a human-payload section parks its
+# task — never auto-picked (parked-ness is a human decision with no git-evidence
+# proxy). Out-of-scope-parked tasks are additionally chain-terminal, mirroring
+# the v1 `Out of scope` section semantics. Bullet task ids are validated against
+# the task-id grammar before any use; a violating id is rejected with a
+# sanitized stderr warning and never used (REQ-C1.9). A bullet naming a
+# non-existent task parks nothing (the validator owns that error). The sets are
+# space-padded id lists, same shape as completed/inprogress below.
+parked_any=" "
+parked_oos=" "
+if [ "$mode" = select ] && [ "$fv" = 2 ]; then
+  parked_map=$(awk '
+    function classof(sec) {
+      if (sec == "Awaiting input") return "awaiting-input"
+      if (sec == "Deferred") return "deferred"
+      if (sec == "Out of scope") return "out-of-scope"
+      return ""
+    }
+    /^## / { sec = substr($0, 4); sub(/[[:space:]\r]+$/, "", sec); next }
+    /^- \*\*Task / && classof(sec) != "" {
+      line = $0
+      sub(/^- \*\*Task /, "", line)
+      i = index(line, "**")
+      if (i == 0) next # no closing bold: not a reference bullet
+      id = substr(line, 1, i - 1)
+      if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
+        # tabs would corrupt the record split; fold before emitting
+        gsub(/\t/, " ", id)
+        print "rejected\t" id
+        next
+      }
+      if (id in seen) next
+      seen[id] = 1
+      print id "\t" classof(sec)
+      next
+    }
+  ' "$tasks_md")
+  while IFS="$TAB" read -r pm_id pm_class; do
+    [ -n "$pm_id" ] || continue
+    if [ "$pm_id" = rejected ]; then
+      echo "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_class" '(unprintable)')' violates the task-id grammar" >&2
+      continue
+    fi
+    parked_any="$parked_any$pm_id "
+    [ "$pm_class" = out-of-scope ] && parked_oos="$parked_oos$pm_id "
+  done <<EOF
+$parked_map
+EOF
+fi
+
 if [ "$mode" = select ]; then
   state_engine="$script_dir/orchestrate-state.sh"
   if [ ! -x "$state_engine" ]; then
@@ -127,6 +222,20 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="task" && $3=="completed"{print $2}' | tr '\n' ' ')"
   inprogress=" $(printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1=="task" && $3=="in-progress"{print $2}' | tr '\n' ' ')"
+  # Transient evidence failure on a v2 bundle (REQ-B1.5): the engine's
+  # `degraded` record (a configured remote whose gh query failed — detected by
+  # tag, never by message text) means the evidence is partial. A v2 bundle has
+  # no committed placement to cross-check, so selecting here could re-dispatch
+  # work whose only completion evidence sits behind the failed fetch: dispatch
+  # nothing, distinct exit. v1 keeps its documented degraded-but-proceed
+  # behavior (forwarded to stderr below) — v1 behavior unchanged.
+  if [ "$fv" = 2 ] \
+    && printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" { f = 1 } END { exit !f }'; then
+    dmsg=$(printf '%s\n' "$state_out" \
+      | awk -F"$TAB" '$1=="degraded" { print $3; exit }')
+    echo "orchestrate-select: transient evidence failure - $(sanitize_printable "$dmsg" '(no diagnostic from the engine)'); dispatching nothing (REQ-B1.5)" >&2
+    exit 3
+  fi
   # Surface the evidence-quality diagnostics on the success path so an operator
   # running selection by hand sees the pick stood on degraded or conflicting
   # evidence: `degraded` (a configured gh query failed, so the completed set is
@@ -139,7 +248,8 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
 fi
 
-awk -v mode="$mode" -v completed="$completed" -v inprogress="$inprogress" '
+awk -v mode="$mode" -v fv="$fv" -v completed="$completed" \
+  -v inprogress="$inprogress" -v parked="$parked_any" -v parked_oos="$parked_oos" '
   function weight(s) {
     # Effort string -> a numeric weight. "half day" is 0.5; otherwise the
     # leading number ("1", "1.5", "2", "3"); an unrecognized form is 1.
@@ -227,9 +337,10 @@ awk -v mode="$mode" -v completed="$completed" -v inprogress="$inprogress" '
       if (mode != "path") {
         # A task the derivation reports completed (live truth) carries no
         # remaining work, so it never lengthens the remaining critical path.
-        # Out of scope is a parked terminal section — a human decision that is
-        # not git-derivable, so it stays section-based.
-        terminal = (index(completed, " " t " ") > 0 || sec[t] == "Out of scope")
+        # Out of scope is a parked terminal state — a human decision that is
+        # not git-derivable: section-based on v1, bullet-based on v2 (D-3).
+        terminal = (index(completed, " " t " ") > 0 \
+          || (fv == 2 ? index(parked_oos, " " t " ") > 0 : sec[t] == "Out of scope"))
         if (terminal) continue
       }
       m = split(deps[t], a, " ")
@@ -273,9 +384,13 @@ awk -v mode="$mode" -v completed="$completed" -v inprogress="$inprogress" '
     for (t in sec) {
       # Only un-parked candidates: a task parked in Awaiting input / Deferred /
       # Out of scope (a human decision, not git-derivable) is never auto-picked.
-      # Because dispatch no longer moves sections (Task 3, branch-as-record), an
-      # in-flight task still sits in Forward plan here; live truth excludes it.
-      if (sec[t] != "Forward plan") continue
+      # v1 reads parked-ness as section membership (because dispatch no longer
+      # moves sections, an in-flight task still sits in Forward plan here; live
+      # truth excludes it). v2 has no placement sections: every block sits in
+      # ## Tasks and parked-ness is a live reference bullet (D-3, REQ-C1.2).
+      if (fv == 2) {
+        if (index(parked, " " t " ") > 0) continue
+      } else if (sec[t] != "Forward plan") continue
       # Already done or already in flight by live truth — never re-dispatch, even
       # when the committed snapshot has not yet caught up (D-3, REQ-B1.2).
       if (index(completed, " " t " ") > 0) continue

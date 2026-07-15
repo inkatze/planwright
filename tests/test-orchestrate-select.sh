@@ -118,6 +118,8 @@ d1spec=$(new_spec "$d1" chain)
 cat >"$d1spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — root
@@ -157,6 +159,8 @@ d2spec=$(new_spec "$d2" tie)
 cat >"$d2spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — root
@@ -190,6 +194,8 @@ d3="$tmp/r3"
 d3spec=$(new_spec "$d3" notready)
 cat >"$d3spec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -227,6 +233,8 @@ d4spec=$(new_spec "$d4" none)
 cat >"$d4spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 2 — in flight
@@ -254,7 +262,7 @@ rc=0
 [ "$rc" = 2 ] || fail "missing tasks.md: exit $rc, expected 2"
 d6="$tmp/r6"
 d6spec=$(new_spec "$d6" empty)
-printf '# tasks\n\n## Forward plan\n\n(none)\n' >"$d6spec/tasks.md"
+printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n(none)\n' >"$d6spec/tasks.md"
 seal_base "$d6"
 rc=0
 /bin/bash "$SEL" "$d6spec" >/dev/null 2>&1 || rc=$?
@@ -264,7 +272,7 @@ rc=0
 # a generic line), so an operator can see why selection refused.
 d6n="$tmp/nongit"
 mkdir -p "$d6n"
-printf '# tasks\n\n## Forward plan\n\n### Task 1 — x\n\n- **Dependencies:** none\n' >"$d6n/tasks.md"
+printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n### Task 1 — x\n\n- **Dependencies:** none\n' >"$d6n/tasks.md"
 rc=0
 errout=$(/bin/bash "$SEL" "$d6n" 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 2 ] || fail "non-git tasks.md: exit $rc, expected 2 (live truth needs git)"
@@ -279,6 +287,8 @@ d7="$tmp/r7"
 d7spec=$(new_spec "$d7" dotted)
 cat >"$d7spec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -305,6 +315,8 @@ d8spec=$(new_spec "$d8" nodeps)
 cat >"$d8spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — depless root
@@ -325,6 +337,8 @@ d9spec=$(new_spec "$d9" dangling)
 cat >"$d9spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 3 — depends on a non-existent task
@@ -344,6 +358,8 @@ d9b="$tmp/r9b"
 d9bspec=$(new_spec "$d9b" dangonly)
 cat >"$d9bspec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -372,6 +388,8 @@ dl1spec=$(new_spec "$dl1" stalecomplete)
 cat >"$dl1spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — done in git, snapshot not refreshed
@@ -396,6 +414,8 @@ dl2="$tmp/l2"
 dl2spec=$(new_spec "$dl2" inflightbranch)
 cat >"$dl2spec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -429,6 +449,8 @@ dl3="$tmp/l3"
 dl3spec=$(new_spec "$dl3" clean)
 cat >"$dl3spec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -500,7 +522,7 @@ rc=0
 [ "$rc" = 2 ] || fail "--critical-path missing tasks.md: exit $rc, expected 2"
 dcp="$tmp/cpempty"
 mkdir -p "$dcp"
-printf '# tasks\n\n## Forward plan\n\n(none)\n' >"$dcp/tasks.md"
+printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n(none)\n' >"$dcp/tasks.md"
 rc=0
 /bin/bash "$SEL" --critical-path "$dcp" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "--critical-path taskless tasks.md: exit $rc, expected 2"
@@ -540,7 +562,7 @@ parse_deps_assert() {
   pd_spec="pd$pd_n"
   pd_dir=$(new_spec "$pd_repo" "$pd_spec")
   {
-    printf '# tasks\n\n## Forward plan\n\n'
+    printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n'
     printf '### Task 50 — candidate under test\n\n'
     printf -- '- **Dependencies:** %s\n' "$pd_line"
     printf -- '- **Estimated effort:** 1 day\n\n'
@@ -669,6 +691,8 @@ dklspec=$(new_spec "$dkl" kickoffprose)
 cat >"$dklspec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — meta-spec root
@@ -742,6 +766,8 @@ ddotspec=$(new_spec "$ddot" dottedprose)
 cat >"$ddotspec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1.2 — fractional root a
@@ -771,6 +797,8 @@ ddotb="$tmp/dotb"
 ddotbspec=$(new_spec "$ddotb" dottedblk)
 cat >"$ddotbspec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -803,6 +831,8 @@ ddotcspec=$(new_spec "$ddotc" dottedint)
 cat >"$ddotcspec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 3.5 — fractional root
@@ -832,6 +862,8 @@ dwrap="$tmp/wrap"
 dwrapspec=$(new_spec "$dwrap" wrapsecond)
 cat >"$dwrapspec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -871,6 +903,8 @@ dwrapb="$tmp/wrapb"
 dwrapbspec=$(new_spec "$dwrapb" wrapfirst)
 cat >"$dwrapbspec/tasks.md" <<'EOF'
 # tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -912,6 +946,8 @@ ddegspec=$(new_spec "$ddeg" degradedspec)
 cat >"$ddegspec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — root
@@ -947,6 +983,8 @@ dwarnspec=$(new_spec "$dwarn" warnspec)
 cat >"$dwarnspec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 1 — root
@@ -969,5 +1007,337 @@ warn_out=$(/bin/bash "$SEL" "$dwarnspec" 2>"$warn_err") || warn_rc=$?
 grep -q "ignoring malformed stale_marker_threshold" "$warn_err" \
   || fail "stderr-passthrough: the engine's success-path warning must reach stderr (got: $(cat "$warn_err"))"
 echo "ok: engine success-path stderr warning passes through; stdout stays clean"
+
+# ---------------------------------------------------------------------------
+# Format-version 2 (invariant-tasks Task 5; D-8, D-3; REQ-C1.2, REQ-C1.8,
+# REQ-C1.9, REQ-B1.5): v2 candidacy is computed without committed placement —
+# completed / in-progress exclusion from the derivation engine, parked-ness
+# from live reference bullets in the human-payload sections. v1 behavior above
+# is unchanged.
+# ---------------------------------------------------------------------------
+
+# v2_tasks_md <path> — the shared v2 fixture skeleton: five tasks under a
+# single ## Tasks section (no placement sections), the three human-payload
+# sections empty. Task 1 is the root; 2/3/4/5 depend on it. Efforts make any
+# parked-task leak visible: 2/3/4 (3 days each) outweigh 5 (half day), so if a
+# bullet fails to exclude its task the selection flips away from 5.
+v2_tasks_md() {
+  cat >"$1" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 2 — parked awaiting input
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+
+### Task 3 — parked deferred
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+
+### Task 4 — parked out of scope
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+
+### Task 5 — the only un-parked candidate
+
+- **Dependencies:** 1
+- **Estimated effort:** half day
+
+## Awaiting input
+
+- **Task 2** blocked on a human decision.
+
+## Deferred
+
+- **Task 3** deferred behind a gate.
+
+## Out of scope
+
+- **Task 4** excluded by decision.
+EOF
+}
+
+# F1. REQ-C1.8 — a missing Format-version: line fails closed (exit 2) in both
+#     modes, before any derivation runs (a plain non-git dir suffices).
+dfv="$tmp/fvmissing"
+mkdir -p "$dfv"
+printf '# tasks\n\n## Forward plan\n\n### Task 1 — x\n\n- **Dependencies:** none\n' >"$dfv/tasks.md"
+rc=0
+fv_err=$(/bin/bash "$SEL" "$dfv" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "fv-missing select: exit $rc, expected 2 (fail closed)"
+case "$fv_err" in
+  *Format-version*) : ;;
+  *) fail "fv-missing select: diagnostic must name Format-version (got: $fv_err)" ;;
+esac
+rc=0
+/bin/bash "$SEL" --critical-path "$dfv" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "fv-missing --critical-path: exit $rc, expected 2 (fail closed)"
+echo "ok: a missing Format-version: fails closed in both modes (REQ-C1.8)"
+
+# F2. REQ-C1.8 — an unparseable Format-version: value fails closed too; the
+#     selector never falls open to either version's rules.
+dfv2="$tmp/fvbogus"
+mkdir -p "$dfv2"
+printf '# tasks\n\n**Format-version:** 3beta\n\n## Forward plan\n\n### Task 1 — x\n\n- **Dependencies:** none\n' >"$dfv2/tasks.md"
+rc=0
+/bin/bash "$SEL" "$dfv2" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "fv-bogus select: exit $rc, expected 2 (fail closed)"
+rc=0
+/bin/bash "$SEL" --critical-path "$dfv2" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "fv-bogus --critical-path: exit $rc, expected 2 (fail closed)"
+echo "ok: an unparseable Format-version: fails closed in both modes (REQ-C1.8)"
+
+# V1. REQ-C1.2 — parked-task exclusion, all three sections: with task 1
+#     completed, tasks 2/3/4 are ready by evidence but each is parked by a live
+#     reference bullet; only task 5 is dispatchable, despite its lower weight.
+dv1="$tmp/v2park"
+dv1spec=$(new_spec "$dv1" vtwo)
+v2_tasks_md "$dv1spec/tasks.md"
+seal_base "$dv1"
+done_trailer "$dv1" vtwo 1
+got=$(/bin/bash "$SEL" "$dv1spec") || fail "v2-parked fixture: non-zero exit ($?)"
+[ "$got" = 5 ] || fail "v2-parked: selected '$got', expected 5 (2/3/4 parked by bullets)"
+echo "ok: v2 reference bullets park their tasks in all three sections (REQ-C1.2)"
+
+# V2. REQ-C1.2 — equivalence with the v1 section model: the same states
+#     expressed as v1 section placement (task 2 in ## Awaiting input, 3 in
+#     ## Deferred, 4 in ## Out of scope) pick the same candidate.
+dv2="$tmp/v1twin"
+dv2spec=$(new_spec "$dv2" vonetwin)
+cat >"$dv2spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 5 — the only un-parked candidate
+
+- **Dependencies:** 1
+- **Estimated effort:** half day
+
+## Awaiting input
+
+### Task 2 — parked awaiting input
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+
+## Deferred
+
+### Task 3 — parked deferred
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+
+## Out of scope
+
+### Task 4 — parked out of scope
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+EOF
+seal_base "$dv2"
+done_trailer "$dv2" vonetwin 1
+got_v1=$(/bin/bash "$SEL" "$dv2spec") || fail "v1-twin fixture: non-zero exit ($?)"
+[ "$got_v1" = "5" ] || fail "v1-twin: selected '$got_v1', expected 5"
+[ "$got_v1" = "$got" ] || fail "v2/v1 equivalence: v2 picked '$got', v1 twin picked '$got_v1'"
+echo "ok: v2 selection matches the v1 section model in equivalent states (REQ-C1.2)"
+
+# V3. REQ-C1.2 — completed / in-progress exclusion comes from derivation
+#     evidence, not sections: on a v2 bundle (everything under ## Tasks, no
+#     bullets) a trailer-completed task is not re-selected and a marker-held
+#     task is not double-dispatched; the remaining ready task is picked.
+dv3="$tmp/v2live"
+dv3spec=$(new_spec "$dv3" vtwolive)
+cat >"$dv3spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — completed by trailer
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 2 — in flight by marker
+
+- **Dependencies:** 1
+- **Estimated effort:** 3 days
+
+### Task 3 — genuinely ready
+
+- **Dependencies:** 1
+- **Estimated effort:** half day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv3"
+done_trailer "$dv3" vtwolive 1
+inflight_marker "$dv3spec" 2
+got=$(/bin/bash "$SEL" "$dv3spec") || fail "v2-live fixture: non-zero exit ($?)"
+[ "$got" = 3 ] || fail "v2-live: selected '$got', expected 3 (1 completed, 2 in flight — derivation, no sections)"
+echo "ok: v2 completed/in-progress exclusion derives from evidence, not sections (REQ-C1.2)"
+
+# V4. Chain-weight terminality on v2: an out-of-scope-parked dependent never
+#     lengthens the remaining critical path (it is not future work), while a
+#     deferred-parked dependent still does — mirroring the v1 section
+#     semantics (only Out of scope and completed are terminal).
+v4_tasks_md() {
+  # $1 = file, $2 = the section parking task 3 (Deferred | Out of scope)
+  cat >"$1" <<EOF
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+### Task 2 — chain head (its weight rides on task 3)
+
+- **Dependencies:** 1
+- **Estimated effort:** half day
+
+### Task 3 — heavy dependent, parked
+
+- **Dependencies:** 2
+- **Estimated effort:** 3 days
+
+### Task 4 — leaf
+
+- **Dependencies:** 1
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+$([ "$2" = Deferred ] && printf -- '- **Task 3** deferred behind a gate.' || printf '(none yet)')
+
+## Out of scope
+
+$([ "$2" = "Out of scope" ] && printf -- '- **Task 3** excluded by decision.' || printf '(none yet)')
+EOF
+}
+dv4a="$tmp/v2oosweight"
+dv4aspec=$(new_spec "$dv4a" vtwooos)
+v4_tasks_md "$dv4aspec/tasks.md" "Out of scope"
+seal_base "$dv4a"
+done_trailer "$dv4a" vtwooos 1
+got=$(/bin/bash "$SEL" "$dv4aspec") || fail "v2-oos-weight fixture: non-zero exit ($?)"
+[ "$got" = 4 ] || fail "v2-oos-weight: selected '$got', expected 4 (task 3 out-of-scope-parked must not extend 2's chain)"
+dv4b="$tmp/v2defweight"
+dv4bspec=$(new_spec "$dv4b" vtwodef)
+v4_tasks_md "$dv4bspec/tasks.md" Deferred
+seal_base "$dv4b"
+done_trailer "$dv4b" vtwodef 1
+got=$(/bin/bash "$SEL" "$dv4bspec") || fail "v2-def-weight fixture: non-zero exit ($?)"
+[ "$got" = 2 ] || fail "v2-def-weight: selected '$got', expected 2 (a deferred-parked dependent still extends the chain)"
+echo "ok: v2 out-of-scope bullets are chain-terminal; deferred bullets are not (v1 parity)"
+
+# V5. REQ-B1.5 — transient evidence failure on a v2 bundle dispatches nothing:
+#     with a remote configured and gh failing, the selector exits 3 (distinct
+#     from 1 no-ready-unit and 2 malformed-input) with an empty stdout. The v1
+#     degraded path above (check 17) still selects git-only — v1 unchanged.
+dv5="$tmp/v2degraded"
+dv5spec=$(new_spec "$dv5" vtwodeg)
+cat >"$dv5spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — root
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv5"
+gitc "$dv5" remote add origin https://example.invalid/demo.git
+v5_err="$tmp/v2degraded.err"
+rc=0
+v5_out=$(PATH="$degstub:$PATH" /bin/bash "$SEL" "$dv5spec" 2>"$v5_err") || rc=$?
+[ "$rc" = 3 ] || fail "v2-degraded: exit $rc, expected 3 (transient evidence failure, dispatch nothing)"
+[ -z "$v5_out" ] || fail "v2-degraded: stdout must be empty (got '$v5_out')"
+grep -q 'transient evidence failure' "$v5_err" \
+  || fail "v2-degraded: stderr must name the transient failure (got: $(cat "$v5_err"))"
+echo "ok: v2 transient evidence failure exits 3 and dispatches nothing (REQ-B1.5)"
+
+# V6. REQ-C1.9 — a reference bullet whose task id violates the task-id grammar
+#     is rejected with a sanitized stderr warning and never used; a bullet
+#     naming a non-existent task parks nothing (the validator owns that error);
+#     selection proceeds on the valid state either way.
+dv6="$tmp/v2badbullet"
+dv6spec=$(new_spec "$dv6" vtwobad)
+{
+  printf '# tasks\n\n**Format-version:** 2\n\n## Tasks\n\n'
+  printf '### Task 1 — the only task\n\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Estimated effort:** 1 day\n\n'
+  printf '## Awaiting input\n\n'
+  # A grammar-violating bullet id carrying a raw ESC byte: rejected, sanitized.
+  printf -- '- **Task 9\033[31mx** hostile id, must be rejected.\n'
+  # A well-formed id naming a task that does not exist: parks nothing.
+  printf -- '- **Task 99** names no existing task.\n\n'
+  printf '## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$dv6spec/tasks.md"
+seal_base "$dv6"
+v6_err="$tmp/v2badbullet.err"
+rc=0
+v6_out=$(/bin/bash "$SEL" "$dv6spec" 2>"$v6_err") || rc=$?
+[ "$rc" = 0 ] || fail "v2-bad-bullet: exit $rc, expected 0 (stderr: $(cat "$v6_err"))"
+[ "$v6_out" = 1 ] || fail "v2-bad-bullet: selected '$v6_out', expected 1"
+grep -q 'violates the task-id grammar' "$v6_err" \
+  || fail "v2-bad-bullet: rejected bullet id must be surfaced on stderr (got: $(cat "$v6_err"))"
+LC_ALL=C grep '[^ -~]' "$v6_err" >/dev/null \
+  && fail "v2-bad-bullet: stderr carries non-printable bytes (unsanitized bullet id)"
+echo "ok: v2 grammar-violating bullet ids are rejected with a sanitized warning (REQ-C1.9)"
 
 echo "PASS: orchestrate-select"

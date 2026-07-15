@@ -115,7 +115,7 @@ make_failing_gh_stub() {
 # A ready task with dep 1: task 1 is a depless root completed via a trailer; the
 # forward task(s) depend on it and become ready once 1 is derived completed.
 two_task_body() {
-  printf '# tasks\n\n## Forward plan\n\n'
+  printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n'
   printf '### Task 1 — root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n\n'
   printf '### Task 2 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n'
 }
@@ -158,7 +158,7 @@ repoD=$(new_fleet "$tmp/D")
 dA=$(add_spec "$repoD" speca)
 dB=$(add_spec "$repoD" specb)
 {
-  printf '# tasks\n\n## Forward plan\n\n'
+  printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n'
   printf '### Task 1 — root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n\n'
   printf '### Task 2 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n\n'
   printf '### Task 3 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n'
@@ -220,14 +220,14 @@ repoB=$(new_fleet "$tmp/B")
 balpha=$(add_spec "$repoB" alpha)
 bbeta=$(add_spec "$repoB" beta)
 {
-  printf '# tasks\n\n## Forward plan\n\n'
+  printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n'
   printf '### Task 1 — root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n\n'
   printf '### Task 2 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n\n'
   printf '### Task 3 — dep on 1\n\n- **Dependencies:** 1\n- **Estimated effort:** half day\n'
 } >"$balpha/tasks.md"
 # beta carries only a (completed) task 1: no forward-ready unit, so alpha is the
 # sole ready spec and the per-spec cap is the only thing that can hold it.
-printf '# tasks\n\n## Forward plan\n\n### Task 1 — lone root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n' >"$bbeta/tasks.md"
+printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n### Task 1 — lone root\n\n- **Dependencies:** none\n- **Estimated effort:** half day\n' >"$bbeta/tasks.md"
 seal_base "$repoB"
 done_trailer "$repoB" alpha 1
 done_trailer "$repoB" beta 1
@@ -255,7 +255,7 @@ repoC=$(new_fleet "$tmp/C")
 calpha=$(add_spec "$repoC" alpha)
 cbeta=$(add_spec "$repoC" beta)
 for d in "$calpha" "$cbeta"; do
-  printf '# tasks\n\n## Forward plan\n\n### Task 2 — blocked on a phantom dep\n\n- **Dependencies:** 99\n- **Estimated effort:** 1 day\n' >"$d/tasks.md"
+  printf '# tasks\n\n**Format-version:** 1\n\n## Forward plan\n\n### Task 2 — blocked on a phantom dep\n\n- **Dependencies:** 99\n- **Estimated effort:** 1 day\n' >"$d/tasks.md"
 done
 seal_base "$repoC"
 set_bounds "$repoC" 5 3

@@ -98,6 +98,8 @@ printf '%s\n' '# Beta — Requirements' '' '**Status:** Done' \
 cat >"$root/alpha/tasks.md" <<'EOF'
 # Alpha — Tasks
 
+**Format-version:** 1
+
 ## Forward plan
 
 ### Task 3 — Future work
@@ -186,6 +188,8 @@ EOF
 # beta: a bundle with no gates at all.
 cat >"$root/beta/tasks.md" <<'EOF'
 # Beta — Tasks
+
+**Format-version:** 1
 
 ## Completed
 
@@ -392,7 +396,7 @@ if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$tmp/specs3/gamma"
   printf '%s\n' '# G' '' '**Status:** Active' \
     >"$tmp/specs3/gamma/requirements.md"
-  printf '%s\n' '# G — Tasks' >"$tmp/specs3/gamma/tasks.md"
+  printf '%s\n' '# G — Tasks' '' '**Format-version:** 1' >"$tmp/specs3/gamma/tasks.md"
   chmod 000 "$tmp/specs3/gamma/tasks.md"
   out3=$("$drain" --today 2026-06-12 "$tmp/specs3") \
     || fail "unreadable tasks.md must not abort the sweep"
@@ -407,7 +411,7 @@ if [ "$(id -u)" -ne 0 ]; then
   mkdir -p "$tmp/specs3/epsilon"
   printf '%s\n' '# E' '' '**Status:** Active' \
     >"$tmp/specs3/epsilon/requirements.md"
-  printf '%s\n' '# E — Tasks' >"$tmp/specs3/epsilon/tasks.md"
+  printf '%s\n' '# E — Tasks' '' '**Format-version:** 1' >"$tmp/specs3/epsilon/tasks.md"
   chmod 000 "$tmp/specs3/epsilon/requirements.md"
   out3b=$("$drain" --today 2026-06-12 "$tmp/specs3") \
     || fail "unreadable requirements.md must not abort the sweep"
@@ -427,7 +431,7 @@ fi
 #     over-length name each leave a note rather than vanishing.
 mkdir -p "$tmp/specs5/ok" "$tmp/specs5/Bad_Name" \
   "$tmp/specs5/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-printf '%s\n' '# Ok — Tasks' >"$tmp/specs5/ok/tasks.md"
+printf '%s\n' '# Ok — Tasks' '' '**Format-version:** 1' >"$tmp/specs5/ok/tasks.md"
 out5=$("$drain" --today 2026-06-12 "$tmp/specs5") \
   || fail "skipped-directory fixtures broke the sweep"
 printf '%s\n' "$out5" | grep -F 'non-conforming spec identifier' >/dev/null \
@@ -442,13 +446,13 @@ printf '%s\n' "$out5" | grep -F 'over-length spec identifier' >/dev/null \
 mkdir -p "$tmp/specs6/victim" "$tmp/specs6/zhostile"
 printf '%s\n' '# V' '' '**Status:** Active' \
   >"$tmp/specs6/victim/requirements.md"
-printf '%s\n' '# V — Tasks' '' '## Deferred' '' \
+printf '%s\n' '# V — Tasks' '' '**Format-version:** 1' '' '## Deferred' '' \
   '- **Forge target.** Satisfied only if victim reads as done.' \
   '  **Gate:** GATE(when: spec victim done). Citations: REQ-X.' \
   >"$tmp/specs6/victim/tasks.md"
 printf '%s\n' '# Z' '' '**Status:** active\tvictim=done' \
   >"$tmp/specs6/zhostile/requirements.md"
-printf '%s\n' '# Z — Tasks' >"$tmp/specs6/zhostile/tasks.md"
+printf '%s\n' '# Z — Tasks' '' '**Format-version:** 1' >"$tmp/specs6/zhostile/tasks.md"
 out6=$("$drain" --today 2026-06-12 "$tmp/specs6") \
   || fail "status-forgery fixture broke the sweep"
 printf '%s\n' "$out6" | grep '^SATISFIED' | grep -F 'Forge target' >/dev/null \
@@ -464,6 +468,8 @@ mkdir -p "$tmp/specs7/eta"
 printf '%s\n' '# H' '' '**Status:** Active' >"$tmp/specs7/eta/requirements.md"
 cat >"$tmp/specs7/eta/tasks.md" <<'EOF'
 # Eta — Tasks
+
+**Format-version:** 1
 
 ## Forward plan
 
@@ -493,7 +499,7 @@ printf '%s\n' "$out7" | grep '^MALFORMED' | grep -F 'Real reference' >/dev/null 
 mkdir -p "$tmp/specs8/theta"
 printf '%s\n' '# T' '' '**Status:** Active' \
   >"$tmp/specs8/theta/requirements.md"
-printf '%s\r\n' '# Theta — Tasks' '' '## Completed' '' \
+printf '%s\r\n' '# Theta — Tasks' '' '**Format-version:** 1' '' '## Completed' '' \
   '### Task 1 — Landed' '' '- **Done when:** done.' '' '## Deferred' '' \
   '- **Crlf entry.** Canonical layout, CRLF file.' \
   '  **Gate:** GATE(when: task 1 completed).' \
@@ -522,7 +528,7 @@ mkdir -p "$tmp/specs10/iota"
 printf '%s\n' '# I' '' '**Status:** Active' \
   >"$tmp/specs10/iota/requirements.md"
 {
-  printf '%s\n' '# Iota — Tasks' '' '## Completed' '' '### Task 1 — Done' \
+  printf '%s\n' '# Iota — Tasks' '' '**Format-version:** 1' '' '## Completed' '' '### Task 1 — Done' \
     '' '- **Done when:** done.' '' '## Deferred' ''
   printf -- '- **Hid\000den.** NUL before the marker. **Gate:** GATE(when: task 1 completed).\n'
 } >"$tmp/specs10/iota/tasks.md"
@@ -575,10 +581,10 @@ fi
 # 23. A bundle with no requirements.md at all: status atoms referencing it
 #     fail as unknown, and a note explains the missing status file.
 mkdir -p "$tmp/specs12/kappa" "$tmp/specs12/lam"
-printf '%s\n' '# K — Tasks' >"$tmp/specs12/kappa/tasks.md"
+printf '%s\n' '# K — Tasks' '' '**Format-version:** 1' >"$tmp/specs12/kappa/tasks.md"
 printf '%s\n' '# L' '' '**Status:** Active' \
   >"$tmp/specs12/lam/requirements.md"
-printf '%s\n' '# L — Tasks' '' '## Deferred' '' \
+printf '%s\n' '# L — Tasks' '' '**Format-version:** 1' '' '## Deferred' '' \
   '- **Needs kappa.** Blocks on a spec with no requirements.md.' \
   '  **Gate:** GATE(when: spec kappa done). Citations: REQ-X.' \
   >"$tmp/specs12/lam/tasks.md"
@@ -825,5 +831,170 @@ if [ "$(id -u)" -ne 0 ]; then
   printf '%s\n' "$out30" | grep -F '2020-01-01' >/dev/null \
     && fail "the sweep read the store through a symlinked entries/ directory"
 fi
+
+# ---------------------------------------------------------------------------
+# 35–38. Format-version 2 (invariant-tasks Task 5; D-8, D-3; REQ-C1.3,
+# REQ-B1.4, REQ-B1.5, REQ-C1.8, REQ-C1.9): task-completion atoms resolve
+# through the derivation engine, not `## Completed` membership. v2 fixtures are
+# real git repos with trailer evidence (the engine needs a work tree).
+# ---------------------------------------------------------------------------
+
+# git with a deterministic, signing-free identity (mirrors the engine test).
+gitc() {
+  _gr="$1"
+  shift
+  git -C "$_gr" -c user.name=test -c user.email=test@example.invalid \
+    -c commit.gpgsign=false -c init.defaultBranch=main "$@"
+}
+
+# 35. REQ-C1.3 — on a v2 bundle with NO ## Completed section, a task-completion
+#     atom resolves met from merged evidence (a reachable Planwright-Task
+#     trailer) and unmet for a task with no evidence.
+v2r="$tmp/v2repo"
+mkdir -p "$v2r/specs/omega"
+git -C "$v2r" -c init.defaultBranch=main init -q
+printf '%s\n' '# Omega' '' '**Status:** Ready' \
+  >"$v2r/specs/omega/requirements.md"
+cat >"$v2r/specs/omega/tasks.md" <<'EOF'
+# Omega — Tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — landed work
+
+- **Done when:** done.
+
+### Task 2 — future work
+
+- **Done when:** later.
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+- **Landed dep.** Its dependency merged.
+  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.
+- **Waiting dep.** Blocks on unfinished work.
+  **Gate:** GATE(when: task 2 completed). Citations: REQ-X.
+
+## Out of scope
+
+(none yet)
+EOF
+gitc "$v2r" add -A
+gitc "$v2r" commit -q -m "base: v2 bundle"
+gitc "$v2r" commit -q --allow-empty -m "task 1 done" -m "Planwright-Task: omega/1"
+outv2=$("$drain" --today 2026-07-15 "$v2r/specs") \
+  || fail "v2 fixture broke the sweep"
+printf '%s\n' "$outv2" | grep '^SATISFIED' | grep -F 'Landed dep' >/dev/null \
+  || fail "v2 task-completion atom not resolved via the derivation engine: $(printf '%s\n' "$outv2" | grep -F 'Landed dep')"
+printf '%s\n' "$outv2" | grep '^PENDING' | grep -F 'Waiting dep' >/dev/null \
+  || fail "v2 evidence-less task atom must stay PENDING"
+echo "ok: v2 completion atoms resolve through the derivation engine (REQ-C1.3)"
+
+# 36. REQ-B1.4 + REQ-C1.9 — a live reference bullet outranks git evidence (a
+#     parked task never resolves completed), and a bullet whose task id
+#     violates the grammar is rejected with a note, never used.
+v2p="$tmp/v2parked"
+mkdir -p "$v2p/specs/sigma"
+git -C "$v2p" -c init.defaultBranch=main init -q
+printf '%s\n' '# Sigma' '' '**Status:** Ready' \
+  >"$v2p/specs/sigma/requirements.md"
+{
+  cat <<'EOF'
+# Sigma — Tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — merged but re-parked
+
+- **Done when:** done.
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+- **Task 1** parked for a rethink despite the merge.
+- **Parked dep.** Bullet authority: task 1 must not resolve completed.
+  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.
+
+## Out of scope
+
+EOF
+  # A grammar-violating bullet id (raw ESC byte embedded): rejected, sanitized.
+  printf -- '- **Task 9\033[31mx** hostile bullet id.\n'
+} >"$v2p/specs/sigma/tasks.md"
+gitc "$v2p" add -A
+gitc "$v2p" commit -q -m "base: v2 parked bundle"
+gitc "$v2p" commit -q --allow-empty -m "task 1 done" -m "Planwright-Task: sigma/1"
+outv2p=$("$drain" --today 2026-07-15 "$v2p/specs") \
+  || fail "v2 parked fixture broke the sweep"
+printf '%s\n' "$outv2p" | grep '^SATISFIED' | grep -F 'Parked dep' >/dev/null \
+  && fail "bullet authority violated: a parked task resolved completed"
+printf '%s\n' "$outv2p" | grep '^PENDING' | grep -F 'Parked dep' >/dev/null \
+  || fail "the parked-task gate must stay PENDING (bullet authority, REQ-B1.4)"
+printf '%s\n' "$outv2p" | grep -F 'reference bullet rejected' >/dev/null \
+  || fail "grammar-violating bullet id not surfaced as rejected (REQ-C1.9)"
+printf '%s' "$outv2p" | tr -d '\012' | LC_ALL=C grep '[^ -~]' >/dev/null \
+  && fail "hostile bullet id leaked non-printable bytes into the report"
+echo "ok: v2 bullet authority holds and hostile bullet ids are rejected (REQ-B1.4, REQ-C1.9)"
+
+# 37. REQ-B1.5 — transient evidence failure on a v2 bundle: with a remote
+#     configured and gh failing, task-completion atoms resolve as UNRESOLVED
+#     (never satisfied from partial evidence), the failure is surfaced and
+#     counted, and the sweep still completes with exit 0.
+ghstub="$tmp/ghstub"
+mkdir -p "$ghstub"
+printf '#!/bin/sh\necho "gh: simulated failure" >&2\nexit 1\n' >"$ghstub/gh"
+chmod +x "$ghstub/gh"
+gitc "$v2r" remote add origin https://example.invalid/demo.git
+outv2d=$(PATH="$ghstub:$PATH" "$drain" --today 2026-07-15 "$v2r/specs") \
+  || fail "v2 failing-remote sweep must still exit 0"
+gitc "$v2r" remote remove origin
+printf '%s\n' "$outv2d" | grep -F 'transient evidence failure' >/dev/null \
+  || fail "v2 transient evidence failure not surfaced (REQ-B1.5)"
+printf '%s\n' "$outv2d" | grep '^SATISFIED' | grep -F 'Landed dep' >/dev/null \
+  && fail "partial evidence presented as status: a task atom resolved met during a transient failure"
+printf '%s\n' "$outv2d" | grep -F 'unresolved' >/dev/null \
+  || fail "v2 task atoms must be marked unresolved during a transient failure"
+printf '%s\n' "$outv2d" | grep -F 'errors: 0' >/dev/null \
+  && fail "a transient evidence failure must be counted in the errors tally"
+echo "ok: v2 transient evidence failure leaves completion atoms unresolved (REQ-B1.5)"
+
+# 38. REQ-C1.8 — a missing or unparseable Format-version: line fails closed
+#     per spec: the error is reported, no gate row is produced for that spec
+#     (never evaluated under guessed rules), and the sweep completes.
+mkdir -p "$tmp/specs31/nofv" "$tmp/specs31/badfv"
+printf '%s\n' '# N' '' '**Status:** Active' >"$tmp/specs31/nofv/requirements.md"
+printf '%s\n' '# N — Tasks' '' '## Completed' '' '### Task 1 — Done' '' \
+  '- **Done when:** done.' '' '## Deferred' '' \
+  '- **Fv gap.** Must not be evaluated without a parsed version.' \
+  '  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.' \
+  >"$tmp/specs31/nofv/tasks.md"
+printf '%s\n' '# B' '' '**Status:** Active' >"$tmp/specs31/badfv/requirements.md"
+printf '%s\n' '# B — Tasks' '' '**Format-version:** 3beta' '' '## Completed' '' \
+  '### Task 1 — Done' '' '- **Done when:** done.' '' '## Deferred' '' \
+  '- **Fv bogus.** Must not be evaluated under guessed rules.' \
+  '  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.' \
+  >"$tmp/specs31/badfv/tasks.md"
+out31=$("$drain" --today 2026-07-15 "$tmp/specs31") \
+  || fail "Format-version fixtures broke the sweep"
+printf '%s\n' "$out31" | grep -F 'Format-version' >/dev/null \
+  || fail "missing/unparseable Format-version not surfaced (REQ-C1.8)"
+printf '%s\n' "$out31" | grep -F 'Fv gap' >/dev/null \
+  && fail "a gate was evaluated in a bundle with no Format-version (fell open)"
+printf '%s\n' "$out31" | grep -F 'Fv bogus' >/dev/null \
+  && fail "a gate was evaluated under an unparseable Format-version (fell open)"
+printf '%s\n' "$out31" | grep -F 'errors: 2' >/dev/null \
+  || fail "Format-version fail-closed errors not counted (expected errors: 2)"
+echo "ok: a missing/unparseable Format-version fails closed per spec (REQ-C1.8)"
 
 echo "PASS: test-drain-gates.sh"
