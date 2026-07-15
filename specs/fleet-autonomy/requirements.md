@@ -282,6 +282,14 @@ mature precedent this spec can simply defer to wholesale.
   automatic nudging. Cleanup, restart, and throttle remain as the three real daemon-action types
   throughout; REQ-A1.3's and D-2's own "SHALL NOT be resolved by an automatic nudge" language
   stays, since it explains a rejected alternative rather than asserting a shipped mechanism.
+- 2026-07-15 — Post-PR CI fix: `design.md`'s pre-existing origin-tag legend had a placeholder
+  split across two code spans, leaving part of it bare and tripping markdownlint's
+  `MD033/no-inline-html` rule (the bare part read as an HTML-like tag). Fixed by widening the code
+  span to cover the whole placeholder in one span, matching the safe pattern already used in
+  `kickoff-lifecycle/design.md`.
+  Pre-existing from the original draft, not introduced by the kickoff walkthrough; caught by CI
+  after the PR was opened, not by the sign-off lens pass (which reviews doctrine/content, not
+  markdownlint rules).
 
 ## Sources
 

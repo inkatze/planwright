@@ -4,7 +4,7 @@
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
-Origin-tag legend: **N** — new to this bundle. **C, `<spec>` D-<n>** — carried: this bundle
+Origin-tag legend: **N** — new to this bundle. **C, `<spec> D-<n>`** — carried: this bundle
 reuses an existing decision from the named sibling spec rather than inventing a parallel one.
 
 ## Decision log

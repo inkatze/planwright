@@ -413,7 +413,7 @@ question, no undispositioned finding.
 
 Class: meaning
 Lens-pass: recorded above (this section), findings dispositioned 2026-07-14.
-Anchor: `18b5f6a35c07e0124df65fdad8e41c3cd9b4f8cf` — computed as
+Anchor: `ab8a99987ec6145f6c134da8130347bdd73e5a56` — computed as
 `scripts/spec-anchor.sh specs/fleet-autonomy`
 
 ## 9. Amendment log
