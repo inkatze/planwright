@@ -313,23 +313,16 @@ revert per item). The summary lists them; the checklist is authoritative.
 
 An `/execute-task` body follows; a `/self-review` body has the same shape,
 with the lens-coverage table and pass summary added inside the collapsed
-record and no kickoff-brief or task-graph inputs in the summary.
-
-The example summary below describes the completion-annotation stamp, which is a
-**format-version 1** behavior: the reconcile writes the
-`Completed · PR #<n> merged <YYYY-MM-DD>` annotation into the committed
-`tasks.md`. A **format-version 2** bundle commits no such annotation — completion
-is derived render content produced by the derivation engine at read time, so
-there is no stamp write to describe in a v2 task's PR body. The version-keyed
-scope and the render-as-read-surface rule live in the v2 definition in
-[`spec-format.md`](spec-format.md).
+record and no kickoff-brief or task-graph inputs in the summary. Its completion
+stamp is **format-version 1**; a v2 bundle stamps none — completion is derived,
+per [`spec-format.md`](spec-format.md).
 
 ```markdown
 ## Summary
 
-Stamps the organic completion annotation from the level-triggered reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>` in the same write that places it in `## Completed`, with honest no-remote degradation to a date-only form or no stamp. This closes the unowned-refresh gap the REQ-E1 group names.
+Stamps the completion annotation from the reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>` in `## Completed`, degrading to a date-only form or no stamp with no remote. Closes the unowned-refresh gap REQ-E1 names.
 
-**How to review:** start with `scripts/tasks-pr-sync.sh` (the stamp write) and its new fixtures under `tests/`; the normative annotation format lives in `doctrine/spec-format.md`.
+**How to review:** start with `scripts/tasks-pr-sync.sh` and its `tests/` fixtures; the normative format lives in `doctrine/spec-format.md`.
 
 - **Tasks:** output-hygiene/7
 - **REQs:** REQ-E1.1, REQ-E1.2
