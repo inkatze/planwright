@@ -426,6 +426,25 @@ else
   echo "ok: unparseable-version diagnostic is sanitized (REQ-C1.9)"
 fi
 
+# 13h. The sanitizer covers the C1 range too (REQ-C1.9 via sanitize_printable
+# semantics, scripts/echo-safety.sh): a raw C1 byte — notably CSI (0x9B), the
+# single-byte ESC-[ equivalent — drives the terminal exactly like a C0 escape,
+# so it must be stripped from the echoed declared value, not just C0 + DEL.
+{
+  printf '# Example — Tasks\n\n**Status:** Active\n'
+  printf '**Format-version:** 2\233[31mx\n\n'
+  printf '## Tasks\n\n### Task 1 — Alpha\n\n'
+  block_body
+} >"$tmp/c1ver.md"
+run "$tmp/c1ver.md"
+assert_exit "C1-byte Format-version fails closed" 1 "$code"
+if printf '%s' "$out" | LC_ALL=C grep -q "$(printf '\233')"; then
+  echo "FAIL: raw C1 byte (0x9B CSI) leaked into the unparseable-version diagnostic" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: C1 control byte stripped from the unparseable-version diagnostic (REQ-C1.9)"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures test(s) failed" >&2
   exit 1

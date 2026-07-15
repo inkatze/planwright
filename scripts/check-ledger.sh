@@ -90,13 +90,15 @@ for f in "${files[@]}"; do
   # cannot be selected, so the file is reported rather than silently checked
   # under either version's rules. Echo discipline (REQ-C1.9): the declared
   # value is untrusted file content — control bytes are stripped before it
-  # reaches the diagnostic.
+  # reaches the diagnostic, C0 + DEL + the C1 range alike (the
+  # sanitize_printable posture, scripts/echo-safety.sh: a raw C1 byte such as
+  # CSI 0x9B drives the terminal exactly like ESC-[).
   fver=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$f")
   case "$fver" in
     1 | 2) ;;
     *)
       printf '%s:1: missing or unparseable Format-version (%s): ledger rules cannot be selected (fail closed; REQ-C1.8)\n' \
-        "$f" "$(printf '%s' "$fver" | tr -d '\000-\037\177')"
+        "$f" "$(printf '%s' "$fver" | tr -d '\000-\037\177\200-\237')"
       [ "$status" -eq 2 ] || status=1
       continue
       ;;
