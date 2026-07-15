@@ -160,7 +160,31 @@ case "$1" in
     exit 0
     ;;
   api)
-    # The only `gh api` call is the statusCheckRollup GraphQL query. Build a
+    # Two distinct `gh api` calls: the statusCheckRollup GraphQL query
+    # ($2=graphql) and the relabel step's commit-to-PR lookup ($2 matches
+    # .../commits/<sha>/pulls, $4 carries the real `-q` filter). The latter is
+    # modeled as a synthetic PR list piped through the real filter — GH_PR_JSON
+    # supplies the list directly (multiple PRs / labels); GH_PR_NUMBER is the
+    # single-PR-no-labels shorthand used by the older fixtures. Unset/empty
+    # means no PR found, mirroring gh's real `-q` yielding "null" on `[]`.
+    case "$2" in
+      *"/pulls")
+        # GH_API_PULLS_FAIL=1 models the query itself failing (network/auth/
+        # rate-limit) — distinct from a genuine empty result — so the
+        # caller's query-failure-vs-absence distinction is testable.
+        if [ "${GH_API_PULLS_FAIL:-0}" = 1 ]; then
+          echo "gh: error connecting to api.github.com" >&2
+          exit 1
+        fi
+        pulls_json="${GH_PR_JSON:-}"
+        if [ -z "$pulls_json" ] && [ -n "${GH_PR_NUMBER:-}" ]; then
+          pulls_json="[{\"number\": $GH_PR_NUMBER, \"labels\": []}]"
+        fi
+        printf '%s' "${pulls_json:-[]}" | jq -r "$4"
+        exit 0
+        ;;
+    esac
+    # The statusCheckRollup GraphQL query. Build a
     # rollup with per-check `contexts` (plus an accurate top-level `state`).
     # GH_CI drives the `ci` quality CheckRun (green|red|pending|neutral|none);
     # GH_WINDOW_LOCK (red|green), when set, adds a `window-lock` CheckRun;
@@ -205,6 +229,20 @@ case "$1" in
     else
       printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":%s},"nodes":[%s]}}}}}}\n' "$st" "${GH_HASNEXTPAGE:-false}" "$nodes"
     fi
+    exit 0
+    ;;
+  label)
+    # `label list --search ...`: the relabel step's create-if-missing probe.
+    # GH_LABEL_TAGGED_EXISTS=1 models the label already being present; unset/0
+    # prints nothing (grep -qxF then finds no match), driving the create path.
+    [ "$2" = "list" ] && [ "${GH_LABEL_TAGGED_EXISTS:-0}" = 1 ] && printf 'autorelease: tagged\n'
+    exit 0
+    ;;
+  pr)
+    # `pr edit <number> --add-label ... --remove-label ...`: the relabel
+    # step's actual mutation. GH_PR_EDIT_FAIL=1 models a failed relabel (e.g.
+    # permissions/network) so the caller's non-fatal degrade path is testable.
+    [ "${GH_PR_EDIT_FAIL:-0}" = 1 ] && exit 1
     exit 0
     ;;
 esac
@@ -296,6 +334,7 @@ TAGGED=$(git -C "$r" rev-parse "v0.2.0^{commit}" 2>/dev/null || echo none)
 assert_eq "race: tag lands on the release-merge SHA, not HEAD" "$TAGGED" "$MERGE_SHA"
 assert_ne "race: HEAD is past the merge (the race is real)" "$MERGE_SHA" "$(git -C "$r" rev-parse HEAD)"
 want "race: CI gate queried GitHub for the release-merge SHA, not HEAD" gh_called "$LOG" "sha=$MERGE_SHA"
+want "race: relabel looked up the PR at the release-merge SHA, not HEAD" gh_called "$LOG" "commits/$MERGE_SHA/pulls"
 
 # ===========================================================================
 # 4. Safety gates each refuse WITHOUT side effects (REQ-D1.3).
@@ -859,6 +898,95 @@ OUT=$(cd "$r" && env PATH="$stub:$PATH" GH_LOG="$LOG" GH_NOTES="$NOTES" \
   scripts/release-publish.sh 2>/dev/null) || RC=$?
 assert_eq "cdpath: publish still succeeds under a hostile CDPATH" "$RC" "0"
 want "cdpath: tag created under a hostile CDPATH" local_has_tag "$r" v0.1.0
+
+# ===========================================================================
+# 10. Relabel the merged release PR after publish (issue #173): release-please
+#     tracks release state via the `autorelease: pending`/`autorelease: tagged`
+#     label independently of the tag/window tracker, so a publish that never
+#     flips it deadlocks release-please's own "untagged, merged release PRs
+#     outstanding" guard on every subsequent run. Best-effort: never fatal.
+# ===========================================================================
+
+# 10a. Happy path: the release PR is found and the target label doesn't exist
+#      yet (create-if-missing) — both the label create and the pr relabel run.
+r="$tmp/relabel-happy"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_PR_NUMBER=42 GH_LABEL_TAGGED_EXISTS=0
+assert_eq "relabel/happy: exit 0" "$RC" "0"
+want "relabel/happy: the missing 'autorelease: tagged' label is created" \
+  gh_called "$LOG" "label create autorelease: tagged"
+want "relabel/happy: the release PR is relabeled pending -> tagged" \
+  gh_called "$LOG" "pr edit 42 --add-label autorelease: tagged --remove-label autorelease: pending"
+
+# 10b. The label already exists: no redundant `label create`, but the PR is
+#      still relabeled.
+r="$tmp/relabel-label-exists"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_PR_NUMBER=7 GH_LABEL_TAGGED_EXISTS=1
+assert_eq "relabel/label-exists: exit 0" "$RC" "0"
+deny "relabel/label-exists: no redundant label create when it already exists" \
+  gh_called "$LOG" "label create"
+want "relabel/label-exists: the release PR is still relabeled" gh_called "$LOG" "pr edit 7"
+
+# 10c. No PR found for the release commit: degrades to a stderr warning, never
+#      fails the publish (the tag + Release are already the real output).
+r="$tmp/relabel-no-pr"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_eq "relabel/no-pr: exit 0 (non-fatal)" "$RC" "0"
+assert_contains "relabel/no-pr: warns that no PR was found for the release commit" \
+  "$ERR" "no pull request found"
+deny "relabel/no-pr: no pr edit attempted" gh_called "$LOG" "pr edit"
+want "relabel/no-pr: the Release was still created" gh_called "$LOG" "release create"
+
+# 10d. The commit-to-PR lookup itself fails (network/auth/rate-limit) rather
+#      than genuinely finding no PR: the warning must say the query failed,
+#      not claim no PR exists for the commit — a real "no PR" reads as an
+#      unusual release-process state, while a query failure just means retry.
+r="$tmp/relabel-api-fail"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_API_PULLS_FAIL=1
+assert_eq "relabel/api-fail: exit 0 (non-fatal)" "$RC" "0"
+assert_contains "relabel/api-fail: warns that the query failed, not that no PR exists" \
+  "$ERR" "could not query"
+case "$ERR" in
+  *"no pull request found"*) bad "relabel/api-fail: warning wrongly claims no PR was found" ;;
+  *) pass "relabel/api-fail: warning does not conflate query failure with no PR found" ;;
+esac
+deny "relabel/api-fail: no pr edit attempted" gh_called "$LOG" "pr edit"
+want "relabel/api-fail: the Release was still created" gh_called "$LOG" "release create"
+
+# 10e. The PR is found but relabeling itself fails (permissions/network):
+#      degrades to a stderr warning naming the PR and the manual fix, never
+#      fails the publish.
+r="$tmp/relabel-edit-fail"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_PR_NUMBER=9 GH_PR_EDIT_FAIL=1
+assert_eq "relabel/edit-fail: exit 0 (best-effort, never fatal)" "$RC" "0"
+assert_contains "relabel/edit-fail: names the PR and warns to relabel manually" \
+  "$ERR" "PR #9"
+assert_contains "relabel/edit-fail: warns to relabel manually so release-please does not deadlock" \
+  "$ERR" "relabel it manually"
+want "relabel/edit-fail: the Release was still created" gh_called "$LOG" "release create"
+
+# 10f. The commit-to-PR lookup returns more than one PR for the release
+#      commit (a backport or superseded branch can share it): the one still
+#      carrying 'autorelease: pending' is relabeled, not just the first entry.
+r="$tmp/relabel-multi-pr"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_LABEL_TAGGED_EXISTS=0 \
+  GH_PR_JSON='[{"number":11,"labels":[{"name":"backport"}]},{"number":22,"labels":[{"name":"autorelease: pending"}]}]'
+assert_eq "relabel/multi-pr: exit 0" "$RC" "0"
+want "relabel/multi-pr: the PR still carrying autorelease: pending is relabeled" \
+  gh_called "$LOG" "pr edit 22 --add-label autorelease: tagged --remove-label autorelease: pending"
+deny "relabel/multi-pr: the first-listed PR without the pending label is left alone" \
+  gh_called "$LOG" "pr edit 11"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
