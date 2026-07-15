@@ -211,3 +211,41 @@ gating law (the safety floor, REQ-C1.2).
 
 The verbatim-in-meaning move and the "no gating law deferred" check are the
 `[manual]` review on the Task 7.5 PR (REQ-D1.1, REQ-C1.2).
+
+## Task 7.5 outcome (2026-07-15): residual start-load offenders dieted
+
+Executed as pure manifest reclassification — no law moved between files, so
+the verbatim-in-meaning surface is the reclassified reading model itself
+(each deferred doc is read in full at its named step; no content changed).
+
+- **`/spec-draft`** — reclassified run-start → point-of-use:
+  `engineering-decisions` (1,027; the design phase) and
+  `customization-boundary` (1,129; the design-phase capability-vs-style
+  call), per the plan above, plus `autopilot-reflex` (988; the altitude
+  gate, Design step 3) — the plan's named residual, taken because the
+  trigger summaries the earlier steps need were already stated inline (the
+  seed-claim examples at Seed gathering, the phase re-anchor rule in
+  Elicitation, the mid-flow signal list at Design step 3), so only the full
+  law defers; the body sheds nothing. Explicit resolve-and-read directives
+  were added at each site. Start-load 12,735 → **9,686** (error 10,000;
+  warn stands); closure 14,650 → 14,745 (ok).
+- **`/spec-kickoff`** — reclassified run-start → point-of-use, per the
+  Task 7 disposition's carry: the three non-gating lens-pass reads
+  `discovery-rigor` (706), `autopilot-reflex` (988), and `validation-rigor`
+  (1,166), all read at Sign-off step 1, the one step that applies them (the
+  existing `per <doc>` site citations there are the reading sites; nothing
+  before that step acts on them). `spec-format` (gating law, REQ-C1.2),
+  `security-posture`, and `interaction-style` stay run-start. Start-load
+  12,707 → **9,851** (error 10,000; warn stands); body 4,241 → 4,245 (floor
+  4,250) after the Doctrine-section restructure; closure 14,622 → 14,626
+  (ok).
+
+Both transitional start-load allowances removed from
+`config/instruction-budget-exemptions.txt`; the guard passes with the
+permanent spec-format exemption as the only remaining entry, and the
+corpus-state assertions in `tests/test-check-instructions.sh` now pin the
+post-diet expectation (no `pending-diet` anywhere in the audit, no
+start-load rows on the shortlist). No gating law was deferred: every
+reclassified doc's action-gating rules were already inline at their steps,
+and the safety floor's test (could the skill act against the rule before
+reading it?) fails for none of the six moves.
