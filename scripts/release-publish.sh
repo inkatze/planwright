@@ -26,6 +26,12 @@
 #   4. Push the tag, then create the GitHub Release from the version's
 #      CHANGELOG.md section, attached to the pushed tag (`gh release create
 #      --verify-tag`), never a tag `gh` creates itself (REQ-D1.7).
+#   5. Relabel the merged release PR at the release SHA from `autorelease:
+#      pending` to `autorelease: tagged` (create-if-missing), so release-
+#      please's own label tracking stays in sync with the tag/window tracker
+#      above and it never deadlocks on a stale `pending` label (issue #173).
+#      Best-effort: a failure here degrades to a stderr warning, never a
+#      refusal — the tag and Release are already the ceremony's real output.
 #
 # Security posture (doctrine/security-posture.md, framework-script rules):
 # version strings are validated against the SemVer grammar before any use in a
@@ -408,6 +414,47 @@ fi
 if ! gh release create "$tag" --verify-tag --title "$tag" --notes-file "$notes_file"; then
   die "GitHub Release creation failed for $tag (the tag is pushed; re-run to resume)"
 fi
+
+# --- Relabel the merged release PR (issue #173) ------------------------------
+
+# release-please tracks release state independently of the tag/window lock
+# above: it reads the `autorelease: pending` / `autorelease: tagged` label on
+# the release PR it maintains. The tag is now published, but nothing else in
+# this script ever touches that label — left alone, the merged PR stays
+# `autorelease: pending` forever, and release-please's own
+# "untagged, merged release PRs outstanding" guard aborts every future run.
+# This is best-effort and NEVER fatal: the tag and Release above are the
+# ceremony's real output and are already done, so a relabel failure degrades
+# to a stderr warning naming the manual fix, not a die().
+relabel_release_pr() {
+  local nwo owner repo pr_number tagged_label
+  tagged_label="autorelease: tagged"
+  nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || {
+    echo "release-publish: relabel: could not resolve the repository (gh repo view failed); relabel the merged release PR to '$tagged_label' manually" >&2
+    return
+  }
+  owner=${nwo%%/*}
+  repo=${nwo#*/}
+  # The commit-to-PR association GitHub tracks regardless of merge strategy
+  # (merge commit or squash), keyed off the release SHA — the same commit the
+  # tag was just created on.
+  pr_number=$(gh api "repos/$owner/$repo/commits/$release_sha/pulls" -q '.[0].number' 2>/dev/null)
+  if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
+    echo "release-publish: relabel: no pull request found for the release commit $release_sha; if a release PR merged here, relabel it to '$tagged_label' manually" >&2
+    return
+  fi
+  # Create-if-missing: release-please creates 'autorelease: pending' itself but
+  # never 'autorelease: tagged', so a repo publishing for the first time won't
+  # have it yet.
+  if ! gh label list --search "$tagged_label" --json name -q '.[].name' 2>/dev/null | grep -qxF "$tagged_label"; then
+    gh label create "$tagged_label" --color "0e8a16" \
+      --description "release-please: the merged release PR has been tagged/published" >/dev/null 2>&1
+  fi
+  if ! gh pr edit "$pr_number" --add-label "$tagged_label" --remove-label "autorelease: pending" >/dev/null 2>&1; then
+    echo "release-publish: relabel: could not relabel PR #$pr_number ('autorelease: pending' -> '$tagged_label'); relabel it manually so release-please does not deadlock on the next run" >&2
+  fi
+}
+relabel_release_pr
 
 if [ "$resume" -eq 1 ]; then
   echo "release-publish: resumed — created the GitHub Release for the already-pushed $tag"
