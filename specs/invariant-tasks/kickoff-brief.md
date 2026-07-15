@@ -391,3 +391,40 @@ Lens-pass: the panel pass plus this session's three-pass validation,
 recorded above; findings dispositioned by the human 2026-07-14.
 Anchor: `b4d0819fcf23112545bff18d42bdce24f234ce73` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
+
+### Amendment 3 — expression-only self-re-anchor (2026-07-15, PR #187 ledger reconcile)
+
+Machine-written entry per REQ-F1.10's expression-only lane (the one anchor
+entry an execution skill may write).
+
+**Trigger:** the ledger reconcile `chore(spec): reconcile invariant-tasks
+ledger to merged reality` (PR #187, commit `035b858`) flipped
+`**Status:** Ready` → `**Status:** Active` on all four bundle files (Task 1
+merged via PR #181 on 2026-07-15; Tasks 2/3 dispatched with work in flight)
+and moved the Task 1 block from `## Forward plan` to `## Completed` with
+the canonical v1 completion annotation. No requirement, design decision,
+task definition, or test semantics changed (REQ-A3.3 expression-only):
+lifecycle status and section placement only.
+
+**Why the anchor moved:** solely the known Status-header gap —
+`scripts/spec-anchor.sh` hashes requirements.md, design.md, and
+test-spec.md whole, so the `**Status:**` header rides in the anchor (the
+documented, human-deferred exclusion; see the 2026-06-29
+anchor-blocker(kickoff-lifecycle) entry in
+`specs/_observations/opportunities.md`). Verified by isolation: the
+pre-#187 tree recomputes to Amendment 2's `b4d0819f…` exactly (nothing
+else drifted since the last sign-off), and the same tree with only the
+Status flips applied recomputes to `11e58813…`, the current anchor — the
+Task 1 placement move (and its `Status:` completion annotation) is
+anchor-neutral via the canonical tasks.md extraction, as designed.
+
+No dated `## Changelog` entry accompanies this re-anchor: the trigger is
+an orchestration/lifecycle reconcile, not an in-place spec-content fix
+(the mandatory-Changelog rule attaches to expression-only *edits*); the
+change record this entry cites is PR #187's commit, per the
+orchestrate-state-move re-anchor precedent in
+`specs/bootstrap/kickoff-brief.md`.
+
+Class: expression-only
+Anchor: `11e588133154cce23c3132126156f8c8ab15ecbf` — computed as
+`scripts/spec-anchor.sh specs/invariant-tasks`
