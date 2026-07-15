@@ -450,3 +450,11 @@ union (all three log entries kept).
 Class: meaning
 Anchor: `3c669ae9526f929c0078bd150ca5344ded8a6a87` — computed as
 `scripts/spec-anchor.sh specs/prompt-hygiene`
+
+### Amendment 2 (2026-07-14) — expression-only self-re-anchor (Task 7 gauntlet stage 2)
+
+The Task 7 PR's stage-2 `/self-review` pass surfaced four findings; the human approved all four. Two touched anchored spec content in `tasks.md`: the Task 7.5 deliverable still implied Task 7 brought `/spec-kickoff`'s start-load under budget (reworded — Tasks 5/6 shed their own start-load allowances; `/spec-draft` and `/spec-kickoff` are the residual Task 7.5 targets, matching the shipped Task 7 disposition, the exemptions file, diet-plans, and risk R3), and the Task 7 block's `Status`/`Last activity` annotations sat above the definition fields (moved below them per spec-format's annotation-placement rule; annotations are anchor-excluded, so this alone would not have moved the hash). The other two findings are outside the anchor (a one-word qualifier restored in `skills/spec-kickoff/SKILL.md`; suppression-tag pins added to `tests/test-check-instructions.sh`). Changelog entry: `requirements.md` 2026-07-14. No REQ, decision, or task contract altered.
+
+Class: expression-only
+Anchor: `f4d428a915ff8778041240ed7374a77e9a134f4f` — computed as
+`scripts/spec-anchor.sh specs/prompt-hygiene`

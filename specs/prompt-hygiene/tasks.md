@@ -13,32 +13,14 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## Forward plan
 
-### Task 7 — Diet /spec-kickoff; spec-format disposition
-
-- **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
-  updated; exemption removed); an explicit disposition for
-  `doctrine/spec-format.md` (trim under the doctrine budget, or a
-  permanent recorded exemption citing its authorable-from-alone contract).
-  The disposition SHALL record its (limited) coupling: `spec-format.md` is the
-  dominant run-start load for `/spec-draft` and `/spec-kickoff`, but a
-  compliant trim removes only ~99 words (floor 4,000) — far short of what those
-  dependents must shed — so their start-load compliance rests on Task 7.5's
-  point-of-use reclassification **regardless** of the trim-vs-exempt choice
-  here. Task 7's disposition is therefore largely independent of Task 7.5.
-- **Done when:** `/spec-kickoff` passes the guard with no permanent exemption
-  of its own body; `spec-format.md` either passes or carries a permanent
-  reasoned exemption whose text names the start-load coupling; `mise run check`
-  green (any remaining transitional allowances still in place).
-- **Dependencies:** Task 2, Task 3
-- **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
-- **Estimated effort:** 1 day
-
 ### Task 7.5 — Diet residual start-load offenders
 
 - **Deliverables:** for every skill carrying a transitional start-load
   `pending diet (Task 7.5)` allowance (seeded at Task 3) and not already
-  brought under budget by Tasks 5/6/7 — notably `/spec-draft`
-  (mandatory-at-start ≈10,460 at kickoff) — the run-start doctrine loads
+  brought under budget by Tasks 5/6 — `/spec-draft` (mandatory-at-start
+  ≈10,460 at kickoff) and `/spec-kickoff` (12,607 after Task 7's body diet;
+  its start-load allowance is carried here, per the Task 7 disposition) — the
+  run-start doctrine loads
   reclassified to point-of-use in the skill's manifest until the
   mandatory-at-start budget passes on its own (law moved verbatim in meaning,
   no contract change; gating law is never deferred, REQ-C1.2), and the
@@ -46,6 +28,9 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
   closure; a closure offender — none surfaced at kickoff — would need a
   content diet, not this task's mechanism, and would carry a transitional
   closure allowance (REQ-B1.3b) until that diet lands.)
+  *(Amended at Task 7 gauntlet stage 2 2026-07-14: residual-target wording
+  aligned with the shipped Task 7 disposition — Tasks 5/6 shed their own
+  start-load allowances; `/spec-kickoff`'s carry joins `/spec-draft` here.)*
 - **Done when:** every skill passes the mandatory-at-start error threshold
   with no transitional allowance remaining; `mise run check` green.
 - **Dependencies:** Task 3, Task 5, Task 6, Task 7
@@ -85,6 +70,28 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 2, Task 3, Task 4
 - **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-14
+
+### Task 7 — Diet /spec-kickoff; spec-format disposition
+
+- **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
+  updated; exemption removed); an explicit disposition for
+  `doctrine/spec-format.md` (trim under the doctrine budget, or a
+  permanent recorded exemption citing its authorable-from-alone contract).
+  The disposition SHALL record its (limited) coupling: `spec-format.md` is the
+  dominant run-start load for `/spec-draft` and `/spec-kickoff`, but a
+  compliant trim removes only ~99 words (floor 4,000) — far short of what those
+  dependents must shed — so their start-load compliance rests on Task 7.5's
+  point-of-use reclassification **regardless** of the trim-vs-exempt choice
+  here. Task 7's disposition is therefore largely independent of Task 7.5.
+- **Done when:** `/spec-kickoff` passes the guard with no permanent exemption
+  of its own body; `spec-format.md` either passes or carries a permanent
+  reasoned exemption whose text names the start-load coupling; `mise run check`
+  green (any remaining transitional allowances still in place).
+- **Dependencies:** Task 2, Task 3
+- **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
+- **Estimated effort:** 1 day
+- **Status:** PR #166 draft
 - **Last activity:** 2026-07-14
 
 ## Awaiting input
