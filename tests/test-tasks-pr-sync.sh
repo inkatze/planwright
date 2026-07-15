@@ -2179,4 +2179,78 @@ run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/8" \
 git -C "$repo" checkout -q main
 echo "ok: V2-F hook is fail-soft on an unparseable Format-version and writes nothing (REQ-C1.8)"
 
+# --- V2-G: a torn bundle (requirements.md declares 2, tasks.md declares 1)
+# fails closed on every arm (REQ-C1.8: no script falls open to the v1 write
+# path). requirements.md is the authoritative version home, and do_status
+# mirrors derived Status headers into requirements.md itself — so keying on
+# tasks.md alone would write v1 derived state into a bundle whose
+# authoritative file declares v2 (a half-migrated bundle; the validator flags
+# the mirror mismatch, and the writer must refuse it too).
+repo=$tmp/v2g
+mkdir -p "$repo"
+git -C "$repo" init -q -b main
+git -C "$repo" config user.email test@example.com
+git -C "$repo" config user.name test
+git -C "$repo" config commit.gpgsign false
+sd=$repo/specs/demo
+mkdir -p "$sd"
+printf '%s\n' '# Demo — Requirements' '' '**Status:** Active' \
+  '**Format-version:** 2' '**Execution:** derived — see the status render' \
+  >"$sd/requirements.md"
+printf '%s\n' '# Demo — Design' '' '**Status:** Active' >"$sd/design.md"
+printf '%s\n' '# Demo — Test Spec' '' '**Status:** Active' >"$sd/test-spec.md"
+cat >"$sd/tasks.md" <<'EOF'
+# Demo — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Alpha
+
+- **Deliverables:** Alpha.
+- **Done when:** Alpha done.
+- **Dependencies:** none
+- **Citations:** REQ-V2.1
+- **Estimated effort:** 1 day
+
+## In progress
+
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
+(none yet)
+EOF
+git -C "$repo" add -A
+git -C "$repo" commit -qm "fixture: torn bundle"
+# Precondition: without the conflict, the v1 path WOULD write (stored Active,
+# no progress -> derived Ready header flip), so the no-write assertions below
+# are non-vacuous.
+d_before=$(specs_digest "$repo")
+rc=0
+err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo) 2>&1 >/dev/null) || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-G: reconcile on a torn bundle should fail closed (exit 2), got $rc"
+case "$err" in *Format-version*) ;; *) fail "V2-G: torn-bundle error does not name Format-version: $err" ;; esac
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-G: reconcile wrote into a torn bundle (v1 write path fell open; REQ-C1.8)"
+rc=0
+(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile-status specs/demo) >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-G: reconcile-status on a torn bundle should fail closed (exit 2), got $rc"
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-G: reconcile-status wrote into a torn bundle (derived-header write; REQ-C1.8)"
+git -C "$repo" branch planwright/demo/task-1
+git -C "$repo" checkout -q planwright/demo/task-1
+git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/9" \
+  || fail "V2-G: hook must stay fail-soft (exit 0) on a torn bundle"
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-G: the hook wrote into a torn bundle (REQ-C1.8)"
+git -C "$repo" checkout -q main
+grep -q '^\*\*Status:\*\* Active$' "$sd/requirements.md" \
+  || fail "V2-G: the torn bundle's authoritative Status header was rewritten"
+echo "ok: V2-G a torn bundle (requirements v2, tasks v1) fails closed on every arm (REQ-C1.8)"
+
 echo "PASS: all tasks-pr-sync tests passed"

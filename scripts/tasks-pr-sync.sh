@@ -139,6 +139,34 @@ tasks_format_version() {
   esac
 }
 
+# bundle_write_version <spec-dir>: resolve the format version governing the
+# write path, cross-checked against the bundle's authoritative version home.
+# Prints "1" or "2" on success. Returns 1 with nothing printed (reason logged)
+# when tasks.md's declaration is missing or unparseable (REQ-C1.8), or when
+# requirements.md declares a version different from tasks.md's — a torn or
+# half-migrated bundle. The cross-check matters because do_status mirrors
+# derived Status headers into requirements.md itself: keying on tasks.md
+# alone would let the v1 write path stamp derived state into a bundle whose
+# authoritative file declares v2 (the exact fall-open REQ-C1.8 forbids; the
+# validator errors on the mirror mismatch, and the writer refuses it too). A
+# requirements.md that is absent or carries no declaration leaves tasks.md's
+# value governing — legacy v1 bundles predate the header, and do_status
+# already no-ops without the file. The raw disagreeing value is untrusted
+# file content and is deliberately not echoed.
+bundle_write_version() {
+  bwv_dir=$1
+  if ! bwv_tv=$(tasks_format_version "$bwv_dir/tasks.md"); then
+    log "missing or unparseable Format-version in $bwv_dir/tasks.md; failing closed, no write (REQ-C1.8)"
+    return 1
+  fi
+  bwv_rv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$bwv_dir/requirements.md" 2>/dev/null) || bwv_rv=""
+  if [ -n "$bwv_rv" ] && [ "$bwv_rv" != "$bwv_tv" ]; then
+    log "Format-version mismatch in $bwv_dir (tasks.md declares $bwv_tv; requirements.md disagrees); failing closed, no write (REQ-C1.8)"
+    return 1
+  fi
+  printf '%s\n' "$bwv_tv"
+}
+
 # The shared advisory-lock primitive and the derivation engine both ship beside
 # this script (REQ-D1.1; orchestration-concurrency Task 1/6). A missing or
 # non-executable sibling is a broken install: the hook stays fail-soft (it is a
@@ -628,17 +656,15 @@ do_placement() {
   # Version keying (invariant-tasks REQ-C1.1, REQ-C1.8, D-7), read under the
   # lock: a format-version 2 bundle stores no derived execution state — no
   # placement, annotation, or derived-header writes — so the level-triggered
-  # reconcile is a clean no-op there; a missing or unparseable declaration
-  # fails closed (no write). The CLI entry points pre-check the same value for
-  # their exit-2 contract; this in-writer gate is the authoritative one (it
-  # also covers the hook path, and re-reads under the lock).
-  case $(tasks_format_version "$dp_tasks") in
+  # reconcile is a clean no-op there; a missing/unparseable declaration or a
+  # requirements.md that disagrees fails closed (no write; the resolver logs
+  # the reason). The CLI entry points pre-check the same resolver for their
+  # exit-2 contract; this in-writer gate is the authoritative one (it also
+  # covers the hook path, and re-reads under the lock).
+  case $(bundle_write_version "$dp_dir") in
     1) ;;
     2) return 0 ;;
-    *)
-      log "missing or unparseable Format-version in $dp_tasks; failing closed, no write (REQ-C1.8)"
-      return 1
-      ;;
+    *) return 1 ;;
   esac
 
   # Derive each task's state (the Task 1 backbone). A non-zero exit (taskless /
@@ -743,14 +769,12 @@ do_status_only() {
   # Version keying, same gate as do_placement (invariant-tasks REQ-C1.1,
   # REQ-C1.8, D-7): a v2 bundle's Status header holds only human-gated states
   # (Active/Done are derived, never stored), so the status-only arm writes
-  # nothing there; a missing or unparseable declaration fails closed.
-  case $(tasks_format_version "$dso_tasks") in
+  # nothing there; a missing/unparseable declaration or a disagreeing
+  # requirements.md fails closed (the resolver logs the reason).
+  case $(bundle_write_version "$dso_dir") in
     1) ;;
     2) return 0 ;;
-    *)
-      log "missing or unparseable Format-version in $dso_tasks; failing closed, no write (REQ-C1.8)"
-      return 1
-      ;;
+    *) return 1 ;;
   esac
   # Derive each task's state (the Task 1 backbone). A non-zero exit (taskless /
   # unreadable / invalid spec id) means there is no truth to derive from: leave
@@ -889,11 +913,11 @@ if [ "${1:-}" = reconcile-status ]; then
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): fail closed on a missing/unparseable
-  # declaration with the CLI's refused-input exit (the in-writer gate would
-  # refuse too, but its failure is not an exit-2); a v2 bundle stores no
-  # derived Status, so the status-only arm has nothing to reconcile.
-  if ! cli_ver=$(tasks_format_version "$cli_dir/tasks.md"); then
-    echo "tasks-pr-sync: missing or unparseable Format-version in $cli_dir/tasks.md; failing closed, no write (REQ-C1.8)" >&2
+  # declaration or a torn bundle with the CLI's refused-input exit (the
+  # resolver logs the reason; the in-writer gate refuses too, but its failure
+  # is not an exit-2); a v2 bundle stores no derived Status, so the
+  # status-only arm has nothing to reconcile.
+  if ! cli_ver=$(bundle_write_version "$cli_dir"); then
     exit 2
   fi
   if [ "$cli_ver" = 2 ]; then
@@ -930,11 +954,11 @@ if [ "${1:-}" = reconcile ]; then
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): mirror of the reconcile-status arm
-  # above — exit 2 fail-closed on a missing/unparseable declaration, clean
-  # no-op exit 0 on a v2 bundle (no placement, annotation, or derived-header
-  # writes; the in-writer gate re-checks under the lock).
-  if ! cli_ver=$(tasks_format_version "$cli_dir/tasks.md"); then
-    echo "tasks-pr-sync: missing or unparseable Format-version in $cli_dir/tasks.md; failing closed, no write (REQ-C1.8)" >&2
+  # above — exit 2 fail-closed on a missing/unparseable declaration or a torn
+  # bundle (the resolver logs the reason), clean no-op exit 0 on a v2 bundle
+  # (no placement, annotation, or derived-header writes; the in-writer gate
+  # re-checks under the lock).
+  if ! cli_ver=$(bundle_write_version "$cli_dir"); then
     exit 2
   fi
   if [ "$cli_ver" = 2 ]; then
