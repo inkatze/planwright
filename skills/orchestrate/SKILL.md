@@ -24,8 +24,8 @@ projection** (D-1) rebuilt from durable evidence (git branches and
 `Planwright-Task` trailers, runtime markers, `gh`, the process/window list);
 the committed `tasks.md` sections are a discardable snapshot the reconcile
 sweep rebuilds. The tower is **disposable** (D-38): no in-memory state beyond
-the current step, so it survives kills, runs headless under cron, and runs
-concurrently against the same spec (the per-spec lock serializes only the
+the current step — surviving kills, headless cron runs, and concurrent
+towers on one spec (the per-spec lock serializes only the
 dispatch-record write, D-10).
 
 `/orchestrate` **never** merges or marks a PR ready (sign-off and merge are
