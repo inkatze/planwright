@@ -1,6 +1,6 @@
 # Invariant Tasks — Tasks
 
-**Status:** Ready
+**Status:** Active
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -12,30 +12,6 @@ edge to the validator task (Task 2), so none of them can dispatch before
 the guard that protects their output exists.
 
 ## Forward plan
-
-### Task 1 — Meta-spec format-version 2
-
-- **Deliverables:** The format-version 2 definition in
-  `doctrine/spec-format.md`: the v2 `tasks.md` shape (single `## Tasks`
-  section plus Awaiting input / Deferred / Out of scope), reference-bullet
-  forms for all three human-payload sections (with the artifact
-  data-hygiene note for bullet free text), the restricted stored-status
-  vocabulary with the reopen cycle (Ready→Draft), the static `Execution:`
-  pointer line (fixed vocabulary), and derivation as the read surface —
-  recorded via the meta-spec's own versioning ritual, v1 rules retained
-  for v1 bundles; the 2026-07-10 normative completion-annotation entry
-  scoped to v1; the stale `Dispatch`-annotation writer claim corrected.
-- **Done when:** `doctrine/spec-format.md` defines format-version 2
-  normatively (a reader can author a compliant v2 bundle from it alone);
-  the v2 definition carries the bullet data-hygiene note (REQ-C1.9);
-  v1 text is unchanged in meaning; the meta-spec's versioning section
-  records the bump and the v1 scoping of the completion-annotation entry;
-  `mise run check` passes.
-- **Dependencies:** none
-- **Citations:** D-1, D-2, D-3, D-4, D-5, D-11 · REQ-A1.1, REQ-A1.2,
-  REQ-A1.3, REQ-A1.4, REQ-E1.1, REQ-C1.9
-- **Estimated effort:** 1 day
-- **Last activity:** 2026-07-15
 
 ### Task 2 — Validator v2 rules
 
@@ -228,7 +204,30 @@ the guard that protects their output exists.
 
 ## Completed
 
-(none yet)
+### Task 1 — Meta-spec format-version 2
+
+- **Deliverables:** The format-version 2 definition in
+  `doctrine/spec-format.md`: the v2 `tasks.md` shape (single `## Tasks`
+  section plus Awaiting input / Deferred / Out of scope), reference-bullet
+  forms for all three human-payload sections (with the artifact
+  data-hygiene note for bullet free text), the restricted stored-status
+  vocabulary with the reopen cycle (Ready→Draft), the static `Execution:`
+  pointer line (fixed vocabulary), and derivation as the read surface —
+  recorded via the meta-spec's own versioning ritual, v1 rules retained
+  for v1 bundles; the 2026-07-10 normative completion-annotation entry
+  scoped to v1; the stale `Dispatch`-annotation writer claim corrected.
+- **Done when:** `doctrine/spec-format.md` defines format-version 2
+  normatively (a reader can author a compliant v2 bundle from it alone);
+  the v2 definition carries the bullet data-hygiene note (REQ-C1.9);
+  v1 text is unchanged in meaning; the meta-spec's versioning section
+  records the bump and the v1 scoping of the completion-annotation entry;
+  `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-1, D-2, D-3, D-4, D-5, D-11 · REQ-A1.1, REQ-A1.2,
+  REQ-A1.3, REQ-A1.4, REQ-E1.1, REQ-C1.9
+- **Estimated effort:** 1 day
+- **Last activity:** 2026-07-15
+- **Status:** Completed · PR #181 merged 2026-07-15
 
 ## Deferred
 
