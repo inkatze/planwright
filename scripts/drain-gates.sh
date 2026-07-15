@@ -12,9 +12,11 @@
 #
 # Lanes (normative detail in the doctrine doc):
 #   SATISFIED  condition gate (task/status atoms only), every atom true
-#   PENDING    condition gate with at least one unmet atom (an atom that is
-#              UNRESOLVED — v2 completion evidence unavailable, see below —
-#              counts as unmet and is marked in the row)
+#   PENDING    condition gate with at least one unmet or unresolved atom (an
+#              UNRESOLVED atom — v2 completion evidence unavailable, see below
+#              — blocks satisfaction and is named in the row's own
+#              `unresolved (completion evidence unavailable):` clause; DORMANT
+#              rows carry the same clause when a date gate holds one)
 #   SURFACED   date gate (contains a date atom), every atom true/reached
 #   DORMANT    date gate with any atom not yet true/reached — date gates
 #              only surface, never satisfy and never hard-fail
@@ -58,8 +60,9 @@
 # Exit codes: 0 sweep completed (malformed gates and unreadable, NUL-laden,
 # or mid-sweep-changed swept files are report content, not failures),
 # 1 unusable specs root (missing, unreadable, or non-searchable), 2 usage
-# error; any other status means the sweep aborted mid-run (internal
-# failure) without emitting a report.
+# error or a broken install (the script's own directory unresolvable, so the
+# sibling derivation engine cannot be located); any other status means the
+# sweep aborted mid-run (internal failure) without emitting a report.
 #
 # Security (REQ-H1.3): gate content is data only. The parse is pattern
 # match; nothing is passed to eval, a subshell, or arithmetic expansion;
@@ -75,6 +78,10 @@ set -eu
 # locales (house pattern, see sibling scripts).
 LC_ALL=C
 export LC_ALL
+# A CDPATH-resolved cd would echo its destination into the script-dir command
+# substitution below, corrupting the derived engine path (house pattern, see
+# sibling scripts).
+unset CDPATH
 
 TAB=$(printf '\t')
 
@@ -315,14 +322,40 @@ report() {
       continue
     fi
 
+    # Digest bracket, opened HERE (before every read that feeds gate
+    # evaluation): the Format-version line, the v2 parked map and task/gate
+    # counts, the engine's own read of the file, and the main gate parse all
+    # read within the pre/post pair, so a concurrent rewrite landing between
+    # ANY of them and the gate parse is flagged as torn instead of silently
+    # mixing two file versions (e.g. a v1 map against v2 bytes, or a stale
+    # parked map against fresh evidence). A rewrite restoring identical bytes
+    # within the window is below the check's resolution. The NUL screen above
+    # stays a separate, cheaper open; it feeds no evaluation.
+    if ! pre_digest=$(cksum <"$tasks" 2>/dev/null); then
+      printf 'error: tasks.md vanished during the sweep\n'
+      n_err=$((n_err + 1))
+      continue
+    fi
+
     # Format-version (REQ-C1.8): task-completion atoms are version-keyed
     # (v1 section membership vs v2 derivation, see the header), so the version
     # must parse before the spec's gates are evaluated. Missing or unparseable
     # fails closed as a per-spec report error — never a guess, never a silent
     # skip; the sweep completes. Trailing trim: a Markdown hard-break or CRLF
-    # checkout must not make a valid value unrecognizable (mirrors
-    # spec-status.sh).
-    fv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$tasks") || fv=""
+    # checkout must not make a valid value unrecognizable. Column-0 fences are
+    # illustration: a fenced example header line must not shadow the real
+    # declaration (the trim mirrors spec-status.sh; its fence-awareness
+    # alignment is tracked as an observation). A read failure is reported as
+    # its own error, not misattributed to the format.
+    if ! fv=$(awk '
+      /^```/ { fence = !fence; next }
+      fence { next }
+      /^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }
+    ' "$tasks" 2>/dev/null); then
+      printf 'error: tasks.md became unreadable during the sweep\n'
+      n_err=$((n_err + 1))
+      continue
+    fi
     case "$fv" in
       1 | 2) ;;
       *)
@@ -340,11 +373,19 @@ report() {
     v2comp=" "
     v2evfail=0
     if [ "$fv" = 2 ]; then
-      # Parked map: live reference bullets under the three human-payload
-      # sections; column-0 fences are illustration here as in the gate parse.
-      # Bullet task ids are grammar-validated; a violating id is rejected with
-      # a note and never used (REQ-C1.9; the final report strip sanitizes it).
-      v2park_out=$(awk '
+      # One pre-parse pass: the parked map (live reference bullets under the
+      # three human-payload sections), the unfenced task count, and whether any
+      # unfenced gate marker exists. Column-0 fences are illustration here as
+      # in the gate parse. Bullet task ids are grammar-validated; a violating
+      # id is rejected with a note and never used (REQ-C1.9; the final report
+      # strip sanitizes it), while a lead with inner whitespace is a plain
+      # prose bullet the format allows in Deferred / Out of scope — silently
+      # skipped, matching the validator's rule. A sibling of the
+      # spec-status.sh (Task 3) parked-map parse; its fence/prose alignment is
+      # tracked as an observation. A failed pre-parse fails CLOSED (the parked
+      # map is the input that vetoes evidence; an empty default would silently
+      # un-park tasks).
+      if ! v2pre=$(awk '
         function classof(sec) {
           if (sec == "Awaiting input") return "awaiting-input"
           if (sec == "Deferred") return "deferred"
@@ -355,12 +396,15 @@ report() {
         /^```/ { fence = !fence; next }
         fence { next }
         /^## / { sec = substr($0, 4); sub(/[ \t]+$/, "", sec); next }
+        /^### Task / { if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) ntasks++ }
+        index($0, "**Gate:**") > 0 { hasgate = 1 }
         /^- \*\*Task / && classof(sec) != "" {
           line = $0
           sub(/^- \*\*Task /, "", line)
           i = index(line, "**")
           if (i == 0) next # no closing bold: not a reference bullet
           id = substr(line, 1, i - 1)
+          if (id ~ /[ \t]/) next # inner whitespace: a plain prose bullet
           if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
             gsub(/\t/, " ", id) # tabs would corrupt the record split
             print "rejected\t" id
@@ -368,28 +412,42 @@ report() {
           }
           if (id in seen) next
           seen[id] = 1
-          print id
+          print "parked\t" id
           next
         }
-      ' "$tasks") || v2park_out=""
+        END { print "meta\t" ntasks + 0 "\t" hasgate + 0 }
+      ' "$tasks" 2>/dev/null); then
+        printf 'error: could not read the v2 parked map - gates not evaluated (fail closed)\n'
+        n_err=$((n_err + 1))
+        continue
+      fi
       v2parked=" "
-      while IFS="$TAB" read -r pm_id pm_raw; do
-        [ -n "$pm_id" ] || continue
-        if [ "$pm_id" = rejected ]; then
-          printf 'note: reference bullet rejected - task id %s violates the task-id grammar\n' "'$pm_raw'"
-          continue
-        fi
-        case "$v2parked" in
-          *" $pm_id "*) ;;
-          *) v2parked="$v2parked$pm_id " ;;
+      v2ntasks=0
+      v2hasgate=0
+      while IFS="$TAB" read -r pm_tag pm_a pm_b; do
+        [ -n "$pm_tag" ] || continue
+        case "$pm_tag" in
+          rejected)
+            printf 'note: reference bullet rejected - task id %s violates the task-id grammar\n' "'$pm_a'"
+            ;;
+          parked)
+            v2parked="$v2parked$pm_a "
+            ;;
+          meta)
+            v2ntasks=$pm_a
+            v2hasgate=$pm_b
+            ;;
         esac
       done <<EOF
-$v2park_out
+$v2pre
 EOF
-      # A zero-task bundle has nothing to derive: every task atom is already
-      # an unknown-id MALFORMED, so the engine is not consulted.
-      v2ntasks=$(awk '/^### Task / { if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) n++ } END { print n + 0 }' "$tasks") || v2ntasks=0
-      if [ "$v2ntasks" -gt 0 ]; then
+      # The engine is consulted only when its output can be consumed: a bundle
+      # with no unfenced task blocks has nothing to derive (every task atom is
+      # already an unknown-id MALFORMED), and a bundle with no unfenced gate
+      # marker has no atoms to resolve — either way a needless derivation
+      # (git subprocesses, potentially a gh network call) would only inflate
+      # the error tally on unrelated failures.
+      if [ "$v2ntasks" -gt 0 ] && [ "$v2hasgate" -eq 1 ]; then
         if [ ! -x "$state_engine" ]; then
           printf 'error: derivation engine unavailable - task-completion atoms resolve as unresolved (fail closed)\n'
           n_err=$((n_err + 1))
@@ -423,22 +481,16 @@ EOF
 
     # Single parse pass: the awk program reads the file once, buffering
     # it and collecting the task-id universe (ids defined anywhere
-    # outside fenced code blocks; the Completed subset) while reading,
+    # outside fenced code blocks; the v1 Completed subset) while reading,
     # then evaluates gates over the buffered lines in END. Two separate
     # parse reads could see different versions of a file being rewritten
     # concurrently and fabricate MALFORMED rows for valid gates; one
-    # parse open confines any race to a torn single read, which the
-    # digest bracket around this invocation bounds (a rewrite restoring
-    # identical bytes within the window is below the check's resolution).
-    # The NUL screen above and the digest pair are separate, cheaper
-    # opens; only the parse feeds gate evaluation. Each read is guarded
-    # so a file vanishing mid-sweep degrades to a report-level error for
-    # this spec instead of aborting the whole report.
-    if ! pre_digest=$(cksum <"$tasks" 2>/dev/null); then
-      printf 'error: tasks.md vanished during the sweep\n'
-      n_err=$((n_err + 1))
-      continue
-    fi
+    # parse open confines any race to a torn single read. Every read that
+    # feeds gate evaluation — this parse plus the fv / parked-map / engine
+    # pre-reads above — sits inside the digest bracket opened before the fv
+    # read, so a rewrite anywhere in that window is flagged as torn. Each
+    # read is guarded so a file vanishing mid-sweep degrades to a
+    # report-level error for this spec instead of aborting the whole report.
     if ! lines=$(awk -v fname="$tasks" -v today="$today" -v statuses="$statuses" \
       -v fv="$fv" -v comp="$v2comp" -v evfail="$v2evfail" '
       BEGIN {
@@ -569,7 +621,7 @@ EOF
       # ends at the closing parenthesis; anything but a final period after
       # it is malformed.
       function structured(g, title, conf,  cond, p, rest, n, atoms, i, \
-        atom, verdict, hasdate, allmet, unmet, why) {
+        atom, verdict, hasdate, allmet, unmet, unres, det, why) {
         cond = trim(substr(g, 11))
         p = index(cond, ")")
         if (!p) {
@@ -601,11 +653,12 @@ EOF
           }
           # A v2 task atom whose completion evidence is unavailable (engine
           # failure or transient remote failure, REQ-B1.5): unresolved — it
-          # counts as unmet (never satisfied from partial evidence) and the
-          # row names why, distinct from a genuinely unmet atom.
+          # blocks satisfaction (never satisfied from partial evidence) and is
+          # accumulated separately so every affected row, PENDING or DORMANT,
+          # names it distinctly from a genuinely unmet atom.
           if (verdict == "unresolved") {
             allmet = 0
-            unmet = unmet (unmet == "" ? "" : "; ") atom " [unresolved: completion evidence unavailable]"
+            unres = unres (unres == "" ? "" : "; ") atom
             continue
           }
           if (verdict == "date-met" || verdict == "date-unmet") hasdate = 1
@@ -619,13 +672,22 @@ EOF
         } else if (hasdate) {
           if (allmet)
             add("SURFACED", conf, title, "(date reached) when: " cond)
-          else
-            add("DORMANT", conf, title, "when: " cond)
+          else {
+            det = "when: " cond
+            if (unres != "")
+              det = det " - unresolved (completion evidence unavailable): " unres
+            add("DORMANT", conf, title, det)
+          }
         } else {
           if (allmet)
             add("SATISFIED", conf, title, "when: " cond)
-          else
-            add("PENDING", conf, title, "when: " cond " - unmet: " unmet)
+          else {
+            det = "when: " cond
+            if (unmet != "") det = det " - unmet: " unmet
+            if (unres != "")
+              det = det " - unresolved (completion evidence unavailable): " unres
+            add("PENDING", conf, title, det)
+          }
         }
       }
 

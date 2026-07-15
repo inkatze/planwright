@@ -10,8 +10,8 @@
 # on a v2 bundle (no placement sections) a candidate is any task NOT parked by a
 # live reference bullet (`- **Task <id>**` under ## Awaiting input / ## Deferred
 # / ## Out of scope — bullet task ids are grammar-validated before use,
-# REQ-C1.9). Among ready tasks the selector prefers the head
-# of the effort-weighted longest dependent chain — the unit that unblocks the
+# REQ-C1.9). Among ready tasks the selector prefers the head of the
+# effort-weighted longest dependent chain — the unit that unblocks the
 # most downstream remaining work — and breaks ties FIFO, by first appearance in
 # tasks.md. This turns REQ-F1.2's critical-path-first rule into a deterministic,
 # testable computation instead of a hand-asserted one (the 2026-06-10
@@ -54,7 +54,8 @@
 # unit this step; 2 the tasks.md is missing, unreadable, holds no task
 # records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
 # candidacy rules cannot be known without a parsed version; both modes refuse
-# rather than guess), or (selection only) the derivation engine is missing /
+# rather than guess), or the sourced echo-safety.sh helper is missing (broken
+# install, both modes), or (selection only) the derivation engine is missing /
 # not executable or its derivation fails (no git work tree, invalid spec id) —
 # fail closed: a malformed file or unavailable live truth must not silently
 # report "nothing"; 3 (selection only, v2) transient evidence failure — the
@@ -114,14 +115,34 @@ if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
   exit 2
 fi
 
+# Single-snapshot read: every parse below — the Format-version gate, the v2
+# parked map, and the selection graph — reads ONE capture of tasks.md, so a
+# concurrent rewrite cannot make the candidacy decision mix two file versions
+# (a parked map from one, the graph from another) and a mid-run read failure
+# fails closed instead of silently emptying a parse. The derivation engine
+# still reads its own view of the file (the pre-existing sample-once
+# tolerance); a divergence there is ordinary evidence lag, not a torn
+# candidacy decision.
+if ! tasks_content=$(cat "$tasks_md"); then
+  echo "orchestrate-select: could not read $tasks_md (fail closed)" >&2
+  exit 2
+fi
+
 # --- Format-version (REQ-C1.8): missing or unparseable fails closed. -------
 # The candidacy rules are version-keyed (v1 section membership vs v2 bullet
 # parking, D-8), so the version must parse before either rule is applied; no
 # fallback to either version's rules on a bad value. --critical-path is
 # structurally identical at both versions but refuses too rather than guessing.
 # Trailing trim: a Markdown hard-break or CRLF checkout must not make a valid
-# value unrecognizable (mirrors spec-status.sh).
-fv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$tasks_md")
+# value unrecognizable. Column-0 fences are illustration: a fenced example
+# header line must not shadow the real declaration into the wrong version's
+# rules (the parse otherwise mirrors spec-status.sh, whose fence-awareness
+# alignment is tracked as an observation).
+fv=$(printf '%s\n' "$tasks_content" | awk '
+  /^```/ { fence = !fence; next }
+  fence { next }
+  /^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }
+')
 case "$fv" in
   1 | 2) ;;
   '')
@@ -152,23 +173,35 @@ inprogress=" "
 # sanitized stderr warning and never used (REQ-C1.9). A bullet naming a
 # non-existent task parks nothing (the validator owns that error). The sets are
 # space-padded id lists, same shape as completed/inprogress below.
+#
+# A sibling of the spec-status.sh (Task 3) parked-map parse and the
+# drain-gates.sh copy, with the deliberate differences: column-0 fences are
+# skipped (illustration, matching drain-gates; spec-status alignment is tracked
+# as an observation); a lead with inner whitespace ("**Task force
+# assembled.**") is a plain prose bullet the format allows in Deferred / Out of
+# scope and is silently skipped, matching the validator's rule; no payload
+# extraction (selection needs only ids and classes).
 parked_any=" "
 parked_oos=" "
 if [ "$mode" = select ] && [ "$fv" = 2 ]; then
-  parked_map=$(awk '
+  parked_map=$(printf '%s\n' "$tasks_content" | awk '
     function classof(sec) {
       if (sec == "Awaiting input") return "awaiting-input"
       if (sec == "Deferred") return "deferred"
       if (sec == "Out of scope") return "out-of-scope"
       return ""
     }
-    /^## / { sec = substr($0, 4); sub(/[[:space:]\r]+$/, "", sec); next }
+    { sub(/\r$/, "") }
+    /^```/ { fence = !fence; next }
+    fence { next }
+    /^## / { sec = substr($0, 4); sub(/[ \t]+$/, "", sec); next }
     /^- \*\*Task / && classof(sec) != "" {
       line = $0
       sub(/^- \*\*Task /, "", line)
       i = index(line, "**")
       if (i == 0) next # no closing bold: not a reference bullet
       id = substr(line, 1, i - 1)
+      if (id ~ /[ \t]/) next # inner whitespace: a plain prose bullet, not a reference
       if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
         # tabs would corrupt the record split; fold before emitting
         gsub(/\t/, " ", id)
@@ -180,15 +213,16 @@ if [ "$mode" = select ] && [ "$fv" = 2 ]; then
       print id "\t" classof(sec)
       next
     }
-  ' "$tasks_md")
-  while IFS="$TAB" read -r pm_id pm_class; do
+  ')
+  while IFS="$TAB" read -r pm_id pm_rest; do
     [ -n "$pm_id" ] || continue
     if [ "$pm_id" = rejected ]; then
-      echo "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_class" '(unprintable)')' violates the task-id grammar" >&2
+      # pm_rest carries the raw, grammar-violating id
+      echo "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_rest" '(unprintable)')' violates the task-id grammar" >&2
       continue
     fi
     parked_any="$parked_any$pm_id "
-    [ "$pm_class" = out-of-scope ] && parked_oos="$parked_oos$pm_id "
+    [ "$pm_rest" = out-of-scope ] && parked_oos="$parked_oos$pm_id "
   done <<EOF
 $parked_map
 EOF
@@ -248,8 +282,9 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
 fi
 
-awk -v mode="$mode" -v fv="$fv" -v completed="$completed" \
-  -v inprogress="$inprogress" -v parked="$parked_any" -v parked_oos="$parked_oos" '
+printf '%s\n' "$tasks_content" | awk -v mode="$mode" -v fv="$fv" \
+  -v fname="$tasks_md" -v completed="$completed" -v inprogress="$inprogress" \
+  -v parked="$parked_any" -v parked_oos="$parked_oos" '
   function weight(s) {
     # Effort string -> a numeric weight. "half day" is 0.5; otherwise the
     # leading number ("1", "1.5", "2", "3"); an unrecognized form is 1.
@@ -312,7 +347,7 @@ awk -v mode="$mode" -v fv="$fv" -v completed="$completed" \
     if (ntasks == 0) {
       # Fail closed with a diagnostic, matching the shell-level missing-file
       # message above (a present-but-taskless tasks.md is still malformed).
-      print "orchestrate-select: no task records in " FILENAME > "/dev/stderr"
+      print "orchestrate-select: no task records in " fname > "/dev/stderr"
       exit 2
     }
 
@@ -414,4 +449,4 @@ awk -v mode="$mode" -v fv="$fv" -v completed="$completed" \
     if (best_id == "") exit 1
     print best_id
   }
-' "$tasks_md"
+'

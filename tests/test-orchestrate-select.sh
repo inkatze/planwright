@@ -1311,9 +1311,11 @@ grep -q 'transient evidence failure' "$v5_err" \
 echo "ok: v2 transient evidence failure exits 3 and dispatches nothing (REQ-B1.5)"
 
 # V6. REQ-C1.9 — a reference bullet whose task id violates the task-id grammar
-#     is rejected with a sanitized stderr warning and never used; a bullet
-#     naming a non-existent task parks nothing (the validator owns that error);
-#     selection proceeds on the valid state either way.
+#     is rejected with a sanitized stderr warning and never used; a well-formed
+#     bullet naming a non-existent task matches nothing here (asserting only
+#     that it causes no crash or spurious warning — the unknown-id error itself
+#     is the validator's, and is unobservable at this surface); selection
+#     proceeds on the valid state either way.
 dv6="$tmp/v2badbullet"
 dv6spec=$(new_spec "$dv6" vtwobad)
 {
@@ -1339,5 +1341,237 @@ grep -q 'violates the task-id grammar' "$v6_err" \
 LC_ALL=C grep '[^ -~]' "$v6_err" >/dev/null \
   && fail "v2-bad-bullet: stderr carries non-printable bytes (unsanitized bullet id)"
 echo "ok: v2 grammar-violating bullet ids are rejected with a sanitized warning (REQ-C1.9)"
+
+# V7. Fenced code blocks are illustration in the v2 parked map: a fenced
+#     example bullet must not park its task, and a fenced section heading must
+#     not end the real section around it (a real bullet after the fence still
+#     parks). Mirrors the drain-gates parked-map fence guard.
+dv7="$tmp/v2fence"
+dv7spec=$(new_spec "$dv7" vtwofence)
+cat >"$dv7spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — ready, illustrated as parked in a fence
+
+- **Dependencies:** none
+- **Estimated effort:** 3 days
+
+### Task 2 — genuinely parked after an embedded fence
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+```markdown
+## Deferred
+
+- **Task 1** an illustrative parking bullet, not a real one.
+```
+
+- **Task 2** genuinely parked; the fence above must not have ended the section.
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv7"
+got=$(/bin/bash "$SEL" "$dv7spec") || fail "v2-fence fixture: non-zero exit ($?)"
+[ "$got" = 1 ] || fail "v2-fence: selected '$got', expected 1 (fenced bullet must not park 1; real bullet after the fence must park 2)"
+echo "ok: v2 parked-map parse treats fenced content as illustration"
+
+# V8. A fenced Format-version example must not shadow the real header line: the
+#     bundle below is v2 (real header) with a fenced v1 example above the real
+#     line's consumers; v2 semantics (bullet parking) must apply.
+dv8="$tmp/v2fvfence"
+dv8spec=$(new_spec "$dv8" vtwofvfence)
+cat >"$dv8spec/tasks.md" <<'EOF'
+# tasks
+
+```markdown
+**Format-version:** 1
+```
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — parked by bullet
+
+- **Dependencies:** none
+- **Estimated effort:** 3 days
+
+### Task 2 — ready
+
+- **Dependencies:** none
+- **Estimated effort:** half day
+
+## Awaiting input
+
+- **Task 1** parked; only v2 semantics read this bullet.
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv8"
+got=$(/bin/bash "$SEL" "$dv8spec") || fail "v2-fv-fence fixture: non-zero exit ($?)"
+[ "$got" = 2 ] || fail "v2-fv-fence: selected '$got', expected 2 (fenced FV example must not select v1 rules; bullet must park 1)"
+echo "ok: a fenced Format-version example does not shadow the real header line"
+
+# V9. Prose-bullet tolerance (validator parity): a plain prose bullet whose
+#     bold lead happens to start with "Task " plus inner whitespace ("**Task
+#     force assembled.**") is a plain bullet the format allows in Deferred /
+#     Out of scope — silently skipped, never warned about as a grammar
+#     violation, and parking nothing.
+dv9="$tmp/v2prose"
+dv9spec=$(new_spec "$dv9" vtwoprose)
+cat >"$dv9spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — ready
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+- **Task force assembled.** A plain prose bullet, not a task reference.
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv9"
+v9_err="$tmp/v2prose.err"
+rc=0
+v9_out=$(/bin/bash "$SEL" "$dv9spec" 2>"$v9_err") || rc=$?
+[ "$rc" = 0 ] || fail "v2-prose: exit $rc, expected 0 (stderr: $(cat "$v9_err"))"
+[ "$v9_out" = 1 ] || fail "v2-prose: selected '$v9_out', expected 1 (a prose bullet parks nothing)"
+grep -q 'violates the task-id grammar' "$v9_err" \
+  && fail "v2-prose: a plain prose bullet must not be warned about as a rejected reference (got: $(cat "$v9_err"))"
+echo "ok: prose bullets with inner whitespace are tolerated silently (validator parity)"
+
+# V10. No-PR-found is evidence, not failure (REQ-B1.5): a working gh that
+#      returns an EMPTY PR list is a definitive negative result — the v2
+#      selector must select normally (exit 0), never exit 3.
+dv10="$tmp/v2emptygh"
+dv10spec=$(new_spec "$dv10" vtwoemptygh)
+cat >"$dv10spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — ready
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv10"
+gitc "$dv10" remote add origin https://example.invalid/demo.git
+okstub="$tmp/binokgh"
+mkdir -p "$okstub"
+printf '#!/bin/sh\nexit 0\n' >"$okstub/gh"
+chmod +x "$okstub/gh"
+rc=0
+v10_out=$(PATH="$okstub:$PATH" /bin/bash "$SEL" "$dv10spec" 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "v2-empty-gh: exit $rc, expected 0 (an empty PR list is evidence, not failure)"
+[ "$v10_out" = 1 ] || fail "v2-empty-gh: selected '$v10_out', expected 1"
+echo "ok: an empty gh PR list is evidence, not a transient failure (REQ-B1.5)"
+
+# V11. Format-version trailing-trim: a CRLF header line and a Markdown
+#      hard-break (trailing spaces) both parse.
+dv11="$tmp/v2fvtrim"
+dv11spec=$(new_spec "$dv11" vtwofvtrim)
+{
+  printf '# tasks\r\n\r\n'
+  printf '**Format-version:** 2  \r\n\r\n'
+  printf '## Tasks\r\n\r\n'
+  printf '### Task 1 — ready\r\n\r\n'
+  printf -- '- **Dependencies:** none\r\n'
+  printf -- '- **Estimated effort:** 1 day\r\n\r\n'
+  printf '## Awaiting input\r\n\r\n(none yet)\r\n\r\n'
+  printf '## Deferred\r\n\r\n(none yet)\r\n\r\n'
+  printf '## Out of scope\r\n\r\n(none yet)\r\n'
+} >"$dv11spec/tasks.md"
+seal_base "$dv11"
+got=$(/bin/bash "$SEL" "$dv11spec") || fail "v2-fv-trim fixture: non-zero exit ($?)"
+[ "$got" = 1 ] || fail "v2-fv-trim: selected '$got', expected 1 (CRLF/hard-break FV line must parse)"
+echo "ok: Format-version trailing trim handles CRLF and hard-break lines"
+
+# V12. REQ-C1.9 — a hostile unparseable Format-version value (raw ESC byte) is
+#      refused (exit 2) with a sanitized diagnostic: no non-printable bytes on
+#      stderr.
+dv12="$tmp/v2fvhostile"
+mkdir -p "$dv12"
+printf '# tasks\n\n**Format-version:** 3\033[31mx\n\n## Tasks\n\n### Task 1 — x\n\n- **Dependencies:** none\n' >"$dv12/tasks.md"
+v12_err="$tmp/v2fvhostile.err"
+rc=0
+/bin/bash "$SEL" "$dv12" >/dev/null 2>"$v12_err" || rc=$?
+[ "$rc" = 2 ] || fail "v2-fv-hostile: exit $rc, expected 2"
+grep -q 'Format-version' "$v12_err" \
+  || fail "v2-fv-hostile: diagnostic must name Format-version (got: $(cat "$v12_err"))"
+LC_ALL=C grep '[^ -~]' "$v12_err" >/dev/null \
+  && fail "v2-fv-hostile: stderr carries non-printable bytes (unsanitized header value)"
+echo "ok: a hostile Format-version value is refused with a sanitized diagnostic (REQ-C1.9)"
+
+# V13. The rejected-bullet warning is emitted before the evidence probe, so it
+#      still reaches stderr when the run then fails closed on transient
+#      evidence (REQ-B1.5's locally-determinable-facts clause at this surface).
+dv13="$tmp/v2rejdeg"
+dv13spec=$(new_spec "$dv13" vtworejdeg)
+{
+  printf '# tasks\n\n**Format-version:** 2\n\n## Tasks\n\n'
+  printf '### Task 1 — ready\n\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Estimated effort:** 1 day\n\n'
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 9x** grammar-violating id.\n\n'
+  printf '## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$dv13spec/tasks.md"
+seal_base "$dv13"
+gitc "$dv13" remote add origin https://example.invalid/demo.git
+v13_err="$tmp/v2rejdeg.err"
+rc=0
+v13_out=$(PATH="$degstub:$PATH" /bin/bash "$SEL" "$dv13spec" 2>"$v13_err") || rc=$?
+[ "$rc" = 3 ] || fail "v2-rej-deg: exit $rc, expected 3 (transient failure)"
+[ -z "$v13_out" ] || fail "v2-rej-deg: stdout must be empty (got '$v13_out')"
+grep -q 'violates the task-id grammar' "$v13_err" \
+  || fail "v2-rej-deg: the rejected-bullet warning must still surface during a transient failure"
+echo "ok: rejected-bullet warnings survive a transient evidence failure (REQ-B1.5)"
 
 echo "PASS: orchestrate-select"

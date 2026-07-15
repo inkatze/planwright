@@ -235,6 +235,14 @@ for spec_dir in "$@"; do
     echo "orchestrate-meta-select: selection failed for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
     exit 2
   fi
+  # Selector exit 3 (REQ-B1.5, v2 bundles): a transient evidence failure — the
+  # spec is held this step (not a candidate, nothing dispatched), and the
+  # reason is re-stated here because the selector's stderr is suppressed
+  # above. Without this, "cannot know" would be indistinguishable from
+  # exit 1's "nothing ready" at the fleet tier.
+  if [ "$sel_rc" = 3 ]; then
+    echo "orchestrate-meta-select: transient evidence failure for $(sanitize_printable "$spec_dir" "(unprintable path)"); holding this spec this step (REQ-B1.5)" >&2
+  fi
 
   # A candidate iff the spec has a ready unit AND is below its per-spec cap.
   if [ "$sel_rc" = 0 ] && [ -n "$ready_id" ] && [ "$inflight" -lt "$spec_bound" ]; then

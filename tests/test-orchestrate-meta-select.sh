@@ -522,4 +522,45 @@ grep -Fq "orchestrate-meta-select: [$lalpha] degraded" "$tmp/l15.err" \
   || fail "case 15: degraded record must surface on stderr, tagged with the spec"
 echo "ok: degraded / contradiction evidence records surface on stderr during meta selection"
 
+# 16. A v2 spec under a transient evidence failure (selector exit 3, REQ-B1.5)
+#     is held — not a candidate, nothing dispatched — and the reason is
+#     surfaced on stderr, distinguishable from plain "nothing ready".
+repoM=$(new_fleet "$tmp/M")
+malpha=$(add_spec "$repoM" specm)
+cat >"$malpha/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — ready
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$repoM"
+gitc "$repoM" remote add origin https://example.invalid/demo.git
+set_bounds "$repoM" 5 3
+rc=0
+got=$(PATH="$lstub:$PATH" "$MSEL" "$malpha" 2>"$tmp/m16.err") || rc=$?
+[ "$rc" = 1 ] \
+  || fail "case 16: a v2 transient-failure spec must yield no candidate (rc $rc, got '$got')"
+[ -z "$got" ] || fail "case 16: nothing may be dispatched under transient failure (got '$got')"
+grep -Fq 'transient evidence failure' "$tmp/m16.err" \
+  || fail "case 16: the transient-failure hold must surface on stderr (got: $(cat "$tmp/m16.err"))"
+echo "ok: a v2 transient evidence failure is held and surfaced at the fleet tier (REQ-B1.5)"
+
 echo "PASS: orchestrate-meta-select"
