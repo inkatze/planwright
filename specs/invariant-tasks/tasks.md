@@ -35,7 +35,7 @@ the guard that protects their output exists.
 - **Citations:** D-1, D-2, D-3, D-4, D-5, D-11 · REQ-A1.1, REQ-A1.2,
   REQ-A1.3, REQ-A1.4, REQ-E1.1, REQ-C1.9
 - **Estimated effort:** 1 day
-- **Last activity:** 2026-07-14
+- **Last activity:** 2026-07-15
 
 ### Task 2 — Validator v2 rules
 
