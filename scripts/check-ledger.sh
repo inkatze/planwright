@@ -77,11 +77,42 @@ for f in "${files[@]}"; do
     continue
   fi
 
+  # Version keying (invariant-tasks Task 4; REQ-C1.4, REQ-C1.8, D-7). The
+  # guard's rule set is selected by the file's own `**Format-version:**`
+  # declaration (first header line wins; trailing whitespace/CR trimmed so a
+  # Markdown hard-break or CRLF checkout cannot make a valid value
+  # unrecognizable). v1 keeps every check below; v2 is reduced to the
+  # structural checks (heading form, duplicate ids, orphan blocks — with
+  # `## Tasks` recognized) because no derived state is committed there:
+  # placement/annotation coherence has nothing legitimate to check, and a
+  # banned section or annotation is the validator's finding, not this guard's.
+  # A missing or unparseable declaration fails closed: the rules to apply
+  # cannot be selected, so the file is reported rather than silently checked
+  # under either version's rules. Echo discipline (REQ-C1.9): the declared
+  # value is untrusted file content — control bytes are stripped before it
+  # reaches the diagnostic.
+  fver=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$f")
+  case "$fver" in
+    1 | 2) ;;
+    *)
+      printf '%s:1: missing or unparseable Format-version (%s): ledger rules cannot be selected (fail closed; REQ-C1.8)\n' \
+        "$f" "$(printf '%s' "$fver" | tr -d '\000-\037\177')"
+      [ "$status" -eq 2 ] || status=1
+      continue
+      ;;
+  esac
+
   # One awk pass per file. Findings go to stdout as `<file>:<line>: <message>`;
   # the END block exits 1 if any were emitted. The em-dash (U+2014) in the
   # heading separator is matched byte-wise under LC_ALL=C.
-  awk -v FILE="$f" '
+  awk -v FILE="$f" -v VER="$fver" '
     function is_state_section(s) {
+      # Format-version 2 adds the single ## Tasks section (invariant-tasks
+      # REQ-C1.4): every definition block lives there, never moving. The v1
+      # names stay recognized under v2 so this guard does not re-implement the
+      # validator banned-placement-section finding; structure vs invariants
+      # stay separate concerns.
+      if (VER == 2 && s == "Tasks") return 1
       return (s == "Forward plan" || s == "In progress" || \
               s == "Awaiting input" || s == "Completed" || \
               s == "Deferred" || s == "Out of scope")
@@ -116,6 +147,21 @@ for f in "${files[@]}"; do
     # >1-Status lint). Called on each new heading and at END.
     function finalize_block(   c) {
       if (!in_block) return
+      # v2 ledger scope (invariant-tasks REQ-C1.4, D-7): structural checks
+      # only. The placement/annotation coherence branches and the >1-Status
+      # lint below are checks over the v1 derived snapshot; under v2 no
+      # derived state is committed, and a stray section or annotation is the
+      # validator invariant finding (spec-validate.sh), not a ledger finding —
+      # only the orphan-block structural check is retained here. (No
+      # apostrophes in this awk program: it is single-quoted in the shell.)
+      if (VER == 2) {
+        if (!is_state_section(block_section))
+          finding(block_line, \
+            sprintf("task %s block is outside any recognized state section (under \"%s\")", \
+              block_id, block_section == "" ? "(no section)" : safe(block_section)))
+        in_block = 0
+        return
+      }
       if (status_count > 1)
         finding(block_line, \
           sprintf("task %s block has %d Status lines (duplicate-dispatch-metadata signature; REQ-E1.2)", \

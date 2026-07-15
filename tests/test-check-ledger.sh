@@ -107,7 +107,7 @@ assert_exit "clean well-formed snapshot passes" 0 "$code"
 # Re-emit clean but with an extra status-less Forward task to make the lag
 # explicit and independent of test 1.
 {
-  printf '# Example — Tasks\n\n**Status:** Active\n\n'
+  printf '# Example — Tasks\n\n**Status:** Active\n**Format-version:** 1\n\n'
   printf '## Forward plan\n\n### Task 4 — Delta\n\n'
   block_body
   printf '\n### Task 5 — Epsilon\n\n'
@@ -162,7 +162,7 @@ assert_exit "\"done\" Status under Forward plan fails (completion in Forward)" 1
 
 # --- 6. Mis-sort / duplicate: same task id under two sections ----------------
 {
-  printf '# Example — Tasks\n\n**Status:** Active\n\n'
+  printf '# Example — Tasks\n\n**Status:** Active\n**Format-version:** 1\n\n'
   printf '## Forward plan\n\n(none yet)\n'
   printf '\n## In progress\n\n### Task 1 — Alpha\n\n'
   block_body
@@ -185,7 +185,7 @@ assert_exit "malformed task heading fails" 1 "$code"
 
 # --- 8. Orphaned block: a task under a non-state heading ---------------------
 {
-  printf '# Example — Tasks\n\n**Status:** Active\n\n'
+  printf '# Example — Tasks\n\n**Status:** Active\n**Format-version:** 1\n\n'
   printf '## Dependency graph\n\n### Task 9 — Orphan\n\n'
   block_body
   printf '\n## Forward plan\n\n(none yet)\n'
@@ -214,7 +214,7 @@ assert_contains "two-status message mentions Status" "Status" "$out"
 # carrying <status>, then assert the expected exit (and message when it fails).
 section_case() { # <label> <section> <status> <expected-exit> [needle]
   {
-    printf '# Example — Tasks\n\n**Status:** Active\n\n'
+    printf '# Example — Tasks\n\n**Status:** Active\n**Format-version:** 1\n\n'
     printf '## Forward plan\n\n'
     [ "$2" = "Forward plan" ] && {
       printf '### Task 5 — Epsilon\n\n'
@@ -308,7 +308,7 @@ assert_exit "well-formed CRLF snapshot passes" 0 "$code"
 # tasks.md content is untrusted repo/PR input; the echo discipline (REQ-H1.3,
 # mirrored across the sibling guards) requires stripping control characters
 # before echoing extracted file content into a finding message.
-printf '## Completed\n\n### Task \007BEL — Bad heading\n' >"$tmp/ctrl.md"
+printf '**Format-version:** 1\n\n## Completed\n\n### Task \007BEL — Bad heading\n' >"$tmp/ctrl.md"
 run "$tmp/ctrl.md"
 assert_exit "control-char malformed heading still fails" 1 "$code"
 if printf '%s' "$out" | tr -d '\011\012' | LC_ALL=C grep -q '[[:cntrl:]]'; then
@@ -316,6 +316,114 @@ if printf '%s' "$out" | tr -d '\011\012' | LC_ALL=C grep -q '[[:cntrl:]]'; then
   failures=$((failures + 1))
 else
   echo "ok: control char stripped from malformed-heading diagnostic"
+fi
+
+# --- 13. Format-version 2: structural checks only (invariant-tasks Task 4;
+# REQ-C1.4, REQ-C1.8, REQ-C1.9; D-7). The guard is version-keyed off the
+# file's own `**Format-version:**` declaration: v2 keeps the structural checks
+# (canonical heading form, duplicate task ids, the orphan-block check with
+# `## Tasks` recognized) while the v1 placement/annotation coherence checks and
+# the >1-Status lint do not fire (banned sections/annotations are the
+# validator's findings there, not this guard's). A missing or unparseable
+# declaration fails closed: the checks to apply cannot be selected, so the file
+# is reported rather than silently checked under either version's rules.
+
+v2_header() {
+  printf '# Example — Tasks\n\n**Status:** Ready\n**Format-version:** 2\n'
+  printf '**Execution:** derived — see the status render\n\n'
+}
+
+# 13a. A clean v2 snapshot passes: every block under ## Tasks (recognized as a
+# valid section), reference bullets in the human-payload sections.
+{
+  v2_header
+  printf '## Tasks\n\n### Task 1 — Alpha\n\n'
+  block_body
+  printf '\n### Task 2 — Beta\n\n'
+  block_body
+  printf '\n## Awaiting input\n\n- **Task 2** — blocked on a fixture question.\n'
+  printf '\n## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$tmp/v2-clean.md"
+run "$tmp/v2-clean.md"
+assert_exit "v2: clean snapshot with blocks under ## Tasks passes" 0 "$code"
+
+# 13b. Coherence checks and the >1-Status lint do not fire on v2: state
+# annotations on a v2 block are the VALIDATOR's finding (banned annotation),
+# not a ledger-coherence finding — the guard must not double-report them.
+{
+  v2_header
+  printf '## Tasks\n\n### Task 1 — Alpha\n\n'
+  block_body
+  printf -- '- **Status:** Completed · PR #1 merged 2026-06-01\n'
+  printf -- '- **Status:** implementing\n'
+  printf '\n## Awaiting input\n\n(none yet)\n'
+  printf '\n## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$tmp/v2-annot.md"
+run "$tmp/v2-annot.md"
+assert_exit "v2: placement/annotation coherence and >1-Status lint do not fire" 0 "$code"
+
+# 13c. Canonical heading form still enforced on v2.
+{
+  v2_header
+  printf '## Tasks\n\n### Task one — Alpha\n\n'
+  block_body
+} >"$tmp/v2-mal.md"
+run "$tmp/v2-mal.md"
+assert_exit "v2: malformed task heading still fails" 1 "$code"
+assert_contains "v2 malformed-heading message" "malformed task heading" "$out"
+
+# 13d. Duplicate task ids still enforced on v2.
+{
+  v2_header
+  printf '## Tasks\n\n### Task 1 — Alpha\n\n'
+  block_body
+  printf '\n### Task 1 — Alpha again\n\n'
+  block_body
+} >"$tmp/v2-dup.md"
+run "$tmp/v2-dup.md"
+assert_exit "v2: duplicate task id still fails" 1 "$code"
+assert_contains "v2 duplicate message names the id" "duplicate task block" "$out"
+
+# 13e. A block outside any recognized section still fails on v2.
+{
+  v2_header
+  printf '## Junk\n\n### Task 9 — Orphan\n\n'
+  block_body
+  printf '\n## Tasks\n\n(none yet)\n'
+} >"$tmp/v2-orphan.md"
+run "$tmp/v2-orphan.md"
+assert_exit "v2: task block outside a recognized section fails" 1 "$code"
+assert_contains "v2 orphan message names the section" "outside any recognized state section" "$out"
+
+# 13f. A missing Format-version fails closed (REQ-C1.8): the rules to apply
+# cannot be selected, so the file is reported (exit 1), never silently checked
+# under the v1 rules.
+{
+  printf '# Example — Tasks\n\n**Status:** Active\n\n'
+  printf '## Forward plan\n\n### Task 1 — Alpha\n\n'
+  block_body
+} >"$tmp/nover.md"
+run "$tmp/nover.md"
+assert_exit "missing Format-version fails closed" 1 "$code"
+assert_contains "missing-version message names Format-version" "Format-version" "$out"
+
+# 13g. An unparseable Format-version fails closed, and the echoed declared
+# value is sanitized (REQ-C1.9): an embedded escape byte cannot reach the
+# diagnostic stream.
+{
+  printf '# Example — Tasks\n\n**Status:** Active\n'
+  printf '**Format-version:** 2\033[31mx\n\n'
+  printf '## Tasks\n\n### Task 1 — Alpha\n\n'
+  block_body
+} >"$tmp/badver.md"
+run "$tmp/badver.md"
+assert_exit "unparseable Format-version fails closed" 1 "$code"
+assert_contains "unparseable-version message names Format-version" "Format-version" "$out"
+if printf '%s' "$out" | tr -d '\011\012' | LC_ALL=C grep -q '[[:cntrl:]]'; then
+  echo "FAIL: control char leaked into the unparseable-version diagnostic" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: unparseable-version diagnostic is sanitized (REQ-C1.9)"
 fi
 
 if [ "$failures" -ne 0 ]; then
