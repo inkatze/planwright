@@ -1,0 +1,1 @@
+- 2026-07-14 [planwright] machine-local friction: a global ~/.gitignore entry (specs/_observations/) shadows the tracked observations store, so every obs-record.sh fragment needs git add -f to commit; tracked entries are unaffected but new fragments silently fail plain git add. Either the global ignore entry should go, or obs-record/skills should note the -f requirement.
