@@ -23,22 +23,26 @@ control it has no business near.
 
 ## Doctrine
 
-Resolve and read these rule docs at run start via the rule-doc resolution
-convention (`scripts/resolve-rule-doc.sh <doc-name>` or the documented
-`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain): `spec-format` (the meta-spec
-the bundle must conform to — its conventions govern every file this skill
-writes), `interaction-style` (governs every exchange in the flow),
+Resolve and read the run-start rule docs at run start via the rule-doc
+resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or the
+documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain): `spec-format` (the
+meta-spec the bundle must conform to — its conventions govern every file this
+skill writes), `interaction-style` (governs every exchange in the flow),
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
+`security-posture` (artifact data-hygiene for everything committed), and
+`proportionality`. Three more are read point-of-use, at the step that applies
+them: the design phase reads `engineering-decisions` (governs design-phase
+recommendations) and `customization-boundary` (the capability-vs-style
+scoping call the design phase applies when a candidate feature looks like a
+packaged preference — see Design step 3); the altitude gate reads
 `autopilot-reflex` (D-11 wires its altitude gate into drafting the same way
 research-rigor is wired — the seed-claim and mid-flow trigger classes, the
-phase re-anchor, and the trigger-scoped altitude record; this skill cites
-`doctrine/autopilot-reflex.md` rather than restating it),
-`security-posture` (artifact data-hygiene for everything committed),
-`engineering-decisions` (governs design-phase recommendations), and
-`proportionality`, plus `customization-boundary` (the capability-vs-style
-scoping call the design phase applies when a candidate feature looks like a
-packaged preference — see Design step 3). Their definitions govern wherever this
-skill names a concept. If one of those does not resolve, halt with a clear message naming
+phase re-anchor, and the trigger-scoped altitude record; the trigger
+summaries the earlier steps need are stated inline at Seed gathering and the
+phase-end re-anchor, so only the full law defers; this skill cites
+`doctrine/autopilot-reflex.md` rather than restating it). Their definitions
+govern wherever this skill names a concept. If one of those does not
+resolve — at run start or at its point of use — halt with a clear message naming
 the missing doc and the chain consulted (REQ-K1.7: a clear message is the
 graceful arm; proceeding without doctrine is the opaque failure). Also
 resolve `decision-domains` (the design phase walks its catalog) — this one
@@ -53,11 +57,11 @@ Doctrine manifest (the reading model above in machine-parseable form, per
 Doctrine: run-start spec-format
 Doctrine: run-start interaction-style
 Doctrine: run-start research-rigor
-Doctrine: run-start autopilot-reflex
 Doctrine: run-start security-posture
-Doctrine: run-start engineering-decisions
 Doctrine: run-start proportionality
-Doctrine: run-start customization-boundary
+Doctrine: point-of-use engineering-decisions (the design phase)
+Doctrine: point-of-use customization-boundary (the design-phase capability-vs-style call)
+Doctrine: point-of-use autopilot-reflex (the altitude gate, Design step 3)
 Doctrine: point-of-use decision-domains (the design-phase catalog walk)
 
 ## Pre-flight
@@ -249,7 +253,8 @@ exactly so the bundle passes the validator the first time.
    requirement a single SHALL/MUST bullet with a stable ID and a citation.
    Derive candidate REQs from the seeds and goal, present per group for
    correction; the human supplies judgment, not formatting.
-3. **Design.** **Altitude gate first (REQ-H1.1).** Before designing any
+3. **Design.** **Altitude gate first (REQ-H1.1).** Resolve and read
+   `autopilot-reflex` now (its point-of-use read). Before designing any
    mechanism, check whether an altitude trigger has fired — a pinned seed
    claim (seed gathering above) or a mid-flow signal surfaced during
    elicitation (a recurring capability-vs-style call, an "is this even core?"
@@ -262,14 +267,17 @@ exactly so the bundle passes the validator the first time.
    verifies). Designing first and retrofitting the altitude is how a doctrine
    deliverable ends up specced as a one-repo script. No trigger fired: no
    record is required (per `proportionality`, the ceremony is scoped to the
-   specs that exhibited the risk) — proceed. Then, for each load-bearing
-   choice, a D-ID with all three fields
+   specs that exhibited the risk) — proceed. Then resolve and read
+   `engineering-decisions` (its point-of-use read; it governs this phase's
+   recommendations) and record, for each load-bearing choice, a D-ID with all
+   three fields
    (Decision / Alternatives considered / Chosen because). This phase fires
    Research Rigor triggers (new dependency, unfamiliar domain,
    security-touching pattern, version-sensitive API, mature-project
    comparison): research before recommending, cite what was consulted.
    **Capability-vs-style call:** when a choice is whether a preference belongs
-   in core or in an adopter/team overlay, apply `customization-boundary` — does
+   in core or in an adopter/team overlay, resolve, read, and apply
+   `customization-boundary` (its point-of-use read) — does
    the general *capability* land in core as an opt-in, default-preserving config
    knob, while the specific *value/style* stays in an overlay? Default tilt is
    overlay when in doubt; a preference graduates to a core knob only with

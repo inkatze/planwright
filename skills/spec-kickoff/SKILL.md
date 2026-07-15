@@ -37,8 +37,8 @@ merges, never dispatches execution.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve and read these rule docs at
-run start via the rule-doc resolution convention
+This skill is procedure, not doctrine. Resolve and read the run-start rule
+docs via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
 root, or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
 definitions govern wherever this skill names a concept:
@@ -47,25 +47,27 @@ definitions govern wherever this skill names a concept:
   required kickoff-brief structure, the amendment ritual, sign-off records,
   content anchors, and the sanctioned anchor command forms. This skill is
   the writer the meta-spec's sign-off rules name; it follows them exactly.
+- `security-posture` — artifact data-hygiene: the brief is committed and
+  its risk register invites operational detail.
+
+Three more are point-of-use reads at Sign-off step 1:
+
 - `discovery-rigor` — the lens checklist, canonical lens-coverage table,
   fan-out, and self-critique pass behind the sign-off lens review.
 - `autopilot-reflex` — the altitude gate (D-11): the trigger classes and the
-  trigger-scoped altitude record behind the kickoff-specific altitude check
-  (Sign-off step 1). This skill cites it rather than restating it.
+  trigger-scoped altitude record behind the sign-off altitude check.
 - `validation-rigor` — validation of lens-pass findings before they are
   dispositioned.
-- `security-posture` — artifact data-hygiene: the brief is a committed
-  artifact and its risk register invites operational detail.
 
-If any of those five does not resolve, halt with a clear message naming the
+If any of those five does not resolve — at run start or point of use —
+halt with a clear message naming the
 missing doc and the chain consulted (REQ-K1.7: the clear message is the
 graceful arm; signing a contract without the rules that define it is the
 opaque failure). Two more resolve with graceful degradation instead:
 
 - `decision-domains` — the gap check's catalog. Absent: note the missing
   catalog in one line, skip the gap check, and record the skip in the brief
-  so the gap is visible (the catalog is a deliberate non-edge, not a
-  dependency).
+  so the gap is visible.
 - `interaction-style` — governs the exchanges in the flow. Absent: follow
   the summary inline here (progress indicator, small bites, selectors with
   a recommendation, running summary) and note the missing doc.
@@ -75,11 +77,11 @@ Doctrine manifest (the reading model above in machine-parseable form, per
 `point-of-use` loads at the named step or branch):
 
 Doctrine: run-start spec-format
-Doctrine: run-start discovery-rigor
-Doctrine: run-start autopilot-reflex
-Doctrine: run-start validation-rigor
 Doctrine: run-start security-posture
 Doctrine: run-start interaction-style
+Doctrine: point-of-use discovery-rigor (the sign-off lens pass)
+Doctrine: point-of-use autopilot-reflex (the sign-off altitude check)
+Doctrine: point-of-use validation-rigor (lens-finding validation)
 Doctrine: point-of-use decision-domains (the sign-off gap check)
 
 ## Modes

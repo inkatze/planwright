@@ -137,31 +137,26 @@ trap 'rm -rf "$tmproot"' EXIT
 out="$(/bin/bash "$CHECKER" 2>&1)"
 assert_exit "real repo passes the guard (seeded allowances in place)" 0 $?
 
-# The audit over the real repo names the seeded per-file offenders as
-# pending-diet, not as hard failures.
+# Post-Task-7.5 the audit carries no transitional allowance anywhere: the
+# Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
+# the closeout direction REQ-D1.4 forbids any lingering `pending diet`).
 aud="$(/bin/bash "$CHECKER" --audit 2>&1)"
 assert_contains "audit lists orchestrate SKILL.md" "skills/orchestrate/SKILL.md" "$aud"
-assert_contains "audit marks a seeded offender pending-diet" "pending-diet" "$aud"
-# The offender shortlist names each seeded over-budget file even though a
-# transitional allowance keeps CI green (suppression governs the exit code, not
-# offender status — the shortlist drives the Task 5-7 diet plans, REQ-A1.3).
+assert_absent "audit carries no pending-diet allowance (Task 7.5)" "pending-diet" "$aud"
 sl="${aud##*Offender shortlist}"
 # Post-Task-5/6/7 the dieted /orchestrate, /execute-task, and /spec-kickoff
 # bodies pass with no suppression of their own (REQ-D1.1), so all three are off
-# the per-file shortlist; spec-format stays on it as a permanent exempt offender
-# (suppression governs the exit code, not offender status), and the Task 7.5
-# start-load carry for /spec-kickoff remains until its diet lands.
+# the per-file shortlist; post-Task-7.5 the /spec-kickoff and /spec-draft
+# start-load carries are shed too (point-of-use reclassification), so no
+# start-load offender remains; spec-format stays on the shortlist as a
+# permanent exempt offender (suppression governs the exit code, not offender
+# status).
 assert_absent "shortlist no longer names the dieted orchestrate" "skills/orchestrate/SKILL.md" "$sl"
 assert_absent "shortlist no longer names the dieted execute-task" "skills/execute-task/SKILL.md" "$sl"
 assert_absent "shortlist no longer names the dieted spec-kickoff body" "skills/spec-kickoff/SKILL.md" "$sl"
-assert_contains "shortlist names the spec-kickoff start-load carry" "start-load spec-kickoff" "$sl"
+assert_absent "shortlist no longer names the spec-kickoff start-load carry" "start-load spec-kickoff" "$sl"
+assert_absent "shortlist no longer names the spec-draft start-load carry" "start-load spec-draft" "$sl"
 assert_contains "shortlist names spec-format offender" "doctrine/spec-format.md" "$sl"
-# Pin the suppression tags to their rows (the Task 7 config transition):
-# name-only matches passed identically before and after the exempt retag, so
-# the carry must show transitional [pending-diet] and spec-format the
-# permanent [exempt] on their own shortlist rows.
-kick_row="$(printf '%s\n' "$sl" | grep -F 'start-load spec-kickoff')"
-assert_contains "spec-kickoff start-load carry is tagged pending-diet" "[pending-diet]" "$kick_row"
 sf_row="$(printf '%s\n' "$sl" | grep -F 'doctrine/spec-format.md')"
 assert_contains "spec-format offender is tagged exempt" "[exempt]" "$sf_row"
 
