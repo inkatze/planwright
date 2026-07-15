@@ -31,7 +31,12 @@
 #   - /drain resolves completion atoms through the derivation engine and scopes
 #     `commit_on_state_move` to v1;
 #   - /spec-kickoff documents Ready as the v2 header's resting state and reads
-#     derived execution state for delta/amendment mode selection.
+#     derived execution state for delta/amendment mode selection;
+#   - polish-pass guards: the reopen-cycle flip source is version-keyed
+#     (spec-draft), every state-writing skill states D-7's fail-closed rule
+#     for an unparseable Format-version:, the orphan park checks the
+#     one-bullet-per-task invariant (orchestrate), and resume's v2 spec
+#     inference is scoped to in-flight bundles.
 #
 # Runs standalone: ./tests/test-skill-v2-reconciliation.sh
 set -u

@@ -45,8 +45,8 @@ The evaluator resolves task-completion atoms through the derivation engine
 (`scripts/orchestrate-state.sh`), which on a format-version 2 bundle is the
 only completion source — no `## Completed` section exists (invariant-tasks
 D-8); v1 bundles keep the v1 read. Version keying reads the declared
-`Format-version:`; unparseable fails closed, never the v1 arm (D-7). Exit 0 means the sweep completed —
-malformed gates are report content, not
+`Format-version:`; unparseable fails closed, never the v1 arm (D-7).
+Exit 0 means the sweep completed — malformed gates are report content, not
 failures. A non-zero exit means the evaluator could not run or could not
 complete the sweep; surface the error verbatim and stop. A complete report
 always ends with the `== summary ==` section; treat a report missing it as
