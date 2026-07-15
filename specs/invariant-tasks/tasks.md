@@ -98,6 +98,7 @@ the guard that protects their output exists.
 - **Citations:** D-7, D-9 · REQ-C1.1, REQ-C1.4, REQ-C1.6, REQ-C1.8,
   REQ-C1.9, REQ-A1.2
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-15
 
 ### Task 5 — Selector and gate re-sourcing
 
