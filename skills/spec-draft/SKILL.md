@@ -25,13 +25,18 @@ control it has no business near.
 
 Resolve and read the run-start rule docs via the rule-doc
 resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or the
-documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain): `spec-format` (the
-meta-spec the bundle must conform to — its conventions govern every file this
-skill writes), `interaction-style` (governs every exchange in the flow),
+documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain):
+`interaction-style` (governs every exchange in the flow),
 `research-rigor` (REQ-D1.5 wires its triggers into drafting),
 `security-posture` (artifact data-hygiene for everything committed), and
-`proportionality`. Three more are read point-of-use, at the step that applies
-them: the design phase reads `engineering-decisions` (governs design-phase
+`proportionality`. Four more are read point-of-use, at the step that applies
+them: the elicitation reads `spec-format` at its start (the meta-spec the
+bundle must conform to — its structural conventions govern every phase's
+output and the Completion bundle write; the gists the earlier steps need are
+stated inline — the extend-mode terminal-state refusal at Pre-flight, the
+append/supersede discipline at Extend mode — so only the full law defers,
+and no bundle write happens before the load); the design phase reads
+`engineering-decisions` (governs design-phase
 recommendations) and `customization-boundary` (the capability-vs-style
 scoping call the design phase applies when a candidate feature looks like a
 packaged preference — see Design step 3); the altitude gate reads
@@ -54,11 +59,11 @@ Doctrine manifest (the reading model above in machine-parseable form, per
 `doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
 `point-of-use` loads at the named step or branch):
 
-Doctrine: run-start spec-format
 Doctrine: run-start interaction-style
 Doctrine: run-start research-rigor
 Doctrine: run-start security-posture
 Doctrine: run-start proportionality
+Doctrine: point-of-use spec-format (elicitation start — conventions + the bundle write)
 Doctrine: point-of-use engineering-decisions (the design phase)
 Doctrine: point-of-use customization-boundary (the design-phase capability-vs-style call)
 Doctrine: point-of-use autopilot-reflex (the altitude gate, Design step 3)
@@ -242,9 +247,11 @@ everything decided so far — and, per the phase re-anchor
 claimed altitude and flags any drift** between the claim and what the
 elicitation is currently producing ("the seed claimed doctrine; the last phase
 produced only mechanism tasks"). The restatement is cheap; its absence is how
-a session that opened at one altitude silently slides to another. The meta-spec
-(`spec-format`) defines every structural convention referenced here; follow it
-exactly so the bundle passes the validator the first time.
+a session that opened at one altitude silently slides to another. Before
+phase 1, resolve and read `spec-format` (its point-of-use read): the
+meta-spec defines every structural convention referenced here and governs
+the Completion bundle write; follow it exactly so the bundle passes the
+validator the first time.
 
 1. **Goal & scope.** The problem, the one-paragraph goal, in-scope /
    out-of-scope lists. Elicit what the feature must *not* do — out-of-scope

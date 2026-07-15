@@ -95,7 +95,10 @@ re-anchor, the trigger-scoped altitude D-ID) the authoring skills apply while
 producing specs. The instruction layer carrying
 all of it is itself governed: [Instruction Hygiene](instruction-hygiene.md)
 is the authoring law for skills and these docs — what loads when, within what
-budget, verified how. Upstream of execution,
+budget, verified how — and it is itself a catalogued breadth dimension
+(`instruction-hygiene` in the [Core Guard Catalog](guard-catalog.md#instruction-hygiene)),
+so the builder can recommend the same size guard and kept-eval convention to an
+adopter whose repo authors an instruction layer. Upstream of execution,
 [Interaction Style](interaction-style.md) governs how the spec-authoring
 skills conduct the interactive sessions that produce the specs everything
 above executes against, and the

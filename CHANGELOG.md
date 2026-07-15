@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.0](https://github.com/inkatze/planwright/compare/v0.8.0...v0.9.0) (2026-07-15)
+
+
+### Features
+
+* **instruction-hygiene:** guard-catalog entry, docs, closeout audit (Task 8) ([#182](https://github.com/inkatze/planwright/issues/182)) ([3e49956](https://github.com/inkatze/planwright/commit/3e4995622b65c79273c000a3b89eb4dd770efbb9))
+
+## [0.8.0](https://github.com/inkatze/planwright/compare/v0.7.0...v0.8.0) (2026-07-15)
+
+
+### Features
+
+* **instruction-hygiene:** diet residual start-load offenders (Task 7.5) ([#179](https://github.com/inkatze/planwright/issues/179)) ([2862196](https://github.com/inkatze/planwright/commit/28621969c0f631336a7127454e026509bc43f8b6))
+
 ## [0.7.0](https://github.com/inkatze/planwright/compare/v0.6.0...v0.7.0) (2026-07-15)
 
 

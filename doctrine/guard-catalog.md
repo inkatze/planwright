@@ -133,6 +133,36 @@ merge and publish are never autonomous — is [release-tagging.md](release-taggi
 this entry is the builder-facing consent surface that doc's mechanism row
 (capability in core, mechanism as opt-in template, value as config) points at.
 
+### Instruction hygiene
+
+A repo that authors an LLM instruction layer — agent skills, doctrine docs,
+prompts — has a runtime artifact that degrades as it grows, yet no mechanical
+guard watches its size. The `instruction-hygiene` breadth entry lets the builder
+recommend closing that gap to an adopter whose repo ships such a layer. Like
+every breadth dimension it is **advisory-only**: surfaced through the builder's
+consent flow, never auto-applied, `detect: manual` (it never fires from a file
+glob — the trigger is the builder's judgment that a repo authors instructions,
+not a mechanical signal), and absent from the `--core` mechanical set. What it
+recommends has two parts, both defined in
+[instruction-hygiene.md](instruction-hygiene.md):
+
+- **The size guard** — `scripts/check-instructions.sh`, the per-file /
+  mandatory-at-start / reachable-closure word budgets, doctrine-manifest
+  resolution, and injected-context measurement, wired into the project's `check`
+  aggregate. Its two suppression forms (a permanent per-file exemption and a
+  transitional `pending-diet` allowance) and the `--closeout` direction that
+  forbids a lingering allowance once a retrofit completes are the adopter's
+  equivalents of planwright's own prompt-hygiene remediation.
+- **The kept prompt-eval convention** — the behavioral backstop for the size
+  proxy: a fixture suite kept in the repo, run on demand (never in CI), gated
+  pass^k, catching the case where a file passes the budget yet still degrades
+  behavior.
+
+This is a project-bespoke guard the way planwright's own spec validator and
+link-check are (see [Dogfooding](#dogfooding)): catalogued so the builder can
+carry it to an adopter that authors instructions, advisory so it is never
+stamped onto a repo that does not.
+
 ## Extension
 
 Two growth paths, both without editing the consuming script (the
