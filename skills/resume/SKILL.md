@@ -78,7 +78,9 @@ are not bundles and are skipped), or a single bundle whose `requirements.md`
 carries the literal `**Status:** Active` marker and that has a kickoff brief
 (a format-version 2 bundle never stores `Active` — its header rests at
 `Ready` while work is in flight — so a stored `**Status:** Ready` with a
-kickoff brief counts the same way there).
+kickoff brief counts the same way there, but only when the render reports
+work in flight: a freshly signed-off, undispatched v2 bundle is not an
+in-flight unit).
 Both arms consider only directory names that pass REQ-A1.8 (an Active bundle
 has already passed validation, so its name conforms). If that inference is
 unambiguous, continue with the resolved `<spec>`. If it is not — zero

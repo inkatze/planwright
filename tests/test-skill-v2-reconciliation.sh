@@ -294,6 +294,12 @@ else
   fail "resume: v1 read arm missing (REQ-E1.2: v1 behavior must be unchanged)"
 fi
 
+if printf '%s' "$rs" | grep -qE 'only when the render reports work in flight'; then
+  ok "resume: v2 spec inference scoped to in-flight bundles"
+else
+  fail "resume: v2 Ready-with-brief inference is not scoped to in-flight work (a signed-off undispatched bundle would auto-resolve)"
+fi
+
 # --- /orchestrate: selection, orphan park, bookkeeping (REQ-E1.2, D-8) ---
 
 oc="$(flat "$REPO_ROOT/skills/orchestrate/SKILL.md")"
