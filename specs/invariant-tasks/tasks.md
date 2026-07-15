@@ -174,6 +174,7 @@ the guard that protects their output exists.
 - **Dependencies:** 1, 2, 3
 - **Citations:** D-6, D-7, D-3, D-8 · REQ-E1.2
 - **Estimated effort:** 2 days
+- **Last activity:** 2026-07-15
 
 ### Task 8 — Docs, config, and supersessions
 
