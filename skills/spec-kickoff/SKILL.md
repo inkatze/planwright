@@ -40,17 +40,17 @@ merges, never dispatches execution.
 This skill is procedure, not doctrine. Resolve and read the run-start rule
 docs via the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright
-root, or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
-definitions govern wherever this skill names a concept:
+root); their definitions govern wherever this skill names a concept:
 
-- `spec-format` — the meta-spec: bundle conventions, status lifecycle, the
-  required kickoff-brief structure, the amendment ritual, sign-off records,
-  content anchors, and the sanctioned anchor command forms. This skill is
-  the writer the meta-spec's sign-off rules name; it follows them exactly.
 - `security-posture` — artifact data-hygiene: the brief is committed and
   its risk register invites operational detail.
 
-Three more are point-of-use reads at Sign-off step 1:
+`spec-format` is read at pre-flight step 2, its point of use (only argument
+parsing precedes it) — the meta-spec: bundle conventions, status lifecycle,
+the required kickoff-brief structure, the amendment ritual, sign-off
+records, content anchors, and the sanctioned anchor command forms. This
+skill is the writer the meta-spec's sign-off rules name; it follows them
+exactly. Three more are point-of-use reads at Sign-off step 1:
 
 - `discovery-rigor` — the lens checklist, canonical lens-coverage table,
   fan-out, and self-critique pass behind the sign-off lens review.
@@ -60,10 +60,8 @@ Three more are point-of-use reads at Sign-off step 1:
   dispositioned.
 
 If any of those five does not resolve — at run start or point of use —
-halt with a clear message naming the
-missing doc and the chain consulted (REQ-K1.7: the clear message is the
-graceful arm; signing a contract without the rules that define it is the
-opaque failure). Two more resolve with graceful degradation instead:
+halt with a clear message naming the missing doc and the chain consulted
+(REQ-K1.7). Two more resolve with graceful degradation instead:
 
 - `decision-domains` — the gap check's catalog. Absent: note the missing
   catalog in one line, skip the gap check, and record the skip in the brief
@@ -76,9 +74,9 @@ Doctrine manifest (the reading model above in machine-parseable form, per
 `doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
 `point-of-use` loads at the named step or branch):
 
-Doctrine: run-start spec-format
 Doctrine: run-start security-posture
 Doctrine: run-start interaction-style
+Doctrine: point-of-use spec-format (pre-flight step 2)
 Doctrine: point-of-use discovery-rigor (the sign-off lens pass)
 Doctrine: point-of-use autopilot-reflex (the sign-off altitude check)
 Doctrine: point-of-use validation-rigor (lens-finding validation)
@@ -139,7 +137,8 @@ state.
 2. **Verify the bundle and select the mode.** All four files must exist
    (`requirements.md`, `design.md`, `tasks.md`, `test-spec.md`). A missing
    file or unreadable status is a structural defect: surface it and point
-   at `/spec-draft`; there is nothing to walk. Read the `**Status:**` line:
+   at `/spec-draft`; there is nothing to walk. Resolve and read
+   `spec-format` here (its point-of-use read). Read the `**Status:**` line:
    - **Draft** → first activation; a resume when step 6 finds a partial
      brief; a reopened-bundle delta kickoff when the brief is complete
      and signed (per the Modes section).
