@@ -19,6 +19,10 @@ run = "scripts/release-publish.sh"
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor)"
 run = 'for t in tests/*.sh; do /bin/bash "$t" || exit 1; done'
 
+[tasks.status]
+description = "Render a spec bundle's derived execution status (the canonical read surface for format-version 2 bundles; invariant-tasks D-6). Usage: mise run status specs/<spec>"
+run = "scripts/spec-status.sh"
+
 [tasks."lint:shell"]
 description = "shellcheck on scripts and tests"
 run = "shellcheck scripts/*.sh tests/*.sh"
