@@ -119,6 +119,26 @@ unset CDPATH
 
 log() { printf 'tasks-pr-sync: %s\n' "$*" >&2; }
 
+# tasks_format_version <tasks.md>: print the bundle's declared format version
+# ("1" or "2") from the first `**Format-version:**` header line, trailing
+# whitespace/CR trimmed (a Markdown hard-break or CRLF checkout must not make a
+# valid value unrecognizable — mirrors scripts/spec-status.sh). Returns 1, and
+# prints nothing, on a missing or unparseable declaration: version keying is
+# fail-closed (invariant-tasks REQ-C1.8, D-7) — the caller must refuse to
+# write rather than fall open to the v1 write path. The raw declared value is
+# untrusted file content and is deliberately NOT echoed in diagnostics (echo
+# discipline without needing a sanitizer here).
+tasks_format_version() {
+  tfv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$1" 2>/dev/null) || tfv=""
+  case $tfv in
+    1 | 2)
+      printf '%s\n' "$tfv"
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # The shared advisory-lock primitive and the derivation engine both ship beside
 # this script (REQ-D1.1; orchestration-concurrency Task 1/6). A missing or
 # non-executable sibling is a broken install: the hook stays fail-soft (it is a
@@ -605,6 +625,22 @@ do_placement() {
     return 1
   fi
 
+  # Version keying (invariant-tasks REQ-C1.1, REQ-C1.8, D-7), read under the
+  # lock: a format-version 2 bundle stores no derived execution state — no
+  # placement, annotation, or derived-header writes — so the level-triggered
+  # reconcile is a clean no-op there; a missing or unparseable declaration
+  # fails closed (no write). The CLI entry points pre-check the same value for
+  # their exit-2 contract; this in-writer gate is the authoritative one (it
+  # also covers the hook path, and re-reads under the lock).
+  case $(tasks_format_version "$dp_tasks") in
+    1) ;;
+    2) return 0 ;;
+    *)
+      log "missing or unparseable Format-version in $dp_tasks; failing closed, no write (REQ-C1.8)"
+      return 1
+      ;;
+  esac
+
   # Derive each task's state (the Task 1 backbone). A non-zero exit (taskless /
   # unreadable / invalid spec id) means there is no truth to place from: leave
   # tasks.md untouched.
@@ -704,6 +740,18 @@ do_status_only() {
     log "refusing symlinked tasks.md in $dso_dir"
     return 1
   fi
+  # Version keying, same gate as do_placement (invariant-tasks REQ-C1.1,
+  # REQ-C1.8, D-7): a v2 bundle's Status header holds only human-gated states
+  # (Active/Done are derived, never stored), so the status-only arm writes
+  # nothing there; a missing or unparseable declaration fails closed.
+  case $(tasks_format_version "$dso_tasks") in
+    1) ;;
+    2) return 0 ;;
+    *)
+      log "missing or unparseable Format-version in $dso_tasks; failing closed, no write (REQ-C1.8)"
+      return 1
+      ;;
+  esac
   # Derive each task's state (the Task 1 backbone). A non-zero exit (taskless /
   # unreadable / invalid spec id) means there is no truth to derive from: leave
   # the headers untouched and report the failure to the caller. Same discipline
@@ -840,6 +888,18 @@ if [ "${1:-}" = reconcile-status ]; then
     echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
     exit 2
   fi
+  # Version keying (REQ-C1.1, REQ-C1.8): fail closed on a missing/unparseable
+  # declaration with the CLI's refused-input exit (the in-writer gate would
+  # refuse too, but its failure is not an exit-2); a v2 bundle stores no
+  # derived Status, so the status-only arm has nothing to reconcile.
+  if ! cli_ver=$(tasks_format_version "$cli_dir/tasks.md"); then
+    echo "tasks-pr-sync: missing or unparseable Format-version in $cli_dir/tasks.md; failing closed, no write (REQ-C1.8)" >&2
+    exit 2
+  fi
+  if [ "$cli_ver" = 2 ]; then
+    echo "tasks-pr-sync: format-version 2 bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile" >&2
+    exit 0
+  fi
   run_reconcile "$cli_dir" closed status
   exit $?
 fi
@@ -868,6 +928,18 @@ if [ "${1:-}" = reconcile ]; then
   if [ -L "$cli_dir/tasks.md" ]; then
     echo "tasks-pr-sync: refusing symlinked tasks.md in $cli_dir" >&2
     exit 2
+  fi
+  # Version keying (REQ-C1.1, REQ-C1.8): mirror of the reconcile-status arm
+  # above — exit 2 fail-closed on a missing/unparseable declaration, clean
+  # no-op exit 0 on a v2 bundle (no placement, annotation, or derived-header
+  # writes; the in-writer gate re-checks under the lock).
+  if ! cli_ver=$(tasks_format_version "$cli_dir/tasks.md"); then
+    echo "tasks-pr-sync: missing or unparseable Format-version in $cli_dir/tasks.md; failing closed, no write (REQ-C1.8)" >&2
+    exit 2
+  fi
+  if [ "$cli_ver" = 2 ]; then
+    echo "tasks-pr-sync: format-version 2 bundle; derived state is never stored (REQ-C1.1) — nothing to reconcile" >&2
+    exit 0
   fi
   # Containment + spec-id grammar are enforced by the shared lock primitive
   # (REQ-F1.1): it refuses a spec dir whose canonical parent is not specs/ or

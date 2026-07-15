@@ -1997,4 +1997,186 @@ block_of "$sd/tasks.md" 1 | grep -qF -- "- **Status:** Completed · merged $expe
   || fail "T7-G: the regenerated degraded stamp is not recognized as a completion Status by check-ledger"
 echo "ok: the no-downgrade guard preserves ONLY the exact canonical stamp; a malformed near-canonical stamp is regenerated under degraded evidence (REQ-E1.2)"
 
+# ===========================================================================
+# V2 — format-version 2 invariant-ledger arms (invariant-tasks Task 4; D-7,
+# REQ-C1.1, REQ-C1.8, REQ-A1.2). The writer is version-keyed off the bundle's
+# tasks.md `**Format-version:**` declaration: v1 bundles keep every reconcile
+# behavior above unchanged; on a v2 bundle the writer performs NO placement,
+# annotation, or derived-header writes (a clean no-op, both CLI arms and the
+# hook); a missing or unparseable declaration fails closed — no write, error
+# reported (CLI exit 2; the hook stays fail-soft but writes nothing) — never
+# falling open to the v1 write path.
+
+# A v2 fixture bundle: restricted stored header + pointer line, a single
+# ## Tasks section holding every block (no placement sections), human-payload
+# sections, and no state annotations.
+write_v2_spec() { # $1 = spec dir, $2 = stored status
+  mkdir -p "$1"
+  cat >"$1/requirements.md" <<EOF
+# Demo2 — Requirements
+
+**Status:** $2
+**Last reviewed:** 2026-07-15
+**Format-version:** 2
+**Execution:** derived — see the status render
+
+## Goal
+
+Fixture.
+EOF
+  for v2f in design.md test-spec.md; do
+    printf '%s\n' "# Demo2 — ${v2f%.md}" '' "**Status:** $2" \
+      '**Last reviewed:** 2026-07-15' '**Format-version:** 2' \
+      '**Execution:** derived — see the status render' >"$1/$v2f"
+  done
+  cat >"$1/tasks.md" <<EOF
+# Demo2 — Tasks
+
+**Status:** $2
+**Last reviewed:** 2026-07-15
+**Format-version:** 2
+**Execution:** derived — see the status render
+
+## Tasks
+
+### Task 1 — Alpha
+
+- **Deliverables:** Alpha.
+- **Done when:** Alpha done.
+- **Dependencies:** none
+- **Citations:** REQ-V2.1
+- **Estimated effort:** 1 day
+
+### Task 2 — Beta
+
+- **Deliverables:** Beta.
+- **Done when:** Beta done.
+- **Dependencies:** 1
+- **Citations:** REQ-V2.2
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+}
+
+# Content digest of everything under specs/ (the "no write" oracle: the
+# REQ-C1.1 test-spec entry's directory digest).
+specs_digest() { # $1 = repo dir
+  (cd "$1" && find specs -type f | LC_ALL=C sort | xargs git hash-object | git hash-object --stdin)
+}
+
+# A v2 repo whose git evidence WOULD relocate blocks and flip headers under the
+# v1 reconcile: Task 1 completed (trailer), Task 2 in-progress (branch ahead),
+# stored status Ready — so a falling-open writer would visibly rewrite both
+# tasks.md placement and the four Status headers.
+make_v2_repo() { # $1 = repo dir
+  mkdir -p "$1"
+  git -C "$1" init -q -b main
+  git -C "$1" config user.email test@example.com
+  git -C "$1" config user.name test
+  git -C "$1" config commit.gpgsign false
+  write_v2_spec "$1/specs/demo2" Ready
+  git -C "$1" add -A
+  git -C "$1" commit -qm "chore: fixture"
+  git -C "$1" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: demo2/1"
+  git -C "$1" branch planwright/demo2/task-2
+  git -C "$1" checkout -q planwright/demo2/task-2
+  git -C "$1" commit -q --allow-empty -m "wip: task 2"
+  git -C "$1" checkout -q main
+}
+
+# --- V2-A: CLI `reconcile` on a v2 bundle is a clean no-op (REQ-C1.1) --------
+repo=$tmp/v2a
+make_v2_repo "$repo"
+d_before=$(specs_digest "$repo")
+reconcile "$repo" specs/demo2 || fail "V2-A: reconcile on a v2 bundle should exit 0 (clean no-op), got non-zero"
+d_after=$(specs_digest "$repo")
+[ "$d_before" = "$d_after" ] || fail "V2-A: reconcile wrote into a v2 bundle (specs digest changed; REQ-C1.1)"
+grep -q '^## Tasks$' "$repo/specs/demo2/tasks.md" || fail "V2-A: v2 tasks.md shape lost"
+echo "ok: V2-A CLI reconcile on a v2 bundle writes nothing (REQ-C1.1)"
+
+# --- V2-B: the hook fires harmlessly on a v2 bundle --------------------------
+repo=$tmp/v2b
+make_v2_repo "$repo"
+git -C "$repo" checkout -q planwright/demo2/task-2
+d_before=$(specs_digest "$repo")
+run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/7" \
+  || fail "V2-B: hook on a v2 bundle should exit 0 (fail-soft), got non-zero"
+d_after=$(specs_digest "$repo")
+[ "$d_before" = "$d_after" ] || fail "V2-B: the hook wrote into a v2 bundle (specs digest changed)"
+git -C "$repo" checkout -q main
+echo "ok: V2-B hook fires harmlessly on a v2 bundle (no write)"
+
+# --- V2-C: `reconcile-status` on a v2 bundle leaves every header untouched ---
+repo=$tmp/v2c
+make_v2_repo "$repo"
+d_before=$(specs_digest "$repo")
+(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile-status specs/demo2) \
+  || fail "V2-C: reconcile-status on a v2 bundle should exit 0 (clean no-op), got non-zero"
+d_after=$(specs_digest "$repo")
+[ "$d_before" = "$d_after" ] || fail "V2-C: reconcile-status wrote into a v2 bundle (derived-header write; REQ-C1.1)"
+grep -q '^\*\*Status:\*\* Ready$' "$repo/specs/demo2/requirements.md" \
+  || fail "V2-C: stored Ready header was rewritten (Active/Done are derived, never stored)"
+echo "ok: V2-C reconcile-status on a v2 bundle writes no derived header (REQ-C1.1)"
+
+# --- V2-D: missing Format-version fails closed (REQ-C1.8) --------------------
+repo=$tmp/v2d
+make_v2_repo "$repo"
+grep -v '^\*\*Format-version:\*\*' "$repo/specs/demo2/tasks.md" >"$repo/specs/demo2/tasks.md.new"
+mv "$repo/specs/demo2/tasks.md.new" "$repo/specs/demo2/tasks.md"
+git -C "$repo" add -A && git -C "$repo" commit -qm "fixture: strip version"
+d_before=$(specs_digest "$repo")
+rc=0
+err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo2) 2>&1 >/dev/null) || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-D: reconcile on a missing Format-version should fail closed (exit 2), got $rc"
+case "$err" in *Format-version*) ;; *) fail "V2-D: fail-closed error does not name Format-version: $err" ;; esac
+d_after=$(specs_digest "$repo")
+[ "$d_before" = "$d_after" ] || fail "V2-D: a missing Format-version still reached the write path (REQ-C1.8)"
+rc=0
+(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile-status specs/demo2) >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-D: reconcile-status on a missing Format-version should fail closed (exit 2), got $rc"
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-D: reconcile-status wrote despite a missing Format-version"
+echo "ok: V2-D missing Format-version fails closed on both CLI arms (no write, error reported; REQ-C1.8)"
+
+# --- V2-E: unparseable Format-version fails closed (REQ-C1.8) ----------------
+repo=$tmp/v2e
+make_v2_repo "$repo"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** banana/' "$repo/specs/demo2/tasks.md" \
+  >"$repo/specs/demo2/tasks.md.new"
+mv "$repo/specs/demo2/tasks.md.new" "$repo/specs/demo2/tasks.md"
+git -C "$repo" add -A && git -C "$repo" commit -qm "fixture: unparseable version"
+d_before=$(specs_digest "$repo")
+rc=0
+(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo2) >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-E: reconcile on an unparseable Format-version should fail closed (exit 2), got $rc"
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-E: an unparseable Format-version still reached the write path (REQ-C1.8)"
+echo "ok: V2-E unparseable Format-version fails closed (no write; REQ-C1.8)"
+
+# --- V2-F: the hook stays fail-soft on a bad declaration but writes nothing --
+repo=$tmp/v2f
+make_v2_repo "$repo"
+sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** banana/' "$repo/specs/demo2/tasks.md" \
+  >"$repo/specs/demo2/tasks.md.new"
+mv "$repo/specs/demo2/tasks.md.new" "$repo/specs/demo2/tasks.md"
+git -C "$repo" add -A && git -C "$repo" commit -qm "fixture: unparseable version"
+git -C "$repo" checkout -q planwright/demo2/task-2
+d_before=$(specs_digest "$repo")
+run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/8" \
+  || fail "V2-F: hook must stay fail-soft (exit 0) on an unparseable Format-version"
+[ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-F: the hook wrote despite an unparseable Format-version (REQ-C1.8)"
+git -C "$repo" checkout -q main
+echo "ok: V2-F hook is fail-soft on an unparseable Format-version and writes nothing (REQ-C1.8)"
+
 echo "PASS: all tasks-pr-sync tests passed"
