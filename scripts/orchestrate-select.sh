@@ -51,8 +51,8 @@
 #       visualization. On a bundle with nothing completed the two coincide.
 #
 # Exit: 0 a unit/path was produced (on stdout); 1 (selection only) no ready
-# unit this step; 2 the tasks.md is missing, unreadable, holds no task
-# records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
+# unit this step; 2 the tasks.md is missing, unreadable, NUL-laden, holds no
+# task records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
 # candidacy rules cannot be known without a parsed version; both modes refuse
 # rather than guess), or the sourced echo-safety.sh helper is missing (broken
 # install, both modes), or (selection only) the derivation engine is missing /
