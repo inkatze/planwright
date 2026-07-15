@@ -23,7 +23,7 @@ control it has no business near.
 
 ## Doctrine
 
-Resolve and read the run-start rule docs at run start via the rule-doc
+Resolve and read the run-start rule docs via the rule-doc
 resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or the
 documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain): `spec-format` (the
 meta-spec the bundle must conform to — its conventions govern every file this
