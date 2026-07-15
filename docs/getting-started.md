@@ -338,7 +338,9 @@ you.
   conventions.
 - [`docs/orchestration-state.md`](orchestration-state.md) — the derived-projection
   model behind concurrent orchestration (derivation, single-writer reconcile,
-  the trailer, no-remote flow).
+  the trailer, no-remote flow), version-keyed off each bundle's
+  `Format-version:` — a format-version 2 bundle drops the committed snapshot and
+  reads status through the render.
 - [`docs/fleet.md`](fleet.md) — fleet operation: the one entry command, the
   execution-backend seam (autodetect, the degradation ladder, plugging in your
   own backend), the decision queue you watch, and what an unattended fleet

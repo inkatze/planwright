@@ -12,6 +12,16 @@ documents the operational surface (branch names, the `tasks-pr-sync` hook, the
 commit trailer). Read this for the *why* and the model; read conventions for the
 *what* a skill or hook touches.
 
+> **Format-version scope.** The model below describes a **format-version 1**
+> bundle, where the committed `tasks.md` still carries the derived placement
+> sections (`## Forward plan` / `## In progress` / `## Completed`) as a
+> rebuildable snapshot. A **format-version 2** bundle keeps the same derivation
+> engine but removes the committed snapshot entirely (see
+> [`doctrine/spec-format.md`](../doctrine/spec-format.md) for the v2 shape and
+> the [Format-version 2](#format-version-2-no-committed-snapshot) section
+> below); the machinery version-keys off the bundle's `Format-version:` line, so
+> v1 bundles keep the behavior described here unchanged.
+
 ## The problem it solves
 
 Before this model, `tasks.md` doubled as the canonical orchestration record
@@ -220,6 +230,42 @@ branch is no longer an ancestor of `main`.
 A related failure (risk R1): solo work whose branch was deleted *and* whose
 trailer is missing or mistyped derives as deps-met-but-no-evidence. The
 corruption guard flags that case so it does not silently under-complete.
+
+## Format-version 2: no committed snapshot
+
+A **format-version 2** bundle (declared by its `Format-version: 2` header) takes
+the derived-projection model one step further: it removes the committed snapshot
+altogether. The reasoning is that if placement is fully derivable, committing it
+buys nothing but churn — a commit per section move, annotation stamps, anchor
+housekeeping, and the shared-checkout index races that forced
+`commit_on_state_move: false` on a two-tower deployment. Under v2:
+
+- **The committed `tasks.md` holds only what cannot be derived:** the task
+  definition blocks in a single `## Tasks` section, plus the human-authored
+  payload sections (`## Awaiting input`, `## Deferred`, `## Out of scope`). There
+  are no `## Forward plan` / `## In progress` / `## Completed` placement sections
+  and no per-block `Status` / `Last activity` / `Dispatch` annotations, so an
+  execution-state change touches no committed file (and never moves the content
+  anchor).
+- **Execution status is read through the render**, not a file. The derivation
+  engine (`scripts/orchestrate-state.sh`) is surfaced as an on-demand
+  status-render command; a human reads *that*, machine logic (selection, gate
+  evaluation) reads the engine directly. Nothing is committed and nothing is
+  mirrored to the remote.
+- **The stored `Status:` header shrinks to human declarations** — `Draft`,
+  `Ready`, `Retired`, `Superseded`. `Active` and `Done` become derived facts the
+  render computes; they are no longer stored (the reopen cycle flips `Ready` back
+  to `Draft`).
+- **The single writer no-ops.** `scripts/tasks-pr-sync.sh` and its hook detect a
+  v2 bundle and perform no placement, annotation, or completion-stamp write; the
+  structural guard (`scripts/check-ledger.sh`) drops to structural checks only.
+  The v1 arms above stay intact for v1 bundles.
+
+The switch is per bundle, keyed off the `Format-version:` line, so one repo can
+hold live v1 and v2 bundles at once; a missing or unparseable version fails
+closed (no write). The normative definition of the v2 `tasks.md` shape, the
+pointer line, and the derivation-as-read-surface rule lives in
+[`doctrine/spec-format.md`](../doctrine/spec-format.md).
 
 ## Configuration
 

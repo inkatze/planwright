@@ -315,6 +315,15 @@ An `/execute-task` body follows; a `/self-review` body has the same shape,
 with the lens-coverage table and pass summary added inside the collapsed
 record and no kickoff-brief or task-graph inputs in the summary.
 
+The example summary below describes the completion-annotation stamp, which is a
+**format-version 1** behavior: the reconcile writes the
+`Completed · PR #<n> merged <YYYY-MM-DD>` annotation into the committed
+`tasks.md`. A **format-version 2** bundle commits no such annotation — completion
+is derived render content produced by the derivation engine at read time, so
+there is no stamp write to describe in a v2 task's PR body. The version-keyed
+scope and the render-as-read-surface rule live in the v2 definition in
+[`spec-format.md`](spec-format.md).
+
 ```markdown
 ## Summary
 
