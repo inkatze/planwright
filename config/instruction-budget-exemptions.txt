@@ -30,6 +30,6 @@ exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), T
 # removed /orchestrate's and /execute-task's in their own diet PRs, and
 # Task 7.5's point-of-use reclassification of the non-gating doctrine reads
 # brought /spec-kickoff and /spec-draft under the start-load budget, removing
-# the last two. No transitional `pending diet` allowance remains (the REQ-D1.4
+# the last two. No transitional `pending-diet` allowance remains (the REQ-D1.4
 # closeout direction); the permanent spec-format exemption above is the only
 # live entry.

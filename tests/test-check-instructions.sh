@@ -139,7 +139,7 @@ assert_exit "real repo passes the guard (seeded allowances in place)" 0 $?
 
 # Post-Task-7.5 the audit carries no transitional allowance anywhere: the
 # Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
-# the closeout direction REQ-D1.4 forbids any lingering `pending diet`).
+# the closeout direction REQ-D1.4 forbids any lingering `pending-diet` entry).
 aud="$(/bin/bash "$CHECKER" --audit 2>&1)"
 assert_contains "audit lists orchestrate SKILL.md" "skills/orchestrate/SKILL.md" "$aud"
 assert_absent "audit carries no pending-diet allowance (Task 7.5)" "pending-diet" "$aud"
