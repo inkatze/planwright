@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/inkatze/planwright/compare/v0.6.0...v0.7.0) (2026-07-15)
+
+
+### Features
+
+* **spec:** fleet-autonomy kickoff sign-off ([#177](https://github.com/inkatze/planwright/issues/177)) ([7871f57](https://github.com/inkatze/planwright/commit/7871f57d52a38cb2708ee36aa4e1b7c51ed5e021))
+
 ## [0.6.0](https://github.com/inkatze/planwright/compare/v0.5.0...v0.6.0) (2026-07-15)
 
 
