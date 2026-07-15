@@ -1,6 +1,6 @@
 # Invariant Tasks — Design
 
-**Status:** Ready
+**Status:** Active
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
