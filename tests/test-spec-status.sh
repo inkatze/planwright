@@ -149,6 +149,9 @@ EOF
 ### Task 7 — no evidence, deps unmet
 - **Dependencies:** 4
 
+### Task 8 — open PR only (no local branch)
+- **Dependencies:** none
+
 ## Awaiting input
 
 (none yet)
@@ -198,8 +201,10 @@ seed_evidence "$repo"
 gitc "$repo" remote add origin https://example.invalid/demo.git
 stub="$tmp/binmatrix"
 make_gh_stub "$stub" \
+  "planwright/demo/task-1${TAB}OPEN${TAB}41${TAB}" \
   "planwright/demo/task-3${TAB}MERGED${TAB}42${TAB}2026-07-01T10:00:00Z" \
-  "planwright/demo/task-4${TAB}OPEN${TAB}43${TAB}"
+  "planwright/demo/task-4${TAB}OPEN${TAB}43${TAB}" \
+  "planwright/demo/task-8${TAB}OPEN${TAB}44${TAB}"
 
 out=$(PATH="$stub:$PATH" "$RENDER" "$spec") || fail "B1.1: render exited non-zero"
 assert_has "$(task_line "$out" 1)" completed "B1.1 merged-branch"
@@ -211,6 +216,13 @@ assert_has "$(task_line "$out" 4)" in-progress "B1.1 in-flight branch"
 assert_has "$(task_line "$out" 5)" in-progress "B1.1 fresh marker"
 assert_has "$(task_line "$out" 6)" ready "B1.1 deps met"
 assert_has "$(task_line "$out" 7)" blocked "B1.1 deps unmet"
+# Task 8's ONLY evidence is the gh OPEN row (no local branch, no marker), so
+# this pins the pr-open engine arm rather than riding the branch-commits one.
+assert_has "$(task_line "$out" 8)" in-progress "B1.1 open-PR-only task derives in-progress"
+assert_has "$(task_line "$out" 8)" pr-open "B1.1 open-PR-only evidence is the PR itself"
+# Task 1 is branch-merged while its stubbed PR still reads OPEN: the engine's
+# contradiction record must surface as a rendered note, not vanish.
+assert_has "$out" "note: task 1" "B1.1 contradiction record renders as a note"
 assert_has "$out" "bundle status: Active (derived)" "B1.1 bundle derives Active"
 echo "ok: REQ-B1.1 evidence matrix renders per-task and bundle status"
 
@@ -479,6 +491,9 @@ out=$("$RENDER" "$spec9" 2>&1) || fail "C1.9: render exited non-zero"
 case "$out" in
   *"$ESC"*) fail "C1.9: an escape byte reached the render output" ;;
 esac
+# The anomaly records must render positively, not merely sanitized away.
+assert_has "$out" "malformed Dependencies" "C1.9 malformed-deps record renders as a note"
+assert_has "$out" "note: refused" "C1.9 refused-trailer record renders as a note"
 echo "ok: REQ-C1.9 escape bytes in bullet text and stream fields are stripped"
 
 repo10="$tmp/hostilehdr"
