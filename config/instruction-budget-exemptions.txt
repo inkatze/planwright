@@ -17,10 +17,12 @@
 #       <budget> is one of: file | start-load | closure
 #       <target>  is a file path (file) or a skill name (start-load | closure)
 #
-# Seeded below: the per-file offenders the initial audit surfaced, each carrying
-# a transitional allowance until its diet task lands (Tasks 5/6/7). The
-# start-load allowance for /spec-draft is seeded at Task 3, when manifests first
-# make start-load computable — not here, where no manifest yet exists.
+# Originally seeded below: the per-file offenders the initial audit surfaced,
+# each carrying a transitional allowance until its diet task landed (Tasks
+# 5/6/7). Those allowances are now shed; what remains is spec-format.md's
+# permanent per-file-floor exemption (Task 7 disposition). The start-load
+# allowance for /spec-draft was seeded at Task 3, when manifests first made
+# start-load computable — not here, where no manifest yet existed.
 exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), Task 7 disposition. spec-format.md is the meta-spec: its authorable-from-alone contract requires it to stay self-contained (a compliant four-file bundle is authorable from this doc alone), and a compliant trim removes only ~99 words against the ~570-word gap to the 4,000 floor without weakening that contract, so it is exempted rather than trimmed. Start-load coupling: spec-format.md is the dominant run-start load for /spec-draft and /spec-kickoff, but a permanent per-file exemption never suppresses the mandatory-at-start or reachable-closure budgets, so it does not strand those dependents — their start-load compliance rests on Task 7.5's point-of-use reclassification of their non-gating doctrine reads, not on shrinking this doc.
 
 # Start-load allowances seeded at Task 3, when manifests first made mandatory-at-start

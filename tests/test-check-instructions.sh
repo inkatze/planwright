@@ -160,9 +160,9 @@ assert_contains "shortlist names spec-format offender" "doctrine/spec-format.md"
 # name-only matches passed identically before and after the exempt retag, so
 # the carry must show transitional [pending-diet] and spec-format the
 # permanent [exempt] on their own shortlist rows.
-kick_row="$(printf '%s\n' "$sl" | grep 'start-load spec-kickoff')"
+kick_row="$(printf '%s\n' "$sl" | grep -F 'start-load spec-kickoff')"
 assert_contains "spec-kickoff start-load carry is tagged pending-diet" "[pending-diet]" "$kick_row"
-sf_row="$(printf '%s\n' "$sl" | grep 'doctrine/spec-format.md')"
+sf_row="$(printf '%s\n' "$sl" | grep -F 'doctrine/spec-format.md')"
 assert_contains "spec-format offender is tagged exempt" "[exempt]" "$sf_row"
 
 ########################################################################
