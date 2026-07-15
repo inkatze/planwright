@@ -1,6 +1,6 @@
 # Fleet Autonomy — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -67,6 +67,13 @@ and a second fixture with a clean, positive death signal asserts it correctly re
 
 A fixture that deliberately drops a push event (simulating a failed hook execution) asserts the
 next periodic reconcile sweep (Task 4) corrects the resulting state drift without a second push.
+
+### REQ-A1.9 — Tower crash-loop backoff and disable threshold [test]
+
+A fixture injecting repeated tower-relaunch failures (the cron watchdog relaunches a fresh tower
+that immediately dies again) asserts the relaunch delay follows the same escalating schedule as
+REQ-A1.4 and asserts the cron check stops relaunching (disables) once the configured
+consecutive-failure threshold is reached, with a decision-queue entry recording the disable.
 
 ## REQ-B — Cleanup & housekeeping
 
@@ -146,8 +153,9 @@ succeeds.
 
 ### REQ-F1.1 — Derived, rendered fleet stats [test + design-level]
 
-`[test]`: a fixture run of Tasks 2 and 4's mechanisms asserts the stats view's counters reflect
-the real activity. `[design-level]`: verified by absence of any new committed or shared-write file
+`[test]`: a fixture run of Tasks 2, 3, 4, and 7's mechanisms asserts the stats view's counters
+reflect the real activity (including watchdog-trip count from Task 3 and throttle-engaged state
+from Task 7). `[design-level]`: verified by absence of any new committed or shared-write file
 introduced solely to hold stats (a repo-tree check).
 
 ### REQ-F1.2 — `statusline` notification channel [test + manual]
@@ -163,7 +171,7 @@ without acting; a fixture with the knob unset asserts normal operation.
 
 ### REQ-F1.4 — Audit trail for autonomous daemon actions [test]
 
-A fixture triggers a daemon action (a nudge, a cleanup, a restart, a throttle engagement) and
+A fixture triggers a daemon action (a cleanup, a restart, a throttle engagement) and
 asserts a corresponding audit-trail entry exists, naming the trigger and reasoning, queryable by
 mechanism and time range.
 
@@ -203,3 +211,4 @@ A parametrized test over every config knob this bundle introduces asserts each r
 ## Changelog
 
 - 2026-07-14 — Initial draft.
+- 2026-07-14 — Kickoff walkthrough: added the REQ-A1.9 entry (tower crash-loop backoff/disable).

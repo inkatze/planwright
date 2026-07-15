@@ -1,13 +1,16 @@
 # Fleet Autonomy — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
-Eight tasks. Task 1 is foundational (every other task consumes its shared helpers) and is
-dispatched first per the guard-infrastructure-first selection rule; Tasks 2–7 are otherwise
-independent of one another and Task 8 (observability/rendering) depends on real daemon activity
-existing to render.
+Eight tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
+selection rule; every task except Task 6 depends on it (Task 6's ghost-text prevention is a static
+env-var set unconditionally at dispatch, never a runtime kill/cleanup/restart/throttle decision, so
+it needs none of Task 1's kill-switch or audit-trail infrastructure — a deliberate non-edge, not an
+oversight). Tasks 2, 3, 4, 5, and 7 are otherwise independent of one another; Task 8
+(observability/rendering) depends on Tasks 2, 3, 4, and 7's real daemon activity existing to
+render.
 
 ## Forward plan
 
@@ -52,19 +55,24 @@ existing to render.
 
 - **Deliverables:** An external, cron-scheduled liveness check (via Claude Code's scheduled-agent
   primitive, never another tower) for unattended towers, relaunching a fresh memoryless tower on
-  positive evidence of death when ready work exists; a `SessionStart` (`source: "startup"`) hook
-  surfacing the exact `claude --resume <session-id>` command for an interactively-led tower found
-  dead; the session-per-tower (or equivalent) launch-structure change keeping fleet activity out
-  of the operator's own tmux windows.
+  positive evidence of death when ready work exists (readiness resolved by calling through to
+  `/orchestrate`'s own ready-task selection, never a hand-rolled check against `tasks.md`'s
+  committed shape); the same escalating backoff and disable-after-threshold schedule as Task 2's
+  worker crash-loop handling, applied to repeated tower-relaunch failure (REQ-A1.9); a
+  `SessionStart` (`source: "startup"`) hook surfacing the exact `claude --resume <session-id>`
+  command for an interactively-led tower found dead; the session-per-tower (or equivalent)
+  launch-structure change keeping fleet activity out of the operator's own tmux windows.
 - **Done when:** a killed unattended-tower fixture is relaunched by the cron check with no human
   present, using only durable disk state (the same "could a fresh tower resume from this alone?"
-  snapshot test the existing auto-heal handover uses); a killed interactive-tower fixture produces
-  the exact resume command on the next `startup`, with no auto-resume and no auto-discard of the
-  marker; a fresh tower launch lands in its own session/isolation unit, verified not to create a
-  window inside a pre-existing, unrelated tmux session; every watchdog action logs through Task 1's
-  audit-trail helper; tests/CI pass.
+  snapshot test the existing auto-heal handover uses); a repeated-tower-crash fixture proves the
+  relaunch backoff schedule escalates and the cron check disables (stops relaunching) after the
+  configured consecutive-failure threshold, with a decision-queue entry recording the disable; a
+  killed interactive-tower fixture produces the exact resume command on the next `startup`, with no
+  auto-resume and no auto-discard of the marker; a fresh tower launch lands in its own
+  session/isolation unit, verified not to create a window inside a pre-existing, unrelated tmux
+  session; every watchdog action logs through Task 1's audit-trail helper; tests/CI pass.
 - **Dependencies:** 1
-- **Citations:** D-4, D-20, D-21 · REQ-A1.5, REQ-A1.6, REQ-G1.3, REQ-G1.4
+- **Citations:** D-4, D-20, D-21 · REQ-A1.5, REQ-A1.6, REQ-A1.9, REQ-G1.3, REQ-G1.4
 - **Estimated effort:** 3 days
 
 ### Task 4 — Cleanup, housekeeping sweep & reconcile backstop
@@ -132,18 +140,18 @@ existing to render.
 
 ### Task 8 — Operator observability: fleet stats & the `statusline` channel
 
-- **Deliverables:** Derived fleet-stats rendering (last-cleanup time, nudge count, watchdog-trip
-  count, throttle-engaged state) computed on demand from Tasks 2–4's state and audit-trail data,
-  never captured into a new shared-write file; a `statusline` value added to the existing
+- **Deliverables:** Derived fleet-stats rendering (last-cleanup time, watchdog-trip
+  count, throttle-engaged state) computed on demand from Tasks 2–4 and 7's state and audit-trail
+  data, never captured into a new shared-write file; a `statusline` value added to the existing
   `notification_channel` enum, rendering the stats natively via Claude Code's `statusLine`
   feature, composing with `fleet-attention.sh`'s existing render/queue functions; a human-facing
   render of the Task 1 audit trail.
-- **Done when:** the stats view reflects real activity from a fixture run of Tasks 2 and 4 with no
-  intermediate file written solely for stats; `notification_channel: statusline` renders
+- **Done when:** the stats view reflects real activity from a fixture run of Tasks 2, 3, 4, and 7
+  with no intermediate file written solely for stats; `notification_channel: statusline` renders
   correctly in a `statusLine`-invoking fixture and is documented in `docs/options-reference.md`
   alongside the existing enum values; `check-options-reference.sh` passes for the new value; the
   audit-trail render is queryable by mechanism and time range; tests/CI pass.
-- **Dependencies:** 1, 2, 3, 4
+- **Dependencies:** 1, 2, 3, 4, 7
 - **Citations:** D-13, D-14, D-16 · REQ-F1.1, REQ-F1.2, REQ-F1.4
 - **Estimated effort:** 1.5 days
 

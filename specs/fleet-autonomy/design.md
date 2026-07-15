@@ -1,6 +1,6 @@
 # Fleet Autonomy — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -12,10 +12,12 @@ reuses an existing decision from the named sibling spec rather than inventing a 
 ### D-1: Push-first liveness, periodic reconcile as the correctness backstop (N)
 
 **Decision:** Worker state transitions are pushed via native Claude Code hook events the instant
-they occur — `Stop` (working→idle/done), `PermissionRequest` (working→awaiting-human), the next
+they occur — `Stop` (working→idle), `PermissionRequest` (working→awaiting-human), the next
 `PostToolUse` after a pending `PermissionRequest` (awaiting-human→working, inferred), `SessionEnd`
 (session termination), and `StopFailure` (turn ended on an API error) — wherever the dispatch
-backend supports hook registration. The health watchdog's periodic sweep is retained regardless,
+backend supports hook registration. *(Amended at kickoff walkthrough 2026-07-14: "idle/done"
+reworded to "idle" — "done" was shorthand for the existing merged-and-idle cleanup case, not a
+distinct liveness state.)* The health watchdog's periodic sweep is retained regardless,
 reconciling state from ground truth (git, process, heartbeat-file evidence) so a missed hook fire,
 a failed write, or a dropped event self-heals on the next sweep rather than silently persisting.
 
@@ -112,6 +114,18 @@ hook (`source: "startup"`) detects an orphaned tower marker and surfaces the exa
 **Chosen because:** the two failure classes have genuinely different correct answers, and Claude
 Code's own real, documented capabilities (`--resume`, the `SessionStart` `source` field) map onto
 them cleanly without inventing anything fragile.
+
+*(Amended at kickoff walkthrough 2026-07-14: the unattended-tower relaunch path now backs off and
+disables on repeated failure, per REQ-A1.9 — see the added alternative below.)*
+
+**Alternatives considered (added at kickoff):**
+- No backoff on relaunch — the cron check simply relaunches on every tick it finds the tower dead.
+  Rejected because: this was an oversight surfaced during the kickoff requirements walkthrough, not
+  a considered choice — a tower that crash-loops (a bad config, a broken environment) would
+  otherwise be relaunched forever with no human escalation, exactly the failure mode D-3 already
+  exists to prevent for workers. REQ-A1.9 extends D-3's escalating-backoff-then-disable pattern to
+  the tower-relaunch path instead of leaving an unexplained asymmetry between worker and tower
+  crash handling.
 
 ### D-5: Positive-evidence-of-death as the shared kill/cleanup/restart predicate (C, orchestration-fleet D-2)
 
@@ -309,8 +323,8 @@ visible in Claude Code" ask without reopening the GUI/web dashboard call.
 
 ### D-15: Operator kill-switch for the autonomous daemon layer (N)
 
-**Decision:** A config knob pauses every autonomous daemon action this spec introduces (nudge,
-cleanup, restart, throttle) without disabling fleet operation entirely.
+**Decision:** A config knob pauses every autonomous daemon action this spec introduces (cleanup,
+restart, throttle) without disabling fleet operation entirely.
 
 **Alternatives considered:**
 - No kill-switch; rely on the per-mechanism config knobs (e.g. `context_budget_threshold: off`) to
@@ -328,7 +342,7 @@ to an audit trail available for human review.
 **Alternatives considered:**
 - No audit trail; rely on the decision queue for escalations only. Rejected because: the decision
   queue only surfaces items needing a human decision — an autonomous action that succeeded (a
-  cleanup that ran, a nudge that resolved) leaves no trace at all without this, and "did things go
+  cleanup that ran, a throttle that engaged) leaves no trace at all without this, and "did things go
   out of whack" (the original motivating question) is unanswerable without a record of what
   actually happened.
 
@@ -351,7 +365,11 @@ Needs-human-judgment fork — never the default response to a "quick change" req
 
 **Chosen because:** mining a real, already-logged incident into an explicit boundary closes the
 gap at its source rather than leaving it as a recurring rationalization risk ("just a quick
-config tweak").
+config tweak"). This is the altitude decision for the doctrine-gap(tower-role) trigger
+(`autopilot-reflex.md` — Seed claims): the observation named an unstated doctrine floor, not a
+one-repo mechanism, so the fix lands as a doctrine statement (Task 1), not a per-repo script.
+*(Amended at kickoff walkthrough 2026-07-14: recorded as the altitude D-ID for this trigger, cited
+from the Goal.)*
 
 ### D-18: No-LLM-daemon-mechanics invariant (N)
 
@@ -445,6 +463,10 @@ exists rather than new infrastructure that would need its own review.
 ## Changelog
 
 - 2026-07-14 — Initial draft.
+- 2026-07-14 — Kickoff walkthrough: amended D-1's wording (idle/done → idle) and D-4 (added the
+  tower crash-loop backoff/disable alternative, citing new REQ-A1.9). Amended D-17: recorded as
+  the altitude D-ID for the doctrine-gap(tower-role) trigger, per the kickoff sign-off lens pass's
+  altitude check (`autopilot-reflex` REQ-H1.3).
 
 ## Sources
 

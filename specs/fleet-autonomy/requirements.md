@@ -1,6 +1,6 @@
 # Fleet Autonomy — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-14
 **Format-version:** 1
 
@@ -17,10 +17,11 @@ re-derived ledger state.
 This spec moves that mechanical load into software: independent, hook- and heartbeat-driven
 self-maintenance, so towers and workers spend their attention on task work, not clerical upkeep.
 Three floors hold throughout: workers remain full session-grade Claude Code sessions the tower
-drives, never downgraded to lighter-weight scripts; every autonomous cleanup, kill, nudge, or
+drives, never downgraded to lighter-weight scripts; every autonomous cleanup, kill, or
 restart decision is deterministic script logic bound by the existing autonomous-safe-decision
 policy, never in-context model judgment; and towers dispatch, monitor, and reconcile, but do not
-author repo/config/content changes themselves except as a narrow, explicitly-flagged exception.
+author repo/config/content changes themselves except as a narrow, explicitly-flagged exception
+(D-17).
 
 It builds on `orchestration-fleet`'s execution/attention seams and `orchestration-concurrency`'s
 state-safety as consumed, authoritative contracts, and is informed by prior art surveyed across
@@ -87,7 +88,7 @@ mature precedent this spec can simply defer to wholesale.
 
 - **REQ-A1.1** Worker state transitions SHALL be pushed via native Claude Code hook events at the
   instant they occur, wherever a real event exists, rather than discovered by a tower polling a
-  worker's pane: `Stop` for working→idle/done, `PermissionRequest` for working→awaiting-human,
+  worker's pane: `Stop` for working→idle, `PermissionRequest` for working→awaiting-human,
   the next `PostToolUse` after a pending `PermissionRequest` for awaiting-human→working,
   `SessionEnd` for session termination, and `StopFailure` for a turn ending on an API error. This
   mechanism SHALL degrade gracefully on a backend that cannot register hooks on a dispatched
@@ -131,6 +132,11 @@ mature precedent this spec can simply defer to wholesale.
   pushes appear to be arriving, self-healing a missed hook fire, a failed write, or a dropped
   event on its next sweep.
   *(Cites: D-1.)*
+- **REQ-A1.9** A tower relaunched repeatedly by the REQ-A1.5 cron watchdog SHALL back off on the
+  same escalating schedule as REQ-A1.4 and SHALL be disabled — the cron check stops relaunching —
+  after a configured consecutive-failure threshold, escalating to a human decision rather than
+  relaunching indefinitely on every cron tick.
+  *(Cites: D-4; kickoff §3 REQ-A (2026-07-14).)*
 
 ## REQ-B — Cleanup & housekeeping
 
@@ -140,7 +146,9 @@ mature precedent this spec can simply defer to wholesale.
   *(Cites: D-6; the anthropics/claude-code#29787 self-termination postmortem (Sources).)*
 - **REQ-B1.2** Worktree lifecycle tracking SHALL be pushed via the `WorktreeCreate` and
   `WorktreeRemove` hook events at creation and removal, rather than discovered by periodic disk
-  scanning, wherever the dispatch backend supports hook registration.
+  scanning, wherever the dispatch backend supports hook registration. This mechanism SHALL degrade
+  gracefully on a backend that cannot register the hook pair, falling back to periodic disk
+  scanning.
   *(Cites: D-7.)*
 - **REQ-B1.3** A periodic sweep SHALL check every working tree the fleet is tracking — every
   worker worktree and the tower's own checkout, on whatever branch it is currently on — for
@@ -198,7 +206,7 @@ mature precedent this spec can simply defer to wholesale.
 
 ## REQ-F — Operator control & observability
 
-- **REQ-F1.1** Fleet health/activity statistics (last-cleanup time, nudge count, watchdog-trip
+- **REQ-F1.1** Fleet health/activity statistics (last-cleanup time, watchdog-trip
   count, throttle-engaged state, and similar counters) SHALL be derived and rendered on demand
   from existing per-worker/per-daemon state, never captured into a new shared-write accumulator
   file.
@@ -209,10 +217,10 @@ mature precedent this spec can simply defer to wholesale.
   `fleet-attention.sh` render/queue functions rather than introducing a new surface.
   *(Cites: D-14.)*
 - **REQ-F1.3** An operator-facing kill-switch config knob SHALL pause every autonomous daemon
-  action (nudge, cleanup, restart, throttle) this spec introduces, without disabling fleet
+  action (cleanup, restart, throttle) this spec introduces, without disabling fleet
   operation entirely.
   *(Cites: D-15.)*
-- **REQ-F1.4** Every autonomous daemon action this spec introduces (a nudge, a cleanup, a
+- **REQ-F1.4** Every autonomous daemon action this spec introduces (a cleanup, a
   restart, a throttle engagement) SHALL log its trigger and reasoning to an audit trail available
   for human review.
   *(Cites: D-16.)*
@@ -224,7 +232,7 @@ mature precedent this spec can simply defer to wholesale.
   Needs-human-judgment fork — never as the default response to a "quick change" request.
   *(Cites: D-17; the doctrine-gap(tower-role) observation (Sources).)*
 - **REQ-G1.2** No daemon, hook, or cron mechanism this spec introduces SHALL invoke an LLM to
-  make a routine mechanical decision (a liveness check, a cleanup, a nudge, a throttle decision).
+  make a routine mechanical decision (a liveness check, a cleanup, a throttle decision).
   Every such mechanism SHALL be deterministic script logic operating on structured signals
   (files, process IDs, git state, pattern-matched known text); LLM invocation stays reserved for
   the tower and worker sessions doing the actual task work.
@@ -245,6 +253,35 @@ mature precedent this spec can simply defer to wholesale.
 ## Changelog
 
 - 2026-07-14 — Initial draft.
+- 2026-07-14 — Kickoff walkthrough: reworded REQ-A1.1's "working→idle/done" to "working→idle"
+  (expression-only; "done" was shorthand for the existing merged-and-idle cleanup case, REQ-B1.1,
+  not a distinct liveness state — confirmed with the human at kickoff). Added REQ-A1.9 (tower
+  crash-loop backoff/disable, extending REQ-A1.4's pattern to REQ-A1.5's cron watchdog — a gap
+  surfaced during the kickoff requirements walkthrough; `tasks.md` Task 3's Deliverables/Done-when
+  updated to match). Added an explicit disk-scan-fallback
+  clause to REQ-B1.2 (expression-only; test-spec.md and D-7 already assumed it, the REQ text did
+  not state it). Cited D-17 inline from the Goal's tower-non-authoring sentence
+  (expression-only), recording D-17 as the altitude D-ID for the doctrine-gap(tower-role)
+  seed-claim trigger per `autopilot-reflex.md`. (Meaning-class) Added Task 7 to Task 8's
+  `Dependencies:` in `tasks.md`: Task 8's own deliverables render Task 7's throttle-engaged state,
+  which its dependency list had omitted — a task-graph gap surfaced during the kickoff task-graph
+  walkthrough; `tasks.md`'s intro prose corrected to match (Task 6's no-dependency-on-Task-1
+  non-edge stated explicitly; the prior "every other task consumes its shared helpers" claim
+  contradicted it). Fixed a second staleness gap in the same area, surfaced by the sign-off lens
+  pass: Task 8's own `Done when` in `tasks.md` still omitted Task 3 (source of "watchdog-trip
+  count," one of Task 8's own rendered stats) after the Task 7 fix, and `test-spec.md`'s REQ-F1.1
+  entry was never updated at all — both now read "Tasks 2, 3, 4, and 7." Namespace-qualified the
+  "REQ-H1.3" citation in `design.md`'s D-17 amendment and this bundle's `kickoff-brief.md` to
+  `autopilot-reflex REQ-H1.3` (confirmed via `specs/autopilot-reflex/requirements.md`; it
+  referenced a foreign spec's requirement, unqualified). Added a
+  `## Sources` entry for the `anthropics/claude-code#29787` postmortem REQ-B1.1 already cited
+  (pre-existing gap, not introduced this session). Struck "nudge" from every enumeration of daemon
+  action types (Goal, D-15, D-16, REQ-F1.1, REQ-F1.3, REQ-F1.4, REQ-G1.2, Task 8's Deliverables,
+  test-spec.md's REQ-F1.4 entry) — surfaced by the sign-off lens pass: nudge was never defined by
+  any REQ or task, and the one place it was discussed concretely (D-2) explicitly rejected
+  automatic nudging. Cleanup, restart, and throttle remain as the three real daemon-action types
+  throughout; REQ-A1.3's and D-2's own "SHALL NOT be resolved by an automatic nudge" language
+  stays, since it explains a rejected alternative rather than asserting a shipped mechanism.
 
 ## Sources
 
@@ -278,3 +315,7 @@ mature precedent this spec can simply defer to wholesale.
 - **The `review-gauntlet` pending seed** — `specs/_pending/review-gauntlet.md`, written during
   this drafting session (2026-07-14): the post-PR review-gauntlet chaining and task-PR-ready-
   marking concerns scoped out of this bundle as a different decision domain.
+- **The `anthropics/claude-code#29787` self-termination postmortem** — a real, documented incident
+  where LLM-driven cleanup reasoning non-deterministically issued `tmux kill-session` against its
+  own hosting pane, destroying the entire session. Consumed as the motivating precedent for
+  REQ-B1.1's self-targeting guard and D-6's deterministic-script-only cleanup decision.
