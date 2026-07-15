@@ -3,7 +3,8 @@
 #
 # Enforces doctrine/spec-format.md's validator-enforceable invariants
 # (REQ-A2.1, REQ-A2.2, REQ-A1.8, REQ-A3.2; D-25, D-34), keyed off the
-# bundle's declared format-version (this implementation: format-version 1):
+# bundle's declared format-version (this implementation: format-versions
+# 1 and 2):
 #
 #   1. Four-file presence.
 #   2. Header block: Status declared (missing warns, defaults to Draft);
@@ -24,11 +25,37 @@
 #   9. Terminal-state discipline: no transition out of Retired/Superseded
 #      relative to the baseline ref.
 #
+# Format-version 2 (the invariant ledger; invariant-tasks REQ-C1.5,
+# REQ-C1.8, REQ-C1.9, REQ-D1.1 · D-3, D-5, D-7) adds, for v2 bundles only:
+#
+#   10. No placement sections: `## Forward plan`, `## In progress`, and
+#       `## Completed` do not exist (task blocks live in `## Tasks`).
+#   11. No state annotation bullets: `Status`, `Last activity`, and
+#       `Dispatch` bullets do not exist in task blocks (the three
+#       state-annotation tokens the format defines; other bullets are not
+#       this check's concern).
+#   12. Stored `Status:` restricted to the human-gated set — Draft, Ready,
+#       Retired, Superseded; Active and Done are derived, never stored.
+#   13. The static pointer line `**Execution:** derived — see the status
+#       render` present in every file's header, in its fixed vocabulary.
+#   14. Reference-bullet integrity in the human-payload sections: every
+#       `**Task <id>**` bullet names an existing task id, ids pass the
+#       task-id grammar before any use, and a task is parked by at most
+#       one bullet across all three sections.
+#
+# Version keying is fail-closed (REQ-C1.8): a missing or unparseable
+# `Format-version:` is an error at every status — the rules to apply cannot
+# be known without a parsed version — and neither version's extra rules are
+# applied. The declaration is read from requirements.md; when that file is
+# absent it falls back to the sibling mirrors (agreeing siblings resolve,
+# disagreeing siblings are a hard error). v1 bundles keep the v1 rules
+# unchanged (REQ-D1.1).
+#
 # Severity (status-aware, D-25): findings are warnings on Draft, errors on
 # Ready, Active, and Done (signed-off live content — Ready is signed off and
 # executable), warnings on Retired/Superseded (frozen records do not block
 # CI). Integrity violations are errors regardless of status: an unknown
-# status, an unsupported format-version,
+# status, a missing/unparseable/unsupported format-version,
 # Superseded without its pointer, duplicate IDs, identifier-charset
 # violations, and a transition out of a terminal state.
 #
@@ -294,6 +321,95 @@ parse_tasks() {
   ' "$1"
 }
 
+# Parse a format-version 2 tasks.md for the invariant-ledger rules
+# (REQ-C1.5, D-3): banned placement sections, banned state-annotation
+# bullets, and reference-bullet integrity in the human-payload sections.
+# Tagged tab-separated output:
+#   F <tab> gap <tab> message   — a finding (embedded values are either
+#                                 fixed vocabulary or grammar-validated ids)
+#   RB <tab> line <tab> raw-id  — a grammar-violating reference-bullet id,
+#                                 raw (whitespace-free by construction: a
+#                                 lead with inner whitespace is prose, and
+#                                 an awk record cannot hold a newline); the
+#                                 caller routes it through
+#                                 sanitize_printable before echoing
+#                                 (REQ-C1.9)
+parse_tasks_v2() {
+  awk '
+    # Normalize a trailing CR first: the heading arms below are
+    # EOL-anchored, and a CRLF-saved file must not slip a banned heading
+    # past the ban (or hide a payload section) on line endings alone.
+    { sub(/\r$/, "") }
+    # Headings are matched with trailing-whitespace tolerance: an exact
+    # `==` would let a hand-edited "## Completed " escape the placement
+    # ban (fail-open) or hide a payload section from the integrity checks.
+    # Suffixed variants ("## Completed (legacy)") stay ordinary headings:
+    # canonical heading form belongs to the ledger guard, not this parser.
+    function banned(nm, ln) {
+      printf "F\tgap\tplacement section \"## %s\" at tasks.md:%d does not exist in format-version 2 (task blocks live in \"## Tasks\"; execution state is derived)\n", nm, ln
+    }
+    /^## Forward plan[ \t]*$/  { section = ""; in_task = 0; banned("Forward plan", NR); next }
+    /^## In progress[ \t]*$/   { section = ""; in_task = 0; banned("In progress", NR); next }
+    /^## Completed[ \t]*$/     { section = ""; in_task = 0; banned("Completed", NR); next }
+    /^## Awaiting input[ \t]*$/ { section = "Awaiting input"; in_task = 0; next }
+    /^## Deferred[ \t]*$/       { section = "Deferred"; in_task = 0; next }
+    /^## Out of scope[ \t]*$/   { section = "Out of scope"; in_task = 0; next }
+    /^## / { section = ""; in_task = 0; next }
+    /^### Task / {
+      in_task = 1
+      curid = ""
+      if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) {
+        ids[$3] = 1
+        curid = $3
+      }
+      next
+    }
+    /^### / { in_task = 0; next }
+    in_task && /^- \*\*(Status|Last activity|Dispatch):\*\*/ {
+      tok = substr($0, 5)
+      sub(/:\*\*.*$/, "", tok)
+      if (curid != "") loc = "Task " curid; else loc = "tasks.md:" NR
+      printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist in format-version 2 (the Status, Last activity, and Dispatch state annotations are derived state, never stored)\n", tok, loc
+      next
+    }
+    # A reference bullet is a complete bold lead `**Task <token>**` whose
+    # token has no inner whitespace (task ids never do). A lead with inner
+    # whitespace ("**Task force assembled.**") is a plain prose bullet —
+    # the format allows those in Deferred / Out of scope — and an
+    # unterminated bold lead is malformed markdown, which markdown lint
+    # owns; neither is treated as (or rejected as) a reference.
+    section != "" && /^- \*\*Task [^*]*\*\*/ {
+      rest = substr($0, 10)
+      match(rest, /^[^*]*\*\*/)
+      rid = substr(rest, 1, RLENGTH - 2)
+      if (rid ~ /[ \t]/) next
+      if (rid !~ /^[0-9]+(\.[0-9]+)?$/) {
+        printf "RB\t%d\t%s\n", NR, rid
+      } else {
+        nref++
+        refid[nref] = rid
+        refsec[nref] = section
+        refnr[nref] = NR
+      }
+      next
+    }
+    END {
+      for (i = 1; i <= nref; i++) {
+        rid = refid[i]
+        if (!(rid in ids))
+          printf "F\tgap\treference bullet at tasks.md:%d names unknown task id %s (%s)\n", refnr[i], rid, refsec[i]
+        if (rid in seensec) {
+          if (seensec[rid] == refsec[i])
+            printf "F\tgap\tTask %s is named by more than one reference bullet (twice in %s; a task is parked in one section at a time)\n", rid, refsec[i]
+          else
+            printf "F\tgap\tTask %s is named by more than one reference bullet (%s and %s; a task is parked in one section at a time)\n", rid, seensec[rid], refsec[i]
+        } else
+          seensec[rid] = refsec[i]
+      }
+    }
+  ' "$1"
+}
+
 # set_in <needle> <newline-list> — exact-membership test.
 set_in() {
   printf '%s\n' "$2" | grep -qxF "$1"
@@ -446,6 +562,9 @@ validate_bundle() {
   all_req_ids=
   all_d_ids=
   all_t_ids=
+  fver=
+  fver_conflict=
+  bundle_ver=
 
   if [ ! -f "$bdir/requirements.md" ]; then
     # The authoritative Status home is absent: derive the severity status
@@ -457,6 +576,25 @@ validate_bundle() {
       declared_status=$(first_header "$bdir/$bf" Status)
       [ -n "$declared_status" ] && break
     done
+    # The format-version follows the same fallback (REQ-C1.8): deleting
+    # requirements.md must not skip version keying, or a v2 bundle's
+    # invariants would silently fail open while the file is absent. With
+    # no authoritative file to arbitrate, disagreeing siblings fail
+    # closed rather than resolving to whichever file comes first (a
+    # drifted lower value would skip the v2 invariants silently).
+    for bf in design.md tasks.md test-spec.md; do
+      [ -f "$bdir/$bf" ] || continue
+      sfv=$(first_header "$bdir/$bf" Format-version)
+      [ -n "$sfv" ] || continue
+      if [ -z "$fver" ]; then
+        fver=$sfv
+      elif [ "$sfv" != "$fver" ]; then
+        fver_conflict=1
+      fi
+    done
+    if [ -n "$fver_conflict" ]; then
+      printf 'hard\tconflicting Format-version declarations across sibling files (fail-closed: no authoritative requirements.md to arbitrate)\n' >>"$fnd"
+    fi
   fi
 
   if [ -f "$bdir/requirements.md" ]; then
@@ -470,15 +608,6 @@ validate_bundle() {
     fi
 
     fver=$(first_header "$bdir/requirements.md" Format-version)
-    if [ -z "$fver" ]; then
-      printf 'gap\tmissing Format-version: header\n' >>"$fnd"
-    elif [ "$fver" != "1" ]; then
-      # Keyed off the declared version (REQ-A1.7): rules for an undeclared
-      # future version are unknown, so fail closed rather than silently
-      # applying format-version 1 rules.
-      printf 'hard\tunsupported format-version: %s (this validator implements format-version 1)\n' \
-        "$fver" >>"$fnd"
-    fi
 
     if [ "$declared_status" = "Superseded" ]; then
       grep -q '^\*\*Superseded-by:\*\*' "$bdir/requirements.md" \
@@ -515,13 +644,79 @@ validate_bundle() {
     done
   fi
 
-  case $declared_status in
-    Draft | Ready | Active | Done | Retired | Superseded | '') ;;
+  # Version keying is fail-closed (REQ-C1.8, D-7): a missing, empty, or
+  # unparseable declaration is a hard error at every status — the rules to
+  # apply cannot be known without a parsed version — and neither version's
+  # extra rules run ($bundle_ver stays empty; the shared structural checks
+  # still do). An undeclared numeric version is the REQ-A1.7 unsupported
+  # error, equally hard. $fver comes from requirements.md (the
+  # authoritative home) or, only when that file is absent, from the
+  # agreeing sibling mirrors; a sibling conflict already carries its own
+  # hard finding and skips keying entirely.
+  [ -n "$fver_conflict" ] || case $fver in
+    1 | 2)
+      bundle_ver=$fver
+      ;;
+    '')
+      printf 'hard\tmissing or empty Format-version: declaration (fail-closed: validation rules cannot be selected without a declared version)\n' >>"$fnd"
+      ;;
+    *[!0-9]*)
+      printf 'hard\tunparseable format-version: %s (fail-closed: validation rules cannot be selected without a parsed version)\n' \
+        "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
+      ;;
     *)
-      printf 'hard\tunknown status: %s (expected Draft, Ready, Active, Done, Retired, or Superseded)\n' \
-        "$declared_status" >>"$fnd"
+      printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1 and 2)\n' \
+        "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
       ;;
   esac
+
+  if [ "$bundle_ver" = "2" ]; then
+    # v2 stored status is restricted to the human-gated set (D-4 via
+    # REQ-C1.5): Active and Done are derived on demand, never stored. They
+    # are gap-class findings, but a bundle declaring them maps to the
+    # errors-block severity anyway, so they always block.
+    case $declared_status in
+      Draft | Ready | Retired | Superseded | '') ;;
+      Active | Done)
+        printf 'gap\tstored status %s is derived in format-version 2 (stored header restricted to Draft, Ready, Retired, Superseded)\n' \
+          "$declared_status" >>"$fnd"
+        ;;
+      *)
+        printf 'hard\tunknown status: %s (format-version 2 stores Draft, Ready, Retired, or Superseded)\n' \
+          "$(sanitize_printable "$declared_status" "(unprintable)")" >>"$fnd"
+        ;;
+    esac
+  else
+    case $declared_status in
+      Draft | Ready | Active | Done | Retired | Superseded | '') ;;
+      *)
+        printf 'hard\tunknown status: %s (expected Draft, Ready, Active, Done, Retired, or Superseded)\n' \
+          "$declared_status" >>"$fnd"
+        ;;
+    esac
+  fi
+
+  # v2 pointer line (D-5 via REQ-C1.5): the constant
+  # `**Execution:** derived — see the status render` line in every file's
+  # header, in its fixed vocabulary. Matched as an exact full line
+  # (grep -xF); the non-canonical echo goes through first_header's
+  # non-printable strip plus sanitize_printable (REQ-C1.9).
+  if [ "$bundle_ver" = "2" ]; then
+    exec_canon='**Execution:** derived — see the status render'
+    for bf in requirements.md design.md tasks.md test-spec.md; do
+      [ -f "$bdir/$bf" ] || continue
+      if grep -qxF "$exec_canon" "$bdir/$bf"; then
+        :
+      elif grep -q '^\*\*Execution:\*\*' "$bdir/$bf"; then
+        pv=$(first_header "$bdir/$bf" Execution)
+        printf 'gap\t%s: non-canonical **Execution:** pointer line: %s (fixed vocabulary: derived — see the status render)\n' \
+          "$bf" "$(sanitize_printable "$pv" "(unprintable)")" >>"$fnd"
+      else
+        printf 'gap\t%s: missing **Execution:** pointer line (format-version 2 header)\n' \
+          "$bf" >>"$fnd"
+      fi
+    done
+  fi
 
   if [ -f "$bdir/design.md" ]; then
     parse_design "$bdir/design.md" >"$gtmp/tagged"
@@ -533,6 +728,20 @@ validate_bundle() {
     parse_tasks "$bdir/tasks.md" >"$gtmp/tagged"
     awk -F'\t' '$1 == "F" { print $2 "\t" $3 }' "$gtmp/tagged" >>"$fnd"
     all_t_ids=$(awk -F'\t' '$1 == "ALLT" { print $2 }' "$gtmp/tagged")
+
+    # v2 invariant-ledger rules (REQ-C1.5): the shared task-structure
+    # checks above still apply; these are the additional v2-only bans. A
+    # grammar-violating reference-bullet id is untrusted content: it is
+    # rejected and echoed only through sanitize_printable (REQ-C1.9).
+    if [ "$bundle_ver" = "2" ]; then
+      parse_tasks_v2 "$bdir/tasks.md" >"$gtmp/tagged2"
+      awk -F'\t' '$1 == "F" { print $2 "\t" $3 }' "$gtmp/tagged2" >>"$fnd"
+      while IFS="$tab" read -r rtag rline rid; do
+        [ "$rtag" = "RB" ] || continue
+        printf 'gap\treference bullet task id at tasks.md:%s fails the task-id grammar and is rejected: %s\n' \
+          "$rline" "$(sanitize_printable "$rid" "(empty or unprintable)")" >>"$fnd"
+      done <"$gtmp/tagged2"
+    fi
   fi
 
   # REQ↔test-spec coverage: every live REQ appears in an H3 entry heading,

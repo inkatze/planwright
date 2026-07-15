@@ -37,6 +37,7 @@ the guard that protects their output exists.
 - **Dependencies:** 1
 - **Citations:** D-7, D-5, D-3 · REQ-C1.5, REQ-C1.8, REQ-C1.9, REQ-D1.1
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-15
 
 ### Task 3 — Derived status render surface
 
