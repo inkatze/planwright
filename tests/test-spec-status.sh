@@ -450,9 +450,9 @@ rc=$?
 set -e
 [ "$rc" -eq 2 ] || fail "C1.8: missing Format-version should exit 2, got $rc"
 assert_has "$out" "Format-version" "C1.8 missing version names the line"
+assert_not "$out" "stored status:" "C1.8 missing version renders nothing"
+assert_not "$out" "bundle status:" "C1.8 missing version derives nothing"
 
-sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** banana/' \
-  "$spec8/../demo/tasks.md" >"$spec8/tasks.md.new" 2>/dev/null || true
 write_v2_spec "$spec8" Ready
 sed 's/^\*\*Format-version:\*\* 2$/**Format-version:** banana/' "$spec8/tasks.md" \
   >"$spec8/tasks.md.new" && mv "$spec8/tasks.md.new" "$spec8/tasks.md"
@@ -462,6 +462,8 @@ rc=$?
 set -e
 [ "$rc" -eq 2 ] || fail "C1.8: unparseable Format-version should exit 2, got $rc"
 assert_has "$out" "Format-version" "C1.8 unparseable version names the line"
+assert_not "$out" "stored status:" "C1.8 unparseable version renders nothing"
+assert_not "$out" "bundle status:" "C1.8 unparseable version derives nothing"
 echo "ok: REQ-C1.8 missing/unparseable Format-version fails closed (exit 2)"
 
 # ---------------------------------------------------------------------------
