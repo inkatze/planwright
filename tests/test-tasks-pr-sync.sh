@@ -2159,10 +2159,11 @@ mv "$repo/specs/demo2/tasks.md.new" "$repo/specs/demo2/tasks.md"
 git -C "$repo" add -A && git -C "$repo" commit -qm "fixture: unparseable version"
 d_before=$(specs_digest "$repo")
 rc=0
-(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo2) >/dev/null 2>&1 || rc=$?
+err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo2) 2>&1 >/dev/null) || rc=$?
 [ "$rc" -eq 2 ] || fail "V2-E: reconcile on an unparseable Format-version should fail closed (exit 2), got $rc"
+case "$err" in *Format-version*) ;; *) fail "V2-E: fail-closed error does not name Format-version (the 'error reported' half of REQ-C1.8): $err" ;; esac
 [ "$d_before" = "$(specs_digest "$repo")" ] || fail "V2-E: an unparseable Format-version still reached the write path (REQ-C1.8)"
-echo "ok: V2-E unparseable Format-version fails closed (no write; REQ-C1.8)"
+echo "ok: V2-E unparseable Format-version fails closed (no write, error reported; REQ-C1.8)"
 
 # --- V2-F: the hook stays fail-soft on a bad declaration but writes nothing --
 repo=$tmp/v2f
