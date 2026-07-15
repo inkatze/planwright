@@ -195,7 +195,7 @@ Runs on **every** invocation, regardless of the feature name — the name is a
 hint, not a command. Skipped only when `--extend` already named the target.
 
 1. Scan every existing spec under `specs/` (any non-terminal status: Draft,
-   Active, Done). Read each bundle's `requirements.md` Goal and Scope
+   Ready, Active, Done). Read each bundle's `requirements.md` Goal and Scope
    sections — bounded input by design; full-bundle reads don't scale and the
    overlap signal lives in goal/scope. A malformed bundle (missing
    `requirements.md`, unparseable header) is skipped with a notice naming
@@ -218,6 +218,11 @@ hint, not a command. Skipped only when `--extend` already named the target.
 ### Extend mode
 
 Entered via `--extend <spec>` or the human accepting the recommendation.
+Extend mode follows the target bundle's declared `Format-version:`
+(invariant-tasks D-7): a v1 target keeps every v1 convention unchanged —
+new task blocks join `## Forward plan`, the v1 state sections stay — while
+a v2 target takes the v2 shape (new blocks join `## Tasks` in dependency
+order; no placement sections or state annotations are ever written to it).
 Operates on the existing bundle per the meta-spec's stable-ID discipline:
 
 - **Append, never renumber.** New REQs and D-IDs continue the existing ID
@@ -226,12 +231,15 @@ Operates on the existing bundle per the meta-spec's stable-ID discipline:
   a new ID adjacent to the old, old marked `Superseded-by`; bodies of
   superseded records are never edited (D-20).
 - **Grow `test-spec.md`** with entries for every new REQ; **re-sync
-  `tasks.md`** (new task blocks in Forward plan, dependency lines updated);
-  **append a dated Changelog entry** describing the extension.
+  `tasks.md`** (new task blocks per the declared version above, dependency
+  lines updated); **append a dated Changelog entry** describing the
+  extension.
 - **Reopen cycle (REQ-A3.1):** extending a Done bundle flips its Status
   Done→Draft (all four headers); the scoped kickoff of the delta flips it
-  back to Active. Extending an Active bundle leaves it Active — the delta is Draft
-  content inside an Active bundle, and `/spec-kickoff`'s delta re-walkthrough
+  back to Ready, and the delta's first dispatch derives Active (a v2 bundle
+  never stores Active or Done — both are derived). Extending an Active
+  bundle leaves its stored status untouched — the delta is Draft
+  content inside it, and `/spec-kickoff`'s delta re-walkthrough
   is the sign-off path; say so in the handoff. Retired and Superseded are
   terminal: refuse, suggesting a new bundle citing the old as a Source.
 - Extension work happens on the spec's own branch/worktree, same as a fresh
@@ -304,8 +312,12 @@ validator the first time.
 4. **Tasks.** Decompose into task blocks with the five definition fields
    (Deliverables / Done when / Dependencies / Citations / Estimated effort);
    IDs stable from birth. `Done when:` conditions an agent can evaluate.
-   All blocks start in `## Forward plan`; the other five state sections are
-   written with `(none yet)` placeholders. Dependency edges are load-bearing
+   All blocks land in a single `## Tasks` section in dependency order, and
+   the three human-payload sections (`## Awaiting input`, `## Deferred`,
+   `## Out of scope`) are written with `(none yet)` placeholders — no
+   placement sections and no state annotations: a block carries its five
+   definition fields and nothing else, because execution state is derived,
+   never authored (invariant-tasks D-2). Dependency edges are load-bearing
    (orchestration selection reads them): ask about ordering the human knows
    and the text doesn't show — in particular, tasks whose deliverables gate
    other tasks' verification (CI, guards, validators) should carry explicit
@@ -315,7 +327,9 @@ validator the first time.
    `[test + manual]`). Prefer `[test]` where automation is honest; say which
    CI runs it.
 6. **Review & validate.** Assemble all four files (shared header block,
-   `**Status:** Draft`, `**Last reviewed:** <date>`, `**Format-version:** 1`),
+   `**Status:** Draft`, `**Last reviewed:** <date>`, `**Format-version:** 2`,
+   and — fixed vocabulary, on all four files — the canonical pointer line
+   `**Execution:** derived — see the status render`, D-5),
    present the bundle for a final read-through with the cumulative summary.
    Run `scripts/spec-validate.sh specs/<spec>` when present and executable
    (findings are warnings on Draft: surface them, fix structural ones,

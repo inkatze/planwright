@@ -52,9 +52,11 @@ Doctrine: point-of-use decision-domains (the decision-domain drift check)
 ## Pre-flight
 
 Run once per invocation, in order. Any halt records the unit to the spec's
-`tasks.md` `## Awaiting input` section with the reason and ends the step (the
-`gate-wiring` pause protocol's dispatched arm); in an attended session, present
-it and wait instead.
+`tasks.md` `## Awaiting input` section with the reason — on a format-version 2
+bundle as a committed reference bullet, `**Task <id>** — <reason>`, the block
+staying in `## Tasks` (a halting-skill human-payload write, D-3) — and ends the
+step (the `gate-wiring` pause protocol's dispatched arm); in an attended
+session, present it and wait instead.
 
 1. **Parse `$ARGUMENTS`.** Extract one or more task IDs (`5`, `3.5`, or `5 6`
    for a bundle) and an optional spec path, given as either `specs/<spec>` or
@@ -99,8 +101,7 @@ it and wait instead.
    changed since the brief was last signed:
    - Read the brief's **most recent anchor entry** and the four spec files
      **from the primary checkout's main view** (not the possibly-ahead worktree
-     copy): the gate's frame of reference is main, what `/orchestrate` and a
-     merge see.
+     copy).
    - **Parse and validate the entry.** It is execution-valid only if it parses,
      uses a **sanctioned command form** (`scripts/spec-anchor.sh <spec-dir>`, or
      the interim whole-file form the meta-spec still sanctions), was written by a
@@ -117,14 +118,14 @@ it and wait instead.
    goal restatement (it anchors every judgment call), the task-graph section,
    and the risk-register entries relevant to the unit. From `tasks.md`: each
    block's `Deliverables`, `Done when`, `Dependencies`, and `Citations`. Confirm
-   every listed dependency sits in `## Completed`; if one does not, halt naming
-   the blocking dependency.
+   every listed dependency is completed — on a v1 bundle it sits in
+   `## Completed`; on a v2 bundle it derives Completed via the derivation engine
+   (`scripts/orchestrate-state.sh`) — halting on any that is not, naming it.
 9. **Derive the full-CI command** (D-19). Pick the most comprehensive guard the
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own
    is `mise run check`); a `package.json` `ci`/`test` script; a `Makefile`
    `ci`/`test` target; a `lefthook.yml` `pre-commit` stack; a language
-   toolchain's check (`mix ci`, `cargo test && cargo clippy -- -D warnings`,
-   pytest+ruff+mypy).
+   toolchain's check.
    Prefer the aggregate over a bare test run. If none can be derived, ask. Record
    the command for implementation.
 10. **Resolve `dispatch_isolation`** (D-5, REQ-C1.3). Run
@@ -139,21 +140,24 @@ it and wait instead.
     default, exit 0) proceeds. Record the resolved mode; it governs how the
     Implementation and Convergence phases host this unit's steps (see *Step
     isolation*).
-11. **Update Last activity; write no placement or `Status`.** The dispatch
-    record (the task branch + runtime marker) already makes the unit derivable
-    as In progress, so this skill writes **no** `tasks.md` section placement and
-    **no** `Status` line. Section placement is the `tasks-pr-sync` reconcile's
-    sole job (REQ-B1.1, D-1); a block still sitting in `## Forward plan` while
-    its branch is in flight is intentional snapshot lag, not corruption
-    (REQ-B1.2). A `Status` here would trip the section/status corruption guard
-    (see PR creation step 3). The only edit is the block's
-    `- **Last activity:** <today>` annotation, which is anchor-excluded
-    (`spec-format` canonical extraction) and is not a `Status` line, so it trips
-    neither guard; the reconcile later relocates the block on the PR events this
-    skill triggers. Commit the Last-activity update when `commit_on_state_move`
-    is true (read `config/defaults.yml` overridden by
-    `<repo>/.claude/planwright.local.yml`, local wins; absent/malformed config
-    falls back to the default with a one-line warning).
+11. **Update Last activity (v1); write no placement or `Status`.** On a
+    format-version 2 bundle this step writes nothing — a v2 block carries no
+    annotations, and derived execution state never produces commits (key off
+    the declared `Format-version:` exactly as the scripts do; unparseable
+    fails closed, D-7). On v1: the dispatch record (the task branch + runtime
+    marker) already makes the unit derivable as In progress, so this skill
+    writes **no** `tasks.md` section placement and **no** `Status` line.
+    Section placement is the `tasks-pr-sync` reconcile's sole job (REQ-B1.1,
+    D-1); a block still sitting in `## Forward plan` while its branch is in
+    flight is intentional snapshot lag, not corruption (REQ-B1.2). The only
+    edit is the block's `- **Last activity:** <today>` annotation, which is
+    anchor-excluded (`spec-format` canonical extraction) and is not a `Status`
+    line, so it trips neither corruption guard; the reconcile later relocates
+    the block on the PR events this skill triggers. Commit the Last-activity
+    update when `commit_on_state_move` is true (read `config/defaults.yml`
+    overridden by `<repo>/.claude/planwright.local.yml`, local wins;
+    absent/malformed config falls back to the default with a one-line
+    warning).
 
 ## Implementation
 
@@ -187,11 +191,11 @@ remain this skill's single terminal step (see Invariants).
 
 Every commit this skill authors for the unit — the test-first action commits,
 the observation chore commit, any in-flight expression-only amendment commit —
-carries a `Planwright-Task: <spec>/<id>` footer trailer: the durable cross-flow
+carries a `Planwright-Task: <spec>/<id>` footer trailer: the durable
 completion anchor the orchestration-state derivation reads by scanning the whole
-commit message (so a squash/rebase merge that relocates it mid-body is still
-recognized, not git's footer-only `%(trailers)`), surviving branch deletion and
-solo direct-to-`main` commits. Stamp it through the shared helper rather than
+commit message (a squash/rebase merge that relocates it mid-body is still
+recognized), surviving branch deletion and direct-to-`main` commits. Stamp it
+through the shared helper rather than
 hand-typing the footer, so it is grammar-validated and identical everywhere:
 
 ```sh
@@ -239,8 +243,7 @@ then the library's own source and tests, then issues/RFCs), honor recency over
 model memory, and run the antipattern check before adopting a pattern.
 **Record** the findings, tradeoffs weighed, and sources consulted in the brief's
 **risk register**, appended to a named section — never overwriting existing
-rows, and never as an anchor entry (the risk register is not the contract
-surface the gate hashes). Declare the research depth's scoping per
+rows, and never as an anchor entry. Declare the research depth's scoping per
 `proportionality`. If research surfaces a significant risk the brief did not
 anticipate, that is a stop condition: record it and hand off.
 
@@ -281,10 +284,10 @@ convergence; capture its output.
 
 On a CI failure, classify it with `scripts/classify-ci-failure.sh` over the
 captured output (it prints `transient` or `logic`; unknown patterns default to
-`logic`, since escalating an unclassifiable failure beats burning retries):
+`logic`):
 
-- **`transient`** (network/DNS/connection errors, registry pull failures,
-  service-unavailable, rate limits, gateway timeouts): retry the CI command up
+- **`transient`** (network/DNS/connection errors, registry failures, rate
+  limits, timeouts): retry the CI command up
   to twice, waiting 30s before the first retry and 90s before the second. A
   retry that goes green proceeds; if both still fail, reclassify as logic and
   escalate.
@@ -323,7 +326,7 @@ act-then-review and returns its audit record without pushing or creating a PR
 `dispatch_isolation` mode (the *Step isolation* subsection) sets only where each
 `--nested` call is **hosted** — `per-unit` in-session composition (REQ-E2.2,
 D-13) or a fresh `/resume`-seeded `per-step` session — never the `--nested`
-contract, which never pushes or opens a PR.
+contract.
 
 After each returns:
 
@@ -381,7 +384,9 @@ amendment axis (the `spec-format` amendment ritual):
    commit, rejects with the named revert, at PR review), and any queued forks.
 
    The PR is always a draft. Never mark it ready and never merge.
-3. **Annotate the unit.** Update only the task block's `- **Last activity:**
+3. **Annotate the unit (v1 bundles only** — on a format-version 2 bundle no
+   annotation exists to write; skip this step**).** Update only the task
+   block's `- **Last activity:**
    <today>` annotation; write **no** `Status` line. Section placement is the
    `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1); the reconcile preserves
    annotations untouched and does not author the `Status` text. Writing a
@@ -411,7 +416,7 @@ present it and wait.
 | No / partial kickoff brief | Pre-flight step 6 found no brief or a brief without its anchor line. |
 | Freshness-gate halt | Pre-flight step 7: anchor mismatch, or an absent / unparseable / non-sanctioned / wrong-writer entry. |
 | Dependency not completed | Pre-flight step 8 found an incomplete dependency. |
-| Malformed `dispatch_isolation` | Pre-flight step 10: `resolve-dispatch-isolation.sh` hard-failed (exit 4/5) — a malformed repo-tracked value, a structurally malformed team-shared config, or a broken install. |
+| Malformed `dispatch_isolation` | Pre-flight step 10: `resolve-dispatch-isolation.sh` hard-failed (exit 4/5): a malformed team-shared config or a broken install. |
 | Test cannot fail for the right reason | Test-first step 2: the test passes immediately or fails for an unrelated reason and cannot be isolated. |
 | CI logic failure | A logic-classified CI failure, or transient retries exhausted then reclassified. |
 | Research reveals an uncovered risk | Research surfaced a significant risk the brief did not anticipate. |
@@ -439,9 +444,7 @@ These hold at every step:
   (REQ-C1.4): a fresh `/resume`-seeded step session rebuilds from durable state
   only, drives every `tasks.md` placement move through the sibling reconcile
   under the per-spec lock, and opens no PR of its own — push and PR creation stay
-  this skill's single terminal step regardless of the isolation mode. Degrade
-  `per-step` to `per-unit` when the substrate cannot host a fresh session, never
-  a guard (degrade capability, never safety).
+  this skill's single terminal step regardless of the isolation mode.
 - **Never** skip the test-first loop for a behavior-introducing unit when
   `test-spec.md` describes a verification path (REQ-E1.1).
 - **Never** retry a logic CI failure; transient retries cap at two; unknown
@@ -469,9 +472,9 @@ the unit; they are seed material for `/spec-draft` (REQ-E2.1, REQ-H1.6).
 ## Maintenance
 
 After the run completes (or halts), compare these instructions against the
-resolved doctrine docs (REQ-B3.2, D-42) — especially `spec-format` (anchor
-command forms, sign-off record format, amendment ritual), `gate-wiring`,
-`research-rigor`, `security-posture`, and `decision-domains`. If a concept this
+resolved doctrine docs (REQ-B3.2, D-42) — especially `spec-format`,
+`gate-wiring`, `research-rigor`, `security-posture`, and `decision-domains`. If
+a concept this
 skill names has changed meaning, gained or lost a step, or moved between docs,
 record a drift observation through the shared helper (`scripts/obs-record.sh
 --slug skill-drift --scope <repo> --text 'skill-drift(execute-task): <what>'` —

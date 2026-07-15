@@ -151,6 +151,10 @@ state.
      nothing is stale; ask what the human is bringing (a re-walk on
      request, or — on an Active bundle — an amendment, always human-declared;
      a Ready bundle's pre-merge change is the delta re-walk path, REQ-D1.4).
+     On a format-version 2 bundle the stored header rests at Ready — Active
+     is derived — so distinguish Ready from Active for these mode arms via
+     the derivation (the render, `mise run status specs/<spec>`), never a
+     stored `Active`.
      **Brief or anchor entry absent, unparseable, or non-sanctioned** (e.g. a
      hand-flipped Ready/Active spec that never had a kickoff) → the sign-off
      record needs creating or repairing, and this skill's sign-off flow is the
@@ -169,10 +173,8 @@ state.
    re-validation refuses to record while any remain. Validator absent or not
    executable: kickoff is an authoring path, so this degrades rather than halts
    (REQ-K1.7) — but a merged signed-off bundle is dispatchable, so the sign-off
-   this run records lands unvalidated (on a first activation or reopen the
-   Draft→Ready flip itself goes unvalidated; on an already-signed Ready or
-   Active bundle there is no flip, but the re-sign-off still leaves it
-   dispatchable and unvalidated). Naming the Draft→Ready flip only when this run
+   this run records lands unvalidated (whether or not this run flips
+   Draft→Ready). Naming the Draft→Ready flip only when this run
    flips, ask the human whether to proceed anyway or stop here, install the
    validator, and re-run `/spec-kickoff specs/<spec>`.
 4. **Read the config.** `commit_on_kickoff` and
@@ -185,9 +187,8 @@ state.
 5. **Resolve the working location** (D-44, graceful in every starting
    state). The spec branch is `planwright/<spec>/spec` (the reserved namespace
    the `tasks-pr-sync` hook no-ops on); the spec worktree is
-   `<repo>/.claude/worktrees/<spec>-spec` (D-37 placement — the directory name
-   disambiguates the literal `spec` branch suffix, which would collide across
-   specs, while staying attachable via `claude --worktree <spec>-spec`).
+   `<repo>/.claude/worktrees/<spec>-spec` (D-37 placement; attachable via
+   `claude --worktree <spec>-spec`).
    - **Already in the spec's own worktree:** proceed. Dirty or diverged
      state: surface it and ask before touching anything — never
      auto-stash, auto-commit, or clean.
@@ -195,8 +196,8 @@ state.
      worktree exists, do not work here — print the re-open command
      (`claude --worktree <spec>-spec`) and stop. If the spec branch exists
      but the worktree was pruned, recreate the worktree from the branch via
-     Claude Code's native mechanism (`claude --worktree` / EnterWorktree —
-     never raw `git worktree`, D-37). If neither exists (a hand-written or
+     Claude Code's native mechanism (never raw `git worktree`, D-37). If
+     neither exists (a hand-written or
      retrofit bundle that never went through `/spec-draft`), create them:
      worktree via the native mechanism, then
      `git switch -c planwright/<spec>/spec` inside it, branched from the
@@ -335,6 +336,9 @@ not walked.
    four spec files (REQ-D1.1, REQ-A1.4 — this stored, human-gated flip is the
    only stored status transition; Ready↔Active is *derived* from task state by
    the single reconcile writer, REQ-A1.5, and is never written by this skill).
+   On a v2 bundle Ready is the header's **resting state** — Active/Done are
+   derived, and the stored header moves again only at reopen (Ready→Draft)
+   or a terminal flip.
    Re-walkthroughs and amendments on an already-signed bundle (Ready or
    Active): bump `Last reviewed:` on the files the delta touched, with no
    status flip. Then, when the validator is present, re-run it (Ready, Active,
@@ -406,9 +410,8 @@ not walked.
    completion is clean, un-draft the spec PR — but **first check its state**
    (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
    <spec-PR>` **only while it is still a draft**; skip it entirely when the PR
-   is already ready or merged/closed (a benign no-op, not a degradation — the
-   skip is what keeps it from being one; `gh pr ready` there exits non-zero and
-   would wrongly trip the degradation path). This is the narrow exception to
+   is already ready or merged/closed (a benign no-op; `gh pr ready` there exits
+   non-zero and would wrongly trip the degradation path). This is the narrow exception to
    bootstrap D-26's all-drafts rule: **only the spec PR**, and only this skill,
    marks a PR ready; **task PRs stay drafts** (their execution review is owned
    by the execution and review skills). Merge stays the human's second key —
@@ -442,8 +445,8 @@ When anything outside this kickoff's scope surfaces during the walk
 (doctrine gaps, tooling gaps, recurring friction, an uncatalogued decision
 domain), record one fragment per item through the shared helper —
 `scripts/obs-record.sh --slug <topic> --scope <repo> --text '<observation>'`
-(resolved under the planwright root; it composes the one-line entry form
-and writes one file under the host repo's `specs/_observations/entries/`) —
+(resolved under the planwright root; it writes one file under the host
+repo's `specs/_observations/entries/`) —
 and commit the fragment (with the sign-off commit, or as its own chore
 commit); surface a non-zero helper exit rather than silently dropping the
 observation. Do not act on observations during the kickoff; they are seed
