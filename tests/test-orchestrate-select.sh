@@ -1667,5 +1667,36 @@ grep -q 'violates the task-id grammar' "$v16_err" \
   || fail "v2-near-miss: a stray-space reference bullet must be rejected loudly, not silently skipped as prose"
 echo "ok: near-miss reference bullets warn; the failed park is never silent (REQ-C1.9)"
 
+# V17. Echo discipline: untrusted content carrying a LITERAL backslash escape
+#      (the four printable bytes \033) must not be re-synthesized into a live
+#      ESC by the diagnostic path — sanitize_printable strips formed control
+#      bytes, and the emitter must not manufacture new ones. Exercised under
+#      /bin/sh (macOS xpg echo) and dash (the CI shell) where echo interprets
+#      backslash sequences.
+dv17="$tmp/v2echoesc"
+dv17spec=$(new_spec "$dv17" vtwoechoesc)
+{
+  printf '# tasks\n\n**Format-version:** 2\n\n## Tasks\n\n'
+  printf '### Task 1 — ready\n\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Estimated effort:** 1 day\n\n'
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 9\\033[31mX** literal backslash sequence in the id.\n\n'
+  printf '## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$dv17spec/tasks.md"
+seal_base "$dv17"
+for v17_sh in /bin/sh dash; do
+  command -v "$v17_sh" >/dev/null 2>&1 || continue
+  v17_err="$tmp/v2echoesc.${v17_sh##*/}.err"
+  rc=0
+  v17_out=$("$v17_sh" "$SEL" "$dv17spec" 2>"$v17_err") || rc=$?
+  [ "$rc" = 0 ] || fail "v2-echo-esc ($v17_sh): exit $rc, expected 0"
+  [ "$v17_out" = 1 ] || fail "v2-echo-esc ($v17_sh): selected '$v17_out', expected 1"
+  grep -q 'violates the task-id grammar' "$v17_err" \
+    || fail "v2-echo-esc ($v17_sh): the rejection warning must still be emitted"
+  LC_ALL=C grep '[^ -~]' "$v17_err" >/dev/null \
+    && fail "v2-echo-esc ($v17_sh): a literal backslash sequence was re-synthesized into a control byte on stderr"
+done
+echo "ok: literal backslash sequences are never re-synthesized into terminal escapes"
 
 echo "PASS: orchestrate-select"

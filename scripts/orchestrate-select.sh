@@ -88,7 +88,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # bullet ids, engine diagnostics) before it reaches stderr (REQ-C1.9).
 echo_safety="$script_dir/echo-safety.sh"
 if [ ! -r "$echo_safety" ]; then
-  echo "orchestrate-select: required helper $echo_safety missing or not readable" >&2
+  printf '%s\n' "orchestrate-select: required helper $echo_safety missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
@@ -106,12 +106,12 @@ esac
 
 spec_dir="${1:-}"
 if [ -z "$spec_dir" ]; then
-  echo "usage: orchestrate-select.sh [--critical-path] <spec-dir>" >&2
+  printf '%s\n' "usage: orchestrate-select.sh [--critical-path] <spec-dir>" >&2
   exit 2
 fi
 tasks_md="$spec_dir/tasks.md"
 if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
-  echo "orchestrate-select: missing or unreadable $tasks_md" >&2
+  printf '%s\n' "orchestrate-select: missing or unreadable $tasks_md" >&2
   exit 2
 fi
 
@@ -120,7 +120,7 @@ fi
 # the form `…\0- **Task 1**…` could silently un-park a task. Refuse the file
 # instead of reinterpreting it.
 if [ "$(wc -c <"$tasks_md")" -ne "$(tr -d '\000' <"$tasks_md" | wc -c)" ]; then
-  echo "orchestrate-select: $tasks_md contains NUL bytes (fail closed)" >&2
+  printf '%s\n' "orchestrate-select: $tasks_md contains NUL bytes (fail closed)" >&2
   exit 2
 fi
 
@@ -133,7 +133,7 @@ fi
 # tolerance); a divergence there is ordinary evidence lag, not a torn
 # candidacy decision.
 if ! tasks_content=$(cat "$tasks_md"); then
-  echo "orchestrate-select: could not read $tasks_md (fail closed)" >&2
+  printf '%s\n' "orchestrate-select: could not read $tasks_md (fail closed)" >&2
   exit 2
 fi
 
@@ -155,11 +155,11 @@ fv=$(printf '%s\n' "$tasks_content" | awk '
 case "$fv" in
   1 | 2) ;;
   '')
-    echo "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
+    printf '%s\n' "orchestrate-select: $tasks_md has no Format-version: line; refusing to guess the format (fail closed)" >&2
     exit 2
     ;;
   *)
-    echo "orchestrate-select: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
+    printf '%s\n' "orchestrate-select: unparseable Format-version: '$(sanitize_printable "$fv")' in $tasks_md (fail closed)" >&2
     exit 2
     ;;
 esac
@@ -237,7 +237,7 @@ if [ "$mode" = select ] && [ "$fv" = 2 ]; then
     [ -n "$pm_id" ] || continue
     if [ "$pm_id" = rejected ]; then
       # pm_rest carries the raw, grammar-violating id
-      echo "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_rest" '(unprintable)')' violates the task-id grammar" >&2
+      printf '%s\n' "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_rest" '(unprintable)')' violates the task-id grammar" >&2
       continue
     fi
     parked_any="$parked_any$pm_id "
@@ -250,7 +250,7 @@ fi
 if [ "$mode" = select ]; then
   state_engine="$script_dir/orchestrate-state.sh"
   if [ ! -x "$state_engine" ]; then
-    echo "orchestrate-select: derivation engine $state_engine missing or not executable" >&2
+    printf '%s\n' "orchestrate-select: derivation engine $state_engine missing or not executable" >&2
     exit 2
   fi
   # Fail closed when the derivation cannot run (no git work tree, missing or
@@ -263,7 +263,7 @@ if [ "$mode" = select ]; then
   # writes (e.g. a malformed stale_marker_threshold that warns and falls back)
   # visible to the operator, instead of the capture swallowing them.
   if ! state_out=$("$state_engine" "$spec_dir"); then
-    echo "orchestrate-select: derivation failed for $spec_dir (cannot select against live truth)" >&2
+    printf '%s\n' "orchestrate-select: derivation failed for $spec_dir (cannot select against live truth)" >&2
     exit 2
   fi
   # Read only the evidence-based states (completed / in-progress); ready and
@@ -286,7 +286,7 @@ if [ "$mode" = select ]; then
     && printf '%s\n' "$state_out" | awk -F"$TAB" '$1=="degraded" { f = 1 } END { exit !f }'; then
     dmsg=$(printf '%s\n' "$state_out" \
       | awk -F"$TAB" '$1=="degraded" { print $3; exit }')
-    echo "orchestrate-select: transient evidence failure - $(sanitize_printable "$dmsg" '(no diagnostic from the engine)'); dispatching nothing (REQ-B1.5)" >&2
+    printf '%s\n' "orchestrate-select: transient evidence failure - $(sanitize_printable "$dmsg" '(no diagnostic from the engine)'); dispatching nothing (REQ-B1.5)" >&2
     exit 3
   fi
   # Surface the evidence-quality diagnostics on the success path so an operator
