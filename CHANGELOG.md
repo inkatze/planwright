@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/inkatze/planwright/compare/v0.5.0...v0.6.0) (2026-07-15)
+
+
+### Features
+
+* **instruction-hygiene:** diet /spec-kickoff, exempt spec-format (Task 7) ([#166](https://github.com/inkatze/planwright/issues/166)) ([99f3e08](https://github.com/inkatze/planwright/commit/99f3e088b645134a333e65fbaea64a3363fd36c6))
+
 ## [0.5.0](https://github.com/inkatze/planwright/compare/v0.4.0...v0.5.0) (2026-07-14)
 
 
