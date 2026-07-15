@@ -3,7 +3,7 @@
   "name": "planwright",
   "displayName": "Planwright",
   "description": "Autopilot for spec-driven development. The human signs off and merges; planwright flies the spec.",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "author": {
     "name": "Diego Romero",
     "email": "jd@inkatze.com"
