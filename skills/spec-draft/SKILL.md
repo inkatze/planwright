@@ -39,7 +39,7 @@ packaged preference — see Design step 3); the altitude gate reads
 research-rigor is wired — the seed-claim and mid-flow trigger classes, the
 phase re-anchor, and the trigger-scoped altitude record; the trigger
 summaries the earlier steps need are stated inline at Seed gathering and the
-phase-end re-anchor, so only the full law defers; this skill cites
+phase re-anchor in Elicitation, so only the full law defers; this skill cites
 `doctrine/autopilot-reflex.md` rather than restating it). Their definitions
 govern wherever this skill names a concept. If one of those does not
 resolve — at run start or at its point of use — halt with a clear message naming
