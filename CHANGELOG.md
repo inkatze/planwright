@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/inkatze/planwright/compare/v0.11.0...v0.12.0) (2026-07-15)
+
+
+### Features
+
+* **skills:** reconcile state-layer skills for format-version 2 (Task 7) ([#194](https://github.com/inkatze/planwright/issues/194)) ([71f2708](https://github.com/inkatze/planwright/commit/71f270859c44a439e6294bfc4f613b36bd84c67b))
+* **state:** version-key the tasks.md writer and ledger guard for format-version 2 ([#193](https://github.com/inkatze/planwright/issues/193)) ([517b2f5](https://github.com/inkatze/planwright/commit/517b2f573ab83e3192be2e77fbbc51bd330d9d09))
+
 ## [0.11.0](https://github.com/inkatze/planwright/compare/v0.10.0...v0.11.0) (2026-07-15)
 
 
