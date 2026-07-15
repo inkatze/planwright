@@ -1,7 +1,7 @@
 # Prompt Hygiene — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-07-09
+**Status:** Done
+**Last reviewed:** 2026-07-15
 **Format-version:** 1
 
 ## Goal
