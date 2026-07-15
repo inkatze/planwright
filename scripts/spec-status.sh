@@ -244,7 +244,10 @@ printf '%s\n' "$parked_map" | while IFS="$TAB" read -r tag raw _; do
 done
 
 # --- Run the derivation engine (D-6: one derivation, one place). -------------
-engine_err=$(mktemp "${TMPDIR:-/tmp}/spec-status-err.XXXXXX") || exit 2
+engine_err=$(mktemp "${TMPDIR:-/tmp}/spec-status-err.XXXXXX") || {
+  echo "spec-status: cannot create a temp file under ${TMPDIR:-/tmp}" >&2
+  exit 2
+}
 trap 'rm -f "$engine_err"' EXIT
 engine_out=$("$script_dir/orchestrate-state.sh" "$spec_dir" 2>"$engine_err")
 engine_rc=$?
