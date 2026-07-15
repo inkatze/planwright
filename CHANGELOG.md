@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/inkatze/planwright/compare/v0.9.0...v0.10.0) (2026-07-15)
+
+
+### Features
+
+* **doctrine:** define spec-format format-version 2 (invariant ledger) ([#181](https://github.com/inkatze/planwright/issues/181)) ([ca0faa6](https://github.com/inkatze/planwright/commit/ca0faa6a8430bdb1a2d7d060667aed8c822e5d8f))
+
 ## [0.9.0](https://github.com/inkatze/planwright/compare/v0.8.0...v0.9.0) (2026-07-15)
 
 
