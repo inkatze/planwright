@@ -179,3 +179,15 @@ breadth:
     category: breadth
     tool: release-tagging-guard
     detect: "manual"
+  # Instruction hygiene (prompt-hygiene Task 8, REQ-C1.5). Advisory breadth
+  # dimension for repos that author an LLM instruction layer (agent skills,
+  # doctrine, prompts): the size guard (scripts/check-instructions.sh — per-file
+  # / start-load / closure word budgets, manifest resolution) plus the kept
+  # prompt-eval convention. Doctrine home: doctrine/instruction-hygiene.md; the
+  # dimension detail is in doctrine/guard-catalog.md. detect: manual — like every
+  # breadth entry it never auto-fires from a file glob; the builder recommends it
+  # when a repo ships an instruction layer.
+  - id: instruction-hygiene
+    category: breadth
+    tool: instruction-budget-guard
+    detect: "manual"

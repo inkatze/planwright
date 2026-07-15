@@ -141,3 +141,16 @@ printf '%s\n' "$message" \
 
 The trailer is additive: it introduces no Claude or co-author attribution, so
 the project's no-attribution commit rule is unaffected.
+
+## Instruction-authoring hygiene (prompt-hygiene D-10)
+
+The skills and doctrine docs here are runtime artifacts, so they carry an
+authoring convention of their own: flow lives in skills, law lives in rule
+docs referenced one level deep, each skill declares a doctrine manifest
+(run-start vs point-of-use), and every file stays within a measured word
+budget. The full law is [instruction-hygiene.md](../doctrine/instruction-hygiene.md);
+the size guard that enforces it is
+[`scripts/check-instructions.sh`](../scripts/check-instructions.sh), wired into
+`mise run check` (with `--closeout` so no transitional `pending-diet` allowance
+lingers past a diet). The builder recommends this dimension to adopters through
+the `instruction-hygiene` [guard-catalog entry](../doctrine/guard-catalog.md#instruction-hygiene).

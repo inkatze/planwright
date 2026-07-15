@@ -33,8 +33,16 @@
 # doctrine root (a name is charset-validated before any path is formed, so no
 # `../` traversal escapes), and hook scripts are read, never executed (REQ-B1.9).
 #
-# Usage: check-instructions.sh [--audit] [--root <dir>]
+# Usage: check-instructions.sh [--audit] [--closeout] [--root <dir>]
 #   --audit      also emit the ranked report and offender shortlist on stdout.
+#   --closeout   fail if ANY transitional `pending-diet` allowance remains in the
+#                suppression list (per-file, start-load, or closure). The Task-8
+#                closeout direction (REQ-D1.4): after the diets, only permanent
+#                exemptions (REQ-B1.3a) may remain; a lingering allowance means a
+#                start-load/closure offender is still hiding behind it. Off by
+#                default so the transitional mechanism (REQ-B1.3b) keeps working
+#                while a diet is in flight; planwright's own `check:instructions`
+#                task passes it because its retrofit is complete.
 #   --root <dir> base dir holding skills/, doctrine/, hooks/, config/ (default:
 #                the repo root, the script's parent directory). Used by tests.
 #
@@ -52,11 +60,15 @@ unset CDPATH
 self_dir="$(cd "$(dirname "$0")" && pwd -P)"
 
 audit=0
+closeout=0
 root=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --audit)
       audit=1
+      ;;
+    --closeout)
+      closeout=1
       ;;
     --root)
       shift
@@ -70,7 +82,7 @@ while [ "$#" -gt 0 ]; do
       root="${1#--root=}"
       ;;
     -h | --help)
-      sed -n '2,40p' "$0"
+      sed -n '2,53p' "$0"
       exit 0
       ;;
     *)
@@ -357,6 +369,36 @@ $target" ;;
         ;;
     esac
   done <"$exemptions_file"
+fi
+
+########################################################################
+# Closeout direction (REQ-D1.4, Task 8). With --closeout, any surviving
+# transitional `pending-diet` allowance is a hard error: after the diets, the
+# suppression list must carry only permanent exemptions (REQ-B1.3a). Because a
+# start-load or reachable-closure offender can be carried ONLY by such an
+# allowance (REQ-B1.3b), this catches a lingering start-load/closure offender,
+# not just a per-file one. Off by default so the transitional mechanism keeps a
+# diet's CI green while it is in flight; planwright's `check:instructions` passes
+# --closeout because its own retrofit is complete.
+########################################################################
+closeout_err() {
+  # closeout_err <newline-list> <budget-label>. Iterate the parsed allowance
+  # targets line by line (never word-split or glob-expand the data, REQ-B1.9),
+  # in the current shell so err's status=1 propagates (a here-doc redirect adds
+  # no subshell). An empty list yields a single empty line, skipped below.
+  _list="$1"
+  _label="$2"
+  while IFS= read -r _target; do
+    [ -n "$_target" ] || continue
+    err "closeout (REQ-D1.4): $_label pending-diet allowance still present for '$_target' — a diet must remove its own allowance; only permanent exemptions may remain at closeout"
+  done <<EOF
+$_list
+EOF
+}
+if [ "$closeout" -eq 1 ]; then
+  closeout_err "$pd_file_paths" "per-file"
+  closeout_err "$pd_startload" "start-load (skill)"
+  closeout_err "$pd_closure" "closure (skill)"
 fi
 
 ########################################################################
