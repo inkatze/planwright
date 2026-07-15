@@ -502,7 +502,12 @@ EOF
     # read, so a rewrite anywhere in that window is flagged as torn. Each
     # read is guarded so a file vanishing mid-sweep degrades to a
     # report-level error for this spec instead of aborting the whole report.
-    if ! lines=$(awk -v fname="$tasks" -v today="$today" -v statuses="$statuses" \
+    # The path travels via ENVIRON, not -v: awk -v performs C-escape
+    # processing, which would corrupt a path carrying literal backslash
+    # sequences in every report row (the same remedy orchestrate-select.sh
+    # applies to its taskless diagnostic; the statuses-whitelist comment
+    # below documents the underlying -v hazard).
+    if ! lines=$(DRAIN_GATES_TASKS_MD="$tasks" awk -v today="$today" -v statuses="$statuses" \
       -v fv="$fv" -v comp="$v2comp" -v evfail="$v2evfail" '
       BEGIN {
         n = split(statuses, a, " ")
@@ -755,7 +760,7 @@ EOF
       function add(cat, conf, title, detail,  key) {
         key = CAT[cat] "," CONFR[conf]
         CNT[key]++
-        ROW[key, CNT[key]] = cat " [" conf "] " fname ":" bline " - " title " - " detail
+        ROW[key, CNT[key]] = cat " [" conf "] " ENVIRON["DRAIN_GATES_TASKS_MD"] ":" bline " - " title " - " detail
       }
 
       function emit(  c, k, s, key) {
