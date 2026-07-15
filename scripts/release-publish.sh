@@ -442,7 +442,12 @@ relabel_release_pr() {
   # and ci_green above: a query failure just means retry, but "no PR found"
   # reads as an unusual release-process state and would send an operator down
   # the wrong path if the two were conflated.
-  pr_number=$(gh api "repos/$owner/$repo/commits/$release_sha/pulls" -q '.[0].number' 2>/dev/null)
+  # The endpoint can return more than one PR for a commit (e.g. it also
+  # belongs to a backport or a since-superseded branch); prefer whichever
+  # still carries 'autorelease: pending' (the release-please state we're
+  # actually trying to flip) over blindly taking the first entry.
+  pr_number=$(gh api "repos/$owner/$repo/commits/$release_sha/pulls" \
+    -q '(map(select(.labels[]?.name == "autorelease: pending")) | .[0].number) // .[0].number' 2>/dev/null)
   api_rc=$?
   if [ "$api_rc" -ne 0 ]; then
     echo "release-publish: relabel: could not query GitHub for the release commit's pull request (gh api failed); if a release PR merged here, relabel it to '$tagged_label' manually" >&2

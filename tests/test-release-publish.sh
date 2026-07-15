@@ -162,9 +162,11 @@ case "$1" in
   api)
     # Two distinct `gh api` calls: the statusCheckRollup GraphQL query
     # ($2=graphql) and the relabel step's commit-to-PR lookup ($2 matches
-    # .../commits/<sha>/pulls). The latter is modeled directly as the
-    # already-`-q`-filtered PR number (GH_PR_NUMBER; unset/empty means no PR
-    # found, mirroring gh's real `-q '.[0].number'` yielding nothing on `[]`).
+    # .../commits/<sha>/pulls, $4 carries the real `-q` filter). The latter is
+    # modeled as a synthetic PR list piped through the real filter — GH_PR_JSON
+    # supplies the list directly (multiple PRs / labels); GH_PR_NUMBER is the
+    # single-PR-no-labels shorthand used by the older fixtures. Unset/empty
+    # means no PR found, mirroring gh's real `-q` yielding "null" on `[]`.
     case "$2" in
       *"/pulls")
         # GH_API_PULLS_FAIL=1 models the query itself failing (network/auth/
@@ -174,7 +176,11 @@ case "$1" in
           echo "gh: error connecting to api.github.com" >&2
           exit 1
         fi
-        [ -n "${GH_PR_NUMBER:-}" ] && printf '%s\n' "$GH_PR_NUMBER"
+        pulls_json="${GH_PR_JSON:-}"
+        if [ -z "$pulls_json" ] && [ -n "${GH_PR_NUMBER:-}" ]; then
+          pulls_json="[{\"number\": $GH_PR_NUMBER, \"labels\": []}]"
+        fi
+        printf '%s' "${pulls_json:-[]}" | jq -r "$4"
         exit 0
         ;;
     esac
@@ -936,7 +942,7 @@ assert_contains "relabel/no-pr: warns that no PR was found for the release commi
 deny "relabel/no-pr: no pr edit attempted" gh_called "$LOG" "pr edit"
 want "relabel/no-pr: the Release was still created" gh_called "$LOG" "release create"
 
-# 10e. The commit-to-PR lookup itself fails (network/auth/rate-limit) rather
+# 10d. The commit-to-PR lookup itself fails (network/auth/rate-limit) rather
 #      than genuinely finding no PR: the warning must say the query failed,
 #      not claim no PR exists for the commit — a real "no PR" reads as an
 #      unusual release-process state, while a query failure just means retry.
@@ -954,7 +960,7 @@ esac
 deny "relabel/api-fail: no pr edit attempted" gh_called "$LOG" "pr edit"
 want "relabel/api-fail: the Release was still created" gh_called "$LOG" "release create"
 
-# 10d. The PR is found but relabeling itself fails (permissions/network):
+# 10e. The PR is found but relabeling itself fails (permissions/network):
 #      degrades to a stderr warning naming the PR and the manual fix, never
 #      fails the publish.
 r="$tmp/relabel-edit-fail"
@@ -967,6 +973,20 @@ assert_contains "relabel/edit-fail: names the PR and warns to relabel manually" 
 assert_contains "relabel/edit-fail: warns to relabel manually so release-please does not deadlock" \
   "$ERR" "relabel it manually"
 want "relabel/edit-fail: the Release was still created" gh_called "$LOG" "release create"
+
+# 10f. The commit-to-PR lookup returns more than one PR for the release
+#      commit (a backport or superseded branch can share it): the one still
+#      carrying 'autorelease: pending' is relabeled, not just the first entry.
+r="$tmp/relabel-multi-pr"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_LABEL_TAGGED_EXISTS=0 \
+  GH_PR_JSON='[{"number":11,"labels":[{"name":"backport"}]},{"number":22,"labels":[{"name":"autorelease: pending"}]}]'
+assert_eq "relabel/multi-pr: exit 0" "$RC" "0"
+want "relabel/multi-pr: the PR still carrying autorelease: pending is relabeled" \
+  gh_called "$LOG" "pr edit 22 --add-label autorelease: tagged --remove-label autorelease: pending"
+deny "relabel/multi-pr: the first-listed PR without the pending label is left alone" \
+  gh_called "$LOG" "pr edit 11"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
