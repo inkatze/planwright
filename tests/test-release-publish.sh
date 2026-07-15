@@ -167,6 +167,13 @@ case "$1" in
     # found, mirroring gh's real `-q '.[0].number'` yielding nothing on `[]`).
     case "$2" in
       *"/pulls")
+        # GH_API_PULLS_FAIL=1 models the query itself failing (network/auth/
+        # rate-limit) — distinct from a genuine empty result — so the
+        # caller's query-failure-vs-absence distinction is testable.
+        if [ "${GH_API_PULLS_FAIL:-0}" = 1 ]; then
+          echo "gh: error connecting to api.github.com" >&2
+          exit 1
+        fi
         [ -n "${GH_PR_NUMBER:-}" ] && printf '%s\n' "$GH_PR_NUMBER"
         exit 0
         ;;
@@ -928,6 +935,24 @@ assert_contains "relabel/no-pr: warns that no PR was found for the release commi
   "$ERR" "no pull request found"
 deny "relabel/no-pr: no pr edit attempted" gh_called "$LOG" "pr edit"
 want "relabel/no-pr: the Release was still created" gh_called "$LOG" "release create"
+
+# 10e. The commit-to-PR lookup itself fails (network/auth/rate-limit) rather
+#      than genuinely finding no PR: the warning must say the query failed,
+#      not claim no PR exists for the commit — a real "no PR" reads as an
+#      unusual release-process state, while a query failure just means retry.
+r="$tmp/relabel-api-fail"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0 GH_API_PULLS_FAIL=1
+assert_eq "relabel/api-fail: exit 0 (non-fatal)" "$RC" "0"
+assert_contains "relabel/api-fail: warns that the query failed, not that no PR exists" \
+  "$ERR" "could not query"
+case "$ERR" in
+  *"no pull request found"*) bad "relabel/api-fail: warning wrongly claims no PR was found" ;;
+  *) pass "relabel/api-fail: warning does not conflate query failure with no PR found" ;;
+esac
+deny "relabel/api-fail: no pr edit attempted" gh_called "$LOG" "pr edit"
+want "relabel/api-fail: the Release was still created" gh_called "$LOG" "release create"
 
 # 10d. The PR is found but relabeling itself fails (permissions/network):
 #      degrades to a stderr warning naming the PR and the manual fix, never

@@ -427,7 +427,7 @@ fi
 # ceremony's real output and are already done, so a relabel failure degrades
 # to a stderr warning naming the manual fix, not a die().
 relabel_release_pr() {
-  local nwo owner repo pr_number tagged_label
+  local nwo owner repo pr_number tagged_label api_rc
   tagged_label="autorelease: tagged"
   nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || {
     echo "release-publish: relabel: could not resolve the repository (gh repo view failed); relabel the merged release PR to '$tagged_label' manually" >&2
@@ -437,8 +437,17 @@ relabel_release_pr() {
   repo=${nwo#*/}
   # The commit-to-PR association GitHub tracks regardless of merge strategy
   # (merge commit or squash), keyed off the release SHA — the same commit the
-  # tag was just created on.
+  # tag was just created on. The query's own failure (network/auth/rate-limit)
+  # is distinguished from a genuine empty result, same posture as release_state
+  # and ci_green above: a query failure just means retry, but "no PR found"
+  # reads as an unusual release-process state and would send an operator down
+  # the wrong path if the two were conflated.
   pr_number=$(gh api "repos/$owner/$repo/commits/$release_sha/pulls" -q '.[0].number' 2>/dev/null)
+  api_rc=$?
+  if [ "$api_rc" -ne 0 ]; then
+    echo "release-publish: relabel: could not query GitHub for the release commit's pull request (gh api failed); if a release PR merged here, relabel it to '$tagged_label' manually" >&2
+    return
+  fi
   if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
     echo "release-publish: relabel: no pull request found for the release commit $release_sha; if a release PR merged here, relabel it to '$tagged_label' manually" >&2
     return
