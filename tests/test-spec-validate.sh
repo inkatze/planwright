@@ -1156,6 +1156,14 @@ run_v 1 "$root/fixture"
 has "ERROR"
 has "placement section \"## In progress\""
 
+# A CRLF-terminated banned heading is caught too: the parser strips a
+# trailing CR before matching, so line endings cannot fail the ban open.
+write_bundle_v2 "$root/fixture" Ready
+printf '\r\n## Completed\r\n\r\n(none yet)\r\n' >>"$root/fixture/tasks.md"
+run_v 1 "$root/fixture"
+has "ERROR"
+has "placement section \"## Completed\""
+
 # --- 18. v2 banned state annotations (REQ-C1.5), per-token fixtures ---
 # Values vary per token; the finding names the token itself.
 annot_value() {
@@ -1299,6 +1307,14 @@ park "$root/fixture" "Awaiting input" "- **Task 2 unterminated bold"
 run_v 0 "$root/fixture"
 has "0 error(s), 0 warning(s)"
 
+# The classification boundary is pinned from the hostile side too: a
+# whitespace-bearing bold lead is prose even when it looks like an
+# injection attempt — treated as data, no finding, nothing echoed.
+write_bundle_v2 "$root/fixture" Ready
+park "$root/fixture" "Awaiting input" '- **Task ;rm -rf /** hostile prose lead.'
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
 # A payload-section heading with a trailing space still scopes the
 # integrity checks (exact-match section tracking would fail open).
 write_bundle_v2 "$root/fixture" Ready
@@ -1395,6 +1411,26 @@ for bf in design tasks test-spec; do
   edit "$root/fixture/$bf.md" '/^\*\*Format-version:\*\*/d'
 done
 run_v 1 "$root/fixture"
+has "missing or empty Format-version"
+
+# Conflicting sibling declarations with requirements.md absent fail
+# closed: the fallback must not silently resolve to whichever file comes
+# first (a drifted lower sibling would skip the v2 invariants).
+write_bundle_v2 "$root/fixture" Ready
+rm "$root/fixture/requirements.md"
+edit "$root/fixture/design.md" \
+  's/^\*\*Format-version:\*\* 2$/**Format-version:** 1/'
+printf '\n## In progress\n\n(none yet)\n' >>"$root/fixture/tasks.md"
+run_v 1 "$root/fixture"
+has "conflicting Format-version declarations"
+
+# A charset-valid but spec-file-less child directory under a specs root
+# is a broken bundle, not a silent pass: the missing-file gaps plus the
+# hard version error surface it (fail-closed; previously four
+# Draft-severity warnings).
+rm -rf "$root/fixture"
+mkdir -p "$root/fixture"
+run_v 1 "$root"
 has "missing or empty Format-version"
 
 # --- 23. v2 echo discipline (REQ-C1.9): escape bytes never reach output ---

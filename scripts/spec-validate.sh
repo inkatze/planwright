@@ -46,7 +46,10 @@
 # Version keying is fail-closed (REQ-C1.8): a missing or unparseable
 # `Format-version:` is an error at every status — the rules to apply cannot
 # be known without a parsed version — and neither version's extra rules are
-# applied. v1 bundles keep the v1 rules unchanged (REQ-D1.1).
+# applied. The declaration is read from requirements.md; when that file is
+# absent it falls back to the sibling mirrors (agreeing siblings resolve,
+# disagreeing siblings are a hard error). v1 bundles keep the v1 rules
+# unchanged (REQ-D1.1).
 #
 # Severity (status-aware, D-25): findings are warnings on Draft, errors on
 # Ready, Active, and Done (signed-off live content — Ready is signed off and
@@ -333,6 +336,10 @@ parse_tasks() {
 #                                 (REQ-C1.9)
 parse_tasks_v2() {
   awk '
+    # Normalize a trailing CR first: the heading arms below are
+    # EOL-anchored, and a CRLF-saved file must not slip a banned heading
+    # past the ban (or hide a payload section) on line endings alone.
+    { sub(/\r$/, "") }
     # Headings are matched with trailing-whitespace tolerance: an exact
     # `==` would let a hand-edited "## Completed " escape the placement
     # ban (fail-open) or hide a payload section from the integrity checks.
@@ -556,6 +563,7 @@ validate_bundle() {
   all_d_ids=
   all_t_ids=
   fver=
+  fver_conflict=
   bundle_ver=
 
   if [ ! -f "$bdir/requirements.md" ]; then
@@ -570,12 +578,23 @@ validate_bundle() {
     done
     # The format-version follows the same fallback (REQ-C1.8): deleting
     # requirements.md must not skip version keying, or a v2 bundle's
-    # invariants would silently fail open while the file is absent.
+    # invariants would silently fail open while the file is absent. With
+    # no authoritative file to arbitrate, disagreeing siblings fail
+    # closed rather than resolving to whichever file comes first (a
+    # drifted lower value would skip the v2 invariants silently).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      fver=$(first_header "$bdir/$bf" Format-version)
-      [ -n "$fver" ] && break
+      sfv=$(first_header "$bdir/$bf" Format-version)
+      [ -n "$sfv" ] || continue
+      if [ -z "$fver" ]; then
+        fver=$sfv
+      elif [ "$sfv" != "$fver" ]; then
+        fver_conflict=1
+      fi
     done
+    if [ -n "$fver_conflict" ]; then
+      printf 'hard\tconflicting Format-version declarations across sibling files (fail-closed: no authoritative requirements.md to arbitrate)\n' >>"$fnd"
+    fi
   fi
 
   if [ -f "$bdir/requirements.md" ]; then
@@ -631,9 +650,10 @@ validate_bundle() {
   # extra rules run ($bundle_ver stays empty; the shared structural checks
   # still do). An undeclared numeric version is the REQ-A1.7 unsupported
   # error, equally hard. $fver comes from requirements.md (the
-  # authoritative home) or, only when that file is absent, from the first
-  # declaring sibling mirror.
-  case $fver in
+  # authoritative home) or, only when that file is absent, from the
+  # agreeing sibling mirrors; a sibling conflict already carries its own
+  # hard finding and skips keying entirely.
+  [ -n "$fver_conflict" ] || case $fver in
     1 | 2)
       bundle_ver=$fver
       ;;
