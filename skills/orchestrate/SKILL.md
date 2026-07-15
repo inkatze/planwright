@@ -407,8 +407,8 @@ dispatch path); it still never merges and never pushes.
 Halt to Awaiting input on ambiguity, a missing dependency, a worker test
 failure surfaced back, a hard-disqualifier, or contract drift — non-exhaustive;
 the pre-flight refusals are defined at their own steps. Each halt writes the
-unit to `## Awaiting input` with the reason — on a v2 bundle, as a
-`**Task <id>**` reference bullet (D-3) — (the `gate-wiring` pause
+unit to `## Awaiting input` with the reason (on a v2 bundle, a
+`**Task <id>**` reference bullet, D-3; the `gate-wiring` pause
 protocol's dispatched arm, read when recording a halt); attended, present it
 and wait. In unattended mode every would-be prompt becomes an Awaiting-input
 entry.

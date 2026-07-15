@@ -153,7 +153,7 @@ state.
      a Ready bundle's pre-merge change is the delta re-walk path, REQ-D1.4).
      On a format-version 2 bundle the stored header rests at Ready — Active
      is derived — so distinguish Ready from Active for these mode arms via
-     the derivation (the render, `mise run status specs/<spec>`), never a
+     the render (`mise run status specs/<spec>`), never a
      stored `Active`.
      **Brief or anchor entry absent, unparseable, or non-sanctioned** (e.g. a
      hand-flipped Ready/Active spec that never had a kickoff) → the sign-off

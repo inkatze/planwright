@@ -19,11 +19,13 @@
 #     skeleton passes `scripts/spec-validate.sh` cleanly;
 #   - /execute-task drops the `Last activity` write on v2 bundles, keeps
 #     committed Awaiting-input writes in reference-bullet form, confirms
-#     dependencies through the derivation engine on v2, and skips the PR-step
-#     annotation on v2;
-#   - /resume reads the render for v2 execution status;
-#   - /orchestrate's selection describes v2 candidacy via reference bullets,
-#     its orphan reconcile parks via an Awaiting-input reference bullet written
+#     dependencies through the derivation engine on v2, skips the PR-step
+#     annotation on v2, and preserves the v1 Last-activity write unchanged;
+#   - /resume reads the render for v2 execution status, keying the tasks.md
+#     read off the declared Format-version with the v1 arm preserved;
+#   - /orchestrate's selection reads the live derivation engine and describes
+#     v2 candidacy via reference bullets (v1 block-moves preserved), its
+#     orphan reconcile parks via an Awaiting-input reference bullet written
 #     on the primary checkout's main view, and --bookkeeping's placement
 #     reconcile is scoped to v1;
 #   - /drain resolves completion atoms through the derivation engine and scopes
@@ -96,6 +98,12 @@ if printf '%s' "$sd" | grep -qE '[Ee]xtend[^.]{0,160}declared .Format-version:';
   ok "spec-draft: extend mode keys off the target bundle's declared Format-version (D-7)"
 else
   fail "spec-draft: extend mode is not keyed to the target bundle's declared Format-version: (D-7: v1 bundles keep v1 conventions)"
+fi
+
+if printf '%s' "$sd" | grep -qE 'new task blocks join .## Forward plan.'; then
+  ok "spec-draft: v1 extend convention preserved (v1 behavior unchanged)"
+else
+  fail "spec-draft: v1 extend Forward-plan convention missing (REQ-E1.2: v1 behavior must be unchanged)"
 fi
 
 # --- /spec-draft: the documented skeleton validates as v2 (REQ-E1.2) ---
@@ -235,10 +243,10 @@ else
   fail "execute-task: Awaiting-input bullet form missing ('committed reference bullet', D-3)"
 fi
 
-if printf '%s' "$et" | grep -qE 'orchestrate-state\.sh'; then
+if printf '%s' "$et" | grep -qE 'derives Completed via the derivation engine'; then
   ok "execute-task: v2 dependency completion reads the derivation engine"
 else
-  fail "execute-task: does not name the derivation engine (scripts/orchestrate-state.sh) for v2 dependency checks (D-6)"
+  fail "execute-task: v2 dependency check does not read the derivation engine ('derives Completed via the derivation engine' missing, D-6)"
 fi
 
 if printf '%s' "$et" | grep -qE 'no annotation exists to write'; then
@@ -266,20 +274,38 @@ else
   fail "resume: does not reference the render (mise run status / scripts/spec-status.sh) for v2 status (D-6)"
 fi
 
-if printf '%s' "$rs" | grep -qE '[Ff]ormat-version'; then
+if printf '%s' "$rs" | grep -qE 'keying the read off the bundle.s declared .Format-version:'; then
   ok "resume: tasks.md read is version-keyed"
 else
   fail "resume: tasks.md read is not version-keyed on Format-version: (D-7)"
+fi
+
+if printf '%s' "$rs" | grep -qE '\*\*Format-version 1:\*\*'; then
+  ok "resume: v1 read arm preserved (v1 behavior unchanged)"
+else
+  fail "resume: v1 read arm missing (REQ-E1.2: v1 behavior must be unchanged)"
 fi
 
 # --- /orchestrate: selection, orphan park, bookkeeping (REQ-E1.2, D-8) ---
 
 oc="$(flat "$REPO_ROOT/skills/orchestrate/SKILL.md")"
 
-if printf '%s' "$oc" | grep -qE 'reference bullet'; then
+if printf '%s' "$oc" | grep -qE 'parked-ness is a live reference bullet'; then
   ok "orchestrate: v2 parked-ness described via reference bullets (D-8)"
 else
   fail "orchestrate: selection does not describe v2 parked-ness via reference bullets (D-8)"
+fi
+
+if printf '%s' "$oc" | grep -qE 'live derivation[^)]{0,60}orchestrate-state\.sh'; then
+  ok "orchestrate: selection reads the live derivation engine (D-6, D-8)"
+else
+  fail "orchestrate: selection does not name the live derivation engine (scripts/orchestrate-state.sh)"
+fi
+
+if printf '%s' "$oc" | grep -qE 'a v1 block moves'; then
+  ok "orchestrate: v1 orphan block-move preserved (v1 behavior unchanged)"
+else
+  fail "orchestrate: v1 orphan block-move instruction missing (REQ-E1.2: v1 behavior must be unchanged)"
 fi
 
 if printf '%s' "$oc" | grep -qE 'Awaiting-input reference bullet[^.]{0,160}main view'; then
@@ -298,7 +324,7 @@ fi
 
 dr="$(flat "$REPO_ROOT/skills/drain/SKILL.md")"
 
-if printf '%s' "$dr" | grep -qE 'derivation engine'; then
+if printf '%s' "$dr" | grep -qE 'resolves task-completion atoms through the derivation engine'; then
   ok "drain: completion atoms resolve through the derivation engine"
 else
   fail "drain: does not name the derivation engine for task-completion atoms (D-8)"

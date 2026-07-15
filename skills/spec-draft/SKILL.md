@@ -328,8 +328,8 @@ validator the first time.
    CI runs it.
 6. **Review & validate.** Assemble all four files (shared header block,
    `**Status:** Draft`, `**Last reviewed:** <date>`, `**Format-version:** 2`,
-   and — fixed vocabulary, on all four files — the canonical pointer line
-   `**Execution:** derived — see the status render`, D-5),
+   and — fixed vocabulary, on all four files (D-5) — the canonical pointer
+   line `**Execution:** derived — see the status render`),
    present the bundle for a final read-through with the cumulative summary.
    Run `scripts/spec-validate.sh specs/<spec>` when present and executable
    (findings are warnings on Draft: surface them, fix structural ones,

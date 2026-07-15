@@ -120,7 +120,7 @@ session, present it and wait instead.
    block's `Deliverables`, `Done when`, `Dependencies`, and `Citations`. Confirm
    every listed dependency is completed — on a v1 bundle it sits in
    `## Completed`; on a v2 bundle it derives Completed via the derivation engine
-   (`scripts/orchestrate-state.sh`) — halting on any that is not, naming it.
+   (`scripts/orchestrate-state.sh`); if one is not, halt naming it.
 9. **Derive the full-CI command** (D-19). Pick the most comprehensive guard the
    repo ships, checking in order: a `mise.toml` aggregate task (planwright's own
    is `mise run check`); a `package.json` `ci`/`test` script; a `Makefile`
@@ -384,8 +384,8 @@ amendment axis (the `spec-format` amendment ritual):
    commit, rejects with the named revert, at PR review), and any queued forks.
 
    The PR is always a draft. Never mark it ready and never merge.
-3. **Annotate the unit (v1 bundles only** — on a format-version 2 bundle no
-   annotation exists to write; skip this step**).** Update only the task
+3. **Annotate the unit (v1 bundles only).** On a format-version 2 bundle no
+   annotation exists to write — skip this step. Update only the task
    block's `- **Last activity:**
    <today>` annotation; write **no** `Status` line. Section placement is the
    `tasks-pr-sync` reconcile's sole job (REQ-B1.1, D-1); the reconcile preserves
