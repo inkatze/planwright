@@ -36,6 +36,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 3, Task 5, Task 6, Task 7
 - **Citations:** D-1, D-9 · REQ-A1.3, REQ-B1.3, REQ-D1.1, REQ-D1.4
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-14
 
 ### Task 8 — Guard-catalog entry, docs, closeout audit
 
