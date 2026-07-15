@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/inkatze/planwright/compare/v0.10.0...v0.11.0) (2026-07-15)
+
+
+### Features
+
+* **status:** derived status render surface (invariant-tasks Task 3) ([#188](https://github.com/inkatze/planwright/issues/188)) ([a0a69b1](https://github.com/inkatze/planwright/commit/a0a69b18093b1097daac11d02b1e0dbba8e125e9))
+
 ## [0.10.0](https://github.com/inkatze/planwright/compare/v0.9.0...v0.10.0) (2026-07-15)
 
 
