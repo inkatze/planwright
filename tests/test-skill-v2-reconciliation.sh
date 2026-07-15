@@ -344,6 +344,39 @@ else
   fail "drain: commit_on_state_move is not scoped to v1 (v2 edits are human-payload bullet writes)"
 fi
 
+# --- D-7 fail-closed keying: every state-writing skill states that an ---
+# --- unparseable Format-version: fails closed, never the v1 arm       ---
+
+if printf '%s' "$et" | grep -qE 'here and throughout this skill[^.]{0,160}unparseable fails closed'; then
+  ok "execute-task: file-global fail-closed version keying stated (D-7)"
+else
+  fail "execute-task: fail-closed version-keying rule missing or not file-global (D-7)"
+fi
+
+if printf '%s' "$oc" | grep -qE 'unparseable fails closed, never the v1 write'; then
+  ok "orchestrate: fail-closed version keying stated for the sweep's arms (D-7)"
+else
+  fail "orchestrate: fail-closed version-keying rule missing (D-7)"
+fi
+
+if printf '%s' "$dr" | grep -qE 'unparseable fails closed, never the v1 arm'; then
+  ok "drain: fail-closed version keying stated (D-7)"
+else
+  fail "drain: fail-closed version-keying rule missing (D-7)"
+fi
+
+if printf '%s' "$sd" | grep -qE 'unparseable target .Format-version:. is refused'; then
+  ok "spec-draft: extend mode refuses an unparseable target version (D-7)"
+else
+  fail "spec-draft: extend mode does not refuse an unparseable target Format-version: (D-7)"
+fi
+
+if printf '%s' "$rs" | grep -qE '[Mm]issing or unparseable .Format-version:'; then
+  ok "resume: unparseable-version read arm defined (D-7 direction)"
+else
+  fail "resume: no unparseable-Format-version: arm in the tasks.md read (D-7 direction)"
+fi
+
 # --- /spec-kickoff: resting state + derived mode selection (REQ-E1.2) ---
 
 sk="$(flat "$REPO_ROOT/skills/spec-kickoff/SKILL.md")"

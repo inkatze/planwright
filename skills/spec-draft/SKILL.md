@@ -222,7 +222,9 @@ Extend mode follows the target bundle's declared `Format-version:`
 (invariant-tasks D-7): a v1 target keeps every v1 convention unchanged —
 new task blocks join `## Forward plan`, the v1 state sections stay — while
 a v2 target takes the v2 shape (new blocks join `## Tasks` in dependency
-order; no placement sections or state annotations are ever written to it).
+order; no placement sections or state annotations are ever written to it);
+an unparseable target `Format-version:` is refused — fail closed, never
+the v1 conventions (D-7).
 Operates on the existing bundle per the meta-spec's stable-ID discipline:
 
 - **Append, never renumber.** New REQs and D-IDs continue the existing ID

@@ -321,8 +321,8 @@ scheduled-autopilot path; a human drains the Awaiting-input queue later.
 
 Loop the full step (pre-flight → reconcile → select → dispatch record →
 dispatch) until selection reports no ready unit or a halt fires. Each
-iteration is independent and atomic; the loop holds no state between
-iterations beyond what is on disk. A halt in any iteration ends the loop and
+iteration is independent and atomic, holding no state beyond what is on
+disk. A halt in any iteration ends the loop and
 surfaces the reason.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
@@ -348,7 +348,8 @@ every tier; backend selection law applies unchanged.
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
 The predicate's law and rationale are `orchestration-concurrency` (read at
-this step). The sweep:
+this step). Its version-keyed arms read the declared `Format-version:`;
+unparseable fails closed, never the v1 write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `git -C <primary-checkout>
    fetch origin --quiet` — remote named explicitly; remote-tracking refs
@@ -462,8 +463,7 @@ These hold at every step:
 - **Never** write an anchor entry: this skill is a freshness-gate reader, not
   a sanctioned anchor writer (REQ-F1.10). Its dispatch record writes no
   `tasks.md` at all, and any reconcile placement write is anchor-excluded by
-  construction (`scripts/spec-anchor.sh` strips section placement and the
-  Status annotations).
+  construction.
 - **Never** hold the per-spec lock across execution; only across the
   freshness-gate-plus-marker window (D-10).
 - **Never** loosen any invariant at the meta tier (`--meta`, D-6): never-merge

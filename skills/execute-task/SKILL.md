@@ -142,9 +142,10 @@ session, present it and wait instead.
     isolation*).
 11. **Update Last activity (v1); write no placement or `Status`.** On a
     format-version 2 bundle this step writes nothing — a v2 block carries no
-    annotations, and derived execution state never produces commits (key off
-    the declared `Format-version:` exactly as the scripts do; unparseable
-    fails closed, D-7). On v1: the dispatch record (the task branch + runtime
+    annotations, and derived execution state never produces commits (version
+    keying, here and throughout this skill, reads the declared
+    `Format-version:` as the scripts do; unparseable fails closed, never the
+    v1 arm — D-7). On v1: the dispatch record (the task branch + runtime
     marker) already makes the unit derivable as In progress, so this skill
     writes **no** `tasks.md` section placement and **no** `Status` line.
     Section placement is the `tasks-pr-sync` reconcile's sole job (REQ-B1.1,
@@ -464,7 +465,7 @@ dependency feature, an uncatalogued decision domain — record it as its own
 fragment through the shared helper: `scripts/obs-record.sh --slug <topic>
 --scope <repo> --text '<observation>'` (resolved under the planwright root; it
 writes one file under the host repo's `specs/_observations/entries/`). Commit
-the fragment within the iteration that produced it (its action or chore commit)
+the fragment within the iteration that produced it
 so the tree returns to clean; on a non-zero helper exit, surface the failure
 rather than silently dropping the observation. Do not act on observations during
 the unit; they are seed material for `/spec-draft` (REQ-E2.1, REQ-H1.6).

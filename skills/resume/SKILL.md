@@ -120,6 +120,10 @@ off the bundle's declared `Format-version:` (invariant-tasks D-7):
   canonical human-facing read surface (`mise run status specs/<spec>`,
   i.e. `scripts/spec-status.sh`; invariant-tasks D-6). A render failure
   degrades to reporting the definition and bullet state with a clear note.
+- **Missing or unparseable `Format-version:`:** neither arm applies —
+  surface it and report definitions and bullets as found, assuming
+  neither version's semantics (D-7's fail-closed direction; this loader
+  writes nothing regardless).
 
 This is the canonical orchestration state record; report it as found,
 without editing it. With no resolved `<spec>`, skip this step.
