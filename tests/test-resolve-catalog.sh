@@ -351,6 +351,19 @@ exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
 assert_eq "real decision-domains: eleven core entries via --explain" "11" "$exp"
 
 # ---------------------------------------------------------------------------
+# 11b. real guard-catalog seed carries the instruction-hygiene entry
+#      (prompt-hygiene REQ-C1.5, Task 8): the builder can recommend the
+#      instruction-hygiene guard + kept-eval convention to adopters.
+# ---------------------------------------------------------------------------
+sb="$tmp/realgc"
+mkdir -p "$sb/repo"
+out="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
+  /bin/bash "$RESOLVER" guard-catalog 2>/dev/null)"
+assert "real guard-catalog: exit 0" 0 $?
+assert_contains "real guard-catalog: instruction-hygiene entry present" \
+  "id: instruction-hygiene" "$out"
+
+# ---------------------------------------------------------------------------
 # 12. fast-path is byte-identical to the core seed (REQ-B1.2): with only the
 #     core layer present, yaml mode emits the seed verbatim — comments and
 #     blank lines preserved, NOT reflowed through the awk merge path.

@@ -90,8 +90,8 @@ description = "observation fragment store guard: filename grammar, one-entry sha
 run = "/bin/bash scripts/check-obs.sh"
 
 [tasks."check:instructions"]
-description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement (prompt-hygiene Task 2)"
-run = "/bin/bash scripts/check-instructions.sh"
+description = "instruction-hygiene size guard: per-file / start-load / closure word budgets, manifest resolution, injected-context measurement, and the Task-8 closeout direction (no lingering pending-diet allowance) (prompt-hygiene Task 2, REQ-D1.4)"
+run = "/bin/bash scripts/check-instructions.sh --closeout"
 
 [tasks."check:no-ci-evals"]
 description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"

@@ -249,3 +249,41 @@ start-load rows on the shortlist). No gating law was deferred: every
 reclassified doc's action-gating rules were already inline at their steps,
 and the safety floor's test (could the skill act against the rule before
 reading it?) fails for none of the six moves.
+
+## Closeout audit (Task 8, 2026-07-15)
+
+The recorded artifact for **REQ-D1.4** (`[manual]`): the closing
+`scripts/check-instructions.sh --audit --closeout` re-run after every diet
+landed. Regenerate with that command. Two closeout guarantees hold:
+
+1. **Every skill is under the mandatory-at-start error threshold (10,000).** The
+   highest start-load is `self-review` at 9,994 (WARN, 6 words of headroom),
+   then `spec-kickoff` 9,851, `spec-draft` 9,685, `polish` 9,591, `execute-task`
+   9,108, `builder` 8,153 — all WARN, none ERROR. No skill trips the closure
+   error threshold (20,000) either: the highest closure is `orchestrate` 19,440
+   (WARN). The guard exits 0.
+2. **The suppression list carries only the permanent `spec-format.md` exemption.**
+   The offender shortlist is a single row — `doctrine/spec-format.md
+   (4568 words >= 4000 per-file budget) [exempt]` — and no transitional
+   `pending-diet` allowance remains (per-file, start-load, or closure). The
+   `--closeout` direction (REQ-D1.4) is now wired into `mise run check` via the
+   `check:instructions` task, so a future lingering allowance fails CI.
+
+Per-skill start-load / closure at closeout:
+
+| Skill | Start-load | (state) | Closure | (state) |
+| --- | --- | --- | --- | --- |
+| builder | 8,153 | WARN | 12,216 | ok |
+| drain | 2,716 | ok | 2,716 | ok |
+| execute-task | 9,108 | WARN | 17,445 | WARN |
+| orchestrate | 4,471 | ok | 19,440 | WARN |
+| polish | 9,591 | WARN | 9,591 | ok |
+| resume | 6,096 | ok | 6,096 | ok |
+| self-review | 9,994 | WARN | 9,994 | ok |
+| spec-draft | 9,685 | WARN | 14,744 | ok |
+| spec-kickoff | 9,851 | WARN | 14,626 | ok |
+| spec-walkthrough | 6,461 | ok | 6,461 | ok |
+
+Thresholds: start-load warn 8,000 / error 10,000; closure warn 15,000 /
+error 20,000. `self-review`'s 6-word margin against the start-load error floor
+is noted as an observation (a small future edit could flip it to an error).

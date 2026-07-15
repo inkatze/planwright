@@ -467,6 +467,80 @@ sl="${aud##*Offender shortlist}"
 assert_contains "shortlist names the closure offender" "closure wide" "$sl"
 
 ########################################################################
+# 7e. Closeout mode (REQ-D1.4, Task 8): `--closeout` forbids ANY lingering
+#     transitional `pending-diet` allowance (per-file, start-load, or closure).
+#     A start-load or closure offender can only be carried by such an allowance
+#     (REQ-B1.3b), so this catches a lingering start-load/closure offender, not
+#     just per-file ones. Permanent exemptions (REQ-B1.3a) are unaffected. The
+#     default mode still honors the transitional mechanism (regression: the 7pf
+#     /7c/7d cases above pass an allowance and exit 0 WITHOUT --closeout).
+########################################################################
+# per-file allowance: passes the default guard, fails under --closeout.
+t7e="$tmproot/t7e"
+scaffold "$t7e"
+make_skill "$t7e" toofat 5000
+cat >"$t7e/config/instruction-budget-exemptions.txt" <<'EOF'
+pending-diet|file|skills/toofat/SKILL.md|Task 9|dieted in Task 9
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t7e" 2>&1)"
+assert_exit "closeout: per-file allowance still passes the default guard" 0 $?
+out="$(/bin/bash "$CHECKER" --closeout --root "$t7e" 2>&1)"
+assert_exit "closeout: per-file pending-diet allowance fails --closeout" 1 $?
+assert_contains "closeout: failure names the offending target" "skills/toofat/SKILL.md" "$out"
+assert_contains "closeout: failure cites the closeout direction" "closeout" "$out"
+
+# start-load allowance: fails under --closeout.
+t7e2="$tmproot/t7e2"
+scaffold "$t7e2"
+make_doc "$t7e2" bigdoc 9999
+make_skill "$t7e2" heavy 500 "Doctrine: run-start bigdoc"
+lift_doctrine_floor "$t7e2"
+cat >"$t7e2/config/instruction-budget-exemptions.txt" <<'EOF'
+pending-diet|start-load|heavy|Task 7.5|reclassified to point-of-use in Task 7.5
+EOF
+out="$(/bin/bash "$CHECKER" --closeout --root "$t7e2" 2>&1)"
+assert_exit "closeout: start-load pending-diet allowance fails --closeout" 1 $?
+assert_contains "closeout: failure names the start-load target" "heavy" "$out"
+
+# closure allowance: fails under --closeout.
+t7e3="$tmproot/t7e3"
+scaffold "$t7e3"
+make_doc "$t7e3" rs 9000
+make_doc "$t7e3" pu 11000
+make_skill "$t7e3" wide 500 \
+  "Doctrine: run-start rs" \
+  "Doctrine: point-of-use pu (at a rare branch)"
+lift_doctrine_floor "$t7e3"
+cat >"$t7e3/config/instruction-budget-exemptions.txt" <<'EOF'
+pending-diet|closure|wide|Task 9|content diet pending
+EOF
+out="$(/bin/bash "$CHECKER" --closeout --root "$t7e3" 2>&1)"
+assert_exit "closeout: closure pending-diet allowance fails --closeout" 1 $?
+assert_contains "closeout: failure names the closure target" "wide" "$out"
+
+# a permanent exemption is NOT a pending-diet allowance: --closeout tolerates it
+# (the per-file floor stays suppressed; no closeout error on its account).
+t7e4="$tmproot/t7e4"
+scaffold "$t7e4"
+make_skill "$t7e4" kept 5000
+cat >"$t7e4/config/instruction-budget-exemptions.txt" <<'EOF'
+exempt|skills/kept/SKILL.md|standing rationale: kept large on purpose
+EOF
+out="$(/bin/bash "$CHECKER" --closeout --root "$t7e4" 2>&1)"
+assert_exit "closeout: a permanent exemption alone passes --closeout" 0 $?
+assert_absent "closeout: permanent exemption raises no closeout error" "closeout" "$out"
+
+# the real repo (post-Task-7.5, only the permanent spec-format exemption)
+# passes --closeout: the closeout direction holds on the shipped corpus.
+out="$(/bin/bash "$CHECKER" --closeout 2>&1)"
+assert_exit "closeout: the real repo passes --closeout (no lingering allowance)" 0 $?
+
+# the mise `check:instructions` task wires the guard in closeout mode so the
+# aggregate `check` permanently enforces the Task-8 closeout direction.
+assert_contains "check:instructions task runs the guard in --closeout mode" \
+  "check-instructions.sh --closeout" "$mise_txt"
+
+########################################################################
 # 8. Resolution check (REQ-B1.6): a manifest naming a nonexistent doc fails,
 #    naming the doc; point-of-use entries checked identically to run-start.
 ########################################################################

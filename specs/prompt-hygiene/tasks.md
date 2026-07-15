@@ -54,6 +54,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Dependencies:** Task 5, Task 6, Task 7, Task 7.5
 - **Citations:** D-10 · REQ-C1.5, REQ-D1.4
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-15
 
 ## In progress
 
