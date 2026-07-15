@@ -56,43 +56,7 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 
 ## In progress
 
-### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
-
-- **Deliverables:** `/orchestrate` slimmed per its Task 2 diet plan (law
-  moved to rule docs verbatim in meaning, restatements collapsed, rare
-  branches deferred to point of use, manifest updated); the post-diet eval
-  run on the Task 4 fixtures; the paired before/after comparison recorded;
-  its transitional `pending diet` allowance removed.
-- **Done when:** `/orchestrate` passes the guard with no suppression of its
-  own; the post-diet eval passes pass^3 with no regression against the
-  baseline on paired fixtures; `mise run check` green (its allowance removed;
-  the remaining offenders' transitional allowances still in place).
-- **Dependencies:** Task 2, Task 3, Task 4
-- **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
-- **Estimated effort:** 2 days
-- **Last activity:** 2026-07-14
-
-### Task 7 — Diet /spec-kickoff; spec-format disposition
-
-- **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
-  updated; exemption removed); an explicit disposition for
-  `doctrine/spec-format.md` (trim under the doctrine budget, or a
-  permanent recorded exemption citing its authorable-from-alone contract).
-  The disposition SHALL record its (limited) coupling: `spec-format.md` is the
-  dominant run-start load for `/spec-draft` and `/spec-kickoff`, but a
-  compliant trim removes only ~99 words (floor 4,000) — far short of what those
-  dependents must shed — so their start-load compliance rests on Task 7.5's
-  point-of-use reclassification **regardless** of the trim-vs-exempt choice
-  here. Task 7's disposition is therefore largely independent of Task 7.5.
-- **Done when:** `/spec-kickoff` passes the guard with no permanent exemption
-  of its own body; `spec-format.md` either passes or carries a permanent
-  reasoned exemption whose text names the start-load coupling; `mise run check`
-  green (any remaining transitional allowances still in place).
-- **Dependencies:** Task 2, Task 3
-- **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
-- **Estimated effort:** 1 day
-- **Status:** PR #166 draft
-- **Last activity:** 2026-07-14
+(none)
 
 ## Awaiting input
 
@@ -219,6 +183,23 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Status:** Completed · PR #162 merged 2026-07-13
 - **Last activity:** 2026-07-13
 
+### Task 5 — Diet /orchestrate, post-diet eval, pilot verdict
+
+- **Deliverables:** `/orchestrate` slimmed per its Task 2 diet plan (law
+  moved to rule docs verbatim in meaning, restatements collapsed, rare
+  branches deferred to point of use, manifest updated); the post-diet eval
+  run on the Task 4 fixtures; the paired before/after comparison recorded;
+  its transitional `pending diet` allowance removed.
+- **Done when:** `/orchestrate` passes the guard with no suppression of its
+  own; the post-diet eval passes pass^3 with no regression against the
+  baseline on paired fixtures; `mise run check` green (its allowance removed;
+  the remaining offenders' transitional allowances still in place).
+- **Dependencies:** Task 2, Task 3, Task 4
+- **Citations:** D-9, D-12 · REQ-D1.1, REQ-D1.2, REQ-D1.3
+- **Estimated effort:** 2 days
+- **Status:** Completed · PR #169 merged 2026-07-14
+- **Last activity:** 2026-07-14
+
 ### Task 6 — Diet /execute-task
 
 - **Deliverables:** `/execute-task` slimmed per its diet plan (same moves
@@ -232,6 +213,28 @@ Critical path: 1 → 2 → 3 → 5 → 7.5 → 8.
 - **Estimated effort:** 1 day
 - **Status:** Completed · PR #167 merged 2026-07-14
 - **Last activity:** 2026-07-14
+
+### Task 7 — Diet /spec-kickoff; spec-format disposition
+
+- **Deliverables:** `/spec-kickoff` slimmed per its diet plan (manifest
+  updated; exemption removed); an explicit disposition for
+  `doctrine/spec-format.md` (trim under the doctrine budget, or a
+  permanent recorded exemption citing its authorable-from-alone contract).
+  The disposition SHALL record its (limited) coupling: `spec-format.md` is the
+  dominant run-start load for `/spec-draft` and `/spec-kickoff`, but a
+  compliant trim removes only ~99 words (floor 4,000) — far short of what those
+  dependents must shed — so their start-load compliance rests on Task 7.5's
+  point-of-use reclassification **regardless** of the trim-vs-exempt choice
+  here. Task 7's disposition is therefore largely independent of Task 7.5.
+- **Done when:** `/spec-kickoff` passes the guard with no permanent exemption
+  of its own body; `spec-format.md` either passes or carries a permanent
+  reasoned exemption whose text names the start-load coupling; `mise run check`
+  green (any remaining transitional allowances still in place).
+- **Dependencies:** Task 2, Task 3
+- **Citations:** D-5, D-9 · REQ-D1.1, REQ-D1.2
+- **Estimated effort:** 1 day
+- **Status:** Completed · PR #166 merged 2026-07-15
+- **Last activity:** 2026-07-15
 
 ## Deferred
 
