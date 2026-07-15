@@ -222,7 +222,12 @@ parked_map=$(awk -v fv="$fv" '
     seen[$3] = 1
     print $3 "\t" classof(sec) "\t"
   }
-' "$tasks_md")
+' "$tasks_md") || {
+  # Fail closed: an unreadable parked map would silently drop an
+  # Awaiting-input park and let the bundle derive Done (REQ-B1.6's inverse).
+  echo "spec-status: could not derive the parked-state map from $tasks_md" >&2
+  exit 2
+}
 
 parked_class_of() {
   printf '%s\n' "$parked_map" | awk -F"$TAB" -v i="$1" '$1 == i { print $2; exit }'
