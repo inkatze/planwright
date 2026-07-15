@@ -468,7 +468,7 @@ write_bundle "$root/fixture" Draft
 edit "$root/fixture/requirements.md" '/^\*\*Format-version:\*\*/d'
 run_v 1 "$root/fixture"
 has "ERROR"
-has "missing Format-version"
+has "missing or empty Format-version"
 
 # Format-version mirrors are checked like Status mirrors: a sibling that
 # omits or diverges from requirements.md's declared version is flagged.
@@ -1148,6 +1148,14 @@ for ph in "Forward plan" "In progress" "Completed"; do
   lacks "ERROR"
 done
 
+# A trailing-space variant of a banned heading is still caught (a guard
+# that exact-matches would fail open on sloppy hand edits).
+write_bundle_v2 "$root/fixture" Ready
+printf '\n## In progress \n\n(none yet)\n' >>"$root/fixture/tasks.md"
+run_v 1 "$root/fixture"
+has "ERROR"
+has "placement section \"## In progress\""
+
 # --- 18. v2 banned state annotations (REQ-C1.5), per-token fixtures ---
 # Values vary per token; the finding names the token itself.
 annot_value() {
@@ -1194,6 +1202,17 @@ write_bundle_v2 "$root/fixture" Retired
 run_v 0 "$root/fixture"
 has "0 error(s), 0 warning(s)"
 
+# Terminal statuses keep the D-25 frozen-record severity for v2-invariant
+# violations: a Retired v2 bundle with a banned placement section warns
+# and does not block CI (the carried-over severity model; REQ-C1.5's
+# "non-Draft" reads as the signed-off live statuses).
+write_bundle_v2 "$root/fixture" Retired
+printf '\n## Completed\n\n(none yet)\n' >>"$root/fixture/tasks.md"
+run_v 0 "$root/fixture"
+has "WARN"
+has "placement section"
+lacks "ERROR"
+
 # An unknown status is still a hard error on v2.
 write_bundle_v2 "$root/fixture" Banana
 run_v 1 "$root/fixture"
@@ -1214,12 +1233,20 @@ run_v 1 "$root/fixture"
 has "ERROR"
 has "tasks.md: non-canonical **Execution:** pointer line"
 
-# Draft warns on the same violations.
+# Draft warns on the same violations, non-canonical included.
 write_bundle_v2 "$root/fixture" Draft
 edit "$root/fixture/requirements.md" '/^\*\*Execution:\*\*/d'
 run_v 0 "$root/fixture"
 has "WARN"
 has "missing **Execution:** pointer line"
+lacks "ERROR"
+
+write_bundle_v2 "$root/fixture" Draft
+edit "$root/fixture/tasks.md" \
+  's/^\*\*Execution:\*\* derived — see the status render$/**Execution:** derived — see docs/'
+run_v 0 "$root/fixture"
+has "WARN"
+has "non-canonical **Execution:** pointer line"
 lacks "ERROR"
 
 # --- 21. v2 reference-bullet integrity (D-3, REQ-C1.9) ---
@@ -1230,13 +1257,15 @@ run_v 1 "$root/fixture"
 has "ERROR"
 has "unknown task id 9"
 
-# Two bullets naming the same task in one section fail.
+# Two bullets naming the same task in one section fail, and the message
+# names the section once, not "X and X".
 write_bundle_v2 "$root/fixture" Ready
 park "$root/fixture" "Awaiting input" "- **Task 2** first question."
 park "$root/fixture" "Awaiting input" "- **Task 2** second question."
 run_v 1 "$root/fixture"
 has "ERROR"
 has "more than one reference bullet"
+has "twice in Awaiting input"
 
 # The same task named in two human-payload sections fails (a task is
 # parked in one section at a time).
@@ -1249,17 +1278,67 @@ has "one section at a time"
 
 # A grammar-violating reference-bullet id is rejected (REQ-C1.9).
 write_bundle_v2 "$root/fixture" Ready
-park "$root/fixture" "Awaiting input" '- **Task 2;rm -rf** hostile id.'
+park "$root/fixture" "Awaiting input" '- **Task 2;rm-rf** hostile id.'
 run_v 1 "$root/fixture"
 has "ERROR"
 has "fails the task-id grammar"
 
-# Draft warns on the same violations.
+# A plain prose bullet whose bold lead happens to start with the word
+# "Task " is NOT a reference bullet (the doctrine allows plain non-task
+# bullets in Deferred / Out of scope): inner whitespace in the bold lead
+# marks it prose, so it is not rejected as a grammar violation.
+write_bundle_v2 "$root/fixture" Ready
+park "$root/fixture" "Deferred" "- **Task force assembled.** deferred until the team exists."
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# An unterminated bold lead (no closing **) is not a reference bullet
+# either; malformed emphasis is markdown lint's beat, not the parser's.
+write_bundle_v2 "$root/fixture" Ready
+park "$root/fixture" "Awaiting input" "- **Task 2 unterminated bold"
+run_v 0 "$root/fixture"
+has "0 error(s), 0 warning(s)"
+
+# A payload-section heading with a trailing space still scopes the
+# integrity checks (exact-match section tracking would fail open).
+write_bundle_v2 "$root/fixture" Ready
+edit "$root/fixture/tasks.md" 's/^## Deferred$/## Deferred /'
+edit "$root/fixture/tasks.md" \
+  '/^## Deferred /,/^## Out of scope$/s/^(none yet)$/- **Task 9** parked under a sloppy heading./'
+run_v 1 "$root/fixture"
+has "ERROR"
+has "unknown task id 9"
+
+# Draft warns on the same violations (unknown id, duplicate,
+# cross-section, grammar).
 write_bundle_v2 "$root/fixture" Draft
 park "$root/fixture" "Awaiting input" "- **Task 9** where did this come from?"
 run_v 0 "$root/fixture"
 has "WARN"
 has "unknown task id 9"
+lacks "ERROR"
+
+write_bundle_v2 "$root/fixture" Draft
+park "$root/fixture" "Awaiting input" "- **Task 2** first question."
+park "$root/fixture" "Awaiting input" "- **Task 2** second question."
+run_v 0 "$root/fixture"
+has "WARN"
+has "more than one reference bullet"
+lacks "ERROR"
+
+write_bundle_v2 "$root/fixture" Draft
+park "$root/fixture" "Awaiting input" "- **Task 2** open question."
+park "$root/fixture" "Deferred" "- **Task 2** also deferred?"
+run_v 0 "$root/fixture"
+has "WARN"
+has "one section at a time"
+lacks "ERROR"
+
+write_bundle_v2 "$root/fixture" Draft
+park "$root/fixture" "Awaiting input" '- **Task 2;rm-rf** hostile id.'
+run_v 0 "$root/fixture"
+has "WARN"
+has "fails the task-id grammar"
 lacks "ERROR"
 
 # --- 22. Fail-closed version keying (REQ-C1.8) at every status ---
@@ -1292,6 +1371,31 @@ edit "$root/fixture/requirements.md" \
 run_v 1 "$root/fixture"
 has "ERROR"
 has "unsupported format-version"
+
+# An absent requirements.md must not skip version keying: the version is
+# derived from the first sibling mirror that declares one (same fallback
+# the Status severity derivation uses), so a v2 bundle's invariants still
+# fire — deleting the authoritative file cannot fail the v2 rules open.
+write_bundle_v2 "$root/fixture" Ready
+printf '\n## In progress\n\n(none yet)\n' >>"$root/fixture/tasks.md"
+edit "$root/fixture/tasks.md" \
+  "s/^- \\*\\*Done when:\\*\\* The gadget exists\\.\$/&\\
+- **Status:** implementing/"
+rm "$root/fixture/requirements.md"
+run_v 1 "$root/fixture"
+has "missing file: requirements.md"
+has "placement section \"## In progress\""
+has "state annotation bullet \"Status\""
+
+# With no Format-version declaration anywhere, the hard fail-closed error
+# still fires (missing requirements.md and no declaring sibling).
+write_bundle_v2 "$root/fixture" Ready
+rm "$root/fixture/requirements.md"
+for bf in design tasks test-spec; do
+  edit "$root/fixture/$bf.md" '/^\*\*Format-version:\*\*/d'
+done
+run_v 1 "$root/fixture"
+has "missing or empty Format-version"
 
 # --- 23. v2 echo discipline (REQ-C1.9): escape bytes never reach output ---
 esc=$(printf '\033')

@@ -31,8 +31,9 @@
 #   10. No placement sections: `## Forward plan`, `## In progress`, and
 #       `## Completed` do not exist (task blocks live in `## Tasks`).
 #   11. No state annotation bullets: `Status`, `Last activity`, and
-#       `Dispatch` bullets do not exist in task blocks (the five definition
-#       fields only).
+#       `Dispatch` bullets do not exist in task blocks (the three
+#       state-annotation tokens the format defines; other bullets are not
+#       this check's concern).
 #   12. Stored `Status:` restricted to the human-gated set — Draft, Ready,
 #       Retired, Superseded; Active and Done are derived, never stored.
 #   13. The static pointer line `**Execution:** derived — see the status
@@ -324,22 +325,29 @@ parse_tasks() {
 #   F <tab> gap <tab> message   — a finding (embedded values are either
 #                                 fixed vocabulary or grammar-validated ids)
 #   RB <tab> line <tab> raw-id  — a grammar-violating reference-bullet id,
-#                                 raw (tabs squashed); the caller routes it
-#                                 through sanitize_printable before echoing
+#                                 raw (whitespace-free by construction: a
+#                                 lead with inner whitespace is prose, and
+#                                 an awk record cannot hold a newline); the
+#                                 caller routes it through
+#                                 sanitize_printable before echoing
 #                                 (REQ-C1.9)
 parse_tasks_v2() {
   awk '
-    /^## / {
-      section = ""
-      in_task = 0
-      if ($0 == "## Forward plan" || $0 == "## In progress" || $0 == "## Completed") {
-        name = substr($0, 4)
-        printf "F\tgap\tplacement section \"## %s\" at tasks.md:%d does not exist in format-version 2 (task blocks live in \"## Tasks\"; execution state is derived)\n", name, NR
-      } else if ($0 == "## Awaiting input" || $0 == "## Deferred" || $0 == "## Out of scope") {
-        section = substr($0, 4)
-      }
-      next
+    # Headings are matched with trailing-whitespace tolerance: an exact
+    # `==` would let a hand-edited "## Completed " escape the placement
+    # ban (fail-open) or hide a payload section from the integrity checks.
+    # Suffixed variants ("## Completed (legacy)") stay ordinary headings:
+    # canonical heading form belongs to the ledger guard, not this parser.
+    function banned(nm, ln) {
+      printf "F\tgap\tplacement section \"## %s\" at tasks.md:%d does not exist in format-version 2 (task blocks live in \"## Tasks\"; execution state is derived)\n", nm, ln
     }
+    /^## Forward plan[ \t]*$/  { section = ""; in_task = 0; banned("Forward plan", NR); next }
+    /^## In progress[ \t]*$/   { section = ""; in_task = 0; banned("In progress", NR); next }
+    /^## Completed[ \t]*$/     { section = ""; in_task = 0; banned("Completed", NR); next }
+    /^## Awaiting input[ \t]*$/ { section = "Awaiting input"; in_task = 0; next }
+    /^## Deferred[ \t]*$/       { section = "Deferred"; in_task = 0; next }
+    /^## Out of scope[ \t]*$/   { section = "Out of scope"; in_task = 0; next }
+    /^## / { section = ""; in_task = 0; next }
     /^### Task / {
       in_task = 1
       curid = ""
@@ -354,18 +362,21 @@ parse_tasks_v2() {
       tok = substr($0, 5)
       sub(/:\*\*.*$/, "", tok)
       if (curid != "") loc = "Task " curid; else loc = "tasks.md:" NR
-      printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist in format-version 2 (task blocks carry the five definition fields only)\n", tok, loc
+      printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist in format-version 2 (the Status, Last activity, and Dispatch state annotations are derived state, never stored)\n", tok, loc
       next
     }
-    section != "" && /^- \*\*Task / {
+    # A reference bullet is a complete bold lead `**Task <token>**` whose
+    # token has no inner whitespace (task ids never do). A lead with inner
+    # whitespace ("**Task force assembled.**") is a plain prose bullet —
+    # the format allows those in Deferred / Out of scope — and an
+    # unterminated bold lead is malformed markdown, which markdown lint
+    # owns; neither is treated as (or rejected as) a reference.
+    section != "" && /^- \*\*Task [^*]*\*\*/ {
       rest = substr($0, 10)
-      if (match(rest, /^[^*]*\*\*/)) {
-        rid = substr(rest, 1, RLENGTH - 2)
-      } else {
-        rid = rest
-      }
+      match(rest, /^[^*]*\*\*/)
+      rid = substr(rest, 1, RLENGTH - 2)
+      if (rid ~ /[ \t]/) next
       if (rid !~ /^[0-9]+(\.[0-9]+)?$/) {
-        gsub(/\t/, " ", rid)
         printf "RB\t%d\t%s\n", NR, rid
       } else {
         nref++
@@ -380,9 +391,12 @@ parse_tasks_v2() {
         rid = refid[i]
         if (!(rid in ids))
           printf "F\tgap\treference bullet at tasks.md:%d names unknown task id %s (%s)\n", refnr[i], rid, refsec[i]
-        if (rid in seensec)
-          printf "F\tgap\tTask %s is named by more than one reference bullet (%s and %s; a task is parked in one section at a time)\n", rid, seensec[rid], refsec[i]
-        else
+        if (rid in seensec) {
+          if (seensec[rid] == refsec[i])
+            printf "F\tgap\tTask %s is named by more than one reference bullet (twice in %s; a task is parked in one section at a time)\n", rid, refsec[i]
+          else
+            printf "F\tgap\tTask %s is named by more than one reference bullet (%s and %s; a task is parked in one section at a time)\n", rid, seensec[rid], refsec[i]
+        } else
           seensec[rid] = refsec[i]
       }
     }
@@ -554,6 +568,14 @@ validate_bundle() {
       declared_status=$(first_header "$bdir/$bf" Status)
       [ -n "$declared_status" ] && break
     done
+    # The format-version follows the same fallback (REQ-C1.8): deleting
+    # requirements.md must not skip version keying, or a v2 bundle's
+    # invariants would silently fail open while the file is absent.
+    for bf in design.md tasks.md test-spec.md; do
+      [ -f "$bdir/$bf" ] || continue
+      fver=$(first_header "$bdir/$bf" Format-version)
+      [ -n "$fver" ] && break
+    done
   fi
 
   if [ -f "$bdir/requirements.md" ]; then
@@ -566,29 +588,7 @@ validate_bundle() {
       declared_status=Draft
     fi
 
-    # Version keying is fail-closed (REQ-C1.8, D-7): a missing or
-    # unparseable declaration is a hard error at every status — the rules
-    # to apply cannot be known without a parsed version — and neither
-    # version's extra rules run ($bundle_ver stays empty; the shared
-    # structural checks still do). An undeclared numeric version is the
-    # REQ-A1.7 unsupported error, equally hard.
     fver=$(first_header "$bdir/requirements.md" Format-version)
-    case $fver in
-      1 | 2)
-        bundle_ver=$fver
-        ;;
-      '')
-        printf 'hard\tmissing Format-version: header (fail-closed: validation rules cannot be selected without a declared version)\n' >>"$fnd"
-        ;;
-      *[!0-9]*)
-        printf 'hard\tunparseable format-version: %s (fail-closed: validation rules cannot be selected without a parsed version)\n' \
-          "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
-        ;;
-      *)
-        printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1 and 2)\n' \
-          "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
-        ;;
-    esac
 
     if [ "$declared_status" = "Superseded" ]; then
       grep -q '^\*\*Superseded-by:\*\*' "$bdir/requirements.md" \
@@ -624,6 +624,31 @@ validate_bundle() {
       fi
     done
   fi
+
+  # Version keying is fail-closed (REQ-C1.8, D-7): a missing, empty, or
+  # unparseable declaration is a hard error at every status — the rules to
+  # apply cannot be known without a parsed version — and neither version's
+  # extra rules run ($bundle_ver stays empty; the shared structural checks
+  # still do). An undeclared numeric version is the REQ-A1.7 unsupported
+  # error, equally hard. $fver comes from requirements.md (the
+  # authoritative home) or, only when that file is absent, from the first
+  # declaring sibling mirror.
+  case $fver in
+    1 | 2)
+      bundle_ver=$fver
+      ;;
+    '')
+      printf 'hard\tmissing or empty Format-version: declaration (fail-closed: validation rules cannot be selected without a declared version)\n' >>"$fnd"
+      ;;
+    *[!0-9]*)
+      printf 'hard\tunparseable format-version: %s (fail-closed: validation rules cannot be selected without a parsed version)\n' \
+        "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
+      ;;
+    *)
+      printf 'hard\tunsupported format-version: %s (this validator implements format-versions 1 and 2)\n' \
+        "$(sanitize_printable "$fver" "(unprintable)")" >>"$fnd"
+      ;;
+  esac
 
   if [ "$bundle_ver" = "2" ]; then
     # v2 stored status is restricted to the human-gated set (D-4 via
@@ -694,7 +719,7 @@ validate_bundle() {
       while IFS="$tab" read -r rtag rline rid; do
         [ "$rtag" = "RB" ] || continue
         printf 'gap\treference bullet task id at tasks.md:%s fails the task-id grammar and is rejected: %s\n' \
-          "$rline" "$(sanitize_printable "$rid" "(unprintable)")" >>"$fnd"
+          "$rline" "$(sanitize_printable "$rid" "(empty or unprintable)")" >>"$fnd"
       done <"$gtmp/tagged2"
     fi
   fi
