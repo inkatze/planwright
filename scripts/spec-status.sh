@@ -258,10 +258,18 @@ rm -f "$engine_err"
 # map, neither of which needs the remote — are reported as the only facts
 # available. No remote configured never reaches here (the engine skips the
 # probe silently in that first-class mode).
-degraded_msg=$(printf '%s\n' "$engine_out" \
-  | awk -F"$TAB" '$1 == "degraded" { print $3; exit }')
-if [ -n "$degraded_msg" ]; then
-  printf 'spec-status: transient evidence failure — %s\n' "$(sanitize_printable "$degraded_msg")"
+# Detect the record by its tag (the engine's documented consumption model:
+# "consumers switch on column 1"), never by the message text — an empty
+# message field must not fall open into a full render.
+degraded=0
+if printf '%s\n' "$engine_out" | awk -F"$TAB" '$1 == "degraded" { found = 1 } END { exit !found }'; then
+  degraded=1
+fi
+if [ "$degraded" -eq 1 ]; then
+  degraded_msg=$(printf '%s\n' "$engine_out" \
+    | awk -F"$TAB" '$1 == "degraded" { print $3; exit }')
+  printf 'spec-status: transient evidence failure — %s\n' \
+    "$(sanitize_printable "$degraded_msg" '(no diagnostic from the engine)')"
   echo 'evidence-derived status is unavailable; the facts below are locally determinable and are the only facts available:'
   printf '%s\n' "$parked_map" | while IFS="$TAB" read -r id class payload; do
     case "$id" in
