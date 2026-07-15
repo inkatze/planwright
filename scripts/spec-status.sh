@@ -116,7 +116,10 @@ esac
 # --- Format-version (REQ-C1.8): missing or unparseable fails closed. -------
 # The first header-block line wins; the value must be a known version. No
 # fallback to either version's rules on a bad value.
-fv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); print; exit }' "$tasks_md")
+# Trailing trim matters: a Markdown hard-break (two trailing spaces) or a CRLF
+# checkout would otherwise make a valid value unrecognizable — and the
+# sanitized diagnostic would misleadingly show the bare value as refused.
+fv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$tasks_md")
 case "$fv" in
   1 | 2) ;;
   '')
@@ -130,7 +133,7 @@ case "$fv" in
 esac
 
 # --- Stored status (requirements.md, the authoritative home). --------------
-stored=$(awk '/^\*\*Status:\*\*/ { sub(/^\*\*Status:\*\*[ \t]*/, ""); print; exit }' "$req_md")
+stored=$(awk '/^\*\*Status:\*\*/ { sub(/^\*\*Status:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$req_md")
 case "$stored" in
   Draft | Ready | Active | Done | Retired | Superseded) ;;
   '')

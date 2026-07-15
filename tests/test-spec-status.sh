@@ -520,6 +520,27 @@ assert_has "$out" "does not exist" "C1.9 unknown-id bullet is surfaced, not sile
 echo "ok: REQ-C1.9 grammar-violating bullet id is rejected, not used"
 
 # ---------------------------------------------------------------------------
+# 9b. Header-value robustness — a trailing Markdown hard-break (two spaces)
+#     on the Status line and a CR-terminated Format-version line (a CRLF
+#     checkout) are valid values, not parse failures.
+# ---------------------------------------------------------------------------
+repo11b="$tmp/trailing"
+spec11b="$repo11b/specs/demo"
+mkdir -p "$repo11b"
+gitc_init "$repo11b"
+write_v2_spec "$spec11b" Ready
+sed 's/^\*\*Status:\*\* Ready$/**Status:** Ready  /' "$spec11b/requirements.md" \
+  >"$spec11b/requirements.md.new" && mv "$spec11b/requirements.md.new" "$spec11b/requirements.md"
+awk '{ if ($0 == "**Format-version:** 2") print $0 "\r"; else print }' "$spec11b/tasks.md" \
+  >"$spec11b/tasks.md.new" && mv "$spec11b/tasks.md.new" "$spec11b/tasks.md"
+gitc "$repo11b" add -A
+gitc "$repo11b" commit -q -m "base"
+out=$("$RENDER" "$spec11b") || fail "header robustness: trailing whitespace/CR rejected a valid bundle"
+assert_has "$out" "stored status: Ready" "header robustness: trailing-space Status parses"
+assert_has "$out" "format-version: 2" "header robustness: CR-terminated Format-version parses"
+echo "ok: header values tolerate trailing whitespace and CR"
+
+# ---------------------------------------------------------------------------
 # 10. v1 coexistence — a v1 bundle still renders: stored Ready derives; a
 #     stored Active (v1-only value) renders as stored, never as a derived
 #     claim, with the per-task table still shown.
