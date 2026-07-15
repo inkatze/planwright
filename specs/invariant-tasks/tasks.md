@@ -92,6 +92,7 @@ the guard that protects their output exists.
 - **Citations:** D-6, D-3, D-4, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3,
   REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-15
 
 ### Task 4 — Writer version-keyed no-op and guard scope
 
