@@ -1,12 +1,14 @@
 # The Four-File Spec Format (Meta-Spec)
 
-**Format-version:** 1
+**Format-version:** 2
 
 This document is the canonical, versioned definition of the planwright spec
-format. A spec bundle declares the format-version it targets; the validator
-keys its rules off that declaration, and a future format change ships as a new
-version of this document rather than as a silent breaking change. A reader
-should be able to author a compliant bundle from this document alone.
+format: version 1 (the body of this document) and version 2 (its own
+section below, stated as deltas). A spec bundle declares the format-version
+it targets; the validator keys its rules off that declaration, and a future
+format change ships as a new version of this document rather than as a
+silent breaking change. A reader should be able to author a compliant
+bundle, at either version, from this document alone.
 
 Citations: REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6,
 REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45.
@@ -23,9 +25,9 @@ A spec is a directory `specs/<spec>/` containing exactly four authored files:
 | `test-spec.md` | How each requirement is verified: every REQ pinned to at least one verification path. |
 
 A fifth file, `kickoff-brief.md`, is added by `/spec-kickoff` at sign-off. It
-is not part of the authored bundle (it records the walkthrough of the bundle
-and therefore cannot be authored with it), but its structure is part of this
-format and is specified below.
+is not part of the authored bundle (it records the walkthrough, so it cannot
+be authored with it), but its structure is part of this format and is
+specified below.
 
 All four files open with the same header block:
 
@@ -79,7 +81,7 @@ MUST / SHALL NOT language. IDs are stable and never reused (see *Stable IDs
 and supersession*).
 
 **Superseding-REQ placement.** A REQ that supersedes another sits adjacent to
-the REQ it supersedes (for example REQ-B2.4 directly after REQ-B2.1), marked
+the REQ it supersedes, marked
 `(supersedes REQ-<old>)` in its body, with the old REQ marked
 `**Superseded-by: REQ-<new>** (<date>)`. Adjacency keeps the lineage readable
 without renumbering.
@@ -181,11 +183,9 @@ state machine.
 
 **No hand-drawn dependency graph.** Each task block's `Dependencies:` field is
 the sole source of truth for the task graph; intro prose does not embed a
-hand-drawn or ASCII rendering of it. A drawn graph is derived content that
-drifts from the `Dependencies:` lines the moment a block is added or an edge
-changes (observed on first authoring). When a reader wants the graph, the
-on-demand `scripts/spec-graph.sh` view renders it from the `Dependencies:`
-lines, so no committed copy has to be kept fresh.
+drawn rendering of it, which drifts the moment a block is added or an edge
+changes. The on-demand `scripts/spec-graph.sh` view renders the graph from
+the `Dependencies:` lines, so no committed copy has to be kept fresh.
 
 **Task block format.** A task is an H3 block carrying five definition fields:
 
@@ -222,27 +222,25 @@ and are excluded from the content anchor:
   vocabulary never affects the anchor; exact values are the dispatch and
   sync-hook tooling's concern.
 - `- **Last activity:** <YYYY-MM-DD>`
-- `- **Dispatch:**` — dispatch metadata, recorded by `/orchestrate` when a
-  unit is dispatched (REQ-F1.1), in the form
+- `- **Dispatch:**` — dispatch metadata, in the form
   `backend=<subagents|tmux|print|in-session> · <handle> · dispatched
   <ISO-8601 UTC> · branch <branch> · worktree <path>`, where `<handle>` is
   the backend's worker handle (`window=<name>` for tmux, an agent id for
   subagents; omitted for print, which has no process until the human launches
-  one).
+  one). No live writer records it (a dispatch is the task branch plus the
+  timestamped runtime marker, never a `tasks.md` write); the form stays
+  defined so historical blocks parse.
 
 **The completion annotation is normative.** The
-`Completed · PR #<n> merged <YYYY-MM-DD>` value in the `Status:` list above is
-the one **normative** entry in that otherwise-illustrative set. It is the
-canonical completion annotation, stamped by the level-triggered reconcile in
-the same write that places a block in `## Completed` from merged-PR evidence —
-the named refresh owner, so completion text is regenerated, never hand-copied.
-With no remote configured it degrades to exactly one of two pinned outputs: the
-date-only form `Completed · merged <YYYY-MM-DD>` (from branch evidence), or the
-annotation left unstamped when even the date is unknown. Never an invented PR
-number, and never a third free-form variant — the two degradation outputs are
-exactly these, so the two-coexisting-styles drift cannot reappear. (Free-form
-phase vocabulary elsewhere in the `Status:` list stays illustrative; only the
-completion annotation is pinned.)
+`Completed · PR #<n> merged <YYYY-MM-DD>` value is the one **normative** entry
+in the otherwise-illustrative `Status:` list: the canonical completion
+annotation, stamped by the level-triggered reconcile in the same write that
+places a block in `## Completed` from merged-PR evidence — regenerated, never
+hand-copied. With no remote configured it degrades to exactly one of two
+pinned outputs: the date-only `Completed · merged <YYYY-MM-DD>` (from branch
+evidence), or left unstamped when even the date is unknown — never an invented
+PR number, never a third free-form variant. (Other phase vocabulary stays
+illustrative; only the completion annotation is pinned.)
 
 **Deferred entries.** A deferral is a bullet (not a task block) carrying a
 bolded title, the rationale, a structured gate, a confidence level where the
@@ -313,6 +311,70 @@ gate evaluator continues sweeping gates in Done specs. **Reopen cycle:**
 extending a Done bundle flips Done→Draft; scoped kickoff of the delta flips
 back to Ready. Retired and Superseded are human-set terminal states; no
 skill-driven transition out of a terminal state is accepted.
+
+## Format-version 2 — the invariant ledger
+
+Format-version 2 stores only what cannot be derived (invariant-tasks
+D-2–D-5, D-11 · REQ-A1.1–A1.4, REQ-C1.9, REQ-E1.1). A bundle opts in by
+declaring `**Format-version:** 2`; v1 bundles stay valid indefinitely.
+Everything version 1 defines carries over unchanged except these deltas.
+
+**Header block (all four files, mirrored).** The stored `Status:` set is
+restricted to the human-gated states — Draft, Ready, Retired, Superseded
+(with its `Superseded-by:` line) — and this exact line follows
+`Format-version:`:
+
+```markdown
+**Execution:** derived — see the status render
+```
+
+Fixed vocabulary, never per-bundle prose: it points the reader at the
+render. Active and Done are derived on demand, never stored, and only for
+stored-Ready bundles (Draft, Retired, and Superseded render their stored
+state, no execution claim): a bundle is **Active** iff any task derives
+In-progress, or Completed with work remaining; **Done** when every task in
+the Done universe derives Completed and no live Awaiting-input bullet
+remains — Deferred- and Out-of-scope-parked tasks are excluded from the
+Done universe rather than blocking it, and a zero-task bundle never derives
+Done. The reopen cycle is Ready→Draft.
+
+**`tasks.md`.** After the header block and optional intro prose, exactly
+four H2 sections: `## Tasks` (all task blocks, in dependency order, never
+moving), `## Awaiting input`, `## Deferred`, and `## Out of scope`
+(`(none yet)` when empty). The placement sections (`## Forward plan`,
+`## In progress`, `## Completed`) and the state annotation bullets
+(`Status`, `Last activity`, `Dispatch`) do not exist: a task block carries
+its five definition fields and nothing else. A block is edited only for
+definition changes via the amendment ritual; derived execution-state
+changes never produce commits. Parking and unparking writes (by the human
+or a halting skill) are human-owned payload, not execution state.
+
+**Reference bullets.** Parking writes a bullet whose bolded lead is exactly
+`**Task <id>**` (task-id grammar, naming an existing block); the block
+stays in `## Tasks`; unparking removes the bullet. The free text is the
+payload: the blocking question (Awaiting input), the version 1 deferral
+fields (Deferred), or the exclusion rationale (Out of scope).
+`## Awaiting input` holds reference bullets only; the other two sections
+may also hold plain non-task bullets as in version 1, which never count in
+the derivation. Every reference bullet names an existing task id; at most
+one per task across the three sections. A live bullet on the derivation's
+read surface (the primary checkout's main view) outranks git evidence; a
+bullet only on an unmerged branch takes effect when it lands. Bullet
+free text is committed, remotely visible content: no secrets, credentials,
+internal hostnames, or sensitive operational detail.
+
+**Read surface and anchor.** The status render (the derivation engine
+surfaced as a command) is the canonical execution-status read surface; no
+derived-status artifact is committed or remote-mirrored. The normative
+completion annotation has no v2 home (the 2026-07-10 entry below is scoped
+to version 1; D-11). Anchor mechanics are unchanged — the canonical
+extraction selects `### Task` blocks wherever they sit — and with no
+derived writes, no orchestration or execution act moves the anchor.
+
+**Validation.** The validator enforces these invariants as errors on
+non-Draft v2 bundles and warnings on Draft; a missing or unparseable
+`Format-version:` errors at every status, and every version-keyed script
+fails closed on it, never falling open to the v1 write path.
 
 ## Stable IDs and supersession
 
@@ -385,12 +447,9 @@ re-reading the spec. Required structure:
 **Cite derived figures; do not copy them.** Where a brief section reports a
 figure derived from the bundle — a task count, a REQ tally, a field or ID
 list, the parallelism and critical-path summary of section 6 — it cites the
-source file or section it is derived from rather than transcribing the value. A
-copied tally drifts from its source the moment the bundle changes (observed
-across three brief sections); citing the source keeps the brief and the bundle
-in agreement. A recompute checker for these figures is deferred as
-disproportionate — the convention removes the copied figure rather than
-validating it.
+source file or section it is derived from rather than transcribing the value.
+A copied tally drifts from its source the moment the bundle changes; citing
+the source keeps the brief and the bundle in agreement.
 
 ## Sign-off records and content anchors
 
@@ -599,13 +658,22 @@ the declared format-version:
 
 ## Versioning of this meta-spec
 
-This document is format-version 1. Changes to the format bump the version;
-bundles keep working under the version they declare, and the validator
-applies the rules for the declared version. A bundle migrates by updating
-its `Format-version:` line and conforming to the new version's rules.
+This document is format-version 2 and defines versions 1 and 2. Changes to
+the format bump the version; bundles keep working under the version they
+declare, and the validator applies the rules for the declared version. A
+bundle migrates by updating its `Format-version:` line and conforming to
+the new version's rules.
 
-Guidance refinements that do not change the format's rules are recorded here
-without a version bump — a bundle authored to version 1 stays conformant:
+- 2026-07-14 — **Format-version 2**: the invariant ledger (invariant-tasks
+  D-1, D-2), defined in *Format-version 2 — the invariant ledger*; version 1
+  rules are retained above, unchanged in meaning. This entry scopes the
+  2026-07-10 completion-annotation promotion below to version 1 bundles
+  (invariant-tasks D-11): under version 2, completion is derived render
+  content.
+
+Guidance refinements that do not change a format version's rules are
+recorded here without a version bump — a bundle authored to the affected
+version stays conformant:
 
 - 2026-07-10 — Derived-content authoring guidance. The `tasks.md` guidance no
   longer suggests a hand-drawn dependency graph in intro prose (`Dependencies:`
@@ -615,3 +683,4 @@ without a version bump — a bundle authored to version 1 stays conformant:
   `Completed · PR #<n> merged <YYYY-MM-DD>` completion annotation is promoted
   from illustrative to normative, with its single degraded form
   `Completed · merged <YYYY-MM-DD>` and the unstamped fallback pinned.
+  *(Scoped to format-version 1 bundles by the 2026-07-14 entry.)*
