@@ -696,4 +696,79 @@ rec TASKDEP 6 5
 [ "$(count_tag TASKDEP)" -eq 6 ] \
   || fail "expected 6 TASKDEP edges, got $(count_tag TASKDEP) (phantom or dropped edge?)"
 
+# ---------------------------------------------------------------------------
+# 11. Format-version 2 shape tolerance (invariant-tasks Task 4; REQ-C1.1
+#     sweep). The v2 tasks.md keeps every block in a single ## Tasks section
+#     with no state annotations; the model's task parser is section-agnostic
+#     (the H2 label is carried as data, never matched against the v1 set), so
+#     the v2 shape must round-trip: TASK records carrying the "Tasks" section
+#     label, the definition TASKFIELDs, and the dependency/citation edges. A
+#     reference bullet in a human-payload section is not a task block and must
+#     not mint a phantom record.
+# ---------------------------------------------------------------------------
+v2=$tmp/v2shape/specs/demo
+mkdir -p "$v2"
+cat >"$v2/requirements.md" <<'EOF'
+# V2 — Requirements
+
+**Status:** Ready
+**Last reviewed:** 2026-07-15
+**Format-version:** 2
+**Execution:** derived — see the status render
+
+## REQ-A — group
+
+- **REQ-A1.1** The system SHALL work.
+  *(Cites: D-1.)*
+EOF
+cat >"$v2/tasks.md" <<'EOF'
+# V2 — Tasks
+
+**Status:** Ready
+**Last reviewed:** 2026-07-15
+**Format-version:** 2
+**Execution:** derived — see the status render
+
+## Tasks
+
+### Task 1 — first
+
+- **Deliverables:** the first thing.
+- **Done when:** it exists.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-A1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — second
+
+- **Deliverables:** the second thing.
+- **Done when:** it renders.
+- **Dependencies:** 1
+- **Citations:** D-1
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+- **Task 2** — parked on a fixture question.
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+run_m 0 "$v2"
+rec TASK 1 Tasks first
+rec TASK 2 Tasks second
+rec TASKDEP 2 1
+rec TASKFIELD 1 deliverables "the first thing."
+rec TASKFIELD 2 donewhen "it renders."
+rec TASKCITE 1 D-1
+rec TASKCITE 1 REQ-A1.1
+[ "$(count_tag TASK)" -eq 2 ] \
+  || fail "v2 shape: expected exactly 2 TASK records, got $(count_tag TASK) (reference bullet minted a phantom task?)"
+echo "ok: v2 tasks.md shape round-trips (TASK/TASKDEP/TASKFIELD under ## Tasks; bullets are not tasks)"
+
 echo "PASS: test-spec-model.sh"
