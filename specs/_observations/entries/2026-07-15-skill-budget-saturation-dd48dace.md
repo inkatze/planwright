@@ -1,0 +1,1 @@
+- 2026-07-15 [planwright] The four big skills sit within ~5 words of the instruction_budget_skill_error (4250) and orchestrate within ~15 words of the 20000 closure error; every future edit must trim to add. Task 7 paid for v2 reconciliation prose by trimming unpinned rationale. Consider a diet pass or raised budgets before the next skill-prose feature.
