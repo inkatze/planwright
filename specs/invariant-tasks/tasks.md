@@ -139,6 +139,7 @@ the guard that protects their output exists.
 - **Dependencies:** 1, 4
 - **Citations:** D-11, D-7 · REQ-E1.3, REQ-C1.7
 - **Estimated effort:** half day
+- **Last activity:** 2026-07-15
 
 ## In progress
 
