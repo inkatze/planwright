@@ -234,11 +234,12 @@ Operates on the existing bundle per the meta-spec's stable-ID discipline:
   `tasks.md`** (new task blocks per the declared version above, dependency
   lines updated); **append a dated Changelog entry** describing the
   extension.
-- **Reopen cycle (REQ-A3.1):** extending a Done bundle flips its Status
-  Done→Draft (all four headers); the scoped kickoff of the delta flips it
-  back to Ready, and the delta's first dispatch derives Active (a v2 bundle
-  never stores Active or Done — both are derived). Extending an Active
-  bundle leaves its stored status untouched — the delta is Draft
+- **Reopen cycle (REQ-A3.1):** extending a Done bundle flips its stored
+  Status to Draft on all four headers — a v1 bundle stores Done, so the
+  write is Done→Draft; a v2 bundle derives Done over a stored Ready, so
+  the write is Ready→Draft — and the scoped kickoff of the delta flips it
+  back to Ready, the delta's first dispatch deriving Active. Extending an
+  Active bundle leaves its stored status untouched — the delta is Draft
   content inside it, and `/spec-kickoff`'s delta re-walkthrough
   is the sign-off path; say so in the handoff. Retired and Superseded are
   terminal: refuse, suggesting a new bundle citing the old as a Source.

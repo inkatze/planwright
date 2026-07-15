@@ -106,6 +106,14 @@ else
   fail "spec-draft: v1 extend Forward-plan convention missing (REQ-E1.2: v1 behavior must be unchanged)"
 fi
 
+if printf '%s' "$sd" | grep -qE 'flips its Status Done→Draft'; then
+  fail "spec-draft: reopen cycle states an unkeyed v1 'Done→Draft' flip (v2 stores Ready; the write is Ready→Draft)"
+elif printf '%s' "$sd" | grep -qE 'the write is Ready→Draft'; then
+  ok "spec-draft: reopen cycle version-keys the flip source (v2 Ready→Draft)"
+else
+  fail "spec-draft: reopen cycle does not state the v2 Ready→Draft flip source"
+fi
+
 # --- /spec-draft: the documented skeleton validates as v2 (REQ-E1.2) ---
 # Materialize a minimal bundle exactly as the skill's skeleton describes —
 # the shared v2 header block (Status Draft, Format-version 2, pointer line)
