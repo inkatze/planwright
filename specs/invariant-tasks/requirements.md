@@ -256,6 +256,20 @@ meta-spec), per the altitude trigger the drafting invocation fired.
 
 ## Changelog
 
+- 2026-07-15 — Completion-annotation supersession recorded (Task 8, D-11,
+  REQ-C1.7). The normative completion annotation
+  `Completed · PR #<n> merged <YYYY-MM-DD>` — stamped into the committed
+  `tasks.md` by the level-triggered reconcile — does not apply to
+  format-version 2 bundles: a v2 bundle commits no derived execution state,
+  and completion is derived render content produced by the derivation engine
+  at read time. The annotation has two normative homes, both scoped to v1 by
+  this supersession: output-hygiene's `REQ-E1.2` contract
+  (`specs/output-hygiene/requirements.md`, the origin), and the meta-spec's
+  own 2026-07-10 versioning entry in `doctrine/spec-format.md` (which promoted
+  the annotation to normative there too). Neither text is retroactively
+  edited; the supersession is recorded via the ritual — D-11 plus this dated
+  entry — and both homes remain normative for v1 bundles. Task 1's v2
+  definition carries the v1-scoping of the `spec-format.md` entry.
 - 2026-07-14 — Panel delta (gauntlet pass 2, gemini backend; brief
   Amendment 2; all five findings human-approved). Reference-bullet
   cross-section exclusivity (REQ-C1.5, D-3, test-spec C1.5); the

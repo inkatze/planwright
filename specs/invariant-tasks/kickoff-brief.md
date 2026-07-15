@@ -428,3 +428,33 @@ orchestrate-state-move re-anchor precedent in
 Class: expression-only
 Anchor: `11e588133154cce23c3132126156f8c8ab15ecbf` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
+
+### Amendment 4 — expression-only self-re-anchor (2026-07-15, Task 8 completion-annotation supersession)
+
+Machine-written entry per REQ-F1.10's expression-only lane (the one anchor
+entry an execution skill may write).
+
+**Trigger:** Task 8 (docs, config, and supersessions) recorded the D-11
+completion-annotation supersession as the dated 2026-07-15 `## Changelog`
+entry in `requirements.md` (citing D-11, REQ-C1.7). Recording it is a
+gap-fill consistent with the accepted decisions — D-11 was signed off at
+kickoff and REQ-C1.7 mandates recording the supersession via the ritual
+(D-ID plus dated changelog entry) — so it is expression-only per REQ-A3.3:
+no requirement, design decision, task definition, or test semantics changed,
+only the changelog gained the supersession record the ritual requires.
+
+**Why the anchor moved:** the changelog entry adds content to
+`requirements.md`, which `scripts/spec-anchor.sh` hashes whole; `design.md`,
+`test-spec.md`, and the canonical `tasks.md` definition content are unchanged
+(Task 8's Last-activity annotation is anchor-excluded). Verified by
+isolation: immediately before this changelog edit the tree recomputed to
+Amendment 3's `11e58813…` (the Task 8 Last-activity stamp left it unchanged,
+as designed), and adding only the changelog entry yields `0091eb69…`.
+
+**Cites the changelog line:** the 2026-07-15 `## Changelog` entry in
+`requirements.md` ("Completion-annotation supersession recorded (Task 8,
+D-11, REQ-C1.7)").
+
+Class: expression-only
+Anchor: `0091eb6937059dc3f901a6d94adb58a7c1e8287e` — computed as
+`scripts/spec-anchor.sh specs/invariant-tasks`
