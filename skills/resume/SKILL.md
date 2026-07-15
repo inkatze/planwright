@@ -75,7 +75,12 @@ on and try to resolve `<spec>` only when it is unambiguous — a single spec
 bundle under `specs/` (a direct child whose name passes the REQ-A1.8 charset;
 the reserved underscore-prefixed accumulators `_pending/` and `_observations/`
 are not bundles and are skipped), or a single bundle whose `requirements.md`
-carries the literal `**Status:** Active` marker and that has a kickoff brief.
+carries the literal `**Status:** Active` marker and that has a kickoff brief
+(a format-version 2 bundle never stores `Active` — its header rests at
+`Ready` while work is in flight — so a stored `**Status:** Ready` with a
+kickoff brief counts the same way there, but only when the render reports
+work in flight: a freshly signed-off, undispatched v2 bundle is not an
+in-flight unit).
 Both arms consider only directory names that pass REQ-A1.8 (an Active bundle
 has already passed validation, so its name conforms). If that inference is
 unambiguous, continue with the resolved `<spec>`. If it is not — zero
@@ -98,14 +103,32 @@ useful spec-less partial load.
 
 ### 4. Load tasks.md state
 
-If a `<spec>` was resolved, read `specs/<spec>/tasks.md`. Surface the
-in-flight unit's block — and when the branch encodes a cohesion bundle
-(`task-<id-or-ids>`, e.g. `task-3-4`), every task block the bundle covers,
-not just one — including each block's section (In progress / Awaiting input /
-etc.), its `Status:` and `Last activity:` annotations, `Done when:`, and
-`Dependencies:`, and note whether each dependency sits in `Completed`. This
-is the canonical orchestration state record; report it as found, without
-editing it. With no resolved `<spec>`, skip this step.
+If a `<spec>` was resolved, read `specs/<spec>/tasks.md`, keying the read
+off the bundle's declared `Format-version:` (invariant-tasks D-7):
+
+- **Format-version 1:** surface the in-flight unit's block — and when the
+  branch encodes a cohesion bundle (`task-<id-or-ids>`, e.g. `task-3-4`),
+  every task block the bundle covers, not just one — including each block's
+  section (In progress / Awaiting input / etc.), its `Status:` and
+  `Last activity:` annotations, `Done when:`, and `Dependencies:`, and note
+  whether each dependency sits in `Completed`.
+- **Format-version 2:** the committed file holds definitions plus
+  human-authored payload only — no placement sections and no state
+  annotations exist. Surface the unit's block (`Done when:`,
+  `Dependencies:`) from `## Tasks`, note any reference bullet naming the
+  task in `## Awaiting input`, `## Deferred`, or `## Out of scope` (a parked
+  task), and read execution status — the unit's phase, each dependency's
+  completion, the bundle's derived Active/Done — through the render, the
+  canonical human-facing read surface (`mise run status specs/<spec>`,
+  i.e. `scripts/spec-status.sh`; invariant-tasks D-6). A render failure
+  degrades to reporting the definition and bullet state with a clear note.
+- **Missing or unparseable `Format-version:`:** neither arm applies —
+  surface it and report definitions and bullets as found, assuming
+  neither version's semantics (D-7's fail-closed direction; this loader
+  writes nothing regardless).
+
+This is the canonical orchestration state record; report it as found,
+without editing it. With no resolved `<spec>`, skip this step.
 
 ### 5. Load the git log
 

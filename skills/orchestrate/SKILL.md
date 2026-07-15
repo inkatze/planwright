@@ -24,9 +24,9 @@ projection** (D-1) rebuilt from durable evidence (git branches and
 `Planwright-Task` trailers, runtime markers, `gh`, the process/window list);
 the committed `tasks.md` sections are a discardable snapshot the reconcile
 sweep rebuilds. The tower is **disposable** (D-38): no in-memory state beyond
-the current step, so it survives kills, runs headless under cron, and runs
-concurrently against the same spec (serialized only during the dispatch-record
-write by the per-spec lock, D-10).
+the current step — surviving kills, headless cron runs, and concurrent
+towers on one spec (the per-spec lock serializes only the
+dispatch-record write, D-10).
 
 `/orchestrate` **never** merges or marks a PR ready (sign-off and merge are
 the human's two reserved controls, REQ-J1.1), **never** auto-chains into
@@ -72,8 +72,8 @@ Selected from `$ARGUMENTS` at pre-flight:
   PRs, evaluate open gates (no auto-drop), surface observation staleness,
   report any pending release. Dispatches nothing. See its section below.
 - **`--meta`.** The **meta-tower** ("tower of towers", D-6): supervise several
-  Ready/Active specs at once, advancing one unit across the fleet per step
-  under a fleet-level concurrency bound, by launching subordinate single-spec
+  Ready/Active specs, advancing one unit across the fleet per step
+  under a fleet-level bound, via subordinate single-spec
   towers. Composes with `--watch` and the backend/`--unattended` flags. Read
   `orchestration-modes` when this arm is taken.
 - **`--fleet`.** The **one obvious entry command** for fleet operation (D-9,
@@ -131,26 +131,27 @@ report them together (D-45).
    prompt `/spec-kickoff`.
 7. **Run the reconcile sweep** (REQ-F1.1). Before selecting new work, rebuild
    the picture from disk and reconcile stale In-progress entries — see the
-   **Reconcile sweep** section. This recovers from a killed tower and is why a
+   **Reconcile sweep** section. This recovers from a killed tower; a
    crashed step loses nothing.
 
 ## Selection (REQ-F1.2)
 
 Pick the next ready unit with `scripts/orchestrate-select.sh specs/<spec>`. It
 implements the critical-path-first rule deterministically: a **ready** task is
-one in `## Forward plan` that the live derivation reports neither completed
-nor in-progress, and whose every dependency the derivation reports completed
-(a task parked in Awaiting input, Deferred, or Out of scope is never a
-candidate); among ready tasks it returns the head of the effort-weighted
-longest dependent chain, FIFO on ties.
+one the live derivation reports neither completed nor in-progress, whose every
+dependency the derivation reports completed, and that is not parked — on a v1
+bundle a candidate sits in `## Forward plan`; on a format-version 2 bundle no
+placement sections exist, and parked-ness is a live reference bullet naming
+the task in `## Awaiting input`, `## Deferred`, or `## Out of scope`
+(invariant-tasks D-8) — among ready tasks it returns the head of the
+effort-weighted longest dependent chain, FIFO on ties.
 
 Completed / in-progress state is read from the **live derivation**
 (`scripts/orchestrate-state.sh`: git + trailer + marker + gh evidence), not
 from the committed `tasks.md` snapshot (D-3, REQ-B1.2) — so a task already
-in-flight or completed by evidence the snapshot has not caught up to is never
-re-dispatched, closing the double-dispatch race. The dependency graph is still
-parsed from `tasks.md`; the per-block Status annotation is advisory and not
-consulted.
+in-flight or completed by evidence is never re-dispatched, closing the
+double-dispatch race. The dependency graph is still parsed from `tasks.md`;
+the per-block Status annotation is advisory and not consulted.
 
 - Exit 0 with an id → that is the unit (subject to bundling below).
 - Exit 1 (no ready unit) → nothing to dispatch this step. In `--watch`, stop
@@ -160,7 +161,7 @@ consulted.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* but carry no dependency
-edge from them (the 2026-06-11 field-trial miss). When the spec's prose or a
+edge from them. When the spec's prose or a
 task's `Done when:` marks a unit as guard/CI infrastructure that everything
 else should merge under, prefer it over the raw critical-path head and say so
 in the step report. This is a judgment overlay on the script's ordering, not a
@@ -172,8 +173,8 @@ one coherent, revertable, single-purpose deliverable (same module/concern,
 shared dependencies). Combined size is a guardrail against bloat, not the
 primary signal. Non-cohesive ready tasks ship as separate units/PRs. A bundle
 takes a single `planwright/<spec>/task-<id>-<id>` branch (D-36). Bundling,
-dispatch ceremony, and reconcile caution scale with stake and reversibility
-per `proportionality` (run-start); scoping is declared, never silent.
+dispatch ceremony, and reconcile caution scale per `proportionality`
+(run-start); scoping is declared, never silent.
 
 ## The dispatch record (the locked window) — REQ-A1.1, REQ-F1.9, D-1, D-10
 
@@ -231,14 +232,13 @@ Step 3 creates the branch through the unit's worktree, made with Claude Code's
 worktree isolation) — planwright **never** shells out to `git worktree`.
 Placement is always `<repo>/.claude/worktrees/<branch-suffix>`, so the
 worktree is attachable via `claude --worktree <name>` regardless of which
-backend launches the work; the placement convention is the contract, the
-launch mechanism incidental. Reuse the current worktree when it is clean,
+backend launches the work. Reuse the current worktree when it is clean,
 after a one-line confirm (**attended only**; unattended mode always creates a
 fresh worktree). Print the re-open command after create-or-reuse.
 
-**Dispatch-time environment hardening** (2026-06-12 field trial): when the
+**Dispatch-time environment hardening**: when the
 backend spawns a process, launch it through the umask-pinning wrapper,
-pre-trust the worktree's config paths (no per-worktree `mise trust`), and
+pre-trust the worktree's config paths, and
 verify the SSH-agent indirection is alive before the worker's signed commits.
 
 ## Dispatch (REQ-F1.8, D-38)
@@ -247,8 +247,8 @@ Dispatch the unit's `/execute-task <ids>` into its worktree via the selected
 backend. Each backend advertises a capability set; the
 [backend capability contract](../../doctrine/backend-capability-contract.md)
 (D-2) defines how the tower adapts to what is advertised rather than to the
-backend's name (the per-backend guidance below is the current, still
-name-keyed dispatch, pending that wiring).
+backend's name (the per-backend guidance below is still name-keyed, pending
+that wiring).
 
 **Backend selection** (REQ-B1.4, D-3). Never silently pick a backend. Resolve
 in this order:
@@ -258,8 +258,7 @@ in this order:
 - **Attended, no flag** — autodetect what is present and advertised, then
   **present and ask** — never auto-select (REQ-B1.4):
   `scripts/orchestrate-backends.sh detect | scripts/orchestrate-backends.sh
-  present` (D-9, D-12: the pick chooses only the execution seam; the decision
-  queue is the default attention surface for every pick). A pluggable
+  present` (D-9, D-12). A pluggable
   backend joins the presented set as a trailing `planwright-backend-<name>`
   argument to `detect`.
 - **Unattended (`--unattended` / headless)** — no one to ask: run
@@ -269,9 +268,9 @@ in this order:
   else **degrades** down the ladder (to `subagent`, then the always-present
   `in-session` terminal rung), **never** to an interactive backend and never
   to the manual `print` rung. A degrade is a designed selection-time behavior
-  — it emits a `NOTE:` on stderr; log it — not a halt. Selection-time descent
-  is the *choosing* end of the degradation ladder; **runtime failover** (a
-  chosen backend dying mid-run) is the other end — read `orchestration-modes`
+  — it emits a `NOTE:` on stderr; log it — not a halt. **Runtime failover** (a
+  chosen backend dying mid-run) is the ladder's other end — read
+  `orchestration-modes`
   when either branch is taken. A failover descends only to a guard-preserving
   rung (non-interactive, never the manual `print` rung — degrade capability,
   never safety) and otherwise **escalates** rather than descending.
@@ -284,9 +283,9 @@ Division of labor (D-7, `inter-orchestrator-coordination`, read when relaying
 to or cleaning up after a worker): **the tower owns** the dispatch record,
 dispatch, and merged-window cleanup; **the worker owns** its branch's commits
 and conflict resolution. No tower edits another tower's or a worker's branch
-state directly (committing, resetting, force-pushing, amending); coordination
-happens through the sanctioned indirect channels (reconciling `tasks.md`
-placement, or a clearly-attributed relay to the branch's owner). The tower
+state directly; coordination
+happens through the sanctioned indirect channels (a `tasks.md` reconcile, or
+an attributed relay to the branch's owner). The tower
 never answers a worker's permission prompts and never types into a worker's
 input line.
 
@@ -299,8 +298,8 @@ input line.
   never edits settings.json, REQ-I1.2).
 - **tmux** (opt-in). An interactive worker in a named window via
   `claude --worktree`. Detect stuck/finished/errored workers with
-  **capture-pane only** — **never** send-keys impersonation (an unauthorized
-  screen-scrape with no audit trail). Relay attributed messages via tmux
+  **capture-pane only** — **never** send-keys impersonation. Relay
+  attributed messages via tmux
   `load-buffer`/`paste-buffer` (send-keys mangles quoted payloads).
   `scripts/orchestrate-relay.sh` is the enforcement point: it validates a
   worker handle against its declared grammar before use (a hostile handle is
@@ -310,7 +309,7 @@ input line.
   as a command.
 - **print**. Prepare the unit, print the exact launch command, and exit —
   zero-dependency manual dispatch. The human pastes the command; no process
-  exists until they do (which the orphan predicate accounts for).
+  exists until they do.
 - **in-session**. Run `/execute-task` in this session, no separate worker.
 
 **Unattended mode** (headless: cron/launchd/CI, or `--unattended`). Skip every
@@ -322,17 +321,16 @@ scheduled-autopilot path; a human drains the Awaiting-input queue later.
 
 Loop the full step (pre-flight → reconcile → select → dispatch record →
 dispatch) until selection reports no ready unit or a halt fires. Each
-iteration is independent and atomic; the loop holds no state between
-iterations beyond what is on disk. A halt in any iteration ends the loop and
+iteration is independent and atomic, holding no state beyond what is on
+disk. A halt in any iteration ends the loop and
 surfaces the reason.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
-REQ-C1.4).** A `--watch` tower is the fleet's one long-running session, so it
-is the one that can fill its context window and degrade silently. Each
+REQ-C1.4).** A `--watch` tower is the fleet's one long-running session, and
+can silently fill its context window. Each
 iteration, before selecting new work, run
 `scripts/context-budget-monitor.sh <steps-completed>` with this loop's
-iteration count (an ephemeral in-session tally; a restarted tower recounts
-from zero). On `ok` or `disabled`, proceed. On `near-limit`, perform the
+iteration count. On `ok` or `disabled`, proceed. On `near-limit`, perform the
 handover per `context-budget-autoheal` (read at this branch): **start a fresh
 tower** seeded with this tower's standing-instructions / wake prompt,
 **confirm it is alive before retiring** (never leave a zero-tower gap — on a
@@ -350,27 +348,34 @@ every tier; backend selection law applies unchanged.
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
 The predicate's law and rationale are `orchestration-concurrency` (read at
-this step). The sweep:
+this step). Its version-keyed arms read the declared `Format-version:`;
+unparseable fails closed, never the v1 write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `git -C <primary-checkout>
    fetch origin --quiet` — remote named explicitly; remote-tracking refs
-   only; consumed read-only by the derivation's union scan; failure is
-   non-fatal and offline is first-class. It does **not** advance local
+   only; failure is non-fatal and offline is first-class. It does **not** advance local
    `main`, so the freshness gate's local-main view is unaffected.
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
-   `## In progress` entry, **reconcile PR state first**: merged → move to
-   Completed (with the merged annotation); open → leave In progress. Only
-   when no PR resolves the unit do you consider orphaning.
+   in-flight unit (v1: its `## In progress` entry; v2: the derivation's
+   in-progress set — no committed placement exists), **reconcile PR state
+   first**: merged → move to Completed (with the merged annotation; v1 only —
+   v2 completion is derived, nothing to write); open → leave In progress.
+   Only when no PR resolves the unit do you consider orphaning.
 3. **Orphan only when all three hold** (else leave it alone): the entry is
    older than the grace threshold; the backend's liveness is observable from
    this session (print-backend units are exempt: threshold **plus a human
    confirm**); and there is **positive evidence of death** — the recorded
-   handle/window is gone, not merely unobserved. Lost observability (a dead
-   tmux socket, a truncated process listing) is not observed death; when you
+   handle/window is gone, not merely unobserved. Lost observability is not
+   observed death; when you
    cannot distinguish, do not orphan.
-4. **An orphan moves to `## Awaiting input`** with an orphan note — never
-   left In progress silently, and **never auto-re-dispatched** (re-dispatch
-   is a human call after they see the note).
+4. **An orphan is parked to `## Awaiting input`** with an orphan note — a v1
+   block moves; on a v2 bundle write an Awaiting-input reference bullet
+   (`**Task <id>** — <orphan note>`) on the primary checkout's main view,
+   the derivation's read surface (REQ-B1.4), never the dead worker's branch,
+   and only if no live bullet already names the task (at most one per
+   task, `spec-format`) —
+   never left In progress silently, and **never auto-re-dispatched**
+   (re-dispatch is a human call after they see the note).
 
 ## --bookkeeping (REQ-H1.4, D-31)
 
@@ -378,7 +383,8 @@ The out-of-session drain pass. Dispatches nothing; it:
 
 1. **Reconciles merged PRs** into `tasks.md` (the same merged → Completed
    move the `tasks-pr-sync` hook performs in-session, for events the hook
-   dropped on a busy lock).
+   dropped on a busy lock). V1 bundles only: a v2 bundle has no placement to
+   reconcile (completion is derived, invariant-tasks D-6).
 2. **Evaluates open gates** with `scripts/drain-gates.sh specs/` — the shared
    evaluator `/drain` also uses. **Nothing is auto-resolved or auto-dropped**
    (REQ-H1.4): a satisfied gate is **re-surfaced** for a human to act on,
@@ -386,8 +392,8 @@ The out-of-session drain pass. Dispatches nothing; it:
 3. **Surfaces observation staleness**: report the accumulator's unmined count
    and oldest-entry age as the evaluator derives them — the live fragments
    under `specs/_observations/entries/` plus the frozen legacy file's
-   unconsumed lines, naming both surfaces while the legacy file drains, with
-   stuck consumes and skipped invalid fragments called out.
+   unconsumed lines, naming both surfaces, with stuck consumes and skipped
+   invalid fragments called out.
 4. **Reports a pending release** (autopilot-reflex REQ-F1.2, D-7, D-8): runs
    `scripts/release-bookkeeping.sh`, the belt-and-suspenders surface over the
    shared comparator (`release-pending.sh`, the one definition of "pending"
@@ -404,7 +410,8 @@ dispatch path); it still never merges and never pushes.
 Halt to Awaiting input on ambiguity, a missing dependency, a worker test
 failure surfaced back, a hard-disqualifier, or contract drift — non-exhaustive;
 the pre-flight refusals are defined at their own steps. Each halt writes the
-unit to `## Awaiting input` with the reason (the `gate-wiring` pause
+unit to `## Awaiting input` with the reason (on a v2 bundle, a
+`**Task <id>**` reference bullet, D-3; the `gate-wiring` pause
 protocol's dispatched arm, read when recording a halt); attended, present it
 and wait. In unattended mode every would-be prompt becomes an Awaiting-input
 entry.
@@ -458,15 +465,14 @@ These hold at every step:
 - **Never** write an anchor entry: this skill is a freshness-gate reader, not
   a sanctioned anchor writer (REQ-F1.10). Its dispatch record writes no
   `tasks.md` at all, and any reconcile placement write is anchor-excluded by
-  construction (`scripts/spec-anchor.sh` strips section placement and the
-  Status annotations).
+  construction.
 - **Never** hold the per-spec lock across execution; only across the
   freshness-gate-plus-marker window (D-10).
 - **Never** loosen any invariant at the meta tier (`--meta`, D-6): never-merge
   and never-ready hold across every tier (REQ-A1.2); the fleet advisory lock
   is held only across the meta decision window, never across a subordinate's
-  execution; the fleet bound (`fleet_max_parallel_units`) caps total in-flight
-  units across all supervised specs, distinct from each spec's
+  execution; the fleet bound (`fleet_max_parallel_units`) caps fleet-wide
+  in-flight units, distinct from per-spec
   `max_parallel_units` (REQ-D1.5); and the meta-tower never edits another
   tower's or a worker's branch state (REQ-D1.2).
 

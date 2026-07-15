@@ -41,6 +41,11 @@ move: degrade gracefully, REQ-K1.7).
 <planwright-root>/scripts/drain-gates.sh specs/
 ```
 
+The evaluator resolves task-completion atoms through the derivation engine
+(`scripts/orchestrate-state.sh`), which on a format-version 2 bundle is the
+only completion source — no `## Completed` section exists (invariant-tasks
+D-8); v1 bundles keep the v1 read. Version keying reads the declared
+`Format-version:`; unparseable fails closed, never the v1 arm (D-7).
 Exit 0 means the sweep completed — malformed gates are report content, not
 failures. A non-zero exit means the evaluator could not run or could not
 complete the sweep; surface the error verbatim and stop. A complete report
@@ -83,7 +88,10 @@ does this skill. For each re-surfaced or malformed item, ask the human what
 to do (un-defer the work, record the decision, re-gate with a new condition,
 fix the malformed entry, or leave it) and apply only what they choose. Edits
 to `tasks.md` follow the normal state-move commit discipline
-(`commit_on_state_move`).
+(`commit_on_state_move`) on v1 bundles; on a format-version 2 bundle the
+edit is a human-payload write (a Deferred entry or reference bullet — the
+task block never moves) and `commit_on_state_move` does not apply
+(invariant-tasks D-2, D-7).
 
 ## Maintenance
 
