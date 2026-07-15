@@ -131,11 +131,12 @@ tmproot="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmproot"' EXIT
 
 ########################################################################
-# 0. Real repo passes with the seeded transitional per-file allowances in
-#    place (Task 2 Done-when: `mise run check` passes on the repo).
+# 0. Real repo passes the guard with no transitional allowances remaining
+#    (Task 2 Done-when: `mise run check` passes on the repo; post-Task-7.5
+#    the only suppression is the permanent spec-format exemption).
 ########################################################################
 out="$(/bin/bash "$CHECKER" 2>&1)"
-assert_exit "real repo passes the guard (seeded allowances in place)" 0 $?
+assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $?
 
 # Post-Task-7.5 the audit carries no transitional allowance anywhere: the
 # Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
