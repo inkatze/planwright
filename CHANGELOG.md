@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/inkatze/planwright/compare/v0.7.0...v0.8.0) (2026-07-15)
+
+
+### Features
+
+* **instruction-hygiene:** diet residual start-load offenders (Task 7.5) ([#179](https://github.com/inkatze/planwright/issues/179)) ([2862196](https://github.com/inkatze/planwright/commit/28621969c0f631336a7127454e026509bc43f8b6))
+
 ## [0.7.0](https://github.com/inkatze/planwright/compare/v0.6.0...v0.7.0) (2026-07-15)
 
 
