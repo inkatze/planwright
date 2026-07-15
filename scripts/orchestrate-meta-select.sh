@@ -54,7 +54,9 @@
 #       prints "<spec-dir>\t<id>" for the unit to advance next, on stdout.
 #
 # Exit: 0 a unit was produced (on stdout); 1 nothing dispatchable this step
-# (nothing ready anywhere, or the fleet / every candidate spec is at its bound);
+# (nothing ready anywhere, the fleet / every candidate spec is at its bound,
+# or every ready spec is held on a transient evidence failure — the hold is
+# surfaced on stderr per spec, REQ-B1.5);
 # 2 a supervised spec dir is missing / taskless / not a git work tree, a spec
 # basename fails the identifier grammar, or a required helper is unavailable —
 # fail closed, so absent live truth never silently reports "nothing".

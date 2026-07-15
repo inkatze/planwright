@@ -404,7 +404,16 @@ report() {
           i = index(line, "**")
           if (i == 0) next # no closing bold: not a reference bullet
           id = substr(line, 1, i - 1)
-          if (id ~ /[ \t]/) next # inner whitespace: a plain prose bullet
+          if (id ~ /[ \t]/) {
+            # Inner whitespace is usually a plain prose bullet (validator
+            # parity) — but a NEAR-MISS reference (whitespace-trimmed
+            # remainder is a valid id, or only digits/dots/whitespace) is a
+            # failed park a human meant, rejected loudly below.
+            probe = id
+            sub(/^[ \t]+/, "", probe)
+            sub(/[ \t]+$/, "", probe)
+            if (probe !~ /^[0-9]+(\.[0-9]+)?$/ && id !~ /^[0-9. \t]+$/) next
+          }
           if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
             gsub(/\t/, " ", id) # tabs would corrupt the record split
             print "rejected\t" id
@@ -421,6 +430,8 @@ report() {
         n_err=$((n_err + 1))
         continue
       fi
+      # Pre-parse record shapes: `rejected<TAB><raw-id>`, `parked<TAB><id>`,
+      # and exactly one `meta<TAB><ntasks><TAB><hasgate>` (from END).
       v2parked=" "
       v2ntasks=0
       v2hasgate=0

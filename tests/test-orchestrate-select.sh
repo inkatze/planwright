@@ -1358,12 +1358,13 @@ cat >"$dv7spec/tasks.md" <<'EOF'
 ### Task 1 — ready, illustrated as parked in a fence
 
 - **Dependencies:** none
-- **Estimated effort:** 3 days
+- **Estimated effort:** 1 day
 
-### Task 2 — genuinely parked after an embedded fence
+### Task 2 — genuinely parked after an embedded fence (heavier, so a
+suppressed park flips the pick and fails the assertion)
 
 - **Dependencies:** none
-- **Estimated effort:** 1 day
+- **Estimated effort:** 3 days
 
 ## Awaiting input
 
@@ -1573,5 +1574,98 @@ v13_out=$(PATH="$degstub:$PATH" /bin/bash "$SEL" "$dv13spec" 2>"$v13_err") || rc
 grep -q 'violates the task-id grammar' "$v13_err" \
   || fail "v2-rej-deg: the rejected-bullet warning must still surface during a transient failure"
 echo "ok: rejected-bullet warnings survive a transient evidence failure (REQ-B1.5)"
+
+# V14. Fenced code blocks are illustration in the selection GRAPH too: a
+#      fenced example task heading is never a graph node, so it can be neither
+#      selected nor part of the critical path (its example effort must not
+#      outweigh real work).
+dv14="$tmp/v2graphfence"
+dv14spec=$(new_spec "$dv14" vtwographfence)
+cat >"$dv14spec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — the only real task
+
+- **Dependencies:** none
+- **Estimated effort:** half day
+
+```markdown
+### Task 9 — an illustration, heavier than any real work
+
+- **Dependencies:** none
+- **Estimated effort:** 5 days
+```
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$dv14"
+got=$(/bin/bash "$SEL" "$dv14spec") || fail "v2-graph-fence fixture: non-zero exit ($?)"
+[ "$got" = 1 ] || fail "v2-graph-fence: selected '$got', expected 1 (a fenced task heading is not a graph node)"
+cp14=$(/bin/bash "$SEL" --critical-path "$dv14spec") || fail "v2-graph-fence --critical-path: non-zero exit ($?)"
+case "$cp14" in
+  *9*) fail "v2-graph-fence --critical-path: fenced task 9 appeared on the path [$cp14]" ;;
+esac
+echo "ok: fenced task headings are illustration in selection and --critical-path"
+
+# V15. NUL bytes in tasks.md fail closed (mirrors drain-gates): the snapshot
+#      read strips NULs, which would splice flanking bytes and could silently
+#      un-park a task; corruption is refused, never reinterpreted.
+dv15="$tmp/v2nul"
+dv15spec=$(new_spec "$dv15" vtwonul)
+{
+  printf '# tasks\n\n**Format-version:** 2\n\n## Tasks\n\n'
+  printf '### Task 1 — ready\n\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Estimated effort:** 1 day\n\n'
+  printf '## Awaiting input\n\n'
+  printf -- 'corrupt\000- **Task 1** parked, NUL-spliced.\n\n'
+  printf '## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$dv15spec/tasks.md"
+seal_base "$dv15"
+rc=0
+/bin/bash "$SEL" "$dv15spec" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "v2-nul: exit $rc, expected 2 (NUL-laden tasks.md fails closed)"
+echo "ok: NUL bytes in tasks.md fail closed (no snapshot splice)"
+
+# V16. A NEAR-MISS reference bullet — whitespace-trimmed lead is a valid id
+#      ("Task 1 ", stray space), or the lead is only digits/dots/whitespace
+#      ("Task 1 2") — is a failed park a human meant: rejected LOUDLY, never
+#      silently skipped as prose (REQ-C1.9's never-silent posture). Genuine
+#      prose (V9) stays silent.
+dv16="$tmp/v2nearmiss"
+dv16spec=$(new_spec "$dv16" vtwonearmiss)
+{
+  printf '# tasks\n\n**Format-version:** 2\n\n## Tasks\n\n'
+  printf '### Task 1 — ready\n\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Estimated effort:** 1 day\n\n'
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 1 ** near-miss: stray space inside the bold lead.\n\n'
+  printf '## Deferred\n\n(none yet)\n\n## Out of scope\n\n(none yet)\n'
+} >"$dv16spec/tasks.md"
+seal_base "$dv16"
+v16_err="$tmp/v2nearmiss.err"
+rc=0
+v16_out=$(/bin/bash "$SEL" "$dv16spec" 2>"$v16_err") || rc=$?
+[ "$rc" = 0 ] || fail "v2-near-miss: exit $rc, expected 0"
+[ "$v16_out" = 1 ] || fail "v2-near-miss: selected '$v16_out', expected 1 (a rejected near-miss parks nothing)"
+grep -q 'violates the task-id grammar' "$v16_err" \
+  || fail "v2-near-miss: a stray-space reference bullet must be rejected loudly, not silently skipped as prose"
+echo "ok: near-miss reference bullets warn; the failed park is never silent (REQ-C1.9)"
+
 
 echo "PASS: orchestrate-select"

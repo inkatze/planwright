@@ -115,6 +115,15 @@ if [ ! -f "$tasks_md" ] || [ ! -r "$tasks_md" ]; then
   exit 2
 fi
 
+# NUL screen (mirrors drain-gates.sh): the snapshot read below strips NUL
+# bytes, which would splice the flanking bytes into one line — corruption of
+# the form `…\0- **Task 1**…` could silently un-park a task. Refuse the file
+# instead of reinterpreting it.
+if [ "$(wc -c <"$tasks_md")" -ne "$(tr -d '\000' <"$tasks_md" | wc -c)" ]; then
+  echo "orchestrate-select: $tasks_md contains NUL bytes (fail closed)" >&2
+  exit 2
+fi
+
 # Single-snapshot read: every parse below — the Format-version gate, the v2
 # parked map, and the selection graph — reads ONE capture of tasks.md, so a
 # concurrent rewrite cannot make the candidacy decision mix two file versions
@@ -201,7 +210,17 @@ if [ "$mode" = select ] && [ "$fv" = 2 ]; then
       i = index(line, "**")
       if (i == 0) next # no closing bold: not a reference bullet
       id = substr(line, 1, i - 1)
-      if (id ~ /[ \t]/) next # inner whitespace: a plain prose bullet, not a reference
+      if (id ~ /[ \t]/) {
+        # Inner whitespace is usually a plain prose bullet the format allows
+        # in Deferred / Out of scope (validator parity) — but a NEAR-MISS
+        # reference (whitespace-trimmed remainder is a valid id, or the lead
+        # is only digits, dots, and whitespace: "1 ", "1 2") is a failed park
+        # a human meant, rejected loudly below, never silently skipped.
+        probe = id
+        sub(/^[ \t]+/, "", probe)
+        sub(/[ \t]+$/, "", probe)
+        if (probe !~ /^[0-9]+(\.[0-9]+)?$/ && id !~ /^[0-9. \t]+$/) next
+      }
       if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
         # tabs would corrupt the record split; fold before emitting
         gsub(/\t/, " ", id)
@@ -282,8 +301,12 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
 fi
 
-printf '%s\n' "$tasks_content" | awk -v mode="$mode" -v fv="$fv" \
-  -v fname="$tasks_md" -v completed="$completed" -v inprogress="$inprogress" \
+# The path travels via ENVIRON, not -v: awk -v performs C-escape processing,
+# which would synthesize control bytes from a path carrying literal backslash
+# sequences (the drain-gates statuses-whitelist rationale).
+printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
+  awk -v mode="$mode" -v fv="$fv" \
+  -v completed="$completed" -v inprogress="$inprogress" \
   -v parked="$parked_any" -v parked_oos="$parked_oos" '
   function weight(s) {
     # Effort string -> a numeric weight. "half day" is 0.5; otherwise the
@@ -308,6 +331,11 @@ printf '%s\n' "$tasks_content" | awk -v mode="$mode" -v fv="$fv" \
     memo[t] = weight(effort[t]) + best
     return memo[t]
   }
+  # Column-0 fences are illustration (matching the FV and parked-map parses
+  # above): a fenced example task heading is never a graph node, and a fenced
+  # section heading never relabels the real section around it.
+  /^```/ { fence = !fence; next }
+  fence { next }
   # Section headings: track the current ## section. The H2 text is the
   # canonical state label for every task block that follows.
   /^## / { section = substr($0, 4); sub(/[[:space:]]+$/, "", section); next }
@@ -347,7 +375,7 @@ printf '%s\n' "$tasks_content" | awk -v mode="$mode" -v fv="$fv" \
     if (ntasks == 0) {
       # Fail closed with a diagnostic, matching the shell-level missing-file
       # message above (a present-but-taskless tasks.md is still malformed).
-      print "orchestrate-select: no task records in " fname > "/dev/stderr"
+      print "orchestrate-select: no task records in " ENVIRON["ORCHESTRATE_SELECT_TASKS_MD"] > "/dev/stderr"
       exit 2
     }
 

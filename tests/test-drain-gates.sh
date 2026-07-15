@@ -1156,4 +1156,103 @@ printf '%s\n' "$out43" | grep '^SATISFIED' | grep -F 'Landed anyway' >/dev/null 
   || fail "a prose bullet must park nothing (task 1 stays completed)"
 echo "ok: prose bullets with inner whitespace are tolerated silently (validator parity)"
 
+# 44. Drain-side fenced Format-version (mirror of selector V8): a fenced
+#     example `**Format-version:** 1` above the real v2 line must not select
+#     v1 rules — the gate resolves via the derivation engine (trailer), not
+#     `## Completed` membership.
+v2f="$tmp/v2fvfence"
+mkdir -p "$v2f/specs/phi"
+git -C "$v2f" -c init.defaultBranch=main init -q
+printf '%s\n' '# Phi' '' '**Status:** Ready' >"$v2f/specs/phi/requirements.md"
+cat >"$v2f/specs/phi/tasks.md" <<'EOF'
+# Phi — Tasks
+
+```markdown
+**Format-version:** 1
+```
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — landed work
+
+- **Done when:** done.
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+- **Landed via engine.** v1 rules would find no ## Completed and stay pending.
+  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.
+
+## Out of scope
+
+(none yet)
+EOF
+gitc "$v2f" add -A
+gitc "$v2f" commit -q -m "base: fenced-fv bundle"
+gitc "$v2f" commit -q --allow-empty -m "task 1 done" -m "Planwright-Task: phi/1"
+out44=$("$drain" --today 2026-07-15 "$v2f/specs") \
+  || fail "fenced-FV drain fixture broke the sweep"
+printf '%s\n' "$out44" | grep '^SATISFIED' | grep -F 'Landed via engine' >/dev/null \
+  || fail "a fenced Format-version example must not select v1 rules: $(printf '%s\n' "$out44" | grep -F 'Landed via engine')"
+echo "ok: a fenced Format-version example does not shadow the real header line (drain)"
+
+# 45. Pre-parse fence/section integrity plus near-miss loudness: a fence inside
+#     ## Deferred must not end the section (the real bullet after it still
+#     parks its task — bullet authority beats the trailer), and a NEAR-MISS
+#     bullet (stray space in the bold lead) is rejected with a note, never
+#     silently skipped as prose.
+v2g="$tmp/v2fencepark"
+mkdir -p "$v2g/specs/chi"
+git -C "$v2g" -c init.defaultBranch=main init -q
+printf '%s\n' '# Chi' '' '**Status:** Ready' >"$v2g/specs/chi/requirements.md"
+cat >"$v2g/specs/chi/tasks.md" <<'EOF'
+# Chi — Tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — merged but re-parked after a fence
+
+- **Done when:** done.
+
+### Task 2 — target of a near-miss bullet
+
+- **Done when:** done.
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+```markdown
+## Example — this fenced heading must not end the Deferred section
+```
+
+- **Task 1** genuinely parked; the fence above is illustration.
+- **Task 2 ** near-miss: stray space inside the bold lead.
+- **Parked after fence.** Bullet authority must hold.
+  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.
+
+## Out of scope
+
+(none yet)
+EOF
+gitc "$v2g" add -A
+gitc "$v2g" commit -q -m "base: fence-park bundle"
+gitc "$v2g" commit -q --allow-empty -m "task 1 done" -m "Planwright-Task: chi/1"
+out45=$("$drain" --today 2026-07-15 "$v2g/specs") \
+  || fail "fence-park fixture broke the sweep"
+printf '%s\n' "$out45" | grep '^PENDING' | grep -F 'Parked after fence' >/dev/null \
+  || fail "a real bullet after a fenced heading must still park its task: $(printf '%s\n' "$out45" | grep -F 'Parked after fence')"
+printf '%s\n' "$out45" | grep -F 'reference bullet rejected' >/dev/null \
+  || fail "a near-miss reference bullet must be rejected loudly, not silently skipped as prose"
+echo "ok: fences never end a real section, and near-miss bullets warn (REQ-C1.9)"
+
 echo "PASS: test-drain-gates.sh"
