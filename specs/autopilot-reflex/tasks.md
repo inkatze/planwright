@@ -1,6 +1,6 @@
 # Autopilot Reflex — Tasks
 
-**Status:** Ready
+**Status:** Done
 **Last reviewed:** 2026-07-02
 **Format-version:** 1
 
@@ -18,21 +18,7 @@ of the release chain after T1 and can run in parallel throughout.
 
 ## Forward plan
 
-### Task 10 — Armed/watch mode (sequenced follow-up)
-
-- **Deliverables:** An armed mode for the publish flow: invoked before the
-  merge, it pre-validates everything pre-validatable (CI on the PR head,
-  monotonicity, no existing tag, clean state), watches the release PR, and on
-  observing the merge runs the publish immediately (minimizing the locked
-  window to merge-to-sign). Refuses to arm when pre-validation fails.
-- **Done when:** Armed against a fixture/real release PR, the publish fires
-  on merge with the tag on the observed merge SHA; a failed pre-validation
-  refuses to arm with the reason; post-merge mode remains the unchanged
-  fallback.
-- **Dependencies:** Task 4, Task 6.
-- **Citations:** D-12 · REQ-D1.2, REQ-D1.3
-- **Estimated effort:** 1.0d
-- **Last activity:** 2026-07-12
+(none)
 
 ## In progress
 
@@ -219,6 +205,23 @@ of the release chain after T1 and can run in parallel throughout.
 - **Estimated effort:** 0.5d
 - **Status:** Completed · PR #156 merged 2026-07-13
 - **Last activity:** 2026-07-12
+
+### Task 10 — Armed/watch mode (sequenced follow-up)
+
+- **Deliverables:** An armed mode for the publish flow: invoked before the
+  merge, it pre-validates everything pre-validatable (CI on the PR head,
+  monotonicity, no existing tag, clean state), watches the release PR, and on
+  observing the merge runs the publish immediately (minimizing the locked
+  window to merge-to-sign). Refuses to arm when pre-validation fails.
+- **Done when:** Armed against a fixture/real release PR, the publish fires
+  on merge with the tag on the observed merge SHA; a failed pre-validation
+  refuses to arm with the reason; post-merge mode remains the unchanged
+  fallback.
+- **Dependencies:** Task 4, Task 6.
+- **Citations:** D-12 · REQ-D1.2, REQ-D1.3
+- **Estimated effort:** 1.0d
+- **Status:** Completed · PR #161 merged 2026-07-13
+- **Last activity:** 2026-07-13
 
 ### Task 11 — Organic proof: planwright's first automated signed release
 
