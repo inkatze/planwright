@@ -236,9 +236,9 @@ backend launches the work. Reuse the current worktree when it is clean,
 after a one-line confirm (**attended only**; unattended mode always creates a
 fresh worktree). Print the re-open command after create-or-reuse.
 
-**Dispatch-time environment hardening** (2026-06-12 field trial): when the
+**Dispatch-time environment hardening**: when the
 backend spawns a process, launch it through the umask-pinning wrapper,
-pre-trust the worktree's config paths (no per-worktree `mise trust`), and
+pre-trust the worktree's config paths, and
 verify the SSH-agent indirection is alive before the worker's signed commits.
 
 ## Dispatch (REQ-F1.8, D-38)
@@ -309,7 +309,7 @@ input line.
   as a command.
 - **print**. Prepare the unit, print the exact launch command, and exit —
   zero-dependency manual dispatch. The human pastes the command; no process
-  exists until they do (which the orphan predicate accounts for).
+  exists until they do.
 - **in-session**. Run `/execute-task` in this session, no separate worker.
 
 **Unattended mode** (headless: cron/launchd/CI, or `--unattended`). Skip every
@@ -371,7 +371,9 @@ unparseable fails closed, never the v1 write (D-7). The sweep:
 4. **An orphan is parked to `## Awaiting input`** with an orphan note — a v1
    block moves; on a v2 bundle write an Awaiting-input reference bullet
    (`**Task <id>** — <orphan note>`) on the primary checkout's main view,
-   the derivation's read surface (REQ-B1.4), never the dead worker's branch —
+   the derivation's read surface (REQ-B1.4), never the dead worker's branch,
+   and only if no live bullet already names the task (at most one per
+   task, `spec-format`) —
    never left In progress silently, and **never auto-re-dispatched**
    (re-dispatch is a human call after they see the note).
 

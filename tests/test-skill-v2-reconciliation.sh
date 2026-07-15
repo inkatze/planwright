@@ -322,6 +322,12 @@ else
   fail "orchestrate: orphan reconcile does not park via an Awaiting-input reference bullet written on the primary checkout's main view (REQ-E1.2, REQ-B1.4)"
 fi
 
+if printf '%s' "$oc" | grep -qE 'only if no live bullet already names the task'; then
+  ok "orchestrate: orphan park guards the one-bullet-per-task invariant"
+else
+  fail "orchestrate: orphan park writes a bullet without checking for an existing one (at-most-one-per-task, spec-format v2)"
+fi
+
 if printf '%s' "$oc" | grep -qE 'no placement to reconcile'; then
   ok "orchestrate: --bookkeeping placement reconcile scoped to v1"
 else
