@@ -84,6 +84,17 @@
 #     Task 3 — exclude the bundle Status header from the anchor + a re-anchor
 #     migration — is logged in specs/_observations/opportunities.md (2026-06-29).
 #
+# Version keying (invariant-tasks D-7; REQ-C1.1, REQ-C1.8): everything above
+# describes format-version 1 bundles. Before any write, the write path
+# resolves the bundle's declared `**Format-version:**` (tasks.md's
+# declaration, cross-checked against requirements.md, the authoritative
+# version home — see bundle_write_version): a format-version 2 bundle is a
+# clean no-op (derived state is never committed there — no placement,
+# annotation, or derived-header writes), and a missing, unparseable, or
+# cross-file-conflicting declaration fails closed with no write — exit 2 from
+# the CLI arms, a logged skip from the fail-soft hook. No input ever falls
+# open to the v1 write path.
+#
 # Worker sessions: the hook fires inside worktrees, so it resolves and writes
 # the canonical tasks.md in the PRIMARY checkout (kickoff brief risk row 3),
 # under the per-spec advisory lock at specs/<spec>/.orchestrate.lock. That lock
@@ -893,7 +904,9 @@ run_reconcile() {
 # across the four files WITHOUT the placement rewrite, so a one-time corpus sweep
 # never relocates task blocks in legacy bundles. Drives the adoption migration
 # (kickoff-lifecycle Task 8; REQ-A1.7, D-4). Same fail-closed validation as
-# `reconcile` below (missing / non-spec / hostile dir -> exit 2).
+# `reconcile` below (missing / non-spec / hostile dir, and a missing /
+# unparseable / cross-file-conflicting Format-version -> exit 2; a
+# format-version 2 bundle -> clean exit-0 no-op).
 if [ "${1:-}" = reconcile-status ]; then
   cli_arg="${2:-}"
   if [ -z "$cli_arg" ]; then
@@ -930,8 +943,10 @@ fi
 
 # ---------------------------------------------------------------------------
 # Direct CLI: `tasks-pr-sync.sh reconcile <spec-dir>`. Fails closed (exit 2) on
-# a missing / non-spec / hostile dir so a caller (--bookkeeping, tests) sees a
-# real error rather than a silent skip.
+# a missing / non-spec / hostile dir — and on a missing, unparseable, or
+# cross-file-conflicting Format-version (REQ-C1.8) — so a caller
+# (--bookkeeping, tests) sees a real error rather than a silent skip; a
+# format-version 2 bundle is a clean exit-0 no-op (REQ-C1.1).
 if [ "${1:-}" = reconcile ]; then
   cli_arg="${2:-}"
   if [ -z "$cli_arg" ]; then
