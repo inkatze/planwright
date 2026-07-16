@@ -162,15 +162,26 @@ tasks_format_version() {
 # validator errors on the mirror mismatch, and the writer refuses it too). A
 # requirements.md that is absent or carries no declaration leaves tasks.md's
 # value governing — legacy v1 bundles predate the header, and do_status
-# already no-ops without the file. The raw disagreeing value is untrusted
-# file content and is deliberately not echoed.
+# already no-ops without the file. A requirements.md that EXISTS but cannot be
+# read is a different input: the authoritative version home is hidden, so the
+# cross-check is impossible and letting tasks.md govern would be the same
+# fall-open — it fails closed, mirroring tasks_format_version's handling of an
+# unreadable tasks.md. The raw disagreeing value is untrusted file content and
+# is deliberately not echoed.
 bundle_write_version() {
   bwv_dir=$1
   if ! bwv_tv=$(tasks_format_version "$bwv_dir/tasks.md"); then
     log "missing or unparseable Format-version in $bwv_dir/tasks.md; failing closed, no write (REQ-C1.8)"
     return 1
   fi
-  bwv_rv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$bwv_dir/requirements.md" 2>/dev/null) || bwv_rv=""
+  if [ -e "$bwv_dir/requirements.md" ] || [ -L "$bwv_dir/requirements.md" ]; then
+    if ! bwv_rv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$bwv_dir/requirements.md" 2>/dev/null); then
+      log "requirements.md in $bwv_dir exists but is unreadable, so the Format-version cross-check is impossible; failing closed, no write (REQ-C1.8)"
+      return 1
+    fi
+  else
+    bwv_rv=""
+  fi
   if [ -n "$bwv_rv" ] && [ "$bwv_rv" != "$bwv_tv" ]; then
     log "Format-version mismatch in $bwv_dir (tasks.md declares $bwv_tv; requirements.md disagrees); failing closed, no write (REQ-C1.8)"
     return 1

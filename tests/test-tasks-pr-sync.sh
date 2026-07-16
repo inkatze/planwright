@@ -2259,4 +2259,84 @@ grep -q '^\*\*Status:\*\* Active$' "$sd/requirements.md" \
   || fail "V2-G: the torn bundle's authoritative Status header was rewritten"
 echo "ok: V2-G a torn bundle (requirements v2, tasks v1) fails closed on every arm (REQ-C1.8)"
 
+# --- V2-H: a PRESENT but UNREADABLE requirements.md fails closed (REQ-C1.8).
+# "Absent" and "present but unreadable" are different inputs: an absent file is
+# the documented legacy-v1 case (tasks.md governs), but an unreadable one hides
+# the authoritative version home — here it declares v2 while tasks.md declares
+# v1, so falling through to tasks.md's value would let the v1 write path stamp
+# derived state into a half-migrated bundle with no diagnostic at all
+# (asymmetric with tasks_format_version, which fails closed on an unreadable
+# tasks.md). chmod 000 does not block root, so the arm is skipped there.
+if [ "$(id -u)" -ne 0 ]; then
+  repo=$tmp/v2h
+  mkdir -p "$repo"
+  git -C "$repo" init -q -b main
+  git -C "$repo" config user.email test@example.com
+  git -C "$repo" config user.name test
+  git -C "$repo" config commit.gpgsign false
+  sd=$repo/specs/demo
+  mkdir -p "$sd"
+  printf '%s\n' '# Demo — Requirements' '' '**Status:** Active' \
+    '**Format-version:** 2' '**Execution:** derived — see the status render' \
+    >"$sd/requirements.md"
+  printf '%s\n' '# Demo — Design' '' '**Status:** Active' >"$sd/design.md"
+  printf '%s\n' '# Demo — Test Spec' '' '**Status:** Active' >"$sd/test-spec.md"
+  cat >"$sd/tasks.md" <<'EOF'
+# Demo — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Alpha
+
+- **Deliverables:** Alpha.
+- **Done when:** Alpha done.
+- **Dependencies:** none
+- **Citations:** REQ-V2.1
+- **Estimated effort:** 1 day
+
+## In progress
+
+(none yet)
+
+## Completed
+
+(none yet)
+EOF
+  git -C "$repo" add -A
+  git -C "$repo" commit -qm "fixture: unreadable requirements"
+  # Evidence a falling-open v1 reconcile would act on: the trailer relocates
+  # Task 1 to ## Completed, so the no-write assertions below are non-vacuous.
+  git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: demo/1"
+  git -C "$repo" branch planwright/demo/task-1
+  git -C "$repo" checkout -q planwright/demo/task-1
+  git -C "$repo" commit -q --allow-empty -m "wip: task 1"
+  # Snapshot the digest, THEN drop read permission (specs_digest and git
+  # checkout both need to read the file; permissions are restored before the
+  # after-digest, and a mode flip alone never changes the content digest).
+  d_before=$(specs_digest "$repo")
+  chmod 000 "$sd/requirements.md"
+  rc=0
+  err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo) 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] || fail "V2-H: reconcile on an unreadable requirements.md should fail closed (exit 2), got $rc"
+  case "$err" in *requirements.md*) ;; *) fail "V2-H: fail-closed error does not name requirements.md: $err" ;; esac
+  case "$err" in *Format-version*) ;; *) fail "V2-H: fail-closed error does not name Format-version: $err" ;; esac
+  rc=0
+  (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile-status specs/demo) >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 2 ] || fail "V2-H: reconcile-status on an unreadable requirements.md should fail closed (exit 2), got $rc"
+  run_hook "$repo" "gh pr create --draft" "https://github.com/x/y/pull/10" \
+    || fail "V2-H: hook must stay fail-soft (exit 0) on an unreadable requirements.md"
+  chmod 644 "$sd/requirements.md"
+  [ "$d_before" = "$(specs_digest "$repo")" ] \
+    || fail "V2-H: an unreadable requirements.md still reached the write path (v1 fell open; REQ-C1.8)"
+  git -C "$repo" checkout -q main
+  echo "ok: V2-H a present-but-unreadable requirements.md fails closed on every arm (REQ-C1.8)"
+else
+  echo "skip: V2-H (running as root; chmod 000 cannot make a file unreadable)"
+fi
+
 echo "PASS: all tasks-pr-sync tests passed"
