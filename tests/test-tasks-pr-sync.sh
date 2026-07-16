@@ -1172,7 +1172,7 @@ writers=$(printf '%s' "$writers" | sed 's/^ //')
   || fail "single-writer audit: scripts emitting a Status header = '$writers', expected only migrate-format-version.sh (the one-shot v2 migration, D-10) and tasks-pr-sync.sh"
 grep -q '\*\*Status:\*\*' "$here/../scripts/orchestrate-select.sh" \
   && fail "single-writer audit: orchestrate-select.sh references the Status header (should not touch it)"
-echo "ok: tasks-pr-sync.sh is the sole writer of the bundle Status header (REQ-A1.5 single-writer)"
+echo "ok: tasks-pr-sync.sh is the sole derived-Status writer; migrate-format-version.sh is the sanctioned one-shot stored-header exception (REQ-A1.5 single-writer)"
 
 # --- T-J: write_status_header refuses a symlinked status file. A spec file
 # symlinked elsewhere (here design.md) is refused by the status writer: its
