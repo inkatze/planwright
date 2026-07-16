@@ -459,7 +459,7 @@ Class: expression-only
 Anchor: `0091eb6937059dc3f901a6d94adb58a7c1e8287e` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
 
-### 2026-07-15 — Expression-only self-re-anchor (format-version 2 migration)
+### Amendment 5 — expression-only self-re-anchor (2026-07-15; format-version 2 migration)
 
 Machine-written entry per REQ-F1.10's expression-only lane, recorded by
 `scripts/migrate-format-version.sh` (invariant-tasks D-10, REQ-D1.2).
