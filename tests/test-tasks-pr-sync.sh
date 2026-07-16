@@ -1150,8 +1150,13 @@ done
 echo "ok: the reconcile leaves Done and terminal (Superseded) bundles untouched (REQ-A1.5/A1.6)"
 
 # --- T-I: single-writer code audit (REQ-A1.5). tasks-pr-sync.sh is the only
-# script that EMITS a bundle Status header; spec-validate.sh only READS it, and
-# the /orchestrate path (orchestrate-select / orchestrate-state) never writes it.
+# script that EMITS a derived bundle Status header; spec-validate.sh only READS
+# it, and the /orchestrate path (orchestrate-select / orchestrate-state) never
+# writes it. One sanctioned exception: migrate-format-version.sh emits the
+# stored header once at the v1→v2 migration (the Active → Ready restriction,
+# invariant-tasks D-10, REQ-D1.2) — a one-shot human-gated restriction, not a
+# derived reconcile value, and it cannot delegate to the single writer because
+# that writer correctly no-ops on v2 bundles (invariant-tasks REQ-C1.1).
 # Quote-agnostic on purpose: a print/printf/echo that emits the literal header
 # string in EITHER single or double quotes counts as an emitter, so a future
 # writer using `printf '**Status:** %s\n'` (single-quoted) cannot bypass the
@@ -1163,8 +1168,8 @@ for s in "$here"/../scripts/*.sh; do
   grep -qE "(print|printf|echo).*['\"]$emit" "$s" && writers="$writers $(basename "$s")"
 done
 writers=$(printf '%s' "$writers" | sed 's/^ //')
-[ "$writers" = "tasks-pr-sync.sh" ] \
-  || fail "single-writer audit: scripts emitting a Status header = '$writers', expected only tasks-pr-sync.sh"
+[ "$writers" = "migrate-format-version.sh tasks-pr-sync.sh" ] \
+  || fail "single-writer audit: scripts emitting a Status header = '$writers', expected only migrate-format-version.sh (the one-shot v2 migration, D-10) and tasks-pr-sync.sh"
 grep -q '\*\*Status:\*\*' "$here/../scripts/orchestrate-select.sh" \
   && fail "single-writer audit: orchestrate-select.sh references the Status header (should not touch it)"
 echo "ok: tasks-pr-sync.sh is the sole writer of the bundle Status header (REQ-A1.5 single-writer)"
