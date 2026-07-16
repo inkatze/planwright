@@ -104,7 +104,9 @@ Two audit notes behind that table:
 
 - **All durable fleet state is files** — the worker registry, the attention
   store, and the toasts under the cross-spec fleet home; the per-spec dispatch
-  markers and locks next to each spec; the `tasks.md` snapshot in git (see
+  markers and locks next to each spec; and, for a format-version 1 bundle, the
+  `tasks.md` snapshot in git (a format-version 2 bundle keeps no committed
+  snapshot and reads status through the on-demand render — see
   [orchestration state](orchestration-state.md)). An editor surface is
   therefore a *renderer* over existing files, not a new execution model.
 - **A concrete editor integration is a gated deferral**, built when a concrete

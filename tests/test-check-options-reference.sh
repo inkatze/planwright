@@ -31,6 +31,24 @@ trap 'rm -rf "$tmp"' EXIT
 /bin/bash "$CHECKER" >/dev/null
 assert "repo defaults are fully documented" 0 $?
 
+# 1b. The `commit_on_state_move` row carries the v1-only note (invariant-tasks
+#     Task 8, REQ-E1.3 — the option is vacuous under format-version 2, where no
+#     execution-state edit touches the committed file, so its reference row must
+#     say so). This asserts the note's content is present in that specific row,
+#     not merely that the option is documented.
+REFERENCE="$REPO_ROOT/docs/options-reference.md"
+# shellcheck disable=SC2016 # the backtick is literal markdown, not expansion
+state_move_row="$(sed -n 's/^[[:space:]]*|[[:space:]]*`commit_on_state_move`[[:space:]]*|.*/&/p' "$REFERENCE")"
+case "$state_move_row" in
+  *v1-only*)
+    echo "ok: commit_on_state_move row carries the v1-only note (REQ-E1.3)"
+    ;;
+  *)
+    echo "FAIL: commit_on_state_move row lacks the v1-only note (REQ-E1.3): $state_move_row" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
 # 2. Fixture: a documented option passes.
 cat >"$tmp/config.yml" <<'EOF'
 # comment line

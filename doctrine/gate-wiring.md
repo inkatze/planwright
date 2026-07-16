@@ -313,14 +313,16 @@ revert per item). The summary lists them; the checklist is authoritative.
 
 An `/execute-task` body follows; a `/self-review` body has the same shape,
 with the lens-coverage table and pass summary added inside the collapsed
-record and no kickoff-brief or task-graph inputs in the summary.
+record and no kickoff-brief or task-graph inputs in the summary. Its completion
+stamp is **format-version 1**; a v2 bundle stamps none — completion is derived,
+per [`spec-format.md`](spec-format.md).
 
 ```markdown
 ## Summary
 
-Stamps the organic completion annotation from the level-triggered reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>` in the same write that places it in `## Completed`, with honest no-remote degradation to a date-only form or no stamp. This closes the unowned-refresh gap the REQ-E1 group names.
+Stamps the completion annotation from the reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>` in `## Completed`, degrading to a date-only form or no stamp with no remote. Closes the unowned-refresh gap REQ-E1 names.
 
-**How to review:** start with `scripts/tasks-pr-sync.sh` (the stamp write) and its new fixtures under `tests/`; the normative annotation format lives in `doctrine/spec-format.md`.
+**How to review:** start with `scripts/tasks-pr-sync.sh` and its `tests/` fixtures; the normative format lives in `doctrine/spec-format.md`.
 
 - **Tasks:** output-hygiene/7
 - **REQs:** REQ-E1.1, REQ-E1.2

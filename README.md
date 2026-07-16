@@ -162,7 +162,9 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 - [Conventions](docs/conventions.md) — branch, worktree, and repo conventions.
 - [Orchestration state](docs/orchestration-state.md) — the derived-projection
   model: how progress is derived from git/GitHub evidence, the single-writer
-  reconcile, and the no-remote flow.
+  reconcile, and the no-remote flow. Version-keyed off each bundle's
+  `Format-version:`: a format-version 2 bundle drops the committed snapshot
+  entirely and reads status through the on-demand render.
 - [Fleet operation](docs/fleet.md) — the approachable path: the one entry
   command, the decision queue, the persona-to-seams mapping, and the
   execution-backend seam (autodetect, the degradation ladder, plugging in

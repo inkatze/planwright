@@ -63,6 +63,19 @@ canonical placement (a git-conflicted `tasks.md` is regenerated from the
 derivation, never resolved by `ours`/`theirs`/`union`). The rewrite is atomic
 (a same-directory temp renamed into place).
 
+**Format-version scope.** The reconcile above is the **format-version 1**
+contract. On a **format-version 2** bundle the hook is version-keyed: it detects
+`Format-version: 2` and **no-ops** — it writes no placement, no annotation, and
+no completion stamp, because a v2 bundle commits no derived execution state at
+all (there are no placement sections to relocate a block into). Execution status
+for a v2 bundle is read through the on-demand status render backed by the same
+derivation engine, never a committed snapshot; see the
+[derived-projection model](orchestration-state.md#format-version-2-no-committed-snapshot)
+and the normative v2 shape in
+[`doctrine/spec-format.md`](../doctrine/spec-format.md). A missing or unparseable
+`Format-version:` fails closed (no write). v1 bundles keep the reconcile behavior
+described above.
+
 The same script also exposes a direct form, `tasks-pr-sync.sh reconcile
 <spec-dir>`, that `/orchestrate --bookkeeping` and the tests drive. Worker
 sessions inside worktrees reconcile the canonical `tasks.md` in the primary
