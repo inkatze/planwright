@@ -123,11 +123,21 @@ gtmp=$(mktemp -d) || {
   echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
   exit 2
 }
-trap 'rm -rf "$gtmp"' EXIT
+# The held lock dir for the EXIT trap (empty when nothing is held) — the
+# same idiom as tasks-pr-sync.sh's rm_lock_and_tmp: a caught signal or an
+# unexpected abort releases the per-spec lock instead of leaving other
+# writers to wait out orchestrate-lock.sh's stale-break. A SIGKILL still
+# falls through to the stale-break by design.
+cur_lockdir=""
+cleanup() {
+  if [ -n "$cur_lockdir" ]; then
+    "$lock_sh" release "$cur_lockdir" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$gtmp"
+}
+trap cleanup EXIT
 # Convert fatal signals to exits so the EXIT trap fires under dash-like
-# shells too (bash runs it on signals; POSIX leaves that unspecified). The
-# per-spec lock needs no signal handling: a killed holder falls through to
-# orchestrate-lock.sh's stale-break by design.
+# shells too (bash runs it on signals; POSIX leaves that unspecified).
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -496,8 +506,10 @@ process_bundle() {
     refuse "$bname" "per-spec lock error: $(sanitize_printable "$lock_err" "(no diagnostic)"); nothing written"
     return 0
   fi
+  cur_lockdir=$bdir
   process_bundle_locked "$bdir" "$bname"
   "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
+  cur_lockdir=""
   return 0
 }
 
