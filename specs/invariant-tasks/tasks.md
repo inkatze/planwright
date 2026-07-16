@@ -93,6 +93,7 @@ the guard that protects their output exists.
 - **Citations:** D-10, D-3 · REQ-D1.2, REQ-D1.3, REQ-E1.4, REQ-C1.8,
   REQ-C1.9
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-15
 
 ### Task 7 — Skill reconciliation
 
