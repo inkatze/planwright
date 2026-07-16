@@ -470,6 +470,7 @@ extract_tasks "$repo/specs/seeded/tasks.md" >"$before_extract"
 [ -s "$before_extract" ] || fail "precondition: seeded fixture extraction is empty"
 draft_extract_before=$tmp/draft.extract.before
 extract_tasks "$repo/specs/draft-spec/tasks.md" >"$draft_extract_before"
+cp "$repo/specs/seeded/tasks.md" "$tmp/seeded.tasks.v1"
 
 done_snap=$tmp/done.snap
 snapshot "$repo/specs/done-spec" "$done_snap"
@@ -495,6 +496,29 @@ d_before=$(git hash-object --stdin <"$before_extract")
 d_after=$(git hash-object --stdin <"$after_extract")
 [ "$d_before" = "$d_after" ] || fail "REQ-A1.4: extraction digest moved"
 echo "ok: the canonical extraction digest is unchanged across migration (REQ-A1.4, REQ-D1.2)"
+
+# REQ-D1.2's raw line-level diff, independent of the shared extraction
+# algorithm (the digest check above and the script's own self-check use the
+# same awk, so they cannot catch a corruption that algorithm is blind to).
+# Sorted line multisets make block relocation cancel out, leaving exactly
+# the lines the migration deleted: each must be a state annotation bullet
+# (or one of the fixture's known annotation continuations), a placement
+# heading, a consumed placeholder, or a restricted/bumped header line.
+sort "$tmp/seeded.tasks.v1" >"$tmp/seeded.v1.sorted"
+sort "$repo/specs/seeded/tasks.md" >"$tmp/seeded.v2.sorted"
+comm -23 "$tmp/seeded.v1.sorted" "$tmp/seeded.v2.sorted" \
+  | grep -v '^[ \t]*$' >"$tmp/seeded.dropped" || true
+while IFS= read -r dropped; do
+  case $dropped in
+    '- **Status:**'* | '- **Last activity:**'* | '- **Dispatch:**'*) ;;
+    '  branch planwright/seeded/task-1 · worktree .claude/worktrees/seeded-task-1') ;;
+    '  The options are vanilla or chocolate.') ;;
+    '## Forward plan' | '## In progress' | '## Completed') ;;
+    '(none yet)' | '**Status:** Active' | '**Format-version:** 1') ;;
+    *) fail "REQ-D1.2 raw diff: migration dropped a line outside the sanctioned set: '$dropped'" ;;
+  esac
+done <"$tmp/seeded.dropped"
+echo "ok: the raw line-level diff drops only annotations, placement headings, and header lines (REQ-D1.2)"
 
 # The migrated bundle is valid format-version 2 at errors-block severity.
 "$VALIDATE" "$repo/specs/seeded" >"$tmp/val.out" 2>&1 \
