@@ -657,22 +657,25 @@ EOF
     else
       # Append: everything through the end of the changelog section, then
       # the entry (before the next H2, or at EOF when the changelog is the
-      # final section).
+      # final section). Exactly one separator blank before the entry: the
+      # section usually already ends blank, and doubling it would trip
+      # markdownlint MD012 on the migrated file.
       awk -v ins="$gtmp/clog.entry" '
         BEGIN { state = 0 } # 0 before, 1 inside changelog, 2 after
-        state == 0 && /^## Changelog[ \t]*$/ { print; state = 1; next }
+        state == 0 && /^## Changelog[ \t]*$/ { print; prev = $0; state = 1; next }
         state == 1 && /^## / {
-          print ""
+          if (prev !~ /^[ \t]*$/) print ""
           while ((getline l < ins) > 0) print l
           print ""
           print
+          prev = $0
           state = 2
           next
         }
-        { print }
+        { print; prev = $0 }
         END {
           if (state == 1) {
-            print ""
+            if (prev !~ /^[ \t]*$/) print ""
             while ((getline l < ins) > 0) print l
           }
         }

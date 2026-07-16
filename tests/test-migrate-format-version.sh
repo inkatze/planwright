@@ -574,6 +574,11 @@ grep -q '^(none yet' "$brief" \
 awk '/^## Changelog[ \t]*$/,/^## Sources[ \t]*$/' "$repo/specs/seeded/requirements.md" \
   | grep '^- 20' | head -1 | grep -q '2026-07-01' \
   || fail "ascending changelog: migration entry was not appended after existing entries"
+# The insert rides exactly one separator blank even when the section already
+# ends blank: a doubled blank would trip markdownlint MD012 on the output.
+awk 'blank && /^[ \t]*$/ { exit 1 } { blank = ($0 ~ /^[ \t]*$/) }' \
+  "$repo/specs/seeded/requirements.md" \
+  || fail "ascending changelog: migration introduced consecutive blank lines (MD012)"
 echo "ok: a signed bundle gains the dated Changelog entry and a valid expression-only re-anchor (REQ-D1.2)"
 
 # Ready→Ready: a stored-Ready signed bundle migrates in place, stays Ready,
@@ -582,6 +587,9 @@ headers_ok "$repo/specs/ready-desc" Ready "ready-desc"
 awk '/^## Changelog[ \t]*$/,/^## Sources[ \t]*$/' "$repo/specs/ready-desc/requirements.md" \
   | grep '^- 20' | head -1 | grep -q "Migrated to format-version 2" \
   || fail "descending changelog: migration entry was not prepended"
+awk 'blank && /^[ \t]*$/ { exit 1 } { blank = ($0 ~ /^[ \t]*$/) }' \
+  "$repo/specs/ready-desc/requirements.md" \
+  || fail "descending changelog: migration introduced consecutive blank lines (MD012)"
 # shellcheck disable=SC2016 # the backticks are literal markdown, not expansions
 rec_rd=$(awk '/self-re-anchor/,0' "$repo/specs/ready-desc/kickoff-brief.md" \
   | grep -o '`[0-9a-f]\{40\}`' | head -1 | tr -d '\140')
