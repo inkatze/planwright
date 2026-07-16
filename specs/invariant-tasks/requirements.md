@@ -1,8 +1,9 @@
 # Invariant Tasks — Requirements
 
-**Status:** Active
+**Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 ## Goal
 
@@ -255,6 +256,16 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   *(Cites: orchestration-concurrency Deferred gate (Sources).)*
 
 ## Changelog
+
+- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
+  one-shot `scripts/migrate-format-version.sh` run): placement sections
+  collapsed into a single `## Tasks` section, state annotation bullets
+  stripped, stored header restricted to the human-gated set, the
+  `**Execution:**` pointer line added, `Format-version:` bumped to 2 on
+  all four files. Task definition lines are preserved byte-for-byte (the
+  canonical `tasks.md` extraction digest is unchanged), so the required
+  re-anchor rides as expression-only: the kickoff brief's self-re-anchor
+  entry cites this entry.
 
 - 2026-07-15 — Completion-annotation supersession recorded (Task 8, D-11,
   REQ-C1.7). The normative completion annotation

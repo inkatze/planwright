@@ -2,7 +2,8 @@
 
 **Status:** Ready
 **Last reviewed:** 2026-07-13
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Coverage mix: `[test]` entries run under `mise run check` / `mise run test` via the shell-test
 harness and fixture suites (Tasks 2, 8, 9–13); `[manual]` entries are exercised through the

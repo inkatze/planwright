@@ -2,7 +2,8 @@
 
 **Status:** Ready
 **Last reviewed:** 2026-07-13
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Origin tags: `N` = new decision minted in this bundle. Research citations name the session
 research reports (see `requirements.md` Sources) with the load-bearing primary sources inline.

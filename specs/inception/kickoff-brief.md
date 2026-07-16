@@ -252,3 +252,26 @@ Anchor: `139c46769786e15661b7bcc6f4b8ff57586897ba` — computed as
 `scripts/spec-anchor.sh specs/inception`
 
 Signed off: 2026-07-13 — delta re-sign-off; no status change (stays Ready).
+
+### 2026-07-15 — Expression-only self-re-anchor (format-version 2 migration)
+
+Machine-written entry per REQ-F1.10's expression-only lane, recorded by
+`scripts/migrate-format-version.sh` (invariant-tasks D-10, REQ-D1.2).
+
+**Trigger:** the one-shot v1→v2 migration converted this bundle to
+format-version 2: placement sections collapsed into `## Tasks`, state
+annotation bullets stripped, any parked task blocks converted to reference
+bullets, the stored header restricted to the human-gated set, the
+`**Execution:**` pointer line added, and `Format-version:` bumped on all
+four files. Task definition lines are byte-for-byte unchanged (the
+canonical `tasks.md` extraction digest was verified equal before
+writing), so no requirement, design decision, task definition, or test
+semantics changed — the required re-anchor rides the migration as
+expression-only (REQ-A3.3, REQ-D1.2).
+
+**Cites the changelog line:** the 2026-07-15 `## Changelog` entry in
+`requirements.md` ("Migrated to format-version 2").
+
+Class: expression-only
+Anchor: `89c87e2103f3c480a19d74b88cd3f5c3fec4c988` — computed as
+`scripts/spec-anchor.sh specs/inception`

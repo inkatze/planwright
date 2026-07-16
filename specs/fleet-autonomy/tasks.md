@@ -2,7 +2,8 @@
 
 **Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Eight tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
 selection rule; every task except Task 6 depends on it (Task 6's ghost-text prevention is a static
@@ -12,7 +13,7 @@ oversight). Tasks 2, 3, 4, 5, and 7 are otherwise independent of one another; Ta
 (observability/rendering) depends on Tasks 2, 3, 4, and 7's real daemon activity existing to
 render.
 
-## Forward plan
+## Tasks
 
 ### Task 1 — Shared floors & daemon infrastructure
 
@@ -155,15 +156,7 @@ render.
 - **Citations:** D-13, D-14, D-16 · REQ-F1.1, REQ-F1.2, REQ-F1.4
 - **Estimated effort:** 1.5 days
 
-## In progress
-
-(none yet)
-
 ## Awaiting input
-
-(none yet)
-
-## Completed
 
 (none yet)
 

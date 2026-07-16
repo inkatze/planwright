@@ -1,8 +1,9 @@
 # Invariant Tasks — Test Spec
 
-**Status:** Active
+**Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Coverage mix: the machinery requirements (REQ-B, REQ-C, REQ-D) verify as
 `[test]` entries in the shell suite under `tests/`, run by `mise run check`
