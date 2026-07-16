@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/inkatze/planwright/compare/v0.12.0...v0.13.0) (2026-07-16)
+
+
+### Features
+
+* **docs:** version-2 state-layer docs and completion-annotation supersession (Task 8) ([#197](https://github.com/inkatze/planwright/issues/197)) ([d75bd37](https://github.com/inkatze/planwright/commit/d75bd37be5fd7f239d7ef55a139f21aaa6c1f1d5))
+* **select:** selector and gate re-sourcing for format-version 2 (invariant-tasks Task 5) ([#196](https://github.com/inkatze/planwright/issues/196)) ([1b3d551](https://github.com/inkatze/planwright/commit/1b3d5517d420459cf24ed74e2538800da907813e))
+
 ## [0.12.0](https://github.com/inkatze/planwright/compare/v0.11.0...v0.12.0) (2026-07-15)
 
 
