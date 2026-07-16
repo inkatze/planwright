@@ -351,6 +351,21 @@ signed_brief "$repo/specs/retired-spec" specs/retired-spec
 seeded_bundle "$repo/specs/superseded-spec" Superseded
 signed_brief "$repo/specs/superseded-spec" specs/superseded-spec
 
+# A signed bundle whose changelog is genuinely multi-entry ascending:
+# exercises the first<last append arm of direction detection (the seeded
+# bundle's single entry takes the first==last arm instead).
+seeded_bundle "$repo/specs/asc-spec" Ready
+signed_brief "$repo/specs/asc-spec" specs/asc-spec
+awk '
+  /^- 2026-07-01 — Initial draft\.$/ {
+    print "- 2026-06-20 — Earlier entry."
+    print "- 2026-07-01 — Initial draft."
+    next
+  }
+  { print }
+' "$repo/specs/asc-spec/requirements.md" >"$tmp/as" \
+  && mv "$tmp/as" "$repo/specs/asc-spec/requirements.md"
+
 # A stored-Ready signed bundle whose changelog is newest-first (descending):
 # exercises Ready→Ready and the prepend arm of changelog-direction detection.
 seeded_bundle "$repo/specs/ready-desc" Ready
@@ -593,11 +608,11 @@ grep -q 'scripts/spec-anchor.sh specs/seeded' "$tmp/entry" \
 grep -qi 'changelog' "$tmp/entry" || fail "re-anchor entry does not cite the changelog line"
 grep -q '^(none yet' "$brief" \
   && fail "amendment-log (none yet) placeholder paragraph survived the entry append"
-# Ascending changelog: the migration entry is appended after the existing
-# entries, keeping the changelog monotonic.
+# Single-entry changelog (the first==last append arm): the migration entry
+# is appended after the existing entry, keeping the changelog monotonic.
 awk '/^## Changelog[ \t]*$/,/^## Sources[ \t]*$/' "$repo/specs/seeded/requirements.md" \
   | grep '^- 20' | head -1 | grep -q '2026-07-01' \
-  || fail "ascending changelog: migration entry was not appended after existing entries"
+  || fail "single-entry changelog: migration entry was not appended after existing entries"
 # The insert rides exactly one separator blank even when the section already
 # ends blank: a doubled blank would trip markdownlint MD012 on the output.
 awk 'blank && /^[ \t]*$/ { exit 1 } { blank = ($0 ~ /^[ \t]*$/) }' \
@@ -620,6 +635,17 @@ rec_rd=$(awk '/self-re-anchor/,0' "$repo/specs/ready-desc/kickoff-brief.md" \
 cur_rd=$("$ANCHOR" "$repo/specs/ready-desc")
 [ "$rec_rd" = "$cur_rd" ] || fail "ready-desc recorded anchor $rec_rd != recomputed $cur_rd"
 echo "ok: a stored-Ready bundle stays Ready and a newest-first changelog is prepended (REQ-D1.3, D-10)"
+
+# True multi-entry ascending changelog: the migration entry is appended
+# after the newest existing entry (the first<last append arm), never
+# prepended between the heading and the oldest entry.
+awk '/^## Changelog[ \t]*$/,/^## Sources[ \t]*$/' "$repo/specs/asc-spec/requirements.md" \
+  | grep '^- 20' >"$tmp/asc.entries"
+head -1 "$tmp/asc.entries" | grep -q '2026-06-20' \
+  || fail "ascending changelog: oldest entry no longer first"
+tail -1 "$tmp/asc.entries" | grep -q 'Migrated to format-version 2' \
+  || fail "ascending changelog: migration entry was not appended last"
+echo "ok: a multi-entry ascending changelog appends the migration entry last (D-10)"
 
 # Empty human-payload sections keep their (none yet) placeholders.
 for sec in 'Awaiting input' 'Deferred' 'Out of scope'; do
@@ -682,10 +708,16 @@ sed 's|# Seeded|# Partial|' "$repo2/specs/partial/requirements.md" >"$tmp/pr" \
 git -C "$repo2" add -A
 git -C "$repo2" commit -qm fixture
 
-(cd "$repo2" && "$MIGRATE" specs >/dev/null 2>"$tmp/run3.err") \
+(cd "$repo2" && "$MIGRATE" specs >"$tmp/run3.out" 2>"$tmp/run3.err") \
   || fail "partial-run completion exited non-zero: $(cat "$tmp/run3.err")"
 grep -q 'self-re-anchor' "$repo2/specs/partial/kickoff-brief.md" \
   || fail "REQ-D1.2: a re-run did not complete the missing re-anchor entry"
+# The completion is classified and counted as a repair, not a migration or
+# a no-op: mis-bucketing would corrupt the summary tally.
+grep -q '^repaired: partial' "$tmp/run3.out" \
+  || fail "partial-run completion not classified as repaired: $(cat "$tmp/run3.out")"
+grep -q '1 repaired' "$tmp/run3.out" \
+  || fail "summary tally does not count the repair: $(cat "$tmp/run3.out")"
 n_clog=$(grep -c 'Migrated to format-version 2' "$repo2/specs/partial/requirements.md" || true)
 [ "$n_clog" = 1 ] || fail "changelog entry duplicated on completion ($n_clog)"
 # shellcheck disable=SC2016 # the backticks are literal markdown, not expansions
@@ -722,6 +754,83 @@ if (cd "$repo3" && "$MIGRATE" specs/missing-fv >/dev/null 2>&1); then
 fi
 assert_same_tree "$repo3/specs/missing-fv" "$mfv_snap" "missing-Format-version bundle written"
 echo "ok: a missing Format-version is refused fail-closed with no write (REQ-C1.8)"
+
+# A numeric-but-unsupported Format-version (e.g. 3) takes its own refusal
+# arm, distinct from unparseable: this migration implements exactly 1 → 2.
+seeded_bundle "$repo3/specs/future-fv" Ready
+sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** 3/' \
+  "$repo3/specs/future-fv/requirements.md" >"$tmp/ff" \
+  && mv "$tmp/ff" "$repo3/specs/future-fv/requirements.md"
+ffv_snap=$tmp/ffv.snap
+snapshot "$repo3/specs/future-fv" "$ffv_snap"
+if (cd "$repo3" && "$MIGRATE" specs/future-fv >/dev/null 2>"$tmp/ffv.err"); then
+  fail "REQ-C1.8: an unsupported numeric Format-version was not refused"
+fi
+assert_same_tree "$repo3/specs/future-fv" "$ffv_snap" "unsupported-Format-version bundle written"
+grep -q 'unsupported Format-version' "$tmp/ffv.err" \
+  || fail "refusal does not name the unsupported version: $(cat "$tmp/ffv.err")"
+echo "ok: a numeric unsupported Format-version is refused fail-closed with no write (REQ-C1.8)"
+
+# An already-v2 bundle carrying the migration changelog marker but missing
+# its kickoff brief cannot have its re-anchor completed: the repair arm must
+# refuse (not no-op past it, not crash, not write anything).
+mnb=$tmp/marker-no-brief
+mkdir -p "$mnb/specs"
+cp -R "$repo/specs/seeded" "$mnb/specs/poisoned"
+rm "$mnb/specs/poisoned/kickoff-brief.md"
+mnb_snap=$tmp/mnb.snap
+snapshot "$mnb/specs/poisoned" "$mnb_snap"
+if (cd "$mnb" && "$MIGRATE" specs/poisoned >/dev/null 2>"$tmp/mnb.err"); then
+  fail "a marker-carrying v2 bundle with no brief was not refused"
+fi
+assert_same_tree "$mnb/specs/poisoned" "$mnb_snap" "marker-no-brief bundle written"
+grep -q 'cannot complete the re-anchor' "$tmp/mnb.err" \
+  || fail "marker-no-brief refusal not diagnosed: $(cat "$tmp/mnb.err")"
+echo "ok: a v2 bundle with the migration marker but no brief is refused (REQ-D1.2)"
+
+# Per-bundle isolation in a mixed sweep: a refused bundle must not stop the
+# sweep — the valid sibling still migrates, the tally counts both, and the
+# exit code reports the refusal (the script header's isolation contract).
+mix=$tmp/mixed-corpus
+mkdir -p "$mix/specs"
+seeded_bundle "$mix/specs/bad" Draft
+printf '%s\n' '' '## Backlog' '' '(nothing)' >>"$mix/specs/bad/tasks.md"
+seeded_bundle "$mix/specs/good" Draft
+bad_snap=$tmp/bad.snap
+snapshot "$mix/specs/bad" "$bad_snap"
+if mix_out=$(cd "$mix" && "$MIGRATE" specs 2>"$tmp/mix.err"); then
+  fail "a mixed sweep with a refused bundle exited zero"
+fi
+assert_same_tree "$mix/specs/bad" "$bad_snap" "refused bundle written in a mixed sweep"
+headers_ok "$mix/specs/good" Draft "mixed-sweep good bundle"
+case "$mix_out" in
+  *"1 migrated, 0 repaired, 0 unchanged, 1 refused"*) ;;
+  *) fail "mixed-sweep tally wrong: $mix_out" ;;
+esac
+echo "ok: a refusal never aborts the sweep — the valid sibling migrates and the tally counts both (D-10)"
+
+# An escape byte inside a header VALUE (not just a directory name) must be
+# stripped before the value is compared or echoed: the unknown-status
+# refusal fires with sanitized output (REQ-C1.9).
+esv=$tmp/escape-value
+mkdir -p "$esv/specs"
+seeded_bundle "$esv/specs/poisoned" Ready
+esc=$(printf '\033')
+awk -v esc="$esc" '
+  /^\*\*Status:\*\* Ready$/ && !done { print "**Status:** Rea" esc "[31mdy"; done = 1; next }
+  { print }
+' "$esv/specs/poisoned/requirements.md" >"$tmp/ev" \
+  && mv "$tmp/ev" "$esv/specs/poisoned/requirements.md"
+esv_snap=$tmp/esv.snap
+snapshot "$esv/specs/poisoned" "$esv_snap"
+if (cd "$esv" && "$MIGRATE" specs/poisoned >/dev/null 2>"$tmp/esv.err"); then
+  fail "REQ-C1.9: an escape-byte header value was not refused"
+fi
+assert_same_tree "$esv/specs/poisoned" "$esv_snap" "escape-value bundle written"
+if od -c "$tmp/esv.err" | grep -q '033'; then
+  fail "REQ-C1.9: refusal echoed a raw escape byte from a header value"
+fi
+echo "ok: an escape byte in a header value is refused with sanitized output (REQ-C1.9)"
 
 # --- Mechanical-or-refuse: every non-mechanical input is a clean refusal
 # with no write (D-10, REQ-D1.2). Each case poisons a fresh Draft bundle
@@ -970,10 +1079,16 @@ echo "ok: an out-of-containment path is refused with no write (REQ-C1.9)"
 
 occ="$here/../specs/orchestration-concurrency/tasks.md"
 [ -f "$occ" ] || fail "specs/orchestration-concurrency/tasks.md missing"
-awk '/^- \*\*The Maximal variant/,/^- \*\*[^T]|^## /' "$occ" >"$tmp/maximal" || true
+# Capture exactly the Maximal entry: its bullet line plus continuations,
+# stopping at the next top-level bullet or heading — a loose range could be
+# satisfied by a neighboring entry's text.
+awk '/^- \*\*The Maximal variant/ { on = 1; print; next }
+     on && (/^- / || /^## /) { exit }
+     on { print }' "$occ" >"$tmp/maximal"
 grep -q 'Maximal variant' "$tmp/maximal" || fail "Maximal variant Deferred entry not found"
-grep -qi 'closed' "$tmp/maximal" || fail "REQ-E1.4: Maximal variant entry carries no closure annotation"
-grep -q 'invariant-tasks' "$tmp/maximal" \
+grep -q 'Closed 20[0-9][0-9]-' "$tmp/maximal" \
+  || fail "REQ-E1.4: Maximal variant entry carries no dated closure annotation"
+grep -q 'specs/invariant-tasks' "$tmp/maximal" \
   || fail "REQ-E1.4: closure annotation does not cite specs/invariant-tasks"
 echo "ok: the Maximal-variant Deferred entry is annotated closed citing invariant-tasks (REQ-E1.4)"
 
