@@ -253,16 +253,6 @@ mature precedent this spec can simply defer to wholesale.
 
 ## Changelog
 
-- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
-  one-shot `scripts/migrate-format-version.sh` run): placement sections
-  collapsed into a single `## Tasks` section, state annotation bullets
-  stripped, stored header restricted to the human-gated set, the
-  `**Execution:**` pointer line added, `Format-version:` bumped to 2 on
-  all four files. Task definition lines are preserved byte-for-byte (the
-  canonical `tasks.md` extraction digest is unchanged), so the required
-  re-anchor rides as expression-only: the kickoff brief's self-re-anchor
-  entry cites this entry.
-
 - 2026-07-14 — Initial draft.
 - 2026-07-14 — Kickoff walkthrough: reworded REQ-A1.1's "working→idle/done" to "working→idle"
   (expression-only; "done" was shorthand for the existing merged-and-idle cleanup case, REQ-B1.1,
@@ -298,6 +288,16 @@ mature precedent this spec can simply defer to wholesale.
   `MD033/no-inline-html` rule (the bare part read as an HTML-like tag). Fixed by widening the code
   span to cover the whole placeholder in one span, matching the safe pattern already used in
   `kickoff-lifecycle/design.md`.
+
+- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
+  one-shot `scripts/migrate-format-version.sh` run): placement sections
+  collapsed into a single `## Tasks` section, state annotation bullets
+  stripped, stored header restricted to the human-gated set, the
+  `**Execution:**` pointer line added, `Format-version:` bumped to 2 on
+  all four files. Task definition lines are preserved byte-for-byte (the
+  canonical `tasks.md` extraction digest is unchanged), so the required
+  re-anchor rides as expression-only: the kickoff brief's self-re-anchor
+  entry cites this entry.
   Pre-existing from the original draft, not introduced by the kickoff walkthrough; caught by CI
   after the PR was opened, not by the sign-off lens pass (which reviews doctrine/content, not
   markdownlint rules).

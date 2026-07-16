@@ -273,5 +273,5 @@ expression-only (REQ-A3.3, REQ-D1.2).
 `requirements.md` ("Migrated to format-version 2").
 
 Class: expression-only
-Anchor: `89c87e2103f3c480a19d74b88cd3f5c3fec4c988` — computed as
+Anchor: `7cecf3402f55ce07c90bcafaf646a3c1ba4182f9` — computed as
 `scripts/spec-anchor.sh specs/inception`

@@ -438,5 +438,5 @@ expression-only (REQ-A3.3, REQ-D1.2).
 `requirements.md` ("Migrated to format-version 2").
 
 Class: expression-only
-Anchor: `803786574ebc460e423f84e962dbe5c080fbf037` — computed as
+Anchor: `179ffbe89a3be50b3ffe2f2d28ec574fc00037e6` — computed as
 `scripts/spec-anchor.sh specs/fleet-autonomy`

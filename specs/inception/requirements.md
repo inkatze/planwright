@@ -492,16 +492,6 @@ doctrine-first (D-20).
 
 ## Changelog
 
-- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
-  one-shot `scripts/migrate-format-version.sh` run): placement sections
-  collapsed into a single `## Tasks` section, state annotation bullets
-  stripped, stored header restricted to the human-gated set, the
-  `**Execution:**` pointer line added, `Format-version:` bumped to 2 on
-  all four files. Task definition lines are preserved byte-for-byte (the
-  canonical `tasks.md` extraction digest is unchanged), so the required
-  re-anchor rides as expression-only: the kickoff brief's self-re-anchor
-  entry cites this entry.
-
 - 2026-07-09 — Initial draft authored via `/spec-draft` (elicitation 2026-07-07 through
   2026-07-09), including two commissioned research passes (prior-art and bundle ergonomics;
   discipline-persona evidence), a pitch dry-run evaluation against a proprietary specimen
@@ -517,6 +507,16 @@ doctrine-first (D-20).
   export regen, REQ-A1.9/G1.1; zero-seat collapse, REQ-P1.8; ephemeral session-only-warned,
   REQ-A1.5); atomic registry writes (REQ-A1.6, D-8). See `kickoff-brief.md` §3–§7 for the full
   disposition ledger.
+
+- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
+  one-shot `scripts/migrate-format-version.sh` run): placement sections
+  collapsed into a single `## Tasks` section, state annotation bullets
+  stripped, stored header restricted to the human-gated set, the
+  `**Execution:**` pointer line added, `Format-version:` bumped to 2 on
+  all four files. Task definition lines are preserved byte-for-byte (the
+  canonical `tasks.md` extraction digest is unchanged), so the required
+  re-anchor rides as expression-only: the kickoff brief's self-re-anchor
+  entry cites this entry.
 
 ## Sources
 
