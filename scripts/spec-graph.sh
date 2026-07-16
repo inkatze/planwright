@@ -105,8 +105,10 @@ tab=$(printf '\t')
 model=$("$model_sh" "$spec_dir") || exit $?
 
 # Critical path, reused from the orchestrator (D-6). A taskless/absent tasks.md
-# makes the selector exit 2; that is not fatal here (the bundle may legitimately
-# have no task graph), so the path is simply empty and nothing is highlighted.
+# — or, since invariant-tasks Task 5, a missing/unparseable Format-version:
+# line (REQ-C1.8) — makes the selector exit 2; that is not fatal here (the
+# bundle may legitimately have no task graph, and a version-less bundle refuses
+# rather than guesses), so the path is simply empty and nothing is highlighted.
 # The awk pipeline's exit status is awk's (0), so set -e is satisfied.
 crit_path=$(
   "$select_sh" --critical-path "$spec_dir" 2>/dev/null \

@@ -54,7 +54,9 @@
 #       prints "<spec-dir>\t<id>" for the unit to advance next, on stdout.
 #
 # Exit: 0 a unit was produced (on stdout); 1 nothing dispatchable this step
-# (nothing ready anywhere, or the fleet / every candidate spec is at its bound);
+# (nothing ready anywhere, the fleet / every candidate spec is at its bound,
+# or every ready spec is held on a transient evidence failure — the hold is
+# surfaced on stderr per spec, REQ-B1.5);
 # 2 a supervised spec dir is missing / taskless / not a git work tree, a spec
 # basename fails the identifier grammar, or a required helper is unavailable —
 # fail closed, so absent live truth never silently reports "nothing".
@@ -83,7 +85,7 @@ config_get="$script_dir/config-get.sh"
 echo_safety="$script_dir/echo-safety.sh"
 for helper in "$state_engine" "$selector" "$config_get"; do
   if [ ! -x "$helper" ]; then
-    echo "orchestrate-meta-select: required helper $helper missing or not executable" >&2
+    printf '%s\n' "orchestrate-meta-select: required helper $helper missing or not executable" >&2
     exit 2
   fi
 done
@@ -94,14 +96,14 @@ done
 # operator-facing stderr (echo discipline, doctrine/security-posture.md — the same
 # posture every sibling in-scope script applies at each such site).
 if [ ! -r "$echo_safety" ]; then
-  echo "orchestrate-meta-select: required helper $echo_safety missing or not readable" >&2
+  printf '%s\n' "orchestrate-meta-select: required helper $echo_safety missing or not readable" >&2
   exit 2
 fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
 if [ "$#" -lt 1 ]; then
-  echo "usage: orchestrate-meta-select.sh <spec-dir> [<spec-dir>...]" >&2
+  printf '%s\n' "usage: orchestrate-meta-select.sh <spec-dir> [<spec-dir>...]" >&2
   exit 2
 fi
 
@@ -120,27 +122,27 @@ for spec_dir in "$@"; do
   spec_id=$(basename "$spec_dir")
   case "$spec_id" in
     *[!a-z0-9-]* | -* | "")
-      echo "orchestrate-meta-select: invalid spec id '$(sanitize_printable "$spec_id" "(unprintable id)")' (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
+      printf '%s\n' "orchestrate-meta-select: invalid spec id '$(sanitize_printable "$spec_id" "(unprintable id)")' (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
       exit 2
       ;;
   esac
   if [ "${#spec_id}" -gt 64 ]; then
-    echo "orchestrate-meta-select: spec id '$spec_id' exceeds 64 characters" >&2
+    printf '%s\n' "orchestrate-meta-select: spec id '$spec_id' exceeds 64 characters" >&2
     exit 2
   fi
   if [ ! -f "$spec_dir/tasks.md" ] || [ ! -r "$spec_dir/tasks.md" ]; then
-    echo "orchestrate-meta-select: missing or unreadable $(sanitize_printable "$spec_dir" "(unprintable path)")/tasks.md" >&2
+    printf '%s\n' "orchestrate-meta-select: missing or unreadable $(sanitize_printable "$spec_dir" "(unprintable path)")/tasks.md" >&2
     exit 2
   fi
   spec_top=$(cd "$spec_dir" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || spec_top=""
   if [ -z "$spec_top" ]; then
-    echo "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is not inside a git work tree" >&2
+    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is not inside a git work tree" >&2
     exit 2
   fi
   if [ -z "$repo_root" ]; then
     repo_root="$spec_top"
   elif [ "$spec_top" != "$repo_root" ]; then
-    echo "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is in a different checkout ('$(sanitize_printable "$spec_top" "(unprintable path)")') than the fleet root ('$(sanitize_printable "$repo_root" "(unprintable path)")'); a fleet supervises specs in one checkout" >&2
+    printf '%s\n' "orchestrate-meta-select: spec '$(sanitize_printable "$spec_dir" "(unprintable path)")' is in a different checkout ('$(sanitize_printable "$spec_top" "(unprintable path)")') than the fleet root ('$(sanitize_printable "$repo_root" "(unprintable path)")'); a fleet supervises specs in one checkout" >&2
     exit 2
   fi
 done
@@ -181,7 +183,7 @@ read_bound() {
       printf '%s' "$rb_v"
       ;;
     *)
-      echo "orchestrate-meta-select: ignoring malformed $rb_key '$(sanitize_printable "$rb_v" "(unprintable value)")'; using $rb_fallback" >&2
+      printf '%s\n' "orchestrate-meta-select: ignoring malformed $rb_key '$(sanitize_printable "$rb_v" "(unprintable value)")'; using $rb_fallback" >&2
       printf '%s' "$rb_fallback"
       ;;
   esac
@@ -205,7 +207,7 @@ for spec_dir in "$@"; do
   # In-flight count from the live derivation. A non-zero exit is a hard failure
   # (no git work tree, taskless) → fail the whole fleet closed.
   if ! state_out=$("$state_engine" "$spec_dir"); then
-    echo "orchestrate-meta-select: live derivation failed for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
+    printf '%s\n' "orchestrate-meta-select: live derivation failed for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
     exit 2
   fi
   # The derivation's evidence-quality records (degraded / contradiction) are
@@ -219,7 +221,7 @@ for spec_dir in "$@"; do
   printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1 == "degraded" || $1 == "contradiction"' \
     | while IFS= read -r meta_rec; do
-      [ -n "$meta_rec" ] && echo "orchestrate-meta-select: [$(sanitize_printable "$spec_dir" "(unprintable path)")] $(sanitize_printable "$meta_rec" "(unprintable record)")" >&2
+      [ -n "$meta_rec" ] && printf '%s\n' "orchestrate-meta-select: [$(sanitize_printable "$spec_dir" "(unprintable path)")] $(sanitize_printable "$meta_rec" "(unprintable record)")" >&2
     done
   inflight=$(printf '%s\n' "$state_out" \
     | awk -F"$TAB" '$1 == "task" && $3 == "in-progress" { n++ } END { print n + 0 }')
@@ -232,8 +234,16 @@ for spec_dir in "$@"; do
   sel_rc=0
   ready_id=$("$selector" "$spec_dir" 2>/dev/null) || sel_rc=$?
   if [ "$sel_rc" = 2 ]; then
-    echo "orchestrate-meta-select: selection failed for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
+    printf '%s\n' "orchestrate-meta-select: selection failed for $(sanitize_printable "$spec_dir" "(unprintable path)") (fail closed)" >&2
     exit 2
+  fi
+  # Selector exit 3 (REQ-B1.5, v2 bundles): a transient evidence failure — the
+  # spec is held this step (not a candidate, nothing dispatched), and the
+  # reason is re-stated here because the selector's stderr is suppressed
+  # above. Without this, "cannot know" would be indistinguishable from
+  # exit 1's "nothing ready" at the fleet tier.
+  if [ "$sel_rc" = 3 ]; then
+    printf '%s\n' "orchestrate-meta-select: transient evidence failure for $(sanitize_printable "$spec_dir" "(unprintable path)"); holding this spec this step (REQ-B1.5)" >&2
   fi
 
   # A candidate iff the spec has a ready unit AND is below its per-spec cap.
@@ -247,7 +257,7 @@ done
 # step even if a spec is ready. Surface the reason (distinct from nothing-ready)
 # so an operator watching an unattended fleet sees why it paused.
 if [ "$fleet_inflight" -ge "$fleet_bound" ]; then
-  echo "orchestrate-meta-select: fleet at bound ($fleet_inflight/$fleet_bound in progress); holding this step" >&2
+  printf '%s\n' "orchestrate-meta-select: fleet at bound ($fleet_inflight/$fleet_bound in progress); holding this step" >&2
   exit 1
 fi
 

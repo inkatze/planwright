@@ -62,6 +62,7 @@ the guard that protects their output exists.
 - **Citations:** D-8, D-3 · REQ-C1.2, REQ-C1.3, REQ-B1.5, REQ-C1.8,
   REQ-C1.9
 - **Estimated effort:** 1 day
+- **Last activity:** 2026-07-15
 
 ### Task 6 — Migration script and live-bundle migration
 
