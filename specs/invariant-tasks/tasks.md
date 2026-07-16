@@ -5,7 +5,8 @@
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-The canonical orchestration state record for `specs/invariant-tasks`.
+The task-definition record for `specs/invariant-tasks`; execution status
+is derived on demand, never stored here (see the status render).
 Dependency edges are the sole source of truth for the task graph
 (`scripts/spec-graph.sh` renders the view on demand). Guard-first note:
 every task that produces committed v2 spec content carries an explicit

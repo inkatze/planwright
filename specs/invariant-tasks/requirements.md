@@ -257,7 +257,7 @@ meta-spec), per the altitude trigger the drafting invocation fired.
 
 ## Changelog
 
-- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
+- 2026-07-15 — Migrated to format-version 2 (D-10, REQ-D1.3;
   one-shot `scripts/migrate-format-version.sh` run): placement sections
   collapsed into a single `## Tasks` section, state annotation bullets
   stripped, stored header restricted to the human-gated set, the
@@ -265,7 +265,10 @@ meta-spec), per the altitude trigger the drafting invocation fired.
   all four files. Task definition lines are preserved byte-for-byte (the
   canonical `tasks.md` extraction digest is unchanged), so the required
   re-anchor rides as expression-only: the kickoff brief's self-re-anchor
-  entry cites this entry.
+  entry cites this entry. The `tasks.md` intro sentence was reconciled in
+  the same change (the v1 "canonical orchestration state record" claim is
+  false under v2; the file is the task-definition record and status is
+  derived).
 
 - 2026-07-15 — Completion-annotation supersession recorded (Task 8, D-11,
   REQ-C1.7). The normative completion annotation

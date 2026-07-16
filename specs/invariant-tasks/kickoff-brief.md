@@ -479,5 +479,5 @@ expression-only (REQ-A3.3, REQ-D1.2).
 `requirements.md` ("Migrated to format-version 2").
 
 Class: expression-only
-Anchor: `8dd6ebc51e27b311de924253e8b8a9258ece2f3d` — computed as
+Anchor: `aca926877d45b9bf91ddb6b02db75cef0d938fcb` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
