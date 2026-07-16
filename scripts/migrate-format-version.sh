@@ -121,6 +121,13 @@ gtmp=$(mktemp -d) || {
   exit 2
 }
 trap 'rm -rf "$gtmp"' EXIT
+# Convert fatal signals to exits so the EXIT trap fires under dash-like
+# shells too (bash runs it on signals; POSIX leaves that unspecified). The
+# per-spec lock needs no signal handling: a killed holder falls through to
+# orchestrate-lock.sh's stale-break by design.
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 migrated=0
 repaired=0
