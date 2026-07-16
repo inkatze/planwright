@@ -164,7 +164,9 @@ case "$fv" in
     ;;
 esac
 
-# Live-truth state (Task 5, D-3, REQ-B1.2). In selection mode the completed /
+# Live-truth state (orchestration-concurrency Task 5, D-3, REQ-B1.2; the
+# invariant-tasks Task 5 above is the format-version keying). In selection
+# mode the completed /
 # in-progress sets come from the derivation engine, never from tasks.md section
 # placement. --critical-path stays purely structural (full DAG,
 # completion-independent, git-free) and never consults the derivation, so these
