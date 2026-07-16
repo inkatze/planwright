@@ -794,6 +794,39 @@ mkdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 refusal_case lock-busy "a live per-spec lock (single-writer serialization)"
 rmdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
 
+# Lock-before-read ordering (the TOCTOU guard): with the lock busy, the
+# refusal must be the lock refusal, not a compute-phase diagnostic — the
+# decision and the staged content must be computed under the same lock the
+# write holds, or a concurrent locked writer landing between read and write
+# is silently clobbered.
+mkrefusal lock-order
+printf '%s\n' '' '## Backlog' '' '(nothing)' >>"$tmp/refuse-lock-order/specs/poisoned/tasks.md"
+mkdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
+refusal_case lock-order "a busy per-spec lock (checked before any compute-phase read)"
+grep -q 'lock busy' "$tmp/refuse-lock-order.err" \
+  || fail "lock ordering: busy-lock refusal reported '$(cat "$tmp/refuse-lock-order.err")' — the compute phase ran before the lock was checked (TOCTOU)"
+rmdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
+
+# A task block before the first H2 has no deterministic v2 home: left alone
+# it would ride the preserved head verbatim, keeping its state annotation
+# bullets (the exact content the migration strips) in the migrated file.
+mkrefusal pre-h2-task
+awk '/^## Forward plan$/ && !done {
+       print "### Task 9 — Stray pre-section block"
+       print ""
+       print "- **Deliverables:** Stray."
+       print "- **Done when:** Never."
+       print "- **Dependencies:** none"
+       print "- **Citations:** REQ-A1.1"
+       print "- **Estimated effort:** half day"
+       print "- **Status:** implementing"
+       print ""
+       done = 1
+     }
+     { print }' "$tmp/refuse-pre-h2-task/specs/poisoned/tasks.md" >"$tmp/ph" \
+  && mv "$tmp/ph" "$tmp/refuse-pre-h2-task/specs/poisoned/tasks.md"
+refusal_case pre-h2-task "a task block before the first H2 section (head-relocation guard)"
+
 # --- Single-bundle invocation success mode: migrating one bundle by its
 # directory path (no sweep, no containment root) works end-to-end.
 solo=$tmp/solo-corpus
@@ -804,6 +837,25 @@ seeded_bundle "$solo/specs/solo" Draft
 headers_ok "$solo/specs/solo" Draft "solo"
 "$VALIDATE" "$solo/specs/solo" >/dev/null 2>&1 || fail "single-bundle migrated solo bundle does not validate"
 echo "ok: single-bundle invocation migrates one bundle end-to-end (REQ-D1.2)"
+
+# --- Header-grammar parity: a `**Status:**Active` line with no space after
+# the colon parses identically everywhere else (header_value, the validator)
+# and must not evade the Active → Ready restriction; the transform emits the
+# canonical spaced form.
+ns=$tmp/nospace-corpus
+mkdir -p "$ns/specs"
+seeded_bundle "$ns/specs/nospace" Active
+signed_brief "$ns/specs/nospace" specs/nospace
+for nf in requirements.md tasks.md; do
+  sed 's/^\*\*Status:\*\* Active$/**Status:**Active/' "$ns/specs/nospace/$nf" >"$tmp/nsf" \
+    && mv "$tmp/nsf" "$ns/specs/nospace/$nf"
+done
+(cd "$ns" && "$MIGRATE" specs/nospace >/dev/null 2>&1) \
+  || fail "no-space Status header bundle failed to migrate"
+headers_ok "$ns/specs/nospace" Ready "nospace"
+"$VALIDATE" "$ns/specs/nospace" >"$tmp/ns.val" 2>&1 \
+  || fail "no-space migrated bundle does not validate: $(cat "$tmp/ns.val")"
+echo "ok: a no-space Status header cannot evade the Active → Ready restriction (parser parity)"
 
 # --- Interrupted mid-write recovery: design.md already v2 while the other
 # three files are back at v1 (an interruption before the requirements.md

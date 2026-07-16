@@ -51,10 +51,13 @@
 #
 # Writes are serialized against the other tasks.md writers through the ONE
 # per-spec advisory lock (`scripts/orchestrate-lock.sh`, shared with the
-# tasks-pr-sync hook and /orchestrate): the lock is acquired around each
-# bundle's write phase, and a busy lock is a per-bundle refusal, never a
-# blind write. Per-bundle isolation holds throughout: any single bundle's
-# I/O failure is a refusal that lets the sweep continue to the next bundle.
+# tasks-pr-sync hook and /orchestrate): the lock is acquired before each
+# bundle's content is first read and held across the whole
+# read→compute→write phase (reading outside it would let a concurrent
+# locked writer land between read and write and be silently clobbered),
+# and a busy lock is a per-bundle refusal, never a blind write. Per-bundle
+# isolation holds throughout: any single bundle's I/O failure is a refusal
+# that lets the sweep continue to the next bundle.
 #
 # Fail-closed version keying (REQ-C1.8): a missing or unparseable
 # `Format-version:` refuses the bundle with no write. Hostile identifiers
@@ -277,6 +280,9 @@ restructure_tasks() {
     }
     BEGIN { sec = "" }
     !started && /^## / { started = 1 }
+    !started && /^### / {
+      bail("heading before the first H2 section at tasks.md:" NR " (a task block outside every section has no deterministic format-version 2 home; move it under a section first)")
+    }
     !started { head = head $0 "\n"; next }
     /^## Forward plan[ \t]*$/   { sec = "FP"; in_blk = 0; next }
     /^## In progress[ \t]*$/    { sec = "IP"; in_blk = 0; next }
@@ -411,9 +417,17 @@ transform_header() {
   th_ptr=0
   grep -qxF '**Execution:** derived — see the status render' "$1" && th_ptr=1
   awk -v haveptr="$th_ptr" '
-    !done_status && /^\*\*Status:\*\* / {
-      if ($0 == "**Status:** Active") print "**Status:** Ready"
-      else print
+    # Parse the value exactly as header_value does (zero-or-more separator
+    # whitespace, non-printables stripped, trailing whitespace trimmed) so
+    # a non-canonically spaced header cannot evade the restriction, and
+    # emit the canonical spaced form.
+    !done_status && index($0, "**Status:**") == 1 {
+      v = $0
+      sub(/^\*\*Status:\*\*[ \t]*/, "", v)
+      gsub(/[^[:print:]]/, "", v)
+      sub(/[ \t]+$/, "", v)
+      if (v == "Active") print "**Status:** Ready"
+      else print "**Status:** " v
       done_status = 1
       next
     }
@@ -444,9 +458,12 @@ stage_write() {
 # process_bundle <dir> <name> — migrate one screened bundle in place. Every
 # outcome (migrated / repaired / unchanged / refused) is counted here and
 # the function always returns 0; a refusal never aborts the sweep.
-# Everything is computed and self-checked before the first write; the write
-# phase runs under the per-spec advisory lock, and a partial write sequence
-# is recovered by re-running (D-10).
+# Everything is computed and self-checked before the first write, and the
+# ONE per-spec advisory lock is acquired before the first content read and
+# held across the whole read→compute→write phase: the decision and the
+# staged bytes must come from the same content the write installs over, or
+# a concurrent locked writer landing between read and write is silently
+# clobbered. A partial write sequence is recovered by re-running (D-10).
 process_bundle() {
   bdir=$1
   bname=$2
@@ -462,6 +479,24 @@ process_bundle() {
       return 0
     fi
   done
+
+  # Serialized against the other tasks.md writers through the ONE per-spec
+  # advisory lock (shared with the tasks-pr-sync hook and /orchestrate).
+  # Busy is a refusal, not a wait.
+  if ! "$lock_sh" acquire "$bdir" >/dev/null 2>&1; then
+    refuse "$bname" "per-spec lock busy or refused; nothing written (re-run when quiet)"
+    return 0
+  fi
+  process_bundle_locked "$bdir" "$bname"
+  "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
+  return 0
+}
+
+# process_bundle_locked <dir> <name> — the read→compute→write body, entered
+# with the per-spec lock held; the caller releases it on every return path.
+process_bundle_locked() {
+  bdir=$1
+  bname=$2
 
   # Read the authoritative header once, from a snapshot: the parse that
   # decides signedness and the bytes later transformed must come from the
@@ -507,20 +542,12 @@ process_bundle() {
       if grep -qF "$entry_marker" "$brief"; then
         echo "unchanged (already format-version 2): $bname"
         unchanged=$((unchanged + 1))
+      elif append_reanchor "$bdir"; then
+        echo "repaired: $bname (missing re-anchor entry appended)"
+        repaired=$((repaired + 1))
       else
-        if ! "$lock_sh" acquire "$bdir" >/dev/null 2>&1; then
-          refuse "$bname" "per-spec lock busy or refused; nothing written (re-run when quiet)"
-          return 0
-        fi
-        if append_reanchor "$bdir"; then
-          "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
-          echo "repaired: $bname (missing re-anchor entry appended)"
-          repaired=$((repaired + 1))
-        else
-          "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
-          refuse "$bname" "re-anchor completion failed"
-          return 0
-        fi
+        refuse "$bname" "re-anchor completion failed"
+        return 0
       fi
     else
       echo "unchanged (already format-version 2): $bname"
@@ -708,19 +735,13 @@ EOF
     return 0
   fi
 
-  # Write phase, under the ONE per-spec advisory lock (shared with the
-  # tasks-pr-sync hook and /orchestrate) so no other tasks.md writer
-  # interleaves with the multi-file install. Busy is a refusal, not a wait.
-  if ! "$lock_sh" acquire "$bdir" >/dev/null 2>&1; then
-    refuse "$bname" "per-spec lock busy or refused; nothing written (re-run when quiet)"
-    return 0
-  fi
-  # requirements.md last: its migration changelog marker is the completion
-  # key a re-run checks, so an interruption anywhere earlier re-runs the
-  # idempotent per-file transforms (D-10).
+  # Write phase (the per-spec lock has been held since before the first
+  # read, so no other tasks.md writer interleaves with the multi-file
+  # install). requirements.md last: its migration changelog marker is the
+  # completion key a re-run checks, so an interruption anywhere earlier
+  # re-runs the idempotent per-file transforms (D-10).
   for pair in design.md test-spec.md tasks.md requirements.md; do
     if ! stage_write "$gtmp/${pair%.md}.new" "$bdir/$pair"; then
-      "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
       refuse "$bname" "write failed on $pair (partial migration; re-run to complete)"
       return 0
     fi
@@ -728,12 +749,10 @@ EOF
 
   if [ "$signed" = 1 ]; then
     if ! append_reanchor "$bdir"; then
-      "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
       refuse "$bname" "files migrated but the re-anchor entry failed; re-run to complete (D-10)"
       return 0
     fi
   fi
-  "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
 
   echo "migrated: $bname"
   migrated=$((migrated + 1))
