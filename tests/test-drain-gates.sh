@@ -36,7 +36,8 @@
 #      lane plus the errors count.
 #  11. Exit-code contract: 0 sweep completed, 1 unusable root (missing or
 #      non-searchable), 2 usage error (bad flag count, out-of-range or
-#      calendar-invalid --today).
+#      calendar-invalid --today) or a broken install (script directory
+#      unresolvable, so the sibling derivation engine cannot be located).
 #  12. The /drain skill is wired to this exact evaluator path.
 #  13. Future-dated observation entries never yield a negative age.
 #  14. Permission failures are surfaced and counted, not conflated with
@@ -57,6 +58,17 @@
 #  23. A bundle without requirements.md leaves a note explaining why its
 #      status atoms cannot evaluate (missing, unreadable, and
 #      unrecognized are all noted, never silent).
+#  35.-45. Format-version 2 (invariant-tasks Task 5; checks 24-34 are the
+#      incremental additions between, described at their body sections):
+#      task-completion atoms resolve through the derivation engine with
+#      reference-bullet authority; transient evidence failures and a missing
+#      engine leave atoms UNRESOLVED (fail closed); a missing/unparseable
+#      Format-version: fails closed per spec; mixed v1+v2 roots key per spec;
+#      the engine is consulted only when unfenced task atoms could need it;
+#      prose bullets stay silent, near-misses warn; fences are illustration.
+#  46.-47. v2 error-path rows: an engine-present-but-failing derivation
+#      resolves atoms as unresolved with its own counted error row; one
+#      PENDING row can carry both `- unmet:` and the unresolved clause.
 #
 # Runs standalone: ./tests/test-drain-gates.sh
 set -eu
@@ -1254,5 +1266,64 @@ printf '%s\n' "$out45" | grep '^PENDING' | grep -F 'Parked after fence' >/dev/nu
 printf '%s\n' "$out45" | grep -F 'reference bullet rejected' >/dev/null \
   || fail "a near-miss reference bullet must be rejected loudly, not silently skipped as prose"
 echo "ok: fences never end a real section, and near-miss bullets warn (REQ-C1.9)"
+
+# 46. Engine-present-but-failing (the third v2 fail-closed sub-path, distinct
+#     from missing-engine check 41 and transient-degraded checks 37/39): a v2
+#     bundle with an unfenced task and gate in a NON-git root makes the
+#     derivation run and fail, so task atoms resolve as unresolved, the
+#     distinct error row is emitted and counted, and the sweep completes.
+mkdir -p "$tmp/specs33/psi"
+printf '%s\n' '# P' '' '**Status:** Ready' >"$tmp/specs33/psi/requirements.md"
+printf '%s\n' '# Psi — Tasks' '' '**Format-version:** 2' '' '## Tasks' '' \
+  '### Task 1 — work' '' '- **Done when:** done.' '' \
+  '## Awaiting input' '' '(none yet)' '' '## Deferred' '' \
+  '- **Engine down.** Derivation must fail here (non-git root).' \
+  '  **Gate:** GATE(when: task 1 completed). Citations: REQ-X.' '' \
+  '## Out of scope' '' '(none yet)' \
+  >"$tmp/specs33/psi/tasks.md"
+out46=$("$drain" --today 2026-07-15 "$tmp/specs33") \
+  || fail "engine-failure fixture broke the sweep"
+printf '%s\n' "$out46" | grep -F 'derivation failed - task-completion atoms resolve as unresolved' >/dev/null \
+  || fail "a failing derivation must be surfaced as its own error row: $(printf '%s\n' "$out46" | grep -F 'error')"
+printf '%s\n' "$out46" | grep '^SATISFIED' >/dev/null \
+  && fail "no gate may resolve SATISFIED when the derivation fails"
+printf '%s\n' "$out46" | grep '^PENDING' | grep -F 'Engine down' \
+  | grep -F 'unresolved (completion evidence unavailable): task 1 completed' >/dev/null \
+  || fail "the PENDING row must name the unresolved atom on engine failure: $(printf '%s\n' "$out46" | grep -F 'Engine down')"
+printf '%s\n' "$out46" | grep -F 'errors: 1' >/dev/null \
+  || fail "the engine failure must be counted exactly once (errors: 1): $(printf '%s\n' "$out46" | grep -F 'errors:')"
+echo "ok: a failing derivation resolves task atoms as unresolved (fail closed)"
+
+# 47. A gate mixing a genuinely-unmet atom with a v2-unresolved task atom
+#     carries BOTH clauses in one PENDING row: `- unmet:` for the spec atom
+#     (unaffected by the evidence failure) and the unresolved marker for the
+#     task atom, so neither hides the other (REQ-B1.5).
+v2c="$tmp/v2combined"
+mkdir -p "$v2c/specs/qq" "$v2c/specs/other"
+git -C "$v2c" -c init.defaultBranch=main init -q
+printf '%s\n' '# Q' '' '**Status:** Ready' >"$v2c/specs/qq/requirements.md"
+printf '%s\n' '# O' '' '**Status:** Active' >"$v2c/specs/other/requirements.md"
+printf '%s\n' '# O — Tasks' '' '**Format-version:** 1' >"$v2c/specs/other/tasks.md"
+printf '%s\n' '# Qq — Tasks' '' '**Format-version:** 2' '' '## Tasks' '' \
+  '### Task 1 — landed work' '' '- **Done when:** done.' '' \
+  '## Awaiting input' '' '(none yet)' '' '## Deferred' '' \
+  '- **Combined row.** One unmet spec atom, one unresolvable task atom.' \
+  '  **Gate:** GATE(when: spec other done and task 1 completed).' \
+  '  Citations: REQ-X.' '' \
+  '## Out of scope' '' '(none yet)' \
+  >"$v2c/specs/qq/tasks.md"
+gitc "$v2c" add -A
+gitc "$v2c" commit -q -m "base: combined-clause bundle"
+gitc "$v2c" commit -q --allow-empty -m "task 1 done" -m "Planwright-Task: qq/1"
+gitc "$v2c" remote add origin https://example.invalid/demo.git
+out47=$(PATH="$ghstub:$PATH" "$drain" --today 2026-07-15 "$v2c/specs") \
+  || fail "combined-clause sweep must still exit 0"
+row47=$(printf '%s\n' "$out47" | grep '^PENDING' | grep -F 'Combined row') \
+  || fail "the combined gate must stay PENDING: $(printf '%s\n' "$out47" | grep -F 'Combined row')"
+printf '%s\n' "$row47" | grep -F -- '- unmet: spec other done' >/dev/null \
+  || fail "the row must still name the genuinely-unmet spec atom: $row47"
+printf '%s\n' "$row47" | grep -F 'unresolved (completion evidence unavailable): task 1 completed' >/dev/null \
+  || fail "the row must also name the unresolved task atom: $row47"
+echo "ok: unmet and unresolved clauses coexist in one row (REQ-B1.5)"
 
 echo "PASS: test-drain-gates.sh"
