@@ -39,10 +39,12 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
 # The canonical tasks.md definition-content extraction (doctrine/
-# spec-format.md), byte-identical to scripts/spec-anchor.sh's: the invariant
-# under test is that this stream — heading plus the five definition field
-# bullets with continuations, records sorted by task id — survives migration
-# byte-for-byte (REQ-A1.4, REQ-D1.2).
+# spec-format.md), byte-identical in behavior to scripts/spec-anchor.sh's —
+# including the duplicate-id fail-closed guard, so a migration bug that the
+# real anchor extraction would refuse cannot pass here silently. The
+# invariant under test is that this stream — heading plus the five
+# definition field bullets with continuations, records sorted by task id —
+# survives migration byte-for-byte (REQ-A1.4, REQ-D1.2).
 extract_tasks() {
   awk '
     function sortkey(id,    parts, n, major, minor) {
@@ -56,6 +58,11 @@ extract_tasks() {
       in_task = 1
       keep = 0
       key = sortkey($3)
+      if (key in buf) {
+        print "duplicate task id " $3 > "/dev/stderr"
+        dup = 1
+        exit 1
+      }
       nkeys++
       keys[nkeys] = key
       buf[key] = $0 "\n"
@@ -76,6 +83,7 @@ extract_tasks() {
     }
     { keep = 0 }
     END {
+      if (dup) exit 1
       for (i = 2; i <= nkeys; i++) {
         v = keys[i]
         j = i - 1
@@ -243,6 +251,8 @@ Intro prose that must survive the migration byte-for-byte.
 
 ## Awaiting input
 
+(none yet)
+
 ### Task 4 — Delta
 
 - **Deliverables:** Delta output.
@@ -251,6 +261,7 @@ Intro prose that must survive the migration byte-for-byte.
 - **Citations:** REQ-A1.2
 - **Estimated effort:** half day
 - **Status:** awaiting input — which flavor should Delta use?
+  The options are vanilla or chocolate.
 
 ## Completed
 
@@ -337,6 +348,65 @@ signed_brief "$repo/specs/done-spec" specs/done-spec
 seeded_bundle "$repo/specs/retired-spec" Retired
 signed_brief "$repo/specs/retired-spec" specs/retired-spec
 
+seeded_bundle "$repo/specs/superseded-spec" Superseded
+signed_brief "$repo/specs/superseded-spec" specs/superseded-spec
+
+# A stored-Ready signed bundle whose changelog is newest-first (descending):
+# exercises Ready→Ready and the prepend arm of changelog-direction detection.
+seeded_bundle "$repo/specs/ready-desc" Ready
+signed_brief "$repo/specs/ready-desc" specs/ready-desc
+awk '
+  /^- 2026-07-01 — Initial draft\.$/ {
+    print "- 2026-07-05 — Later entry."
+    print "- 2026-07-01 — Initial draft."
+    next
+  }
+  { print }
+' "$repo/specs/ready-desc/requirements.md" >"$tmp/rd" \
+  && mv "$tmp/rd" "$repo/specs/ready-desc/requirements.md"
+
+# A Draft bundle whose human-payload sections are all empty placeholders:
+# exercises the `(none yet)` preservation arm.
+ep=$repo/specs/empty-payload
+seeded_bundle "$ep" Draft
+cat >"$ep/tasks.md" <<EOF
+# Empty — Tasks
+
+**Status:** Draft
+**Last reviewed:** 2026-07-01
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Alpha
+
+- **Deliverables:** Alpha output.
+- **Done when:** Alpha done.
+- **Dependencies:** none
+- **Citations:** REQ-A1.1
+- **Estimated effort:** 1 day
+
+## In progress
+
+(none yet)
+
+## Awaiting input
+
+(none yet)
+
+## Completed
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+
 # A born-v2 signed bundle: already format-version 2 with no migration
 # artifacts. The sweep must leave it byte-identical — completing a "missing"
 # re-anchor here would forge a migration that never happened.
@@ -405,6 +475,8 @@ done_snap=$tmp/done.snap
 snapshot "$repo/specs/done-spec" "$done_snap"
 retired_snap=$tmp/retired.snap
 snapshot "$repo/specs/retired-spec" "$retired_snap"
+superseded_snap=$tmp/superseded.snap
+snapshot "$repo/specs/superseded-spec" "$superseded_snap"
 born_snap=$tmp/born.snap
 snapshot "$bornv2" "$born_snap"
 
@@ -457,6 +529,21 @@ section_content "$tk" 'Deferred' | grep -q 'A plain deferral' || fail "plain def
 section_content "$tk" 'Out of scope' | grep -q 'plain exclusion bullet' || fail "plain exclusion bullet dropped"
 echo "ok: parked blocks in every human-payload section convert to reference bullets (D-3, REQ-D1.2)"
 
+# The reference bullet carries the v1 Status text as the human payload —
+# including a wrapped continuation line — and a parked block with no Status
+# annotation gets the fallback wording; the `(none yet)` placeholder drops
+# when the first bullet lands (D-3, REQ-D1.2).
+section_content "$tk" 'Awaiting input' \
+  | grep -q 'which flavor should Delta use? The options are vanilla or chocolate\.' \
+  || fail "reference bullet dropped the v1 Status payload (or its continuation line)"
+section_content "$tk" 'Deferred' | grep -q 'Task 5\*\* — deferred pending the gate' \
+  || fail "Deferred reference bullet dropped the v1 Status payload"
+section_content "$tk" 'Out of scope' | grep -q 'Task 6\*\* — parked in the v1 "## Out of scope" section' \
+  || fail "no-Status parked block missing the fallback payload wording"
+section_content "$tk" 'Awaiting input' | grep -q '(none yet)' \
+  && fail "Awaiting-input (none yet) placeholder survived alongside a reference bullet"
+echo "ok: reference bullets carry the v1 Status payload; placeholders drop when bullets land (D-3)"
+
 # Headers: Active restricts to Ready; format-version 2 and the pointer line
 # on all four files.
 headers_ok "$repo/specs/seeded" Ready "seeded"
@@ -480,7 +567,34 @@ cur=$("$ANCHOR" "$repo/specs/seeded")
 grep -q 'scripts/spec-anchor.sh specs/seeded' "$tmp/entry" \
   || fail "re-anchor entry does not record the sanctioned command with the bundle path"
 grep -qi 'changelog' "$tmp/entry" || fail "re-anchor entry does not cite the changelog line"
+grep -q '^(none yet' "$brief" \
+  && fail "amendment-log (none yet) placeholder paragraph survived the entry append"
+# Ascending changelog: the migration entry is appended after the existing
+# entries, keeping the changelog monotonic.
+awk '/^## Changelog[ \t]*$/,/^## Sources[ \t]*$/' "$repo/specs/seeded/requirements.md" \
+  | grep '^- 20' | head -1 | grep -q '2026-07-01' \
+  || fail "ascending changelog: migration entry was not appended after existing entries"
 echo "ok: a signed bundle gains the dated Changelog entry and a valid expression-only re-anchor (REQ-D1.2)"
+
+# Ready→Ready: a stored-Ready signed bundle migrates in place, stays Ready,
+# and its newest-first changelog gets the entry prepended (direction-aware).
+headers_ok "$repo/specs/ready-desc" Ready "ready-desc"
+awk '/^## Changelog[ \t]*$/,/^## Sources[ \t]*$/' "$repo/specs/ready-desc/requirements.md" \
+  | grep '^- 20' | head -1 | grep -q "Migrated to format-version 2" \
+  || fail "descending changelog: migration entry was not prepended"
+# shellcheck disable=SC2016 # the backticks are literal markdown, not expansions
+rec_rd=$(awk '/self-re-anchor/,0' "$repo/specs/ready-desc/kickoff-brief.md" \
+  | grep -o '`[0-9a-f]\{40\}`' | head -1 | tr -d '\140')
+cur_rd=$("$ANCHOR" "$repo/specs/ready-desc")
+[ "$rec_rd" = "$cur_rd" ] || fail "ready-desc recorded anchor $rec_rd != recomputed $cur_rd"
+echo "ok: a stored-Ready bundle stays Ready and a newest-first changelog is prepended (REQ-D1.3, D-10)"
+
+# Empty human-payload sections keep their (none yet) placeholders.
+for sec in 'Awaiting input' 'Deferred' 'Out of scope'; do
+  section_content "$repo/specs/empty-payload/tasks.md" "$sec" | grep -q '(none yet)' \
+    || fail "empty-payload: $sec lost its (none yet) placeholder"
+done
+echo "ok: empty human-payload sections keep their (none yet) placeholders (D-2)"
 
 # Draft bundle: same byte-stable transform, no changelog entry, no brief.
 draft_extract_after=$tmp/draft.extract.after
@@ -496,10 +610,13 @@ echo "ok: a Draft takes the byte-stable transform with no re-anchor and no chang
 # clean no-op (never re-completed); the accumulator is excluded.
 assert_same_tree "$repo/specs/done-spec" "$done_snap" "Done bundle rewritten"
 assert_same_tree "$repo/specs/retired-spec" "$retired_snap" "Retired bundle rewritten"
+assert_same_tree "$repo/specs/superseded-spec" "$superseded_snap" "Superseded bundle rewritten"
 assert_same_tree "$bornv2" "$born_snap" "born-v2 bundle rewritten"
 case "$out" in
   *_observations*) fail "underscore accumulator treated as a bundle" ;;
 esac
+grep -q '_observations' "$tmp/run1.err" \
+  && fail "underscore accumulator surfaced on stderr (should be excluded silently)"
 echo "ok: Done/terminal bundles stay byte-identical; born-v2 is a clean no-op (REQ-D1.3, D-10)"
 
 # --- Run 2: idempotence — a second sweep is a byte-level no-op. -----------
@@ -509,7 +626,7 @@ snapshot "$repo/specs" "$specs_snap"
 out2=$(cd "$repo" && "$MIGRATE" specs 2>/dev/null) || fail "second sweep exited non-zero"
 assert_same_tree "$repo/specs" "$specs_snap" "idempotence"
 case "$out2" in
-  *"0 migrated"*) ;;
+  *"0 migrated,"*) ;;
   *) fail "second sweep reported a migration: $out2" ;;
 esac
 echo "ok: a second run over a migrated corpus is a byte-level no-op (REQ-D1.2)"
@@ -566,10 +683,142 @@ echo "ok: an unparseable Format-version is refused fail-closed with no write (RE
 seeded_bundle "$repo3/specs/missing-fv" Ready
 grep -v '^\*\*Format-version:\*\*' "$repo3/specs/missing-fv/requirements.md" >"$tmp/mf" \
   && mv "$tmp/mf" "$repo3/specs/missing-fv/requirements.md"
+mfv_snap=$tmp/mfv.snap
+snapshot "$repo3/specs/missing-fv" "$mfv_snap"
 if (cd "$repo3" && "$MIGRATE" specs/missing-fv >/dev/null 2>&1); then
   fail "REQ-C1.8: a missing Format-version was not refused"
 fi
-echo "ok: a missing Format-version is refused fail-closed (REQ-C1.8)"
+assert_same_tree "$repo3/specs/missing-fv" "$mfv_snap" "missing-Format-version bundle written"
+echo "ok: a missing Format-version is refused fail-closed with no write (REQ-C1.8)"
+
+# --- Mechanical-or-refuse: every non-mechanical input is a clean refusal
+# with no write (D-10, REQ-D1.2). Each case poisons a fresh Draft bundle
+# (Draft needs no brief, and restructure/mirror checks run for Drafts too).
+refusal_case() { # <slug> <label>
+  rc_dir="$tmp/refuse-$1/specs/poisoned"
+  rc_snap="$tmp/refuse-$1.snap"
+  snapshot "$rc_dir" "$rc_snap"
+  if (cd "$tmp/refuse-$1" && "$MIGRATE" specs/poisoned >/dev/null 2>"$tmp/refuse-$1.err"); then
+    fail "$2: not refused"
+  fi
+  assert_same_tree "$rc_dir" "$rc_snap" "$2: bundle written despite refusal"
+  echo "ok: $2 is refused with no write (D-10)"
+}
+
+mkrefusal() { # <slug> — fresh Draft seeded bundle at $tmp/refuse-<slug>/specs/poisoned
+  mkdir -p "$tmp/refuse-$1/specs"
+  seeded_bundle "$tmp/refuse-$1/specs/poisoned" Draft
+}
+
+mkrefusal dup-id
+cat >>"$tmp/refuse-dup-id/specs/poisoned/tasks.md" <<EOF
+
+### Task 2 — Beta again
+
+- **Deliverables:** Dup.
+- **Done when:** Never.
+- **Dependencies:** none
+- **Citations:** REQ-A1.1
+- **Estimated effort:** half day
+EOF
+refusal_case dup-id "a duplicate task id"
+
+mkrefusal unknown-h2
+printf '%s\n' '' '## Backlog' '' '(nothing)' >>"$tmp/refuse-unknown-h2/specs/poisoned/tasks.md"
+refusal_case unknown-h2 "an unrecognized H2 section"
+
+mkrefusal non-task-h3
+printf '%s\n' '' '### Notes' '' 'Some notes.' >>"$tmp/refuse-non-task-h3/specs/poisoned/tasks.md"
+refusal_case non-task-h3 "a non-task H3 heading"
+
+mkrefusal bad-id
+printf '%s\n' '' '### Task x9 — Bad id' '' '- **Deliverables:** d' >>"$tmp/refuse-bad-id/specs/poisoned/tasks.md"
+refusal_case bad-id "a malformed task id"
+
+mkrefusal placement-prose
+awk '/^## Forward plan$/ { print; print ""; print "Remember the spike work first."; next } { print }' \
+  "$tmp/refuse-placement-prose/specs/poisoned/tasks.md" >"$tmp/pp" \
+  && mv "$tmp/pp" "$tmp/refuse-placement-prose/specs/poisoned/tasks.md"
+refusal_case placement-prose "prose in a placement section (silent-drop guard)"
+
+mkrefusal ai-plain
+awk '/^## Awaiting input$/ { print; print ""; print "- Waiting on legal sign-off (no task yet)."; next } { print }' \
+  "$tmp/refuse-ai-plain/specs/poisoned/tasks.md" >"$tmp/ap" \
+  && mv "$tmp/ap" "$tmp/refuse-ai-plain/specs/poisoned/tasks.md"
+refusal_case ai-plain "a plain non-reference bullet in Awaiting input"
+
+mkrefusal block-tail
+cat >>"$tmp/refuse-block-tail/specs/poisoned/tasks.md" <<EOF
+- A separate exclusion note trailing the parked block.
+EOF
+refusal_case block-tail "non-definition content inside a task block (relocation guard)"
+
+mkrefusal mirror-mismatch
+awk '/^\*\*Status:\*\* Draft$/ && !done { print "**Status:** Active"; done = 1; next } { print }' \
+  "$tmp/refuse-mirror-mismatch/specs/poisoned/design.md" >"$tmp/mm" \
+  && mv "$tmp/mm" "$tmp/refuse-mirror-mismatch/specs/poisoned/design.md"
+refusal_case mirror-mismatch "a Status mirror mismatch"
+
+mkrefusal symlinked-file
+mv "$tmp/refuse-symlinked-file/specs/poisoned/tasks.md" "$tmp/refuse-symlinked-file/specs/poisoned/tasks.real.md"
+ln -s tasks.real.md "$tmp/refuse-symlinked-file/specs/poisoned/tasks.md"
+refusal_case symlinked-file "a symlinked spec file"
+
+mkrefusal no-changelog
+seeded_bundle "$tmp/refuse-no-changelog/specs/poisoned" Ready
+signed_brief "$tmp/refuse-no-changelog/specs/poisoned" specs/poisoned
+awk '/^## Changelog$/ { skip = 1; next } /^## Sources$/ { skip = 0 } !skip { print }' \
+  "$tmp/refuse-no-changelog/specs/poisoned/requirements.md" >"$tmp/nc" \
+  && mv "$tmp/nc" "$tmp/refuse-no-changelog/specs/poisoned/requirements.md"
+refusal_case no-changelog "a signed bundle without a ## Changelog section"
+
+mkdir -p "$tmp/refuse-no-brief/specs"
+seeded_bundle "$tmp/refuse-no-brief/specs/poisoned" Ready
+refusal_case no-brief "a signed bundle without a kickoff brief"
+
+mkrefusal lock-busy
+mkdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
+refusal_case lock-busy "a live per-spec lock (single-writer serialization)"
+rmdir "$tmp/refuse-lock-busy/specs/poisoned/.orchestrate.lock"
+
+# --- Single-bundle invocation success mode: migrating one bundle by its
+# directory path (no sweep, no containment root) works end-to-end.
+solo=$tmp/solo-corpus
+mkdir -p "$solo/specs"
+seeded_bundle "$solo/specs/solo" Draft
+(cd "$solo" && "$MIGRATE" specs/solo >/dev/null 2>&1) \
+  || fail "single-bundle invocation of a clean Draft bundle failed"
+headers_ok "$solo/specs/solo" Draft "solo"
+"$VALIDATE" "$solo/specs/solo" >/dev/null 2>&1 || fail "single-bundle migrated solo bundle does not validate"
+echo "ok: single-bundle invocation migrates one bundle end-to-end (REQ-D1.2)"
+
+# --- Interrupted mid-write recovery: design.md already v2 while the other
+# three files are back at v1 (an interruption before the requirements.md
+# completion key landed). A re-run must finish the migration and must not
+# duplicate the changelog entry or the brief's re-anchor entry.
+rec=$tmp/recover-corpus
+mkdir -p "$rec/specs"
+git -C "$rec" init -q -b main
+git -C "$rec" config user.email t@example.com
+git -C "$rec" config user.name t
+git -C "$rec" config commit.gpgsign false
+seeded_bundle "$rec/specs/recover" Active
+signed_brief "$rec/specs/recover" specs/recover
+pre_snap=$tmp/recover-pre.snap
+snapshot "$rec/specs/recover" "$pre_snap"
+git -C "$rec" add -A && git -C "$rec" commit -qm fixture
+(cd "$rec" && "$MIGRATE" specs/recover >/dev/null 2>&1) || fail "recovery fixture: first migration failed"
+for f in requirements.md tasks.md test-spec.md; do
+  cp "$pre_snap/$f" "$rec/specs/recover/$f"
+done
+(cd "$rec" && "$MIGRATE" specs/recover >/dev/null 2>&1) || fail "recovery fixture: re-run over a torn bundle failed"
+headers_ok "$rec/specs/recover" Ready "recover"
+"$VALIDATE" "$rec/specs/recover" >"$tmp/rec.val" 2>&1 || fail "recovered bundle does not validate: $(cat "$tmp/rec.val")"
+n_marker=$(grep -c 'Migrated to format-version 2' "$rec/specs/recover/requirements.md" || true)
+[ "$n_marker" = 1 ] || fail "recovery duplicated the changelog entry ($n_marker)"
+n_entry=$(grep -c 'format-version 2 migration)' "$rec/specs/recover/kickoff-brief.md" || true)
+[ "$n_entry" = 1 ] || fail "recovery duplicated the re-anchor entry ($n_entry)"
+echo "ok: a re-run over a torn (part-v2) bundle completes it without duplicating artifacts (D-10, REQ-D1.2)"
 
 # --- Hostile input is refused with a clean, sanitized error (REQ-C1.9). ---
 

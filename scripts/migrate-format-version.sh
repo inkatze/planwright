@@ -7,7 +7,7 @@
 #
 #   - the placement sections (## Forward plan / ## In progress /
 #     ## Completed) collapse into a single `## Tasks` section, task blocks
-#     sorted by task id (numeric, component-wise);
+#     sorted by task id (numeric, component-wise; D-10's id-sorted collapse);
 #   - the state annotation bullets (Status, Last activity, Dispatch) are
 #     stripped, with task definition lines preserved byte-for-byte, so the
 #     canonical tasks.md extraction digest — and therefore that file's
@@ -23,9 +23,18 @@
 #     four files;
 #   - a signed bundle (stored Ready or Active, so a kickoff brief exists)
 #     additionally gains a dated `## Changelog` entry in requirements.md
-#     and the machine-written expression-only self-re-anchor entry in the
-#     kickoff brief that cites it (the meta-spec's execution-validity rule);
-#     a Draft takes neither (REQ-D1.3).
+#     (inserted respecting the bundle's existing changelog direction:
+#     appended when ascending, prepended when newest-first) and the
+#     machine-written expression-only self-re-anchor entry in the kickoff
+#     brief that cites it (the meta-spec's execution-validity rule); a
+#     Draft takes neither (REQ-D1.3).
+#
+# The transform is mechanical or it refuses (D-10): content it cannot place
+# deterministically — prose or stray bullets in a placement section, plain
+# non-reference content in `## Awaiting input`, non-definition content
+# inside a task block, an unknown H2 section, a non-task H3, a malformed or
+# duplicate task id, disagreeing Status mirrors — is a clean per-bundle
+# refusal, never a silent drop or relocation.
 #
 # Done and terminal (Retired/Superseded) bundles are never rewritten; an
 # already-v2 bundle is a clean no-op. Idempotent and re-runnable after a
@@ -33,20 +42,32 @@
 # signed migration) is written last of the four files, so a re-run over an
 # interrupted bundle re-applies the per-file idempotent transforms and
 # completes a missing changelog line or re-anchor entry rather than
-# no-oping past a file that already reads v2 (D-10). A v2 bundle with no
-# migration changelog marker is treated as born-v2 and left untouched —
-# completing a "missing" re-anchor there would forge a migration that never
-# happened.
+# no-oping past a file that already reads v2 (D-10); the re-anchor's
+# changelog citation reuses the date already recorded in the changelog, so
+# a completion across a date boundary cites the real entry. A v2 bundle
+# with no migration changelog marker is treated as born-v2 and left
+# untouched — completing a "missing" re-anchor there would forge a
+# migration that never happened.
+#
+# Writes are serialized against the other tasks.md writers through the ONE
+# per-spec advisory lock (`scripts/orchestrate-lock.sh`, shared with the
+# tasks-pr-sync hook and /orchestrate): the lock is acquired around each
+# bundle's write phase, and a busy lock is a per-bundle refusal, never a
+# blind write. Per-bundle isolation holds throughout: any single bundle's
+# I/O failure is a refusal that lets the sweep continue to the next bundle.
 #
 # Fail-closed version keying (REQ-C1.8): a missing or unparseable
-# `Format-version:` refuses the bundle with no write. Hostile identifiers,
-# symlinked bundle directories or spec files, and out-of-containment paths
-# are refused with a clean error; every echoed untrusted value is routed
+# `Format-version:` refuses the bundle with no write. Hostile identifiers
+# and symlinked bundle directories or spec files are refused with a clean
+# error; in sweep mode every bundle is containment-checked under the
+# canonicalized specs root (single-dir mode migrates the operator-supplied
+# path itself, so no root exists to contain it under; the identifier screen
+# and symlink refusals still apply). Every echoed untrusted value is routed
 # through sanitize_printable (REQ-C1.9).
 #
 # Exit codes: 0 sweep/bundle completed with no refusals; 1 one or more
-# bundles refused (reported on stderr, nothing written to them); 2 usage or
-# environment error.
+# bundles refused (reported on stderr, recoverable by re-run where noted);
+# 2 usage or environment error.
 #
 # Portable: POSIX sh + awk + git (bash 3.2 / BSD compatible, no eval, input
 # treated as data only).
@@ -61,6 +82,7 @@ unset CDPATH 2>/dev/null || true
 here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 repo_root=$(cd "$here/.." && pwd -P) || exit 2
 anchor_sh="$here/spec-anchor.sh"
+lock_sh="$here/orchestrate-lock.sh"
 
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md).
 # shellcheck source=scripts/echo-safety.sh
@@ -68,6 +90,17 @@ anchor_sh="$here/spec-anchor.sh"
 
 if [ ! -x "$anchor_sh" ]; then
   echo "migrate-format-version: spec-anchor.sh missing or not executable: $anchor_sh" >&2
+  exit 2
+fi
+if [ ! -x "$lock_sh" ]; then
+  echo "migrate-format-version: orchestrate-lock.sh missing or not executable: $lock_sh" >&2
+  exit 2
+fi
+# The extraction self-check and the anchor both hash via git; failing here
+# is an environment error, not a per-bundle refusal — without git a signed
+# bundle would be left half-migrated with no tool able to complete it.
+if ! command -v git >/dev/null 2>&1; then
+  echo "migrate-format-version: git not found (the extraction digest and anchor need it)" >&2
   exit 2
 fi
 
@@ -83,11 +116,14 @@ if [ ! -d "$target" ]; then
 fi
 
 today=$(date +%Y-%m-%d)
-gtmp=$(mktemp -d)
+gtmp=$(mktemp -d) || {
+  echo "migrate-format-version: mktemp failed (cannot allocate a work dir)" >&2
+  exit 2
+}
 trap 'rm -rf "$gtmp"' EXIT
 
 migrated=0
-completed=0
+repaired=0
 unchanged=0
 refused=0
 
@@ -129,9 +165,10 @@ header_value() {
 }
 
 # extract_tasks <tasks.md> — the canonical definition-content extraction
-# (doctrine/spec-format.md), byte-identical to scripts/spec-anchor.sh's:
-# the migration's self-check hashes this stream before and after the
-# transform and refuses on any difference (REQ-A1.4, REQ-D1.2).
+# (doctrine/spec-format.md), byte-identical in behavior to
+# scripts/spec-anchor.sh's: the migration's self-check hashes this stream
+# before and after the transform and refuses on any difference (REQ-A1.4,
+# REQ-D1.2).
 extract_tasks() {
   awk '
     function sortkey(id,    parts, n, major, minor) {
@@ -187,9 +224,15 @@ extract_tasks() {
 # block id-sorted with the three state-annotation bullets (and their
 # continuations) removed, then the three human-payload sections with their
 # non-task content preserved and a reference bullet per parked block.
-# Fails (non-zero, message on stderr) on an unknown H2 section, a non-task
-# H3, a malformed or duplicate task id — the transform must be mechanical
-# or refuse (D-10).
+#
+# Mechanical or refuse (D-10): non-zero with a message on stderr for
+# anything the transform cannot place deterministically — an unknown H2, a
+# non-task H3, a malformed or duplicate task id, prose or stray bullets in
+# a placement section (their v2 home is undecidable), plain non-reference
+# content in `## Awaiting input` (v2 holds reference bullets only), or
+# non-definition content inside a task block (it would silently relocate
+# with the block). Blank lines and `(none yet)` placeholders are the
+# allowlisted placement/Awaiting-input content.
 restructure_tasks() {
   awk '
     function sortkey(id,    parts, n, major, minor) {
@@ -197,6 +240,11 @@ restructure_tasks() {
       major = parts[1] + 0
       minor = (n > 1) ? parts[2] + 0 : 0
       return sprintf("%08d.%08d", major, minor)
+    }
+    function bail(msg) {
+      print msg > "/dev/stderr"
+      bad = 1
+      exit 1
     }
     # trimchunk: strip leading/trailing blank lines; result ends with one
     # newline (or is empty).
@@ -231,23 +279,15 @@ restructure_tasks() {
     /^## Deferred[ \t]*$/       { sec = "DF"; in_blk = 0; next }
     /^## Out of scope[ \t]*$/   { sec = "OS"; in_blk = 0; next }
     /^## / {
-      print "unrecognized H2 section at tasks.md:" NR " (the migration is mechanical over the six v1 sections and refuses anything else)" > "/dev/stderr"
-      bad = 1
-      exit 1
+      bail("unrecognized H2 section at tasks.md:" NR " (the migration is mechanical over the six v1 sections and refuses anything else)")
     }
     /^### Task / {
       id = $3
-      if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
-        print "malformed task id at tasks.md:" NR > "/dev/stderr"
-        bad = 1
-        exit 1
-      }
+      if (id !~ /^[0-9]+(\.[0-9]+)?$/)
+        bail("malformed task id at tasks.md:" NR " (expected <n> or <n>.<m>)")
       key = sortkey(id)
-      if (key in blk) {
-        print "duplicate task id: Task " id > "/dev/stderr"
-        bad = 1
-        exit 1
-      }
+      if (key in blk)
+        bail("duplicate task id: Task " id)
       nkeys++
       keys[nkeys] = key
       blk[key] = $0 "\n"
@@ -260,9 +300,7 @@ restructure_tasks() {
       next
     }
     /^### / {
-      print "unexpected non-task H3 at tasks.md:" NR " (cannot migrate mechanically)" > "/dev/stderr"
-      bad = 1
-      exit 1
+      bail("unexpected non-task H3 at tasks.md:" NR " (cannot migrate mechanically)")
     }
     in_blk {
       if (/^- \*\*(Status|Last activity|Dispatch):\*\*/) {
@@ -276,7 +314,7 @@ restructure_tasks() {
         }
         next
       }
-      if (/^- /) {
+      if (/^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/) {
         skip = 0
         blk[cur] = blk[cur] $0 "\n"
         next
@@ -293,11 +331,31 @@ restructure_tasks() {
         blk[cur] = blk[cur] $0 "\n"
         next
       }
-      skip = 0
-      blk[cur] = blk[cur] $0 "\n"
-      next
+      if (/^[ \t]*$/) {
+        skip = 0
+        blk[cur] = blk[cur] "\n"
+        next
+      }
+      # Any other top-level bullet or prose inside a task block would
+      # silently relocate with the block into ## Tasks (invisible to the
+      # definition-only digest self-check) — refuse instead of teleporting
+      # content out of its section.
+      bail("non-definition content inside the Task " blkid[cur] " block at tasks.md:" NR " (cannot migrate mechanically; move it out of the block first)")
     }
-    sec == "AI" { ai = ai $0 "\n"; next }
+    sec == "FP" || sec == "IP" || sec == "CO" || sec == "TK" {
+      if ($0 ~ /^[ \t]*$/ || $0 ~ /^\(none yet\)/) next
+      bail("non-task content in a placement section at tasks.md:" NR " (its format-version 2 home is undecidable; move it out first)")
+    }
+    sec == "AI" {
+      # v2 Awaiting input holds reference bullets only; blanks and the
+      # placeholder pass, and existing reference bullets (a re-run over a
+      # part-converted file) are carried as content.
+      if ($0 ~ /^[ \t]*$/ || $0 ~ /^\(none yet\)/ || $0 ~ /^- \*\*Task / || $0 ~ /^[ \t]+[^ \t]/) {
+        ai = ai $0 "\n"
+        next
+      }
+      bail("non-reference content in ## Awaiting input at tasks.md:" NR " (format-version 2 holds reference bullets only)")
+    }
     sec == "DF" { df = df $0 "\n"; next }
     sec == "OS" { os = os $0 "\n"; next }
     { next }
@@ -362,11 +420,26 @@ transform_header() {
   ' "$1"
 }
 
-# process_bundle <dir> <name> — migrate one screened bundle in place.
-# Returns 0 (outcome counted) or 1 (refused, counted by the caller via
-# refuse()). Everything is computed and self-checked before the first write
-# (per-bundle atomic up to the write sequence; a partial write sequence is
-# recovered by re-running, D-10).
+# stage_write <src> <dest> — atomically install one prepared file: the
+# scratch name is removed first so a stale orphan from an interrupted run,
+# or a pre-planted symlink, is never followed or reused (cp follows a
+# symlinked destination; rm-then-cp closes that write-through hole).
+# Returns non-zero on any I/O failure so the caller can refuse the bundle
+# instead of aborting the sweep.
+stage_write() {
+  sw_tmp="$2.migrate.tmp"
+  rm -f "$sw_tmp" || return 1
+  cp "$1" "$sw_tmp" || return 1
+  mv "$sw_tmp" "$2" || return 1
+  return 0
+}
+
+# process_bundle <dir> <name> — migrate one screened bundle in place. Every
+# outcome (migrated / repaired / unchanged / refused) is counted here and
+# the function always returns 0; a refusal never aborts the sweep.
+# Everything is computed and self-checked before the first write; the write
+# phase runs under the per-spec advisory lock, and a partial write sequence
+# is recovered by re-running (D-10).
 process_bundle() {
   bdir=$1
   bname=$2
@@ -383,11 +456,19 @@ process_bundle() {
     fi
   done
 
-  fver=$(header_value "$req" Format-version)
-  status=$(header_value "$req" Status)
+  # Read the authoritative header once, from a snapshot: the parse that
+  # decides signedness and the bytes later transformed must come from the
+  # same content, and an unreadable file is a per-bundle refusal, not a
+  # sweep abort.
+  if ! cp "$req" "$gtmp/req.in" 2>/dev/null; then
+    refuse "$bname" "unreadable requirements.md"
+    return 0
+  fi
+  fver=$(header_value "$gtmp/req.in" Format-version)
+  status=$(header_value "$gtmp/req.in" Status)
   brief="$bdir/kickoff-brief.md"
   clog_marker='Migrated to format-version 2'
-  entry_marker='self-re-anchor (format-version 2 migration)'
+  entry_marker='format-version 2 migration)'
 
   # Fail-closed version keying (REQ-C1.8): no parsed version, no write path.
   case $fver in
@@ -420,12 +501,19 @@ process_bundle() {
         echo "unchanged (already format-version 2): $bname"
         unchanged=$((unchanged + 1))
       else
-        append_reanchor "$bdir" || {
+        if ! "$lock_sh" acquire "$bdir" >/dev/null 2>&1; then
+          refuse "$bname" "per-spec lock busy or refused; nothing written (re-run when quiet)"
+          return 0
+        fi
+        if append_reanchor "$bdir"; then
+          "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
+          echo "repaired: $bname (missing re-anchor entry appended)"
+          repaired=$((repaired + 1))
+        else
+          "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
           refuse "$bname" "re-anchor completion failed"
           return 0
-        }
-        echo "completed: $bname (missing re-anchor entry appended)"
-        completed=$((completed + 1))
+        fi
       fi
     else
       echo "unchanged (already format-version 2): $bname"
@@ -457,9 +545,27 @@ process_bundle() {
     refuse "$bname" "signed bundle ($status) has no kickoff-brief.md (the re-anchor entry has no home)"
     return 0
   fi
+  # The restricted value this migration writes (D-4): Active rests at Ready.
+  case $status in
+    Active) restricted=Ready ;;
+    *) restricted=$status ;;
+  esac
   for bf in design.md tasks.md test-spec.md; do
     if [ ! -f "$bdir/$bf" ]; then
       refuse "$bname" "missing spec file: $bf"
+      return 0
+    fi
+    # Status mirrors must agree before a mechanical header rewrite: a
+    # divergent mirror (validator-error territory) would otherwise migrate
+    # into a bundle whose four files disagree on the stored value. A mirror
+    # already at the restricted value is the torn state an interrupted run
+    # leaves behind and is accepted, so the D-10 re-run can complete it.
+    if ! mst=$(header_value "$bdir/$bf" Status); then
+      refuse "$bname" "unreadable spec file: $bf"
+      return 0
+    fi
+    if [ "$mst" != "$status" ] && [ "$mst" != "$restricted" ]; then
+      refuse "$bname" "Status mirror mismatch in $bf ($(sanitize_printable "$mst" "(unprintable)") vs $(sanitize_printable "$status" "(unprintable)")); fix the mirrors first"
       return 0
     fi
   done
@@ -469,19 +575,30 @@ process_bundle() {
     refuse "$bname" "tasks.md restructure failed: $(sanitize_printable "$(cat "$gtmp/tasks.err")" "(no diagnostic)")"
     return 0
   fi
-  transform_header "$gtmp/tasks.new" >"$gtmp/tasks.new2"
-  mv "$gtmp/tasks.new2" "$gtmp/tasks.new"
-  transform_header "$bdir/design.md" >"$gtmp/design.new"
-  transform_header "$bdir/test-spec.md" >"$gtmp/test-spec.new"
-  transform_header "$req" >"$gtmp/requirements.new"
+  if ! transform_header "$gtmp/tasks.new" >"$gtmp/tasks.new2" \
+    || ! mv "$gtmp/tasks.new2" "$gtmp/tasks.new" \
+    || ! transform_header "$bdir/design.md" >"$gtmp/design.new" \
+    || ! transform_header "$bdir/test-spec.md" >"$gtmp/test-spec.new" \
+    || ! transform_header "$gtmp/req.in" >"$gtmp/requirements.new"; then
+    refuse "$bname" "header transform failed (an unreadable spec file?); nothing written"
+    return 0
+  fi
 
   if [ "$signed" = 1 ] && ! grep -qF "$clog_marker" "$gtmp/requirements.new"; then
     if ! grep -q '^## Changelog[ \t]*$' "$gtmp/requirements.new"; then
       refuse "$bname" "requirements.md has no ## Changelog section (the migration entry has no home)"
       return 0
     fi
+    # The governing spec's IDs are cited namespace-qualified from foreign
+    # bundles and bare from invariant-tasks itself (spec-format citation
+    # rule: foreign IDs are qualified, local IDs are not).
+    if [ "$bname" = "invariant-tasks" ]; then
+      clog_cite="D-10, REQ-D1.3"
+    else
+      clog_cite="invariant-tasks D-10, REQ-D1.3"
+    fi
     cat >"$gtmp/clog.entry" <<EOF
-- $today — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
+- $today — Migrated to format-version 2 ($clog_cite;
   one-shot \`scripts/migrate-format-version.sh\` run): placement sections
   collapsed into a single \`## Tasks\` section, state annotation bullets
   stripped, stored header restricted to the human-gated set, the
@@ -491,26 +608,71 @@ process_bundle() {
   re-anchor rides as expression-only: the kickoff brief's self-re-anchor
   entry cites this entry.
 EOF
-    awk -v ins="$gtmp/clog.entry" '
-      { print }
-      /^## Changelog[ \t]*$/ && !done {
-        print ""
-        while ((getline l < ins) > 0) print l
-        done = 1
+    # Respect the bundle's existing changelog direction: a newest-first
+    # changelog gets the entry prepended under the heading, an ascending
+    # (or single-entry/empty) one gets it appended at the section's end —
+    # either way the changelog stays monotonic (spec-format: dated bullets
+    # in chronological order; some bundles keep the reverse convention).
+    direction=$(awk '
+      /^## Changelog[ \t]*$/ { inlog = 1; next }
+      inlog && /^## / { exit }
+      inlog && /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ {
+        d = substr($0, 3, 10)
+        if (first == "") first = d
+        last = d
       }
-    ' "$gtmp/requirements.new" >"$gtmp/requirements.new2"
+      END {
+        if (first == "" || first == last) print "append"
+        else if (first > last) print "prepend"
+        else print "append"
+      }
+    ' "$gtmp/requirements.new")
+    if [ "$direction" = "prepend" ]; then
+      awk -v ins="$gtmp/clog.entry" '
+        { print }
+        /^## Changelog[ \t]*$/ && !done {
+          print ""
+          while ((getline l < ins) > 0) print l
+          done = 1
+        }
+      ' "$gtmp/requirements.new" >"$gtmp/requirements.new2"
+    else
+      # Append: everything through the end of the changelog section, then
+      # the entry (before the next H2, or at EOF when the changelog is the
+      # final section).
+      awk -v ins="$gtmp/clog.entry" '
+        BEGIN { state = 0 } # 0 before, 1 inside changelog, 2 after
+        state == 0 && /^## Changelog[ \t]*$/ { print; state = 1; next }
+        state == 1 && /^## / {
+          print ""
+          while ((getline l < ins) > 0) print l
+          print ""
+          print
+          state = 2
+          next
+        }
+        { print }
+        END {
+          if (state == 1) {
+            print ""
+            while ((getline l < ins) > 0) print l
+          }
+        }
+      ' "$gtmp/requirements.new" >"$gtmp/requirements.new2"
+    fi
     mv "$gtmp/requirements.new2" "$gtmp/requirements.new"
   fi
 
   # Self-check (REQ-A1.4): the canonical extraction must be byte-identical
   # across the transform. A difference means the transform is not the
-  # mechanical one it claims to be — refuse, write nothing.
-  if ! extract_tasks "$bdir/tasks.md" >"$gtmp/extract.old" 2>/dev/null; then
-    refuse "$bname" "canonical extraction failed on the v1 tasks.md (duplicate or malformed task ids)"
+  # mechanical one it claims to be — refuse, write nothing. Diagnostics are
+  # kept (sanitized) so a duplicate-id refusal names the id.
+  if ! extract_tasks "$bdir/tasks.md" >"$gtmp/extract.old" 2>"$gtmp/extract.err"; then
+    refuse "$bname" "canonical extraction failed on the v1 tasks.md: $(sanitize_printable "$(cat "$gtmp/extract.err")" "(no diagnostic)")"
     return 0
   fi
-  if ! extract_tasks "$gtmp/tasks.new" >"$gtmp/extract.new" 2>/dev/null; then
-    refuse "$bname" "canonical extraction failed on the migrated tasks.md"
+  if ! extract_tasks "$gtmp/tasks.new" >"$gtmp/extract.new" 2>"$gtmp/extract.err"; then
+    refuse "$bname" "canonical extraction failed on the migrated tasks.md: $(sanitize_printable "$(cat "$gtmp/extract.err")" "(no diagnostic)")"
     return 0
   fi
   if ! cmp -s "$gtmp/extract.old" "$gtmp/extract.new"; then
@@ -518,52 +680,80 @@ EOF
     return 0
   fi
 
-  # Write sequence: requirements.md last — its migration changelog marker is
-  # the completion key a re-run checks, so an interruption anywhere earlier
-  # re-runs the idempotent per-file transforms (D-10).
+  # Write phase, under the ONE per-spec advisory lock (shared with the
+  # tasks-pr-sync hook and /orchestrate) so no other tasks.md writer
+  # interleaves with the multi-file install. Busy is a refusal, not a wait.
+  if ! "$lock_sh" acquire "$bdir" >/dev/null 2>&1; then
+    refuse "$bname" "per-spec lock busy or refused; nothing written (re-run when quiet)"
+    return 0
+  fi
+  # requirements.md last: its migration changelog marker is the completion
+  # key a re-run checks, so an interruption anywhere earlier re-runs the
+  # idempotent per-file transforms (D-10).
   for pair in design.md test-spec.md tasks.md requirements.md; do
-    src="$gtmp/${pair%.md}.new"
-    cp "$src" "$bdir/$pair.migrate.tmp"
-    mv "$bdir/$pair.migrate.tmp" "$bdir/$pair"
+    if ! stage_write "$gtmp/${pair%.md}.new" "$bdir/$pair"; then
+      "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
+      refuse "$bname" "write failed on $pair (partial migration; re-run to complete)"
+      return 0
+    fi
   done
 
   if [ "$signed" = 1 ]; then
-    append_reanchor "$bdir" || {
+    if ! append_reanchor "$bdir"; then
+      "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
       refuse "$bname" "files migrated but the re-anchor entry failed; re-run to complete (D-10)"
       return 0
-    }
+    fi
   fi
+  "$lock_sh" release "$bdir" >/dev/null 2>&1 || true
 
   echo "migrated: $bname"
   migrated=$((migrated + 1))
   return 0
 }
 
-# append_reanchor <dir> — compute the post-migration anchor and
-# append the machine-written expression-only self-re-anchor entry to the
-# kickoff brief (the one anchor entry an execution-side script may write:
-# explicitly marked and citing its changelog line, REQ-F1.10). A stale
+# append_reanchor <dir> — compute the post-migration anchor and append the
+# machine-written expression-only self-re-anchor entry to the kickoff brief
+# (the one anchor entry an execution-side script may write: explicitly
+# marked and citing its changelog line, REQ-F1.10). Idempotent: an entry
+# already present is a clean no-op. The changelog citation reuses the date
+# the changelog entry actually carries, so a re-run completing an
+# interrupted migration across a date boundary cites the real line. A stale
 # "(none yet …)" placeholder paragraph in the amendment-log section is
 # dropped when the first real entry lands.
 append_reanchor() {
   ab_dir=$1
   ab_brief="$ab_dir/kickoff-brief.md"
 
+  grep -qF 'format-version 2 migration)' "$ab_brief" && return 0
+
   ab_anchor=$("$anchor_sh" "$ab_dir") || return 1
+  [ -n "$ab_anchor" ] || return 1
+
+  # The date the changelog entry actually carries (falls back to today for
+  # the fresh-migration path, where they are the same).
+  ab_cdate=$(awk '
+    /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] — Migrated to format-version 2/ {
+      print substr($0, 3, 10)
+      exit
+    }
+  ' "$ab_dir/requirements.md")
+  [ -n "$ab_cdate" ] || ab_cdate=$today
 
   # Record the bundle path relative to its own repository root when it has
   # one (the sanctioned command form is reproducible from the repo root);
-  # fall back to the path as invoked.
-  ab_rel=$ab_dir
+  # fall back to `<parent>/<name>` — never an absolute path, which would
+  # put machine-local detail into a committed artifact (data hygiene).
+  ab_dir_phys=$(cd "$ab_dir" && pwd -P) || return 1
+  ab_rel="$(basename "$(dirname "$ab_dir_phys")")/$(basename "$ab_dir_phys")"
   if ab_top=$(git -C "$ab_dir" rev-parse --show-toplevel 2>/dev/null); then
     ab_top_phys=$(cd "$ab_top" && pwd -P)
-    ab_dir_phys=$(cd "$ab_dir" && pwd -P)
     case $ab_dir_phys in
       "$ab_top_phys"/*) ab_rel=${ab_dir_phys#"$ab_top_phys"/} ;;
     esac
   fi
 
-  cat >"$gtmp/reanchor.entry" <<EOF
+  cat >"$gtmp/reanchor.entry" <<EOF || return 1
 ### $today — Expression-only self-re-anchor (format-version 2 migration)
 
 Machine-written entry per REQ-F1.10's expression-only lane, recorded by
@@ -580,7 +770,7 @@ writing), so no requirement, design decision, task definition, or test
 semantics changed — the required re-anchor rides the migration as
 expression-only (REQ-A3.3, REQ-D1.2).
 
-**Cites the changelog line:** the $today \`## Changelog\` entry in
+**Cites the changelog line:** the $ab_cdate \`## Changelog\` entry in
 \`requirements.md\` ("Migrated to format-version 2").
 
 Class: expression-only
@@ -601,10 +791,8 @@ EOF
       for (i = 1; i <= n; i++) print lines[i]
     }
   ' "$ab_brief" >"$gtmp/brief.new" || return 1
-  printf '\n' >>"$gtmp/brief.new"
-  cat "$gtmp/reanchor.entry" >>"$gtmp/brief.new"
-  cp "$gtmp/brief.new" "$ab_brief.migrate.tmp"
-  mv "$ab_brief.migrate.tmp" "$ab_brief"
+  { printf '\n' >>"$gtmp/brief.new" && cat "$gtmp/reanchor.entry" >>"$gtmp/brief.new"; } || return 1
+  stage_write "$gtmp/brief.new" "$ab_brief" || return 1
   return 0
 }
 
@@ -633,6 +821,9 @@ screen_and_process() {
       refuse "$snm" "bundle directory is unreadable"
       return 0
     }
+    # Defense in depth: a real (non-symlink) direct child of the root
+    # canonicalizes under it on any ordinary filesystem; this guards the
+    # exotic remainder (bind mounts and the like).
     case $sdir_phys in
       "$sroot"/*) ;;
       *)
@@ -662,5 +853,5 @@ else
   done
 fi
 
-echo "migrate-format-version: $migrated migrated, $completed completed, $unchanged unchanged, $refused refused"
+echo "migrate-format-version: $migrated migrated, $repaired repaired, $unchanged unchanged, $refused refused"
 [ "$refused" -eq 0 ]
