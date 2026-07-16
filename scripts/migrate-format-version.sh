@@ -568,6 +568,24 @@ process_bundle() {
       refuse "$bname" "Status mirror mismatch in $bf ($(sanitize_printable "$mst" "(unprintable)") vs $(sanitize_printable "$status" "(unprintable)")); fix the mirrors first"
       return 0
     fi
+    # Format-version mirrors must parse too, for the same reason: a
+    # companion with no parseable version would silently skip the v2 bump
+    # and pointer insertion in transform_header, migrating into a torn
+    # bundle (validator-error territory once signed) that a re-run keys off
+    # requirements.md as "already v2" and never repairs. 2 is the torn
+    # state an interrupted run leaves behind and is accepted, so the D-10
+    # re-run can complete it.
+    if ! mfv=$(header_value "$bdir/$bf" Format-version); then
+      refuse "$bname" "unreadable spec file: $bf"
+      return 0
+    fi
+    case $mfv in
+      1 | 2) ;;
+      *)
+        refuse "$bname" "Format-version mirror missing or unparseable in $bf ($(sanitize_printable "$mfv" "(missing)")); fix the mirrors first"
+        return 0
+        ;;
+    esac
   done
 
   # Compute every new file content first; refuse before any write.

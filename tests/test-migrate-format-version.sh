@@ -759,6 +759,11 @@ awk '/^\*\*Status:\*\* Draft$/ && !done { print "**Status:** Active"; done = 1; 
   && mv "$tmp/mm" "$tmp/refuse-mirror-mismatch/specs/poisoned/design.md"
 refusal_case mirror-mismatch "a Status mirror mismatch"
 
+mkrefusal missing-fv-mirror
+grep -v '^\*\*Format-version:\*\*' "$tmp/refuse-missing-fv-mirror/specs/poisoned/design.md" >"$tmp/fm" \
+  && mv "$tmp/fm" "$tmp/refuse-missing-fv-mirror/specs/poisoned/design.md"
+refusal_case missing-fv-mirror "a missing Format-version mirror in a companion file"
+
 mkrefusal symlinked-file
 mv "$tmp/refuse-symlinked-file/specs/poisoned/tasks.md" "$tmp/refuse-symlinked-file/specs/poisoned/tasks.real.md"
 ln -s tasks.real.md "$tmp/refuse-symlinked-file/specs/poisoned/tasks.md"
