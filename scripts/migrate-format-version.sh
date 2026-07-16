@@ -482,9 +482,18 @@ process_bundle() {
 
   # Serialized against the other tasks.md writers through the ONE per-spec
   # advisory lock (shared with the tasks-pr-sync hook and /orchestrate).
-  # Busy is a refusal, not a wait.
-  if ! "$lock_sh" acquire "$bdir" >/dev/null 2>&1; then
-    refuse "$bname" "per-spec lock busy or refused; nothing written (re-run when quiet)"
+  # Busy (exit 1) is a refusal, not a wait; a lock ERROR (exit 2: unwritable
+  # spec dir, containment refusal) surfaces the lock's own diagnostic —
+  # telling the operator to "re-run when quiet" would mask a permanent
+  # refusal as transient contention, the exact trap orchestrate-lock's
+  # fail-closed distinction exists to prevent.
+  if lock_err=$("$lock_sh" acquire "$bdir" 2>&1 >/dev/null); then
+    :
+  elif [ $? -eq 1 ]; then
+    refuse "$bname" "per-spec lock busy; nothing written (re-run when quiet)"
+    return 0
+  else
+    refuse "$bname" "per-spec lock error: $(sanitize_printable "$lock_err" "(no diagnostic)"); nothing written"
     return 0
   fi
   process_bundle_locked "$bdir" "$bname"

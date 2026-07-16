@@ -807,6 +807,24 @@ grep -q 'lock busy' "$tmp/refuse-lock-order.err" \
   || fail "lock ordering: busy-lock refusal reported '$(cat "$tmp/refuse-lock-order.err")' — the compute phase ran before the lock was checked (TOCTOU)"
 rmdir "$tmp/refuse-lock-order/specs/poisoned/.orchestrate.lock"
 
+# A lock ERROR is not lock contention: orchestrate-lock exits 2 (with a
+# diagnostic) for environment/containment faults — e.g. a bundle dir not
+# under a specs/ parent — and exits 1 only for a live holder. Masking an
+# error as "busy, re-run when quiet" tells the operator to wait out a
+# permanent refusal, the exact trap orchestrate-lock's own fail-closed
+# comment warns against; the migration must surface the lock's diagnostic.
+lockerr=$tmp/lockerr-corpus
+mkdir -p "$lockerr/bundles"
+seeded_bundle "$lockerr/bundles/poisoned" Draft
+if (cd "$lockerr" && "$MIGRATE" bundles/poisoned >/dev/null 2>"$tmp/lockerr.err"); then
+  fail "a lock environment error was not refused"
+fi
+grep -q 're-run when quiet' "$tmp/lockerr.err" \
+  && fail "lock error/busy conflation: a permanent lock refusal was reported as transient contention: $(cat "$tmp/lockerr.err")"
+grep -q 'specs/ parent' "$tmp/lockerr.err" \
+  || fail "lock error refusal does not surface the lock's own diagnostic: $(cat "$tmp/lockerr.err")"
+echo "ok: a lock environment error surfaces the lock's diagnostic instead of 're-run when quiet'"
+
 # A task block before the first H2 has no deterministic v2 home: left alone
 # it would ride the preserved head verbatim, keeping its state annotation
 # bullets (the exact content the migration strips) in the migrated file.
