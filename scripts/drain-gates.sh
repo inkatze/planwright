@@ -10,7 +10,9 @@
 # never resolves, drops, or rewrites a gate (REQ-H1.4) — re-surfacing means
 # reporting; acting on the report is the caller's (human's) move.
 #
-# Lanes (normative detail in the doctrine doc):
+# Lanes (the base taxonomy is normative in the doctrine doc; the v2
+# UNRESOLVED clause is defined here for now — the doctrine delta recording
+# it is pending, tracked in the observations log):
 #   SATISFIED  condition gate (task/status atoms only), every atom true
 #   PENDING    condition gate with at least one unmet or unresolved atom (an
 #              UNRESOLVED atom — v2 completion evidence unavailable, see below

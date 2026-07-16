@@ -1,8 +1,10 @@
 #!/bin/sh
 # Unit test for scripts/drain-gates.sh — the shared gate parser/evaluator
 # behind /drain and /orchestrate --bookkeeping (Task 10, REQ-H1.3, REQ-H1.4,
-# D-17, D-31). Grammar and lane semantics are normative in
-# doctrine/accumulator-taxonomy.md.
+# D-17, D-31). The gate grammar and base lane semantics are normative in
+# doctrine/accumulator-taxonomy.md; the v2 UNRESOLVED clause is defined in
+# the script header for now (doctrine delta pending, tracked in the
+# observations log).
 #
 # Properties verified (numbered to match the body's check sections):
 #   1. A satisfied condition gate (task atom, and-of-atoms, spec-status
