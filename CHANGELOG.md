@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/inkatze/planwright/compare/v0.13.0...v0.14.0) (2026-07-16)
+
+
+### Features
+
+* **migrate:** one-shot v1-to-v2 spec migration and live-bundle cutover ([#199](https://github.com/inkatze/planwright/issues/199)) ([1c7d620](https://github.com/inkatze/planwright/commit/1c7d6201413e05e814ad868d1c55619dfad6aabb))
+
 ## [0.13.0](https://github.com/inkatze/planwright/compare/v0.12.0...v0.13.0) (2026-07-16)
 
 
