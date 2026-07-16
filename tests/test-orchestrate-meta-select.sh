@@ -20,8 +20,9 @@
 #   - Fair across specs: among dispatchable specs the one with the fewest
 #     in-flight units wins; command-line order breaks ties (FIFO).
 #   - Emits "<spec-dir>\t<id>" for the chosen unit on stdout, exit 0.
-#   - No dispatchable unit anywhere (nothing ready, or fleet/per-spec saturated)
-#     → exit 1, empty stdout.
+#   - No dispatchable unit anywhere (nothing ready, fleet/per-spec saturated,
+#     or every ready spec held on a v2 transient evidence failure — the hold
+#     surfaced on stderr per spec, REQ-B1.5) → exit 1, empty stdout.
 #   - A missing/taskless/non-git spec dir, or a hostile spec basename → exit 2
 #     (fail closed), like the single-spec selector.
 #
@@ -562,5 +563,86 @@ got=$(PATH="$lstub:$PATH" "$MSEL" "$malpha" 2>"$tmp/m16.err") || rc=$?
 grep -Fq 'transient evidence failure' "$tmp/m16.err" \
   || fail "case 16: the transient-failure hold must surface on stderr (got: $(cat "$tmp/m16.err"))"
 echo "ok: a v2 transient evidence failure is held and surfaced at the fleet tier (REQ-B1.5)"
+
+# 17. A healthy v2 spec dispatches through the fleet tier: the meta-selector
+#     consumes the selector's v2 candidacy (no placement sections, engine
+#     evidence, no remote configured = definitive) and emits the unit —
+#     the v2 happy-path arm of case 16's hold (REQ-D1.1 both-arm).
+repoN=$(new_fleet "$tmp/N")
+nspec=$(add_spec "$repoN" specn)
+cat >"$nspec/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — ready
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+seal_base "$repoN"
+set_bounds "$repoN" 5 3
+got=$("$MSEL" "$nspec") || fail "case 17: healthy v2 spec must dispatch (rc $?)"
+[ "$got" = "$(printf '%s\t1' "$nspec")" ] \
+  || fail "case 17: expected '$nspec<TAB>1', got '$got'"
+echo "ok: a healthy v2 spec dispatches through the fleet tier (REQ-D1.1)"
+
+# 18. A transient-held v2 spec does not poison the fleet: the hold is a
+#     per-spec `continue`, so a co-resident dispatchable spec (v1 here — the
+#     shared remote's gh failure degrades v1 but holds only v2, REQ-B1.5)
+#     still dispatches in the same step, with the hold surfaced on stderr.
+repoO=$(new_fleet "$tmp/O")
+oheld=$(add_spec "$repoO" oheld)
+oready=$(add_spec "$repoO" oready)
+cat >"$oheld/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 2
+
+## Tasks
+
+### Task 1 — ready but unknowable
+
+- **Dependencies:** none
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+(none yet)
+
+## Out of scope
+
+(none yet)
+EOF
+two_task_body >"$oready/tasks.md"
+seal_base "$repoO"
+gitc "$repoO" remote add origin https://example.invalid/demo.git
+set_bounds "$repoO" 5 3
+rc=0
+got=$(PATH="$lstub:$PATH" "$MSEL" "$oheld" "$oready" 2>"$tmp/o18.err") || rc=$?
+[ "$rc" = 0 ] || fail "case 18: the held spec must not block the fleet (rc $rc, stderr: $(cat "$tmp/o18.err"))"
+[ "$got" = "$(printf '%s\t1' "$oready")" ] \
+  || fail "case 18: expected the co-resident spec's unit '$oready<TAB>1', got '$got'"
+grep -Fq 'transient evidence failure' "$tmp/o18.err" \
+  || fail "case 18: the held spec's hold must still surface on stderr (got: $(cat "$tmp/o18.err"))"
+echo "ok: a transient-held v2 spec is skipped, not fleet-fatal (REQ-B1.5)"
 
 echo "PASS: orchestrate-meta-select"
