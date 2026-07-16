@@ -2,7 +2,8 @@
 
 **Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 ## Goal
 
@@ -290,6 +291,16 @@ mature precedent this spec can simply defer to wholesale.
   Pre-existing from the original draft, not introduced by the kickoff walkthrough; caught by CI
   after the PR was opened, not by the sign-off lens pass (which reviews doctrine/content, not
   markdownlint rules).
+
+- 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
+  one-shot `scripts/migrate-format-version.sh` run): placement sections
+  collapsed into a single `## Tasks` section, state annotation bullets
+  stripped, stored header restricted to the human-gated set, the
+  `**Execution:**` pointer line added, `Format-version:` bumped to 2 on
+  all four files. Task definition lines are preserved byte-for-byte (the
+  canonical `tasks.md` extraction digest is unchanged), so the required
+  re-anchor rides as expression-only: the kickoff brief's self-re-anchor
+  entry cites this entry.
 
 ## Sources
 

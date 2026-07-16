@@ -2,7 +2,8 @@
 
 **Status:** Ready
 **Last reviewed:** 2026-07-13
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Sequencing intent (derived view; the `Dependencies:` lines are authoritative): the
 **walking-skeleton arc** ships a minimal usable `/inception` first — Task 1 → Task 2 → Task 7 →
@@ -11,7 +12,7 @@ while the persona layer (Tasks 4–6, 9) and surfaces (Tasks 12–13) build behi
 (dogfood) starts as soon as the skeleton stands and runs continuously, not last. Guard
 infrastructure leads: the format doctrine and validator gate everything that writes bundles.
 
-## Forward plan
+## Tasks
 
 ### Task 1 — inception-format doctrine
 
@@ -72,6 +73,27 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 - **Citations:** D-3, D-4 · REQ-P1.1, REQ-P1.2, REQ-P1.10
 - **Estimated effort:** 2 days
 
+### Task 5 — remaining six core cards
+
+- **Deliverables:** pricing/packaging, domain and knowledge engineering, org design, IP, AI/agent
+  architecture, and software engineering cards, authored per the recipe from the research
+  distillations, primary sources re-verified (IP and AI-arch flagged high-rot).
+- **Done when:** all cards lint; each carries tier placements with per-activity exceptions and
+  staleness metadata.
+- **Dependencies:** 4
+- **Citations:** D-3, D-4, D-17 · REQ-P1.1, REQ-P1.2, REQ-P1.10
+- **Estimated effort:** 3 days
+
+### Task 6 — ML/LLM engineering & evals card
+
+- **Deliverables:** the commissioned eighth card, research-grounded per the recipe (model
+  selection, fine-tuning vs retrieval, eval-gate design, criteria drift).
+- **Done when:** card lints; tier placements and staleness metadata present; recipe citations
+  recorded.
+- **Dependencies:** 4
+- **Citations:** D-17 · REQ-P1.11
+- **Estimated effort:** 2 days
+
 ### Task 7 — /inception skill core (walking skeleton)
 
 - **Deliverables:** the `/inception` skill: pre-flight (identifier derivation and validation,
@@ -96,41 +118,6 @@ infrastructure leads: the format doctrine and validator gate everything that wri
   drop entries are read by a planwright-repo seed-gathering probe with neutralization.
 - **Dependencies:** 1
 - **Citations:** D-8 · REQ-A1.6–A1.7, REQ-H1.6, REQ-J1.4, REQ-J1.7–J1.8
-- **Estimated effort:** 2 days
-
-### Task 12 — renderer: dashboard + pitch modes
-
-- **Deliverables:** the inception renderer (POSIX shell, self-contained escaped HTML; shared
-  escaper helper), dashboard and pitch-narrative modes, regenerate-on-commit wiring via the
-  scaffolded pre-commit step (every rung), the offered Artifact publish step with the per-venture
-  auto-republish knob (default off); the renderer refuses an unsupported `Format-version:` rather
-  than rendering it (REQ-C1.7). The dashboard-fields-only stub renderer shipped by Task 2 is
-  replaced here.
-- **Done when:** determinism and escaping fixtures pass; dashboard reflects fixture registers;
-  publish is offer-only in a scripted run.
-- **Dependencies:** 1
-- **Citations:** D-9 · REQ-G1.1–G1.4, REQ-G1.9
-- **Estimated effort:** 2 days
-
-### Task 5 — remaining six core cards
-
-- **Deliverables:** pricing/packaging, domain and knowledge engineering, org design, IP, AI/agent
-  architecture, and software engineering cards, authored per the recipe from the research
-  distillations, primary sources re-verified (IP and AI-arch flagged high-rot).
-- **Done when:** all cards lint; each carries tier placements with per-activity exceptions and
-  staleness metadata.
-- **Dependencies:** 4
-- **Citations:** D-3, D-4, D-17 · REQ-P1.1, REQ-P1.2, REQ-P1.10
-- **Estimated effort:** 3 days
-
-### Task 6 — ML/LLM engineering & evals card
-
-- **Deliverables:** the commissioned eighth card, research-grounded per the recipe (model
-  selection, fine-tuning vs retrieval, eval-gate design, criteria drift).
-- **Done when:** card lints; tier placements and staleness metadata present; recipe citations
-  recorded.
-- **Dependencies:** 4
-- **Citations:** D-17 · REQ-P1.11
 - **Estimated effort:** 2 days
 
 ### Task 9 — persona fan-out
@@ -174,6 +161,20 @@ infrastructure leads: the format doctrine and validator gate everything that wri
   fixture seed is consumed by `/spec-draft` seed-gathering in a probe run.
 - **Dependencies:** 7, 10
 - **Citations:** D-14, D-15 · REQ-E1.1–E1.6, REQ-F1.1–F1.4, REQ-J1.5, REQ-J1.6
+- **Estimated effort:** 2 days
+
+### Task 12 — renderer: dashboard + pitch modes
+
+- **Deliverables:** the inception renderer (POSIX shell, self-contained escaped HTML; shared
+  escaper helper), dashboard and pitch-narrative modes, regenerate-on-commit wiring via the
+  scaffolded pre-commit step (every rung), the offered Artifact publish step with the per-venture
+  auto-republish knob (default off); the renderer refuses an unsupported `Format-version:` rather
+  than rendering it (REQ-C1.7). The dashboard-fields-only stub renderer shipped by Task 2 is
+  replaced here.
+- **Done when:** determinism and escaping fixtures pass; dashboard reflects fixture registers;
+  publish is offer-only in a scripted run.
+- **Dependencies:** 1
+- **Citations:** D-9 · REQ-G1.1–G1.4, REQ-G1.9
 - **Estimated effort:** 2 days
 
 ### Task 13 — adapter seam & Notion reference adapter
@@ -237,15 +238,7 @@ infrastructure leads: the format doctrine and validator gate everything that wri
 - **Citations:** D-17 · REQ-P1.11, REQ-J1.8
 - **Estimated effort:** 2 days
 
-## In progress
-
-(none yet)
-
 ## Awaiting input
-
-(none yet)
-
-## Completed
 
 (none yet)
 

@@ -206,6 +206,11 @@ T4→T3 dependency to "fix" the apparent ordering.
   **Gate:** the fleet spec surfaces a concrete need to drop the committed
   snapshot (and absorb the spec-format meta-spec change it requires).
   Citations: D-1.
+  *(Closed 2026-07-15: the gate fired — fleet-scale shared-checkout operation
+  hit the committed snapshot as a write-race liability — and the graduation
+  shipped as `specs/invariant-tasks` (format-version 2, the invariant ledger),
+  including the spec-format meta-spec change and the one-shot
+  `scripts/migrate-format-version.sh` migration.)*
 
 ## Out of scope
 

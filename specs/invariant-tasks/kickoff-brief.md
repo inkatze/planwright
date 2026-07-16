@@ -458,3 +458,26 @@ D-11, REQ-C1.7)").
 Class: expression-only
 Anchor: `0091eb6937059dc3f901a6d94adb58a7c1e8287e` — computed as
 `scripts/spec-anchor.sh specs/invariant-tasks`
+
+### Amendment 5 — expression-only self-re-anchor (2026-07-15, format-version 2 migration)
+
+Machine-written entry per REQ-F1.10's expression-only lane, recorded by
+`scripts/migrate-format-version.sh` (invariant-tasks D-10, REQ-D1.2).
+
+**Trigger:** the one-shot v1→v2 migration converted this bundle to
+format-version 2: placement sections collapsed into `## Tasks`, state
+annotation bullets stripped, any parked task blocks converted to reference
+bullets, the stored header restricted to the human-gated set, the
+`**Execution:**` pointer line added, and `Format-version:` bumped on all
+four files. Task definition lines are byte-for-byte unchanged (the
+canonical `tasks.md` extraction digest was verified equal before
+writing), so no requirement, design decision, task definition, or test
+semantics changed — the required re-anchor rides the migration as
+expression-only (REQ-A3.3, REQ-D1.2).
+
+**Cites the changelog line:** the 2026-07-15 `## Changelog` entry in
+`requirements.md` ("Migrated to format-version 2").
+
+Class: expression-only
+Anchor: `aca926877d45b9bf91ddb6b02db75cef0d938fcb` — computed as
+`scripts/spec-anchor.sh specs/invariant-tasks`

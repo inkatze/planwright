@@ -1,8 +1,9 @@
 # Invariant Tasks — Design
 
-**Status:** Active
+**Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Origin tags: `N` = new decision; `C, <namespace> <id>` = carried from a prior
 bundle, namespace-qualified.

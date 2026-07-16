@@ -2,7 +2,8 @@
 
 **Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
 Coverage mix: predominantly `[test]`, since the no-LLM-daemon-mechanics floor (REQ-G1.2) makes
 nearly every mechanism in this bundle deterministic script logic, which is straightforwardly

@@ -1,17 +1,98 @@
 # Invariant Tasks — Tasks
 
-**Status:** Active
+**Status:** Ready
 **Last reviewed:** 2026-07-14
-**Format-version:** 1
+**Format-version:** 2
+**Execution:** derived — see the status render
 
-The canonical orchestration state record for `specs/invariant-tasks`.
+The task-definition record for `specs/invariant-tasks`; execution status
+is derived on demand, never stored here (see the status render).
 Dependency edges are the sole source of truth for the task graph
 (`scripts/spec-graph.sh` renders the view on demand). Guard-first note:
 every task that produces committed v2 spec content carries an explicit
 edge to the validator task (Task 2), so none of them can dispatch before
 the guard that protects their output exists.
 
-## Forward plan
+## Tasks
+
+### Task 1 — Meta-spec format-version 2
+
+- **Deliverables:** The format-version 2 definition in
+  `doctrine/spec-format.md`: the v2 `tasks.md` shape (single `## Tasks`
+  section plus Awaiting input / Deferred / Out of scope), reference-bullet
+  forms for all three human-payload sections (with the artifact
+  data-hygiene note for bullet free text), the restricted stored-status
+  vocabulary with the reopen cycle (Ready→Draft), the static `Execution:`
+  pointer line (fixed vocabulary), and derivation as the read surface —
+  recorded via the meta-spec's own versioning ritual, v1 rules retained
+  for v1 bundles; the 2026-07-10 normative completion-annotation entry
+  scoped to v1; the stale `Dispatch`-annotation writer claim corrected.
+- **Done when:** `doctrine/spec-format.md` defines format-version 2
+  normatively (a reader can author a compliant v2 bundle from it alone);
+  the v2 definition carries the bullet data-hygiene note (REQ-C1.9);
+  v1 text is unchanged in meaning; the meta-spec's versioning section
+  records the bump and the v1 scoping of the completion-annotation entry;
+  `mise run check` passes.
+- **Dependencies:** none
+- **Citations:** D-1, D-2, D-3, D-4, D-5, D-11 · REQ-A1.1, REQ-A1.2,
+  REQ-A1.3, REQ-A1.4, REQ-E1.1, REQ-C1.9
+- **Estimated effort:** 1 day
+
+### Task 2 — Validator v2 rules
+
+- **Deliverables:** `scripts/spec-validate.sh` enforcing the v2 invariants
+  (no placement sections, no state annotation bullets, stored header
+  restricted to Draft/Ready/Retired/Superseded, pointer line present in
+  its fixed vocabulary, reference-bullet integrity: existing task ids, no
+  duplicates) as errors on non-Draft v2 bundles and warnings on Draft,
+  failing closed on a missing/unparseable `Format-version:`, with v1 rules
+  unchanged for v1 bundles and echoed values on the new v2 error paths
+  routed through `sanitize_printable`; fixture tests for both versions.
+- **Done when:** each banned placement heading (Forward plan, In progress,
+  Completed) and each banned annotation token (Status, Last activity,
+  Dispatch) has its own failing v2 fixture; an Active/Done header, a
+  missing or non-canonical pointer line, an unknown-id, duplicate, or
+  grammar-violating reference bullet, and an unparseable `Format-version:`
+  each fail; each v2-invariant violation warns rather than errors on a
+  Draft fixture, except the unparseable-`Format-version:` case, which
+  errors at every status (REQ-C1.8 — the rules to apply cannot be known
+  without a parsed version); escape-byte fixtures confirm sanitized error
+  output for bullet text and header values; a compliant v2 fixture and
+  every existing v1 bundle pass; `mise run check` passes.
+- **Dependencies:** 1
+- **Citations:** D-7, D-5, D-3 · REQ-C1.5, REQ-C1.8, REQ-C1.9, REQ-D1.1
+- **Estimated effort:** 1 day
+
+### Task 3 — Derived status render surface
+
+- **Deliverables:** The derivation engine (`scripts/orchestrate-state.sh`)
+  surfaced as the canonical human status render: a command (wired as a
+  mise task) that prints per-task execution status and the bundle's
+  effective status (Active/Done) for a named spec. Includes porting the
+  bundle-status determination from the sync writer's awk and re-sourcing
+  it from reference bullets (D-6); stored-status gating and the zero-task
+  rule (REQ-B1.6); bullet authority for all three sections (REQ-B1.4); a
+  stale-bullet anomaly flag (a bullet on a task whose evidence derives
+  completed); fail-closed transient-failure reporting distinct from the
+  no-remote degradation (REQ-B1.5); and `sanitize_printable` on all echoed
+  spec content (REQ-C1.9).
+- **Done when:** the render reports correct per-task and bundle status on
+  fixtures covering merged-PR, open-PR, branch-only, marker-only,
+  commit-trailer, parked-task, and no-remote cases; a reference bullet
+  overrides git evidence for its task and a bullet on a completed task is
+  flagged as an anomaly; a stored-Draft/Retired/Superseded fixture renders
+  its stored state with no execution claim; a zero-task fixture reports no
+  tasks and never Done; an all-completed fixture with a live
+  Awaiting-input bullet derives not-Done; a configured-but-failing remote
+  reports the failure (distinct exit) instead of partial status; a fixture
+  with a missing or unparseable `Format-version:` fails closed; embedded
+  terminal-escape bytes in bullet text, branch names, and remote error
+  text are sanitized in output; nothing is written to any committed file;
+  `mise run check` passes.
+- **Dependencies:** 1
+- **Citations:** D-6, D-3, D-4, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3,
+  REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9
+- **Estimated effort:** 1 day
 
 ### Task 4 — Writer version-keyed no-op and guard scope
 
@@ -40,7 +121,6 @@ the guard that protects their output exists.
 - **Citations:** D-7, D-9 · REQ-C1.1, REQ-C1.4, REQ-C1.6, REQ-C1.8,
   REQ-C1.9, REQ-A1.2
 - **Estimated effort:** 2 days
-- **Last activity:** 2026-07-15
 
 ### Task 5 — Selector and gate re-sourcing
 
@@ -62,7 +142,6 @@ the guard that protects their output exists.
 - **Citations:** D-8, D-3 · REQ-C1.2, REQ-C1.3, REQ-B1.5, REQ-C1.8,
   REQ-C1.9
 - **Estimated effort:** 1 day
-- **Last activity:** 2026-07-15
 
 ### Task 6 — Migration script and live-bundle migration
 
@@ -118,7 +197,6 @@ the guard that protects their output exists.
 - **Dependencies:** 1, 2, 3
 - **Citations:** D-6, D-7, D-3, D-8 · REQ-E1.2
 - **Estimated effort:** 2 days
-- **Last activity:** 2026-07-15
 
 ### Task 8 — Docs, config, and supersessions
 
@@ -140,102 +218,10 @@ the guard that protects their output exists.
 - **Dependencies:** 1, 4
 - **Citations:** D-11, D-7 · REQ-E1.3, REQ-C1.7
 - **Estimated effort:** half day
-- **Last activity:** 2026-07-15
-
-## In progress
-
-(none yet)
 
 ## Awaiting input
 
 (none yet)
-
-## Completed
-
-### Task 1 — Meta-spec format-version 2
-
-- **Deliverables:** The format-version 2 definition in
-  `doctrine/spec-format.md`: the v2 `tasks.md` shape (single `## Tasks`
-  section plus Awaiting input / Deferred / Out of scope), reference-bullet
-  forms for all three human-payload sections (with the artifact
-  data-hygiene note for bullet free text), the restricted stored-status
-  vocabulary with the reopen cycle (Ready→Draft), the static `Execution:`
-  pointer line (fixed vocabulary), and derivation as the read surface —
-  recorded via the meta-spec's own versioning ritual, v1 rules retained
-  for v1 bundles; the 2026-07-10 normative completion-annotation entry
-  scoped to v1; the stale `Dispatch`-annotation writer claim corrected.
-- **Done when:** `doctrine/spec-format.md` defines format-version 2
-  normatively (a reader can author a compliant v2 bundle from it alone);
-  the v2 definition carries the bullet data-hygiene note (REQ-C1.9);
-  v1 text is unchanged in meaning; the meta-spec's versioning section
-  records the bump and the v1 scoping of the completion-annotation entry;
-  `mise run check` passes.
-- **Dependencies:** none
-- **Citations:** D-1, D-2, D-3, D-4, D-5, D-11 · REQ-A1.1, REQ-A1.2,
-  REQ-A1.3, REQ-A1.4, REQ-E1.1, REQ-C1.9
-- **Estimated effort:** 1 day
-- **Last activity:** 2026-07-15
-- **Status:** Completed · PR #181 merged 2026-07-15
-
-### Task 2 — Validator v2 rules
-
-- **Deliverables:** `scripts/spec-validate.sh` enforcing the v2 invariants
-  (no placement sections, no state annotation bullets, stored header
-  restricted to Draft/Ready/Retired/Superseded, pointer line present in
-  its fixed vocabulary, reference-bullet integrity: existing task ids, no
-  duplicates) as errors on non-Draft v2 bundles and warnings on Draft,
-  failing closed on a missing/unparseable `Format-version:`, with v1 rules
-  unchanged for v1 bundles and echoed values on the new v2 error paths
-  routed through `sanitize_printable`; fixture tests for both versions.
-- **Done when:** each banned placement heading (Forward plan, In progress,
-  Completed) and each banned annotation token (Status, Last activity,
-  Dispatch) has its own failing v2 fixture; an Active/Done header, a
-  missing or non-canonical pointer line, an unknown-id, duplicate, or
-  grammar-violating reference bullet, and an unparseable `Format-version:`
-  each fail; each v2-invariant violation warns rather than errors on a
-  Draft fixture, except the unparseable-`Format-version:` case, which
-  errors at every status (REQ-C1.8 — the rules to apply cannot be known
-  without a parsed version); escape-byte fixtures confirm sanitized error
-  output for bullet text and header values; a compliant v2 fixture and
-  every existing v1 bundle pass; `mise run check` passes.
-- **Dependencies:** 1
-- **Citations:** D-7, D-5, D-3 · REQ-C1.5, REQ-C1.8, REQ-C1.9, REQ-D1.1
-- **Estimated effort:** 1 day
-- **Last activity:** 2026-07-15
-- **Status:** Completed · PR #189 merged 2026-07-15
-
-### Task 3 — Derived status render surface
-
-- **Deliverables:** The derivation engine (`scripts/orchestrate-state.sh`)
-  surfaced as the canonical human status render: a command (wired as a
-  mise task) that prints per-task execution status and the bundle's
-  effective status (Active/Done) for a named spec. Includes porting the
-  bundle-status determination from the sync writer's awk and re-sourcing
-  it from reference bullets (D-6); stored-status gating and the zero-task
-  rule (REQ-B1.6); bullet authority for all three sections (REQ-B1.4); a
-  stale-bullet anomaly flag (a bullet on a task whose evidence derives
-  completed); fail-closed transient-failure reporting distinct from the
-  no-remote degradation (REQ-B1.5); and `sanitize_printable` on all echoed
-  spec content (REQ-C1.9).
-- **Done when:** the render reports correct per-task and bundle status on
-  fixtures covering merged-PR, open-PR, branch-only, marker-only,
-  commit-trailer, parked-task, and no-remote cases; a reference bullet
-  overrides git evidence for its task and a bullet on a completed task is
-  flagged as an anomaly; a stored-Draft/Retired/Superseded fixture renders
-  its stored state with no execution claim; a zero-task fixture reports no
-  tasks and never Done; an all-completed fixture with a live
-  Awaiting-input bullet derives not-Done; a configured-but-failing remote
-  reports the failure (distinct exit) instead of partial status; a fixture
-  with a missing or unparseable `Format-version:` fails closed; embedded
-  terminal-escape bytes in bullet text, branch names, and remote error
-  text are sanitized in output; nothing is written to any committed file;
-  `mise run check` passes.
-- **Dependencies:** 1
-- **Citations:** D-6, D-3, D-4, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3,
-  REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-C1.8, REQ-C1.9
-- **Estimated effort:** 1 day
-- **Last activity:** 2026-07-15
-- **Status:** Completed · PR #188 merged 2026-07-15
 
 ## Deferred
 
