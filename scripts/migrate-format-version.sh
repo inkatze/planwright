@@ -515,8 +515,14 @@ process_bundle_locked() {
     refuse "$bname" "unreadable requirements.md"
     return 0
   fi
-  fver=$(header_value "$gtmp/req.in" Format-version)
-  status=$(header_value "$gtmp/req.in" Status)
+  # Guarded like every other step in this body: an awk/read fault here is a
+  # per-bundle refusal, never a set -e abort of the sweep (the header's
+  # isolation contract).
+  if ! fver=$(header_value "$gtmp/req.in" Format-version) \
+    || ! status=$(header_value "$gtmp/req.in" Status); then
+    refuse "$bname" "header parse failed on requirements.md; nothing written"
+    return 0
+  fi
   brief="$bdir/kickoff-brief.md"
   clog_marker='Migrated to format-version 2'
   entry_marker='format-version 2 migration)'
@@ -658,7 +664,7 @@ process_bundle_locked() {
     else
       clog_cite="invariant-tasks D-10, REQ-D1.3"
     fi
-    cat >"$gtmp/clog.entry" <<EOF
+    cat >"$gtmp/clog.entry" <<EOF || {
 - $today — Migrated to format-version 2 ($clog_cite;
   one-shot \`scripts/migrate-format-version.sh\` run): placement sections
   collapsed into a single \`## Tasks\` section, state annotation bullets
@@ -669,6 +675,9 @@ process_bundle_locked() {
   re-anchor rides as expression-only: the kickoff brief's self-re-anchor
   entry cites this entry.
 EOF
+      refuse "$bname" "scratch write failed (changelog entry); nothing written"
+      return 0
+    }
     # Respect the bundle's existing changelog direction: a newest-first
     # changelog gets the entry prepended under the heading, an ascending
     # (or single-entry/empty) one gets it appended at the section's end —
@@ -687,7 +696,10 @@ EOF
         else if (first > last) print "prepend"
         else print "append"
       }
-    ' "$gtmp/requirements.new")
+    ' "$gtmp/requirements.new") || {
+      refuse "$bname" "changelog direction detection failed; nothing written"
+      return 0
+    }
     if [ "$direction" = "prepend" ]; then
       awk -v ins="$gtmp/clog.entry" '
         { print }
@@ -696,7 +708,11 @@ EOF
           while ((getline l < ins) > 0) print l
           done = 1
         }
-      ' "$gtmp/requirements.new" >"$gtmp/requirements.new2"
+      ' "$gtmp/requirements.new" >"$gtmp/requirements.new2" \
+        || {
+          refuse "$bname" "changelog insert failed (scratch I/O?); nothing written"
+          return 0
+        }
     else
       # Append: everything through the end of the changelog section, then
       # the entry (before the next H2, or at EOF when the changelog is the
@@ -722,9 +738,17 @@ EOF
             while ((getline l < ins) > 0) print l
           }
         }
-      ' "$gtmp/requirements.new" >"$gtmp/requirements.new2"
+      ' "$gtmp/requirements.new" >"$gtmp/requirements.new2" \
+        || {
+          refuse "$bname" "changelog insert failed (scratch I/O?); nothing written"
+          return 0
+        }
     fi
-    mv "$gtmp/requirements.new2" "$gtmp/requirements.new"
+    mv "$gtmp/requirements.new2" "$gtmp/requirements.new" \
+      || {
+        refuse "$bname" "changelog insert failed (scratch I/O?); nothing written"
+        return 0
+      }
   fi
 
   # Self-check (REQ-A1.4): the canonical extraction must be byte-identical
@@ -793,7 +817,7 @@ append_reanchor() {
       print substr($0, 3, 10)
       exit
     }
-  ' "$ab_dir/requirements.md")
+  ' "$ab_dir/requirements.md") || return 1
   [ -n "$ab_cdate" ] || ab_cdate=$today
 
   # Record the bundle path relative to its own repository root when it has
@@ -803,7 +827,7 @@ append_reanchor() {
   ab_dir_phys=$(cd "$ab_dir" && pwd -P) || return 1
   ab_rel="$(basename "$(dirname "$ab_dir_phys")")/$(basename "$ab_dir_phys")"
   if ab_top=$(git -C "$ab_dir" rev-parse --show-toplevel 2>/dev/null); then
-    ab_top_phys=$(cd "$ab_top" && pwd -P)
+    ab_top_phys=$(cd "$ab_top" && pwd -P) || return 1
     case $ab_dir_phys in
       "$ab_top_phys"/*) ab_rel=${ab_dir_phys#"$ab_top_phys"/} ;;
     esac
