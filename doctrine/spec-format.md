@@ -662,11 +662,7 @@ This document is format-version 2 and defines versions 1 and 2. Changes to
 the format bump the version; bundles keep working under the version they
 declare, and the validator applies the rules for the declared version. A
 bundle migrates by updating its `Format-version:` line and conforming to
-the new version's rules; the one-shot `scripts/migrate-format-version.sh`
-performs the 1→2 conversion mechanically for a live bundle (the section
-collapse, annotation strip, header restriction, pointer line, and — for
-signed bundles — the migration changelog entry plus the expression-only
-re-anchor), refusing anything it cannot convert deterministically.
+the new version's rules.
 
 - 2026-07-14 — **Format-version 2**: the invariant ledger (invariant-tasks
   D-1, D-2), defined in *Format-version 2 — the invariant ledger*; version 1
@@ -679,10 +675,6 @@ Guidance refinements that do not change a format version's rules are
 recorded here without a version bump — a bundle authored to the affected
 version stays conformant:
 
-- 2026-07-15 — Migration-path pointer. The versioning section names
-  `scripts/migrate-format-version.sh` as the mechanical 1→2 conversion
-  path (invariant-tasks Task 6, REQ-D1.2); the manual
-  update-the-line-and-conform route stays valid.
 - 2026-07-10 — Derived-content authoring guidance. The `tasks.md` guidance no
   longer suggests a hand-drawn dependency graph in intro prose (`Dependencies:`
   lines are the sole source of truth; `scripts/spec-graph.sh` renders the
