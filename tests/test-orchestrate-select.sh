@@ -9,14 +9,22 @@
 #     task that is in-flight or already completed (by git/marker evidence the
 #     committed snapshot has not yet caught up to) is never re-dispatched
 #     (Task 5, D-3, REQ-B1.2);
-#   - a ready task is one in ## Forward plan that the derivation reports neither
-#     completed nor in-progress, and whose every dependency the derivation
-#     reports completed (the dependency GRAPH is still parsed from tasks.md, so
-#     the prose-deps parser added in PR #78 is preserved);
+#   - a ready task is one the derivation reports neither completed nor
+#     in-progress, whose every dependency the derivation reports completed
+#     (the dependency GRAPH is still parsed from tasks.md, so the prose-deps
+#     parser added in PR #78 is preserved), and that is a candidate under the
+#     bundle's declared format version (invariant-tasks Task 5, D-8,
+#     REQ-C1.2): v1 = sits in ## Forward plan; v2 = not parked by a live
+#     reference bullet under Awaiting input / Deferred / Out of scope;
 #   - among ready tasks, the head of the effort-weighted longest dependent chain
 #     wins (critical-path-first); FIFO (file order) breaks ties;
 #   - no ready task → exit 1 (nothing to dispatch this step);
-#   - a missing / taskless tasks.md, or a derivation that fails closed → exit 2.
+#   - a missing / taskless / NUL-laden tasks.md, a missing or unparseable
+#     Format-version: line (REQ-C1.8), a missing echo-safety.sh helper, or a
+#     derivation that fails closed → exit 2;
+#   - a v2 transient evidence failure (remote configured, evidence fetch
+#     failed) → exit 3, dispatch nothing (REQ-B1.5); v1 keeps its documented
+#     degraded-but-proceed behavior.
 #
 # Because selection now reads live truth, the select-mode fixtures are real git
 # repos with crafted evidence: a task is COMPLETED via a reachable
@@ -1698,5 +1706,34 @@ for v17_sh in /bin/sh dash; do
     && fail "v2-echo-esc ($v17_sh): a literal backslash sequence was re-synthesized into a control byte on stderr"
 done
 echo "ok: literal backslash sequences are never re-synthesized into terminal escapes"
+
+# V18. A missing echo-safety.sh helper is a broken install: fail closed
+#      (exit 2) with a diagnostic naming the helper, before any parse or
+#      derivation — the sanitizer is what keeps every later untrusted-content
+#      diagnostic safe, so running without it is refused (REQ-C1.9).
+lonesel="$tmp/lonesel"
+mkdir -p "$lonesel"
+cp "$SEL" "$lonesel/orchestrate-select.sh"
+chmod +x "$lonesel/orchestrate-select.sh"
+rc=0
+v18_err=$(/bin/bash "$lonesel/orchestrate-select.sh" "$dv1spec" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "v18 echo-safety missing: exit $rc, expected 2 (broken install fails closed)"
+case "$v18_err" in
+  *echo-safety.sh*) : ;;
+  *) fail "v18: diagnostic must name the missing helper (got: $v18_err)" ;;
+esac
+echo "ok: a missing echo-safety.sh helper fails closed (broken install, REQ-C1.9)"
+
+# V19. --critical-path on a v2 bundle ignores reference-bullet parking by
+#      design (path mode is purely structural: full DAG, no engine, no parked
+#      map) — a bullet-parked task still appears on the emitted path. Pins the
+#      select-mode-only guard on the parked-map parse.
+cp19=$(/bin/bash "$SEL" --critical-path "$dv1spec") \
+  || fail "v19 --critical-path on the v2 parked fixture: non-zero exit ($?)"
+printf '%s\n' "$cp19" | grep -qx 1 \
+  || fail "v19: the structural path must start at the root [$cp19]"
+printf '%s\n' "$cp19" | grep -qx 2 \
+  || fail "v19: a bullet-parked task must still ride the structural path (path mode ignores parking) [$cp19]"
+echo "ok: --critical-path stays structural on v2 (bullet parking not applied)"
 
 echo "PASS: orchestrate-select"
