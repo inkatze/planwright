@@ -411,7 +411,7 @@ process_bundle() {
     # here: complete a missing re-anchor entry (an interrupted run's last
     # step) rather than no-oping past it (REQ-D1.2). No marker means the
     # bundle was born v2 (or is a migrated Draft): leave it untouched.
-    if grep -q "$clog_marker" "$req"; then
+    if grep -qF "$clog_marker" "$req"; then
       if [ ! -f "$brief" ]; then
         refuse "$bname" "migration changelog entry present but kickoff-brief.md is missing (cannot complete the re-anchor)"
         return 0
@@ -475,7 +475,7 @@ process_bundle() {
   transform_header "$bdir/test-spec.md" >"$gtmp/test-spec.new"
   transform_header "$req" >"$gtmp/requirements.new"
 
-  if [ "$signed" = 1 ] && ! grep -q "$clog_marker" "$gtmp/requirements.new"; then
+  if [ "$signed" = 1 ] && ! grep -qF "$clog_marker" "$gtmp/requirements.new"; then
     if ! grep -q '^## Changelog[ \t]*$' "$gtmp/requirements.new"; then
       refuse "$bname" "requirements.md has no ## Changelog section (the migration entry has no home)"
       return 0
