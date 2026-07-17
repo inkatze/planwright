@@ -39,9 +39,11 @@
 #       (a healthy server is authoritative for its sessions: absent -> dead),
 #       `list-windows` (window absent from the authoritative listing -> dead;
 #       <window> matches either the #{window_id} or #{window_name} field
-#       exactly). Session/window tokens are validated against the
-#       orchestrate-relay.sh tmux charset before any `-t` interpolation, and
-#       targets use the exact-match `=` prefix.
+#       exactly). Session/window tokens are validated against a conservative
+#       subset of the orchestrate-relay.sh tmux charset (no `:` or `/`: the
+#       relay validates combined session:window targets, while the separate
+#       per-token arguments here need neither) before any `-t` interpolation,
+#       and targets use the exact-match `=` prefix.
 #
 # Adding an evidence class for a new backend extends this wrapper; per-
 # mechanism staleness heuristics stay forbidden (D-5).
@@ -127,9 +129,10 @@ case "$class" in
       usage
       exit 2
     fi
-    # The orchestrate-relay.sh tmux handle discipline: empty, a leading dash
-    # (option injection), over-length, or anything outside the conservative
-    # charset is refused before the token reaches a `-t` target.
+    # The orchestrate-relay.sh tmux handle discipline (charset narrowed to
+    # single-name tokens; see the header): empty, a leading dash (option
+    # injection), over-length, or anything outside the conservative charset
+    # is refused before the token reaches a `-t` target.
     for tok in "$session" "$window"; do
       case "$tok" in
         "" | -*)
