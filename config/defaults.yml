@@ -123,6 +123,40 @@ review_sequence: [polish]
 # human-reviewed posture config/worker-settings.json has.
 fleet_daemon_pause: false
 
+# Push-based worker liveness: the five-state classifier and crash-loop
+# backoff (fleet-autonomy D-1, D-2, D-3; REQ-A1.2, REQ-A1.4). All four
+# resolve through the shared knob resolver (scripts/resolve-config-knob.sh
+# -> config-get, D-22/REQ-G1.5) as positive integers; a malformed value
+# follows the REQ-E1.4 by-layer policy. Consumed by scripts/fleet-liveness.sh.
+
+# How many consecutive no-forward-progress observations (heartbeats with an
+# unchanged progress token) classify a still-heartbeating worker as
+# `flailing`, queueing the "this task may be stuck" human fork (REQ-A1.2,
+# REQ-A1.3). No mature precedent exists for this exact signal (kickoff risk
+# row 3): the default is deliberately small because a wrong value is safe —
+# it only shifts WHEN the escalation fires, never loses work — and it is
+# overlay-tunable to the fleet's real observation cadence.
+fleet_flailing_threshold: 3
+
+# Heartbeat age (seconds) past which a worker that should be working is
+# treated as no longer heartbeating — the `hung` boundary (REQ-A1.2). Where
+# a death-evidence handle is available the positive-evidence predicate
+# (fleet-death-evidence.sh) corroborates before `hung` is classified; an
+# `unknown` verdict refuses the classification (lost observability is never
+# death, REQ-A1.7).
+fleet_hung_heartbeat_seconds: 900
+
+# Crash-loop backoff (REQ-A1.4, D-3): the first relaunch delay in seconds;
+# each further consecutive crash doubles it (capped at 3600s) — the PM2 /
+# supervisord exponential-backoff shape.
+fleet_crash_backoff_base_seconds: 30
+
+# Consecutive crashes after which the worker is DISABLED — no further
+# relaunch authorized — and the disable is escalated to a human decision
+# rather than restart-looping (REQ-A1.4). The default matches the 3-strike
+# precedent D-3 cites (claude_code_agent_farm, supervisord startretries).
+fleet_crash_disable_threshold: 3
+
 # Release-tagging policy (autopilot-reflex D-4, D-13; REQ-D1.4, REQ-D1.6). The
 # publish script (scripts/release-publish.sh) reads both knobs; the comparator
 # (scripts/release-pending.sh) reads only version_file — signing is a

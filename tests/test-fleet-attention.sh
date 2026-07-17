@@ -735,4 +735,25 @@ distinct=$(cut -f2- "$home21/attention/toasts" | sort -u | wc -l | tr -d ' ')
 [ "$distinct" = "$Nt" ] || fail "toast race: $distinct distinct summaries, expected $Nt (an append was lost or clobbered)"
 echo "ok: concurrent editor-toast appends are serialized (N intact lines, none torn or lost)"
 
+# ---------------------------------------------------------------------------
+# 22. Fleet-autonomy Task 2 (D-1, D-2; REQ-A1.1, REQ-A1.2) extends the
+#     heartbeat vocabulary with the hook-pushed liveness states: idle (Stop),
+#     hung (StopFailure, risk-27 mapping), ended (SessionEnd). They are
+#     status, not decisions: the renderer shows them, the queue never does
+#     (awaiting-input stays the one decision-bearing state, set by decide).
+# ---------------------------------------------------------------------------
+home22="$tmp/liveness-states"
+i=1
+for st in idle hung ended; do
+  aenv "$home22" heartbeat "worker=l$i" "spec-l:$i" "$st" \
+    || fail "liveness state '$st': heartbeat refused it"
+  out=$(aenv "$home22" render) || fail "render with liveness states failed"
+  printf '%s\n' "$out" | grep -F "worker=l$i" | grep -q "\[$st\]" \
+    || fail "render does not show worker=l$i as [$st]"
+  i=$((i + 1))
+done
+qc=$(aenv "$home22" queue --count) || fail "queue --count with liveness states failed"
+[ "$qc" = 0 ] || fail "liveness states leaked into the decision queue (count $qc, expected 0)"
+echo "ok: heartbeat accepts the liveness states idle/hung/ended as status, never queued"
+
 echo "ALL PASS: fleet-attention.sh"

@@ -401,6 +401,39 @@ in-repo precedent plus POSIX/tool semantics).
   enforcement is not possible from a config reader; the boundary is the
   worker permission allowlist, unchanged by this task.
 
+### Task 2 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5 (research scoping declared light
+per `proportionality`: no new dependency; the one version-sensitive surface
+is the Claude Code hook-event contract, verified against the current
+official docs rather than model memory).
+
+- **Hook-event contract re-verified (D-1).** All five events REQ-A1.1 names
+  exist under those exact names in the current hooks reference (`Stop`,
+  `SessionEnd`, `PostToolUse`, `PermissionRequest`, `StopFailure`;
+  code.claude.com/docs/en/hooks, fetched 2026-07-17). Every payload carries
+  `session_id`/`hook_event_name`; `SessionEnd` carries a `reason`;
+  `StopFailure` supports an `error_type` matcher. A plugin's
+  `hooks/hooks.json` may register all five with the settings.json schema and
+  `${CLAUDE_PLUGIN_ROOT}` expansion, and hook commands inherit the launched
+  process's environment — which is what makes the dispatch-time
+  worker-identity env contract (`PLANWRIGHT_WORKER_HANDLE`/`_SCOPE`) viable
+  as the hook handler's gate.
+- **Backend fallback boundary (risk 16).** Hooks fire in `-p` (print-mode)
+  sessions per the current docs, so hook-push covers the `tmux` and `print`
+  backends (real launched processes inheriting the dispatch env). The
+  `subagent` backend runs workers in-process (per-worker session hooks do
+  not exist; `SubagentStart`/`SubagentStop` fire in the parent session) and
+  `in-session` shares the tower's own session, so both fall back to the
+  existing observation path (`orchestrate-relay.sh observe-command` /
+  tower-inline). A fleet composed mostly of those backends keeps pre-spec
+  polling latency for that slice.
+- **Backoff schedule precedent (D-3).** Exponential doubling from a
+  configurable base with a hard cap, disable at a configurable consecutive-
+  failure threshold (default 3): the PM2 `exp-backoff-restart-delay` /
+  supervisord `startretries` / claude_code_agent_farm 3-strike shape D-3
+  already cites; no newer precedent found that changes it.
+
 Signed off: 2026-07-14
 
 ## 8. Sign-off

@@ -7,9 +7,11 @@
 #
 # WHAT IT PROVIDES (D-13):
 #   (a) HEARTBEAT/AWARENESS STATE — a per-worker current-state store keyed by
-#       worker handle: scope (spec + unit), state (working / awaiting-input /
-#       pr-ready / merged / done), a commit-time heartbeat, and — for an
-#       awaiting-input worker — the structured decision it is blocked on.
+#       worker handle: scope (spec + unit), state (working / idle / hung /
+#       ended / awaiting-input / pr-ready / merged / done — idle/hung/ended
+#       are the hook-pushed liveness states, fleet-autonomy Task 2), a
+#       commit-time heartbeat, and — for an awaiting-input worker — the
+#       structured decision it is blocked on.
 #   (b) a PORTABLE STATUS RENDERER (`render`) — lists each worker's scope + state.
 #   (c) the DECISION QUEUE (`queue`) — one ordered, alarm-rationalized queue of
 #       ACTIONABLE items across all active specs, each a structured choice
@@ -49,8 +51,9 @@
 # Usage:
 #   fleet-attention.sh heartbeat <worker> <scope> <state>
 #       Upsert the worker's current state (one row per worker, last wins).
-#       <state> ∈ working | pr-ready | merged | done. awaiting-input needs a
-#       structured decision — use `decide`.
+#       <state> ∈ working | idle | hung | ended | pr-ready | merged | done
+#       (idle/hung/ended are the hook-pushed liveness states, fleet-autonomy
+#       Task 2). awaiting-input needs a structured decision — use `decide`.
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
@@ -118,9 +121,12 @@ valid_text() {
 
 # The states a heartbeat may set. awaiting-input is deliberately excluded: it is
 # the ONE state that carries a structured decision, so it is set only by `decide`.
+# idle / hung / ended are the hook-pushed liveness states (fleet-autonomy Task 2,
+# D-1/REQ-A1.1, written by fleet-liveness.sh): status like the progress states,
+# never queued.
 valid_heartbeat_state() {
   case $1 in
-    working | pr-ready | merged | done) return 0 ;;
+    working | idle | hung | ended | pr-ready | merged | done) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -303,7 +309,7 @@ case $cmd in
       exit 2
     fi
     if ! valid_heartbeat_state "$state"; then
-      echo "fleet-attention: refusing state '$(sanitize_printable "$state" "(unprintable state)")' (heartbeat states: working|pr-ready|merged|done; awaiting-input needs 'decide')" >&2
+      echo "fleet-attention: refusing state '$(sanitize_printable "$state" "(unprintable state)")' (heartbeat states: working|idle|hung|ended|pr-ready|merged|done; awaiting-input needs 'decide')" >&2
       exit 2
     fi
     root=$(resolve_home) || exit 2
