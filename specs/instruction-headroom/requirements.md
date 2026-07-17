@@ -38,13 +38,14 @@ capability, trims as repo-local instantiation — is recorded in D-1.
 - Restoration passes over every surface the policy flags at the floors
   chosen in REQ-A1.1 (at drafting time: the execute-task, spec-kickoff, and
   orchestrate bodies; the self-review, polish, and execute-task start-loads;
-  the orchestrate closure).
+  the orchestrate and execute-task closures).
 - The exempt-doc aggregate-coupling decision (`doctrine/spec-format.md`
   today, and any future permanently per-file-exempt doc).
-- check-instructions tooling: margin reporting, floor-breach findings, the
-  pending-diet Task field in audit output, the reverse point-of-use use-site
-  check, offender-shortlist test expectations derived from the suppression
-  list, and the stale exemption-rationale text.
+- check-instructions tooling: margin reporting, floor-breach and
+  below-target findings with declared-exception entries, raise-rationale
+  enforcement, the pending-diet Task field in audit output, the reverse
+  point-of-use use-site check, offender-shortlist test expectations derived
+  from the suppression list, and the stale exemption-rationale text.
 - Diet-pass operational discipline (unbroken grepped phrases, content-pinned
   tests in the same PR, the meaning-inversion hazard) encoded in the diet
   tasks' definitions.
@@ -68,10 +69,14 @@ capability, trims as repo-local instantiation — is recorded in D-1.
 - **REQ-A1.1** `doctrine/instruction-hygiene.md` SHALL define a headroom
   floor per budgeted surface class — SKILL.md body, rule doc,
   mandatory-at-start, reachable closure — as a minimum word margin below the
-  class's error threshold, with core default values 250 / 250 / 500 / 1,000
-  carried as overlay-tunable knobs in `config/defaults.yml`. A surface whose
-  margin is below its floor is in breach and SHALL trigger the restoration
-  ladder.
+  class's error threshold ("margin" unqualified in this bundle always means
+  margin-to-error; the warn-threshold distance is named margin-to-warn),
+  with core default values 250 / 250 / 500 / 1,000 carried as
+  overlay-tunable knobs in `config/defaults.yml` named
+  `instruction_budget_<skill|doctrine|startload|closure>_floor`, mapping
+  one-to-one to the four classes in the order listed. A surface whose margin
+  is strictly below its headroom floor (margin equal to the floor is
+  compliant) is in breach and SHALL trigger the restoration ladder.
   *(Cites: D-2, obs:fd250fb5, obs:dd48dace, obs:c5c3eb2c, obs:094e588c,
   obs:36fa1662.)*
 - **REQ-A1.2** The policy SHALL define the restoration ladder with
@@ -82,18 +87,29 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   *(Cites: D-5.)*
 - **REQ-A1.3** No ladder rung SHALL defer gating law (the
   instruction-hygiene safety floor); a surface that cannot restore margin
-  without deferring gating law SHALL escalate to the human instead.
-  *(Cites: D-5, prompt-hygiene (Sources).)*
-- **REQ-A1.4** Budget raises and exemptions SHALL carry a recorded rationale
-  in the configuration that sets them; a silent raise or reason-less entry
-  SHALL be a guard error.
-  *(Cites: D-5, prompt-hygiene (Sources).)*
+  without deferring gating law SHALL escalate to the human instead. The two
+  backstops divide by depth: below its headroom floor and blocked ⇒ human
+  escalation (this requirement); at or above its floor but unable to reach
+  its restoration target ⇒ a declared exception (REQ-A1.5).
+  *(Cites: D-5, prompt-hygiene (Sources), kickoff lens pass (2026-07-17).)*
+- **REQ-A1.4** Budget raises and exemptions SHALL carry a recorded
+  rationale: for a raise, a `raise|<knob>|<value>|<reason>` suppression-list
+  entry (D-12) matching the raised knob's effective value. An effective
+  `instruction_budget_*_warn` or `instruction_budget_*_error` value above
+  its shipped core default with no matching entry (a silent raise), a
+  reason-less entry of any form, or an absent or unreadable core-default
+  baseline SHALL be a guard error (fail-closed). Floor knobs are protective
+  and outside the raise rule.
+  *(Cites: D-5, D-12, prompt-hygiene (Sources).)*
 - **REQ-A1.5** A restoration pass SHALL aim for a restoration target of
-  twice the surface's floor, so a restored surface absorbs routine doctrine
-  growth (the observed 80–560-word range) before breaching again; a surface
-  that cannot reach its target without deferring gating law SHALL record a
-  declared exception instead.
-  *(Cites: D-3, obs:bfe73da9.)*
+  twice the surface's headroom floor, so a restored surface absorbs
+  floor-many words of routine growth before re-breaching (the closure class
+  absorbs the full observed 80–560-word addition range; smaller classes
+  absorb their floor, and a >500-word body addition brings its own diet); a
+  surface that cannot reach its target without deferring gating law SHALL
+  record a declared exception instead (a `declared-exception` entry per
+  D-11, machine-checked via REQ-D1.6).
+  *(Cites: D-3, D-11, obs:bfe73da9.)*
 
 ## REQ-B — Exempt-doc aggregate coupling
 
@@ -111,9 +127,11 @@ capability, trims as repo-local instantiation — is recorded in D-1.
 ## REQ-C — Restoration passes
 
 - **REQ-C1.1** After this spec's restoration tasks, every budgeted surface
-  SHALL meet its floor with margin at or above its restoration target,
-  verified from the guard's margin report on the real corpus in CI.
-  *(Cites: D-6, obs:fd250fb5, obs:dd48dace.)*
+  SHALL have margin at or above its restoration target or carry a declared
+  exception per REQ-A1.5, verified from the guard's margin report and
+  below-target warnings (REQ-D1.6) on the real corpus in CI.
+  *(Cites: D-6, D-11, obs:fd250fb5, obs:dd48dace, kickoff §3
+  (2026-07-16).)*
 - **REQ-C1.2** Diets SHALL preserve law verbatim in meaning and SHALL run
   the content-pinned structural tests in the same PR; pinned lists and
   grepped phrases stay unbroken on one line.
@@ -123,39 +141,77 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   doc at its in-body use site.
   *(Cites: D-6, obs:38878e99.)*
 - **REQ-C1.4** The reverted `migrate-format-version.sh` guidance SHALL be
-  re-landed in `doctrine/spec-format.md`'s versioning section once the
-  dependent closures' restored margin absorbs it.
-  *(Cites: D-9, obs:92cd453e.)*
+  re-landed in `doctrine/spec-format.md`'s `## Versioning of this
+  meta-spec` section by the closing task — sequenced last to shrink the
+  sibling-spec merge-conflict window (D-9); under the D-4 cap the addition
+  charges nothing further to dependents.
+  *(Cites: D-9, obs:92cd453e, kickoff lens pass (2026-07-17).)*
 
 ## REQ-D — Guard tooling
 
-- **REQ-D1.1** `check-instructions --audit` SHALL report each surface's
-  margin to its warn and error thresholds, and every guard run SHALL emit a
-  named floor-breach warning (never an error) when a surface's margin is
-  below its floor.
-  *(Cites: D-2, D-8.)*
+- **REQ-D1.1** `check-instructions --audit` SHALL report each floored
+  surface's margin-to-warn and margin-to-error (the injected-context
+  surface has no error threshold: it stays warn-only and carries no
+  floor), and every guard run SHALL emit a named floor-breach warning
+  (never an error) when a floored surface's margin is strictly below its
+  headroom floor. A missing or non-numeric floor knob SHALL abort the
+  guard fail-loud, exactly as the existing budget knobs do — never
+  fail-open.
+  *(Cites: D-2, D-8, kickoff lens pass (2026-07-17).)*
 - **REQ-D1.2** The audit shortlist and ranked report SHALL include each
   pending-diet allowance's Task field, so a Task retag is visible to the
   test surface.
   *(Cites: D-8, obs:002ebf4a.)*
 - **REQ-D1.3** The guard SHALL check the reverse direction of doctrine
-  manifests: every point-of-use doc named at some in-body step; a missing
-  use-site naming SHALL be a warning.
+  manifests: every point-of-use doc is named at some in-body step; a
+  missing use-site naming SHALL be a warning.
   *(Cites: D-7, obs:38878e99.)*
 - **REQ-D1.4** The guard test suite's real-corpus offender-shortlist
   expectations SHALL derive from the suppression list rather than hardcoded
   file names.
   *(Cites: D-8, obs:c5a95acf.)*
-- **REQ-D1.5** The spec-format exemption rationale SHALL be corrected to
-  drop the superseded "dominant run-start load" claim and to state the
-  capped-charge semantics.
-  *(Cites: D-4, obs:9faf6a79.)*
+- **REQ-D1.5** The spec-format exemption rationale (in
+  `config/instruction-budget-exemptions.txt`) SHALL be corrected to drop
+  the superseded claim that the doc is the dominant run-start load for
+  `/spec-draft` and `/spec-kickoff`, refresh the stale trim-gap figures,
+  and state the capped-charge semantics.
+  *(Cites: D-4, obs:9faf6a79, kickoff lens pass (2026-07-17).)*
+- **REQ-D1.6** The guard SHALL emit a named below-target warning (never an
+  error) when a floored surface's margin is at or above its headroom floor
+  but below its restoration target (twice the floor, derived from the
+  floor knobs — no separate target knobs), and SHALL support a
+  `declared-exception|<surface>|<reason>` suppression-list entry (reason
+  mandatory; a reason-less entry is an error) that excuses only
+  below-target warnings, never a floor-breach warning. Use-site
+  dispositions (REQ-D1.3) reuse the form with a `use-site:<skill>/<doc>`
+  surface key.
+  *(Cites: D-11, kickoff lens pass (2026-07-17).)*
 
 ## Changelog
 
 - 2026-07-16 — Bundle drafted via `/spec-draft` (fold-detection ran against
   all thirteen existing specs; overlap with prompt-hygiene resolved as a new
   spec citing it, per the drafting-session decision recorded in Sources).
+- 2026-07-16 — Kickoff walkthrough edits (kickoff §3): REQ-C1.1 gains the
+  declared-exception clause per REQ-A1.5; Task 2 takes ownership of
+  REQ-A1.4's raise-rationale enforcement (deliverable, Done-when, and
+  citation added).
+- 2026-07-16 — Kickoff walkthrough edits (kickoff §6): the closure-margin
+  target assertions move from Tasks 7 and 9 to Task 11 (a multi-task
+  outcome verified by the closing task), keeping the four diet tasks
+  dispatchable in parallel with Done-when conditions their own scope
+  controls.
+- 2026-07-17 — Kickoff sign-off lens-pass edits (kickoff §8): REQ-D1.6 and
+  D-11/D-12 minted — machine-checkable restoration targets via a named
+  below-target warning plus a `declared-exception|` suppression form, and
+  the raise-rationale carrier as a `raise|` suppression entry scoped to
+  warn/error knobs; floor-knob names pinned in REQ-A1.1; fail-closed
+  behaviors pinned (missing floor knob, absent raise baseline, missing or
+  malformed exempt doc/entry, malformed manifests); backstop split pinned
+  between REQ-A1.3 and REQ-A1.5; test-spec gains per-group H2 headings
+  (markdownlint MD001); plus the remaining wording, Done-when, and
+  cross-file-consistency corrections from the nine-lens review recorded in
+  the brief.
 
 ## Sources
 

@@ -38,11 +38,14 @@ the disposable trims in tasks.
 ### D-2: Headroom floors as core knobs, breach is a named warning  (N)
 
 **Decision:** Four floor knobs in `config/defaults.yml` — SKILL.md body
-250, rule doc 250, mandatory-at-start 500, reachable closure 1,000 (about
-5% of each error threshold, rounded) — overlay-tunable like the existing
-`instruction_budget_*` knobs. A surface whose margin to its error threshold
-is below its floor produces a **named warning** on every guard run; the
-error thresholds themselves are unchanged.
+250, rule doc 250, mandatory-at-start 500, reachable closure 1,000 (5–6%
+of each error threshold, rounded) — named
+`instruction_budget_<skill|doctrine|startload|closure>_floor`,
+overlay-tunable like the existing `instruction_budget_*` knobs. A surface
+whose margin to its error threshold is strictly below its floor produces a
+**named warning** on every guard run; the error thresholds themselves are
+unchanged. *(Amended at kickoff lens pass 2026-07-17: knob names pinned,
+percentage corrected, strict comparison pinned.)*
 
 **Alternatives considered:**
 - Lean floors (100/100/250/500). Rejected because: observed routine
@@ -112,6 +115,12 @@ calls the doc's sanctioned maximum — growth beyond it was accepted by the
 standing exemption — so dependents pay the budgeted size while the overage
 stays visible on the exempt doc's own audit line.
 
+*(Amended at kickoff lens pass 2026-07-17: the cap applies only to an
+exempt doc that resolves and measures — a missing or unresolvable exempt
+doc keeps the guard's existing unmeasured/fail-loud path; a malformed or
+reason-less `exempt|` entry drops the doc from the exempt set, so the full
+charge cascades to dependents — fail-closed and intended.)*
+
 ### D-5: Restoration-ladder rung conditions  (N)
 
 **Decision:** The ladder is ordered diet → point-of-use reclassification →
@@ -133,6 +142,11 @@ insufficient.
 
 **Chosen because:** the ordering encodes the cheapest-honest-fix-first
 principle, and recorded inapplicability keeps the ladder auditable.
+
+*(Amended at kickoff lens pass 2026-07-17: rung 4 (exemption) is per-file
+only — an aggregate surface's ladder tops out at rung 3 and escalates to
+the human thereafter (REQ-A1.3); the capped charge (D-4) is the
+aggregate-side analog of a per-file exemption.)*
 
 ### D-6: The restoration plan for today's breaches  (N)
 
@@ -158,11 +172,25 @@ Small body trims top up any surface left between floor and target.
 point-of-use precedent in execute-task, satisfying the safety floor, and
 the combination reaches every 2× target with rung-1/rung-2 means.
 
+*(Amended at kickoff lens pass 2026-07-17: the gate-wiring diet must shed
+at least 505 words for the self-review start-load to reach its 1,000-word
+target without a body top-up (9,993 − 491 − 505 = 8,997); Task 6 is sized
+accordingly, with Task 10's small body trim as the fallback. Partial-
+restoration invariant: the cap (Task 3) precedes every diet and diets only
+shrink counts, so no surface newly errors mid-campaign — the guard stays
+warning-only for un-restored surfaces throughout the parallel diet wave.)*
+
 ### D-7: Reverse use-site check at warning severity  (N)
 
 **Decision:** The guard verifies, per skill, that every point-of-use
 manifest doc is named somewhere in the body prose outside the manifest
-block and fenced code; a miss is a warning naming the skill and doc.
+block and fenced code; a miss is a warning naming the skill and doc. The
+body scan matches each doc name as a fixed string (names are already
+charset-validated; never a constructed pattern), reuses the existing
+per-skill parse pass, and skips a skill whose manifest failed to parse or
+resolve (its existing manifest error stands). *(Amended at kickoff lens
+pass 2026-07-17: matching semantics, pass reuse, and the malformed-manifest
+skip pinned.)*
 
 **Alternatives considered:**
 - Error severity. Rejected because: the check is new against an existing
@@ -233,6 +261,59 @@ REQ/D text for meaning inversion; law moves verbatim in meaning.
 **Chosen because:** the tasks are where the discipline is exercised, and
 Done-when conditions make it checkable per PR.
 
+### D-11: Machine-checkable targets and declared exceptions  (N, kickoff lens pass 2026-07-17)
+
+**Decision:** The guard emits a second named warning — below-target — when
+a floored surface's margin is at or above its headroom floor but below its
+restoration target (twice the floor, derived from the floor knobs; no
+separate target knobs). A new suppression-list form
+`declared-exception|<surface>|<reason>` (reason mandatory) excuses only
+below-target warnings, never a floor-breach warning; use-site dispositions
+(D-7) reuse the form with a `use-site:<skill>/<doc>` surface key. Task 2
+owns the warning and parser; Task 11's closing CI gate becomes: guard
+exits zero, no unmeasured surfaces, no floor-breach warning, no unexcepted
+below-target warning.
+
+**Alternatives considered:**
+- Manual target verification from `--audit` margin columns at Task 11.
+  Rejected because: the floor-to-target band and the excused-vs-new
+  distinction stay invisible to CI forever, and REQ-C1.1's "asserted in
+  CI" claim would be unimplementable.
+- Reusing `pending-diet|` for target shortfalls. Rejected because: it is
+  transitional by contract and errors at `--closeout`, the opposite of a
+  standing declared exception.
+- Grace-period or state in the guard. Rejected because: already ruled out
+  in D-2 — state does not belong in a dependency-free shell guard; the
+  suppression list is data, not state.
+
+**Chosen because:** one mechanism makes every restoration claim in
+REQ-C1.1/A1.5 machine-assertable with the suppression list's existing
+reason-required pipe grammar, and the floor/target severity split keeps
+floor-breach unsuppressible.
+
+### D-12: Raise-rationale carrier and scope  (N, kickoff lens pass 2026-07-17)
+
+**Decision:** A budget raise's recorded rationale is a
+`raise|<knob>|<value>|<reason>` entry in
+`config/instruction-budget-exemptions.txt`. Enforcement is scoped to
+`instruction_budget_*_warn` / `instruction_budget_*_error` knobs whose
+effective (layered) value exceeds the shipped core default; floor knobs
+are excluded by suffix (raising a floor is protective). An absent or
+unreadable core-default baseline is a fail-closed config error. Rationale
+strings carry decision shape only — no secrets, hostnames, or sensitive
+operational detail (security-posture).
+
+**Alternatives considered:**
+- A paired `instruction_budget_<x>_rationale` YAML key in the raising
+  layer. Rejected because: it adds a second rationale grammar and a new
+  parse path outside the suppression list for no gain.
+- YAML comments as the rationale. Rejected because: comments are not
+  data; the guard's constrained parser cannot rely on them.
+
+**Chosen because:** the suppression list already has mandatory-reason
+pipe parsing and is the single home for guard-governance records; the
+config files stay clean data.
+
 ## Cross-cutting concerns
 
 - **Decision-domains walk (merged catalog, 2026-07-16):** of the eleven
@@ -251,3 +332,16 @@ Done-when conditions make it checkable per PR.
   (knobs and mechanism); the chosen values ship as core defaults in the
   same file and pattern as the existing budget knobs, overridable per
   overlay layer.
+- **Guard-performance invariant (kickoff lens pass, 2026-07-17):** every
+  new check preserves `check-instructions.sh`'s documented single-pass,
+  fork-free discipline (its R10 comments): the reverse use-site check
+  reuses the existing per-skill parse pass rather than adding
+  O(skills×docs) re-reads, and no addition scales per-run cost with
+  skills×docs.
+- **Echo and data hygiene (kickoff lens pass, 2026-07-17):** every newly
+  echoed untrusted value — floor-breach and below-target surface names,
+  the pending-diet Task field, use-site skill/doc names, charged-vs-actual
+  lines, raise and declared-exception rationales — routes through the
+  established echo-safety discipline (`sanitize_printable` / the in-awk
+  form), pinned by one control-byte fixture in Task 2; rationale free text
+  carries decision shape only, per security-posture.
