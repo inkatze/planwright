@@ -17,10 +17,10 @@
 #     pending-permission marker (REQ-A1.3's never-auto-resolved floor), while
 #     the deny path (permission-request then stop, no tool use between)
 #     clears cleanly (kickoff risk row 28);
-#   - REQ-A1.1 fallback: `push-capable` names hook-push for session-launching
-#     backends (tmux, print) and falls back to the existing capture-pane
-#     observation for in-process backends (subagent, in-session) rather than
-#     failing (kickoff risk row 16);
+#   - REQ-A1.1 fallback: `push-capable` names hook-push for the tmux backend
+#     (the only backend that launches a hook-registering session) and falls
+#     back to the existing capture-pane observation for subagent, print, and
+#     in-session rather than failing (kickoff risk row 16);
 #   - REQ-A1.2: synthetic heartbeat/progress sequences resolve exactly one of
 #     working / idle / hung / awaiting-human / flailing, including the
 #     hung-vs-flailing boundary (heartbeat stopped vs heartbeat fresh with no
