@@ -401,6 +401,45 @@ in-repo precedent plus POSIX/tool semantics).
   enforcement is not possible from a config reader; the boundary is the
   worker permission allowlist, unchanged by this task.
 
+### Task 3 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5/REQ-E1.3 (research scoping declared
+light-to-moderate per `proportionality`: no new dependency; the
+version-sensitive surface is Claude Code's own hook/session contract, so the
+official docs were consulted rather than model memory).
+
+- **SessionStart hook contract (REQ-A1.6), verified against the hooks doc.**
+  `SessionStart` supports a `matcher` filtering on the `source` field
+  (`startup`/`resume`/`clear`/`compact`); the signpost registers under
+  matcher `startup` and re-checks a provided stdin `source` defensively.
+  Plain hook stdout is added to the session's context (exit 0), so the
+  signpost needs no jq dependency; hook failures are non-blocking, and the
+  script additionally always exits 0 (a broken fleet home must never break
+  someone's session startup).
+- **Resume semantics (REQ-A1.6), verified against the sessions doc.**
+  `claude --resume <session-id>` restores the full transcript after a hard
+  crash, but must run from the directory the session started in — which is
+  why markers record a canonical checkout path and the signpost matches it
+  byte-for-byte against the starting session's project dir before surfacing
+  anything.
+- **Session-id capture (risk row 22).** The hook input's `session_id` and
+  headless `--output-format json`'s `session_id` are the documented id
+  surfaces; the only env surface exposed to Bash/hook subprocesses is
+  `CLAUDE_CODE_BRIDGE_SESSION_ID` (v2.1.199+), documented in a `session_`-
+  prefixed form that may not equal the resume UUID verbatim. The marker
+  helper therefore validates `--session-id` strictly as a UUID and treats
+  the field as optional; a sessionless or malformed field is never surfaced
+  as a resume command. Recorded as an observation for later hardening of
+  the capture path.
+- **Detached relaunch shape (REQ-A1.5, REQ-G1.4).** The continue-as-new doc
+  names headless `claude -p` as the documented launch path, but a cron
+  watchdog must not block for the tower's whole lifetime, and D-21 requires
+  session-per-tower isolation anyway — so the default launcher starts a
+  DETACHED tmux session (`tmux new-session -d -s planwright-tower-<spec> -c
+  <checkout>`) wrapped in `fleet-dispatch-env.sh` (D-10), waking
+  `/orchestrate --watch --unattended`. A session-name collision refuses the
+  launch rather than reusing or targeting an existing session.
+
 ### Task 7 execution research notes (2026-07-17)
 
 Appended by `/execute-task` per REQ-D1.5/REQ-E1.3 (research scoping declared
@@ -523,6 +562,30 @@ expression-only (REQ-A3.3, REQ-D1.2).
 
 Class: expression-only
 Anchor: `90d0fb54cf53d9fac5945349a6f53cf24d38b788` — computed as
+`scripts/spec-anchor.sh specs/fleet-autonomy`
+
+### 2026-07-17 — Expression-only self-re-anchor (Task 3 Done-when gap-fill)
+
+Written by `/execute-task` during Task 3 execution, per REQ-F1.10's
+expression-only lane (the one anchor entry an execution skill may write).
+
+**Trigger:** the risk register's row 1 sign-off note directed Task 3's
+implementation to extend its own `Done when` with the overlapping-invocation
+guard (the existing per-spec advisory lock D-20 plus a re-verify of positive
+death evidence under the lock), because an accepted risk with no acceptance
+criterion can silently ship unmitigated. `tasks.md` Task 3's `Done when` now
+carries that criterion; the guard itself ships in
+`scripts/fleet-tower-watchdog.sh` with fixtures in
+`tests/test-fleet-tower-watchdog.sh`. A gap-fill consistent with the
+accepted decisions (the mitigation was decided and signed off in §7 row 1);
+no requirement, design decision, or test semantics changed.
+
+**Cites the changelog line:** the 2026-07-17 `## Changelog` entry in
+`requirements.md` ("Task 3 execution (expression-only, riding the Task 3
+PR)").
+
+Class: expression-only
+Anchor: `6867415b094fcc85d2580567623417ef0f5d6c65` — computed as
 `scripts/spec-anchor.sh specs/fleet-autonomy`
 
 ### 2026-07-17 — Expression-only self-re-anchor (Task 7 Done-when audit clause)

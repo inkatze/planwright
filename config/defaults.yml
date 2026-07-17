@@ -123,6 +123,20 @@ review_sequence: [polish]
 # human-reviewed posture config/worker-settings.json has.
 fleet_daemon_pause: false
 
+# The tower crash-loop backoff schedule (fleet-autonomy D-4, REQ-A1.9), read
+# by scripts/fleet-tower-watchdog.sh. After n consecutive failed relaunches
+# the watchdog waits tower_relaunch_backoff_base * 2^(n-1) seconds before the
+# next attempt, and disables itself (stops relaunching, with a decision-queue
+# entry) once tower_relaunch_disable_threshold consecutive attempts have
+# failed; a tower later observed alive re-arms it. These are the TOWER's own
+# knobs (risk row 32): structurally identical to the worker crash-loop
+# schedule (REQ-A1.4) but deliberately sharing no state or config with it —
+# many workers, one tower per spec. Resolved through the shared knob resolver
+# (scripts/resolve-config-knob.sh -> config-get, D-22/REQ-G1.5); a
+# non-positive-integer value is malformed under the REQ-E1.4 by-layer policy.
+tower_relaunch_backoff_base: 60
+tower_relaunch_disable_threshold: 3
+
 # Per-task-type model selection for fleet dispatch (fleet-autonomy D-11,
 # REQ-E1.1). The rule table in scripts/fleet-resource-select.sh resolves one
 # model/effort/command row per task type; the MODEL column reads these knobs

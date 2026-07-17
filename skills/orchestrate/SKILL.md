@@ -325,17 +325,19 @@ scheduled-autopilot path; a human drains the Awaiting-input queue later.
 ## --watch
 
 Loop the full step (pre-flight → reconcile → select → dispatch record →
-dispatch) until selection reports no ready unit or a halt fires. Each
-iteration is independent and atomic, holding no state beyond what is on
-disk. A halt in any iteration ends the loop and
-surfaces the reason.
+dispatch) until selection reports no ready unit or a halt fires; a halt
+ends the loop and surfaces the reason.
+
+**Tower marker (fleet-autonomy D-4).** At watch-loop start record the
+marker (`scripts/fleet-tower-marker.sh record`: `unattended` under
+`--unattended`, else `interactive`; see `docs/fleet.md`), clearing on
+graceful exit.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
-REQ-C1.4).** A `--watch` tower is the fleet's one long-running session, and
-can silently fill its context window. Each
+REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
 iteration, before selecting new work, run
-`scripts/context-budget-monitor.sh <steps-completed>` with this loop's
-iteration count. On `ok` or `disabled`, proceed. On `near-limit`, perform the
+`scripts/context-budget-monitor.sh <steps-completed>` (this loop's iteration
+count). On `ok` or `disabled`, proceed. On `near-limit`, perform the
 handover per `context-budget-autoheal` (read at this branch): **start a fresh
 tower** seeded with this tower's standing-instructions / wake prompt,
 **confirm it is alive before retiring** (never leave a zero-tower gap — on a
