@@ -275,3 +275,22 @@ Task 11's `--closeout` clause (kept as a cheap invariant assert);
 further diet-title parallelism beyond the Task 6 rename (remaining
 variation is informative). Zero findings left undispositioned. Validator
 and markdownlint re-ran green after the batch.
+
+### Panel pass (/panel-review --nested, gemini backend)
+
+Run at the human's request after the lens-pass batch, on the committed
+branch diff (interim commit `414519a`). Iteration 1 returned six
+findings; local three-pass validation kept five, all approved and
+applied as a sign-off cluster: the REQ-D1.6/D-11 "only" contradiction
+(reworded to name both excusable warning kinds), the
+exempt-docs-floor-breach gap (high — without the pin, `spec-format.md`'s
+−1,125 margin would floor-breach forever and Task 11's gate was
+unsatisfiable; REQ-D1.1 and its fixtures now exempt permanently exempt
+docs from headroom floors), the guard-performance invariant overclaim
+(scoped to IO/fork growth), the D-4 reason-less-entry alignment with
+REQ-A1.4 (error and cap forfeiture, doubly fail-closed), and the
+unbroken-phrases Done-when clause mirrored to Tasks 7–9. **Declined
+(1):** the Task 11 `--closeout` brittleness claim — `mise run check`
+already runs `--closeout` on every branch's CI, so the scenario is a
+pre-existing repo-wide property, not this spec's defect. Iteration 2
+(post-fix confirmation pass) recorded below.

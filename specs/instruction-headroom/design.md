@@ -118,8 +118,9 @@ stays visible on the exempt doc's own audit line.
 *(Amended at kickoff lens pass 2026-07-17: the cap applies only to an
 exempt doc that resolves and measures — a missing or unresolvable exempt
 doc keeps the guard's existing unmeasured/fail-loud path; a malformed or
-reason-less `exempt|` entry drops the doc from the exempt set, so the full
-charge cascades to dependents — fail-closed and intended.)*
+reason-less `exempt|` entry is a guard error (REQ-A1.4) and additionally
+drops the doc from the exempt set, so the full charge cascades to
+dependents — doubly fail-closed and intended.)*
 
 ### D-5: Restoration-ladder rung conditions  (N)
 
@@ -267,9 +268,10 @@ Done-when conditions make it checkable per PR.
 a floored surface's margin is at or above its headroom floor but below its
 restoration target (twice the floor, derived from the floor knobs; no
 separate target knobs). A new suppression-list form
-`declared-exception|<surface>|<reason>` (reason mandatory) excuses only
-below-target warnings, never a floor-breach warning; use-site dispositions
-(D-7) reuse the form with a `use-site:<skill>/<doc>` surface key. Task 2
+`declared-exception|<surface>|<reason>` (reason mandatory) excuses
+exactly the warning it names — a below-target warning, or a use-site
+warning (D-7) via the `use-site:<skill>/<doc>` surface key — and never a
+floor-breach warning. Task 2
 owns the warning and parser; Task 11's closing CI gate becomes: guard
 exits zero, no unmeasured surfaces, no floor-breach warning, no unexcepted
 below-target warning.
@@ -336,8 +338,9 @@ config files stay clean data.
   new check preserves `check-instructions.sh`'s documented single-pass,
   fork-free discipline (its R10 comments): the reverse use-site check
   reuses the existing per-skill parse pass rather than adding
-  O(skills×docs) re-reads, and no addition scales per-run cost with
-  skills×docs.
+  O(skills×docs) file re-reads, and no addition adds file re-reads or
+  process forks that scale with skills×docs (in-pass string comparisons
+  are fine — the invariant is no per-run IO or fork growth).
 - **Echo and data hygiene (kickoff lens pass, 2026-07-17):** every newly
   echoed untrusted value — floor-breach and below-target surface names,
   the pending-diet Task field, use-site skill/doc names, charged-vs-actual

@@ -152,7 +152,10 @@ capability, trims as repo-local instantiation — is recorded in D-1.
 - **REQ-D1.1** `check-instructions --audit` SHALL report each floored
   surface's margin-to-warn and margin-to-error (the injected-context
   surface has no error threshold: it stays warn-only and carries no
-  floor), and every guard run SHALL emit a named floor-breach warning
+  floor; a permanently exempt doc likewise carries no headroom floor —
+  its per-file budget is already waived by its `exempt|` entry, whose
+  existing over-budget notice stands, and its aggregate weight is capped
+  per D-4), and every guard run SHALL emit a named floor-breach warning
   (never an error) when a floored surface's margin is strictly below its
   headroom floor. A missing or non-numeric floor knob SHALL abort the
   guard fail-loud, exactly as the existing budget knobs do — never
@@ -181,10 +184,10 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   but below its restoration target (twice the floor, derived from the
   floor knobs — no separate target knobs), and SHALL support a
   `declared-exception|<surface>|<reason>` suppression-list entry (reason
-  mandatory; a reason-less entry is an error) that excuses only
-  below-target warnings, never a floor-breach warning. Use-site
-  dispositions (REQ-D1.3) reuse the form with a `use-site:<skill>/<doc>`
-  surface key.
+  mandatory; a reason-less entry is an error) that excuses exactly the
+  warning it names — a below-target warning, or a use-site warning
+  (REQ-D1.3) via the `use-site:<skill>/<doc>` surface key — and never a
+  floor-breach warning.
   *(Cites: D-11, kickoff lens pass (2026-07-17).)*
 
 ## Changelog
@@ -212,6 +215,14 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   (markdownlint MD001); plus the remaining wording, Done-when, and
   cross-file-consistency corrections from the nine-lens review recorded in
   the brief.
+- 2026-07-17 — Panel-pass edits (kickoff §8, gemini backend): the
+  declared-exception "only" contradiction in REQ-D1.6/D-11 reworded
+  (excuses exactly the warning it names); permanently exempt docs pinned
+  as carrying no headroom floor (REQ-D1.1 — without this, Task 11's
+  no-floor-breach gate was unsatisfiable); the guard-performance
+  invariant scoped to IO/fork growth; D-4's reason-less-entry note
+  aligned with REQ-A1.4 (error and cap forfeiture); the unbroken-phrases
+  Done-when clause mirrored to Tasks 7–9.
 
 ## Sources
 

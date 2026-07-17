@@ -102,7 +102,9 @@ surface exactly at its floor is compliant (breach is strict:
 margin < floor); a compliant surface produces no breach line; a missing
 or non-numeric floor knob aborts fail-loud; `--audit` rows carry
 margin-to-warn and margin-to-error for the four floored classes (the
-injected surface stays warn-only, no floor row).
+injected surface stays warn-only, no floor row); a permanently exempt
+doc over its per-file threshold produces no floor-breach row (its
+existing exempt over-budget notice stands).
 
 ### REQ-D1.2 — Task field visible [test]
 

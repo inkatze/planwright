@@ -137,9 +137,10 @@ reporting and the capped charge exist.
   preserved verbatim in meaning.
 - **Done when:** The body is ≤3,750 words; the content-pinned structural
   tests (including `tests/test-execute-task-status-write.sh`) pass in the
-  same PR; execute-task's start-load margin meets its target under the
-  Task 3 cap (the closure-margin target is verified at Task 11, kickoff
-  §6); `mise run check` passes.
+  same PR; pinned lists and grepped phrases remain unbroken on one line;
+  execute-task's start-load margin meets its target under the Task 3 cap
+  (the closure-margin target is verified at Task 11, kickoff §6);
+  `mise run check` passes.
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-6, D-10 · REQ-C1.1, REQ-C1.2
 - **Estimated effort:** half day
@@ -149,7 +150,8 @@ reporting and the capped charge exist.
 - **Deliverables:** A ~500-word diet of `skills/spec-kickoff/SKILL.md` to
   at most 3,750 words; law preserved verbatim in meaning.
 - **Done when:** The body is ≤3,750 words; the content-pinned structural
-  tests pass in the same PR; no floor-breach warning names spec-kickoff's
+  tests pass in the same PR; pinned lists and grepped phrases remain
+  unbroken on one line; no floor-breach warning names spec-kickoff's
   body; `mise run check` passes.
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-6, D-10 · REQ-C1.1, REQ-C1.2
@@ -162,7 +164,8 @@ reporting and the capped charge exist.
   up the orchestrate closure's 2,000-word restoration target (verified at
   Task 11, kickoff §6); law preserved verbatim in meaning.
 - **Done when:** The body is ≤3,750 words; the content-pinned structural
-  tests pass in the same PR; `mise run check` passes.
+  tests pass in the same PR; pinned lists and grepped phrases remain
+  unbroken on one line; `mise run check` passes.
 - **Dependencies:** 2, 3, 4
 - **Citations:** D-6, D-10 · REQ-C1.1, REQ-C1.2
 - **Estimated effort:** half day
