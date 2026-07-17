@@ -163,6 +163,27 @@ out="$(/bin/bash "$RUNNER" "$tmp/space" 2>&1)"
 assert "spaced filename failure fails the gate" 1 $?
 assert_contains "spaced filename is named" "test with space.sh" "$out"
 
+# 10. Gate integrity: a worker killed before it can record a verdict (here
+#     the test SIGKILLs its own worker bash) must fail the run and be named
+#     as never-completed. Marker absence is not proof of success: without
+#     positive completion accounting this is a false green (the exact
+#     regression the serial loop's `|| exit 1` never had).
+mkdir -p "$tmp/killer"
+cp "$tmp/pass/test-alpha.sh" "$tmp/killer/test-alpha.sh"
+cat >"$tmp/killer/test-killer.sh" <<'EOF'
+#!/bin/bash
+kill -9 $PPID
+sleep 1
+EOF
+out="$(/bin/bash "$RUNNER" "$tmp/killer" 2>&1)"
+assert "killed-worker suite fails the gate" 1 $?
+assert_contains "killed-worker file is named as not completed" \
+  "test-killer.sh" "$out"
+out="$(PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/killer" 2>&1)"
+assert "serial fallback: killed-worker suite fails the gate" 1 $?
+assert_contains "serial fallback: killed-worker file is named" \
+  "test-killer.sh" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

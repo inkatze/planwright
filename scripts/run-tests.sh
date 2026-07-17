@@ -6,7 +6,9 @@
 # interleaves. The gate semantics match the old serial loop: any failing
 # file fails the run; every failing file is named and its captured log is
 # printed at the end. All files always run to completion (no mid-run
-# abort), so one failure never hides another.
+# abort), so one failure never hides another. Completion accounting is
+# positive: a file that never produced a verdict marker (worker killed,
+# never dispatched) is a failure, never a silent green.
 #
 # Parallelism comes from `xargs -P` (POSIX-optional but present on macOS
 # and GNU userlands alike); when the probe finds no working -P — or
@@ -21,12 +23,16 @@ unset CDPATH
 # Worker mode: run ONE test file, capturing its output to the log dir the
 # parent exported. Always exits 0 — a test's own exit code (255 included,
 # which would otherwise make xargs abort the whole run) is recorded as a
-# .fail marker for the parent's summary, never propagated to xargs.
+# .done or .fail marker for the parent's summary, never propagated to
+# xargs. The parent requires a marker per input file, so a worker that
+# dies before writing one (SIGKILL, ENOSPC, never dispatched) is a
+# failure, never a silent green.
 if [ "${1:-}" = "--run-one" ]; then
   t="$2"
   name="${t##*/}"
   started="$(date +%s)"
   if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
+    : >"$PLANWRIGHT_TEST_LOG_DIR/$name.done"
     echo "ok: $name ($(($(date +%s) - started))s)"
   else
     echo "FAIL: $name (log printed at end)" >&2
@@ -36,6 +42,11 @@ if [ "${1:-}" = "--run-one" ]; then
 fi
 
 self="$(cd "$(dirname "$0")" && pwd)/${0##*/}"
+if [ ! -f "$self" ]; then
+  echo "run-tests: cannot resolve own path (got: $self)" >&2
+  exit 2
+fi
+
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 suite_dir="${1:-$repo_root/tests}"
 
@@ -83,32 +94,49 @@ elif ! printf 'x\0' | xargs -0 -n 1 -P 2 true >/dev/null 2>&1; then
   parallel=0
 fi
 
+# A non-zero dispatcher exit (xargs aborting on a signal-killed worker, a
+# failed exec) is a gate failure in its own right; the reconciliation
+# below then names the files that never produced a verdict.
+dispatch_failed=0
 if [ "$parallel" -eq 1 ]; then
   echo "run-tests: ${#files[@]} files, $jobs jobs"
   printf '%s\0' "${files[@]}" \
-    | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one
+    | xargs -0 -n 1 -P "$jobs" /bin/bash "$self" --run-one \
+    || dispatch_failed=1
 else
   echo "run-tests: ${#files[@]} files, serial (no parallel primitive)"
   for t in "${files[@]}"; do
-    /bin/bash "$self" --run-one "$t"
+    /bin/bash "$self" --run-one "$t" || dispatch_failed=1
   done
 fi
 
-# Summary: name every failing file and replay its captured log.
+# Summary with positive accounting: every input file must have produced a
+# verdict marker. A .fail names a real test failure (log replayed); a file
+# with neither marker never completed — its worker died or was never
+# dispatched — and marker absence must count as failure, never success.
 fails=0
-for marker in "$log_dir"/*.fail; do
-  [ -e "$marker" ] || continue
-  name="${marker##*/}"
-  name="${name%.fail}"
-  fails=$((fails + 1))
-  echo ""
-  echo "=== FAIL: $name ==="
-  cat "$log_dir/$name.log"
+for t in "${files[@]}"; do
+  name="${t##*/}"
+  if [ -e "$log_dir/$name.fail" ]; then
+    fails=$((fails + 1))
+    echo ""
+    echo "=== FAIL: $name ==="
+    cat "$log_dir/$name.log" 2>/dev/null || echo "(no captured log)"
+  elif [ ! -e "$log_dir/$name.done" ]; then
+    fails=$((fails + 1))
+    echo ""
+    echo "=== FAIL: $name (never completed: worker died or was not dispatched) ==="
+    cat "$log_dir/$name.log" 2>/dev/null || echo "(no captured log)"
+  fi
 done
 
 if [ "$fails" -gt 0 ]; then
   echo ""
   echo "run-tests: $fails of ${#files[@]} test file(s) failed" >&2
+  exit 1
+fi
+if [ "$dispatch_failed" -ne 0 ]; then
+  echo "run-tests: dispatcher exited non-zero with no per-file failure recorded" >&2
   exit 1
 fi
 echo "run-tests: all ${#files[@]} test files passed"
