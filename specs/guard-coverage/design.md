@@ -90,11 +90,16 @@ worktrees inherit the repo-local `core.hooksPath` automatically.
 ### D-3: Hook wiring via a dedicated wire step, with absence detection  (N)
 
 **Decision:** `core.hooksPath` is set by a dedicated idempotent wire
-step (a `scripts/`-side helper invoked from the local check path, plus
+step (a `scripts/`-side helper the developer runs once per clone, plus
 an explicit CI workflow step) — not by `install.sh`, which is the
 `~/.claude` writer and by its own invariant never edits a clone's git
 config, and not by a "worktree-creation flow", which is Claude Code's
-native mechanism and offers no interposition point. `core.hooksPath` is
+native mechanism and offers no interposition point. The wire step and
+the detection check are **separate**: the check only detects and never
+auto-wires (auto-wiring from the check path would make the fail-loud
+branch unreachable, since the check would always see a freshly-wired
+clone), so an unwired clone stays a loud finding until the human or CI
+runs the wire step. `core.hooksPath` is
 clone-global: one wiring covers every worktree of the clone (and
 affects them all — the blast radius is documented), so the hooks no-op
 cleanly on a checkout whose branch lacks the `githooks/` files. The

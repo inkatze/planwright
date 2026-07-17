@@ -30,7 +30,11 @@ preference, roots are all dispatchable immediately.
   outcomes; deny-glob additions to `config/worker-settings.json`
   covering the hook-bypass spellings (including a categorical
   `git -c core.hooksPath*` / `--hooks-path` deny and end-wildcarded
-  `main`-destination denies so flags after `main` cannot evade); a test
+  `main`-destination denies so flags after `main` cannot evade) and the
+  `--amend` family (the contiguous `git commit --amend:*` deny already
+  catches `--amend -m`/`-F`; the fixture records the reordered forms'
+  honest outcomes, some of which no glob catches — the accepted residual
+  the hooks do not reach either); a test
   asserting `config/worker-settings.json`'s rules against the table,
   wired into the test suite.
 - **Done when:** The test fails when a deny rule covering a fixture
@@ -59,9 +63,11 @@ preference, roots are all dispatchable immediately.
   `commit` with a `HEAD`-equal SHA — the detectable amend signature),
   and `commit-msg` (reject `squash!`/`fixup!`/`amend!` subjects); a
   dedicated idempotent wire step setting `core.hooksPath githooks`
-  (a `scripts/` helper invoked from the local check path plus an
-  explicit CI step — not `install.sh`), with the hooks no-op cleanly
-  when their files are absent on a branch; the extensionless hooks added
+  (a `scripts/` helper the developer runs once, plus an explicit CI
+  step — not `install.sh`), kept separate from the detection check (the
+  check detects only, never auto-wires, so its fail-loud path stays
+  reachable), with the hooks no-op cleanly when their files are absent on
+  a branch; the extensionless hooks added
   to `lint:shell`/`lint:fmt` (shebang enumeration); a check detecting an
   unwired or half-wired clone; `docs/CONTRIBUTING.md` /
   `docs/getting-started.md` updated for hook enforcement, human-binding,
@@ -200,11 +206,13 @@ preference, roots are all dispatchable immediately.
 - **Deliverables:** Sub-second per-file timing capture in the test
   runner, written concurrency-safely under the parallel runner (each
   worker emits its own record — per-file line or temp file — with no
-  shared-file append race) and persisted to a committed report path
-  (not the ephemeral log dir) with positive accounting (a file with a
-  verdict but no timing entry counts as a failure); a committed budget
-  config (per-file and
-  suite-total budgets, set from the post-split, post-fixture baseline
+  shared-file append race, aggregated into the single report after the
+  parallel phase completes) and persisted to a stable known path that is
+  gitignored, not tracked (timings vary every run; committing them would
+  dirty the tree and trip the cleanliness guards — only the budget config
+  is committed), with positive accounting (a file with a verdict but no
+  timing entry counts as a failure); a committed budget config (per-file
+  and suite-total budgets, set from the post-split, post-fixture baseline
   plus 30–50% headroom, values recorded with derivation) as a separate
   file, not `config/defaults.yml` keys; `check:test-time` in the `check`
   aggregate ordered after `test` via `depends`, reading the report

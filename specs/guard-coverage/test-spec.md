@@ -205,9 +205,10 @@ and completeness is human-reviewed at the Task 11 PR `[design-level]`.
 
 Each guard this spec ships has a fixture proving it exits non-zero on
 its vacuous-input case — a zero-hash seed file (B1.1), an unparseable
-workflow (C1.2) or `mise.toml` and zero workflow roots (D1.1), a timing
-report missing a discovered file (E1.1), a zero-row reference table
-(F1.2/F1.3), a missing README (F1.1), a zero-file shebang enumeration
+workflow (C1.2) or `mise.toml` and zero workflow roots (D1.1), an
+unparseable `pre-push` stdin refspec (A1.2), a timing report missing a
+discovered file (E1.1), a zero-row reference table (F1.2/F1.3), a
+missing README (F1.1), a zero-file shebang enumeration
 for the CDPATH check (G1.2), a zero-task parse for the registration
 check (H1.2), or a failed fixture setup — rather than passing
 vacuously.
