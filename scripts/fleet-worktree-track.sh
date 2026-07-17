@@ -4,10 +4,13 @@
 # PUSH-FIRST, RECONCILE-BACKED (the D-1 pattern applied to worktrees). A live
 # registry of tracked working trees is PUSHED the instant a worktree is created
 # or removed, via the `WorktreeCreate`/`WorktreeRemove` hook events, so tracking
-# never waits on a poll. On a backend that cannot register the hook pair, the
-# same registry is reconciled from ground truth by a periodic `git worktree list`
-# DISK SCAN (`scan`) — the graceful-degradation fallback D-7 requires, and the
-# self-healing floor under a missed hook fire either way.
+# never waits on a poll. Where a backend cannot register the hook pair, the same
+# registry can be reconciled from ground truth by a `git worktree list` DISK SCAN
+# (`scan`) — the graceful-degradation fallback D-7 requires. NOTE: in this task
+# `scan` ships as a MANUAL CLI; it is not yet wired to run periodically (the
+# housekeeping sweep reads the registry via `list`, not `scan`), so the
+# self-healing floor is only as current as the last `scan` invocation until that
+# wiring lands (a tracked follow-up).
 #
 # THE VERIFIED `WorktreeCreate` CONTRACT (code.claude.com/docs/en/hooks.md).
 # `WorktreeCreate` is a DECISION hook: "any non-zero exit code causes worktree
@@ -214,9 +217,22 @@ extract_worktree_path() {
       return 0
     fi
   fi
-  printf '%s' "$ewp_in" \
+  # jq absent: fall back to a bounded sed capture. The `[^"]*` capture cannot
+  # JSON-unescape, so a worktree_path VALUE carrying a backslash-escape mis-parses
+  # — an embedded `"` arrives as `\"` and truncates the capture; an embedded `\`
+  # arrives as `\\` and doubles — yielding a WRONG path that still passes
+  # valid_path and would be echoed on the WorktreeCreate decision channel. A
+  # backslash in the sed result is exactly that untrustworthy signal (a real
+  # fleet worktree path carries none), so refuse it: emit nothing, and the caller
+  # fails CLOSED (hook-create echoes nothing => creation refused, never under a
+  # mis-parsed name). jq, the primary path, unescapes correctly and is unaffected.
+  ewp_sed=$(printf '%s' "$ewp_in" \
     | sed -n 's/.*"worktree_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -1
+    | head -1)
+  case $ewp_sed in
+    *\\*) return 0 ;;
+  esac
+  printf '%s' "$ewp_sed"
 }
 
 cmd=${1:-}

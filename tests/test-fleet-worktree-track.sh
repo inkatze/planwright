@@ -4,8 +4,9 @@
 #
 # Worktree lifecycle is PUSHED via the `WorktreeCreate`/`WorktreeRemove` hook
 # events the instant they occur (a live registry, no polling), degrading to a
-# periodic `git worktree list` DISK SCAN on a backend that cannot register the
-# hook pair. Tracking is bookkeeping, not a destructive daemon action, so it is
+# manual `git worktree list` DISK SCAN (`scan`) CLI on a backend that cannot
+# register the hook pair (not yet wired to run periodically — a tracked
+# follow-up). Tracking is bookkeeping, not a destructive daemon action, so it is
 # NOT gated by the kill-switch and does NOT spam the audit trail (kickoff risk
 # 31: the trail records daemon actions, not routine lifecycle noise).
 #
@@ -193,6 +194,35 @@ out=$(printf '%s' '{"isolation":"worktree","session_id":"s1"}' | wt hook-create 
 # None of the three may have recorded anything.
 [ -z "$(wt list 2>/dev/null)" ] || fail "hook-create must not record a malformed/empty payload (list: '$(wt list 2>/dev/null)')"
 echo "ok: hook-create refuses a malformed/empty worktree_path — nothing on the decision channel, still exit 0"
+
+# 4e. hook-create fails CLOSED on an un-parseable escaped path via the sed
+#     fallback (jq absent). The `[^"]*` sed capture cannot JSON-unescape, so a
+#     worktree_path carrying a backslash-escape (an embedded `"` arrives as `\"`
+#     and truncates the capture; an embedded `\` arrives as `\\` and doubles)
+#     would yield a WRONG path that still passes valid_path and would be echoed
+#     on the decision channel. extract_worktree_path treats a backslash in the
+#     sed result as untrustworthy and returns nothing, so hook-create echoes
+#     NOTHING (creation refused rather than created under a mis-parsed name) and
+#     records nothing. jq (the primary path) unescapes correctly and is
+#     unaffected. Reuses the $nojq PATH built in 4b.
+rm -rf "$fleet_home"
+# real path /work/a"b  -> JSON encodes the quote as \"  (sed would yield /work/a\)
+esc_q='{"worktree_path":"/work/a\"b","isolation":"worktree"}'
+rc=0
+out=$(printf '%s' "$esc_q" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (no jq, escaped-quote path) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (no jq, escaped-quote path) must echo NOTHING (fail-closed), got: '$out'"
+# real path /work/a\b  -> JSON encodes the backslash as \\ (sed would yield /work/a\\b)
+esc_bs='{"worktree_path":"/work/a\\b","isolation":"worktree"}'
+rc=0
+out=$(printf '%s' "$esc_bs" | PATH="$nojq" PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  /bin/bash "$WT" hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (no jq, backslash path) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (no jq, backslash path) must echo NOTHING (fail-closed), got: '$out'"
+[ -z "$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$WT" list 2>/dev/null)" ] \
+  || fail "hook-create must not record an un-parseable escaped payload"
+echo "ok: hook-create fails closed on an un-parseable escaped worktree_path via the sed fallback"
 
 # 5. hook-remove: records a removal from stdin and exits 0 (fire-and-forget).
 rm -rf "$fleet_home"
