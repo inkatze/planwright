@@ -24,6 +24,9 @@
 #   - `hook-create` echoes the stdin worktree_path and exits 0 (the decision-
 #     control contract), records the path, and still does so with jq absent
 #     (the sed fallback) — and even when the registry write cannot happen;
+#   - `hook-create` with a malformed (control-byte / non-absolute) or absent
+#     worktree_path echoes NOTHING and still exits 0, recording nothing (the
+#     decision-channel blast-radius guard);
 #   - `hook-remove` records a removal from its stdin payload and exits 0;
 #   - hostile / non-absolute paths are refused by the direct CLI (exit non-zero)
 #     yet never break the create hook's pass-through.
@@ -163,6 +166,33 @@ out=$(printf '%s' "$payload" | PLANWRIGHT_FLEET_STATE_DIR="$unwr/fleet" \
 [ "$rc" = 0 ] || fail "hook-create must exit 0 even when recording fails (got $rc)"
 [ "$out" = "/work/hooked-wt" ] || fail "hook-create must still echo the path on a record failure"
 echo "ok: hook-create never fails worktree creation even when recording fails"
+
+# 4d. hook-create with a MALFORMED or EMPTY worktree_path: the decision-control
+#     safety mitigation the whole hook wiring rests on. A control-byte,
+#     non-absolute, or absent worktree_path must put NOTHING on stdout (no raw
+#     bytes and no forged path on the decision channel) and STILL exit 0 (never a
+#     non-zero exit, which would break creation fleet-wide), recording nothing.
+rm -rf "$fleet_home"
+# (a) a control byte in the path: jq rejects the payload, the sed fallback yields
+#     the raw path, the grammar check refuses it -> nothing echoed, exit 0.
+ctrl=$(printf '/work/bad\001path')
+rc=0
+out=$(printf '{"worktree_path":"%s","isolation":"worktree"}' "$ctrl" | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (control-byte path) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (control-byte path) must echo NOTHING on the decision channel (got: '$out')"
+# (b) a non-absolute path: refused by the grammar check -> nothing echoed, exit 0.
+rc=0
+out=$(printf '%s' '{"worktree_path":"relative/wt","isolation":"worktree"}' | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (non-absolute path) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (non-absolute path) must echo nothing (got: '$out')"
+# (c) no worktree_path at all: nothing echoed, exit 0.
+rc=0
+out=$(printf '%s' '{"isolation":"worktree","session_id":"s1"}' | wt hook-create 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook-create (missing worktree_path) exit $rc, expected 0"
+[ -z "$out" ] || fail "hook-create (missing worktree_path) must echo nothing (got: '$out')"
+# None of the three may have recorded anything.
+[ -z "$(wt list 2>/dev/null)" ] || fail "hook-create must not record a malformed/empty payload (list: '$(wt list 2>/dev/null)')"
+echo "ok: hook-create refuses a malformed/empty worktree_path — nothing on the decision channel, still exit 0"
 
 # 5. hook-remove: records a removal from stdin and exits 0 (fire-and-forget).
 rm -rf "$fleet_home"
