@@ -210,15 +210,17 @@ corroborate_expect() {
 # remaining ("until auto-compact") clause — the used reading is 77, not 100-77.
 corroborate_expect 'claude 154k/200k tokens (77%) · 46k until auto-compact' 'corroborated 77'
 # A bogus leading >100 percent on a line is skipped for a later valid one,
-# rather than abandoning the line to a false degrade.
-corroborate_expect 'tokens 200% cap, actually 60% used' 'corroborated 60'
+# rather than abandoning the line to a false degrade. (Ratio-anchored: a real
+# used line carries the `N/Mk` token-ratio; the bogus 200% is still skipped.)
+corroborate_expect 'claude 120k/200k tokens 200% cap, actually 60% used' 'corroborated 60'
 # 0% / 100% boundaries, both forms (the arithmetic endpoints).
 corroborate_expect 'claude 0/200k tokens (0%)' 'corroborated 0'
 corroborate_expect 'claude 200k/200k tokens (100%)' 'corroborated 100'
 corroborate_expect 'Context left until auto-compact: 0%' 'corroborated 100'
 corroborate_expect 'Context left until auto-compact: 100%' 'corroborated 0'
-# Leading-zero percent normalizes decimal (never octal): 08% -> 8.
-corroborate_expect 'claude tokens (08%)' 'corroborated 8'
+# Leading-zero percent normalizes decimal (never octal): 08% -> 8. (Ratio-
+# anchored: the used line carries the `N/Mk` token-ratio.)
+corroborate_expect 'claude 16k/200k tokens (08%)' 'corroborated 8'
 echo "ok: parser disambiguates used vs remaining and normalizes edge percents"
 
 # A >100 percent with no other valid signal, and a token line phrased as
@@ -233,6 +235,41 @@ for bad in 'claude tokens (150%)' 'tokens remaining: 40%'; do
     || fail "parser: render <$bad> should degrade, got '$out'"
 done
 echo "ok: an out-of-range or remaining-phrased token percent degrades, never a wrong number"
+
+# ---------------------------------------------------------------------------
+# 5c. Ratio-anchored used reads (S1 gauntlet J-1, tower decision: harden to
+#     degrade). A used-percent is trusted only on a line carrying an `N/Mk`
+#     token-ratio (the authoritative total-usage line). This makes ambiguous
+#     token-formats DEGRADE (or read the correct total) rather than risk a
+#     confident wrong-LOW corroboration:
+#   - a breakdown/component percent is NOT mistaken for the used figure: a
+#     `(6%)` component line ORDERED BEFORE the `(60%)` total reads 60, never 6
+#     (the ratio-less component line is skipped; the ratio-bearing total wins).
+comp_before_total="$tmp/comp.txt"
+printf '%s\n%s\n' 'System tools: 12k tokens (6%)' 'claude 120k/200k tokens (60%)' \
+  >"$comp_before_total"
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+  --observed-pane "$idle_pane" --context-render "$comp_before_total" 2>/dev/null) \
+  || fail "ratio-anchor: exited non-zero"
+[ "$out" = "corroborated 60" ] \
+  || fail "ratio-anchor: a component line before the total must read the total (60), got '$out'"
+
+#   - an unparenthesized used% beside an `until auto-compact` clause on a
+#     ratio-bearing line DEGRADES: the bare percent is ambiguous, so the parser
+#     must NOT `100-N` it into a wrong-low 23 (the exact Form-2 flip J-1 named).
+#   - a bare used% on a token line with NO ratio anchor also degrades.
+for degrade in \
+  'claude 154k/200k tokens 77% · 46k until auto-compact' \
+  'claude 154k/200k tokens 77% · 20% until auto-compact' \
+  'tokens: 45% used'; do
+  printf '%s\n' "$degrade" >"$bad_render"
+  out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+    --observed-pane "$idle_pane" --context-render "$bad_render" 2>/dev/null) \
+    || fail "ratio-anchor: exited non-zero on render <$degrade>"
+  [ "$out" = "proxy parse-degraded" ] \
+    || fail "ratio-anchor: ambiguous/ratio-less token-format should degrade, render <$degrade> gave '$out'"
+done
+echo "ok: used reads are ratio-anchored; ambiguous token-formats degrade, never a wrong-low read (J-1)"
 
 # ---------------------------------------------------------------------------
 # 6. Idle + malformed render → degrade to the step-count proxy WITH A WARNING,

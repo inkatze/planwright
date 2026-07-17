@@ -237,57 +237,81 @@ first_valid_pct() {
 # correctly (the whole-line keyword heuristic this replaced flipped a valid
 # `(77%)` used-reading to 23 whenever the same line also said "until
 # auto-compact"):
-#   1. token-total USED (highest priority): a line naming `token` with a
-#      PARENTHESIZED `(NN%)` — the used fraction (e.g. "154k/200k tokens (77%)
-#      · 46k until auto-compact" -> 77, NOT 23). Parenthesization is what makes
-#      it unambiguously the used figure even beside a remaining clause.
+#   1. token-total USED (highest priority): a line naming `token`, carrying an
+#      `N/Mk` token-ratio, with a PARENTHESIZED `(NN%)` — the used fraction
+#      (e.g. "154k/200k tokens (77%) · 46k until auto-compact" -> 77, NOT 23).
+#      Parenthesization is what makes it unambiguously the used figure even
+#      beside a remaining clause.
 #   2. auto-compact REMAINING: an `auto-compact` line phrased as remaining
-#      ("left"/"remaining"/"until") with a bare `NN%` — used = 100 - NN
-#      (e.g. "Context left until auto-compact: 25%" -> 75).
-#   3. token-total USED fallback: a `token` line NOT phrased as remaining, with
-#      a bare `NN%` — used = NN (an unparenthesized token-usage rendering).
+#      ("left"/"remaining"/"until") WITH NO used-ratio, and a bare `NN%` —
+#      used = 100 - NN (e.g. "Context left until auto-compact: 25%" -> 75).
+#   3. token-total USED fallback: a `token` line carrying an `N/Mk` token-ratio,
+#      NOT phrased as remaining, with a bare `NN%` — used = NN (an
+#      unparenthesized token-usage rendering).
 # First recognized line (top-to-bottom) wins. Every line is control-stripped
 # before matching so a control byte can neither break the match nor survive
 # into a later diagnostic.
+#
+# RATIO ANCHOR (S1 gauntlet J-1, tower decision: harden to degrade). A used
+# read (Forms 1 and 3) is trusted ONLY on a line carrying an `N/Mk` token-ratio
+# — the authoritative total-usage line. Breakdown/component lines
+# ("System tools: 12k tokens (6%)") lack the ratio, so a stray percent on them
+# is never mistaken for the used figure; the ratio-bearing total line is read
+# instead (or, absent any, the render degrades). Form 2's `100-N` is likewise
+# suppressed when a ratio is present on the same line: a bare percent beside a
+# used-ratio is ambiguous, so the parser degrades rather than risk a confident
+# wrong-LOW corroboration (the header's degrade-over-wrong-reading bias). The
+# ratio grep stays gated by the existing `*token*` case, so an unrelated `a/b`
+# pair off a token line cannot spoof the anchor; it remains an unstable UI-text
+# heuristic, re-verified by the [manual] check.
 parse_context_used() {
   while IFS= read -r _pc_line || [ -n "$_pc_line" ]; do
     _pc_clean=$(printf '%s' "$_pc_line" | tr -d '\000-\037\177\200-\237')
     _pc_lc=$(printf '%s' "$_pc_clean" | tr '[:upper:]' '[:lower:]')
+    # The `N/Mk` used-ratio anchor: a slash-separated pair of token counts
+    # (optional k/m/g unit), e.g. "154k/200k", "0/200k", "1.2k/200k".
+    _pc_ratio=$(printf '%s' "$_pc_lc" | grep -Eo '[0-9][0-9.]*[kmg]?/[0-9][0-9.]*[kmg]?' | head -n 1)
 
-    # Form 1 — token line, parenthesized used percent.
+    # Form 1 — token line with an N/Mk ratio, parenthesized used percent.
     case "$_pc_lc" in
       *token*)
-        _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '\([0-9]+%\)')")
-        if [ -n "$_pc_num" ]; then
-          printf '%s\n' "$_pc_num"
-          return 0
+        if [ -n "$_pc_ratio" ]; then
+          _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '\([0-9]+%\)')")
+          if [ -n "$_pc_num" ]; then
+            printf '%s\n' "$_pc_num"
+            return 0
+          fi
         fi
         ;;
     esac
 
-    # Form 2 — auto-compact line phrased as remaining.
+    # Form 2 — auto-compact line phrased as remaining, with NO used-ratio.
     case "$_pc_lc" in
       *auto-compact*)
-        case "$_pc_lc" in
-          *left* | *remaining* | *until*)
-            _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%')")
-            if [ -n "$_pc_num" ]; then
-              printf '%s\n' "$((100 - _pc_num))"
-              return 0
-            fi
-            ;;
-        esac
+        if [ -z "$_pc_ratio" ]; then
+          case "$_pc_lc" in
+            *left* | *remaining* | *until*)
+              _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%')")
+              if [ -n "$_pc_num" ]; then
+                printf '%s\n' "$((100 - _pc_num))"
+                return 0
+              fi
+              ;;
+          esac
+        fi
         ;;
     esac
 
-    # Form 3 — token line, bare used percent, not phrased as remaining.
+    # Form 3 — token line with an N/Mk ratio, bare used percent, not remaining.
     case "$_pc_lc" in
       *left* | *remaining* | *until*) : ;;
       *token*)
-        _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%')")
-        if [ -n "$_pc_num" ]; then
-          printf '%s\n' "$_pc_num"
-          return 0
+        if [ -n "$_pc_ratio" ]; then
+          _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%')")
+          if [ -n "$_pc_num" ]; then
+            printf '%s\n' "$_pc_num"
+            return 0
+          fi
         fi
         ;;
     esac
