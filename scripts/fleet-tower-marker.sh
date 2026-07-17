@@ -191,39 +191,44 @@ case "$cmd" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --mode)
-          mode="${2:-}"
-          shift 2 || {
+          if [ "$#" -lt 2 ]; then
             usage
             exit 2
-          }
+          fi
+          mode=$2
+          shift 2
           ;;
         --pid)
-          pid="${2:-}"
-          shift 2 || {
+          if [ "$#" -lt 2 ]; then
             usage
             exit 2
-          }
+          fi
+          pid=$2
+          shift 2
           ;;
         --checkout)
-          checkout="${2:-}"
-          shift 2 || {
+          if [ "$#" -lt 2 ]; then
             usage
             exit 2
-          }
+          fi
+          checkout=$2
+          shift 2
           ;;
         --session-id)
-          session_id="${2:-}"
-          shift 2 || {
+          if [ "$#" -lt 2 ]; then
             usage
             exit 2
-          }
+          fi
+          session_id=$2
+          shift 2
           ;;
         --tmux-session)
-          tmux_session="${2:-}"
-          shift 2 || {
+          if [ "$#" -lt 2 ]; then
             usage
             exit 2
-          }
+          fi
+          tmux_session=$2
+          shift 2
           ;;
         *)
           usage

@@ -129,6 +129,14 @@ run record my-spec --mode unattended --pid 123 --checkout "$checkout" \
 [ "$rc" = 2 ] || fail "dashless session id: exit $rc, expected 2"
 echo "ok: malformed UUID shapes are refused (misplaced or missing dashes)"
 
+# A flag given as the last token (missing value) is a clean usage refusal on
+# every /bin/sh, never a shell abort mid-parse.
+rc=0
+run record my-spec --mode unattended --pid 123 --checkout "$checkout" \
+  --session-id >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "flag without value: exit $rc, expected 2"
+echo "ok: a trailing flag with no value is refused cleanly"
+
 # Missing required flags.
 rc=0
 run record my-spec --mode unattended --checkout "$checkout" >/dev/null 2>&1 || rc=$?
