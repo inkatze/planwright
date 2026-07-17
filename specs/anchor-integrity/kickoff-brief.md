@@ -83,11 +83,9 @@ Signed off: 2026-07-17
 8. `design.md` D-6 — terminal-state skip sentence.
 9. `tasks.md` Task 4 — terminal-state skip in deliverables.
 10. `test-spec.md` REQ-D1.4 — Retired and Superseded skip fixtures added.
-
-*(Added during sections 5–7:)*
-
 11. `requirements.md` REQ-A1.4 — sweep scope widened to pre-existing stale
-    anchors with per-bundle delta classification (section 7 fork).
+    anchors with per-bundle delta classification (section 7 fork; items
+    11–15 were added during sections 5–7 and the sign-off passes).
 12. `design.md` D-3 — sweep-scope and classification sentences appended.
 13. `tasks.md` Task 3 — classification step, scope wording, and the
     breaking-change-marker release signaling added.
