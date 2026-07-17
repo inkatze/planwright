@@ -152,6 +152,48 @@ out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
 echo "ok: an auto-compact /context render is normalized to used percent"
 
 # ---------------------------------------------------------------------------
+# 5b. Parser disambiguation & robustness (self-review correctness findings).
+#     corroborate_expect writes a render, runs the idle+capable path, and
+#     asserts the exact verdict.
+# ---------------------------------------------------------------------------
+corroborate_expect() {
+  ce_render="$tmp/ce.txt"
+  printf '%s\n' "$1" >"$ce_render"
+  ce_out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+    --observed-pane "$idle_pane" --context-render "$ce_render" 2>/dev/null) \
+    || fail "parser: exited non-zero on render <$1>"
+  [ "$ce_out" = "$2" ] || fail "parser: render <$1> gave '$ce_out', expected '$2'"
+}
+
+# A parenthesized used percent wins even when the SAME line also carries a
+# remaining ("until auto-compact") clause — the used reading is 77, not 100-77.
+corroborate_expect 'claude 154k/200k tokens (77%) · 46k until auto-compact' 'corroborated 77'
+# A bogus leading >100 percent on a line is skipped for a later valid one,
+# rather than abandoning the line to a false degrade.
+corroborate_expect 'tokens 200% cap, actually 60% used' 'corroborated 60'
+# 0% / 100% boundaries, both forms (the arithmetic endpoints).
+corroborate_expect 'claude 0/200k tokens (0%)' 'corroborated 0'
+corroborate_expect 'claude 200k/200k tokens (100%)' 'corroborated 100'
+corroborate_expect 'Context left until auto-compact: 0%' 'corroborated 100'
+corroborate_expect 'Context left until auto-compact: 100%' 'corroborated 0'
+# Leading-zero percent normalizes decimal (never octal): 08% -> 8.
+corroborate_expect 'claude tokens (08%)' 'corroborated 8'
+echo "ok: parser disambiguates used vs remaining and normalizes edge percents"
+
+# A >100 percent with no other valid signal, and a token line phrased as
+# remaining, both DEGRADE rather than emit a wrong number.
+bad_render="$tmp/bad.txt"
+for bad in 'claude tokens (150%)' 'tokens remaining: 40%'; do
+  printf '%s\n' "$bad" >"$bad_render"
+  out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+    --observed-pane "$idle_pane" --context-render "$bad_render" 2>/dev/null) \
+    || fail "parser: exited non-zero on render <$bad>"
+  [ "$out" = "proxy parse-degraded" ] \
+    || fail "parser: render <$bad> should degrade, got '$out'"
+done
+echo "ok: an out-of-range or remaining-phrased token percent degrades, never a wrong number"
+
+# ---------------------------------------------------------------------------
 # 6. Idle + malformed render → degrade to the step-count proxy WITH A WARNING,
 #    never an opaque halt (exit 0). (REQ-C1.2)
 # ---------------------------------------------------------------------------

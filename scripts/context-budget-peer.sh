@@ -198,44 +198,88 @@ esac
 # ---------------------------------------------------------------------------
 [ -n "$context_render" ] && [ -r "$context_render" ] || usage
 
+# first_valid_pct <newline-separated %-tokens> — echo the first token that
+# normalizes to an integer percent in [0,100], with parentheses/`%`/leading
+# zeros stripped; echo nothing when none qualifies. Iterating (not head -n1)
+# means a bogus leading token like `200%` is skipped in favour of a later valid
+# one on the same line, rather than abandoning the line. Leading zeros are
+# stripped so the caller's `$((100 - n))` reads decimal, never octal (the
+# context-budget-monitor.sh discipline); an all-zeros token normalizes to 0.
+first_valid_pct() {
+  printf '%s\n' "$1" | while IFS= read -r _fv; do
+    [ -n "$_fv" ] || continue
+    _fv=$(printf '%s' "$_fv" | tr -cd '0-9')
+    [ -n "$_fv" ] || continue
+    _fv=$(printf '%s' "$_fv" | sed 's/^0\{1,\}//')
+    [ -n "$_fv" ] || _fv=0
+    [ "${#_fv}" -le 3 ] || continue
+    [ "$_fv" -le 100 ] || continue
+    printf '%s\n' "$_fv"
+    return 0
+  done
+}
+
 # parse_context_used <render-file> — echo the context USED percent (an integer
 # 0-100) on a recognized rendering, or return 1 when nothing parses. UI-text
-# contract, re-verified by the [manual] check; two accepted forms:
-#   - token-total form:  a line naming `token` with a parenthesized/bare `NN%`
-#     — NN is the USED fraction (e.g. "120k/200k tokens (60%)" -> 60);
-#   - auto-compact form: a line naming `auto-compact` with `NN%` — NN is
-#     REMAINING until auto-compact, so used = 100 - NN.
-#   A line phrased as remaining ("left"/"remaining"/"until") is normalized the
-#   same way. First recognized line (top-to-bottom) wins.
-# Every line is control-stripped before matching so a control byte can neither
-# break the match nor survive into a later diagnostic.
+# contract, re-verified by the [manual] check. Three recognized forms, checked
+# per line in priority order so a line carrying more than one signal is read
+# correctly (the whole-line keyword heuristic this replaced flipped a valid
+# `(77%)` used-reading to 23 whenever the same line also said "until
+# auto-compact"):
+#   1. token-total USED (highest priority): a line naming `token` with a
+#      PARENTHESIZED `(NN%)` — the used fraction (e.g. "154k/200k tokens (77%)
+#      · 46k until auto-compact" -> 77, NOT 23). Parenthesization is what makes
+#      it unambiguously the used figure even beside a remaining clause.
+#   2. auto-compact REMAINING: an `auto-compact` line phrased as remaining
+#      ("left"/"remaining"/"until") with a bare `NN%` — used = 100 - NN
+#      (e.g. "Context left until auto-compact: 25%" -> 75).
+#   3. token-total USED fallback: a `token` line NOT phrased as remaining, with
+#      a bare `NN%` — used = NN (an unparenthesized token-usage rendering).
+# First recognized line (top-to-bottom) wins. Every line is control-stripped
+# before matching so a control byte can neither break the match nor survive
+# into a later diagnostic.
 parse_context_used() {
-  _pc_used=""
   while IFS= read -r _pc_line || [ -n "$_pc_line" ]; do
     _pc_clean=$(printf '%s' "$_pc_line" | tr -d '\000-\037\177\200-\237')
     _pc_lc=$(printf '%s' "$_pc_clean" | tr '[:upper:]' '[:lower:]')
-    # An anchor line must name a context-usage concept.
+
+    # Form 1 — token line, parenthesized used percent.
     case "$_pc_lc" in
-      *token* | *auto-compact*) ;;
-      *) continue ;;
+      *token*)
+        _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '\([0-9]+%\)')")
+        if [ -n "$_pc_num" ]; then
+          printf '%s\n' "$_pc_num"
+          return 0
+        fi
+        ;;
     esac
-    # First `NN%` on the line (grep -o keeps it POSIX-portable; head picks one).
-    _pc_pct=$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%' | head -n 1) || _pc_pct=""
-    [ -n "$_pc_pct" ] || continue
-    _pc_num=${_pc_pct%\%}
-    # Strip leading zeros so the arithmetic below is decimal, never octal
-    # (the context-budget-monitor.sh discipline); all-zeros -> 0.
-    _pc_num=$(printf '%s' "$_pc_num" | sed 's/^0\{1,\}//')
-    [ -n "$_pc_num" ] || _pc_num=0
-    # A percent is 0-100; a bogus larger number is not a usable signal.
-    [ "${#_pc_num}" -le 3 ] || continue
-    [ "$_pc_num" -le 100 ] || continue
+
+    # Form 2 — auto-compact line phrased as remaining.
     case "$_pc_lc" in
-      *left* | *remaining* | *until*) _pc_used=$((100 - _pc_num)) ;;
-      *) _pc_used=$_pc_num ;;
+      *auto-compact*)
+        case "$_pc_lc" in
+          *left* | *remaining* | *until*)
+            _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%')")
+            if [ -n "$_pc_num" ]; then
+              printf '%s\n' "$((100 - _pc_num))"
+              return 0
+            fi
+            ;;
+        esac
+        ;;
     esac
-    printf '%s\n' "$_pc_used"
-    return 0
+
+    # Form 3 — token line, bare used percent, not phrased as remaining.
+    case "$_pc_lc" in
+      *left* | *remaining* | *until*) : ;;
+      *token*)
+        _pc_num=$(first_valid_pct "$(printf '%s' "$_pc_lc" | grep -Eo '[0-9]+%')")
+        if [ -n "$_pc_num" ]; then
+          printf '%s\n' "$_pc_num"
+          return 0
+        fi
+        ;;
+    esac
   done <"$1"
   return 1
 }
