@@ -4,7 +4,8 @@
 
 - **Spec:** `specs/instruction-headroom`
 - **Spec commit at walkthrough start:** `370123f` (370123fe60268ac31918ad8dff94f20f792c82bc)
-- **Walkthrough date(s):** 2026-07-16
+- **Walkthrough date(s):** 2026-07-16 – 2026-07-17 (sections 2–7 walked
+  and signed 07-16; lens pass, panel pass, and sign-off 07-17)
 - **Mode:** first activation (Status Draft, format-version 2, no prior brief)
 - **Validator outcome (pre-flight):** `scripts/spec-validate.sh` — 0 errors, 0 warnings
 - **Config:** `commit_on_kickoff: true`, `mark_spec_pr_ready_on_kickoff: true`
@@ -302,5 +303,19 @@ critical-path figure (Task 2 is now a 1-day unit → seven half-days);
 the stale-`raise|`-entry fail-closed pin (REQ-A1.4 + fixture); the R7
 exemptions-file collision (T3 ∥ T5); Task 11's gate extended to
 unexcepted use-site warnings; Task 2's declared-exception wording
-aligned with REQ-D1.6/D-11. **Iteration 3** was the post-fix
-confirmation pass; convergence is recorded below.
+aligned with REQ-D1.6/D-11. **Iteration 3** returned six: two declined
+on validation (the fixed-string "stem mismatch" misreads the manifest
+grammar — doc names are bare kebab, no paths or extensions; the
+floor-lowering concern re-raises the overlay freedom the human accepted
+in §3), four applied (brief R1's disproven Task 3 collision, the
+below-target band's lower bound in Task 2, Task 10's body-trim
+authorization, the unreadable-baseline fixture), plus the
+stale-declared-exception cleanup-warning pin (REQ-D1.6, warn posture).
+**Iteration 4** came back with eight of ten lenses clean and three
+deliverable-text mirror nits (use-site-key fixture assigned to Task 5,
+echo-safety fixture mapped in test-spec, stale-raise clause mirrored to
+Task 2), all applied. **Convergence declared at iteration 4** on
+diminishing returns: three consecutive iterations of strictly
+decreasing, ripple-only findings, no repeated finding, no design fork
+since iteration 1. Panel iteration commits: `17badec`, `928b86c`,
+`fde1845`, and the iteration-4 commit.

@@ -46,8 +46,8 @@ reporting and the capped charge exist.
   (`raise|<knob>|<value>|<reason>` entries; an effective
   `instruction_budget_*_warn/_error` value above its shipped core default
   with no matching entry is a config error, failing closed on an absent
-  or unreadable baseline); reference rows for the new knobs in
-  `docs/options-reference.md`; fixture tests covering breach (warns),
+  or unreadable baseline or a stale `raise|` entry); reference rows for
+  the new knobs in `docs/options-reference.md`; fixture tests covering breach (warns),
   compliance (silent), the at-floor boundary (compliant), below-target
   with and without a declared exception, the raise with and without
   rationale, and one control-byte echo-safety fixture (cross-cutting).
@@ -104,8 +104,10 @@ reporting and the capped charge exist.
   charset-validated name (never a constructed pattern), reusing the
   existing per-skill parse pass (guard-performance invariant), and
   skipping a skill whose manifest failed to parse or resolve (its manifest
-  error stands); fixtures for the missing case, the named case, and the
-  named-only-in-manifest-or-fenced-code case (still warns); any misses the
+  error stands); fixtures for the missing case, the named case, the
+  named-only-in-manifest-or-fenced-code case (still warns), and a
+  `declared-exception|use-site:<skill>/<doc>` entry excusing a use-site
+  warning and nothing else (REQ-D1.6); any misses the
   check surfaces in the existing corpus are either fixed in-body or
   recorded as `declared-exception|use-site:<skill>/<doc>|<reason>` entries
   (D-11).

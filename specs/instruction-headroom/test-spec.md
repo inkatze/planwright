@@ -107,7 +107,9 @@ or non-numeric floor knob aborts fail-loud; `--audit` rows carry
 margin-to-warn and margin-to-error for the four floored classes (the
 injected surface stays warn-only, no floor row); a permanently exempt
 doc over its per-file threshold produces no floor-breach row (its
-existing exempt over-budget notice stands).
+existing exempt over-budget notice stands). Task 2's control-byte
+fixture pins the echo-safety discipline on the newly echoed warning
+values (cross-cutting).
 
 ### REQ-D1.2 — Task field visible [test]
 
