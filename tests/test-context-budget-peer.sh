@@ -131,6 +131,27 @@ out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
 echo "ok: a busy observed session is skipped (not attempted), even with a parseable render"
 
 # ---------------------------------------------------------------------------
+# 3b. Idle gate — busy detection is scoped to the FOOTER, not the whole capture.
+#     An idle pane whose SCROLLBACK merely quotes "esc to interrupt" (routine
+#     when a worker's task is about this codebase) but whose footer is the idle
+#     prompt must corroborate, not be misread as busy.
+# ---------------------------------------------------------------------------
+scroll_pane="$tmp/scroll-pane.txt"
+cat >"$scroll_pane" <<'EOF'
+● We discussed the footer: it shows "esc to interrupt" while working.
+● All checks pass now.
+● Done.
+
+>
+EOF
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+  --observed-pane "$scroll_pane" --context-render "$ctx_tokens" 2>"$err") \
+  || fail "scrollback-idle: exited non-zero"
+[ "$out" = "corroborated 60" ] \
+  || fail "scrollback-idle: verdict '$out', expected 'corroborated 60' (scrollback mention must not read as busy)"
+echo "ok: a scrollback mention of the busy phrase does not misclassify an idle session"
+
+# ---------------------------------------------------------------------------
 # 4. Idle + well-formed token-total render → corroborated USED percent (60).
 # ---------------------------------------------------------------------------
 out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \

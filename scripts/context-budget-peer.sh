@@ -178,11 +178,17 @@ fi
 # ---------------------------------------------------------------------------
 [ -n "$observed_pane" ] && [ -r "$observed_pane" ] || usage
 pane_text=$(cat "$observed_pane") || usage
-# Match the busy footer case-insensitively. tr lowercases; the sh `case` glob
-# does the substring test. This is a UI-text heuristic (unstable, same class as
-# the /context contract): its only failure mode is a mis-idle that then degrades
-# at the parse step, never an opaque halt.
-pane_lc=$(printf '%s' "$pane_text" | tr '[:upper:]' '[:lower:]')
+# Match the busy footer case-insensitively. Claude Code's "esc to interrupt"
+# working marker lives in the live FOOTER at the bottom of the pane, so scope
+# the check to the last couple of non-empty lines rather than the whole
+# capture: a transcript/scrollback that merely QUOTES the phrase higher up
+# (routine when a worker's own task is about this very codebase) must not read
+# as busy. tr lowercases; the sh `case` glob does the substring test. This is a
+# UI-text heuristic (unstable, same class as the /context contract) and graceful
+# in both directions — a mis-busy just misses one corroboration, a mis-idle then
+# degrades at the parse step; neither is an opaque halt.
+pane_footer=$(printf '%s\n' "$pane_text" | grep -v '^[[:space:]]*$' | tail -n 2)
+pane_lc=$(printf '%s' "$pane_footer" | tr '[:upper:]' '[:lower:]')
 case "$pane_lc" in
   *"esc to interrupt"*)
     echo "proxy session-busy"
