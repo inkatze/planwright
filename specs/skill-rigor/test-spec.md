@@ -60,14 +60,18 @@ Design-level: the terminal step's documented rollup query targets the
 head SHA's checks (never PR review states), with the wait bound and
 refusal arm stated. Manual: run a kickoff whose pushed brief carries a
 deliberate lint error; CI goes red; confirm the PR is left draft with the
-remedy surfaced, and that fixing and re-running flips it ready.
+remedy surfaced, and that fixing and re-running flips it ready. Also
+exercise the R3 residual: push a commit mid-wait and confirm the moved
+head refuses the flip into the Awaiting-input re-entry.
 
 ### REQ-B1.2 — Pre-flip lint [design-level + manual]
 
 Design-level: the sign-off flow documents the blocking pre-flip lint over
 the brief and edited spec files. Manual: introduce a markdownlint error
 into the brief during a walkthrough and confirm the flip is blocked
-before any push.
+before any push; separately rehearse the cannot-run arm (lint tool
+unavailable) and confirm the flip blocks with the failure surfaced, not
+silently skipped.
 
 ### REQ-B1.3 — Recorded claims re-derived [design-level + manual]
 
@@ -75,7 +79,8 @@ Design-level: the sign-off flow documents mechanical re-derivation of
 recorded cross-check and numeric claims with blocking semantics, and the
 cite-derived-figures preference. Manual: seed a brief draft with a
 deliberately wrong coverage tally and confirm the flip is blocked with
-the mismatch named.
+the mismatch named; separately rehearse a comparator that cannot run and
+confirm it blocks as a failure, distinct from a clean match.
 
 ### REQ-B1.4 — Mid-walk lens on meaning edits [design-level + manual]
 
@@ -106,7 +111,8 @@ documents the inline scoped lens pass with its trigger point, disposition
 rule (fixed or surfaced, never silently dropped; an erroring pass
 surfaced, never treated as clean), and its declared proportionality
 scoping. Manual: one live drafting run confirms the handoff carries the
-pass's disposition list.
+pass's disposition list, and an erroring-pass rehearsal confirms the
+error is surfaced rather than the pass silently skipped.
 
 ## REQ-D — Deterministic doctrine resolution
 

@@ -95,8 +95,11 @@ script mechanism that applies them.
   branch head still equals the verified SHA; on a red, empty, or
   unresolved rollup, a rollup query failure, an expired wait bound, or a
   moved head it SHALL leave the PR draft and record the pending ready-flip
-  as an `## Awaiting input` entry naming the remedy — a re-run then
-  completes only the ready-flip from that entry.
+  as an `## Awaiting input` entry naming the pending flip and the neutral
+  failure class (full remedy detail stays operator-facing, D-3) — a re-run
+  then completes only the ready-flip from that entry. The gate is skipped
+  cleanly when the upstream no-remote/no-PR degradation arm has already
+  fired.
   *(Cites: D-3; legacy line 168 (Sources); kickoff lens pass (2026-07-17).)*
 - **REQ-B1.2** Before the Draft→Ready flip, `/spec-kickoff` SHALL run the
   repository's lint over the kickoff brief and every spec file it edited,
@@ -121,7 +124,8 @@ script mechanism that applies them.
   terminal sign-off) mints or re-scopes a REQ, `/spec-kickoff` SHALL sweep
   the bundle and the earlier brief sections for now-stale references
   (counts, cross-references, dependent task and test wording, risk-IDs)
-  before computing the anchor.
+  before computing the anchor and before the D-4 re-derivation is
+  finalized.
   *(Cites: D-6; legacy line 105 (Sources); kickoff lens pass (2026-07-17).)*
 
 ## REQ-C — Drafting self-critique
@@ -179,7 +183,12 @@ script mechanism that applies them.
   mechanism count corrected to five; resolver residual accepted (REQ-D1.1,
   D-8) and Task 1's no-env gate aligned to four unset vars; test-spec
   premise corrected with structural-guard wiring and failing-case manual
-  scenarios. Dispositions recorded in the kickoff brief.
+  scenarios. A `/panel-review --nested` pass (gemini backend) then
+  reconciled seven cross-file stragglers of the lens batch: REQ-B1.1
+  gained the no-PR skip arm and remedy-hygiene wording, REQ-B1.5 the D-4
+  ordering clause, Tasks 2/5 the error-arm language, test-spec the
+  cannot-run and mid-wait-push manual scenarios, and the task-chain
+  rationale was corrected. Dispositions recorded in the kickoff brief.
 
 ## Sources
 

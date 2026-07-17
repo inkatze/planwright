@@ -6,9 +6,9 @@
 **Execution:** derived — see the status render
 
 Tasks 5→6→7 chain because they edit the same skill file
-(`skills/spec-kickoff/SKILL.md`); the order also matches the flow they
-harden (pre-flip verification, then the flip's CI gate, then the walk-time
-passes).
+(`skills/spec-kickoff/SKILL.md`); the ordering is same-file cohesion, not
+flow order (Task 7's mid-walk pass fires earliest in a kickoff, while
+Tasks 5–6 guard the flip).
 
 ## Tasks
 
@@ -39,8 +39,9 @@ passes).
 - **Deliverables:** A scoped, inline self-critique lens step in
   `/spec-draft`'s review-and-validate phase: runs over the freshly
   assembled bundle before the validator and the commit, dispositions every
-  finding (fixed in place or surfaced), and declares its proportionality
-  scoping per the doctrine rule.
+  finding (fixed in place or surfaced), surfaces an erroring pass rather
+  than treating it as clean, and declares its proportionality scoping per
+  the doctrine rule.
 - **Done when:** `skills/spec-draft/SKILL.md` documents the pass (trigger
   point, scope, disposition rule, no-silent-drop); `check:instructions`
   passes.
@@ -91,7 +92,9 @@ passes).
   kickoff brief and every spec file the walkthrough edited, blocking the
   Draft→Ready flip on errors; and mechanically re-derive every cross-check
   and numeric claim the sign-off records as evidence, a mismatch blocking,
-  with cite-derived-figures preferred over recording.
+  with cite-derived-figures preferred over recording. Either check that
+  cannot run blocks the flip as a surfaced failure (fail closed), never a
+  silent skip.
 - **Done when:** the sign-off flow documents both checks with blocking
   semantics before the flip step; `check:instructions` passes on the
   spec-kickoff surface (instruction-headroom relief or a compensating
