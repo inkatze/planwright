@@ -243,7 +243,7 @@ fi
 if [ "$rc" -eq 3 ]; then
   # The key is absent in every layer. Emit the caller's declared safe value so
   # the calling mechanism still runs (REQ-K1.6), warning loudly.
-  echo "resolve-config-knob: warning: '$key' is unset in every layer (broken/partial install, or a knob core does not ship); falling back to '$fallback'" >&2
+  echo "resolve-config-knob: warning: '$key' is unset in every layer (broken/partial install, or a knob core does not ship); falling back to '$(sanitize_printable "$fallback" "(unprintable fallback)")'" >&2
   emit_trimmed "$fallback"
   exit 0
 fi
@@ -302,7 +302,7 @@ case "$layer" in
     if [ "$crc" -eq 3 ]; then
       # The core layer itself omits the key (only the malformed overlay set
       # it). Fall back to the caller's safe value so the mechanism still runs.
-      echo "resolve-config-knob: warning: the core default for '$key' is also unset; falling back to '$fallback'" >&2
+      echo "resolve-config-knob: warning: the core default for '$key' is also unset; falling back to '$(sanitize_printable "$fallback" "(unprintable fallback)")'" >&2
       emit_trimmed "$fallback"
       exit 0
     fi

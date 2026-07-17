@@ -213,6 +213,28 @@ out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopt
 [ "$out" = true ] || fail "padded fallback (degrade, core omits) emitted untrimmed (got '$out')"
 echo "ok: the fallback paths emit trimmed (the sibling emitter contract)"
 
+# 8d. The fallback warnings never echo raw control bytes: a type-legal but
+#     control-padded --fallback (validation trims before checking) must be
+#     sanitized in BOTH warning sites — absent-in-every-layer and the
+#     degrade-lands-on-fallback corner — per the echo discipline
+#     (doctrine/security-posture.md).
+tabch=$(printf '\t')
+reset_layers
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' --fallback "${tabch}true${tabch}" 2>&1 >/dev/null) || true
+case $err in
+  *"$tabch"*) fail "absent-key warning echoed a raw control byte from --fallback" ;;
+esac
+printf 'fleet_daemon_pause: maybe\n' >"$adopter_cfg"
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' --fallback "${tabch}true${tabch}" 2>&1 >/dev/null) || true
+case $err in
+  *"$tabch"*) fail "degrade-path warning echoed a raw control byte from --fallback" ;;
+esac
+echo "ok: the fallback warnings are sanitized (no raw control bytes)"
+
 # 9. A malformed CORE default is a broken install (exit 5).
 reset_layers
 core_bad="$tmp/core-bad.yml"
