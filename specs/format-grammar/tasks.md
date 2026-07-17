@@ -30,9 +30,10 @@ parked in `## Awaiting input` on the instruction-headroom condition
 
 ### Task 2 — Parked-map and Format-version parses into the lib; v2 posture alignment
 
-- **Deliverables:** The header-block-scoped `Format-version:` parse and the
-  parked-map/reference-bullet parse added to the lib (duplicate in-header
-  declaration fails closed); `orchestrate-select.sh`, `drain-gates.sh`,
+- **Deliverables:** The header-block-scoped header-declaration parse
+  (`Format-version:` and `Status:`) and the parked-map/reference-bullet
+  parse added to the lib (a duplicate of either in-header declaration
+  fails closed); `orchestrate-select.sh`, `drain-gates.sh`,
   `spec-status.sh`, `spec-validate.sh` re-pointed for the parked-map parse
   and all eight version-parse consumers (`spec-status.sh`, the
   `tasks-pr-sync` hook, `check-ledger.sh`, `spec-validate.sh`,
@@ -112,8 +113,11 @@ parked in `## Awaiting input` on the instruction-headroom condition
   superseded/retired task-block home plus the changelog-named retirement
   escape and test-spec tombstone handling, the test-spec H2 grouping
   requirement, the completed-semantics asymmetry sentence (with the
-  accepted concurrent-disagreement consequence), and the D-13 kickoff
-  lens-checklist item for qualified cross-spec citations. The
+  accepted concurrent-disagreement consequence), the D-13 kickoff
+  lens-checklist item for qualified cross-spec citations, and the D-14
+  lens-disposition pairing rule (a requirement addition or extension
+  requires a paired test-spec edit in the same disposition, REQ-D1.8's
+  ritual half). The
   `doctrine/accumulator-taxonomy.md` delta: `ready` in the status-atom
   grammar, the normative free-text-gate form, the multi-read/digest-bracket
   correction, the unresolved lane annotation. Fence-provenance citations:
@@ -127,9 +131,10 @@ parked in `## Awaiting input` on the instruction-headroom condition
   deliverable named above is present in the amended text (completeness
   checklist reviewed at PR).
 - **Dependencies:** none
-- **Citations:** D-1, D-5, D-6, D-7, D-10, D-11, D-12, D-13 · REQ-A1.1,
-  REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8,
-  REQ-A1.10, REQ-D1.4, REQ-E1.1, REQ-E1.2, REQ-E1.4, REQ-G1.1
+- **Citations:** D-1, D-5, D-6, D-7, D-10, D-11, D-12, D-13, D-14 ·
+  REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7,
+  REQ-A1.8, REQ-A1.10, REQ-D1.4, REQ-D1.8, REQ-E1.1, REQ-E1.2, REQ-E1.4,
+  REQ-G1.1
 - **Estimated effort:** 2 days
 
 ### Task 6 — Grammar-keyed parser and validator landing

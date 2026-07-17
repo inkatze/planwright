@@ -148,8 +148,9 @@ doctrine stops being homeless prose asserted only in scattered tests.
   and the migration test oracle re-pointed to it; the re-point SHALL NOT
   change the computed anchor of any conforming bundle.
   *(Cites: D-3, obs:6d8f32a4.)*
-- **REQ-B1.3** The `Format-version:` parse SHALL live in the lib,
-  header-block-scoped per REQ-A1.3, with every script parsing the
+- **REQ-B1.3** The header-declaration parse — `Format-version:` and
+  `Status:`, the two load-bearing keys — SHALL live in the lib,
+  header-block-scoped per REQ-A1.3, with every script parsing either
   declaration re-pointed to it — `spec-status.sh`, `tasks-pr-sync`,
   `check-ledger.sh`, `spec-validate.sh`, `orchestrate-select.sh`,
   `drain-gates.sh`, `migrate-format-version.sh`, and `spec-graph.sh`

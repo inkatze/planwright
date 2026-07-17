@@ -116,7 +116,10 @@ bold leads) yields identical classifications from all four v2 parsers.
 ### REQ-B1.5 — Line-80 migration [test]
 
 Task 8 equivalence fixtures: validator, selector, and model outputs
-unchanged over the corpus and all in-repo bundles after the re-point.
+unchanged over the corpus and all in-repo bundles after the re-point; an
+active trip case verifies a fenced `Dependencies:`/`Citations:` token
+contributes no graph edge or citation once the surfaces consume the
+fence-aware lexer.
 
 ### REQ-B1.6 — Lib security posture [test]
 
