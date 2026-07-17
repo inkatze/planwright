@@ -123,9 +123,13 @@ assert_eq "HOME-less plugin path" "$tmp/plugin/doctrine/sample-doc.md" "$out"
 
 # 11. With no usable root at all (no override, no plugin root, no CLAUDE_DIR,
 #     no HOME), the resolver reports its own not-found message (exit 1)
-#     rather than crashing with a bash unbound-variable error.
+#     rather than crashing with a bash unbound-variable error. The doc name is
+#     deliberately one that exists under NO root, including the self-location
+#     arm ($script_dir/../doctrine/) — keep it obviously-nonexistent; if it were
+#     ever a real core doc, that arm would resolve it and this negative check
+#     would silently start passing (exit 0) instead of guarding the exit-1 path.
 err="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
-  /bin/bash "$RESOLVER" sample-doc 2>&1 >/dev/null)"
+  /bin/bash "$RESOLVER" nonexistent-doc 2>&1 >/dev/null)"
 rc=$?
 assert "rootless environment exits 1" 1 "$rc"
 case "$err" in
@@ -135,6 +139,26 @@ case "$err" in
     failures=$((failures + 1))
     ;;
 esac
+
+# 11b. Self-location fallback (regression). With every env root unset — no
+#      PLANWRIGHT_ROOT, no CLAUDE_PLUGIN_ROOT, no CLAUDE_DIR, no HOME (so no
+#      writer root derives either) — the resolver still finds a REAL core doc
+#      sitting at $script_dir/../doctrine/, the delivery-mode-agnostic
+#      self-location arm. This is the plugin-subshell case where Claude Code
+#      does not export CLAUDE_PLUGIN_ROOT into a skill's Bash: before the fix
+#      the resolver failed "rule doc not found" despite sitting right next to
+#      the doctrine. Test 11 above keeps its guarantee (a FAKE doc name still
+#      exits 1) because that doc does not exist under $script_dir/../doctrine.
+out="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
+  /bin/bash "$RESOLVER" spec-format 2>/dev/null)"
+rc=$?
+assert "self-location resolves a real core doc, exit 0" 0 "$rc"
+if [ -f "$out" ] && [ "$out" -ef "$REPO_ROOT/doctrine/spec-format.md" ]; then
+  echo "ok: self-located path is the repo's own doctrine/spec-format.md"
+else
+  echo "FAIL: self-located path '$out' is not doctrine/spec-format.md" >&2
+  failures=$((failures + 1))
+fi
 
 # ===========================================================================
 # Task 4 — doctrine-overlay resolution (D-4, D-5, D-7, D-8, D-9, D-11;
