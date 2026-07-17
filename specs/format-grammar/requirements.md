@@ -76,13 +76,19 @@ doctrine stops being homeless prose asserted only in scattered tests.
   (D-5); all fence-aware parsers cite this one definition. The amendment
   SHALL also pin the unclosed-fence disposition: an unbalanced column-0
   fence count is a validator-flagged malformation (REQ-D1.11), never a
-  silent illustration-to-end-of-file.
+  silent illustration-to-end-of-file, and the lib's parse entry points
+  treat end-of-file inside an open fence as malformed input and fail
+  closed (the derivation path is guarded at the lib, not only at validate
+  time).
   *(Cites: D-1, D-5, legacy line 41 (Sources), legacy line 45 (Sources),
   obs:e6a18bb1, obs:22ef9d55.)*
 - **REQ-A1.2** The meta-spec SHALL state that more than one `Format-version:`
-  declaration in a file's header block makes the declaration unparseable:
-  parsers fail closed, and the validator reports an error at every status.
-  *(Cites: D-6, obs:e6a18bb1.)*
+  or `Status:` declaration in a file's header block makes that declaration
+  unparseable: parsers fail closed, and the validator reports an error at
+  every status. (The two load-bearing header keys share one fail-closed
+  posture; a contradictory duplicate of either has no honest positional
+  winner.)
+  *(Cites: D-6, obs:e6a18bb1, kickoff lens pass (2026-07-17).)*
 - **REQ-A1.3** The meta-spec SHALL define the header block's extent and state
   that `Format-version:` and `Status:` declarations are recognized only
   within it; a body line carrying the same literal is inert content.
@@ -242,8 +248,9 @@ doctrine stops being homeless prose asserted only in scattered tests.
   the same disposition.
   *(Cites: D-14, legacy line 67 (Sources).)*
 - **REQ-D1.9** The validator SHALL report a duplicate in-header
-  `Format-version:` declaration as an error at every status, and every
-  version-keyed script SHALL fail closed on it (REQ-A1.2).
+  `Format-version:` or `Status:` declaration as an error at every status,
+  and every script keyed on the duplicated declaration SHALL fail closed
+  on it (REQ-A1.2).
   *(Cites: D-6, obs:e6a18bb1.)*
 - **REQ-D1.10** Every new validator rule SHALL be run against all in-repo
   bundles before landing, with violations fixed or the rule adjusted in the
@@ -337,7 +344,11 @@ doctrine stops being homeless prose asserted only in scattered tests.
   (unbalanced-fence validator flag) with REQ-A1.1 pinning the
   unclosed-fence disposition; assorted Done-when and test-spec
   strengthenings, foreign-ID qualifiers (bootstrap D-25 / bootstrap D-21),
-  and tag corrections per the kickoff brief's lens-pass record.
+  and tag corrections per the kickoff brief's lens-pass record. A nested
+  panel pass (gemini backend) in the same kickoff contributed: the
+  fence-EOF fail-closed clause (REQ-A1.1), the duplicate-`Status:`
+  extension (REQ-A1.2/REQ-D1.9, D-6), the 7→4 dependency edge, the
+  mismatched-id retirement trip case, and two wording corrections.
 
 ## Sources
 

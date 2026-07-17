@@ -45,9 +45,10 @@ parked in `## Awaiting input` on the instruction-headroom condition
 - **Done when:** All four v2 parsers produce identical parked-map
   classifications over a shared fixture corpus (fence, CRLF, prose-bullet,
   and whitespace-token cases); a body-line `Format-version:` literal no
-  longer masks a missing header declaration; duplicate-declaration fixtures
-  fail closed in every consumer; a grep sweep finds no remaining private
-  version-parse copy; full test suite passes.
+  longer masks a missing header declaration; duplicate-declaration
+  fixtures (`Format-version:` and `Status:`) fail closed in every
+  consumer; a grep sweep finds no remaining private version-parse copy;
+  full test suite passes.
 - **Dependencies:** 1
 - **Citations:** D-6, D-7, D-8 · REQ-B1.3, REQ-B1.4, REQ-B1.6, REQ-C1.1,
   REQ-C1.3, REQ-D1.9
@@ -165,7 +166,7 @@ parked in `## Awaiting input` on the instruction-headroom condition
 - **Done when:** Each behavior has a named verification home that runs (or
   a documented manual scenario with its exercise steps); full test suite
   passes.
-- **Dependencies:** none
+- **Dependencies:** 4
 - **Citations:** D-17 · REQ-F1.1, REQ-F1.2, REQ-F1.3
 - **Estimated effort:** 1 day
 

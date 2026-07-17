@@ -159,13 +159,13 @@ Task 1 ──▶ Task 2 ──▶ Task 3
               └──▶ Task 6 ──▶ Task 8
                     ▲
 Task 5 (parked) ────┘
-Task 4   (root, independent)
-Task 7   (root, independent)
+Task 4 ──▶ Task 7
 ```
 
-**Parallelism:** Tasks 1, 4, 7 are dispatchable immediately once the spec
-is operational; Task 5 is a parked root (headroom condition); the gated
-lane is 5 → 6 → 8.
+**Parallelism:** Tasks 1 and 4 are dispatchable immediately once the spec
+is operational; Task 7 follows Task 4 (edge added at the 2026-07-17 panel
+pass: its REQ-F1.2 fixture captures the entry Task 4 produces); Task 5 is
+a parked root (headroom condition); the gated lane is 5 → 6 → 8.
 
 **Critical path** (effort-weighted, efforts per `tasks.md`):
 1 → 2 → 6 → 8, ~9 chained days — with the real wall-clock gate being the

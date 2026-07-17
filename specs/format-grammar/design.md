@@ -138,7 +138,11 @@ migration.
 **Decision:** More than one `Format-version:` declaration inside a file's
 header block is unparseable: version-keyed scripts refuse (never falling
 open to a positional winner or the v1 write path), and the validator errors
-at every status.
+at every status. The same posture covers a duplicate in-header `Status:`
+declaration — the sibling load-bearing header key drives stored-status
+whitelists and the derivation, and a contradictory duplicate there has the
+identical positional-winner defect *(extended at kickoff lens pass
+2026-07-17)*.
 
 **Alternatives considered:**
 - First-match wins (the current silent behavior). Rejected because: two

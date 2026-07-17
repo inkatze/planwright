@@ -22,11 +22,12 @@ Companion: the Task 6 fence fixtures — a fenced column-0 `### Task` line
 and a fenced requirement bullet parse as illustration in every parser (v1
 and v2).
 
-### REQ-A1.2 — Duplicate Format-version rule [design-level + test]
+### REQ-A1.2 — Duplicate Format-version/Status rule [design-level + test]
 
-The amendment states the fail-closed rule; the Task 2 duplicate-declaration
-fixtures verify every version-keyed consumer refuses, and the Task 6
-validator fixture verifies the error fires at every status.
+The amendment states the fail-closed rule for both load-bearing header
+keys; the Task 2 duplicate-declaration fixtures (`Format-version:` and
+`Status:`) verify every keyed consumer refuses, and the Task 3 validator
+fixture verifies the error fires at every status.
 
 ### REQ-A1.3 — Header-block scope [design-level + test]
 
@@ -117,7 +118,8 @@ unchanged over the corpus and all in-repo bundles after the re-point.
 
 Fixtures with hostile content (non-printable bytes in headings, malformed
 identifiers, path-shaped tokens, embedded stream-delimiter bytes,
-NUL-bearing input) verify clean refusal or sanitized output; a
+NUL-bearing input, end-of-file inside an open fence) verify clean refusal
+or sanitized output; a
 consumer-side fixture verifies fail-closed behavior when the lib file is
 absent or unsourceable; path-derived reads are containment-checked; shell
 lint and the secret scan run over the lib in CI.
@@ -182,7 +184,9 @@ Fixtures: an H2 `D-3` heading, a colon-less H3, and a period-labelled
 Fixtures against a baseline ref: a removed task block named in a dated
 changelog entry passes; an unnamed removal errors; a changelog entry
 naming a token that fails the task-id grammar does not activate the
-escape.
+escape; a changelog entry naming a valid but different id than the
+removed block still errors (the escape matches the removed id, not any
+named id).
 
 ### REQ-D1.7 — Canonical task-heading enforcement [test]
 
@@ -196,10 +200,11 @@ entry warns; an edit paired with a test-spec edit passes `[test]`. The
 lens-disposition pairing rule is exercised at the next meaning-class
 kickoff `[manual]`.
 
-### REQ-D1.9 — Duplicate Format-version error [test]
+### REQ-D1.9 — Duplicate Format-version/Status error [test]
 
-Fixture: duplicate in-header declarations error at Draft and Ready alike;
-version-keyed scripts refuse the same fixture.
+Fixtures: duplicate in-header `Format-version:` and duplicate in-header
+`Status:` declarations each error at Draft and Ready alike; scripts keyed
+on the duplicated declaration refuse the same fixtures.
 
 ### REQ-D1.10 — New-rule rollout contract [manual]
 
