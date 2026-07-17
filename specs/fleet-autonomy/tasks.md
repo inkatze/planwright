@@ -54,8 +54,9 @@ render.
 
 ### Task 3 — Tower-liveness watchdog, crash recovery & session-per-tower isolation
 
-- **Deliverables:** An external, cron-scheduled liveness check (via Claude Code's scheduled-agent
-  primitive, never another tower) for unattended towers, relaunching a fresh memoryless tower on
+- **Deliverables:** An external, cron/launchd-scheduled liveness check (a deterministic
+  operator-scheduled script, never another tower and never an LLM — D-4, REQ-G1.2) for unattended
+  towers, relaunching a fresh memoryless tower on
   positive evidence of death when ready work exists (readiness resolved by calling through to
   `/orchestrate`'s own ready-task selection, never a hand-rolled check against `tasks.md`'s
   committed shape); the same escalating backoff and disable-after-threshold schedule as Task 2's
@@ -71,7 +72,11 @@ render.
   killed interactive-tower fixture produces the exact resume command on the next `startup`, with no
   auto-resume and no auto-discard of the marker; a fresh tower launch lands in its own
   session/isolation unit, verified not to create a window inside a pre-existing, unrelated tmux
-  session; every watchdog action logs through Task 1's audit-trail helper; tests/CI pass.
+  session; an overlapping-invocation fixture proves the relaunch path serializes on the existing
+  per-spec advisory lock (D-20) and re-verifies positive evidence of death under the lock before
+  acting (risk register rows 1 and 6: a concurrent tick is a clean no-op, a tower alive at the
+  re-check is left alone, and no double-launch occurs); every watchdog action logs through
+  Task 1's audit-trail helper; tests/CI pass.
 - **Dependencies:** 1
 - **Citations:** D-4, D-20, D-21 · REQ-A1.5, REQ-A1.6, REQ-A1.9, REQ-G1.3, REQ-G1.4
 - **Estimated effort:** 3 days
@@ -175,10 +180,12 @@ render.
   proves insufficient. Confidence: medium.
   **Gate:** a concrete case where the reactive signal fires too late relative to actual quota
   exhaustion is observed in the drain loop. Citations: D-12 · REQ-E1.3.
-- **A non-Claude-Code-native scheduling fallback for the tower-liveness watchdog.** Task 3 uses
-  Claude Code's own scheduled-agent primitive; a plain OS-level cron (or equivalent) fallback for
-  an adopter without access to that primitive is not built speculatively. Confidence: medium.
-  **Gate:** a concrete adopter need for a non-Claude-Code-native scheduling path is observed in the
+- **A turnkey scheduler-registration helper for the tower-liveness watchdog.** Task 3 ships the
+  watchdog as a deterministic script the operator schedules from their own cron/launchd (the
+  no-LLM-daemon floor, D-4/REQ-G1.2, is why it is never a Claude Code scheduled-agent); the operator
+  wires the schedule by hand (docs/fleet.md gives the crontab example). A helper that registers that
+  schedule for the operator is not built speculatively. Confidence: medium.
+  **Gate:** a concrete adopter need for automated schedule registration is observed in the
   drain loop. Citations: D-4 · REQ-A1.5.
 
 ## Out of scope

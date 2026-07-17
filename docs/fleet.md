@@ -248,6 +248,47 @@ Long fleet runs manage their own context instead of quietly degrading:
   story: a tower that dies without handing over is rebuilt from the same
   disk state by the next one.
 
+## Tower crash recovery: the watchdog and the resume signpost
+
+An *ungraceful* tower death (host reboot, killed terminal) never hands over.
+Recovery is mode-aware (fleet-autonomy D-4), keyed off a durable **tower
+marker** the tower records at watch-loop start
+(`scripts/fleet-tower-marker.sh record <spec> --mode unattended|interactive
+--pid <pid> --checkout <repo-root> [--session-id <uuid>]
+[--tmux-session <name>]`) and clears on a graceful exit:
+
+- **Unattended towers** are supervised by
+  `scripts/fleet-tower-watchdog.sh <spec-dir>` — a deterministic,
+  cron-scheduled dead-man's switch (never another tower, never an LLM). Each
+  tick it checks the kill-switch gate, demands positive evidence of death
+  (`fleet-death-evidence.sh` — a timeout is never evidence), confirms ready
+  work by calling through to `/orchestrate`'s own selector, then relaunches a
+  fresh memoryless tower from disk state alone into its **own** detached tmux
+  session (`planwright-tower-<spec>`), under the existing per-spec advisory
+  lock with death re-verified before acting, so overlapping ticks can never
+  double-launch. Repeated failures back off on
+  `tower_relaunch_backoff_base * 2^(n-1)` seconds and disable at
+  `tower_relaunch_disable_threshold` with a decision-queue entry; a tower
+  observed alive again re-arms it. Every action lands in the audit trail.
+  Schedule it per supervised spec, e.g.:
+
+  ```cron
+  */5 * * * * cd /path/to/repo && scripts/fleet-tower-watchdog.sh specs/<spec>
+  ```
+
+  (ensure `claude` and `tmux` are on cron's `PATH`).
+- **Interactively-led towers** hold the human's actual conversation, which
+  only `claude --resume <session-id>` can restore — so nothing relaunches
+  them. Instead the `SessionStart` (`startup`) hook
+  `scripts/fleet-tower-signpost.sh` detects an orphaned interactive marker
+  for the directory you just started `claude` in (recorded pid positively
+  dead) and surfaces the exact resume command. It never auto-resumes and
+  never discards the marker; after resuming or abandoning, clear it with
+  `scripts/fleet-tower-marker.sh clear <spec>`.
+
+An ambiguous or unparseable marker fails closed: neither path acts, and the
+watchdog queues a repair decision instead of guessing.
+
 ## Scaling out: the meta-tower
 
 `/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
