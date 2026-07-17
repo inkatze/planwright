@@ -33,6 +33,9 @@
 #                      overlapping cron ticks serialize here (risk row 1)
 #   relaunched         a fresh, memoryless tower was launched
 #   relaunch-failed    the launch attempt failed (counts toward backoff)
+#   backoff-corrupt    the persisted backoff record fails to parse: recovery
+#                      is halted until it is repaired, so unlike every other
+#                      outcome this one exits 2 (a scheduler must see it)
 #
 # READY WORK is resolved by CALLING THROUGH to /orchestrate's own ready-task
 # selector (orchestrate-select.sh), never by re-deriving readiness from
@@ -51,9 +54,17 @@
 # together must not both relaunch: every state write (backoff record,
 # disable flip, marker re-record) and the launch itself happen only under
 # the EXISTING per-spec advisory lock (orchestrate-lock.sh — no new lock
-# primitive), and death is RE-VERIFIED under the lock immediately before
-# acting, so a tower that came alive between the first observation and the
-# lock is left alone. A busy lock is a clean no-op tick.
+# primitive). Under the lock the tick re-reads BOTH records fresh — the
+# backoff (so a sibling's increment is never overwritten) and the MARKER
+# (so a sibling's relaunch, which re-points the marker at a new pid, is
+# seen) — recomputes the clock, and re-verifies death against the marker's
+# CURRENT pid before acting. A tower that came alive, or was replaced,
+# between the first observation and the lock is left alone; a busy lock is
+# a clean no-op tick. A crash between the launch and the marker/backoff
+# writes can still leave a stale marker (the writes are not transactional):
+# the healing path is the relaunched tower's own marker self-record at
+# watch-loop start, with the session-collision refusal and the backoff
+# delay window bounding the damage meanwhile.
 #
 # BACKOFF (REQ-A1.9, risk row 32). Consecutive failed relaunches wait
 # base*2^(n-1) seconds between attempts and disable at the configured
@@ -82,14 +93,19 @@
 #                                  scripts/fleet-death-evidence.sh)
 #   PLANWRIGHT_TOWER_LAUNCHER      launcher command, run as: $cmd <spec-dir>
 #                                  <session-name>; must print the fresh
-#                                  tower's pid (default: the internal tmux
-#                                  session-per-tower launcher)
+#                                  tower's pid, and must itself refuse to
+#                                  start a second tower when a prior launch
+#                                  may still be live (the default launcher's
+#                                  session-name collision refusal is that
+#                                  guard; a custom launcher owns providing
+#                                  an equivalent)
 #
 # Usage: fleet-tower-watchdog.sh <spec-dir>
-# Exit codes: 0 tick completed (any outcome above); 2 usage / refused
-#   hostile input / lock or filesystem error (fail closed); 4/5 propagate a
-#   config-resolver hard-fail (malformed team-shared overlay / broken
-#   install) so a scheduler surfaces it as a real failure.
+# Exit codes: 0 tick completed (any outcome above except backoff-corrupt);
+#   2 usage / refused hostile input / lock or filesystem error / corrupt
+#   backoff record / a failed escalation write (fail closed, visibly); 4/5
+#   propagate a config-resolver hard-fail (malformed team-shared overlay /
+#   broken install) so a scheduler surfaces it as a real failure.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): `date
 # +%s`, mktemp, tmux for the default launcher. No eval, no jq (REQ-K1.5).
@@ -177,43 +193,59 @@ threshold=$("$script_dir/resolve-config-knob.sh" --key tower_relaunch_disable_th
 [ "$knob_rc" -eq 0 ] || exit "$knob_rc"
 
 # --- the marker is the mode gate (risk row 7) ---------------------------------
-marker_rc=0
-row=$("$FTM" read "$spec") || marker_rc=$?
-case $marker_rc in
-  0) ;;
-  1) outcome no-marker ;;
-  *) exit 2 ;;
-esac
-
 TAB=$(printf '\t')
-old_ifs=$IFS
-IFS=$TAB
-# shellcheck disable=SC2086
-set -- $row
-IFS=$old_ifs
-m_mode="${2:-}"
-m_pid="${3:-}"
 
 escalate_ambiguous() {
+  # An unrepaired ambiguous marker blocks BOTH recovery paths, so the human
+  # breadcrumb is load-bearing: a failed decision-queue write is surfaced as
+  # a hard tick failure (the helper's own stderr names the cause), never
+  # swallowed — the caller contract every fleet daemon mechanism holds.
   "$FAT" decide "tower-watchdog:$spec" "$spec" \
     "Tower marker for spec '$spec' is ambiguous (unparseable mode or pid); crash recovery is refusing both the relaunch and signpost paths until it is repaired" \
     "repair-marker" \
     "repair-marker | clear-marker (scripts/fleet-tower-marker.sh clear $spec)" \
-    high >/dev/null 2>&1 || true
+    high >/dev/null || {
+    echo "fleet-tower-watchdog: could not queue the ambiguous-marker decision — failing the tick so the broken queue is visible" >&2
+    printf 'ambiguous-marker\n'
+    exit 2
+  }
   outcome ambiguous-marker
 }
 
-if [ "$#" -ne 7 ]; then
-  escalate_ambiguous
-fi
-case "$m_pid" in
-  "" | *[!0-9]* | 0*) escalate_ambiguous ;;
-esac
-case "$m_mode" in
-  unattended) ;;
-  interactive) outcome not-unattended ;;
-  *) escalate_ambiguous ;;
-esac
+# read_marker_state: (re)read and gate the marker. Sets m_mode/m_pid, or
+# exits through the mode gate's terminal outcomes. Called once before the
+# lock and again UNDER the lock (a sibling tick's relaunch re-points the
+# marker at a new pid; acting on the pre-lock parse would re-verify a pid
+# that can no longer come back to life — risk rows 1 and 6).
+read_marker_state() {
+  rms_rc=0
+  rms_row=$("$FTM" read "$spec") || rms_rc=$?
+  case $rms_rc in
+    0) ;;
+    1) outcome no-marker ;;
+    *) exit 2 ;;
+  esac
+  rms_old_ifs=$IFS
+  IFS=$TAB
+  # shellcheck disable=SC2086
+  set -- $rms_row
+  IFS=$rms_old_ifs
+  m_mode="${2:-}"
+  m_pid="${3:-}"
+  if [ "$#" -ne 7 ]; then
+    escalate_ambiguous
+  fi
+  case "$m_pid" in
+    "" | *[!0-9]* | 0*) escalate_ambiguous ;;
+  esac
+  case "$m_mode" in
+    unattended) ;;
+    interactive) outcome not-unattended ;;
+    *) escalate_ambiguous ;;
+  esac
+}
+
+read_marker_state
 
 # --- backoff record helpers ---------------------------------------------------
 towers_dir=""
@@ -225,11 +257,13 @@ resolve_towers_dir() {
 backoff_count=0
 backoff_last=0
 backoff_disabled=0
+# Returns 0 (record read or absent), 1 (corrupt record), 2 (fleet home
+# unresolvable) — two different failures that must not share a message.
 read_backoff() {
   backoff_count=0
   backoff_last=0
   backoff_disabled=0
-  resolve_towers_dir || return 1
+  resolve_towers_dir || return 2
   rb_file="$towers_dir/$spec.backoff"
   [ -f "$rb_file" ] || return 0
   rb_row=$(cat "$rb_file" 2>/dev/null) || return 1
@@ -264,8 +298,9 @@ write_backoff() {
     return 1
   }
 }
-# The escalating delay after n consecutive failures: base * 2^(n-1), the
-# doubling capped at 2^30 (an overflow guard, far past any real schedule).
+# The escalating delay after n consecutive failures: base * 2^(n-1), capped
+# after 29 doublings (<= base * 2^29 — an overflow guard far past any real
+# schedule; the count is bounded by the disable threshold anyway).
 delay_for() {
   df_n=$1
   df_delay=$base
@@ -275,6 +310,27 @@ delay_for() {
     df_i=$((df_i + 1))
   done
   printf '%s' "$df_delay"
+}
+
+# A corrupt persistent record halts crash recovery entirely, and an
+# unresolvable fleet home means nothing about this tick can be trusted —
+# both fail closed with exit 2 so a scheduler alerting on non-zero exits
+# actually notices (a silent 0 here would hide a dead fleet).
+read_backoff_or_die() {
+  rbd_rc=0
+  read_backoff || rbd_rc=$?
+  case $rbd_rc in
+    0) ;;
+    1)
+      echo "fleet-tower-watchdog: backoff record for '$spec' is corrupt — refusing to act; repair or remove it" >&2
+      printf 'backoff-corrupt\n'
+      exit 2
+      ;;
+    *)
+      echo "fleet-tower-watchdog: cannot resolve the fleet home for the backoff record — refusing to act" >&2
+      exit 2
+      ;;
+  esac
 }
 
 now_epoch() {
@@ -320,25 +376,26 @@ reset_backoff_if_armed() {
     acquire_lock_or_busy
     ev2=0
     "$evidence_cmd" process "$m_pid" >/dev/null 2>&1 || ev2=$?
-    if [ "$ev2" -eq 1 ]; then
-      write_backoff 0 0 0 || {
-        echo "fleet-tower-watchdog: cannot reset the backoff record" >&2
-        exit 2
-      }
-      "$FAU" record tower-watchdog reset-backoff "tower-alive" \
-        "tower for spec '$spec' observed alive; backoff state cleared and the watchdog re-armed" \
-        || exit 2
+    if [ "$ev2" -ne 1 ]; then
+      # The locked re-check no longer sees the tower alive: this tick's
+      # observation is ambiguous, so report that rather than an `alive` the
+      # measurement just contradicted. The next tick resolves it.
+      outcome unknown
     fi
+    write_backoff 0 0 0 || {
+      echo "fleet-tower-watchdog: cannot reset the backoff record" >&2
+      exit 2
+    }
+    "$FAU" record tower-watchdog reset-backoff "tower-alive" \
+      "tower for spec '$spec' observed alive; backoff state cleared and the watchdog re-armed" \
+      || exit 2
     release_lock
   fi
   outcome alive
 }
 
 # --- first death observation --------------------------------------------------
-read_backoff || {
-  echo "fleet-tower-watchdog: backoff record for '$spec' is corrupt — refusing to act; repair or remove it" >&2
-  outcome backoff-corrupt
-}
+read_backoff_or_die
 ev_rc=0
 "$evidence_cmd" process "$m_pid" >/dev/null 2>&1 || ev_rc=$?
 case $ev_rc in
@@ -379,24 +436,25 @@ fi
 # --- act, under the existing per-spec advisory lock (D-20, risk rows 1/6) -----
 acquire_lock_or_busy
 
-# Re-read the backoff record under the lock: the read-modify-write must see
-# a concurrent tick's increment, never overwrite it (risk row 6).
-read_backoff || {
-  echo "fleet-tower-watchdog: backoff record for '$spec' is corrupt — refusing to act; repair or remove it" >&2
-  outcome backoff-corrupt
-}
+# Re-read BOTH records fresh under the lock. The backoff re-read makes the
+# read-modify-write atomic (a concurrent tick's increment is never
+# overwritten, risk row 6). The marker re-read is what makes the death
+# re-verification real (risk row 1): a sibling tick's relaunch re-points
+# the marker at a new pid, and a pid that already returned positive death
+# can never come back to life — re-verifying the pre-lock pid would be
+# structurally incapable of noticing the tower that now exists.
+read_backoff_or_die
 if [ "$backoff_disabled" = 1 ]; then
   outcome disabled
 fi
+read_marker_state
 
-# Re-verify death immediately before acting (risk row 1): a tower that came
-# alive since the first observation is left alone.
 ev_rc=0
 "$evidence_cmd" process "$m_pid" >/dev/null 2>&1 || ev_rc=$?
 case $ev_rc in
   0) ;;
   1)
-    if [ "$backoff_count" -gt 0 ]; then
+    if [ "$backoff_count" -gt 0 ] || [ "$backoff_disabled" = 1 ]; then
       write_backoff 0 0 0 || {
         echo "fleet-tower-watchdog: cannot reset the backoff record" >&2
         exit 2
@@ -410,16 +468,32 @@ case $ev_rc in
   *) outcome unknown ;;
 esac
 
+# The clock is re-read under the lock too: the pre-lock stamp could predate
+# a sibling's entire critical section, making "elapsed since last attempt"
+# negative or stale against the freshly re-read backoff_last.
+now=$(now_epoch) || {
+  echo "fleet-tower-watchdog: cannot read the clock" >&2
+  exit 2
+}
+
 if [ "$backoff_count" -ge "$threshold" ]; then
-  write_backoff "$backoff_count" "$backoff_last" 1 || {
-    echo "fleet-tower-watchdog: cannot persist the disable" >&2
-    exit 2
-  }
+  # The decision-queue breadcrumb lands BEFORE the disable flag persists: a
+  # disabled watchdog whose only re-enable path is human intervention must
+  # never exist without the entry that asks for that intervention. If the
+  # decide write fails, the tick fails visibly and the next tick retries
+  # both (the decide upsert is idempotent per worker key).
   "$FAT" decide "tower-watchdog:$spec" "$spec" \
     "Tower for spec '$spec' was relaunched $backoff_count consecutive times without surviving; the watchdog disabled itself (REQ-A1.9). Investigate, then relaunch manually: an observed-alive tower re-arms the watchdog" \
     "leave-disabled" \
     "investigate-and-relaunch | leave-disabled" \
-    high >/dev/null || exit 2
+    high >/dev/null || {
+    echo "fleet-tower-watchdog: could not queue the disable decision — leaving the watchdog armed so the next tick retries" >&2
+    exit 2
+  }
+  write_backoff "$backoff_count" "$backoff_last" 1 || {
+    echo "fleet-tower-watchdog: cannot persist the disable" >&2
+    exit 2
+  }
   "$FAU" record tower-watchdog disable "consecutive-failure-threshold" \
     "relaunch for spec '$spec' disabled after $backoff_count consecutive failures (threshold $threshold); decision queued" \
     || exit 2

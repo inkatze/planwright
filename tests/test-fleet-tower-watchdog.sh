@@ -158,6 +158,16 @@ audit_rows() {
   fleet_env "$FAU" query --mechanism tower-watchdog 2>/dev/null || true
 }
 
+# The audit row is <epoch>\t<iso>\t<mechanism>\t<action>\t<trigger>\t<reasoning>;
+# assert on the exact action field, never a substring of the prose (a
+# reasoning that mentions "relaunch" must not satisfy a relaunch assertion).
+audit_actions() {
+  audit_rows | cut -f4
+}
+assert_audit_action() {
+  audit_actions | grep -qx "$1" || fail "no audit row with action '$1'"
+}
+
 # --- usage / hostile input ----------------------------------------------------
 
 rc=0
@@ -286,12 +296,17 @@ echo "ok: a dead tower with ready work is relaunched from disk state alone"
 
 # The marker now records the relaunched tower.
 row=$(fleet_env "$FTM" read my-spec) || fail "marker missing after relaunch"
-IFS=$(printf '\t') read -r _ m_mode m_pid _ m_tmux _ _ <<EOF
+IFS=$(printf '\t') read -r _ m_mode m_pid _ m_tmux m_checkout m_epoch <<EOF
 $row
 EOF
 [ "$m_mode" = unattended ] || fail "post-relaunch marker mode '$m_mode'"
 [ "$m_pid" = "$dead_pid" ] || fail "post-relaunch marker pid '$m_pid' (launcher printed $dead_pid)"
 [ "$m_tmux" = planwright-tower-my-spec ] || fail "post-relaunch marker tmux session '$m_tmux'"
+repo_canon=$(cd "$repo" && pwd -P)
+[ "$m_checkout" = "$repo_canon" ] || fail "post-relaunch marker checkout '$m_checkout', expected '$repo_canon'"
+case "$m_epoch" in
+  '' | *[!0-9]*) fail "post-relaunch marker epoch '$m_epoch' not numeric" ;;
+esac
 echo "ok: the marker is re-recorded from the launch result"
 
 # Backoff state after attempt 1.
@@ -299,11 +314,7 @@ echo "ok: the marker is re-recorded from the launch result"
 [ "$(read_backoff_field 3)" = 0 ] || fail "backoff disabled flag after first relaunch"
 
 # The relaunch was audited.
-rows=$(audit_rows)
-case "$rows" in
-  *relaunch*) ;;
-  *) fail "no audit row for the relaunch" ;;
-esac
+assert_audit_action relaunch
 echo "ok: the relaunch is audited (REQ-F1.4)"
 
 # --- escalating backoff and disable (REQ-A1.9) --------------------------------
@@ -344,14 +355,10 @@ out=$(run "$spec_dir" 2>/dev/null) || fail "disable tick exited non-zero"
 [ "$(launch_calls)" = "$calls_before" ] || fail "the disable tick must not relaunch"
 queue=$(fleet_env "$FAT" queue 2>/dev/null) || fail "attention queue unreadable after disable"
 case "$queue" in
-  *my-spec*) ;;
-  *) fail "disable left no decision-queue entry" ;;
+  *consecutive*) ;;
+  *) fail "disable left no disable-specific decision-queue entry" ;;
 esac
-rows=$(audit_rows)
-case "$rows" in
-  *disable*) ;;
-  *) fail "no audit row for the disable" ;;
-esac
+assert_audit_action disable
 echo "ok: the consecutive-failure threshold disables relaunching (REQ-A1.9)"
 
 # Disabled stays disabled on later ticks.
@@ -367,11 +374,7 @@ out=$(run "$spec_dir" 2>/dev/null) || fail "alive-reset tick exited non-zero"
 [ "$out" = alive ] || fail "alive-reset outcome '$out'"
 [ "$(read_backoff_field 1)" = 0 ] || fail "alive tower must reset the backoff count"
 [ "$(read_backoff_field 3)" = 0 ] || fail "alive tower must clear the disable flag"
-rows=$(audit_rows)
-case "$rows" in
-  *reset-backoff*) ;;
-  *) fail "no audit row for the backoff reset" ;;
-esac
+assert_audit_action reset-backoff
 echo "ok: an alive tower resets backoff and re-arms the watchdog"
 
 # --- overlapping invocations (risk rows 1 and 6; D-20, REQ-G1.3) --------------
@@ -482,11 +485,167 @@ out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
   /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "collision tick exited non-zero"
 [ "$out" = relaunch-failed ] || fail "collision outcome '$out'"
 [ "$(read_backoff_field 1)" = 1 ] || fail "a failed launch must count toward the backoff"
-rows=$(audit_rows)
-case "$rows" in
-  *relaunch-failed*) ;;
-  *) fail "no audit row for the failed relaunch" ;;
-esac
+assert_audit_action relaunch-failed
 echo "ok: a session-name collision fails the launch safely and is audited"
+
+# --- corrupt backoff record fails closed AND visibly --------------------------
+
+# A corrupt persistent record halts crash recovery; cron must see a non-zero
+# exit (a silent 0 hides a dead fleet), and no relaunch may happen.
+record_marker unattended "$dead_pid"
+printf 'garbage-not-a-row\n' >"$backoff_file"
+calls_before=$(launch_calls)
+rc=0
+out=$(run "$spec_dir" 2>/dev/null) || rc=$?
+[ "$out" = backoff-corrupt ] || fail "corrupt backoff outcome '$out'"
+[ "$rc" = 2 ] || fail "corrupt backoff must exit 2 (visible to cron), got $rc"
+[ "$(launch_calls)" = "$calls_before" ] || fail "corrupt backoff must not relaunch"
+rm -f "$backoff_file"
+echo "ok: a corrupt backoff record fails closed with a non-zero exit"
+
+# --- the disable's decision-queue entry precedes the disable flag -------------
+
+# REQ-A1.9's whole point is the human escalation: if the decision-queue write
+# fails, the disable must NOT persist (a disabled watchdog with no queued
+# decision is unrecoverable except by chance). The next tick retries both.
+now2=$(date +%s)
+record_marker unattended "$dead_pid"
+write_backoff 3 $((now2 - 10000)) 0
+rm -rf "$home/attention"
+: >"$home/attention" # a regular file blocks fleet-attention's store dir
+rc=0
+out=$(run "$spec_dir" 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "disable with a broken decision queue: exit $rc, expected 2"
+[ "$(read_backoff_field 3)" = 0 ] || fail "disable must not persist before its decision-queue entry lands"
+rm -f "$home/attention"
+# With the queue healthy again, the same tick disables and queues.
+out=$(run "$spec_dir" 2>/dev/null) || fail "disable retry tick exited non-zero"
+[ "$out" = disabled ] || fail "disable retry outcome '$out'"
+[ "$(read_backoff_field 3)" = 1 ] || fail "disable must persist once the decision-queue entry landed"
+queue=$(fleet_env "$FAT" queue 2>/dev/null) || fail "attention queue unreadable"
+case "$queue" in
+  *consecutive*) ;;
+  *) fail "disable retry left no disable-specific decision-queue entry" ;;
+esac
+echo "ok: the decision-queue breadcrumb lands before the disable persists"
+
+# --- a failed ambiguous-marker escalation is surfaced, not swallowed ----------
+
+printf 'my-spec\tsideways\t%s\t-\t-\t%s\t123\n' "$dead_pid" "$repo" >"$home/towers/my-spec"
+rm -f "$backoff_file"
+rm -rf "$home/attention"
+: >"$home/attention"
+rc=0
+out=$(run "$spec_dir" 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "ambiguous escalation with a broken queue: exit $rc, expected 2"
+rm -f "$home/attention"
+echo "ok: a failed ambiguous-marker escalation exits non-zero"
+
+# --- ambiguous-marker: short-row and bad-pid branches -------------------------
+
+printf 'my-spec\tunattended\t%s\n' "$dead_pid" >"$home/towers/my-spec"
+calls_before=$(launch_calls)
+out=$(run "$spec_dir" 2>/dev/null) || fail "short-row tick exited non-zero"
+[ "$out" = ambiguous-marker ] || fail "short marker row outcome '$out'"
+[ "$(launch_calls)" = "$calls_before" ] || fail "a short marker row must not relaunch"
+printf 'my-spec\tunattended\t0abc\t-\t-\t%s\t123\n' "$repo" >"$home/towers/my-spec"
+out=$(run "$spec_dir" 2>/dev/null) || fail "bad-pid tick exited non-zero"
+[ "$out" = ambiguous-marker ] || fail "bad-pid marker outcome '$out'"
+[ "$(launch_calls)" = "$calls_before" ] || fail "a bad-pid marker must not relaunch"
+echo "ok: short-row and bad-pid markers fail closed as ambiguous"
+
+# --- the marker is re-read under the lock before acting (risk rows 1 and 6) ---
+
+# Evidence stub with a side effect: the FIRST (pre-lock) death check reports
+# the old pid dead and swaps the marker to the alive pid, simulating a
+# concurrent tick's relaunch landing between observation and lock. The
+# watchdog must re-read the marker under the lock, re-verify the CURRENT
+# pid, find it alive, heal the backoff record, and not launch.
+repo_canon=$(cd "$repo" && pwd -P)
+cat >"$bin/evidence-swap" <<EOF
+#!/bin/sh
+if [ "\$2" = "$alive_pid" ]; then
+  echo alive
+  exit 1
+fi
+printf 'my-spec\tunattended\t%s\t-\tplanwright-tower-my-spec\t%s\t123\n' "$alive_pid" "$repo_canon" >"$home/towers/my-spec"
+echo dead
+exit 0
+EOF
+chmod +x "$bin/evidence-swap"
+record_marker unattended "$dead_pid"
+write_backoff 1 $((now2 - 10000)) 0
+calls_before=$(launch_calls)
+out=$(PLANWRIGHT_TOWER_EVIDENCE_CMD="$bin/evidence-swap" run "$spec_dir" 2>/dev/null) \
+  || fail "marker-swap tick exited non-zero"
+[ "$out" = alive ] || fail "marker-swap outcome '$out' (the fresh marker's pid must be re-verified)"
+[ "$(launch_calls)" = "$calls_before" ] || fail "a swapped-in live tower must not be relaunched over"
+[ "$(read_backoff_field 1)" = 0 ] || fail "an under-lock alive verdict must heal the backoff count"
+assert_audit_action reset-backoff
+echo "ok: the marker is re-read under the lock and a swapped-in live tower is left alone"
+
+# --- ready-work call-through, real selector happy paths -----------------------
+
+# Turn the fixture into a real spec repo: the DEFAULT ready check (no seam)
+# must drive a relaunch off orchestrate-select's live derivation.
+git -C "$repo" -c init.defaultBranch=main init -q
+cat >"$spec_dir/tasks.md" <<'EOF'
+# tasks
+
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — lone ready task
+
+- **Dependencies:** none
+- **Estimated effort:** half day
+
+## Completed
+
+## In progress
+
+## Awaiting input
+
+## Deferred
+
+## Out of scope
+EOF
+git -C "$repo" -c user.name=test -c user.email=test@example.invalid \
+  -c commit.gpgsign=false add -A
+git -C "$repo" -c user.name=test -c user.email=test@example.invalid \
+  -c commit.gpgsign=false commit -q -m "base: spec fixture"
+record_marker unattended "$dead_pid"
+rm -f "$backoff_file"
+calls_before=$(launch_calls)
+out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$defaults" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter.yml" \
+  PLANWRIGHT_REPO_ROOT="$fake_root" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+  PLANWRIGHT_TOWER_LAUNCHER="$bin/launcher" \
+  /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "real-selector ready tick exited non-zero"
+[ "$out" = relaunched ] || fail "real-selector ready outcome '$out'"
+[ "$(launch_calls)" = "$((calls_before + 1))" ] || fail "a genuinely-ready spec must drive a relaunch"
+echo "ok: the live selector's ready verdict drives a relaunch (no seam)"
+
+# Complete the task (durable trailer): the live derivation now reports no
+# ready work, and the default path maps the selector's exit 1 accordingly.
+git -C "$repo" -c user.name=test -c user.email=test@example.invalid \
+  -c commit.gpgsign=false commit -q --allow-empty \
+  -m "task 1 done" -m "Planwright-Task: my-spec/1"
+record_marker unattended "$dead_pid"
+rm -f "$backoff_file"
+calls_before=$(launch_calls)
+out=$(PLANWRIGHT_FLEET_STATE_DIR="$home" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$defaults" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter.yml" \
+  PLANWRIGHT_REPO_ROOT="$fake_root" \
+  PLANWRIGHT_LOCAL_CONFIG="$tmp/no-local.yml" \
+  PLANWRIGHT_TOWER_LAUNCHER="$bin/launcher" \
+  /bin/bash "$FTW" "$spec_dir" 2>/dev/null) || fail "real-selector done tick exited non-zero"
+[ "$out" = no-ready-work ] || fail "real-selector done outcome '$out'"
+[ "$(launch_calls)" = "$calls_before" ] || fail "a fully-completed spec must not relaunch"
+echo "ok: the live selector's no-ready verdict suppresses the relaunch (no seam)"
 
 echo "ALL PASS: fleet-tower-watchdog"
