@@ -756,4 +756,32 @@ qc=$(aenv "$home22" queue --count) || fail "queue --count with liveness states f
 [ "$qc" = 0 ] || fail "liveness states leaked into the decision queue (count $qc, expected 0)"
 echo "ok: heartbeat accepts the liveness states idle/hung/ended as status, never queued"
 
+# ---------------------------------------------------------------------------
+# 23. The --unless-awaiting heartbeat guard (fleet-autonomy Task 2,
+#     REQ-A1.3): a clean no-op against an awaiting-input row (a queued human
+#     decision is never downgraded), a normal upsert against anything else,
+#     evaluated inside the store's critical section. A bogus 4th arg is a
+#     usage error.
+# ---------------------------------------------------------------------------
+home23="$tmp/guarded"
+aenv "$home23" decide "worker=g" "spec-g:1" "stuck?" "park" "park|retry" high \
+  || fail "guard setup: decide failed"
+aenv "$home23" heartbeat "worker=g" "spec-g:1" idle --unless-awaiting \
+  || fail "guarded heartbeat against awaiting-input: non-zero exit (must be a no-op success)"
+out=$(aenv "$home23" render) || fail "render failed"
+printf '%s\n' "$out" | grep -F "worker=g" | grep -q "awaiting-input" \
+  || fail "guarded heartbeat downgraded a queued decision"
+qc=$(aenv "$home23" queue --count) || fail "queue --count failed"
+[ "$qc" = 1 ] || fail "guarded heartbeat dropped the queue entry (count $qc)"
+aenv "$home23" heartbeat "worker=h" "spec-g:2" working || fail "guard setup: heartbeat h"
+aenv "$home23" heartbeat "worker=h" "spec-g:2" idle --unless-awaiting \
+  || fail "guarded heartbeat against working: non-zero exit"
+out=$(aenv "$home23" render) || fail "render failed"
+printf '%s\n' "$out" | grep -F "worker=h" | grep -q "\[idle\]" \
+  || fail "guarded heartbeat did not upsert a non-awaiting row"
+rc=0
+aenv "$home23" heartbeat "worker=h" "spec-g:2" idle --bogus-flag >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "bogus heartbeat flag: exit $rc, expected 2"
+echo "ok: --unless-awaiting preserves queued decisions and upserts everything else"
+
 echo "ALL PASS: fleet-attention.sh"

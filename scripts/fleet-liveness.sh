@@ -116,29 +116,41 @@
 #
 # Usage:
 #   fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure>
-#       The registered hook handler (payload drained from stdin; identity
-#       from the env contract). Exits 0 unless the event token itself is
-#       unknown (exit 2, a wiring bug).
+#       The registered hook handler (identity from the env contract; the
+#       payload is drained on the worker path, never parsed). Exits 0 for
+#       every valid invocation, including runtime failures and signals;
+#       exit 2 only on a malformed invocation (wrong arg count or an
+#       unknown event token — a hooks.json wiring bug).
 #   fleet-liveness.sh push-capable <backend>
 #       Which liveness mechanism the backend gets: prints `push` (exit 0)
-#       for session-launching backends (tmux, print — real processes that
-#       inherit the dispatch env and fire plugin hooks), `observe` (exit 1)
-#       for in-process backends (subagent, in-session), where the existing
-#       capture-pane observation (orchestrate-relay.sh observe-command /
-#       tower-inline) remains the mechanism — the REQ-A1.1 graceful
-#       fallback, kickoff risk row 16. Unknown backend: exit 2.
+#       for tmux (the one backend whose dispatched process inherits the
+#       identity env and fires plugin hooks), `observe` (exit 1) for
+#       subagent / print / in-session, where the existing observation path
+#       (orchestrate-relay.sh observe-command / tower-inline; print is
+#       human-run and contract-exempt from liveness) remains the mechanism
+#       — the REQ-A1.1 graceful fallback, kickoff risk row 16. Unknown
+#       backend: exit 2.
 #   fleet-liveness.sh classify <worker> <scope> [--now <epoch>]
 #       [--heartbeat <epoch>] [--progress <token>]
 #       [--evidence <class> <args...>]
 #       Print exactly one of working|idle|hung|awaiting-human|flailing.
+#       Exit 4/5: propagated config/install hard-fails from the knob
+#       resolver.
 #   fleet-liveness.sh crash-record <worker> <scope> [--now <epoch>]
-#       Record one crash; prints `<count> <delay>` or `disabled <count>`.
+#       Record one crash; prints `<count> <delay>` or `disabled <count>`
+#       BEFORE the escalation/audit side effects — the counter is durable
+#       once the line prints, so never re-invoke for the same crash on a
+#       non-zero exit (a retry double-counts; a lost disable escalation
+#       self-heals via crash-check). Exit 4/5: propagated config/install
+#       hard-fails.
 #   fleet-liveness.sh crash-check <worker> [--now <epoch>]
 #       Exit 0 relaunch authorized; 1 backing off or daemon layer paused;
-#       3 disabled (never relaunch); 4/5 propagated config/install
-#       hard-fails.
+#       3 disabled (never relaunch; reported ahead of the kill-switch so
+#       the terminal state is never masked, and the disable escalation is
+#       re-upserted if missing); 4/5 propagated config/install hard-fails.
 #   fleet-liveness.sh crash-reset <worker>
-#       Clear the consecutive-failure streak (a healthy run).
+#       Clear the consecutive-failure streak (a healthy run). Exit 2 when
+#       the record could not be removed (the streak did NOT clear).
 #
 # Exit codes: per subcommand above; 2 usage error, refused hostile input, or
 #   a filesystem/lock error (fail closed) on the non-hook subcommands.
@@ -204,8 +216,14 @@ now_epoch() {
 
 # knob <key> <fallback> — one posint knob through the shared resolver
 # (D-22/REQ-G1.5). A resolver hard-fail (4 team-shared malformed, 5 broken
-# install) propagates: never run under unknown shared configuration.
+# install) propagates: never run under unknown shared configuration. A
+# missing/non-executable resolver is itself the broken-install case (exit 5,
+# the fleet-daemon-gate discipline), never a raw shell 126/127.
 knob() {
+  if [ ! -x "$RCK" ]; then
+    echo "fleet-liveness: knob resolver '$RCK' is missing or not executable (broken install)" >&2
+    return 5
+  fi
   k_v=$("$RCK" --key "$1" --type posint --fallback "$2") || return $?
   printf '%s' "$k_v"
 }
@@ -246,6 +264,14 @@ release_lock() {
     HOLD_LOCK=0
   fi
 }
+
+# The attention record's field indices this script reads (fleet-attention.sh
+# upsert_row is the single authority for the 8-field layout:
+# worker/scope/state/heartbeat/priority/question/default/options — named here
+# so the positional coupling is explicit and single-sourced in this file).
+FIELD_SCOPE=2
+FIELD_STATE=3
+FIELD_HEARTBEAT=4
 
 # store_row_field <root> <worker> <field-index> — print one field of the
 # worker's 8-field attention record, or nothing when no row exists. The ""
@@ -300,10 +326,12 @@ shift
 
 case "$cmd" in
   hook)
-    # Drain the payload FIRST, whatever else happens: a hook whose stdin is
-    # never read can trip a broken-pipe write in the harness. The payload is
-    # deliberately unparsed (risk 25): identity comes from the env contract.
-    cat >/dev/null 2>&1 || true
+    # Signals must not turn a valid hook invocation into a non-zero exit
+    # (the always-exit-0 discipline): an INT/TERM delivered to the worker's
+    # process group mid-hook would otherwise ride the file-level 130/143
+    # traps out as a non-zero hook exit. No lock is ever held in this arm,
+    # so exiting 0 on a signal abandons nothing.
+    trap 'exit 0' INT TERM
     if [ "$#" -ne 1 ]; then
       echo "usage: fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure>" >&2
       exit 2
@@ -312,21 +340,27 @@ case "$cmd" in
     case "$event" in
       stop | permission-request | post-tool-use | session-end | stop-failure) ;;
       *)
-        # An unknown event token is a hooks.json wiring bug, not a runtime
-        # state: the one hook-path exit 2.
+        # A malformed invocation (unknown event, wrong arg count above) is a
+        # hooks.json wiring bug, not a runtime state: the hook-path exit 2.
         echo "fleet-liveness: unknown hook event '$(sanitize_printable "$event" "(unprintable event)")'" >&2
         exit 2
         ;;
     esac
     handle="${PLANWRIGHT_WORKER_HANDLE:-}"
     scope="${PLANWRIGHT_WORKER_SCOPE:-}"
-    # The identity gate: not a dispatched worker session — a clean, silent
-    # no-op. The plugin registers these hooks for EVERY session; only
-    # dispatched workers may write, and nobody else's session may be slowed
-    # or disturbed.
+    # The identity gate, BEFORE the stdin drain: not a dispatched worker
+    # session — a clean, silent no-op with no further process spawned. The
+    # plugin registers these hooks for EVERY session; only dispatched
+    # workers may write, and nobody else's session may be slowed or
+    # disturbed (exiting without reading the payload is the norm for hook
+    # commands that ignore stdin).
     if [ -z "$handle" ] && [ -z "$scope" ]; then
       exit 0
     fi
+    # The payload is deliberately unparsed (risk 25): identity comes from
+    # the env contract. Drain it only on the worker path, where the handler
+    # does real work anyway.
+    cat >/dev/null 2>&1 || true
     # A hostile or half-set identity is refused with NO write — but still
     # exit 0: a hook exit must never block the hosting session.
     if ! valid_field "$handle" || ! valid_field "$scope"; then
@@ -340,27 +374,38 @@ case "$cmd" in
     marker="$root/liveness/pending/$handle"
     case "$event" in
       permission-request)
-        # Marker BEFORE decide: if the decide write fails the orphan marker
-        # only makes the next post-tool-use write `working` (harmless),
-        # while the reverse order could strand an awaiting-input row that
-        # the stop guard would then preserve as a phantom escalation.
-        if ! mkdir -p "$root/liveness/pending" 2>/dev/null || ! : >"$marker" 2>/dev/null; then
-          echo "fleet-liveness: cannot write the pending-permission marker; push dropped (reconcile self-heals)" >&2
-          exit 0
-        fi
+        # Decide BEFORE the marker: a PostToolUse racing this handler (a
+        # parallel tool call in the same session) that saw the marker before
+        # the decide committed would clear the marker and strand the
+        # awaiting-input row as a phantom escalation. Decide-first narrows
+        # the phantom window to a marker-WRITE failure (rare, warned below,
+        # healed by the reconcile), instead of an any-concurrent-tool race.
         "$FA" decide "$handle" "$scope" \
           "Worker is awaiting a permission decision in its session" \
           "answer in the worker session" \
           "approve in the worker session|deny in the worker session" \
-          normal >/dev/null 2>&1 \
-          || echo "fleet-liveness: state push (awaiting-input) failed; reconcile self-heals (D-1)" >&2
+          normal >/dev/null 2>&1 || {
+          echo "fleet-liveness: state push (awaiting-input) failed; reconcile self-heals (D-1)" >&2
+          exit 0
+        }
+        # Temp + rename (never a truncating `>` redirect): the redirect
+        # would follow a symlink planted at the marker path, while mv
+        # replaces the link itself (the atomic_write_file discipline).
+        if ! mkdir -p "$root/liveness/pending" 2>/dev/null \
+          || ! atomic_write_file "$marker" "" 2>/dev/null; then
+          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row clears on the next stop/reconcile" >&2
+        fi
         exit 0
         ;;
       post-tool-use)
         # Only the documented inference acts: the next tool use AFTER a
         # pending permission means the human allowed it — awaiting-human ->
         # working. Every other tool use is a fast no-op (push fires on the
-        # REQ-A1.1 transitions, never per tool call).
+        # REQ-A1.1 transitions, never per tool call). Known inference
+        # limitation (D-1 documents the transition as inference, not a
+        # direct signal): a parallel unrelated tool's PostToolUse can clear
+        # a still-pending permission's marker; the ground-truth reconcile
+        # (REQ-A1.8) re-derives the awaiting state next sweep.
         [ -e "$marker" ] || exit 0
         rm -f "$marker" 2>/dev/null || true
         "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
@@ -375,16 +420,20 @@ case "$cmd" in
         esac
         # The escalation-preserve guard (REQ-A1.3): an awaiting-input row
         # with NO pending-permission marker is a queued human decision — a
-        # downgrade push never auto-resolves it. With the marker present
-        # this is the permission flow ending (risk 28's deny path): clear
-        # to the downgrade state.
-        cur=$(store_row_field "$root" "$handle" 3)
-        if [ "$cur" = awaiting-input ] && [ ! -e "$marker" ]; then
-          exit 0
+        # downgrade push never auto-resolves it. The guard is enforced
+        # ATOMICALLY inside the store's critical section
+        # (heartbeat --unless-awaiting), so a decide committing between a
+        # read here and the write cannot be clobbered. With the marker
+        # present this is the permission flow ending (risk 28's deny path):
+        # clear to the downgrade state unconditionally.
+        if [ -e "$marker" ]; then
+          rm -f "$marker" 2>/dev/null || true
+          "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
+            || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+        else
+          "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
+            || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         fi
-        rm -f "$marker" 2>/dev/null || true
-        "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
-          || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         exit 0
         ;;
     esac
@@ -397,19 +446,22 @@ case "$cmd" in
       exit 2
     fi
     backend=$1
-    # The risk-16 boundary, decided per the Task 2 research notes: tmux and
-    # print launch real Claude Code processes (the dispatch env is inherited
-    # and plugin hooks fire, including in -p mode), so they push; subagent
-    # runs in-process (per-worker session hooks do not exist) and in-session
-    # shares the tower's own session, so both keep the EXISTING observation
-    # path — the fleet degrades to pre-spec polling latency for that slice,
-    # never to a broken mechanism.
+    # The risk-16 boundary, keyed to the backend capability contract
+    # (doctrine/backend-capability-contract.md): only tmux launches a
+    # dispatch-controlled Claude Code process that inherits the identity env
+    # and fires plugin hooks, so only tmux pushes. subagent runs in-process
+    # (per-worker session hooks do not exist), in-session shares the tower's
+    # own session, and print spawns NO process at all — the human runs the
+    # printed command by hand, so the dispatch env is never injected and
+    # print-backend units are contract-exempt from the liveness predicate.
+    # All three keep the EXISTING observation path — the fleet degrades to
+    # pre-spec observation for that slice, never to a broken mechanism.
     case "$backend" in
-      tmux | print)
+      tmux)
         printf 'push\n'
         exit 0
         ;;
-      subagent | in-session)
+      subagent | print | in-session)
         printf 'observe\n'
         exit 1
         ;;
@@ -517,9 +569,9 @@ case "$cmd" in
     flail_n=$(knob fleet_flailing_threshold 3) || exit $?
     hung_s=$(knob fleet_hung_heartbeat_seconds 900) || exit $?
     root=$("$FS" root) || exit 2
-    row_state=$(store_row_field "$root" "$worker" 3)
+    row_state=$(store_row_field "$root" "$worker" "$FIELD_STATE")
     hb="$hb_arg"
-    [ -n "$hb" ] || hb=$(store_row_field "$root" "$worker" 4)
+    [ -n "$hb" ] || hb=$(store_row_field "$root" "$worker" "$FIELD_HEARTBEAT")
     case $hb in *[!0-9]* | 0?*) hb="" ;; esac
 
     # Record the observation (bounded history, copy-append-rename so a
@@ -534,9 +586,15 @@ case "$cmd" in
       echo "fleet-liveness: cannot create a temp file under $obs_dir" >&2
       exit 2
     }
+    # The history window must hold at least fleet_flailing_threshold rows or
+    # a threshold above the window silently caps the streak and flailing can
+    # never fire; 50 is the floor (the risk-18 windowing spirit), a larger
+    # threshold widens the window to match.
+    keep_n=49
+    [ "$flail_n" -le 50 ] || keep_n=$((flail_n - 1))
     ob_rc=0
     if [ -f "$obs" ]; then
-      tail -n 49 "$obs" >"$obs_tmp" 2>/dev/null || ob_rc=2
+      tail -n "$keep_n" "$obs" >"$obs_tmp" 2>/dev/null || ob_rc=2
     fi
     if [ "$ob_rc" = 0 ]; then
       printf '%s\t%s\t%s\t%s\n' "$now" "${hb:--}" "$progress" "$row_state" >>"$obs_tmp" || ob_rc=2
@@ -605,20 +663,24 @@ case "$cmd" in
       # (an upsert — repeated classification never duplicates it), one
       # audit row for the escalation ACTION (routine classification is
       # never audited, risk 31). No restart, no nudge — no such path
-      # exists here.
+      # exists here. Audit BEFORE decide: on a decide failure the caller
+      # retries and the streak re-fires (a duplicate audit row records the
+      # retry, benign), whereas decide-before-audit could queue the fork
+      # with the escalate action permanently missing from the trail — the
+      # row state flips to awaiting-input, so a retry never re-audits.
+      "$FAU" record liveness-classifier escalate \
+        "no-forward-progress-x$flail_n" \
+        "worker $worker heartbeating with an unchanged progress token across $flail_n observations; queued the stuck-task fork (no automatic restart or nudge, REQ-A1.3)" \
+        >/dev/null || {
+        echo "fleet-liveness: failed to audit the flailing escalation" >&2
+        exit 2
+      }
       "$FA" decide "$worker" "$scope" \
         "No forward progress across $flail_n heartbeats - this task may be stuck" \
         "park for human review" \
         "park for review|relaunch fresh|redirect with guidance" \
         high >/dev/null || {
         echo "fleet-liveness: failed to queue the flailing escalation" >&2
-        exit 2
-      }
-      "$FAU" record liveness-classifier escalate \
-        "no-forward-progress-x$flail_n" \
-        "worker $worker heartbeating with an unchanged progress token across $flail_n observations; queued the stuck-task fork (no automatic restart or nudge, REQ-A1.3)" \
-        >/dev/null || {
-        echo "fleet-liveness: failed to audit the flailing escalation" >&2
         exit 2
       }
     fi
@@ -678,6 +740,7 @@ case "$cmd" in
     # shellcheck disable=SC2046
     set -- $(crash_read "$root" "$worker")
     count=$1
+    prev_disabled=$3
     count=$((count + 1))
     delay=$base
     i=1
@@ -688,21 +751,33 @@ case "$cmd" in
     [ "$delay" -le 3600 ] || delay=3600
     disabled=0
     [ "$count" -lt "$thresh" ] || disabled=1
+    # Disabled is STICKY: once set, only a human crash-reset clears it. A
+    # threshold raised after the fact must not silently re-authorize a
+    # worker a human never re-enabled.
+    [ "$prev_disabled" != 1 ] || disabled=1
     if ! atomic_write_file "$crash_dir/$worker" "$count $((now + delay)) $disabled"; then
       release_lock
       echo "fleet-liveness: failed to write the crash record" >&2
       exit 2
     fi
     release_lock
-    # Side effects AFTER the lock is released: decide and the audit trail
-    # serialize through the same fleet lock themselves.
+    # The result line prints BEFORE the escalation/audit side effects: the
+    # counter is already durable at this point, so the caller must not
+    # re-invoke crash-record for the same crash even on a non-zero exit (a
+    # retry would double-count). A side-effect failure below exits 2 with
+    # the stdout line already carrying the committed record; the missing
+    # disable escalation self-heals on the next crash-check (which
+    # re-upserts the queue entry for a disabled worker). Side effects run
+    # AFTER the lock is released: decide and the audit trail serialize
+    # through the same fleet lock themselves.
     if [ "$disabled" = 1 ]; then
+      printf 'disabled %s\n' "$count"
       "$FA" decide "$worker" "$scope" \
         "Worker crash-looping: disabled after $count consecutive failures" \
         "investigate before any relaunch" \
         "investigate|reset the streak and relaunch|park the unit" \
         high >/dev/null || {
-        echo "fleet-liveness: failed to queue the disable escalation" >&2
+        echo "fleet-liveness: failed to queue the disable escalation (crash-check re-queues it)" >&2
         exit 2
       }
       "$FAU" record liveness-backoff disable \
@@ -712,9 +787,9 @@ case "$cmd" in
         echo "fleet-liveness: failed to audit the disable" >&2
         exit 2
       }
-      printf 'disabled %s\n' "$count"
       exit 0
     fi
+    printf '%s %s\n' "$count" "$delay"
     "$FAU" record liveness-backoff backoff \
       "consecutive-failure-$count" \
       "worker $worker crashed; relaunch backed off ${delay}s on the escalating schedule (base ${base}s, doubling, cap 3600s)" \
@@ -722,7 +797,6 @@ case "$cmd" in
       echo "fleet-liveness: failed to audit the backoff" >&2
       exit 2
     }
-    printf '%s %s\n' "$count" "$delay"
     exit 0
     ;;
 
@@ -761,6 +835,38 @@ case "$cmd" in
         exit 2
       fi
     fi
+    root=$("$FS" root) || exit 2
+    # shellcheck disable=SC2046
+    set -- $(crash_read "$root" "$worker")
+    count=$1
+    next_allowed=$2
+    disabled=$3
+    # The terminal state is reported FIRST: a disabled worker is exit 3 even
+    # while the kill-switch is set — pausing the daemon layer must not mask
+    # "never relaunch, needs a human" behind the transient "paused" signal.
+    # The disable escalation is re-upserted here (idempotent — one row per
+    # worker), self-healing the window where crash-record persisted
+    # disabled=1 but died before its decide committed; surfacing to a human
+    # is never gated (degrade capability, never safety).
+    if [ "$disabled" = 1 ]; then
+      # Heal only when no queued entry exists for the worker (an
+      # awaiting-input row IS the queue entry) so an intact escalation's
+      # scope and text are never clobbered; the row's own scope is reused,
+      # with a placeholder only when no row survives at all.
+      d_state=$(store_row_field "$root" "$worker" "$FIELD_STATE")
+      if [ "$d_state" != awaiting-input ]; then
+        d_scope=$(store_row_field "$root" "$worker" "$FIELD_SCOPE")
+        valid_field "$d_scope" || d_scope=unknown
+        "$FA" decide "$worker" "$d_scope" \
+          "Worker crash-looping: disabled after $count consecutive failures" \
+          "investigate before any relaunch" \
+          "investigate|reset the streak and relaunch|park the unit" \
+          high >/dev/null 2>&1 \
+          || echo "fleet-liveness: could not re-upsert the disable escalation" >&2
+      fi
+      printf 'disabled\n'
+      exit 3
+    fi
     # A relaunch is a daemon restart action: the operator kill-switch gates
     # it (D-15). Exit 1 paused; 4/5 propagate (never act under unknown
     # switch state). Bookkeeping (crash-record) is deliberately NOT gated.
@@ -776,16 +882,6 @@ case "$cmd" in
         exit "$gate_rc"
         ;;
     esac
-    root=$("$FS" root) || exit 2
-    # shellcheck disable=SC2046
-    set -- $(crash_read "$root" "$worker")
-    count=$1
-    next_allowed=$2
-    disabled=$3
-    if [ "$disabled" = 1 ]; then
-      printf 'disabled\n'
-      exit 3
-    fi
     if [ "$count" -gt 0 ] && [ "$now" -lt "$next_allowed" ]; then
       printf 'backoff %s\n' "$((next_allowed - now))"
       exit 1
@@ -806,9 +902,19 @@ case "$cmd" in
     fi
     root=$("$FS" root) || exit 2
     acquire_lock || exit 2
-    rm -f "$root/liveness/crash/$worker" 2>/dev/null || true
+    reset_rc=0
+    if [ -e "$root/liveness/crash/$worker" ]; then
+      # Surface a failed removal (fail closed): reporting "streak cleared"
+      # while the disabled record survives would leave the worker parked
+      # with the human believing it re-enabled.
+      rm -f "$root/liveness/crash/$worker" 2>/dev/null || reset_rc=2
+      if [ "$reset_rc" != 0 ] || [ -e "$root/liveness/crash/$worker" ]; then
+        reset_rc=2
+        echo "fleet-liveness: failed to remove the crash record (streak NOT cleared)" >&2
+      fi
+    fi
     release_lock
-    exit 0
+    exit "$reset_rc"
     ;;
 
   *)

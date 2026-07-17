@@ -267,26 +267,27 @@ qc=$(attn "$home7" queue --count) || fail "queue --count failed"
 echo "ok: downgrade pushes never auto-resolve a queued escalation"
 
 # ---------------------------------------------------------------------------
-# 8. REQ-A1.1 fallback (risk 16) — push-capable: session-launching backends
-#    push; in-process backends fall back to the existing capture-pane
-#    observation (named on stdout) rather than failing.
+# 8. REQ-A1.1 fallback (risk 16) — push-capable: only tmux launches a
+#    dispatch-controlled process (identity env inherited, plugin hooks fire),
+#    so only tmux pushes; subagent (in-process), in-session (the tower's own
+#    session), and print (no process spawned at all — the capability contract
+#    exempts print units from the liveness predicate) fall back to the
+#    existing observation path (named on stdout) rather than failing.
 # ---------------------------------------------------------------------------
-for b in tmux print; do
-  rc=0
-  out=$(run "$tmp/h8" push-capable "$b") || rc=$?
-  [ "$rc" = 0 ] || fail "push-capable $b: exit $rc, expected 0"
-  [ "$out" = push ] || fail "push-capable $b: '$out', expected 'push'"
-done
-for b in subagent in-session; do
+rc=0
+out=$(run "$tmp/h8" push-capable tmux) || rc=$?
+[ "$rc" = 0 ] || fail "push-capable tmux: exit $rc, expected 0"
+[ "$out" = push ] || fail "push-capable tmux: '$out', expected 'push'"
+for b in subagent print in-session; do
   rc=0
   out=$(run "$tmp/h8" push-capable "$b") || rc=$?
   [ "$rc" = 1 ] || fail "push-capable $b: exit $rc, expected 1 (fallback, not failure)"
-  [ "$out" = observe ] || fail "push-capable $b: '$out', expected 'observe' (the capture-pane fallback)"
+  [ "$out" = observe ] || fail "push-capable $b: '$out', expected 'observe' (the observation fallback)"
 done
 rc=0
 run "$tmp/h8" push-capable no-such-backend >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "push-capable unknown backend: exit $rc, expected 2"
-echo "ok: push-capable names hook-push for tmux/print and the observe fallback for subagent/in-session"
+echo "ok: push-capable names hook-push for tmux and the observe fallback for subagent/print/in-session"
 
 # ---------------------------------------------------------------------------
 # 9. REQ-A1.2 — the five-state classifier over synthetic sequences: startup
@@ -371,6 +372,7 @@ printf '%s\n' "\$verdict"
 case \$verdict in
   dead) exit 0 ;;
   alive) exit 1 ;;
+  refused) exit 2 ;;
   *) exit 3 ;;
 esac
 EOF
@@ -606,5 +608,259 @@ run "$tmp/h21" classify "$w" "$s" --now 1000 --progress 'a b' >/dev/null 2>&1 ||
 [ "$rc" = 2 ] || fail "hostile --progress: exit $rc, expected 2"
 [ ! -e "$tmp/h21/attention/state" ] || fail "a refused invocation wrote the store"
 echo "ok: usage errors and hostile input are refused with no write"
+
+# ---------------------------------------------------------------------------
+# 22. REQ-A1.2 — the STORE-stamped heartbeat (field 4) drives the hung
+#     verdict when no --heartbeat override is given: a working row whose
+#     commit-time stamp has aged past the threshold classifies hung.
+# ---------------------------------------------------------------------------
+home22="$tmp/h22"
+attn "$home22" heartbeat "$w" "$s" working >/dev/null || fail "setup heartbeat"
+row_ts=$(awk -F "$tab" -v want="$w" '($1 "") == (want "") { print $4 }' "$home22/attention/state")
+case $row_ts in
+  "" | *[!0-9]*) fail "could not read the store heartbeat stamp" ;;
+esac
+out=$(run "$home22" classify "$w" "$s" --now $((row_ts + 1000))) || fail "store-ts classify: non-zero exit"
+[ "$out" = hung ] || fail "store-stamped heartbeat aged 1000s: '$out', expected hung"
+out=$(run "$home22" classify "$w" "$s" --now $((row_ts + 10))) || fail "store-ts fresh classify failed"
+[ "$out" = working ] || fail "store-stamped heartbeat aged 10s: '$out', expected working"
+echo "ok: the store's own commit-time heartbeat drives the hung boundary"
+
+# ---------------------------------------------------------------------------
+# 23. REQ-A1.2 — a hung store row (a StopFailure push) classifies hung.
+# ---------------------------------------------------------------------------
+home23="$tmp/h23"
+attn "$home23" heartbeat "$w" "$s" hung >/dev/null || fail "setup hung row"
+out=$(run "$home23" classify "$w" "$s" --now 10000) || fail "hung-row classify: non-zero exit"
+[ "$out" = hung ] || fail "hung store row classified '$out', expected hung"
+echo "ok: a pushed hung row classifies hung"
+
+# ---------------------------------------------------------------------------
+# 24. REQ-A1.2/REQ-A1.7 — the tmux-window evidence class reaches the
+#     predicate with both tokens in order, and a predicate REFUSAL (exit 2,
+#     e.g. a pseudo-evidence class) propagates as a classify usage failure.
+# ---------------------------------------------------------------------------
+home24="$tmp/h24"
+attn "$home24" heartbeat "$w" "$s" working >/dev/null || fail "setup heartbeat"
+printf 'unknown\n' >"$tmp/evidence-verdict"
+: >"$tmp/evidence-calls"
+out=$(stub_run "$home24" classify "$w" "$s" --now 10000 --heartbeat 9000 \
+  --evidence tmux-window sess win 2>/dev/null) || fail "tmux-window evidence: non-zero exit"
+[ "$out" = working ] || fail "tmux-window unknown verdict: '$out', expected working (refused hung)"
+grep -q "tmux-window sess win" "$tmp/evidence-calls" \
+  || fail "tmux-window evidence tokens did not reach the predicate in order"
+printf 'refused\n' >"$tmp/evidence-verdict"
+rc=0
+stub_run "$home24" classify "$w" "$s" --now 10000 --heartbeat 9000 \
+  --evidence process 12345 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "predicate refusal (exit 2): classify exit $rc, expected 2"
+echo "ok: tmux-window evidence passes through; a predicate refusal fails closed"
+
+# ---------------------------------------------------------------------------
+# 25. REQ-A1.1 hook discipline — a runtime store-write failure still exits 0
+#     (a non-zero Stop-hook exit would block the worker's own stop); the
+#     failure is warned and left to the reconcile backstop.
+# ---------------------------------------------------------------------------
+brokenbin="$tmp/broken-scripts"
+mkdir -p "$brokenbin"
+cp "$here/../scripts/"*.sh "$brokenbin/"
+printf '#!/bin/sh\nexit 2\n' >"$brokenbin/fleet-attention.sh"
+chmod +x "$brokenbin/fleet-attention.sh"
+rc=0
+err=$(printf '{}' | env \
+  PLANWRIGHT_WORKER_HANDLE="$w" PLANWRIGHT_WORKER_SCOPE="$s" \
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/h25" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  /bin/bash "$brokenbin/fleet-liveness.sh" hook stop 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "hook with a failing store write: exit $rc, expected 0 (never block the session)"
+[ -n "$err" ] || fail "hook write failure was silent (expected a stderr warning)"
+echo "ok: a failing store write never turns a hook exit non-zero"
+
+# ---------------------------------------------------------------------------
+# 26. REQ-A1.2 — precedence: a stale heartbeat beats a no-progress streak
+#     (hung, not flailing), even when the same progress token repeats.
+# ---------------------------------------------------------------------------
+home26="$tmp/h26"
+attn "$home26" heartbeat "$w" "$s" working >/dev/null || fail "setup heartbeat"
+run "$home26" classify "$w" "$s" --now 10000 --heartbeat 9000 --progress sha-p >/dev/null || fail "prec 1"
+run "$home26" classify "$w" "$s" --now 11000 --heartbeat 9000 --progress sha-p >/dev/null || fail "prec 2"
+out=$(run "$home26" classify "$w" "$s" --now 12000 --heartbeat 9000 --progress sha-p) || fail "prec 3"
+[ "$out" = hung ] || fail "stale heartbeat + repeated token: '$out', expected hung (staleness wins)"
+echo "ok: a stopped heartbeat outranks the no-progress streak"
+
+# ---------------------------------------------------------------------------
+# 27. REQ-A1.1 — a half-set identity env (only one of handle/scope) is
+#     refused with a warning, no write, exit 0.
+# ---------------------------------------------------------------------------
+rc=0
+err=$(printf '{}' | env -u PLANWRIGHT_WORKER_SCOPE \
+  PLANWRIGHT_WORKER_HANDLE="$w" \
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/h27" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  /bin/bash "$FL" hook stop 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "half-set env: exit $rc, expected 0"
+[ -n "$err" ] || fail "half-set env refused silently (expected a warning)"
+[ ! -e "$tmp/h27/attention/state" ] || fail "half-set env wrote the store"
+echo "ok: a half-set identity env is refused loudly with no write"
+
+# ---------------------------------------------------------------------------
+# 28. Hostile handles are refused by crash-check and crash-reset too.
+# ---------------------------------------------------------------------------
+# shellcheck disable=SC2016 # the literal '$(x)' is the hostile token under test
+for bad in 'w w' 'w/../x' '$(x)'; do
+  rc=0
+  run "$tmp/h28" crash-check "$bad" --now 1000 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "hostile worker '$bad' (crash-check): exit $rc, expected 2"
+  rc=0
+  run "$tmp/h28" crash-reset "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "hostile worker '$bad' (crash-reset): exit $rc, expected 2"
+done
+echo "ok: crash-check and crash-reset refuse hostile handles"
+
+# ---------------------------------------------------------------------------
+# 29. REQ-A1.2 — a flailing threshold ABOVE the 50-row history floor still
+#     fires: the observation window scales with the knob (regression for the
+#     silent cap at 50).
+# ---------------------------------------------------------------------------
+cfg29="$tmp/cfg29.yml"
+sed 's/^fleet_flailing_threshold: .*/fleet_flailing_threshold: 52/' "$core_cfg" >"$cfg29"
+home29="$tmp/h29"
+attn "$home29" heartbeat "$w" "$s" working >/dev/null || fail "setup heartbeat"
+big_run() {
+  env PLANWRIGHT_FLEET_STATE_DIR="$home29" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$cfg29" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$FL" "$@"
+}
+i=1
+while [ "$i" -lt 52 ]; do
+  out=$(big_run classify "$w" "$s" --now $((20000 + i * 60)) --heartbeat $((19990 + i * 60)) --progress sha-cap) \
+    || fail "window obs $i: non-zero exit"
+  [ "$out" = working ] || fail "window obs $i: '$out', expected working (below threshold 52)"
+  i=$((i + 1))
+done
+out=$(big_run classify "$w" "$s" --now $((20000 + 52 * 60)) --heartbeat $((19990 + 52 * 60)) --progress sha-cap) \
+  || fail "window obs 52: non-zero exit"
+[ "$out" = flailing ] || fail "threshold 52, observation 52: '$out', expected flailing (window must scale)"
+echo "ok: the observation window scales with a threshold above 50"
+
+# ---------------------------------------------------------------------------
+# 30. REQ-A1.4 — the disable is STICKY: raising the threshold after a worker
+#     was disabled never silently re-enables it; only crash-reset does.
+# ---------------------------------------------------------------------------
+home30="$tmp/h30"
+run "$home30" crash-record "$w" "$s" --now 1000 >/dev/null || fail "sticky setup crash 1"
+run "$home30" crash-record "$w" "$s" --now 1100 >/dev/null || fail "sticky setup crash 2"
+out=$(run "$home30" crash-record "$w" "$s" --now 1200) || fail "sticky setup crash 3"
+case $out in disabled*) ;; *) fail "sticky setup did not disable (got '$out')" ;; esac
+cfg30="$tmp/cfg30.yml"
+sed 's/^fleet_crash_disable_threshold: .*/fleet_crash_disable_threshold: 99/' "$core_cfg" >"$cfg30"
+out=$(env PLANWRIGHT_FLEET_STATE_DIR="$home30" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$cfg30" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$FL" crash-record "$w" "$s" --now 99999) || fail "sticky crash 4 failed"
+case $out in
+  "disabled 4") ;;
+  *) fail "raised threshold un-disabled the worker (got '$out', expected 'disabled 4')" ;;
+esac
+rc=0
+run "$home30" crash-check "$w" --now 999999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "sticky: crash-check exit $rc, expected 3 (still disabled)"
+run "$home30" crash-reset "$w" >/dev/null || fail "sticky: crash-reset failed"
+rc=0
+run "$home30" crash-check "$w" --now 999999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "sticky: crash-check after reset exit $rc, expected 0"
+echo "ok: the disable is sticky until a human crash-reset"
+
+# ---------------------------------------------------------------------------
+# 31. REQ-A1.4 — the terminal disabled state outranks the kill-switch
+#     (exit 3, never masked as paused), and crash-check re-upserts the
+#     disable escalation when the queue entry went missing (the
+#     crash-record-died-before-decide self-heal).
+# ---------------------------------------------------------------------------
+home31="$tmp/h31"
+run "$home31" crash-record "$w" "$s" --now 1000 >/dev/null || fail "heal setup crash 1"
+run "$home31" crash-record "$w" "$s" --now 1100 >/dev/null || fail "heal setup crash 2"
+run "$home31" crash-record "$w" "$s" --now 1200 >/dev/null || fail "heal setup crash 3"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$home31" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$cfg19" \
+  PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" \
+  PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$FL" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "disabled under kill-switch: exit $rc, expected 3 (terminal state never masked)"
+attn "$home31" clear "$w" >/dev/null || fail "heal: clear failed"
+qc=$(attn "$home31" queue --count) || fail "queue --count failed"
+[ "$qc" = 0 ] || fail "heal setup: queue not empty after clear"
+rc=0
+run "$home31" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "heal: crash-check exit $rc, expected 3"
+qc=$(attn "$home31" queue --count) || fail "queue --count failed"
+[ "$qc" = 1 ] || fail "heal: crash-check did not re-upsert the missing disable escalation (queue $qc)"
+echo "ok: disabled outranks paused, and the disable escalation self-heals on check"
+
+# ---------------------------------------------------------------------------
+# 32. crash-reset surfaces a removal failure (exit 2, streak NOT cleared)
+#     instead of lying with exit 0.
+# ---------------------------------------------------------------------------
+home32="$tmp/h32"
+run "$home32" crash-record "$w" "$s" --now 1000 >/dev/null || fail "reset-fail setup"
+chmod 555 "$home32/liveness/crash" || fail "reset-fail: chmod failed"
+rc=0
+run "$home32" crash-reset "$w" >/dev/null 2>&1 || rc=$?
+chmod 755 "$home32/liveness/crash"
+[ "$rc" = 2 ] || fail "crash-reset with unwritable dir: exit $rc, expected 2"
+[ -e "$home32/liveness/crash/$w" ] || fail "reset-fail: record vanished despite the failure exit"
+echo "ok: a failed crash-reset is surfaced, never reported as success"
+
+# ---------------------------------------------------------------------------
+# 33. A missing knob resolver is the broken-install hard-fail (exit 5),
+#     never a raw shell 126/127.
+# ---------------------------------------------------------------------------
+noresolver="$tmp/noresolver-scripts"
+mkdir -p "$noresolver"
+cp "$here/../scripts/"*.sh "$noresolver/"
+rm -f "$noresolver/resolve-config-knob.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h33" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  /bin/bash "$noresolver/fleet-liveness.sh" classify "$w" "$s" --now 10000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing resolver: classify exit $rc, expected 5 (broken install)"
+echo "ok: a missing knob resolver fails as a broken install (exit 5)"
+
+# ---------------------------------------------------------------------------
+# 34. The flailing escalation audits BEFORE it queues: an audit-trail
+#     failure fails the classification closed with NO queue entry (a queued
+#     fork whose escalate action is permanently missing from the trail is
+#     the unrecoverable order).
+# ---------------------------------------------------------------------------
+noaudit="$tmp/noaudit-scripts"
+mkdir -p "$noaudit"
+cp "$here/../scripts/"*.sh "$noaudit/"
+printf '#!/bin/sh\nexit 2\n' >"$noaudit/fleet-audit.sh"
+chmod +x "$noaudit/fleet-audit.sh"
+home34="$tmp/h34"
+attn "$home34" heartbeat "$w" "$s" working >/dev/null || fail "audit-first setup"
+na_run() {
+  env PLANWRIGHT_FLEET_STATE_DIR="$home34" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$noaudit/fleet-liveness.sh" "$@"
+}
+na_run classify "$w" "$s" --now 10000 --heartbeat 9990 --progress sha-au >/dev/null || fail "audit-first obs 1"
+na_run classify "$w" "$s" --now 10060 --heartbeat 10050 --progress sha-au >/dev/null || fail "audit-first obs 2"
+rc=0
+na_run classify "$w" "$s" --now 10120 --heartbeat 10110 --progress sha-au >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "audit failure on escalation: exit $rc, expected 2"
+qc=$(attn "$home34" queue --count) || fail "queue --count failed"
+[ "$qc" = 0 ] || fail "audit-first: a queue entry landed despite the audit failure (count $qc)"
+echo "ok: the escalation audits before it queues (audit failure -> no queue entry)"
 
 echo "ALL PASS: fleet-liveness.sh"

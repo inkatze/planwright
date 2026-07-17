@@ -49,11 +49,15 @@
 # so even a hand-corrupted store line cannot drive the terminal.
 #
 # Usage:
-#   fleet-attention.sh heartbeat <worker> <scope> <state>
+#   fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]
 #       Upsert the worker's current state (one row per worker, last wins).
 #       <state> ∈ working | idle | hung | ended | pr-ready | merged | done
 #       (idle/hung/ended are the hook-pushed liveness states, fleet-autonomy
 #       Task 2). awaiting-input needs a structured decision — use `decide`.
+#       --unless-awaiting: a clean no-op when the current row is
+#       awaiting-input, checked atomically inside the store's critical
+#       section — the escalation-preserve primitive (REQ-A1.3): a downgrade
+#       push must never overwrite a queued human decision.
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
@@ -205,11 +209,18 @@ resolve_home() {
 }
 
 # upsert_row <worker> <scope> <state> <priority> <question> <default> <options>
+# [<guard>]
 # — replace <worker>'s row in the state store (or insert it), atomically, under
 # the Task 9 lock. Copy-filter-append-rename so a concurrent reader sees only a
 # complete store and the worker never appears twice (a state store, not a log).
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
 # lock (below), so this is the single authority for the 8-field record layout.
+# The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
+# the worker's CURRENT row is awaiting-input, with the check made inside this
+# same critical section — the atomic escalation-preserve primitive the
+# hook-push downgrade path needs (fleet-autonomy Task 2, REQ-A1.3): a lockless
+# read-then-write guard would race a concurrent `decide` and silently
+# auto-resolve a queued human decision.
 upsert_row() {
   ur_worker=$1
   ur_scope=$2
@@ -218,7 +229,15 @@ upsert_row() {
   ur_q=$5
   ur_def=$6
   ur_opts=$7
+  ur_guard=${8:-}
   acquire_lock || return 2
+  if [ "$ur_guard" = unless-awaiting ] && [ -f "$store" ]; then
+    ur_cur=$(awk -F "$TAB" -v w="$ur_worker" '($1 "") == (w "") { print $3 }' "$store")
+    if [ "$ur_cur" = awaiting-input ]; then
+      release_lock
+      return 0
+    fi
+  fi
   # Stamp the heartbeat UNDER the lock, so the recorded time is COMMIT time, not
   # invocation time — byte-for-byte the discipline fleet-state.sh register uses
   # (scripts/fleet-state.sh, "stamp the record's time UNDER the lock"). Without
@@ -296,10 +315,18 @@ case $cmd in
     worker="${1:-}"
     scope="${2:-}"
     state="${3:-}"
+    guard="${4:-}"
     if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$state" ]; then
-      echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state>" >&2
+      echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]" >&2
       exit 2
     fi
+    case $guard in
+      "" | --unless-awaiting) ;;
+      *)
+        echo "usage: fleet-attention.sh heartbeat <worker> <scope> <state> [--unless-awaiting]" >&2
+        exit 2
+        ;;
+    esac
     if ! valid_field "$worker"; then
       echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
@@ -316,8 +343,14 @@ case $cmd in
     attn_dir="$root/attention"
     store="$attn_dir/state"
     # A heartbeat carries no decision, so priority/question/default/options are
-    # empty; upsert_row stamps the commit-time timestamp under the lock.
-    upsert_row "$worker" "$scope" "$state" "" "" "" "" || exit 2
+    # empty; upsert_row stamps the commit-time timestamp under the lock. The
+    # optional --unless-awaiting guard is evaluated inside the lock (see
+    # upsert_row): a no-op success when the current row is awaiting-input.
+    if [ "$guard" = --unless-awaiting ]; then
+      upsert_row "$worker" "$scope" "$state" "" "" "" "" unless-awaiting || exit 2
+    else
+      upsert_row "$worker" "$scope" "$state" "" "" "" "" || exit 2
+    fi
     exit 0
     ;;
 

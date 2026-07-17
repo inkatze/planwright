@@ -323,13 +323,16 @@ writes is last-write-wins by commit-time timestamp (the store stamps
 heartbeats under the lock), so a reconcile that started before a fresher push
 cannot overwrite it with stale state.
 
-**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): `tmux` and
-`print` launch real Claude Code processes (the dispatch env is inherited and
-plugin hooks fire, including in `-p` mode), so they push. `subagent` runs
-workers in-process and `in-session` shares the tower's own session, so both
-keep the existing capture-pane/tower-inline observation path — a fleet
-composed mostly of those backends keeps pre-spec polling latency for that
-slice, degrading capability, never safety.
+**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): only
+`tmux` launches a dispatch-controlled Claude Code process that inherits the
+identity env and fires plugin hooks, so only `tmux` pushes. `subagent` runs
+workers in-process, `in-session` shares the tower's own session, and `print`
+spawns no process at all (the human runs the printed command, so the
+dispatch env is never injected; the capability contract exempts
+print-backend units from the liveness predicate) — all three keep the
+existing observation path, and a fleet composed mostly of those backends
+keeps pre-spec observation latency for that slice, degrading capability,
+never safety.
 
 **The five-state classifier** (`fleet-liveness.sh classify`, D-2, REQ-A1.2)
 resolves exactly one of `working` / `idle` / `hung` / `awaiting-human` /
@@ -358,7 +361,11 @@ REQ-A1.4): each consecutive crash doubles the relaunch delay from
 `fleet_crash_backoff_base_seconds` (capped at 3600s); at
 `fleet_crash_disable_threshold` consecutive failures the worker is disabled —
 no further relaunch is authorized — and the disable is escalated as a
-decision-queue entry. `crash-check` consults the operator kill-switch
+decision-queue entry. The disable is sticky (a later threshold raise never
+silently re-enables a parked worker) and `crash-check` reports it ahead of
+everything else — exit 3 even while the kill-switch is set, re-upserting the
+disable's queue entry if it went missing — so the terminal state is never
+masked. `crash-check` consults the operator kill-switch
 (`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
 escalation are deliberately not gated (pausing the record of what happened
 would hide problems). Backoff and disable actions log through the audit

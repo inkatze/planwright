@@ -419,15 +419,22 @@ official docs rather than model memory).
   process's environment — which is what makes the dispatch-time
   worker-identity env contract (`PLANWRIGHT_WORKER_HANDLE`/`_SCOPE`) viable
   as the hook handler's gate.
-- **Backend fallback boundary (risk 16).** Hooks fire in `-p` (print-mode)
-  sessions per the current docs, so hook-push covers the `tmux` and `print`
-  backends (real launched processes inheriting the dispatch env). The
+- **Backend fallback boundary (risk 16).** Hook-push covers only the `tmux`
+  backend: it is the one backend whose dispatched process planwright itself
+  launches, so the identity env is inherited and plugin hooks fire. The
   `subagent` backend runs workers in-process (per-worker session hooks do
-  not exist; `SubagentStart`/`SubagentStop` fire in the parent session) and
-  `in-session` shares the tower's own session, so both fall back to the
-  existing observation path (`orchestrate-relay.sh observe-command` /
-  tower-inline). A fleet composed mostly of those backends keeps pre-spec
-  polling latency for that slice.
+  not exist; `SubagentStart`/`SubagentStop` fire in the parent session),
+  `in-session` shares the tower's own session, and `print` spawns no
+  process at all — the human runs the printed command by hand, so the
+  dispatch env is never injected, and the backend capability contract
+  already exempts print-backend units from the liveness predicate. (Hooks
+  do fire in `-p` sessions generally, per the current docs; that is
+  irrelevant to `print` because the launch is not dispatch-controlled —
+  corrected against `doctrine/backend-capability-contract.md` during the
+  Task 2 convergence pass.) All three fall back to the existing observation
+  path (`orchestrate-relay.sh observe-command` / tower-inline); a fleet
+  composed mostly of those backends keeps pre-spec observation latency for
+  that slice.
 - **Backoff schedule precedent (D-3).** Exponential doubling from a
   configurable base with a hard cap, disable at a configurable consecutive-
   failure threshold (default 3): the PM2 `exp-backoff-restart-delay` /
