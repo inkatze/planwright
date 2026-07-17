@@ -483,8 +483,10 @@ echo "ok: no outbound client in the throttle paths (stub verified reachable)"
 #     12pm->12 normalization, and the :MM capture on the meridiem branch
 #     without duplicating the script's clock math). The engaged epoch is the
 #     absolute next occurrence of the target, so both forms must yield the
-#     IDENTICAL until value; targets are placed ~30min/6h away from now so
-#     no observation pair can straddle its own wall boundary.
+#     until value up to a +-2s skew (one observe reads the epoch and the
+#     H:M:S wall clock as two separate date calls, so a second may tick
+#     between them); targets are placed ~30min/6h away from now so no
+#     observation pair can straddle its own wall boundary.
 mm2=$(printf '%02d' $(((10#$(date +%M) + 30) % 60)))
 h24=$(((10#$(date +%H) + 6) % 24))
 h12=$((h24 % 12))
@@ -498,17 +500,24 @@ wall_until() {
   wu_out=$(run check) && fail "'resets $1' should throttle" || true
   printf '%s\n' "$wu_out" | tr -d -c '0-9'
 }
+same_wall() {
+  # equal up to the +-2s two-clock-read skew; a real normalization bug is
+  # off by >= 3600s (an hour) or 43200s (a meridiem), far outside it
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  sw_d=$(($1 - $2))
+  [ "$sw_d" -ge -2 ] && [ "$sw_d" -le 2 ]
+}
 uA=$(wall_until "${h12}:${mm2}${ap}")
 uB=$(wall_until "${h24}:${mm2}")
-[ -n "$uA" ] && [ "$uA" = "$uB" ] \
+same_wall "$uA" "$uB" \
   || fail "meridiem branch disagrees with the 24-hour branch (${h12}:${mm2}${ap} -> '$uA' vs ${h24}:${mm2} -> '$uB')"
 uA=$(wall_until "12:${mm2}am")
 uB=$(wall_until "0:${mm2}")
-[ -n "$uA" ] && [ "$uA" = "$uB" ] \
+same_wall "$uA" "$uB" \
   || fail "12am must normalize to hour 0 (12:${mm2}am -> '$uA' vs 0:${mm2} -> '$uB')"
 uA=$(wall_until "12:${mm2}pm")
 uB=$(wall_until "12:${mm2}")
-[ -n "$uA" ] && [ "$uA" = "$uB" ] \
+same_wall "$uA" "$uB" \
   || fail "12pm must normalize to hour 12 (12:${mm2}pm -> '$uA' vs 12:${mm2} -> '$uB')"
 echo "ok: meridiem forms agree with their 24-hour equivalents"
 
