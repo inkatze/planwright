@@ -90,9 +90,10 @@ Fixture workflows each fail `check:workflow-posture` for:
 `pull_request_target`; a non-`GITHUB_TOKEN` `secrets.*` or
 `secrets: inherit` reachable from `pull_request` (including through a
 reusable-workflow `uses:` call); a job-level write-permission
-escalation under a read-only top level; and a write-holding
-`workflow_run` workflow that drops its base-branch filter or consumes a
-PR artifact. Passing fixtures: only `secrets.GITHUB_TOKEN` under
+escalation under a read-only top level; and a `workflow_run` workflow
+holding write permissions or secrets that drops its base-branch filter
+or consumes a PR artifact. Passing fixtures: only `secrets.GITHUB_TOKEN`
+under
 read-only permissions; a non-`GITHUB_TOKEN` secret in a push/
 `workflow_run`-only workflow with no `pull_request` trigger (pinning
 reachability scoping). An unparseable workflow fails closed. The repo's
@@ -202,7 +203,9 @@ and completeness is human-reviewed at the Task 11 PR `[design-level]`.
 
 Each guard this spec ships has a fixture proving it exits non-zero on
 its vacuous-input case — a zero-hash seed file (B1.1), an unparseable
-workflow (C1.2) or `mise.toml` (D1.1), a timing report missing a
-discovered file (E1.1), a zero-row reference table (F1.2/F1.3), a
-missing README (F1.1), or a failed fixture setup — rather than passing
+workflow (C1.2) or `mise.toml` and zero workflow roots (D1.1), a timing
+report missing a discovered file (E1.1), a zero-row reference table
+(F1.2/F1.3), a missing README (F1.1), a zero-file shebang enumeration
+for the CDPATH check (G1.2), a zero-task parse for the registration
+check (H1.2), or a failed fixture setup — rather than passing
 vacuously.

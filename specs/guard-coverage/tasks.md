@@ -43,7 +43,8 @@ preference, roots are all dispatchable immediately.
   outcome recorded honestly; the hook-bypass rows (`--no-verify`,
   `git -c`/`git config` hooksPath, `--amend -m`, flag-after-`main`) are
   denied under the edited config; the matcher model doc names the Claude
-  Code documentation consulted and the version modeled.
+  Code documentation consulted and the version modeled, and those
+  sources are also recorded in the kickoff brief risk register per D-4.
 - **Dependencies:** none
 - **Citations:** D-4 · REQ-A1.1, REQ-A1.2
 - **Estimated effort:** 1 day
@@ -124,9 +125,10 @@ preference, roots are all dispatchable immediately.
   overrides computed) on every job reachable from `pull_request`; no
   stored-secret `secrets.*` reference (excluding `secrets.GITHUB_TOKEN`)
   and no `secrets: inherit` reachable from `pull_request`, followed
-  through reusable-workflow `uses:` calls; and that any write-holding
-  `workflow_run` workflow keeps its base-branch filter and consumes no
-  PR-produced artifacts; the check fails closed on any workflow file it
+  through reusable-workflow `uses:` calls; and that any `workflow_run`
+  workflow holding write permissions or secrets keeps its base-branch
+  filter and consumes no PR-produced artifacts; the check fails closed
+  on any workflow file it
   cannot parse; fixture tests. The cache/artifact posture is covered by
   the REQ-C1.1 audit record only (D-6 accepted residual), not a standing
   assertion.
@@ -192,9 +194,12 @@ preference, roots are all dispatchable immediately.
 ### Task 7 — check:test-time budget gate
 
 - **Deliverables:** Sub-second per-file timing capture in the test
-  runner, persisted to a committed report path (not the ephemeral log
-  dir) with positive accounting (a file with a verdict but no timing
-  entry counts as a failure); a committed budget config (per-file and
+  runner, written concurrency-safely under the parallel runner (each
+  worker emits its own record — per-file line or temp file — with no
+  shared-file append race) and persisted to a committed report path
+  (not the ephemeral log dir) with positive accounting (a file with a
+  verdict but no timing entry counts as a failure); a committed budget
+  config (per-file and
   suite-total budgets, set from the post-split, post-fixture baseline
   plus 30–50% headroom, values recorded with derivation) as a separate
   file, not `config/defaults.yml` keys; `check:test-time` in the `check`
@@ -207,7 +212,12 @@ preference, roots are all dispatchable immediately.
   report, fails closed; the real suite runs green under the committed
   budgets in CI without a second suite invocation; the budget file's
   header documents the bump-consciously rule and the CI-hard/local-warn
-  split.
+  split. Task 11 is deliberately *not* a dependency (that would cycle,
+  since Task 11 depends on Task 7): Task 11's own registration-check
+  fixture is the one fixture landing after this budget is set, so if it
+  pushes the suite-total over budget, Task 11 applies the conscious bump
+  in its own PR (the D-8 discipline), since Task 11 runs last and sees
+  the true total.
 - **Dependencies:** 1, 2, 3, 4, 5, 6, 9, 10
 - **Citations:** D-8 · REQ-E1.1, REQ-H1.3
 - **Estimated effort:** 1 day
@@ -262,14 +272,17 @@ preference, roots are all dispatchable immediately.
   house-pattern check flagging `cd` inside command substitutions in
   `scripts/`, `tests/`, and `githooks/` files lacking a top-level
   `unset CDPATH`, enumerating by shebang (so extensionless hooks are
-  covered), wired into the `check` aggregate, its doc noting the
-  CDPATH=. regression-test convention with one representative
-  cd-resolving script exercised under `CDPATH=.`; fixture tests
-  (including an offending extensionless hook).
+  covered) and failing closed if the enumeration yields zero files (a
+  broken enumeration, not a clean tree), wired into the `check`
+  aggregate, its doc noting the CDPATH=. regression-test convention with
+  one representative cd-resolving script exercised under `CDPATH=.`;
+  fixture tests (including an offending extensionless hook and the
+  zero-enumeration case).
 - **Done when:** `lint:md` covers the template READMEs, the target-set
   assertion passes, and `mise run check` passes; a fixture script (and
   an extensionless hook) with `$(cd ...)` and no `unset CDPATH` fails
-  the check, and the current tree passes.
+  the check, a zero-file enumeration fails closed, and the current tree
+  passes.
 - **Dependencies:** none
 - **Citations:** D-11, D-12 · REQ-G1.1, REQ-G1.2
 - **Estimated effort:** half day
@@ -285,7 +298,9 @@ preference, roots are all dispatchable immediately.
   §"Guard categories" enum amended where no category fits and
   `tests/test-builder-guards.sh` kept green; a standing registration
   check asserting every `check:`/`lint:`/`scan:` task is wired into the
-  `check` aggregate (with a fixture: an unregistered guard fails); the
+  `check` aggregate (with fixtures: an unregistered guard fails, and a
+  zero-task parse of `mise.toml` fails closed rather than passing
+  vacuously); the
   quality-gate enumeration in `docs/CONTRIBUTING.md` and the
   guard-catalog §"Dogfooding" list updated for the new guards; a
   registration sweep confirming every guard from Tasks 1–5, 7, 9, 10 is

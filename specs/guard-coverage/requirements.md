@@ -200,7 +200,8 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   *(Cites: D-8, obs:cf6a2bd2, kickoff lens pass (2026-07-17).)*
 - **REQ-E1.2** The three straggler test files (`test-check-instructions.sh`,
   `test-orchestrate-select.sh`, `test-obs-consume.sh`) SHALL be split or
-  slimmed to fit the per-file budget without reducing coverage.
+  slimmed to fit the per-file split target (distinct from Task 7's
+  enforced budget) without reducing coverage.
   *(Cites: D-9, obs:78f60119.)*
 - **REQ-E1.3** The Discovery-Rigor Performance lens SHALL name test/CI
   ergonomics (suite wall-clock, CI latency) an explicit lens target, so
