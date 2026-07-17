@@ -357,7 +357,11 @@ case "$cmd" in
     # SHORT bounded lock wait (LOCK_MAX_TRIES), so a contended lock can never
     # stall creation; a skipped record self-heals on the next sweep's `scan`. The
     # record's isolated subshell can neither change stdout nor the exit — this
-    # hook ALWAYS exits 0, so it can never fail worktree creation.
+    # hook ALWAYS exits 0, so it never fails creation via a non-zero exit or a
+    # stalled record. A well-formed payload echoes its path and creation proceeds;
+    # the ONLY creation-failing path is the deliberate fail-closed one above — a
+    # malformed/absent payload echoes nothing, and the contract treats a missing
+    # stdout path as a refusal (safer than tracking a worktree under a forged name).
     LOCK_MAX_TRIES=100
     hc_in=$(cat 2>/dev/null) || hc_in=""
     hc_path=$(extract_worktree_path "$hc_in")

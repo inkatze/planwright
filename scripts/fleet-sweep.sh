@@ -270,7 +270,12 @@ trees=$(
     printf '%s\n' "$repo"
   } | awk 'NF' | while IFS= read -r t; do
     [ -e "$t" ] || continue
-    rp=$(cd "$t" 2>/dev/null && pwd -P) || continue
+    # Normalize through realpath for dedup, but keep an existing-but-unreadable
+    # path (a dir with search permission stripped, or a worktree path clobbered
+    # by a file) AS-IS rather than dropping it — matching `scan`'s prune. A
+    # dropped tree is never inspected; kept, inspect_tree escalates it as
+    # "could not inspect" instead of the sweep silently skipping it.
+    rp=$(cd "$t" 2>/dev/null && pwd -P) || rp=$t
     printf '%s\n' "$rp"
   done | awk '!seen[$0]++'
 )

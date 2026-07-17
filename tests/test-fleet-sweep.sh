@@ -192,6 +192,28 @@ case $(audit_rows --mechanism housekeeping-sweep) in
 esac
 echo "ok: an un-inspectable tree is escalated, not silently skipped"
 
+# 6b. A registered tree that EXISTS but cannot be `cd`'d into (a regular file,
+#     not a directory — e.g. a worktree path clobbered by a file, or a dir with
+#     search permission stripped) must NOT be silently dropped by the tree-list
+#     builder's realpath step; it flows through as-is so inspect_tree escalates
+#     it as "could not inspect" (risk 10). Regression: the builder used
+#     `cd ... || continue`, which dropped an existing-but-unreadable tree before
+#     inspect_tree ever saw it — inconsistent with `scan`'s own prune, which
+#     keeps an existing-but-unreadable path as-is.
+rm -rf "$fleet_home"
+c6b="$tmp/c6b"
+make_pushed_repo "$c6b"
+notcd="$tmp/not-cd-able"
+echo x >"$notcd" # a regular FILE: `-e` is true but `cd` into it fails
+track record-create "$notcd" >/dev/null
+run_sweep --repo "$c6b" >/dev/null 2>&1 || fail "sweep (not-cd-able) non-zero exit"
+[ "$(queue_count)" -ge 1 ] || fail "an existing-but-not-cd-able tree was silently dropped, not escalated"
+case $(audit_rows --mechanism housekeeping-sweep) in
+  *escalate*) ;;
+  *) fail "not-cd-able tree: no escalate audit row" ;;
+esac
+echo "ok: an existing-but-not-cd-able tree is escalated as uninspectable, not silently dropped"
+
 # 7. Grace threshold: a just-became-dirty tree waits (not escalated on the first
 #    sweep) under a non-zero threshold; an aged one (dirty-since older than the
 #    threshold) escalates.

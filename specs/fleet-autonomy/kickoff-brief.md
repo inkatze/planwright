@@ -489,8 +489,6 @@ precedent and POSIX/tool semantics).
   executed, only read, and all diagnostics pass the echo-discipline
   sanitizer.
 
-Signed off: 2026-07-14
-
 ### Task 4 execution research notes (2026-07-17)
 
 Appended by `/execute-task` per REQ-D1.5 (research scoping declared light per
