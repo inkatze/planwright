@@ -137,7 +137,22 @@ assert "chatty concurrent suite exits 0" 0 $?
 assert_not_contains "passing files' raw output is not interleaved" \
   "chat1-marker-25" "$out"
 
-# 8. A filename with a space survives dispatch intact.
+# 8. Load headroom: the runner saturates every core, so the suite gets a
+#    generous SPEC_WALKTHROUGH_DOT_TIMEOUT default (spec-graph's 5s `dot`
+#    watchdog fires spuriously mid-run otherwise); an explicit caller
+#    value still wins.
+mkdir -p "$tmp/env"
+cat >"$tmp/env/test-timeout.sh" <<'EOF'
+#!/bin/bash
+[ "${SPEC_WALKTHROUGH_DOT_TIMEOUT:-}" = "${EXPECTED_DOT_TIMEOUT:?}" ]
+EOF
+EXPECTED_DOT_TIMEOUT=60 /bin/bash "$RUNNER" "$tmp/env" >/dev/null 2>&1
+assert "suite runs get the generous dot-watchdog default" 0 $?
+SPEC_WALKTHROUGH_DOT_TIMEOUT=7 EXPECTED_DOT_TIMEOUT=7 \
+  /bin/bash "$RUNNER" "$tmp/env" >/dev/null 2>&1
+assert "an explicit dot-watchdog value is not overridden" 0 $?
+
+# 9. A filename with a space survives dispatch intact.
 mkdir -p "$tmp/space"
 cat >"$tmp/space/test with space.sh" <<'EOF'
 #!/bin/bash

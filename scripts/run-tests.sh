@@ -25,8 +25,9 @@ unset CDPATH
 if [ "${1:-}" = "--run-one" ]; then
   t="$2"
   name="${t##*/}"
+  started="$(date +%s)"
   if /bin/bash "$t" >"$PLANWRIGHT_TEST_LOG_DIR/$name.log" 2>&1; then
-    echo "ok: $name"
+    echo "ok: $name ($(($(date +%s) - started))s)"
   else
     echo "FAIL: $name (log printed at end)" >&2
     : >"$PLANWRIGHT_TEST_LOG_DIR/$name.fail"
@@ -60,6 +61,14 @@ case "$jobs" in
   '' | *[!0-9]*) jobs=4 ;;
 esac
 [ "$jobs" -ge 1 ] || jobs=1
+
+# Load headroom: the suite saturates every core, so latency-sensitive
+# watchdogs calibrated for an idle interactive run — spec-graph.sh's 5s
+# `dot` bound — fire spuriously mid-suite and flake layout/determinism
+# assertions. Grant the whole suite a generous bound; an explicit caller
+# value still wins. No test asserts the watchdog's default, so this
+# weakens no assertion.
+export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 
 log_dir="$(mktemp -d)" || exit 2
 trap 'rm -rf "$log_dir"' EXIT
