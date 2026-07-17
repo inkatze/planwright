@@ -240,7 +240,8 @@ indirection before signed commits.
 
 **Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
 `scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until
-the reset (skip the iteration; pipe rate-limit prompts to `observe`); `scripts/fleet-resource-select.sh select <task-type>` resolves
+the reset (skip the iteration; pipe rate-limit prompts to `observe`);
+`scripts/fleet-resource-select.sh select <task-type>` resolves
 the unit's model/effort/command; `scripts/fleet-dispatch-guard.sh
 check-launch <launch-argv>` (or `check-inherited`, in-process) lints the
 launch — a refusal is a stop condition, never bypassed.

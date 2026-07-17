@@ -405,8 +405,8 @@ in-repo precedent plus POSIX/tool semantics).
 
 Appended by `/execute-task` per REQ-D1.5/REQ-E1.3 (research scoping declared
 light per `proportionality`: no new dependency, no external network API;
-sources are D-12's already-recorded external research — Claude Code issues
-#38380/#40793/#33820, the amux fleet-recovery precedent — plus in-repo
+sources are D-12's already-recorded external research — Claude Code
+issues #38380/#40793/#33820, the amux fleet-recovery precedent — plus in-repo
 precedent and POSIX/tool semantics).
 
 - **Rate-limit parse grammar (risk 24).** The native rate-limit prompt is
