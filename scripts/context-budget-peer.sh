@@ -178,17 +178,22 @@ fi
 # ---------------------------------------------------------------------------
 [ -n "$observed_pane" ] && [ -r "$observed_pane" ] || usage
 pane_text=$(cat "$observed_pane") || usage
-# Match the busy footer case-insensitively. Claude Code's "esc to interrupt"
-# working marker lives in the live FOOTER at the bottom of the pane, so scope
-# the check to the last couple of non-empty lines rather than the whole
-# capture: a transcript/scrollback that merely QUOTES the phrase higher up
-# (routine when a worker's own task is about this very codebase) must not read
-# as busy. tr lowercases; the sh `case` glob does the substring test. This is a
-# UI-text heuristic (unstable, same class as the /context contract) and graceful
-# in both directions — a mis-busy just misses one corroboration, a mis-idle then
-# degrades at the parse step; neither is an opaque halt.
-pane_footer=$(printf '%s\n' "$pane_text" | grep -v '^[[:space:]]*$' | tail -n 2)
-pane_lc=$(printf '%s' "$pane_footer" | tr '[:upper:]' '[:lower:]')
+# Busy iff Claude Code's "esc to interrupt" working marker appears ANYWHERE in
+# the captured pane. This is deliberately biased toward false-BUSY, because the
+# two misclassifications are not symmetric under REQ-C1.2's idle-only floor:
+#   - a false-BUSY (an idle session whose scrollback merely quotes the phrase)
+#     skips the corroboration and uses the step-count proxy — the always-present
+#     fallback (D-9). It over-satisfies "skip a busy session"; the cost is one
+#     missed corroboration, never a wrong reading.
+#   - a false-IDLE (attempting against a genuinely busy session) VIOLATES the
+#     floor and yields a confident `corroborated` verdict from a busy or
+#     half-rendered session — the exact outcome the gate exists to prevent.
+# The marker sits on the live spinner line ABOVE the multi-line input box, so a
+# bottom-N-lines window is not a reliable footer locator (it misses the marker
+# and false-IDLEs the normal working layout); a whole-pane match keeps the safe
+# bias. It is an unstable UI-text heuristic, same class as the /context parse.
+# tr lowercases; the sh `case` glob does the substring test.
+pane_lc=$(printf '%s' "$pane_text" | tr '[:upper:]' '[:lower:]')
 case "$pane_lc" in
   *"esc to interrupt"*)
     echo "proxy session-busy"

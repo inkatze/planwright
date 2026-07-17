@@ -131,25 +131,45 @@ out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
 echo "ok: a busy observed session is skipped (not attempted), even with a parseable render"
 
 # ---------------------------------------------------------------------------
-# 3b. Idle gate — busy detection is scoped to the FOOTER, not the whole capture.
-#     An idle pane whose SCROLLBACK merely quotes "esc to interrupt" (routine
-#     when a worker's task is about this codebase) but whose footer is the idle
-#     prompt must corroborate, not be misread as busy.
+# 3b. Idle gate — the REALISTIC busy layout is detected. Claude Code's working
+#     marker sits on the spinner line ABOVE the multi-line input box (top
+#     border, input line, bottom border, shortcuts hint), so it is normally
+#     several non-empty lines from the bottom. A whole-pane match catches it; a
+#     bottom-N-lines window would miss it and false-IDLE a busy session (the
+#     exact regression this guards against). Must be session-busy, not
+#     corroborated.
 # ---------------------------------------------------------------------------
+busy_layout="$tmp/busy-layout.txt"
+cat >"$busy_layout" <<'EOF'
+✳ Working… (esc to interrupt)
+╭──────────────╮
+│ >            │
+╰──────────────╯
+  ? for shortcuts
+EOF
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+  --observed-pane "$busy_layout" --context-render "$ctx_tokens" 2>"$err") \
+  || fail "busy-layout: exited non-zero"
+[ "$out" = "proxy session-busy" ] \
+  || fail "busy-layout: verdict '$out', expected 'proxy session-busy' (marker above the input box must read as busy)"
+
+# 3c. The busy check is deliberately biased toward false-BUSY: an idle pane whose
+#     scrollback merely quotes the phrase is conservatively SKIPPED (safe under
+#     REQ-C1.2 — over-skipping a busy session is compliant; the proxy is the
+#     always-present fallback). This documents the accepted trade, not a bug.
 scroll_pane="$tmp/scroll-pane.txt"
 cat >"$scroll_pane" <<'EOF'
 ● We discussed the footer: it shows "esc to interrupt" while working.
-● All checks pass now.
 ● Done.
 
 >
 EOF
 out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
   --observed-pane "$scroll_pane" --context-render "$ctx_tokens" 2>"$err") \
-  || fail "scrollback-idle: exited non-zero"
-[ "$out" = "corroborated 60" ] \
-  || fail "scrollback-idle: verdict '$out', expected 'corroborated 60' (scrollback mention must not read as busy)"
-echo "ok: a scrollback mention of the busy phrase does not misclassify an idle session"
+  || fail "scrollback-quote: exited non-zero"
+[ "$out" = "proxy session-busy" ] \
+  || fail "scrollback-quote: verdict '$out', expected 'proxy session-busy' (conservative safe bias)"
+echo "ok: the realistic busy layout reads busy; a scrollback quote is safely over-skipped"
 
 # ---------------------------------------------------------------------------
 # 4. Idle + well-formed token-total render → corroborated USED percent (60).
