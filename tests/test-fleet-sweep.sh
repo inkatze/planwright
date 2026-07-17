@@ -24,9 +24,10 @@
 # Covered: clean+pushed tree (no false escalation); uncommitted and unpushed
 # escalations; a registered worker-worktree stale diff (risk 36); TWO dirty trees
 # in one sweep (risks 12/17); an un-inspectable tree escalated not skipped (risk
-# 10); the grace threshold (a just-dirty tree waits, an aged one escalates); the
-# kill-switch pausing the whole sweep; and the reconcile backstop correcting a
-# drifted tasks.md snapshot.
+# 10); the grace threshold (a just-dirty tree waits, an aged one escalates); a
+# leading-zero threshold and a corrupt leading-zero grace marker both rejected as
+# octal rather than mis-parsed; the kill-switch pausing the whole sweep; and the
+# reconcile backstop correcting a drifted tasks.md snapshot.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-sweep.sh
@@ -234,6 +235,45 @@ run_sweep --repo "$oz" >/dev/null 2>&1 || fail "sweep (octal threshold, aged) no
 [ "$(queue_count)" -ge 1 ] || fail "octal threshold: an aged tree did not escalate under 08m"
 write_core 0m
 echo "ok: a leading-zero threshold (08m) parses as 8 minutes, not octal"
+
+# 7c. A CORRUPT leading-zero dirty-since marker (e.g. `0900000000`) must NOT be
+#     read as octal by the grace arithmetic: under the dash `/bin/sh` floor that
+#     is a fatal error that aborts the whole sweep mid-loop (Pass 2 reconcile
+#     never runs); under bash it mis-parses. The marker read must reject it
+#     (matching threshold_seconds and the sibling integer-reads) so the grace
+#     clock re-plants and the tree keeps deferring instead of escalating on a
+#     garbage age (regression for the octal-since bug).
+rm -rf "$fleet_home"
+write_core 60m
+cz="$tmp/corruptzero"
+make_pushed_repo "$cz"
+(cd "$cz" && echo new >new.txt)
+run_sweep --repo "$cz" >/dev/null 2>&1 || fail "sweep (corrupt-marker, first) non-zero exit"
+[ "$(queue_count)" = 0 ] || fail "corrupt-marker: fresh dirty tree escalated before the threshold"
+since_dir="$fleet_home/worktrees/dirty-since"
+[ -d "$since_dir" ] || fail "corrupt-marker: no dirty-since marker recorded on first detection"
+for mk in "$since_dir"/*; do
+  [ -e "$mk" ] || continue
+  printf '%s\n' "0900000000" >"$mk"
+done
+# The buggy (unguarded) read leaks the marker straight into `age=$((now - since))`,
+# which emits an octal arithmetic error ("value too great for base" under bash,
+# "Illegal number" and a FATAL sweep abort under dash) and leaves the corrupt
+# marker in place. The guarded read rejects the leading-zero token and re-plants a
+# fresh clock, so no arithmetic error escapes and the marker becomes a valid epoch.
+cm_err=$(run_sweep --repo "$cz" 2>&1 1>/dev/null) || fail "sweep (corrupt-marker) aborted or non-zero — a leading-zero marker was not guarded against octal"
+case $cm_err in
+  *"value too great"* | *"Illegal number"* | *"integer expression"*)
+    fail "corrupt-marker: a leading-zero grace marker leaked into the arithmetic (octal error): $cm_err"
+    ;;
+esac
+[ "$(queue_count)" = 0 ] || fail "corrupt-marker: a leading-zero grace marker was octal-misread and escalated"
+cm_after=$(cat "$since_dir"/* 2>/dev/null)
+case $cm_after in
+  "" | *[!0-9]* | 0?*) fail "corrupt-marker: the grace clock was not re-planted to a valid epoch (still '$cm_after')" ;;
+esac
+write_core 0m
+echo "ok: a corrupt leading-zero dirty-since marker is rejected, not read as octal"
 
 # 8. The kill-switch pauses the whole sweep.
 rm -rf "$fleet_home"

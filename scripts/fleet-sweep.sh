@@ -299,8 +299,16 @@ for tree in $trees; do
     since=""
     if [ -f "$marker" ]; then
       since=$(cat "$marker" 2>/dev/null)
+      # Reject a leading-zero token (0?*) as well as non-digits: a corrupt or
+      # legacy marker like `0900000000` would otherwise be read as octal by the
+      # `age=$((now - since))` arithmetic below — fatal under a dash `/bin/sh`
+      # (aborting the whole sweep mid-loop, so Pass 2 never runs), or silently
+      # mis-parsed under bash. This mirrors threshold_seconds above and the
+      # sibling integer-reads (fleet-state read_counter, fleet-attention). An
+      # invalid marker leaves `since` empty, so the grace clock re-plants below
+      # rather than the sweep trusting a garbage age.
       case $since in
-        "" | *[!0-9]*) since="" ;;
+        "" | *[!0-9]* | 0?*) since="" ;;
       esac
     fi
     if [ -z "$since" ]; then
