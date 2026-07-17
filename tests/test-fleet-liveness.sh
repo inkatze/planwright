@@ -982,4 +982,30 @@ chmod 644 "$home38/attention/state"
 [ "$rc" = 2 ] || fail "unreadable store: classify exit $rc ('$out'), expected 2 (fail closed)"
 echo "ok: an unreadable attention store fails the classification closed"
 
+# ---------------------------------------------------------------------------
+# 39. store_row_field is LAST-WRITE-WINS: one row per worker is the store
+#     invariant (upsert, last wins), but external corruption could leave more.
+#     store_row_field must then return a SINGLE field value (the last matching
+#     row's), never a multi-line value — otherwise classify would embed a
+#     newline into the observations TSV and break its 4-field-per-line format,
+#     and single-string state compares would fail. (Corruption detection itself
+#     is a separate concern; here we only assert no reader emits a torn value.)
+# ---------------------------------------------------------------------------
+home39="$tmp/h39"
+attn "$home39" heartbeat "$w" "$s" working >/dev/null || fail "multirow-read setup: heartbeat"
+# Inject a second, later row for the same worker (awaiting-input) — corruption.
+printf '%s\t%s\tawaiting-input\t1\thigh\tq\td\to\n' "$w" "$s" >>"$home39/attention/state"
+rows=$(awk -F "$tab" -v want="$w" '($1 "") == (want "") { c++ } END { print c + 0 }' \
+  "$home39/attention/state")
+[ "$rows" = 2 ] || fail "multirow-read setup: expected 2 rows, got $rows"
+run "$home39" classify "$w" "$s" --now 20000 --heartbeat 19990 --progress p1 >/dev/null 2>&1 \
+  || fail "multirow classify: non-zero exit"
+obs39="$home39/liveness/observations/$w.tsv"
+[ -f "$obs39" ] || fail "multirow classify: no observations file written"
+# Every observation line must carry exactly 4 tab-separated fields (3 tabs): a
+# torn multi-line row_state would leave a stray 1-field line.
+badlines=$(awk -F "$tab" 'NF != 4 { n++ } END { print n + 0 }' "$obs39")
+[ "$badlines" = 0 ] || fail "multirow classify: $badlines malformed observation line(s) (torn row_state)"
+echo "ok: store_row_field is last-write-wins — a corrupt multi-row store never tears the observations TSV"
+
 echo "ALL PASS: fleet-liveness.sh"

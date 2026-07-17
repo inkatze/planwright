@@ -280,11 +280,19 @@ FIELD_HEARTBEAT=4
 # store_row_field <root> <worker> <field-index> — print one field of the
 # worker's 8-field attention record, or nothing when no row exists. The ""
 # concatenation pins awk to string comparison for numeric-looking handles
-# (the fleet-attention upsert discipline).
+# (the fleet-attention upsert discipline). LAST-WRITE-WINS: the store is
+# one-row-per-worker (upsert, last wins under the lock), so a well-formed store
+# has exactly one match; if external corruption leaves several, honor that same
+# last-wins semantics and return only the LAST matching row's field — never a
+# multi-line value, which would embed a newline into a caller (e.g. the
+# observations TSV, breaking its per-line format) or defeat a single-string
+# state compare. Detecting the corruption itself is a separate concern (see the
+# store-corruption-detector observation).
 store_row_field() {
   srf_store="$1/attention/state"
   [ -f "$srf_store" ] || return 0
-  awk -F "$TAB" -v w="$2" -v f="$3" '($1 "") == (w "") { print $f }' "$srf_store"
+  awk -F "$TAB" -v w="$2" -v f="$3" \
+    '($1 "") == (w "") { v = $f; found = 1 } END { if (found) print v }' "$srf_store"
 }
 
 # crash_read <root> <worker> — print "count next_allowed disabled" (0 0 0
