@@ -386,9 +386,14 @@ in-repo precedent plus POSIX/tool semantics).
   is whole-file pruning, operator-owned; no retention knob shipped until a
   consumer needs one (growable via the shared resolver).
 - **Lock serialization (risk 8).** Audit writes serialize through
-  `fleet-state.sh`'s existing advisory lock with the timestamp stamped under
-  the lock, mirroring `fleet-attention.sh` byte-for-byte; reads are lockless
-  (append-only rows, single short atomic writes).
+  `fleet-state.sh`'s existing advisory lock (the same cross-spec primitive
+  `fleet-attention.sh` holds for the same store area — the per-spec D-20
+  lock cannot serialize cross-spec writers, so no second primitive is
+  introduced), with the timestamp stamped under the lock and the
+  fleet-attention signal-trap release discipline installed. Each write lands
+  via copy-append-rename (the fleet-state register discipline), so lockless
+  readers always see a complete file; a bare append has no atomicity
+  guarantee at this row size.
 - **Kill-switch write authorization (risk 21).** Documented (options
   reference + gate header + defaults comment): the knob's resolving layers
   are human-owned surfaces outside a dispatched worker's allowlisted write

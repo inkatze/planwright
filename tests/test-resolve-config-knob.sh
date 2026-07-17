@@ -227,6 +227,29 @@ for bad in 0 05 -3 3.5 abc 1234567890123456; do
 done
 echo "ok: the posint type validates (zero, leading zero, negative, non-integer, oversize all malformed)"
 
+# 10b. The posint type through the OVERLAY layers: a valid machine-local
+#      value wins; a malformed adopter value degrades to the core default; a
+#      malformed repo-tracked value hard-fails — the by-layer policy is not
+#      enum-only.
+reset_layers
+printf 'flail_threshold: 5\n' >"$posint_core"
+printf 'flail_threshold: 9\n' >"$mlocal_cfg"
+got=$(run_posint)
+[ "$got" = 9 ] || fail "posint: machine-local value not honored (expected 9, got '$got')"
+reset_layers
+printf 'flail_threshold: nope\n' >"$adopter_cfg"
+rc=0
+out=$(run_posint 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "posint: malformed adopter value: exit $rc, expected 0 (degrade)"
+[ "$out" = 5 ] || fail "posint: malformed adopter value did not degrade to core (got '$out')"
+reset_layers
+printf 'flail_threshold: nope\n' >"$tracked_cfg"
+rc=0
+run_posint >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "posint: malformed repo-tracked value: exit $rc, expected 4 (hard-fail)"
+reset_layers
+echo "ok: the posint type honors the by-layer policy through the overlay layers"
+
 # 11. Usage validation: missing/invalid arguments are usage errors (exit 2).
 for args in \
   "" \
@@ -275,6 +298,11 @@ for knob in $BUNDLE_KNOBS; do
   [ "$rc" = 0 ] || fail "bundle knob '$knob' did not resolve against the shipped defaults (exit $rc)"
   [ -n "$got" ] || fail "bundle knob '$knob' resolved to an empty value"
 done
-echo "ok: every bundle knob is shipped, documented, and resolvable (REQ-G1.5 sweep)"
+# REQ-G1.5's documentation clause is asserted by RUNNING the shipped checker
+# over the real defaults + reference (a presence-grep would miss the
+# consistency failures the checker exists to catch).
+/bin/bash "$here/../scripts/check-options-reference.sh" >/dev/null 2>&1 \
+  || fail "scripts/check-options-reference.sh failed over the shipped defaults + options reference"
+echo "ok: every bundle knob is shipped, documented, and resolvable (REQ-G1.5 sweep incl. check-options-reference)"
 
 echo "ALL PASS: resolve-config-knob"

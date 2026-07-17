@@ -64,6 +64,18 @@ export LC_ALL
 # substitution (house pattern).
 unset CDPATH
 
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+
+# The canonical echo-discipline sanitizer (doctrine/security-posture.md):
+# refused caller argv and config-file values are stripped of control bytes
+# before they reach a diagnostic, so a hostile --values/--fallback/--type or
+# an escape-bearing overlay value cannot drive the terminal. The per-knob
+# resolver siblings predate this and take no caller argv; this resolver is
+# the shared entry point for arbitrary keys and value sets, so it sources
+# the sanitizer like the fleet command scripts do.
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
+
 usage() {
   echo "usage: resolve-config-knob.sh --key <key> --type <enum|posint> [--values '<v1> <v2> ...'] --fallback <value>" >&2
 }
@@ -124,13 +136,13 @@ case "$key" in
     ;;
   [a-z]*) ;;
   *)
-    echo "resolve-config-knob: invalid key '$key' (must match ^[a-z][a-z0-9_]*\$)" >&2
+    echo "resolve-config-knob: invalid key '$(sanitize_printable "$key" "(unprintable key)")' (must match ^[a-z][a-z0-9_]*\$)" >&2
     exit 2
     ;;
 esac
 case "$key" in
   *[!a-z0-9_]*)
-    echo "resolve-config-knob: invalid key '$key' (must match ^[a-z][a-z0-9_]*\$)" >&2
+    echo "resolve-config-knob: invalid key '$(sanitize_printable "$key" "(unprintable key)")' (must match ^[a-z][a-z0-9_]*\$)" >&2
     exit 2
     ;;
 esac
@@ -146,12 +158,12 @@ case "$ktype" in
     for _m in $kvalues; do
       case "$_m" in
         *[!A-Za-z0-9._-]*)
-          echo "resolve-config-knob: enum member '$_m' has characters outside [A-Za-z0-9._-]" >&2
+          echo "resolve-config-knob: enum member '$(sanitize_printable "$_m" "(unprintable member)")' has characters outside [A-Za-z0-9._-]" >&2
           exit 2
           ;;
       esac
       [ "${#_m}" -le 64 ] || {
-        echo "resolve-config-knob: enum member '$_m' is longer than 64 characters" >&2
+        echo "resolve-config-knob: enum member '$(sanitize_printable "$_m" "(unprintable member)")' is longer than 64 characters" >&2
         exit 2
       }
     done
@@ -167,7 +179,7 @@ case "$ktype" in
     exit 2
     ;;
   *)
-    echo "resolve-config-knob: unknown type '$ktype' (enum | posint)" >&2
+    echo "resolve-config-knob: unknown type '$(sanitize_printable "$ktype" "(unprintable type)")' (enum | posint)" >&2
     exit 2
     ;;
 esac
@@ -178,34 +190,39 @@ if [ "$fallback_set" -ne 1 ]; then
 fi
 
 # valid_value <value>: 0 when the trimmed value is legal for the declared
-# type. config-get already strips a trailing `# comment` and a surrounding
-# quote pair; the trim here is defensive against surrounding whitespace so
-# `  true  ` validates. The trimmed value lands in TRIMMED for the emitter.
-TRIMMED=""
+# type — a pure predicate, the sibling resolvers' shape. config-get already
+# strips a trailing `# comment` and a surrounding quote pair; the trim here
+# is defensive against surrounding whitespace so `  true  ` validates.
 valid_value() {
-  TRIMMED=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+  _vv=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   case "$ktype" in
     enum)
       for _m in $kvalues; do
-        [ "$TRIMMED" = "$_m" ] && return 0
+        [ "$_vv" = "$_m" ] && return 0
       done
       return 1
       ;;
     posint)
-      case "$TRIMMED" in
+      case "$_vv" in
         "" | *[!0-9]* | 0*) return 1 ;;
       esac
-      [ "${#TRIMMED}" -le 15 ]
+      [ "${#_vv}" -le 15 ]
       ;;
   esac
 }
 
+# emit_trimmed <value>: print the value trimmed of surrounding whitespace,
+# newline-terminated (the emitter contract every sibling honors).
+emit_trimmed() {
+  printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+  printf '\n'
+}
+
 if ! valid_value "$fallback"; then
-  echo "resolve-config-knob: the --fallback value '$fallback' is not a legal $ktype value (caller bug)" >&2
+  echo "resolve-config-knob: the --fallback value '$(sanitize_printable "$fallback" "(unprintable fallback)")' is not a legal $ktype value (caller bug)" >&2
   exit 2
 fi
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 config_get="$script_dir/config-get.sh"
 if [ ! -x "$config_get" ]; then
   echo "resolve-config-knob: config reader '$config_get' is missing or not executable" >&2
@@ -235,22 +252,36 @@ if [ "$rc" -ne 0 ]; then
   exit "$rc"
 fi
 
+# The pinned --explain contract is "<layer>TAB<value>". A line with no tab
+# would make both expansions below yield the whole line — and a
+# coincidentally-valid value would then resolve with its layer provenance
+# lost, silently bypassing the by-layer policy. Refuse it instead. (The tab
+# is matched through a variable: an unquoted literal tab in a case pattern
+# is token-separating whitespace, not a pattern character.)
+TAB=$(printf '\t')
+case "$explain_out" in
+  *"$TAB"*) ;;
+  *)
+    echo "resolve-config-knob: config-get --explain output is malformed (no layer/value separator) — broken install" >&2
+    exit 5
+    ;;
+esac
 layer=${explain_out%%	*}
 value=${explain_out#*	}
 
 if valid_value "$value"; then
-  printf '%s\n' "$TRIMMED"
+  emit_trimmed "$value"
   exit 0
 fi
 
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$value' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
+    echo "resolve-config-knob: repo-tracked overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$value' is not a legal $ktype value); degrading to the core default" >&2
+    echo "resolve-config-knob: warning: the $layer overlay sets '$key' to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not a legal $ktype value); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. mktemp gives an empty repo root (no .claude/planwright.yml
     # -> repo-tracked and derived machine-local both absent); a
@@ -280,14 +311,14 @@ case "$layer" in
       exit 5
     fi
     if valid_value "$core_value"; then
-      printf '%s\n' "$TRIMMED"
+      emit_trimmed "$core_value"
       exit 0
     fi
-    echo "resolve-config-knob: the core default for '$key' ('$core_value') is itself malformed — broken install" >&2
+    echo "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$core_value" "(unprintable value)")') is itself malformed — broken install" >&2
     exit 5
     ;;
   core)
-    echo "resolve-config-knob: the core default for '$key' ('$value') is malformed — broken install" >&2
+    echo "resolve-config-knob: the core default for '$key' ('$(sanitize_printable "$value" "(unprintable value)")') is malformed — broken install" >&2
     exit 5
     ;;
   *)

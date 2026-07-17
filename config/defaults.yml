@@ -111,9 +111,10 @@ review_sequence: [polish]
 # introduces (cleanup, restart, throttle) without disabling fleet operation
 # entirely — one lever for an operator debugging something unusual, instead of
 # N per-mechanism knobs to remember and re-enable. Task work (towers
-# dispatching, workers executing) is unaffected. Every daemon mechanism checks
-# it through scripts/fleet-daemon-gate.sh BEFORE acting; the gate fails closed
-# (an unresolvable switch blocks the action). Resolved through the shared knob
+# dispatching, workers executing) is unaffected. Every daemon mechanism this
+# bundle introduces (Tasks 2-7) is contracted to check it through
+# scripts/fleet-daemon-gate.sh BEFORE acting; the gate fails closed (an
+# unresolvable switch blocks the action). Resolved through the shared knob
 # resolver (scripts/resolve-config-knob.sh -> config-get, fleet-autonomy D-22,
 # REQ-G1.5); a value other than true/false is malformed under the REQ-E1.4
 # by-layer policy. The layers that can flip it are human-owned surfaces (the

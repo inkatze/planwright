@@ -78,6 +78,14 @@ utc_day=$(TZ=UTC date +%Y-%m-%d)
   || fail "daily audit file audit-$utc_day.tsv not found under the fleet home"
 echo "ok: a recorded action is queryable and lands in a UTC daily file"
 
+# 2b. The row is structurally a 6-field TSV in the documented order
+#     (epoch, iso, mechanism, action, trigger, reasoning) — substring
+#     presence alone would pass a query that merged or reordered columns.
+row_check=$(run query --mechanism stale-cleanup | awk -F '	' '
+  NF == 6 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]{4}-/ && $3 == "stale-cleanup" && $4 == "cleanup" { print "shape-ok" }')
+[ "$row_check" = shape-ok ] || fail "queried row is not the documented 6-field TSV shape"
+echo "ok: the queried row has the documented 6-field TSV shape"
+
 # 3. The rejection path (risk row 35): a malformed mechanism/action token or a
 #    control-bearing / oversize / empty trigger or reasoning is refused BEFORE
 #    write — the store must not gain a row.
@@ -136,6 +144,21 @@ case $out in
 esac
 echo "ok: query filters by --since/--until time range"
 
+# 5b. --mechanism combined with a time range ANDs the predicates (REQ-F1.4:
+#     "queryable by mechanism and time range").
+out=$(run query --mechanism throttle-watch --since $((now - 100)) --until $((now + 100)))
+case $out in
+  *throttle-watch*) ;;
+  *) fail "combined mechanism+range query missed the matching row" ;;
+esac
+case $out in
+  *stale-cleanup*) fail "combined mechanism+range query leaked another mechanism" ;;
+  *) ;;
+esac
+out=$(run query --mechanism throttle-watch --since $((now + 100)))
+[ -z "$out" ] || fail "combined query ignored the range bound when the mechanism matched"
+echo "ok: query ANDs the mechanism and time-range filters"
+
 # 6. Query argument validation: hostile mechanism filter and non-numeric
 #    range bounds are refused.
 rc=0
@@ -157,6 +180,66 @@ done
 count=$(run query --mechanism accumulate-check | wc -l | tr -d ' ')
 [ "$count" = 5 ] || fail "expected 5 accumulated rows, got $count"
 echo "ok: sequential records accumulate without loss"
+
+# 7b. CONCURRENT writers all land (kickoff risk row 8: writes serialize
+#     through the advisory lock). Eight simultaneous records; without real
+#     serialization the copy-append-rename write path would lose rows.
+conc_home="$tmp/conc-fleet"
+i=1
+while [ "$i" -le 8 ]; do
+  PLANWRIGHT_FLEET_STATE_DIR="$conc_home" /bin/bash "$FA" \
+    record concurrent-check cleanup "trigger $i" "reasoning $i" &
+  i=$((i + 1))
+done
+wait
+count=$(PLANWRIGHT_FLEET_STATE_DIR="$conc_home" /bin/bash "$FA" query --mechanism concurrent-check | wc -l | tr -d ' ')
+[ "$count" = 8 ] || fail "concurrent writers: expected 8 rows, got $count (lost update under contention)"
+malformed=$(PLANWRIGHT_FLEET_STATE_DIR="$conc_home" /bin/bash "$FA" query --mechanism concurrent-check \
+  | awk -F '	' 'NF != 6 { n++ } END { print n + 0 }')
+[ "$malformed" = 0 ] || fail "concurrent writers: $malformed malformed rows (torn write)"
+echo "ok: eight concurrent writers all land whole rows (lock serialization, risk 8)"
+
+# 7c. A fleet home whose path contains whitespace round-trips record and
+#     query (the query file-listing must not word-split the directory
+#     prefix).
+sp_home="$tmp/fleet home sp"
+PLANWRIGHT_FLEET_STATE_DIR="$sp_home" /bin/bash "$FA" \
+  record space-check cleanup "trigger sp" "reasoning sp" \
+  || fail "record failed under a whitespace fleet home"
+out=$(PLANWRIGHT_FLEET_STATE_DIR="$sp_home" /bin/bash "$FA" query --mechanism space-check 2>&1) \
+  || fail "query failed under a whitespace fleet home (got: '$out')"
+case $out in
+  *space-check*) ;;
+  *) fail "query under a whitespace fleet home returned no row (got: '$out')" ;;
+esac
+echo "ok: a whitespace fleet-home path round-trips record and query"
+
+# 7d. A hand-corrupted store line cannot drive the terminal (read-side
+#     re-sanitization) and a truncated row is skipped with a warning, never
+#     emitted as data.
+cor_home="$tmp/corrupt-fleet"
+PLANWRIGHT_FLEET_STATE_DIR="$cor_home" /bin/bash "$FA" \
+  record corrupt-check cleanup "clean trigger" "clean reasoning" \
+  || fail "seed record for corruption test failed"
+cor_file=$(find "$cor_home/audit" -name 'audit-*.tsv' | head -1)
+esc2=$(printf '\033')
+printf '1700000000\t2023-11-14T00:00:00Z\tcorrupt-check\tcleanup\tbad%s[31mtrigger\thand-edited\n' "$esc2" >>"$cor_file"
+printf 'short\trow\n' >>"$cor_file"
+q_out=$(PLANWRIGHT_FLEET_STATE_DIR="$cor_home" /bin/bash "$FA" query --mechanism corrupt-check 2>"$tmp/q-err")
+case $q_out in
+  *"$esc2"*) fail "query emitted a raw control byte from a corrupted store line" ;;
+  *) ;;
+esac
+case $q_out in
+  *"bad[31mtrigger"*) ;;
+  *) fail "query dropped the sanitized corrupted row instead of stripping it (got: '$q_out')" ;;
+esac
+case $q_out in
+  *short*) fail "query emitted a truncated (non-6-field) row as data" ;;
+  *) ;;
+esac
+grep -q "skipp" "$tmp/q-err" || fail "query did not warn about the skipped truncated row"
+echo "ok: read-side sanitization strips control bytes and truncated rows are skipped with a warning"
 
 # 8. An empty store queries clean (exit 0, no output) rather than erroring.
 fresh_home="$tmp/fresh-fleet"

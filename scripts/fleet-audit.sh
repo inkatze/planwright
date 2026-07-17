@@ -11,14 +11,18 @@
 # trail records actions, not high-frequency status noise.
 #
 # STORAGE (kickoff risk row 18 — the windowing policy). One TSV row per
-# action, appended to a UTC-dated daily file under the cross-spec fleet home
+# action in a UTC-dated daily file under the cross-spec fleet home
 # (fleet-state.sh root, orchestration-fleet D-11):
 #   <fleet-home>/audit/audit-<YYYY-MM-DD>.tsv
 #   <epoch>\t<utc-iso8601>\t<mechanism>\t<action>\t<trigger>\t<reasoning>
 # Daily files time-bound the store: retention is pruning old files (operator-
 # owned; a dated file is safe to archive or delete whole), and a range query
-# never has to index inside an unbounded single log. Rows are append-only —
-# nothing here rewrites or reorders an existing record.
+# never has to index inside an unbounded single log. Rows are append-only in
+# content — nothing rewrites or reorders an existing record — and each write
+# lands via copy-append-RENAME (the fleet-state.sh register discipline), so
+# a lockless reader always sees a complete file: the row payload (two 512-
+# byte texts plus fields) exceeds any per-write atomicity the platform
+# guarantees for plain appends, which is why a bare `>>` would not do.
 #
 # WRITE DISCIPLINE (kickoff risk rows 8 and 35; REQ-A1.6 artifact hygiene).
 # Fields are validated BEFORE write — byte-identical grammar to
@@ -27,10 +31,24 @@
 # (valid_text: non-empty, <=512 bytes, no C0/DEL/C1) — so a traversal token,
 # an embedded tab/newline, or an escape sequence is refused rather than
 # tearing the record or driving a terminal at render time. Writes serialize
-# through fleet-state.sh's advisory lock (D-20: the existing primitive, never
-# a second one), with the timestamp stamped UNDER the lock so committed rows
-# never regress. Query output re-sanitizes every field (a hand-corrupted
-# store line still cannot drive the terminal).
+# through fleet-state.sh's existing cross-spec advisory lock — the same
+# primitive its sibling fleet-attention.sh holds for the same store area, so
+# no second lock primitive exists (REQ-G1.3's floor; the per-spec
+# orchestration lock D-20 carries cannot serialize cross-spec writers, which
+# is exactly why the fleet home has its own pre-existing lock). The
+# timestamp is stamped UNDER the lock, so lock contention can never commit
+# an invocation-time-ordered older stamp after a newer one (a wall-clock
+# step backwards, e.g. NTP, is outside this guarantee and self-heals at the
+# file level: each row lands in the file matching its own stamped day).
+# Query output re-sanitizes every field and skips a non-6-field row with a
+# warning (a hand-corrupted store line can neither drive the terminal nor
+# masquerade as data).
+#
+# CALLER CONTRACT: a daemon mechanism records the action it just performed
+# and must surface a non-zero `record` exit (the trail refuses rather than
+# writes a bad row, and lock starvation drops the write) instead of
+# swallowing it — an unrecorded action is exactly what the trail exists to
+# prevent.
 #
 # Usage:
 #   fleet-audit.sh record <mechanism> <action> <trigger> <reasoning>
@@ -104,6 +122,13 @@ now_epoch() {
 }
 
 HOLD_LOCK=0
+# Release on ANY exit, signals included (the fleet-attention.sh trap
+# discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
+# shared cross-spec lock held until the stale-break threshold. INT/TERM
+# route through EXIT via explicit exits with the conventional codes.
+trap 'release_lock' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 acquire_lock() {
   al_tries=0
   while [ "$al_tries" -lt 1000 ]; do
@@ -168,35 +193,66 @@ case "$cmd" in
     fi
     root=$(resolve_home) || exit 2
     audit_dir="$root/audit"
-    acquire_lock || exit 2
-    # Stamp the row's time UNDER the lock (commit time, not invocation time) —
-    # the fleet-state.sh register discipline — so contention can never commit
-    # an older timestamp after a newer one and regress the trail's order.
-    ts=$(now_epoch)
-    if [ -z "$ts" ]; then
-      release_lock
-      echo "fleet-audit: could not read a numeric timestamp" >&2
+    # The dir create is idempotent and order-independent; doing it BEFORE the
+    # lock keeps the contended critical section as short as possible.
+    if ! mkdir -p "$audit_dir" 2>/dev/null; then
+      echo "fleet-audit: cannot create the audit dir $audit_dir" >&2
       exit 2
     fi
-    iso=$(TZ=UTC date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null) || iso=""
+    acquire_lock || exit 2
+    # Stamp the row's time UNDER the lock (commit time, not invocation time) —
+    # the fleet-state.sh register discipline — so lock contention can never
+    # commit an invocation-ordered older stamp after a newer one. Epoch and
+    # ISO come from two clock reads; sampling the UTC day on both sides and
+    # retrying on a mismatch pins all three to one UTC day, so a row's epoch
+    # always falls within its file's named day (the retention-by-file model
+    # depends on that).
+    ts=""
+    iso=""
+    day=""
+    st_try=0
+    while [ "$st_try" -lt 3 ]; do
+      day_before=$(TZ=UTC date -u '+%Y-%m-%d' 2>/dev/null) || day_before=""
+      ts=$(now_epoch)
+      iso=$(TZ=UTC date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null) || iso=""
+      day=${iso%%T*}
+      [ -n "$ts" ] && [ "$day_before" = "$day" ] && break
+      ts=""
+      st_try=$((st_try + 1))
+    done
+    if [ -z "$ts" ]; then
+      echo "fleet-audit: could not read a stable numeric/UTC timestamp" >&2
+      exit 2
+    fi
     case $iso in
       [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T*) ;;
       *)
-        release_lock
         echo "fleet-audit: could not read a UTC timestamp" >&2
         exit 2
         ;;
     esac
-    day=${iso%%T*}
+    # Copy-append-rename (the fleet-state.sh register discipline): the
+    # renamed file is complete at every instant, so the lockless query path
+    # never sees a torn row — a plain `>>` append of a row this large (two
+    # 512-byte texts) has no such guarantee.
+    store="$audit_dir/audit-$day.tsv"
     w_rc=0
-    if ! mkdir -p "$audit_dir" 2>/dev/null; then
-      release_lock
-      echo "fleet-audit: cannot create the audit dir $audit_dir" >&2
+    w_tmp=$(mktemp "$audit_dir/.audit.XXXXXX") || {
+      echo "fleet-audit: cannot create a temp file under $audit_dir" >&2
       exit 2
+    }
+    if [ -f "$store" ]; then
+      cat "$store" >"$w_tmp" 2>/dev/null || w_rc=2
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$ts" "$iso" "$mechanism" "$action" "$trigger" "$reasoning" \
-      >>"$audit_dir/audit-$day.tsv" || w_rc=2
+    if [ "$w_rc" = 0 ]; then
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$ts" "$iso" "$mechanism" "$action" "$trigger" "$reasoning" \
+        >>"$w_tmp" || w_rc=2
+    fi
+    if [ "$w_rc" = 0 ]; then
+      mv -f "$w_tmp" "$store" || w_rc=2
+    fi
+    [ "$w_rc" = 0 ] || rm -f "$w_tmp" 2>/dev/null
     release_lock
     if [ "$w_rc" != 0 ]; then
       echo "fleet-audit: failed to write the audit trail" >&2
@@ -260,29 +316,53 @@ case "$cmd" in
     root=$(resolve_home) || exit 2
     audit_dir="$root/audit"
     [ -d "$audit_dir" ] || exit 0
-    # Daily file names are this script's own (audit-YYYY-MM-DD.tsv: no
-    # whitespace, no globs), so a newline-separated find|sort is a safe list.
-    files=$(find "$audit_dir" -name 'audit-*.tsv' 2>/dev/null | sort) || {
-      echo "fleet-audit: cannot list the audit dir $audit_dir" >&2
+    # An unreadable/untraversable dir must not masquerade as an empty trail
+    # (an audit query answering "nothing happened" because of a permission
+    # problem is an opaque failure).
+    if [ ! -r "$audit_dir" ] || [ ! -x "$audit_dir" ]; then
+      echo "fleet-audit: audit dir $audit_dir exists but is not readable" >&2
       exit 2
-    }
-    [ -n "$files" ] || exit 0
-    for f in $files; do
-      # Filter rows by mechanism (exact string match — the "" concatenation
-      # pins awk to string comparison for numeric-looking tokens) and by the
-      # inclusive epoch bounds; re-sanitize each field on the way out so a
-      # hand-corrupted store line cannot drive the terminal.
+    fi
+    # The file list is built by a glob INSIDE the dir (a subshell cd), so a
+    # fleet-home path containing whitespace never word-splits: the matched
+    # names themselves are this script's own audit-YYYY-MM-DD.tsv (no
+    # whitespace, no globs), and LC_ALL=C glob order is date order. One awk
+    # runs over every file (not one per file); readability is pre-checked so
+    # the query fails BEFORE emitting any partial output. Rows are filtered
+    # by mechanism (exact string match — the "" concatenation pins awk to
+    # string comparison for numeric-looking tokens) and by the inclusive
+    # epoch bounds; every field is re-sanitized on the way out, and a row
+    # that is not the 6-field shape is skipped and counted, warned to stderr
+    # (a hand-corrupted line can neither drive the terminal nor pass as
+    # data).
+    (
+      cd "$audit_dir" || exit 2
+      set +f
+      set -- audit-*.tsv
+      set -f
+      [ -e "$1" ] || exit 0
+      for f in "$@"; do
+        if [ ! -r "$f" ]; then
+          echo "fleet-audit: cannot read $audit_dir/$f" >&2
+          exit 2
+        fi
+      done
       awk -F "$TAB" -v OFS="$TAB" -v m="$q_mech" -v s="$q_since" -v u="$q_until" '
+        NF != 6 { skipped++; next }
         (m == "" || ($3 "") == (m "")) &&
         (s == "" || $1 + 0 >= s + 0) &&
         (u == "" || $1 + 0 <= u + 0) {
           for (i = 1; i <= NF; i++) gsub(/[^[:print:]]/, "", $i)
           print
-        }' "$f" || {
-        echo "fleet-audit: failed reading $f" >&2
+        }
+        END {
+          if (skipped > 0)
+            printf "fleet-audit: skipped %d malformed (non-6-field) row(s)\n", skipped | "cat 1>&2"
+        }' "$@" || {
+        echo "fleet-audit: failed reading the audit files" >&2
         exit 2
       }
-    done
+    ) || exit "$?"
     exit 0
     ;;
   *)
