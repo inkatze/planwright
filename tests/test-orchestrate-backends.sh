@@ -621,4 +621,29 @@ rc=0
 [ "$rc" = 2 ] || fail "caps with an extra argument: exit $rc, expected 2"
 echo "ok: caps fails safe (absent) and fails closed (usage) as specified"
 
+# ---------------------------------------------------------------------------
+# 29. caps resolves a PRESENT pluggable backend through its adapter: the
+#     adapter's advertised set is printed verbatim at exit 0 (the cmd_caps
+#     adapter_caps SUCCESS branch — the path a pluggable-dispatched worker's
+#     capability gate takes). A present-but-MALFORMED adapter fails safe to
+#     absent (exit 1), never emitting a half-parsed set. Only detect exercised
+#     these adapter branches before; caps is what Task 5's peer-pane gate calls.
+# ---------------------------------------------------------------------------
+make_adapter plug false true true false true yes
+out=$(PATH="$BIN" "$BACKENDS" caps plug) || fail "caps of a present pluggable: exited non-zero"
+[ "$out" = "false true true false true yes" ] \
+  || fail "caps plug: got '$out', expected the adapter's advertised set verbatim"
+[ "$(printf '%s\n' "$out" | cut -d' ' -f2)" = true ] \
+  || fail "caps plug: can_observe (field 2) should be true"
+
+cat >"$BIN/planwright-backend-plugbad" <<'EOF'
+#!/bin/sh
+echo "garbage output not a capability set"
+EOF
+chmod +x "$BIN/planwright-backend-plugbad"
+rc=0
+PATH="$BIN" "$BACKENDS" caps plugbad >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of a malformed present adapter: exit $rc, expected 1 (fail-safe absent)"
+echo "ok: caps resolves a present pluggable adapter and fails safe on a malformed one"
+
 echo "PASS: test-orchestrate-backends.sh"
