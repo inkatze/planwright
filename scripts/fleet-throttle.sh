@@ -1,0 +1,660 @@
+#!/bin/sh
+# fleet-throttle.sh — reactive fleet-wide dispatch throttling off Claude
+# Code's native rate-limit signal (fleet-autonomy Task 7; D-12, REQ-E1.3;
+# kickoff risk rows 9, 23, 24, 30).
+#
+# No supported, machine-readable way exists to query Claude Code's own
+# account-level usage or rate-limit state (D-12: confirmed against Claude
+# Code issues #38380/#40793/#33820), so throttling is REACTIVE — the amux
+# precedent: when any fleet session renders the shared rate-limit
+# prompt/retry text, the tower feeds the captured text to `observe`, which
+# parses the signaled reset time and pauses FLEET-WIDE dispatch until it.
+# Every tower consults `check` before dispatching; dispatch resumes at the
+# signaled reset time by the check comparing against the wall clock — no
+# daemon has to fire at the boundary.
+#
+# STATE. One flag file under the cross-spec fleet home (fleet-state.sh
+# root): <fleet-home>/throttle/until — line 1 the reset epoch, line 2 the
+# anchoring prompt-event key (observe's sanitized excerpt; empty for the
+# structured engage CLI). The key makes relative-reset conversion anchor
+# ONCE per prompt-event: re-observing the identical excerpt while the
+# anchor is unelapsed never recomputes/ratchets the reset (F2); a changed
+# excerpt or an elapsed anchor is a genuinely new event. Writes
+# serialize through fleet-state.sh's existing cross-spec advisory lock (the
+# same primitive fleet-audit.sh holds for the same store area — risk row 8's
+# floor: no second lock primitive) and land via write-temp-RENAME, so a
+# lockless `check` reader always sees a complete value. CONFLICT RULE (risk
+# row 9): concurrent observations with differing parsed reset times resolve
+# to the MAX under the lock — the conservative direction — never
+# last-write-wins, which could resume dispatch before the account-level
+# limit actually clears.
+#
+# PARSE DISCIPLINE (risk rows 23, 24). Captured pane text is untrusted
+# terminal output: every line is stripped of non-printable bytes BEFORE
+# parsing, and only sanitized excerpts reach a diagnostic or the audit trail
+# (the echo discipline; doctrine/security-posture.md). The recognized reset
+# forms are the relative "in <N> seconds/minutes/hours" and the wall-clock
+# "resets [at] <H>[:MM]<am|pm>" / 24-hour "<HH>:MM" (next local
+# occurrence). A rate-limit signal whose reset time cannot be parsed — the
+# text is version-sensitive UI, so this WILL happen — degrades to a bounded
+# default hold (the fleet_throttle_default_hold knob) with a warning: never
+# an indefinite pause, never an immediate resume, never an opaque halt
+# (mirroring REQ-C1.2's /context-parse degrade posture). A reset time
+# beyond the 8-day sanity ceiling is bounded, never honored as-is: the
+# structured `engage --until` CLI refuses it outright as a caller bug, while
+# the observe degrade/grace paths clamp it to the ceiling with a warning
+# (engage_until enforces the ceiling authoritatively for every caller). A
+# garbage reset time must never park the fleet indefinitely.
+#
+# DAEMON CONTRACT (risk row 30). Engagement is an autonomous daemon action:
+# it checks the operator kill-switch (fleet-daemon-gate.sh, D-15) before
+# acting — a set switch short-circuits, exit 1 — and every state change
+# (engage, extend, clear) logs through the shared audit trail
+# (fleet-audit.sh, D-16/REQ-F1.4) AFTER the lock is released (fleet-audit
+# takes the same lock; holding it across the record call would deadlock).
+# An audit-write failure is surfaced (exit 2), never swallowed — an
+# unrecorded daemon action is what the trail exists to prevent. `check` is a
+# pure read (no gate, no audit); `clear` is the operator's manual-resume
+# path (audit-logged, but not gate-checked: the kill-switch pauses
+# autonomous actions, not the operator's own lever).
+#
+# Usage:
+#   fleet-throttle.sh check
+#       Exit 0: dispatch allowed (no engagement, or the reset time has
+#       passed). Exit 1: throttled — prints `until<TAB><epoch>` on stdout so
+#       a tower can render the reset time. Exit 2: unreadable/corrupt state
+#       (fail loud, let the tower decide).
+#   fleet-throttle.sh observe
+#       Read captured session text on stdin. No rate-limit signal: exit 3
+#       (clean no-op). Signal found: engage (or extend, max rule) until the
+#       parsed — or degraded-default — reset time; exit 0, printing
+#       `until<TAB><epoch>`. Kill-switch set: exit 1.
+#   fleet-throttle.sh engage --until <epoch> [--trigger <text>]
+#       Structured engagement for a caller that already holds a parsed
+#       reset time (and for fixtures). Same gate/lock/max-rule/audit path
+#       as observe. A past or beyond-ceiling epoch is a caller bug: exit 2.
+#   fleet-throttle.sh clear [--trigger <text>]
+#       Remove the engagement (manual resume) and log it. No-op exit 0 when
+#       nothing is engaged.
+#
+# Exit codes: 0 success (including observe-engaged and no-op clear);
+# 1 kill-switch short-circuit (engage/observe) or throttled (check);
+# 2 usage error, refused epoch, corrupt state, lock or audit failure;
+# 3 no rate-limit signal in the observed text (observe only);
+# 4/5 propagated from the kill-switch gate OR the default-hold knob
+# resolver (malformed shared config / broken install — fail closed; a
+# malformed repo-tracked fleet_throttle_default_hold therefore halts the
+# observe degrade rather than engaging, by the customization-overlay
+# REQ-E1.4 by-layer policy).
+#
+# AUDIT ORDERING CAVEAT (for Task 8's rendering): rows commit after lock
+# release, so under concurrent engagements the newest-by-timestamp throttle
+# row can carry an OLDER reset than the state file holds. Live throttle
+# state is always `check`/the state file, never audit-row recency; the
+# trail is the action history, not the state. And the max-of-resets
+# guarantee holds on the normal contention path; the known fleet-state
+# stale-lock double-break race (a crash-recovery corner) can momentarily
+# admit two writers, the same caveat every consumer of that lock carries.
+#
+# POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk
+# without interval expressions, `date +%s`, a fractional sleep for the lock
+# retry. No eval, no jq (REQ-K1.5). All input is data. Pathname expansion
+# is disabled (set -f).
+set -uf
+
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+
+# shellcheck source=scripts/echo-safety.sh
+. "$script_dir/echo-safety.sh"
+
+FS="$script_dir/fleet-state.sh"
+GATE="$script_dir/fleet-daemon-gate.sh"
+AUDIT="$script_dir/fleet-audit.sh"
+RESOLVER="$script_dir/resolve-config-knob.sh"
+
+MECHANISM=throttle
+# The engagement sanity ceiling: 8 days, comfortably past the longest native
+# limit window (weekly) while bounding any garbage epoch (risk row 24).
+MAX_HOLD=691200
+# The stale-prompt grace window (gauntlet finding F1, tower-directed): a
+# wall-clock reset observed at/just past its own stated minute is a
+# boundary-straddling or seconds-stale prompt, not tomorrow's reset — it
+# engages the bounded default hold instead of the next-day occurrence,
+# which the max rule could never shorten (a ~24h over-hold with no
+# self-heal). Beyond the window the next-day reading stands: a prompt
+# rendered hours after its stated time genuinely means tomorrow.
+WALL_GRACE=120
+
+usage() {
+  echo "usage: fleet-throttle.sh check | observe | engage --until <epoch> [--trigger <text>] | clear [--trigger <text>]" >&2
+}
+
+# Unlike fleet-audit.sh's same-named helper (which prints empty on failure
+# and always exits 0), this one returns 1 on failure — deliberate: every
+# caller here must fail closed on an unreadable clock, so the return-code
+# shape keeps the `|| exit` discipline visible at each call site.
+now_epoch() {
+  ne_v=$(date +%s)
+  case $ne_v in
+    "" | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s' "$ne_v"
+}
+
+resolve_home() {
+  rh_root=$("$FS" root) || return 2
+  printf '%s' "$rh_root"
+}
+
+# resolve_hold: the bounded default hold (seconds) for the degrade and
+# grace paths. Runs in a command substitution; a missing resolver exits the
+# subshell 5 (broken install), which every caller propagates via
+# `|| exit $?`.
+resolve_hold() {
+  if [ ! -x "$RESOLVER" ]; then
+    echo "fleet-throttle: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+    exit 5
+  fi
+  "$RESOLVER" --key fleet_throttle_default_hold --type posint --fallback 300
+}
+
+HOLD_LOCK=0
+CUR_TMP=""
+# Release on ANY exit, signals included (the fleet-attention.sh trap
+# discipline); INT/TERM route through EXIT with the conventional codes. The
+# EXIT arm also reaps an in-flight write temp so a signal mid-critical-
+# section cannot litter the throttle dir.
+cleanup_on_exit() {
+  release_lock
+  if [ -n "$CUR_TMP" ]; then
+    rm -f "$CUR_TMP"
+    CUR_TMP=""
+  fi
+}
+trap 'cleanup_on_exit' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+acquire_lock() {
+  al_tries=0
+  while [ "$al_tries" -lt 1000 ]; do
+    "$FS" lock >/dev/null 2>&1
+    al_rc=$?
+    case $al_rc in
+      0)
+        HOLD_LOCK=1
+        return 0
+        ;;
+      1) ;; # a live holder has it — retry
+      *)
+        echo "fleet-throttle: cannot acquire the fleet lock (fleet-state exit $al_rc)" >&2
+        return 2
+        ;;
+    esac
+    al_tries=$((al_tries + 1))
+    sleep 0.02
+  done
+  echo "fleet-throttle: gave up acquiring the fleet lock after contention" >&2
+  return 2
+}
+release_lock() {
+  if [ "$HOLD_LOCK" = 1 ]; then
+    "$FS" unlock >/dev/null 2>&1 || true
+    HOLD_LOCK=0
+  fi
+}
+
+# read_until <file>: print the stored reset epoch, empty when absent.
+# Returns 2 on a present-but-corrupt value (fail loud, never guess).
+read_until() {
+  [ -f "$1" ] || {
+    printf ''
+    return 0
+  }
+  # Trim only surrounding whitespace (and a CRLF's trailing CR); internal
+  # whitespace is preserved, so a corrupt space-separated value like
+  # "1710000 999" fails the numeric check below (fail loud) instead of being
+  # silently collapsed into a different, plausible-looking epoch.
+  ru_v=$(head -n 1 "$1" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+  if [ -z "$ru_v" ] && [ ! -f "$1" ]; then
+    # A concurrent clear unlinked the file between the -f test and the
+    # read: a vanished engagement is absent, not corrupt.
+    printf ''
+    return 0
+  fi
+  case $ru_v in
+    "" | *[!0-9]*)
+      echo "fleet-throttle: throttle state file '$1' is corrupt ('$(sanitize_printable "$ru_v" "(unprintable)")')" >&2
+      return 2
+      ;;
+  esac
+  # The same 15-digit overflow guard the engage CLI applies to --until: an
+  # oversized stored value would error the integer comparisons downstream
+  # and fall through in the fail-OPEN direction (check exit 0 while
+  # nominally engaged), the opposite of this reader's fail-loud contract.
+  if [ "${#ru_v}" -gt 15 ]; then
+    echo "fleet-throttle: throttle state file '$1' is corrupt (value exceeds the 15-digit overflow guard)" >&2
+    return 2
+  fi
+  printf '%s' "$ru_v"
+}
+
+# read_key <file>: print the stored prompt-event key (line 2), empty when
+# absent. The key is the sanitized excerpt the anchoring observation
+# carried; it is compared as an opaque token, never executed or expanded.
+read_key() {
+  [ -f "$1" ] || {
+    printf ''
+    return 0
+  }
+  sed -n '2p' "$1" 2>/dev/null
+}
+
+# utc_iso <epoch>: best-effort UTC rendering for audit reasoning text; falls
+# back to the bare epoch when the platform date cannot format it.
+utc_iso() {
+  ui_v=$(TZ=UTC date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
+    || ui_v=$(TZ=UTC date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) \
+    || ui_v="epoch $1"
+  printf '%s' "$ui_v"
+}
+
+# engage_until <until-epoch> <trigger-text> <event-key>
+# The shared engagement path: kill-switch gate, ceiling clamp, lock,
+# anchor dedup, max rule, atomic write, then audit. Prints
+# `until<TAB><winning-epoch>` on stdout. The 8-day ceiling is enforced
+# HERE, authoritatively for every caller (the engage CLI refuses
+# beyond-ceiling input earlier as a caller bug; the observe arms clamp): a
+# misconfigured default hold or any future caller can never park the fleet
+# past the ceiling (risk 24).
+#
+# The event key (F2, tower-directed): observe passes its sanitized excerpt
+# so a relative reset anchors to an absolute time ONCE per prompt-event —
+# re-observing the IDENTICAL excerpt while the anchor is unelapsed is a
+# no-op (no ratchet, no audit row). Re-anchoring happens only on a
+# genuinely new event: the excerpt changed (falls through to the max
+# rule), or the prior reset already elapsed (a dead engagement is treated
+# as absent). The engage CLI passes an empty key and keeps pure max-rule
+# semantics.
+engage_until() {
+  eu_until=$1
+  eu_trigger=$2
+  eu_key=${3:-}
+
+  # The daemon gate (D-15): only exit 0 authorizes proceeding; 1 is the set
+  # switch (short-circuit), 4/5 are resolver hard-fails — all propagate. A
+  # missing gate helper is a broken install (exit 5), matching the sibling
+  # resolvers' posture rather than an undocumented 127.
+  if [ ! -x "$GATE" ]; then
+    echo "fleet-throttle: daemon gate '$GATE' is missing or not executable — broken install" >&2
+    exit 5
+  fi
+  "$GATE" "$MECHANISM"
+  eu_rc=$?
+  if [ "$eu_rc" -ne 0 ]; then
+    exit "$eu_rc"
+  fi
+
+  eu_now=$(now_epoch) || {
+    echo "fleet-throttle: cannot read the clock" >&2
+    exit 2
+  }
+  if [ "$eu_until" -gt $((eu_now + MAX_HOLD)) ]; then
+    echo "fleet-throttle: warning: clamping a reset time more than 8 days out (until $eu_until) to the ceiling — a garbage reset must never park the fleet (risk 24)" >&2
+    eu_until=$((eu_now + MAX_HOLD))
+  fi
+
+  eu_root=$(resolve_home) || exit 2
+  eu_dir="$eu_root/throttle"
+  eu_file="$eu_dir/until"
+
+  acquire_lock || exit 2
+  eu_existing=$(read_until "$eu_file") || {
+    release_lock
+    exit 2
+  }
+  eu_oldkey=$(read_key "$eu_file")
+  if [ -n "$eu_existing" ] && [ "$eu_existing" -le "$eu_now" ]; then
+    # The prior anchor already elapsed: a dead engagement is absent, so any
+    # new signal is a fresh event (the F2 re-anchor lane).
+    eu_existing=""
+    eu_oldkey=""
+  fi
+  eu_action=""
+  if [ -z "$eu_existing" ]; then
+    eu_action=engage
+  elif [ -n "$eu_key" ] && [ "$eu_key" = "$eu_oldkey" ]; then
+    # Anchor dedup (F2): the identical prompt-event re-observed while the
+    # anchor holds — keep the first conversion, never recompute/ratchet.
+    eu_until=$eu_existing
+  elif [ "$eu_until" -gt "$eu_existing" ]; then
+    # The max rule (risk row 9): a later reset from a DIFFERENT event
+    # extends; an earlier or equal one changes nothing (the conservative
+    # direction).
+    eu_action=extend
+  else
+    eu_until=$eu_existing
+  fi
+  if [ -n "$eu_action" ]; then
+    mkdir -p "$eu_dir" || {
+      echo "fleet-throttle: cannot create '$eu_dir'" >&2
+      release_lock
+      exit 2
+    }
+    # Defer INT/TERM across the commit→audit span: a signal landing after
+    # the rename but before the audit record would leave a state change
+    # with no trail row — the exact unrecorded action the trail exists to
+    # prevent. (SIGKILL stays unpreventable; the window is best-effort.)
+    trap '' INT TERM
+    # mktemp, not a predictable $$-suffixed name: the same symlink-safe
+    # atomic-write discipline fleet-state.sh/fleet-audit.sh use for this
+    # store area.
+    CUR_TMP=$(mktemp "$eu_dir/.until.XXXXXX") || {
+      echo "fleet-throttle: cannot create a write temp under '$eu_dir'" >&2
+      release_lock
+      exit 2
+    }
+    printf '%s\n%s\n' "$eu_until" "$eu_key" >"$CUR_TMP" || {
+      echo "fleet-throttle: cannot write throttle state" >&2
+      release_lock
+      exit 2
+    }
+    mv -f "$CUR_TMP" "$eu_file" || {
+      echo "fleet-throttle: cannot commit throttle state" >&2
+      release_lock
+      exit 2
+    }
+    CUR_TMP=""
+  fi
+  release_lock
+
+  if [ -n "$eu_action" ]; then
+    # Audit AFTER release: fleet-audit takes the same fleet lock. A failed
+    # record is surfaced (exit 2), never swallowed (the trail's contract).
+    "$AUDIT" record "$MECHANISM" "$eu_action" "$eu_trigger" \
+      "fleet-wide dispatch paused until $(utc_iso "$eu_until") (epoch $eu_until); resumes when check passes that time" || {
+      echo "fleet-throttle: the audit trail refused the $eu_action record — surfacing, not swallowing" >&2
+      exit 2
+    }
+  fi
+  printf 'until\t%s\n' "$eu_until"
+}
+
+[ "$#" -ge 1 ] || {
+  usage
+  exit 2
+}
+cmd=$1
+shift
+
+case "$cmd" in
+  check)
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    root=$(resolve_home) || exit 2
+    until_file="$root/throttle/until"
+    stored=$(read_until "$until_file") || exit 2
+    [ -n "$stored" ] || exit 0
+    now=$(now_epoch) || {
+      echo "fleet-throttle: cannot read the clock" >&2
+      exit 2
+    }
+    if [ "$now" -lt "$stored" ]; then
+      printf 'until\t%s\n' "$stored"
+      exit 1
+    fi
+    exit 0
+    ;;
+
+  engage)
+    until_arg=""
+    trigger="manual engage"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --until)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          until_arg=$2
+          shift 2
+          ;;
+        --trigger)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          trigger=$2
+          shift 2
+          ;;
+        *)
+          usage
+          exit 2
+          ;;
+      esac
+    done
+    case $until_arg in
+      "" | *[!0-9]*)
+        echo "fleet-throttle: --until requires an epoch-seconds value" >&2
+        exit 2
+        ;;
+    esac
+    # The 15-digit cap is the shell-arithmetic overflow guard fleet-audit's
+    # epoch bounds carry: an over-long value must never reach `-le`/`-gt`.
+    if [ "${#until_arg}" -gt 15 ]; then
+      echo "fleet-throttle: --until value has more than 15 digits (overflow guard) — caller bug" >&2
+      exit 2
+    fi
+    now=$(now_epoch) || {
+      echo "fleet-throttle: cannot read the clock" >&2
+      exit 2
+    }
+    if [ "$until_arg" -le "$now" ]; then
+      echo "fleet-throttle: refusing a reset time in the past (until $until_arg, now $now) — caller bug" >&2
+      exit 2
+    fi
+    if [ "$until_arg" -gt $((now + MAX_HOLD)) ]; then
+      echo "fleet-throttle: refusing a reset time more than 8 days out (until $until_arg, now $now) — a garbage reset must never park the fleet (risk 24)" >&2
+      exit 2
+    fi
+    engage_until "$until_arg" "$trigger" ""
+    ;;
+
+  observe)
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    # Parse the captured text: bound the untrusted stream first (64 KiB is
+    # far past any real pane capture; an unbounded accumulator is a memory
+    # hazard on hostile input), strip non-printable bytes per line (the awk
+    # [[:print:]] form of the echo discipline — risk 23), join, detect the
+    # native rate-limit signal, then extract the first recognized reset
+    # form. Output protocol: line 1 = `none` | `rel <seconds>` |
+    # `wall <h> <m>` | `unparsed`; line 2 (when not `none`) = a <=200-char
+    # sanitized excerpt for the audit trigger.
+    parse=$(head -c 65536 | awk -v max="$MAX_HOLD" '
+      { gsub(/[^[:print:]]/, ""); text = text " " $0 }
+      END {
+        lt = tolower(text)
+        if (lt !~ /rate.?limit|usage limit|limit reached|too many requests/) { print "none"; exit }
+        excerpt = substr(text, 2, 200)
+        if (match(lt, /in [0-9]+ (second|minute|hour)/)) {
+          # Sum consecutive <n> <unit> groups ("in 2 hours 30 minutes"):
+          # capturing only the first group under-holds, resuming dispatch
+          # before the account limit clears — the direction the max rule
+          # forbids.
+          rest = substr(lt, RSTART + 3)
+          secs = 0
+          while (match(rest, /^[0-9]+ (second|minute|hour)/)) {
+            grp = substr(rest, RSTART, RLENGTH)
+            split(grp, a, " ")
+            n = a[1] + 0
+            if (a[2] == "second") secs += n
+            else if (a[2] == "minute") secs += n * 60
+            else secs += n * 3600
+            rest = substr(rest, RLENGTH + 1)
+            sub(/^s/, "", rest)
+            sub(/^[ ,]*(and )?/, "", rest)
+          }
+          if (secs > 0 && secs <= max) { print "rel " secs; print excerpt; exit }
+          print "unparsed"; print excerpt; exit
+        }
+        if (match(lt, /(resets?|try again|available)( at)? [0-9][0-9]?(:[0-5][0-9])? ?(am|pm)/)) {
+          s = substr(lt, RSTART, RLENGTH)
+          match(s, /[0-9][0-9]?(:[0-5][0-9])?/)
+          t = substr(s, RSTART, RLENGTH)
+          split(t, hm, ":")
+          h = hm[1] + 0
+          m = (2 in hm) ? hm[2] + 0 : 0
+          pm = (s ~ /pm/) ? 1 : 0
+          if (h == 12) h = 0
+          if (pm) h = h + 12
+          if (h <= 23 && m <= 59) { print "wall " h " " m; print excerpt; exit }
+          print "unparsed"; print excerpt; exit
+        }
+        if (match(lt, /(resets?|try again|available)( at)? [0-9][0-9]?:[0-5][0-9]/)) {
+          s = substr(lt, RSTART, RLENGTH)
+          match(s, /[0-9][0-9]?:[0-5][0-9]/)
+          t = substr(s, RSTART, RLENGTH)
+          split(t, hm, ":")
+          h = hm[1] + 0
+          m = hm[2] + 0
+          if (h <= 23 && m <= 59) { print "wall " h " " m; print excerpt; exit }
+          print "unparsed"; print excerpt; exit
+        }
+        print "unparsed"; print excerpt
+      }') || {
+      echo "fleet-throttle: parse failed" >&2
+      exit 2
+    }
+    kind=$(printf '%s\n' "$parse" | head -n 1)
+    excerpt=$(printf '%s\n' "$parse" | sed -n '2p')
+    [ -n "$excerpt" ] || excerpt="rate-limit signal (no excerpt)"
+    case "$kind" in
+      none)
+        exit 3
+        ;;
+      rel\ *)
+        secs=${kind#rel }
+        now=$(now_epoch) || {
+          echo "fleet-throttle: cannot read the clock" >&2
+          exit 2
+        }
+        engage_until $((now + secs)) "$excerpt" "$excerpt"
+        ;;
+      wall\ *)
+        wh=${kind#wall }
+        wm=${wh#* }
+        wh=${wh%% *}
+        now=$(now_epoch) || {
+          echo "fleet-throttle: cannot read the clock" >&2
+          exit 2
+        }
+        cur=$(date +%H:%M:%S)
+        case $cur in
+          [0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+          *)
+            # Every other clock read fails closed; a garbage time-of-day
+            # read must not silently compute the reset from midnight.
+            echo "fleet-throttle: cannot read the wall clock" >&2
+            exit 2
+            ;;
+        esac
+        ch=${cur%%:*}
+        cs=${cur##*:}
+        cm=${cur#*:}
+        cm=${cm%%:*}
+        # Strip a leading zero so 08/09 are not read as bad octal by $(( )).
+        ch=${ch#0}
+        cm=${cm#0}
+        cs=${cs#0}
+        cur_secs=$((${ch:-0} * 3600 + ${cm:-0} * 60 + ${cs:-0}))
+        target=$((wh * 3600 + wm * 60))
+        delta=$((target - cur_secs))
+        if [ "$delta" -le 0 ] && [ "$delta" -ge "-$WALL_GRACE" ]; then
+          # The grace window (F1): at/just past the stated minute the reset
+          # is effectively now — hold briefly, never jump a day.
+          hold=$(resolve_hold) || exit $?
+          echo "fleet-throttle: wall-clock reset is at/just past its stated minute; treating as effectively now (${hold}s hold, not next day)" >&2
+          delta=$hold
+        elif [ "$delta" -le 0 ]; then
+          delta=$((delta + 86400))
+        fi
+        engage_until $((now + delta)) "$excerpt" "$excerpt"
+        ;;
+      unparsed)
+        # Risk 24: signal present, reset time unreadable (version-sensitive
+        # UI text). Degrade to the bounded default hold with a warning —
+        # never indefinite, never immediate resume, never an opaque halt.
+        hold=$(resolve_hold) || exit $?
+        now=$(now_epoch) || {
+          echo "fleet-throttle: cannot read the clock" >&2
+          exit 2
+        }
+        echo "fleet-throttle: warning: rate-limit signal detected but the reset time could not be parsed; degrading to the ${hold}s default hold" >&2
+        engage_until $((now + hold)) "$excerpt" "$excerpt"
+        ;;
+      *)
+        echo "fleet-throttle: internal parse protocol error" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+
+  clear)
+    trigger="operator clear"
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --trigger)
+          [ "$#" -ge 2 ] || {
+            usage
+            exit 2
+          }
+          trigger=$2
+          shift 2
+          ;;
+        *)
+          usage
+          exit 2
+          ;;
+      esac
+    done
+    root=$(resolve_home) || exit 2
+    until_file="$root/throttle/until"
+    [ -f "$until_file" ] || exit 0
+    acquire_lock || exit 2
+    # Re-check under the lock: two concurrent clears both pass the fast
+    # pre-lock test, and the loser must not emit a second audit row for
+    # the one real clear.
+    if [ ! -f "$until_file" ]; then
+      release_lock
+      exit 0
+    fi
+    # Same signal deferral as the engage path: the unlink and its audit
+    # row commit-or-abort together, never unlinked-unrecorded.
+    trap '' INT TERM
+    rm -f "$until_file" || {
+      echo "fleet-throttle: cannot remove '$until_file'" >&2
+      release_lock
+      exit 2
+    }
+    release_lock
+    "$AUDIT" record "$MECHANISM" clear "$trigger" \
+      "throttle engagement cleared; fleet-wide dispatch resumes immediately" || {
+      echo "fleet-throttle: the audit trail refused the clear record — surfacing, not swallowing" >&2
+      exit 2
+    }
+    exit 0
+    ;;
+
+  *)
+    usage
+    exit 2
+    ;;
+esac
