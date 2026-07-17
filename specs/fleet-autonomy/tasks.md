@@ -71,7 +71,11 @@ render.
   killed interactive-tower fixture produces the exact resume command on the next `startup`, with no
   auto-resume and no auto-discard of the marker; a fresh tower launch lands in its own
   session/isolation unit, verified not to create a window inside a pre-existing, unrelated tmux
-  session; every watchdog action logs through Task 1's audit-trail helper; tests/CI pass.
+  session; an overlapping-invocation fixture proves the relaunch path serializes on the existing
+  per-spec advisory lock (D-20) and re-verifies positive evidence of death under the lock before
+  acting (risk register rows 1 and 6: a concurrent tick is a clean no-op, a tower alive at the
+  re-check is left alone, and no double-launch occurs); every watchdog action logs through
+  Task 1's audit-trail helper; tests/CI pass.
 - **Dependencies:** 1
 - **Citations:** D-4, D-20, D-21 · REQ-A1.5, REQ-A1.6, REQ-A1.9, REQ-G1.3, REQ-G1.4
 - **Estimated effort:** 3 days

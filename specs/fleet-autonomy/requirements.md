@@ -302,6 +302,16 @@ mature precedent this spec can simply defer to wholesale.
   re-anchor rides as expression-only: the kickoff brief's self-re-anchor
   entry cites this entry.
 
+- 2026-07-17 — Task 3 execution (expression-only, riding the Task 3 PR):
+  extended `tasks.md` Task 3's `Done when` with the overlapping-invocation
+  guard criterion (relaunch serializes on the existing per-spec advisory
+  lock D-20 and re-verifies positive evidence of death under it before
+  acting). This is the gap-fill the kickoff risk register's row 1 sign-off
+  note explicitly directed ("Task 3's implementation should extend its own
+  Done-when to cover it") — an accepted-risk mitigation already decided at
+  sign-off, given an acceptance criterion so it cannot silently ship
+  unmitigated; no requirement, design decision, or test semantics changed.
+
 ## Sources
 
 - **The `fleet-autonomy` drafting session** (2026-07-14) — the full elicitation: the original
