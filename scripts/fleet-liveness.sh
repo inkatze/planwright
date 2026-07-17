@@ -302,6 +302,20 @@ crash_read() {
   printf '%s %s %s' "$cr_c" "$cr_n" "$cr_d"
 }
 
+# queue_disable_escalation <worker> <scope> <count> — the disable
+# escalation's decision-queue entry, single-sourced: crash-record creates it
+# and crash-check re-upserts the IDENTICAL entry when healing the window
+# where the record persisted disabled=1 but the decide never committed. The
+# wording must never diverge between the two paths, or the entry a human
+# sees would depend on which path last wrote it.
+queue_disable_escalation() {
+  "$FA" decide "$1" "$2" \
+    "Worker crash-looping: disabled after $3 consecutive failures" \
+    "investigate before any relaunch" \
+    "investigate|reset the streak and relaunch|park the unit" \
+    high >/dev/null
+}
+
 # atomic_write_file <file> <content> — same-dir temp + rename.
 atomic_write_file() {
   awf_file=$1
@@ -797,11 +811,7 @@ case "$cmd" in
         echo "fleet-liveness: failed to audit the disable (crash-check re-queues the escalation)" >&2
         exit 2
       }
-      "$FA" decide "$worker" "$scope" \
-        "Worker crash-looping: disabled after $count consecutive failures" \
-        "investigate before any relaunch" \
-        "investigate|reset the streak and relaunch|park the unit" \
-        high >/dev/null || {
+      queue_disable_escalation "$worker" "$scope" "$count" || {
         echo "fleet-liveness: failed to queue the disable escalation (crash-check re-queues it)" >&2
         exit 2
       }
@@ -875,11 +885,7 @@ case "$cmd" in
       if [ "$d_state" != awaiting-input ]; then
         d_scope=$(store_row_field "$root" "$worker" "$FIELD_SCOPE")
         valid_field "$d_scope" || d_scope=unknown
-        "$FA" decide "$worker" "$d_scope" \
-          "Worker crash-looping: disabled after $count consecutive failures" \
-          "investigate before any relaunch" \
-          "investigate|reset the streak and relaunch|park the unit" \
-          high >/dev/null 2>&1 \
+        queue_disable_escalation "$worker" "$d_scope" "$count" 2>/dev/null \
           || echo "fleet-liveness: could not re-upsert the disable escalation" >&2
       fi
       printf 'disabled\n'
