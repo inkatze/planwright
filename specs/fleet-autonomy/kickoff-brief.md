@@ -427,8 +427,15 @@ docs — `https://code.claude.com/docs/en/hooks.md` — not model memory).
   safety). Because wiring a decision-control hook has a fleet-wide blast radius,
   the `hooks.json` `WorktreeCreate` entry is surfaced as a **Needs-sign-off**
   item in the PR — the human approves the decision-control wiring by leaving the
-  commit, or reverts that single entry (removal tracking via `WorktreeRemove`
-  plus the sweep's disk-scan reconcile still cover the lifecycle without it).
+  commit, or reverts that single entry. Correction (self-review, 2026-07-17):
+  worktree lifecycle tracking as shipped in Task 4 is **hook-driven only**
+  (`WorktreeCreate`/`WorktreeRemove`); the REQ-B1.2 / D-7 disk-`scan`
+  self-healing fallback exists as a manual `fleet-worktree-track.sh scan` CLI but
+  is **not wired to run periodically** — the housekeeping sweep reads the
+  registry (`list`), it does not `scan`. So reverting the `WorktreeCreate` entry
+  drops automatic creation-tracking until the scan fallback is wired (removal
+  tracking via `WorktreeRemove` is unaffected). Wiring that fallback is a
+  follow-up (recorded as an observation).
 - **Payload fields are data (risk 25).** Both handlers parse the JSON with `jq`
   (present) or a bounded `sed` fallback (the same jq-with-graceful-degrade
   pattern `tasks-pr-sync.sh`'s PostToolUse hook already uses), then run the
