@@ -34,8 +34,10 @@
 # command.
 #
 # Exit: execs <cmd> (adopting its exit status); a failed exec follows the
-# shell's convention (127 not-found / 126 not-executable); --print exits 0; a
-# no-command or otherwise malformed invocation is a usage error, exit 2.
+# shell's not-found/not-executable convention (typically 127/126, but
+# shell-dependent — a bash acting as /bin/sh reports 126 for a missing file);
+# --print exits 0; a no-command or otherwise malformed invocation is a usage
+# error, exit 2.
 set -u
 
 # Pin C for byte-stable behavior, consistent with the sibling scripts. A

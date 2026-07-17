@@ -87,6 +87,12 @@ print_out=$("$FDE" --print) || fail "--print exited nonzero"
 [ "$print_out" = "$VAR=false" ] \
   || fail "--print expected '$VAR=false', got '$print_out'"
 
+# --print takes no extra args: a trailing argument is a usage error, never a
+# silent print (guards the `[ "$#" -eq 1 ] || usage` branch).
+pc=0
+"$FDE" --print extra >/dev/null 2>&1 || pc=$?
+[ "$pc" -eq 2 ] || fail "'--print <extra>' should exit 2 (usage), got $pc"
+
 # exec passthrough: the wrapped command's exit status propagates unchanged.
 ec=0
 "$FDE" sh -c 'exit 7' || ec=$?
