@@ -240,13 +240,7 @@ fresh worktree). Print the re-open command after create-or-reuse.
 `scripts/fleet-dispatch-env.sh` (D-10, REQ-D1.1), which pins only
 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` against ghost-text. Separately,
 pin the umask, pre-trust the worktree's config paths, and verify the SSH-agent
-indirection before signed commits. On a hook-push-capable backend
-(`scripts/fleet-liveness.sh push-capable <backend>`), also set
-`PLANWRIGHT_WORKER_HANDLE=<worker>` and `PLANWRIGHT_WORKER_SCOPE=<spec>:<ids>`
-in the launched session's environment — the identity gate the plugin's
-liveness hooks push worker state transitions through (fleet-autonomy D-1,
-REQ-A1.1); a backend that answers `observe` keeps the existing capture-pane
-observation instead.
+indirection before signed commits.
 
 ## Dispatch (REQ-F1.8, D-38)
 
