@@ -284,4 +284,29 @@ notice, dispatch gate still fails closed; REQ-A1.4, REQ-D1.1, D-3, D-6,
 Tasks 3–4, test-spec A1.4/D1.1) and the lefthook install wiring
 (`mise.toml` tools entry plus documented install step, Task 4);
 **dropped as previously declined** — whole-corpus CI growth (lens-pass
-cluster 4b). Iteration 2 confirmed convergence (see below).
+cluster 4b). Iteration 2 (over `40fa49f`) returned one finding — REQ-B1.1
+frame vacuity — dropped as a false positive at validation: the gate
+recomputes with the entry's recorded command form, so interim-form
+entries keep whole-file semantics and the frame stays live (converges
+with the section-3 walk and the cross-file lens agent's independent
+check). Zero findings remain: panel converged.
+
+### Sign-off record
+
+First activation signed off 2026-07-17 by Diego Romero with the agent's
+walkthrough. Scope: full bundle (sections 2–7 walked and signed; lens
+pass full-bundle fan-out; panel pass converged). Status flipped
+Draft→Ready on all four files; validator re-run on Ready: 0 errors,
+0 warnings.
+
+Class: meaning
+Lens-pass: the "Lens review pass" subsection above (canonical
+lens-coverage table, nine-agent fan-out, altitude check, clustered
+dispositions; plus the panel pass record) — every finding dispositioned,
+none open.
+Anchor: `48504616fd42e71fb9f4a49d8fbda691c844f606` — computed as
+`scripts/spec-anchor.sh specs/anchor-integrity`
+
+## Amendment log
+
+(none yet)
