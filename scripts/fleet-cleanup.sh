@@ -42,13 +42,18 @@
 #   0  acted (resource reclaimed) or a clean no-op (target already gone)
 #   2  usage / refused malformed token
 #   3  refused by the self-targeting guard — the target is, or cannot be proven
-#      not to be, the caller's own hosting session/worktree (the #29787 block;
-#      an unresolvable self-identity fails closed here)
+#      not to be, the caller's own hosting session/worktree (the #29787 block).
+#      This also covers any environment fault that makes proving non-self
+#      impossible (no resolvable tmux / no $TMUX_PANE; caller not in a git
+#      worktree; no git binary): fail closed, refuse rather than risk a self-hit.
 #   4  refused: the fleet_daemon_pause kill-switch is set (or the gate could not
 #      resolve its own switch — fail closed, degrade capability never safety)
-#   5  refused: no positive evidence the target is reclaimable (a live pane, or a
-#      dirty/unpushed worktree — acting would destroy live work), or the reclaim
-#      command itself failed
+#   5  refused: no positive evidence the target is reclaimable (a live pane, a
+#      dirty/unpushed worktree, or lost observability — a tmux server unreachable
+#      mid-probe is not proof of absence), or the reclaim command itself failed
+#   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
+#      action happened and is unrecorded; distinct from 2 so a caller never reads
+#      an unlogged reclaim as "nothing happened"
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling). All input
 # is data; no eval, no jq (REQ-K1.5). Pathname expansion is disabled (set -f).
@@ -150,13 +155,19 @@ case "$cmd" in
     # Resolve self-identity from the caller's own pane. A cleanup that cannot
     # prove the target is NOT its own window fails closed (refuse): the whole
     # point of the guard is that we would rather leave a stale window than risk
-    # the #29787 self-kill.
+    # the #29787 self-kill. TMUX_PANE must be non-empty — with an empty `-t ""`
+    # tmux resolves the CURRENTLY ACTIVE pane, which need not be the caller's
+    # host, so self-identity would be unreliable: refuse.
     if [ -z "${TMUX:-}" ] || ! command -v tmux >/dev/null 2>&1; then
       warn "not inside a resolvable tmux (no \$TMUX or no tmux binary) — cannot prove non-self-target, refusing (fail closed)"
       exit 3
     fi
-    self=$(tmux display-message -p -t "${TMUX_PANE:-}" \
-      "#{session_name}${TAB}#{window_id}${TAB}#{window_name}" 2>/dev/null) || self=""
+    if [ -z "${TMUX_PANE:-}" ]; then
+      warn "\$TMUX_PANE is unset — cannot reliably resolve the caller's own pane, refusing (fail closed)"
+      exit 3
+    fi
+    self=$(tmux display-message -p -t "$TMUX_PANE" \
+      "#{session_name}${TAB}#{window_id}${TAB}#{window_name}${TAB}#{window_index}" 2>/dev/null) || self=""
     if [ -z "$self" ]; then
       warn "could not resolve the caller's own tmux window — cannot prove non-self-target, refusing (fail closed)"
       exit 3
@@ -164,10 +175,15 @@ case "$cmd" in
     self_session=${self%%"$TAB"*}
     self_rest=${self#*"$TAB"}
     self_wid=${self_rest%%"$TAB"*}
-    self_wname=${self_rest#*"$TAB"}
+    self_rest=${self_rest#*"$TAB"}
+    self_wname=${self_rest%%"$TAB"*}
+    self_windex=${self_rest#*"$TAB"}
 
+    # The guard matches the target window against the caller's own window id,
+    # name, OR index (all three are valid tmux window addresses), so no address
+    # form for the caller's own window slips past.
     if [ "$session" = "$self_session" ] \
-      && { [ "$window" = "$self_wid" ] || [ "$window" = "$self_wname" ]; }; then
+      && { [ "$window" = "$self_wid" ] || [ "$window" = "$self_wname" ] || [ "$window" = "$self_windex" ]; }; then
       warn "REFUSING self-target: '$session:$window' is the caller's own hosting window (the #29787 block)"
       audit window-cleanup refuse-self "$trigger" "$reasoning" \
         || warn "could not record the self-block in the audit trail"
@@ -175,12 +191,18 @@ case "$cmd" in
     fi
 
     # Positive evidence: the target's panes must all be dead. A list-panes
-    # failure means the window is already gone (a clean no-op); a live pane
-    # (pane_dead 0) or an empty/ambiguous listing means not reclaimable.
+    # failure is NOT proof the window is gone — it could be lost observability
+    # (the 2026-06-12 lesson). Distinguish the two by re-probing server health:
+    # an unreachable server is unknown (refuse, exit 5), a healthy server with
+    # the window absent is genuinely gone (a clean no-op, exit 0).
     target="=$session:$window"
     panes=$(tmux list-panes -t "$target" -F '#{pane_dead}' 2>/dev/null) || {
-      # Window absent from the authoritative listing: nothing to reclaim.
-      exit 0
+      if tmux ls >/dev/null 2>&1; then
+        # Healthy server, window absent from its authoritative listing: gone.
+        exit 0
+      fi
+      warn "tmux server unreachable while probing '$session:$window' — lost observability, refusing (not proof of absence)"
+      exit 5
     }
     if [ -z "$panes" ]; then
       warn "no pane state for '$session:$window' — no positive evidence it is reclaimable, refusing"
@@ -204,7 +226,7 @@ case "$cmd" in
     fi
     if ! audit window-cleanup cleanup "$trigger" "$reasoning"; then
       warn "reclaimed window '$session:$window' but FAILED to record it in the audit trail"
-      exit 2
+      exit 6
     fi
     exit 0
     ;;
@@ -326,7 +348,7 @@ case "$cmd" in
     fi
     if ! audit worktree-cleanup cleanup "$trigger" "$reasoning"; then
       warn "removed worktree '$path' but FAILED to record it in the audit trail"
-      exit 2
+      exit 6
     fi
     exit 0
     ;;

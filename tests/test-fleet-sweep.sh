@@ -213,6 +213,28 @@ run_sweep --repo "$g" >/dev/null 2>&1 || fail "sweep (grace, aged) non-zero exit
 write_core 0m
 echo "ok: the grace threshold defers a fresh dirty tree and escalates an aged one"
 
+# 7b. A leading-zero threshold (`08m`) must NOT be read as octal (which would
+#     blow up the arithmetic and empty THRESHOLD); it parses as 8 minutes. A
+#     fresh dirty tree waits (8m grace), an aged one escalates — proving the
+#     threshold was a real positive number, not a broken/empty one.
+rm -rf "$fleet_home"
+write_core 08m
+oz="$tmp/octal"
+make_pushed_repo "$oz"
+(cd "$oz" && echo new >new.txt)
+run_sweep --repo "$oz" >/dev/null 2>&1 || fail "sweep (octal threshold) non-zero exit"
+[ "$(queue_count)" = 0 ] || fail "octal threshold: 08m did not parse as an 8m grace (fresh tree escalated)"
+since_dir="$fleet_home/worktrees/dirty-since"
+old=$(($(date +%s) - 5000))
+for mk in "$since_dir"/*; do
+  [ -e "$mk" ] || continue
+  printf '%s\n' "$old" >"$mk"
+done
+run_sweep --repo "$oz" >/dev/null 2>&1 || fail "sweep (octal threshold, aged) non-zero exit"
+[ "$(queue_count)" -ge 1 ] || fail "octal threshold: an aged tree did not escalate under 08m"
+write_core 0m
+echo "ok: a leading-zero threshold (08m) parses as 8 minutes, not octal"
+
 # 8. The kill-switch pauses the whole sweep.
 rm -rf "$fleet_home"
 k="$tmp/kill"

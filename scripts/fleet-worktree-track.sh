@@ -13,11 +13,13 @@
 # `WorktreeCreate` is a DECISION hook: "any non-zero exit code causes worktree
 # creation to fail", and the command hook is expected to print the worktree path
 # on stdout ("hook failure or missing path fails creation"). So `hook-create` is
-# a STRICT PASS-THROUGH: it echoes the stdin `worktree_path` unchanged and ALWAYS
-# exits 0, doing the registry write as a fully isolated best-effort side effect
-# whose failure can change neither stdout nor the exit code (degrade capability,
-# never safety — a tracking hiccup must never break worktree creation fleet-wide).
-# `WorktreeRemove` is fire-and-forget (failures logged in debug only).
+# a STRICT PASS-THROUGH: it echoes the stdin `worktree_path` (after the same
+# grammar check every stored path gets — a control-byte path is refused rather
+# than echoed raw) and ALWAYS exits 0. The registry write is a synchronous
+# best-effort side effect with a SHORT bounded lock wait, so a contended lock can
+# never stall creation more than a fraction of a second and never fail it; a
+# skipped write self-heals on the next `scan`. `WorktreeRemove` is
+# fire-and-forget (failures logged in debug only).
 #
 # NOT A DAEMON ACTION. Tracking is bookkeeping, not a destructive daemon action:
 # it is NOT gated by the `fleet_daemon_pause` kill-switch (which pauses
@@ -79,13 +81,19 @@ resolve_home() {
   "$FS" root
 }
 
+# The lock-acquire retry budget. The direct CLI uses the full budget (a
+# registry write must not be dropped); the hook handlers lower it (LOCK_MAX_TRIES
+# below) so a contended lock can never stall a WorktreeCreate/Remove operation —
+# a skipped hook record self-heals on the next sweep's `scan`.
+LOCK_MAX_TRIES=1000
+
 HOLD_LOCK=0
 trap 'release_lock' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_lock() {
   al_tries=0
-  while [ "$al_tries" -lt 1000 ]; do
+  while [ "$al_tries" -lt "$LOCK_MAX_TRIES" ]; do
     "$FS" lock >/dev/null 2>&1
     al_rc=$?
     case $al_rc in
@@ -116,39 +124,36 @@ reg_paths() {
   return 0
 }
 
-# write_registry <content-file> — atomically replace the registry with the
-# lines in <content-file>, under the lock (copy-modify-rename discipline).
-write_registry() {
-  wr_src=$1
-  mkdir -p "$REG_DIR" 2>/dev/null || {
-    warn "cannot create the worktree registry dir $REG_DIR"
-    return 2
-  }
-  acquire_lock || {
-    warn "cannot acquire the fleet lock"
-    return 2
-  }
-  wr_tmp=$(mktemp "$REG_DIR/.registry.XXXXXX") || {
-    release_lock
+# rewrite_locked <content-file> — atomically replace the registry with the lines
+# in <content-file> via copy-modify-RENAME. THE CALLER MUST ALREADY HOLD THE
+# LOCK: the read-compute-write is one critical section (a lockless read + locked
+# write would lose a concurrent writer's update — the fleet-audit.sh discipline).
+rewrite_locked() {
+  rl_src=$1
+  rl_tmp=$(mktemp "$REG_DIR/.registry.XXXXXX") || {
     warn "cannot create a temp file under $REG_DIR"
     return 2
   }
-  wr_rc=0
-  cat "$wr_src" >"$wr_tmp" 2>/dev/null || wr_rc=2
-  if [ "$wr_rc" = 0 ]; then
-    mv -f "$wr_tmp" "$REG" || wr_rc=2
+  rl_rc=0
+  cat "$rl_src" >"$rl_tmp" 2>/dev/null || rl_rc=2
+  if [ "$rl_rc" = 0 ]; then
+    mv -f "$rl_tmp" "$REG" || rl_rc=2
   fi
-  [ "$wr_rc" = 0 ] || rm -f "$wr_tmp" 2>/dev/null
-  release_lock
-  return "$wr_rc"
+  [ "$rl_rc" = 0 ] || rm -f "$rl_tmp" 2>/dev/null
+  return "$rl_rc"
 }
 
-# read_registry_into <dest-file> — copy the current registry (if any) into a
-# scratch file, one path per line, empty when absent.
-read_registry_into() {
-  : >"$1"
-  [ -f "$REG" ] && cat "$REG" >"$1" 2>/dev/null
-  return 0
+# normalize_if_exists <path> — realpath a path that exists on disk (so a
+# push-recorded create and a scan-discovered entry agree and dedup), else echo
+# it unchanged (a remove of an already-gone worktree keeps the raw payload form).
+normalize_if_exists() {
+  if [ -e "$1" ]; then
+    nie=$(cd "$1" 2>/dev/null && pwd -P) && [ -n "$nie" ] && {
+      printf '%s' "$nie"
+      return 0
+    }
+  fi
+  printf '%s' "$1"
 }
 
 do_record() {
@@ -158,6 +163,7 @@ do_record() {
     warn "refusing a malformed worktree path (absolute, no control bytes)"
     return 2
   fi
+  dr_path=$(normalize_if_exists "$dr_path")
   reg_paths || {
     warn "unresolvable fleet home"
     return 2
@@ -166,35 +172,32 @@ do_record() {
     warn "cannot create the worktree registry dir $REG_DIR"
     return 2
   }
-  dr_cur=$(mktemp "$REG_DIR/.reg-cur.XXXXXX") || return 2
-  dr_new=$(mktemp "$REG_DIR/.reg-new.XXXXXX") || {
-    rm -f "$dr_cur"
+  # Read-modify-write as ONE locked critical section (atomicity, no lost update).
+  acquire_lock || {
+    warn "cannot acquire the fleet lock"
     return 2
   }
-  read_registry_into "$dr_cur"
-  # Filter the target path out of the current set (idempotent for both modes),
-  # keeping every other line intact; then, for add, append it once.
-  dr_present=0
+  dr_new=$(mktemp "$REG_DIR/.reg-new.XXXXXX") || {
+    release_lock
+    return 2
+  }
   : >"$dr_new"
-  while IFS= read -r dr_line || [ -n "$dr_line" ]; do
-    [ -n "$dr_line" ] || continue
-    if [ "$dr_line" = "$dr_path" ]; then
-      dr_present=1
-      continue
-    fi
-    printf '%s\n' "$dr_line" >>"$dr_new"
-  done <"$dr_cur"
+  if [ -f "$REG" ]; then
+    while IFS= read -r dr_line || [ -n "$dr_line" ]; do
+      [ -n "$dr_line" ] || continue
+      [ "$dr_line" = "$dr_path" ] && continue
+      printf '%s\n' "$dr_line" >>"$dr_new"
+    done <"$REG"
+  fi
   if [ "$dr_mode" = add ]; then
     printf '%s\n' "$dr_path" >>"$dr_new"
   fi
-  rm -f "$dr_cur"
-  # A remove of an absent path, or an add of a present path, is already the
-  # desired state — still rewrite (idempotent, cheap) so the file exists.
-  : "$dr_present"
-  if ! write_registry "$dr_new"; then
+  if ! rewrite_locked "$dr_new"; then
+    release_lock
     rm -f "$dr_new"
     return 2
   fi
+  release_lock
   rm -f "$dr_new"
   return 0
 }
@@ -256,6 +259,18 @@ case "$cmd" in
       exit 2
     }
     scan_root=${2:-$PWD}
+    # Screen the operator-supplied root before it reaches git -C: a leading dash
+    # would be read as an option; a control byte is never a real repo path.
+    case $scan_root in
+      -*)
+        warn "refusing a malformed scan root (leading dash)"
+        exit 2
+        ;;
+    esac
+    if [ "$scan_root" != "$(sanitize_printable "$scan_root")" ]; then
+      warn "refusing a scan root with a control byte"
+      exit 2
+    fi
     if ! command -v git >/dev/null 2>&1; then
       warn "no git binary on PATH — cannot disk-scan; leaving the registry unchanged"
       exit 0
@@ -268,21 +283,9 @@ case "$cmd" in
       warn "cannot create the worktree registry dir $REG_DIR"
       exit 2
     }
-    sc_new=$(mktemp "$REG_DIR/.reg-scan.XXXXXX") || exit 2
-    : >"$sc_new"
-    # Prune: keep every currently-tracked path that STILL EXISTS on disk (a
-    # vanished dir is a missed removal — dropping it is the disk-scan reconcile);
-    # normalize kept paths through realpath so they dedup against scan output.
-    if [ -f "$REG" ]; then
-      while IFS= read -r ln || [ -n "$ln" ]; do
-        [ -n "$ln" ] || continue
-        [ -e "$ln" ] || continue
-        ln_real=$(cd "$ln" 2>/dev/null && pwd -P) || ln_real=""
-        [ -n "$ln_real" ] || continue
-        printf '%s\n' "$ln_real" >>"$sc_new"
-      done <"$REG"
-    fi
-    # Add: every worktree git reports for the scanned repo (realpath-normalized).
+    # Gather git's worktree set OUTSIDE the lock (a read-only query), so the
+    # locked critical section stays short.
+    sc_git=$(mktemp "$REG_DIR/.reg-git.XXXXXX") || exit 2
     git -C "$scan_root" worktree list --porcelain 2>/dev/null \
       | while IFS= read -r ln; do
         case $ln in
@@ -292,42 +295,84 @@ case "$cmd" in
             [ -n "$sc_real" ] && printf '%s\n' "$sc_real"
             ;;
         esac
-      done >>"$sc_new"
+      done >"$sc_git"
+    # Read-prune-merge-write as ONE locked critical section (atomicity vs a
+    # concurrent hook record).
+    acquire_lock || {
+      rm -f "$sc_git"
+      warn "cannot acquire the fleet lock"
+      exit 2
+    }
+    sc_new=$(mktemp "$REG_DIR/.reg-scan.XXXXXX") || {
+      release_lock
+      rm -f "$sc_git"
+      exit 2
+    }
+    : >"$sc_new"
+    # Prune: keep every currently-tracked path that STILL EXISTS on disk (a
+    # vanished dir is a missed removal — dropping it is the disk-scan reconcile).
+    # Normalize a readable path through realpath so it dedups against scan
+    # output; keep an existing-but-unreadable path AS-IS rather than dropping it
+    # (only a truly-vanished dir is a removal, not a transient permission fault).
+    if [ -f "$REG" ]; then
+      while IFS= read -r ln || [ -n "$ln" ]; do
+        [ -n "$ln" ] || continue
+        [ -e "$ln" ] || continue
+        ln_real=$(cd "$ln" 2>/dev/null && pwd -P) || ln_real=""
+        [ -n "$ln_real" ] || ln_real=$ln
+        printf '%s\n' "$ln_real" >>"$sc_new"
+      done <"$REG"
+    fi
+    cat "$sc_git" >>"$sc_new" 2>/dev/null
+    rm -f "$sc_git"
     # Dedup (stable) and write once under the lock.
     sc_uniq=$(mktemp "$REG_DIR/.reg-uniq.XXXXXX") || {
+      release_lock
       rm -f "$sc_new"
       exit 2
     }
     awk '!seen[$0]++' "$sc_new" >"$sc_uniq" 2>/dev/null || {
+      release_lock
       rm -f "$sc_new" "$sc_uniq"
       exit 2
     }
     rm -f "$sc_new"
-    if ! write_registry "$sc_uniq"; then
+    if ! rewrite_locked "$sc_uniq"; then
+      release_lock
       rm -f "$sc_uniq"
       exit 2
     fi
+    release_lock
     rm -f "$sc_uniq"
     exit 0
     ;;
   hook-create)
-    # DECISION-CONTROL SAFE (the verified WorktreeCreate contract): ALWAYS echo
-    # the stdin worktree_path FIRST — that is the decision-control response the
-    # harness reads, so it is emitted before any work that could stall — then
-    # record best-effort in a fully isolated subshell, and ALWAYS exit 0. A slow
-    # or failed record must never delay or fail worktree creation; a dropped
-    # record self-heals on the next sweep's disk-scan reconcile (`scan`).
+    # DECISION-CONTROL SAFE (the verified WorktreeCreate contract). The stdin
+    # worktree_path is the decision-control response the harness reads, so it is
+    # emitted FIRST — but only after passing the same grammar check every stored
+    # path gets: a payload path carrying a control byte is refused (nothing
+    # echoed, no raw bytes on the decision channel; a malformed path is a
+    # pathological input, safer left uncreated than created under a forged name).
+    # A well-formed path always passes. The record then runs synchronously with a
+    # SHORT bounded lock wait (LOCK_MAX_TRIES), so a contended lock can never
+    # stall creation; a skipped record self-heals on the next sweep's `scan`. The
+    # record's isolated subshell can neither change stdout nor the exit — this
+    # hook ALWAYS exits 0, so it can never fail worktree creation.
+    LOCK_MAX_TRIES=100
     hc_in=$(cat 2>/dev/null) || hc_in=""
     hc_path=$(extract_worktree_path "$hc_in")
-    if [ -n "$hc_path" ]; then
+    if [ -n "$hc_path" ] && valid_path "$hc_path"; then
       printf '%s\n' "$hc_path"
       (do_record add "$hc_path" >/dev/null 2>&1) || true
+    elif [ -n "$hc_path" ]; then
+      warn "WorktreeCreate worktree_path failed the path grammar (control byte or over-length) — echoing nothing"
     else
       warn "WorktreeCreate payload carried no worktree_path — echoing nothing"
     fi
     exit 0
     ;;
   hook-remove)
+    LOCK_MAX_TRIES=100
     hr_in=$(cat 2>/dev/null) || hr_in=""
     hr_path=$(extract_worktree_path "$hr_in")
     if [ -n "$hr_path" ]; then

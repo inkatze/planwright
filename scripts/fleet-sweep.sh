@@ -75,6 +75,19 @@ while [ "$#" -gt 0 ]; do
         exit 2
       }
       repo=$2
+      # Screen the operator-supplied value before it reaches cd / git -C: a
+      # leading dash would be read as an option, a control byte is never a real
+      # repo path.
+      case $repo in
+        "" | -*)
+          warn "refusing a malformed --repo value (empty or leading dash)"
+          exit 2
+          ;;
+      esac
+      if [ "$repo" != "$(sanitize_printable "$repo")" ]; then
+        warn "refusing a --repo value with a control byte"
+        exit 2
+      fi
       shift 2
       ;;
     *)
@@ -120,7 +133,18 @@ threshold_seconds() {
   tsv_read=${tsv_read%m}
   case $tsv_read in
     "" | *[!0-9]*) ;;
-    *) tsv_min=$tsv_read ;;
+    *)
+      # Strip leading zeros BEFORE the arithmetic below: bash 3.2 / POSIX sh read
+      # a leading-zero token like `08` as octal in $(( )) ("value too great for
+      # base"), which would leave THRESHOLD empty and break the grace compare.
+      while :; do
+        case $tsv_read in
+          0?*) tsv_read=${tsv_read#0} ;;
+          *) break ;;
+        esac
+      done
+      tsv_min=$tsv_read
+      ;;
   esac
   printf '%s' $((tsv_min * 60))
 }
@@ -134,7 +158,11 @@ now_epoch() {
   esac
 }
 
-# tree_id <path> — a stable numeric id for the dirty-since marker (POSIX cksum).
+# tree_id <path> — a stable numeric id for the dirty-since marker and the decision
+# handle (POSIX cksum / CRC32). A CRC32 collision between two DISTINCT tracked
+# trees would share a handle/marker, but with a fleet's handful-to-dozens of
+# trees the birthday probability is negligible; a portable stronger hash (md5/sha)
+# is not on the support bar.
 tree_id() {
   printf '%s' "$1" | cksum | awk '{print $1}'
 }
@@ -173,6 +201,13 @@ SINCE_DIR=""
 root_home=$("$FS" root 2>/dev/null) || root_home=""
 if [ -n "$root_home" ]; then
   SINCE_DIR="$root_home/worktrees/dirty-since"
+else
+  # Fail LOUD, never fail silently open: without a persistable grace store the
+  # sweep cannot defer, so it escalates attention-needed trees immediately (below)
+  # rather than silently skipping them — the exact fail-open a safety net must not
+  # have. (The decision queue lives under the same home, so escalation may itself
+  # warn; that surfaces the broken state instead of hiding it.)
+  warn "fleet home unresolvable — cannot persist the dirty-tree grace clock; attention-needed trees are escalated without deferral"
 fi
 
 audit() {
@@ -188,19 +223,29 @@ escalate() {
   # else two dirty trees would collapse to one queue entry — while a re-sweep of
   # the same still-dirty tree re-uses the handle and upserts (no duplicate).
   es_worker="sweep-$(tree_id "$es_path")"
+  # The decision-queue question and the audit reasoning both run through a
+  # <=512-byte control-free-text grammar. A deeply-nested worktree path
+  # (valid_path admits up to 4096) would push either over the cap, so the write
+  # would be refused and a genuinely dirty tree would never be queued. Use a
+  # tail-truncated path (the distinctive leaf is what an operator needs) so both
+  # always fit.
+  es_disp=$es_path
+  if [ "${#es_disp}" -gt 400 ]; then
+    es_disp="...$(printf '%s' "$es_disp" | tail -c 397)"
+  fi
   if [ "$es_state" = uninspectable ]; then
-    es_q="Could not inspect working tree $es_path (git-lock contention or not a repo); retrying next sweep."
+    es_q="Could not inspect working tree $es_disp (git-lock contention or not a repo); retrying next sweep."
     es_opts="investigate|ignore"
     es_scope=uninspectable-tree
   else
-    es_q="Stale working tree $es_path has uncommitted or unpushed changes sitting past the threshold."
+    es_q="Stale working tree $es_disp has uncommitted or unpushed changes sitting past the threshold."
     es_opts="commit|push|discard|investigate"
     es_scope=dirty-tree
   fi
   # The path is UI-bound text; refuse to escalate rather than tear the queue if
   # it somehow carries a control byte or is over-length (decide validates too).
   if "$ATTN" decide "$es_worker" "$es_scope" "$es_q" investigate "$es_opts" high 2>/dev/null; then
-    audit escalate "$es_scope" "working tree $es_path escalated to the decision queue ($es_state)"
+    audit escalate "$es_scope" "working tree $es_disp escalated to the decision queue ($es_state)"
   else
     warn "could not escalate '$es_path' to the decision queue"
   fi
@@ -220,6 +265,13 @@ trees=$(
 )
 
 now=$(now_epoch)
+if [ -z "$now" ]; then
+  warn "could not read a numeric clock (date +%s) — cannot compute the dirty-tree grace; attention-needed trees are escalated without deferral"
+fi
+# `for tree in $trees` field-splits the list ONCE at loop entry using this IFS;
+# restoring IFS inside the body (so command substitutions split on whitespace)
+# does not re-split the already-computed list, so no per-iteration re-set is
+# needed — set it once at the body top.
 old_ifs=$IFS
 IFS='
 '
@@ -232,17 +284,19 @@ for tree in $trees; do
 
   if [ "$state" = clean ]; then
     [ -n "$marker" ] && rm -f "$marker" 2>/dev/null
-    IFS='
-'
     continue
   fi
 
   # Attention-needed (dirty or uninspectable): apply the grace via a persistent
   # first-seen marker, so a fresh problem waits one threshold before escalating
-  # (a transient lock or an in-progress edit resolves itself by then).
-  since=""
-  if [ -n "$marker" ]; then
-    mkdir -p "$SINCE_DIR" 2>/dev/null || true
+  # (a transient lock or an in-progress edit resolves itself by then). If the
+  # grace cannot be TRACKED — no marker store, no usable clock, or the marker
+  # cannot be persisted — do NOT silently defer (that is the fail-open a safety
+  # net must not have): fall through to escalate. `past_grace` defaults to 1 so
+  # every untrackable path escalates rather than skips.
+  past_grace=1
+  if [ -n "$marker" ] && [ -n "$now" ] && mkdir -p "$SINCE_DIR" 2>/dev/null; then
+    since=""
     if [ -f "$marker" ]; then
       since=$(cat "$marker" 2>/dev/null)
       case $since in
@@ -250,35 +304,34 @@ for tree in $trees; do
       esac
     fi
     if [ -z "$since" ]; then
-      since=$now
-      [ -n "$now" ] && printf '%s\n' "$now" >"$marker" 2>/dev/null || true
+      # First time seen in this state: persist the clock ATOMICALLY (temp+rename,
+      # the house discipline — a truncating `>` write could be read mid-flight as
+      # empty by a concurrent sweep and reset the grace clock).
+      mtmp=$(mktemp "$SINCE_DIR/.since.XXXXXX" 2>/dev/null)
+      if [ -n "$mtmp" ] && printf '%s\n' "$now" >"$mtmp" 2>/dev/null \
+        && mv -f "$mtmp" "$marker" 2>/dev/null; then
+        since=$now
+      else
+        [ -n "$mtmp" ] && rm -f "$mtmp" 2>/dev/null
+        # Could not persist the grace clock: leave `since` empty so past_grace
+        # stays 1 (escalate) — never defer on a grace we cannot track.
+      fi
     fi
-  else
-    since=$now
+    if [ -n "$since" ]; then
+      age=$((now - since))
+      [ "$age" -lt "$THRESHOLD" ] && past_grace=0
+    fi
   fi
-
-  age=0
-  if [ -n "$now" ] && [ -n "$since" ]; then
-    age=$((now - since))
-  fi
-  if [ "$age" -lt "$THRESHOLD" ]; then
-    IFS='
-'
-    continue
-  fi
+  [ "$past_grace" = 1 ] || continue
 
   # Past the grace: re-verify immediately (risk 10). A tree that became clean
   # between the two checks is a transient — drop it, do not escalate.
   reverify=$(inspect_tree "$tree")
   if [ "$reverify" = clean ]; then
     [ -n "$marker" ] && rm -f "$marker" 2>/dev/null
-    IFS='
-'
     continue
   fi
   escalate "$tree" "$reverify"
-  IFS='
-'
 done
 IFS=$old_ifs
 
@@ -286,26 +339,26 @@ IFS=$old_ifs
 #     spec bundle in the tower's checkout; audit only a reconcile that changed
 #     the snapshot (a dropped-push drift actually corrected).
 if [ -x "$SYNC" ] && [ -d "$repo/specs" ]; then
+  # Enable globbing only to expand the bundle set ONCE at loop entry; -f is
+  # restored for the body and the glob is not re-expanded per iteration.
   set +f
   for d in "$repo"/specs/*/; do
     set -f
-    [ -d "$d" ] || {
-      set +f
-      continue
-    }
-    tasks="$d/tasks.md"
-    if [ ! -f "$tasks" ]; then
-      set +f
-      continue
-    fi
+    [ -d "$d" ] || continue
+    tasks="${d}tasks.md" # $d already ends in '/'
+    [ -f "$tasks" ] || continue
     rel="specs/$(basename "$d")"
     before_sum=$(cksum <"$tasks" 2>/dev/null) || before_sum=""
-    (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || true
+    rec_rc=0
+    (cd "$repo" && "$SYNC" reconcile "$rel") >/dev/null 2>&1 || rec_rc=$?
     after_sum=$(cksum <"$tasks" 2>/dev/null) || after_sum=""
-    if [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
+    if [ "$rec_rc" != 0 ]; then
+      # A chronically failing backstop must not stay silent (it self-heals next
+      # cycle, but a persistent failure needs to surface).
+      warn "reconcile of $rel exited $rec_rc — missed-push backstop degraded, retrying next sweep"
+    elif [ -n "$before_sum" ] && [ "$before_sum" != "$after_sum" ]; then
       audit reconcile reconcile-backstop "$rel snapshot drift corrected from git ground truth (missed-push backstop)"
     fi
-    set +f
   done
   set -f
 fi

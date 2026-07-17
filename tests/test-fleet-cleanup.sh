@@ -71,11 +71,13 @@ fleet_home="$tmp/fleet"
 
 # --- a fake tmux on PATH (the death-evidence test's pattern): deterministic,
 #     no live server. Behaviour is driven by env the runner sets per case.
-#       FAKE_SELF   TAB-joined "session<TAB>window_id<TAB>window_name" the
-#                   caller's own pane resolves to (empty => display-message fails
-#                   => self unresolvable).
+#       FAKE_SELF   TAB-joined "session<TAB>window_id<TAB>window_name<TAB>index"
+#                   the caller's own pane resolves to (empty => display-message
+#                   fails => self unresolvable).
 #       FAKE_PANES  newline list of pane_dead values for the target window
 #                   ("absent" => the window is gone => list-panes exits 1).
+#       FAKE_SERVER_DOWN  non-empty => `ls` and `list-panes` both fail (an
+#                   unreachable server: lost observability, not "window gone").
 #       FAKE_KILLED file every kill-window target is appended to.
 fakebin="$tmp/bin"
 mkdir -p "$fakebin"
@@ -84,13 +86,18 @@ cat >"$fakebin/tmux" <<'EOF'
 sub=$1
 shift
 case "$sub" in
+  ls)
+    [ -n "${FAKE_SERVER_DOWN:-}" ] && exit 1
+    exit 0
+    ;;
   display-message)
     [ -n "${FAKE_SELF:-}" ] || exit 1
     printf '%s\n' "$FAKE_SELF"
     ;;
   list-panes)
-    # find the -t target for the killed-target echo parity; the pane data is
-    # global to the case, so just emit FAKE_PANES (or fail when absent).
+    # A downed server fails the query; otherwise emit FAKE_PANES (or fail when
+    # the target window is absent).
+    [ -n "${FAKE_SERVER_DOWN:-}" ] && exit 1
     [ "${FAKE_PANES:-absent}" = absent ] && exit 1
     printf '%s\n' "$FAKE_PANES"
     ;;
@@ -114,17 +121,20 @@ chmod +x "$fakebin/tmux"
 
 killed="$tmp/killed"
 
-# run_window <self> <panes> <session> <window> — invoke the window cleanup with
-# the fake tmux frontmost and a controlled self-identity + pane state.
+# run_window <self> <panes> <session> <window> ... — invoke the window cleanup
+# with the fake tmux frontmost and a controlled self-identity + pane state.
+# Optional overrides via env: RW_TMUX_PANE (default %0), RW_SERVER_DOWN,
+# RW_FLEET_HOME (default $fleet_home).
 run_window() {
   _self=$1
   _panes=$2
   shift 2
   : >"$killed"
   PATH="$fakebin:$PATH" \
-    TMUX="fake,1,0" TMUX_PANE="%0" \
+    TMUX="fake,1,0" TMUX_PANE="${RW_TMUX_PANE-%0}" \
     FAKE_SELF="$_self" FAKE_PANES="$_panes" FAKE_KILLED="$killed" \
-    PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+    FAKE_SERVER_DOWN="${RW_SERVER_DOWN:-}" \
+    PLANWRIGHT_FLEET_STATE_DIR="${RW_FLEET_HOME:-$fleet_home}" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
@@ -223,6 +233,51 @@ for bad in 'a b' '-x' '../x' 'a:b'; do
   [ "$rc" = 2 ] || fail "hostile session '$bad': exit $rc, expected 2"
 done
 echo "ok: hostile tmux tokens are refused (exit 2)"
+
+# 7b. A list-panes failure with the server UNREACHABLE is lost observability, not
+#     proof of absence: refuse (exit 5), never a false "gone" no-op (the
+#     2026-06-12 lesson).
+rm -rf "$fleet_home"
+rc=0
+RW_SERVER_DOWN=1 run_window "towerA	@5	worker-1	3" "absent" towerA @9 "stale" "worker exited" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "server unreachable: exit $rc, expected 5 (lost observability, not gone)"
+[ ! -s "$killed" ] || fail "server unreachable: a window was killed on lost observability"
+echo "ok: an unreachable tmux server is refused (exit 5), not misread as gone"
+
+# 7c. \$TMUX_PANE unset (but \$TMUX set) fails closed: self-identity is unreliable.
+rm -rf "$fleet_home"
+rc=0
+RW_TMUX_PANE="" run_window "towerA	@5	worker-1	3" "1" towerA @9 "stale" "worker exited" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "empty TMUX_PANE: exit $rc, expected 3 (fail closed)"
+[ ! -s "$killed" ] || fail "empty TMUX_PANE: a window was killed"
+echo "ok: an unset \$TMUX_PANE fails closed (exit 3)"
+
+# 7d. The self-targeting guard also refuses a target that addresses the caller's
+#     own window by INDEX (not just id/name).
+rm -rf "$fleet_home"
+rc=0
+run_window "towerA	@5	worker-1	3" "1" towerA 3 "stale" "worker exited" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "self-target by index: exit $rc, expected 3 (self-guard)"
+[ ! -s "$killed" ] || fail "self-target by index: a window was killed"
+echo "ok: the self-guard refuses the caller's own window addressed by index"
+
+# 7e. A reclaim that SUCCEEDS but whose audit write fails returns exit 6 (acted
+#     but unrecorded) — distinct from 2 (nothing happened). The fleet home is
+#     pointed at an unwritable location so the audit write fails after the kill.
+unwritable_home="$tmp/unwritable-home"
+: >"$unwritable_home" # a FILE where a dir is expected
+rm -f "$killed"
+: >"$killed"
+rc=0
+RW_FLEET_HOME="$unwritable_home/fleet" \
+  run_window "towerA	@5	worker-1	3" "1" towerA @9 "stale" "worker exited" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "audit-fail-after-kill: exit $rc, expected 6 (acted but unaudited)"
+grep -q '=towerA:@9' "$killed" || fail "audit-fail-after-kill: the window was not actually killed"
+echo "ok: a reclaim whose audit write fails returns exit 6 (acted but unrecorded)"
 
 # --- worktree cleanup, against a real git repo with a real linked worktree.
 git_env() {
