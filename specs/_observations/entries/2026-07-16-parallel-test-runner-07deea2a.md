@@ -1,0 +1,1 @@
+- 2026-07-16 [planwright] The fail-fast serial `mise run test` opportunity (opportunities.md entry proposing run-all-and-aggregate) is now implemented by scripts/run-tests.sh (chore/parallelize-test-suite): bounded-parallel, per-file logs, positive completion accounting. The old entry describes a replaced runner; drain should mark the candidate resolved.

@@ -16,8 +16,8 @@ description = "Sign and publish the pending release tag on this repo (autopilot-
 run = "scripts/release-publish.sh"
 
 [tasks.test]
-description = "Run the shell test suites under /bin/bash (the bash 3.2 floor)"
-run = 'for t in tests/*.sh; do /bin/bash "$t" || exit 1; done'
+description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides)"
+run = '/bin/bash scripts/run-tests.sh'
 
 [tasks.status]
 description = "Render a spec bundle's derived execution status (the canonical read surface for format-version 2 bundles; invariant-tasks D-6). Usage: mise run status specs/<spec>"
