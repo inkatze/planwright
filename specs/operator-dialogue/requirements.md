@@ -88,10 +88,13 @@ operator well" becomes measured rather than a matter of taste.
   *present without steering* — each stated as inspectable rules rather than a
   tone.
   *(Cites: D-1, D-4, D-5, D-6.)*
-- **REQ-A1.3** A skill SHALL cite the doctrine in its manifest at every
-  attended human moment it owns, so the governance is explicit and checkable,
-  never merely implied.
-  *(Cites: D-1; instruction-hygiene manifest convention (Sources).)*
+- **REQ-A1.3** A skill SHALL cite the doctrine in its manifest for each attended
+  human moment it instantiates, so the citation tracks the behavior it governs
+  and never precedes it; the cited surface list grows as each surface's behavior
+  is reworked (kickoff-first this pass; the execution-side surfaces on their
+  deferred pass).
+  *(Cites: D-1; instruction-hygiene (Sources).)*
+  *(Amended at kickoff 2026-07-17: obligation attached per-surface-at-instantiation so the REQ text matches the kickoff-only verification scope.)*
 - **REQ-A1.4** The doctrine's own prose SHALL respect the repo's instruction
   budget: terse and point-of-use, because a skill that front-loads it pays the
   cost against its start-load walls.
@@ -116,8 +119,11 @@ operator well" becomes measured rather than a matter of taste.
   heavyweight learner model.
   *(Cites: D-4.)*
 - **REQ-B1.5** Translating the spec to a lower level SHALL NOT distort it: a
-  normative token — MUST, SHALL, SHALL NOT, a threshold, or an enumerated
-  state — is preserved verbatim and never softened into vague prose.
+  normative token — MUST, SHALL, SHALL NOT, MAY, a threshold, or an enumerated
+  state — is, wherever the explanation conveys that concept, preserved verbatim
+  and never softened into vague prose. (This constrains what is conveyed, not
+  what must be conveyed: teaching the frontier MAY skip a concept the operator
+  already holds, REQ-B1.3; it may never soften one it does present.)
   *(Cites: D-3; spec-comprehension REQ-C1.7 (Sources).)*
 
 ## REQ-C — Interview to completeness
@@ -129,7 +135,7 @@ operator well" becomes measured rather than a matter of taste.
 - **REQ-C1.2** A changed upstream answer SHALL reopen the dependent decisions
   it invalidates, rather than leaving a stale downstream answer standing.
   *(Cites: D-5.)*
-- **REQ-C1.3** Questions SHALL be bounded per pass (on the order of five) and
+- **REQ-C1.3** Questions SHALL be bounded per pass (at most five) and
   asked only when they are actually needed, so the interview converges rather
   than interrogates.
   *(Cites: D-5; research: GitHub Spec Kit /clarify (Sources).)*
@@ -154,11 +160,20 @@ operator well" becomes measured rather than a matter of taste.
   refusal where the operator requested information is a defect, not compliance.
   *(Cites: D-3; research: Khanmigo Socratic-guardrail failure mode (Sources).)*
 - **REQ-D1.4** When the skill presents alternatives or a fork, it SHALL apply
-  the balance rules — parallel equal-detail presentation, equal-weight
-  pros and cons, neutralized ordering, an explicit equal-weight
-  reject/do-nothing option, and no pre-selected default — and SHALL self-audit
-  its own prose against them before presenting.
-  *(Cites: D-6; research: IPDAS balanced-information standards (Sources).)*
+  the balance rules — parallel equal-detail presentation, an explicit
+  equal-weight reject/do-nothing option, neutralized ordering, and no
+  pre-selected default — and SHALL self-audit its own prose against them before
+  presenting. The equal-weight / neutralized-ordering / no-recommendation rules
+  yield to a *grounded* recommendation (the grounding test, D-12): the skill MAY
+  mark a recommended option when its basis is grounded in the spec, the doctrine,
+  or mechanical consistency (a reason the operator can verify against the
+  artifact); a recommendation resting on the skill's own quality opinion is
+  stripped by the self-audit. **No pre-selected default is admissible in any
+  case:** a grounded recommendation may be marked and given first with its
+  reason, but no option is ever pre-selected as the default — this rule does not
+  yield.
+  *(Cites: D-6, D-12; research: IPDAS balanced-information standards (Sources).)*
+  *(Amended at kickoff 2026-07-17: balance rules carved so a grounded recommendation is the admitted exception; no-pre-selected-default made unconditional.)*
 - **REQ-D1.5** Any likelihood the skill surfaces (coverage, confidence, risk)
   SHALL be expressed as a natural frequency with a fixed denominator, never a
   lone percentage or a single one-sided frame.
@@ -166,14 +181,20 @@ operator well" becomes measured rather than a matter of taste.
 
 ## REQ-E — Self-contained confirmation
 
+This group states the self-contained-confirmation rule, which sits **under**
+*present without steering* (REQ-D / D-6): it is a named rule of that discipline,
+not a fourth peer discipline. Its "no pre-selected default" is the same
+unconditional rule REQ-D1.4 states.
+
 - **REQ-E1.1** Every confirmation SHALL be self-contained in its option set:
   each option restates its own action and its consequence, so the choice is
   answerable from the options alone, without relying on prose rendered above
   the selector (which the operator's terminal may hide).
   *(Cites: D-7; obs:d0753832; research: NN/G confirmation dialogs (Sources).)*
 - **REQ-E1.2** A confirmation SHALL include an explicit reject-or-defer option
-  at equal prominence and SHALL NOT pre-select a default for a consequential
-  choice.
+  at equal prominence and SHALL NOT pre-select a default (unconditionally, the
+  same no-default rule as REQ-D1.4; a grounded recommendation may be marked but
+  never pre-selected).
   *(Cites: D-7; research: NN/G confirmation dialogs, IPDAS (Sources).)*
 - **REQ-E1.3** Generic option labels that force the operator back to unseen
   context — OK, Yes, No, a bare "Approve?" — SHALL NOT be used; the question
@@ -199,8 +220,8 @@ operator well" becomes measured rather than a matter of taste.
   protect, not as machine tokens the operator is assumed to already understand.
   *(Cites: D-9.)*
 - **REQ-F1.4** The instantiation SHALL NOT weaken `/spec-kickoff`'s existing
-  invariants (the two-key launch, no-auto-chain, draft-PR-only, and the
-  machine-checkable sign-off record and content anchor) and SHALL reconcile
+  invariants (never-auto-merge, the two-key launch, no-auto-chain, draft-PR-only,
+  and the machine-checkable sign-off record and content anchor) and SHALL reconcile
   with `skill-rigor`'s in-flight sign-off verification changes rather than
   colliding with them.
   *(Cites: D-9; skill-rigor (Sources).)*
@@ -232,9 +253,22 @@ operator well" becomes measured rather than a matter of taste.
   *(Cites: D-8, D-3.)*
 - **REQ-G1.5** The eval SHALL reuse the existing prompt-eval isolation and
   hygiene disciplines (a disposable per-run worktree, budget caps, fail-closed
-  teardown, allowlisted scalar-only recorded results) and SHALL remain
-  on-demand only, never wired into CI.
+  teardown, allowlisted scalar-only recorded results), SHALL remain on-demand
+  only, never wired into CI, and SHALL be registered under the `eval:` task
+  namespace so `scripts/check-no-ci-evals.sh` covers it — the never-CI guard must
+  see the new harness, not only `prompt-eval.sh`.
   *(Cites: D-8; the prompt-eval harness (Sources).)*
+- **REQ-G1.6** The harness SHALL honor `security-posture`'s framework-script
+  disciplines at its trust boundaries: persona-driver text is sanitized before it
+  reaches `tmux send-keys` (no injected control input); the disposable worktree
+  path is containment-checked after canonicalization before teardown; the
+  structured decision/transcript log is emitted and parsed in a non-code-bearing,
+  escape-safe form; artifact values surfaced to the pane pass the echo-safety
+  sanitizer; only synthetic/fixture content (never a real spec bundle's
+  operational detail) is sent to a third-party grader; and any sign-off record the
+  driver produces is marked eval-only and non-authoritative so it can never be
+  mistaken for a human sign-off.
+  *(Cites: D-8; security-posture (Sources).)*
 
 ## REQ-H — Measurable acceptance
 
@@ -250,9 +284,12 @@ operator well" becomes measured rather than a matter of taste.
   *(Cites: D-11; REQ-C1.1, REQ-D1.1, REQ-E1.1.)*
 - **REQ-H1.3** The experiential qualities SHALL be scored against named
   rubrics — the CDC Clear Communication Index and the IPDAS balance criteria —
-  run as a self-audit pass and/or by the independent grader, with the human as
-  final rater.
-  *(Cites: D-11; research: CDC Clear Communication Index, IPDAS (Sources).)*
+  by the independent grader (a non-Anthropic backend) with the human as final
+  rater. A skill MAY run a self-audit against the rubrics as a diagnostic
+  pre-pass, but the self-audit produces no score of record: the independent
+  grader and the human are the only acceptance scorers, so the eval never
+  collapses into the agent grading its own session (REQ-G1.4).
+  *(Cites: D-11, D-3; research: CDC Clear Communication Index, IPDAS (Sources).)*
 - **REQ-H1.4** The persona-parameterized eval (REQ-G1.2) SHALL be the
   acceptance path for the adaptive-level requirement, asserting the skill
   pitched differently and appropriately to a novice versus an expert operator.
@@ -270,6 +307,35 @@ operator well" becomes measured rather than a matter of taste.
   self-contained-confirmation rule, and the TTY/persona behavioral eval
   established. Prior-art research consulted and recorded in Sources.
 
+- 2026-07-17: Kickoff (first activation). REQ-A1.3's verification rescoped to the
+  attended surfaces instantiated so far (`/spec-kickoff` this pass), with the
+  deferred execution-side surfaces citing the doctrine when their behavior is
+  reworked, so a manifest citation never precedes the behavior it promises
+  (kickoff §3 REQ-A, 2026-07-17). Scope clarification; no REQ meaning changed.
+- 2026-07-17: Kickoff. D-12 minted (recommendation vs. present-without-steering
+  grounding test) reconciling the retained "selectors with a recommendation"
+  rule with D-6's balance rules; REQ-D1.4 extended to require the grounding test
+  in its self-audit and to cite D-12; Task 1 citations updated
+  (kickoff §4, 2026-07-17). Meaning-class addition (new D-ID).
+- 2026-07-17: Kickoff. `test-spec.md` intro tightened to state that the `[test]`
+  tag covers two subsets — CI-run structural checks and on-demand
+  behavioral-eval assertions (never CI, enforced by `check-no-ci-evals.sh`) — so
+  a `[test]` tag alone is not read as CI coverage (kickoff §5, 2026-07-17).
+  Expression-only clarification; no verification path changed.
+- 2026-07-17: Kickoff sign-off lens pass (Discovery-Rigor, full bundle); ~25
+  findings dispositioned (recorded in `kickoff-brief.md` §8). Applied: D-12
+  reconciliation completed (REQ-D1.4 balance rules carved so a grounded
+  recommendation is the admitted exception, no-pre-selected-default made
+  unconditional, D-6/D-7 reconciled, REQ-E1.2 aligned); REQ-A1.3 reworded to
+  attach the citation per-surface-at-instantiation; REQ-B1.5 gains MAY and the
+  convey-vs-must-convey clause; REQ-C1.3 threshold hardened to "at most five";
+  REQ-F1.4 regains never-auto-merge; REQ-G1.5 requires the harness under the
+  `eval:` guard; **REQ-G1.6 added** (harness security disciplines); REQ-H1.3
+  self-audit made a non-scoring diagnostic pre-pass; assorted consistency fixes
+  across `design.md`/`tasks.md`/`test-spec.md`. Sources gain `instruction-hygiene`
+  and `security-posture`; IPDAS expanded. Meaning-class (new REQ-G1.6; several
+  REQ-meaning refinements).
+
 ## Sources
 
 - **interaction-style doctrine** — `doctrine/interaction-style.md`: the existing
@@ -277,6 +343,13 @@ operator well" becomes measured rather than a matter of taste.
   selectors-with-a-recommendation, running summary, the clerical/judgment split)
   whose declared scope is only the two authoring skills. This spec widens that
   scope and layers the three disciplines onto it.
+- **instruction-hygiene** — `doctrine/instruction-hygiene.md`: the doctrine
+  manifest convention (the `Doctrine: <load-model> <doc>` lines a skill declares)
+  that REQ-A1.3's per-surface citation requirement rests on.
+- **security-posture** — `doctrine/security-posture.md`: the artifact
+  data-hygiene rules and the framework-script security disciplines (untrusted
+  input, subprocess construction, path handling, serialization, echo discipline)
+  that REQ-G1.6 binds the harness to.
 - **the pinned altitude claim** — the operator's drafting-session framing
   (2026-07-17): the spec skills "were made with another bot as an audience... it
   does not feel like a peer review with a colleague where knowledge transfer and
@@ -321,7 +394,8 @@ operator well" becomes measured rather than a matter of taste.
   <https://www.nngroup.com/articles/confirmation-dialog/>
 - **research: progressive disclosure (NN/G)** — essentials first, detail behind
   a deferred layer. <https://www.nngroup.com/videos/progressive-disclosure/>
-- **research: IPDAS balanced-information standards** — the non-directive
+- **research: IPDAS balanced-information standards** — IPDAS = International
+  Patient Decision Aid Standards; the non-directive
   presentation rules (parallel equal-detail options, equal-weight benefits and
   harms, neutralized ordering, explicit do-nothing option, no default).
   <https://journals.sagepub.com/doi/full/10.1177/0272989X211021397>

@@ -5,8 +5,8 @@
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Origin-tag legend: `N` — new decision, minted in this bundle's drafting
-session (2026-07-17).
+Origin-tag legend: `N` — new decision minted in this bundle (in the drafting
+session, or at a later kickoff / amendment; the decision body dates it).
 
 ## Decision log
 
@@ -21,10 +21,10 @@ framing; see `## Sources`), which is a doctrine-gap trigger under
 
 **Alternatives considered:**
 - Hand-patch the five skills individually to read less mechanically. Rejected
-  because: the same failure recurs at six surfaces from one shared root cause
-  (a doctrine scoped to only the two authoring skills); five independent
-  rewrites would drift and re-diverge, the exact failure `proportionality`
-  warns about.
+  because: the same failure recurs at five surfaces from one shared root cause
+  (a doctrine scoped to only the two authoring skills, leaving `/spec-draft` the
+  lone colleague-like outlier); five independent rewrites would drift and
+  re-diverge, the exact failure `proportionality` warns about.
 - Mint a new "peer-review" doctrine doc alongside `interaction-style`.
   Rejected because: it would state the same principle at a second address and
   front-load a second doc against the skills' start-load budgets; the existing
@@ -102,7 +102,14 @@ the frontier; proportionality favors a lightweight estimate over a model.
 **Decision:** Elicitation is goal-directed: readiness cannot be declared while
 a decision required by the spec's own dependency structure is undefined, a
 changed upstream answer reopens its dependents, and questions are bounded per
-pass and asked only when needed.
+pass and asked only when needed. The "dependency structure" is read per
+lifecycle: at `/spec-draft` it is the task / `Done when:` graph being elicited;
+at `/spec-kickoff` (which walks an already-authored bundle) it is the bundle's
+open questions and cross-references — a "required decision left undefined" is an
+open question or an unresolved inconsistency, and "reopen dependents" reopens the
+brief decisions an amended answer invalidates. The check is not vacuous at
+kickoff: it is the discipline behind the inconsistency-halt and the
+no-sign-off-with-open-questions rule.
 
 **Alternatives considered:**
 - A fixed authored checklist of questions. Rejected because: it drifts from the
@@ -131,11 +138,17 @@ own prose against them before presenting.
 
 **Chosen because:** the patient-decision-aid field has already reduced
 "don't covertly steer" to an operationalizable, self-auditable checklist; that
-is exactly what turns a vibe into a rule.
+is exactly what turns a vibe into a rule. *(Reconciled at kickoff 2026-07-17:
+D-12 refines the boundary — the "loud steering" this discipline suppresses is an
+*ungrounded* recommendation; a recommendation grounded in the spec, doctrine, or
+mechanical consistency is admitted by D-12's grounding test and may be marked,
+while no-pre-selected-default and the equal-weight rules for ungrounded forks
+still hold.)*
 
 ### D-7: Self-contained confirmations — the decision lives in the options  (N)
 
-**Decision:** Every confirmation is answerable from its option set alone. Each
+**Decision:** Every confirmation is answerable from its option set alone. This
+is a rule **under** *present without steering* (D-6), not a peer discipline. Each
 option restates its action and consequence, an explicit equal-weight reject
 option is always present, no default is pre-selected, generic OK/Yes/No labels
 are banned, and any deeper detail is supplementary, never load-bearing for the
@@ -230,3 +243,36 @@ balance — and pilots, human as final rater). `test-spec.md` reflects the split
 **Chosen because:** splitting the surface converts the subjective complaint
 into criteria where it honestly can be, and names the rubric/pilot path where
 it cannot, which is the structural cure for "built for a bot."
+
+### D-12: Recommendation vs. present-without-steering — the grounding test  (N)
+
+**Decision:** The reworked `interaction-style` doctrine keeps the existing
+"selectors with a recommendation" rule and adds the present-without-steering
+balance rules (D-6), and draws the boundary between them with a **grounding
+test**: a skill MAY mark a recommended option when the basis for the
+recommendation is derivable from the spec, the doctrine, or mechanical
+consistency — a reason the operator can verify against the artifact — and MUST
+present neutrally (parallel equal-detail options, equal-weight, neutralized
+ordering, explicit equal-weight reject, no pre-selected default) when the only
+basis would be the skill's own opinion of whether the spec is good. The
+self-audit (REQ-D1.4) applies this test to each presented fork: if the stated
+reason is the skill's taste rather than an artifact-grounded fact, the
+recommendation is stripped and the options are re-leveled.
+
+**Alternatives considered:**
+- Approval surfaces never recommend (drop "recommended option first" at every
+  present-without-steering surface). Rejected because: it over-rotates and
+  collides with the clerical/judgment split (REQ-C1.4) — it would forbid a
+  recommendation even on a harmless clerical pick the operator delegated,
+  pushing that weight back onto the operator.
+- Keep both rules in the doc without stating the boundary, leaving it to the
+  Task 1 author. Rejected because: two rules that pull against each other with
+  no stated switch read as contradictory and drift per surface — the exact
+  re-divergence D-1 exists to prevent.
+
+**Chosen because:** the boundary reuses D-3's information-versus-advice line as
+its switch, so it is the smallest coherent addition rather than a new principle;
+and expressing it as a grounding test unifies it with the escape valve (surface
+what the operator can check against the artifact; withhold only the skill's own
+verdict), which turns REQ-D1.4's self-audit into a concrete check instead of a
+vibe. Origin: kickoff §4 (2026-07-17).

@@ -27,7 +27,7 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   `check:instructions` passes on every skill that front-loads the doc;
   `mise run check` is green.
 - **Dependencies:** none
-- **Citations:** D-1, D-3, D-4, D-5, D-6, D-10 · REQ-A1.1, REQ-A1.2, REQ-A1.4, REQ-B1.3, REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5
+- **Citations:** D-1, D-3, D-4, D-5, D-6, D-10, D-12 · REQ-A1.1, REQ-A1.2, REQ-A1.4, REQ-B1.3, REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5
 - **Estimated effort:** 1 day
 
 ### Task 2 — Self-contained-confirmation rule and structural check
@@ -58,8 +58,8 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   within the instruction budget and reconciled with `skill-rigor`'s in-flight
   sign-off changes.
 - **Done when:** `skills/spec-kickoff/SKILL.md` reflects the instantiation and
-  the structured-log emit; the existing invariants (two-key launch,
-  no-auto-chain, draft-PR-only, sign-off record + anchor) are intact;
+  the structured-log emit; the existing invariants (never-auto-merge, two-key
+  launch, no-auto-chain, draft-PR-only, sign-off record + anchor) are intact;
   `check:instructions` passes on the kickoff surface; `mise run check` is green.
 - **Dependencies:** 1, 2
 - **Citations:** D-2, D-3, D-5, D-9, D-10 · REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-G1.3
@@ -89,12 +89,19 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   an independent-grader hook (a non-Anthropic panel backend and/or human final
   rater); reusing the prompt-eval isolation and hygiene disciplines (disposable
   per-run worktree, budget caps, fail-closed teardown, allowlisted scalar-only
-  results); on-demand only, never wired into CI.
+  results); on-demand only, never wired into CI. The scaffold demonstrates
+  against a generic fixture skill; the acceptance assertions that drive the real
+  `/spec-kickoff` surface live in Task 6. The harness honors the REQ-G1.6
+  security disciplines: persona text sanitized before `send-keys`,
+  containment-checked worktree teardown, escape-safe structured log, echo-safety
+  on surfaced artifact values, fixture-only content to any third-party grader,
+  and eval-only marking of any driver-produced sign-off record.
 - **Done when:** the harness runs a persona-driven session end-to-end against a
-  fixture skill and emits an artifact-graded result; `scripts/check-no-ci-evals.sh`
-  still passes (the harness is not in CI); `mise run check` is green.
+  fixture skill and emits an artifact-graded result; the harness is registered
+  under the `eval:` task namespace so `scripts/check-no-ci-evals.sh` covers it
+  and still passes (the harness is not in CI); `mise run check` is green.
 - **Dependencies:** none
-- **Citations:** D-8 · REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5
+- **Citations:** D-8 · REQ-G1.1, REQ-G1.2, REQ-G1.3, REQ-G1.4, REQ-G1.5, REQ-G1.6
 - **Estimated effort:** 3 days
 
 ### Task 6 — Kickoff acceptance: invariants, persona pilots, rubric self-audit
@@ -103,16 +110,22 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   `[test]` invariant checks over a kickoff run (self-contained option set via
   Task 2's check, absence of verdict tokens, preserved normative tokens,
   completeness — no readiness while a required decision is undefined); the
-  persona pilots asserting the kickoff pitched differently and appropriately to
-  a novice versus an expert operator; and the CDC Clear Communication Index and
-  IPDAS balance rubrics wired as the experiential-quality self-audit and
-  independent-grader instrument, with the human as final rater.
-- **Done when:** the invariant checks run against a kickoff eval fixture and
-  pass; the novice/expert persona pilots produce a graded divergence in
-  explanation depth; the rubric self-audit is documented and runnable;
-  `mise run check` is green.
+  additional assertable checks and their fixtures — the REQ-A1.3 manifest-grep
+  check, the REQ-C1.1 completeness fixture (a known-required-but-undefined
+  decision) and REQ-C1.2 changed-answer-reopens-dependents fixture, and the
+  REQ-F1.2 sign-off-summary-emitted-before-decision assertion; the persona pilots
+  asserting the kickoff pitched differently and appropriately to a novice versus
+  an expert operator; and the CDC Clear Communication Index and IPDAS balance
+  rubrics wired as the experiential-quality instrument scored by the independent
+  grader with the human as final rater (the rubric self-audit is a non-scoring
+  diagnostic pre-pass, per REQ-H1.3).
+- **Done when:** the invariant checks (including the A1.3 grep, the C1.1/C1.2
+  fixtures, and the F1.2 assertion) run against a kickoff eval fixture and pass;
+  the novice/expert persona pilots produce a graded divergence in explanation
+  depth; the rubric instrument and its diagnostic self-audit are documented and
+  runnable; `mise run check` is green.
 - **Dependencies:** 3, 4, 5
-- **Citations:** D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-G1.2
+- **Citations:** D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-G1.2, REQ-A1.3, REQ-C1.1, REQ-C1.2, REQ-F1.2
 - **Estimated effort:** 2 days
 
 ## Awaiting input
@@ -131,8 +144,10 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   failure (Sources).
 - **Execution-side handoffs pass.** Extending the doctrine's instantiation to
   `/orchestrate`, `/execute-task`, `/resume`, and `/drain` (their handoffs,
-  reports, and disposition prompts). Confidence: high. **Gate:** after the
-  kickoff instantiation proves the doctrine and the eval loop on one surface.
+  reports, and disposition prompts). This pass also adds the `interaction-style`
+  manifest citation to those four surfaces (REQ-A1.3), deferred with the behavior
+  it promises rather than cited ahead of it. Confidence: high. **Gate:** after
+  the kickoff instantiation proves the doctrine and the eval loop on one surface.
   Citations: D-9.
 
 ## Out of scope
