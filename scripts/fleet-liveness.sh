@@ -84,7 +84,9 @@
 #        does.
 #      heartbeat fresh: no forward progress (the same --progress token, e.g.
 #        the worker branch's HEAD sha) across fleet_flailing_threshold
-#        consecutive observations -> flailing; else working.
+#        consecutive observations taken while WORKING (a stretch spent
+#        awaiting-input/idle/ended expects no progress and resets the
+#        streak) -> flailing; else working.
 #    A flailing classification ESCALATES AND NOTHING ELSE (REQ-A1.3): it
 #    upserts exactly one decision-queue entry (the "this task may be stuck"
 #    fork — an upsert, so repeated classification never duplicates it) and
@@ -569,6 +571,14 @@ case "$cmd" in
     flail_n=$(knob fleet_flailing_threshold 3) || exit $?
     hung_s=$(knob fleet_hung_heartbeat_seconds 900) || exit $?
     root=$("$FS" root) || exit 2
+    # A store that exists but cannot be read fails the classification CLOSED
+    # (exit 2), never open: silently reading an empty row would report a
+    # possibly-hung or human-blocked worker as working (REQ-A1.7's posture —
+    # lost observability is never evidence of health).
+    if [ -f "$root/attention/state" ] && [ ! -r "$root/attention/state" ]; then
+      echo "fleet-liveness: attention store exists but is unreadable — refusing to classify blind" >&2
+      exit 2
+    fi
     row_state=$(store_row_field "$root" "$worker" "$FIELD_STATE")
     hb="$hb_arg"
     [ -n "$hb" ] || hb=$(store_row_field "$root" "$worker" "$FIELD_HEARTBEAT")
@@ -644,9 +654,15 @@ case "$cmd" in
         fi
       elif [ -n "$progress" ]; then
         # Trailing consecutive observations sharing this progress token
-        # (the row just appended included).
+        # (the row just appended included). Only rows observed while the
+        # worker was working — or had no store row yet (the startup/observe
+        # default, field 4 empty) — count: a stretch spent awaiting-input,
+        # idle, or ended is a stretch where no progress is EXPECTED, and
+        # counting it would fire a spurious flailing escalation the moment
+        # the worker resumes (kickoff brief: flailing is "heartbeating, no
+        # progress"; risk row 3's too-aggressive early signal).
         streak=$(awk -F "$TAB" -v t="$progress" '
-          { if (($3 "") == (t "")) n++; else n = 0 }
+          { if ((($3 "") == (t "")) && ($4 == "" || $4 == "working")) n++; else n = 0 }
           END { print n + 0 }' "$obs")
         if [ "$streak" -ge "$flail_n" ]; then
           cls=flailing
@@ -765,26 +781,28 @@ case "$cmd" in
     # counter is already durable at this point, so the caller must not
     # re-invoke crash-record for the same crash even on a non-zero exit (a
     # retry would double-count). A side-effect failure below exits 2 with
-    # the stdout line already carrying the committed record; the missing
-    # disable escalation self-heals on the next crash-check (which
-    # re-upserts the queue entry for a disabled worker). Side effects run
-    # AFTER the lock is released: decide and the audit trail serialize
-    # through the same fleet lock themselves.
+    # the stdout line already carrying the committed record. The disable
+    # audits BEFORE it queues (the classifier's ordering): the queue side
+    # has a self-heal — the next crash-check re-upserts the escalation for
+    # a disabled worker — while nothing re-audits, so decide-before-audit
+    # could queue the fork with the disable action permanently missing
+    # from the trail. Side effects run AFTER the lock is released: decide
+    # and the audit trail serialize through the same fleet lock themselves.
     if [ "$disabled" = 1 ]; then
       printf 'disabled %s\n' "$count"
+      "$FAU" record liveness-backoff disable \
+        "consecutive-failure-$count" \
+        "worker $worker reached the disable threshold ($thresh); no further relaunch will be authorized until a human resets the streak (REQ-A1.4)" \
+        >/dev/null || {
+        echo "fleet-liveness: failed to audit the disable (crash-check re-queues the escalation)" >&2
+        exit 2
+      }
       "$FA" decide "$worker" "$scope" \
         "Worker crash-looping: disabled after $count consecutive failures" \
         "investigate before any relaunch" \
         "investigate|reset the streak and relaunch|park the unit" \
         high >/dev/null || {
         echo "fleet-liveness: failed to queue the disable escalation (crash-check re-queues it)" >&2
-        exit 2
-      }
-      "$FAU" record liveness-backoff disable \
-        "consecutive-failure-$count" \
-        "worker $worker reached the disable threshold ($thresh); no further relaunch will be authorized until a human resets the streak (REQ-A1.4)" \
-        >/dev/null || {
-        echo "fleet-liveness: failed to audit the disable" >&2
         exit 2
       }
       exit 0
@@ -870,6 +888,12 @@ case "$cmd" in
     # A relaunch is a daemon restart action: the operator kill-switch gates
     # it (D-15). Exit 1 paused; 4/5 propagate (never act under unknown
     # switch state). Bookkeeping (crash-record) is deliberately NOT gated.
+    # A missing/non-executable gate is the broken-install case (exit 5, the
+    # knob-resolver discipline), never a raw shell 126/127.
+    if [ ! -x "$FDG" ]; then
+      echo "fleet-liveness: daemon gate '$FDG' is missing or not executable (broken install)" >&2
+      exit 5
+    fi
     gate_rc=0
     "$FDG" liveness-backoff || gate_rc=$?
     case $gate_rc in

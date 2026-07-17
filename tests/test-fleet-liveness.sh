@@ -863,4 +863,115 @@ qc=$(attn "$home34" queue --count) || fail "queue --count failed"
 [ "$qc" = 0 ] || fail "audit-first: a queue entry landed despite the audit failure (count $qc)"
 echo "ok: the escalation audits before it queues (audit failure -> no queue entry)"
 
+# ---------------------------------------------------------------------------
+# 35. REQ-A1.2 / kickoff risk 3 — the no-progress streak counts only
+#     observations taken while the worker was working (or had no row yet, the
+#     startup/observe default): a stretch spent awaiting-input (a permission
+#     block: no progress is EXPECTED) must not inflate the streak into a
+#     spurious flailing escalation the moment the worker resumes.
+# ---------------------------------------------------------------------------
+home35="$tmp/h35"
+attn "$home35" decide "$w" "$s" "may I run this?" "deny" "allow|deny" high >/dev/null \
+  || fail "streak-scope setup: decide failed"
+# Three classification cycles while blocked: each observes the same progress
+# token and an awaiting-input row (threshold is 3).
+out=$(run "$home35" classify "$w" "$s" --now 10000 --heartbeat 9990 --progress sha-w) || fail "blocked obs 1"
+[ "$out" = awaiting-human ] || fail "blocked obs 1: '$out', expected awaiting-human"
+run "$home35" classify "$w" "$s" --now 10060 --heartbeat 10050 --progress sha-w >/dev/null || fail "blocked obs 2"
+run "$home35" classify "$w" "$s" --now 10120 --heartbeat 10110 --progress sha-w >/dev/null || fail "blocked obs 3"
+# The permission resolves; the worker resumes (the post-tool-use push).
+attn "$home35" heartbeat "$w" "$s" working >/dev/null || fail "streak-scope resume"
+out=$(run "$home35" classify "$w" "$s" --now 10180 --heartbeat 10170 --progress sha-w) \
+  || fail "post-resume classify: non-zero exit"
+[ "$out" = working ] \
+  || fail "streak-scope: '$out', expected working (blocked-stretch observations counted toward the streak)"
+# A genuine post-resume no-progress streak still fires at the threshold.
+run "$home35" classify "$w" "$s" --now 10240 --heartbeat 10230 --progress sha-w >/dev/null || fail "resumed obs 2"
+out=$(run "$home35" classify "$w" "$s" --now 10300 --heartbeat 10290 --progress sha-w) || fail "resumed obs 3"
+[ "$out" = flailing ] || fail "streak-scope: '$out', expected flailing (a real working streak must still fire)"
+echo "ok: awaiting-input observations never count toward the flailing streak"
+
+# ---------------------------------------------------------------------------
+# 36. REQ-A1.4 — the crash-record disable path audits BEFORE it queues (the
+#     classifier's ordering): an audit failure exits 2 with NO queue entry
+#     (the counter is already durable), and the next crash-check re-upserts
+#     the escalation — the trail never lags the queue.
+# ---------------------------------------------------------------------------
+noaudit2="$tmp/noaudit2-scripts"
+mkdir -p "$noaudit2"
+cp "$here/../scripts/"*.sh "$noaudit2/"
+printf '#!/bin/sh\nexit 2\n' >"$noaudit2/fleet-audit.sh"
+chmod +x "$noaudit2/fleet-audit.sh"
+home36="$tmp/h36"
+na2_run() {
+  env PLANWRIGHT_FLEET_STATE_DIR="$home36" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    /bin/bash "$noaudit2/fleet-liveness.sh" "$@"
+}
+# Crashes 1-2: the backoff audit fails (exit 2) but each counter is durable.
+na2_run crash-record "$w" "$s" --now 1000 >/dev/null 2>&1 || true
+na2_run crash-record "$w" "$s" --now 1100 >/dev/null 2>&1 || true
+# Crash 3 crosses the threshold: the disable must audit first, so the failed
+# audit leaves NO queue entry (crash-check owns the self-heal).
+rc=0
+out=$(na2_run crash-record "$w" "$s" --now 1200 2>/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "disable audit failure: exit $rc, expected 2"
+case $out in
+  disabled*) ;;
+  *) fail "disable audit failure: '$out', expected the durable disabled record" ;;
+esac
+qc=$(attn "$home36" queue --count) || fail "queue --count failed"
+[ "$qc" = 0 ] || fail "disable audits first: a queue entry landed despite the audit failure (count $qc)"
+# The self-heal: the next crash-check re-upserts the missing escalation.
+rc=0
+run "$home36" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "post-heal crash-check: exit $rc, expected 3 (disabled)"
+qc=$(attn "$home36" queue --count) || fail "queue --count failed"
+[ "$qc" = 1 ] || fail "crash-check did not re-upsert the disable escalation (count $qc)"
+echo "ok: the disable audits before it queues, and crash-check heals the queue entry"
+
+# ---------------------------------------------------------------------------
+# 37. A missing daemon gate is the broken-install hard-fail (exit 5, the
+#     knob-resolver discipline), never a raw shell 126/127 — and a gate
+#     hard-fail (exit 4, unresolvable kill-switch) propagates as-is: never
+#     relaunch under unknown switch state.
+# ---------------------------------------------------------------------------
+nogate="$tmp/nogate-scripts"
+mkdir -p "$nogate"
+cp "$here/../scripts/"*.sh "$nogate/"
+rm -f "$nogate/fleet-daemon-gate.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h37" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  /bin/bash "$nogate/fleet-liveness.sh" crash-check "$w" --now 10000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing daemon gate: crash-check exit $rc, expected 5 (broken install)"
+gate4="$tmp/gate4-scripts"
+mkdir -p "$gate4"
+cp "$here/../scripts/"*.sh "$gate4/"
+printf '#!/bin/sh\nexit 4\n' >"$gate4/fleet-daemon-gate.sh"
+chmod +x "$gate4/fleet-daemon-gate.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h37b" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  /bin/bash "$gate4/fleet-liveness.sh" crash-check "$w" --now 10000 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "unresolvable kill-switch: crash-check exit $rc, expected 4 (propagated)"
+echo "ok: a missing daemon gate fails as a broken install; a gate hard-fail propagates"
+
+# ---------------------------------------------------------------------------
+# 38. REQ-A1.7 posture — an attention store that exists but cannot be read
+#     fails the classification closed (exit 2), never open: a blind classifier
+#     must not report a possibly-hung worker as working.
+# ---------------------------------------------------------------------------
+home38="$tmp/h38"
+attn "$home38" heartbeat "$w" "$s" working >/dev/null || fail "unreadable-store setup"
+chmod 000 "$home38/attention/state" || fail "unreadable-store: chmod failed"
+rc=0
+out=$(run "$home38" classify "$w" "$s" --now 10000 --heartbeat 9990 2>/dev/null) || rc=$?
+chmod 644 "$home38/attention/state"
+[ "$rc" = 2 ] || fail "unreadable store: classify exit $rc ('$out'), expected 2 (fail closed)"
+echo "ok: an unreadable attention store fails the classification closed"
+
 echo "ALL PASS: fleet-liveness.sh"

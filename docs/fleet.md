@@ -348,7 +348,10 @@ observability is never death — while with no handle available, elapsed time
 alone is the classifier's documented boundary (classification is inherently
 time-based where no authoritative query exists); `flailing` means the
 heartbeat continues but the progress token (e.g. the worker branch's HEAD sha)
-is unchanged across `fleet_flailing_threshold` consecutive observations. A
+is unchanged across `fleet_flailing_threshold` consecutive observations taken
+while the worker was working — a stretch spent awaiting-input, idle, or ended
+expects no progress and resets the streak, so a permission block never
+inflates it into a spurious escalation on resume. A
 `flailing` classification queues exactly one human decision ("this task may be
 stuck") and records the escalation in the audit trail — there is no automatic
 nudge or restart path at all (REQ-A1.3). Routine classification is *not*
