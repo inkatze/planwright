@@ -76,7 +76,8 @@
 # 4/5 propagated from the kill-switch gate OR the default-hold knob
 # resolver (malformed shared config / broken install — fail closed; a
 # malformed repo-tracked fleet_throttle_default_hold therefore halts the
-# observe degrade rather than engaging, by the REQ-E1.4 by-layer policy).
+# observe degrade rather than engaging, by the customization-overlay
+# REQ-E1.4 by-layer policy).
 #
 # AUDIT ORDERING CAVEAT (for Task 8's rendering): rows commit after lock
 # release, so under concurrent engagements the newest-by-timestamp throttle

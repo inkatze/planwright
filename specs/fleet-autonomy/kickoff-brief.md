@@ -431,7 +431,9 @@ precedent and POSIX/tool semantics).
   validate against the Claude Code alias enum (`fable opus sonnet haiku`)
   rather than dated model ids: aliases track model releases without a
   config or script edit, and the shared resolver's enum type gives the
-  REQ-E1.4 by-layer malformed policy for free. Effort and command are fixed
+  customization-overlay REQ-E1.4 by-layer malformed policy for free (that
+  bundle's REQ-E1.4, not this one's auto-mode REQ-E1.4). Effort and command
+  are fixed
   table cells — config can retune cost, only a reviewed code change can
   alter what commands the fleet dispatches.
 - **Auto-mode guard's inherited-mode proxy (risks 19, 20).** No supported

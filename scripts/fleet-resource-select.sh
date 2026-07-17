@@ -26,7 +26,9 @@
 # mechanical, mid-tier. `drain` is the read-only gate-evaluation pass
 # (/drain): the lightest tier. The MODEL column is overlay-tunable per task
 # type through the shared knob resolver (resolve-config-knob.sh ->
-# config-get; D-22/REQ-G1.5, the REQ-E1.4 by-layer malformed policy), values
+# config-get; D-22/REQ-G1.5, the customization-overlay REQ-E1.4 by-layer
+# malformed policy — distinct from this bundle's same-numbered auto-mode
+# REQ), values
 # restricted to the stable Claude Code model-alias enum (fable opus sonnet
 # haiku) — aliases, not dated model ids, so the enum survives model
 # releases. Effort and command are FIXED table cells: changing them is a

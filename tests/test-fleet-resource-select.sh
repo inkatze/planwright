@@ -23,7 +23,8 @@
 #     disjoint, and the nestable predicate is proven non-vacuous against the
 #     shipped `polish` skill (REQ-E1.2's cross-check);
 #   - the model column resolves through the overlay layers (machine-local
-#     override wins) with the REQ-E1.4 by-layer malformed policy (repo-tracked
+#     override wins) with the customization-overlay REQ-E1.4 by-layer
+#     malformed policy (repo-tracked
 #     malformed hard-fails exit 4; adopter malformed degrades to core + warn);
 #   - an unknown or hostile task type is refused (exit 2), never defaulted;
 #   - output is one TSV row `<model>TAB<effort>TAB<command>`.
@@ -168,7 +169,8 @@ out=$(run select bookkeeping 2>/dev/null) || fail "overlay: select bookkeeping e
   || fail "overlay: bookkeeping must be unaffected by the execution override, got '$out'"
 echo "ok: machine-local model override wins for the targeted type only"
 
-# 7. By-layer malformed policy (REQ-E1.4 shape, via the shared resolver):
+# 7. By-layer malformed policy (customization-overlay REQ-E1.4 shape, via
+#    the shared resolver):
 #    repo-tracked malformed hard-fails exit 4; adopter malformed degrades to
 #    the core default with a warning.
 reset_layers
