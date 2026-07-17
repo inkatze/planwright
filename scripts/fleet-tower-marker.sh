@@ -96,21 +96,14 @@ valid_pid() {
 # never reaches a surfaced resume command.
 valid_session_id() {
   vsi_v=$1
-  [ "${#vsi_v}" -eq 36 ] || return 1
   case $vsi_v in
     *[!0-9a-fA-F-]*) return 1 ;;
+    ????????-????-????-????-????????????) ;;
+    *) return 1 ;;
   esac
-  vsi_rest=$vsi_v
-  vsi_shape=""
-  while [ -n "$vsi_rest" ]; do
-    vsi_c=${vsi_rest%"${vsi_rest#?}"}
-    vsi_rest=${vsi_rest#?}
-    case $vsi_c in
-      -) vsi_shape="$vsi_shape-" ;;
-      *) vsi_shape="${vsi_shape}x" ;;
-    esac
-  done
-  [ "$vsi_shape" = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" ]
+  # The glob pins length 36 and dashes at the four UUID positions; ? admits
+  # '-' too, so require exactly 32 non-dash (hex, per the charset case) chars.
+  [ "$(printf '%s' "$vsi_v" | tr -d - | wc -c | tr -d ' ')" -eq 32 ]
 }
 
 # The tmux session-name charset fleet-death-evidence.sh validates before a

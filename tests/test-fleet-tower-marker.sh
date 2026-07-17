@@ -117,6 +117,18 @@ run record my-spec --mode unattended --pid 123 --checkout "$checkout" \
 [ "$rc" = 2 ] || fail "whitespace tmux session: exit $rc, expected 2"
 echo "ok: whitespace tmux-session name refused"
 
+# UUID-shape edge cases: right length and charset but a fifth dash (one hex
+# slot holds '-'), or no dashes at all — both must be refused.
+rc=0
+run record my-spec --mode unattended --pid 123 --checkout "$checkout" \
+  --session-id '123e4567-e89b-42d3-a456-42661417400-' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "five-dash session id: exit $rc, expected 2"
+rc=0
+run record my-spec --mode unattended --pid 123 --checkout "$checkout" \
+  --session-id '123e4567ae89ba42d3aa456a426614174000' >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "dashless session id: exit $rc, expected 2"
+echo "ok: malformed UUID shapes are refused (misplaced or missing dashes)"
+
 # Missing required flags.
 rc=0
 run record my-spec --mode unattended --checkout "$checkout" >/dev/null 2>&1 || rc=$?
