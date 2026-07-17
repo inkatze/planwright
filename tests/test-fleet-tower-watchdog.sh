@@ -519,6 +519,25 @@ out=$(run "$spec_dir" 2>/dev/null) || rc=$?
 rm -f "$backoff_file"
 echo "ok: a corrupt backoff record fails closed with a non-zero exit"
 
+# --- a wrong-field-count backoff record is corrupt (parser symmetry) ----------
+
+# read_backoff must reject any row that is not exactly three fields, mirroring
+# the marker parser's strict `[ "$#" -ne 7 ]` gate. A trailing-junk row whose
+# first three fields happen to parse must NOT be silently accepted and drive
+# recovery: an old-epoch count-2 record would otherwise sail past the backoff
+# window and relaunch off a corrupt record. Fail closed (backoff-corrupt, exit
+# 2, no relaunch) instead.
+record_marker unattended "$dead_pid"
+printf '2\t1\t0\tJUNK\n' >"$backoff_file"
+calls_before=$(launch_calls)
+rc=0
+out=$(run "$spec_dir" 2>/dev/null) || rc=$?
+[ "$out" = backoff-corrupt ] || fail "4-field backoff outcome '$out' (want backoff-corrupt)"
+[ "$rc" = 2 ] || fail "4-field backoff must exit 2 (visible to cron), got $rc"
+[ "$(launch_calls)" = "$calls_before" ] || fail "4-field backoff must not relaunch"
+rm -f "$backoff_file"
+echo "ok: a wrong-field-count backoff record is rejected as corrupt"
+
 # --- the disable's decision-queue entry precedes the disable flag -------------
 
 # REQ-A1.9's whole point is the human escalation: if the decision-queue write

@@ -278,6 +278,10 @@ read_backoff() {
   # shellcheck disable=SC2086
   set -- $rb_row
   IFS=$rb_old_ifs
+  # Strict field count, mirroring the marker parser's `[ "$#" -ne 7 ]` gate: a
+  # row with trailing junk (whose first three fields happen to parse) is
+  # corrupt, not silently accepted — recovery must never run off it.
+  [ "$#" -eq 3 ] || return 1
   rb_c="${1:-}"
   rb_l="${2:-}"
   rb_d="${3:-}"
