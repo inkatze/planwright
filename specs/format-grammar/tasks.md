@@ -157,8 +157,10 @@ parked in `## Awaiting input` on the instruction-headroom condition
   changelog entry passes while an unnamed removal still errors; recomputed
   anchors for EVERY bundle under `specs/` are each either unchanged or
   carrying a re-anchor entry, with the sweep failing closed on any
-  anchor-tool error; the migration suite (whose oracle consumes the same
-  now-fence-aware extraction) passes; full test suite passes.
+  anchor-tool error (a one-shot landing proof, like Tasks 1 and 8 — the
+  standing suite keeps the fixture-corpus tests); the migration suite
+  (whose oracle consumes the same now-fence-aware extraction) passes;
+  full test suite passes.
 - **Dependencies:** 2, 5
 - **Citations:** D-5, D-9, D-12 · REQ-C1.2, REQ-C1.4, REQ-D1.6, REQ-D1.11
 - **Estimated effort:** 2 days

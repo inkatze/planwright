@@ -177,9 +177,9 @@ empty bullet bypasses the rule.
 ### REQ-D1.3 — Out-of-range unqualified tokens [test]
 
 Fixtures: a bare `D-45` in a bundle defining D-1..D-8 warns; an
-out-of-range bare `REQ-<id>` token warns identically; the same tokens
-qualified by a sibling-spec name on the line pass; in-range bare tokens
-pass.
+out-of-range bare `REQ-<id>` token and an out-of-range bare `Task <id>`
+citation token warn identically; the same tokens qualified by a
+sibling-spec name on the line pass; in-range bare tokens pass.
 
 ### REQ-D1.4 — Semantic misattribution lens item [design-level]
 
@@ -232,7 +232,8 @@ adopter-visible severity changes. Reviewed at PR time.
 
 Fixtures: a bundle with an unclosed column-0 fence is flagged (the
 remainder of the file would otherwise silently parse as illustration); a
-balanced-fence bundle passes.
+balanced-fence bundle passes; an unclosed *indented* fence is ignored,
+not flagged (only column-0 fences toggle illustration mode).
 
 ## REQ-E — Gate grammar and drain
 

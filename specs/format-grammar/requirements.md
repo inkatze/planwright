@@ -224,10 +224,12 @@ doctrine stops being homeless prose asserted only in scattered tests.
 - **REQ-D1.2** The validator SHALL flag a live requirement bullet that
   carries a citation but no normative prose.
   *(Cites: legacy line 86 (Sources).)*
-- **REQ-D1.3** The validator SHALL warn on a `D-<n>` or `REQ-<id>` token
-  whose number falls outside the bundle's own defined range and which
-  carries no sibling-spec qualifier on the same line or enclosing block.
-  *(Cites: D-13, legacy line 107 (Sources).)*
+- **REQ-D1.3** The validator SHALL warn on a `D-<n>`, `REQ-<id>`, or
+  `Task <id>` citation token whose number falls outside the bundle's own
+  defined range and which carries no sibling-spec qualifier on the same
+  line or enclosing block.
+  *(Cites: D-13, legacy line 107 (Sources), kickoff lens pass
+  (2026-07-17).)*
 - **REQ-D1.4** Semantic cross-spec misattribution (a qualified citation
   resolving to a real-but-unrelated record) SHALL be handled as a documented
   kickoff lens-checklist item, not a validator rule; the limitation is
