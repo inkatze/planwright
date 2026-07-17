@@ -95,8 +95,11 @@ run >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "paused (no mechanism): exit $rc, expected 1"
 echo "ok: the mechanism argument is optional"
 
-# 3. The Done-when fixture: a stubbed daemon mechanism checks the gate FIRST
-#    and short-circuits without acting when the switch is set.
+# 3. The Done-when fixture: a stubbed daemon mechanism composed gate-first is
+#    observably short-circuited by the set switch (the acted marker never
+#    appears) and acts normally with it unset. This pins the gate's exit-code
+#    contract as consumed by a caller; the gate-before-action ORDERING inside
+#    real mechanisms is Tasks 2-7's obligation, not assertable here.
 stub="$tmp/stub-daemon.sh"
 cat >"$stub" <<EOF
 #!/bin/sh
@@ -134,6 +137,33 @@ rc=0
 run stale-cleanup >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "repo-tracked malformed file: exit $rc, expected 4 (fail closed)"
 echo "ok: a structurally malformed team-shared config fails closed (exit 4)"
+
+# 4c. The knob absent from EVERY layer (a core defaults file that omits it —
+#     a broken/partial install): the gate must BLOCK, not proceed. The
+#     resolver's fallback for this gate is the fail-safe value `true`, so an
+#     unresolvable switch pauses the daemon layer (degrade capability, never
+#     safety) instead of running it under unknown kill-switch state.
+reset_layers
+core_omit="$tmp/core-omit.yml"
+printf 'max_parallel_units: 3\n' >"$core_omit"
+rc=0
+err=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$FDG" stale-cleanup 2>&1 >/dev/null) || rc=$?
+[ "$rc" != 0 ] || fail "knob absent in every layer: gate proceeded (exit 0) instead of blocking"
+[ -n "$err" ] || fail "knob absent in every layer: no warning emitted"
+echo "ok: a knob absent from every layer blocks the daemon action (fail closed)"
+
+# 4d. Broken install: the gate's resolver missing entirely -> exit 5, blocked.
+#     A copy of the gate in a dir with no sibling resolver simulates it.
+mkdir -p "$tmp/lonely"
+cp "$FDG" "$tmp/lonely/fleet-daemon-gate.sh"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$tmp/lonely/fleet-daemon-gate.sh" stale-cleanup >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing resolver: exit $rc, expected 5 (blocked, broken install)"
+echo "ok: a missing resolver blocks the daemon action (exit 5)"
 
 # 5. Adopter malformed value: degrades to the core default (proceed) with a
 #    warning — the standard REQ-E1.4 by-layer policy via the shared resolver.
