@@ -81,7 +81,13 @@ towers_dir="$root/towers"
 [ -d "$towers_dir" ] || exit 0
 
 FDE="$script_dir/fleet-death-evidence.sh"
-[ -x "$FDE" ] || exit 0
+# A missing predicate is a broken install, not an absent-state case: warn so
+# the lost breadcrumb is at least distinguishable from "no orphaned tower"
+# (still exit 0 — a signpost failure must never break session startup).
+[ -x "$FDE" ] || {
+  echo "fleet-tower-signpost: fleet-death-evidence.sh is missing or not executable (broken install); cannot check for orphaned towers" >&2
+  exit 0
+}
 TAB=$(printf '\t')
 
 valid_session_id() {
