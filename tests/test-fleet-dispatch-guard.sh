@@ -245,4 +245,43 @@ env -u CLAUDE_DIR HOME="$homefb" /bin/bash "$FDG" check-inherited >/dev/null 2>&
 [ "$rc" = 0 ] || fail "HOME-fallback non-auto pin: exit $rc, expected 0 (pass)"
 echo "ok: check-inherited resolves settings via the HOME fallback"
 
+# 17. Every permission-BYPASS vector is refused, not just literal auto
+#     (tower direction on gauntlet finding Z1): bypassPermissions as a
+#     --permission-mode value (both spellings), a settings fragment or the
+#     user settings pinning defaultMode bypassPermissions, and the
+#     --dangerously-skip-permissions token anywhere in the argv — each is
+#     strictly worse than the auto mode the guard already stops.
+rc=0
+run check-launch claude --permission-mode bypassPermissions -p "/execute-task 3" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "--permission-mode bypassPermissions: exit $rc, expected 1 (refused)"
+rc=0
+run check-launch claude -p "/execute-task 3" --permission-mode=bypassPermissions >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "--permission-mode=bypassPermissions: exit $rc, expected 1 (refused)"
+bypass_frag="$tmp/bypass-settings.json"
+printf '{"permissions": {}, "defaultMode": "bypassPermissions"}\n' >"$bypass_frag"
+rc=0
+run check-launch claude --settings "$bypass_frag" -p "/execute-task 3" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "settings fragment pinning bypassPermissions: exit $rc, expected 1 (refused)"
+skipdir="$tmp/skip-home"
+mkdir -p "$skipdir"
+printf '{"permissions": {}, "defaultMode": "bypassPermissions"}\n' >"$skipdir/settings.json"
+rc=0
+CLAUDE_DIR="$skipdir" run check-inherited >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "check-inherited under ambient bypassPermissions: exit $rc, expected 1 (refused)"
+rc=0
+run check-launch claude --permission-mode default --dangerously-skip-permissions -p "/execute-task 3" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "--dangerously-skip-permissions: exit $rc, expected 1 (refused even beside a non-auto mode)"
+echo "ok: every permission-bypass vector is refused"
+
+# 18. An empty --permission-mode value is not a mode source (tower direction
+#     on gauntlet finding Z2): it must be refused like a flag-shaped value,
+#     never recorded as the explicit non-auto source the risk-20 gate needs.
+rc=0
+run check-launch claude --permission-mode= -p "/execute-task 3" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "--permission-mode= (empty, = spelling): exit $rc, expected 1 (refused)"
+rc=0
+run check-launch claude --permission-mode "" -p "/execute-task 3" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "--permission-mode '' (empty, space spelling): exit $rc, expected 1 (refused)"
+echo "ok: an empty permission-mode value is refused"
+
 echo "ALL PASS: fleet-dispatch-guard"
