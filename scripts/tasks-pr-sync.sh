@@ -91,9 +91,10 @@
 # version home — see bundle_write_version): a format-version 2 bundle is a
 # clean no-op (derived state is never committed there — no placement,
 # annotation, or derived-header writes), and a missing, unparseable, or
-# cross-file-conflicting declaration fails closed with no write — exit 2 from
-# the CLI arms, a logged skip from the fail-soft hook. No input ever falls
-# open to the v1 write path.
+# cross-file-conflicting declaration (or a requirements.md that exists but
+# cannot be read) fails closed with no write — exit 2 from the CLI arms, a
+# logged skip from the fail-soft hook. No input ever falls open to the v1
+# write path.
 #
 # Worker sessions: the hook fires inside worktrees, so it resolves and writes
 # the canonical tasks.md in the PRIMARY checkout (kickoff brief risk row 3),
@@ -153,9 +154,9 @@ tasks_format_version() {
 # bundle_write_version <spec-dir>: resolve the format version governing the
 # write path, cross-checked against the bundle's authoritative version home.
 # Prints "1" or "2" on success. Returns 1 with nothing printed (reason logged)
-# when tasks.md's declaration is missing or unparseable (REQ-C1.8), or when
-# requirements.md declares a version different from tasks.md's — a torn or
-# half-migrated bundle. The cross-check matters because do_status mirrors
+# when tasks.md's declaration is missing or unparseable (REQ-C1.8), when
+# requirements.md exists but cannot be read, or when requirements.md declares
+# a version different from tasks.md's — a torn or half-migrated bundle. The cross-check matters because do_status mirrors
 # derived Status headers into requirements.md itself: keying on tasks.md
 # alone would let the v1 write path stamp derived state into a bundle whose
 # authoritative file declares v2 (the exact fall-open REQ-C1.8 forbids; the
@@ -679,8 +680,8 @@ do_placement() {
   # lock: a format-version 2 bundle stores no derived execution state — no
   # placement, annotation, or derived-header writes — so the level-triggered
   # reconcile is a clean no-op there; a missing/unparseable declaration or a
-  # requirements.md that disagrees fails closed (no write; the resolver logs
-  # the reason). The CLI entry points pre-check the same resolver for their
+  # requirements.md that disagrees (or cannot be read) fails closed (no
+  # write; the resolver logs the reason). The CLI entry points pre-check the same resolver for their
   # exit-2 contract; this in-writer gate is the authoritative one (it also
   # covers the hook path, and re-reads under the lock).
   case $(bundle_write_version "$dp_dir") in
@@ -791,8 +792,8 @@ do_status_only() {
   # Version keying, same gate as do_placement (invariant-tasks REQ-C1.1,
   # REQ-C1.8, D-7): a v2 bundle's Status header holds only human-gated states
   # (Active/Done are derived, never stored), so the status-only arm writes
-  # nothing there; a missing/unparseable declaration or a disagreeing
-  # requirements.md fails closed (the resolver logs the reason).
+  # nothing there; a missing/unparseable declaration or a disagreeing (or
+  # unreadable) requirements.md fails closed (the resolver logs the reason).
   case $(bundle_write_version "$dso_dir") in
     1) ;;
     2) return 0 ;;
@@ -937,7 +938,8 @@ if [ "${1:-}" = reconcile-status ]; then
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): fail closed on a missing/unparseable
-  # declaration or a torn bundle with the CLI's refused-input exit (the
+  # declaration, an unreadable requirements.md, or a torn bundle with the
+  # CLI's refused-input exit (the
   # resolver logs the reason; the in-writer gate refuses too, but its failure
   # is not an exit-2); a v2 bundle stores no derived Status, so the
   # status-only arm has nothing to reconcile.
@@ -955,8 +957,9 @@ fi
 # ---------------------------------------------------------------------------
 # Direct CLI: `tasks-pr-sync.sh reconcile <spec-dir>`. Fails closed (exit 2) on
 # a missing / non-spec / hostile dir — and on a missing, unparseable, or
-# cross-file-conflicting Format-version (REQ-C1.8) — so a caller
-# (--bookkeeping, tests) sees a real error rather than a silent skip; a
+# cross-file-conflicting Format-version, or an unreadable requirements.md
+# (REQ-C1.8) — so a caller (--bookkeeping, tests) sees a real error rather
+# than a silent skip; a
 # format-version 2 bundle is a clean exit-0 no-op (REQ-C1.1).
 if [ "${1:-}" = reconcile ]; then
   cli_arg="${2:-}"
@@ -980,8 +983,9 @@ if [ "${1:-}" = reconcile ]; then
     exit 2
   fi
   # Version keying (REQ-C1.1, REQ-C1.8): mirror of the reconcile-status arm
-  # above — exit 2 fail-closed on a missing/unparseable declaration or a torn
-  # bundle (the resolver logs the reason), clean no-op exit 0 on a v2 bundle
+  # above — exit 2 fail-closed on a missing/unparseable declaration, an
+  # unreadable requirements.md, or a torn bundle (the resolver logs the
+  # reason), clean no-op exit 0 on a v2 bundle
   # (no placement, annotation, or derived-header writes; the in-writer gate
   # re-checks under the lock).
   if ! cli_ver=$(bundle_write_version "$cli_dir"); then
