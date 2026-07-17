@@ -119,9 +119,19 @@ resolve_home() {
 }
 
 HOLD_LOCK=0
+CUR_TMP=""
 # Release on ANY exit, signals included (the fleet-attention.sh trap
-# discipline); INT/TERM route through EXIT with the conventional codes.
-trap 'release_lock' EXIT
+# discipline); INT/TERM route through EXIT with the conventional codes. The
+# EXIT arm also reaps an in-flight write temp so a signal mid-critical-
+# section cannot litter the throttle dir.
+cleanup_on_exit() {
+  release_lock
+  if [ -n "$CUR_TMP" ]; then
+    rm -f "$CUR_TMP"
+    CUR_TMP=""
+  fi
+}
+trap 'cleanup_on_exit' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_lock() {
@@ -161,6 +171,12 @@ read_until() {
     return 0
   }
   ru_v=$(head -n 1 "$1" 2>/dev/null | tr -d '[:space:]')
+  if [ -z "$ru_v" ] && [ ! -f "$1" ]; then
+    # A concurrent clear unlinked the file between the -f test and the
+    # read: a vanished engagement is absent, not corrupt.
+    printf ''
+    return 0
+  fi
   case $ru_v in
     "" | *[!0-9]*)
       echo "fleet-throttle: throttle state file '$1' is corrupt ('$(sanitize_printable "$ru_v" "(unprintable)")')" >&2
@@ -238,18 +254,30 @@ engage_until() {
       release_lock
       exit 2
     }
-    printf '%s\n' "$eu_until" >"$eu_file.tmp.$$" || {
+    # Defer INT/TERM across the commit→audit span: a signal landing after
+    # the rename but before the audit record would leave a state change
+    # with no trail row — the exact unrecorded action the trail exists to
+    # prevent. (SIGKILL stays unpreventable; the window is best-effort.)
+    trap '' INT TERM
+    # mktemp, not a predictable $$-suffixed name: the same symlink-safe
+    # atomic-write discipline fleet-state.sh/fleet-audit.sh use for this
+    # store area.
+    CUR_TMP=$(mktemp "$eu_dir/.until.XXXXXX") || {
+      echo "fleet-throttle: cannot create a write temp under '$eu_dir'" >&2
+      release_lock
+      exit 2
+    }
+    printf '%s\n' "$eu_until" >"$CUR_TMP" || {
       echo "fleet-throttle: cannot write throttle state" >&2
-      rm -f "$eu_file.tmp.$$"
       release_lock
       exit 2
     }
-    mv "$eu_file.tmp.$$" "$eu_file" || {
+    mv -f "$CUR_TMP" "$eu_file" || {
       echo "fleet-throttle: cannot commit throttle state" >&2
-      rm -f "$eu_file.tmp.$$"
       release_lock
       exit 2
     }
+    CUR_TMP=""
   fi
   release_lock
 
@@ -352,13 +380,15 @@ case "$cmd" in
       usage
       exit 2
     }
-    # Parse the captured text: strip non-printable bytes per line (the awk
+    # Parse the captured text: bound the untrusted stream first (64 KiB is
+    # far past any real pane capture; an unbounded accumulator is a memory
+    # hazard on hostile input), strip non-printable bytes per line (the awk
     # [[:print:]] form of the echo discipline — risk 23), join, detect the
     # native rate-limit signal, then extract the first recognized reset
     # form. Output protocol: line 1 = `none` | `rel <seconds>` |
     # `wall <h> <m>` | `unparsed`; line 2 (when not `none`) = a <=200-char
     # sanitized excerpt for the audit trigger.
-    parse=$(awk -v max="$MAX_HOLD" '
+    parse=$(head -c 65536 | awk -v max="$MAX_HOLD" '
       { gsub(/[^[:print:]]/, ""); text = text " " $0 }
       END {
         lt = tolower(text)
@@ -437,6 +467,15 @@ case "$cmd" in
           exit 2
         }
         cur=$(date +%H:%M:%S)
+        case $cur in
+          [0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+          *)
+            # Every other clock read fails closed; a garbage time-of-day
+            # read must not silently compute the reset from midnight.
+            echo "fleet-throttle: cannot read the wall clock" >&2
+            exit 2
+            ;;
+        esac
         ch=${cur%%:*}
         cs=${cur##*:}
         cm=${cur#*:}
@@ -455,6 +494,10 @@ case "$cmd" in
         # Risk 24: signal present, reset time unreadable (version-sensitive
         # UI text). Degrade to the bounded default hold with a warning —
         # never indefinite, never immediate resume, never an opaque halt.
+        if [ ! -x "$RESOLVER" ]; then
+          echo "fleet-throttle: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+          exit 5
+        fi
         hold=$("$RESOLVER" --key fleet_throttle_default_hold --type posint --fallback 300) || exit $?
         now=$(now_epoch) || {
           echo "fleet-throttle: cannot read the clock" >&2
@@ -492,6 +535,16 @@ case "$cmd" in
     until_file="$root/throttle/until"
     [ -f "$until_file" ] || exit 0
     acquire_lock || exit 2
+    # Re-check under the lock: two concurrent clears both pass the fast
+    # pre-lock test, and the loser must not emit a second audit row for
+    # the one real clear.
+    if [ ! -f "$until_file" ]; then
+      release_lock
+      exit 0
+    fi
+    # Same signal deferral as the engage path: the unlink and its audit
+    # row commit-or-abort together, never unlinked-unrecorded.
+    trap '' INT TERM
     rm -f "$until_file" || {
       echo "fleet-throttle: cannot remove '$until_file'" >&2
       release_lock
