@@ -288,6 +288,13 @@ mature precedent this spec can simply defer to wholesale.
   `MD033/no-inline-html` rule (the bare part read as an HTML-like tag). Fixed by widening the code
   span to cover the whole placeholder in one span, matching the safe pattern already used in
   `kickoff-lifecycle/design.md`.
+- 2026-07-17 — Task 7 implementation (expression-only): extended Task 7's `Done when` in
+  `tasks.md` with the throttle-audit acceptance criterion ("throttle-engagement events log through
+  Task 1's audit-trail helper") and added D-16 · REQ-F1.4 to its `Citations:` — the gap-fill the
+  signed-off kickoff risk row 30 explicitly directs the implementation to make ("an accepted risk
+  with no acceptance criterion can silently ship unmitigated"), consistent with Tasks 2–4's
+  existing audit-trail Done-when pattern; no accepted decision contradicted, no REQ meaning
+  altered.
   Pre-existing from the original draft, not introduced by the kickoff walkthrough; caught by CI
   after the PR was opened, not by the sign-off lens pass (which reviews doctrine/content, not
   markdownlint rules).
