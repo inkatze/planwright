@@ -272,6 +272,24 @@ case $u_out in
 esac
 echo "ok: query output is printable ASCII while the store keeps admitted bytes"
 
+# 7f. A store match that is not a regular file (a directory named
+#     audit-*.tsv) is a corrupted home and fails the query loudly BEFORE any
+#     row is emitted — awk's handling of a directory operand is
+#     platform-variant (BSD awk silently tolerates it, gawk warns or fails),
+#     so the pre-check must refuse deterministically, and partial output
+#     must never look like a complete answer.
+nf_home="$tmp/nonfile-fleet"
+PLANWRIGHT_FLEET_STATE_DIR="$nf_home" /bin/bash "$FA" \
+  record nonfile-check cleanup "clean trigger" "clean reasoning" \
+  || fail "seed record for non-regular-file test failed"
+mkdir "$nf_home/audit/audit-9999-12-31.tsv"
+rc=0
+nf_out=$(PLANWRIGHT_FLEET_STATE_DIR="$nf_home" /bin/bash "$FA" query 2>"$tmp/nf-err") || rc=$?
+[ "$rc" = 2 ] || fail "query with a directory store match: exit $rc, expected 2"
+[ -z "$nf_out" ] || fail "query with a directory store match emitted partial rows (got: '$nf_out')"
+grep -q "not a regular file" "$tmp/nf-err" || fail "query did not name the non-regular-file store match"
+echo "ok: a non-regular-file store match fails the query loudly with no partial output"
+
 # 8. An empty store queries clean (exit 0, no output) rather than erroring.
 fresh_home="$tmp/fresh-fleet"
 rc=0

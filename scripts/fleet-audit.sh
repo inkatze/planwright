@@ -339,8 +339,9 @@ case "$cmd" in
     # fleet-home path containing whitespace never word-splits: the matched
     # names themselves are this script's own audit-YYYY-MM-DD.tsv (no
     # whitespace, no globs), and LC_ALL=C glob order is date order. One awk
-    # runs over every file (not one per file); readability is pre-checked so
-    # the query fails BEFORE emitting any partial output. Rows are filtered
+    # runs over every file (not one per file); regular-file-ness and
+    # readability are pre-checked so the query fails BEFORE emitting any
+    # partial output. Rows are filtered
     # by mechanism (exact string match — the "" concatenation pins awk to
     # string comparison for numeric-looking tokens) and by the inclusive
     # epoch bounds; every field is re-sanitized on the way out (the in-awk
@@ -356,6 +357,14 @@ case "$cmd" in
       set -f
       [ -e "$1" ] || exit 0
       for f in "$@"; do
+        # A match that is not a regular file is a corrupted home; refuse it
+        # here deterministically (awk's handling of a directory operand is
+        # platform-variant: silently tolerated by BSD awk, warned or fatal
+        # under gawk), never let it masquerade as data or emptiness.
+        if [ ! -f "$f" ]; then
+          echo "fleet-audit: store match $audit_dir/$f is not a regular file" >&2
+          exit 2
+        fi
         if [ ! -r "$f" ]; then
           echo "fleet-audit: cannot read $audit_dir/$f" >&2
           exit 2
