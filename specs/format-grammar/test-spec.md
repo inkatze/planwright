@@ -21,7 +21,9 @@ the unclosed-fence disposition (enforcement verified under REQ-D1.11).
 Companion: the Task 6 fence fixtures — a fenced column-0 `### Task` line,
 a fenced requirement bullet, a fenced reference bullet, a fenced gate
 entry, and a fenced header line each parse as illustration in every
-parser (v1 and v2).
+parser that is fence-aware at that point (v1 and v2); the remaining
+line-80 surfaces are covered by the Task 8 equivalence corpus as they
+migrate onto the lib.
 
 ### REQ-A1.2 — Duplicate Format-version/Status rule [design-level + test]
 
