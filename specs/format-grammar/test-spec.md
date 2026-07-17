@@ -18,9 +18,10 @@ skill-ritual behaviors that no script executes are `[manual]`.
 The amended `doctrine/spec-format.md` defines the fence rule (column-0
 toggle, illustration mode) in the extraction/grammar sections, including
 the unclosed-fence disposition (enforcement verified under REQ-D1.11).
-Companion: the Task 6 fence fixtures — a fenced column-0 `### Task` line
-and a fenced requirement bullet parse as illustration in every parser (v1
-and v2).
+Companion: the Task 6 fence fixtures — a fenced column-0 `### Task` line,
+a fenced requirement bullet, a fenced reference bullet, a fenced gate
+entry, and a fenced header line each parse as illustration in every
+parser (v1 and v2).
 
 ### REQ-A1.2 — Duplicate Format-version/Status rule [design-level + test]
 
@@ -31,9 +32,10 @@ fixture verifies the error fires at every status.
 
 ### REQ-A1.3 — Header-block scope [design-level + test]
 
-The amendment defines the header block's extent; the Task 2 fixture with a
-column-0 body `**Format-version:**` literal verifies the body line is inert
-and a missing header declaration still fails closed.
+The amendment defines the header block's extent; the Task 2 fixtures with
+a column-0 body `**Format-version:**` literal and a column-0 body
+`**Status:**` literal verify each body line is inert and a missing header
+declaration still fails closed.
 
 ### REQ-A1.4 — Tasks ordering non-normative [design-level]
 
@@ -121,8 +123,10 @@ identifiers, path-shaped tokens, embedded stream-delimiter bytes,
 NUL-bearing input, end-of-file inside an open fence) verify clean refusal
 or sanitized output; a
 consumer-side fixture verifies fail-closed behavior when the lib file is
-absent or unsourceable; path-derived reads are containment-checked; shell
-lint and the secret scan run over the lib in CI.
+absent or unsourceable, and that every consumer checks the lib call's
+exit status (a mid-stream failure is not consumed as a truncated stream);
+path-derived reads are containment-checked; shell lint and the secret
+scan run over the lib in CI.
 
 ## REQ-C — Parser posture alignment
 
@@ -156,18 +160,21 @@ expression-only re-anchor entries are reviewed in the task PR `[manual]`.
 ### REQ-D1.1 — Awaiting-input purity [test]
 
 Fixtures: a plain prose bullet under a v2 `## Awaiting input` warns on
-Draft and errors on Ready; a reference bullet passes.
+Draft and errors on Ready; a reference bullet passes; the same prose
+bullet in a v1 bundle bypasses the rule (v2-only scope).
 
 ### REQ-D1.2 — Cited-but-empty REQ [test]
 
-Fixture: a live `- **REQ-X1.1** *(Cites: D-1.)*` bullet with no normative
-prose is flagged; a prose-bearing bullet passes.
+Fixtures: a live `- **REQ-X1.1** *(Cites: D-1.)*` bullet with no normative
+prose is flagged; a prose-bearing bullet passes; a superseded (non-live)
+empty bullet bypasses the rule.
 
 ### REQ-D1.3 — Out-of-range unqualified tokens [test]
 
-Fixtures: a bare `D-45` in a bundle defining D-1..D-8 warns; the same token
-qualified by a sibling-spec name on the line passes; an in-range bare token
-passes.
+Fixtures: a bare `D-45` in a bundle defining D-1..D-8 warns; an
+out-of-range bare `REQ-<id>` token warns identically; the same tokens
+qualified by a sibling-spec name on the line pass; in-range bare tokens
+pass.
 
 ### REQ-D1.4 — Semantic misattribution lens item [design-level]
 
@@ -186,7 +193,8 @@ changelog entry passes; an unnamed removal errors; a changelog entry
 naming a token that fails the task-id grammar does not activate the
 escape; a changelog entry naming a valid but different id than the
 removed block still errors (the escape matches the removed id, not any
-named id).
+named id); an undated changelog entry naming the removed id does not
+activate the escape (the dated form is mandatory).
 
 ### REQ-D1.7 — Canonical task-heading enforcement [test]
 
@@ -257,9 +265,10 @@ failure, not a silent not-a-candidate.
 
 ### REQ-E1.6 — [manual] inventory in drain [test]
 
-Fixture: a live spec with `[manual]` and `[test + manual]` entries appears
-in the drain output with its per-spec inventory; a spec with none is
-absent from that lane.
+Fixtures: a live spec with `[manual]` and `[test + manual]` entries
+appears in the drain output with its per-spec inventory; a spec with none
+is absent from that lane; a Done or Retired spec is excluded regardless
+of its `[manual]` entries (live-spec scope).
 
 ## REQ-F — Kickoff verification homes
 

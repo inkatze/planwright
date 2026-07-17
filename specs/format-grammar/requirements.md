@@ -181,7 +181,9 @@ doctrine stops being homeless prose asserted only in scattered tests.
   closed in every lib parse (generalizing the screen `drain-gates.sh`
   ships); (e) reference-bullet classification (a whitespace-free token)
   and task-id grammar validation are distinct gates — an emitted token
-  still validates against its grammar before any use.
+  still validates against its grammar before any use; (f) consumers check
+  the lib's exit status on every call — a truncated stream consumed with
+  an unchecked exit is the named fail-open.
   *(Cites: doctrine/security-posture.md (Sources), kickoff lens pass
   (2026-07-17).)*
 
