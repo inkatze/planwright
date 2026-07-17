@@ -323,7 +323,10 @@ degrades to the bounded `fleet_throttle_default_hold` with a warning — never
 an indefinite pause, never an immediate resume. Engagement is a daemon
 action: kill-switch-gated (`fleet_daemon_pause`) and audit-logged
 (`fleet-audit.sh`, mechanism `throttle`), so Task 8's stats can render
-throttle-engaged state from the trail.
+throttle-engaged state from the trail. An operator ends a hold early with
+`scripts/fleet-throttle.sh clear` — the manual-resume lever: audit-logged
+like every state change, but not gate-checked, because the kill-switch
+pauses autonomous actions, never the operator's own lever.
 
 **Workers never run in `auto` permission mode.** The
 `config/worker-settings.json` allowlist — human-reviewed, human-installed,
