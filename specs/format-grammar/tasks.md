@@ -115,8 +115,9 @@ parked in `## Awaiting input` on the instruction-headroom condition
   `doctrine/accumulator-taxonomy.md` delta: `ready` in the status-atom
   grammar, the normative free-text-gate form, the multi-read/digest-bracket
   correction, the unresolved lane annotation. Fence-provenance citations in
-  the Task 2/6 parsers flipped from this bundle's D-5 to the landed
-  meta-spec rule.
+  the Task 2 parsers flipped from this bundle's D-5 to the landed
+  meta-spec rule; parsers authored after the amendment (Tasks 6 and 8)
+  cite the meta-spec natively from birth.
 - **Done when:** `scripts/check-instructions.sh` passes with the amendments
   applied (the REQ-G1.1 unpark condition); `mise run check` doc gates pass;
   the amendment text cites the shipped parser behavior it ratifies; each

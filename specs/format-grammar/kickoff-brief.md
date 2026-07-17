@@ -177,9 +177,11 @@ external headroom relief that unparks Task 5, not effort.
    already-normative meta-spec doctrine, ships ungated) from the taxonomy
    grammar text (budget-gated).
 2. **3 ↛ 5** — Task 3's hardening rules ground in already-normative
-   meta-spec text; the amendment-dependent rules (duplicate-declaration
-   error, retirement escape, fence-awareness) sit in Task 6, which does
-   depend on 5. The split is by doctrine-grounding, not theme.
+   meta-spec text; the amendment-dependent rules (retirement escape,
+   fence-awareness) sit in Task 6, which does depend on 5. The split is by
+   doctrine-grounding, not theme. (The duplicate-declaration error was
+   originally listed here as Task 6's; the 2026-07-17 lens pass moved it
+   to Task 3 on its already-normative grounding.)
 3. **No cross-spec edge from Task 5** — the `Dependencies:` grammar is
    same-bundle task ids and the sibling spec does not exist yet;
    Awaiting-input parking is the sanctioned mechanism (D-16).
