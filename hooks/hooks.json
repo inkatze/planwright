@@ -38,6 +38,26 @@
         ]
       }
     ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-worktree-track.sh hook-create"
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-worktree-track.sh hook-remove"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

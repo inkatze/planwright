@@ -123,6 +123,19 @@ review_sequence: [polish]
 # human-reviewed posture config/worker-settings.json has.
 fleet_daemon_pause: false
 
+# The grace period the dirty-tree housekeeping sweep (fleet-autonomy D-8,
+# REQ-B1.3; scripts/fleet-sweep.sh) waits before escalating a working tree that
+# has uncommitted or unpushed changes — or that could not be inspected — to the
+# decision queue. A tree must be CONTINUOUSLY in that state past this threshold
+# before it is escalated, so an actively-worked tree is not flagged mid-edit and
+# a transient git-lock contention self-resolves by the next sweep. Minutes, with
+# an optional `m` suffix (the stale_*_threshold convention); an absent or
+# malformed value falls back to 15m. Resolved through config-get across the
+# overlay layers, so an adopter on a slower cadence can raise it. The sweep's
+# scope (every tracked worker worktree plus the tower's own checkout) and its
+# reconcile-backstop pass (REQ-A1.8) are not tunable here — only the grace is.
+fleet_dirty_tree_threshold: 15m
+
 # Push-based worker liveness: the five-state classifier and crash-loop
 # backoff (fleet-autonomy D-1, D-2, D-3; REQ-A1.2, REQ-A1.4). All four
 # resolve through the shared knob resolver (scripts/resolve-config-knob.sh
