@@ -106,6 +106,23 @@ notification_channel: none
 # REQ-E1.4 malformed-by-layer policy to an unknown or non-nestable name.
 review_sequence: [polish]
 
+# The operator kill-switch for the autonomous daemon layer (fleet-autonomy
+# D-15, REQ-F1.3). `true` pauses every autonomous daemon action the fleet
+# introduces (cleanup, restart, throttle) without disabling fleet operation
+# entirely — one lever for an operator debugging something unusual, instead of
+# N per-mechanism knobs to remember and re-enable. Task work (towers
+# dispatching, workers executing) is unaffected. Every daemon mechanism this
+# bundle introduces (Tasks 2-7) is contracted to check it through
+# scripts/fleet-daemon-gate.sh BEFORE acting; the gate fails closed (an
+# unresolvable switch blocks the action). Resolved through the shared knob
+# resolver (scripts/resolve-config-knob.sh -> config-get, fleet-autonomy D-22,
+# REQ-G1.5); a value other than true/false is malformed under the REQ-E1.4
+# by-layer policy. The layers that can flip it are human-owned surfaces (the
+# repo-tracked overlay is PR-reviewed; adopter/machine-local are operator
+# files outside a dispatched worker's write allowlist) — the same
+# human-reviewed posture config/worker-settings.json has.
+fleet_daemon_pause: false
+
 # Release-tagging policy (autopilot-reflex D-4, D-13; REQ-D1.4, REQ-D1.6). The
 # publish script (scripts/release-publish.sh) reads both knobs; the comparator
 # (scripts/release-pending.sh) reads only version_file — signing is a
