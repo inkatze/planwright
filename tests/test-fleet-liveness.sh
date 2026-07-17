@@ -593,7 +593,11 @@ for args in "" "bogus" "hook" "hook not-an-event" "push-capable" "classify" \
   [ "$rc" = 2 ] || fail "usage '$args': exit $rc, expected 2"
 done
 # shellcheck disable=SC2016 # the literal '$(x)' is the hostile token under test
-for bad in 'w w' 'w/../x' '$(x)'; do
+# `.` and `..` are bare dot-runs: the grammar bars `/` so they can never chain
+# into a traversal, but a `.`/`..` handle would still misdirect a per-worker
+# path, so valid_field refuses them outright (byte-identical across the fleet
+# scripts).
+for bad in 'w w' 'w/../x' '$(x)' '.' '..'; do
   rc=0
   run "$tmp/h21" classify "$bad" "$s" --now 1000 >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "hostile worker '$bad' (classify): exit $rc, expected 2"
@@ -711,7 +715,7 @@ echo "ok: a half-set identity env is refused loudly with no write"
 # 28. Hostile handles are refused by crash-check and crash-reset too.
 # ---------------------------------------------------------------------------
 # shellcheck disable=SC2016 # the literal '$(x)' is the hostile token under test
-for bad in 'w w' 'w/../x' '$(x)'; do
+for bad in 'w w' 'w/../x' '$(x)' '.' '..'; do
   rc=0
   run "$tmp/h28" crash-check "$bad" --now 1000 >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "hostile worker '$bad' (crash-check): exit $rc, expected 2"

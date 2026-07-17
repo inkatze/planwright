@@ -116,7 +116,9 @@ valid_identifier() {
 
 # The registry FIELD grammar for worker/scope identifiers (REQ-F1.1, REQ-A1.6):
 # a conservative handle charset that excludes path separators (so a `.` or `..`
-# dot-run is inert: with no slash it can never form a traversal path), plus
+# dot-run is inert: with no slash it can never form a traversal path) and also
+# rejects the bare `.`/`..` dot-runs outright (belt-and-suspenders: a `.`/`..`
+# handle would still misdirect a per-worker path even without escaping), plus
 # whitespace, tabs, newlines, and any control or shell-metacharacter — so a
 # hostile field can neither escape a path nor tear the tab-delimited append-only
 # record. Covers the backend worker handles the capability contract names
@@ -124,7 +126,7 @@ valid_identifier() {
 valid_field() {
   vf_v=$1
   case $vf_v in
-    "" | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#vf_v}" -le 128 ]
 }

@@ -185,14 +185,16 @@ RCK="$script_dir/resolve-config-knob.sh"
 TAB=$(printf '\t')
 
 # The fleet field grammar, byte-identical to fleet-state.sh /
-# fleet-attention.sh valid_field: excludes path separators (a `.`/`..`
-# dot-run is inert without a slash), whitespace, and any control or shell
-# metacharacter; bounded to 128 chars. Worker handles reach liveness file
-# paths below, so this runs before any path is built.
+# fleet-attention.sh valid_field: excludes path separators, whitespace, and any
+# control or shell metacharacter, and rejects the bare `.`/`..` dot-runs
+# outright (a dot-run is inert without a slash — the grammar bars `/`, so it can
+# never chain into a traversal — but a `.`/`..` handle would still misdirect a
+# per-worker path, so refuse it); bounded to 128 chars. Worker handles reach
+# liveness file paths below, so this runs before any path is built.
 valid_field() {
   vf_v=$1
   case $vf_v in
-    "" | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#vf_v}" -le 128 ]
 }

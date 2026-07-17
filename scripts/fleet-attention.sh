@@ -98,14 +98,16 @@ RNC="$script_dir/resolve-notification-channel.sh"
 TAB=$(printf '\t')
 
 # The Task 9 field grammar for worker/scope handles (REQ-A1.6), byte-identical to
-# fleet-state.sh valid_field: excludes path separators (a `.`/`..` dot-run is
-# inert without a slash), whitespace, tabs, newlines, and any control or
-# shell-metacharacter, so a hostile field can neither escape a path nor tear the
-# tab-delimited record. Bounded to 128 chars.
+# fleet-state.sh valid_field: excludes path separators, whitespace, tabs,
+# newlines, and any control or shell-metacharacter, and rejects the bare
+# `.`/`..` dot-runs outright (inert without a slash — the grammar bars `/` so a
+# dot-run can never chain into a traversal — but a `.`/`..` handle would still
+# misdirect a per-worker path, so refuse it), so a hostile field can neither
+# escape a path nor tear the tab-delimited record. Bounded to 128 chars.
 valid_field() {
   vf_v=$1
   case $vf_v in
-    "" | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#vf_v}" -le 128 ]
 }
