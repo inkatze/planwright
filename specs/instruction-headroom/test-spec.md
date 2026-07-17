@@ -39,8 +39,9 @@ pinned by fixture and extended to the raise discipline per D-12: a fixture
 raising an `instruction_budget_*_warn/_error` knob above its core default
 with no matching `raise|` entry fails the guard's config parsing, and the
 same raise with a matching `raise|<knob>|<value>|<reason>` entry passes —
-both directions fixtured. A raised floor knob trips nothing (out of
-scope by suffix).
+both directions fixtured. A stale `raise|` entry (knob at or below its
+core default, or unknown) is also a config error, fixtured. A raised
+floor knob trips nothing (out of scope by suffix).
 
 ### REQ-A1.5 — Restoration target [design-level + test]
 
@@ -68,7 +69,8 @@ charged word counts; aggregate lines distinguish charged totals.
 ### REQ-C1.1 — Surfaces restored [test + manual]
 
 The real-corpus guard run at Task 11 exits zero with no unmeasured
-surfaces, no floor-breach warning, and no unexcepted below-target warning
+surfaces, no floor-breach warning, and no unexcepted below-target or
+use-site warning
 (the closure-margin target assertions relocated from Tasks 7 and 9 at
 kickoff §6 are carried by the below-target check — see REQ-A1.5 and
 REQ-D1.6), asserted in CI on the closing PR; a human reviews the closing

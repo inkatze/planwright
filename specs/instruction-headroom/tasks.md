@@ -38,8 +38,10 @@ reporting and the capped charge exist.
   with a missing or non-numeric floor knob aborting fail-loud like the
   existing budget knobs; margin-to-warn and margin-to-error values in
   `--audit` output for the four floored classes; the
-  `declared-exception|<surface>|<reason>` suppression form excusing only
-  below-target warnings (D-11); raise-rationale enforcement per D-12
+  `declared-exception|<surface>|<reason>` suppression form excusing
+  exactly the warning it names — below-target, or use-site via the
+  `use-site:` key; never floor-breach (D-11); raise-rationale enforcement
+  per D-12
   (`raise|<knob>|<value>|<reason>` entries; an effective
   `instruction_budget_*_warn/_error` value above its shipped core default
   with no matching entry is a config error, failing closed on an absent
@@ -198,9 +200,10 @@ reporting and the capped charge exist.
   invariant assert against mid-campaign allowances).
 - **Done when:** `check-instructions` exits zero on the real corpus with
   no unmeasured surfaces, no floor-breach warning, and no unexcepted
-  below-target warning; the guidance is present in spec-format.md and the
-  guard stays green; `check-instructions --closeout` exits zero;
-  `mise run check` passes.
+  below-target or use-site warning (the diets rewrite the very bodies the
+  use-site check scans, so the closing gate re-checks it); the guidance
+  is present in spec-format.md and the guard stays green;
+  `check-instructions --closeout` exits zero; `mise run check` passes.
 - **Dependencies:** 6, 7, 8, 9, 10
 - **Citations:** D-3, D-9, D-11 · REQ-C1.1, REQ-C1.4
 - **Estimated effort:** half day

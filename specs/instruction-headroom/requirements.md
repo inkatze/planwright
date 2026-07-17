@@ -97,9 +97,11 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   entry (D-12) matching the raised knob's effective value. An effective
   `instruction_budget_*_warn` or `instruction_budget_*_error` value above
   its shipped core default with no matching entry (a silent raise), a
-  reason-less entry of any form, or an absent or unreadable core-default
-  baseline SHALL be a guard error (fail-closed). Floor knobs are protective
-  and outside the raise rule.
+  reason-less entry of any form, an absent or unreadable core-default
+  baseline, or a stale `raise|` entry (one whose knob is at or below its
+  core default, or unknown — removed by the change that un-raises the
+  knob, mirroring the pending-diet ownership rule) SHALL be a guard error
+  (fail-closed). Floor knobs are protective and outside the raise rule.
   *(Cites: D-5, D-12, prompt-hygiene (Sources).)*
 - **REQ-A1.5** A restoration pass SHALL aim for a restoration target of
   twice the surface's headroom floor, so a restored surface absorbs
@@ -223,6 +225,12 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   invariant scoped to IO/fork growth; D-4's reason-less-entry note
   aligned with REQ-A1.4 (error and cap forfeiture); the unbroken-phrases
   Done-when clause mirrored to Tasks 7–9.
+- 2026-07-17 — Panel iteration 2 edits (kickoff §8): a stale `raise|`
+  entry pinned as a guard error (REQ-A1.4, mirroring pending-diet
+  ownership); Task 11's closing gate extended to unexcepted use-site
+  warnings (diets rewrite the bodies the use-site check scans); Task 2's
+  declared-exception wording aligned with REQ-D1.6/D-11; the brief's
+  critical-path figure and R7 collision set corrected.
 
 ## Sources
 

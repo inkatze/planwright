@@ -167,8 +167,10 @@ Signed off: 2026-07-16
 Reconstructed from the `Dependencies:` lines (authoritative; render on
 demand via `scripts/spec-graph.sh`). Waves: T1 → (T2 ∥ T3) → (T4 ∥ T5) →
 (T6 ∥ T7 ∥ T8 ∥ T9) → T10 → T11. **Critical path:**
-1 → 2 → 4 → 6 → 10 → 11, six half-days (≈3 days serial); task count and
-efforts per `tasks.md` (all half-day); maximum width 4 at the diet wave.
+1 → 2 → 4 → 6 → 10 → 11, seven half-days ≈ 3.5 days serial (Task 2
+became a 1-day unit at the lens pass; the rest are half-day, per
+`tasks.md`); maximum width 4 at the diet wave. *(Corrected at panel
+iteration 2: the pre-lens-pass "six half-days" figure was stale.)*
 
 **Finding (resolved).** Tasks 7 and 9 asserted closure-margin targets
 their own dependencies could not deliver (both need Task 6's gate-wiring
@@ -206,7 +208,7 @@ Signed off: 2026-07-16
 | R4 | Corpus drift between the 2026-07-16 audit and execution; ~450–500-word diet sizes may undershoot. | Scope binds live (§2 resolution 1); Task 11 is the catch-all with the declared-exception path. Signal: T11 margin report below target on a surface whose diet "passed". |
 | R5 | Raise-detection subtlety in layered config (defaults → overlay → local); only "raised above core default" is a sound comparison. | Task 2 scopes enforcement to `instruction_budget_*` increases above core default; mechanism chosen at implementation. Signal: fixture design forces the question at T2. |
 | R6 | Standing warning noise: floor-breach warnings fire on every guard run from T2 until restoration completes; desensitization risk. | Accepted: warnings never block, restoration tasks are the drain, named-warning format stays greppable. Signal: a breach warning surviving past T11. |
-| R7 | T4 ∥ T5 (and T3 ∥ T5, since T5 depends only on T2) also share `check-instructions.sh` and `tests/test-check-instructions.sh`; the same parallel-edit exposure as R2 in the tooling wave. *(Added at the lens pass, 2026-07-17.)* | Same mitigation as R2: critical-path-first dispatch and worker-resolvable conflicts; the tower may serialize the guard-script tasks when both are ready. Signal: a tooling-wave PR reports conflicts. |
+| R7 | T4 ∥ T5 (and T3 ∥ T5, since T5 depends only on T2) also share `check-instructions.sh` and `tests/test-check-instructions.sh`; T3 ∥ T5 additionally share `config/instruction-budget-exemptions.txt` (T3 rewrites the exempt rationale, T5 may add `declared-exception\|use-site:` entries). The same parallel-edit exposure as R2 in the tooling wave. *(Added at the lens pass; exemptions-file collision added at panel iteration 2.)* | Same mitigation as R2: critical-path-first dispatch and worker-resolvable conflicts; the tower may serialize the guard-script tasks when both are ready. Signal: a tooling-wave PR reports conflicts. |
 
 **Decision-domains gap check** (merged catalog via
 `scripts/resolve-catalog.sh decision-domains`, 11 domains): touched —
@@ -292,5 +294,13 @@ REQ-A1.4 (error and cap forfeiture, doubly fail-closed), and the
 unbroken-phrases Done-when clause mirrored to Tasks 7–9. **Declined
 (1):** the Task 11 `--closeout` brittleness claim — `mise run check`
 already runs `--closeout` on every branch's CI, so the scenario is a
-pre-existing repo-wide property, not this spec's defect. Iteration 2
-(post-fix confirmation pass) recorded below.
+pre-existing repo-wide property, not this spec's defect. **Iteration 2**
+returned five findings, all validated as consistency ripples of the
+earlier edit waves and applied under the human's standing routine-fix
+authorization (none is a design fork): the brief's stale six-half-day
+critical-path figure (Task 2 is now a 1-day unit → seven half-days);
+the stale-`raise|`-entry fail-closed pin (REQ-A1.4 + fixture); the R7
+exemptions-file collision (T3 ∥ T5); Task 11's gate extended to
+unexcepted use-site warnings; Task 2's declared-exception wording
+aligned with REQ-D1.6/D-11. **Iteration 3** was the post-fix
+confirmation pass; convergence is recorded below.
