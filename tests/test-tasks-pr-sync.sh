@@ -2339,4 +2339,66 @@ else
   echo "skip: V2-H (running as root; chmod 000 cannot make a file unreadable)"
 fi
 
+# --- V2-I: a DANGLING-SYMLINK requirements.md fails closed (REQ-C1.8). The
+# link exists but its target does not, so the absent-vs-present gate must not
+# treat it as the legacy absent-file case: the authoritative version home is
+# unresolvable and falling through to tasks.md's v1 value would be the same
+# fall-open V2-H pins. Unlike V2-H this needs no chmod, so it runs as root too
+# and guards the `[ -L ]` half of the gate (a later simplification to a bare
+# existence check would revert dangling symlinks to fall-open with V2-H green).
+repo=$tmp/v2i
+mkdir -p "$repo"
+git -C "$repo" init -q -b main
+git -C "$repo" config user.email test@example.com
+git -C "$repo" config user.name test
+git -C "$repo" config commit.gpgsign false
+sd=$repo/specs/demo
+mkdir -p "$sd"
+printf '%s\n' '# Demo — Design' '' '**Status:** Active' >"$sd/design.md"
+printf '%s\n' '# Demo — Test Spec' '' '**Status:** Active' >"$sd/test-spec.md"
+cat >"$sd/tasks.md" <<'EOF'
+# Demo — Tasks
+
+**Status:** Active
+**Format-version:** 1
+
+## Forward plan
+
+### Task 1 — Alpha
+
+- **Deliverables:** Alpha.
+- **Done when:** Alpha done.
+- **Dependencies:** none
+- **Citations:** REQ-V2.1
+- **Estimated effort:** 1 day
+
+## In progress
+
+(none yet)
+
+## Completed
+
+(none yet)
+EOF
+ln -s requirements.missing.md "$sd/requirements.md"
+git -C "$repo" add -A
+git -C "$repo" commit -qm "fixture: dangling-symlink requirements"
+# Same non-vacuity evidence as V2-H: a falling-open v1 reconcile would
+# relocate Task 1 to ## Completed on this trailer.
+git -C "$repo" commit -q --allow-empty -m "feat: task 1 done
+
+Planwright-Task: demo/1"
+d_before=$(specs_digest "$repo")
+rc=0
+err=$( (cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile specs/demo) 2>&1 >/dev/null) || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-I: reconcile on a dangling-symlink requirements.md should fail closed (exit 2), got $rc"
+case "$err" in *requirements.md*) ;; *) fail "V2-I: fail-closed error does not name requirements.md: $err" ;; esac
+rc=0
+(cd "$repo" && PATH="$stub:$PATH" "$SYNC" reconcile-status specs/demo) >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 2 ] || fail "V2-I: reconcile-status on a dangling-symlink requirements.md should fail closed (exit 2), got $rc"
+[ -L "$sd/requirements.md" ] || fail "V2-I: the dangling symlink was replaced (write went through)"
+[ "$d_before" = "$(specs_digest "$repo")" ] \
+  || fail "V2-I: a dangling-symlink requirements.md still reached the write path (v1 fell open; REQ-C1.8)"
+echo "ok: V2-I a dangling-symlink requirements.md fails closed on both CLI arms (REQ-C1.8)"
+
 echo "PASS: all tasks-pr-sync tests passed"
