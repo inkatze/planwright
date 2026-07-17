@@ -814,17 +814,22 @@ echo "ok: disabled outranks paused, and the disable escalation self-heals on che
 
 # ---------------------------------------------------------------------------
 # 32. crash-reset surfaces a removal failure (exit 2, streak NOT cleared)
-#     instead of lying with exit 0.
+#     instead of lying with exit 0. Skipped under root, which bypasses the
+#     directory permission and lets rm succeed anyway (repo convention).
 # ---------------------------------------------------------------------------
-home32="$tmp/h32"
-run "$home32" crash-record "$w" "$s" --now 1000 >/dev/null || fail "reset-fail setup"
-chmod 555 "$home32/liveness/crash" || fail "reset-fail: chmod failed"
-rc=0
-run "$home32" crash-reset "$w" >/dev/null 2>&1 || rc=$?
-chmod 755 "$home32/liveness/crash"
-[ "$rc" = 2 ] || fail "crash-reset with unwritable dir: exit $rc, expected 2"
-[ -e "$home32/liveness/crash/$w" ] || fail "reset-fail: record vanished despite the failure exit"
-echo "ok: a failed crash-reset is surfaced, never reported as success"
+if [ "$(id -u)" -ne 0 ]; then
+  home32="$tmp/h32"
+  run "$home32" crash-record "$w" "$s" --now 1000 >/dev/null || fail "reset-fail setup"
+  chmod 555 "$home32/liveness/crash" || fail "reset-fail: chmod failed"
+  rc=0
+  run "$home32" crash-reset "$w" >/dev/null 2>&1 || rc=$?
+  chmod 755 "$home32/liveness/crash"
+  [ "$rc" = 2 ] || fail "crash-reset with unwritable dir: exit $rc, expected 2"
+  [ -e "$home32/liveness/crash/$w" ] || fail "reset-fail: record vanished despite the failure exit"
+  echo "ok: a failed crash-reset is surfaced, never reported as success"
+else
+  echo "skip: crash-reset removal-failure test (running as root bypasses dir permissions)"
+fi
 
 # ---------------------------------------------------------------------------
 # 33. A missing knob resolver is the broken-install hard-fail (exit 5),
@@ -971,16 +976,22 @@ echo "ok: a missing daemon gate fails as a broken install; a gate hard-fail prop
 # ---------------------------------------------------------------------------
 # 38. REQ-A1.7 posture — an attention store that exists but cannot be read
 #     fails the classification closed (exit 2), never open: a blind classifier
-#     must not report a possibly-hung worker as working.
+#     must not report a possibly-hung worker as working. Skipped under root,
+#     which reads through chmod 000 and would make classify succeed (repo
+#     convention).
 # ---------------------------------------------------------------------------
-home38="$tmp/h38"
-attn "$home38" heartbeat "$w" "$s" working >/dev/null || fail "unreadable-store setup"
-chmod 000 "$home38/attention/state" || fail "unreadable-store: chmod failed"
-rc=0
-out=$(run "$home38" classify "$w" "$s" --now 10000 --heartbeat 9990 2>/dev/null) || rc=$?
-chmod 644 "$home38/attention/state"
-[ "$rc" = 2 ] || fail "unreadable store: classify exit $rc ('$out'), expected 2 (fail closed)"
-echo "ok: an unreadable attention store fails the classification closed"
+if [ "$(id -u)" -ne 0 ]; then
+  home38="$tmp/h38"
+  attn "$home38" heartbeat "$w" "$s" working >/dev/null || fail "unreadable-store setup"
+  chmod 000 "$home38/attention/state" || fail "unreadable-store: chmod failed"
+  rc=0
+  out=$(run "$home38" classify "$w" "$s" --now 10000 --heartbeat 9990 2>/dev/null) || rc=$?
+  chmod 644 "$home38/attention/state"
+  [ "$rc" = 2 ] || fail "unreadable store: classify exit $rc ('$out'), expected 2 (fail closed)"
+  echo "ok: an unreadable attention store fails the classification closed"
+else
+  echo "skip: unreadable-store test (running as root reads through chmod 000)"
+fi
 
 # ---------------------------------------------------------------------------
 # 39. store_row_field is LAST-WRITE-WINS: one row per worker is the store
