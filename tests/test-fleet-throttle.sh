@@ -521,6 +521,23 @@ same_wall "$uA" "$uB" \
   || fail "12pm must normalize to hour 12 (12:${mm2}pm -> '$uA' vs 12:${mm2} -> '$uB')"
 echo "ok: meridiem forms agree with their 24-hour equivalents"
 
+# 27b. The stale-prompt grace window (tower direction on gauntlet finding
+#      F1): a wall-clock reset observed AT/just after its own stated minute
+#      is effectively now — it engages the bounded default hold (120s here),
+#      never the next-day occurrence (a ~24h over-hold the max rule could
+#      never shorten).
+reset_state
+rc=0
+printf 'You have reached your usage limit. Your limit resets %s.\n' "$(date +%H:%M)" \
+  | run observe >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "observe (current-minute wall reset): exit $rc, expected 0"
+out=$(run check) && fail "current-minute wall reset should hold briefly" || true
+u=$(printf '%s\n' "$out" | tr -d -c '0-9')
+t=$(now)
+[ -n "$u" ] && [ "$u" -gt "$t" ] && [ "$u" -le $((t + 130)) ] \
+  || fail "current-minute wall reset must engage the grace hold, not next day (until '$u', now $t)"
+echo "ok: a wall reset at its own minute engages the grace hold, not next day"
+
 # 28. The in-parser relative ceiling: a relative reset beyond MAX_HOLD is
 #     routed to the unparsed degrade (bounded default hold + warning), not
 #     engaged as an over-hold — the awk-level clamp, distinct from the CLI

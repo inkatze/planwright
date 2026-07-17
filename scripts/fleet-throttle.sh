@@ -112,6 +112,14 @@ MECHANISM=throttle
 # The engagement sanity ceiling: 8 days, comfortably past the longest native
 # limit window (weekly) while bounding any garbage epoch (risk row 24).
 MAX_HOLD=691200
+# The stale-prompt grace window (gauntlet finding F1, tower-directed): a
+# wall-clock reset observed at/just past its own stated minute is a
+# boundary-straddling or seconds-stale prompt, not tomorrow's reset — it
+# engages the bounded default hold instead of the next-day occurrence,
+# which the max rule could never shorten (a ~24h over-hold with no
+# self-heal). Beyond the window the next-day reading stands: a prompt
+# rendered hours after its stated time genuinely means tomorrow.
+WALL_GRACE=120
 
 usage() {
   echo "usage: fleet-throttle.sh check | observe | engage --until <epoch> [--trigger <text>] | clear [--trigger <text>]" >&2
@@ -132,6 +140,18 @@ now_epoch() {
 resolve_home() {
   rh_root=$("$FS" root) || return 2
   printf '%s' "$rh_root"
+}
+
+# resolve_hold: the bounded default hold (seconds) for the degrade and
+# grace paths. Runs in a command substitution; a missing resolver exits the
+# subshell 5 (broken install), which every caller propagates via
+# `|| exit $?`.
+resolve_hold() {
+  if [ ! -x "$RESOLVER" ]; then
+    echo "fleet-throttle: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
+    exit 5
+  fi
+  "$RESOLVER" --key fleet_throttle_default_hold --type posint --fallback 300
 }
 
 HOLD_LOCK=0
@@ -511,18 +531,22 @@ case "$cmd" in
         cur_secs=$((${ch:-0} * 3600 + ${cm:-0} * 60 + ${cs:-0}))
         target=$((wh * 3600 + wm * 60))
         delta=$((target - cur_secs))
-        [ "$delta" -gt 0 ] || delta=$((delta + 86400))
+        if [ "$delta" -le 0 ] && [ "$delta" -ge "-$WALL_GRACE" ]; then
+          # The grace window (F1): at/just past the stated minute the reset
+          # is effectively now — hold briefly, never jump a day.
+          hold=$(resolve_hold) || exit $?
+          echo "fleet-throttle: wall-clock reset is at/just past its stated minute; treating as effectively now (${hold}s hold, not next day)" >&2
+          delta=$hold
+        elif [ "$delta" -le 0 ]; then
+          delta=$((delta + 86400))
+        fi
         engage_until $((now + delta)) "$excerpt"
         ;;
       unparsed)
         # Risk 24: signal present, reset time unreadable (version-sensitive
         # UI text). Degrade to the bounded default hold with a warning —
         # never indefinite, never immediate resume, never an opaque halt.
-        if [ ! -x "$RESOLVER" ]; then
-          echo "fleet-throttle: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
-          exit 5
-        fi
-        hold=$("$RESOLVER" --key fleet_throttle_default_hold --type posint --fallback 300) || exit $?
+        hold=$(resolve_hold) || exit $?
         now=$(now_epoch) || {
           echo "fleet-throttle: cannot read the clock" >&2
           exit 2
