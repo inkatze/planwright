@@ -58,15 +58,16 @@
 #   fleet-audit.sh query [--mechanism <m>] [--since <epoch>] [--until <epoch>]
 #       Print matching rows (TSV, oldest file first) on stdout. Bounds are
 #       inclusive epoch seconds; every filter is optional. Reads are lockless:
-#       a row append is a single short atomic write, so a reader sees whole
-#       rows (at worst missing the newest), never a torn one.
+#       each write replaces the day file atomically (the copy-append-rename
+#       above), so a reader sees a complete file (at worst missing the newest
+#       row), never a torn one.
 #
 # Exit codes: 0 success; 2 usage error, unresolvable home, refused hostile
 #   input, or a filesystem/lock error (fail closed).
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): `date
-# +%s`, awk/sort/find, a fractional `sleep` (the lock retry, as
-# fleet-attention.sh uses). No eval, no jq (REQ-K1.5). All input is data.
+# +%s`, awk, a fractional `sleep` (the lock retry, as fleet-attention.sh
+# uses). No eval, no jq (REQ-K1.5). All input is data.
 # Pathname expansion is disabled (set -f).
 set -uf
 
