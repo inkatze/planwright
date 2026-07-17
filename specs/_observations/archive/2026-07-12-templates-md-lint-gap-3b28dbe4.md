@@ -1,1 +1,2 @@
 - 2026-07-12 [planwright] lint:md's markdownlint glob (mise.toml) excludes templates/**/*.md, so the adopter template READMEs (release-please, release-window) are unlinted in CI; they pass today but future drift is uncaught. Consider adding templates/ to the glob.
+Consumed-by: specs/guard-coverage (2026-07-17)
