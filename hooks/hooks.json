@@ -19,6 +19,15 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tool-discovery.sh"
           }
         ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/fleet-tower-signpost.sh"
+          }
+        ]
       }
     ]
   }

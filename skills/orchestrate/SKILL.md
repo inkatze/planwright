@@ -326,6 +326,16 @@ iteration is independent and atomic, holding no state beyond what is on
 disk. A halt in any iteration ends the loop and
 surfaces the reason.
 
+**Tower marker (fleet-autonomy D-4, REQ-A1.5, REQ-A1.6).** At watch-loop
+start, record this tower's runtime marker so ungraceful death is
+recoverable: `scripts/fleet-tower-marker.sh record <spec> --mode
+<unattended|interactive> --pid <tower-os-pid> --checkout <repo-root>
+[--session-id <uuid>]` — mode `unattended` when running headless/`--unattended`
+(the cron watchdog's relaunch domain), `interactive` otherwise (pass the
+session id, e.g. from `$CLAUDE_CODE_BRIDGE_SESSION_ID`, so the startup
+signpost can surface `claude --resume`). Clear it on a graceful loop exit; a
+continue-as-new successor re-records its own.
+
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower is the fleet's one long-running session, and
 can silently fill its context window. Each
