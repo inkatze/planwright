@@ -318,4 +318,29 @@ Task 2), all applied. **Convergence declared at iteration 4** on
 diminishing returns: three consecutive iterations of strictly
 decreasing, ripple-only findings, no repeated finding, no design fork
 since iteration 1. Panel iteration commits: `17badec`, `928b86c`,
-`fde1845`, and the iteration-4 commit.
+`fde1845`, `0e38113`.
+
+### Sign-off record
+
+First activation sign-off: all seven sections walked and signed
+(2026-07-16), the full-bundle Discovery-Rigor lens pass fan-out completed
+with every finding dispositioned, the REQ-H1.3 altitude check verified
+(triggered bundle, D-1 cited from the goal, decomposition matches), and
+the requested `/panel-review --nested` pass converged (4 iterations,
+gemini backend). Validator re-ran green on the Ready bundle
+(0 errors, 0 warnings); markdownlint clean. Status flipped Draft→Ready
+and `Last reviewed:` bumped to 2026-07-17 on all four spec files (the
+format-version 2 resting state; Active/Done are derived).
+
+Signed off: 2026-07-17
+
+Class: meaning
+Lens-pass: the lens review pass recorded in this section (canonical
+lens-coverage table, fork and batch dispositions, declines with
+rationale; supplemented by the panel pass record above)
+Anchor: `ad372c7305375155ca77272ceafed9df74b133b5` — computed as
+`scripts/spec-anchor.sh specs/instruction-headroom`
+
+## 9. Amendment log
+
+(none yet)

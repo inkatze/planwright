@@ -1,7 +1,7 @@
 # Instruction-budget headroom — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-07-16
+**Status:** Ready
+**Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
 
