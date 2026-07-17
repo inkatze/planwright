@@ -156,10 +156,19 @@ case "$class" in
       echo "fleet-death-evidence: tmux server unreachable — lost observability, refusing to report death" >&2
       verdict unknown
     fi
-    # Probe 2: session presence. The healthy server is authoritative for its
-    # own sessions, so an absent session is positive evidence.
+    # Probe 2: session presence. A healthy server is authoritative for its
+    # own sessions — but `has-session` exits non-zero identically for
+    # "session absent" and "no server reachable", and the server can die
+    # between probe 1 and this call (the same mid-sequence race the
+    # 2026-06-12 incident encodes). So a has-session failure is positive
+    # evidence only if the server is STILL healthy when re-verified;
+    # otherwise observability was lost mid-sequence: unknown, never dead.
     if ! tmux has-session -t "=$session" >/dev/null 2>&1; then
-      verdict dead
+      if tmux ls >/dev/null 2>&1; then
+        verdict dead
+      fi
+      echo "fleet-death-evidence: tmux server lost between probes — lost observability, refusing to report death" >&2
+      verdict unknown
     fi
     # Probe 3: the window in the authoritative listing, matched exactly
     # against the id or name field. A listing failure after the session probe
