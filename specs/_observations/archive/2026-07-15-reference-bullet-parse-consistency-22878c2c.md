@@ -1,1 +1,2 @@
 - 2026-07-15 [planwright] The v2 validator now classifies a payload-section bullet as a reference only when its bold lead is a complete **Task <token>** with a whitespace-free token (whitespace-bearing leads are prose per the D-3 plain-bullet allowance). The derivation engine, selector, and render (invariant-tasks Tasks 3 and 5) must apply the same discrimination when they read reference bullets: a looser "**Task " prefix match downstream would treat validator-accepted prose as a parking reference and diverge from the guard.
+Consumed-by: specs/format-grammar (2026-07-16)
