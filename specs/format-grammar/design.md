@@ -48,9 +48,9 @@ invariant-tasks and bootstrap as Sources, rather than extending either.
   supersede-pointer precedent (kickoff-lifecycle), and most of this work
   postdates its decision space.
 
-**Chosen because:** the D-21 spin-new triggers fire (independently ownable,
-orthogonal decision space, would overload either bundle); human-selected at
-fold-detection.
+**Chosen because:** the bootstrap D-21 spin-new triggers fire (independently
+ownable, orthogonal decision space, would overload either bundle);
+human-selected at fold-detection.
 
 ### D-3: Lib shape — one flat, sourceable, stream-emitting POSIX-sh library  (N)
 
@@ -59,7 +59,13 @@ in `scripts/` (working name `spec-parse.sh`), following the `echo-safety.sh`
 precedent: callers source it and consume stream-emitting functions (the
 canonical `tasks.md` extraction stream, the header-scoped `Format-version:`
 value, tagged parked-map records). Awk fragments live inside the lib as the
-implementation detail.
+implementation detail. Entry points are batchable: a consumer can obtain
+every family it needs in a single pass over the file, so hot paths (the
+per-step orchestrate reads) do not multiply file reads or process spawns.
+Record framing is injection-safe (embedded delimiter or newline bytes in
+parsed content cannot spoof records), and the lib emits raw bytes — anchor
+stability forbids lib-side mutation — with echo discipline remaining at
+each caller's output sites (REQ-B1.6).
 
 **Alternatives considered:**
 - A `scripts/lib/` directory of per-family files. Rejected because: the repo
@@ -106,8 +112,12 @@ scope creep into line 96.
 toggles illustration mode; while inside a fence, no line parses as a
 heading, requirement bullet, reference bullet, gate entry, or header line.
 The amendment task pins the exact lexical definition (which fence markers
-count, unclosed-fence behavior) by matching the shipped implementation and
-recording any deliberate extension in the amendment text.
+count) by matching the shipped implementation and recording any deliberate
+extension in the amendment text. The unclosed-fence disposition is pinned
+now rather than deferred: an unbalanced column-0 fence count is a
+validator-flagged malformation (REQ-D1.11), never a silent
+illustration-to-end-of-file — the toggle alone would otherwise let one
+stray fence swallow the rest of a bundle from every parser.
 
 **Alternatives considered:**
 - Full CommonMark fence semantics (indented fences, info strings, nested
@@ -187,10 +197,14 @@ case the hardened Task-5 behavior is the one with tests.
 
 ### D-9: Compatibility posture for new validator rules and anchor-moving changes  (N)
 
-**Decision:** New validator rules follow the carried D-25 severity model
+**Decision:** New validator rules follow the carried bootstrap D-25
+severity model
 (warnings on Draft, errors on the signed-off live statuses, warnings on
-Retired/Superseded). Before landing, each rule runs against every in-repo
-bundle; violations are fixed (or the rule adjusted) in the same task, and
+Retired/Superseded). Exception: a rule that makes a version declaration
+unparseable (the duplicate in-header `Format-version:` rule, REQ-A1.2 /
+REQ-D1.9) follows the fail-closed family posture carried from
+invariant-tasks D-7 and errors at every status, Draft included. Before
+landing, each rule runs against every in-repo bundle; violations are fixed (or the rule adjusted) in the same task, and
 adopter-visible severity changes are named in release notes. Any parser
 change that moves a shipped bundle's content anchor lands with an
 expression-only re-anchor sweep in the same change.
@@ -198,7 +212,8 @@ expression-only re-anchor sweep in the same change.
 **Alternatives considered:**
 - Introduce new rules as warnings everywhere, promote to errors later.
   Rejected because: a two-phase rollout doubles the release surface, and the
-  D-25 model already scopes blast radius (Draft bundles never hard-fail).
+  bootstrap D-25 model already scopes blast radius (Draft bundles never
+  hard-fail).
 - Land parser changes and let freshness gates trip naturally. Rejected
   because: a tripped gate halts every dependent dispatch with a misleading
   "meaning changed" signal for what is a tooling change.

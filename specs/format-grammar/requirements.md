@@ -73,7 +73,10 @@ doctrine stops being homeless prose asserted only in scattered tests.
   mode, and fenced lines SHALL NOT parse as headings, requirement bullets,
   reference bullets, gate entries, or header lines in any parser of spec
   bundles. The rule codifies the fence semantics `drain-gates.sh` shipped
-  (D-5); all fence-aware parsers cite this one definition.
+  (D-5); all fence-aware parsers cite this one definition. The amendment
+  SHALL also pin the unclosed-fence disposition: an unbalanced column-0
+  fence count is a validator-flagged malformation (REQ-D1.11), never a
+  silent illustration-to-end-of-file.
   *(Cites: D-1, D-5, legacy line 41 (Sources), legacy line 45 (Sources),
   obs:e6a18bb1, obs:22ef9d55.)*
 - **REQ-A1.2** The meta-spec SHALL state that more than one `Format-version:`
@@ -109,11 +112,13 @@ doctrine stops being homeless prose asserted only in scattered tests.
   gate atoms in `drain-gates.sh` apply reference-bullet authority (a
   re-parked merged task stays unmet) while dependency satisfaction in
   `orchestrate-select.sh` uses the raw engine completed set, both preserving
-  their own v1 semantics — so neither side is "fixed" into the other.
+  their own v1 semantics — so neither side is "fixed" into the other. The
+  statement SHALL include the accepted consequence that the two evaluators
+  may disagree about the same re-parked task at the same instant.
   *(Cites: obs:28d4ceb1.)*
 - **REQ-A1.9** The invariant-tasks REQ-C1.5 severity phrasing SHALL be
   clarified (expression-only): "errors on non-Draft v2 bundles" means the
-  signed-off live statuses per the carried D-25 severity model;
+  signed-off live statuses per the carried bootstrap D-25 severity model;
   Retired/Superseded bundles warn.
   *(Cites: obs:ec113dfe.)*
 - **REQ-A1.10** The meta-spec SHALL state that `### Task <id> — <title>` is
@@ -135,10 +140,14 @@ doctrine stops being homeless prose asserted only in scattered tests.
   change the computed anchor of any conforming bundle.
   *(Cites: D-3, obs:6d8f32a4.)*
 - **REQ-B1.3** The `Format-version:` parse SHALL live in the lib,
-  header-block-scoped per REQ-A1.3, with `spec-status.sh`,
-  `tasks-pr-sync`, `check-ledger.sh`, and `spec-validate.sh` re-pointed to
-  it; a duplicate in-header declaration fails closed per REQ-A1.2.
-  *(Cites: D-6, D-7, obs:89cf2853.)*
+  header-block-scoped per REQ-A1.3, with every script parsing the
+  declaration re-pointed to it — `spec-status.sh`, `tasks-pr-sync`,
+  `check-ledger.sh`, `spec-validate.sh`, `orchestrate-select.sh`,
+  `drain-gates.sh`, `migrate-format-version.sh`, and `spec-graph.sh`
+  (the full private-copy set at drafting; the re-point sweep
+  grep-verifies no other consumer remains) — and a duplicate in-header
+  declaration fails closed per REQ-A1.2.
+  *(Cites: D-6, D-7, obs:89cf2853, kickoff lens pass (2026-07-17).)*
 - **REQ-B1.4** The parked-map/reference-bullet parse SHALL live in the lib,
   with all four v2 parsers re-pointed to it.
   *(Cites: D-8, obs:5782486b, obs:22878c2c.)*
@@ -150,8 +159,22 @@ doctrine stops being homeless prose asserted only in scattered tests.
 - **REQ-B1.6** The lib SHALL satisfy the framework-script security posture:
   parsed spec content is data, never code; identifiers validate against
   their declared grammar before use; echoed untrusted content passes the
-  echo-safety discipline.
-  *(Cites: doctrine/security-posture.md (Sources).)*
+  echo-safety discipline; and paths derived from parsed input are
+  containment-checked after canonicalization before any read or write.
+  Additionally: (a) a consumer SHALL fail closed when the lib cannot be
+  sourced (missing, unreadable, or syntax-erroring — a bare POSIX `.` of a
+  missing file continues fail-open and is forbidden); (b) the lib's
+  stream-record framing SHALL be injection-safe — embedded delimiter or
+  newline bytes in parsed content cannot spoof or split records; (c) the
+  sanitization boundary is pinned: the lib emits raw bytes (anchor
+  stability forbids lib-side mutation) and echo discipline remains at each
+  caller's output sites; (d) NUL-bearing input is malformed and fails
+  closed in every lib parse (generalizing the screen `drain-gates.sh`
+  ships); (e) reference-bullet classification (a whitespace-free token)
+  and task-id grammar validation are distinct gates — an emitted token
+  still validates against its grammar before any use.
+  *(Cites: doctrine/security-posture.md (Sources), kickoff lens pass
+  (2026-07-17).)*
 
 ## REQ-C — Parser posture alignment
 
@@ -160,11 +183,15 @@ doctrine stops being homeless prose asserted only in scattered tests.
   CRLF-tolerant trimming, a payload-section bullet is a reference only when
   its bold lead is a complete `**Task <token>**` with a whitespace-free
   token, and plain prose bullets are tolerated per the validator's
-  inner-whitespace rule.
+  inner-whitespace rule. Until the REQ-A1.1 amendment lands, fence-aware
+  parsers cite this bundle's D-5 as the rule's provenance; Task 5's landing
+  flips the citations to the meta-spec.
   *(Cites: D-8, obs:5782486b, obs:22878c2c.)*
 - **REQ-C1.2** The v1 parsers (`spec-validate.sh` and `spec-anchor.sh`'s
   canonical extraction) SHALL become fence-aware in lockstep with the
   REQ-A1.1 amendment, per the 2026-06-12 human decision.
+  (`spec-validate.sh` parses both format versions, so it appears among the
+  v2 parsers and the v1 parsers deliberately.)
   *(Cites: D-5, legacy line 41 (Sources), obs:22ef9d55.)*
 - **REQ-C1.3** `spec-status.sh`'s parked-map parse SHALL gain the fence guard
   and CRLF trim so a live Awaiting-input bullet always blocks derived Done
@@ -179,8 +206,8 @@ doctrine stops being homeless prose asserted only in scattered tests.
 ## REQ-D — Validator hardening
 
 - **REQ-D1.1** The validator SHALL flag a non-reference bullet under
-  `## Awaiting input` in a v2 bundle (section purity), at the D-25 severity
-  model.
+  `## Awaiting input` in a v2 bundle (section purity), at the bootstrap
+  D-25 severity model.
   *(Cites: obs:cae4fb17.)*
 - **REQ-D1.2** The validator SHALL flag a live requirement bullet that
   carries a citation but no normative prose.
@@ -201,14 +228,16 @@ doctrine stops being homeless prose asserted only in scattered tests.
   *(Cites: legacy line 161 (Sources).)*
 - **REQ-D1.6** The validator's task stable-ID check SHALL accept a task-block
   removal when a dated `## Changelog` entry names the retired id
-  (REQ-A1.6's escape), and reject it otherwise.
+  (REQ-A1.6's escape), and reject it otherwise; the changelog-extracted id
+  is validated against the task-id grammar before the comparison.
   *(Cites: D-12, legacy line 65 (Sources).)*
 - **REQ-D1.7** The validator SHALL flag a `### Task` heading that deviates
   from the canonical `### Task <id> — <title>` form (REQ-A1.10).
   *(Cites: legacy line 38 (Sources).)*
 - **REQ-D1.8** The validator SHALL warn when a REQ's bullet text changed
   since the baseline ref while its test-spec entry did not (coverage-based
-  dead-path check); and the kickoff lens-pass disposition rule SHALL treat a
+  dead-path check), sharing one baseline load per run with the REQ-D1.6
+  check; and the kickoff lens-pass disposition rule SHALL treat a
   requirement addition or extension as requiring a paired test-spec edit in
   the same disposition.
   *(Cites: D-14, legacy line 67 (Sources).)*
@@ -219,21 +248,29 @@ doctrine stops being homeless prose asserted only in scattered tests.
 - **REQ-D1.10** Every new validator rule SHALL be run against all in-repo
   bundles before landing, with violations fixed or the rule adjusted in the
   same task, and adopter-visible severity changes named in the release
-  notes.
+  notes; an in-task fix to a signed-off bundle rides the expression-only
+  self-re-anchor ritual so the fix does not stale that bundle's anchor.
   *(Cites: D-9.)*
+- **REQ-D1.11** The validator SHALL flag a file whose column-0 fence count
+  is unbalanced (an unclosed fence): under the REQ-A1.1 grammar an
+  unterminated fence would otherwise silently swallow the remainder of the
+  file as illustration, dropping content from every parser with no signal.
+  *(Cites: D-5, kickoff lens pass (2026-07-17).)*
 
 ## REQ-E — Gate grammar and drain
 
 - **REQ-E1.1** `ready` SHALL be added to the status-atom grammar in
-  `doctrine/accumulator-taxonomy.md` and to `drain-gates.sh`'s stored-status
-  whitelist, reconciling both with the six-status lifecycle; the whitelist
-  fix may land first, citing the meta-spec's status table as the
-  already-normative set (D-10).
+  `doctrine/accumulator-taxonomy.md` and to both of `drain-gates.sh`'s
+  stored-status whitelists (the shell `case` list and the awk `VALID` map),
+  reconciling all with the six-status lifecycle; the whitelist fix may land
+  first, citing the meta-spec's status table as the already-normative set
+  (D-10).
   *(Cites: D-10, obs:302b75ca, legacy line 166 (Sources).)*
 - **REQ-E1.2** The free-text-gate form SHALL be normatively defined (plain
   prose after `**Gate:**`, never a `GATE(` wrapper), and the drain report
   SHALL hint at that form when a `GATE(when:)` condition matches no
-  recognized atom.
+  recognized atom; the hint's echoed condition passes the echo-safety
+  discipline before terminal output.
   *(Cites: legacy line 167 (Sources), obs:f46510f1.)*
 - **REQ-E1.3** The invariant-tasks Deferred entry using `GATE(when:)` with
   prose atoms SHALL be rewritten to the free-text form as an expression-only
@@ -246,9 +283,10 @@ doctrine stops being homeless prose asserted only in scattered tests.
   not prevention), and the unresolved clause (`unresolved — completion
   evidence unavailable`) documented as a lane annotation.
   *(Cites: obs:2361a49f.)*
-- **REQ-E1.5** `orchestrate-meta-select`'s unexpected-selector-exit handling
-  SHALL fail closed: any unexpected non-zero selector exit is treated as an
-  evaluation failure, never as not-a-candidate.
+- **REQ-E1.5** `orchestrate-meta-select.sh`'s unexpected-selector-exit
+  handling SHALL fail closed: any unexpected non-zero selector exit — or
+  selector output that does not parse — is treated as an evaluation
+  failure, never as not-a-candidate.
   *(Cites: obs:2361a49f.)*
 - **REQ-E1.6** The `/drain` pass SHALL surface a per-spec inventory of
   `[manual]` test-spec entries for live specs, making un-exercised manual
@@ -286,6 +324,20 @@ doctrine stops being homeless prose asserted only in scattered tests.
   surfaced invariant-tasks and bootstrap overlaps and the human chose a new
   bundle; lib-reach, `## Tasks` ordering, and scope-rider forks resolved by
   the human (recorded as D-4, D-11, D-17).
+- 2026-07-17 — Kickoff walkthrough and lens-pass edits (first activation,
+  applied with the human): D-9 severity carve-out; REQ-A1.9's
+  invariant-tasks edit moved from Task 5 to Task 4 (single owner of both
+  cross-bundle edits, self-re-anchor obligation attached); the
+  `Format-version:` consumer list extended to the full eight-script
+  private-copy set; the duplicate-declaration validator error moved from
+  Task 6 to Task 3 (already-normative grounding); interim fence provenance
+  stated (cite D-5 until Task 5 lands); REQ-B1.6 extended with the
+  path-access, lib-sourcing, stream-framing, sanitization-boundary, NUL,
+  and classification-vs-validation clauses; **REQ-D1.11 added**
+  (unbalanced-fence validator flag) with REQ-A1.1 pinning the
+  unclosed-fence disposition; assorted Done-when and test-spec
+  strengthenings, foreign-ID qualifiers (bootstrap D-25 / bootstrap D-21),
+  and tag corrections per the kickoff brief's lens-pass record.
 
 ## Sources
 

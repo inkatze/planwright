@@ -16,9 +16,11 @@ skill-ritual behaviors that no script executes are `[manual]`.
 ### REQ-A1.1 — Fence/illustration grammar [design-level + test]
 
 The amended `doctrine/spec-format.md` defines the fence rule (column-0
-toggle, illustration mode) in the extraction/grammar sections. Companion:
-the Task 6 fence fixtures — a fenced column-0 `### Task` line and a fenced
-requirement bullet parse as illustration in every parser (v1 and v2).
+toggle, illustration mode) in the extraction/grammar sections, including
+the unclosed-fence disposition (enforcement verified under REQ-D1.11).
+Companion: the Task 6 fence fixtures — a fenced column-0 `### Task` line
+and a fenced requirement bullet parse as illustration in every parser (v1
+and v2).
 
 ### REQ-A1.2 — Duplicate Format-version rule [design-level + test]
 
@@ -62,13 +64,17 @@ amended example. This file itself is a conforming instance.
 
 The amendment carries the clarification sentence naming both sides
 (gate-atom reference-bullet authority vs dependency-satisfaction engine
-evidence) as deliberate v1-parity behavior.
+evidence) as deliberate v1-parity behavior, including the accepted
+consequence that the two evaluators may disagree about the same re-parked
+task at the same instant.
 
 ### REQ-A1.9 — invariant-tasks REQ-C1.5 phrasing [design-level]
 
-The invariant-tasks bundle carries the expression-only clarification with a
-dated changelog entry; the phrasing matches the test-spec-pinned behavior
-(Ready=error, Draft=warn, Retired/Superseded=warn).
+The invariant-tasks bundle carries the expression-only clarification
+(riding Task 4's single changelog plus marked self-re-anchor entry); the
+phrasing matches Ready=error and Draft=warn as pinned by the
+invariant-tasks test-spec, and Retired/Superseded=warn per the bootstrap
+D-25 severity model.
 
 ### REQ-A1.10 — Canonical task-heading form stated [design-level]
 
@@ -91,8 +97,11 @@ is byte-identical (Task 1 Done-when).
 ### REQ-B1.3 — Format-version parse re-point [test]
 
 Fixtures cover: header declaration parsed; body literal inert; duplicate
-in-header declaration fails closed — identically across `spec-status.sh`,
-the `tasks-pr-sync` hook, `check-ledger.sh`, and `spec-validate.sh`.
+in-header declaration fails closed — identically across all eight
+re-pointed consumers (`spec-status.sh`, the `tasks-pr-sync` hook,
+`check-ledger.sh`, `spec-validate.sh`, `orchestrate-select.sh`,
+`drain-gates.sh`, `migrate-format-version.sh`, `spec-graph.sh`); a grep
+sweep asserts no private version-parse copy remains.
 
 ### REQ-B1.4 — Parked-map parse re-point [test]
 
@@ -107,8 +116,11 @@ unchanged over the corpus and all in-repo bundles after the re-point.
 ### REQ-B1.6 — Lib security posture [test]
 
 Fixtures with hostile content (non-printable bytes in headings, malformed
-identifiers, path-shaped tokens) verify clean refusal or sanitized output;
-shell lint and the secret scan run over the lib in CI.
+identifiers, path-shaped tokens, embedded stream-delimiter bytes,
+NUL-bearing input) verify clean refusal or sanitized output; a
+consumer-side fixture verifies fail-closed behavior when the lib file is
+absent or unsourceable; path-derived reads are containment-checked; shell
+lint and the secret scan run over the lib in CI.
 
 ## REQ-C — Parser posture alignment
 
@@ -131,9 +143,11 @@ not-Done; a fenced mock bullet does not park anything.
 
 ### REQ-C1.4 — Re-anchor sweep on anchor movement [test + manual]
 
-Task 6 verifies unaffected bundles' anchors are unchanged `[test]`; for any
-affected bundle, the expression-only re-anchor entries are reviewed in the
-task PR `[manual]`.
+Task 6 recomputes anchors for every bundle under `specs/`, each either
+unchanged or carrying a re-anchor entry, and a synthetic trip fixture (a
+bundle with fenced task-shaped lines) proves anchor movement produces the
+paired re-anchor entry `[test]`; for any real affected bundle, the
+expression-only re-anchor entries are reviewed in the task PR `[manual]`.
 
 ## REQ-D — Validator hardening
 
@@ -166,7 +180,9 @@ Fixtures: an H2 `D-3` heading, a colon-less H3, and a period-labelled
 ### REQ-D1.6 — Retirement escape enforcement [test]
 
 Fixtures against a baseline ref: a removed task block named in a dated
-changelog entry passes; an unnamed removal errors.
+changelog entry passes; an unnamed removal errors; a changelog entry
+naming a token that fails the task-id grammar does not activate the
+escape.
 
 ### REQ-D1.7 — Canonical task-heading enforcement [test]
 
@@ -187,26 +203,36 @@ version-keyed scripts refuse the same fixture.
 
 ### REQ-D1.10 — New-rule rollout contract [manual]
 
-Each hardening task's PR records the all-bundle run and any in-task fixes;
-release notes name adopter-visible severity changes. Reviewed at PR time.
+Each hardening task's PR records the all-bundle run and any in-task fixes
+(with their self-re-anchor entries on signed bundles); release notes name
+adopter-visible severity changes. Reviewed at PR time.
+
+### REQ-D1.11 — Unbalanced fence flagged [test]
+
+Fixtures: a bundle with an unclosed column-0 fence is flagged (the
+remainder of the file would otherwise silently parse as illustration); a
+balanced-fence bundle passes.
 
 ## REQ-E — Gate grammar and drain
 
-### REQ-E1.1 — ready status atom [test]
+### REQ-E1.1 — ready status atom [test + design-level]
 
-Fixtures: a stored-Ready spec emits no unrecognized-status note; a status
-atom referencing `ready` evaluates. The taxonomy grammar text is verified
-at Task 5 `[design-level]` within this entry's scope.
+Fixtures: a stored-Ready spec emits no unrecognized-status note through
+both whitelists (the shell `case` list and the awk `VALID` map); a status
+atom referencing `ready` evaluates `[test]`. The taxonomy grammar text is
+verified at Task 5 `[design-level]`.
 
 ### REQ-E1.2 — Free-text-gate form and hint [design-level + test]
 
 The taxonomy amendment defines the plain-prose form; a fixture gate written
 as `GATE(when: prose)` produces the MALFORMED report with the free-text
-hint.
+hint, and a hostile-condition fixture verifies the echoed condition is
+sanitized (echo-safety).
 
 ### REQ-E1.3 — invariant-tasks gate fix [test]
 
 A real sweep over `specs/invariant-tasks` reports no MALFORMED entry; the
+rewritten gate evaluates to the same verdict as before the rewrite; the
 bundle carries the dated changelog entry and marked re-anchor entry.
 
 ### REQ-E1.4 — Taxonomy delta [design-level]
@@ -217,8 +243,9 @@ annotation, matching shipped `drain-gates.sh` behavior.
 
 ### REQ-E1.5 — Meta-select fail-closed [test]
 
-Fixture: a selector exiting with an unexpected non-zero code yields an
-evaluation failure, not a silent not-a-candidate.
+Fixtures: a selector exiting with an unexpected non-zero code, and a
+selector exiting zero with unparseable output, each yield an evaluation
+failure, not a silent not-a-candidate.
 
 ### REQ-E1.6 — [manual] inventory in drain [test]
 
@@ -237,14 +264,18 @@ of each, per the Task 7 documented steps.
 
 ### REQ-F1.2 — Expression-only anchor-entry production [test]
 
-Fixture: a skill-produced expression-only entry (marked class, changelog
-citation, anchor line last) parses as execution-valid by the freshness-gate
-parser.
+Fixture: a captured real skill-produced expression-only entry (e.g. the
+one Task 4 writes into invariant-tasks — marked class, changelog citation,
+anchor line last) parses as execution-valid by the freshness-gate parser;
+the fixture is the captured output, not a hand-authored golden.
 
-### REQ-F1.3 — Catalog-absent degradation [test]
+### REQ-F1.3 — Catalog-absent degradation [test + manual]
 
-Fixture: the kickoff gap-check path with no resolvable decision-domains
-catalog degrades to the one-line notice and proceeds, rather than halting.
+The script half is the fixture: `resolve-catalog.sh` with no resolvable
+decision-domains catalog fails cleanly `[test]`. The skill's
+degrade-to-one-line-notice-and-proceed decision is prose behavior no
+fixture executes; it is exercised and recorded at the next real
+catalog-absent kickoff `[manual]`.
 
 ## REQ-G — Sequencing constraint
 
