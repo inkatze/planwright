@@ -123,9 +123,13 @@ assert_eq "HOME-less plugin path" "$tmp/plugin/doctrine/sample-doc.md" "$out"
 
 # 11. With no usable root at all (no override, no plugin root, no CLAUDE_DIR,
 #     no HOME), the resolver reports its own not-found message (exit 1)
-#     rather than crashing with a bash unbound-variable error.
+#     rather than crashing with a bash unbound-variable error. The doc name is
+#     deliberately one that exists under NO root, including the self-location
+#     arm ($script_dir/../doctrine/) — keep it obviously-nonexistent; if it were
+#     ever a real core doc, that arm would resolve it and this negative check
+#     would silently start passing (exit 0) instead of guarding the exit-1 path.
 err="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
-  /bin/bash "$RESOLVER" sample-doc 2>&1 >/dev/null)"
+  /bin/bash "$RESOLVER" nonexistent-doc 2>&1 >/dev/null)"
 rc=$?
 assert "rootless environment exits 1" 1 "$rc"
 case "$err" in
