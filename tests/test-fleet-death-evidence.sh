@@ -72,12 +72,21 @@ rc=0
 rc=0
 /bin/bash "$FDE" process >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "process with no pid: exit $rc, expected 2"
+rc=0
+/bin/bash "$FDE" process 123 extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "process with extra args: exit $rc, expected 2"
+rc=0
+/bin/bash "$FDE" tmux-window planwright >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "tmux-window with one token: exit $rc, expected 2"
+rc=0
+/bin/bash "$FDE" tmux-window planwright worker-3 extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "tmux-window with extra args: exit $rc, expected 2"
 echo "ok: usage errors are refused (exit 2)"
 
 # 2. The pseudo-evidence guard: a timeout / silence / staleness claim is not
 #    positive evidence and is refused with a message saying so — the wrapper
 #    refuses to act on a timeout alone (Task 1 Done-when).
-for pseudo in timeout silence stale heartbeat-age; do
+for pseudo in timeout silence stale staleness heartbeat heartbeat-age idle-time; do
   rc=0
   err=$(/bin/bash "$FDE" "$pseudo" 900 2>&1 >/dev/null) || rc=$?
   [ "$rc" = 2 ] || fail "pseudo-class '$pseudo': exit $rc, expected 2 (refused)"
@@ -275,6 +284,13 @@ for bad in 'pw;rm -rf' 'pw$(x)' '-tpw' 'pw pw' ''; do
   run_tmux window-present tmux-window planwright "$bad" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "hostile window '$bad': exit $rc, expected 2"
 done
+long_tok=$(printf '%0129d' 0)
+rc=0
+/bin/bash "$FDE" tmux-window "$long_tok" worker-3 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "over-length session token: exit $rc, expected 2"
+rc=0
+/bin/bash "$FDE" tmux-window planwright "$long_tok" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "over-length window token: exit $rc, expected 2"
 echo "ok: hostile session/window tokens are refused (exit 2)"
 
 echo "ALL PASS: fleet-death-evidence"

@@ -170,6 +170,17 @@ run query --since yesterday >/dev/null 2>&1 || rc=$?
 rc=0
 run query --until '10; rm' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "non-numeric --until: exit $rc, expected 2"
+rc=0
+run query --since 1234567890123456 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "over-length (16-digit) --since: exit $rc, expected 2"
+rc=0
+run query --frobnicate >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unknown query flag: exit $rc, expected 2"
+for flag in --mechanism --since --until; do
+  rc=0
+  run query "$flag" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "query $flag with no value: exit $rc, expected 2"
+done
 echo "ok: query arguments are validated (exit 2)"
 
 # 7. Sequential records accumulate — no lost update.
@@ -261,5 +272,18 @@ err=$(PLANWRIGHT_FLEET_STATE_DIR="$notadir_home" /bin/bash "$FA" query 2>&1 >/de
 [ "$rc" = 2 ] || fail "audit path as a regular file: query exit $rc, expected 2"
 [ -n "$err" ] || fail "audit path as a regular file: no diagnostic emitted"
 echo "ok: an audit path that is not a directory fails the query loudly (exit 2)"
+
+# 8c. An UNREADABLE audit dir must not masquerade as an empty trail either
+#     (the script's own fail-closed guard). Skipped under root, where mode
+#     000 is still readable — the check-memory-links.sh test's idiom.
+if [ "$(id -u)" -ne 0 ]; then
+  chmod 000 "$fleet_home/audit"
+  rc=0
+  err=$(run query 2>&1 >/dev/null) || rc=$?
+  chmod 755 "$fleet_home/audit"
+  [ "$rc" = 2 ] || fail "unreadable audit dir: query exit $rc, expected 2"
+  [ -n "$err" ] || fail "unreadable audit dir: no diagnostic emitted"
+  echo "ok: an unreadable audit dir fails the query loudly (exit 2)"
+fi
 
 echo "ALL PASS: fleet-audit"

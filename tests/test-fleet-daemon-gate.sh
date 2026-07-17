@@ -150,9 +150,20 @@ rc=0
 err=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
   /bin/bash "$FDG" stale-cleanup 2>&1 >/dev/null) || rc=$?
-[ "$rc" != 0 ] || fail "knob absent in every layer: gate proceeded (exit 0) instead of blocking"
+[ "$rc" = 1 ] || fail "knob absent in every layer: exit $rc, expected 1 (the fallback 'true' lands on the paused arm)"
 [ -n "$err" ] || fail "knob absent in every layer: no warning emitted"
 echo "ok: a knob absent from every layer blocks the daemon action (fail closed)"
+
+# 4e. Resolver exit 5 (a malformed CORE default — broken install) propagates
+#     through the gate's fail-closed pass-through: blocked, never proceed.
+core_bad="$tmp/core-bad.yml"
+printf 'fleet_daemon_pause: maybe\n' >"$core_bad"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_bad" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$FDG" stale-cleanup >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "malformed core default: exit $rc, expected 5 (blocked, broken install)"
+echo "ok: a malformed core default blocks the daemon action (exit 5 propagated)"
 
 # 4d. Broken install: the gate's resolver missing entirely -> exit 5, blocked.
 #     A copy of the gate in a dir with no sibling resolver simulates it.
@@ -183,6 +194,13 @@ for bad in 'x;rm' 'a b' '../x'; do
   run "$bad" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "hostile mechanism '$bad': exit $rc, expected 2"
 done
+long_mech=$(printf '%0129d' 0)
+rc=0
+run "$long_mech" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "over-length mechanism token: exit $rc, expected 2"
+rc=0
+run stale-cleanup extra >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "two mechanism args: exit $rc, expected 2"
 echo "ok: a hostile mechanism token is refused (exit 2)"
 
 echo "ALL PASS: fleet-daemon-gate"

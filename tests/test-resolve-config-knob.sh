@@ -225,6 +225,33 @@ PLANWRIGHT_CONFIG_DEFAULTS="$core_bad" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root
 [ "$rc" = 5 ] || fail "malformed core default: exit $rc, expected 5 (broken install)"
 echo "ok: a malformed core default is a broken install (exit 5)"
 
+# 9b. The COMPOUND broken-install corner: a malformed winning overlay whose
+#     degrade-to-core re-resolve finds the core default itself malformed is a
+#     broken install (exit 5) — the degrade path's own failure arm, distinct
+#     from test 9's direct core arm (no overlay) and 8b's core-omits arm.
+reset_layers
+printf 'fleet_daemon_pause: nope\n' >"$mlocal_cfg"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_bad" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' --fallback false \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "malformed overlay + malformed core: exit $rc, expected 5 (broken install)"
+echo "ok: a malformed overlay degrading onto a malformed core default is a broken install (exit 5)"
+
+# 9c. Broken install: config-get missing entirely. A copy of the resolver
+#     (with its sourced sanitizer, without config-get.sh) simulates it —
+#     the same lonely-copy shape test-fleet-daemon-gate.sh uses.
+mkdir -p "$tmp/lonely"
+cp "$RCK" "$here/../scripts/echo-safety.sh" "$tmp/lonely/"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$tmp/lonely/resolve-config-knob.sh" --key fleet_daemon_pause --type enum --values 'true false' --fallback false \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing config-get: exit $rc, expected 5 (broken install)"
+echo "ok: a missing config reader is a broken install (exit 5)"
+
 # 10. The posint type: positive integers pass; zero, a leading zero, a negative,
 #     a non-integer, and an overflow-risk value (>15 digits) are malformed.
 posint_core="$tmp/core-posint.yml"
@@ -276,9 +303,13 @@ for args in \
   "" \
   "--key fleet_daemon_pause" \
   "--key fleet_daemon_pause --type enum --fallback false" \
+  "--key fleet_daemon_pause --type enum --values 'true false'" \
   "--key Bad-Key --type enum --values 'a b' --fallback a" \
+  "--key bad-key --type enum --values 'a b' --fallback a" \
   "--key fleet_daemon_pause --type banana --values 'a b' --fallback a" \
   "--key fleet_daemon_pause --type enum --values 'true false' --fallback maybe" \
+  "--key fleet_daemon_pause --type enum --values 'a;b c' --fallback c" \
+  "--key flail_threshold --type posint --values '1 2' --fallback 1" \
   "--key flail_threshold --type posint --fallback 0"; do
   rc=0
   # shellcheck disable=SC2086
@@ -288,6 +319,13 @@ for args in \
     /bin/bash "$RCK" "$@" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "usage: args '$args' exited $rc, expected 2"
 done
+long_member=$(printf '%065d' 0)
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values "true $long_member" --fallback true \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "over-length enum member: exit $rc, expected 2"
 echo "ok: missing or invalid arguments are usage errors (exit 2)"
 
 # 12. Output contract: the emitted value is newline-terminated.
