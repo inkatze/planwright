@@ -321,9 +321,14 @@ case "$cmd" in
     root=$(resolve_home) || exit 2
     marker="$root/towers/$spec"
     # Lockless read is safe: every write lands via rename, so this either
-    # sees the complete old row or the complete new one.
-    [ -f "$marker" ] || exit 1
-    cat "$marker" || exit 2
+    # sees the complete old row or the complete new one. A clear racing this
+    # read is the benign absent case (exit 1), never a filesystem error.
+    if ! row=$(cat "$marker" 2>/dev/null); then
+      [ -f "$marker" ] || exit 1
+      echo "fleet-tower-marker: cannot read the marker" >&2
+      exit 2
+    fi
+    printf '%s\n' "$row"
     exit 0
     ;;
   clear)
