@@ -26,8 +26,9 @@
 # in one sweep (risks 12/17); an un-inspectable tree escalated not skipped (risk
 # 10); the grace threshold (a just-dirty tree waits, an aged one escalates); a
 # leading-zero threshold and a corrupt leading-zero grace marker both rejected as
-# octal rather than mis-parsed; the kill-switch pausing the whole sweep; and the
-# reconcile backstop correcting a drifted tasks.md snapshot.
+# octal rather than mis-parsed; a self-healed tree's escalation auto-cleared from
+# the decision queue; the kill-switch pausing the whole sweep; and the reconcile
+# backstop correcting a drifted tasks.md snapshot.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-sweep.sh
@@ -274,6 +275,23 @@ case $cm_after in
 esac
 write_core 0m
 echo "ok: a corrupt leading-zero dirty-since marker is rejected, not read as octal"
+
+# 7d. Auto-clear on self-heal: an escalated tree that becomes clean+pushed has
+#     its decision-queue entry retracted on the next sweep, so a resolved
+#     condition does not leave a standing false alarm (keyed on the same
+#     `sweep-<tree-id>` handle the escalation used).
+rm -rf "$fleet_home"
+write_core 0m
+sh_repo="$tmp/selfheal"
+make_pushed_repo "$sh_repo"
+(cd "$sh_repo" && echo wip >wip.txt)
+run_sweep --repo "$sh_repo" >/dev/null 2>&1 || fail "sweep (self-heal, escalate) non-zero exit"
+[ "$(queue_count)" -ge 1 ] || fail "self-heal: the dirty tree was not escalated first (queue=$(queue_count))"
+# Resolve the underlying condition: commit and push so the tree is clean+pushed.
+(cd "$sh_repo" && git_env git add wip.txt && git_env git commit -qm wip && git_env git push -q origin main)
+run_sweep --repo "$sh_repo" >/dev/null 2>&1 || fail "sweep (self-heal, cleared) non-zero exit"
+[ "$(queue_count)" = 0 ] || fail "self-heal: the escalation was not retracted after the tree became clean (queue=$(queue_count))"
+echo "ok: a self-healed tree's escalation is auto-cleared from the decision queue"
 
 # 8. The kill-switch pauses the whole sweep.
 rm -rf "$fleet_home"

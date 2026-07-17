@@ -251,6 +251,17 @@ escalate() {
   fi
 }
 
+# retract <path> — clear any decision-queue escalation this tree raised, once it
+# self-heals (dirty/uninspectable -> clean). Keyed on the SAME per-tree handle
+# escalate upserts (`sweep-<tree-id>`), so a resolved condition leaves no
+# standing false alarm in the queue (the ISA-18.2 rationalization the queue
+# targets). Best-effort and idempotent: fleet-attention `clear` is a no-op when
+# nothing is queued under that handle, so calling it on a clean-again tree that
+# was never actually escalated costs only a filter over the store.
+retract() {
+  "$ATTN" clear "sweep-$(tree_id "$1")" >/dev/null 2>&1 || true
+}
+
 # --- Pass 1: the dirty-tree sweep. Trees = registry ∪ {tower checkout}, deduped
 #     by realpath.
 trees=$(
@@ -283,6 +294,12 @@ for tree in $trees; do
   [ -n "$SINCE_DIR" ] && marker="$SINCE_DIR/$id"
 
   if [ "$state" = clean ]; then
+    # A tree that had a dirty-since marker (it was tracked dirty) and is now
+    # clean has self-healed: retract any escalation it raised before dropping
+    # the marker, so the resolved condition leaves no standing false alarm.
+    if [ -n "$marker" ] && [ -f "$marker" ]; then
+      retract "$tree"
+    fi
     [ -n "$marker" ] && rm -f "$marker" 2>/dev/null
     continue
   fi
@@ -336,6 +353,9 @@ for tree in $trees; do
   # between the two checks is a transient — drop it, do not escalate.
   reverify=$(inspect_tree "$tree")
   if [ "$reverify" = clean ]; then
+    # Became clean between the grace check and re-verify: retract a prior-cycle
+    # escalation the same way the top-of-loop clean branch does.
+    [ -n "$marker" ] && [ -f "$marker" ] && retract "$tree"
     [ -n "$marker" ] && rm -f "$marker" 2>/dev/null
     continue
   fi
