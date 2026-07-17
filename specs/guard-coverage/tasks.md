@@ -28,8 +28,10 @@ preference, roots are all dispatchable immediately.
   `--fixup=amend:`/`--fixup=reword:` producing `amend!` subjects — and
   legitimate feature-branch operations) with expected deny/allow
   outcomes; deny-glob additions to `config/worker-settings.json`
-  covering the hook-bypass spellings (including a categorical
-  `git -c core.hooksPath*` / `--hooks-path` deny and end-wildcarded
+  covering the hook-bypass spellings (including categorical
+  `git -c core.hooksPath*` / `--hooks-path` and standalone
+  `git config * core.hooksPath*` (persistent-disable) denies, and
+  end-wildcarded
   `main`-destination denies so flags after `main` cannot evade) and the
   `--amend` family; the documented matcher model (D-4) — not a prose
   assertion here — is the arbiter of which `--amend -m`/`-F` and
@@ -133,9 +135,11 @@ preference, roots are all dispatchable immediately.
   `check:workflow-posture` script asserting no `pull_request_target` in
   any workflow; read-only *effective* per-job permissions (job-level
   overrides computed) on every job reachable from `pull_request`; no
-  stored-secret `secrets.*` reference (excluding `secrets.GITHUB_TOKEN`)
-  and no `secrets: inherit` reachable from `pull_request`, followed
-  through reusable-workflow `uses:` calls; and that any `workflow_run`
+  stored-secret reference — both `secrets.NAME` and the
+  `secrets['NAME']`/`secrets["NAME"]` index spellings, excluding
+  `secrets.GITHUB_TOKEN`/`github.token` — and no `secrets: inherit`
+  reachable from `pull_request`, followed through reusable-workflow
+  `uses:` calls; and that any `workflow_run`
   workflow holding write permissions or secrets keeps its base-branch
   filter and consumes no PR-produced artifacts; the check fails closed
   on any workflow file it
@@ -312,9 +316,10 @@ preference, roots are all dispatchable immediately.
   §"Guard categories" enum amended where no category fits and
   `tests/test-builder-guards.sh` kept green; a standing registration
   check asserting every `check:`/`lint:`/`scan:` task is wired into the
-  `check` aggregate (with fixtures: an unregistered guard fails, and a
-  zero-task parse of `mise.toml` fails closed rather than passing
-  vacuously); the
+  `check` aggregate (parsing `mise.toml` only — the same file-based-task
+  parse boundary Task 5 documents — with fixtures: an unregistered guard
+  fails, and a zero-task parse of `mise.toml` fails closed rather than
+  passing vacuously); the
   quality-gate enumeration in `docs/CONTRIBUTING.md` and the
   guard-catalog §"Dogfooding" list updated for the new guards; a
   registration sweep confirming every guard from Tasks 1–5, 7, 9, 10 is

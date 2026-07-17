@@ -88,8 +88,9 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   every `main` destination spelling (including flags placed after
   `main`), flag-after-arg amend/squash/fixup forms including the
   `--amend -m`/`--amend -F` family and `--fixup=amend:`/`--fixup=reword:`,
-  hook-bypass forms (`--no-verify` in any position; `git -c` prefix and
-  `git config` spellings of `core.hooksPath`, crossed with the push and
+  hook-bypass forms (`--no-verify` in any position; the `git -c` prefix
+  and the standalone `git config core.hooksPath …` persistent-disable
+  spellings, both categorically denied and crossed with the push and
   amend forms), and legitimate feature-branch operations — against a
   documented re-implementation of Claude Code's literal-substring
   matcher, so a deny-list edit that re-opens a known evasion fails CI.
@@ -163,10 +164,12 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   workflow uses `pull_request_target`; every job reachable from
   `pull_request` has read-only *effective* permissions (job-level
   overrides computed, not top-level only); no stored-secret reference
-  (`secrets.*` excluding the workflow's own `secrets.GITHUB_TOKEN`,
-  whose privileges are governed by the read-only permissions assertion)
-  and no `secrets: inherit` is reachable from a `pull_request` trigger,
-  including through reusable-workflow `uses:` calls; and any
+  (both the `secrets.NAME` and `secrets['NAME']`/`secrets["NAME"]` index
+  spellings, excluding the workflow's own `secrets.GITHUB_TOKEN` and the
+  `github.token` alias, whose privileges are governed by the read-only
+  permissions assertion) and no `secrets: inherit` is reachable from a
+  `pull_request` trigger, including through reusable-workflow `uses:`
+  calls; and any
   `workflow_run` workflow holding write permissions or secrets retains
   its base-branch filter and consumes no PR-produced artifacts. A
   workflow edit breaking any of these SHALL fail CI, and a workflow

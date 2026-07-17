@@ -188,6 +188,7 @@ undecided.
 | 6 | CI-runner timing noise trips the hard-fail budgets without a real regression. | 30–50% headroom over the measured post-split baseline; bumps are conscious reviewed edits with derivation recorded. Signal: budget failures on diffs touching no tests. |
 | 7 | Task 2↔3 coupling: commit-msg hook and seed format span two PRs. | The 3→2 edge serializes them; the hook-extension fixture test catches format mismatch. |
 | 8 | Seed provisioning is human-gated mid-execution (Task 3 needs out-of-band plaintexts). | Provisioning step documented in the check header; absent the human, Task 3 parks in Awaiting input rather than shipping empty seeds. Signal: a Task 3 PR with only test-token hashes. |
+| 9 | Tracked `githooks/` + `core.hooksPath` is an arbitrary-code-execution vector: a covered git command on an untrusted fork-PR checkout runs that branch's hook code (surfaced by the panel lens pass). | Accepted residual (D-2): same caution as running an untrusted checkout's tests; hooks are small and diff-reviewed; reviewers unset `core.hooksPath` before operating on an untrusted branch. Open to the human as a D-2 tradeoff (accept / add a trust-gate / reconsider tracked hooks). |
 
 Open questions: none carried — all resolved to decisions or recorded
 above as explicit accepted risks.

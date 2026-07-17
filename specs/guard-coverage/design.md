@@ -60,8 +60,21 @@ D-5's hashed seed list (screening delivered
 as Task 3's extension). Hook files are extensionless portable shell and
 join `lint:shell`/`lint:fmt`/the D-12 check by shebang enumeration.
 Hooks are the enforcement layer against accidental invocation and bind
-humans too; per-commit hook latency across fleet commit volume is an
-accepted cost. The worker-settings deny globs are demoted to best-effort
+humans too (with the accuracy note that `--no-verify` skips the
+commit/push hooks but not `pre-rebase`, which git offers no
+`--no-verify` for — a deliberate local rebase is unblocked by
+temporarily unsetting `core.hooksPath`, not by `--no-verify`);
+per-commit hook latency across fleet commit volume is an accepted cost.
+**Untrusted-checkout caveat (accepted residual, surfaced at kickoff):**
+because `core.hooksPath` points at the tracked `githooks/`, checking out
+an untrusted fork-PR branch that has modified a hook and then running any
+covered git command executes that branch's hook code locally — an
+arbitrary-code-execution vector inherent to tracked hooks. The mitigation
+is the same caution running an untrusted checkout's tests already
+requires (treat fork checkouts as untrusted; the hooks are small and
+diff-reviewed); reviewers who need to be sure unset `core.hooksPath`
+before operating on an untrusted branch. Recorded as risk-register
+row 9. The worker-settings deny globs are demoted to best-effort
 defense-in-depth, extended to cover the hook-bypass spellings
 (`--no-verify`, `git -c`/`git config` `hooksPath` forms, crossed with
 the push and amend families) so the glob layer backstops deliberate

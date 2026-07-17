@@ -109,8 +109,9 @@ Synthetic `mise.toml` fixtures (Task 5): a CI-run task reaching `eval:`
 through a transitive `depends`, `depends_post`, or `wait_for` chain
 fails, as does a run-body `mise run eval:…` and a run-body invoking an
 intermediate task that reaches `eval:`; an unparseable or zero-task
-`mise.toml` fails closed; a clean graph passes; the current repo
-passes. Runs in the `check` aggregate.
+`mise.toml`, and zero workflow roots when workflows exist, each fail
+closed; a clean graph passes; the current repo passes. Runs in the
+`check` aggregate.
 
 ## REQ-E — Test/CI wall-clock budget
 
