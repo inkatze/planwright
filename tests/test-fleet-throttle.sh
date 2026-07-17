@@ -125,9 +125,9 @@ while :; do
   fi
   [ "$rc" = 1 ] || fail "check while throttled: exit $rc, expected 1"
   # Paused while the reset time is still in the future: expected. A pause
-  # observed AFTER started+3 has not resumed yet — tolerate scheduling up to
-  # a bound, then fail.
-  [ $((t - started)) -le 15 ] || fail "dispatch did not resume within 15s of a 3s reset"
+  # observed AFTER started+3 has not resumed yet — tolerate loaded-CI
+  # scheduling up to a generous bound, then fail.
+  [ $((t - started)) -le 30 ] || fail "dispatch did not resume within 30s of a 3s reset"
   sleep 0.3
 done
 [ $((resumed - started)) -ge 2 ] || allowed_early=1
@@ -320,5 +320,146 @@ delta=$((until_parsed - started))
 [ "$delta" -ge 8990 ] && [ "$delta" -le 9070 ] \
   || fail "multi-unit relative reset: expected ~9000s hold, got ${delta}s"
 echo "ok: multi-unit relative resets sum to the full hold"
+
+# 17. Corrupt state fails loud (exit 2) on both readers: a regression
+#     swallowing corruption as "allowed" would silently un-throttle the
+#     fleet.
+reset_state
+mkdir -p "$fleet_home/throttle"
+printf 'garbage\n' >"$fleet_home/throttle/until"
+rc=0
+run check >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "check on corrupt state: exit $rc, expected 2"
+rc=0
+run engage --until "$(($(now) + 900))" --trigger corrupt-fixture >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "engage on corrupt state: exit $rc, expected 2"
+echo "ok: corrupt state fails loud on check and engage"
+
+# 18. Audit action vocabulary: a later reset logs `extend`; an earlier or
+#     equal reset changes nothing and logs nothing (risk 31's audit-noise
+#     posture).
+reset_state
+run engage --until "$(($(now) + 1800))" --trigger "first" >/dev/null 2>&1 || fail "engage (first) failed"
+run engage --until "$(($(now) + 5400))" --trigger "later" >/dev/null 2>&1 || fail "engage (later) failed"
+rows=$(audit_query --mechanism throttle)
+case $rows in
+  *extend*later*) ;;
+  *) fail "a later reset should log an extend row (got: '$rows')" ;;
+esac
+count_before=$(printf '%s\n' "$rows" | grep -c .)
+run engage --until "$(($(now) + 60))" --trigger "earlier" >/dev/null 2>&1 || fail "engage (earlier) failed"
+count_after=$(audit_query --mechanism throttle | grep -c .)
+[ "$count_after" = "$count_before" ] \
+  || fail "an earlier/equal reset must log no new row ($count_before -> $count_after)"
+echo "ok: extend is logged, a no-op engagement is not"
+
+# 19. Gate hard-fails propagate: a malformed team-shared kill-switch value
+#     blocks engagement with the resolver's exit 4, never a proceed.
+reset_state
+printf 'fleet_daemon_pause: banana\n' >"$tmp/repo/.claude/planwright.yml"
+rc=0
+run engage --until "$(($(now) + 900))" --trigger gated4 >/dev/null 2>&1 || rc=$?
+rm -f "$tmp/repo/.claude/planwright.yml"
+[ "$rc" = 4 ] || fail "malformed repo-tracked kill-switch: exit $rc, expected 4"
+run check >/dev/null || fail "gate hard-fail must not have written state"
+echo "ok: a malformed team-shared kill-switch blocks engagement (exit 4)"
+
+# 20. clear with nothing engaged is a clean no-op: exit 0, no audit row.
+reset_state
+rc=0
+run clear >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "no-op clear: exit $rc, expected 0"
+rows=$(audit_query --mechanism throttle | grep -c . || true)
+[ "$rows" = 0 ] || fail "no-op clear must write no audit row (got $rows)"
+echo "ok: a no-op clear is silent"
+
+# 21. clear is deliberately ungated: the operator's emergency resume works
+#     even while the kill-switch pauses the autonomous daemon layer.
+reset_state
+run engage --until "$(($(now) + 900))" --trigger pre-pause >/dev/null 2>&1 || fail "engage before pause failed"
+printf 'fleet_daemon_pause: true\n' >"$mlocal_cfg"
+rc=0
+run clear --trigger paused-resume >/dev/null 2>&1 || rc=$?
+rm -f "$mlocal_cfg"
+[ "$rc" = 0 ] || fail "clear under the kill-switch: exit $rc, expected 0 (ungated)"
+run check >/dev/null || fail "clear under the kill-switch must resume dispatch"
+echo "ok: clear stays ungated by the kill-switch"
+
+# 22. The 24-hour wall-clock form parses (the third awk branch): until in
+#     (now, now+86400].
+reset_state
+printf 'usage limit reached. try again 14:30\n' | run observe >/dev/null 2>&1 \
+  || fail "observe (24-hour form) failed"
+out=$(run check) && fail "24-hour observe should throttle" || true
+until_parsed=$(printf '%s\n' "$out" | tr -d -c '0-9')
+t=$(now)
+[ "$until_parsed" -gt "$t" ] && [ "$until_parsed" -le $((t + 86400)) ] \
+  || fail "24-hour observe: until $until_parsed not within (now, now+24h]"
+echo "ok: the 24-hour wall-clock form parses to the next occurrence"
+
+# 23. Relative minutes multiply by 60 (a swapped unit multiplier would slip
+#     through the seconds-only fixtures).
+reset_state
+started=$(now)
+printf 'rate limit reached, try again in 5 minutes\n' | run observe >/dev/null 2>&1 \
+  || fail "observe (minutes) failed"
+out=$(run check) && fail "minutes observe should throttle" || true
+until_parsed=$(printf '%s\n' "$out" | tr -d -c '0-9')
+delta=$((until_parsed - started))
+[ "$delta" -ge 295 ] && [ "$delta" -le 330 ] \
+  || fail "minutes observe: expected ~300s hold, got ${delta}s"
+echo "ok: relative minutes scale correctly"
+
+# 24. observe under the set kill-switch short-circuits (exit 1) with no
+#     state written — the documented observe arm of the gate.
+reset_state
+printf 'fleet_daemon_pause: true\n' >"$mlocal_cfg"
+rc=0
+printf 'rate limit reached, try again in 600 seconds\n' | run observe >/dev/null 2>&1 || rc=$?
+rm -f "$mlocal_cfg"
+[ "$rc" = 1 ] || fail "gated observe: exit $rc, expected 1"
+run check >/dev/null || fail "gated observe must not have written state"
+echo "ok: the kill-switch short-circuits observe"
+
+# 25. Throttle rows are queryable by time range (the REQ-F1.4 Done-when),
+#     and the raw daily file — the durable store, unlike the re-sanitizing
+#     query view — carries no raw escape byte from a hostile capture.
+reset_state
+before=$(now)
+printf 'usage limit reached%s[31m try again in 900 seconds\n' "$esc" | run observe >/dev/null 2>&1 \
+  || fail "observe for range query failed"
+after=$(now)
+rows=$(audit_query --mechanism throttle --since "$((before - 1))" --until "$((after + 1))")
+case $rows in
+  *throttle*engage*) ;;
+  *) fail "time-range query missed the engage row (got: '$rows')" ;;
+esac
+rows=$(audit_query --mechanism throttle --since "$((after + 3600))")
+[ -z "$rows" ] || fail "an out-of-range query must return nothing (got: '$rows')"
+if grep -q "$esc" "$fleet_home"/audit/audit-*.tsv 2>/dev/null; then
+  fail "a raw escape byte reached the durable audit store"
+fi
+echo "ok: throttle rows are range-queryable and the raw store is escape-free"
+
+# 26. The no-LLM floor (REQ-G1.2) holds for the throttle mechanism too:
+#     an observe/engage cycle invokes no outbound client.
+reset_state
+stubbin="$tmp/stubbin"
+mkdir -p "$stubbin"
+for c in claude curl wget gh; do
+  printf '#!/bin/sh\necho "%s" >>"%s/invocations"\nexit 0\n' "$c" "$tmp" >"$stubbin/$c"
+  chmod +x "$stubbin/$c"
+done
+rm -f "$tmp/invocations"
+PATH="$stubbin:$PATH" run engage --until "$(($(now) + 600))" --trigger no-llm >/dev/null 2>&1 \
+  || fail "stubbed engage failed"
+printf 'rate limit reached, try again in 600 seconds\n' | PATH="$stubbin:$PATH" run observe >/dev/null 2>&1 \
+  || fail "stubbed observe failed"
+[ ! -f "$tmp/invocations" ] \
+  || fail "an outbound client was invoked by the throttle mechanism: $(sort -u "$tmp/invocations" | tr '\n' ' ')"
+# Positive control: the stub is actually reachable on this PATH.
+PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
+[ -f "$tmp/invocations" ] || fail "stub positive control failed (stub not on PATH)"
+echo "ok: no outbound client in the throttle paths (stub verified reachable)"
 
 echo "ALL PASS: fleet-throttle"

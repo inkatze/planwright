@@ -181,4 +181,52 @@ env -u CLAUDE_DIR -u HOME /bin/bash "$FDG" check-inherited >/dev/null 2>&1 || rc
 [ "$rc" = 1 ] || fail "check-inherited with no CLAUDE_DIR/HOME: exit $rc, expected 1 (fail closed)"
 echo "ok: an unverifiable inherited-mode environment fails closed"
 
+# 12. A trailing bare flag with no value is refused (both flags): an
+#     unverifiable mode source is no mode source.
+rc=0
+run check-launch claude --permission-mode >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "trailing bare --permission-mode: exit $rc, expected 1"
+rc=0
+run check-launch claude --settings >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "trailing bare --settings: exit $rc, expected 1"
+echo "ok: bare flags without values are refused"
+
+# 13. Repeated flags: the walk must scan the WHOLE argv — a trailing auto
+#     after an earlier non-auto source still refuses, for both flag and
+#     settings shapes (an early-out "optimization" would leak auto).
+rc=0
+run check-launch claude --permission-mode default --permission-mode auto >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "trailing auto after a non-auto mode: exit $rc, expected 1"
+rc=0
+run check-launch claude --settings "$ok_profile" --settings "$auto_profile" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "trailing auto-pinning settings after a non-auto one: exit $rc, expected 1"
+echo "ok: a trailing auto source always refuses"
+
+# 14. check-inherited edge fixtures: a present settings file with no
+#     defaultMode passes (nothing ambient pinned); a present-but-unreadable
+#     one fails closed.
+printf '{"permissions": {"allow": []}}\n' >"$claude_dir/settings.json"
+CLAUDE_DIR="$claude_dir" run check-inherited >/dev/null 2>&1 \
+  || fail "a settings file with no defaultMode must pass"
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$claude_dir/settings.json"
+  rc=0
+  CLAUDE_DIR="$claude_dir" run check-inherited >/dev/null 2>&1 || rc=$?
+  chmod 644 "$claude_dir/settings.json"
+  [ "$rc" = 1 ] || fail "an unreadable settings file: exit $rc, expected 1 (fail closed)"
+fi
+rm -f "$claude_dir/settings.json"
+echo "ok: no-pin passes, unreadable fails closed (check-inherited)"
+
+# 15. The guard is a lint: it must never execute the launch argv. A command
+#     that would drop a sentinel if run proves the negative.
+sentinel="$tmp/executed-sentinel"
+exec_probe="$tmp/exec-probe.sh"
+printf '#!/bin/sh\ntouch "%s"\n' "$sentinel" >"$exec_probe"
+chmod +x "$exec_probe"
+run check-launch "$exec_probe" --permission-mode default >/dev/null 2>&1 \
+  || fail "lint over an executable probe cmd failed"
+[ ! -f "$sentinel" ] || fail "the guard EXECUTED the launch argv (sentinel present)"
+echo "ok: the guard inspects and never executes"
+
 echo "ALL PASS: fleet-dispatch-guard"

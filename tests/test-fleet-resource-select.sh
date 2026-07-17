@@ -231,4 +231,25 @@ out=$(run list 2>/dev/null) || rc=$?
 [ -z "$out" ] || fail "list must emit nothing on a hard-fail, got partial output: $out"
 echo "ok: list emits nothing on a resolver hard-fail"
 
+# 12. Broken install (missing shared resolver) is exit 5, never a proceed
+#     with a garbage model: run a copy of the script from a tree without
+#     resolve-config-knob.sh.
+broken="$tmp/broken-tree"
+mkdir -p "$broken"
+cp "$FRS" "$broken/fleet-resource-select.sh"
+cp "$here/../scripts/echo-safety.sh" "$broken/echo-safety.sh"
+rc=0
+PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken/fleet-resource-select.sh" select execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "missing resolver: exit $rc, expected 5 (broken install)"
+echo "ok: a missing shared resolver is broken-install exit 5"
+
+# 13. Positive control for the zero-invocation stub: the stub IS reachable
+#     on the prefixed PATH, so test 3's zero-invocation assertion is not
+#     vacuous.
+rm -f "$tmp/invocations"
+PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
+[ -f "$tmp/invocations" ] || fail "stub positive control failed (stub not reachable on PATH)"
+rm -f "$tmp/invocations"
+echo "ok: the no-LLM stub is verified reachable"
+
 echo "ALL PASS: fleet-resource-select"
