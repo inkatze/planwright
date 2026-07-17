@@ -495,8 +495,12 @@ run "$home16" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
 qc=$(attn "$home16" queue --count) || fail "queue --count failed"
 [ "$qc" = 1 ] || fail "disable: queue count $qc, expected 1 (the human decision recording the disable)"
 aud=$(audit_q "$home16" --mechanism liveness-backoff 2>/dev/null) || fail "audit query failed"
-printf '%s\n' "$aud" | grep -q "backoff" || fail "backoff actions not in the audit trail"
-printf '%s\n' "$aud" | grep -q "disable" || fail "the disable action not in the audit trail"
+# Assert on the ACTION field (field 4) — a substring grep would match the
+# mechanism name "liveness-backoff" in every row and pass vacuously.
+printf '%s\n' "$aud" | awk -F "$tab" '$4 == "backoff" { found = 1 } END { exit !found }' \
+  || fail "backoff ACTION rows not in the audit trail"
+printf '%s\n' "$aud" | awk -F "$tab" '$4 == "disable" { found = 1 } END { exit !found }' \
+  || fail "the disable ACTION row not in the audit trail"
 echo "ok: crashes back off on the escalating schedule and disable at the threshold"
 
 # ---------------------------------------------------------------------------
