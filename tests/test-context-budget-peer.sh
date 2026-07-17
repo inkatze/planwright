@@ -185,6 +185,29 @@ fi
 echo "ok: captured UI text is sanitized before it reaches the warning"
 
 # ---------------------------------------------------------------------------
+# 7b. Echo discipline under an XSI `echo` shell (Linux /bin/sh = dash). A render
+#     whose first line carries LITERAL backslash-escape TEXT (`\033`, `\007` as
+#     real backslash/digit bytes, NOT control bytes) survives sanitize_printable
+#     (which strips control bytes, not backslashes); an XSI `echo` would then
+#     re-interpret it into a live terminal escape. The warning must use
+#     `printf '%s\n'`, so no ESC is produced on any host (kickoff risk row 23).
+#     Run under dash when present (else /bin/sh) so the guard bites where the bug
+#     would fire.
+xsi_sh=$(command -v dash || echo /bin/sh)
+ctx_backslash="$tmp/ctx-backslash.txt"
+printf 'garbage \\033]0;PWNED\\007 no signal here\n' >"$ctx_backslash"
+rc=0
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$xsi_sh" "$CBP" --backend tmux \
+  --observed-pane "$idle_pane" --context-render "$ctx_backslash" 2>"$err") || rc=$?
+[ "$rc" = 0 ] || fail "backslash-escape render ($xsi_sh): exit $rc, expected 0"
+[ "$out" = "proxy parse-degraded" ] \
+  || fail "backslash-escape render: verdict '$out', expected 'proxy parse-degraded'"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "backslash-escape render ($xsi_sh): an XSI echo re-interpreted a literal \\033 into ESC; use printf"
+fi
+echo "ok: a literal backslash-escape render cannot become a terminal escape (printf, not echo)"
+
+# ---------------------------------------------------------------------------
 # 8. Usage errors (exit 2, fail closed).
 # ---------------------------------------------------------------------------
 rc=0

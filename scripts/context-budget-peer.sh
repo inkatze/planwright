@@ -164,7 +164,10 @@ if [ -x "$caps_helper" ]; then
 fi
 if [ "$can_observe" != true ]; then
   echo "proxy capability-absent"
-  echo "context-budget-peer: backend '$(sanitize_printable "$backend" "(unprintable)")' does not advertise a peer observation pane; using the step-count proxy" >&2
+  # printf, never echo, on any line carrying interpolated (even sanitized)
+  # content — the XSI-echo backslash-reinterpretation guard (see the degrade
+  # warning below; the orchestrate-backends.sh house pattern).
+  printf '%s\n' "context-budget-peer: backend '$(sanitize_printable "$backend" "(unprintable)")' does not advertise a peer observation pane; using the step-count proxy" >&2
   exit 0
 fi
 
@@ -247,5 +250,10 @@ fi
 # without letting captured control bytes reach the terminal.
 snippet=$(head -n 1 "$context_render" 2>/dev/null | cut -c1-80)
 echo "proxy parse-degraded"
-echo "context-budget-peer: WARNING: could not parse the /context rendering (unstable UI-text contract); degrading to the step-count proxy. First line: $(sanitize_printable "$snippet" "(no printable content)")" >&2
+# printf, never echo: `sanitize_printable` strips control BYTES but not a
+# literal backslash, and an XSI `echo` (/bin/sh = dash on Linux) would then
+# re-interpret a captured `\033`/`\007` byte-sequence into a live escape,
+# reopening the row-23 hole. `printf '%s\n'` emits the sanitized snippet
+# verbatim on every host (the orchestrate-backends.sh house pattern).
+printf '%s\n' "context-budget-peer: WARNING: could not parse the /context rendering (unstable UI-text contract); degrading to the step-count proxy. First line: $(sanitize_printable "$snippet" "(no printable content)")" >&2
 exit 0
