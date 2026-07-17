@@ -127,8 +127,9 @@ Runs in the `check` aggregate.
 The post-split suite passes with the assertion count (emitted verdict
 lines, a mechanically defined metric) not reduced from the pre-split
 baseline; per-file wall-clock is measured across all test files on the
-reference runner (GitHub Actions CI) with a best-of-N noise bound, and
-no file exceeds the accepted split target; measured times recorded in
+reference runner (GitHub Actions CI) in a dedicated measurement run
+outside the 15-minute `check` job with a per-file best-of-N noise bound,
+and no file exceeds the accepted split target; measured times recorded in
 the Task 6 PR.
 
 ### REQ-E1.3 — Performance-lens target [design-level]
@@ -142,10 +143,11 @@ verification, reviewed at kickoff of the amendment.
 
 ### REQ-F1.1 — doctrine index completeness [test]
 
-`check:doctrine-index` fixture tests: an unindexed fixture doctrine doc
-fails; a missing README, unparseable index table, or empty doctrine-doc
-set fails closed; the current tree passes; removing a README row
-locally fails `mise run check`.
+`check:doctrine-index` fixture tests (bijection both directions): an
+unindexed fixture doctrine doc fails, and a stale README row pointing at
+a removed doc fails; a missing README, unparseable index table, or empty
+doctrine-doc set fails closed; the current tree passes; removing a
+README row locally fails `mise run check`.
 
 ### REQ-F1.2 — capability-contract agreement [test]
 

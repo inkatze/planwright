@@ -74,6 +74,11 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   builder applies).
 - Reopening the bootstrap, prompt-hygiene, or output-hygiene bundles
   (their artifacts are extended via this spec, cited as Sources).
+- Screening non-git-content surfaces for purged identifiers — PR titles
+  and PR bodies (GitHub metadata, not committed content) and branch
+  names (ephemeral and charset-validated). The purged-identifier guard
+  covers the tracked tree and commit messages, the durable public
+  vectors; the rest is an accepted residual.
 
 ## REQ-A — Worker permission-deny hardening
 
@@ -211,9 +216,13 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
 
 ## REQ-F — Drift tethers
 
-- **REQ-F1.1** A check SHALL assert that every `doctrine/*.md` (excluding
-  `README.md`) has an index row in `doctrine/README.md`.
-  *(Cites: D-10, doctrine-index note (Sources).)*
+- **REQ-F1.1** A check SHALL assert that `doctrine/*.md` (excluding
+  `README.md`) and the `doctrine/README.md` index rows are in
+  bijection — every doc has a row and every row maps to an existing doc,
+  so a stale row for a deleted or renamed doc fails too, not only a
+  missing row.
+  *(Cites: D-10, doctrine-index note (Sources), kickoff lens pass
+  (2026-07-17).)*
 - **REQ-F1.2** A test (run via the suite within the `check` aggregate)
   SHALL assert that the backend-capability-contract prose table, the
   `caps_for()` registry in `scripts/orchestrate-backends.sh`, and

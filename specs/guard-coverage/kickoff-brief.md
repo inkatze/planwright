@@ -99,7 +99,8 @@ All eight groups (A–H) walked. Per-group outcomes:
    run-body scan.
 6. Task 6 + test-spec E1.2: per-file target proposed/accepted in the
    Task 6 PR; reference runner named.
-7. Task 10: CDPATH check scope gains `hooks/`.
+7. Task 10: CDPATH check scope gains `hooks/` (later corrected to
+   `githooks/` in the §8 lens pass, when the hook dir was renamed).
 
 Signed off: 2026-07-17
 

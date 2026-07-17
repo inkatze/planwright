@@ -48,11 +48,15 @@ system), wired via `git config core.hooksPath githooks`. Hook set:
 `pre-push` rejects any push updating `refs/heads/main` by inspecting the
 refspecs git passes on stdin (spelling-independent); `pre-rebase` rejects
 rebase outright; `prepare-commit-msg` aborts when the source argument is
-`commit` with a `HEAD`-equal SHA (the detectable amend signature; an
-`--amend` combined with `-m`/`-F` arrives as source `message` with no
-amend signal and is covered by the deny globs instead — the honest
-boundary); `commit-msg` rejects `squash!`/`fixup!`/`amend!` subjects and
-screens the message against D-5's hashed seed list (screening delivered
+`commit` with a `HEAD`-equal SHA — a best-effort amend catcher, not a
+clean signal: git gives client hooks no reliable amend flag, so this
+also fires on the (rare, benign-to-block) `git commit -c HEAD`/`-C HEAD`
+message-reuse forms, while `--amend -m`/`-F` arrives as source `message`
+and slips past it entirely. The honest consequence: hook amend-detection
+is an accident-catcher; the deny globs (worker) and `pre-push` (main
+history) are the real amend/never-push-main guards. `commit-msg` rejects
+`squash!`/`fixup!`/`amend!` subjects and screens the message against
+D-5's hashed seed list (screening delivered
 as Task 3's extension). Hook files are extensionless portable shell and
 join `lint:shell`/`lint:fmt`/the D-12 check by shebang enumeration.
 Hooks are the enforcement layer against accidental invocation and bind
@@ -153,8 +157,10 @@ with the normalization rules), normalizes candidate tokens identically —
 emitting boundary-split and embedded-form candidates (identifier inside
 a URL, `mailto:`, slug) so casual reformatting is still caught, with
 in-scope and out-of-scope reintroduction shapes recorded here — hashes
-in a single batched pass (one hash process for the run, never a fork
-per token), and compares; it runs in the `check` aggregate everywhere,
+in a single-process batched pass (one `perl -MDigest::SHA` pass — perl
+with Digest::SHA is present on all target platforms — or equivalent, not
+a fork-per-token, which `sha256sum`/`shasum` would otherwise force since
+they digest a whole stream), and compares; it runs in the `check` aggregate everywhere,
 including fork-PR CI, and fails closed on a missing, malformed, or
 zero-hash seed file with a committed minimum-real-seed count as the
 non-vacuity floor. Its content pass overlaps `scan:secrets`' tree read;

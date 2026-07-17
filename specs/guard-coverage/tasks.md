@@ -89,15 +89,18 @@ preference, roots are all dispatchable immediately.
   checker that tokenizes tracked text-file content (binary exclusion
   documented), normalizes identically — emitting boundary-split and
   embedded-form candidates (identifier inside a URL, `mailto:`, slug) —
-  and compares hashes in a single batched pass (no per-token fork);
-  documented normalization rules with in/out-of-scope reintroduction
-  shapes; fail-closed on a missing/malformed/zero-hash seed file plus a
-  committed minimum-real-seed count as the non-vacuity floor; an
-  extension of Task 2's `commit-msg` hook screening commit messages
-  against the same hashed seed list, backed by a CI-side scan over the
-  PR commit-message range (reusing `check-commit-msgs.sh`'s range walk)
-  so unwired clones and fork PRs are covered; a test-only seed namespace
-  for fixtures distinct from the production seed file; the
+  and compares hashes in a single-process batched pass (e.g. one
+  `perl -MDigest::SHA` pass — no fork-per-token; `sha256sum` cannot hash
+  per-token without one); documented normalization rules with
+  in/out-of-scope reintroduction shapes; fail-closed on a
+  missing/malformed/zero-hash seed file plus a committed minimum-real-seed
+  count as the non-vacuity floor; an extension of Task 2's `commit-msg`
+  hook screening commit messages against the same hashed seed list,
+  backed by a CI-side scan over the PR commit-message range (reusing
+  `check-commit-msgs.sh`'s range walk) so unwired clones and fork PRs are
+  covered; fixtures using per-test temporary seed files (not one shared
+  test seed, which would race under the parallel runner) planted with
+  test-only tokens; the
   human-provisioning step documented in the check's header as a
   non-logging stdin path (never argv/history).
 - **Done when:** A fixture tree containing a planted seeded token fails
@@ -183,10 +186,11 @@ preference, roots are all dispatchable immediately.
   count of emitted verdict lines, a mechanically defined metric — not
   reduced from the pre-split baseline; per-file wall-clock is measured
   across all test files (not only the three stragglers) on the
-  reference runner (GitHub Actions CI) with a best-of-N to bound noise,
-  and no file exceeds the accepted split target; the measured
-  per-file and total times are recorded in the PR for Task 7 to budget
-  against.
+  reference runner (GitHub Actions CI) in a dedicated measurement run
+  outside the 15-minute `check` job (per-file best-of-N to bound noise
+  without a whole-suite re-run inside the gated job), and no file
+  exceeds the accepted split target; the measured per-file and total
+  times are recorded in the PR for Task 7 to budget against.
 - **Dependencies:** none
 - **Citations:** D-9 · REQ-E1.2
 - **Estimated effort:** 2 days
@@ -238,24 +242,25 @@ preference, roots are all dispatchable immediately.
 
 ### Task 9 — Drift tethers
 
-- **Deliverables:** `check:doctrine-index` asserting every
-  `doctrine/*.md` (minus README) has a `doctrine/README.md` index row
-  (fail closed on a missing README, unparseable index table, or empty
-  doctrine-doc set); a test parsing the backend-capability-contract
+- **Deliverables:** `check:doctrine-index` asserting a bijection between
+  `doctrine/*.md` (minus README) and `doctrine/README.md` index rows
+  (every doc has a row *and* every row maps to an existing doc, catching
+  stale rows for deleted/renamed docs; fail closed on a missing README,
+  unparseable index table, or empty doctrine-doc set); a test parsing the backend-capability-contract
   prose table and asserting both `caps_for()` in
   `scripts/orchestrate-backends.sh` and `docs/fleet.md`'s
   backend-capability table match it under the specified normalization
   contract (`n/a`↔`na`, annotations/backticks stripped), failing closed
-  if either side parses to zero rows; `check-options-reference.sh`
+  if any of the three surfaces parses to zero rows; `check-options-reference.sh`
   widened to compare `docs/fleet.md`'s knobs-table defaults against
   `config/defaults.yml` with a symmetric zero-row guard on the
   fleet-table side; fixture tests for each (including a per-knob
   divergence proving all six fleet knobs are individually tethered);
   all wired into the `check` aggregate.
 - **Done when:** Each tether fails on a fixture divergence (unindexed
-  doctrine doc, mismatched capability row in the doc/`caps_for()`/
-  fleet-table triangle, each of the six drifted knob defaults) and
-  passes on the current tree; a zero-row parse on any side fails closed
+  doctrine doc, a stale README row for a removed doc, mismatched
+  capability row in the doc/`caps_for()`/fleet-table triangle, each of
+  the six drifted knob defaults) and passes on the current tree; a zero-row parse on any side fails closed
   rather than passing; removing a `doctrine/README.md` row or editing a
   `caps_for()` value locally makes `mise run check` fail.
 - **Dependencies:** none
