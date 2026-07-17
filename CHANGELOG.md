@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/inkatze/planwright/compare/v0.17.0...v0.18.0) (2026-07-17)
+
+
+### Features
+
+* **fleet:** resource governance: model, throttle, and auto-mode guards (task 7) ([#213](https://github.com/inkatze/planwright/issues/213)) ([b44b2d5](https://github.com/inkatze/planwright/commit/b44b2d5674553fee15c79fd75486f189176fe962))
+
 ## [0.17.0](https://github.com/inkatze/planwright/compare/v0.16.0...v0.17.0) (2026-07-17)
 
 
