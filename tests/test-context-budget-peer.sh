@@ -298,6 +298,36 @@ PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
   --observed-pane "$idle_pane" >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 2 ] || fail "missing --context-render on an idle capable session: exit $rc, expected 2"
 
+# a flag given as the trailing token with no value → usage error (the
+# [ "$#" -ge 2 ] arms).
+rc=0
+"$CBP" --backend >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "--backend with no value: exit $rc, expected 2"
+rc=0
+PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux --observed-pane >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "--observed-pane with no value: exit $rc, expected 2"
+
+# an unreadable --context-render (nonexistent path) on an idle session → usage.
+rc=0
+PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+  --observed-pane "$idle_pane" --context-render "$tmp/no-such-render" >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "unreadable --context-render: exit $rc, expected 2"
+
 echo "ok: malformed invocations fail closed (exit 2)"
+
+# ---------------------------------------------------------------------------
+# 9. The `na` capability (in-session backend) degrades to absent through the
+#    peer script itself (the gate uses `!= true`, so `na` is not `true`), and
+#    the happy corroborated path leaves stderr empty (no spurious warning).
+# ---------------------------------------------------------------------------
+out=$("$CBP" --backend in-session 2>"$err") || fail "in-session: exited non-zero"
+[ "$out" = "proxy capability-absent" ] \
+  || fail "in-session (can_observe=na): verdict '$out', expected 'proxy capability-absent'"
+
+out=$(PLANWRIGHT_BACKEND_TMUX=1 "$CBP" --backend tmux \
+  --observed-pane "$idle_pane" --context-render "$ctx_tokens" 2>"$err")
+[ "$out" = "corroborated 60" ] || fail "happy-path: verdict '$out', expected 'corroborated 60'"
+[ -s "$err" ] && fail "happy-path: the corroborated path must not emit a warning on stderr"
+echo "ok: na-capability degrades to absent, and the corroborated path is warning-free"
 
 echo "PASS: test-context-budget-peer.sh"
