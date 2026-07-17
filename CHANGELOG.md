@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/inkatze/planwright/compare/v0.14.0...v0.14.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **sync:** fail closed on a present-but-unreadable requirements.md ([#203](https://github.com/inkatze/planwright/issues/203)) ([fd901f2](https://github.com/inkatze/planwright/commit/fd901f288ba89247cdf2b3aed80bc445928f6fab))
+
 ## [0.14.0](https://github.com/inkatze/planwright/compare/v0.13.0...v0.14.0) (2026-07-16)
 
 
