@@ -285,18 +285,23 @@ read_backoff() {
 write_backoff() {
   # write_backoff <count> <last> <disabled> — temp+rename; callers hold the
   # per-spec advisory lock, the single-writer serialization for this record
-  # (risk row 6: the read-modify-write is atomic under it).
+  # (risk row 6: the read-modify-write is atomic under it). PENDING_TMP is
+  # cleaned by the EXIT trap so a signal mid-write leaves no temp residue.
   resolve_towers_dir || return 1
   mkdir -p "$towers_dir" 2>/dev/null || return 1
   wb_tmp=$(mktemp "$towers_dir/.backoff.XXXXXX") || return 1
+  PENDING_TMP=$wb_tmp
   printf '%s\t%s\t%s\n' "$1" "$2" "$3" >"$wb_tmp" || {
     rm -f "$wb_tmp"
+    PENDING_TMP=""
     return 1
   }
   mv -f "$wb_tmp" "$towers_dir/$spec.backoff" 2>/dev/null || {
     rm -f "$wb_tmp"
+    PENDING_TMP=""
     return 1
   }
+  PENDING_TMP=""
 }
 # The escalating delay after n consecutive failures: base * 2^(n-1), capped
 # after 29 doublings (<= base * 2^29 — an overflow guard far past any real
@@ -343,7 +348,8 @@ now_epoch() {
 
 # --- per-spec advisory lock plumbing (D-20) -----------------------------------
 HOLD_LOCK=0
-trap 'release_lock' EXIT
+PENDING_TMP=""
+trap 'release_lock; [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 release_lock() {

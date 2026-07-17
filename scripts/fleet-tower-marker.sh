@@ -136,7 +136,8 @@ HOLD_LOCK=0
 # Release on ANY exit, signals included (the fleet-attention.sh trap
 # discipline): a SIGINT/SIGTERM mid-critical-section must not leave the
 # shared cross-spec lock held until the stale-break threshold.
-trap 'release_lock' EXIT
+PENDING_TMP=""
+trap 'release_lock; [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_lock() {
@@ -298,6 +299,7 @@ case "$cmd" in
       echo "fleet-tower-marker: cannot create a temp file in $towers_dir" >&2
       exit 2
     }
+    PENDING_TMP=$tmpfile
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
       "$spec" "$mode" "$pid" "$session_id" "$tmux_session" "$checkout" "$ts" \
       >"$tmpfile" || {
@@ -310,6 +312,7 @@ case "$cmd" in
       echo "fleet-tower-marker: cannot install the marker row" >&2
       exit 2
     fi
+    PENDING_TMP=""
     release_lock
     exit 0
     ;;
