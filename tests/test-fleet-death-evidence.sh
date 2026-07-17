@@ -105,6 +105,18 @@ for bad in abc -5 0 007 12345678901 1.5 ''; do
 done
 echo "ok: invalid pid tokens are refused (exit 2)"
 
+# 3b. A refused pid token never reaches stderr raw (the echo discipline,
+#     doctrine/security-posture.md): argv is untrusted, and a token rejected
+#     for containing non-digits can carry terminal-escape bytes.
+esc=$(printf '\033')
+rc=0
+err=$(/bin/bash "$FDE" process "1${esc}[31mx" 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "escape-bearing pid token: exit $rc, expected 2"
+case $err in
+  *"$esc"*) fail "refused-pid diagnostic echoed a raw control byte" ;;
+esac
+echo "ok: refused pid tokens are never echoed raw"
+
 # 4. process: a live process is alive (exit 1). The trap is widened so an
 #    assertion failure cannot leak the sleep child.
 sleep 30 &

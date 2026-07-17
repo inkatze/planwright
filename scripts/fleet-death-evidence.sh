@@ -92,15 +92,16 @@ case "$class" in
     fi
     # A positive integer, no leading zero (kill -0 0 would signal the whole
     # process group), bounded to 10 digits so the token can never overflow the
-    # tools it reaches.
+    # tools it reaches. The refused token is never echoed — it is raw argv and
+    # can carry control bytes (the tmux-token refusals below set the style).
     case "$pid" in
       "" | *[!0-9]* | 0*)
-        echo "fleet-death-evidence: invalid pid '$pid' (a positive integer, no leading zero)" >&2
+        echo "fleet-death-evidence: refusing malformed pid token (a positive integer, no leading zero)" >&2
         exit 2
         ;;
     esac
     if [ "${#pid}" -gt 10 ]; then
-      echo "fleet-death-evidence: invalid pid '$pid' (too long)" >&2
+      echo "fleet-death-evidence: refusing over-length pid token" >&2
       exit 2
     fi
     # kill -0 succeeds when the process exists and is signalable: alive.

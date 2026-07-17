@@ -252,6 +252,26 @@ esac
 grep -q "skipp" "$tmp/q-err" || fail "query did not warn about the skipped truncated row"
 echo "ok: read-side sanitization strips control bytes and truncated rows are skipped with a warning"
 
+# 7e. The query view is printable ASCII while the store is byte-exact: the
+#     write grammar admits bytes >= 0xA0 (sanitize_printable strips only
+#     C0/DEL/C1), the daily file keeps them, and the query's in-awk
+#     [[:print:]] strip (echo-safety.sh's documented awk-form posture) drops
+#     them from the OUTPUT only — the store, not the query, is the durable
+#     record.
+u_home="$tmp/utf8-fleet"
+u_reason=$(printf 'caf\303\251 nominal')
+PLANWRIGHT_FLEET_STATE_DIR="$u_home" /bin/bash "$FA" \
+  record utf8-check cleanup "trigger ok" "$u_reason" \
+  || fail "record refused an admissible >=0xA0 byte sequence"
+u_file=$(find "$u_home/audit" -name 'audit-*.tsv' | head -1)
+grep -q "$u_reason" "$u_file" || fail "store did not keep the admitted >=0xA0 bytes byte-exact"
+u_out=$(PLANWRIGHT_FLEET_STATE_DIR="$u_home" /bin/bash "$FA" query --mechanism utf8-check 2>/dev/null)
+case $u_out in
+  *"caf nominal"*) ;;
+  *) fail "query output is not the printable-ASCII view (got: '$u_out')" ;;
+esac
+echo "ok: query output is printable ASCII while the store keeps admitted bytes"
+
 # 8. An empty store queries clean (exit 0, no output) rather than erroring.
 fresh_home="$tmp/fresh-fleet"
 rc=0

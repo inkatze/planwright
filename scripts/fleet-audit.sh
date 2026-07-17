@@ -42,7 +42,11 @@
 # file level: each row lands in the file matching its own stamped day).
 # Query output re-sanitizes every field and skips a non-6-field row with a
 # warning (a hand-corrupted store line can neither drive the terminal nor
-# masquerade as data).
+# masquerade as data). Re-sanitization is the in-awk [[:print:]] strip
+# (echo-safety.sh's documented awk-form posture), so query OUTPUT is printable
+# ASCII: bytes >= 0xA0 that the text grammar admits (e.g. multibyte
+# punctuation) are dropped from the query view, while the daily file keeps
+# them byte-exact — the store, not the query, is the durable record.
 #
 # CALLER CONTRACT: a daemon mechanism records the action it just performed
 # and must surface a non-zero `record` exit (the trail refuses rather than
@@ -339,10 +343,12 @@ case "$cmd" in
     # the query fails BEFORE emitting any partial output. Rows are filtered
     # by mechanism (exact string match — the "" concatenation pins awk to
     # string comparison for numeric-looking tokens) and by the inclusive
-    # epoch bounds; every field is re-sanitized on the way out, and a row
-    # that is not the 6-field shape is skipped and counted, warned to stderr
-    # (a hand-corrupted line can neither drive the terminal nor pass as
-    # data).
+    # epoch bounds; every field is re-sanitized on the way out (the in-awk
+    # [[:print:]] strip: under LC_ALL=C it also drops admitted >= 0xA0 bytes
+    # from the OUTPUT — the header's query-view-is-ASCII contract; the stored
+    # file keeps them), and a row that is not the 6-field shape is skipped
+    # and counted, warned to stderr (a hand-corrupted line can neither drive
+    # the terminal nor pass as data).
     (
       cd "$audit_dir" || exit 2
       set +f
