@@ -576,12 +576,15 @@ chmod +x "$bin/evidence-swap"
 record_marker unattended "$dead_pid"
 write_backoff 1 $((now2 - 10000)) 0
 calls_before=$(launch_calls)
+resets_before=$(audit_actions | grep -cx reset-backoff || true)
 out=$(PLANWRIGHT_TOWER_EVIDENCE_CMD="$bin/evidence-swap" run "$spec_dir" 2>/dev/null) \
   || fail "marker-swap tick exited non-zero"
 [ "$out" = alive ] || fail "marker-swap outcome '$out' (the fresh marker's pid must be re-verified)"
 [ "$(launch_calls)" = "$calls_before" ] || fail "a swapped-in live tower must not be relaunched over"
 [ "$(read_backoff_field 1)" = 0 ] || fail "an under-lock alive verdict must heal the backoff count"
-assert_audit_action reset-backoff
+# The audit log accumulates across cases: assert THIS tick added a row.
+resets_after=$(audit_actions | grep -cx reset-backoff || true)
+[ "$resets_after" -gt "$resets_before" ] || fail "the under-lock heal must audit its own reset-backoff row"
 echo "ok: the marker is re-read under the lock and a swapped-in live tower is left alone"
 
 # --- ready-work call-through, real selector happy paths -----------------------

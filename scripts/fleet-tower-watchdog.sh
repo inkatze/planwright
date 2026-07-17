@@ -266,7 +266,13 @@ read_backoff() {
   resolve_towers_dir || return 2
   rb_file="$towers_dir/$spec.backoff"
   [ -f "$rb_file" ] || return 0
-  rb_row=$(cat "$rb_file" 2>/dev/null) || return 1
+  # A record removed mid-read is the absent case (a human deleting the
+  # backoff record IS the documented repair), never corruption — the same
+  # cleared-mid-read distinction the marker reader draws.
+  if ! rb_row=$(cat "$rb_file" 2>/dev/null); then
+    [ -f "$rb_file" ] || return 0
+    return 1
+  fi
   rb_old_ifs=$IFS
   IFS=$TAB
   # shellcheck disable=SC2086
