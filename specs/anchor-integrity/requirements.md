@@ -112,6 +112,12 @@ doctrine amendments, enforcement as mechanism.
   admits (`/spec-kickoff` delta re-walkthrough for Ready or Active; the
   meta-spec reopen cycle for Done), with the bundle parked and its gate
   left failing closed rather than blocking the sweep from landing.
+  Parking is visible and carved out: the sweep writes a live
+  `anchor re-review pending` bullet into the parked bundle's `tasks.md`
+  `## Awaiting input` section; the REQ-D guard and the landing proof
+  treat a bundle carrying that marker as known-parked (a notice, not an
+  error); the dispatch freshness gate still fails closed on it; and the
+  re-review's sign-off removes the bullet.
   Classifications and the landing proof SHALL be re-verified at the sweep
   PR's merge SHA, and a re-run's entries SHALL cite the delta that
   actually moved each anchor rather than unconditionally citing the
@@ -179,7 +185,10 @@ doctrine amendments, enforcement as mechanism.
 - **REQ-D1.1** A check wired into `mise run check` SHALL assert, for every
   non-Draft bundle with a kickoff brief, that the brief's most recent
   anchor entry parses, uses a sanctioned command form, and recomputes equal
-  against the checked tree; a failure is a merge-gating error.
+  against the checked tree; a failure is a merge-gating error, except that
+  a bundle whose `tasks.md` `## Awaiting input` section carries a live
+  `anchor re-review pending` marker (REQ-A1.4's park) is reported as a
+  known-parked notice instead.
   *(Cites: D-6, opportunities.md line 63 (Sources).)*
 - **REQ-D1.2** The same guard SHALL flag an edit to anchored content, since
   the baseline ref (the existing check convention: default `origin/main`,

@@ -273,3 +273,15 @@ mechanism Tasks 2–4, skill wiring Tasks 5–7).
   written incrementally by design).
 
 No undispositioned findings remain.
+
+### Panel pass (`/panel-review --nested`, backend: gemini)
+
+Iteration 1 over the committed walkthrough state (`963cbcf`): 3 findings.
+Dispositions (human, 2026-07-17): **applied** — the park carve-out (a
+parked bundle writes a live `anchor re-review pending` bullet to its
+`## Awaiting input`; guard and landing proof report it as a known-parked
+notice, dispatch gate still fails closed; REQ-A1.4, REQ-D1.1, D-3, D-6,
+Tasks 3–4, test-spec A1.4/D1.1) and the lefthook install wiring
+(`mise.toml` tools entry plus documented install step, Task 4);
+**dropped as previously declined** — whole-corpus CI growth (lens-pass
+cluster 4b). Iteration 2 confirmed convergence (see below).

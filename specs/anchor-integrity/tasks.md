@@ -68,7 +68,9 @@ authored; see the status render.
   the anchor (the Task 1 amendment's changelog line for hash-scope
   movement); meaning-class or unresolvable → route to the status-apt
   re-review ritual (delta re-walkthrough for Ready/Active, reopen cycle
-  for Done) and park that bundle without blocking the sweep. A one-shot
+  for Done) and park that bundle without blocking the sweep, writing the
+  live `anchor re-review pending` bullet into its `## Awaiting input`
+  (removed at the re-review's sign-off). A one-shot
   landing proof that every in-scope bundle recomputes equal, re-verified
   along with the classifications at the sweep PR's merge SHA. Adopter
   remedy documented (the `docs/` home plus the freshness gate's
@@ -94,7 +96,9 @@ authored; see the status render.
   changes confined to excluded content never flag) carries a dated
   Changelog entry in that bundle. Draft and terminal-state bundles
   skipped with a notice; a brief-less non-Draft, non-terminal bundle is
-  an error naming the repair remedy. Recorded commands handled per
+  an error naming the repair remedy; a bundle carrying the live
+  `anchor re-review pending` park marker is a known-parked notice, not
+  an error. Recorded commands handled per
   REQ-D1.5 (grammar-validate then invoke with a containment-checked
   argument, sanitized echo, rev-parse-validated baseline); an
   unresolvable default baseline degrades the pairing check to a
@@ -102,10 +106,13 @@ authored; see the status render.
   a `mise run check` task (the normative merge gate, whole-corpus) and
   as a lefthook pre-commit mirror scoped to commits staging `specs/**`
   (lefthook introduced to the repo by this task — net-new hook
-  infrastructure). Unit tests covering the green, stale-anchor,
+  infrastructure, including the `mise.toml` tools entry and a documented
+  install step via the repo's existing setup path, so the best-effort
+  mirror is discoverable rather than private to whoever wired it).
+  Unit tests covering the green, stale-anchor,
   non-sanctioned-form, unparseable-entry, most-recent-entry-selection,
   missing-changelog, excluded-content-edit-stays-green,
-  missing-brief-error, and skip paths.
+  missing-brief-error, known-parked-notice, and skip paths.
 - **Done when:** the guard is red on a synthesized stale-anchor fixture,
   green on the swept repo, wired into `mise run check` and the
   newly-introduced `lefthook.yml`, and its tests pass in CI.

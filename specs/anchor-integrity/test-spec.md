@@ -47,9 +47,11 @@ the brief's most recent anchor entry, re-verified with the
 classifications at the merge SHA. The sweep PR records each bundle's
 delta classification (lifecycle/expression-only entered vs meaning-class
 routed), including a routed fixture case: a meaning-class delta parks its
-bundle (no machine entry, gate stays failed closed) and the sweep still
-lands. The Task 4 guard then enforces the recompute-equal property
-permanently in `mise run check`.
+bundle (no machine entry, the `anchor re-review pending` bullet written,
+gate stays failed closed) and the sweep still lands with the landing
+proof green — the parked bundle reports as a known-parked notice. The
+Task 4 guard then enforces the recompute-equal property permanently in
+`mise run check`.
 
 ### REQ-A1.5 — Adopter remedy documented [design-level]
 
@@ -111,8 +113,10 @@ Unit tests for the guard script: green on a fixture repo whose briefs
 match; red on a synthesized stale anchor; red on a non-sanctioned command
 form; red on an unparseable anchor entry; with multiple entries, the most
 recent is the one checked (fixture with an older-fresh/newer-stale pair);
-each sanctioned form accepted. Wired as a `mise run check` task, so
-GitHub Actions CI runs it on every PR.
+each sanctioned form accepted; a stale-anchored fixture carrying the live
+`anchor re-review pending` marker reports as a known-parked notice and
+exits 0. Wired as a `mise run check` task, so GitHub Actions CI runs it
+on every PR.
 
 ### REQ-D1.2 — Guard: changelog pairing [test]
 

@@ -84,7 +84,12 @@ citing the delta that actually moved the anchor; a meaning-class or
 unresolvable delta routes to the re-review ritual the bundle's status
 admits (delta re-walkthrough for Ready/Active, the reopen cycle for
 Done), parking that bundle — its gate stays failed closed — rather than
-blocking the sweep. Classifications and the proof are re-verified at the
+blocking the sweep. A park is visible: the sweep writes a live
+`anchor re-review pending` bullet into that bundle's `## Awaiting input`,
+the guard and the landing proof report the marked bundle as a
+known-parked notice rather than an error (so one routed bundle cannot
+red the merge gate repo-wide), and the re-review's sign-off removes the
+bullet. Classifications and the proof are re-verified at the
 sweep PR's merge SHA, so no unreviewed meaning edit is laundered. Adopter v1 bundles cannot be swept
 from here, so the remedy (the same one-time self-re-anchor entry) is named
 in adopter docs and in the freshness gate's v1 halt guidance.
@@ -171,7 +176,9 @@ Changelog entry in that bundle is an error. Draft and terminal-state
 (Retired, Superseded) bundles are skipped with a notice: terminal
 bundles are frozen history whose briefs never grow machine entries. A
 non-Draft, non-terminal bundle without a brief is an error naming the
-repair remedy — brief removal must not disable the check. The script
+repair remedy — brief removal must not disable the check. A bundle
+carrying the live `anchor re-review pending` park marker (D-3) is a
+known-parked notice, not an error. The script
 wires into `mise run check` (the normative, merge-gating form that runs
 in CI, whole-corpus) and into a best-effort lefthook pre-commit mirror
 scoped to commits that stage `specs/**` content (repo-local convenience,
