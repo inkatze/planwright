@@ -136,12 +136,14 @@ render.
 - **Done when:** the heuristic table resolves a model/effort/command choice deterministically for
   a representative set of task-type fixtures with no LLM call in the resolution path; a fixture
   simulating Claude Code's native rate-limit prompt/retry event shows fleet-wide dispatch pausing
-  and resuming at the signaled reset time; the auto-mode guard fails a fixture that attempts to
+  and resuming at the signaled reset time; throttle-engagement events log through Task 1's
+  audit-trail helper (a fixture proves the engage/clear rows are queryable); the auto-mode guard
+  fails a fixture that attempts to
   launch a worker with `--permission-mode auto`; the guard/heuristic never overlaps
   `review_sequence`'s convergence-phase scope (a cross-check against `resolve-review-sequence.sh`'s
   nestable-skill set); tests/CI pass.
 - **Dependencies:** 1
-- **Citations:** D-11, D-12, D-19 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4
+- **Citations:** D-11, D-12, D-16, D-19 · REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4, REQ-F1.4
 - **Estimated effort:** 2 days
 
 ### Task 8 — Operator observability: fleet stats & the `statusline` channel

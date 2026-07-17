@@ -65,8 +65,7 @@ Selected from `$ARGUMENTS` at pre-flight:
 - **Step** (default). Advance exactly one ready unit, then exit.
 - **`--watch`.** Repeat the step until no ready unit remains or a halt fires.
   Event-driven under the subagent backend (wake on worker completion), a
-  polling metronome under tmux (D-38). Each iteration is a full, independent,
-  atomic step, not a stateful long-running process.
+  polling metronome under tmux (D-38); see its section below.
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
   PRs, evaluate open gates (no auto-drop), surface observation staleness,
   report any pending release. Dispatches nothing. See its section below.
@@ -77,8 +76,7 @@ Selected from `$ARGUMENTS` at pre-flight:
   `orchestration-modes` when this arm is taken.
 - **`--fleet`.** The **one obvious entry command** for fleet operation (D-9,
   REQ-E1.2): `--meta --watch` with the attention surface wired in as the
-  default watch surface — no multiplexer knowledge required. Read
-  `orchestration-modes` when this arm is taken.
+  default watch surface — no multiplexer knowledge required.
 
 Flags: `--backend <subagent|tmux|print|in-session>` overrides the configured
 `dispatch_backend` for this run; `--unattended` selects headless mode (skip
@@ -114,8 +112,8 @@ report them together (D-45).
    refuse Draft, Done, Retired, and Superseded. For **Draft**, halt and
    prompt `/spec-kickoff`; for a Done or terminal (Retired/Superseded) spec,
    say plainly it has nothing to orchestrate. There is no bypass flag, and this skill **never**
-   invokes `/spec-kickoff` itself (REQ-J1.3) — it names the command for the
-   human to run. A `Ready` spec is dispatched on the same terms as an Active
+   invokes `/spec-kickoff` itself (REQ-J1.3) — the human runs it.
+   A `Ready` spec is dispatched on the same terms as an Active
    one: the execution freshness gate below still applies (REQ-C1.3); the two
    gates compose, neither replaces the other.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh specs/<spec>`.
@@ -130,8 +128,7 @@ report them together (D-45).
    prompt `/spec-kickoff`.
 7. **Run the reconcile sweep** (REQ-F1.1). Before selecting new work, rebuild
    the picture from disk and reconcile stale In-progress entries — see the
-   **Reconcile sweep** section. This recovers from a killed tower; a
-   crashed step loses nothing.
+   **Reconcile sweep** section.
 
 ## Selection (REQ-F1.2)
 
@@ -241,6 +238,14 @@ fresh worktree). Print the re-open command after create-or-reuse.
 pin the umask, pre-trust the worktree's config paths, and verify the SSH-agent
 indirection before signed commits.
 
+**Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
+`scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until
+the reset (skip the iteration; pipe rate-limit prompts to `observe`);
+`scripts/fleet-resource-select.sh select <task-type>` resolves
+the unit's model/effort/command; `scripts/fleet-dispatch-guard.sh
+check-launch <launch-argv>` (or `check-inherited`, in-process) lints the
+launch — a refusal is a stop condition, never bypassed.
+
 ## Dispatch (REQ-F1.8, D-38)
 
 Dispatch the unit's `/execute-task <ids>` into its worktree via the selected
@@ -272,8 +277,8 @@ in this order:
   chosen backend dying mid-run) is the ladder's other end — read
   `orchestration-modes`
   when either branch is taken. A failover descends only to a guard-preserving
-  rung (non-interactive, never the manual `print` rung — degrade capability,
-  never safety) and otherwise **escalates** rather than descending.
+  rung (degrade capability, never safety) and otherwise **escalates** rather
+  than descending.
 
 Concurrency is capped by `max_parallel_units` (default 3, via config-get): if
 that many units already derive **In progress** for this spec — counted from
@@ -324,9 +329,9 @@ dispatch) until selection reports no ready unit or a halt fires; a halt
 ends the loop and surfaces the reason.
 
 **Tower marker (fleet-autonomy D-4).** At watch-loop start record the
-marker via `scripts/fleet-tower-marker.sh record` (`unattended` under
-`--unattended`, else `interactive` plus session id; see `docs/fleet.md`);
-clear on graceful exit. A continue-as-new successor re-records.
+marker (`scripts/fleet-tower-marker.sh record`: `unattended` under
+`--unattended`, else `interactive`; see `docs/fleet.md`), clearing on
+graceful exit.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
@@ -344,8 +349,8 @@ when `context_budget_threshold` is `off`.
 ## Meta-tower and fleet entry (`--meta` / `--fleet`)
 
 Rare mode arms, defined in `orchestration-modes` (read when the arm is
-taken; see the Modes list above). Every invariant below holds unchanged at
-every tier; backend selection law applies unchanged.
+taken). Every invariant below holds unchanged at every tier; backend
+selection law applies unchanged.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
