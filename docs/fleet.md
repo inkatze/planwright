@@ -329,6 +329,97 @@ observed in the drain loop (for example, a future Claude Code surface that
 renders suggestions somewhere the env var does not reach). Until then no required
 code path depends on it.
 
+## Push-based worker liveness: events, the five states, crash backoff
+
+Worker liveness is **pushed, not polled** (D-1, REQ-A1.1): the plugin registers
+five hook events, and a dispatched worker's own session writes its state
+transitions to the attention store the instant they happen, through
+`scripts/fleet-liveness.sh`:
+
+| Hook event | Transition pushed |
+| --- | --- |
+| `Stop` | working → `idle` (the turn ended) |
+| `PermissionRequest` | working → `awaiting-input`, queued, plus a pending-permission marker |
+| `PostToolUse` | `awaiting-input` → working — **only** when the pending-permission marker exists (the documented inference: no permission-resolution hook exists, so the next tool use after a pending permission means the human allowed it) |
+| `SessionEnd` | → `ended` (session termination) |
+| `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping) |
+
+**The identity gate.** These hooks fire in *every* session the plugin is
+enabled in; only a dispatched worker may write. The gate is a
+dispatch-time env contract: a worker launched with `PLANWRIGHT_WORKER_HANDLE`
+and `PLANWRIGHT_WORKER_SCOPE` in its environment (hook commands inherit the
+launched process env) is the one whose transitions the handler records, and
+the handler is a silent no-op without both. **The dispatch-side wiring that
+exports these vars is not in place yet** — the per-backend dispatch adaptation
+that sets them is a later task, so until it lands every session no-ops this
+handler and the fleet stays on the existing observation path (a graceful
+REQ-A1.1 degradation, no breakage). The hook payload itself is drained, never
+parsed: identity comes from the env contract, so no payload field is ever
+interpolated anywhere.
+
+**Guards worth knowing.** A downgrade push (`Stop`/`SessionEnd`/`StopFailure`)
+never overwrites an `awaiting-input` row that has no pending-permission marker:
+that row is a queued human decision (a flailing escalation, a crash-loop
+disable), and REQ-A1.3 forbids auto-resolving it. A denied permission whose
+turn then ends clears on the `Stop` push; anything beyond that heals on the
+periodic ground-truth reconcile (REQ-A1.8, a later task), which stays the
+correctness backstop for every missed or dropped push — push is a latency
+optimization, never the source of truth. Precedence between push and reconcile
+writes is last-write-wins by commit-time timestamp (the store stamps
+heartbeats under the lock), so a reconcile that started before a fresher push
+cannot overwrite it with stale state.
+
+**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): only
+`tmux` launches a dispatch-controlled Claude Code process that inherits the
+identity env and fires plugin hooks, so only `tmux` pushes. `subagent` runs
+workers in-process, `in-session` shares the tower's own session, and `print`
+spawns no process at all (the human runs the printed command, so the
+dispatch env is never injected; the capability contract exempts
+print-backend units from the liveness predicate) — all three keep the
+existing observation path, and a fleet composed mostly of those backends
+keeps pre-spec observation latency for that slice, degrading capability,
+never safety.
+
+**The five-state classifier** (`fleet-liveness.sh classify`, D-2, REQ-A1.2)
+resolves exactly one of `working` / `idle` / `hung` / `awaiting-human` /
+`flailing` from the store row plus observation evidence. The boundaries it
+commits to: a freshly-dispatched worker with no row and no heartbeat evidence
+is `working` (dispatch implies immediate activity); `ended` and the progress
+states (`pr-ready`/`merged`/`done`) classify as `idle` (no in-flight turn, no
+progress expected); `hung` means the heartbeat stopped
+(`fleet_hung_heartbeat_seconds`), corroborated by the positive-evidence
+predicate (`fleet-death-evidence.sh`) wherever a process/window handle exists
+— an `unknown` verdict *refuses* the hung classification, because lost
+observability is never death — while with no handle available, elapsed time
+alone is the classifier's documented boundary (classification is inherently
+time-based where no authoritative query exists); `flailing` means the
+heartbeat continues but the progress token (e.g. the worker branch's HEAD sha)
+is unchanged across `fleet_flailing_threshold` consecutive observations taken
+while the worker was working — a stretch spent awaiting-input, idle, or ended
+expects no progress and resets the streak, so a permission block never
+inflates it into a spurious escalation on resume. A
+`flailing` classification queues exactly one human decision ("this task may be
+stuck") and records the escalation in the audit trail — there is no automatic
+nudge or restart path at all (REQ-A1.3). Routine classification is *not*
+audited: the trail records actions, not status noise. The classifier consumes
+only grammar-validated tokens, never raw pane text — a capture-pane consumer
+sanitizes before anything reaches it.
+
+**Crash-loop backoff** (`crash-record` / `crash-check` / `crash-reset`, D-3,
+REQ-A1.4): each consecutive crash doubles the relaunch delay from
+`fleet_crash_backoff_base_seconds` (capped at 3600s); at
+`fleet_crash_disable_threshold` consecutive failures the worker is disabled —
+no further relaunch is authorized — and the disable is escalated as a
+decision-queue entry. The disable is sticky (a later threshold raise never
+silently re-enables a parked worker) and `crash-check` reports it ahead of
+everything else — exit 3 even while the kill-switch is set, re-upserting the
+disable's queue entry if it went missing — so the terminal state is never
+masked. `crash-check` consults the operator kill-switch
+(`fleet_daemon_pause`) before authorizing any relaunch; bookkeeping and
+escalation are deliberately not gated (pausing the record of what happened
+would hide problems). Backoff and disable actions log through the audit
+trail; a human clears the streak with `crash-reset`.
+
 ## Resource governance: models, throttling, and the auto-mode line
 
 Three deterministic mechanisms govern what a dispatched unit costs and what it
