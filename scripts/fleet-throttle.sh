@@ -14,7 +14,12 @@
 # daemon has to fire at the boundary.
 #
 # STATE. One flag file under the cross-spec fleet home (fleet-state.sh
-# root): <fleet-home>/throttle/until, holding the reset epoch. Writes
+# root): <fleet-home>/throttle/until — line 1 the reset epoch, line 2 the
+# anchoring prompt-event key (observe's sanitized excerpt; empty for the
+# structured engage CLI). The key makes relative-reset conversion anchor
+# ONCE per prompt-event: re-observing the identical excerpt while the
+# anchor is unelapsed never recomputes/ratchets the reset (F2); a changed
+# excerpt or an elapsed anchor is a genuinely new event. Writes
 # serialize through fleet-state.sh's existing cross-spec advisory lock (the
 # same primitive fleet-audit.sh holds for the same store area — risk row 8's
 # floor: no second lock primitive) and land via write-temp-RENAME, so a
@@ -230,6 +235,17 @@ read_until() {
   printf '%s' "$ru_v"
 }
 
+# read_key <file>: print the stored prompt-event key (line 2), empty when
+# absent. The key is the sanitized excerpt the anchoring observation
+# carried; it is compared as an opaque token, never executed or expanded.
+read_key() {
+  [ -f "$1" ] || {
+    printf ''
+    return 0
+  }
+  sed -n '2p' "$1" 2>/dev/null
+}
+
 # utc_iso <epoch>: best-effort UTC rendering for audit reasoning text; falls
 # back to the bare epoch when the platform date cannot format it.
 utc_iso() {
@@ -239,16 +255,27 @@ utc_iso() {
   printf '%s' "$ui_v"
 }
 
-# engage_until <until-epoch> <trigger-text>
-# The shared engagement path: kill-switch gate, ceiling clamp, lock, max
-# rule, atomic write, then audit. Prints `until<TAB><winning-epoch>` on
-# stdout. The 8-day ceiling is enforced HERE, authoritatively for every
-# caller (the engage CLI refuses beyond-ceiling input earlier as a caller
-# bug; the observe arms clamp): a misconfigured default hold or any future
-# caller can never park the fleet past the ceiling (risk 24).
+# engage_until <until-epoch> <trigger-text> <event-key>
+# The shared engagement path: kill-switch gate, ceiling clamp, lock,
+# anchor dedup, max rule, atomic write, then audit. Prints
+# `until<TAB><winning-epoch>` on stdout. The 8-day ceiling is enforced
+# HERE, authoritatively for every caller (the engage CLI refuses
+# beyond-ceiling input earlier as a caller bug; the observe arms clamp): a
+# misconfigured default hold or any future caller can never park the fleet
+# past the ceiling (risk 24).
+#
+# The event key (F2, tower-directed): observe passes its sanitized excerpt
+# so a relative reset anchors to an absolute time ONCE per prompt-event —
+# re-observing the IDENTICAL excerpt while the anchor is unelapsed is a
+# no-op (no ratchet, no audit row). Re-anchoring happens only on a
+# genuinely new event: the excerpt changed (falls through to the max
+# rule), or the prior reset already elapsed (a dead engagement is treated
+# as absent). The engage CLI passes an empty key and keeps pure max-rule
+# semantics.
 engage_until() {
   eu_until=$1
   eu_trigger=$2
+  eu_key=${3:-}
 
   # The daemon gate (D-15): only exit 0 authorizes proceeding; 1 is the set
   # switch (short-circuit), 4/5 are resolver hard-fails — all propagate. A
@@ -282,12 +309,24 @@ engage_until() {
     release_lock
     exit 2
   }
+  eu_oldkey=$(read_key "$eu_file")
+  if [ -n "$eu_existing" ] && [ "$eu_existing" -le "$eu_now" ]; then
+    # The prior anchor already elapsed: a dead engagement is absent, so any
+    # new signal is a fresh event (the F2 re-anchor lane).
+    eu_existing=""
+    eu_oldkey=""
+  fi
   eu_action=""
   if [ -z "$eu_existing" ]; then
     eu_action=engage
+  elif [ -n "$eu_key" ] && [ "$eu_key" = "$eu_oldkey" ]; then
+    # Anchor dedup (F2): the identical prompt-event re-observed while the
+    # anchor holds — keep the first conversion, never recompute/ratchet.
+    eu_until=$eu_existing
   elif [ "$eu_until" -gt "$eu_existing" ]; then
-    # The max rule (risk row 9): a later reset extends; an earlier or equal
-    # one changes nothing (the conservative direction).
+    # The max rule (risk row 9): a later reset from a DIFFERENT event
+    # extends; an earlier or equal one changes nothing (the conservative
+    # direction).
     eu_action=extend
   else
     eu_until=$eu_existing
@@ -311,7 +350,7 @@ engage_until() {
       release_lock
       exit 2
     }
-    printf '%s\n' "$eu_until" >"$CUR_TMP" || {
+    printf '%s\n%s\n' "$eu_until" "$eu_key" >"$CUR_TMP" || {
       echo "fleet-throttle: cannot write throttle state" >&2
       release_lock
       exit 2
@@ -416,7 +455,7 @@ case "$cmd" in
       echo "fleet-throttle: refusing a reset time more than 8 days out (until $until_arg, now $now) — a garbage reset must never park the fleet (risk 24)" >&2
       exit 2
     fi
-    engage_until "$until_arg" "$trigger"
+    engage_until "$until_arg" "$trigger" ""
     ;;
 
   observe)
@@ -500,7 +539,7 @@ case "$cmd" in
           echo "fleet-throttle: cannot read the clock" >&2
           exit 2
         }
-        engage_until $((now + secs)) "$excerpt"
+        engage_until $((now + secs)) "$excerpt" "$excerpt"
         ;;
       wall\ *)
         wh=${kind#wall }
@@ -540,7 +579,7 @@ case "$cmd" in
         elif [ "$delta" -le 0 ]; then
           delta=$((delta + 86400))
         fi
-        engage_until $((now + delta)) "$excerpt"
+        engage_until $((now + delta)) "$excerpt" "$excerpt"
         ;;
       unparsed)
         # Risk 24: signal present, reset time unreadable (version-sensitive
@@ -552,7 +591,7 @@ case "$cmd" in
           exit 2
         }
         echo "fleet-throttle: warning: rate-limit signal detected but the reset time could not be parsed; degrading to the ${hold}s default hold" >&2
-        engage_until $((now + hold)) "$excerpt"
+        engage_until $((now + hold)) "$excerpt" "$excerpt"
         ;;
       *)
         echo "fleet-throttle: internal parse protocol error" >&2

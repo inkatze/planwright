@@ -317,7 +317,12 @@ time, and pauses **fleet-wide** dispatch until then; every tower consults
 `fleet-throttle.sh check` before dispatching, so dispatch resumes at the
 signaled reset with no daemon firing at the boundary.
 Concurrent observations with different parsed reset times resolve to the
-**max** under the fleet lock — the conservative direction. A signal whose
+**max** under the fleet lock — the conservative direction. A relative reset
+("in N minutes") anchors to an absolute time **once per prompt-event**:
+re-observing the identical prompt while the anchor holds never recomputes or
+ratchets it; only a changed excerpt or an elapsed anchor re-anchors. A
+wall-clock reset observed at/just past its own stated minute is treated as
+effectively now (a short grace hold, never a next-day jump). A signal whose
 reset time cannot be parsed (the prompt is version-sensitive UI text)
 degrades to the bounded `fleet_throttle_default_hold` with a warning — never
 an indefinite pause, never an immediate resume. Engagement is a daemon

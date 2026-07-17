@@ -618,4 +618,51 @@ run engage --until "$(($(now) + 100))" --trigger >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "engage --trigger with no value: exit $rc, expected 2"
 echo "ok: remaining usage arms exit 2"
 
+# 32. Anchor-on-first-observation (tower direction on gauntlet finding F2):
+#     a relative reset converts to an absolute time ONCE per prompt-event.
+#     Re-observing the IDENTICAL excerpt while the anchor is unelapsed is a
+#     no-op (no ratchet, no extra audit row); a genuinely new event (the
+#     excerpt changed, or the prior reset elapsed) re-anchors.
+reset_state
+sig='Rate limit reached. Try again in 9000 seconds.'
+printf '%s\n' "$sig" | run observe >/dev/null 2>&1 || fail "observe (anchor) failed"
+out=$(run check) && fail "anchored observe should throttle" || true
+u1=$(printf '%s\n' "$out" | tr -d -c '0-9')
+rows_before=$(audit_query --mechanism throttle | grep -c .)
+sleep 2
+printf '%s\n' "$sig" | run observe >/dev/null 2>&1 || fail "observe (identical re-observation) failed"
+out=$(run check) && fail "still throttled after re-observation" || true
+u2=$(printf '%s\n' "$out" | tr -d -c '0-9')
+[ "$u1" = "$u2" ] \
+  || fail "identical prompt re-observation must keep the first anchor (was $u1, ratcheted to $u2)"
+rows_after=$(audit_query --mechanism throttle | grep -c .)
+[ "$rows_before" = "$rows_after" ] \
+  || fail "a dedup no-op must not log an audit row ($rows_before -> $rows_after)"
+printf 'Rate limit reached. Try again in 3 hours.\n' \
+  | run observe >/dev/null 2>&1 || fail "observe (new event) failed"
+out=$(run check) && fail "still throttled after the new event" || true
+u3=$(printf '%s\n' "$out" | tr -d -c '0-9')
+[ "$u3" -gt "$u2" ] \
+  || fail "a changed excerpt with a later reset must re-anchor via the max rule ($u2 -> $u3)"
+echo "ok: relative resets anchor once per prompt-event (no ratchet)"
+
+# 33. Re-anchor after elapse: the same excerpt observed again after its
+#     anchored reset has passed is a fresh event and engages anew.
+reset_state
+sig='5-hour limit reached. Try again in 3 seconds.'
+printf '%s\n' "$sig" | run observe >/dev/null 2>&1 || fail "observe (short anchor) failed"
+started=$(now)
+while :; do
+  rc=0
+  run check >/dev/null || rc=$?
+  [ "$rc" != 1 ] && break
+  [ $(($(now) - started)) -le 30 ] || fail "3s anchor did not elapse within 30s"
+done
+printf '%s\n' "$sig" | run observe >/dev/null 2>&1 || fail "observe (post-elapse re-observation) failed"
+rc=0
+run check >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] \
+  || fail "the same excerpt after elapse is a fresh event and must re-engage (check exit $rc)"
+echo "ok: an elapsed anchor re-engages on the next observation"
+
 echo "ALL PASS: fleet-throttle"
