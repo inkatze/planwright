@@ -254,8 +254,8 @@ An *ungraceful* tower death (host reboot, killed terminal) never hands over.
 Recovery is mode-aware (fleet-autonomy D-4), keyed off a durable **tower
 marker** the tower records at watch-loop start
 (`scripts/fleet-tower-marker.sh record <spec> --mode unattended|interactive
---pid <pid> --checkout <repo-root> [--session-id <uuid>]`) and clears on a
-graceful exit:
+--pid <pid> --checkout <repo-root> [--session-id <uuid>]
+[--tmux-session <name>]`) and clears on a graceful exit:
 
 - **Unattended towers** are supervised by
   `scripts/fleet-tower-watchdog.sh <spec-dir>` — a deterministic,
