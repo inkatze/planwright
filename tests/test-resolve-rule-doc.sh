@@ -136,6 +136,26 @@ case "$err" in
     ;;
 esac
 
+# 11b. Self-location fallback (regression). With every env root unset — no
+#      PLANWRIGHT_ROOT, no CLAUDE_PLUGIN_ROOT, no CLAUDE_DIR, no HOME (so no
+#      writer root derives either) — the resolver still finds a REAL core doc
+#      sitting at $script_dir/../doctrine/, the delivery-mode-agnostic
+#      self-location arm. This is the plugin-subshell case where Claude Code
+#      does not export CLAUDE_PLUGIN_ROOT into a skill's Bash: before the fix
+#      the resolver failed "rule doc not found" despite sitting right next to
+#      the doctrine. Test 11 above keeps its guarantee (a FAKE doc name still
+#      exits 1) because that doc does not exist under $script_dir/../doctrine.
+out="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
+  /bin/bash "$RESOLVER" spec-format 2>/dev/null)"
+rc=$?
+assert "self-location resolves a real core doc, exit 0" 0 "$rc"
+if [ -f "$out" ] && [ "$out" -ef "$REPO_ROOT/doctrine/spec-format.md" ]; then
+  echo "ok: self-located path is the repo's own doctrine/spec-format.md"
+else
+  echo "FAIL: self-located path '$out' is not doctrine/spec-format.md" >&2
+  failures=$((failures + 1))
+fi
+
 # ===========================================================================
 # Task 4 — doctrine-overlay resolution (D-4, D-5, D-7, D-8, D-9, D-11;
 # REQ-A1.2, REQ-B1.2, REQ-B1.6, REQ-B1.7, REQ-E1.4, REQ-E1.5).
