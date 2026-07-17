@@ -1,0 +1,2 @@
+- 2026-07-15 [planwright] invariant-tasks REQ-C1.5 and the meta-spec v2 section say v2 invariants are "errors on non-Draft v2 bundles", but the carried-over D-25 severity model (unchanged by the v2 delta) maps Retired/Superseded to warnings, so "non-Draft" is implemented as the signed-off live statuses; a Retired v2 bundle with violations warns. Resolved at ladder rung 1 (test-spec REQ-C1.5 pins only Ready=error/Draft=warn) and pinned by a fixture test in Task 2. The REQ phrasing deserves an expression-only clarification.
+Consumed-by: specs/format-grammar (2026-07-16)

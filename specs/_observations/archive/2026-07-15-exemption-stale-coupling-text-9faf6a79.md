@@ -1,0 +1,2 @@
+- 2026-07-15 [planwright] config/instruction-budget-exemptions.txt spec-format rationale (and specs/prompt-hygiene Task 7 echoes) still say spec-format "is the dominant run-start load" for /spec-draft and /spec-kickoff; superseded by the point-of-use reclassification (chore, 2026-07-15). Descriptive text only, guard behavior unaffected.
+Consumed-by: specs/instruction-headroom (2026-07-16)

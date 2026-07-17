@@ -157,6 +157,32 @@ fleet_crash_backoff_base_seconds: 30
 # precedent D-3 cites (claude_code_agent_farm, supervisord startretries).
 fleet_crash_disable_threshold: 3
 
+# Per-task-type model selection for fleet dispatch (fleet-autonomy D-11,
+# REQ-E1.1). The rule table in scripts/fleet-resource-select.sh resolves one
+# model/effort/command row per task type; the MODEL column reads these knobs
+# through the shared resolver (scripts/resolve-config-knob.sh -> config-get,
+# D-22/REQ-G1.5, the customization-overlay REQ-E1.4 by-layer malformed
+# policy) so an overlay can
+# route a tier to a different model without a code change. Legal values are
+# the stable Claude Code model aliases (fable | opus | sonnet | haiku) —
+# aliases, not dated model ids, so the enum survives model releases. Effort
+# and command are fixed table cells (code, not config). Selection is
+# deterministic table lookup: no LLM call is ever in the resolution path
+# (D-18).
+fleet_model_execution: opus
+fleet_model_bookkeeping: sonnet
+fleet_model_drain: sonnet
+
+# The bounded fallback hold, in seconds, when a native rate-limit signal is
+# detected but its reset time cannot be parsed (fleet-autonomy D-12,
+# REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive
+# UI text, so an unparseable rendering degrades to this hold with a warning
+# rather than pausing indefinitely, resuming immediately, or halting
+# opaquely. Read by scripts/fleet-throttle.sh through the shared knob
+# resolver (D-22/REQ-G1.5); a positive integer under the
+# customization-overlay REQ-E1.4 by-layer malformed policy.
+fleet_throttle_default_hold: 300
+
 # Release-tagging policy (autopilot-reflex D-4, D-13; REQ-D1.4, REQ-D1.6). The
 # publish script (scripts/release-publish.sh) reads both knobs; the comparator
 # (scripts/release-pending.sh) reads only version_file — signing is a
