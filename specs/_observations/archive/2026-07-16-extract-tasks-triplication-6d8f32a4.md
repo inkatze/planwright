@@ -1,1 +1,2 @@
 - 2026-07-16 [planwright] The canonical tasks.md definition extraction awk now exists in three byte-identical-in-behavior copies: scripts/spec-anchor.sh (canonical), scripts/migrate-format-version.sh (the migration self-check), and tests/test-migrate-format-version.sh (the suite oracle). Nothing but header comments enforces lockstep; spec-anchor.sh exposes no stream-emitting entry point to source instead. Follow-up shape: lift the extraction into a sourceable lib (the echo-safety.sh precedent) and re-point all three.
+Consumed-by: specs/format-grammar (2026-07-16)

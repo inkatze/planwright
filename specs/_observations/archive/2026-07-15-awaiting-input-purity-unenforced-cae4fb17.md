@@ -1,1 +1,2 @@
 - 2026-07-15 [planwright] spec-format v2 states "## Awaiting input holds reference bullets only" but no REQ mandates the validator enforce it (invariant-tasks REQ-C1.5 enumerates reference-bullet integrity, not section purity), so a plain prose bullet under Awaiting input passes validation silently. Surfaced by the Task 2 polish review; candidate for a future spec amendment either adding the invariant to the validator mandate or relaxing the doctrine sentence.
+Consumed-by: specs/format-grammar (2026-07-16)
