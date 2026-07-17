@@ -96,7 +96,7 @@ run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$FL" "$@" </dev/null
+    /bin/sh "$FL" "$@" </dev/null
 }
 
 # run_hook <fleet-home> <handle> <scope> <event> — invoke the hook handler as
@@ -117,7 +117,7 @@ run_hook() {
       PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
       PLANWRIGHT_REPO_ROOT="$repo" \
       PLANWRIGHT_LOCAL_CONFIG="" \
-      /bin/bash "$FL" hook "$rh_event"
+      /bin/sh "$FL" hook "$rh_event"
 }
 
 # attn <fleet-home> <args...> — drive fleet-attention.sh directly (fixture
@@ -166,7 +166,7 @@ rc=0
 printf '{}' | env -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
   PLANWRIGHT_FLEET_STATE_DIR="$home1" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$FL" hook stop >/dev/null 2>&1 || rc=$?
+  /bin/sh "$FL" hook stop >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] || fail "env gate: exit $rc, expected 0 (a non-worker session must not be disturbed)"
 [ ! -e "$home1/attention/state" ] || fail "env gate: a non-worker session wrote the state store"
 echo "ok: without the worker env contract the hook handler is a clean no-op"
@@ -180,7 +180,7 @@ err=$(printf '{}' | env \
   PLANWRIGHT_WORKER_HANDLE='bad worker;rm' PLANWRIGHT_WORKER_SCOPE='spec:1' \
   PLANWRIGHT_FLEET_STATE_DIR="$home1" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$FL" hook stop 2>&1 >/dev/null) || rc=$?
+  /bin/sh "$FL" hook stop 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "hostile env: exit $rc, expected 0"
 [ -n "$err" ] || fail "hostile env: refused silently (expected a stderr warning)"
 [ ! -e "$home1/attention/state" ] || fail "hostile env: a refused identity still wrote the store"
@@ -387,7 +387,7 @@ stub_run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$stubbin/fleet-liveness.sh" "$@"
+    /bin/sh "$stubbin/fleet-liveness.sh" "$@"
 }
 
 home12="$tmp/h12"
@@ -518,7 +518,7 @@ for want in $expected; do
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$FL" crash-record "$w" "$s" --now $((1000 + i * 10))) \
+    /bin/sh "$FL" crash-record "$w" "$s" --now $((1000 + i * 10))) \
     || fail "schedule crash $i: non-zero exit"
   [ "$out" = "$i $want" ] || fail "schedule crash $i: '$out', expected '$i $want'"
   i=$((i + 1))
@@ -551,7 +551,7 @@ err=$(env PLANWRIGHT_FLEET_STATE_DIR="$home19" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT="$repo" \
   PLANWRIGHT_LOCAL_CONFIG="" \
-  /bin/bash "$FL" crash-check "$w" --now 99999 2>&1 >/dev/null) || rc=$?
+  /bin/sh "$FL" crash-check "$w" --now 99999 2>&1 >/dev/null) || rc=$?
 [ "$rc" != 0 ] || fail "kill-switch: crash-check authorized a relaunch under fleet_daemon_pause"
 case $err in
   *fleet_daemon_pause* | *paus*) ;;
@@ -573,7 +573,7 @@ knob_run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$FL" "$@"
+    /bin/sh "$FL" "$@"
 }
 knob_run classify "$w" "$s" --now 10000 --heartbeat 9990 --progress sha-k >/dev/null || fail "knob 1"
 out=$(knob_run classify "$w" "$s" --now 10060 --heartbeat 10050 --progress sha-k) || fail "knob 2"
@@ -679,7 +679,7 @@ err=$(printf '{}' | env \
   PLANWRIGHT_WORKER_HANDLE="$w" PLANWRIGHT_WORKER_SCOPE="$s" \
   PLANWRIGHT_FLEET_STATE_DIR="$tmp/h25" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$brokenbin/fleet-liveness.sh" hook stop 2>&1 >/dev/null) || rc=$?
+  /bin/sh "$brokenbin/fleet-liveness.sh" hook stop 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "hook with a failing store write: exit $rc, expected 0 (never block the session)"
 [ -n "$err" ] || fail "hook write failure was silent (expected a stderr warning)"
 echo "ok: a failing store write never turns a hook exit non-zero"
@@ -705,7 +705,7 @@ err=$(printf '{}' | env -u PLANWRIGHT_WORKER_SCOPE \
   PLANWRIGHT_WORKER_HANDLE="$w" \
   PLANWRIGHT_FLEET_STATE_DIR="$tmp/h27" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$FL" hook stop 2>&1 >/dev/null) || rc=$?
+  /bin/sh "$FL" hook stop 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 0 ] || fail "half-set env: exit $rc, expected 0"
 [ -n "$err" ] || fail "half-set env refused silently (expected a warning)"
 [ ! -e "$tmp/h27/attention/state" ] || fail "half-set env wrote the store"
@@ -740,7 +740,7 @@ big_run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$FL" "$@"
+    /bin/sh "$FL" "$@"
 }
 i=1
 while [ "$i" -lt 52 ]; do
@@ -770,7 +770,7 @@ out=$(env PLANWRIGHT_FLEET_STATE_DIR="$home30" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT="$repo" \
   PLANWRIGHT_LOCAL_CONFIG="" \
-  /bin/bash "$FL" crash-record "$w" "$s" --now 99999) || fail "sticky crash 4 failed"
+  /bin/sh "$FL" crash-record "$w" "$s" --now 99999) || fail "sticky crash 4 failed"
 case $out in
   "disabled 4") ;;
   *) fail "raised threshold un-disabled the worker (got '$out', expected 'disabled 4')" ;;
@@ -800,7 +800,7 @@ env PLANWRIGHT_FLEET_STATE_DIR="$home31" \
   PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT="$repo" \
   PLANWRIGHT_LOCAL_CONFIG="" \
-  /bin/bash "$FL" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
+  /bin/sh "$FL" crash-check "$w" --now 99999 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 3 ] || fail "disabled under kill-switch: exit $rc, expected 3 (terminal state never masked)"
 attn "$home31" clear "$w" >/dev/null || fail "heal: clear failed"
 qc=$(attn "$home31" queue --count) || fail "queue --count failed"
@@ -837,7 +837,7 @@ rm -f "$noresolver/resolve-config-knob.sh"
 rc=0
 env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h33" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$noresolver/fleet-liveness.sh" classify "$w" "$s" --now 10000 >/dev/null 2>&1 || rc=$?
+  /bin/sh "$noresolver/fleet-liveness.sh" classify "$w" "$s" --now 10000 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing resolver: classify exit $rc, expected 5 (broken install)"
 echo "ok: a missing knob resolver fails as a broken install (exit 5)"
 
@@ -860,7 +860,7 @@ na_run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$noaudit/fleet-liveness.sh" "$@"
+    /bin/sh "$noaudit/fleet-liveness.sh" "$@"
 }
 na_run classify "$w" "$s" --now 10000 --heartbeat 9990 --progress sha-au >/dev/null || fail "audit-first obs 1"
 na_run classify "$w" "$s" --now 10060 --heartbeat 10050 --progress sha-au >/dev/null || fail "audit-first obs 2"
@@ -917,7 +917,7 @@ na2_run() {
     PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_LOCAL_CONFIG="" \
-    /bin/bash "$noaudit2/fleet-liveness.sh" "$@"
+    /bin/sh "$noaudit2/fleet-liveness.sh" "$@"
 }
 # Crashes 1-2: the backoff audit fails (exit 2) but each counter is durable.
 na2_run crash-record "$w" "$s" --now 1000 >/dev/null 2>&1 || true
@@ -954,7 +954,7 @@ rm -f "$nogate/fleet-daemon-gate.sh"
 rc=0
 env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h37" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$nogate/fleet-liveness.sh" crash-check "$w" --now 10000 >/dev/null 2>&1 || rc=$?
+  /bin/sh "$nogate/fleet-liveness.sh" crash-check "$w" --now 10000 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 5 ] || fail "missing daemon gate: crash-check exit $rc, expected 5 (broken install)"
 gate4="$tmp/gate4-scripts"
 mkdir -p "$gate4"
@@ -964,7 +964,7 @@ chmod +x "$gate4/fleet-daemon-gate.sh"
 rc=0
 env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h37b" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
-  /bin/bash "$gate4/fleet-liveness.sh" crash-check "$w" --now 10000 >/dev/null 2>&1 || rc=$?
+  /bin/sh "$gate4/fleet-liveness.sh" crash-check "$w" --now 10000 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "unresolvable kill-switch: crash-check exit $rc, expected 4 (propagated)"
 echo "ok: a missing daemon gate fails as a broken install; a gate hard-fail propagates"
 
