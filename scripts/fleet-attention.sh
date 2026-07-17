@@ -232,8 +232,16 @@ upsert_row() {
   ur_guard=${8:-}
   acquire_lock || return 2
   if [ "$ur_guard" = unless-awaiting ] && [ -f "$store" ]; then
-    ur_cur=$(awk -F "$TAB" -v w="$ur_worker" '($1 "") == (w "") { print $3 }' "$store")
-    if [ "$ur_cur" = awaiting-input ]; then
+    # Fail SAFE if ANY matching row is awaiting-input, not just when the sole
+    # row equals it: one row per worker is the store invariant, but external
+    # corruption could leave several, and a naive single-string compare would
+    # see a multi-line value, miss the awaiting-input row, and let this
+    # downgrade clobber a queued human decision — the exact REQ-A1.3 violation
+    # the guard exists to prevent. (Detecting the corruption itself is a
+    # separate concern; see the store-corruption-detector observation.)
+    ur_awaiting=$(awk -F "$TAB" -v w="$ur_worker" \
+      '($1 "") == (w "") && $3 == "awaiting-input" { f = 1 } END { print (f ? "y" : "") }' "$store")
+    if [ -n "$ur_awaiting" ]; then
       release_lock
       return 0
     fi

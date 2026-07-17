@@ -373,16 +373,20 @@ case "$cmd" in
     if [ -z "$handle" ] && [ -z "$scope" ]; then
       exit 0
     fi
-    # The payload is deliberately unparsed (risk 25): identity comes from
-    # the env contract. Drain it only on the worker path, where the handler
-    # does real work anyway.
-    cat >/dev/null 2>&1 || true
     # A hostile or half-set identity is refused with NO write — but still
-    # exit 0: a hook exit must never block the hosting session.
+    # exit 0: a hook exit must never block the hosting session. Validate BEFORE
+    # the stdin drain, so a malformed-identity session exits without spawning
+    # `cat`, exactly as the both-empty gate above does (exiting without reading
+    # the payload is the norm for a hook that does no real work); only a valid
+    # worker, which does real work below, drains the payload.
     if ! valid_field "$handle" || ! valid_field "$scope"; then
       echo "fleet-liveness: refusing malformed worker identity env (PLANWRIGHT_WORKER_HANDLE/PLANWRIGHT_WORKER_SCOPE); no state written" >&2
       exit 0
     fi
+    # The payload is deliberately unparsed (risk 25): identity comes from
+    # the env contract. Drain it only on the valid worker path, where the
+    # handler does real work anyway.
+    cat >/dev/null 2>&1 || true
     root=$("$FS" root) || {
       echo "fleet-liveness: cannot resolve the fleet home; state push dropped (the reconcile sweep self-heals, D-1)" >&2
       exit 0

@@ -784,4 +784,26 @@ aenv "$home23" heartbeat "worker=h" "spec-g:2" idle --bogus-flag >/dev/null 2>&1
 [ "$rc" = 2 ] || fail "bogus heartbeat flag: exit $rc, expected 2"
 echo "ok: --unless-awaiting preserves queued decisions and upserts everything else"
 
+# ---------------------------------------------------------------------------
+# 24. The --unless-awaiting guard fails SAFE under multi-row store corruption
+#     (fleet-autonomy Task 2, REQ-A1.3): one row per worker is an invariant the
+#     single writer maintains under lock, but external corruption could leave
+#     more than one. If ANY matching row is awaiting-input, the guard must still
+#     treat the worker as awaiting-input and no-op the downgrade — a queued
+#     human decision must never be clobbered, even by a corrupt store.
+# ---------------------------------------------------------------------------
+home24="$tmp/guarded-multirow"
+aenv "$home24" decide "worker=m" "spec-m:1" "stuck?" "park" "park|retry" high \
+  || fail "multirow guard setup: decide failed"
+# Inject a second, later row for worker=m (working) — simulate corruption.
+printf 'worker=m\tspec-m:1\tworking\t1\t\t\t\t\n' >>"$home24/attention/state"
+rows=$(awk -F"$tab" '$1 == "worker=m" { c++ } END { print c + 0 }' "$home24/attention/state")
+[ "$rows" = 2 ] || fail "multirow setup: expected 2 rows for worker=m, got $rows"
+aenv "$home24" heartbeat "worker=m" "spec-m:1" idle --unless-awaiting \
+  || fail "multirow guarded heartbeat: non-zero exit (must be a no-op success)"
+awk -F"$tab" '$1 == "worker=m" && $3 == "awaiting-input" { f = 1 } END { exit f ? 0 : 1 }' \
+  "$home24/attention/state" \
+  || fail "multirow corruption clobbered a queued decision: no surviving awaiting-input row for worker=m"
+echo "ok: --unless-awaiting fails safe under multi-row corruption (queued decision preserved)"
+
 echo "ALL PASS: fleet-attention.sh"
