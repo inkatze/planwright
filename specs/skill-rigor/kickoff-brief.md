@@ -251,3 +251,113 @@ specced into Task 6); R6 is an explicit accepted risk; everything else is
 resolved or accepted above.
 
 Signed off: 2026-07-16
+
+## 8. Sign-off
+
+### Terminal lens pass (Discovery Rigor, full bundle — first activation)
+
+Fan-out was taken: nine read-only sub-agents, one per canonical lens, each
+with the shared tooling output (validator 0/0; `lint:md` clean;
+`check:instructions` figures; grounded repo facts). ~60 raw findings
+merged and deduped to 35 kept + 12 declined; the mandatory self-critique
+re-scan confirmed the brief's other derived figures and added nothing.
+Validation: three passes per finding (direct text verification;
+cross-lens convergence — load-bearing items found independently by 2–3
+lenses; repo/meta-spec grounding). Adversarial re-validation moved two
+keeps to declines (the sanctioned `drafting-session decision` citation
+kind; the two-key-defeated orchestration race) and resurrected nothing.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 11 | incl. the self-location precedence overclaim, D-9 contradictions, empty-rollup edge, and a miscount in this brief's own §5 |
+| Security | 6 | empty-rollup vacuous pass, flip TOCTOU, wait-value validation, data-not-code, remedy hygiene, resolver trust domain |
+| Error handling and failure modes | 6 | the cannot-run family (lint, comparator, lens, sweep, render, terminal gh query) |
+| Performance | 3 | orchestrate's 3-word closure gap, poll cadence, D-4/D-6 duplicate traversal |
+| Concurrency / state | 3 | flip TOCTOU, post-timeout re-entry, D-4/D-6 ordering |
+| Naming, readability, structure | 5 | unqualified foreign IDs, four-vs-five count, two titles, terminology, B1.5 qualifier |
+| Documentation | 6 | the mid-walk Task 6 edit family plus changelog wording |
+| Tests / verification | 6 | the false no-harness premise, unfalsifiable C1.1, missing failing cases, weak Task 1 gate |
+| Cross-file consistency | 2 | D-9 omits /spec-draft; mechanism count |
+
+**Altitude check (REQ-H1.3):** triggered bundle (three pinned seed claims
+in `## Sources`) → D-1 exists, is cited from the goal, and the
+all-mechanism task decomposition matches the claimed mechanism altitude.
+Pass.
+
+**Dispositions.** All 35 kept findings dispositioned with the human in
+seven approved clusters (2026-07-17), every one applied as a spec edit:
+(1) walk-edit and brief repairs; (2) internal consistency (D-9 scope +
+count, titles, terminology, Task 3 co-scoping); (3) the consolidated
+CI-gate hardening of REQ-B1.1/D-3/Task 6 — resolving risk R3 as
+refuse-and-draft; (4) fail-closed cannot-run semantics plus the REQ-B1.5
+trigger widening and D-4/D-6 ordering; (5) the resolver family (legacy-75
+residual accepted as R6, Task 1 gate aligned to four unset vars,
+trust-domain note); (6) the test-spec upgrade (premise corrected,
+structural-guard `[test]` wiring on Tasks 3/4/7, failing-case manual
+scenarios, C1.1 made falsifiable); (7) decline ratification. Three riders
+applied inside approved clusters and surfaced afterward: the D-3 remedy
+data-hygiene sentence, the D-4 data-not-code sentence, and the
+orchestrate 3-word-gap note (cross-cutting + R1).
+
+**Declined (ratified as a batch, no spec edit; rationale recorded so none
+is re-litigated):** the pre-CI-gate orchestration race (defeated by the
+two-key model — the flip reaches main only at the human's merge); a
+kickoff sign-off mutual-exclusion lock (single attended session
+assumption; recorded as observation 887225ff rather than specced); the
+mid-walk-lens and sweep crash-resume gaps (the anchor-written-last
+ordering fails closed — a killed session resumes at sign-off, which
+re-runs both); post-anchor push desync (the freshness gate working as
+designed); an external actor flipping the PR ready mid-wait (outside the
+gate's authority); the 10-minute gate latency (accepted as R2); unbounded
+mid-walk lens count (proportional, N small in practice); the draft/kickoff
+double lens spend (acknowledged in D-7); consolidating D-4/D-6 into one
+pass (implementation freedom; ordering now specced); REQ-B numbering vs
+flow order (stable IDs, no renumber); the `drafting-session decision
+(2026-07-16)` citation flagged as unanchored (false positive — a
+sanctioned citation kind needing no Sources entry); Task 1's doc-alignment
+deliverable lacking REQ backing (deliverables may exceed REQs);
+out-of-scope list divergence between requirements and tasks
+(requirement-level vs execution-level granularity).
+
+### Panel pass (`/panel-review --nested`, gemini backend)
+
+Run at the human's request after the lens dispositions, before the
+anchor. Three iterations to convergence: iteration 1 surfaced 7
+cross-file stragglers of the lens edit batch (the exact D-6
+stale-reference class — the panel functioned as the sweep); iteration 2
+surfaced 6 propagation stragglers (D-clauses missing from their REQ/task
+homes, including the data-not-code rule and the unconstructible-lint-error
+manual scenario); iteration 3 returned all ten lenses clean. 13 findings
+applied in total, every one human-approved (zero auto-applied); one
+(the decline-rationale gap) resolved by this section's decline log.
+Commits: `docs(spec): skill-rigor panel-pass reconciliation`,
+`docs(spec): skill-rigor panel iter-2 propagation fixes`.
+
+### Pre-flip verification (dogfooding the mechanisms this spec specs)
+
+- Repository lint over the brief and all four spec files: `lint:md` clean
+  (121 files, 0 errors) — the REQ-B1.2 check.
+- Recorded claims mechanically re-derived before the flip (REQ-B1.3):
+  REQ count 13 = test-entry count 13; D-IDs 10; tasks 7; budget walls
+  4250/10000/20000 and the three near-wall figures; the §5 REQ-count
+  correction (12→13) was itself a lens-pass catch of this claim class.
+- Validator at flip time: re-run below, recorded with the record.
+
+### Sign-off record
+
+First activation sign-off: walkthrough complete (sections 2–7 signed
+2026-07-16), terminal lens pass and panel pass dispositioned in full
+(this section), pre-flip lint green (a real MD012 error in this brief was
+caught and fixed by the check before the flip — the REQ-B1.2 mechanism
+demonstrating itself), recorded claims re-derived, validator re-run at
+Ready: 0 errors, 0 warnings. Status flipped Draft→Ready and
+`Last reviewed:` set to 2026-07-17 on all four spec files.
+
+Signed off: 2026-07-17 (human dispositions recorded per cluster above)
+
+Class: meaning
+Lens-pass: the terminal lens pass recorded in this section (fan-out, nine
+lenses, 35 findings dispositioned + 12 declines ratified), plus the panel
+pass (13 findings, converged iteration 3)
+Anchor: `f6d31f78200c3581f1a3e9e4fc27f5c57a1c061d` — computed as
+`scripts/spec-anchor.sh specs/skill-rigor`
