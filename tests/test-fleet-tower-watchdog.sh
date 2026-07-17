@@ -488,6 +488,22 @@ out=$(PATH="$bin:$PATH" PLANWRIGHT_FLEET_STATE_DIR="$home" \
 assert_audit_action relaunch-failed
 echo "ok: a session-name collision fails the launch safely and is audited"
 
+# --- a custom launcher that fails is a safe, audited relaunch-failure ----------
+
+# The PLANWRIGHT_TOWER_LAUNCHER seam's FAILURE branch: a custom launcher that
+# exits non-zero yields relaunch-failed, counts toward the backoff, and is
+# audited. The success path is exercised throughout (run's default launcher IS
+# a custom one), but the non-zero-exit branch (launch_rc != 0 via the override
+# seam, not the default launcher's internal collision refusal) had no coverage.
+record_marker unattended "$dead_pid"
+rm -f "$backoff_file"
+out=$(LAUNCHER="$bin/launcher-fail" run "$spec_dir" 2>/dev/null) \
+  || fail "custom-launcher-failure tick exited non-zero"
+[ "$out" = relaunch-failed ] || fail "custom-launcher-failure outcome '$out'"
+[ "$(read_backoff_field 1)" = 1 ] || fail "a failed custom launch must count toward the backoff"
+assert_audit_action relaunch-failed
+echo "ok: a custom launcher that fails is a safe, audited relaunch-failure"
+
 # --- corrupt backoff record fails closed AND visibly --------------------------
 
 # A corrupt persistent record halts crash recovery; cron must see a non-zero
