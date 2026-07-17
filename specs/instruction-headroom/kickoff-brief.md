@@ -202,7 +202,7 @@ Signed off: 2026-07-16
 
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
-| R1 | Sibling-spec collision: format-grammar lands ~560 words into `spec-format.md` mid-restoration; merge conflicts with Task 3's rationale rewrite / Task 11's re-land. | D-4's cap absorbs the growth for dependents; D-9 sequences the re-land last. Signal: format-grammar PR merges while T3/T11 in flight. |
+| R1 | Sibling-spec collision: format-grammar lands ~560 words into `spec-format.md` mid-restoration; merge conflicts with Task 11's re-land. *(Corrected at panel iteration 3: Task 3's rationale rewrite lives in `config/instruction-budget-exemptions.txt`, a different file — no T3 collision.)* | D-4's cap absorbs the growth for dependents; D-9 sequences the re-land last. Signal: format-grammar PR merges while T11 in flight. |
 | R2 | T2 ∥ T3 both edit `check-instructions.sh` and `tests/test-check-instructions.sh`; parallel dispatch may conflict. | Orchestrator picks critical-path-first (T2 first); conflicts small and worker-resolvable. Signal: second guard PR conflicts. |
 | R3 | Diet meaning-inversion (obs:381021a7 precedent: wrap-broken grep, inverted contract sentence). | D-10 discipline in every diet Done-when; content-pinned tests same-PR; human meaning-preservation review per diet PR. Signal: structural test failure or reviewer catch. |
 | R4 | Corpus drift between the 2026-07-16 audit and execution; ~450–500-word diet sizes may undershoot. | Scope binds live (§2 resolution 1); Task 11 is the catch-all with the declared-exception path. Signal: T11 margin report below target on a surface whose diet "passed". |

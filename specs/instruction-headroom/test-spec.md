@@ -40,8 +40,9 @@ raising an `instruction_budget_*_warn/_error` knob above its core default
 with no matching `raise|` entry fails the guard's config parsing, and the
 same raise with a matching `raise|<knob>|<value>|<reason>` entry passes —
 both directions fixtured. A stale `raise|` entry (knob at or below its
-core default, or unknown) is also a config error, fixtured. A raised
-floor knob trips nothing (out of scope by suffix).
+core default, or unknown) is also a config error, fixtured; so is an
+absent or unreadable core-default baseline. A raised floor knob trips
+nothing (out of scope by suffix).
 
 ### REQ-A1.5 — Restoration target [design-level + test]
 
@@ -146,4 +147,6 @@ the named below-target warning; a matching
 `declared-exception|<surface>|<reason>` entry silences it; the same entry
 never silences a floor-breach warning; a reason-less declared-exception
 entry is a config error; a `use-site:<skill>/<doc>` key excuses a
-use-site warning (REQ-D1.3) and nothing else.
+use-site warning (REQ-D1.3) and nothing else; a stale entry whose named
+warning no longer fires produces the named cleanup warning, not an
+error.

@@ -189,7 +189,9 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   mandatory; a reason-less entry is an error) that excuses exactly the
   warning it names — a below-target warning, or a use-site warning
   (REQ-D1.3) via the `use-site:<skill>/<doc>` surface key — and never a
-  floor-breach warning.
+  floor-breach warning. A stale entry (one whose named warning no longer
+  fires) SHALL produce a named cleanup warning, not an error: staleness
+  in the protective direction nudges, never blocks.
   *(Cites: D-11, kickoff lens pass (2026-07-17).)*
 
 ## Changelog
@@ -231,6 +233,12 @@ capability, trims as repo-local instantiation — is recorded in D-1.
   warnings (diets rewrite the bodies the use-site check scans); Task 2's
   declared-exception wording aligned with REQ-D1.6/D-11; the brief's
   critical-path figure and R7 collision set corrected.
+- 2026-07-17 — Panel iteration 3 edits (kickoff §8): stale
+  declared-exception entries pinned as a cleanup warning (REQ-D1.6 —
+  protective-direction staleness nudges, never blocks); the below-target
+  band's lower bound restored in Task 2; Task 10's body-trim fallback
+  authorized in its deliverables; the unreadable-baseline fixture added
+  to test-spec REQ-A1.4; the brief's R1 corrected (no Task 3 collision).
 
 ## Sources
 

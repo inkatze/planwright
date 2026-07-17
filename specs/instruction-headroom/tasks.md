@@ -34,7 +34,8 @@ reporting and the capped charge exist.
   (`instruction_budget_<skill|doctrine|startload|closure>_floor`,
   250/250/500/1,000); a named floor-breach warning in every guard run for
   any floored surface whose margin is strictly below its floor, and a
-  named below-target warning when margin is below twice the floor (D-11),
+  named below-target warning when margin is at or above the floor but
+  below twice the floor (D-11),
   with a missing or non-numeric floor knob aborting fail-loud like the
   existing budget knobs; margin-to-warn and margin-to-error values in
   `--audit` output for the four floored classes; the
@@ -178,7 +179,9 @@ reporting and the capped charge exist.
   self-review and polish manifests (site: the finding-validation step where
   its triggers fire), with the doc named at that in-body step and a
   recorded safety-floor analysis (trigger-fired law, not permission-gating;
-  execute-task precedent).
+  execute-task precedent); if the start-load targets are not reached by
+  the reclassification plus the Task 6 diet alone, a small body trim of
+  the affected skill(s) in the same PR.
 - **Done when:** Both manifests parse; the Task 5 use-site check passes for
   both skills; both start-loads meet the 1,000-word restoration target in
   the audit (with the Task 6 diet landed; a small body trim tops up if
