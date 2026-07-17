@@ -65,9 +65,8 @@ Selected from `$ARGUMENTS` at pre-flight:
 - **Step** (default). Advance exactly one ready unit, then exit.
 - **`--watch`.** Repeat the step until no ready unit remains or a halt fires.
   Event-driven under the subagent backend (wake on worker completion), a
-  polling metronome under tmux (D-38). Each loop iteration is a full,
-  independent, atomic step; `--watch` is a convenience over re-invocation, not
-  a stateful long-running process.
+  polling metronome under tmux (D-38). Each iteration is a full, independent,
+  atomic step, not a stateful long-running process.
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
   PRs, evaluate open gates (no auto-drop), surface observation staleness,
   report any pending release. Dispatches nothing. See its section below.
@@ -321,27 +320,19 @@ scheduled-autopilot path; a human drains the Awaiting-input queue later.
 ## --watch
 
 Loop the full step (pre-flight → reconcile → select → dispatch record →
-dispatch) until selection reports no ready unit or a halt fires. Each
-iteration is independent and atomic, holding no state beyond what is on
-disk. A halt in any iteration ends the loop and
-surfaces the reason.
+dispatch) until selection reports no ready unit or a halt fires; a halt
+ends the loop and surfaces the reason.
 
-**Tower marker (fleet-autonomy D-4, REQ-A1.5, REQ-A1.6).** At watch-loop
-start, record this tower's runtime marker so ungraceful death is
-recoverable: `scripts/fleet-tower-marker.sh record <spec> --mode
-<unattended|interactive> --pid <tower-os-pid> --checkout <repo-root>
-[--session-id <uuid>]` — mode `unattended` when running headless/`--unattended`
-(the cron watchdog's relaunch domain), `interactive` otherwise (pass the
-session id, e.g. from `$CLAUDE_CODE_BRIDGE_SESSION_ID`, so the startup
-signpost can surface `claude --resume`). Clear it on a graceful loop exit; a
-continue-as-new successor re-records its own.
+**Tower marker (fleet-autonomy D-4).** At watch-loop start record the
+marker via `scripts/fleet-tower-marker.sh record` (`unattended` under
+`--unattended`, else `interactive` plus session id; see `docs/fleet.md`);
+clear on graceful exit. A continue-as-new successor re-records.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
-REQ-C1.4).** A `--watch` tower is the fleet's one long-running session, and
-can silently fill its context window. Each
+REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
 iteration, before selecting new work, run
-`scripts/context-budget-monitor.sh <steps-completed>` with this loop's
-iteration count. On `ok` or `disabled`, proceed. On `near-limit`, perform the
+`scripts/context-budget-monitor.sh <steps-completed>` (this loop's iteration
+count). On `ok` or `disabled`, proceed. On `near-limit`, perform the
 handover per `context-budget-autoheal` (read at this branch): **start a fresh
 tower** seeded with this tower's standing-instructions / wake prompt,
 **confirm it is alive before retiring** (never leave a zero-tower gap — on a
