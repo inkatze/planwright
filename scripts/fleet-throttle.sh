@@ -39,9 +39,12 @@
 # text is version-sensitive UI, so this WILL happen — degrades to a bounded
 # default hold (the fleet_throttle_default_hold knob) with a warning: never
 # an indefinite pause, never an immediate resume, never an opaque halt
-# (mirroring REQ-C1.2's /context-parse degrade posture). An engagement
-# beyond the 8-day sanity ceiling is refused outright — a garbage reset
-# time must never park the fleet indefinitely.
+# (mirroring REQ-C1.2's /context-parse degrade posture). A reset time
+# beyond the 8-day sanity ceiling is bounded, never honored as-is: the
+# structured `engage --until` CLI refuses it outright as a caller bug, while
+# the observe degrade/grace paths clamp it to the ceiling with a warning
+# (engage_until enforces the ceiling authoritatively for every caller). A
+# garbage reset time must never park the fleet indefinitely.
 #
 # DAEMON CONTRACT (risk row 30). Engagement is an autonomous daemon action:
 # it checks the operator kill-switch (fleet-daemon-gate.sh, D-15) before
@@ -211,7 +214,11 @@ read_until() {
     printf ''
     return 0
   }
-  ru_v=$(head -n 1 "$1" 2>/dev/null | tr -d '[:space:]')
+  # Trim only surrounding whitespace (and a CRLF's trailing CR); internal
+  # whitespace is preserved, so a corrupt space-separated value like
+  # "1710000 999" fails the numeric check below (fail loud) instead of being
+  # silently collapsed into a different, plausible-looking epoch.
+  ru_v=$(head -n 1 "$1" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
   if [ -z "$ru_v" ] && [ ! -f "$1" ]; then
     # A concurrent clear unlinked the file between the -f test and the
     # read: a vanished engagement is absent, not corrupt.

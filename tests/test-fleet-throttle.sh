@@ -351,6 +351,19 @@ run engage --until "$(($(now) + 900))" --trigger oversized-fixture >/dev/null 2>
 [ "$rc" = 2 ] || fail "engage on oversized numeric state: exit $rc, expected 2"
 echo "ok: oversized numeric state fails loud on check and engage"
 
+# 17c. Internal whitespace is corruption, not a value to normalize: a
+#      space-separated pair like "1710000 999" must fail loud (exit 2), never
+#      be collapsed into a single plausible-looking epoch that silently
+#      un-throttles the fleet. Regression guard for the read_until
+#      surrounding-whitespace-only trim.
+reset_state
+mkdir -p "$fleet_home/throttle"
+printf '1710000 999\n' >"$fleet_home/throttle/until"
+rc=0
+run check >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "check on internal-whitespace state: exit $rc, expected 2 (fail loud, never collapse whitespace-separated digits)"
+echo "ok: internal-whitespace numeric state fails loud on check"
+
 # 18. Audit action vocabulary: a later reset logs `extend`; an earlier or
 #     equal reset changes nothing and logs nothing (risk 31's audit-noise
 #     posture).
