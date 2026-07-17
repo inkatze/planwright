@@ -1,9 +1,10 @@
 #!/bin/bash
 # Bounded-parallel shell-test runner behind `mise run test`. Runs every
 # <suite-dir>/*.sh under /bin/bash (the bash 3.2 floor), N files at a time
-# (N = hw.ncpu / nproc, override via PLANWRIGHT_TEST_JOBS), capturing each
-# file's stdout+stderr to a per-file log so concurrent output never
-# interleaves. The gate semantics match the old serial loop: any failing
+# (N = hw.ncpu / nproc), capturing each file's stdout+stderr to a per-file
+# log so the tests' own concurrent output never interleaves (the runner's
+# one-line ok/FAIL markers share the parent's streams and stay whole
+# under PIPE_BUF). The gate semantics match the old serial loop: any failing
 # file fails the run; every failing file is named and its captured log is
 # printed at the end. All files always run to completion (no mid-run
 # abort), so one failure never hides another. Completion accounting is
@@ -16,7 +17,15 @@
 # with the same capture-and-summarize contract.
 #
 # Usage: run-tests.sh [suite-dir]   (default: <repo-root>/tests)
-# Exit:  0 all pass, 1 any test failed, 2 usage error.
+# Exit:  0 all pass · 1 any test failed or lost · 2 usage or environment
+#        error (bad suite dir, mktemp or self-path resolution failure).
+#
+# Environment:
+#   PLANWRIGHT_TEST_JOBS          override the job count (default: core count)
+#   PLANWRIGHT_TEST_FORCE_SERIAL  1 forces the serial fallback path
+#   SPEC_WALKTHROUGH_DOT_TIMEOUT  exported to every test (default 60 here:
+#                                 suite load headroom; caller value wins)
+#   PLANWRIGHT_TEST_LOG_DIR       internal: parent-to-worker log dir handoff
 set -u
 unset CDPATH
 
