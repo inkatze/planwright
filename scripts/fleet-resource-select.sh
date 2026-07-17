@@ -59,7 +59,7 @@
 # (PLANWRIGHT_CONFIG_DEFAULTS, PLANWRIGHT_ADOPTER_OVERLAY,
 # PLANWRIGHT_REPO_ROOT, PLANWRIGHT_LOCAL_CONFIG, CLAUDE_PLUGIN_ROOT/DATA).
 #
-# Exit: 0 row(s) printed; 2 usage error or unknown/hostile task type (fail
+# Exit codes: 0 row(s) printed; 2 usage error or unknown/hostile task type (fail
 # closed, never a silent default); 4 malformed repo-tracked model knob
 # (resolver hard-fail, propagated); 5 broken install (resolver unavailable
 # or the core default itself malformed).

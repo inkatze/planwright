@@ -321,4 +321,4 @@ delta=$((until_parsed - started))
   || fail "multi-unit relative reset: expected ~9000s hold, got ${delta}s"
 echo "ok: multi-unit relative resets sum to the full hold"
 
-echo "ok: test-fleet-throttle"
+echo "ALL PASS: fleet-throttle"

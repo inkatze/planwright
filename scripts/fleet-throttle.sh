@@ -73,8 +73,19 @@
 # 1 kill-switch short-circuit (engage/observe) or throttled (check);
 # 2 usage error, refused epoch, corrupt state, lock or audit failure;
 # 3 no rate-limit signal in the observed text (observe only);
-# 4/5 propagated from the kill-switch gate (malformed shared config /
-# broken install — fail closed).
+# 4/5 propagated from the kill-switch gate OR the default-hold knob
+# resolver (malformed shared config / broken install — fail closed; a
+# malformed repo-tracked fleet_throttle_default_hold therefore halts the
+# observe degrade rather than engaging, by the REQ-E1.4 by-layer policy).
+#
+# AUDIT ORDERING CAVEAT (for Task 8's rendering): rows commit after lock
+# release, so under concurrent engagements the newest-by-timestamp throttle
+# row can carry an OLDER reset than the state file holds. Live throttle
+# state is always `check`/the state file, never audit-row recency; the
+# trail is the action history, not the state. And the max-of-resets
+# guarantee holds on the normal contention path; the known fleet-state
+# stale-lock double-break race (a crash-recovery corner) can momentarily
+# admit two writers, the same caveat every consumer of that lock carries.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk
 # without interval expressions, `date +%s`, a fractional sleep for the lock
@@ -105,6 +116,10 @@ usage() {
   echo "usage: fleet-throttle.sh check | observe | engage --until <epoch> [--trigger <text>] | clear [--trigger <text>]" >&2
 }
 
+# Unlike fleet-audit.sh's same-named helper (which prints empty on failure
+# and always exits 0), this one returns 1 on failure — deliberate: every
+# caller here must fail closed on an unreadable clock, so the return-code
+# shape keeps the `|| exit` discipline visible at each call site.
 now_epoch() {
   ne_v=$(date +%s)
   case $ne_v in

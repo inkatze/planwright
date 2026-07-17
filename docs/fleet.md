@@ -310,11 +310,12 @@ dispatch table and the convergence knob can never both claim the same skill.
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
 authoritative signal that exists: the native rate-limit prompt a session
-renders (D-12). When a tower's pane capture shows one, it pipes the captured
-text to `scripts/fleet-throttle.sh observe`, which sanitizes it, parses the
-signaled reset time, and pauses **fleet-wide** dispatch until then; every
-tower consults `fleet-throttle.sh check` before dispatching, so dispatch
-resumes at the signaled reset with no daemon firing at the boundary.
+renders (D-12). `scripts/fleet-throttle.sh observe` is the reactive entry
+point: a tower whose pane capture or worker output shows the prompt feeds
+the captured text in, and observe sanitizes it, parses the signaled reset
+time, and pauses **fleet-wide** dispatch until then; every tower consults
+`fleet-throttle.sh check` before dispatching, so dispatch resumes at the
+signaled reset with no daemon firing at the boundary.
 Concurrent observations with different parsed reset times resolve to the
 **max** under the fleet lock — the conservative direction. A signal whose
 reset time cannot be parsed (the prompt is version-sensitive UI text)

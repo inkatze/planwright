@@ -231,4 +231,4 @@ out=$(run list 2>/dev/null) || rc=$?
 [ -z "$out" ] || fail "list must emit nothing on a hard-fail, got partial output: $out"
 echo "ok: list emits nothing on a resolver hard-fail"
 
-echo "ok: test-fleet-resource-select"
+echo "ALL PASS: fleet-resource-select"

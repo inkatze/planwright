@@ -181,4 +181,4 @@ env -u CLAUDE_DIR -u HOME /bin/bash "$FDG" check-inherited >/dev/null 2>&1 || rc
 [ "$rc" = 1 ] || fail "check-inherited with no CLAUDE_DIR/HOME: exit $rc, expected 1 (fail closed)"
 echo "ok: an unverifiable inherited-mode environment fails closed"
 
-echo "ok: test-fleet-dispatch-guard"
+echo "ALL PASS: fleet-dispatch-guard"
