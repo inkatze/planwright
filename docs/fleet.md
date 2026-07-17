@@ -268,6 +268,26 @@ a paste mechanism that cannot be mistaken for the worker typing, and **never**
 answering a worker's harness permission prompt — a worker's authorization
 gate belongs to the human at every tier.
 
+## Ghost-text prevention: keeping pane captures unambiguous
+
+Fleet supervision reads a worker's (or an observed tower's) input line by pane
+capture. Claude Code can render a greyed-out *prompt suggestion* (ghost text) in
+that line — text the operator never typed — which a naive capture could mistake
+for real pending input. planwright removes the ambiguity at the source: every
+fleet-launched session goes through `scripts/fleet-dispatch-env.sh`, which pins
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` into the launched process's
+environment (D-10, REQ-D1.1). This is prevention, not detection — an official
+disable switch applied at launch beats a per-capture heuristic every time.
+
+A **backspace-probe** disambiguation check — send a backspace to the pane and
+diff it before and after to tell real input from a rendered suggestion — stays
+documented as a defense-in-depth fallback but is deliberately **not** built or
+dispatched (REQ-D1.2). Its gate: it is implemented only if a concrete case where
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` fails to prevent the ambiguity is
+observed in the drain loop (for example, a future Claude Code surface that
+renders suggestions somewhere the env var does not reach). Until then no required
+code path depends on it.
+
 ## What the fleet decides without you (and what it never does)
 
 Unattended operation follows the
