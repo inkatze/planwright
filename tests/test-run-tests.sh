@@ -23,7 +23,7 @@ assert_contains() {
   case "$3" in
     *"$2"*) echo "ok: $1" ;;
     *)
-      echo "FAIL: $1 (missing '$2' in output)" >&2
+      echo "FAIL: $1 (missing '$2' in output; got: $3)" >&2
       failures=$((failures + 1))
       ;;
   esac
@@ -31,7 +31,7 @@ assert_contains() {
 assert_not_contains() {
   case "$3" in
     *"$2"*)
-      echo "FAIL: $1 (unexpected '$2' in output)" >&2
+      echo "FAIL: $1 (unexpected '$2' in output; got: $3)" >&2
       failures=$((failures + 1))
       ;;
     *) echo "ok: $1" ;;
