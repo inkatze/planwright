@@ -249,4 +249,17 @@ out=$(PLANWRIGHT_FLEET_STATE_DIR="$fresh_home" /bin/bash "$FA" query 2>&1) || rc
 [ -z "$out" ] || fail "query on an empty store produced output: '$out'"
 echo "ok: an empty store queries clean"
 
+# 8b. A fleet home whose audit PATH exists as a regular file (a corrupted
+#     home) must not masquerade as an empty trail: query fails loudly
+#     (exit 2), the fail-closed parity of record's own mkdir failure on the
+#     same corrupted state.
+notadir_home="$tmp/notadir-fleet"
+mkdir -p "$notadir_home"
+: >"$notadir_home/audit"
+rc=0
+err=$(PLANWRIGHT_FLEET_STATE_DIR="$notadir_home" /bin/bash "$FA" query 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "audit path as a regular file: query exit $rc, expected 2"
+[ -n "$err" ] || fail "audit path as a regular file: no diagnostic emitted"
+echo "ok: an audit path that is not a directory fails the query loudly (exit 2)"
+
 echo "ALL PASS: fleet-audit"

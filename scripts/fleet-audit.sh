@@ -315,7 +315,14 @@ case "$cmd" in
     done
     root=$(resolve_home) || exit 2
     audit_dir="$root/audit"
-    [ -d "$audit_dir" ] || exit 0
+    # No trail yet is a clean empty answer; the path existing as a NON-dir is
+    # a corrupted home and must fail loudly (record's mkdir fails on the same
+    # state), not masquerade as an empty trail.
+    [ -e "$audit_dir" ] || exit 0
+    if [ ! -d "$audit_dir" ]; then
+      echo "fleet-audit: audit path $audit_dir exists but is not a directory" >&2
+      exit 2
+    fi
     # An unreadable/untraversable dir must not masquerade as an empty trail
     # (an audit query answering "nothing happened" because of a permission
     # problem is an opaque failure).

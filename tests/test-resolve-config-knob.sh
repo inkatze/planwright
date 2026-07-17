@@ -192,6 +192,27 @@ out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopt
 [ "$out" = false ] || fail "malformed overlay + core omits key: did not fall back (got '$out')"
 echo "ok: a malformed overlay with the key absent from core falls back to the caller's fallback"
 
+# 8c. The emitter contract holds on the FALLBACK paths too: a padded but
+#     type-legal --fallback validates (the validator trims before checking)
+#     and must emit TRIMMED, exactly like a resolved value — a gate-shaped
+#     caller comparing "$(...)" = true would otherwise misfire on the
+#     fail-safe path.
+reset_layers
+rc=0
+out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' --fallback ' true ' 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "padded fallback (absent key): exit $rc, expected 0"
+[ "$out" = true ] || fail "padded fallback (absent key) emitted untrimmed (got '$out')"
+printf 'fleet_daemon_pause: maybe\n' >"$adopter_cfg"
+rc=0
+out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_omit" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  /bin/bash "$RCK" --key fleet_daemon_pause --type enum --values 'true false' --fallback ' true ' 2>/dev/null) || rc=$?
+[ "$rc" = 0 ] || fail "padded fallback (degrade, core omits): exit $rc, expected 0"
+[ "$out" = true ] || fail "padded fallback (degrade, core omits) emitted untrimmed (got '$out')"
+echo "ok: the fallback paths emit trimmed (the sibling emitter contract)"
+
 # 9. A malformed CORE default is a broken install (exit 5).
 reset_layers
 core_bad="$tmp/core-bad.yml"
