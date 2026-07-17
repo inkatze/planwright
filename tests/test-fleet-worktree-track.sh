@@ -117,6 +117,36 @@ case $listing in
 esac
 echo "ok: the disk-scan fallback discovers a worktree no hook pushed"
 
+# 3b. list enforces the emitted-path grammar (valid_path), not just control-byte
+#     stripping. A malformed registry line (non-absolute, or a leading dash) —
+#     from a corrupted store or a scan write that bypassed the grammar — is
+#     SKIPPED with a warning, never emitted to a caller like fleet-sweep.sh that
+#     would `cd` into it relative to its own cwd. Valid entries still emit.
+rm -rf "$fleet_home"
+wt record-create /work/worktrees/good >/dev/null || fail "list-grammar: record-create (good) failed"
+reg="$fleet_home/worktrees/registry"
+[ -f "$reg" ] || fail "list-grammar: registry file not found at $reg"
+# Inject malformed lines directly, bypassing record-create's own valid_path.
+printf '%s\n' 'relative/not/absolute' '-leadingdash/path' >>"$reg"
+listing=$(wt list 2>/dev/null)
+case $listing in
+  *"/work/worktrees/good"*) ;;
+  *) fail "list-grammar: dropped a valid entry (got: '$listing')" ;;
+esac
+case $listing in
+  *"relative/not/absolute"*) fail "list emitted a non-absolute registry entry" ;;
+esac
+case $listing in
+  *"-leadingdash/path"*) fail "list emitted a leading-dash registry entry" ;;
+esac
+# The skip must surface a warning on stderr, not drop silently.
+warned=$(wt list 2>&1 >/dev/null)
+case $warned in
+  *"malformed worktree registry entry"*) ;;
+  *) fail "list-grammar: no warning emitted for a skipped malformed entry" ;;
+esac
+echo "ok: list enforces valid_path on read, skipping malformed registry entries with a warning"
+
 # 4. hook-create: the decision-control contract — echo the stdin worktree_path
 #    unchanged and exit 0, AND record it.
 rm -rf "$fleet_home"

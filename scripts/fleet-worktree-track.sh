@@ -19,10 +19,11 @@
 # a STRICT PASS-THROUGH: it echoes the stdin `worktree_path` (after the same
 # grammar check every stored path gets — a control-byte path is refused rather
 # than echoed raw) and ALWAYS exits 0. The registry write is a synchronous
-# best-effort side effect with a SHORT bounded lock wait, so a contended lock can
-# never stall creation more than a fraction of a second and never fail it; a
-# skipped write self-heals on the next `scan`. `WorktreeRemove` is
-# fire-and-forget (failures logged in debug only).
+# best-effort side effect with a SHORT bounded lock wait (LOCK_MAX_TRIES=100 ×
+# the 0.02s retry sleep => ~2s worst case), so a contended lock can never stall
+# creation beyond that bound and never fail it; a skipped write self-heals on the
+# next `scan`. `WorktreeRemove` is fire-and-forget (failures logged in debug
+# only).
 #
 # NOT A DAEMON ACTION. Tracking is bookkeeping, not a destructive daemon action:
 # it is NOT gated by the `fleet_daemon_pause` kill-switch (which pauses
@@ -265,7 +266,18 @@ case "$cmd" in
     [ -f "$REG" ] || exit 0
     while IFS= read -r ln || [ -n "$ln" ]; do
       [ -n "$ln" ] || continue
-      printf '%s\n' "$(sanitize_printable "$ln")"
+      # Enforce the emitted-path grammar the header/contract promises callers
+      # (fleet-sweep.sh inspects/escalates these paths): a malformed line — a
+      # corrupted store, or a `scan` write that bypassed the grammar — is skipped
+      # with a sanitized warning rather than handed to a caller that would `cd`
+      # into it relative to its own cwd. A valid_path line is already printable,
+      # so it is emitted verbatim (identical to the prior sanitize_printable
+      # output for every well-formed entry).
+      if valid_path "$ln"; then
+        printf '%s\n' "$ln"
+      else
+        warn "skipping a malformed worktree registry entry (fails the path grammar): $(sanitize_printable "$ln")"
+      fi
     done <"$REG"
     exit 0
     ;;
@@ -370,8 +382,9 @@ case "$cmd" in
     # echoed, no raw bytes on the decision channel; a malformed path is a
     # pathological input, safer left uncreated than created under a forged name).
     # A well-formed path always passes. The record then runs synchronously with a
-    # SHORT bounded lock wait (LOCK_MAX_TRIES), so a contended lock can never
-    # stall creation; a skipped record self-heals on the next sweep's `scan`. The
+    # SHORT bounded lock wait (LOCK_MAX_TRIES=100 × the 0.02s retry sleep => ~2s
+    # worst case), so a contended lock can never stall creation beyond that bound
+    # and never fail it; a skipped record self-heals on the next sweep's `scan`. The
     # record's isolated subshell can neither change stdout nor the exit — this
     # hook ALWAYS exits 0, so it never fails creation via a non-zero exit or a
     # stalled record. A well-formed payload echoes its path and creation proceeds;
