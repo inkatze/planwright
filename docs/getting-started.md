@@ -75,8 +75,10 @@ scripts/resolve-rule-doc.sh validation-rigor   # prints the resolved doc path
 ```
 
 A plugin install resolves via `CLAUDE_PLUGIN_ROOT`; the writer resolves via
-`CLAUDE_DIR`/`HOME`. See [`doctrine/README.md`](../doctrine/README.md) for the
-convention's details.
+`CLAUDE_DIR`/`HOME`. When no env root is set (e.g. a skill Bash subshell that
+does not inherit `CLAUDE_PLUGIN_ROOT`), the resolver falls back to locating the
+core doctrine beside its own script. See
+[`doctrine/README.md`](../doctrine/README.md) for the convention's details.
 
 ### Upgrading and cleaning up
 

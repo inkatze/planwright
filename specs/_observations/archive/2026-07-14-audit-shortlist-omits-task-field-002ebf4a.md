@@ -1,1 +1,2 @@
 - 2026-07-14 [planwright] check-instructions --audit shortlist and ranked report omit the pending-diet Task field (scripts/check-instructions.sh emission at ~674/902), so a Task retag on an allowance line (e.g. Task 7 -> Task 7.5 for the spec-kickoff start-load carry) is invisible to the test surface and ships unverifiable; surfaced by the Task 7 self-review tests lens as an accepted coverage gap
+Consumed-by: specs/instruction-headroom (2026-07-16)

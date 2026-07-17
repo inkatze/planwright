@@ -366,6 +366,41 @@ mitigation and early signal (accepted risk) or was already fixed directly
 (the mechanical bugs and the "nudge" strike, both recorded in
 `requirements.md`'s Changelog).
 
+### Task 1 execution research notes (2026-07-16)
+
+Appended by `/execute-task` per REQ-D1.5/REQ-E1.3 (research scoping declared
+light per `proportionality`: no new dependency, no external API; sources are
+in-repo precedent plus POSIX/tool semantics).
+
+- **Death-evidence probes.** `kill -0` (EPERM = exists) and the targeted
+  `ps -p <pid>` exit contract (0 found / 1 not found) are POSIX-specified and
+  stable on the macOS/Linux support bar; a per-pid query was chosen over any
+  process-listing scan because a truncated listing is exactly the 2026-06-12
+  failure source. tmux probes (`ls` / `has-session` / `list-windows`, `=`
+  exact-match targets) follow `orchestrate-relay.sh`'s existing handle
+  discipline; any server-level probe failure is treated as lost observability
+  (`unknown`, refuse) rather than parsing version-sensitive tmux error text.
+  Addresses risk row 26's death-predicate error path.
+- **Audit-trail windowing (risk 18).** UTC daily files
+  (`audit/audit-<YYYY-MM-DD>.tsv`) adopted as the rotation policy: retention
+  is whole-file pruning, operator-owned; no retention knob shipped until a
+  consumer needs one (growable via the shared resolver).
+- **Lock serialization (risk 8).** Audit writes serialize through
+  `fleet-state.sh`'s existing advisory lock (the same cross-spec primitive
+  `fleet-attention.sh` holds for the same store area — the per-spec D-20
+  lock cannot serialize cross-spec writers, so no second primitive is
+  introduced), with the timestamp stamped under the lock and the
+  fleet-attention signal-trap release discipline installed. Each write lands
+  via copy-append-rename (the fleet-state register discipline), so lockless
+  readers always see a complete file; a bare append has no atomicity
+  guarantee at this row size.
+- **Kill-switch write authorization (risk 21).** Documented (options
+  reference + gate header + defaults comment): the knob's resolving layers
+  are human-owned surfaces outside a dispatched worker's allowlisted write
+  set, matching `config/worker-settings.json`'s posture. Filesystem-level
+  enforcement is not possible from a config reader; the boundary is the
+  worker permission allowlist, unchanged by this task.
+
 Signed off: 2026-07-14
 
 ## 8. Sign-off
