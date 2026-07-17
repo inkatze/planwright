@@ -1,6 +1,6 @@
 # Release Hardening — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -67,15 +67,22 @@ and knob changes that share the file.
   status (2, empty output) on a query failure. `release-publish.sh`'s
   `ci_green` and `release-arm.sh`'s `rl_ci_verdict` reduced to thin callers of
   it, with one unified verdict vocabulary; the duplicated inline evaluators
-  removed. Tests covering the workflow-scoped exclusion (a same-named
-  check-run from another workflow is judged, not dropped) and the shared
-  verdict across both callers.
+  removed. Tests (added to `tests/test-release-lib.sh`, the lib test home Task 1
+  creates) covering each verdict **including the distinct query-failure status**,
+  the workflow-scoped exclusion (a same-named check-run from another workflow is
+  judged, not dropped; a null-`workflowRun` namesake is judged), and that publish
+  and arm resolve to the **same verdict string** for the same SHA.
 - **Done when:** both scripts call `rl_ci_state`; a `window-lock` check-run
-  from a non-`release-window` workflow is judged by the gate; the
-  publish and arm verdicts are identical for the same SHA; the existing
-  window-lock-excluded green/red/pending/none/too-many behavior is preserved;
-  new tests fail pre-change and pass after; `mise run check` is green.
-- **Dependencies:** none
+  from a non-`release-window` workflow is judged by the gate; the distinct
+  query-failure status is returned and asserted; publish and arm resolve to the
+  same verdict string for the same SHA (their downstream disposition of a
+  query-failure deliberately differs — publish fails closed one-shot, arm
+  retries within its poll budget — so only the verdict, not the handling, is
+  asserted identical); the existing window-lock-excluded
+  green/failing/pending/none/too-many behavior is preserved; new tests (in
+  `tests/test-release-lib.sh`) fail pre-change and pass after; `mise run check`
+  is green.
+- **Dependencies:** Task 1
 - **Citations:** D-4, D-8 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4 · legacy line 197
   (Sources), legacy line 201 (Sources), legacy line 202 (Sources)
 - **Estimated effort:** 1 day
@@ -83,37 +90,54 @@ and knob changes that share the file.
 ### Task 4 — Resume-path integrity
 
 - **Deliverables:** On a resume in `release-publish.sh` (origin tag present,
-  Release absent), assert the origin tag's target commit equals the recomputed
-  `release_sha` — refusing without side effects and naming both SHAs on a
-  mismatch — and re-verify the tag signature under the effective signing policy
-  before `gh release create`. Creation gates and tag create+push stay skipped
-  on resume. Tests: a resume with a matching SHA proceeds; a resume with a
-  mismatched SHA refuses naming both; the signature re-verify is exercised
-  under the `require`/`auto` signing policies (and skipped under `never`).
-- **Done when:** the SHA assertion and signature re-verify run on the resume
-  path only; a mismatch refuses with both SHAs and no Release created; a
-  matching resume still creates the Release; the non-resume path is unchanged;
-  new tests fail pre-change and pass after; `mise run check` is green.
+  Release absent), **fetch the origin tag object (`refs/tags/<tag>`)**, assert
+  its target commit equals the recomputed `release_sha` — refusing without side
+  effects and naming both SHAs on a mismatch — and re-verify **that origin
+  object's** signature before `gh release create`, following the creation-time
+  policy: `require` and `auto`-with-signing-configured require a valid signature
+  (refuse on a missing or unverifiable one); `auto`-without-signing and `never`
+  skip. Creation gates and tag create+push stay skipped on resume. Additionally
+  (REQ-B1.4): a resume that finds the Release already present but the merged
+  release PR still labeled `autorelease: pending` performs only the idempotent
+  `pending`→`tagged` relabel instead of dying "already published". Tests: a
+  matching-SHA resume proceeds; a mismatched-SHA resume refuses naming both; the
+  re-verify runs under `require` and `auto`-with-signing (refusing a
+  missing/failing signature) and is skipped under `auto`-without-signing and
+  `never`; a fresh-clone resume (no local tag) still verifies the fetched origin
+  object; a Release-present + PR-`pending` resume performs the relabel and does
+  not die.
+- **Done when:** the origin tag object is fetched and both the SHA assertion and
+  the signature re-verify target it; a mismatch refuses with both SHAs and no
+  Release; a matching resume creates the Release; the
+  `require`/`auto`-with-signing/`auto`-without-signing/`never` re-verify behavior
+  matches REQ-B1.2; a fresh-clone resume verifies the fetched origin object
+  correctly; a Release-present + PR-`pending` resume performs the relabel instead
+  of dying; the non-resume path is unchanged; new tests fail pre-change and pass
+  after; `mise run check` is green.
 - **Dependencies:** Task 3
-- **Citations:** D-3 · REQ-B1.1, REQ-B1.2, REQ-B1.3 · legacy line 184 (Sources) ·
-  autopilot-reflex REQ-D1.3 (Source), REQ-D1.4 (Source)
-- **Estimated effort:** 1 day
+- **Citations:** D-3, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4 · obs:86525b9e ·
+  legacy line 184 (Sources) · autopilot-reflex REQ-D1.3 (Source), REQ-D1.4 (Source)
+- **Estimated effort:** 1.5 days
 
 ### Task 5 — version_file canonicalization and containment
 
 - **Deliverables:** A portable (bash 3.2 / BSD, `LC_ALL=C`, no new dependency)
   canonicalizing containment check factored as a reusable shell function,
   applied in `release-pending.sh` before its filesystem read of the
-  `version_file`: the resolved real path is canonicalized (symlinks resolved)
-  and confirmed within the repository root; anything outside is a clean refusal
-  (exit 2). The existing absolute-path and `..`-component checks stay as cheap
-  pre-filters. Tests: a repo-relative symlink resolving outside the tree is
-  refused; an in-tree path (plain and via an in-tree symlink) still reads.
+  `version_file`: the resolved real path is canonicalized (symlinks resolved in
+  **every component including the leaf `version_file` itself**) and confirmed
+  within the repository root, and the read targets the canonicalized real path
+  (never the original `$vf_path`); anything outside is a clean refusal (exit 2).
+  The existing absolute-path and `..`-component checks stay as cheap pre-filters.
+  Tests: a **leaf** symlink (the `version_file` value itself pointing outside the
+  tree) is refused — not only a symlinked parent dir; an in-tree path (plain and
+  via an in-tree symlink) still reads.
 - **Done when:** an out-of-tree symlink `version_file` in `release-pending.sh`
-  is a clean exit-2 refusal; an in-tree `version_file` still resolves and
-  reads; the check is a reusable function; the `git show` readers
-  (window-check, publish, arm) are untouched; new tests fail pre-change and
-  pass after; `mise run check` is green.
+  is a clean exit-2 refusal, including when the leaf `version_file` component is
+  itself the escaping symlink; an in-tree `version_file` still resolves and
+  reads; the check is a reusable function and the read uses the canonicalized
+  path; the `git show` readers (window-check, publish, arm) are untouched; new
+  tests fail pre-change and pass after; `mise run check` is green.
 - **Dependencies:** none
 - **Citations:** D-5 · REQ-D1.1, REQ-D1.2 · legacy line 182 (Sources) ·
   security-posture.md · autopilot-reflex REQ-D1.9 (Source)
@@ -123,16 +147,25 @@ and knob changes that share the file.
 
 - **Deliverables:** A core `require_ci` config knob (default `true`) read
   through the config overlay, plus its documentation in the canonical options
-  reference. In `release-publish.sh`'s CI gate: when `require_ci` is `false`,
-  relax only the null/NONE ("no positive CI confirmation") refusal to allow
-  publish; a FAILING or PENDING check and the TOO_MANY unread-overflow case
-  stay fail-closed. Tests: default (`true`) preserves today's strict refusal on
-  NONE; `false` allows publish on NONE but still refuses on FAILURE, PENDING,
-  and TOO_MANY.
+  reference (`docs/options-reference.md`). In `release-publish.sh`'s CI gate:
+  when `require_ci` is `false`, relax only the `none`/NONE verdict — all three
+  sub-cases it folds together: a null rollup, an empty-after-window-lock-
+  exclusion rollup, and a rollup whose non-excluded checks all resolved
+  NEUTRAL/SKIPPED — to allow publish, emitting a stderr diagnostic that it
+  published without positive CI confirmation (`require_ci=false`); a FAILING or
+  PENDING check, the TOO_MANY unread-overflow case, and the distinct
+  CI-query-failure status stay fail-closed regardless. Tests: default (`true`)
+  preserves today's strict refusal on NONE; `false` allows publish on NONE
+  (including the all-NEUTRAL/SKIPPED sub-case) but still refuses on FAILURE,
+  PENDING, TOO_MANY, and query-failure; the relaxed-path diagnostic is present
+  on the NONE publish and absent otherwise.
 - **Done when:** `require_ci` defaults to `true` with unchanged behavior;
-  `false` publishes on a null/NONE rollup but never on a failing, pending, or
-  overflow verdict; the knob is documented in the options reference; new tests
-  fail pre-change and pass after; `mise run check` is green.
+  `false` publishes on any NONE sub-case (null, empty-after-exclusion, or
+  all-NEUTRAL/SKIPPED) but never on a failing, pending, overflow, or
+  query-failure verdict; the relaxed NONE publish emits the stderr diagnostic
+  (asserted present on the relaxed path, absent otherwise); the knob is
+  documented in `docs/options-reference.md`; new tests fail pre-change and pass
+  after; `mise run check` is green.
 - **Dependencies:** Task 3
 - **Citations:** D-7 · REQ-G1.3 · customization-boundary.md · legacy line 181 (Sources)
 - **Estimated effort:** 0.5 day
@@ -162,12 +195,22 @@ and knob changes that share the file.
   `statusCheckRollup` as not-green and refuses, so a no-CI adopter must add CI
   or set `require_ci=false` (REQ-G1.3); (c) an adopter caveat that making the
   `ci` check a required status check on the release PR would deadlock it (a
-  `GITHUB_TOKEN`-authored PR raises no CI run) absent a CI-triggering token
-  fix. The verified item-9 finding recorded in the bundle (already in
+  `GITHUB_TOKEN`-authored PR raises no CI run) absent a CI-triggering token fix
+  — namely authoring the release PR with a Personal Access Token or a GitHub App
+  token (via release-please's `token:` input) instead of the default
+  `GITHUB_TOKEN`. The verified item-9 finding recorded in the bundle (already in
   requirements.md Sources).
+  (d) Add `templates/**/*.md` to the `lint:md` glob in `mise.toml` so the
+  adopter-facing template READMEs are linted in CI (today `mise.toml:36`'s
+  allowlist does not include `templates/`, leaving them unlinted and
+  REQ-G1.1/G1.2's named CI verification a dead path); the glob covers **both**
+  `templates/release-please/README.md` and `templates/release-window/README.md`,
+  so fix any pre-existing lint violations in either newly covered template.
 - **Done when:** the README documents the relabel obligation, the strict
   null-CI prerequisite and the `require_ci` opt-out, and the required-check
-  caveat; markdown lint passes over the template; `mise run check` is green.
+  caveat with its PAT/App-token remedy; `templates/**/*.md` is in the `lint:md`
+  glob and markdown lint passes over both templates (no longer a dead path);
+  `mise run check` is green.
 - **Dependencies:** Task 6
 - **Citations:** D-10, D-11 · REQ-G1.1, REQ-G1.2, REQ-G1.4 · obs:86525b9e ·
   legacy line 181 (Sources), legacy line 194 (Sources)
@@ -189,6 +232,10 @@ and knob changes that share the file.
 - **Stranded-partial-publish recovery (E3).** A tag pushed but the Release
   failed becomes unresumable once a newer version bumps `version_file`; a
   multi-tag stranded scan is deferred (D-3).
+- **Signing-policy change between the failed publish and the resume (B4).** An
+  unsigned `auto`-created tag becomes unresumable if the operator later resumes
+  under `require` (a legit tag refused). Defensible fail-closed behavior;
+  accepted as risk R10 rather than special-cased (D-3, lens pass 2026-07-17).
 - **64-bit overflow guard in `rl_version_gt`.** The overflow is documented and
   boundary-tested, not guarded with a length-then-lexical compare; unreachable
   with realistic version strings (D-6).

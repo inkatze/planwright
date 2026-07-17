@@ -1,6 +1,6 @@
 # Release Hardening — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -21,33 +21,44 @@ assert exit status 2, distinct from a valid "not greater" (exit 1) and a valid
 
 ### REQ-A1.2 — pending fails closed on comparator error [test]
 
-`tests/test-release-pending.sh`: with inputs that drive the comparator to its
-error status, assert `release-pending.sh` exits 2 with a stderr diagnostic and
-prints no `none` on stdout. A regression that folds the error into `none` fails
-this.
+`tests/test-release-pending.sh`: the comparator-error status is unreachable
+through real inputs (both operands are pre-validated), so the test
+**fault-injects** it — stubbing/sourcing `rl_version_gt` to return status 2 —
+and asserts `release-pending.sh` exits 2 with a stderr diagnostic (the offending
+operand routed through `sanitize_printable`) and prints no `none` on stdout. A
+regression that folds the error into `none` fails this. Verifies the
+defense-in-depth propagation, not a reachable black-box path.
 
 ### REQ-A1.3 — window-check fails closed on comparator error [test]
 
-`tests/test-release-window-check.sh`: the `--ref` path under a comparator-error
-condition asserts exit 2 (fail closed), never exit 0 (merges may proceed).
-Confirms the lock does not pass on an undeterminable state.
+`tests/test-release-window-check.sh`: fault-injecting the comparator-error status
+(unreachable via real inputs, as in REQ-A1.2), the `--ref` path asserts exit 2
+(fail closed), never exit 0 (merges may proceed). Confirms the lock does not pass
+on an undeterminable state.
 
 ## REQ-B — Resume-path integrity
 
 ### REQ-B1.1 — resume asserts tag SHA equals release SHA [test]
 
 `tests/test-release-publish.sh`: a resume scenario (origin tag present via the
-git/gh stubs, Release absent) where the origin tag's commit differs from the
-recomputed `release_sha` asserts a refusal that names both SHAs and creates no
-Release; a matching-SHA resume proceeds. The stub logs the created-Release call
-so its absence on mismatch is asserted.
+git/gh stubs, Release absent) where the **fetched origin tag object's** commit
+differs from the recomputed `release_sha` asserts a refusal that names both SHAs
+and creates no Release; a matching-SHA resume proceeds. The test asserts the
+origin tag object is fetched and that the assertion targets the origin object,
+not a local tag — a fresh-clone case (no local tag) still asserts correctly. The
+stub logs the created-Release call so its absence on mismatch is asserted.
 
-### REQ-B1.2 — resume re-verifies the tag signature [test]
+### REQ-B1.2 — resume re-verifies the origin tag signature [test]
 
-`tests/test-release-publish.sh`: a resume under the `require` signing policy
-exercises the signature re-verify (the `git tag -v` stub is asserted called
-before `gh release create`); under `never` the re-verify is skipped. Confirms
-an origin tag is not trusted unconditionally.
+`tests/test-release-publish.sh`: the re-verify targets the fetched **origin** tag
+object. Under `require`, and under `auto` when signing is configured, the
+`git tag -v` stub is asserted called before `gh release create` and the resume
+refuses on a missing or failing signature; under `auto` when signing is not
+configured, an unsigned origin tag resumes without a re-verify; under `never` the
+re-verify is skipped. A fresh-clone resume (no local tag) verifies the fetched
+origin object, not an absent local one. Confirms an origin tag is not trusted
+unconditionally and that resume signing matches what creation-time
+`require`/`auto`/`never` would have produced.
 
 ### REQ-B1.3 — resume skips the creation gates [test]
 
@@ -55,6 +66,15 @@ an origin tag is not trusted unconditionally.
 (CI/monotonicity/sync/clean-tree) and the tag create+push are not re-run (their
 stubs record no call on the resume path), so resume hardens the tag
 correspondence only.
+
+### REQ-B1.4 — resume relabels idempotently, no deadlock [test]
+
+`tests/test-release-publish.sh`: a resume where the Release already exists but the
+merged release PR is still labeled `autorelease: pending` asserts the
+`pending`→`tagged` relabel is performed (the relabel stub is called) and the run
+does **not** die "already published" before it; a resume where the PR is already
+`tagged` no-ops the relabel. Guards the release-please deadlock window (REQ-B1.4,
+D-12).
 
 ## REQ-C — CI-gate consolidation and scoping
 
@@ -69,8 +89,11 @@ the distinct query-failure status.
 
 `tests/test-release-publish.sh` and `tests/test-release-arm.sh`: for the same
 stubbed SHA rollup, assert publish's CI gate and arm's release-gating verdict
-resolve identically (both now route through `rl_ci_state`). Guards against the
-two drifting.
+resolve to the **same verdict string** (both route through `rl_ci_state`). The
+callers' downstream handling of a query-failure deliberately differs (publish
+fails closed one-shot; arm retries within its poll budget), so the test asserts
+identical verdicts, not identical handling. Guards against the two drifting on
+what counts as release-gating CI.
 
 ### REQ-C1.3 — window-lock exclusion is workflow-scoped [test]
 
@@ -135,24 +158,33 @@ argument; and that `release-arm.sh` itself carries no `mise` dependency
 
 Review that `templates/release-please/README.md` documents the
 `autorelease: pending` → `tagged` relabel obligation for the
-bring-your-own-publish path; markdown lint over the template runs in
-`mise run check`. Prose correctness is a design-level read against issue #173.
+bring-your-own-publish path; markdown lint over both templates runs in
+`mise run check` (Task 8 adds `templates/**/*.md` to the `lint:md` glob, whose
+allowlist does not include `templates/` today). Prose correctness is a
+design-level read against issue #173.
 
 ### REQ-G1.2 — strict null-CI prerequisite documented [manual + design-level]
 
 Review that the README documents the strict null-CI publish prerequisite and
-the `require_ci` opt-out; lint runs in CI.
+the `require_ci` opt-out; lint runs in CI (via the Task 8 `lint:md` glob
+addition, REQ-G1.1).
 
 ### REQ-G1.3 — require_ci narrows only the NONE refusal [test]
 
-`tests/test-release-publish.sh`: with `require_ci` defaulting to `true`, a
-null/NONE rollup refuses (unchanged); with `require_ci=false`, the same NONE
-rollup publishes, while a FAILING, PENDING, or TOO_MANY rollup still refuses.
-Confirms the relaxation is narrow.
+`tests/test-release-publish.sh`: with `require_ci` defaulting to `true`, a NONE
+rollup refuses (unchanged); with `require_ci=false`, a NONE rollup publishes —
+tested across all three NONE sub-cases (null rollup, empty-after-window-lock-
+exclusion, and a rollup whose non-excluded checks all resolved NEUTRAL/SKIPPED) —
+while a FAILING, PENDING, TOO_MANY, or query-failure verdict still refuses. The
+relaxed NONE publish asserts a stderr diagnostic naming `require_ci=false`; the
+strict default and the non-NONE refusals assert it is absent. Confirms the
+relaxation is narrow (never a failing/pending/overflow/infra-outage verdict) and
+audibly signalled.
 
-### REQ-G1.4 — verified required-check finding + caveat [design-level]
+### REQ-G1.4 — verified required-check finding + caveat [manual + design-level]
 
 Verified by the recorded finding in requirements.md Sources (this repo has no
 required status check on the release PR, checked via `gh api`) and by the
-README caveat; a `[manual]` review confirms the caveat text. The finding itself
-is a point-in-time external-state verification, not a repeatable test.
+README caveat (including its PAT/App-token remedy); a `[manual]` review confirms
+the caveat text. The finding itself is a point-in-time external-state
+verification, not a repeatable test.

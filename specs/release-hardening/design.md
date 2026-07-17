@@ -1,6 +1,6 @@
 # Release Hardening — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -63,20 +63,34 @@ with a diagnostic. The callers stop folding "any non-zero" into `none`.
   because: exit 1 is a legitimate "not greater" result; overloading it is
   exactly the ambiguity being removed. The signal must be a distinct status.
 
-**Chosen because:** it makes the fail-closed posture real and testable (feed a
-malformed operand, assert the error status propagates to `release-pending.sh`
-exit 2), matching the ls-remote and CI gates' existing fail-closed shape, at
-minimal cost.
+**Chosen because:** it makes the fail-closed posture real and testable: a unit
+test drives `rl_version_gt` to its error status directly (REQ-A1.1), and the
+propagation to `release-pending.sh` / `release-window-check.sh` exit 2
+(REQ-A1.2/A1.3) is exercised by fault-injecting the comparator status — every
+caller pre-validates its operands, so no black-box input reaches the error path
+today. This is deliberate defense-in-depth for a future non-validating caller
+(the "latent fail-open" above), not the closing of a live fail-open, matching
+the ls-remote and CI gates' existing fail-closed shape at minimal cost.
 
 ### D-3: Resume hardening = SHA assertion + signature re-verify  (N)
 
 **Decision:** On a resume (origin tag present, Release absent),
-`release-publish.sh` asserts the origin tag's target commit equals the locally
-recomputed `release_sha` (refusing, naming both SHAs, on mismatch) and
-re-verifies the tag signature under the effective signing policy, before
-`gh release create`. The creation gates (CI/monotonicity/sync/clean-tree) and
-the tag create+push stay skipped on resume. The stranded-partial edge (E3) is
-Out of scope.
+`release-publish.sh` **fetches the origin tag object (`refs/tags/<tag>`)** and
+asserts its target commit equals the locally recomputed `release_sha`
+(refusing, naming both SHAs, on mismatch), then re-verifies **that origin tag
+object's** signature, before `gh release create`. The origin object — the one
+`--verify-tag` publishes — is what both the SHA assertion and the re-verify
+target; never a possibly-absent or stale local tag (a fresh-clone resume has no
+local tag). The re-verify follows the creation-time policy: under `require`, and
+under `auto` when signing is configured, a valid signature is required (refuse
+on missing/unverifiable); under `auto`-without-signing and `never` it is
+skipped. The creation gates (CI/monotonicity/sync/clean-tree) and the tag
+create+push stay skipped on resume. The resume relabel-idempotency aspect is
+D-12. The stranded-partial edge (E3) and the signing-policy-change-between-
+publish-and-resume edge are Out of scope / accepted risk.
+*(Amended at kickoff lens pass 2026-07-17: origin-object fetch + `auto`-signing
+tightening + read-the-origin-object made explicit; relabel idempotency split to
+D-12.)*
 
 **Alternatives considered:**
 - Full re-gate on resume (re-run CI-green, monotonicity, sync, clean-tree plus
@@ -132,11 +146,17 @@ exists to guarantee.
 **Decision:** Add a portable canonicalizing containment check to the
 `version_file` path guard and apply it in `release-pending.sh` — the only
 script that reads the version file from the filesystem (`<"$vf_path"`). The
-resolved real path is canonicalized (resolving symlinks) and confirmed to sit
-within the repository root; anything outside is a clean refusal (exit 2). The
-existing absolute-path and `..`-component checks stay as cheap pre-filters.
-The check is factored into a reusable shell function so a future filesystem
-reader reuses it.
+resolved real path is canonicalized — **resolving symlinks in every component
+including the final `version_file` component itself, not only the parent
+directory** — and confirmed to sit within the repository root; anything outside
+is a clean refusal (exit 2). **The subsequent read targets the canonicalized
+real path, never the original `$vf_path`**, so a resolved path cannot be
+re-defeated by re-following the original symlink. The existing absolute-path and
+`..`-component checks stay as cheap pre-filters. The check is factored into a
+reusable shell function so a future filesystem reader reuses it.
+*(Amended at kickoff lens pass 2026-07-17: leaf-component resolution +
+read-the-canonical-path made explicit; the parent-dir-only recipe was
+insufficient.)*
 
 **Alternatives considered:**
 - Apply the canonicalization to all four scripts uniformly. Rejected because:
@@ -147,8 +167,11 @@ reader reuses it.
 - Depend on `realpath -m` / `readlink -f`. Rejected because: neither is
   reliably present on the BSD/macOS shell floor the pipeline pins
   (`autopilot-reflex` REQ-D1.9); the canonicalization must be a portable
-  construction (e.g. `cd`-and-`pwd -P` on the resolved directory) under
-  `LC_ALL=C`.
+  construction under `LC_ALL=C` that resolves the **leaf**: iteratively
+  `readlink` the final component until it is not a symlink (bounded against
+  loops), then `cd` into the containing directory and `pwd -P`. A bare
+  `cd`-and-`pwd -P` on the parent directory alone leaves a leaf `version_file`
+  symlink unresolved and is insufficient (the leaf symlink is the attack).
 
 **Chosen because:** it meets the security-posture rule ("containment-checked
 after canonicalization") exactly where the filesystem read happens, without
@@ -280,6 +303,34 @@ could not be confirmed from the tree; the verification resolved it (not a
 required check), so the deliverable is the recorded finding plus the caveat
 that keeps an adopter from configuring themselves into the deadlock.
 
+### D-12: Resume relabel idempotency  (N)
+
+**Decision:** On a resume where the GitHub Release already exists but the merged
+release PR is still labeled `autorelease: pending`, `release-publish.sh`
+(re-)performs the `pending` → `tagged` relabel instead of aborting with "already
+published" before the relabel runs (REQ-B1.4). The relabel is idempotent
+(create-if-missing, a no-op when already `tagged`).
+
+**Alternatives considered:**
+- Leave resume idempotency as-is (die "already published" once the origin tag
+  and Release both exist). Rejected because: `relabel_release_pr` runs only
+  after `gh release create`; a process killed — or a `gh` client error after a
+  server-side success — between the two leaves the Release created but the PR
+  stuck on `autorelease: pending`, with no code path that ever flips it, so
+  release-please aborts every future cycle on "untagged, merged release PRs
+  outstanding". The bundle owns the relabel obligation (REQ-G1.1/D-10), so
+  leaving this window open contradicts its own goal.
+- Defer to a follow-up spec (like the E3 stranded-partial edge). Rejected
+  because: unlike E3 (which needs a multi-tag scan and a which-tag-to-resume
+  design), this is a bounded in-place idempotency fix on a window the bundle's
+  own resume + relabel deliverables create; the human chose to close it here at
+  the kickoff lens pass.
+
+**Chosen because:** it closes a concrete deadlock the lens pass found in the
+exact interaction between REQ-B (resume) and REQ-G1.1 (relabel) that this bundle
+owns, with a bounded idempotent-relabel change on the already-published resume
+path.
+
 ## Cross-cutting concerns
 
 - **Shared-file coordination.** REQ-C (rl_ci_state → publish + arm), REQ-B
@@ -288,6 +339,17 @@ that keeps an adopter from configuring themselves into the deadlock.
   shared-helper task lands before the knob task, and workers merge `main`
   between tasks; the regions edited are distinct (resume block vs CI gate vs
   the shared helper call site) so the coupling is sequencing, not logic.
+  `release-lib.sh` is likewise shared by Task 1 (the in-code overflow comment on
+  `rl_version_gt`), Task 2 (`rl_version_gt`'s error-status validation) and Task 3
+  (the new `rl_ci_state` function): edges 1→2 and 1→3 serialize Task 1's
+  co-edits/test-home ahead of the others, and Task 3's addition is a distinct
+  region. Two further same-file, no-edge overlaps exist and are deliberate
+  (distinct regions, merge `main` between tasks): `release-pending.sh` is
+  touched by the fail-closed comparator status capture (REQ-A / Task 2) and the
+  `version_file` canonicalization guard (REQ-D / Task 5); and `mise.toml` is
+  touched by the `release-arm` task entry (REQ-F / Task 7) and the `lint:md`
+  glob addition that wires the template-lint verification (REQ-G / Task 8). No
+  edge is needed between either pair.
 - **Fail-closed invariant.** Every new refusal path (comparator error, SHA
   mismatch, containment failure, CI query failure) exits non-zero with a
   diagnostic and no side effects, consistent with the pipeline's existing
