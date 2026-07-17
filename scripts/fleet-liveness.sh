@@ -343,6 +343,27 @@ atomic_write_file() {
   return 0
 }
 
+# marker_live_permission <root> <handle> — is the pending-permission marker the
+# LIVE permission this handler set, rather than a LEAKED marker (D-1: a marker
+# can outlive an ungraceful session death; the liveness-artifacts-cleanup
+# observation tracks the accumulation) now colliding with an unrelated
+# awaiting-input escalation on a REUSED handle? The marker carries the decision
+# identity: permission-request stamps the awaiting-input row's commit-time
+# heartbeat into it, so this is true iff the marker exists and carries a token,
+# the current store row is STILL awaiting-input, AND its heartbeat equals that
+# token. A flailing/crash escalation replacing the row re-stamps the heartbeat
+# (a fresh commit-time), so the token no longer matches and the caller must
+# preserve that queued human decision instead of auto-resolving it to
+# working/idle (REQ-A1.3). A truly leaked marker heals on the reconcile sweep.
+marker_live_permission() {
+  mlp_marker="$1/liveness/pending/$2"
+  [ -e "$mlp_marker" ] || return 1
+  mlp_tok=$(cat "$mlp_marker" 2>/dev/null) || mlp_tok=""
+  [ -n "$mlp_tok" ] || return 1
+  [ "$(store_row_field "$1" "$2" "$FIELD_STATE")" = awaiting-input ] || return 1
+  [ "$(store_row_field "$1" "$2" "$FIELD_HEARTBEAT")" = "$mlp_tok" ]
+}
+
 if [ "$#" -lt 1 ]; then
   echo "usage: fleet-liveness.sh hook|push-capable|classify|crash-record|crash-check|crash-reset [args]" >&2
   exit 2
@@ -418,11 +439,18 @@ case "$cmd" in
           echo "fleet-liveness: state push (awaiting-input) failed; reconcile self-heals (D-1)" >&2
           exit 0
         }
+        # Stamp the decision's commit-time identity (the row's heartbeat the
+        # decide just committed) INTO the marker, so post-tool-use / stop can
+        # tell THIS permission from a leaked marker colliding with a later
+        # escalation on a reused handle (marker_live_permission, REQ-A1.3). A
+        # missing token degrades safe: the marker reads as stale and the
+        # transition waits for the reconcile rather than risking a clobber.
+        perm_ts=$(store_row_field "$root" "$handle" "$FIELD_HEARTBEAT")
         # Temp + rename (never a truncating `>` redirect): the redirect
         # would follow a symlink planted at the marker path, while mv
         # replaces the link itself (the atomic_write_file discipline).
         if ! mkdir -p "$root/liveness/pending" 2>/dev/null \
-          || ! atomic_write_file "$marker" "" 2>/dev/null; then
+          || ! atomic_write_file "$marker" "$perm_ts" 2>/dev/null; then
           echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row now reads as a queued decision and clears on the REQ-A1.8 reconcile sweep, not on the next stop (which takes the --unless-awaiting no-op path with no marker present)" >&2
         fi
         exit 0
@@ -437,9 +465,17 @@ case "$cmd" in
         # a still-pending permission's marker; the ground-truth reconcile
         # (REQ-A1.8) re-derives the awaiting state next sweep.
         [ -e "$marker" ] || exit 0
-        rm -f "$marker" 2>/dev/null || true
-        "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
-          || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
+        if marker_live_permission "$root" "$handle"; then
+          rm -f "$marker" 2>/dev/null || true
+          "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
+            || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
+        else
+          # A leaked/stale marker: the row was re-decided since (a flailing or
+          # crash-disable escalation now occupies it) or the permission already
+          # resolved. Drop the orphan marker but NEVER clobber the current row —
+          # auto-resolving a queued human decision is the REQ-A1.3 violation.
+          rm -f "$marker" 2>/dev/null || true
+        fi
         exit 0
         ;;
       stop | session-end | stop-failure)
@@ -448,19 +484,24 @@ case "$cmd" in
           session-end) target=ended ;;
           stop-failure) target=hung ;;
         esac
-        # The escalation-preserve guard (REQ-A1.3): an awaiting-input row
-        # with NO pending-permission marker is a queued human decision — a
-        # downgrade push never auto-resolves it. The guard is enforced
-        # ATOMICALLY inside the store's critical section
-        # (heartbeat --unless-awaiting), so a decide committing between a
-        # read here and the write cannot be clobbered. With the marker
-        # present this is the permission flow ending (risk 28's deny path):
-        # clear to the downgrade state unconditionally.
-        if [ -e "$marker" ]; then
+        # The escalation-preserve guard (REQ-A1.3): a downgrade push never
+        # auto-resolves a queued human decision. A LIVE permission marker
+        # (marker_live_permission: present, awaiting-input, heartbeat matches
+        # the identity token) is the permission flow ending (risk 28's deny
+        # path) — clear to the downgrade state unconditionally. Otherwise the
+        # push takes --unless-awaiting, enforced ATOMICALLY inside the store's
+        # critical section so a decide committing between the check and the
+        # write cannot be clobbered. This is what makes a LEAKED marker
+        # colliding with an unrelated escalation (a re-decided reused handle)
+        # safe on this path too, not just post-tool-use: the token mismatch
+        # routes it through --unless-awaiting, preserving the escalation. Drop
+        # any stale marker we find so it can't mislead a later push.
+        if marker_live_permission "$root" "$handle"; then
           rm -f "$marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         else
+          [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
           "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         fi

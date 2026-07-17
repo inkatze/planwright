@@ -1019,4 +1019,39 @@ badlines=$(awk -F "$tab" 'NF != 4 { n++ } END { print n + 0 }' "$obs39")
 [ "$badlines" = 0 ] || fail "multirow classify: $badlines malformed observation line(s) (torn row_state)"
 echo "ok: store_row_field is last-write-wins — a corrupt multi-row store never tears the observations TSV"
 
+# ---------------------------------------------------------------------------
+# 40. REQ-A1.3 via the marker-identity check: a LEAKED pending-permission
+#     marker (one that outlived an ungraceful session death) must never let
+#     post-tool-use OR a downgrade push auto-resolve an UNRELATED awaiting-input
+#     escalation on a reused handle. The marker carries the permission
+#     decision's heartbeat identity; a re-decided row (a flailing / crash
+#     escalation) re-stamps the heartbeat, so the stale token no longer matches
+#     and the escalation is preserved (the orphan marker is dropped).
+# ---------------------------------------------------------------------------
+home40="$tmp/h40"
+wl="worker=leak"
+# A non-permission escalation (a flailing "stuck" decision) occupies the row.
+attn "$home40" decide "$wl" "$s" \
+  "No forward progress across 3 heartbeats - this task may be stuck" \
+  "park for human review" "park for review|relaunch fresh|redirect with guidance" high \
+  >/dev/null || fail "leaked-marker setup: decide failed"
+# Plant a leaked marker whose stale token cannot match the escalation heartbeat.
+mkdir -p "$home40/liveness/pending" || fail "leaked-marker setup: mkdir"
+printf '1\n' >"$home40/liveness/pending/$wl"
+run_hook "$home40" "$wl" "$s" post-tool-use >/dev/null 2>&1 \
+  || fail "leaked-marker post-tool-use: non-zero exit"
+st=$(awk -F "$tab" -v want="$wl" '($1 "") == (want "") { print $3 }' "$home40/attention/state")
+[ "$st" = awaiting-input ] \
+  || fail "leaked marker let post-tool-use clobber an escalation (state=$st, want awaiting-input)"
+[ ! -e "$home40/liveness/pending/$wl" ] \
+  || fail "leaked-marker post-tool-use: orphan marker not cleaned up"
+# A downgrade push (stop) must likewise preserve it. Re-plant the leaked marker.
+printf '1\n' >"$home40/liveness/pending/$wl"
+run_hook "$home40" "$wl" "$s" stop >/dev/null 2>&1 \
+  || fail "leaked-marker stop: non-zero exit"
+st=$(awk -F "$tab" -v want="$wl" '($1 "") == (want "") { print $3 }' "$home40/attention/state")
+[ "$st" = awaiting-input ] \
+  || fail "leaked marker let stop clobber an escalation (state=$st, want awaiting-input)"
+echo "ok: a leaked pending-permission marker never clobbers an unrelated escalation (REQ-A1.3)"
+
 echo "ALL PASS: fleet-liveness.sh"
