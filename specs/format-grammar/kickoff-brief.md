@@ -216,3 +216,87 @@ every other row is mitigated or explicitly accepted.
 
 Signed off: 2026-07-16 (rows 9–11 and the row 3/8 corrections appended at
 the 2026-07-17 lens pass, before first sign-off)
+
+## 8. Sign-off
+
+### Lens review pass (Discovery Rigor, full bundle — first activation)
+
+**Path declared:** fan-out — nine read-only sub-agents, one per canonical
+lens, over the full bundle at spec commit `3262f51`, plus coordinator
+verification (repo greps for every load-bearing factual claim) and the
+mandatory self-critique pass (which added `spec-graph.sh` to the
+version-parse consumer set the agents had missed). Shared tooling input:
+`spec-validate` 0/0, `lint:md` 0 errors, `check:ledger`,
+`check:memory-links`, `lint:commits` all clean.
+
+**Canonical lens-coverage table** (merged, post-dedupe):
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 6 | Consumer-list under-inclusion, dual whitelist, rule placement, citation-before-doctrine window, extractor blast radius, unclosed fence. |
+| Security | 8 | Path-access, fence evasion, framing injection, sanitization boundary, NUL screen, two-gate distinction, hint sanitization, retirement-id validation. Data hygiene clean. |
+| Error handling and failure modes | 9 | Lib-absent fail-open, circular sweep guard, mid-sweep failure, re-anchor blindness ×2, selector stdout, Task 3 staling, Task 5 partial landing, E1.4 disposition. |
+| Performance | 4 | Pass-multiplication, O(bundles) proof scoping, baseline sharing, hot-path reads. |
+| Concurrency / state | 7 | Cross-bundle write contention (fixed by consolidation), three TOCTOU residuals (rows 9–11), posture asymmetry, A1.8 consequence. |
+| Naming, readability, structure | 9 | Foreign-ID qualifiers, `.sh` drift, dual membership, group-theme and cosmetic declines. |
+| Documentation | none | All 13 obs fragments, 17 legacy lines, doctrine sources verified present and supporting; changelog accurate. |
+| Tests / verification | 8 | Gated-fixture placements, missing trip cases, golden-vs-real output, tag honesty. |
+| Cross-file consistency | 4 | D-25 qualification, A1.9 attribution, Task 5 overreach, B1.6 citation gaps. |
+
+**Altitude check (REQ-H1.3):** triggered bundle (pinned seed claims in
+`## Sources`); altitude D-ID D-1 present, cited from the Goal, and the
+task decomposition matches the doctrine-first claim (Task 5 carries the
+doctrine deliverable, protected by REQ-G1.1 parking; Tasks 6/8 make
+scripts cite doctrine). **Pass.**
+
+**Validation:** three-pass rigor per finding (agent evidence = direct
+read, cross-lens convergence = orthogonal, coordinator repo greps +
+doctrine texts = outside-in), then the adversarial bi-directional sweep:
+six keep-set items refuted into declines; no declined item resurrected.
+
+**Dispositions:** ~30 findings applied as spec edits across five
+human-approved clusters (mechanical/wording; sequencing/structure — incl.
+the REQ-A1.9 move to Task 4 and the duplicate-error move to Task 3; lib
+robustness + the new REQ-D1.11; verification strengthening; gap-check
+decisions). **Declined with rationale (7):** REQ-D1.6 fixture gating
+(correct lockstep), the 6→8 edge (avoids double migration), MALFORMED
+surfacing (drain contract), byte-identical proof scope, DoS bounds
+(PR-gated linear parsing), group-theme renames (ID stability), cosmetic
+drifts. **Accepted residuals (3):** risk rows 9–11 with fail-closed
+backstops. All findings dispositioned; none pending.
+
+### Panel pass (/panel-review --nested, user-requested)
+
+Backend `gemini` (personal profile), seven iterations to declared
+convergence, all findings human-dispositioned (none auto-applied; no
+tool-rule citations): **27 applied** — two wording corrections (iter 1);
+fence-EOF fail-closed, duplicate-`Status:` extension, the 7→4 edge, the
+mismatched-id trip case (iter 2); the universal fence rule, per-family
+fence timing, D1.8 cases, `Status:` stragglers (iter 3); the consumer
+exit-status clause and seven sibling fixture cases (iter 4); the
+order-independent citation flip and scoped A1.1 claim (iter 5); the
+header-declaration parse covering `Status:`, the D-14 rule delivery home,
+the fenced-token trip case (iter 6); the `Task <id>` range check,
+one-shot sweep scoping, indented-fence pass case (iter 7). **Declined
+(3):** a `pipefail` mandate (implementation altitude — the fail-open
+property is specified), a Task 4/Task 1 anchor-race claim (misreading:
+the proof is old-vs-new at one ref), and an amendment-routing-reversal
+claim (refuted against `spec-format`'s lifecycle). Convergence declared
+by the human at iteration 7 on the diminishing-returns signal.
+
+### Record
+
+First activation sign-off. Walkthrough sections 1–7 signed 2026-07-16;
+lens pass, panel pass, and all dispositions completed 2026-07-17; spec
+edits committed on `planwright/format-grammar/spec` (walkthrough commit
+plus panel iterations 1–7). Status flipped Draft→Ready and
+`Last reviewed:` bumped to 2026-07-17 on all four spec files in this
+sign-off.
+
+Signed off: 2026-07-17
+
+Class: meaning
+Lens-pass: section 8, "Lens review pass" and "Panel pass" above (canonical
+table emitted; every finding dispositioned)
+Anchor: `9bdc2fa6c1f762dd8779638c03f41c6a2f60a360` — computed as
+`scripts/spec-anchor.sh specs/format-grammar`
