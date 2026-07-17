@@ -163,11 +163,17 @@ case "$cmd" in
       usage
       exit 2
     fi
+    # Resolve every row before emitting any: a later-row resolver hard-fail
+    # must not leave partial output on stdout (the fail-before-emitting
+    # posture the audit query path holds).
+    rows=""
     for lt_type in execution bookkeeping drain; do
       table_row "$lt_type" || exit 5 # unreachable: the loop names table rows
-      printf '%s\t' "$lt_type"
-      emit_row
+      lt_model=$(resolve_model) || exit $?
+      rows="$rows$lt_type	$lt_model	$row_effort	$row_command
+"
     done
+    printf '%s' "$rows"
     ;;
   *)
     usage

@@ -180,18 +180,37 @@ utc_iso() {
 }
 
 # engage_until <until-epoch> <trigger-text>
-# The shared engagement path: kill-switch gate, lock, max rule, atomic
-# write, then audit. Prints `until<TAB><winning-epoch>` on stdout.
+# The shared engagement path: kill-switch gate, ceiling clamp, lock, max
+# rule, atomic write, then audit. Prints `until<TAB><winning-epoch>` on
+# stdout. The 8-day ceiling is enforced HERE, authoritatively for every
+# caller (the engage CLI refuses beyond-ceiling input earlier as a caller
+# bug; the observe arms clamp): a misconfigured default hold or any future
+# caller can never park the fleet past the ceiling (risk 24).
 engage_until() {
   eu_until=$1
   eu_trigger=$2
 
   # The daemon gate (D-15): only exit 0 authorizes proceeding; 1 is the set
-  # switch (short-circuit), 4/5 are resolver hard-fails — all propagate.
+  # switch (short-circuit), 4/5 are resolver hard-fails — all propagate. A
+  # missing gate helper is a broken install (exit 5), matching the sibling
+  # resolvers' posture rather than an undocumented 127.
+  if [ ! -x "$GATE" ]; then
+    echo "fleet-throttle: daemon gate '$GATE' is missing or not executable — broken install" >&2
+    exit 5
+  fi
   "$GATE" "$MECHANISM"
   eu_rc=$?
   if [ "$eu_rc" -ne 0 ]; then
     exit "$eu_rc"
+  fi
+
+  eu_now=$(now_epoch) || {
+    echo "fleet-throttle: cannot read the clock" >&2
+    exit 2
+  }
+  if [ "$eu_until" -gt $((eu_now + MAX_HOLD)) ]; then
+    echo "fleet-throttle: warning: clamping a reset time more than 8 days out (until $eu_until) to the ceiling — a garbage reset must never park the fleet (risk 24)" >&2
+    eu_until=$((eu_now + MAX_HOLD))
   fi
 
   eu_root=$(resolve_home) || exit 2
@@ -307,6 +326,12 @@ case "$cmd" in
         exit 2
         ;;
     esac
+    # The 15-digit cap is the shell-arithmetic overflow guard fleet-audit's
+    # epoch bounds carry: an over-long value must never reach `-le`/`-gt`.
+    if [ "${#until_arg}" -gt 15 ]; then
+      echo "fleet-throttle: --until value has more than 15 digits (overflow guard) — caller bug" >&2
+      exit 2
+    fi
     now=$(now_epoch) || {
       echo "fleet-throttle: cannot read the clock" >&2
       exit 2
@@ -333,20 +358,31 @@ case "$cmd" in
     # form. Output protocol: line 1 = `none` | `rel <seconds>` |
     # `wall <h> <m>` | `unparsed`; line 2 (when not `none`) = a <=200-char
     # sanitized excerpt for the audit trigger.
-    parse=$(awk '
+    parse=$(awk -v max="$MAX_HOLD" '
       { gsub(/[^[:print:]]/, ""); text = text " " $0 }
       END {
         lt = tolower(text)
         if (lt !~ /rate.?limit|usage limit|limit reached|too many requests/) { print "none"; exit }
         excerpt = substr(text, 2, 200)
         if (match(lt, /in [0-9]+ (second|minute|hour)/)) {
-          s = substr(lt, RSTART, RLENGTH)
-          split(s, a, " ")
-          n = a[2] + 0
-          if (a[3] == "second") secs = n
-          else if (a[3] == "minute") secs = n * 60
-          else secs = n * 3600
-          if (secs > 0 && secs <= 691200) { print "rel " secs; print excerpt; exit }
+          # Sum consecutive <n> <unit> groups ("in 2 hours 30 minutes"):
+          # capturing only the first group under-holds, resuming dispatch
+          # before the account limit clears — the direction the max rule
+          # forbids.
+          rest = substr(lt, RSTART + 3)
+          secs = 0
+          while (match(rest, /^[0-9]+ (second|minute|hour)/)) {
+            grp = substr(rest, RSTART, RLENGTH)
+            split(grp, a, " ")
+            n = a[1] + 0
+            if (a[2] == "second") secs += n
+            else if (a[2] == "minute") secs += n * 60
+            else secs += n * 3600
+            rest = substr(rest, RLENGTH + 1)
+            sub(/^s/, "", rest)
+            sub(/^[ ,]*(and )?/, "", rest)
+          }
+          if (secs > 0 && secs <= max) { print "rel " secs; print excerpt; exit }
           print "unparsed"; print excerpt; exit
         }
         if (match(lt, /(resets?|try again|available)( at)? [0-9][0-9]?(:[0-5][0-9])? ?(am|pm)/)) {

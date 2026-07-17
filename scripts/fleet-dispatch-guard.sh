@@ -16,9 +16,11 @@
 #   check-launch <cmd> [args...]  — a LAUNCHED process (tmux / print /
 #     headless): the guard lints the launch argv BEFORE the backend spawns
 #     it. Refusals: any `--permission-mode auto` (either spelling, any
-#     position); a `--settings` fragment that itself pins `defaultMode` to
-#     auto; a `--settings` path that cannot be read (fail closed — an
-#     unverifiable mode source is no mode source). And per risk row 20 the
+#     position); a `--settings` fragment with any `defaultMode` occurrence
+#     pinning auto; a `--settings` path that cannot be read (fail closed —
+#     an unverifiable mode source is no mode source); a `--permission-mode`
+#     or `--settings` flag lacking its value, including a mode value that
+#     is itself a flag. And per risk row 20 the
 #     argv must carry an EXPLICIT non-auto mode source — an explicit
 #     non-auto `--permission-mode`, or a readable `--settings` fragment
 #     pinning a non-auto `defaultMode` (the standard worker-settings
@@ -31,16 +33,19 @@
 #     checkable proxy for that ambient inheritance is the one surface D-19
 #     documents as able to set it: the operator's own user settings
 #     (`$CLAUDE_DIR`/`~/.claude`/settings.json). A `defaultMode` of auto
-#     there refuses in-process dispatch; a non-auto pin, no pin, or no
-#     settings file passes (Claude Code's own built-in default mode is
+#     there refuses in-process dispatch, as do a present-but-unreadable
+#     settings file and an environment with neither `CLAUDE_DIR` nor
+#     `HOME` set (unverifiable fails closed); a non-auto pin, no pin, or
+#     no settings file passes (Claude Code's own built-in default mode is
 #     `default`, which prompts).
 #
 # The guard is a LINT: it inspects, never launches, and never modifies the
 # argv. A refusal (exit 1) is a dispatch stop condition the tower surfaces —
 # never bypassed, never downgraded to a warning. The JSON peek at a settings
-# fragment is a grep-shaped read (no jq on the support bar, REQ-K1.5):
-# it finds the first `"defaultMode": "<value>"` pair anywhere in the file,
-# which is exactly the flat shape Claude Code settings fragments use.
+# fragment is a grep-shaped read (no jq on the support bar, REQ-K1.5): it
+# scans every `"defaultMode": "<value>"` pair in the file, refuses if any
+# pins auto (duplicate-key JSON resolves parser-dependently, so the guard
+# is conservative), and otherwise reports the first.
 #
 # Usage:
 #   fleet-dispatch-guard.sh check-launch <cmd> [args...]
@@ -71,16 +76,28 @@ usage() {
   echo "usage: fleet-dispatch-guard.sh check-launch <cmd> [args...] | check-inherited" >&2
 }
 
-# settings_default_mode <path>: print the first "defaultMode" string value
-# in the fragment, empty when none. Returns 1 when the file cannot be read.
+# settings_default_mode <path>: print the fragment's effective
+# "defaultMode" pin, empty when none. Returns 1 when the file cannot be
+# read. Duplicate-key JSON resolves parser-dependently, so the guard is
+# conservative: if ANY occurrence pins auto, `auto` is reported (a
+# duplicate-key fragment can never smuggle auto past the guard behind a
+# non-auto sibling); otherwise the FIRST occurrence's value is reported.
 settings_default_mode() {
   [ -f "$1" ] && [ -r "$1" ] || return 1
-  # First "defaultMode" : "<value>" pair; the value is captured between the
-  # closing quote pair. tr strips newlines first so the pair may wrap.
-  sdm_v=$(tr '\n' ' ' <"$1" \
-    | sed -n 's/.*"defaultMode"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-    | head -n 1)
-  printf '%s' "$sdm_v"
+  # Every "defaultMode" : "<value>" pair, one per line; tr strips newlines
+  # first so a pair may wrap in the source.
+  sdm_all=$(tr '\n' ' ' <"$1" \
+    | grep -o '"defaultMode"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null) \
+    || sdm_all=""
+  if [ -z "$sdm_all" ]; then
+    printf ''
+    return 0
+  fi
+  if printf '%s\n' "$sdm_all" | grep -q '"auto"[[:space:]]*$'; then
+    printf 'auto'
+    return 0
+  fi
+  printf '%s\n' "$sdm_all" | head -n 1 | sed 's/.*"\([^"]*\)"[[:space:]]*$/\1/'
 }
 
 [ "$#" -ge 1 ] || {
@@ -148,7 +165,16 @@ case "$cmd" in
           continue
           ;;
       esac
-      # A --permission-mode value (either spelling) landed here.
+      # A --permission-mode value (either spelling) landed here. A value
+      # that is itself a flag means the real value is missing — the guard
+      # must not swallow a following option (e.g. --settings) as the mode
+      # and then skip validating it.
+      case "$flag_value" in
+        -*)
+          echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode value '$(sanitize_printable "$flag_value" "(unprintable value)")' looks like a flag, not a mode" >&2
+          exit 1
+          ;;
+      esac
       if [ "$flag_value" = auto ]; then
         echo "fleet-dispatch-guard: refusing launch of '$(sanitize_printable "$launch_cmd" "(unprintable cmd)")': --permission-mode auto is never used for fleet workers (REQ-E1.4/D-19; the worker-settings allowlist is the sole approval mechanism)" >&2
         exit 1
@@ -171,6 +197,13 @@ case "$cmd" in
       usage
       exit 2
     }
+    if [ -z "${CLAUDE_DIR:-}" ] && [ -z "${HOME:-}" ]; then
+      # With neither variable set the operator's real settings location is
+      # unknowable — an unverifiable inherited mode fails closed, same as
+      # the unreadable-file arm, never a silent pass against /.claude.
+      echo "fleet-dispatch-guard: refusing in-process dispatch: neither CLAUDE_DIR nor HOME is set, so the inherited permission mode cannot be verified" >&2
+      exit 1
+    fi
     claude_dir=${CLAUDE_DIR:-${HOME:-}/.claude}
     user_settings="$claude_dir/settings.json"
     if [ ! -f "$user_settings" ]; then

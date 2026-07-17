@@ -220,4 +220,15 @@ for kv in "fleet_model_execution: opus" "fleet_model_bookkeeping: sonnet" "fleet
 done
 echo "ok: shipped defaults match the table"
 
+# 11. `list` is all-or-nothing: a later-row resolver hard-fail must not
+#     leave partial output on stdout (the fail-before-emitting posture
+#     fleet-audit's query path holds).
+reset_layers
+printf 'fleet_model_bookkeeping: gpt-5\n' >"$tracked_cfg"
+rc=0
+out=$(run list 2>/dev/null) || rc=$?
+[ "$rc" = 4 ] || fail "list with a malformed repo-tracked bookkeeping model: exit $rc, expected 4"
+[ -z "$out" ] || fail "list must emit nothing on a hard-fail, got partial output: $out"
+echo "ok: list emits nothing on a resolver hard-fail"
+
 echo "ok: test-fleet-resource-select"

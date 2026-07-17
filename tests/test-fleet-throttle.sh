@@ -277,4 +277,48 @@ run engage --until "$(($(now) + 3000000))" --trigger "garbage" >/dev/null 2>&1 |
 run check >/dev/null || fail "far-future --until must not throttle"
 echo "ok: a beyond-ceiling --until is refused"
 
+# 14. Risk 24's other arm on the SHARED path: the 8-day ceiling must bind
+#     engage_until itself, not just the engage CLI's argument check — a
+#     misconfigured default hold (valid posint, absurd magnitude) must not
+#     park the fleet past the ceiling via the observe degrade path.
+reset_state
+printf 'fleet_throttle_default_hold: 99999999\n' >"$mlocal_cfg"
+printf 'Rate limit reached. Please slow down.\n' | run observe >/dev/null 2>&1 \
+  || fail "huge-hold degrade observe failed"
+rm -f "$mlocal_cfg"
+out=$(run check) && fail "huge-hold degrade should throttle" || true
+until_parsed=$(printf '%s\n' "$out" | tr -d -c '0-9')
+t=$(now)
+[ "$until_parsed" -le $((t + 691200 + 60)) ] \
+  || fail "the ceiling must bind the shared engage path (until $until_parsed vs now $t + 8d)"
+echo "ok: the 8-day ceiling binds the shared engage path (risk 24)"
+
+# 15. An over-long --until value is refused by the digit cap (the
+#     shell-arithmetic overflow guard fleet-audit already carries), with a
+#     diagnostic naming the cap — never fed to arithmetic comparison.
+reset_state
+rc=0
+err=$(run engage --until 99999999999999999999 --trigger overflow 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 2 ] || fail "20-digit --until: exit $rc, expected 2"
+case $err in
+  *digit*) ;;
+  *) fail "20-digit --until: diagnostic should name the digit cap, got '$err'" ;;
+esac
+run check >/dev/null || fail "20-digit --until must not throttle"
+echo "ok: an over-long --until is refused by the digit cap"
+
+# 16. Multi-unit relative resets sum ("in 2 hours 30 minutes" is 9000s, not
+#     7200s): an under-hold resumes dispatch before the account limit
+#     clears — the direction the max rule exists to prevent.
+reset_state
+started=$(now)
+printf 'rate limit reached, try again in 2 hours 30 minutes\n' | run observe >/dev/null 2>&1 \
+  || fail "multi-unit relative observe failed"
+out=$(run check) && fail "multi-unit relative observe should throttle" || true
+until_parsed=$(printf '%s\n' "$out" | tr -d -c '0-9')
+delta=$((until_parsed - started))
+[ "$delta" -ge 8990 ] && [ "$delta" -le 9070 ] \
+  || fail "multi-unit relative reset: expected ~9000s hold, got ${delta}s"
+echo "ok: multi-unit relative resets sum to the full hold"
+
 echo "ok: test-fleet-throttle"

@@ -154,4 +154,31 @@ case $err in
 esac
 echo "ok: refusal diagnostics are sanitized"
 
+# 9. Duplicate defaultMode keys: JSON duplicate-key resolution is
+#    parser-dependent, so the guard must refuse when ANY occurrence pins
+#    auto — a fragment with auto first and default last must not slip
+#    through on a first-match (or last-match) read.
+dup_profile="$tmp/dup-settings.json"
+printf '{"defaultMode": "auto", "nested": {"defaultMode": "default"}}\n' >"$dup_profile"
+rc=0
+run check-launch claude --settings "$dup_profile" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "duplicate defaultMode with any auto occurrence: exit $rc, expected 1"
+echo "ok: any auto occurrence among duplicate defaultMode keys refuses"
+
+# 10. A --permission-mode value that is itself a flag is not a mode: the
+#    guard must not swallow a following option as the mode value and then
+#    green-light a launch whose real --settings source was never read.
+rc=0
+run check-launch claude --permission-mode --settings "$tmp/no-such.json" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "flag-valued --permission-mode: exit $rc, expected 1"
+echo "ok: a flag swallowed as the mode value is refused"
+
+# 11. check-inherited with NEITHER CLAUDE_DIR nor HOME set: the inherited
+#    mode is unverifiable, and unverifiable fails closed (exit 1) — never a
+#    silent pass against /.claude.
+rc=0
+env -u CLAUDE_DIR -u HOME /bin/bash "$FDG" check-inherited >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "check-inherited with no CLAUDE_DIR/HOME: exit $rc, expected 1 (fail closed)"
+echo "ok: an unverifiable inherited-mode environment fails closed"
+
 echo "ok: test-fleet-dispatch-guard"
