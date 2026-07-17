@@ -735,4 +735,104 @@ distinct=$(cut -f2- "$home21/attention/toasts" | sort -u | wc -l | tr -d ' ')
 [ "$distinct" = "$Nt" ] || fail "toast race: $distinct distinct summaries, expected $Nt (an append was lost or clobbered)"
 echo "ok: concurrent editor-toast appends are serialized (N intact lines, none torn or lost)"
 
+# ---------------------------------------------------------------------------
+# 22. Fleet-autonomy Task 2 (D-1, D-2; REQ-A1.1, REQ-A1.2) extends the
+#     heartbeat vocabulary with the hook-pushed liveness states: idle (Stop),
+#     hung (StopFailure, risk-27 mapping), ended (SessionEnd). They are
+#     status, not decisions: the renderer shows them, the queue never does
+#     (awaiting-input stays the one decision-bearing state, set by decide).
+# ---------------------------------------------------------------------------
+home22="$tmp/liveness-states"
+i=1
+for st in idle hung ended; do
+  aenv "$home22" heartbeat "worker=l$i" "spec-l:$i" "$st" \
+    || fail "liveness state '$st': heartbeat refused it"
+  out=$(aenv "$home22" render) || fail "render with liveness states failed"
+  printf '%s\n' "$out" | grep -F "worker=l$i" | grep -q "\[$st\]" \
+    || fail "render does not show worker=l$i as [$st]"
+  i=$((i + 1))
+done
+qc=$(aenv "$home22" queue --count) || fail "queue --count with liveness states failed"
+[ "$qc" = 0 ] || fail "liveness states leaked into the decision queue (count $qc, expected 0)"
+echo "ok: heartbeat accepts the liveness states idle/hung/ended as status, never queued"
+
+# ---------------------------------------------------------------------------
+# 23. The --unless-awaiting heartbeat guard (fleet-autonomy Task 2,
+#     REQ-A1.3): a clean no-op against an awaiting-input row (a queued human
+#     decision is never downgraded), a normal upsert against anything else,
+#     evaluated inside the store's critical section. A bogus 4th arg is a
+#     usage error.
+# ---------------------------------------------------------------------------
+home23="$tmp/guarded"
+aenv "$home23" decide "worker=g" "spec-g:1" "stuck?" "park" "park|retry" high \
+  || fail "guard setup: decide failed"
+aenv "$home23" heartbeat "worker=g" "spec-g:1" idle --unless-awaiting \
+  || fail "guarded heartbeat against awaiting-input: non-zero exit (must be a no-op success)"
+out=$(aenv "$home23" render) || fail "render failed"
+printf '%s\n' "$out" | grep -F "worker=g" | grep -q "awaiting-input" \
+  || fail "guarded heartbeat downgraded a queued decision"
+qc=$(aenv "$home23" queue --count) || fail "queue --count failed"
+[ "$qc" = 1 ] || fail "guarded heartbeat dropped the queue entry (count $qc)"
+aenv "$home23" heartbeat "worker=h" "spec-g:2" working || fail "guard setup: heartbeat h"
+aenv "$home23" heartbeat "worker=h" "spec-g:2" idle --unless-awaiting \
+  || fail "guarded heartbeat against working: non-zero exit"
+out=$(aenv "$home23" render) || fail "render failed"
+printf '%s\n' "$out" | grep -F "worker=h" | grep -q "\[idle\]" \
+  || fail "guarded heartbeat did not upsert a non-awaiting row"
+rc=0
+aenv "$home23" heartbeat "worker=h" "spec-g:2" idle --bogus-flag >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "bogus heartbeat flag: exit $rc, expected 2"
+echo "ok: --unless-awaiting preserves queued decisions and upserts everything else"
+
+# ---------------------------------------------------------------------------
+# 24. The --unless-awaiting guard fails SAFE under multi-row store corruption
+#     (fleet-autonomy Task 2, REQ-A1.3): one row per worker is an invariant the
+#     single writer maintains under lock, but external corruption could leave
+#     more than one. If ANY matching row is awaiting-input, the guard must still
+#     treat the worker as awaiting-input and no-op the downgrade — a queued
+#     human decision must never be clobbered, even by a corrupt store.
+# ---------------------------------------------------------------------------
+home24="$tmp/guarded-multirow"
+aenv "$home24" decide "worker=m" "spec-m:1" "stuck?" "park" "park|retry" high \
+  || fail "multirow guard setup: decide failed"
+# Inject a second, later row for worker=m (working) — simulate corruption.
+printf 'worker=m\tspec-m:1\tworking\t1\t\t\t\t\n' >>"$home24/attention/state"
+rows=$(awk -F"$tab" '$1 == "worker=m" { c++ } END { print c + 0 }' "$home24/attention/state")
+[ "$rows" = 2 ] || fail "multirow setup: expected 2 rows for worker=m, got $rows"
+aenv "$home24" heartbeat "worker=m" "spec-m:1" idle --unless-awaiting \
+  || fail "multirow guarded heartbeat: non-zero exit (must be a no-op success)"
+awk -F"$tab" '$1 == "worker=m" && $3 == "awaiting-input" { f = 1 } END { exit f ? 0 : 1 }' \
+  "$home24/attention/state" \
+  || fail "multirow corruption clobbered a queued decision: no surviving awaiting-input row for worker=m"
+echo "ok: --unless-awaiting fails safe under multi-row corruption (queued decision preserved)"
+
+# ---------------------------------------------------------------------------
+# 25. The --unless-awaiting guard FAILS CLOSED when it cannot READ the store to
+#     check for a queued decision (REQ-A1.3): an unreadable store must exit 2,
+#     never fall through and let a downgrade heartbeat clobber an awaiting-input
+#     row. Skipped under root, which reads through chmod 000 (repo convention).
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  home25="$tmp/guard-failclosed"
+  aenv "$home25" decide "worker=fc" "spec-fc:1" "stuck?" "park" "park|retry" high \
+    || fail "failclosed setup: decide failed"
+  chmod 000 "$home25/attention/state" || fail "failclosed setup: chmod failed"
+  rc=0
+  err=$(aenv "$home25" heartbeat "worker=fc" "spec-fc:1" idle --unless-awaiting 2>&1 >/dev/null) || rc=$?
+  chmod 644 "$home25/attention/state"
+  [ "$rc" = 2 ] || fail "unreadable store + --unless-awaiting: exit $rc, expected 2 (fail closed)"
+  # The guard's own fail-closed branch must fire — distinguishing it from the
+  # rewrite path, which also refuses an unreadable store but with a different
+  # message. Asserting the guard message proves the check fails closed BEFORE
+  # the rewrite (so a transient read error that hit only the guard, not the
+  # rewrite, could not fall through and clobber).
+  printf '%s' "$err" | grep -q "refusing to risk clobbering a queued decision" \
+    || fail "fail-closed guard message missing (got: $err)"
+  printf '%s\n' "$(aenv "$home25" render)" | grep -F "worker=fc" | grep -q "awaiting-input" \
+    || fail "fail-closed guard let a downgrade clobber the queued decision"
+  echo "ok: --unless-awaiting fails closed on an unreadable store (never clobbers a queued decision)"
+else
+  echo "skip: --unless-awaiting fail-closed test (running as root reads through chmod 000)"
+fi
+
 echo "ALL PASS: fleet-attention.sh"
