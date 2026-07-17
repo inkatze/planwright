@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.19.0](https://github.com/inkatze/planwright/compare/v0.18.0...v0.19.0) (2026-07-17)
+
+
+### Features
+
+* **fleet:** tower-liveness watchdog and crash recovery (fleet-autonomy task 3) ([#217](https://github.com/inkatze/planwright/issues/217)) ([f379061](https://github.com/inkatze/planwright/commit/f379061876f2a4d155f79592914e64c38e8cca5d))
+
+## [0.18.0](https://github.com/inkatze/planwright/compare/v0.17.0...v0.18.0) (2026-07-17)
+
+
+### Features
+
+* **fleet:** resource governance: model, throttle, and auto-mode guards (task 7) ([#213](https://github.com/inkatze/planwright/issues/213)) ([b44b2d5](https://github.com/inkatze/planwright/commit/b44b2d5674553fee15c79fd75486f189176fe962))
+
+## [0.17.0](https://github.com/inkatze/planwright/compare/v0.16.0...v0.17.0) (2026-07-17)
+
+
+### Features
+
+* **spec:** format-grammar kickoff sign-off ([#219](https://github.com/inkatze/planwright/issues/219)) ([363c1d5](https://github.com/inkatze/planwright/commit/363c1d56daa0a4fd89c0bb4f46796a29b939817b))
+* **spec:** instruction-headroom kickoff sign-off ([#212](https://github.com/inkatze/planwright/issues/212)) ([6e24240](https://github.com/inkatze/planwright/commit/6e24240e51aca074fac9eed4410ee23cc12b683e))
+* **spec:** skill-rigor kickoff sign-off ([#211](https://github.com/inkatze/planwright/issues/211)) ([d4b4afa](https://github.com/inkatze/planwright/commit/d4b4afa0c85886a357f752a6929ee10da8017531))
+
 ## [0.16.0](https://github.com/inkatze/planwright/compare/v0.15.1...v0.16.0) (2026-07-17)
 
 

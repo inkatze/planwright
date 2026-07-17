@@ -1,0 +1,2 @@
+- 2026-07-15 [planwright] self-review resolves its spec by grepping for a stored `Status: Active` (SKILL.md step: single Active spec heuristic); a format-version 2 bundle stores Ready while work is in flight, so the heuristic misses v2 bundles. Same class as the /resume step-2 fix Task 7 landed; self-review is outside REQ-E1.2 enumeration, needs its own reconciliation.
+Consumed-by: specs/skill-rigor (2026-07-16)

@@ -401,6 +401,183 @@ in-repo precedent plus POSIX/tool semantics).
   enforcement is not possible from a config reader; the boundary is the
   worker permission allowlist, unchanged by this task.
 
+### Task 2 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5 (research scoping declared light
+per `proportionality`: no new dependency; the one version-sensitive surface
+is the Claude Code hook-event contract, verified against the current
+official docs rather than model memory).
+
+- **Hook-event contract re-verified (D-1).** All five events REQ-A1.1 names
+  exist under those exact names in the current hooks reference (`Stop`,
+  `SessionEnd`, `PostToolUse`, `PermissionRequest`, `StopFailure`;
+  code.claude.com/docs/en/hooks, fetched 2026-07-17). Every payload carries
+  `session_id`/`hook_event_name`; `SessionEnd` carries a `reason`;
+  `StopFailure` supports an `error_type` matcher. A plugin's
+  `hooks/hooks.json` may register all five with the settings.json schema and
+  `${CLAUDE_PLUGIN_ROOT}` expansion, and hook commands inherit the launched
+  process's environment — which is what makes the dispatch-time
+  worker-identity env contract (`PLANWRIGHT_WORKER_HANDLE`/`_SCOPE`) viable
+  as the hook handler's gate.
+- **Backend fallback boundary (risk 16).** Hook-push covers only the `tmux`
+  backend: it is the one backend whose dispatched process planwright itself
+  launches, so the identity env is inherited and plugin hooks fire. The
+  `subagent` backend runs workers in-process (per-worker session hooks do
+  not exist; `SubagentStart`/`SubagentStop` fire in the parent session),
+  `in-session` shares the tower's own session, and `print` spawns no
+  process at all — the human runs the printed command by hand, so the
+  dispatch env is never injected, and the backend capability contract
+  already exempts print-backend units from the liveness predicate. (Hooks
+  do fire in `-p` sessions generally, per the current docs; that is
+  irrelevant to `print` because the launch is not dispatch-controlled —
+  corrected against `doctrine/backend-capability-contract.md` during the
+  Task 2 convergence pass.) All three fall back to the existing observation
+  path (`orchestrate-relay.sh observe-command` / tower-inline); a fleet
+  composed mostly of those backends keeps pre-spec observation latency for
+  that slice.
+- **Backoff schedule precedent (D-3).** Exponential doubling from a
+  configurable base with a hard cap, disable at a configurable consecutive-
+  failure threshold (default 3): the PM2 `exp-backoff-restart-delay` /
+  supervisord `startretries` / claude_code_agent_farm 3-strike shape D-3
+  already cites; no newer precedent found that changes it.
+
+### Task 3 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5/REQ-E1.3 (research scoping declared
+light-to-moderate per `proportionality`: no new dependency; the
+version-sensitive surface is Claude Code's own hook/session contract, so the
+official docs were consulted rather than model memory).
+
+- **SessionStart hook contract (REQ-A1.6), verified against the hooks doc.**
+  `SessionStart` supports a `matcher` filtering on the `source` field
+  (`startup`/`resume`/`clear`/`compact`); the signpost registers under
+  matcher `startup` and re-checks a provided stdin `source` defensively.
+  Plain hook stdout is added to the session's context (exit 0), so the
+  signpost needs no jq dependency; hook failures are non-blocking, and the
+  script additionally always exits 0 (a broken fleet home must never break
+  someone's session startup).
+- **Resume semantics (REQ-A1.6), verified against the sessions doc.**
+  `claude --resume <session-id>` restores the full transcript after a hard
+  crash, but must run from the directory the session started in — which is
+  why markers record a canonical checkout path and the signpost matches it
+  byte-for-byte against the starting session's project dir before surfacing
+  anything.
+- **Session-id capture (risk row 22).** The hook input's `session_id` and
+  headless `--output-format json`'s `session_id` are the documented id
+  surfaces; the only env surface exposed to Bash/hook subprocesses is
+  `CLAUDE_CODE_BRIDGE_SESSION_ID` (v2.1.199+), documented in a `session_`-
+  prefixed form that may not equal the resume UUID verbatim. The marker
+  helper therefore validates `--session-id` strictly as a UUID and treats
+  the field as optional; a sessionless or malformed field is never surfaced
+  as a resume command. Recorded as an observation for later hardening of
+  the capture path.
+- **Detached relaunch shape (REQ-A1.5, REQ-G1.4).** The continue-as-new doc
+  names headless `claude -p` as the documented launch path, but a cron
+  watchdog must not block for the tower's whole lifetime, and D-21 requires
+  session-per-tower isolation anyway — so the default launcher starts a
+  DETACHED tmux session (`tmux new-session -d -s planwright-tower-<spec> -c
+  <checkout>`) wrapped in `fleet-dispatch-env.sh` (D-10), waking
+  `/orchestrate --watch --unattended`. A session-name collision refuses the
+  launch rather than reusing or targeting an existing session.
+
+### Task 7 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5/REQ-E1.3 (research scoping declared
+light per `proportionality`: no new dependency, no external network API;
+sources are D-12's already-recorded external research — Claude Code
+issues #38380/#40793/#33820, the amux fleet-recovery precedent — plus in-repo
+precedent and POSIX/tool semantics).
+
+- **Rate-limit parse grammar (risk 24).** The native rate-limit prompt is
+  version-sensitive UI text with no stable spec, so `fleet-throttle.sh
+  observe` recognizes a deliberately small grammar (relative "in N
+  seconds/minutes/hours"; wall-clock "resets [at] H[:MM]am/pm" and 24-hour
+  "HH:MM", computed as next local occurrence without `date -d`/`-j`, which
+  differ across BSD/GNU) and degrades any other rendering to the bounded
+  `fleet_throttle_default_hold` with a warning. An 8-day sanity ceiling
+  refuses garbage epochs outright (the longest native limit window is
+  weekly). DST can skew a next-occurrence computation by an hour; accepted —
+  a too-early resume just re-fires the native signal and re-engages
+  (self-healing, the conservative max rule preserved).
+- **Max-of-resets under the fleet lock (risk 9).** The throttle flag lives
+  under the fleet home and its read-modify-write serializes through
+  `fleet-state.sh`'s cross-spec advisory lock (risk 8's floor; no second
+  primitive), landing via write-temp-rename so lockless `check` readers
+  never see a torn value. Audit rows are written **after** lock release:
+  `fleet-audit.sh` takes the same lock, so recording under it would
+  deadlock — the ordering is deliberate, not an oversight.
+- **Model knobs as stable aliases (D-11/D-22).** The per-tier model knobs
+  validate against the Claude Code alias enum (`fable opus sonnet haiku`)
+  rather than dated model ids: aliases track model releases without a
+  config or script edit, and the shared resolver's enum type gives the
+  customization-overlay REQ-E1.4 by-layer malformed policy for free (that
+  bundle's REQ-E1.4, not this one's auto-mode REQ-E1.4). Effort and command
+  are fixed
+  table cells — config can retune cost, only a reviewed code change can
+  alter what commands the fleet dispatches.
+- **Auto-mode guard's inherited-mode proxy (risks 19, 20).** No supported
+  introspection exposes a live session's effective permission mode, and
+  D-19 records that `defaultMode: "auto"` is honored only from the
+  operator's own user settings (deliberately ignored in project settings).
+  The deterministic checkable proxy is therefore that file:
+  `check-inherited` refuses in-process dispatch when the user settings pin
+  auto, and `check-launch` demands an explicit non-auto mode source in the
+  launch argv (flag or a readable settings fragment pinning a non-auto
+  `defaultMode`) so the ambient user-settings default can never leak into a
+  launched worker. The settings peek is a read-only grep-shaped scan (no
+  jq on the support bar); the fragment path from the argv is never
+  executed, only read, and all diagnostics pass the echo-discipline
+  sanitizer.
+
+### Task 4 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5 (research scoping declared light per
+`proportionality`: no new dependency; the one external fact is a
+version-sensitive Claude Code hook contract, verified against the official
+docs — `https://code.claude.com/docs/en/hooks.md` — not model memory).
+
+- **`WorktreeCreate` is a decision-control hook, not a passive observer
+  (extends risk 25).** The verified contract: `WorktreeCreate` receives
+  `worktree_path` + `isolation` on stdin, and **"any non-zero exit code causes
+  worktree creation to fail"** — the command hook is expected to print the
+  worktree path on stdout, and "hook failure or missing path fails creation."
+  `WorktreeRemove` receives `worktree_path` and is fire-and-forget ("failures
+  are logged in debug mode only"). Risk 25 anticipated the payload-as-data
+  concern but not this failure mode: a naive tracking command wired into
+  `WorktreeCreate` would **break all worktree creation fleet-wide** if it ever
+  exited non-zero or emitted no path. Mitigation shipped: the `WorktreeCreate`
+  handler (`fleet-worktree-track.sh hook-create`) is a strict pass-through — it
+  echoes back exactly the stdin `worktree_path` and **always exits 0**, doing
+  the registry write as a fully isolated best-effort side effect whose failure
+  can change neither stdout nor the exit code (degrade capability, never
+  safety). Because wiring a decision-control hook has a fleet-wide blast radius,
+  the `hooks.json` `WorktreeCreate` entry is surfaced as a **Needs-sign-off**
+  item in the PR — the human approves the decision-control wiring by leaving the
+  commit, or reverts that single entry. Correction (self-review, 2026-07-17):
+  worktree lifecycle tracking as shipped in Task 4 is **hook-driven only**
+  (`WorktreeCreate`/`WorktreeRemove`); the REQ-B1.2 / D-7 disk-`scan`
+  self-healing fallback exists as a manual `fleet-worktree-track.sh scan` CLI but
+  is **not wired to run periodically** — the housekeeping sweep reads the
+  registry (`list`), it does not `scan`. So reverting the `WorktreeCreate` entry
+  drops automatic creation-tracking until the scan fallback is wired (removal
+  tracking via `WorktreeRemove` is unaffected). Wiring that fallback is a
+  follow-up (recorded as an observation).
+- **Payload fields are data (risk 25).** Both handlers parse the JSON with `jq`
+  (present) or a bounded `sed` fallback (the same jq-with-graceful-degrade
+  pattern `tasks-pr-sync.sh`'s PostToolUse hook already uses), then run the
+  extracted path through the same validation the direct CLI applies before it
+  reaches any git command or the registry — never interpolated unescaped.
+- **Sweep re-verify + git-lock contention (risks 10, 30/error-handling).** The
+  dirty-tree sweep re-checks dirty/clean immediately before writing a
+  decision-queue entry, and treats an unreadable/locked working tree as
+  retry-next-tick (it escalates a "could not inspect" note rather than
+  misreading contention as clean) — REQ-B1.3's escalate-don't-silently-persist
+  mandate holds even under a concurrent committer.
+- **Multi-worktree + worker-worktree fixtures (risks 12, 17, 36).** The sweep's
+  test suite exercises multiple tracked trees in one pass and covers a plain
+  worker-worktree stale diff alongside the tower's-own-checkout case, closing
+  the single-item-fixture and worker-worktree coverage gaps.
+
 Signed off: 2026-07-14
 
 ## 8. Sign-off
@@ -474,4 +651,51 @@ expression-only (REQ-A3.3, REQ-D1.2).
 
 Class: expression-only
 Anchor: `90d0fb54cf53d9fac5945349a6f53cf24d38b788` — computed as
+`scripts/spec-anchor.sh specs/fleet-autonomy`
+
+### 2026-07-17 — Expression-only self-re-anchor (Task 3 Done-when gap-fill)
+
+Written by `/execute-task` during Task 3 execution, per REQ-F1.10's
+expression-only lane (the one anchor entry an execution skill may write).
+
+**Trigger:** the risk register's row 1 sign-off note directed Task 3's
+implementation to extend its own `Done when` with the overlapping-invocation
+guard (the existing per-spec advisory lock D-20 plus a re-verify of positive
+death evidence under the lock), because an accepted risk with no acceptance
+criterion can silently ship unmitigated. `tasks.md` Task 3's `Done when` now
+carries that criterion; the guard itself ships in
+`scripts/fleet-tower-watchdog.sh` with fixtures in
+`tests/test-fleet-tower-watchdog.sh`. A gap-fill consistent with the
+accepted decisions (the mitigation was decided and signed off in §7 row 1);
+no requirement, design decision, or test semantics changed.
+
+**Cites the changelog line:** the 2026-07-17 `## Changelog` entry in
+`requirements.md` ("Task 3 execution (expression-only, riding the Task 3
+PR)").
+
+Class: expression-only
+Anchor: `6867415b094fcc85d2580567623417ef0f5d6c65` — computed as
+`scripts/spec-anchor.sh specs/fleet-autonomy`
+
+### 2026-07-17 — Expression-only self-re-anchor (Task 7 Done-when audit clause)
+
+Machine-written entry per REQ-F1.10's expression-only lane, recorded by
+`/execute-task` during Task 7's implementation (riding Task 7's PR).
+
+**Trigger:** kickoff risk row 30 (§7) directs Task 7's implementation to
+extend its own `Done when` with the throttle-audit acceptance criterion
+("an accepted risk with no acceptance criterion can silently ship
+unmitigated") and notes the missing D-16/REQ-F1.4 citations. `tasks.md`
+Task 7's `Done when` now requires throttle-engagement events to log through
+Task 1's audit-trail helper (with a queryable-rows fixture), and its
+`Citations:` adds D-16 · REQ-F1.4 — a gap-fill consistent with the accepted
+decisions (Tasks 2–4 already carry the same pattern) that contradicts no
+decision and alters no REQ's meaning.
+
+**Cites the changelog line:** the 2026-07-17 `## Changelog` entry in
+`requirements.md` ("Task 7 implementation (expression-only): extended Task
+7's `Done when` …").
+
+Class: expression-only
+Anchor: `a9b4689f3b01b24374531bcdaab72821f48c8340` — computed as
 `scripts/spec-anchor.sh specs/fleet-autonomy`

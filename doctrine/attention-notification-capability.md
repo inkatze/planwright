@@ -31,7 +31,8 @@ The capability is four cooperating pieces, all implemented by
 - **The decision queue** (`queue`). One ordered queue of the **actionable** items
   across all active specs — the workers in the `awaiting-input` state — each
   rendered as a structured choice (scope, question, recommended default, options).
-  Non-actionable signal (working / pr-ready / merged / done) is suppressed. Its
+  Non-actionable signal (working / idle / hung / ended / pr-ready / merged /
+  done) is suppressed. Its
   length tracks the `## Awaiting input` count, not the worker count.
 - **The notification seam** (`notify`). Pushes a one-line summary through the
   resolved channel. The seam is core; the specific channel is the overlay value
@@ -39,9 +40,18 @@ The capability is four cooperating pieces, all implemented by
 
 ### The worker states
 
-A worker's scope pairs with one of five states:
+A worker's scope pairs with exactly one **store state**:
 
 - **`working`** — executing; not actionable.
+- **`idle` / `hung` / `ended`** — the hook-pushed liveness states
+  (fleet-autonomy Task 2, D-1/REQ-A1.1: turn ended / turn died on an API
+  error / session terminated); status, never queued. These are store
+  states, distinct from the fleet-autonomy *classifier's* five-state
+  verdict vocabulary (`working`/`idle`/`hung`/`awaiting-human`/`flailing`,
+  REQ-A1.2): the classifier reads this store plus observation evidence and
+  maps `awaiting-input` to `awaiting-human`; `flailing` is a classifier
+  verdict that lands here as an `awaiting-input` escalation, never a stored
+  state.
 - **`awaiting-input`** — blocked on a human decision. This is the one state that
   carries a structured decision, so it is set only by `decide`, never by a bare
   `heartbeat`. Each `awaiting-input` record is one decision-queue item and mirrors
