@@ -409,7 +409,7 @@ case "$cmd" in
         # replaces the link itself (the atomic_write_file discipline).
         if ! mkdir -p "$root/liveness/pending" 2>/dev/null \
           || ! atomic_write_file "$marker" "" 2>/dev/null; then
-          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row clears on the next stop/reconcile" >&2
+          echo "fleet-liveness: pending-permission marker write failed; the awaiting-input row now reads as a queued decision and clears on the REQ-A1.8 reconcile sweep, not on the next stop (which takes the --unless-awaiting no-op path with no marker present)" >&2
         fi
         exit 0
         ;;
