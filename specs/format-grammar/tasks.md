@@ -61,9 +61,9 @@ parked in `## Awaiting input` on the instruction-headroom condition
   headings, period-labelled fields); non-canonical `### Task` heading
   forms; out-of-range unqualified `D-<n>`/`REQ-<id>` token warnings; v2
   Awaiting-input section purity; the changed-REQ/unchanged-test-spec
-  baseline warning; the duplicate in-header `Format-version:` error at
-  every status (REQ-D1.9's validator half, grounded in the
-  already-normative unparseable-declaration rule — the lib parse it
+  baseline warning; the duplicate in-header `Format-version:` and
+  `Status:` errors at every status (REQ-D1.9's validator half, grounded in
+  the already-normative unparseable-declaration rule — the lib parse it
   consumes lands in Task 2). Each rule verified against every in-repo
   bundle per the D-9 rollout contract (violations fixed in-task, riding
   the expression-only self-re-anchor ritual on signed bundles; release
@@ -106,8 +106,9 @@ parked in `## Awaiting input` on the instruction-headroom condition
 
 - **Deliverables:** The meaning-class `doctrine/spec-format.md` amendment:
   the normative fence/illustration grammar including the unclosed-fence
-  disposition (REQ-A1.1), the duplicate-`Format-version:` rule, the
-  header-block extent definition, the `## Tasks` ordering reword, the
+  disposition (REQ-A1.1), the duplicate-declaration rule for both
+  load-bearing header keys (`Format-version:` and `Status:`, REQ-A1.2),
+  the header-block extent definition, the `## Tasks` ordering reword, the
   superseded/retired task-block home plus the changelog-named retirement
   escape and test-spec tombstone handling, the test-spec H2 grouping
   requirement, the completed-semantics asymmetry sentence (with the
@@ -137,7 +138,11 @@ parked in `## Awaiting input` on the instruction-headroom condition
   consume the lib's fence-aware lexer; the unbalanced-fence validator flag
   (REQ-D1.11); the changelog-named task-retirement escape in the stable-ID
   check (changelog-extracted ids grammar-validated); an expression-only
-  re-anchor sweep over any bundle whose anchor moves (REQ-C1.4).
+  re-anchor sweep over any bundle whose anchor moves (REQ-C1.4). (The
+  fence guard arrives per-family, not as a dual path: the parked-map and
+  status parses ship fence-aware from Task 2; this task flips the
+  canonical extraction and the validator's v1 parses, making the lib's
+  lexer uniformly fence-aware thereafter.)
 - **Done when:** A fenced column-0 mock heading/bullet fixture produces no
   false duplicate-REQ error and no phantom task block in the anchor
   extraction; a synthetic trip fixture (a bundle with fenced task-shaped

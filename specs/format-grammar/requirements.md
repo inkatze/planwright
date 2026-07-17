@@ -24,8 +24,9 @@ doctrine stops being homeless prose asserted only in scattered tests.
 
 ### In scope
 
-- A normative fence/illustration grammar, duplicate-`Format-version:` rule,
-  and header-block scope definition in `doctrine/spec-format.md`.
+- A normative fence/illustration grammar, a duplicate-declaration rule for
+  the load-bearing header keys (`Format-version:`, `Status:`), and a
+  header-block scope definition in `doctrine/spec-format.md`.
 - One shared extraction lib re-pointing the `extract_tasks` triplication, the
   `Format-version:` parse family, and the parked-map/reference-bullet parse;
   the four v2 parsers (`orchestrate-select.sh`, `drain-gates.sh`,
@@ -37,7 +38,7 @@ doctrine stops being homeless prose asserted only in scattered tests.
 - Validator hardening: Awaiting-input purity, cited-but-empty REQ bullets,
   out-of-range/unqualified cross-spec ID tokens, the H2 D-ID blindspot,
   a changelog-named task-retirement path, coverage-based dead-path checking,
-  canonical task-heading form, duplicate-`Format-version:` errors.
+  canonical task-heading form, duplicate header-declaration errors.
 - Gate-grammar reconciliation: `ready` in the status-atom grammar and the
   `drain-gates.sh` whitelist, a normative free-text-gate form, the
   accumulator-taxonomy delta (stale single-pass claim, missing unresolved
@@ -70,9 +71,11 @@ doctrine stops being homeless prose asserted only in scattered tests.
 
 - **REQ-A1.1** `doctrine/spec-format.md` SHALL define a normative
   fence/illustration grammar: a column-0 code-fence line toggles illustration
-  mode, and fenced lines SHALL NOT parse as headings, requirement bullets,
-  reference bullets, gate entries, or header lines in any parser of spec
-  bundles. The rule codifies the fence semantics `drain-gates.sh` shipped
+  mode, and a fenced line SHALL NOT parse as any grammar element in any
+  parser of spec bundles (headings, requirement bullets, reference bullets,
+  gate entries, header lines, task-definition field bullets, and
+  dependency/citation tokens are the illustrative cases; the rule is
+  universal, not enumerated). The rule codifies the fence semantics `drain-gates.sh` shipped
   (D-5); all fence-aware parsers cite this one definition. The amendment
   SHALL also pin the unclosed-fence disposition: an unbalanced column-0
   fence count is a validator-flagged malformation (REQ-D1.11), never a

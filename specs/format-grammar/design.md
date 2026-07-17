@@ -205,8 +205,8 @@ case the hardened Task-5 behavior is the one with tests.
 severity model
 (warnings on Draft, errors on the signed-off live statuses, warnings on
 Retired/Superseded). Exception: a rule that makes a version declaration
-unparseable (the duplicate in-header `Format-version:` rule, REQ-A1.2 /
-REQ-D1.9) follows the fail-closed family posture carried from
+unparseable (the duplicate in-header `Format-version:`/`Status:` rule,
+REQ-A1.2 / REQ-D1.9) follows the fail-closed family posture carried from
 invariant-tasks D-7 and errors at every status, Draft included. Before
 landing, each rule runs against every in-repo bundle; violations are fixed (or the rule adjusted) in the same task, and
 adopter-visible severity changes are named in release notes. Any parser

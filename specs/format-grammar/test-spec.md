@@ -195,9 +195,12 @@ canonical em-dash form passes.
 
 ### REQ-D1.8 — Coverage-based dead-path check [test + manual]
 
-Fixture: a REQ bullet edited since the baseline with an unchanged test-spec
-entry warns; an edit paired with a test-spec edit passes `[test]`. The
-lens-disposition pairing rule is exercised at the next meaning-class
+Fixtures: a REQ bullet edited since the baseline with an unchanged
+test-spec entry warns; an edit paired with a test-spec edit passes; a
+superseded/retired REQ whose test-spec entries were removed per the
+tombstone rule does not warn; an unchanged REQ whose file position shifted
+does not warn (the comparison is content-based, not line-based) `[test]`.
+The lens-disposition pairing rule is exercised at the next meaning-class
 kickoff `[manual]`.
 
 ### REQ-D1.9 — Duplicate Format-version/Status error [test]
