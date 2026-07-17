@@ -236,10 +236,11 @@ backend launches the work. Reuse the current worktree when it is clean,
 after a one-line confirm (**attended only**; unattended mode always creates a
 fresh worktree). Print the re-open command after create-or-reuse.
 
-**Dispatch-time environment hardening**: when the
-backend spawns a process, launch it through the umask-pinning wrapper,
-pre-trust the worktree's config paths, and
-verify the SSH-agent indirection is alive before the worker's signed commits.
+**Dispatch-time environment hardening**: launch every fleet session through
+`scripts/fleet-dispatch-env.sh` (D-10, REQ-D1.1), which pins only
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` against ghost-text. Separately,
+pin the umask, pre-trust the worktree's config paths, and verify the SSH-agent
+indirection before signed commits.
 
 ## Dispatch (REQ-F1.8, D-38)
 
