@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/inkatze/planwright/compare/v0.15.0...v0.15.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **doctrine:** resolve-rule-doc self-locates core doctrine ([#206](https://github.com/inkatze/planwright/issues/206)) ([835ec92](https://github.com/inkatze/planwright/commit/835ec92e3c66f27861a5e37d97ad1417ce58a1ed))
+
 ## [0.15.0](https://github.com/inkatze/planwright/compare/v0.14.1...v0.15.0) (2026-07-17)
 
 
