@@ -1,0 +1,2 @@
+- 2026-07-15 [planwright] specs/invariant-tasks/tasks.md's own Deferred entry (Wholesale retirement of the v1 state-sync machinery) uses GATE(when: ...) with prose atoms, so every drain sweep reports it MALFORMED under the closed gate grammar (verified identical on main, pre-existing). The condition belongs in free-text-gate form; an expression-only spec fix would silence a recurring false alarm.
+Consumed-by: specs/format-grammar (2026-07-16)
