@@ -403,6 +403,50 @@ in-repo precedent plus POSIX/tool semantics).
 
 Signed off: 2026-07-14
 
+### Task 4 execution research notes (2026-07-17)
+
+Appended by `/execute-task` per REQ-D1.5 (research scoping declared light per
+`proportionality`: no new dependency; the one external fact is a
+version-sensitive Claude Code hook contract, verified against the official
+docs — `https://code.claude.com/docs/en/hooks.md` — not model memory).
+
+- **`WorktreeCreate` is a decision-control hook, not a passive observer
+  (extends risk 25).** The verified contract: `WorktreeCreate` receives
+  `worktree_path` + `isolation` on stdin, and **"any non-zero exit code causes
+  worktree creation to fail"** — the command hook is expected to print the
+  worktree path on stdout, and "hook failure or missing path fails creation."
+  `WorktreeRemove` receives `worktree_path` and is fire-and-forget ("failures
+  are logged in debug mode only"). Risk 25 anticipated the payload-as-data
+  concern but not this failure mode: a naive tracking command wired into
+  `WorktreeCreate` would **break all worktree creation fleet-wide** if it ever
+  exited non-zero or emitted no path. Mitigation shipped: the `WorktreeCreate`
+  handler (`fleet-worktree-track.sh hook-create`) is a strict pass-through — it
+  echoes back exactly the stdin `worktree_path` and **always exits 0**, doing
+  the registry write as a fully isolated best-effort side effect whose failure
+  can change neither stdout nor the exit code (degrade capability, never
+  safety). Because wiring a decision-control hook has a fleet-wide blast radius,
+  the `hooks.json` `WorktreeCreate` entry is surfaced as a **Needs-sign-off**
+  item in the PR — the human approves the decision-control wiring by leaving the
+  commit, or reverts that single entry (removal tracking via `WorktreeRemove`
+  plus the sweep's disk-scan reconcile still cover the lifecycle without it).
+- **Payload fields are data (risk 25).** Both handlers parse the JSON with `jq`
+  (present) or a bounded `sed` fallback (the same jq-with-graceful-degrade
+  pattern `tasks-pr-sync.sh`'s PostToolUse hook already uses), then run the
+  extracted path through the same validation the direct CLI applies before it
+  reaches any git command or the registry — never interpolated unescaped.
+- **Sweep re-verify + git-lock contention (risks 10, 30/error-handling).** The
+  dirty-tree sweep re-checks dirty/clean immediately before writing a
+  decision-queue entry, and treats an unreadable/locked working tree as
+  retry-next-tick (it escalates a "could not inspect" note rather than
+  misreading contention as clean) — REQ-B1.3's escalate-don't-silently-persist
+  mandate holds even under a concurrent committer.
+- **Multi-worktree + worker-worktree fixtures (risks 12, 17, 36).** The sweep's
+  test suite exercises multiple tracked trees in one pass and covers a plain
+  worker-worktree stale diff alongside the tower's-own-checkout case, closing
+  the single-item-fixture and worker-worktree coverage gaps.
+
+Signed off: 2026-07-14
+
 ## 8. Sign-off
 
 **Lens review pass.** First activation — full-bundle scope. Fanned out one
