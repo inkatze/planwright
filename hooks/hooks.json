@@ -23,7 +23,6 @@
     ],
     "WorktreeCreate": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
