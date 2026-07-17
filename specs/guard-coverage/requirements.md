@@ -1,6 +1,6 @@
 # Guard Coverage — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -298,6 +298,17 @@ are doctrine, capability, mechanism, and local value — is recorded in D-1
   fixture-adding tasks; F1.2 tether extended to `docs/fleet.md`;
   doc-surface updates assigned; terminology aligned (seed file,
   split target vs budget).
+- 2026-07-17 — Independent panel pass (`/panel-review --nested`, gemini;
+  meaning-class, brief §8): amend-detection honesty (`-c/-C HEAD`
+  false-positive, defer the `--amend -m` outcome to the D-4 matcher
+  oracle); batched-hash mechanism named (single `perl -MDigest::SHA`
+  pass); doctrine-index made bidirectional; workflow-posture widened to
+  `secrets['NAME']` index syntax, `github.token`, and a standalone
+  `git config core.hooksPath` deny; timing report made untracked +
+  aggregated, measured outside the 15-min `check` job; wire step
+  decoupled from the detection check; per-test seed files; parse-boundary
+  and zero-enumeration fail-closed symmetry across guards; tracked-hooks
+  ACE recorded as accepted risk-register row 9 (human-dispositioned).
 
 ## Sources
 

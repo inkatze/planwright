@@ -243,5 +243,28 @@ numbers + seed hashes). Triggered-and-recorded: satisfied.
   glob-only, not hook-covered (REQ-A1.2, stated honestly).
 - **Undispositioned findings:** none.
 
+### Independent panel pass (`/panel-review --nested`, gemini backend)
+
+Ran after the fan-out lens pass, per the user's request, for a
+non-Anthropic discovery angle (personal profile → gemini; five
+iterations, each committed `chore(panel): iter N …`, validator +
+markdownlint clean after each). Backend variance earned its keep: it
+caught defects the Claude lens pass missed, including two Highs I
+introduced in the lens-pass edits themselves (a git-dirtying "committed
+timing report", a wire-then-check ordering that made the fail-loud path
+unreachable) and, at iteration 5, a **Critical** ACE vector in the
+tracked-`githooks/` design plus two secret-grep bypasses (bracket index
+syntax, standalone `git config core.hooksPath`). 28 findings applied
+across the five iterations; all validated locally before applying.
+Convergence was a security stop-condition, not exhaustion: the ACE
+tradeoff on the human-selected D-2 fork was surfaced as a decision.
+
+**ACE disposition (human, 2026-07-17):** accept the residual — D-2's
+tracked `githooks/` stands with the risk-row-9 mitigation (treat fork
+checkouts as untrusted; unset `core.hooksPath` first). No D-2 reversal;
+recorded, not reopened.
+
 Class: meaning
-Lens-pass: §8 lens review pass (this section) — full-bundle fan-out, table and dispositions above
+Lens-pass: §8 lens review pass (fan-out) + independent gemini panel pass (5 iterations) — tables and dispositions above
+Anchor: `46712b6b3927570f210ade7c60b6c0ee0a157b42` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`
