@@ -385,7 +385,7 @@ case "$cmd" in
       printf '%s\n' "$hc_path"
       (do_record add "$hc_path" >/dev/null 2>&1) || true
     elif [ -n "$hc_path" ]; then
-      warn "WorktreeCreate worktree_path failed the path grammar (control byte or over-length) — echoing nothing"
+      warn "WorktreeCreate worktree_path failed the path grammar (not absolute, a leading dash, a control byte, or over 4096 chars) — echoing nothing"
     else
       warn "WorktreeCreate payload carried no worktree_path — echoing nothing"
     fi
