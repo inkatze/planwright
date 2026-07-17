@@ -44,21 +44,24 @@ on an undeterminable state.
 git/gh stubs, Release absent) where the **fetched origin tag object's** commit
 differs from the recomputed `release_sha` asserts a refusal that names both SHAs
 and creates no Release; a matching-SHA resume proceeds. The test asserts the
-origin tag object is fetched and that the assertion targets the origin object,
-not a local tag — a fresh-clone case (no local tag) still asserts correctly. The
-stub logs the created-Release call so its absence on mismatch is asserted.
+origin tag object is fetched to a distinct verification ref and that the
+assertion targets the origin object, not a local tag — a **lingering same-named
+local tag does not shadow it**, and a fresh-clone case (no local tag) still
+asserts correctly. The stub logs the created-Release call so its absence on
+mismatch is asserted.
 
 ### REQ-B1.2 — resume re-verifies the origin tag signature [test]
 
 `tests/test-release-publish.sh`: the re-verify targets the fetched **origin** tag
-object. Under `require`, and under `auto` when signing is configured, the
-`git tag -v` stub is asserted called before `gh release create` and the resume
-refuses on a missing or failing signature; under `auto` when signing is not
-configured, an unsigned origin tag resumes without a re-verify; under `never` the
-re-verify is skipped. A fresh-clone resume (no local tag) verifies the fetched
-origin object, not an absent local one. Confirms an origin tag is not trusted
-unconditionally and that resume signing matches what creation-time
-`require`/`auto`/`never` would have produced.
+object and keys off the tag's own signedness (not the resumer's signer config).
+Under `require`, `git tag -v` is asserted called before `gh release create` and
+the resume refuses a missing or invalid signature. Under `auto`, the re-verify
+runs iff the origin tag is signed — a signed origin tag asserts `git tag -v`
+called and refuses on an invalid signature, an unsigned origin tag resumes
+without a re-verify. Under `never` the re-verify is skipped. A fresh-clone resume
+(no local tag) verifies the fetched origin object, not an absent local one.
+Confirms an origin tag is not trusted unconditionally and that resume trust keys
+off the origin tag's signedness.
 
 ### REQ-B1.3 — resume skips the creation gates [test]
 
@@ -81,8 +84,8 @@ D-12).
 ### REQ-C1.1 — rl_ci_state verdicts [test]
 
 `tests/test-release-lib.sh`: drive `rl_ci_state` with stubbed `gh api graphql`
-rollups covering each verdict (green, failing, pending, no-positive-
-confirmation, unread-overflow) and a query failure, asserting the verdict and
+rollups covering each verdict (the canonical names `green`, `failing`,
+`pending`, `none`, `too-many`) and a query failure, asserting the verdict and
 the distinct query-failure status.
 
 ### REQ-C1.2 — publish and arm share one verdict [test]
@@ -179,7 +182,8 @@ while a FAILING, PENDING, TOO_MANY, or query-failure verdict still refuses. The
 relaxed NONE publish asserts a stderr diagnostic naming `require_ci=false`; the
 strict default and the non-NONE refusals assert it is absent. Confirms the
 relaxation is narrow (never a failing/pending/overflow/infra-outage verdict) and
-audibly signalled.
+audibly signalled. A non-boolean `require_ci` value asserts a clean fail-closed
+configuration error (symmetric with `require_signed_tags`).
 
 ### REQ-G1.4 — verified required-check finding + caveat [manual + design-level]
 

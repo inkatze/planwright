@@ -106,25 +106,33 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 - **REQ-B1.1** On a resume (a partial publish: the target tag exists on
   origin but its GitHub Release is absent), `release-publish.sh` SHALL fetch the
-  origin tag object (`refs/tags/<tag>`) and assert that the origin tag's target
-  commit equals the locally recomputed release SHA, and SHALL refuse without
-  side effects — naming both SHAs — on a mismatch, before creating the Release.
-  The assertion and the REQ-B1.2 re-verify SHALL target the fetched **origin**
-  tag object (the object `gh release create --verify-tag` publishes), never a
-  possibly-absent or stale local tag: a fresh-clone resume has no local tag, and
-  a lingering local tag may differ from origin.
+  origin tag object into a **distinct verification ref** (never the same-named
+  local tag — fetching `refs/tags/<tag>:refs/tags/<tag>` is rejected
+  ("would clobber existing tag") when a local tag lingers, and a same-named
+  local tag would otherwise shadow the object under verification) and assert that
+  the origin tag's target commit equals the locally recomputed release SHA, and
+  SHALL refuse without side effects — naming both SHAs — on a mismatch, before
+  creating the Release. The assertion and the REQ-B1.2 re-verify SHALL target the
+  fetched **origin** tag object (the object `gh release create --verify-tag`
+  publishes), never a possibly-absent or stale local tag: a fresh-clone resume
+  has no local tag, and a lingering local tag may differ from origin.
   *(Cites: D-3; legacy line 184 (Sources); autopilot-reflex REQ-D1.3 (Source).)*
 - **REQ-B1.2** On a resume, `release-publish.sh` SHALL re-verify the signature
   of the fetched origin tag object (REQ-B1.1) before creating the Release, so an
-  origin tag placed by non-script means is not trusted unconditionally, matching
-  what the creation-time `require_signed_tags` policy would have produced: under
-  `require`, and under `auto` when tag signing is configured (a signer is
-  available, so creation-time `auto` would have produced a *signed* tag), the
-  re-verify MUST find a valid signature and SHALL refuse on a missing or
-  unverifiable one; under `auto` when signing is not configured (creation-time
-  `auto` would have produced an *unsigned* tag) the re-verify is skipped; under
-  `never` it is skipped. A signature that is present but fails to verify SHALL
-  refuse under every policy that verifies.
+  origin tag placed by non-script means is not trusted unconditionally. The
+  re-verify keys off the **origin tag's own signedness**, never the resuming
+  machine's signer configuration (which is unknowable relative to creation on a
+  cross-machine or fresh-clone resume — reading it would wrongly skip verifying a
+  signed tag on an unconfigured resumer and wrongly reject a legitimately-
+  unsigned tag on a configured one): under `require`, a valid signature is
+  mandatory and the resume SHALL refuse on a missing or unverifiable one; under
+  `auto`, the re-verify runs **iff the origin tag carries a signature** — a
+  present-but-invalid signature SHALL refuse, an unsigned tag is accepted (its
+  target commit is already pinned to the recomputed release SHA by REQ-B1.1, and
+  `auto` is best-effort by construction); under `never` it is skipped. An
+  operator who wants a signature guaranteed on the resume path uses `require`,
+  where the strict guarantee lives. The residual — an unsigned origin tag
+  accepted under `auto` at the pinned SHA — is accepted risk R10b.
   *(Cites: D-3; legacy line 184 (Sources); autopilot-reflex REQ-D1.4 (Source).)*
 - **REQ-B1.3** The resume path SHALL continue to skip the creation gates
   (monotonicity, clean-tree, sync, CI-green) and the tag create+push: the tag
@@ -246,7 +254,10 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   rollup whose non-excluded checks all resolved NEUTRAL/SKIPPED. A genuinely
   FAILING or still-PENDING check, the TOO_MANY unread-overflow case, and the
   distinct CI-query-failure (infra outage) status SHALL remain fail-closed
-  regardless of `require_ci`. When the relaxed path publishes on a NONE rollup,
+  regardless of `require_ci`. The `require_ci` value SHALL be validated as a
+  boolean (`true`/`false`); a non-conforming value is a clean configuration
+  error (fail-closed), symmetric with how `require_signed_tags` validates its
+  own value. When the relaxed path publishes on a NONE rollup,
   `release-publish.sh` SHALL emit a stderr diagnostic recording that it
   published without positive CI confirmation (`require_ci=false`), so the
   deliberate relaxation leaves an audit signal (the "stay honest" half of the
@@ -266,6 +277,18 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
+- 2026-07-17 — Kickoff (first activation), panel pass (meaning-class): the
+  independent-model (gemini) review found the lens-pass `auto`-signing mechanism
+  broken cross-machine. REQ-B1.2 corrected — the resume re-verify now keys off
+  the **origin tag's own signedness** (`require` mandates a valid signature;
+  `auto` verifies iff the tag is signed, accepting an unsigned tag at the pinned
+  SHA; `never` skips), not the resumer's signer config; the strict guarantee
+  lives in `require`. REQ-B1.1 now fetches the origin tag object to a **distinct
+  verification ref** (a same-named local tag clobbers/shadows it). REQ-G1.3
+  gained `require_ci` boolean value-validation (symmetric with
+  `require_signed_tags`). test-spec REQ-C1.1 aligned to the canonical verdict
+  vocabulary. Design D-3 amended; Task 4/Task 6 + test-spec updated; new accepted
+  risk R10b (unsigned-`auto`-tag-at-pinned-SHA). See brief §9 Amendment 1.
 - 2026-07-17 — Kickoff (first activation), lens-pass rework (meaning-class):
   the sign-off Discovery-Rigor lens pass (6-lens fan-out) surfaced defects
   dispositioned with the human across five clusters. Requirements changes:

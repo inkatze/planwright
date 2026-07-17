@@ -90,30 +90,35 @@ and knob changes that share the file.
 ### Task 4 — Resume-path integrity
 
 - **Deliverables:** On a resume in `release-publish.sh` (origin tag present,
-  Release absent), **fetch the origin tag object (`refs/tags/<tag>`)**, assert
+  Release absent), **fetch the origin tag object into a distinct verification
+  ref** (never the same-named local tag — git rejects the same-ref fetch when a
+  local tag lingers, and a same-named local tag would shadow the object), assert
   its target commit equals the recomputed `release_sha` — refusing without side
   effects and naming both SHAs on a mismatch — and re-verify **that origin
-  object's** signature before `gh release create`, following the creation-time
-  policy: `require` and `auto`-with-signing-configured require a valid signature
-  (refuse on a missing or unverifiable one); `auto`-without-signing and `never`
-  skip. Creation gates and tag create+push stay skipped on resume. Additionally
-  (REQ-B1.4): a resume that finds the Release already present but the merged
-  release PR still labeled `autorelease: pending` performs only the idempotent
-  `pending`→`tagged` relabel instead of dying "already published". Tests: a
-  matching-SHA resume proceeds; a mismatched-SHA resume refuses naming both; the
-  re-verify runs under `require` and `auto`-with-signing (refusing a
-  missing/failing signature) and is skipped under `auto`-without-signing and
-  `never`; a fresh-clone resume (no local tag) still verifies the fetched origin
-  object; a Release-present + PR-`pending` resume performs the relabel and does
-  not die.
-- **Done when:** the origin tag object is fetched and both the SHA assertion and
-  the signature re-verify target it; a mismatch refuses with both SHAs and no
-  Release; a matching resume creates the Release; the
-  `require`/`auto`-with-signing/`auto`-without-signing/`never` re-verify behavior
-  matches REQ-B1.2; a fresh-clone resume verifies the fetched origin object
-  correctly; a Release-present + PR-`pending` resume performs the relabel instead
-  of dying; the non-resume path is unchanged; new tests fail pre-change and pass
-  after; `mise run check` is green.
+  object's** signature before `gh release create`, keyed off the **origin tag's
+  own signedness** (not the resumer's signer config): `require` requires a valid
+  signature (refuse on missing/unverifiable); `auto` verifies iff the origin tag
+  is signed (refuse a present-but-invalid signature; accept an unsigned tag);
+  `never` skips. Creation gates and tag create+push stay skipped on resume.
+  Additionally (REQ-B1.4): a resume that finds the Release already present but the
+  merged release PR still labeled `autorelease: pending` performs only the
+  idempotent `pending`→`tagged` relabel instead of dying "already published".
+  Tests: a matching-SHA resume proceeds; a mismatched-SHA resume refuses naming
+  both; a **lingering same-named local tag does not shadow the fetched origin
+  object**; under `require` the re-verify runs and refuses a missing/invalid
+  signature; under `auto` a signed origin tag is verified (refused on an invalid
+  signature) and an unsigned origin tag is accepted; under `never` skipped; a
+  fresh-clone resume (no local tag) verifies the fetched origin object; a
+  Release-present + PR-`pending` resume performs the relabel and does not die.
+- **Done when:** the origin tag object is fetched to a distinct verification ref
+  and both the SHA assertion and the signature re-verify target it (a lingering
+  local tag does not shadow it); a mismatch refuses with both SHAs and no Release;
+  a matching resume creates the Release; the `require`/`auto`-signed/
+  `auto`-unsigned/`never` re-verify behavior matches REQ-B1.2; a fresh-clone
+  resume verifies the fetched origin object correctly; a Release-present +
+  PR-`pending` resume performs the relabel instead of dying; the non-resume path
+  is unchanged; new tests fail pre-change and pass after; `mise run check` is
+  green.
 - **Dependencies:** Task 3
 - **Citations:** D-3, D-12 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4 · obs:86525b9e ·
   legacy line 184 (Sources) · autopilot-reflex REQ-D1.3 (Source), REQ-D1.4 (Source)
@@ -154,18 +159,22 @@ and knob changes that share the file.
   NEUTRAL/SKIPPED — to allow publish, emitting a stderr diagnostic that it
   published without positive CI confirmation (`require_ci=false`); a FAILING or
   PENDING check, the TOO_MANY unread-overflow case, and the distinct
-  CI-query-failure status stay fail-closed regardless. Tests: default (`true`)
-  preserves today's strict refusal on NONE; `false` allows publish on NONE
-  (including the all-NEUTRAL/SKIPPED sub-case) but still refuses on FAILURE,
+  CI-query-failure status stay fail-closed regardless. The `require_ci` value is
+  validated as a boolean; a non-conforming value is a clean fail-closed
+  configuration error (symmetric with `require_signed_tags`). Tests: default
+  (`true`) preserves today's strict refusal on NONE; `false` allows publish on
+  NONE (including the all-NEUTRAL/SKIPPED sub-case) but still refuses on FAILURE,
   PENDING, TOO_MANY, and query-failure; the relaxed-path diagnostic is present
-  on the NONE publish and absent otherwise.
+  on the NONE publish and absent otherwise; a non-boolean `require_ci` value is a
+  clean configuration error.
 - **Done when:** `require_ci` defaults to `true` with unchanged behavior;
   `false` publishes on any NONE sub-case (null, empty-after-exclusion, or
   all-NEUTRAL/SKIPPED) but never on a failing, pending, overflow, or
-  query-failure verdict; the relaxed NONE publish emits the stderr diagnostic
-  (asserted present on the relaxed path, absent otherwise); the knob is
-  documented in `docs/options-reference.md`; new tests fail pre-change and pass
-  after; `mise run check` is green.
+  query-failure verdict; a non-boolean value is a clean fail-closed config error;
+  the relaxed NONE publish emits the stderr diagnostic (asserted present on the
+  relaxed path, absent otherwise); the knob is documented in
+  `docs/options-reference.md`; new tests fail pre-change and pass after;
+  `mise run check` is green.
 - **Dependencies:** Task 3
 - **Citations:** D-7 · REQ-G1.3 · customization-boundary.md · legacy line 181 (Sources)
 - **Estimated effort:** 0.5 day

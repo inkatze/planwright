@@ -75,22 +75,29 @@ the ls-remote and CI gates' existing fail-closed shape at minimal cost.
 ### D-3: Resume hardening = SHA assertion + signature re-verify  (N)
 
 **Decision:** On a resume (origin tag present, Release absent),
-`release-publish.sh` **fetches the origin tag object (`refs/tags/<tag>`)** and
-asserts its target commit equals the locally recomputed `release_sha`
-(refusing, naming both SHAs, on mismatch), then re-verifies **that origin tag
-object's** signature, before `gh release create`. The origin object — the one
-`--verify-tag` publishes — is what both the SHA assertion and the re-verify
-target; never a possibly-absent or stale local tag (a fresh-clone resume has no
-local tag). The re-verify follows the creation-time policy: under `require`, and
-under `auto` when signing is configured, a valid signature is required (refuse
-on missing/unverifiable); under `auto`-without-signing and `never` it is
-skipped. The creation gates (CI/monotonicity/sync/clean-tree) and the tag
-create+push stay skipped on resume. The resume relabel-idempotency aspect is
-D-12. The stranded-partial edge (E3) and the signing-policy-change-between-
-publish-and-resume edge are Out of scope / accepted risk.
-*(Amended at kickoff lens pass 2026-07-17: origin-object fetch + `auto`-signing
-tightening + read-the-origin-object made explicit; relabel idempotency split to
-D-12.)*
+`release-publish.sh` **fetches the origin tag object into a distinct
+verification ref** (never the same-named local tag, which git refuses to clobber
+and which would otherwise shadow the object) and asserts its target commit
+equals the locally recomputed `release_sha` (refusing, naming both SHAs, on
+mismatch), then re-verifies **that origin tag object's** signature, before
+`gh release create`. The origin object — the one `--verify-tag` publishes — is
+what both the SHA assertion and the re-verify target; never a possibly-absent or
+stale local tag (a fresh-clone resume has no local tag). The re-verify keys off
+the **origin tag's own signedness**, never the resuming machine's signer config
+(unknowable relative to creation on a cross-machine resume): `require` mandates a
+valid signature (refuse on missing/unverifiable); `auto` verifies iff the origin
+tag is signed (refuse a present-but-invalid signature; accept an unsigned tag —
+the SHA is pinned and `auto` is best-effort); `never` skips. Guaranteed
+signature-on-resume is the `require` operator's choice. The creation gates
+(CI/monotonicity/sync/clean-tree) and the tag create+push stay skipped on resume.
+The resume relabel-idempotency aspect is D-12. The stranded-partial edge (E3),
+the signing-policy-change edge (R10), and the unsigned-`auto`-tag-at-pinned-SHA
+residual (R10b) are Out of scope / accepted risk.
+*(Amended at kickoff lens pass 2026-07-17: origin-object fetch + read-the-origin-
+object made explicit; relabel idempotency split to D-12. Amended at panel pass
+2026-07-17: fetch to a distinct verification ref; `auto` keys off the tag's
+signedness, not the resumer's config — the panel showed the resumer-config
+criterion was broken cross-machine.)*
 
 **Alternatives considered:**
 - Full re-gate on resume (re-run CI-green, monotonicity, sync, clean-tree plus

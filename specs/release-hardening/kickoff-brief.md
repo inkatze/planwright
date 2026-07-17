@@ -233,6 +233,7 @@ caching, concurrency are **not touched**. One genuine undecided gap surfaced:
 | R8 | Resume after `gh release create` but before relabel → dies "already published" → release-please deadlock | **Fixed at lens pass** — new REQ-B1.4 / D-12 makes the resume relabel idempotent; Task 4 + test-spec assert it (cluster B) |
 | R9 | `require_ci=false` relaxes the whole NONE verdict, folding all-NEUTRAL/SKIPPED checks, not just "no CI" | **Accepted + tested at lens pass** — deliberate (all three sub-cases are "no positive confirmation", the diagnostic fires); query-failure stays fail-closed; test-spec REQ-G1.3 covers the all-skipped sub-case (cluster C) |
 | R10 | Signing-policy change between the failed publish and the resume (unsigned tag + resume under `require`) makes a legit partial-publish unresumable | **Accepted risk** (B4) — defensible fail-closed behavior; out of scope for this bundle's resume hardening (recorded in D-3 / tasks.md Out of scope) |
+| R10b | Under `auto`, an unsigned origin tag at the pinned release SHA is accepted on resume (no cryptographic provenance) | **Accepted risk** (panel GEM-2) — `auto` is best-effort and the SHA is pinned by REQ-B1.1; an operator wanting a guaranteed signature on resume uses `require` (REQ-B1.2, D-3) |
 
 No open questions remain. R6 resolved to a decision; R4/R5/R7/R8 fixed at the
 lens pass; R9/R10 accepted (R9 tested); R1–R3 to mitigations/early signals. No
@@ -327,4 +328,37 @@ Anchor: `ea81bec0827694a572e33ab7b24e3524d7431498` — computed as
 
 ## 9. Amendment log
 
-(none yet — first-activation sign-off recorded in §8.)
+### Amendment 1 — panel pass corrections (2026-07-17)
+
+Independent-model panel pass (`panel-review --nested`, gemini backend) over the
+signed bundle — the additional-verification pass before the terminal ready-flip.
+It found the lens-pass `auto`-signing mechanism (REQ-B1.2) broken cross-machine,
+plus three clear fixes. Pre-merge corrections on the spec PR, amended in place,
+dispositioned with the human:
+
+- **GEM-2 (auto semantics, human judgment):** the resume re-verify keyed off the
+  *resuming machine's* signer config, which wrongly skips verifying a signed tag
+  on a fresh clone and wrongly rejects a legit unsigned tag on a configured
+  machine. Corrected to key off the **origin tag's own signedness**: `require`
+  mandates a valid signature; `auto` verifies iff the tag is signed (accepts an
+  unsigned tag at the pinned SHA); `never` skips. Guaranteed-signature-on-resume
+  lives in `require`. New accepted risk R10b.
+- **GEM-1 (origin-fetch, applied):** REQ-B1.1/Task 4 fetch the origin tag object
+  to a **distinct verification ref** (a same-named local tag clobbers/shadows
+  it); repro-confirmed (`git fetch refs/tags/X:refs/tags/X` → "would clobber
+  existing tag").
+- **GEM-5 (applied):** `require_ci` value validated as boolean, symmetric with
+  `require_signed_tags` (REQ-G1.3 / Task 6 + test).
+- **GEM-6 (applied):** test-spec REQ-C1.1 aligned to the canonical verdict names.
+- **Dropped (FP/covered):** jq null-index is null-safe (not a crash); the
+  design.md `release-lib.sh` {1,2,3} note is already present (`design.md:342`);
+  the two concurrency overlaps are already documented.
+
+Files touched: `requirements.md` (REQ-B1.1, REQ-B1.2, REQ-G1.3, changelog),
+`design.md` (D-3), `tasks.md` (Task 4, Task 6), `test-spec.md` (REQ-B1.1,
+REQ-B1.2, REQ-C1.1, REQ-G1.3). Validator 0/0; `markdownlint-cli2` clean.
+
+Class: meaning
+Lens-pass: panel pass (gemini via `panel-review --nested`); GEM findings validated three-pass (incl. a git repro for GEM-1) and dispositioned above
+Anchor: `cce1d153e505b957fe2f863fed3e5c3ff1137c7e` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
