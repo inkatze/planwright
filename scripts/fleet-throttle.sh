@@ -198,6 +198,14 @@ read_until() {
       return 2
       ;;
   esac
+  # The same 15-digit overflow guard the engage CLI applies to --until: an
+  # oversized stored value would error the integer comparisons downstream
+  # and fall through in the fail-OPEN direction (check exit 0 while
+  # nominally engaged), the opposite of this reader's fail-loud contract.
+  if [ "${#ru_v}" -gt 15 ]; then
+    echo "fleet-throttle: throttle state file '$1' is corrupt (value exceeds the 15-digit overflow guard)" >&2
+    return 2
+  fi
   printf '%s' "$ru_v"
 }
 

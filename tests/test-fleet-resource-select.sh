@@ -252,4 +252,13 @@ PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
 rm -f "$tmp/invocations"
 echo "ok: the no-LLM stub is verified reachable"
 
+# 14. Remaining usage arms are refused (exit 2): extra args on select/list.
+for args in "select execution extra" "list extra"; do
+  rc=0
+  # shellcheck disable=SC2086
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$FRS" $args >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "usage error for '$args': exit $rc, expected 2"
+done
+echo "ok: extra-arg usage errors exit 2"
+
 echo "ALL PASS: fleet-resource-select"

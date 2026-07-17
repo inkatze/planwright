@@ -335,6 +335,22 @@ run engage --until "$(($(now) + 900))" --trigger corrupt-fixture >/dev/null 2>&1
 [ "$rc" = 2 ] || fail "engage on corrupt state: exit $rc, expected 2"
 echo "ok: corrupt state fails loud on check and engage"
 
+# 17b. An oversized all-digit value is corrupt too: without a magnitude cap
+#      on the state reader the integer comparison errors under bash and
+#      check falls through to exit 0 — the fail-OPEN direction test 17
+#      exists to prevent. The CLI --until digit cap guards caller input
+#      only; stored state read back must carry the same 15-digit guard.
+reset_state
+mkdir -p "$fleet_home/throttle"
+printf '99999999999999999999\n' >"$fleet_home/throttle/until"
+rc=0
+run check >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "check on oversized numeric state: exit $rc, expected 2 (fail loud, never fail open)"
+rc=0
+run engage --until "$(($(now) + 900))" --trigger oversized-fixture >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "engage on oversized numeric state: exit $rc, expected 2"
+echo "ok: oversized numeric state fails loud on check and engage"
+
 # 18. Audit action vocabulary: a later reset logs `extend`; an earlier or
 #     equal reset changes nothing and logs nothing (risk 31's audit-noise
 #     posture).
@@ -461,5 +477,119 @@ printf 'rate limit reached, try again in 600 seconds\n' | PATH="$stubbin:$PATH" 
 PATH="$stubbin:$PATH" claude >/dev/null 2>&1 || true
 [ -f "$tmp/invocations" ] || fail "stub positive control failed (stub not on PATH)"
 echo "ok: no outbound client in the throttle paths (stub verified reachable)"
+
+# 27. Meridiem normalization: the am/pm branch must agree with the 24-hour
+#     branch on the same wall target (equivalence pins pm+12, the 12am->0 /
+#     12pm->12 normalization, and the :MM capture on the meridiem branch
+#     without duplicating the script's clock math). The engaged epoch is the
+#     absolute next occurrence of the target, so both forms must yield the
+#     IDENTICAL until value; targets are placed ~30min/6h away from now so
+#     no observation pair can straddle its own wall boundary.
+mm2=$(printf '%02d' $(((10#$(date +%M) + 30) % 60)))
+h24=$(((10#$(date +%H) + 6) % 24))
+h12=$((h24 % 12))
+[ "$h12" -ne 0 ] || h12=12
+if [ "$h24" -lt 12 ]; then ap=am; else ap=pm; fi
+wall_until() {
+  # observe the given reset phrase from a clean state, print the until epoch
+  reset_state
+  printf 'You have reached your usage limit. Your limit resets %s.\n' "$1" \
+    | run observe >/dev/null 2>&1 || fail "observe ('resets $1') failed"
+  wu_out=$(run check) && fail "'resets $1' should throttle" || true
+  printf '%s\n' "$wu_out" | tr -d -c '0-9'
+}
+uA=$(wall_until "${h12}:${mm2}${ap}")
+uB=$(wall_until "${h24}:${mm2}")
+[ -n "$uA" ] && [ "$uA" = "$uB" ] \
+  || fail "meridiem branch disagrees with the 24-hour branch (${h12}:${mm2}${ap} -> '$uA' vs ${h24}:${mm2} -> '$uB')"
+uA=$(wall_until "12:${mm2}am")
+uB=$(wall_until "0:${mm2}")
+[ -n "$uA" ] && [ "$uA" = "$uB" ] \
+  || fail "12am must normalize to hour 0 (12:${mm2}am -> '$uA' vs 0:${mm2} -> '$uB')"
+uA=$(wall_until "12:${mm2}pm")
+uB=$(wall_until "12:${mm2}")
+[ -n "$uA" ] && [ "$uA" = "$uB" ] \
+  || fail "12pm must normalize to hour 12 (12:${mm2}pm -> '$uA' vs 12:${mm2} -> '$uB')"
+echo "ok: meridiem forms agree with their 24-hour equivalents"
+
+# 28. The in-parser relative ceiling: a relative reset beyond MAX_HOLD is
+#     routed to the unparsed degrade (bounded default hold + warning), not
+#     engaged as an over-hold — the awk-level clamp, distinct from the CLI
+#     refuse (test 14) and the shared-path clamp (test 15).
+reset_state
+rc=0
+printf 'Rate limit reached. Try again in 9999999 seconds.\n' \
+  | run observe >/dev/null 2>"$tmp/stderr28" || rc=$?
+[ "$rc" = 0 ] || fail "observe (beyond-ceiling relative): exit $rc, expected 0 (degrade)"
+grep -q 'could not be parsed' "$tmp/stderr28" \
+  || fail "beyond-ceiling relative reset must warn about the degrade (stderr: $(cat "$tmp/stderr28"))"
+out=$(run check) && fail "beyond-ceiling relative reset should still throttle (default hold)" || true
+u=$(printf '%s\n' "$out" | tr -d -c '0-9')
+t=$(now)
+[ -n "$u" ] && [ "$u" -gt "$t" ] && [ "$u" -le $((t + 130)) ] \
+  || fail "beyond-ceiling relative reset must degrade to the 120s default hold (until '$u', now $t)"
+echo "ok: a beyond-ceiling relative reset degrades to the bounded default hold"
+
+# 29. Broken install is exit 5, never a proceed: a tree missing the daemon
+#     gate (engage path) and the shared resolver (observe degrade path)
+#     refuses with the documented broken-install code — the sibling posture
+#     test-fleet-resource-select.sh proves for the select table.
+broken="$tmp/broken-tree"
+mkdir -p "$broken"
+cp "$FT" "$broken/fleet-throttle.sh"
+cp "$here/../scripts/echo-safety.sh" "$broken/echo-safety.sh"
+rc=0
+PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  /bin/bash "$broken/fleet-throttle.sh" engage --until "$(($(now) + 900))" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "engage with no daemon gate: exit $rc, expected 5 (broken install)"
+rc=0
+printf 'Rate limit reached. Try again in soon.\n' \
+  | PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+    /bin/bash "$broken/fleet-throttle.sh" observe >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "observe degrade with no resolver: exit $rc, expected 5 (broken install)"
+echo "ok: a broken install (missing gate or resolver) is exit 5"
+
+# 30. An audit-write failure is surfaced (exit 2), never swallowed — the
+#     header's explicit contract. The state change itself persists (the
+#     fleet stays safely paused / resumed); only the missing trail row is
+#     the surfaced failure.
+audtree="$tmp/audit-fail-tree"
+mkdir -p "$audtree"
+cp "$FT" "$audtree/fleet-throttle.sh"
+cp "$here/../scripts/echo-safety.sh" "$audtree/echo-safety.sh"
+cp "$here/../scripts/fleet-state.sh" "$audtree/fleet-state.sh"
+printf '#!/bin/sh\nexit 0\n' >"$audtree/fleet-daemon-gate.sh"
+printf '#!/bin/sh\nexit 1\n' >"$audtree/fleet-audit.sh"
+chmod +x "$audtree/fleet-daemon-gate.sh" "$audtree/fleet-audit.sh"
+af_home="$tmp/af-fleet"
+rm -rf "$af_home"
+rc=0
+PLANWRIGHT_FLEET_STATE_DIR="$af_home" \
+  /bin/bash "$audtree/fleet-throttle.sh" engage --until "$(($(now) + 900))" --trigger audit-fail \
+  >/dev/null 2>"$tmp/stderr30" || rc=$?
+[ "$rc" = 2 ] || fail "engage with a failing audit helper: exit $rc, expected 2 (surfaced)"
+grep -q 'refused the engage record' "$tmp/stderr30" \
+  || fail "audit failure must be surfaced on stderr (got: $(cat "$tmp/stderr30"))"
+[ -f "$af_home/throttle/until" ] \
+  || fail "the engagement itself must persist when only the audit record fails"
+rc=0
+PLANWRIGHT_FLEET_STATE_DIR="$af_home" \
+  /bin/bash "$audtree/fleet-throttle.sh" clear >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "clear with a failing audit helper: exit $rc, expected 2 (surfaced)"
+echo "ok: an audit-write failure is surfaced, never swallowed"
+
+# 31. Remaining usage arms are refused (exit 2): extra args to the
+#     zero-arg subcommands, a --trigger with no value, an unknown clear flag.
+reset_state
+for args in "check extra" "observe extra" "clear --bogus"; do
+  rc=0
+  # shellcheck disable=SC2086
+  run $args </dev/null >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "usage error for '$args': exit $rc, expected 2"
+done
+rc=0
+run engage --until "$(($(now) + 100))" --trigger >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "engage --trigger with no value: exit $rc, expected 2"
+echo "ok: remaining usage arms exit 2"
 
 echo "ALL PASS: fleet-throttle"

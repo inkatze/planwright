@@ -229,4 +229,20 @@ run check-launch "$exec_probe" --permission-mode default >/dev/null 2>&1 \
 [ ! -f "$sentinel" ] || fail "the guard EXECUTED the launch argv (sentinel present)"
 echo "ok: the guard inspects and never executes"
 
+# 16. The HOME fallback (${CLAUDE_DIR:-${HOME:-}/.claude}) is the default
+#     real-world resolution for check-inherited: with CLAUDE_DIR unset the
+#     guard must read $HOME/.claude/settings.json — refusing an auto pin
+#     there and passing a non-auto one.
+homefb="$tmp/homefb"
+mkdir -p "$homefb/.claude"
+printf '{"permissions": {}, "defaultMode": "auto"}\n' >"$homefb/.claude/settings.json"
+rc=0
+env -u CLAUDE_DIR HOME="$homefb" /bin/bash "$FDG" check-inherited >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "HOME-fallback auto pin: exit $rc, expected 1 (refused)"
+printf '{"permissions": {}, "defaultMode": "default"}\n' >"$homefb/.claude/settings.json"
+rc=0
+env -u CLAUDE_DIR HOME="$homefb" /bin/bash "$FDG" check-inherited >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "HOME-fallback non-auto pin: exit $rc, expected 0 (pass)"
+echo "ok: check-inherited resolves settings via the HOME fallback"
+
 echo "ALL PASS: fleet-dispatch-guard"
