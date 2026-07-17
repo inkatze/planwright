@@ -65,9 +65,7 @@ Selected from `$ARGUMENTS` at pre-flight:
 - **Step** (default). Advance exactly one ready unit, then exit.
 - **`--watch`.** Repeat the step until no ready unit remains or a halt fires.
   Event-driven under the subagent backend (wake on worker completion), a
-  polling metronome under tmux (D-38). Each loop iteration is a full,
-  independent, atomic step; `--watch` is a convenience over re-invocation, not
-  a stateful long-running process.
+  polling metronome under tmux (D-38); see its section below.
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
   PRs, evaluate open gates (no auto-drop), surface observation staleness,
   report any pending release. Dispatches nothing. See its section below.
@@ -78,8 +76,7 @@ Selected from `$ARGUMENTS` at pre-flight:
   `orchestration-modes` when this arm is taken.
 - **`--fleet`.** The **one obvious entry command** for fleet operation (D-9,
   REQ-E1.2): `--meta --watch` with the attention surface wired in as the
-  default watch surface — no multiplexer knowledge required. Read
-  `orchestration-modes` when this arm is taken.
+  default watch surface — no multiplexer knowledge required.
 
 Flags: `--backend <subagent|tmux|print|in-session>` overrides the configured
 `dispatch_backend` for this run; `--unattended` selects headless mode (skip
@@ -115,8 +112,8 @@ report them together (D-45).
    refuse Draft, Done, Retired, and Superseded. For **Draft**, halt and
    prompt `/spec-kickoff`; for a Done or terminal (Retired/Superseded) spec,
    say plainly it has nothing to orchestrate. There is no bypass flag, and this skill **never**
-   invokes `/spec-kickoff` itself (REQ-J1.3) — it names the command for the
-   human to run. A `Ready` spec is dispatched on the same terms as an Active
+   invokes `/spec-kickoff` itself (REQ-J1.3) — the human runs it.
+   A `Ready` spec is dispatched on the same terms as an Active
    one: the execution freshness gate below still applies (REQ-C1.3); the two
    gates compose, neither replaces the other.
 5. **Run the validator** (REQ-K1.7). `scripts/spec-validate.sh specs/<spec>`.
@@ -131,8 +128,7 @@ report them together (D-45).
    prompt `/spec-kickoff`.
 7. **Run the reconcile sweep** (REQ-F1.1). Before selecting new work, rebuild
    the picture from disk and reconcile stale In-progress entries — see the
-   **Reconcile sweep** section. This recovers from a killed tower; a
-   crashed step loses nothing.
+   **Reconcile sweep** section.
 
 ## Selection (REQ-F1.2)
 
@@ -242,33 +238,12 @@ fresh worktree). Print the re-open command after create-or-reuse.
 pin the umask, pre-trust the worktree's config paths, and verify the SSH-agent
 indirection before signed commits.
 
-**Resource governance** (REQ-E1.1–REQ-E1.4; D-11, D-12, D-19), three
-deterministic checks at every dispatch:
-
-1. **Throttle gate.** Run `scripts/fleet-throttle.sh check` before
-   dispatching. Exit 1 means fleet-wide dispatch is paused until the printed
-   reset epoch (Claude Code's own rate-limit signal, REQ-E1.3): do not
-   dispatch — report the reset time (attended), or skip this iteration and
-   re-check next (`--watch`/unattended); dispatch resumes when `check`
-   passes the reset time. When any pane capture or worker output shows a
-   native rate-limit prompt, pipe the captured text to
-   `scripts/fleet-throttle.sh observe` (it sanitizes, parses the reset time,
-   engages fleet-wide with the max-of-observed-resets rule, and logs through
-   the audit trail; kill-switch-gated).
-2. **Model/effort/command.** Resolve the unit's tier via
-   `scripts/fleet-resource-select.sh select <task-type>` (`execution` for an
-   `/execute-task` unit; `bookkeeping`/`drain` for sweep passes) and apply it
-   at launch (`--model`, the backend's effort parameter, and the dispatched
-   slash command). Rule-table lookup only — never an in-context judgment
-   call (D-18), never a `review_sequence` skill (REQ-E1.2).
-3. **Auto-mode guard.** Lint the launch before it happens: launched-process
-   backends (tmux/print) run `scripts/fleet-dispatch-guard.sh check-launch
-   <launch-argv>`; in-process backends (subagent/in-session) run
-   `check-inherited`. A refusal (exit 1 — `--permission-mode auto` in any
-   spelling, an auto-pinning or unreadable settings fragment, or no explicit
-   non-auto mode source) is a **stop condition**: surface it, never bypass
-   it (REQ-E1.4, D-19 — the worker-settings allowlist is the sole
-   permission-approval mechanism for workers).
+**Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
+`scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until
+the reset (skip the iteration; pipe rate-limit prompts to `observe`); `scripts/fleet-resource-select.sh select <task-type>` resolves
+the unit's model/effort/command; `scripts/fleet-dispatch-guard.sh
+check-launch <launch-argv>` (or `check-inherited`, in-process) lints the
+launch — a refusal is a stop condition, never bypassed.
 
 ## Dispatch (REQ-F1.8, D-38)
 
@@ -301,8 +276,8 @@ in this order:
   chosen backend dying mid-run) is the ladder's other end — read
   `orchestration-modes`
   when either branch is taken. A failover descends only to a guard-preserving
-  rung (non-interactive, never the manual `print` rung — degrade capability,
-  never safety) and otherwise **escalates** rather than descending.
+  rung (degrade capability, never safety) and otherwise **escalates** rather
+  than descending.
 
 Concurrency is capped by `max_parallel_units` (default 3, via config-get): if
 that many units already derive **In progress** for this spec — counted from
@@ -371,8 +346,8 @@ when `context_budget_threshold` is `off`.
 ## Meta-tower and fleet entry (`--meta` / `--fleet`)
 
 Rare mode arms, defined in `orchestration-modes` (read when the arm is
-taken; see the Modes list above). Every invariant below holds unchanged at
-every tier; backend selection law applies unchanged.
+taken). Every invariant below holds unchanged at every tier; backend
+selection law applies unchanged.
 
 ## Reconcile sweep (REQ-F1.1, the tightened predicate)
 
