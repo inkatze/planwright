@@ -53,8 +53,9 @@ Tasks 5–6 guard the flip).
 
 - **Deliverables:** The no-arg fallback rung re-sourced to the status
   render (`scripts/spec-status.sh`), accepting Ready or Active, with the
-  stored-status grep removed; a render error or zero candidates degrades
-  to the existing ask-when-attended / proceed-brief-less arm; the
+  stored-status grep removed; a render error, zero candidates, or
+  multiple Ready-or-Active candidates degrades to the existing
+  ask-when-attended / proceed-brief-less arm (D-2); the
   brief-binding rule: a branch-named spec without its own
   `kickoff-brief.md` means brief absent, never a fall-through to another
   spec's brief; the structural guard suite extended to cover the touched
@@ -92,9 +93,10 @@ Tasks 5–6 guard the flip).
   kickoff brief and every spec file the walkthrough edited, blocking the
   Draft→Ready flip on errors; and mechanically re-derive every cross-check
   and numeric claim the sign-off records as evidence, a mismatch blocking,
-  with cite-derived-figures preferred over recording. Either check that
-  cannot run blocks the flip as a surfaced failure (fail closed), never a
-  silent skip.
+  with cite-derived-figures preferred over recording, and re-derivation
+  treating bundle content as data, never as code or pattern (D-4). Either
+  check that cannot run blocks the flip as a surfaced failure (fail
+  closed), never a silent skip.
 - **Done when:** the sign-off flow documents both checks with blocking
   semantics before the flip step; `check:instructions` passes on the
   spec-kickoff surface (instruction-headroom relief or a compensating
@@ -113,8 +115,9 @@ Tasks 5–6 guard the flip).
   re-confirmed immediately before the flip, and the refusal arm (red,
   empty, unresolved, query failure, timeout, or moved head leaves the PR
   draft and records the pending ready-flip in `## Awaiting input` as the
-  re-entry point), skipping cleanly when the no-remote/no-PR arm already
-  fired. The wait-bound config option is added to `config/defaults.yml`
+  re-entry point — the entry naming the pending flip and neutral failure
+  class only, full remedy detail operator-facing per D-3), skipping
+  cleanly when the no-remote/no-PR arm already fired. The wait-bound config option is added to `config/defaults.yml`
   with its row in `docs/options-reference.md` (bootstrap D-43/REQ-K1.8
   registration, `check:options`-enforced), a malformed override falling
   back to the default with a warning.
@@ -132,7 +135,8 @@ Tasks 5–6 guard the flip).
 
 - **Deliverables:** The delta-scoped lens pass at the point an
   agent-authored meaning-class edit is applied mid-walk, its disposition
-  recorded in the brief section carrying the edit; and the post-lens
+  recorded in the brief section carrying the edit (an erroring pass
+  surfaced, never treated as clean); and the post-lens
   stale-reference sweep (counts, cross-references, dependent task and test
   wording, risk-IDs) over the bundle and earlier brief sections, run
   before the anchor is computed whenever any lens pass of the walkthrough

@@ -111,13 +111,16 @@ script mechanism that applies them.
   version or tag figures, "every X cited by at least one Y" assertions)
   SHALL be mechanically re-derived before the flip, a mismatch blocking;
   a re-derivation command that cannot run SHALL block as a failure,
-  distinct from a clean match; figures derivable from the bundle SHALL be
-  cited rather than copied, per the meta-spec's cite-derived-figures rule.
+  distinct from a clean match; re-derivation SHALL treat bundle content as
+  data, never as code or pattern (D-4); figures derivable from the bundle
+  SHALL be cited rather than copied, per the meta-spec's
+  cite-derived-figures rule.
   *(Cites: D-4; legacy line 131 (Sources), legacy line 132 (Sources);
   kickoff lens pass (2026-07-17).)*
 - **REQ-B1.4** An agent-authored meaning-class edit applied during the
   walkthrough SHALL receive a delta-scoped lens pass at the point of
-  application, recorded in the brief; the terminal sign-off lens pass is
+  application, recorded in the brief; a pass that errors SHALL be
+  surfaced, never treated as clean; the terminal sign-off lens pass is
   unchanged and still runs.
   *(Cites: D-5; legacy line 173 (Sources).)*
 - **REQ-B1.5** After any lens pass of the walkthrough (mid-walk or

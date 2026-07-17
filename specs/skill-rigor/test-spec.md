@@ -58,8 +58,10 @@ meta-spec's two candidacy definitions.
 
 Design-level: the terminal step's documented rollup query targets the
 head SHA's checks (never PR review states), with the wait bound and
-refusal arm stated. Manual: run a kickoff whose pushed brief carries a
-deliberate lint error; CI goes red; confirm the PR is left draft with the
+refusal arm stated. Manual: run a kickoff whose pushed branch carries a
+CI-only failure class (a deliberately failing `[test]` suite entry — a
+lint error would be intercepted locally by the REQ-B1.2 pre-flip lint and
+never reach CI); CI goes red; confirm the PR is left draft with the
 remedy surfaced, and that fixing and re-running flips it ready. Also
 exercise the R3 residual: push a commit mid-wait and confirm the moved
 head refuses the flip into the Awaiting-input re-entry.
