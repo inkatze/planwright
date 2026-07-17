@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/inkatze/planwright/compare/v0.14.1...v0.15.0) (2026-07-17)
+
+
+### Features
+
+* **fleet:** prevent dispatch ghost-text via CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION ([#205](https://github.com/inkatze/planwright/issues/205)) ([ea77871](https://github.com/inkatze/planwright/commit/ea7787108d718027889a9cfcebf4c681bc707292))
+
 ## [0.14.1](https://github.com/inkatze/planwright/compare/v0.14.0...v0.14.1) (2026-07-17)
 
 
