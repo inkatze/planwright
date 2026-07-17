@@ -1,6 +1,6 @@
 # Operator dialogue — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -143,6 +143,11 @@ operator well" becomes measured rather than a matter of taste.
   formatting, tracking state); the operator SHALL supply judgment, not
   formatting.
   *(Cites: D-1; interaction-style doctrine (Sources).)*
+- **REQ-C1.5** The interview SHALL be robust to malformed or unrecognized
+  operator input: on input it cannot parse, the skill SHALL re-prompt (restating
+  what it needs) rather than advancing the section or the sign-off, and SHALL NOT
+  let unparseable input corrupt the running calibration estimate (REQ-B1.4).
+  *(Cites: D-4, D-5.)*
 
 ## REQ-D — Present without steering
 
@@ -249,14 +254,19 @@ unconditional rule REQ-D1.4 states.
   *(Cites: D-8.)*
 - **REQ-G1.4** The grader SHALL be independent of the driver — a non-Anthropic
   panel backend and/or the human as final rater — so the eval does not collapse
-  into the agent grading its own session.
+  into the agent grading its own session. If the independent grader is
+  unavailable (failure, timeout, rate-limit), the eval SHALL degrade to
+  human-rater scoring rather than failing the run, and SHALL NOT silently
+  substitute a self-graded score.
   *(Cites: D-8, D-3.)*
 - **REQ-G1.5** The eval SHALL reuse the existing prompt-eval isolation and
   hygiene disciplines (a disposable per-run worktree, budget caps, fail-closed
   teardown, allowlisted scalar-only recorded results), SHALL remain on-demand
   only, never wired into CI, and SHALL be registered under the `eval:` task
   namespace so `scripts/check-no-ci-evals.sh` covers it — the never-CI guard must
-  see the new harness, not only `prompt-eval.sh`.
+  see the new harness, not only `prompt-eval.sh`. The harness's `tmux` window
+  SHALL carry a per-run-unique name and SHALL reap stale windows from crashed
+  prior runs, so concurrent or leftover eval sessions never collide.
   *(Cites: D-8; the prompt-eval harness (Sources).)*
 - **REQ-G1.6** The harness SHALL honor `security-posture`'s framework-script
   disciplines at its trust boundaries: persona-driver text is sanitized before it
@@ -265,9 +275,14 @@ unconditional rule REQ-D1.4 states.
   structured decision/transcript log is emitted and parsed in a non-code-bearing,
   escape-safe form; artifact values surfaced to the pane pass the echo-safety
   sanitizer; only synthetic/fixture content (never a real spec bundle's
-  operational detail) is sent to a third-party grader; and any sign-off record the
-  driver produces is marked eval-only and non-authoritative so it can never be
-  mistaken for a human sign-off.
+  operational detail) is sent to a third-party grader; grader-backend credentials
+  are read from the environment or a secret store, never committed and never
+  written into recorded results; the harness drives `/spec-kickoff` with
+  publishing disabled (no remote, or `commit_on_kickoff` /
+  `mark_spec_pr_ready_on_kickoff` off) so no eval run ever pushes, opens a PR, or
+  marks a PR ready; and any sign-off record the driver produces is marked
+  eval-only and non-authoritative so it can never be mistaken for a human
+  sign-off.
   *(Cites: D-8; security-posture (Sources).)*
 
 ## REQ-H — Measurable acceptance
@@ -335,6 +350,15 @@ unconditional rule REQ-D1.4 states.
   across `design.md`/`tasks.md`/`test-spec.md`. Sources gain `instruction-hygiene`
   and `security-posture`; IPDAS expanded. Meaning-class (new REQ-G1.6; several
   REQ-meaning refinements).
+- 2026-07-17: Kickoff `/panel-review --nested` pass (gemini backend, independent
+  non-Anthropic angle). Applied 6 refinements + 1 new REQ: REQ-G1.6 gains
+  grader-credential hygiene and a publishing-disabled constraint (no eval run
+  pushes / opens a PR / marks a PR ready); REQ-G1.5 gains per-run-unique tmux
+  window naming + stale-window reaping; REQ-G1.4 gains grader-failure degradation
+  to the human rater; test-spec B1.5 splits mechanical verbatim-presence from
+  semantic non-distortion; test-spec D1.3 strengthened to topical relevance;
+  **REQ-C1.5 added** (interview input-robustness). Calibration-estimate shape left
+  to Task 4 by decision. Meaning-class (new REQ-C1.5; harness-safety refinements).
 
 ## Sources
 

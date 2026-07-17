@@ -222,3 +222,52 @@ No open questions remain; the two gaps are explicit accepted risks. Data hygiene
 customer detail.
 
 Signed off: 2026-07-17
+
+## 8. Sign-off
+
+**Mode/scope:** first activation; full-bundle lens review.
+
+**Lens review pass (Discovery Rigor, D-45).** Path taken: parallel fan-out, 7
+read-only sub-agents covering the 9 canonical lenses over the whole bundle
+(non-trivial artifact), followed by an independent `/panel-review --nested` pass
+(gemini backend) and a targeted delta convergence check. ~25 lens findings + 10
+panel findings, all validated (3-pass) and dispositioned; the fixes are recorded
+in the `requirements.md` Changelog and applied across all four files + this brief.
+
+**Altitude check (REQ-H1.3 / autopilot-reflex).** Triggered bundle (doctrine-gap
+seed claim). Altitude record D-1 exists, is cited from the Goal, and the task
+decomposition is doctrine-first (Task 1 reworks the doctrine). Consistent — no
+finding.
+
+**Canonical lens-coverage table (post-disposition):**
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 4 | D-12 reconciliation completed (balance rules carved, D-6/D-7 reconciled); REQ-C kickoff-lens clarified in D-5; REQ-H1.3 self-audit made non-scoring; REQ-D1.5 re-tagged |
+| Security | 6 → REQ-G1.6 + panel | send-keys injection, log serialization, echo discipline, worktree teardown, grader egress, forgeable eval sign-off → REQ-G1.6; panel added grader-credential hygiene + publishing-disabled |
+| Error handling / failure modes | 1 | grader-failure degradation to human rater (REQ-G1.4) added via panel |
+| Performance | n/a | perf = instruction budget (Risk 1); no new finding |
+| Concurrency / state | 1 | per-run-unique tmux window + stale reap (REQ-G1.5) added via panel |
+| Naming, readability, structure | 3 | D-12 origin-tag legend widened; amendment annotations added; discipline nesting encoded in requirements/design |
+| Documentation | 8 | headcount 5/6 fixed; ≤5 threshold hardened; REQ-A1.2 test strengthened; never-auto-merge restored to REQ-F1.4; MAY added; IPDAS expanded; REQ-A1.3 reworded; REQ-B1.5 test corrected |
+| Tests / verification | 8 | dead-path tests honestly re-tagged; cheap assertables wired into Task 6; check-no-ci-evals coverage (eval: namespace); intro convention normalized; new REQ-C1.5 |
+| Cross-file consistency | 4 | dangling Source citation fixed; brief §5 made cite-don't-copy; REQ-D1.4/G1.4/G1.5/G1.6 test-spec entries mirrored to their REQ obligations |
+
+**Disposition summary.** Lens clusters 1–7: all applied or dispositioned with the
+operator (3 forks decided: no-pre-selected-default unconditional; dead-path tests
+honest re-tag + wire cheap ones; self-audit non-scoring). Panel pass: 6
+refinements applied (S1–S6), 1 new REQ added (REQ-C1.5 input robustness), 1 fork
+deferred by decision (calibration-estimate shape → Task 4); 2 panel items dropped
+after validation (D1.5 already-fixed, Task-2 file-path is execution's call). Delta
+check: 4 test-spec/task mirror-gaps closed. No finding left undispositioned; no
+inconsistency halt; no carried open question.
+
+**Reserved controls & invariants:** preserved and, where the lens pass found them
+weakened in prose, restored (never-auto-merge back in REQ-F1.4). Independence
+firewall reinforced (REQ-D1.1, REQ-H1.3 non-scoring self-audit, REQ-G1.6 eval-only
+sign-off records). Reconciliation with `skill-rigor` pinned (Risk 2 sequencing).
+
+Class: meaning
+Lens-pass: §8 lens review pass (full-bundle fan-out + panel + delta check), all findings dispositioned
+Anchor: `bcdc1af4d5f65f50b1abcd4c8b91cae25b243a7e` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`

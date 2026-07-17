@@ -1,6 +1,6 @@
 # Operator dialogue — Test spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -88,7 +88,10 @@ normative token the explanation DOES convey (MUST / SHALL / SHALL NOT / MAY /
 threshold / enumerated state) appears verbatim and unsoftened; tokens for
 concepts the run legitimately skips as already-held (REQ-B1.3) are not required
 to appear. The check is non-distortion of what is presented, not presence of
-every source token. (On-demand behavioral lane.)
+every source token. The verbatim-token-presence half is mechanical (the exact
+token string appears where the concept is conveyed); the "unsoftened /
+not-distorted" judgment is semantic and is scored by the independent grader or a
+manual pass, not asserted mechanically. (On-demand behavioral lane.)
 
 ### REQ-C1.1 — Completeness: no readiness with an undefined required decision [test]
 
@@ -115,6 +118,14 @@ The kickoff has the skill derive candidates and formatting while the operator
 supplies judgment (design-level); a manual pilot confirms the operator was not
 asked to do the skill's clerical work.
 
+### REQ-C1.5 — Input robustness [test + manual]
+
+An assertion over a kickoff run feeding malformed/unparseable operator input
+confirms the skill re-prompts rather than advancing the section or sign-off, and
+that the running calibration estimate is unchanged by the garbage input (test;
+fixture built by Task 6); a manual read confirms the re-prompt was intelligible.
+(On-demand behavioral lane.)
+
 ### REQ-D1.1 — No verdict [test]
 
 An assertion over a kickoff run confirms the absence of verdict/score tokens
@@ -130,8 +141,9 @@ outcome-driven verdict.
 ### REQ-D1.3 — Escape valve answers information requests [test + manual]
 
 A persona that asks a direct information question receives the information
-(test: the answer is present, not a mute refusal); a manual read confirms it
-did not tip into a verdict.
+(test: the answer is present and topically relevant to the question asked — not
+merely non-empty, and not a mute refusal); a manual read confirms it did not tip
+into a verdict.
 
 ### REQ-D1.4 — Balance rules and self-audit [test + manual]
 
@@ -225,8 +237,10 @@ uses the pane only for liveness.
 
 The grader is a non-Anthropic backend and/or the human final rater, distinct
 from the driver (design-level); a check asserts the grader backend id differs
-from the driver backend id (test); a manual review confirms the eval does not
-grade its own session and that the REQ-H1.3 self-audit produced no score of
+from the driver backend id (test); a check confirms that with the grader stubbed
+unavailable the run degrades to human-rater scoring rather than failing and
+substitutes no self-graded score (test); a manual review confirms the eval does
+not grade its own session and that the REQ-H1.3 self-audit produced no score of
 record.
 
 ### REQ-G1.5 — Isolation, hygiene, on-demand [test]
@@ -235,7 +249,10 @@ record.
 registered under the `eval:` namespace so the guard actually matches it (not only
 `prompt-eval.sh`) — a check confirms the harness runner is covered by the guard —
 and the harness reuses the disposable-worktree, budget-cap,
-fail-closed-teardown, and allowlisted-scalar-result disciplines.
+fail-closed-teardown, and allowlisted-scalar-result disciplines. A check confirms
+the harness's `tmux` window name is per-run-unique and that stale windows are
+reaped, so two concurrent runs (or a leftover window from a crashed run) do not
+collide.
 
 ### REQ-G1.6 — Harness security disciplines [design-level + test]
 
@@ -244,9 +261,12 @@ mechanically assertable, a check confirms persona-driver text is sanitized befor
 `send-keys`, the worktree teardown path is containment-checked after
 canonicalization, the structured log is emitted/parsed in an escape-safe
 non-code-bearing form, surfaced artifact values pass the echo-safety sanitizer,
-only fixture content reaches a third-party grader, and any driver-produced
-sign-off record is marked eval-only/non-authoritative (test); the stated
-disciplines themselves are the design-level record.
+only fixture content reaches a third-party grader, grader-backend credentials are
+read from the environment/secret store and never appear in committed files or
+recorded results, the harness runs the kickoff with publishing disabled so no
+eval run pushes / opens a PR / marks a PR ready, and any driver-produced sign-off
+record is marked eval-only/non-authoritative (test); the stated disciplines
+themselves are the design-level record.
 
 ### REQ-H1.1 — Acceptance split reflected [design-level]
 

@@ -1,6 +1,6 @@
 # Operator dialogue — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -62,7 +62,7 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   launch, no-auto-chain, draft-PR-only, sign-off record + anchor) are intact;
   `check:instructions` passes on the kickoff surface; `mise run check` is green.
 - **Dependencies:** 1, 2
-- **Citations:** D-2, D-3, D-5, D-9, D-10 · REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-G1.3
+- **Citations:** D-2, D-3, D-5, D-9, D-10 · REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1, REQ-F1.2, REQ-F1.3, REQ-F1.4, REQ-F1.5, REQ-G1.3
 - **Estimated effort:** 2 days
 
 ### Task 4 — Adaptive-level calibration in the kickoff dialogue
@@ -95,7 +95,11 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   security disciplines: persona text sanitized before `send-keys`,
   containment-checked worktree teardown, escape-safe structured log, echo-safety
   on surfaced artifact values, fixture-only content to any third-party grader,
-  and eval-only marking of any driver-produced sign-off record.
+  grader-backend credentials from the environment/secret store (never committed or
+  recorded), the kickoff driven with publishing disabled (no push / PR / ready
+  flip), and eval-only marking of any driver-produced sign-off record; plus the
+  REQ-G1.5 isolation additions (per-run-unique `tmux` window name, stale-window
+  reaping).
 - **Done when:** the harness runs a persona-driven session end-to-end against a
   fixture skill and emits an artifact-graded result; the harness is registered
   under the `eval:` task namespace so `scripts/check-no-ci-evals.sh` covers it
@@ -113,7 +117,9 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   additional assertable checks and their fixtures — the REQ-A1.3 manifest-grep
   check, the REQ-C1.1 completeness fixture (a known-required-but-undefined
   decision) and REQ-C1.2 changed-answer-reopens-dependents fixture, and the
-  REQ-F1.2 sign-off-summary-emitted-before-decision assertion; the persona pilots
+  REQ-F1.2 sign-off-summary-emitted-before-decision assertion, and the REQ-C1.5
+  input-robustness fixture (malformed input re-prompts and does not corrupt the
+  calibration estimate); the persona pilots
   asserting the kickoff pitched differently and appropriately to a novice versus
   an expert operator; and the CDC Clear Communication Index and IPDAS balance
   rubrics wired as the experiential-quality instrument scored by the independent
@@ -125,7 +131,7 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   depth; the rubric instrument and its diagnostic self-audit are documented and
   runnable; `mise run check` is green.
 - **Dependencies:** 3, 4, 5
-- **Citations:** D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-G1.2, REQ-A1.3, REQ-C1.1, REQ-C1.2, REQ-F1.2
+- **Citations:** D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-G1.2, REQ-A1.3, REQ-C1.1, REQ-C1.2, REQ-C1.5, REQ-F1.2
 - **Estimated effort:** 2 days
 
 ## Awaiting input
