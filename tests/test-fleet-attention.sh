@@ -806,4 +806,33 @@ awk -F"$tab" '$1 == "worker=m" && $3 == "awaiting-input" { f = 1 } END { exit f 
   || fail "multirow corruption clobbered a queued decision: no surviving awaiting-input row for worker=m"
 echo "ok: --unless-awaiting fails safe under multi-row corruption (queued decision preserved)"
 
+# ---------------------------------------------------------------------------
+# 25. The --unless-awaiting guard FAILS CLOSED when it cannot READ the store to
+#     check for a queued decision (REQ-A1.3): an unreadable store must exit 2,
+#     never fall through and let a downgrade heartbeat clobber an awaiting-input
+#     row. Skipped under root, which reads through chmod 000 (repo convention).
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  home25="$tmp/guard-failclosed"
+  aenv "$home25" decide "worker=fc" "spec-fc:1" "stuck?" "park" "park|retry" high \
+    || fail "failclosed setup: decide failed"
+  chmod 000 "$home25/attention/state" || fail "failclosed setup: chmod failed"
+  rc=0
+  err=$(aenv "$home25" heartbeat "worker=fc" "spec-fc:1" idle --unless-awaiting 2>&1 >/dev/null) || rc=$?
+  chmod 644 "$home25/attention/state"
+  [ "$rc" = 2 ] || fail "unreadable store + --unless-awaiting: exit $rc, expected 2 (fail closed)"
+  # The guard's own fail-closed branch must fire — distinguishing it from the
+  # rewrite path, which also refuses an unreadable store but with a different
+  # message. Asserting the guard message proves the check fails closed BEFORE
+  # the rewrite (so a transient read error that hit only the guard, not the
+  # rewrite, could not fall through and clobber).
+  printf '%s' "$err" | grep -q "refusing to risk clobbering a queued decision" \
+    || fail "fail-closed guard message missing (got: $err)"
+  printf '%s\n' "$(aenv "$home25" render)" | grep -F "worker=fc" | grep -q "awaiting-input" \
+    || fail "fail-closed guard let a downgrade clobber the queued decision"
+  echo "ok: --unless-awaiting fails closed on an unreadable store (never clobbers a queued decision)"
+else
+  echo "skip: --unless-awaiting fail-closed test (running as root reads through chmod 000)"
+fi
+
 echo "ALL PASS: fleet-attention.sh"

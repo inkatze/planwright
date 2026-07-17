@@ -241,8 +241,21 @@ upsert_row() {
     # downgrade clobber a queued human decision — the exact REQ-A1.3 violation
     # the guard exists to prevent. (Detecting the corruption itself is a
     # separate concern; see the store-corruption-detector observation.)
+    ur_awk_rc=0
     ur_awaiting=$(awk -F "$TAB" -v w="$ur_worker" \
-      '($1 "") == (w "") && $3 == "awaiting-input" { f = 1 } END { print (f ? "y" : "") }' "$store")
+      '($1 "") == (w "") && $3 == "awaiting-input" { f = 1 } END { print (f ? "y" : "") }' "$store") \
+      || ur_awk_rc=$?
+    if [ "$ur_awk_rc" != 0 ]; then
+      # The guard could not READ the store to check for a queued decision.
+      # Fail closed, never open: proceeding would risk overwriting an
+      # awaiting-input escalation on an unverifiable read — the exact clobber
+      # this guard prevents. Surface it (the caller warns and the REQ-A1.8
+      # reconcile re-derives), the same fail-closed posture classify takes on
+      # an unreadable store (REQ-A1.3, REQ-A1.7).
+      release_lock
+      echo "fleet-attention: could not read the store to evaluate --unless-awaiting; refusing to risk clobbering a queued decision" >&2
+      return 2
+    fi
     if [ -n "$ur_awaiting" ]; then
       release_lock
       return 0
