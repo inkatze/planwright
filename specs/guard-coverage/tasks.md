@@ -31,10 +31,11 @@ preference, roots are all dispatchable immediately.
   covering the hook-bypass spellings (including a categorical
   `git -c core.hooksPath*` / `--hooks-path` deny and end-wildcarded
   `main`-destination denies so flags after `main` cannot evade) and the
-  `--amend` family (the contiguous `git commit --amend:*` deny already
-  catches `--amend -m`/`-F`; the fixture records the reordered forms'
-  honest outcomes, some of which no glob catches — the accepted residual
-  the hooks do not reach either); a test
+  `--amend` family; the documented matcher model (D-4) — not a prose
+  assertion here — is the arbiter of which `--amend -m`/`-F` and
+  reordered forms the globs actually catch, and the fixture records each
+  outcome honestly, marking the forms no glob and no hook reaches as the
+  accepted residual; a test
   asserting `config/worker-settings.json`'s rules against the table,
   wired into the test suite.
 - **Done when:** The test fails when a deny rule covering a fixture

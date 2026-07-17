@@ -39,8 +39,10 @@ can detect), squash/fixup any position, `amend!` subjects, rebase
 (`HEAD:refs/heads/main`, `HEAD:main`, `+refs/heads/main`, a feature
 branch whose upstream is main, `HEAD` while on main) rejected; normal
 commits and feature-branch pushes succeed. The `--amend -m`/`-F` family,
-undetectable by the client hook, is asserted denied at the glob layer
-(REQ-A1.1) instead, with that boundary recorded.
+undetectable by the client hook, is asserted at the glob layer
+(REQ-A1.1) instead per the documented matcher model, with that boundary
+recorded. An unparseable `pre-push` stdin refspec is asserted to fail
+closed (the A1.2 arm of REQ-H1.3's vacuous-input coverage).
 
 ### REQ-A1.3 — hook wiring and absence detection [test + manual]
 
@@ -178,7 +180,8 @@ a deliberate fixture violation failing locally during Task 10.
 
 Fixture tests: a script (and an extensionless `githooks/` hook, reached
 by shebang enumeration) using `$(cd ...)` without top-level
-`unset CDPATH` fails the check; a compliant script passes; one
+`unset CDPATH` fails the check; a compliant script passes; a zero-file
+shebang enumeration fails closed (the G1.2 arm of REQ-H1.3); one
 representative cd-resolving script is exercised under `CDPATH=.` and
 produces correct paths; the current tree passes.
 
@@ -195,7 +198,8 @@ kickoff `[design-level]`.
 ### REQ-H1.2 — guard registration sweep and standing check [test + design-level]
 
 A standing check asserts every `check:`/`lint:`/`scan:` task is wired
-into the `check` aggregate; a fixture unregistered guard fails it and
+into the `check` aggregate; a fixture unregistered guard fails it, a
+zero-task `mise.toml` parse fails closed (the H1.2 arm of REQ-H1.3), and
 the real tree passes `[test]`. The Task 11 sweep record maps every
 shipped guard to its `check` aggregate entry and doc location
 (`docs/CONTRIBUTING.md` quality gate, dogfooding list); its existence
