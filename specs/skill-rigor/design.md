@@ -58,17 +58,31 @@ one status-reading idiom and is version-agnostic by construction. Multiple
 Ready-or-Active candidates make the rung ambiguous, which degrades to the
 existing ask-when-attended / proceed-brief-less arm rather than a guess.
 
-### D-3: Two-layer CI gate on the sign-off, bounded wait  (N)
+### D-3: Two-layer verification on the sign-off, bounded wait  (N)
 
 **Decision:** `/spec-kickoff` gains two verification layers around the
 flip: (1) before the Draft→Ready flip, run the repository's lint over the
 kickoff brief and every spec file the walkthrough edited, blocking the flip
 on errors; (2) before the terminal `gh pr ready`, verify the head SHA's
-check rollup is green, polling within a bounded wait (default ten minutes,
-config-overridable), and on red or timeout leave the PR draft and surface
-the remedy. The rollup query is pinned to the head commit's
-`statusCheckRollup` (checks on the SHA, never PR review states — an
-errored or stale review can masquerade as done).
+check rollup reports at least one completed check and overall success,
+polling within a bounded wait (default ten minutes, config-overridable),
+and on red, empty, unresolved, query failure, or timeout leave the PR
+draft and record the pending ready-flip in `## Awaiting input` (the
+re-entry point: a re-run completes only the flip). The rollup query is
+pinned to the head commit's `statusCheckRollup` (checks on the SHA, never
+PR review states — an errored or stale review can masquerade as done), and
+head identity is re-confirmed immediately before `gh pr ready` (a moved
+head refuses the flip). The wait bound is a registered config option
+(bootstrap D-43 discipline: `config/defaults.yml` plus its
+`docs/options-reference.md` row); a malformed override falls back to the
+default with a warning. The poll cadence is bounded (tens of queries per
+wait, not hundreds), and the gate skips cleanly when the upstream
+no-remote/no-PR degradation arm has already fired. Remedy detail surfaced
+on refusal is operator-facing; committed artifacts carry only a neutral
+summary (security-posture data hygiene).
+*(Amended at kickoff lens pass 2026-07-17: positive green condition, head
+re-pin, query-error arm, Awaiting-input re-entry, value validation,
+cadence bound, no-PR skip, remedy hygiene.)*
 
 **Alternatives considered:**
 - Remote rollup only. Rejected because: every lint failure would cost a
@@ -91,7 +105,13 @@ rule (record the source, not the figure). Where the brief does record a
 cross-check or numeric claim as evidence — per-tag coverage tallies, ID and
 edit counts, pinned version figures, "every X cited by at least one Y"
 assertions — `/spec-kickoff` re-derives it mechanically (the same command
-family the sweep tooling uses) before the flip, and a mismatch blocks.
+family the sweep tooling uses) before the flip, and a mismatch blocks; a
+comparator that cannot run blocks as a failure, distinct from a clean
+match. Re-derivation commands treat bundle content as data, never as code
+or pattern (fixed-string matching, quoted arguments — security-posture's
+never-execute-untrusted-input rule).
+*(Amended at kickoff lens pass 2026-07-17: cannot-run arm and
+data-not-code constraint added.)*
 
 **Alternatives considered:**
 - Keep trusting the lens-pass narrative. Rejected because: two verifiable
@@ -108,7 +128,9 @@ instruction an LLM follows can (autopilot-reflex step 5).
 **Decision:** When `/spec-kickoff` applies an agent-authored meaning-class
 edit during the walkthrough, a delta-scoped lens pass runs at the point of
 application and its disposition is recorded in the brief section that
-carries the edit. The terminal sign-off lens pass is unchanged.
+carries the edit. The terminal sign-off lens pass is unchanged. A lens
+pass that errors is surfaced, never treated as clean.
+*(Amended at kickoff lens pass 2026-07-17: error arm added.)*
 
 **Alternatives considered:**
 - Terminal lens only (status quo). Rejected because: a self-introduced
@@ -122,10 +144,15 @@ propagated spec bug is a rework of every section built on it.
 
 ### D-6: Post-lens stale-reference sweep before the anchor  (N)
 
-**Decision:** After the sign-off lens pass mints or re-scopes any REQ,
-`/spec-kickoff` sweeps the bundle and the earlier brief sections for
-now-stale references — counts, cross-references, dependent task and test
-wording, risk-IDs — and reconciles them before computing the anchor.
+**Decision:** After any lens pass of the walkthrough (mid-walk or
+terminal) mints or re-scopes a REQ, `/spec-kickoff` sweeps the bundle and
+the earlier brief sections for now-stale references — counts,
+cross-references, dependent task and test wording, risk-IDs — and
+reconciles them before computing the anchor. The sweep completes before
+the D-4 re-derivation is finalized: figures the sweep changed are
+re-derived.
+*(Amended at kickoff lens pass 2026-07-17: trigger widened to mid-walk
+minting; D-4 ordering rule added.)*
 
 **Alternatives considered:**
 - Rely on the lens pass itself to spot stragglers. Rejected because: the
@@ -144,8 +171,9 @@ moment new-REQ staleness can exist but the anchor does not yet seal it.
 **Decision:** `/spec-draft`'s review-and-validate phase gains a scoped,
 inline self-critique lens pass over the freshly assembled bundle, run
 before the validator and before commit; findings are fixed in place or
-surfaced to the human, and the pass is proportional — inline, not a
-fan-out.
+surfaced to the human, the pass is proportional — inline, not a fan-out —
+and a pass that errors is surfaced, never treated as clean.
+*(Amended at kickoff lens pass 2026-07-17: error arm added.)*
 
 **Alternatives considered:**
 - Full Discovery-Rigor fan-out per draft. Rejected because: the bundle is
@@ -181,19 +209,30 @@ arms, with the branch's tests and doc alignment; the branch's own fragment
 **Chosen because:** the invoked script's own location is the one signal
 present in every delivery mode (repo checkout, worktree, plugin cache,
 writer install), the arm is additive so no env-root case can regress, and
-the sibling resolver scripts already self-locate this way.
+the sibling resolver scripts already self-locate this way. Accepted
+residual: because the arm is lowest-precedence, a resolvable-but-stale
+writer install still wins (the legacy line 75 scenario is fixed only once
+the stale install is removed); precedence is deliberately not reordered.
+Trust surface: the arm trusts `<script-dir>` content exactly as far as
+the script itself — same directory, same trust domain — matching the
+sibling resolvers' `dirname "$0"` derivation.
+*(Amended at kickoff lens pass 2026-07-17: residual and trust-domain
+notes added.)*
 
 ### D-9: Budget compliance is gated in Done-when  (N)
 
-**Decision:** Tasks touching the `/spec-kickoff`, `/orchestrate`, and
-`/self-review` prose carry `check:instructions` green on the touched
-surface in their `Done when:`, making the instruction-headroom cross-spec
-dependency agent-evaluable: the task cannot complete until headroom relief
-lands or a genuine compensating trim fits the change.
+**Decision:** Tasks touching the `/spec-draft`, `/spec-kickoff`,
+`/orchestrate`, and `/self-review` prose carry `check:instructions` green
+on the touched surface in their `Done when:`, making the
+instruction-headroom cross-spec dependency agent-evaluable: the task
+cannot complete until headroom relief lands or a genuine compensating trim
+fits the change.
+*(Amended at kickoff lens pass 2026-07-17: `/spec-draft` added — REQ-E1.1
+covers every prose skill.)*
 
 **Alternatives considered:**
 - Compensating trims only, no cross-spec dependency. Rejected because:
-  spec-kickoff has seven words of headroom against four new mechanisms;
+  spec-kickoff has seven words of headroom against five new mechanisms;
   compression at that ratio breaks prose meaning (the diet-reflow lesson).
 - A prose dependency note only ("wait for instruction-headroom").
   Rejected because: not agent-evaluable; a worker cannot check a sibling
@@ -209,7 +248,7 @@ true, whichever arrives first.
 document selector exit 3 (the format-version-2 transient evidence hold) as
 "report the hold and end the step cleanly" — the same shape as lock
 contention, not a halt — and the ready-task candidacy prose gains the
-version-keyed sentence (v1 and v2 candidacy each stated).
+version-keyed sentence (v1 and format-version-2 candidacy each stated).
 
 **Alternatives considered:**
 - Treat exit 3 as a stop-condition halt to Awaiting input. Rejected
@@ -227,10 +266,12 @@ misread the fragment records.
 - **Budget walls.** Every prose-touching task is bounded by
   `check:instructions` (D-9). The three near-wall surfaces at drafting
   time: `skills/spec-kickoff/SKILL.md` at 4,243/4,250 words,
-  `/orchestrate` start-load at 19,997/20,000, `/self-review` start-load at
-  9,993/10,000. The instruction-headroom spec (sibling branch, in
-  drafting) is the expected relief; its landing order relative to this
-  spec's tasks is deliberately unconstrained beyond the Done-when gate.
+  `/orchestrate` closure at 19,997/20,000 (three words — the tightest
+  wall, and Task 4 adds a table row plus sentences to it), `/self-review`
+  start-load at 9,993/10,000. The instruction-headroom spec (sibling
+  branch, in drafting) is the expected relief; its landing order relative
+  to this spec's tasks is deliberately unconstrained beyond the Done-when
+  gate.
 - **Proportionality.** The new rituals are scoped to where the risk was
   observed: the mid-walk lens fires only on agent-authored meaning-class
   edits, the draft self-critique is inline (not fan-out), the sweep runs

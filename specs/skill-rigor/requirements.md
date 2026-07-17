@@ -89,47 +89,60 @@ script mechanism that applies them.
 
 ## REQ-B — Sign-off verification rigor
 
-- **REQ-B1.1** `/spec-kickoff` SHALL NOT mark the spec PR ready while the
-  head SHA's check rollup is failing or unresolved; on a red rollup or an
-  expired wait bound it SHALL leave the PR draft and surface the remedy.
-  *(Cites: D-3; legacy line 168 (Sources).)*
+- **REQ-B1.1** `/spec-kickoff` SHALL mark the spec PR ready only when the
+  head SHA's check rollup reports at least one completed check and overall
+  success, and SHALL re-confirm immediately before `gh pr ready` that the
+  branch head still equals the verified SHA; on a red, empty, or
+  unresolved rollup, a rollup query failure, an expired wait bound, or a
+  moved head it SHALL leave the PR draft and record the pending ready-flip
+  as an `## Awaiting input` entry naming the remedy — a re-run then
+  completes only the ready-flip from that entry.
+  *(Cites: D-3; legacy line 168 (Sources); kickoff lens pass (2026-07-17).)*
 - **REQ-B1.2** Before the Draft→Ready flip, `/spec-kickoff` SHALL run the
   repository's lint over the kickoff brief and every spec file it edited,
-  and SHALL block the flip on errors.
-  *(Cites: D-3; legacy line 131 (Sources).)*
+  and SHALL block the flip on errors; a lint that cannot run SHALL block
+  the flip and surface the failure (fail closed), never read as a pass.
+  *(Cites: D-3; legacy line 131 (Sources); kickoff lens pass (2026-07-17).)*
 - **REQ-B1.3** Any cross-check or numeric claim the sign-off records as
   evidence (per-tag coverage tallies, REQ/D-ID/task/edit counts, pinned
   version or tag figures, "every X cited by at least one Y" assertions)
   SHALL be mechanically re-derived before the flip, a mismatch blocking;
-  figures derivable from the bundle SHALL be cited rather than copied, per
-  the meta-spec's cite-derived-figures rule.
-  *(Cites: D-4; legacy line 131 (Sources), legacy line 132 (Sources).)*
+  a re-derivation command that cannot run SHALL block as a failure,
+  distinct from a clean match; figures derivable from the bundle SHALL be
+  cited rather than copied, per the meta-spec's cite-derived-figures rule.
+  *(Cites: D-4; legacy line 131 (Sources), legacy line 132 (Sources);
+  kickoff lens pass (2026-07-17).)*
 - **REQ-B1.4** An agent-authored meaning-class edit applied during the
   walkthrough SHALL receive a delta-scoped lens pass at the point of
   application, recorded in the brief; the terminal sign-off lens pass is
   unchanged and still runs.
   *(Cites: D-5; legacy line 173 (Sources).)*
-- **REQ-B1.5** After the sign-off lens pass mints or re-scopes any REQ,
-  `/spec-kickoff` SHALL sweep the bundle and the earlier brief sections for
-  now-stale references (counts, cross-references, dependent task and test
-  wording, risk-IDs) before computing the anchor.
-  *(Cites: D-6; legacy line 105 (Sources).)*
+- **REQ-B1.5** After any lens pass of the walkthrough (mid-walk or
+  terminal sign-off) mints or re-scopes a REQ, `/spec-kickoff` SHALL sweep
+  the bundle and the earlier brief sections for now-stale references
+  (counts, cross-references, dependent task and test wording, risk-IDs)
+  before computing the anchor.
+  *(Cites: D-6; legacy line 105 (Sources); kickoff lens pass (2026-07-17).)*
 
 ## REQ-C — Drafting self-critique
 
 - **REQ-C1.1** `/spec-draft` SHALL run a scoped self-critique lens pass
   over the freshly assembled bundle before handoff, dispositioning every
-  finding (fixed, or surfaced to the human) — never silently dropping one.
-  *(Cites: D-7; legacy line 165 (Sources).)*
+  finding (fixed, or surfaced to the human) — never silently dropping one;
+  a pass that errors SHALL be surfaced, never treated as clean.
+  *(Cites: D-7; legacy line 165 (Sources); kickoff lens pass (2026-07-17).)*
 
 ## REQ-D — Deterministic doctrine resolution
 
 - **REQ-D1.1** `scripts/resolve-rule-doc.sh` SHALL resolve core doctrine
   with no environment roots set whenever the doctrine directory ships
   beside the script (self-location), covering planwright's own checkout,
-  its worktrees, and dispatched worker subshells.
+  its worktrees, and dispatched worker subshells. A resolvable
+  higher-precedence root (including a stale writer install) still outranks
+  the arm per REQ-D1.2; the legacy line 75 case is fixed only once the
+  stale install is removed (accepted residual, D-8).
   *(Cites: D-8; obs:446f8103, legacy line 164 (Sources), legacy line 75
-  (Sources).)*
+  (Sources); kickoff lens pass (2026-07-17).)*
 - **REQ-D1.2** The existing resolution precedence SHALL be unchanged —
   overlay layers first, then `PLANWRIGHT_ROOT`, `CLAUDE_PLUGIN_ROOT`, the
   writer root; the self-location arm is additive and lowest-precedence,
@@ -148,10 +161,25 @@ script mechanism that applies them.
 ## Changelog
 
 - 2026-07-16 — Bundle drafted via `/spec-draft`. Fourteen seed
-  observations consumed (three fragments archived, eleven frozen legacy
-  lines annotated in place); fold-detection surfaced extend-vs-new against
-  bootstrap, kickoff-lifecycle, and invariant-tasks, and the human chose a
-  new bundle.
+  observations consumed (three fragments archived — a fourth,
+  obs:29f05039, rides Task 1 — eleven frozen legacy lines annotated in
+  place); fold-detection surfaced extend-vs-new against bootstrap,
+  kickoff-lifecycle, and invariant-tasks, and the human chose a new
+  bundle.
+- 2026-07-17 — Kickoff walkthrough (started 2026-07-16) and sign-off lens
+  pass. Walkthrough edits: Task 6 gains the wait-bound config registration
+  (bootstrap D-43/REQ-K1.8); the Sources fix-branch snapshot corrected to
+  three commits pushed; the cross-cutting budget figure relabeled closure.
+  Lens-pass batch: CI-gate hardening (REQ-B1.1, D-3, Task 6 — positive
+  green condition, head re-pin, query-error/timeout arm with Awaiting-input
+  re-entry, wait-value validation, poll-cadence bound, no-PR skip);
+  fail-closed cannot-run clauses (REQ-B1.2, REQ-B1.3, REQ-C1.1, D-5, D-7,
+  Task 3); REQ-B1.5 trigger widened to any minting lens pass plus the
+  D-4/D-6 ordering rule; D-9 scoped to all four prose skills and the
+  mechanism count corrected to five; resolver residual accepted (REQ-D1.1,
+  D-8) and Task 1's no-env gate aligned to four unset vars; test-spec
+  premise corrected with structural-guard wiring and failing-case manual
+  scenarios. Dispositions recorded in the kickoff brief.
 
 ## Sources
 
@@ -196,10 +224,10 @@ script mechanism that applies them.
 - **legacy line 173** — a mid-walk agent-authored meaning-class edit
   introduced a real deadlock caught only at the terminal lens pass
   (opportunities.md, annotated 2026-07-16).
-- **The self-locate fix branch** — `fix/resolve-rule-doc-self-locate`, two
-  unpushed local commits (the script's self-location arm plus tests and
-  doc alignment), discovered non-empty during drafting despite the
-  invocation brief describing it as zero-commit.
+- **The self-locate fix branch** — `fix/resolve-rule-doc-self-locate`, three
+  commits, pushed to origin (the self-location arm, its tests and doc
+  alignment, and a review-iteration test nit), discovered non-empty during
+  drafting despite the invocation brief describing it as zero-commit.
 - **Invocation brief (2026-07-16)** — the `/spec-draft` mission text
   framing the four gap groups, the budget walls, and the fold-detection
   overlaps.

@@ -24,7 +24,9 @@ passes).
   to `archive/`.
 - **Done when:** `tests/test-resolve-rule-doc.sh` passes including the
   no-env self-location cases; `mise run check` is green; from a planwright
-  worktree with `PLANWRIGHT_ROOT` and `CLAUDE_PLUGIN_ROOT` both unset,
+  worktree with `PLANWRIGHT_ROOT`, `CLAUDE_PLUGIN_ROOT`, `CLAUDE_DIR`, and
+  `HOME` all unset (the test-spec REQ-D1.1 environment, so the writer-root
+  arm cannot mask the self-location arm),
   `scripts/resolve-rule-doc.sh` resolves every core doctrine doc; the
   fragment sits in `specs/_observations/archive/` bearing the
   `Consumed-by:` line.
@@ -43,16 +45,19 @@ passes).
   point, scope, disposition rule, no-silent-drop); `check:instructions`
   passes.
 - **Dependencies:** none
-- **Citations:** D-1, D-7 · REQ-C1.1, REQ-E1.1
+- **Citations:** D-1, D-7, D-9 · REQ-C1.1, REQ-E1.1
 - **Estimated effort:** half day
 
 ### Task 3 — `/self-review` resolution reconciliation
 
 - **Deliverables:** The no-arg fallback rung re-sourced to the status
   render (`scripts/spec-status.sh`), accepting Ready or Active, with the
-  stored-status grep removed; the brief-binding rule: a branch-named spec
-  without its own `kickoff-brief.md` means brief absent, never a
-  fall-through to another spec's brief.
+  stored-status grep removed; a render error or zero candidates degrades
+  to the existing ask-when-attended / proceed-brief-less arm; the
+  brief-binding rule: a branch-named spec without its own
+  `kickoff-brief.md` means brief absent, never a fall-through to another
+  spec's brief; the structural guard suite extended to cover the touched
+  prose patterns (test-spec REQ-A1.1).
 - **Done when:** `skills/self-review/SKILL.md`'s pre-flight contains no
   stored-`Status:` grep in the fallback rung and states the
   named-spec-without-brief rule; `check:instructions` passes on the
@@ -69,7 +74,8 @@ passes).
   (report and end the step cleanly, the lock-contention shape), the
   stop-conditions table gains its row, and the ready-task candidacy prose
   gains the version-keyed sentence (v1 and format-version-2 candidacy
-  each stated).
+  each stated); the structural guard suite extended to cover the touched
+  prose patterns (test-spec REQ-A1.3, REQ-A1.4).
 - **Done when:** the stop-conditions table maps selection exit 3; the
   selection prose states both versions' candidacy; `check:instructions`
   passes on the orchestrate surface (instruction-headroom relief or a
@@ -94,16 +100,27 @@ passes).
 - **Citations:** D-3, D-4, D-9 · REQ-B1.2, REQ-B1.3, REQ-E1.1
 - **Estimated effort:** half day
 
-### Task 6 — `/spec-kickoff` ready-flip CI gate
+### Task 6 — `/spec-kickoff` ready-flip CI gate and wait-bound config
 
 - **Deliverables:** The terminal ready-flip step verifies the head SHA's
   check rollup before `gh pr ready`: the pinned rollup query (checks on
-  the head commit, never PR review states), a bounded wait with a
-  config-overridable default, and the refusal arm (red or timeout leaves
-  the PR draft and surfaces the remedy).
-- **Done when:** the terminal step documents the rollup query, the wait
-  bound, and the refusal arm; `check:instructions` passes on the
-  spec-kickoff surface.
+  the head commit, never PR review states) requiring at least one
+  completed check and overall success, a bounded wait with a
+  config-overridable default and bounded poll cadence, head identity
+  re-confirmed immediately before the flip, and the refusal arm (red,
+  empty, unresolved, query failure, timeout, or moved head leaves the PR
+  draft and records the pending ready-flip in `## Awaiting input` as the
+  re-entry point), skipping cleanly when the no-remote/no-PR arm already
+  fired. The wait-bound config option is added to `config/defaults.yml`
+  with its row in `docs/options-reference.md` (bootstrap D-43/REQ-K1.8
+  registration, `check:options`-enforced), a malformed override falling
+  back to the default with a warning.
+- **Done when:** the terminal step documents the rollup query with the
+  positive green condition, the wait bound and poll cadence, the head
+  re-pin (the R3 mid-wait head-movement rule), and the refusal arm with
+  its Awaiting-input re-entry; the config option and its
+  options-reference row exist (`check:options` green);
+  `check:instructions` passes on the spec-kickoff surface.
 - **Dependencies:** 5
 - **Citations:** D-3, D-9 · REQ-B1.1, REQ-E1.1
 - **Estimated effort:** half day
@@ -115,8 +132,11 @@ passes).
   recorded in the brief section carrying the edit; and the post-lens
   stale-reference sweep (counts, cross-references, dependent task and test
   wording, risk-IDs) over the bundle and earlier brief sections, run
-  before the anchor is computed whenever the lens pass mints or re-scopes
-  a REQ.
+  before the anchor is computed whenever any lens pass of the walkthrough
+  (mid-walk or terminal) mints or re-scopes a REQ, completing before the
+  D-4 re-derivation is finalized (figures the sweep changed are
+  re-derived); the structural guard suite extended to cover the touched
+  prose patterns (test-spec REQ-B1.5).
 - **Done when:** the walkthrough and sign-off sections document both
   passes and their triggers; `check:instructions` passes on the
   spec-kickoff surface.
