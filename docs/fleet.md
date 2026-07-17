@@ -288,6 +288,55 @@ observed in the drain loop (for example, a future Claude Code surface that
 renders suggestions somewhere the env var does not reach). Until then no required
 code path depends on it.
 
+## Resource governance: models, throttling, and the auto-mode line
+
+Three deterministic mechanisms govern what a dispatched unit costs and what it
+is allowed to run as (REQ-E1.1–REQ-E1.4). All three are script logic — never
+in-context model judgment (D-18), never a confidence-calibrated routing
+cascade (D-11).
+
+**Model, effort, and command come from a rule table.**
+`scripts/fleet-resource-select.sh select <task-type>` resolves one
+model/effort/command row per task type — `execution` (the `/execute-task`
+workhorse: strong model, high effort), `bookkeeping` (the reconcile/drain
+sweep: mid tier), `drain` (the read-only gate pass: light tier). The model
+column is overlay-tunable per type (`fleet_model_execution`,
+`fleet_model_bookkeeping`, `fleet_model_drain` — the stable Claude Code
+aliases `fable | opus | sonnet | haiku`); effort and command are fixed table
+cells. The selectable command set is disjoint from `review_sequence`'s
+nestable-review-skill set by cross-checked construction (REQ-E1.2), so the
+dispatch table and the convergence knob can never both claim the same skill.
+
+**Throttling is reactive, off Claude Code's own signal.** There is no
+supported way to query account-level usage, so the fleet reacts to the one
+authoritative signal that exists: the native rate-limit prompt a session
+renders (D-12). When a tower's pane capture shows one, it pipes the captured
+text to `scripts/fleet-throttle.sh observe`, which sanitizes it, parses the
+signaled reset time, and pauses **fleet-wide** dispatch until then; every
+tower consults `fleet-throttle.sh check` before dispatching, so dispatch
+resumes at the signaled reset with no daemon firing at the boundary.
+Concurrent observations with different parsed reset times resolve to the
+**max** under the fleet lock — the conservative direction. A signal whose
+reset time cannot be parsed (the prompt is version-sensitive UI text)
+degrades to the bounded `fleet_throttle_default_hold` with a warning — never
+an indefinite pause, never an immediate resume. Engagement is a daemon
+action: kill-switch-gated (`fleet_daemon_pause`) and audit-logged
+(`fleet-audit.sh`, mechanism `throttle`), so Task 8's stats can render
+throttle-engaged state from the trail.
+
+**Workers never run in `auto` permission mode.** The
+`config/worker-settings.json` allowlist — human-reviewed, human-installed,
+pinning a non-auto `defaultMode` — is the sole permission-approval mechanism
+for dispatched workers (D-19, REQ-E1.4). `scripts/fleet-dispatch-guard.sh`
+is the dispatch-time lint: `check-launch <argv>` refuses any launch carrying
+`--permission-mode auto` (either spelling) or a settings fragment pinning
+auto, and — because absence of the flag proves nothing when an operator's own
+user settings could set `defaultMode: "auto"` ambient — it also refuses a
+launch with **no explicit non-auto mode source**. `check-inherited` covers
+the in-process (subagent) shape, where a worker inherits the hosting
+session's effective mode. A refusal is a dispatch stop condition, surfaced,
+never bypassed.
+
 ## What the fleet decides without you (and what it never does)
 
 Unattended operation follows the
@@ -326,6 +375,8 @@ are in the [options reference](options-reference.md).
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
 | `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you | `none` — pull-only, dependency-free, nothing fires until you opt in |
+| `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
+| `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
 Style values never gate capability: every knob's default keeps the full
 pipeline functional, and raising richness (a richer backend, a push channel,

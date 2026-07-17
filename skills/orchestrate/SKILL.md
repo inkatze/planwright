@@ -242,6 +242,34 @@ fresh worktree). Print the re-open command after create-or-reuse.
 pin the umask, pre-trust the worktree's config paths, and verify the SSH-agent
 indirection before signed commits.
 
+**Resource governance** (REQ-E1.1–REQ-E1.4; D-11, D-12, D-19), three
+deterministic checks at every dispatch:
+
+1. **Throttle gate.** Run `scripts/fleet-throttle.sh check` before
+   dispatching. Exit 1 means fleet-wide dispatch is paused until the printed
+   reset epoch (Claude Code's own rate-limit signal, REQ-E1.3): do not
+   dispatch — report the reset time (attended), or skip this iteration and
+   re-check next (`--watch`/unattended); dispatch resumes when `check`
+   passes the reset time. When any pane capture or worker output shows a
+   native rate-limit prompt, pipe the captured text to
+   `scripts/fleet-throttle.sh observe` (it sanitizes, parses the reset time,
+   engages fleet-wide with the max-of-observed-resets rule, and logs through
+   the audit trail; kill-switch-gated).
+2. **Model/effort/command.** Resolve the unit's tier via
+   `scripts/fleet-resource-select.sh select <task-type>` (`execution` for an
+   `/execute-task` unit; `bookkeeping`/`drain` for sweep passes) and apply it
+   at launch (`--model`, the backend's effort parameter, and the dispatched
+   slash command). Rule-table lookup only — never an in-context judgment
+   call (D-18), never a `review_sequence` skill (REQ-E1.2).
+3. **Auto-mode guard.** Lint the launch before it happens: launched-process
+   backends (tmux/print) run `scripts/fleet-dispatch-guard.sh check-launch
+   <launch-argv>`; in-process backends (subagent/in-session) run
+   `check-inherited`. A refusal (exit 1 — `--permission-mode auto` in any
+   spelling, an auto-pinning or unreadable settings fragment, or no explicit
+   non-auto mode source) is a **stop condition**: surface it, never bypass
+   it (REQ-E1.4, D-19 — the worker-settings allowlist is the sole
+   permission-approval mechanism for workers).
+
 ## Dispatch (REQ-F1.8, D-38)
 
 Dispatch the unit's `/execute-task <ids>` into its worktree via the selected
