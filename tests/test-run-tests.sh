@@ -184,6 +184,77 @@ assert "serial fallback: killed-worker suite fails the gate" 1 $?
 assert_contains "serial fallback: killed-worker file is named" \
   "test-killer.sh" "$out"
 
+# 11. The success contract in full: summary line, per-file duration
+#     suffix, and the requested job count reflected in the header.
+out="$(PLANWRIGHT_TEST_JOBS=3 /bin/bash "$RUNNER" "$tmp/pass" 2>&1)"
+assert "success-contract run exits 0" 0 $?
+assert_contains "success summary counts every file" \
+  "all 2 test files passed" "$out"
+assert_contains "requested job count appears in the header" \
+  "2 files, 3 jobs" "$out"
+case "$out" in
+  *"ok: test-alpha.sh ("*"s)"*) echo "ok: ok-line carries a duration suffix" ;;
+  *)
+    echo "FAIL: ok-line duration suffix missing; got: $out" >&2
+    failures=$((failures + 1))
+    ;;
+esac
+
+# 12. Genuine concurrency: two tests that each drop a beacon and wait for
+#     the other's can only both pass when they overlap. The serial run of
+#     the same fixture is the negative control — it must time out and
+#     fail, proving the fixture detects serialized execution (and so that
+#     the parallel path is not accidentally serial).
+mkdir -p "$tmp/overlap" "$tmp/sync"
+for pair in one:two two:one; do
+  me="${pair%%:*}"
+  peer="${pair##*:}"
+  cat >"$tmp/overlap/test-$me.sh" <<EOF
+#!/bin/bash
+: >"$tmp/sync/$me.here"
+i=0
+while [ \$i -lt 40 ]; do
+  [ -e "$tmp/sync/$peer.here" ] && exit 0
+  sleep 0.25
+  i=\$((i + 1))
+done
+exit 1
+EOF
+done
+PLANWRIGHT_TEST_JOBS=2 /bin/bash "$RUNNER" "$tmp/overlap" >/dev/null 2>&1
+assert "overlapping fixtures pass: files genuinely run concurrently" 0 $?
+rm -f "$tmp/sync"/*.here
+PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/overlap" \
+  >/dev/null 2>&1
+assert "negative control: serialized execution fails the overlap fixture" \
+  1 $?
+
+# 13. Serial fallback also names and logs the exit-255 file (the parallel
+#     arm of this guarantee is test 2).
+out="$(PLANWRIGHT_TEST_FORCE_SERIAL=1 /bin/bash "$RUNNER" "$tmp/mixed" 2>&1)"
+assert "serial fallback: mixed suite still exits 1" 1 $?
+assert_contains "serial fallback: exit-255 file is named" \
+  "test-vanish.sh" "$out"
+assert_contains "serial fallback: exit-255 file's log is printed" \
+  "vanish-detail" "$out"
+
+# 14. The xargs probe itself degrades to serial when -P is unusable (the
+#     FORCE_SERIAL override in test 3 bypasses the probe; this drives it).
+mkdir -p "$tmp/shim"
+cat >"$tmp/shim/xargs" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x "$tmp/shim/xargs"
+out="$(PATH="$tmp/shim:$PATH" /bin/bash "$RUNNER" "$tmp/pass" 2>&1)"
+assert "broken xargs -P degrades to a passing serial run" 0 $?
+assert_contains "probe failure is reported as the serial mode" \
+  "serial (no parallel primitive)" "$out"
+
+# 15. A failed log-dir mktemp is a loud environment error, never a green.
+TMPDIR="$tmp/no-such-tmp/x" /bin/bash "$RUNNER" "$tmp/pass" >/dev/null 2>&1
+assert "log-dir mktemp failure exits 2" 2 $?
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

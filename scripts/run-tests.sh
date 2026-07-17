@@ -90,7 +90,9 @@ esac
 # weakens no assertion.
 export SPEC_WALKTHROUGH_DOT_TIMEOUT="${SPEC_WALKTHROUGH_DOT_TIMEOUT:-60}"
 
-log_dir="$(mktemp -d)" || exit 2
+# Explicit template: a bare `mktemp` default template is not portable to
+# BSD mktemp (the house pattern, see scripts/spec-graph.sh).
+log_dir="$(mktemp -d "${TMPDIR:-/tmp}/run-tests.XXXXXX")" || exit 2
 trap 'rm -rf "$log_dir"' EXIT
 export PLANWRIGHT_TEST_LOG_DIR="$log_dir"
 
