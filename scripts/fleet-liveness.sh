@@ -497,11 +497,11 @@ case "$cmd" in
     scope=$2
     shift 2
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle" >&2
+      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     if ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed scope" >&2
+      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     now=""
@@ -726,8 +726,12 @@ case "$cmd" in
     worker=$1
     scope=$2
     shift 2
-    if ! valid_field "$worker" || ! valid_field "$scope"; then
-      echo "fleet-liveness: refusing malformed worker/scope token" >&2
+    if ! valid_field "$worker"; then
+      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 2
+    fi
+    if ! valid_field "$scope"; then
+      echo "fleet-liveness: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
       exit 2
     fi
     now=""
@@ -742,7 +746,7 @@ case "$cmd" in
           shift 2
           ;;
         *)
-          echo "fleet-liveness: unknown crash-record option" >&2
+          echo "fleet-liveness: unknown crash-record option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
@@ -836,7 +840,7 @@ case "$cmd" in
     worker=$1
     shift
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle" >&2
+      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     now=""
@@ -851,7 +855,7 @@ case "$cmd" in
           shift 2
           ;;
         *)
-          echo "fleet-liveness: unknown crash-check option" >&2
+          echo "fleet-liveness: unknown crash-check option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
           ;;
       esac
@@ -927,7 +931,7 @@ case "$cmd" in
     fi
     worker=$1
     if ! valid_field "$worker"; then
-      echo "fleet-liveness: refusing malformed worker handle" >&2
+      echo "fleet-liveness: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
       exit 2
     fi
     root=$("$FS" root) || exit 2
