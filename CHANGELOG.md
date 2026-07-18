@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/inkatze/planwright/compare/v0.20.0...v0.21.0) (2026-07-18)
+
+
+### Features
+
+* **fleet:** peer-pane /context context-budget corroboration (fleet-autonomy task 5) ([#215](https://github.com/inkatze/planwright/issues/215)) ([2226446](https://github.com/inkatze/planwright/commit/22264463ccfe28a9b4179558a452518ebd3ca72a))
+
 ## [0.20.0](https://github.com/inkatze/planwright/compare/v0.19.0...v0.20.0) (2026-07-18)
 
 
