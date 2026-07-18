@@ -89,7 +89,10 @@ stale_marker_threshold: 15m
 # demand; it is dependency-free and behavior-preserving, so it is the safe
 # default. `tmux-popup` pushes a multiplexer popup (the multiplexer-user
 # persona); `os-notify` an OS notification (the non-terminal-user persona);
-# `editor-toast` an editor toast the editor tails (the editor-feedback persona).
+# `editor-toast` an editor toast the editor tails (the editor-feedback persona);
+# `statusline` renders the derived fleet stats natively in the operator's own
+# Claude Code terminal via the statusLine feature (fleet-autonomy D-14; wire
+# scripts/fleet-statusline.sh into settings.json — see docs/fleet.md).
 # Resolved through scripts/resolve-notification-channel.sh, which validates the
 # enum and applies the REQ-E1.4 by-layer malformed policy (degrade+warn for
 # adopter/machine-local, hard-fail for repo-tracked); the channel adapters live

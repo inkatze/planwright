@@ -114,14 +114,15 @@ got=$(run)
 [ "$got" = os-notify ] || fail "machine-local did not win over repo-tracked (got: '$got')"
 echo "ok: machine-local wins over repo-tracked (topmost precedence edge)"
 
-# 3. Every legal channel value validates.
-for ch in none tmux-popup os-notify editor-toast; do
+# 3. Every legal channel value validates (statusline is fleet-autonomy Task 8's
+#    addition: D-14, the native Claude Code statusLine render).
+for ch in none tmux-popup os-notify editor-toast statusline; do
   reset_layers
   printf 'notification_channel: %s\n' "$ch" >"$tracked_cfg"
   got=$(run)
   [ "$got" = "$ch" ] || fail "legal channel '$ch' did not validate (got: '$got')"
 done
-echo "ok: every legal channel value (none, tmux-popup, os-notify, editor-toast) validates"
+echo "ok: every legal channel value (none, tmux-popup, os-notify, editor-toast, statusline) validates"
 
 # 4. A trailing comment and surrounding whitespace are tolerated.
 reset_layers

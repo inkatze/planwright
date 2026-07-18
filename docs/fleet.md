@@ -117,9 +117,41 @@ Two audit notes behind that table:
 
 The default notification channel is `none`: nothing pushes, you read the
 queue on demand. Set `notification_channel` (an overlay value; see the
-[options reference](options-reference.md)) to `tmux-popup`, `os-notify`, or
-`editor-toast` to match your persona. The channel is style; the queue is the
-capability.
+[options reference](options-reference.md)) to `tmux-popup`, `os-notify`,
+`editor-toast`, or `statusline` to match your persona. The channel is style;
+the queue is the capability.
+
+### The statusline channel
+
+`notification_channel: statusline` renders the derived fleet stats — the
+last-cleanup time, the watchdog-trip count, and the throttle-engaged state —
+natively at the bottom of your own Claude Code terminal via its
+[statusLine](https://code.claude.com/docs/en/statusline) feature, alongside the
+decision-queue depth. The stats are **derived on demand** from what the daemon
+mechanisms already record (the shared audit trail and the live throttle state);
+nothing is written to a new file for them.
+
+Unlike the other channels, `statusline` is *pull-shaped*: Claude Code invokes a
+command on its own schedule rather than the fleet pushing at you. So wiring it up
+is two steps — select the channel, and register the command in your own
+`settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "<plugin-root>/scripts/fleet-statusline.sh"
+  }
+}
+```
+
+`fleet-statusline.sh` renders the stats line only while `notification_channel`
+resolves to `statusline`; with any other value it prints nothing, so the command
+is harmless to leave installed and switching the channel off silently returns
+your status line. A one-off render is `scripts/fleet-stats.sh render` (the
+multi-line view) or `scripts/fleet-stats.sh line` (the compact one). The
+human-facing audit-trail view — queryable by mechanism and time range — is
+`scripts/fleet-stats.sh audit [--mechanism <m>] [--since <epoch>] [--until <epoch>]`.
 
 The rest of this guide is the execution-substrate side of the split: how a
 backend is picked, what happens when the rich one is missing or dies, how you
@@ -515,7 +547,7 @@ are in the [options reference](options-reference.md).
 | `context_budget_threshold` | Step-count monitor + continue-as-new handover | How long your towers run before handing over | `50` — hands over early; the handover is cheap and lossless, so early is the safe direction |
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
 | `fleet_max_parallel_units` | Fleet-wide bound across all specs | Your total fleet load | `3` — enabling the meta-tower never multiplies load until you raise it |
-| `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you | `none` — pull-only, dependency-free, nothing fires until you opt in |
+| `notification_channel` | The notification seam (the decision queue itself is always on; this knob only selects what is pushed) | Which channel pushes at you (`none` / `tmux-popup` / `os-notify` / `editor-toast` / `statusline`) | `none` — pull-only, dependency-free, nothing fires until you opt in |
 | `fleet_model_execution` / `fleet_model_bookkeeping` / `fleet_model_drain` | The task-type-keyed model/effort/command rule table | Which model each dispatch tier runs | `opus` / `sonnet` / `sonnet` — judgment-heavy work on the strong tier, mechanical work cheaper |
 | `fleet_throttle_default_hold` | Reactive rate-limit throttling with a bounded degrade | The fallback hold when a reset time cannot be parsed | `300` — bounded and short; a real signal re-fires and re-engages if the limit still holds |
 
