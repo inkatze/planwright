@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/inkatze/planwright/compare/v0.21.0...v0.22.0) (2026-07-18)
+
+
+### Features
+
+* **fleet:** fleet-stats rendering and the statusline notification channel (fleet-autonomy task 8) ([#229](https://github.com/inkatze/planwright/issues/229)) ([21c56e9](https://github.com/inkatze/planwright/commit/21c56e90546580fda593c5bfbc10f92a615ddb4a))
+
 ## [0.21.0](https://github.com/inkatze/planwright/compare/v0.20.0...v0.21.0) (2026-07-18)
 
 
