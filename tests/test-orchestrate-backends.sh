@@ -567,4 +567,83 @@ printf '%s\n' "$nb" | grep -q "decision queue (default)" \
   || fail "present: provides_attention_surface=na must fall to the default attention line"
 echo "ok: present skips na-typed fields on a rendered row"
 
+# ---------------------------------------------------------------------------
+# 27. caps <backend>: the read accessor prints one backend's six-field
+#     advertised capability set, PRESENCE-AGNOSTIC for a shipped backend
+#     (advertisement is a static property of the backend type). tmux advertises
+#     can_observe=true (field 2); subagent and in-session do not — the exact
+#     gate Task 5's peer-pane /context corroboration reads.
+# ---------------------------------------------------------------------------
+out=$("$BACKENDS" caps tmux) || fail "caps tmux exited non-zero"
+[ "$out" = "true true true false true yes" ] \
+  || fail "caps tmux: got '$out', expected the contract-table row"
+# Field 2 (can_observe) is what the capability gate reads.
+obs=$(printf '%s\n' "$out" | cut -d' ' -f2)
+[ "$obs" = true ] || fail "caps tmux: can_observe field '$obs', expected true"
+
+out=$("$BACKENDS" caps subagent) || fail "caps subagent exited non-zero"
+[ "$(printf '%s\n' "$out" | cut -d' ' -f2)" = false ] \
+  || fail "caps subagent: can_observe should be false (no peer observation pane)"
+
+out=$("$BACKENDS" caps in-session) || fail "caps in-session exited non-zero"
+[ "$(printf '%s\n' "$out" | cut -d' ' -f2)" = na ] \
+  || fail "caps in-session: can_observe should be na (no peer observation pane)"
+
+# caps is presence-agnostic: a shipped backend forced ABSENT still advertises
+# its static capability set (the gate asks about the backend type, not the host).
+out=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" caps tmux) \
+  || fail "caps tmux (forced absent) exited non-zero"
+[ "$out" = "true true true false true yes" ] \
+  || fail "caps must be presence-agnostic for a shipped backend"
+echo "ok: caps prints a shipped backend's advertised set, presence-agnostic"
+
+# ---------------------------------------------------------------------------
+# 28. caps fail-safe and fail-closed paths: an unknown/adapterless pluggable
+#     is ABSENT (exit 1), a hostile name is refused SANITIZED (exit 2), and a
+#     wrong argument count is a usage error (exit 2).
+# ---------------------------------------------------------------------------
+rc=0
+"$BACKENDS" caps no-such-adapter >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of an adapterless pluggable: exit $rc, expected 1 (absent)"
+
+rc=0
+"$BACKENDS" caps "$(printf 'ev\033]0;X\007il')" >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "caps of a hostile name: exit $rc, expected 2"
+if LC_ALL=C grep -q "$(printf '\033')" "$err"; then
+  fail "caps: a hostile backend name's control bytes must be stripped before echo"
+fi
+
+rc=0
+"$BACKENDS" caps >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "caps with no argument: exit $rc, expected 2"
+rc=0
+"$BACKENDS" caps tmux extra >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 2 ] || fail "caps with an extra argument: exit $rc, expected 2"
+echo "ok: caps fails safe (absent) and fails closed (usage) as specified"
+
+# ---------------------------------------------------------------------------
+# 29. caps resolves a PRESENT pluggable backend through its adapter: the
+#     adapter's advertised set is printed verbatim at exit 0 (the cmd_caps
+#     adapter_caps SUCCESS branch — the path a pluggable-dispatched worker's
+#     capability gate takes). A present-but-MALFORMED adapter fails safe to
+#     absent (exit 1), never emitting a half-parsed set. Only detect exercised
+#     these adapter branches before; caps is what Task 5's peer-pane gate calls.
+# ---------------------------------------------------------------------------
+make_adapter plug false true true false true yes
+out=$(PATH="$BIN" "$BACKENDS" caps plug) || fail "caps of a present pluggable: exited non-zero"
+[ "$out" = "false true true false true yes" ] \
+  || fail "caps plug: got '$out', expected the adapter's advertised set verbatim"
+[ "$(printf '%s\n' "$out" | cut -d' ' -f2)" = true ] \
+  || fail "caps plug: can_observe (field 2) should be true"
+
+cat >"$BIN/planwright-backend-plugbad" <<'EOF'
+#!/bin/sh
+echo "garbage output not a capability set"
+EOF
+chmod +x "$BIN/planwright-backend-plugbad"
+rc=0
+PATH="$BIN" "$BACKENDS" caps plugbad >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of a malformed present adapter: exit $rc, expected 1 (fail-safe absent)"
+echo "ok: caps resolves a present pluggable adapter and fails safe on a malformed one"
+
 echo "PASS: test-orchestrate-backends.sh"

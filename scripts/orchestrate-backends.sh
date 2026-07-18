@@ -387,14 +387,46 @@ EOF
   return 0
 }
 
+# caps <backend>: print the six-field advertised capability set for one backend
+# (interactive can_observe can_steer_inflight provides_attention_surface
+# supports_parallel session_grade) — the read accessor a capability-gated
+# consumer (Task 5's peer-pane /context corroboration reads can_observe) asks
+# instead of re-deriving the contract table (avoids the duplication the
+# knob-resolver-dedup observation warns against). Presence-AGNOSTIC for a
+# shipped backend: advertisement is a static property of the backend TYPE, not
+# of whether it is running on this host, so the gate can ask "does this backend
+# type observe in-flight" without forcing the backend present. A pluggable name
+# still resolves through its adapter (the adapter's presence IS the backend's).
+cmd_caps() {
+  if [ "$#" -ne 1 ]; then
+    echo "usage: orchestrate-backends.sh caps <backend>" >&2
+    return 2
+  fi
+  cp_b=$1
+  if is_known "$cp_b"; then
+    caps_for "$cp_b"
+    return 0
+  fi
+  if ! valid_name "$cp_b"; then
+    printf '%s\n' "orchestrate-backends: invalid backend name: $(sanitize_printable "$cp_b" "(unprintable name)")" >&2
+    return 2
+  fi
+  if ! cp_caps=$(adapter_caps "$cp_b"); then
+    echo "orchestrate-backends: no usable adapter for pluggable backend: $cp_b" >&2
+    return 1
+  fi
+  printf '%s\n' "$cp_caps"
+}
+
 sub=${1-}
 [ "$#" -gt 0 ] && shift
 case "$sub" in
   detect) cmd_detect "$@" ;;
   select-unattended) cmd_select_unattended "$@" ;;
   present) cmd_present "$@" ;;
+  caps) cmd_caps "$@" ;;
   '' | help | -h | --help)
-    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured> | present}" >&2
+    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured> | present | caps <backend>}" >&2
     exit 2
     ;;
   *)
