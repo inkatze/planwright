@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.20.0](https://github.com/inkatze/planwright/compare/v0.19.0...v0.20.0) (2026-07-18)
+
+
+### Features
+
+* **fleet:** cleanup, housekeeping sweep & reconcile backstop (fleet-autonomy task 4) ([#216](https://github.com/inkatze/planwright/issues/216)) ([7aeebdd](https://github.com/inkatze/planwright/commit/7aeebdd02452775293503391f9c0227bbb789c2d))
+* **fleet:** push-based worker liveness, classifier, crash-loop backoff (fleet-autonomy task 2) ([#214](https://github.com/inkatze/planwright/issues/214)) ([0cf90b1](https://github.com/inkatze/planwright/commit/0cf90b1ff8306a9dacd8fbde9c8cb2d0d99bd58d))
+* **spec:** anchor-integrity kickoff sign-off ([#223](https://github.com/inkatze/planwright/issues/223)) ([15a0217](https://github.com/inkatze/planwright/commit/15a02171502122a18d185f1dd16fa7614b637efa))
+* **spec:** guard-coverage kickoff sign-off ([#226](https://github.com/inkatze/planwright/issues/226)) ([72d66ee](https://github.com/inkatze/planwright/commit/72d66ee8a3e9b22ab55eface41a332efdf498e1d))
+* **spec:** operator-dialogue kickoff sign-off ([#225](https://github.com/inkatze/planwright/issues/225)) ([938cf85](https://github.com/inkatze/planwright/commit/938cf85b40a217897e6f3bb184478fa611163e0a))
+* **spec:** release-hardening kickoff sign-off ([#222](https://github.com/inkatze/planwright/issues/222)) ([c6bd51b](https://github.com/inkatze/planwright/commit/c6bd51b19d7dee0a6b2d1dcf1a6ec81369651bde))
+
 ## [0.19.0](https://github.com/inkatze/planwright/compare/v0.18.0...v0.19.0) (2026-07-17)
 
 
