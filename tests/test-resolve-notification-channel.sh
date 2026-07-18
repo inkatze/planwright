@@ -254,7 +254,7 @@ echo "ok: malformed-value diagnostics are stripped of control/escape bytes (no t
 shipped=$(sed -n 's/^notification_channel:[[:space:]]*\([a-z-]*\).*/\1/p' "$here/../config/defaults.yml")
 [ -n "$shipped" ] || fail "could not read notification_channel from config/defaults.yml"
 case $shipped in
-  none | tmux-popup | os-notify | editor-toast) ;;
+  none | tmux-popup | os-notify | editor-toast | statusline) ;;
   *) fail "config/defaults.yml notification_channel '$shipped' is not a legal resolver enum value" ;;
 esac
 [ "$shipped" = "$SAFE_DEFAULT" ] \
