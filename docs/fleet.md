@@ -131,6 +131,10 @@ decision-queue depth. The stats are **derived on demand** from what the daemon
 mechanisms already record (the shared audit trail and the live throttle state);
 nothing is written to a new file for them.
 
+The `queue` field shows the count of items awaiting a decision, `deferred` when a
+backend owns the attention surface itself (so planwright suppresses its own
+queue), or `?` if the queue genuinely cannot be read.
+
 Unlike the other channels, `statusline` is *pull-shaped*: Claude Code invokes a
 command on its own schedule rather than the fleet pushing at you. So wiring it up
 is two steps — select the channel, and register the command in your own

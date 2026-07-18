@@ -176,7 +176,17 @@ derive_throttle() {
 }
 
 # queue_count — the decision-queue length via fleet-attention.sh (composition,
-# D-14). A read failure degrades to `?`, never a wrong number.
+# D-14). Three outcomes, kept distinct:
+#   `deferred` — a healthy exit-0 with EMPTY stdout: a backend advertises
+#                provides_attention_surface (PLANWRIGHT_ATTENTION_SURFACE_PROVIDED
+#                / --surface-provided), so planwright suppresses its own decision
+#                queue and defers to that backend. This is NOT a read failure, so
+#                it must not wear the `?` token. (The producer overloads exit-0 +
+#                empty to mean deferral, forcing this inference; a durable
+#                producer-side signal is tracked as a follow-up observation.)
+#   `?`        — a genuine read failure: $ATTN missing/not executable, a non-zero
+#                exit, or non-numeric/garbage output. Never a wrong number.
+#   <n>        — the actual count (exit 0 with a numeric line).
 queue_count() {
   if [ ! -x "$ATTN" ]; then
     printf '?'
@@ -184,9 +194,16 @@ queue_count() {
   fi
   qc_rc=0
   qc_n=$("$ATTN" queue --count 2>/dev/null) || qc_rc=$?
+  if [ "$qc_rc" != 0 ]; then
+    printf '?'
+    return 0
+  fi
+  # Exit 0 from here: empty stdout is the deferred-to-backend signal; a numeric
+  # line is the real count; anything else is malformed output (a read failure).
   case $qc_n in
-    "" | *[!0-9]*) printf '?' ;;
-    *) [ "$qc_rc" = 0 ] && printf '%s' "$qc_n" || printf '?' ;;
+    "") printf 'deferred' ;;
+    *[!0-9]*) printf '?' ;;
+    *) printf '%s' "$qc_n" ;;
   esac
 }
 

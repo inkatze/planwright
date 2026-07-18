@@ -162,6 +162,48 @@ case $line in
 esac
 echo "ok: the compact line render is a single line carrying the derived stats"
 
+# --- 6b. The queue field distinguishes a healthy DEFERRED queue from a read
+#         failure. When a backend advertises provides_attention_surface (ambient
+#         PLANWRIGHT_ATTENTION_SURFACE_PROVIDED, or --surface-provided), planwright
+#         suppresses its own decision queue and fleet-attention's `queue --count`
+#         exits 0 with EMPTY stdout — a healthy deferral, not a failure. The line
+#         must render `queue deferred`, never the `?` failure token (fleet-autonomy
+#         Task 8 tower decision; the durable producer-side fix is tracked as an
+#         observation).
+deferred_line=$(PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
+  PLANWRIGHT_ATTENTION_SURFACE_PROVIDED=1 /bin/bash "$FS" line) \
+  || fail "line render (deferred queue) failed"
+case $deferred_line in
+  *"queue deferred"*) ;;
+  *) fail "a deferred-to-backend queue did not render 'queue deferred' (got: $deferred_line)" ;;
+esac
+case $deferred_line in
+  *"queue ?"*) fail "a deferred-to-backend queue was mislabeled as the '?' read-failure token (got: $deferred_line)" ;;
+esac
+echo "ok: a deferred-to-backend queue renders 'deferred', not the '?' failure token"
+
+# --- 6c. `?` stays reserved for a GENUINE read failure. With fleet-attention.sh
+#         present but not executable (a broken install), queue_count cannot read a
+#         count and must degrade to `?` (never 'deferred', never a wrong number).
+qc_stub="$tmp/qc-stub"
+mkdir -p "$qc_stub"
+for _s in fleet-stats.sh echo-safety.sh fleet-audit.sh fleet-throttle.sh; do
+  ln -s "$here/../scripts/$_s" "$qc_stub/$_s"
+done
+# present but NOT chmod +x -> the [ ! -x "$ATTN" ] failure branch
+printf '#!/bin/sh\necho unreachable\n' >"$qc_stub/fleet-attention.sh"
+failure_line=$(PLANWRIGHT_FLEET_STATE_DIR="$tmp/qc-fail-home" \
+  /bin/bash "$qc_stub/fleet-stats.sh" line 2>/dev/null) \
+  || fail "line render (broken-attention install) failed"
+case $failure_line in
+  *"queue ?"*) ;;
+  *) fail "a genuine queue read failure did not degrade to '?' (got: $failure_line)" ;;
+esac
+case $failure_line in
+  *"queue deferred"*) fail "a genuine read failure was mislabeled as the healthy 'deferred' token (got: $failure_line)" ;;
+esac
+echo "ok: a genuine queue read failure degrades to '?' (reserved for failures, not deferral)"
+
 # --- 7. The human-facing AUDIT render (REQ-F1.4): formatted (not raw TSV) and
 #        queryable by mechanism and by --since/--until time range.
 rendered=$(stats audit) || fail "audit render failed"
