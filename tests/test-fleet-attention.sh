@@ -448,6 +448,25 @@ stripped=$(printf '%s' "$toast_summary" | tr -d '\000-\037\177')
 [ "$stripped" = "$toast_summary" ] || fail "notify (editor-toast): control/escape bytes reached the toast file"
 echo "ok: the notification seam drops a sanitized editor-toast line on the editor-toast channel"
 
+# 13c. statusline (fleet-autonomy Task 8, D-14) is PULL-shaped: Claude Code
+#      renders scripts/fleet-statusline.sh on its own schedule, so `notify` has
+#      nothing to push and is a clean no-op — exit 0, no stdout, no toast
+#      artifact (byte-for-byte the `none` contract, but for a different reason).
+home13c="$tmp/notify-statusline-home"
+pin_sl_cfg="$tmp/notify-statusline-pin.yml"
+printf 'notification_channel: statusline\n' >"$pin_sl_cfg"
+nout=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY \
+  PLANWRIGHT_FLEET_STATE_DIR="$home13c" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+  PLANWRIGHT_REPO_ROOT="$scratch_repo" \
+  PLANWRIGHT_LOCAL_CONFIG="$pin_sl_cfg" \
+  /bin/sh "$FA" notify "worker=w spec-a:3 needs a decision" 2>/dev/null) \
+  || fail "notify (statusline): non-zero exit"
+[ -z "$nout" ] || fail "notify (statusline): wrote to stdout ('$nout'), expected a no-op (pull-shaped surface)"
+[ ! -e "$home13c/attention/toasts" ] || fail "notify (statusline): created a toast artifact (should push nothing)"
+echo "ok: the notification seam is a clean no-op on the pull-shaped statusline channel"
+
 # ---------------------------------------------------------------------------
 # 14. Empty-state reads are clean: render on an untouched home exits 0 with no
 #     rows; queue --count is 0.

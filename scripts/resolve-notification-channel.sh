@@ -10,6 +10,13 @@
 #   tmux-popup    a multiplexer popup (the multiplexer-user persona).
 #   os-notify     an OS notification (the non-terminal-user persona).
 #   editor-toast  an editor toast the editor tails (the editor-feedback persona).
+#   statusline    the derived fleet stats rendered natively in the operator's own
+#                 Claude Code terminal via the statusLine feature (fleet-autonomy
+#                 Task 8, D-14). The renderer is scripts/fleet-statusline.sh, a
+#                 statusLine command the operator wires into settings.json; it is
+#                 gated on this value, so the fleet drives the status line only
+#                 when this channel is selected. Pull-shaped (Claude Code invokes
+#                 the command), so the `notify` push seam is a no-op for it.
 #
 # This is the capability-vs-style split (REQ-A1.5): the notification SEAM (the
 # capability) lives in core; the specific channel VALUE is overlay-owned. The
@@ -101,7 +108,7 @@ fi
 valid_value() {
   _v=$(printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   case "$_v" in
-    none | tmux-popup | os-notify | editor-toast) return 0 ;;
+    none | tmux-popup | os-notify | editor-toast | statusline) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -150,11 +157,11 @@ fi
 # The winning value is malformed. Apply the REQ-E1.4 by-layer policy.
 case "$layer" in
   repo-tracked)
-    echo "resolve-notification-channel: repo-tracked overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast); refusing to silently degrade a shared team value" >&2
+    echo "resolve-notification-channel: repo-tracked overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast/statusline); refusing to silently degrade a shared team value" >&2
     exit 4
     ;;
   adopter | machine-local)
-    echo "resolve-notification-channel: warning: the $layer overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast); degrading to the core default" >&2
+    echo "resolve-notification-channel: warning: the $layer overlay sets notification_channel to a malformed value ('$(sanitize_printable "$value" "(unprintable value)")' is not one of none/tmux-popup/os-notify/editor-toast/statusline); degrading to the core default" >&2
     # Re-resolve with the overlay layers neutralized so config-get returns the
     # core default. config-get keeps PLANWRIGHT_CONFIG_DEFAULTS; we only blank
     # the three overlay roots. mktemp gives an empty repo root (no

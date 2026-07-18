@@ -22,8 +22,11 @@
 #       (ISA-18.2 alarm rationalization: every surfaced item actionable,
 #       prioritized by consequence).
 #   (d) a NOTIFICATION SEAM (`notify`) — the channel (none / tmux-popup /
-#       os-notify / editor-toast) is the overlay VALUE (resolve-notification-
-#       channel.sh); this script is the seam that dispatches through it.
+#       os-notify / editor-toast / statusline) is the overlay VALUE (resolve-
+#       notification-channel.sh); this script is the seam that dispatches
+#       through it. statusline is pull-shaped (fleet-autonomy Task 8, D-14):
+#       Claude Code renders scripts/fleet-statusline.sh on its own schedule, so
+#       `notify` is a no-op for that channel — there is nothing to push.
 #
 # BUILT ON TASK 9 (D-11, REQ-D1.1: consume, do not re-implement). The cross-spec
 # home and the advisory-lock primitive are scripts/fleet-state.sh's: `root`
@@ -587,6 +590,17 @@ case $cmd in
     case $channel in
       none)
         # Pull-only: nothing is pushed. The operator reads `queue` on demand.
+        exit 0
+        ;;
+      statusline)
+        # The native Claude Code statusLine surface (fleet-autonomy Task 8,
+        # D-14) is PULL-shaped: Claude Code invokes scripts/fleet-statusline.sh
+        # on its own schedule and that command renders the current derived stats
+        # (scripts/fleet-stats.sh line). There is nothing to PUSH on an event, so
+        # `notify` is a clean no-op for this channel — the operator sees the
+        # stats via the status line, not a pushed message. (A no-op, not the
+        # unreachable `*)` fail-closed below, because this IS a recognized
+        # channel.)
         exit 0
         ;;
       editor-toast)
