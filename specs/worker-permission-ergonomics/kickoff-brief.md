@@ -328,3 +328,47 @@ Anchor: `d37ea69fdffc63837cff9331985210b9a3551ee2` — computed as
 test-spec REQ entries grouped under `## REQ-<group>` headings (MD001
 heading-increment) mirroring `requirements.md`; brief trailing blank lines
 removed (MD012). No REQ meaning or coverage changed.)*
+
+## 9. Amendment log
+
+### Amendment 1 — 2026-07-18 (panel-review delta re-walkthrough)
+
+**Trigger:** `/panel-review --nested` (gemini backend) over the Ready spec
+PR #234 surfaced spec-wording defects; the human dispositioned them. Ready
+bundle, pre-merge → **delta re-walkthrough** (REQ-D1.4), not the amendment
+ritual (reserved for Active bundles). No status flip, no PR reopen.
+
+**Delta scope + lens pass:** 4 REQ edits + 2 test-spec entries. Delta-scoped
+Discovery-Rigor lens pass walked **inline** (declared per `discovery-rigor`
+proportionality — the delta is narrow and every edit tightens or clarifies). No
+new contradictions; test-spec updated to match REQ-A1.9/B1.7; cross-file
+consistency re-checked; validator 0/0, `lint:md` 0.
+
+**Findings dispositioned:**
+
+- **M1 (applied).** Heredocs/here-strings (`<<`/`<<-`/`<<<`) were pinned nowhere;
+  REQ-A1.4's defer list and REQ-A1.9's tokenizer list now name them explicitly
+  (REQ-A1.9's catch-all already covered them, but the redirect enumeration was
+  asymmetric — output forms listed, input/heredoc omitted). test-spec REQ-A1.9
+  fixture added.
+- **M3 (applied).** REQ-B1.7's "parse error on the bash floor" clause read as the
+  hook inspecting a *target* script's contents, contradicting REQ-B1.1's
+  inert-data rule (a defect in the original sign-off-pass wording). Reworded: the
+  hook decides from the command string + path metadata only, never reads target
+  contents; a hook-script start failure fails safe structurally (no output →
+  Claude Code's normal prompt). test-spec REQ-B1.7 updated (now `[test +
+  design-level]`). Dissolves M5 (Task 1 no longer owes a target-startability
+  check).
+- **M4 (applied).** `awk` was absent from REQ-A1.5's allowlist yet referenced in
+  A1.6's write-escape callout. Human call: **defer awk entirely** (too capable to
+  allowlist — `system()`/command-`getline`). REQ-A1.6 clarifies awk defers
+  wholesale and the callout is belt-and-suspenders.
+- **M2 (declined).** gemini's TOCTOU symlink-swap concern on REQ-A1.10 —
+  non-applicable to the single-agent trusted-checkout threat model (no concurrent
+  adversary racing its own approval; R1 already accepts worker-run code).
+  Recorded, no spec change.
+
+Class: meaning
+Lens-pass: §9 Amendment 1 (delta-scoped, inline walk; M1/M3/M4 applied, M2 declined, all dispositioned)
+Anchor: `5bb10abed10109f92f50491d4d935ff8e61a5898` — computed as
+`scripts/spec-anchor.sh specs/worker-permission-ergonomics`

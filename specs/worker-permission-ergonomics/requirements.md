@@ -84,12 +84,14 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   compound command (quote-aware split on `;`, `&&`, `||`, `|`, `&`, and
   newlines) is independently known-safe. Any ambiguity SHALL defer: unbalanced
   quotes, command or process substitution (`$(…)`, backticks, `<(…)`, `>(…)`),
-  a write-redirect to a file target other than `/dev/null` — appearing anywhere
-  in the segment including a leading redirect (`>f cmd`), and in any of the forms
-  `>`, `>>`, `>|`, `&>`, `&>>`, and `>&`/`<&` when the operand is a filename
-  rather than a digit or `-` (`cmd >& file` writes a file) — or an unrecognized
-  verb. File-descriptor duplication or closing whose operand is a digit or `-`
-  (`2>&1`, `>&2`, `2>&-`) is not a file write and does not defer.
+  an input here-document or here-string (`<<`, `<<-`, `<<<` — the multi-line body
+  a here-document introduces cannot be soundly segmented by the newline split, so
+  it defers), a write-redirect to a file target other than `/dev/null` —
+  appearing anywhere in the segment including a leading redirect (`>f cmd`), and
+  in any of the forms `>`, `>>`, `>|`, `&>`, `&>>`, and `>&`/`<&` when the operand
+  is a filename rather than a digit or `-` (`cmd >& file` writes a file) — or an
+  unrecognized verb. File-descriptor duplication or closing whose operand is a
+  digit or `-` (`2>&1`, `>&2`, `2>&-`) is not a file write and does not defer.
   *(Cites: D-3; kickoff §7 (2026-07-18).)*
 - **REQ-A1.5** The known-safe set SHALL be an explicit enumerated allowlist of
   verbs and invocation shapes — never a category match — comprising: plugin/repo
@@ -127,8 +129,12 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   `stdbuf`, `chroot`), writer coreutils (`tee`, `dd`, `cp`, `mv`, `install`,
   `truncate`, `ln`, `touch`), and text-tool write-escapes (`sed`
   `w`/`W`/`s///w`, `awk` `print >`/`system()`) — surfaced to the human via the
-  normal prompt.
-  *(Cites: D-3.)*
+  normal prompt. (`awk` is deliberately *not* in the REQ-A1.5 allowlist and so
+  defers wholesale — it is too capable to safely allowlist, `system()` and
+  command-`getline` being arbitrary execution; the `awk` write-escape callout
+  here is belt-and-suspenders documenting why, not an implication that `awk` is
+  otherwise approvable.)
+  *(Cites: D-3; brief Amendment 1 (2026-07-18).)*
 - **REQ-A1.7** The hook SHALL consider only the Bash tool; for every other tool
   it SHALL defer.
   *(Cites: D-2.)*
@@ -155,9 +161,10 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   (`bash -ec`, `sh -xc`, `fish --command`); and backslash line-continuations,
   escaped operators or quotes, and ANSI-C `$'…'` quoting whose semantics it does
   not model. The operator splitter SHALL correctly tokenize multi-character
-  redirect operators (`>>`, `>|`, `&>`, `&>>`, `2>&1`) before splitting on the
-  control operators, so a redirect is never mis-split into a spurious safe
-  segment.
+  redirect operators — output forms (`>>`, `>|`, `&>`, `&>>`, `2>&1`) and input
+  here-document / here-string forms (`<<`, `<<-`, `<<<`) — before splitting on
+  the control operators, so an operator is never mis-split into a spurious safe
+  segment; a here-document defers per REQ-A1.4.
   *(Cites: D-3; kickoff §7 (2026-07-18).)*
 - **REQ-A1.10** Before approving an enumerated `scripts/*.sh`/`tests/*.sh`
   script invocation or a `bats <file>` invocation, the hook SHALL canonicalize
@@ -215,10 +222,15 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   signal (approval is upgrade-only; blocking stays with `permissions.deny`/`ask`,
   REQ-A1.2). It SHALL bound its own runtime and read stdin defensively so it can
   never hang a worker's tool call, and a present-but-empty or non-string
-  `tool_input.command`, or a script that is invoked but cannot start (missing
-  interpreter, non-executable, unreadable, parse error on the bash floor), SHALL
-  defer.
-  *(Cites: D-3, D-4; kickoff §7 (2026-07-18).)*
+  `tool_input.command` SHALL defer. The hook SHALL decide solely from the command
+  string and path metadata (the canonicalization/containment of REQ-A1.10, which
+  reads filesystem metadata, not file contents) and SHALL NOT read or parse the
+  contents of any target script (consistent with REQ-B1.1's inert-data rule).
+  Failure of the hook script *itself* to start (missing interpreter,
+  non-executable, unreadable, or a parse error on the bash floor) fails safe
+  structurally — Claude Code receives no `allow` and runs its normal permission
+  flow — rather than being a decision the hook emits.
+  *(Cites: D-3, D-4; kickoff §7 (2026-07-18); brief Amendment 1 (2026-07-18).)*
 
 ## REQ-C — Wiring and delivery
 
@@ -254,6 +266,17 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
 
 ## Changelog
 
+- 2026-07-18 — Delta re-walkthrough (panel-review pass, gemini backend);
+  pre-merge meaning-class amendment on the Ready spec PR. REQ-A1.4 and REQ-A1.9
+  add explicit here-document / here-string (`<<`/`<<-`/`<<<`) deferral (M1);
+  REQ-B1.7 reworded to drop the target-script content-inspection implication and
+  affirm the hook decides from the command string + path metadata only, with a
+  hook-script start failure failing safe structurally (M3); REQ-A1.6 clarifies
+  `awk` defers wholesale (not in the A1.5 allowlist) (M4). test-spec REQ-A1.9 and
+  REQ-B1.7 updated to match. A gemini-flagged TOCTOU symlink-swap concern on
+  REQ-A1.10 was considered and declined as non-applicable to the single-agent
+  trusted-checkout threat model (no concurrent adversary; R1 already accepts
+  worker-run code).
 - 2026-07-18 — Kickoff sign-off via `/spec-kickoff` (Draft→Ready). Walkthrough
   and sign-off lens pass hardened the command-analysis contract: REQ-A1.5 became
   an explicit enumerated allowlist (sed/git flag guards); REQ-A1.6 gained the

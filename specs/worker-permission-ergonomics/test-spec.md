@@ -99,8 +99,10 @@ ok.sh`, `LD_PRELOAD=x cat f`, `GIT_PAGER='!cmd' git log`); a path-prefixed verb
 (`/tmp/evil/cat f`, `./cat f`) that is not the enumerated repo-script case; fish
 bare-paren substitution inside `fish -c` (`fish -c "echo (rm -rf x)"`); subshell
 / brace grouping (`(rm -rf x)`, `{ rm -rf x; }`); bundled/long `-c` (`bash -ec
-'rm'`, `fish --command 'rm'`); and a redirect-tokenization case proving `>|`/`&>`
-are not mis-split into a spurious safe segment (`echo x >| stat` defers).
+'rm'`, `fish --command 'rm'`); input here-documents / here-strings (`cat <<EOF
+… EOF`, `cmd <<< "x"`); and a redirect-tokenization case proving `>|`/`&>` and
+`<<`/`<<<` are not mis-split into a spurious safe segment (`echo x >| stat`
+defers).
 
 ### REQ-A1.10 — Script/test/bats path containment [test]
 
@@ -157,15 +159,19 @@ command-runner wrappers (`env`/`xargs`/`timeout`/`nohup`/`nice`/`setsid` of an
 `touch`), and text-tool write-escapes (`sed 'w file'`, `awk 'print > "f"'`), each
 asserted to defer. Runs under `mise run test` / CI.
 
-### REQ-B1.7 — Fail-closed emission contract [test]
+### REQ-B1.7 — Fail-closed emission contract [test + design-level]
 
 Fixtures assert: the defer path emits empty stdout and exits 0; an internal
 error / signal path never emits a partial `allow` and never exits 2 (a fixture
 forcing an error asserts exit 0 + empty stdout, not the CC block signal); a
-present-but-empty (`""`) and a non-string `tool_input.command` both defer; an
-invoked-but-cannot-start script path defers. `[test]` where a failure can be
-induced under the suite; the no-hang / bounded-runtime guarantee is exercised
-with a large/pathological input asserting prompt termination.
+present-but-empty (`""`) and a non-string `tool_input.command` both defer.
+`[design-level]`: the hook decides from the command string + path metadata only
+and never reads a target script's contents (no `bash -n <target>`, no file-content
+read) — reviewable by reading the script; a hook-script start failure produces no
+output, which Claude Code treats as its normal prompt (structural fail-safe, not
+an emitted decision). `[test]` where a failure can be induced under the suite;
+the no-hang / bounded-runtime guarantee is exercised with a large/pathological
+input asserting prompt termination.
 
 ## REQ-C — Wiring and delivery
 
