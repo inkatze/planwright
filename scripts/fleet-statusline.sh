@@ -47,7 +47,11 @@ unset CDPATH
 # drain in that interactive case; the piped Claude Code path still drains.
 [ -t 0 ] || cat >/dev/null 2>&1 || true
 
-script_dir=$(cd "$(dirname "$0")" && pwd) 2>/dev/null || exit 0
+# The 2>/dev/null must sit INSIDE the substitution: on `var=$(...) 2>/dev/null`
+# the redirection binds to the (stderr-less) assignment, not the subshell, so a
+# failing cd/pwd would still leak to stderr. Grouped-and-redirected keeps a
+# resolution failure silent, as this always-quiet surface intends.
+script_dir=$( (cd "$(dirname "$0")" && pwd) 2>/dev/null) || exit 0
 
 RNC="$script_dir/resolve-notification-channel.sh"
 STATS="$script_dir/fleet-stats.sh"
