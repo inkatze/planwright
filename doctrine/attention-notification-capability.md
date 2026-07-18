@@ -106,6 +106,10 @@ the specific *channel* is overlay-owned, resolved through the four config layers
 - **`os-notify`** — an OS notification (the non-terminal-user persona).
 - **`editor-toast`** — an editor toast the editor tails (the editor-feedback
   persona).
+- **`statusline`** — the derived fleet stats rendered natively in the operator's
+  own Claude Code terminal via its `statusLine` feature (fleet-autonomy D-14).
+  Pull-shaped: Claude Code invokes the renderer on its own schedule, so the
+  `notify` push seam is a no-op for it.
 
 Each persona resolves as a combination of the two seams — an execution backend
 times an attention surface, never a separate system; the full persona mapping
