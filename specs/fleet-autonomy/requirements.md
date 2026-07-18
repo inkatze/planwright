@@ -1,7 +1,7 @@
 # Fleet Autonomy — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-14
+**Last reviewed:** 2026-07-17
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -318,6 +318,18 @@ mature precedent this spec can simply defer to wholesale.
   Done-when to cover it") — an accepted-risk mitigation already decided at
   sign-off, given an acceptance criterion so it cannot silently ship
   unmitigated; no requirement, design decision, or test semantics changed.
+
+- 2026-07-17 — Delta re-walkthrough reconciling re-anchor (expression-only):
+  reconciled the kickoff brief's content anchor after Tasks 3 and 7's parallel
+  task-PR merges (#217 and #213) left the amendment log's file-last anchor entry
+  (Task 7's) computed on a branch that predated Task 3's merged changes, staling
+  the freshness gate against combined main. No new content change: the
+  underlying edits (Task 3's `Done when` overlapping-invocation guard and the
+  D-4/REQ-G1.2-aligning scheduling reword from "Claude Code scheduled-agent
+  primitive" to a deterministic operator-scheduled cron/launchd script) already
+  merged and are recorded above. This entry re-anchors the brief to current main
+  so dispatch of the next ready task (Task 8) is unblocked; no accepted decision
+  contradicted, no REQ meaning altered.
 
 ## Sources
 
