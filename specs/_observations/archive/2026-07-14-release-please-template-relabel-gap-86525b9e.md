@@ -1,1 +1,2 @@
 - 2026-07-14 [repo] templates/release-please/README.md documents that adopters bypassing scripts/release-publish.sh must supply their own signed-tag publish step, but does not mention that (per issue #173) they also need their own autorelease:pending -> autorelease:tagged relabel step, or release-please's own deadlock guard will fire for them too. Noticed while reviewing fix/release-publish-relabel-173; out of that fix's scope (it only documents planwright core's own publish path).
+Consumed-by: specs/release-hardening (2026-07-17)
