@@ -126,4 +126,48 @@ printf '%s' "$STDIN_JSON" \
 [ "$rc" = 0 ] || fail "a broken fleet home broke the status line (exit $rc, must be 0)"
 echo "ok: a broken fleet home never breaks the status line (exit 0)"
 
+# --- 5. A MANUAL run (stdin is a TTY) must NOT hang. Claude Code always pipes the
+#        session JSON, but an operator running the command by hand has a terminal
+#        on stdin; an unconditional stdin drain would block there waiting for EOF,
+#        hanging a surface whose contract is to stay fast. The `[ -t 0 ]` guard
+#        skips the drain in that case. Exercising a real TTY needs a pty, so this
+#        uses python3 (present on the CI runner and macOS); where it is absent the
+#        check is skipped with a notice rather than silently passing.
+if command -v python3 >/dev/null 2>&1; then
+  # Pin the overlay env so the child never touches a real fleet home; exported
+  # because the pty child inherits this shell's environment. Last test in the
+  # file, so leaking these exports affects nothing after it.
+  PLANWRIGHT_FLEET_STATE_DIR="$tmp/tty-home"
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg"
+  PLANWRIGHT_ADOPTER_OVERLAY="$tmp/no-adopter"
+  PLANWRIGHT_REPO_ROOT="$repo"
+  PLANWRIGHT_LOCAL_CONFIG=""
+  export PLANWRIGHT_FLEET_STATE_DIR PLANWRIGHT_CONFIG_DEFAULTS \
+    PLANWRIGHT_ADOPTER_OVERLAY PLANWRIGHT_REPO_ROOT PLANWRIGHT_LOCAL_CONFIG
+  tty_result=$(
+    python3 - "$SL" <<'PY'
+import pty, os, subprocess, time, signal, sys
+script = sys.argv[1]
+master, slave = pty.openpty()  # slave is a real TTY on the child's stdin
+p = subprocess.Popen(["/bin/sh", script],
+                     stdin=slave, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+os.close(slave)
+deadline = time.time() + 5
+while time.time() < deadline and p.poll() is None:
+    time.sleep(0.1)
+if p.poll() is None:
+    p.send_signal(signal.SIGKILL); p.wait()
+    print("HANG")
+else:
+    print("OK")
+os.close(master)
+PY
+  )
+  [ "$tty_result" = OK ] \
+    || fail "fleet-statusline.sh hung on a TTY stdin (the manual-run drain is not guarded by [ -t 0 ])"
+  echo "ok: a manual run with a TTY on stdin does not hang (drain guarded by [ -t 0 ])"
+else
+  echo "skip: TTY no-hang check (python3 unavailable to allocate a pty)"
+fi
+
 echo "PASS: fleet-statusline.sh"

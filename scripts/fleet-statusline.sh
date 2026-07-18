@@ -40,8 +40,12 @@ export LC_ALL
 unset CDPATH
 
 # Drain stdin (the session JSON) so Claude Code's writer never sees a broken
-# pipe; we need none of it. `cat` to /dev/null is the whole use.
-cat >/dev/null 2>&1 || true
+# pipe; we need none of it. Only when stdin is NOT a terminal: Claude Code always
+# pipes the JSON in, but a manual run at a shell has a TTY on stdin, and an
+# unconditional `cat` would block there waiting for EOF — hanging a surface whose
+# whole contract is to stay fast and never block. `[ -t 0 ]` short-circuits the
+# drain in that interactive case; the piped Claude Code path still drains.
+[ -t 0 ] || cat >/dev/null 2>&1 || true
 
 script_dir=$(cd "$(dirname "$0")" && pwd) 2>/dev/null || exit 0
 
