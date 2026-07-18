@@ -699,3 +699,43 @@ decision and alters no REQ's meaning.
 Class: expression-only
 Anchor: `a9b4689f3b01b24374531bcdaab72821f48c8340` — computed as
 `scripts/spec-anchor.sh specs/fleet-autonomy`
+
+### 2026-07-17 — Delta re-walkthrough reconciling re-anchor (parallel task-PR merge drift)
+
+Recorded by `/spec-kickoff`'s delta re-walkthrough on the spec branch
+`planwright/fleet-autonomy/spec`, human-classified expression-only at sign-off
+(REQ-A3.3; REQ-F1.10's expression-only lane).
+
+**Trigger:** the freshness gate went stale through parallel-merge bookkeeping,
+not a content change. Task 7 (PR #213) and Task 3 (PR #217) ran on parallel
+branches; each `/execute-task` run wrote its own expression-only anchor entry
+computed on its own branch. Task 3 merged after Task 7, so the amendment log's
+file-last entry (Task 7's `a9b4689f…`) reflects a tree that predates Task 3's
+merged `tasks.md` / `requirements.md` / `test-spec.md` changes. Against combined
+main the recomputed anchor was `f6579f6c…` ≠ `a9b4689f…`, which would halt the
+next dispatch (Task 8 is ready) at the freshness gate.
+
+**Delta walked (expression-only, already merged):** Task 3's PR #217 spec
+changes — (1) `tasks.md` Task 3 `Done when` gained the overlapping-invocation
+guard criterion (risk register row 1's signed-off mitigation given an
+acceptance criterion); (2) `tasks.md` Deliverables plus the scheduler-fallback
+Deferred bullet, and `test-spec.md` REQ-A1.5, reworded "Claude Code
+scheduled-agent primitive" → "deterministic operator-scheduled cron/launchd
+script, never an LLM," bringing `tasks.md` into consistency with the
+already-accepted D-4 ("cron-scheduled, never another tower") and REQ-G1.2 (the
+no-LLM-daemon floor, D-18) — the prior wording was the aberration. No REQ or
+D-ID added or changed; no accepted decision contradicted; no REQ meaning
+altered. Lens pass skipped per the expression-only lane.
+
+**This run's edits:** bumped `Last reviewed:` to 2026-07-17 on the three
+delta-touched files (requirements, tasks, test-spec; design left untouched, not
+in the delta) and appended the reconciling `## Changelog` entry cited below. No
+status flip (the bundle is stored-Ready / derived-Active).
+
+**Cites the changelog line:** the 2026-07-17 `## Changelog` entry in
+`requirements.md` ("Delta re-walkthrough reconciling re-anchor
+(expression-only)").
+
+Class: expression-only
+Anchor: `79ffced3a6e23268584353304a1dd17fbb557ee4` — computed as
+`scripts/spec-anchor.sh specs/fleet-autonomy`
