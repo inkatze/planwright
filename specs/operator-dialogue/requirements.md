@@ -359,6 +359,11 @@ unconditional rule REQ-D1.4 states.
   semantic non-distortion; test-spec D1.3 strengthened to topical relevance;
   **REQ-C1.5 added** (interview input-robustness). Calibration-estimate shape left
   to Task 4 by decision. Meaning-class (new REQ-C1.5; harness-safety refinements).
+- 2026-07-17: Post-sign-off lint fix (pre-merge, expression-only). Added the
+  eight `## REQ-<Group>` section headers to `test-spec.md` so entries nest
+  h1→h2→h3 (MD001/heading-increment; the drafted bundle skipped them and first
+  hit `lint:md` on PR #225). No verification content changed; re-anchored via the
+  kickoff-brief §9 amendment-log entry.
 
 ## Sources
 

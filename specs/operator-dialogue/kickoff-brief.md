@@ -271,3 +271,19 @@ Class: meaning
 Lens-pass: §8 lens review pass (full-bundle fan-out + panel + delta check), all findings dispositioned
 Anchor: `bcdc1af4d5f65f50b1abcd4c8b91cae25b243a7e` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
+
+## 9. Amendment log
+
+### Amendment 1 — expression-only lint fix (2026-07-17)
+
+Pre-merge, expression-only correction on the spec PR (#225): added the eight
+`## REQ-<Group> — <theme>` section headers to `test-spec.md` so its entries nest
+under h2 group headers (h1→h2→h3), fixing `lint:md` MD001/heading-increment. The
+drafted bundle omitted these headers and first hit CI on this PR. No requirement,
+decision, task, or verification content changed — the sign-off record in §8
+stands; this entry only re-anchors over the corrected file bytes.
+
+Class: expression-only
+Changelog: requirements.md 2026-07-17 "Post-sign-off lint fix (pre-merge, expression-only)" entry
+Anchor: `82446f907709532272d872f1a2cbaeeebd55d398` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`

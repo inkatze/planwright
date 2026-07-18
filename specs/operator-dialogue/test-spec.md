@@ -26,6 +26,8 @@ coverage** — the entry body names which subset it belongs to:
   `[test]` is assertable but is not a CI gate, so no coverage reading may treat
   it as CI-enforced.
 
+## REQ-A — The interaction doctrine
+
 ### REQ-A1.1 — Doctrine governs every attended surface [design-level]
 
 `doctrine/interaction-style.md` states a scope covering every attended human
@@ -55,6 +57,8 @@ honors it.
 
 `check:instructions` passes for every skill that front-loads
 `interaction-style`; a change that breaches a start-load wall fails the check.
+
+## REQ-B — Teach to the frontier
 
 ### REQ-B1.1 — Comprehension is in-band [design-level + manual]
 
@@ -93,6 +97,8 @@ token string appears where the concept is conveyed); the "unsoftened /
 not-distorted" judgment is semantic and is scored by the independent grader or a
 manual pass, not asserted mechanically. (On-demand behavioral lane.)
 
+## REQ-C — Interview to completeness
+
 ### REQ-C1.1 — Completeness: no readiness with an undefined required decision [test]
 
 An assertion over a kickoff run against a fixture spec with a
@@ -125,6 +131,8 @@ confirms the skill re-prompts rather than advancing the section or sign-off, and
 that the running calibration estimate is unchanged by the garbage input (test;
 fixture built by Task 6); a manual read confirms the re-prompt was intelligible.
 (On-demand behavioral lane.)
+
+## REQ-D — Present without steering
 
 ### REQ-D1.1 — No verdict [test]
 
@@ -165,6 +173,8 @@ natural-frequency form. If no likelihood is surfaced the assertion is not counte
 as coverage (no vacuous pass); the design-level statement carries the
 requirement, and no task is required to force a likelihood scenario.
 
+## REQ-E — Self-contained confirmation
+
 ### REQ-E1.1 — Self-contained option set [test]
 
 Task 2's structural check asserts each confirmation option restates its action
@@ -185,6 +195,8 @@ the question stem restates in full what is being decided.
 The doctrine and kickoff make deeper detail an optional in-band layer, never
 load-bearing for the choice (design-level); a manual pilot confirms the
 confirmation was answerable without it.
+
+## REQ-F — `/spec-kickoff` instantiation
 
 ### REQ-F1.1 — Kickoff instantiates the disciplines [design-level + manual]
 
@@ -215,6 +227,8 @@ change reconciles with, and does not revert, `skill-rigor`'s sign-off changes.
 
 `check:instructions` passes on the `spec-kickoff` surface after the
 instantiation.
+
+## REQ-G — Behavioral eval harness
 
 ### REQ-G1.1 — TTY-session behavioral eval [design-level + test]
 
@@ -267,6 +281,8 @@ recorded results, the harness runs the kickoff with publishing disabled so no
 eval run pushes / opens a PR / marks a PR ready, and any driver-produced sign-off
 record is marked eval-only/non-authoritative (test); the stated disciplines
 themselves are the design-level record.
+
+## REQ-H — Measurable acceptance
 
 ### REQ-H1.1 — Acceptance split reflected [design-level]
 
