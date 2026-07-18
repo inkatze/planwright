@@ -90,9 +90,11 @@ and knob changes that share the file.
 ### Task 4 — Resume-path integrity
 
 - **Deliverables:** On a resume in `release-publish.sh` (origin tag present,
-  Release absent), **fetch the origin tag object into a distinct verification
-  ref** (never the same-named local tag — git rejects the same-ref fetch when a
-  local tag lingers, and a same-named local tag would shadow the object), assert
+  Release absent), **fetch the origin tag object into a distinct, force-updated
+  verification ref** (`refs/release-verify/<tag>`, cleaned up after use — never
+  the same-named local tag, which git rejects on a same-ref fetch and which would
+  shadow the object; force + cleanup keep a stale ref from an aborted resume from
+  blocking a retry), assert
   its target commit equals the recomputed `release_sha` — refusing without side
   effects and naming both SHAs on a mismatch — and re-verify **that origin
   object's** signature before `gh release create`, keyed off the **origin tag's
@@ -107,7 +109,9 @@ and knob changes that share the file.
   both; a **lingering same-named local tag does not shadow the fetched origin
   object**; under `require` the re-verify runs and refuses a missing/invalid
   signature; under `auto` a signed origin tag is verified (refused on an invalid
-  signature) and an unsigned origin tag is accepted; under `never` skipped; a
+  signature), an unsigned origin tag is accepted, and a lightweight tag is
+  treated as unsigned (accepted under `auto`, refused under `require`); under
+  `never` skipped; a
   fresh-clone resume (no local tag) verifies the fetched origin object; a
   Release-present + PR-`pending` resume performs the relabel and does not die.
 - **Done when:** the origin tag object is fetched to a distinct verification ref
@@ -135,8 +139,9 @@ and knob changes that share the file.
   (never the original `$vf_path`); anything outside is a clean refusal (exit 2).
   The existing absolute-path and `..`-component checks stay as cheap pre-filters.
   Tests: a **leaf** symlink (the `version_file` value itself pointing outside the
-  tree) is refused — not only a symlinked parent dir; an in-tree path (plain and
-  via an in-tree symlink) still reads.
+  tree) is refused — not only a symlinked parent dir; a dangling/broken symlink
+  and a symlink loop are each a clean exit-2 refusal (not an unhandled error); an
+  in-tree path (plain and via an in-tree symlink) still reads.
 - **Done when:** an out-of-tree symlink `version_file` in `release-pending.sh`
   is a clean exit-2 refusal, including when the leaf `version_file` component is
   itself the escaping symlink; an in-tree `version_file` still resolves and

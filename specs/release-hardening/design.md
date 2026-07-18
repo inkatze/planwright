@@ -160,7 +160,9 @@ is a clean refusal (exit 2). **The subsequent read targets the canonicalized
 real path, never the original `$vf_path`**, so a resolved path cannot be
 re-defeated by re-following the original symlink. The existing absolute-path and
 `..`-component checks stay as cheap pre-filters. The check is factored into a
-reusable shell function so a future filesystem reader reuses it.
+reusable shell function so a future filesystem reader reuses it. A
+dangling/broken symlink (a component resolving to a non-existent path) or a
+symlink loop is a clean exit-2 refusal, never an unhandled error.
 *(Amended at kickoff lens pass 2026-07-17: leaf-component resolution +
 read-the-canonical-path made explicit; the parent-dir-only recipe was
 insufficient.)*

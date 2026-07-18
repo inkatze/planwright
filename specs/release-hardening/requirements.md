@@ -106,10 +106,14 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 - **REQ-B1.1** On a resume (a partial publish: the target tag exists on
   origin but its GitHub Release is absent), `release-publish.sh` SHALL fetch the
-  origin tag object into a **distinct verification ref** (never the same-named
-  local tag — fetching `refs/tags/<tag>:refs/tags/<tag>` is rejected
-  ("would clobber existing tag") when a local tag lingers, and a same-named
-  local tag would otherwise shadow the object under verification) and assert that
+  origin tag object into a **distinct, force-updated verification ref** under a
+  reserved namespace (`refs/release-verify/<tag>`), never the same-named local
+  tag — fetching `refs/tags/<tag>:refs/tags/<tag>` is rejected ("would clobber
+  existing tag") when a local tag lingers, and a same-named local tag would
+  otherwise shadow the object under verification. The fetch SHALL force-update
+  (`+`-prefixed refspec) and the verification ref SHALL be cleaned up after use,
+  so a stale ref left by an aborted resume never blocks or misleads a retry. It
+  SHALL assert that
   the origin tag's target commit equals the locally recomputed release SHA, and
   SHALL refuse without side effects — naming both SHAs — on a mismatch, before
   creating the Release. The assertion and the REQ-B1.2 re-verify SHALL target the
@@ -129,10 +133,13 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   `auto`, the re-verify runs **iff the origin tag carries a signature** — a
   present-but-invalid signature SHALL refuse, an unsigned tag is accepted (its
   target commit is already pinned to the recomputed release SHA by REQ-B1.1, and
-  `auto` is best-effort by construction); under `never` it is skipped. An
-  operator who wants a signature guaranteed on the resume path uses `require`,
-  where the strict guarantee lives. The residual — an unsigned origin tag
-  accepted under `auto` at the pinned SHA — is accepted risk R10b.
+  `auto` is best-effort by construction); under `never` it is skipped. A
+  lightweight tag (no annotated tag object, hence nothing to sign) is treated as
+  **unsigned** — accepted under `auto`, refused under `require` — rather than
+  fed to `git tag -v`, which errors on a non-tag object. An operator who wants a
+  signature guaranteed on the resume path uses `require`, where the strict
+  guarantee lives. The residual — an unsigned origin tag accepted under `auto` at
+  the pinned SHA — is accepted risk R10b.
   *(Cites: D-3; legacy line 184 (Sources); autopilot-reflex REQ-D1.4 (Source).)*
 - **REQ-B1.3** The resume path SHALL continue to skip the creation gates
   (monotonicity, clean-tree, sync, CI-green) and the tag create+push: the tag
@@ -195,7 +202,9 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   tree is the attack; resolving only the parent directory does not defend it),
   and the subsequent read SHALL target the canonicalized real path, not the
   original `version_file` value (so a resolved path cannot be re-defeated by
-  re-following the original symlink). The existing absolute-path and
+  re-following the original symlink). A dangling/broken symlink (a component
+  resolving to a non-existent path) or a symlink loop SHALL be a clean exit-2
+  refusal, never an unhandled error. The existing absolute-path and
   `..`-component rejections are retained as the cheap pre-checks.
   *(Cites: D-5; legacy line 182 (Sources); security-posture.md.)*
 - **REQ-D1.2** The canonicalization SHALL be portable to the repo's shell
@@ -255,9 +264,11 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   FAILING or still-PENDING check, the TOO_MANY unread-overflow case, and the
   distinct CI-query-failure (infra outage) status SHALL remain fail-closed
   regardless of `require_ci`. The `require_ci` value SHALL be validated as a
-  boolean (`true`/`false`); a non-conforming value is a clean configuration
-  error (fail-closed), symmetric with how `require_signed_tags` validates its
-  own value. When the relaxed path publishes on a NONE rollup,
+  boolean (`true`/`false`) **when the knob is read** (unconditional of code
+  path, not lazily inside the CI gate — which the resume path skips per
+  REQ-B1.3); a non-conforming value is a clean configuration error (fail-closed),
+  symmetric with how `require_signed_tags` validates its own value. When the
+  relaxed path publishes on a NONE rollup,
   `release-publish.sh` SHALL emit a stderr diagnostic recording that it
   published without positive CI confirmation (`require_ci=false`), so the
   deliberate relaxation leaves an audit signal (the "stay honest" half of the
@@ -277,6 +288,15 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
 
 ## Changelog
 
+- 2026-07-17 — Kickoff (first activation), panel pass iter 2 (meaning-class):
+  confirmation pass validated the corrected `auto`-trust model sound (security +
+  cross-file lenses clean) and drained the defensive tail: REQ-B1.1 force-updates
+  a reserved verification ref (`refs/release-verify/<tag>`) and cleans it up (a
+  stale ref from an aborted resume would block a retry); REQ-B1.2 treats a
+  lightweight tag as unsigned; REQ-G1.3 validates `require_ci` at config-read time
+  (unconditional of the resume-skipped gate); REQ-D1.1/D-5 treat a dangling
+  symlink/loop as a clean exit-2 refusal. Tasks 4/5 + test-spec updated. See brief
+  §9 Amendment 2.
 - 2026-07-17 — Kickoff (first activation), panel pass (meaning-class): the
   independent-model (gemini) review found the lens-pass `auto`-signing mechanism
   broken cross-machine. REQ-B1.2 corrected — the resume re-verify now keys off

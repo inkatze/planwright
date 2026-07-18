@@ -362,3 +362,34 @@ Class: meaning
 Lens-pass: panel pass (gemini via `panel-review --nested`); GEM findings validated three-pass (incl. a git repro for GEM-1) and dispositioned above
 Anchor: `cce1d153e505b957fe2f863fed3e5c3ff1137c7e` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 2 — panel pass iter 2, defensive tail (2026-07-17)
+
+Confirmation panel pass (gemini iteration 2) over Amendment 1. **Result: the
+corrected `auto`-trust model is sound** — the Security lens raised nothing beyond
+the accepted R10b, and Cross-file consistency returned "none — exceptional
+alignment". Four defensive-tail refinements applied (all clear fixes,
+dispositioned with the human); the panel is treated as converged (further
+iterations yield only diminishing incremental nits):
+
+- **I2-1 (applied):** REQ-B1.1/Task 4 force-update a reserved verification ref
+  (`refs/release-verify/<tag>`) and clean it up — a stale ref from an aborted
+  resume would otherwise block the next fetch.
+- **I2-2 (applied):** REQ-B1.2 treats a lightweight tag (no tag object) as
+  unsigned — accepted under `auto`, refused under `require`, never fed to
+  `git tag -v` (which errors on a non-tag object).
+- **I2-4 (applied):** REQ-G1.3 validates `require_ci` at config-read time
+  (unconditional), not lazily inside the CI gate the resume path skips.
+- **I2-8 (applied):** REQ-D1.1/D-5 treat a dangling/broken symlink or loop as a
+  clean exit-2 refusal.
+- **Dropped:** R10b re-flag (accepted); `release-window/README.md` docs (FP — the
+  relabel/CI obligations are release-please-specific); a test-stub detail.
+
+Files touched: `requirements.md` (REQ-B1.1, REQ-B1.2, REQ-G1.3, REQ-D1.1,
+changelog), `design.md` (D-5), `tasks.md` (Task 4, Task 5), `test-spec.md`
+(REQ-B1.2, REQ-D1.1). Validator 0/0; `markdownlint-cli2` clean.
+
+Class: meaning
+Lens-pass: panel pass iter 2 (gemini); model confirmed sound, defensive-tail findings validated and dispositioned above
+Anchor: `23c587e30863b4a8614c9ac65745f0143cec4860` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`

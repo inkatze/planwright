@@ -58,7 +58,9 @@ Under `require`, `git tag -v` is asserted called before `gh release create` and
 the resume refuses a missing or invalid signature. Under `auto`, the re-verify
 runs iff the origin tag is signed — a signed origin tag asserts `git tag -v`
 called and refuses on an invalid signature, an unsigned origin tag resumes
-without a re-verify. Under `never` the re-verify is skipped. A fresh-clone resume
+without a re-verify, and a lightweight tag (no tag object) is treated as unsigned
+(accepted under `auto`, refused under `require`, never fed to `git tag -v`).
+Under `never` the re-verify is skipped. A fresh-clone resume
 (no local tag) verifies the fetched origin object, not an absent local one.
 Confirms an origin tag is not trusted unconditionally and that resume trust keys
 off the origin tag's signedness.
@@ -120,8 +122,10 @@ presence and its citation resolving under `mise run check`'s spec validation.
 
 `tests/test-release-pending.sh`: a `version_file` that is a repo-relative
 symlink resolving outside the repository root asserts a clean exit-2 refusal
-with a diagnostic and no read; an in-tree `version_file` (plain, and via an
-in-tree symlink) still resolves and reads.
+with a diagnostic and no read; a **leaf** symlink (the `version_file` value
+itself) pointing outside is refused; a dangling/broken symlink and a symlink
+loop are each a clean exit-2 refusal (not an unhandled error); an in-tree
+`version_file` (plain, and via an in-tree symlink) still resolves and reads.
 
 ### REQ-D1.2 — portable, reusable, scoped to the fs reader [test + design-level]
 
