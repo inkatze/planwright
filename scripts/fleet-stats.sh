@@ -100,6 +100,15 @@ utc_iso() {
 # last-cleanup iso and the watchdog-trip count from it. Sets LAST_CLEANUP and
 # WATCHDOG_TRIPS. A query failure (corrupted home / broken install) degrades
 # both to `unknown` with a warning, never a silent zero.
+#
+# SCAN COST (kickoff risk 14, accepted). This scans the whole audit trail — but
+# fleet-audit.sh already time-bounds the store into UTC daily files, so the cost
+# is a small awk over at most one file per operating day, not an unbounded single
+# log. At realistic fleet lifetimes that is negligible even on the high-frequency
+# `line`/statusLine path. If the early signal risk 14 names ever fires (statusLine
+# latency growing with operating history), the mitigation is to bound the query
+# to a recent window (fleet-audit query already supports --since) or maintain
+# lightweight incremental counters — still derived, no new shared-write file.
 LAST_CLEANUP=""
 WATCHDOG_TRIPS=""
 derive_from_audit() {
