@@ -1,6 +1,6 @@
 # Worker Permission Ergonomics — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-18
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -84,37 +84,99 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   compound command (quote-aware split on `;`, `&&`, `||`, `|`, `&`, and
   newlines) is independently known-safe. Any ambiguity SHALL defer: unbalanced
   quotes, command or process substitution (`$(…)`, backticks, `<(…)`, `>(…)`),
-  a write-redirect to any target other than `/dev/null`, or an unrecognized
-  verb.
-  *(Cites: D-3.)*
-- **REQ-A1.5** The known-safe set SHALL comprise exactly: plugin/repo
+  a write-redirect to a file target other than `/dev/null` — appearing anywhere
+  in the segment including a leading redirect (`>f cmd`), and in any of the forms
+  `>`, `>>`, `>|`, `&>`, `&>>`, and `>&`/`<&` when the operand is a filename
+  rather than a digit or `-` (`cmd >& file` writes a file) — or an unrecognized
+  verb. File-descriptor duplication or closing whose operand is a digit or `-`
+  (`2>&1`, `>&2`, `2>&-`) is not a file write and does not defer.
+  *(Cites: D-3; kickoff §7 (2026-07-18).)*
+- **REQ-A1.5** The known-safe set SHALL be an explicit enumerated allowlist of
+  verbs and invocation shapes — never a category match — comprising: plugin/repo
   `scripts/*.sh` and `tests/*.sh` executed directly or via `bash`/`sh <path>`
-  (never `-c`); read-only shell builtins and coreutils (with `find` excluding
-  `-delete`/`-exec`/`-execdir`/`-ok`/`-fprint*` and `sed` excluding `-i`);
-  read-only `git` subcommands; the lint/test runners `shellcheck`,
-  `markdownlint`/`markdownlint-cli2`, `yamllint`, `bats`, and `mise
-  run`/`tasks`; read-only `gh` (`pr view`/`list`/`status`/`diff`/`checks`,
-  `auth status`, `repo view`); and shell control structures (`for`/`while`/
-  `if`/`case`) whose conditions and bodies are themselves verified, including
-  `fish -c "<inner>"` where `<inner>` recursively passes the same analysis
-  within a bounded recursion depth.
+  (never `-c`); an enumerated list of read-only shell builtins and read-only
+  coreutils (for example `cat`, `head`, `tail`, `wc`, `grep`, `cut`, `sort`,
+  `uniq`, `comm`, `diff`, `cmp`, `basename`, `dirname`, `realpath`, `printf`,
+  `echo`, `pwd`, `ls`, `stat`, `file`, `od`, `tr`, `date`, `seq`, `test`,
+  `true`, `false`), with `find` excluding
+  `-delete`/`-exec`/`-execdir`/`-ok`/`-fprint*` and `sed` excluding both `-i`
+  and its file-writing commands (`w`/`W`/`s///w`); an enumerated list of
+  read-only `git` subcommands (for example `log`, `show`, `diff`, `status`,
+  `rev-parse`, `cat-file`, `ls-files`, `ls-tree`, `for-each-ref`, `describe`,
+  `blame`, `shortlog`, `rev-list`) with per-subcommand flag guards wherever a
+  read-only subcommand has a mutating form (`branch` without
+  `-m`/`-M`/`-d`/`-D`/`-f`, `config` in read form only, `remote` without
+  `add`/`remove`/`set-url`, `tag`/`stash` in list/show form only); the
+  lint/test runners `shellcheck`, `markdownlint`/`markdownlint-cli2`,
+  `yamllint`, `bats`, and `mise run`/`tasks` (repo-defined tasks, trusted per
+  the kickoff trust boundary — distinct from the arbitrary-command runners
+  REQ-A1.6 defers); read-only `gh`
+  (`pr view`/`list`/`status`/`diff`/`checks`, `auth status`, `repo view`); and
+  shell control structures (`for`/`while`/`if`/`case`) whose conditions and
+  bodies are themselves verified, including `fish -c "<inner>"` where `<inner>`
+  recursively passes the same analysis within a bounded recursion depth. The
+  exhaustive positive verb membership is carried by the implementation (Task 1)
+  and pinned by the adversarial suite (REQ-B1.6).
   *(Cites: D-3; the validated prototype (Sources).)*
 - **REQ-A1.6** Everything not in the known-safe set SHALL defer, explicitly
   including `rm`, `curl … | sh`, `sudo`, `bash -c`/`sh -c`, in-place edits,
   write-redirects to a non-`/dev/null` target, command substitution, mutating
-  `git`/`gh` subcommands, and process kills (`kill`/`pkill`) — surfaced to the
-  human via the normal prompt.
+  `git`/`gh` subcommands, process kills (`kill`/`pkill`), command-runner verbs
+  that execute an arbitrary sub-command supplied on the command line without
+  further inspection (`env`, `xargs`, `timeout`, `nohup`, `nice`, `setsid`,
+  `stdbuf`, `chroot`), writer coreutils (`tee`, `dd`, `cp`, `mv`, `install`,
+  `truncate`, `ln`, `touch`), and text-tool write-escapes (`sed`
+  `w`/`W`/`s///w`, `awk` `print >`/`system()`) — surfaced to the human via the
+  normal prompt.
   *(Cites: D-3.)*
 - **REQ-A1.7** The hook SHALL consider only the Bash tool; for every other tool
   it SHALL defer.
   *(Cites: D-2.)*
+- **REQ-A1.8** An allowlisted verb SHALL be auto-approved only when its flags,
+  options, and arguments match an enumerated recognized-safe invocation for that
+  verb; ANY unrecognized flag or option, or any argument that could designate an
+  output/target file, SHALL defer. This is the safe-invocation rule that makes
+  the allowlist robust without chasing every dangerous flag: examples that MUST
+  defer under it include `sort -o FILE`/`--output`, `uniq IN OUT` (second
+  operand), `markdownlint --fix`/`markdownlint-cli2 --fix`, `date -s`, `file -C`,
+  `find -okdir`/`-fls`, and any `git` invocation carrying a pre-subcommand global
+  option (`-c`, `-C`, `--git-dir`, `--work-tree`, `--exec-path`), which can
+  inject config- or alias-driven command execution even on a read-only
+  subcommand.
+  *(Cites: D-3; kickoff §7 (2026-07-18).)*
+- **REQ-A1.9** The analyzer SHALL pin the shell grammar it parses (the shell the
+  Bash tool executes) and SHALL defer on any construct it does not confidently
+  parse, explicitly including: an inline environment-assignment prefix
+  (`VAR=value cmd`, e.g. `BASH_ENV=…`, `LD_PRELOAD=…`, `GIT_PAGER=…`); a verb
+  given as a path containing `/` (`/abs/cat`, `./cat`) except the enumerated repo
+  `scripts/*.sh`/`tests/*.sh` case (REQ-A1.5/REQ-A1.10); fish command
+  substitution (bare `(…)`) encountered within `fish -c` inner analysis;
+  subshell or brace grouping (`(…)`, `{ …; }`); a bundled or long-form `-c`
+  (`bash -ec`, `sh -xc`, `fish --command`); and backslash line-continuations,
+  escaped operators or quotes, and ANSI-C `$'…'` quoting whose semantics it does
+  not model. The operator splitter SHALL correctly tokenize multi-character
+  redirect operators (`>>`, `>|`, `&>`, `&>>`, `2>&1`) before splitting on the
+  control operators, so a redirect is never mis-split into a spurious safe
+  segment.
+  *(Cites: D-3; kickoff §7 (2026-07-18).)*
+- **REQ-A1.10** Before approving an enumerated `scripts/*.sh`/`tests/*.sh`
+  script invocation or a `bats <file>` invocation, the hook SHALL canonicalize
+  the (already-expanded) path and containment-check it against the repository
+  root; a path resolving outside the repository SHALL defer. The repo-resident
+  trust boundary (brief §2) holds only for paths that actually resolve inside the
+  checkout: `bash ../../../tmp/evil/scripts/x.sh` and `bats /tmp/evil.bats` MUST
+  defer.
+  *(Cites: D-3; security-posture path-access (Sources); kickoff §7 (2026-07-18).)*
 
 ## REQ-B — Implementation, robustness, and security
 
 - **REQ-B1.1** The hook SHALL be implemented in portable POSIX/bash shell with
   no dependency on python, fish, mise, tmux, or Ansible; the security-critical
-  command-analysis logic SHALL be pure shell.
-  *(Cites: D-4; bootstrap REQ-K1.5 (Sources).)*
+  command-analysis logic SHALL be pure shell. The analyzer SHALL treat the
+  extracted command string strictly as inert data — never `eval`-ed,
+  re-expanded, glob-expanded, or used as a pattern, format string, or unquoted
+  argument — so that analyzing a hostile command can never execute it.
+  *(Cites: D-4; bootstrap REQ-K1.5 (Sources); security-posture (Sources).)*
 - **REQ-B1.2** Extraction of `tool_name` and `tool_input.command` from the hook
   stdin payload SHALL use `jq`; when `jq` is absent the hook SHALL degrade to
   deferring every command (auto-approving nothing), never to a hand-rolled JSON
@@ -134,10 +196,29 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   *(Cites: security-posture framework-script security (Sources).)*
 - **REQ-B1.6** The hook SHALL ship with an adversarial test suite exercising at
   least the validated prototype's ~30 cases plus the regressions it surfaced
-  (for example `echo ok; rm -rf x` MUST defer), asserting ZERO false-allows and
-  that a `deny`-listed command is never auto-approved; the suite SHALL run under
-  the repo's `mise run test` / CI.
-  *(Cites: D-3; the validated prototype and its 30-case suite (Sources); security-posture (Sources).)*
+  (for example `echo ok; rm -rf x` MUST defer) and the kickoff-surfaced vectors
+  (REQ-A1.4/A1.8/A1.9/A1.10), asserting ZERO false-allows and that a
+  `deny`-listed command is never auto-approved; the suite SHALL include a
+  deny-precedence collision case derived from the actual
+  `config/worker-settings.json` `deny` block — a command matching BOTH the
+  known-safe set AND a `deny` rule — asserting the hook does not auto-approve it;
+  and it SHALL assert (design-level where not executable) that the classifier's
+  fallthrough branch is defer, so "zero false-allows" is guaranteed by
+  construction rather than only across the corpus. The suite SHALL run under the
+  repo's `mise run test` / CI.
+  *(Cites: D-3; the validated prototype and its 30-case suite (Sources); security-posture (Sources); kickoff §7 (2026-07-18).)*
+- **REQ-B1.7** The hook SHALL fail closed at the emission boundary: it SHALL
+  write its `allow` decision as a single final action only after every check has
+  passed (never a partially-written `allow`), and on the defer path and on any
+  error, signal, or unexpected state it SHALL produce empty stdout and exit 0.
+  It SHALL NEVER exit with status 2 or otherwise emit Claude Code's block/deny
+  signal (approval is upgrade-only; blocking stays with `permissions.deny`/`ask`,
+  REQ-A1.2). It SHALL bound its own runtime and read stdin defensively so it can
+  never hang a worker's tool call, and a present-but-empty or non-string
+  `tool_input.command`, or a script that is invoked but cannot start (missing
+  interpreter, non-executable, unreadable, parse error on the bash floor), SHALL
+  defer.
+  *(Cites: D-3, D-4; kickoff §7 (2026-07-18).)*
 
 ## REQ-C — Wiring and delivery
 
@@ -173,6 +254,18 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
 
 ## Changelog
 
+- 2026-07-18 — Kickoff sign-off via `/spec-kickoff` (Draft→Ready). Walkthrough
+  and sign-off lens pass hardened the command-analysis contract: REQ-A1.5 became
+  an explicit enumerated allowlist (sed/git flag guards); REQ-A1.6 gained the
+  command-runner / writer-coreutil / write-escape defer set; REQ-A1.4 pinned
+  file-write vs fd-dup redirects; REQ-B1.1 added the inert-data analysis clause;
+  and four new requirements closed the false-allow vectors the lens pass found —
+  REQ-A1.8 (safe-invocation / unknown-flag-defers), REQ-A1.9
+  (grammar-conservative deferral: env-prefixes, path-prefixed verbs, fish
+  bare-paren, redirect tokenization), REQ-A1.10 (script/bats path containment),
+  and REQ-B1.7 (fail-closed emission contract). REQ-B1.6 gained a deny-precedence
+  collision case; test-spec fixtures and Task 1 (2d→3–4d) updated to match. All
+  meaning-class, human-classified at sign-off.
 - 2026-07-18 — Bundle drafted at Status Draft via `/spec-draft`, building on
   fleet-autonomy (Ready) as a new spec rather than an amendment. Four
   drafting-session decisions shaped scope: include the literal-path root-cause
