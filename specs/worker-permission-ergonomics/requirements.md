@@ -265,7 +265,10 @@ existing D-18 doctrine floor, not a new doctrine gap (D-1).
   bare-paren, redirect tokenization), REQ-A1.10 (script/bats path containment),
   and REQ-B1.7 (fail-closed emission contract). REQ-B1.6 gained a deny-precedence
   collision case; test-spec fixtures and Task 1 (2d→3–4d) updated to match. All
-  meaning-class, human-classified at sign-off.
+  meaning-class, human-classified at sign-off. Pre-merge expression-only fix on
+  the spec PR: test-spec REQ entries grouped under `## REQ-<group>` headings
+  (`lint:md` MD001) and brief trailing blank lines removed (MD012) — no REQ
+  meaning or coverage changed; anchor recomputed.
 - 2026-07-18 — Bundle drafted at Status Draft via `/spec-draft`, building on
   fleet-autonomy (Ready) as a new spec rather than an amendment. Four
   drafting-session decisions shaped scope: include the literal-path root-cause

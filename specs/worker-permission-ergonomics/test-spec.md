@@ -12,6 +12,8 @@ quality guards and `[manual]` for the end-to-end dispatch confirmation that no
 prompt-flood occurs under the wired profile. The security-critical target is
 ZERO false-allows; the suite is the primary evidence.
 
+## REQ-A — The auto-approve hook
+
 ### REQ-A1.1 — Auto-approve known-safe shapes, no LLM in path [test + design-level]
 
 Suite fixtures assert `permissionDecision: allow` for representative known-safe
@@ -107,6 +109,8 @@ invocation whose (expanded) path resolves OUTSIDE the repository defers
 (`bash ../../../tmp/evil/scripts/x.sh`, `bats /tmp/evil.bats`), while an
 in-repository path allows — the containment check backing the trust boundary.
 
+## REQ-B — Implementation, robustness, and security
+
 ### REQ-B1.1 — Portable POSIX/bash, pure-shell analysis [test + design-level]
 
 `[test]`: the suite runs the hook under `/bin/bash` (the repo's bash 3.2 floor
@@ -163,6 +167,8 @@ invoked-but-cannot-start script path defers. `[test]` where a failure can be
 induced under the suite; the no-hang / bounded-runtime guarantee is exercised
 with a large/pathological input asserting prompt termination.
 
+## REQ-C — Wiring and delivery
+
 ### REQ-C1.1 — Wired into worker-settings via ${CLAUDE_PLUGIN_ROOT} [test + manual]
 
 `[test]`: a JSON-shape assertion confirms `config/worker-settings.json` carries
@@ -186,6 +192,8 @@ Review confirms the `_about` field documents the hook and the human-sign-off
 posture, that delivery remains manual merge/reference (no `settings.json`
 auto-edit by any skill), and that the fragment still reads as a
 human-review-before-use artifact.
+
+## REQ-D — Root-cause: literal script-path invocation
 
 ### REQ-D1.1 — Literal script-path invocation in the dispatching skills [test + manual]
 

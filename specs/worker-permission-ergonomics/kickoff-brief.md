@@ -321,12 +321,10 @@ recorded. Validator re-run on the Ready bundle: **0 errors, 0 warnings**.
 
 Class: meaning
 Lens-pass: §8 (full-bundle fan-out; canonical lens-coverage table above; all findings dispositioned — applied)
-Anchor: `24c20f0d07c40f24f1b2e3a6b2d8fcfcdf73c4ec` — computed as
+Anchor: `d37ea69fdffc63837cff9331985210b9a3551ee2` — computed as
 `scripts/spec-anchor.sh specs/worker-permission-ergonomics`
 
-
-
-
-
-
-
+*(Anchor recomputed after an expression-only pre-merge fix for `lint:md`:
+test-spec REQ entries grouped under `## REQ-<group>` headings (MD001
+heading-increment) mirroring `requirements.md`; brief trailing blank lines
+removed (MD012). No REQ meaning or coverage changed.)*
