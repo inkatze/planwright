@@ -127,6 +127,17 @@ case $out in
 esac
 echo "ok: throttle-engaged state reflects Task 7's live throttle state"
 
+# fleet-statusline.sh consumes the compact `line`, not `render`, so assert the
+# line also reports the engaged state while the throttle is still engaged (a
+# regression in the line's throttle field would otherwise slip past the render
+# assertion above).
+engaged_line=$(stats line) || fail "line render (throttle engaged) failed"
+case $engaged_line in
+  *"throttle engaged"*) ;;
+  *) fail "the compact line did not report 'throttle engaged' while engaged (got: $engaged_line)" ;;
+esac
+echo "ok: the compact line render also reports throttle engaged while engaged"
+
 # clearing the throttle returns the stat to idle (live state, not a stale row).
 throttle clear >/dev/null || fail "clearing the throttle failed"
 out=$(stats render)
@@ -138,11 +149,17 @@ echo "ok: throttle stat returns to idle after a live clear"
 
 # --- 5. THE NO-NEW-SHARED-WRITE-FILE FLOOR (D-13, REQ-F1.1 design-level).
 #        A render must derive on demand and write NOTHING: snapshot the fleet
-#        home's file inventory around a render and assert it is byte-identical.
-before=$(cd "$fleet_home" && find . -type f | LC_ALL=C sort)
+#        home around a render and assert it is byte-identical. `cksum` per file
+#        captures the path set AND each file's content (CRC + size), so this
+#        catches a new/removed file (path set) and a content mutation of an
+#        existing file alike — matching the "byte-identical" claim, not just a
+#        path list. cksum is POSIX (macOS + Linux) and the algorithm only has to
+#        be self-consistent within this run's before/after comparison.
+snapshot_home() { (cd "$fleet_home" && find . -type f -exec cksum {} + | LC_ALL=C sort); }
+before=$(snapshot_home)
 stats render >/dev/null || fail "render (no-write check) failed"
 stats line >/dev/null || fail "line (no-write check) failed"
-after=$(cd "$fleet_home" && find . -type f | LC_ALL=C sort)
+after=$(snapshot_home)
 [ "$before" = "$after" ] \
   || fail "a stats render wrote to the fleet home (D-13 no-new-file floor violated):
 before:
