@@ -291,6 +291,13 @@ mature precedent this spec can simply defer to wholesale.
   Pre-existing from the original draft, not introduced by the kickoff walkthrough; caught by CI
   after the PR was opened, not by the sign-off lens pass (which reviews doctrine/content, not
   markdownlint rules).
+- 2026-07-17 — Task 7 implementation (expression-only): extended Task 7's `Done when` in
+  `tasks.md` with the throttle-audit acceptance criterion ("throttle-engagement events log through
+  Task 1's audit-trail helper") and added D-16 · REQ-F1.4 to its `Citations:` — the gap-fill the
+  signed-off kickoff risk row 30 explicitly directs the implementation to make ("an accepted risk
+  with no acceptance criterion can silently ship unmitigated"), consistent with Tasks 2–4's
+  existing audit-trail Done-when pattern; no accepted decision contradicted, no REQ meaning
+  altered.
 
 - 2026-07-15 — Migrated to format-version 2 (invariant-tasks D-10, REQ-D1.3;
   one-shot `scripts/migrate-format-version.sh` run): placement sections
@@ -301,6 +308,16 @@ mature precedent this spec can simply defer to wholesale.
   canonical `tasks.md` extraction digest is unchanged), so the required
   re-anchor rides as expression-only: the kickoff brief's self-re-anchor
   entry cites this entry.
+
+- 2026-07-17 — Task 3 execution (expression-only, riding the Task 3 PR):
+  extended `tasks.md` Task 3's `Done when` with the overlapping-invocation
+  guard criterion (relaunch serializes on the existing per-spec advisory
+  lock D-20 and re-verifies positive evidence of death under it before
+  acting). This is the gap-fill the kickoff risk register's row 1 sign-off
+  note explicitly directed ("Task 3's implementation should extend its own
+  Done-when to cover it") — an accepted-risk mitigation already decided at
+  sign-off, given an acceptance criterion so it cannot silently ship
+  unmitigated; no requirement, design decision, or test semantics changed.
 
 ## Sources
 

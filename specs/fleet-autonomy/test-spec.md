@@ -47,8 +47,8 @@ disable.
 `[test]`: a fixture simulating a dead tower process plus ready work asserts the cron-triggered
 check launches a fresh tower using only durable disk state (the snapshot test: the fixture asserts
 no in-memory state is passed to the relaunch). `[manual]`: a periodic manual exercise confirms the
-real Claude Code scheduled-agent integration actually fires the check on a live host, since the
-scheduling primitive's real-world timing is outside what a fixture can assert.
+operator-scheduled cron/launchd entry actually fires the check on a live host, since real-world
+scheduler timing is outside what a fixture can assert.
 
 ### REQ-A1.6 — Interactive tower crash-recovery signpost [test + manual]
 
