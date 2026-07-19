@@ -783,14 +783,20 @@ guard_git() {
       return 0
       ;;
     branch)
+      # A listing-filter flag puts branch in read-only list mode, where a
+      # positional is a filter arg / pattern (never a branch to create); without
+      # one, a positional creates a branch and defers. Mirrors the tag guard.
+      local listing=0 positional=0
       for ((i = subidx + 1; i < cwn; i++)); do
         a=${cw[i]}
         case $a in
-          -a | --all | -r | --remotes | -v | -vv | --verbose | -l | --list | --show-current | --contains | --no-contains | --merged | --no-merged | --points-at | --points-at=* | --format | --format=* | --color | --color=* | --no-color | -q | --quiet | -i | --ignore-case | --sort | --sort=* | --column | --no-column | --abbrev | --abbrev=* | --no-abbrev) ;;
-          -*) return 1 ;; # any other flag (mutating or unknown) defers
-          *) return 1 ;;  # a positional operand would create/target a branch
+          -l | --list | --contains | --contains=* | --no-contains | --no-contains=* | --merged | --merged=* | --no-merged | --no-merged=* | --points-at | --points-at=*) listing=1 ;;
+          -a | --all | -r | --remotes | -v | -vv | --verbose | --show-current | --format | --format=* | --color | --color=* | --no-color | -q | --quiet | -i | --ignore-case | --sort | --sort=* | --column | --no-column | --abbrev | --abbrev=* | --no-abbrev) ;;
+          -*) return 1 ;; # any other flag (mutating -m/-d/-D/-f/-c/-u… or unknown) defers
+          *) positional=$((positional + 1)) ;;
         esac
       done
+      [ "$positional" -ge 1 ] && [ "$listing" = 0 ] && return 1
       return 0
       ;;
     config)
