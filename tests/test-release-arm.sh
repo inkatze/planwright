@@ -593,7 +593,7 @@ setup_release_pr "$r" 0.2.0 21
 run_arm "$r" 21 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
   ARM_OPEN_CALLS=1 ARM_MERGE_CI=red ARM_MERGE_STATE=SUCCESS GH_RELEASE_EXISTS=0
 assert_ne "a1/merge-red: refuses when the quality CI is red on the merge (non-zero)" "$RC" "0"
-assert_contains "a1/merge-red: names the fire-time ci gate on the merged commit" "$ERR" "red on the merged commit"
+assert_contains "a1/merge-red: names the fire-time ci gate on the merged commit" "$ERR" "failing on the merged commit"
 deny "a1/merge-red: never published" gh_called "$LOG" "release create"
 deny "a1/merge-red: no tag created" local_has_tag "$r" v0.2.0
 

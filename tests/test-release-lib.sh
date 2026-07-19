@@ -139,6 +139,163 @@ assert_lt "safe wide numeric prerelease width (18 digits, below 2^63)" \
 assert_lt "safe wide numeric core width (18 digits, below 2^63)" \
   "999999999999999998.0.0" "999999999999999999.0.0"
 
+# --- rl_ci_state: canonical CI verdict + workflow-scoped exclusion (Task 3) ---
+# (D-4, D-8; REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4.)
+#
+# rl_ci_state <sha> is the single CI-verdict primitive both release-publish.sh
+# (its ci gate) and release-arm.sh (its release-gating verdict) call, so the two
+# never drift on what counts as release-gating CI (REQ-C1.2). It reads the
+# GitHub statusCheckRollup, judges each check, excludes the untagged-window lock
+# SCOPED to its owning workflow (a CheckRun named window-lock AND whose
+# checkSuite.workflowRun.workflow.name is release-window — REQ-C1.3), folds the
+# remainder to one canonical verdict (green|failing|pending|none|too-many —
+# REQ-C1.1), and returns a distinct status (2, empty stdout) on a gh/query
+# failure so an infra outage is never misreported as a red verdict.
+#
+# rl_ci_state calls `gh repo view` and `gh api graphql`; stub gh on PATH with a
+# rollup driven by env, mirroring tests/test-release-arm.sh's stub shape. Each
+# assertion was validated non-vacuous during development (a bare-name exclusion,
+# or a query-failure folded to a verdict, turns the matching assertion red).
+ci_tmp=$(mktemp -d)
+trap 'rm -rf "$ci_tmp"' EXIT
+cat >"$ci_tmp/gh" <<'STUB'
+#!/bin/sh
+case "$1" in
+  repo) printf 'testowner/testrepo\n'; exit 0 ;;
+  api)
+    # A gh/query failure: exit non-zero with nothing on stdout.
+    [ "${CI_QUERY_FAIL:-0}" = 1 ] && { echo "gh: query failed" >&2; exit 1; }
+    printf '%s\n' "${CI_ROLLUP_JSON:-}"
+    exit 0 ;;
+esac
+exit 0
+STUB
+chmod +x "$ci_tmp/gh"
+
+# Node builders (canonical rollup JSON fragments).
+#   cr_check <state>  — a quality `ci` CheckRun (ci workflow): green|failing|pending|neutral
+cr_check() {
+  case "$1" in
+    green) printf '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+    failing) printf '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+    pending) printf '{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":null,"checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+    neutral) printf '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"NEUTRAL","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
+  esac
+}
+#   wl_check <workflow-json> — a `window-lock` CheckRun (conclusion FAILURE, as it
+#   is red BY DESIGN during the untagged window). <workflow-json> is the value of
+#   checkSuite.workflowRun: the real lock's `{"workflow":{"name":"release-window"}}`,
+#   a foreign workflow's `{"workflow":{"name":"other"}}`, or `null` (a non-Actions
+#   app check with no workflowRun).
+wl_check() {
+  printf '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":%s}}' "$1"
+}
+#   rollup <hasNextPage> <node>... — assemble a full statusCheckRollup response.
+rollup() {
+  local hnp="$1" nodes="" n
+  shift
+  for n in "$@"; do [ -z "$nodes" ] && nodes="$n" || nodes="$nodes,$n"; done
+  printf '{"data":{"repository":{"object":{"statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":%s},"nodes":[%s]}}}}}}' "$hnp" "$nodes"
+}
+NULL_ROLLUP='{"data":{"repository":{"object":{"statusCheckRollup":null}}}}'
+
+# Put the gh stub first on PATH and mark the stub's env inputs exported ONCE, in
+# this (non-subshell) scope, so each rl_ci_state call below reassigns them in the
+# current shell rather than inside a command-substitution subshell (which the
+# linter's SC2030/SC2031 would flag as a lost modification). PATH stays exported
+# by the reassignment, so the child gh stub is found and inherits it.
+CI_ROLLUP_JSON=""
+CI_QUERY_FAIL=0
+export PATH="$ci_tmp:$PATH" CI_ROLLUP_JSON CI_QUERY_FAIL
+
+# assert_ci_state <desc> <rollup-json> <expected-verdict> — drive rl_ci_state
+# with the stub returning <rollup-json>, expect verdict on stdout and rc 0.
+assert_ci_state() {
+  local desc="$1" json="$2" exp="$3" out rc=0
+  CI_ROLLUP_JSON="$json"
+  CI_QUERY_FAIL=0
+  out=$(rl_ci_state deadbeef 2>/dev/null) || rc=$?
+  if [ "$out" = "$exp" ] && [ "$rc" -eq 0 ]; then
+    echo "ok: $desc"
+  else
+    echo "FAIL: $desc — expected verdict [$exp] rc [0], got verdict [$out] rc [$rc]" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+# REQ-C1.1 — each canonical verdict.
+assert_ci_state "verdict green (a succeeding check, none bad)" \
+  "$(rollup false "$(cr_check green)")" "green"
+assert_ci_state "verdict failing (a failing check dominates)" \
+  "$(rollup false "$(cr_check green)" "$(cr_check failing)")" "failing"
+assert_ci_state "verdict pending (a running check, none failing)" \
+  "$(rollup false "$(cr_check green)" "$(cr_check pending)")" "pending"
+assert_ci_state "verdict none (no checks at all)" \
+  "$(rollup false)" "none"
+assert_ci_state "verdict none (null rollup)" \
+  "$NULL_ROLLUP" "none"
+assert_ci_state "verdict none (only NEUTRAL/SKIPPED — no positive confirmation)" \
+  "$(rollup false "$(cr_check neutral)")" "none"
+assert_ci_state "verdict too-many (a second page could hide a red check)" \
+  "$(rollup true "$(cr_check green)")" "too-many"
+
+# REQ-C1.1 — a gh/query failure is a DISTINCT status (2, empty stdout), never a
+# verdict: an infra outage must not be misreported as red CI.
+CI_QUERY_FAIL=1
+qf_rc=0
+qf_out=$(rl_ci_state deadbeef 2>/dev/null) || qf_rc=$?
+CI_QUERY_FAIL=0
+if [ -z "$qf_out" ] && [ "$qf_rc" -eq 2 ]; then
+  echo "ok: query failure returns status 2 with empty stdout (distinct from a red verdict)"
+else
+  echo "FAIL: query failure — expected empty stdout + rc 2, got [$qf_out] rc [$qf_rc]" >&2
+  failures=$((failures + 1))
+fi
+
+# REQ-C1.3 — the window-lock exclusion is WORKFLOW-SCOPED.
+# The REAL release-window lock (red by design) is excluded, so a green quality
+# check yields green — the untagged-window deadlock the carve-out exists to avoid
+# (REQ-C1.4, autopilot-reflex REQ-D1.3).
+assert_ci_state "excl: real release-window window-lock is excluded (green quality wins)" \
+  "$(rollup false "$(cr_check green)" "$(wl_check '{"workflow":{"name":"release-window"}}')")" "green"
+# The real lock ALONE (nothing else) folds to none, not green — a release gate
+# still requires a positive confirming check.
+assert_ci_state "excl: the excluded lock alone is not positive confirmation (none)" \
+  "$(rollup false "$(wl_check '{"workflow":{"name":"release-window"}}')")" "none"
+# A same-named window-lock from ANOTHER workflow is JUDGED, not dropped: its
+# FAILURE makes the verdict failing (the fail-open surface REQ-C1.3 closes).
+assert_ci_state "excl: foreign-workflow window-lock namesake is judged (failing)" \
+  "$(rollup false "$(cr_check green)" "$(wl_check '{"workflow":{"name":"other"}}')")" "failing"
+# A null-workflowRun namesake (a non-Actions app check) fails the release-window
+# test and is JUDGED too, never silently excluded.
+assert_ci_state "excl: null-workflowRun window-lock namesake is judged (failing)" \
+  "$(rollup false "$(cr_check green)" "$(wl_check null)")" "failing"
+
+# REQ-C1.2 — publish and arm resolve to the SAME verdict for the same SHA because
+# both are thin callers of this one primitive; the duplicated inline evaluators
+# are removed. Structural single-source check: the statusCheckRollup GraphQL query
+# (matched by its query signature `statusCheckRollup{contexts`, which appears only
+# in the actual query string, never in prose) lives ONLY in release-lib.sh, and
+# both callers reference rl_ci_state by name.
+grep_count() { grep -cF "$1" "$2" 2>/dev/null || true; }
+PUB="$here/../scripts/release-publish.sh"
+ARM="$here/../scripts/release-arm.sh"
+LIBSH="$here/../scripts/release-lib.sh"
+if [ "$(grep_count 'statusCheckRollup{contexts' "$LIBSH")" -ge 1 ] \
+  && [ "$(grep_count 'statusCheckRollup{contexts' "$PUB")" -eq 0 ] \
+  && [ "$(grep_count 'statusCheckRollup{contexts' "$ARM")" -eq 0 ]; then
+  echo "ok: the statusCheckRollup query lives only in release-lib.sh (inline evaluators removed)"
+else
+  echo "FAIL: statusCheckRollup query is duplicated outside release-lib.sh (publish/arm still inline)" >&2
+  failures=$((failures + 1))
+fi
+if [ "$(grep_count 'rl_ci_state' "$PUB")" -ge 1 ] && [ "$(grep_count 'rl_ci_state' "$ARM")" -ge 1 ]; then
+  echo "ok: both release-publish.sh and release-arm.sh call rl_ci_state (one verdict source)"
+else
+  echo "FAIL: a caller does not route through rl_ci_state (verdict sources can drift)" >&2
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

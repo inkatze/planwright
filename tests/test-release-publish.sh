@@ -211,9 +211,15 @@ case "$1" in
       neutral) add_node '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"NEUTRAL"}' ;;
       none) : ;;
     esac
+    # The window-lock CheckRun models the REAL release-window lock, so it carries
+    # checkSuite.workflowRun.workflow.name = release-window: rl_ci_state's
+    # exclusion is now WORKFLOW-SCOPED (REQ-C1.3), excluding the lock only when it
+    # is owned by the release-window workflow. (A foreign-workflow or null-workflowRun
+    # window-lock namesake being JUDGED, not excluded, is covered in
+    # tests/test-release-lib.sh, rl_ci_state's home.)
     case "${GH_WINDOW_LOCK:-}" in
-      red) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}'; worsen FAILURE ;;
-      green) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS"}' ;;
+      red) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":{"workflow":{"name":"release-window"}}}}'; worsen FAILURE ;;
+      green) add_node '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"SUCCESS","checkSuite":{"workflowRun":{"workflow":{"name":"release-window"}}}}' ;;
     esac
     # GH_STATUS_CONTEXT_NAME overrides the legacy commit-status context name
     # (default legacy-ci) so a StatusContext can be named "window-lock" to prove
@@ -453,7 +459,7 @@ new_repo "$r"
 seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=none GH_RELEASE_EXISTS=0
 assert_ne "gate/no-checks: exits non-zero (no CI → refuse)" "$RC" "0"
-assert_contains "gate/no-checks: names the ci gate with the rollup state" "$ERR" "rollup state: NONE"
+assert_contains "gate/no-checks: names the ci gate with the verdict" "$ERR" "verdict: none"
 deny "gate/no-checks: no local tag created" local_has_tag "$r" v0.1.0
 
 # 4f. CI not green.
@@ -519,7 +525,7 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=pending GH_RELEASE_EXISTS=0
 assert_ne "gate/pending: an in-progress check blocks publish" "$RC" "0"
 assert_contains "gate/pending: names the ci gate" "$ERR" "ci gate"
-assert_contains "gate/pending: classified PENDING (waits, not FAILURE)" "$ERR" "rollup state: PENDING"
+assert_contains "gate/pending: classified PENDING (waits, not FAILURE)" "$ERR" "verdict: pending"
 deny "gate/pending: no tag created while CI is pending" local_has_tag "$r" v0.1.0
 
 # 4h-6. StatusContext (legacy commit-status) path publishes on a green status.
@@ -566,7 +572,7 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=green GH_HASNEXTPAGE=true GH_RELEASE_EXISTS=0
 assert_ne "gate/pagination: hasNextPage fails closed despite a green visible page" "$RC" "0"
 assert_contains "gate/pagination: names the ci gate" "$ERR" "ci gate"
-assert_contains "gate/pagination: classified TOO_MANY (an unseen page could be red)" "$ERR" "rollup state: TOO_MANY"
+assert_contains "gate/pagination: classified TOO_MANY (an unseen page could be red)" "$ERR" "verdict: too-many"
 deny "gate/pagination: no tag created when checks exceed one page" local_has_tag "$r" v0.1.0
 
 # 4h-9. Positive-confirmation requirement. A run whose only non-excluded check is
@@ -579,7 +585,7 @@ seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=neutral GH_RELEASE_EXISTS=0
 assert_ne "gate/neutral-only: a neutral-only run is not positive confirmation" "$RC" "0"
 assert_contains "gate/neutral-only: names the ci gate" "$ERR" "ci gate"
-assert_contains "gate/neutral-only: classified NONE (no positive confirmation)" "$ERR" "rollup state: NONE"
+assert_contains "gate/neutral-only: classified NONE (no positive confirmation)" "$ERR" "verdict: none"
 deny "gate/neutral-only: no tag created with only neutral checks" local_has_tag "$r" v0.1.0
 
 # 4h-10. MIXED-VERDICT PRECEDENCE: a green check must not mask a red one. Two
@@ -595,7 +601,7 @@ new_repo "$r"
 seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=error GH_RELEASE_EXISTS=0
 assert_ne "gate/mixed-fail: a green check does not mask a red one" "$RC" "0"
-assert_contains "gate/mixed-fail: classified FAILURE, not green" "$ERR" "rollup state: FAILURE"
+assert_contains "gate/mixed-fail: classified FAILURE, not green" "$ERR" "verdict: failing"
 deny "gate/mixed-fail: no tag created when any non-excluded check is red" local_has_tag "$r" v0.1.0
 
 # 4h-11. MIXED-VERDICT PRECEDENCE: a green check must not mask a pending one. A
@@ -608,7 +614,7 @@ new_repo "$r"
 seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=pending GH_RELEASE_EXISTS=0
 assert_ne "gate/mixed-pending: a green check does not mask a pending one" "$RC" "0"
-assert_contains "gate/mixed-pending: classified PENDING, not green" "$ERR" "rollup state: PENDING"
+assert_contains "gate/mixed-pending: classified PENDING, not green" "$ERR" "verdict: pending"
 deny "gate/mixed-pending: no tag created while any non-excluded check is pending" local_has_tag "$r" v0.1.0
 
 # 4h-12. CheckRun-SCOPED carve-out (Copilot #163 review thread). The window-lock
@@ -622,7 +628,7 @@ new_repo "$r"
 seed_version "$r" 0.1.0
 run_publish "$r" GH_CI=green GH_STATUS_CONTEXT=error GH_STATUS_CONTEXT_NAME=window-lock GH_RELEASE_EXISTS=0
 assert_ne "gate/sc-window-lock: a red commit-status named window-lock is NOT carved out" "$RC" "0"
-assert_contains "gate/sc-window-lock: classified FAILURE (StatusContext judged, not excluded)" "$ERR" "rollup state: FAILURE"
+assert_contains "gate/sc-window-lock: classified FAILURE (StatusContext judged, not excluded)" "$ERR" "verdict: failing"
 deny "gate/sc-window-lock: no tag created (the same-named commit-status still blocks)" local_has_tag "$r" v0.1.0
 
 # 4h-13. The gh stub's top-level rollup `state` is server-accurate under mixed

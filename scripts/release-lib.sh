@@ -255,3 +255,92 @@ rl_latest_release_tag() {
   done < <(git tag -l 'v*')
   [[ -n "$best" ]] && printf '%s\n' "$best"
 }
+
+# The untagged-window lock check, EXCLUDED from the release-gating CI verdict,
+# SCOPED to its owning workflow (D-4, D-8; REQ-C1.3). The lock (release-window.yml,
+# check-run name `window-lock`) is RED BY DESIGN on `main` throughout the untagged
+# window — from the moment a release PR merges until publish tags it. It is a
+# MERGE gate, never a PUBLISH gate (autopilot-reflex REQ-D1.3, restated by
+# citation in REQ-C1.4): gating publish on it would deadlock, since publishing the
+# tag is the only thing that closes the window. A check is the lock ONLY when it is
+# a CheckRun named `window-lock` AND its owning Actions workflow is `release-window`
+# (checkSuite.workflowRun.workflow.name); a same-named check-run from any OTHER
+# workflow — and a null-workflowRun namesake (a non-Actions app check) — fails the
+# workflow test and is JUDGED by the gate, never silently dropped. Keying off the
+# workflow `name` is an improvement over a bare check-run-name match though not
+# spoof-proof within the merge-capable trust model (REQ-C1.3).
+RL_CI_WINDOW_LOCK_NAME="window-lock"
+RL_CI_WINDOW_LOCK_WORKFLOW="release-window"
+
+# rl_ci_state <sha> — print the release-gating CI verdict for commit <sha> to
+# stdout and return 0; on a gh/query failure print nothing and return 2, so a
+# caller distinguishes an infra outage from a red verdict (an outage is never
+# misreported as red CI). The SINGLE CI-verdict primitive both release-publish.sh
+# (its ci gate) and release-arm.sh (its release-gating verdict) call, so the two
+# never drift on what counts as release-gating CI (D-4; REQ-C1.1, REQ-C1.2). The
+# duplicated inline evaluators the two scripts carried are retired in favor of it.
+#
+# Canonical verdict vocabulary (REQ-C1.1), used by name across this bundle:
+#   green     at least one non-excluded check succeeded and none failed or is
+#             pending (NEUTRAL/SKIPPED checks neither confirm nor block)
+#   failing   a non-excluded check failed — it will not self-heal
+#   pending   a non-excluded check is still running
+#   none      no positive confirmation — no checks, only the excluded lock, or
+#             only NEUTRAL/SKIPPED remain. A release gate requires a positive
+#             SUCCESS, so "no CI" folds to none (fail-closed by design; an adopter
+#             without CI adds it, or opts out via the require_ci knob)
+#   too-many  more than one page of checks (>100) — the read is incomplete, so a
+#             failing/pending check could hide unread; fail closed
+#
+# The GraphQL statusCheckRollup's per-check `contexts` (check-runs AND commit
+# statuses) is judged individually, NOT the single aggregated rollup `state`: the
+# aggregate folds in the release-window lock, which is red BY DESIGN during the
+# untagged window, so a gate on the aggregate would deadlock (REQ-C1.4). The
+# window lock is excluded workflow-scoped (RL_CI_WINDOW_LOCK_* above). A CheckRun
+# is PENDING until COMPLETED; SUCCESS is the only positive confirmation;
+# NEUTRAL/SKIPPED neither confirm nor fail. Legacy StatusContexts map
+# SUCCESS/PENDING/EXPECTED/other the same way (commit statuses carry no
+# NEUTRAL/SKIPPED and no workflow, so a StatusContext is never the excluded lock).
+# Any jq error (malformed response, missing field) fails closed via `|| return 2`.
+#
+# Uses gh (only when CALLED — sourcing this lib does not require gh; the fs reader
+# release-pending.sh sources the lib but never calls rl_ci_state) and jq.
+rl_ci_state() {
+  local sha="$1" nwo owner repo raw
+  nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
+  owner=${nwo%%/*}
+  repo=${nwo#*/}
+  # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
+  raw=$(gh api graphql \
+    -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}}' \
+    -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
+  printf '%s' "$raw" | jq -r \
+    --arg nm "$RL_CI_WINDOW_LOCK_NAME" --arg wf "$RL_CI_WINDOW_LOCK_WORKFLOW" '
+    .data.repository.object.statusCheckRollup as $roll
+    | if $roll == null then "none"
+      elif ($roll.contexts.pageInfo.hasNextPage // false) then "too-many"
+      else
+        [ ($roll.contexts.nodes // [])[]
+          | if .__typename == "CheckRun" then
+              { excl: ( (.name // "") == $nm
+                        and ((.checkSuite.workflowRun.workflow.name // "") == $wf) ),
+                v: ( if .status != "COMPLETED" then "pending"
+                     elif .conclusion == "SUCCESS" then "green"
+                     elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "neutral"
+                     else "failing" end ) }
+            else
+              { excl: false,
+                v: ( if .state == "SUCCESS" then "green"
+                     elif (.state == "PENDING" or .state == "EXPECTED") then "pending"
+                     else "failing" end ) }
+            end
+        ]
+        | map(select(.excl | not)) | map(.v) as $vs
+        | if ($vs | length) == 0 then "none"
+          elif any($vs[]; . == "failing") then "failing"
+          elif any($vs[]; . == "pending") then "pending"
+          elif any($vs[]; . == "green") then "green"
+          else "none" end
+      end
+  ' 2>/dev/null || return 2
+}

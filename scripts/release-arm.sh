@@ -73,26 +73,14 @@ PUBLISH="$script_dir/release-publish.sh"
 MAIN_REF="main"
 ORIGIN_MAIN_REF="origin/main"
 
-# The untagged-window lock check, EXCLUDED from arm's release-gating CI verdict.
-# It is red BY DESIGN while the untagged window is open — after the release PR
-# merges, `main` carries the version bump with no matching tag, so the lock goes
-# red on the merge commit and stays red until publish tags it. The lock gates
-# merges, not the publish (Diego decision; mirrors fix/publish-ci-gate-window-
-# lock), so counting it would deadlock arm against a check that only publish can
-# turn green.
-#
-# Matched EXACTLY as release-publish.sh's ci_green matches it (`.type == CheckRun`
-# AND `.name == window-lock`): only the Actions check-run named window-lock is
-# carved out. A legacy commit-status (StatusContext) that merely shares the name
-# is JUDGED, not excluded — publish does the same, so a red foreign status blocks
-# both. Identical predicate = identical verdict, which is the whole point: arm
-# must never say GREEN on a state publish would refuse. The broader match arm
-# briefly used (workflow-name OR name-substring, also covering StatusContexts) was
-# a superset of publish's and reintroduced the very arm/publish divergence the
-# exclusion exists to close; the workflow-scoping HARDENING is tracked as a shared
-# follow-up that must land in BOTH scripts together (release-lib.sh helper), never
-# in arm alone.
-WINDOW_LOCK_NAME="window-lock"
+# The untagged-window lock check is red BY DESIGN while the untagged window is
+# open (it gates merges, not the publish), so arm's release-gating verdict must
+# not count it. That carve-out — now workflow-scoped (a CheckRun named
+# `window-lock` whose owning workflow is `release-window`; REQ-C1.3) — lives in the
+# shared rl_ci_state primitive (release-lib.sh), which release-publish.sh calls
+# too, so arm never says green on a state publish would refuse: identical predicate
+# = identical verdict, by construction (D-4, REQ-C1.2). The prior inline
+# `rl_ci_verdict`/WINDOW_LOCK_NAME evaluator is retired in favor of it.
 
 poll_seconds=${RELEASE_ARM_POLL_SECONDS:-15}
 max_polls=${RELEASE_ARM_MAX_POLLS:-240}
@@ -151,85 +139,15 @@ case "/$vf_path/" in
   */../*) die "version_file must not use a '..' path component: '$(sanitize_printable "$vf_path")'" ;;
 esac
 
-# --- Release-gating CI verdict (window-lock-excluding; step 1 + fire) ---------
-# rl_ci_verdict <sha> — echo the release-gating CI verdict for <sha>, one of:
-#   GREEN   at least one release-gating check succeeded and none failed or is
-#           pending (NEUTRAL/SKIPPED checks neither confirm nor block)
-#   RED     a release-gating check failed — it will not self-heal, so refuse
-#   PENDING a release-gating check is still running — keep waiting
-#   NONE    no positive CI confirmation yet — no checks, or only the excluded
-#           lock, or only NEUTRAL/SKIPPED left — fail closed (keep waiting,
-#           refuse on timeout); "no CI" and "no success" are never a green light
-#   TOO_MANY more than one page of checks (>100) — the read is incomplete, so a
-#           failing/pending check could hide unread; fail closed (refuse now, do
-#           not wait) exactly as release-publish.sh does
-# EXCLUDING the untagged-window lock (the CheckRun named $WINDOW_LOCK_NAME),
-# which is red BY DESIGN during the untagged window and gates merges, not the
-# publish. Excluding it here is what lets arm see the *quality* CI go green on a
-# merge commit whose aggregate rollup is red purely because the lock engaged.
-# This mirrors the publish-side window-lock exclusion (fix/publish-ci-gate-window-
-# lock) so arm and publish agree on the release-gating verdict; it is deliberately
-# an inline copy so release-publish.sh stays byte-for-byte the unchanged fallback
-# (D-12) — a shared helper in release-lib.sh is a noted follow-up, to be reused
-# here if the publish hotfix lands one first.
-#
-# Returns 0 with the verdict on stdout; returns 2 (empty stdout) on a query
-# failure, so the caller fails closed and distinguishes an infra outage from RED.
-rl_ci_verdict() {
-  local sha="$1" nwo owner repo raw
-  nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
-  owner=${nwo%%/*}
-  repo=${nwo#*/}
-  # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
-  raw=$(gh api graphql \
-    -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}}' \
-    -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
-  # Partition the rollup contexts into the excluded window lock and the release-
-  # gating remainder, then fold the remainder to a single verdict. A CheckRun is
-  # PENDING until COMPLETED; SUCCESS is the only positive confirmation ("OK");
-  # NEUTRAL/SKIPPED neither confirm nor fail ("SKIP"); any other completed
-  # conclusion is FAIL. Legacy StatusContexts map SUCCESS/PENDING/EXPECTED/other
-  # the same way (commit statuses carry no NEUTRAL/SKIPPED concept). This mirrors
-  # release-publish.sh's ci_green positive-confirmation model exactly (a
-  # neutral-only remainder folds to NONE, not GREEN): a release gate requires at
-  # least one real SUCCESS, so arm never arms-and-fires on a state whose own
-  # publish-side ci_green would then refuse on the identical NONE verdict.
-  #
-  # Pagination: the query reads only the first 100 contexts. If more exist
-  # (hasNextPage), a failing/pending check could hide on an unread page, so the
-  # fold cannot be trusted — emit TOO_MANY and fail closed, exactly as
-  # release-publish.sh's ci_green does. Both callers treat TOO_MANY as a refusal
-  # (never GREEN), so arm never arms/fires on an incompletely-read CI set.
-  printf '%s' "$raw" | jq -r --arg nm "$WINDOW_LOCK_NAME" '
-    .data.repository.object.statusCheckRollup as $roll
-    | if ($roll.contexts.pageInfo.hasNextPage // false) then "TOO_MANY"
-      else
-    ($roll.contexts.nodes // []) as $n
-    | [ $n[]
-        | if .__typename == "CheckRun" then
-            { excl: ((.name // "") == $nm),
-              res: ( if .status != "COMPLETED" then "PENDING"
-                     else ( (.conclusion // "") as $c
-                            | if $c == "SUCCESS" then "OK"
-                              elif ($c == "NEUTRAL" or $c == "SKIPPED") then "SKIP"
-                              else "FAIL" end )
-                     end ) }
-          elif .__typename == "StatusContext" then
-            { excl: false,
-              res: ( if .state == "SUCCESS" then "OK"
-                     elif (.state == "PENDING" or .state == "EXPECTED") then "PENDING"
-                     else "FAIL" end ) }
-          else { excl: false, res: "PENDING" } end
-      ]
-    | map(select(.excl | not))
-    | if length == 0 then "NONE"
-      elif any(.[]; .res == "FAIL") then "RED"
-      elif any(.[]; .res == "PENDING") then "PENDING"
-      elif any(.[]; .res == "OK") then "GREEN"
-      else "NONE" end
-      end
-  ' 2>/dev/null || return 2
-}
+# Release-gating CI verdict: the shared rl_ci_state primitive (release-lib.sh),
+# which release-publish.sh's ci gate calls too, so arm and publish agree on the
+# release-gating verdict by construction (D-4, REQ-C1.1, REQ-C1.2). It excludes
+# the untagged-window lock workflow-scoped (REQ-C1.3), returns one canonical
+# verdict (green|failing|pending|none|too-many) on stdout and rc 0, and a distinct
+# status (2, empty stdout) on a gh/query failure — so arm fails closed and
+# distinguishes an infra outage from a failing verdict (arm retries a query
+# failure within its poll budget; publish fails closed one-shot — the downstream
+# handling deliberately differs, the verdict does not).
 
 # A 40- or 64-hex commit oid (SHA-1 / SHA-256), validated before use as a git ref.
 is_hex_oid() {
@@ -331,13 +249,13 @@ fi
 # this gate). Pre-validation requires a settled GREEN: a still-running head is a
 # refusal to arm now, not a wait.
 head_ci=""
-head_ci=$(rl_ci_verdict "$head_oid") \
+head_ci=$(rl_ci_state "$head_oid") \
   || die "pre-validation: could not verify GitHub CI on the PR head $head_oid (gh query failed); resolve connectivity/auth and re-run"
 case "$head_ci" in
-  GREEN) : ;;
-  RED) die "pre-validation: ci gate — a release-gating check is red on the PR head $head_oid (window lock excluded)" ;;
-  PENDING) die "pre-validation: ci gate — release-gating CI is still running on the PR head $head_oid; wait for it to settle green before arming" ;;
-  TOO_MANY) die "pre-validation: ci gate — the PR head $head_oid has more than one page of checks (>100); CI completeness cannot be verified from a single read — publish manually with $PUBLISH after confirming CI" ;;
+  green) : ;;
+  failing) die "pre-validation: ci gate — a release-gating check is failing on the PR head $head_oid (window lock excluded)" ;;
+  pending) die "pre-validation: ci gate — release-gating CI is still running on the PR head $head_oid; wait for it to settle green before arming" ;;
+  too-many) die "pre-validation: ci gate — the PR head $head_oid has more than one page of checks (>100); CI completeness cannot be verified from a single read — publish manually with $PUBLISH after confirming CI" ;;
   *) die "pre-validation: ci gate — no release-gating CI on the PR head $head_oid (a release gate requires positive CI confirmation)" ;;
 esac
 
@@ -434,20 +352,20 @@ while :; do
   j=$((j + 1))
   merge_ci=""
   vrc=0
-  merge_ci=$(rl_ci_verdict "$merge_oid") || vrc=$?
-  [ "$vrc" -eq 2 ] && merge_ci="QUERY_ERROR" # transient — retry within budget
+  merge_ci=$(rl_ci_state "$merge_oid") || vrc=$?
+  [ "$vrc" -eq 2 ] && merge_ci="query-error" # transient — retry within budget
   case "$merge_ci" in
-    GREEN) break ;;
-    RED)
-      die "fire: ci gate — a release-gating check is red on the merged commit $merge_oid (window lock excluded); refusing to publish — investigate CI, then publish manually with $PUBLISH once green"
+    green) break ;;
+    failing)
+      die "fire: ci gate — a release-gating check is failing on the merged commit $merge_oid (window lock excluded); refusing to publish — investigate CI, then publish manually with $PUBLISH once green"
       ;;
-    TOO_MANY)
-      # Will not self-heal by waiting: refuse now, like RED (and like publish's
-      # own fail-closed on >100 checks). Waiting the whole budget would only
-      # delay the same refusal.
+    too-many)
+      # Will not self-heal by waiting: refuse now, like a failing check (and like
+      # publish's own fail-closed on >100 checks). Waiting the whole budget would
+      # only delay the same refusal.
       die "fire: ci gate — the merged commit $merge_oid has more than one page of checks (>100); CI completeness cannot be verified from a single read — refusing to publish, run $PUBLISH manually after confirming CI"
       ;;
-    *) # PENDING | NONE | QUERY_ERROR — keep waiting within the poll budget
+    *) # pending | none | query-error — keep waiting within the poll budget
       if [ "$j" -ge "$max_polls" ]; then
         die "fire: release-gating CI did not go green on $merge_oid within $max_polls polls (last: $(sanitize_printable "$merge_ci")); disarming — publish manually with $PUBLISH once CI is green"
       fi
