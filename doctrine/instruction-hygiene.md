@@ -160,6 +160,97 @@ forms exist, each requiring a recorded reason: a **permanent exemption**
 **transitional `pending diet (Task N)` allowance** (any budget, temporary,
 removed by that diet's own PR, forbidden at closeout).
 
+## Headroom: floors, targets, and the restoration ladder
+
+Budgets bound bloat at the error threshold; headroom keeps required growth off
+that wall. Saturating a budget forces reverts and force-trims for budget reasons
+alone, so the policy adds a margin floor below each error threshold, a
+restoration target above it, and an ordered ladder for a surface drifted too
+close.
+
+### Headroom floors
+
+Each budgeted surface class carries a **headroom floor**: a minimum word margin
+below its error threshold. "Margin" unqualified means margin-to-error (the error
+threshold minus the current, charged word count); the warn-threshold distance is
+margin-to-warn. The four floors ship as overlay-tunable core knobs in
+`config/defaults.yml`, one per class:
+
+| Surface class | Floor knob | Default |
+| --- | --- | --- |
+| SKILL.md body (per file) | `instruction_budget_skill_floor` | 250 |
+| Rule doc (per file) | `instruction_budget_doctrine_floor` | 250 |
+| Mandatory-at-start | `instruction_budget_startload_floor` | 500 |
+| Reachable closure | `instruction_budget_closure_floor` | 1,000 |
+
+The knobs map one-to-one to the four classes in the order listed. A surface
+whose margin is **strictly below** its floor is in breach and triggers the
+restoration ladder; margin equal to the floor is compliant. Breach is a **named
+warning on every guard run**, never an error — an error would recreate the
+blocking problem this policy fixes. The floors are roughly 5–6% of the error
+thresholds, so erosion becomes visible a full routine addition (80–560 words
+observed) before the hard wall. A missing or non-numeric floor knob aborts the
+guard fail-loud, like the existing budget knobs.
+
+Two surfaces carry no floor: the injected-context surface (warn-only, no error
+threshold) and a permanently per-file-exempt doc (its per-file budget already
+waived by its standing exemption; its aggregate weight is capped, below).
+
+### Restoration targets
+
+A restoration pass aims past the floor to a **target of twice the floor** (500 /
+500 / 1,000 / 2,000), so a restored surface absorbs floor-many words of routine
+growth before re-breaching. The two backstops divide by depth, and neither
+defers gating law to hit a number:
+
+- **Below its floor and blocked** (cannot restore margin without deferring
+  gating law) ⇒ escalate to the human.
+- **At or above its floor but short of target** (cannot reach 2× without
+  deferring gating law) ⇒ record a **declared exception**, machine-checked by
+  the guard's below-target warning.
+
+### The restoration ladder
+
+A breached surface climbs an **ordered** ladder, cheapest-honest-fix first.
+Escalating to a rung requires the prior rung exhausted or inapplicable, the
+inapplicability **recorded**:
+
+1. **Diet.** Trim non-law prose, moving law verbatim in meaning. The default
+   first move.
+2. **Point-of-use reclassification.** Move deferrable bulk from run-start to
+   point-of-use. Requires the diet exhausted (no trimmable non-law prose
+   remains) or disproportionate, and **never moves gating law**.
+3. **Deliberate budget raise.** Raise a named threshold knob. Requires both
+   prior rungs exhausted or inapplicable, and carries a recorded rationale; a
+   silent raise is forbidden.
+4. **Exemption.** Per-file-floor only, permanent, with a standing rationale.
+
+**No rung defers gating law.** The safety floor (gating law loads run-start) is
+inviolable on every rung; a surface that cannot restore margin without deferring
+it escalates to the human. Rung 4 is **per-file only**: an aggregate surface
+(mandatory-at-start, reachable closure) tops out at rung 3 and escalates to the
+human thereafter. The capped charge below is the aggregate-side analog of a
+per-file exemption.
+
+### Capped charge for permanently exempt docs
+
+Aggregate enforcement (mandatory-at-start and reachable closure) charges a
+permanently per-file-exempt doc at **min(actual words, that doc's per-file error
+threshold)**, so dependents of a sanctioned over-floor doc absorb its bounded
+growth without per-edit budget ceremony. Measurement stays honest: the full word
+counts are still computed and reported beside the charged values; only the
+enforcement comparison changes.
+
+### Recorded rationale for raises and exemptions
+
+A budget raise and an exemption each carry a **recorded rationale**, never
+silent — a suppression-list entry: a raise records a `raise|` entry matching the
+raised knob's effective value; an exemption its standing `exempt|` entry. A
+threshold knob raised above its shipped core default with no matching entry (a
+silent raise), or a reason-less entry, is a guard error (fail-closed). Rationale
+text carries decision shape only — no secrets, hostnames, or sensitive
+operational detail (see [security-posture.md](security-posture.md)).
+
 ## Test and measure
 
 Instruction files are runtime artifacts and get the discipline of code:
