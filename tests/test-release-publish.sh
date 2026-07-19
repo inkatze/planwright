@@ -756,6 +756,26 @@ else
   echo "skip: ssh-keygen unavailable — signing sub-tests (5a-5d) skipped"
 fi
 
+# 5e. Creation-path trust-boundary hardening (release-hardening Task 4 follow-up):
+#     a MALFORMED/unreadable require_signed_tags config FAILS CLOSED on the
+#     CREATION path too, never silently downgrading to auto — symmetric with the
+#     resume-path 11n fix. Fault-inject config-get exit 4 via a malformed
+#     repo-tracked overlay (a block sequence is not flat 'key: value' YAML). Even
+#     though the overlay intends `require`, the parse failure must NOT be swallowed
+#     into an auto fallback that tags UNSIGNED; a fresh publish must die with no
+#     tag created or pushed. No ssh-keygen needed (config-get exits 4 regardless).
+r="$tmp/create-malformed-config"
+new_repo "$r"
+seed_version "$r" 0.1.0
+mkdir -p "$r/.claude"
+printf 'require_signed_tags: require\nbroken_list:\n  - a\n  - b\n' >"$r/.claude/planwright.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "sign/create-malformed: exits non-zero (fail-closed, no silent auto downgrade)" "$RC" "0"
+assert_contains "sign/create-malformed: names the malformed-config error" "$ERR" "malformed or unreadable"
+deny "sign/create-malformed: no tag created" local_has_tag "$r" v0.1.0
+deny "sign/create-malformed: nothing pushed to origin" origin_has_tag "$r" v0.1.0
+deny "sign/create-malformed: no Release created" gh_called "$LOG" "release create"
+
 # ===========================================================================
 # 6. version_file knob ports the version of truth (REQ-D1.6).
 # ===========================================================================

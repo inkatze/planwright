@@ -320,7 +320,18 @@ if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
   # Signing policy (D-4, REQ-D1.4). `auto`: sign when the repo has signing
   # configured, else annotated unsigned with a warning. `require`: refuse unless
   # signing is configured and succeeds. `never`: always annotated unsigned.
-  mode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null) || mode=""
+  # Fail CLOSED on a malformed/unreadable config: config-get.sh exits 4 when the
+  # repo-tracked (team-shared) overlay is malformed — its explicit "refuse to
+  # silently degrade a shared team config" signal. A parse error must NOT collapse
+  # into the auto fallback (which would tag UNSIGNED under an intended `require`),
+  # so a broken config cannot defeat a require policy. Exit 3 (knob absent) is the
+  # legitimate "unset" case and defaults to auto; only exit 4 hard-fails here.
+  # Symmetric with the resume-path signing-mode read and require_ci (D-4/D-3).
+  mode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null)
+  cg_rc=$?
+  if [ "$cg_rc" -eq 4 ]; then
+    die "config: require_signed_tags is malformed or unreadable (config-get exit 4); refusing to fall back to auto — fix the config and re-run"
+  fi
   [ -n "$mode" ] || mode="auto"
   case "$mode" in
     auto | require | never) : ;;
