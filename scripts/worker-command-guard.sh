@@ -700,9 +700,20 @@ guard_mise() {
     esac
   done
   case $sub in
-    run | tasks) return 0 ;;
+    tasks) return 0 ;;
+    run) ;; # fall through to the shell-override guard below
     *) return 1 ;;
   esac
+  # `mise run --shell/-s '<cmd>'` overrides the interpreter, turning the trusted
+  # repo-task runner into an arbitrary-command runner (REQ-A1.6). Defer any
+  # short-flag token carrying `s` (`-s`, `-ns`, …) or the long `--shell` form.
+  for (( ; i < cwn; i++)); do
+    case ${cw[i]} in
+      --shell | --shell=*) return 1 ;;
+      -[!-]*s* | -s*) return 1 ;;
+    esac
+  done
+  return 0
 }
 
 guard_gh() {
