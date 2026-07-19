@@ -464,8 +464,9 @@ fi
 # record. A silent raise (no matching entry), an absent or unreadable core
 # baseline, or a stale raise| entry (its knob at/below the core default, or
 # unknown) is a fail-closed guard error. Floor knobs (*_floor) are protective and
-# excluded by suffix. The core baseline is read overlay-free (config-get rooted at
-# an empty repo), a fixed set of reads that does not scale with the corpus.
+# excluded by suffix. The core baseline is read directly from config/defaults.yml
+# (the core layer only, no config-get/overlay resolution — see core_baseline
+# below), a fixed set of reads that does not scale with the corpus.
 ########################################################################
 raise_governed_knobs="instruction_budget_skill_warn instruction_budget_skill_error instruction_budget_doctrine_warn instruction_budget_doctrine_error instruction_budget_startload_warn instruction_budget_startload_error instruction_budget_closure_warn instruction_budget_closure_error instruction_budget_injected_warn"
 
