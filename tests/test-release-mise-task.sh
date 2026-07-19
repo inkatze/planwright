@@ -101,7 +101,7 @@ arm_run=$(awk '
     in_arm = ($0 == "[tasks.release-arm]" || $0 == "[tasks.\"release-arm\"]")
     next
   }
-  in_arm && /run[[:space:]]*=/ {
+  in_arm && /^[[:space:]]*run[[:space:]]*=/ {
     sub(/^[[:space:]]*run[[:space:]]*=[[:space:]]*/, "")
     sub(/^["'\'']/, "")
     sub(/["'\''][[:space:]]*$/, "")
