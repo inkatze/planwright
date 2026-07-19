@@ -75,8 +75,9 @@ self_dir="$(cd "$(dirname "$0")" && pwd -P)"
 # Echo discipline for the untrusted values this guard newly surfaces to the
 # terminal — floor-breach / below-target surface keys and declared-exception
 # rationales (instruction-headroom "Echo and data hygiene", security-posture).
-# Sourced from the canonical helper; an inline fallback (byte-identical to
-# echo-safety.sh) keeps the guard self-contained if the helper is unavailable.
+# Sourced from the canonical helper; an inline fallback (behavior-identical to
+# echo-safety.sh, reformatted for the nested block) keeps the guard
+# self-contained if the helper is unavailable.
 if [ -r "$self_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$self_dir/echo-safety.sh"
@@ -507,7 +508,7 @@ core_baseline() {
   [ -r "$config_defaults" ] || return 1
   grep -q "^$1:" "$config_defaults" 2>/dev/null || return 1
   _cbv="$(sed -n "s/^$1:[[:space:]]*//p" "$config_defaults" \
-    | head -1 \
+    | head -n 1 \
     | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
       -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
   case "$_cbv" in
