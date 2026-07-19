@@ -429,6 +429,26 @@ for reader in release-window-check.sh release-publish.sh release-arm.sh; do
 done
 assert_eq "the symlink-immune git-show readers do not reference the canonicalization guard" "$untouched" "yes"
 
+# 7m. Exercise the `readlink --` end-of-options guard. It fires only when the
+#     leaf IS a symlink whose NAME begins with '-', so `_rl_resolve_leaf_symlink`
+#     calls `readlink -- "$target"` on a dash-leading operand. (7l's value `-n` is
+#     a non-existent non-symlink, so `[ -L "-n" ]` is false and readlink is never
+#     reached — only dirname/basename `--` are.) The leaf points at an in-tree
+#     REALVERSION, so a correct resolve reads `pending`. Discriminating: without
+#     the `--`, `readlink -dleaf` is parsed as options ("illegal option") and the
+#     guard refuses (exit 2, no read); the green `pending` here holds only while
+#     the readlink call is `--`-guarded.
+r="$tmp/dash-symlink-leaf"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/REALVERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add REALVERSION"
+gitc "$r" tag v0.1.0
+ln -s REALVERSION "$r/-dleaf"
+set_vf "$r" "-dleaf"
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "an in-tree leaf symlink whose name starts with '-' reads (readlink -- guard)" "$out" "pending${TAB}0.2.0"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
