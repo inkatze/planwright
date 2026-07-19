@@ -1337,6 +1337,10 @@ assert_contains "capped doc per-file line shows the charged word count" "charged
 
 # a NON-exempt doc stays fully charged and shows no charged= column.
 full_row="$(printf '%s\n' "$aud" | grep -F 'doctrine/fulldoc.md')"
+# guard the assert_absent against a vacuous pass: prove the row is present first,
+# so "no charged= column" cannot pass merely because the row went missing.
+assert_contains "the non-exempt doc's per-file row is present (non-vacuous guard)" \
+  "words=4500" "$full_row"
 assert_absent "a non-exempt doc's per-file line carries no charged= column" "charged=" "$full_row"
 plain_row="$(printf '%s\n' "$aud" | grep -F 'plain start-load=')"
 assert_contains "a non-exempt doc is charged in full to a dependent start-load" \
@@ -1385,12 +1389,39 @@ assert_contains "an under-threshold exempt doc charges its actual to the aggrega
 assert_absent "an uncapped exempt-but-small aggregate shows no (actual) twin" \
   "(actual" "$dep_row_c"
 
+# 16f. the cap fires on the POINT-OF-USE-only path too (closure branch, not
+#      start-load): an exempt over-threshold doc reached only via point-of-use
+#      caps the closure while the start-load (which never includes it) is
+#      untouched. This isolates the else-branch cap that 16a's run-start doc does
+#      not exercise; a mutation dropping the cap there moves only the closure.
+t16f="$tmproot/t16f"
+scaffold "$t16f"
+make_doc "$t16f" pucap 4500 # exempt, over 4000, reached point-of-use only
+make_skill "$t16f" puskill 100 "Doctrine: point-of-use pucap (rare branch)"
+cat >"$t16f/config/instruction-budget-exemptions.txt" <<'EOF'
+exempt|doctrine/pucap.md|standing rationale: kept large on purpose
+EOF
+pubody=$(wc -w <"$t16f/skills/puskill/SKILL.md" | tr -d ' ')
+aud="$(/bin/bash "$CHECKER" --audit --root "$t16f" 2>&1)"
+pu_row="$(printf '%s\n' "$aud" | grep -F 'puskill start-load=')"
+# start-load carries no point-of-use doc, so it equals the body and shows no cap.
+assert_contains "point-of-use-only start-load is uncapped (body only)" \
+  "puskill start-load=$pubody " "$pu_row"
+# closure caps the exempt point-of-use doc at 4000, printing the actual (body+4500).
+assert_contains "point-of-use exempt doc caps the closure at the doctrine threshold" \
+  "closure=$((pubody + 4000)) " "$pu_row"
+assert_contains "point-of-use capped closure prints the honest actual" \
+  "(actual $((pubody + 4500)))" "$pu_row"
+
 # 16d. real-corpus proof (Task 3 Done-when): the orchestrate closure and
 #      execute-task start-load charge spec-format.md at its 4,000 per-file error
 #      threshold, and the larger actual stays printed beside the charged total.
-#      Derived from the guard's own output so it is robust to corpus drift (R4):
-#      the overage (actual spec-format words − 4,000) is exactly the gap between
-#      each dependent aggregate's charged and actual values.
+#      Derived from the guard's own output so it is robust to word-count drift
+#      (R4): the overage (actual spec-format words − 4,000) is exactly the gap
+#      between each dependent aggregate's charged and actual values. It still
+#      assumes spec-format stays run-start for execute-task and point-of-use for
+#      orchestrate (true through this spec's tasks); a structural reclassification
+#      would fail this loud (the empty-actual guard below), not pass silently.
 aud="$(/bin/bash "$CHECKER" --audit 2>&1)"
 sf_line="$(printf '%s\n' "$aud" | grep -F 'doctrine/spec-format.md ' | grep -F 'charged=')"
 assert_contains "spec-format.md is charged at its 4,000 per-file error threshold" \
