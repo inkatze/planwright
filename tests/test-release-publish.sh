@@ -1281,6 +1281,158 @@ assert_contains "resume/malformed-config: names the malformed-config resume gate
 deny "resume/malformed-config: no Release created on a malformed signature-mode config" gh_called "$LOG" "release create"
 want "resume/malformed-config: the verification ref is cleaned up on the fail-closed refusal" verify_ref_gone "$r" v0.1.0
 
+# ===========================================================================
+# 12. require_ci knob (REQ-G1.3, release-hardening Task 6): a core `require_ci`
+#     knob (default `true`) that, when `false`, relaxes ONLY the NONE / "no
+#     positive CI confirmation" verdict — across all three NONE sub-cases (null
+#     rollup, empty-after-window-lock-exclusion, all-NEUTRAL/SKIPPED) — while a
+#     FAILING, PENDING, TOO_MANY, or query-failure verdict stays fail-closed.
+#     The relaxed NONE publish emits a stderr diagnostic naming `require_ci=false`
+#     (present on the relaxed path, absent otherwise). The value is validated as
+#     a boolean at config-read time (unconditional of code path — including the
+#     resume path that skips the CI gate), symmetric with require_signed_tags.
+# ===========================================================================
+set_require_ci() {
+  mkdir -p "$1/.claude"
+  printf 'require_ci: %s\n' "$2" >"$1/.claude/planwright.local.yml"
+}
+# The diagnostic is scoped to the deliberate relaxation, so it must not appear on
+# any strict path (a green publish or a fail-closed refusal).
+assert_no_diag() {
+  case "$2" in
+    *"require_ci=false"*) bad "$1 — unexpectedly emitted the require_ci=false diagnostic" ;;
+    *) pass "$1" ;;
+  esac
+}
+
+# 12a. Default (no config): the NONE null rollup still refuses — the knob defaults
+#      to `true`, preserving today's strict behavior, with no diagnostic.
+r="$tmp/reqci-default-none"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=none GH_RELEASE_EXISTS=0
+assert_ne "reqci/default-none: exits non-zero (default true → NONE refuses)" "$RC" "0"
+assert_contains "reqci/default-none: names the ci gate verdict none" "$ERR" "verdict: none"
+deny "reqci/default-none: no tag created" local_has_tag "$r" v0.1.0
+assert_no_diag "reqci/default-none: no relaxation diagnostic on the strict refusal" "$ERR"
+
+# 12b. require_ci=false: the NONE null rollup (no checks at all) publishes, and
+#      the stderr diagnostic naming require_ci=false is emitted.
+r="$tmp/reqci-false-none-null"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=none GH_RELEASE_EXISTS=0
+assert_eq "reqci/false-none-null: exit 0 (NONE relaxed to publish)" "$RC" "0"
+want "reqci/false-none-null: tag created" local_has_tag "$r" v0.1.0
+want "reqci/false-none-null: tag pushed to origin" origin_has_tag "$r" v0.1.0
+assert_contains "reqci/false-none-null: emits the require_ci=false relaxation diagnostic" "$ERR" "require_ci=false"
+
+# 12c. require_ci=false: the empty-after-window-lock-exclusion NONE sub-case (only
+#      the excluded release-window lock is present) publishes with the diagnostic.
+r="$tmp/reqci-false-none-lockonly"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=none GH_WINDOW_LOCK=red GH_RELEASE_EXISTS=0
+assert_eq "reqci/false-none-lockonly: exit 0 (empty-after-exclusion NONE relaxed)" "$RC" "0"
+want "reqci/false-none-lockonly: tag created" local_has_tag "$r" v0.1.0
+assert_contains "reqci/false-none-lockonly: emits the relaxation diagnostic" "$ERR" "require_ci=false"
+
+# 12d. require_ci=false: the all-NEUTRAL/SKIPPED NONE sub-case (a check present but
+#      neither confirming nor blocking) publishes with the diagnostic.
+r="$tmp/reqci-false-none-neutral"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=neutral GH_RELEASE_EXISTS=0
+assert_eq "reqci/false-none-neutral: exit 0 (all-NEUTRAL NONE relaxed)" "$RC" "0"
+want "reqci/false-none-neutral: tag created" local_has_tag "$r" v0.1.0
+assert_contains "reqci/false-none-neutral: emits the relaxation diagnostic" "$ERR" "require_ci=false"
+
+# 12e. require_ci=false with a genuinely GREEN CI: publishes as usual, but the
+#      diagnostic is ABSENT — green is positive confirmation, not the relaxed path.
+r="$tmp/reqci-false-green"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_eq "reqci/false-green: exit 0 (green publishes normally)" "$RC" "0"
+want "reqci/false-green: tag created" local_has_tag "$r" v0.1.0
+assert_no_diag "reqci/false-green: no diagnostic when CI is genuinely green" "$ERR"
+
+# 12f. require_ci=false NEVER relaxes a FAILING check: still refuses, no tag, and
+#      no relaxation diagnostic (the refusal is not the relaxed path).
+r="$tmp/reqci-false-failing"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=red GH_RELEASE_EXISTS=0
+assert_ne "reqci/false-failing: exits non-zero (FAILURE stays fail-closed)" "$RC" "0"
+assert_contains "reqci/false-failing: names the ci gate" "$ERR" "ci gate"
+deny "reqci/false-failing: no tag created" local_has_tag "$r" v0.1.0
+assert_no_diag "reqci/false-failing: no relaxation diagnostic on a failing refusal" "$ERR"
+
+# 12g. require_ci=false NEVER relaxes a still-PENDING check: still refuses, no tag.
+r="$tmp/reqci-false-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=pending GH_RELEASE_EXISTS=0
+assert_ne "reqci/false-pending: exits non-zero (PENDING stays fail-closed)" "$RC" "0"
+assert_contains "reqci/false-pending: names the ci gate" "$ERR" "ci gate"
+deny "reqci/false-pending: no tag created" local_has_tag "$r" v0.1.0
+
+# 12h. require_ci=false NEVER relaxes the TOO_MANY unread-overflow verdict (>100
+#      checks, an incomplete read): still refuses, no tag.
+r="$tmp/reqci-false-toomany"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=green GH_HASNEXTPAGE=true GH_RELEASE_EXISTS=0
+assert_ne "reqci/false-toomany: exits non-zero (TOO_MANY stays fail-closed)" "$RC" "0"
+assert_contains "reqci/false-toomany: names the ci gate" "$ERR" "ci gate"
+deny "reqci/false-toomany: no tag created" local_has_tag "$r" v0.1.0
+
+# 12i. require_ci=false NEVER relaxes a CI-query FAILURE (infra outage): the gate
+#      still refuses naming the query failure, never conflating it with NONE.
+r="$tmp/reqci-false-queryfail"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" false
+run_publish "$r" GH_CI=green GH_CI_QUERY_FAIL=1 GH_RELEASE_EXISTS=0
+assert_ne "reqci/false-queryfail: exits non-zero (query failure stays fail-closed)" "$RC" "0"
+assert_contains "reqci/false-queryfail: names the query failure, not a NONE relaxation" "$ERR" "gh query failed"
+deny "reqci/false-queryfail: no tag created" local_has_tag "$r" v0.1.0
+assert_no_diag "reqci/false-queryfail: no relaxation diagnostic on a query-failure refusal" "$ERR"
+
+# 12j. A non-boolean require_ci value is a clean fail-closed configuration error
+#      (symmetric with require_signed_tags), with no tag created.
+r="$tmp/reqci-badvalue"
+new_repo "$r"
+seed_version "$r" 0.1.0
+set_require_ci "$r" maybe
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "reqci/bad-value: exits non-zero (non-boolean is a config error)" "$RC" "0"
+assert_contains "reqci/bad-value: names require_ci and the boolean requirement" "$ERR" "require_ci"
+deny "reqci/bad-value: no tag created on a config error" local_has_tag "$r" v0.1.0
+
+# 12k. The boolean validation is UNCONDITIONAL of code path: on the resume path
+#      (origin tag present, Release absent — the CI gate is skipped per REQ-B1.3),
+#      a non-boolean require_ci must STILL fail at config-read time, never resume.
+#      This is the "validate when the knob is read, not lazily inside the CI gate"
+#      clause (a lazy check inside the resume-skipped gate would miss this).
+r="$tmp/reqci-badvalue-resume"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+gc "$r" push -q origin v0.1.0 2>/dev/null
+set_require_ci "$r" maybe
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "reqci/bad-value-resume: exits non-zero on the resume path too" "$RC" "0"
+assert_contains "reqci/bad-value-resume: names require_ci (validated at read time, not in the skipped CI gate)" "$ERR" "require_ci"
+deny "reqci/bad-value-resume: no Release create attempted (config error precedes resume)" gh_called "$LOG" "release create"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

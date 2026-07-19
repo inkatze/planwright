@@ -91,9 +91,19 @@ if [ -z "$latest" ]; then
   exit 0
 fi
 
-if rl_version_gt "$vot" "${latest#v}"; then
-  printf 'pending\t%s\n' "$vot"
-else
-  printf 'none\n'
-fi
+# Capture the comparator's tri-state result (D-2, REQ-A1.2): 0 → pending,
+# 1 → none, 2 → a comparator error, which is fail-closed (exit 2 with a
+# diagnostic) rather than folded into `none`. Both operands are pre-validated
+# above (`vot` at the SemVer guard, `latest` filtered by rl_latest_release_tag),
+# so status 2 is unreachable through this script's real inputs — this is
+# defense-in-depth for a future non-validating caller, not a live fail-open.
+rl_version_gt "$vot" "${latest#v}"
+case $? in
+  0) printf 'pending\t%s\n' "$vot" ;;
+  1) printf 'none\n' ;;
+  *)
+    echo "release-pending: version comparator failed (fail closed) on operands '$(sanitize_printable "$vot")' vs '$(sanitize_printable "${latest#v}")'" >&2
+    exit 2
+    ;;
+esac
 exit 0

@@ -97,6 +97,22 @@ command -v jq >/dev/null 2>&1 || die "jq is required (GitHub CI check parsing)"
 
 git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
 
+# --- CI-gate policy knob (D-7, REQ-G1.3) ------------------------------------
+# `require_ci` (default `true`) preserves the strict gate; `false` relaxes only
+# the NONE / "no positive CI confirmation" verdict at the CI gate below (never a
+# failing/pending/overflow/query-failure verdict). Validate it as a boolean HERE,
+# at config-read time — unconditional of code path, symmetric with how
+# `require_signed_tags` validates its own value — because the CI gate the value
+# governs is skipped on the resume path (REQ-B1.3); a lazy check inside the gate
+# would let a malformed value through on a resume. A non-boolean value is a clean
+# fail-closed configuration error.
+require_ci=$("$script_dir/config-get.sh" require_ci 2>/dev/null) || require_ci=""
+[ -n "$require_ci" ] || require_ci="true"
+case "$require_ci" in
+  true | false) : ;;
+  *) die "config: require_ci must be true|false, got '$(sanitize_printable "$require_ci")'" ;;
+esac
+
 # --- Resolve the version of truth and the release-merge SHA -----------------
 
 IFS=$(printf '\t')
@@ -286,6 +302,13 @@ if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
   # contract.
   if [ "$ci_rc" -ne 0 ]; then
     die "ci gate: could not verify GitHub CI on $release_sha (gh query failed); resolve connectivity/auth and re-run"
+  elif [ "$ci_verdict" = "none" ] && [ "$require_ci" = "false" ]; then
+    # require_ci=false relaxes ONLY the NONE verdict (all three sub-cases it folds:
+    # a null rollup, an empty-after-window-lock-exclusion rollup, and an
+    # all-NEUTRAL/SKIPPED rollup — none of them positive CI confirmation). Every
+    # other verdict (failing/pending/too-many, and the query failure above) stays
+    # fail-closed. Leave an audit signal so the deliberate relaxation is honest.
+    echo "release-publish: publishing without positive CI confirmation on $release_sha (require_ci=false; CI verdict: none)" >&2
   elif [ "$ci_verdict" != "green" ]; then
     die "ci gate: GitHub CI is not green on the release commit $release_sha (verdict: ${ci_verdict:-unknown})"
   fi
