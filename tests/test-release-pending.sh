@@ -449,6 +449,41 @@ set_vf "$r" "-dleaf"
 out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "an in-tree leaf symlink whose name starts with '-' reads (readlink -- guard)" "$out" "pending${TAB}0.2.0"
 
+# 8. Fail-closed on a comparator-error status (REQ-A1.2, D-2). The comparator's
+#    exit 2 is unreachable through real inputs (both operands are pre-validated:
+#    `vot` at the SemVer guard, `latest` filtered by rl_latest_release_tag), so
+#    this FAULT-INJECTS it: the script is copied under a work `scripts/` dir whose
+#    release-lib.sh sources the real lib then overrides ONLY rl_version_gt to
+#    return 2. The caller must exit 2 with a diagnostic and print no `none`/
+#    `pending` — a regression that folds the error into `none` (exit 0) fails
+#    here. This verifies the defense-in-depth propagation, not a reachable path.
+inject="$tmp/inject-cmp-err"
+mkdir -p "$inject/scripts" "$inject/.claude-plugin"
+cp "$here/../scripts/release-pending.sh" "$here/../scripts/echo-safety.sh" \
+  "$inject/scripts/"
+real_lib="$here/../scripts/release-lib.sh"
+cat >"$inject/scripts/release-lib.sh" <<EOF
+# Fault-injection shadow: real lib + an rl_version_gt that always returns the
+# comparator-error status (2). Sourced by the copied release-pending.sh.
+. "$real_lib"
+rl_version_gt() { return 2; }
+EOF
+printf '{\n  "name": "fixture",\n  "version": "0.2.0"\n}\n' \
+  >"$inject/.claude-plugin/plugin.json"
+gitc "$inject" init -q
+gitc "$inject" add -A
+gitc "$inject" commit -q -m "version 0.2.0"
+gitc "$inject" tag v0.1.0 # a real tag so `latest` is non-empty and the comparator is reached
+rc=0
+out=$(cd "$inject" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  scripts/release-pending.sh 2>/dev/null) || rc=$?
+assert_eq "a comparator-error status (2) propagates to exit 2 (fail closed)" "$rc" "2"
+assert_eq "a comparator-error status prints no none/pending on stdout" "$out" ""
+err=$(cd "$inject" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  scripts/release-pending.sh 2>&1 >/dev/null) || true
+case "$err" in *"comparator"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "the fail-closed diagnostic names the comparator failure" "$hit" "yes"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
