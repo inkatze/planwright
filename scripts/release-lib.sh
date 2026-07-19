@@ -372,8 +372,8 @@ RL_CI_WINDOW_LOCK_WORKFLOW="release-window"
 #   none      no positive confirmation — no checks, only the excluded lock, or
 #             only NEUTRAL/SKIPPED remain. A release gate requires a positive
 #             SUCCESS, so "no CI" folds to none (fail-closed by design; an adopter
-#             without CI adds it, or opts out via the planned require_ci knob
-#             (REQ-G1.3, not yet built))
+#             without CI adds it, or opts out via the require_ci knob at the
+#             publish CI gate (REQ-G1.3), which relaxes only this none verdict)
 #   too-many  more than one page of checks (>100) — the read is incomplete, so a
 #             failing/pending check could hide unread; fail closed
 #

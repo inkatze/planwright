@@ -213,11 +213,12 @@ fleet_model_drain: sonnet
 # customization-overlay REQ-E1.4 by-layer malformed policy.
 fleet_throttle_default_hold: 300
 
-# Release-tagging policy (autopilot-reflex D-4, D-13; REQ-D1.4, REQ-D1.6). The
-# publish script (scripts/release-publish.sh) reads both knobs; the comparator
-# (scripts/release-pending.sh) reads only version_file — signing is a
-# publish-only concern. See doctrine/release-tagging.md for the altitude split
-# (the capability is core, this is the value).
+# Release-tagging policy (autopilot-reflex D-4, D-13; release-hardening D-7 —
+# REQ-D1.4, REQ-D1.6, REQ-G1.3). The publish script (scripts/release-publish.sh)
+# reads require_signed_tags, require_ci, and version_file; the comparator
+# (scripts/release-pending.sh) reads only version_file — signing and the CI gate
+# are publish-only concerns. See doctrine/release-tagging.md for the altitude
+# split (the capability is core, these are the values).
 
 # Signing policy for the release tag (D-4, REQ-D1.4). `auto` (default) signs when
 # the repo has signing configured (git user.signingkey), otherwise creates an
@@ -229,6 +230,21 @@ fleet_throttle_default_hold: 300
 # its repo-tracked overlay (.claude/planwright.yml); this default stays `auto` so
 # a fresh adopter without signing configured still gets an annotated tag.
 require_signed_tags: auto
+
+# Whether publish requires positive GitHub CI confirmation on the release commit
+# (release-hardening D-7, REQ-G1.3). `true` (default) preserves the strict gate:
+# only a `green` verdict publishes, and a `none` verdict — no positive CI
+# confirmation (no checks, only the excluded release-window lock, or all
+# non-excluded checks NEUTRAL/SKIPPED) — refuses like every other non-green
+# verdict. `false` relaxes ONLY that `none` verdict to allow publish (all three
+# none sub-cases), emitting a stderr diagnostic naming require_ci=false so the
+# deliberate relaxation leaves an audit signal; a failing, pending, unread-
+# overflow (too-many), or CI-query-failure verdict stays fail-closed regardless.
+# The value is validated as a boolean when the knob is read (unconditional of
+# code path, symmetric with require_signed_tags); a non-boolean value is a clean
+# fail-closed configuration error. Core opt-in with the default unchanged — the
+# value is the adopter's overlay choice (an adopter with no CI sets false).
+require_ci: true
 
 # Where the version of truth lives (D-13, REQ-D1.6), as `<path>::<selector>`. The
 # selector is `$.<key>` for a top-level JSON string field (extracted with jq, the
