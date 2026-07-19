@@ -995,7 +995,7 @@ declared-exception|skills/small/SKILL.md|
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t15g" 2>&1)"
 assert_exit "a reason-less declared-exception is an error" 1 $?
-assert_contains "reason-less declared-exception is diagnosed" "reason" "$out"
+assert_contains "reason-less declared-exception is diagnosed" "has no reason" "$out"
 
 # 15h. aggregate floor-breach: a skill whose START-LOAD margin is below its floor
 #      warns naming the aggregate surface. start-load error 10000, floor 500 ->
@@ -1071,7 +1071,7 @@ printf 'raise|instruction_budget_skill_error|5000|\n' \
   >"$t15l/config/instruction-budget-exemptions.txt"
 out="$(/bin/bash "$CHECKER" --root "$t15l" 2>&1)"
 assert_exit "a reason-less raise entry is an error" 1 $?
-assert_contains "reason-less raise is diagnosed" "reason" "$out"
+assert_contains "reason-less raise is diagnosed" "has no reason" "$out"
 
 # 15m. an absent core-default baseline for a raisable knob is fail-closed: the
 #      knob is present only via overlay, so it cannot be validated against a core
@@ -1155,6 +1155,67 @@ assert_exit "a control-byte rationale does not fail the guard" 0 $?
 assert_contains "the stale entry still yields a cleanup warning" \
   "declared-exception cleanup" "$out"
 assert_absent "the control byte is stripped from the echoed rationale" "$esc" "$out"
+
+# 15s. a NON-NUMERIC floor knob is fail-loud, exactly like a non-numeric budget
+#      knob (test-spec REQ-D1.1 lists missing AND non-numeric; 15n covers missing).
+t15s="$tmproot/t15s"
+scaffold "$t15s"
+make_skill "$t15s" small 100
+sed -e 's/^instruction_budget_skill_floor: .*/instruction_budget_skill_floor: not-a-number/' \
+  "$t15s/config/defaults.yml" >"$t15s/config/defaults.yml.tmp"
+mv "$t15s/config/defaults.yml.tmp" "$t15s/config/defaults.yml"
+out="$(/bin/bash "$CHECKER" --root "$t15s" 2>&1)"
+assert_exit "a non-numeric floor knob is a fail-loud error" 1 $?
+
+# 15t. aggregate below-target + declared-exception round-trip on the documented
+#      `start-load:<skill>` surface key (pins the aggregate key contract, not just
+#      per-file). start-load error 10000, floor 500, target 1000 -> margin 700 at
+#      start-load 9300 (body 100 + run-start doc 9200): below-target, not breach.
+t15t="$tmproot/t15t"
+scaffold "$t15t"
+make_doc "$t15t" rsdoc 9200
+make_skill "$t15t" aggbt 100 "Doctrine: run-start rsdoc"
+lift_doctrine_floor "$t15t"
+out="$(/bin/bash "$CHECKER" --root "$t15t" 2>&1)"
+assert_contains "aggregate below-target names the start-load surface key" \
+  "below-target: start-load:aggbt" "$out"
+cat >>"$t15t/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|start-load:aggbt|accepted: this start-load is intentionally near budget
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15t" 2>&1)"
+assert_exit "an aggregate declared-exception keeps the guard green" 0 $?
+assert_absent "declared-exception silences the aggregate below-target it names" \
+  "below-target: start-load:aggbt" "$out"
+assert_absent "a USED aggregate declared-exception is not reported stale" \
+  "declared-exception cleanup" "$out"
+
+# 15u. an UNREADABLE core-defaults file is fail-closed (test-spec REQ-A1.4 lists
+#      absent AND unreadable; 15m covers the absent-key case).
+t15u="$tmproot/t15u"
+scaffold "$t15u"
+make_skill "$t15u" small 100
+chmod 000 "$t15u/config/defaults.yml"
+out="$(/bin/bash "$CHECKER" --root "$t15u" 2>&1)"
+rc=$?
+chmod 644 "$t15u/config/defaults.yml" # restore so the trap's rm can clean up
+assert_exit "an unreadable core-defaults file is fail-closed" 1 "$rc"
+
+# 15v. the floor KNOB VALUE (not a hardcoded constant) drives the comparison: a
+#      below-target that fires at the default floor disappears when the floor is
+#      lowered via overlay so the same margin now clears the (lower) target.
+t15v="$tmproot/t15v"
+scaffold "$t15v"
+make_skill "$t15v" fv 3900 # error 4250, floor 250, target 500 -> margin 350
+out="$(/bin/bash "$CHECKER" --root "$t15v" 2>&1)"
+assert_contains "below-target fires at the default skill floor" \
+  "below-target: skills/fv/SKILL.md" "$out"
+mkdir -p "$t15v/.claude"
+cat >"$t15v/.claude/planwright.local.yml" <<'EOF'
+instruction_budget_skill_floor: 100
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15v" 2>&1)"
+assert_absent "lowering the floor knob clears the below-target (knob drives comparison)" \
+  "below-target: skills/fv/SKILL.md" "$out"
 
 # 15r. echo discipline on the PARSE-ERROR path (regression): a control byte in a
 #      malformed declared-exception / raise entry is stripped before the error
