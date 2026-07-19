@@ -125,11 +125,19 @@ if grep -q "worker-command-guard" "$plugin_hooks"; then
 else
   ok "the auto-approve hook is absent from the plugin-global hooks/hooks.json (REQ-C1.2)"
 fi
-# And there is no PreToolUse registration at all in the plugin-global hooks.
-if jq -e '(.hooks.PreToolUse // []) | length == 0' "$plugin_hooks" >/dev/null 2>&1; then
-  ok "hooks/hooks.json registers no PreToolUse hook (REQ-C1.2)"
+# Structural belt-and-suspenders: no PreToolUse command entry in the
+# plugin-global hooks references the guard script. Scoped to the guard script
+# (not "no PreToolUse hook at all") so an unrelated future plugin-global
+# PreToolUse hook does not falsely trip this — REQ-C1.2 forbids only the
+# auto-approve hook plugin-globally, not every PreToolUse hook.
+if jq -e '
+  (.hooks.PreToolUse // [])
+  | map(.hooks[]? | .command // empty)
+  | any(test("worker-command-guard"))
+' "$plugin_hooks" >/dev/null 2>&1; then
+  fail "a plugin-global PreToolUse entry references the auto-approve hook — worker-scoping breached (REQ-C1.2)"
 else
-  fail "hooks/hooks.json registers a PreToolUse hook — worker-scoping breached (REQ-C1.2)"
+  ok "no plugin-global PreToolUse entry references the auto-approve hook (REQ-C1.2)"
 fi
 
 # --- REQ-C1.3: _about documents the hook and its posture --------------------
