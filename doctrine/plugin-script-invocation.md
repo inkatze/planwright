@@ -25,8 +25,9 @@ uses):
 Take the resolved value once, then substitute it literally at each call site:
 
 ```sh
-# Resolve once (falls back to the skill's own install dir — step 3 — when
-# neither var is set; that self-location is not a clean one-liner):
+# Resolve once. This one-liner shows steps 1-2 only: when neither var is set it
+# expands to empty, and you fall back to step 3 (the skill's own install dir),
+# which is not a clean one-liner and is elided here:
 root="${PLANWRIGHT_ROOT:-$CLAUDE_PLUGIN_ROOT}"     # e.g. /abs/planwright
 # Then call by the literal absolute path (what a worker's command actually is):
 /abs/planwright/scripts/spec-validate.sh specs/<spec>

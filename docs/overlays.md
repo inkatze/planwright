@@ -333,8 +333,9 @@ resolved plugin-scripts directory. In your worker `settings.json`:
 ```jsonc
 {
   "permissions": {
-    // Point at YOUR install's resolved plugin-scripts directory. Find it with:
-    //   echo "${PLANWRIGHT_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts"
+    // Point at YOUR install's resolved plugin-scripts directory. Find it with
+    // (errors if neither var is set rather than emitting a bare /scripts):
+    //   echo "${PLANWRIGHT_ROOT:-${CLAUDE_PLUGIN_ROOT:?set PLANWRIGHT_ROOT or CLAUDE_PLUGIN_ROOT}}/scripts"
     "allow": ["Bash(/abs/path/to/planwright/scripts/*)"]
   }
 }
