@@ -26,7 +26,7 @@
 #     tracked suppression list: a permanent per-file-floor exemption, a
 #     transitional `pending-diet` allowance (REQ-B1.3), a standing
 #     `declared-exception` (instruction-headroom REQ-D1.6), and a `raise`
-#     rationale (REQ-A1.4);
+#     rationale (instruction-headroom REQ-A1.4);
 #   - enforces per-surface headroom floors (instruction-headroom D-2, REQ-A1.1,
 #     REQ-D1.1): a margin (error threshold − charged words) strictly below a
 #     class's floor knob is a named floor-breach warning on every run, and a
