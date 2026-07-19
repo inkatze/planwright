@@ -693,11 +693,11 @@ guard_bats() {
 }
 
 guard_mise() {
-  # REQ-A1.5: `mise run <task>` / `mise tasks` only (repo-defined tasks, trusted
-  # per the kickoff trust boundary). Any pre-subcommand flag or other
-  # subcommand defers.
+  # REQ-A1.5: `mise run <task>` / `mise tasks` (and its read-only leaves) only
+  # (repo-defined tasks, trusted per the kickoff trust boundary). Any
+  # pre-subcommand flag or other subcommand defers.
   local sub=''
-  local i a
+  local i a j leaf
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
@@ -709,7 +709,29 @@ guard_mise() {
     esac
   done
   case $sub in
-    tasks) return 0 ;;
+    tasks)
+      # `mise tasks` is a subcommand TREE, not a read-only leaf. Bare
+      # `mise tasks` and the display leaves (`ls`/`info`/`deps`) list tasks, but
+      # `edit` launches $EDITOR (arbitrary exec), `add` writes a task file, and
+      # `run` is an alias of `mise run` (so it can carry the `--shell`
+      # interpreter override, REQ-A1.6). Enumerate the read-only leaves, route
+      # `run` through the shell-override guard below, and defer edit/add/unknown.
+      leaf=''
+      for ((j = i + 1; j < cwn; j++)); do
+        case ${cw[j]} in
+          -*) ;; # a tasks-level display flag (-g/-l/-J/--json/…): read-only
+          *)
+            leaf=${cw[j]}
+            break
+            ;;
+        esac
+      done
+      case $leaf in
+        '' | ls | info | deps) return 0 ;;
+        run) i=$j ;; # fall through to the shell-override guard on the run args
+        *) return 1 ;;
+      esac
+      ;;
     run) ;; # fall through to the shell-override guard below
     *) return 1 ;;
   esac
