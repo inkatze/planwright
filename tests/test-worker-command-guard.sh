@@ -218,7 +218,14 @@ assert_defer "command substitution dollar-paren" "echo \$(rm -rf x)"
 assert_defer "command substitution backtick" "echo \`rm -rf x\`"
 assert_defer "process substitution input" "diff <(rm a) b"
 assert_defer "process substitution output" "tee >(rm a)"
+# Genuine >( on an ALLOWLISTED verb (cat), so the defer proves `>(` detection
+# rather than the unlisted-verb path (tee is unlisted).
+assert_defer "process substitution output on allowlisted verb" "cat foo >(rm a)"
 assert_defer "unknown verb" "frobnicate --now"
+# Harmless no-op / stray-separator commands: allowed (nothing dangerous runs).
+assert_allow "trailing empty segment" "echo a;"
+assert_allow "leading empty segment" "; echo a"
+assert_allow "whitespace-only no-op" "   "
 
 echo "### REQ-A1.4 — redirects: file writes defer, fd-dup allows"
 assert_defer "write redirect to file" "echo hi > out.txt"
