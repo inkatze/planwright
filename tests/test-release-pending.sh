@@ -208,6 +208,247 @@ out=$(cd "$work" && CDPATH="$tmp/decoy" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_S
 assert_eq "a hostile CDPATH does not corrupt the comparator (unset CDPATH)" \
   "$out" "pending${TAB}0.2.0"
 
+# 7. version_file canonicalization + containment (REQ-D1.1, REQ-D1.2, D-5).
+#    The path is canonicalized (symlinks resolved in every component, INCLUDING
+#    the leaf `version_file` itself) and confirmed within the repository root
+#    before the filesystem read; anything outside is a clean exit-2 refusal, and
+#    the read targets the canonicalized real path, not the original value.
+#
+# set_vf <repo> <value> — point the version_file knob at <value> via the
+# machine-local overlay (same shape the publish tests use).
+set_vf() {
+  mkdir -p "$1/.claude"
+  printf 'version_file: %s\n' "$2" >"$1/.claude/planwright.local.yml"
+}
+
+# 7a. A LEAF symlink — the `version_file` value itself is a symlink pointing
+#     outside the tree (absolute target) — is refused. This is the exact attack
+#     a parent-dir-only `cd; pwd -P` recipe misses. The out-of-tree file holds a
+#     valid, ahead version, so a read would print `pending`; the refusal proves
+#     no read happened (empty stdout, exit 2, diagnostic).
+outside="$tmp/outside"
+mkdir -p "$outside"
+printf '9.9.9\n' >"$outside/secret"
+r="$tmp/leaf-abs"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "$outside/secret" "$r/escleaf"
+set_vf "$r" escleaf
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "leaf symlink to an absolute out-of-tree path exits 2" "$rc" "2"
+assert_eq "leaf symlink to an absolute out-of-tree path reads nothing (no stdout)" "$out" ""
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || true
+case "$err" in *"outside the repository"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "leaf symlink refusal names the containment failure" "$hit" "yes"
+
+# 7b. A LEAF symlink escaping via a RELATIVE `../` target. The `version_file`
+#     value (`escrel`) has no `..` component, so the cheap `..` pre-filter does
+#     NOT catch it — only canonicalization does. This isolates the canonical
+#     containment check as the thing doing the work.
+r="$tmp/leaf-rel"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "../outside/secret" "$r/escrel"
+set_vf "$r" escrel
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "leaf symlink escaping via ../ exits 2 (canonicalization, not the pre-filter)" "$rc" "2"
+assert_eq "leaf symlink escaping via ../ reads nothing" "$out" ""
+
+# 7c. A symlinked PARENT directory escaping the tree is refused too (the
+#     canonicalization resolves intermediate components, not just the leaf).
+r="$tmp/parent-esc"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "$outside" "$r/escdir"
+set_vf "$r" "escdir/secret"
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "symlinked parent dir escaping the tree exits 2" "$rc" "2"
+assert_eq "symlinked parent dir escaping the tree reads nothing" "$out" ""
+
+# 7d. A dangling/broken symlink (target does not exist) is a CLEAN exit-2
+#     refusal via the CANONICALIZATION path, not an unhandled error. Asserting the
+#     canonicalization diagnostic (rather than only exit 2 + empty stdout, which
+#     the pre-change `[ ! -f ]` branch already produced for a dangling symlink)
+#     is what makes this discriminating — it fails on the pre-change code, which
+#     says "not found".
+r="$tmp/dangling"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "/no/such/path/version" "$r/broken"
+set_vf "$r" broken
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "a dangling symlink version_file exits 2 (clean refusal)" "$rc" "2"
+case "$err" in *"cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "a dangling symlink names the canonicalization failure (not generic not-found)" "$hit" "yes"
+
+# 7e. A symlink LOOP is a clean exit-2 refusal via the canonicalization path
+#     (bounded resolution, no hang, no unhandled error). Same discriminating
+#     diagnostic assertion as 7d.
+r="$tmp/loop"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s loopB "$r/loopA"
+ln -s loopA "$r/loopB"
+set_vf "$r" loopA
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "a symlink loop version_file exits 2 (clean refusal)" "$rc" "2"
+case "$err" in *"cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "a symlink loop names the canonicalization failure (not generic not-found)" "$hit" "yes"
+
+# 7f. An in-tree `version_file` reached via an IN-TREE symlink still resolves and
+#     reads (canonicalization must not break the legitimate case). The real file
+#     is a plain whole-file VERSION; `vlink` points at it inside the repo.
+r="$tmp/intree-link"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/REALVERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add REALVERSION"
+gitc "$r" tag v0.1.0
+ln -s REALVERSION "$r/vlink"
+set_vf "$r" vlink
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "an in-tree version_file via an in-tree symlink still reads" "$out" "pending${TAB}0.2.0"
+
+# 7g. A plain (non-symlink) in-tree `version_file` set via the knob still reads
+#     — making the "(plain, ...) still resolves and reads" half of REQ-D1.1
+#     explicit rather than only implied by the default-path sections above.
+r="$tmp/intree-plain"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/VERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add VERSION"
+gitc "$r" tag v0.1.0
+set_vf "$r" VERSION
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "a plain in-tree version_file set via the knob still reads" "$out" "pending${TAB}0.2.0"
+
+# 7h. A MULTI-HOP symlink chain resolves every hop: an in-tree chain still reads,
+#     and a chain whose final hop escapes the tree is refused (single-hop 7a-7c
+#     do not exercise the iterative leaf resolution).
+r="$tmp/chain-intree"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/REALVERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add REALVERSION"
+gitc "$r" tag v0.1.0
+ln -s REALVERSION "$r/hop2"
+ln -s hop2 "$r/hop1"
+set_vf "$r" hop1
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "an in-tree multi-hop symlink chain resolves and reads" "$out" "pending${TAB}0.2.0"
+
+r="$tmp/chain-escape"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "$outside/secret" "$r/ehop2"
+ln -s ehop2 "$r/ehop1"
+set_vf "$r" ehop1
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "a multi-hop symlink chain escaping the tree is refused (exit 2)" "$rc" "2"
+assert_eq "a multi-hop escaping chain reads nothing" "$out" ""
+
+# 7i. A leaf symlink whose target is `..` (a parent-DENOTING path) must not pass
+#     containment. `<root>/..` textually sits under the root but denotes the
+#     parent; the reusable guard rejects it at canonicalization (via the clean
+#     canonicalization diagnostic), rather than relying on the caller's `-f`
+#     check to catch that the parent is a directory (REQ-D1.2 reusable-guard
+#     contract). Discriminating: the pre-fix guard returned `<root>/..` as
+#     "contained" and the caller's `[ ! -f ]` produced the generic not-found.
+r="$tmp/dotdot-leaf"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s ".." "$r/uplink"
+set_vf "$r" uplink
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "a leaf symlink denoting the parent (../) is refused (exit 2)" "$rc" "2"
+case "$err" in *"outside the repository or cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "a parent-denoting leaf is refused by the containment guard, not the -f check" "$hit" "yes"
+
+# 7j. Prefix-collision containment boundary. The guard compares `"$canon/"`
+#     against `"$root/"*` — the trailing slashes are load-bearing: they stop a
+#     SIBLING whose path shares the root as a textual prefix (`<root>-evil`) from
+#     matching `<root>` and being wrongly judged contained (the classic path-
+#     prefix bypass). Every other escape case above targets `$tmp/outside`, which
+#     is not a prefix-extension of any test root, so none of them exercise this
+#     boundary; dropping the trailing slash from the pattern would leave the whole
+#     suite green. This test pins it: a leaf symlink escaping into `<root>-evil`
+#     (a valid, ahead version out there) must still be refused with no read.
+r="$tmp/prefixcol"
+sibling="$tmp/prefixcol-evil"
+mkdir -p "$sibling"
+printf '9.9.9\n' >"$sibling/secret"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "$sibling/secret" "$r/siblink"
+set_vf "$r" siblink
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "a sibling sharing the root as a path prefix (<root>-evil) is refused (exit 2)" "$rc" "2"
+assert_eq "a prefix-collision sibling reads nothing (trailing-slash boundary holds)" "$out" ""
+
+# 7k. A version_file value beginning with '-' must not be misparsed as an OPTION
+#     by the readlink/dirname/basename calls inside the canonicalization guard.
+#     Those calls need the `--` end-of-options guard the sibling `cd --` calls
+#     already use; without it, BSD dirname/basename (GNU too) print an "illegal
+#     option"/"invalid option" usage error to stderr and the refusal falls out of
+#     an incidental cd failure rather than clean handling. The value is still a
+#     safe exit-2 refusal either way, so the leaked usage noise is the
+#     discriminating signal: this fails on the pre-`--` code (stderr carries the
+#     option-parse error) and passes once the four calls are hardened.
+r="$tmp/dash-leaf"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+set_vf "$r" "-n"
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "a leading-dash version_file exits 2 (clean refusal)" "$rc" "2"
+case "$err" in
+  *"illegal option"* | *"invalid option"*) leaked=yes ;;
+  *) leaked=no ;;
+esac
+assert_eq "a leading-dash version_file leaks no readlink/dirname/basename option-parse error" "$leaked" "no"
+
+# 7l. Regression guard for REQ-D1.2's "readers untouched" claim: the three
+#     git-show readers are symlink-immune and must NOT gain the canonicalization
+#     guard. Assert none of them reference the reusable function (a future edge
+#     that wrongly added it would otherwise pass CI silently). Grep-level, matching
+#     the [design-level] cross-check the test-spec names.
+untouched=yes
+for reader in release-window-check.sh release-publish.sh release-arm.sh; do
+  if grep -q 'rl_canonical_contained_path' "$here/../scripts/$reader"; then
+    untouched=no
+    echo "  (unexpected: $reader references rl_canonical_contained_path)" >&2
+  fi
+done
+assert_eq "the symlink-immune git-show readers do not reference the canonicalization guard" "$untouched" "yes"
+
+# 7m. Exercise the `readlink --` end-of-options guard. It fires only when the
+#     leaf IS a symlink whose NAME begins with '-', so `_rl_resolve_leaf_symlink`
+#     calls `readlink -- "$target"` on a dash-leading operand. (7k's value `-n` is
+#     a non-existent non-symlink, so `[ -L "-n" ]` is false and readlink is never
+#     reached — only dirname/basename `--` are.) The leaf points at an in-tree
+#     REALVERSION, so a correct resolve reads `pending`. Discriminating: without
+#     the `--`, `readlink -dleaf` is parsed as options ("illegal option") and the
+#     guard refuses (exit 2, no read); the green `pending` here holds only while
+#     the readlink call is `--`-guarded.
+r="$tmp/dash-symlink-leaf"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/REALVERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add REALVERSION"
+gitc "$r" tag v0.1.0
+ln -s REALVERSION "$r/-dleaf"
+set_vf "$r" "-dleaf"
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "an in-tree leaf symlink whose name starts with '-' reads (readlink -- guard)" "$out" "pending${TAB}0.2.0"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
