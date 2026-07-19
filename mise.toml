@@ -72,10 +72,15 @@ fi
 [tasks."lint:json"]
 description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker-settings permissions/hook fragment"
 run = '''
-jq . .claude-plugin/plugin.json >/dev/null && echo plugin.json valid
-jq . .claude-plugin/marketplace.json >/dev/null && echo marketplace.json valid
-jq . hooks/hooks.json >/dev/null && echo hooks.json valid
-jq . config/worker-settings.json >/dev/null && echo worker-settings.json valid
+set -e
+jq . .claude-plugin/plugin.json >/dev/null
+echo plugin.json valid
+jq . .claude-plugin/marketplace.json >/dev/null
+echo marketplace.json valid
+jq . hooks/hooks.json >/dev/null
+echo hooks.json valid
+jq . config/worker-settings.json >/dev/null
+echo worker-settings.json valid
 '''
 
 [tasks."lint:plugin-schema"]
