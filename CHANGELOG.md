@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.24.0](https://github.com/inkatze/planwright/compare/v0.23.0...v0.24.0) (2026-07-19)
+
+
+### Features
+
+* **instruction-hygiene:** capped charge for exempt docs on aggregates (task 3) ([#251](https://github.com/inkatze/planwright/issues/251)) ([c3e471f](https://github.com/inkatze/planwright/commit/c3e471f5566895c3db69c12dccf0090724bb64f9))
+* **instruction-hygiene:** guard headroom floors, margins, declared-exception + raise (task 2) ([#246](https://github.com/inkatze/planwright/issues/246)) ([bc81dcb](https://github.com/inkatze/planwright/commit/bc81dcbcd0bb25787ff73b05f8682f5d0b12ada6))
+* **instruction-hygiene:** headroom policy (floors, ladder, capped charge) ([#232](https://github.com/inkatze/planwright/issues/232)) ([0a6cd30](https://github.com/inkatze/planwright/commit/0a6cd30c0eaff0a118248eebd6e6be2e60766b64))
+* **release-hardening:** canonicalize and contain the version_file path ([#243](https://github.com/inkatze/planwright/issues/243)) ([9416696](https://github.com/inkatze/planwright/commit/9416696da0b240b41f4a4a5987e45c9eee56647c))
+* **release:** add mise run release-arm task wrapper ([#242](https://github.com/inkatze/planwright/issues/242)) ([8a7cee8](https://github.com/inkatze/planwright/commit/8a7cee8e3caee7420c06b35bdd874b984eaea15a))
+* **release:** add require_ci knob to relax only the NONE publish verdict ([#249](https://github.com/inkatze/planwright/issues/249)) ([fa48a44](https://github.com/inkatze/planwright/commit/fa48a44ee7ab7f467602878dcb46b913c6a4f68f))
+* **release:** fail-closed comparator signaling ([#248](https://github.com/inkatze/planwright/issues/248)) ([f30d81b](https://github.com/inkatze/planwright/commit/f30d81b98132a99ae664acc4cc8d3f1ef42f6071))
+* **release:** shared rl_ci_state with workflow-scoped window-lock exclusion ([#247](https://github.com/inkatze/planwright/issues/247)) ([e1a6e3b](https://github.com/inkatze/planwright/commit/e1a6e3bdb18c268cf3d7e878078b57f154855db8))
+* **spec:** fleet-hardening kickoff sign-off ([#245](https://github.com/inkatze/planwright/issues/245)) ([1112bc4](https://github.com/inkatze/planwright/commit/1112bc4df78903e47721bc11e34773bc29467a9c))
+
 ## [0.23.0](https://github.com/inkatze/planwright/compare/v0.22.0...v0.23.0) (2026-07-19)
 
 
