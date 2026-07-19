@@ -15,6 +15,10 @@ gitleaks = "8.30.0"
 description = "Sign and publish the pending release tag on this repo (autopilot-reflex REQ-F1.3, D-8). Repo-local ergonomics only: a thin wrapper over scripts/release-publish.sh, which has no mise dependency and is invokable directly anywhere (REQ-D1.9)."
 run = "scripts/release-publish.sh"
 
+[tasks.release-arm]
+description = "Arm the release watch-and-publish flow on this repo for a release PR (release-hardening REQ-F1.1, D-9). Repo-local ergonomics only: a thin wrapper over scripts/release-arm.sh forwarding the required <pr> argument, over a script that has no mise dependency and is invokable directly anywhere (autopilot-reflex REQ-D1.9)."
+run = "scripts/release-arm.sh"
+
 [tasks.test]
 description = "Run the shell test suites under /bin/bash (the bash 3.2 floor), N files at a time via scripts/run-tests.sh (N = core count; PLANWRIGHT_TEST_JOBS overrides)"
 run = '/bin/bash scripts/run-tests.sh'
