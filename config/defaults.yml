@@ -257,6 +257,18 @@ instruction_budget_startload_error: 10000
 # Reachable closure (start-load + point-of-use rule docs).
 instruction_budget_closure_warn: 15000
 instruction_budget_closure_error: 20000
+# Per-surface headroom floors (instruction-headroom D-2, REQ-A1.1): the minimum
+# word margin to the error threshold before the restoration ladder triggers, one
+# per budgeted class (SKILL.md body / rule doc / mandatory-at-start / reachable
+# closure), 5.0–6.25% of each error threshold. A surface whose margin is strictly
+# below its floor is in breach — a named guard warning, never an error (D-2); the
+# restoration target is twice the floor (D-3). Protective and overlay-tunable
+# like the budget knobs, but excluded from the raise-rationale rule by suffix
+# (raising a floor tightens headroom). See doctrine/instruction-hygiene.md.
+instruction_budget_skill_floor: 250
+instruction_budget_doctrine_floor: 250
+instruction_budget_startload_floor: 500
+instruction_budget_closure_floor: 1000
 # Injected-context warn floor (static prose an additionalContext-emitting hook
 # contributes, REQ-A1.4/B1.7). Warn-only: this partly-dynamic per-session
 # surface never fails the check. Grounded in the ~40-word present surface
