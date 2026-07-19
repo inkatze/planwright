@@ -76,8 +76,8 @@ walkthrough above does not surface on its own.
 If you supply your own publish step instead of planwright core's
 `scripts/release-publish.sh`, you must also relabel the merged release PR from
 `autorelease: pending` to `autorelease: tagged` once you have tagged. That is
-the bookkeeping release-please's skipped github-release step would have done for
-you; release-please's own publish path does it, and planwright core's
+the bookkeeping that release-please's skipped github-release step would have
+done for you; release-please's own publish path does it, and planwright core's
 `release-publish.sh` does it too, so **only** the bring-your-own-publish path
 has to do it by hand. Skip it and release-please aborts the **next** cycle's
 release PR with "untagged, merged release PRs outstanding" — the documented path
