@@ -371,7 +371,7 @@ assert_eq "a leaf symlink denoting the parent (../) is refused (exit 2)" "$rc" "
 case "$err" in *"outside the repository or cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
 assert_eq "a parent-denoting leaf is refused by the containment guard, not the -f check" "$hit" "yes"
 
-# 7k. Prefix-collision containment boundary. The guard compares `"$canon/"`
+# 7j. Prefix-collision containment boundary. The guard compares `"$canon/"`
 #     against `"$root/"*` — the trailing slashes are load-bearing: they stop a
 #     SIBLING whose path shares the root as a textual prefix (`<root>-evil`) from
 #     matching `<root>` and being wrongly judged contained (the classic path-
@@ -393,7 +393,7 @@ out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$P
 assert_eq "a sibling sharing the root as a path prefix (<root>-evil) is refused (exit 2)" "$rc" "2"
 assert_eq "a prefix-collision sibling reads nothing (trailing-slash boundary holds)" "$out" ""
 
-# 7l. A version_file value beginning with '-' must not be misparsed as an OPTION
+# 7k. A version_file value beginning with '-' must not be misparsed as an OPTION
 #     by the readlink/dirname/basename calls inside the canonicalization guard.
 #     Those calls need the `--` end-of-options guard the sibling `cd --` calls
 #     already use; without it, BSD dirname/basename (GNU too) print an "illegal
@@ -415,7 +415,7 @@ case "$err" in
 esac
 assert_eq "a leading-dash version_file leaks no readlink/dirname/basename option-parse error" "$leaked" "no"
 
-# 7j. Regression guard for REQ-D1.2's "readers untouched" claim: the three
+# 7l. Regression guard for REQ-D1.2's "readers untouched" claim: the three
 #     git-show readers are symlink-immune and must NOT gain the canonicalization
 #     guard. Assert none of them reference the reusable function (a future edge
 #     that wrongly added it would otherwise pass CI silently). Grep-level, matching
@@ -431,7 +431,7 @@ assert_eq "the symlink-immune git-show readers do not reference the canonicaliza
 
 # 7m. Exercise the `readlink --` end-of-options guard. It fires only when the
 #     leaf IS a symlink whose NAME begins with '-', so `_rl_resolve_leaf_symlink`
-#     calls `readlink -- "$target"` on a dash-leading operand. (7l's value `-n` is
+#     calls `readlink -- "$target"` on a dash-leading operand. (7k's value `-n` is
 #     a non-existent non-symlink, so `[ -L "-n" ]` is false and readlink is never
 #     reached — only dirname/basename `--` are.) The leaf points at an in-tree
 #     REALVERSION, so a correct resolve reads `pending`. Discriminating: without
