@@ -52,9 +52,14 @@ unset CDPATH
 LC_ALL=C
 export LC_ALL
 
-# Bounds (REQ-B1.7 bounded runtime): reject an over-long command outright, and
-# cap `fish -c` recursion so a nested-`fish -c` bomb can never spin.
-readonly MAX_CMD_LEN=65536
+# Bounds (REQ-B1.7 bounded runtime). The tokenizer scans the command with
+# bash substring indexing (`${s:i:1}`), which is O(n) per access and so O(n^2)
+# over the command — a ~40 KiB command takes ~8 s. MAX_CMD_LEN caps that at a
+# fraction of a second (~0.5 s worst case) so the hook can never hang a worker's
+# tool call; a longer command simply defers (never worse than the normal
+# prompt). 8 KiB is far above any real worker command shape. MAX_DEPTH caps
+# `fish -c` recursion so a nested-`fish -c` bomb can never spin.
+readonly MAX_CMD_LEN=8192
 readonly MAX_DEPTH=3
 
 # The fixed reason string. It is NEVER a reflection of the analyzed command

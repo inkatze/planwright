@@ -454,6 +454,19 @@ echo "### REQ-B1.7 — bounded runtime on pathological input"
 big="$(head -c 200000 /dev/zero | tr '\0' 'a')"
 run_hook "echo $big"
 if [ "$CODE" -eq 0 ]; then pass "pathological large input terminates with exit 0"; else fail "pathological input — exit $CODE (expected 0)"; fi
+# A command past MAX_CMD_LEN (8 KiB) defers WITHOUT spending O(n^2) tokenizer
+# time on it — the length cap short-circuits before tokenizing. Assert it both
+# defers and returns quickly (well under the multi-second hang the high cap
+# allowed).
+over="$(head -c 20000 /dev/zero | tr '\0' 'a')"
+t0="$(date +%s)"
+run_hook "echo $over"
+t1="$(date +%s)"
+if [ "$CODE" -eq 0 ] && is_empty && [ "$((t1 - t0))" -le 2 ]; then
+  pass "over-cap command defers quickly (length short-circuit)"
+else
+  fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$((t1 - t0))"
+fi
 
 echo
 echo "=================================================="
