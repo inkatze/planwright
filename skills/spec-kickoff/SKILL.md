@@ -24,8 +24,7 @@ hold the same understanding, recorded as `specs/<spec>/kickoff-brief.md` —
 the durable contract (two-brief model, D-3). Downstream skills
 (`/execute-task`, `/orchestrate`) operate from the brief, not by re-reading
 the spec; what this walkthrough gets wrong, execution gets wrong, so the
-walkthrough is mutually didactic: the agent restates and probes, the human
-corrects, and the agent surfaces what the human has not considered.
+walkthrough is mutually didactic — the agent probes, the human corrects.
 
 Sign-off is the first key of a two-key launch (D-44): it flips the spec
 Draft→Ready and, on a clean completion, marks the spec PR ready (D-6, D-7; the
@@ -44,6 +43,10 @@ root); their definitions govern wherever this skill names a concept:
 
 - `security-posture` — artifact data-hygiene: the brief is committed and
   its risk register invites operational detail.
+
+**Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
+**resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
+`doctrine/plugin-script-invocation.md`.
 
 `spec-format` is read at pre-flight step 2, its point of use (only argument
 parsing precedes it) — the meta-spec: bundle conventions, status lifecycle,

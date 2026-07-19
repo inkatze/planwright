@@ -312,7 +312,49 @@ hard-fails (a broken shared review sequence never silently degrades a team).
 #   → hard-fail (nonzero exit) naming repo-tracked
 ```
 
-## 9. Where to go next
+## 9. The worker literal-path allow entry (adopter-specific)
+
+The three dispatching skills (`/execute-task`, `/orchestrate`, `/spec-kickoff`)
+resolve the plugin/planwright root **once per invocation** and invoke plugin
+scripts by a **resolved literal absolute path** rather than through an unexpanded
+shell variable (REQ-D1.1, D-7 of the worker-permission-ergonomics spec). That
+literal shape is what Claude Code's static allowlist can actually match: a
+`$VAR/scripts/x.sh` invocation is opaque to it, so a dispatched worker floods on
+a permission prompt per call.
+
+The **primary** approval path for those invocations is the auto-approve hook
+wired into [`config/worker-settings.json`](../config/worker-settings.json), which
+inspects the *expanded* command and allows the known-safe set. As
+**defense-in-depth beneath that hook** — most relevant on the hook's degraded
+path (when `jq` is absent the hook defers everything) — an adopter may add a
+literal-path allow entry to their **worker** settings that persistent-allows the
+resolved plugin-scripts directory. In your worker `settings.json`:
+
+```jsonc
+{
+  "permissions": {
+    // Point at YOUR install's resolved plugin-scripts directory. Find it with:
+    //   echo "${PLANWRIGHT_ROOT:-$CLAUDE_PLUGIN_ROOT}/scripts"
+    "allow": ["Bash(/abs/path/to/planwright/scripts/:*)"]
+  }
+}
+```
+
+Why this is **documented, not shipped** (D-7): the plugin cache path is
+per-install (per-home), so a hardcoded allow entry in the tracked
+`config/worker-settings.json` would be non-portable — it would match on the
+author's machine and nowhere else. The portable, durable change is the skill-side
+literal-path invocation above; the allow entry is your install-specific opt-in
+layered on top. It is **optional**: with the hook present and `jq` available you
+do not need it, and whether a Claude Code allow-glob portably matches a given
+per-install path is itself version-sensitive — treat it as a best-effort
+supplement to the hook, not a replacement.
+
+Scope it to a **worker** settings file only. Like the hook itself, this entry
+widens what runs without a prompt; merging it into a general (tower or human)
+`settings.json` extends the auto-approval into sessions it was never meant for.
+
+## 10. Where to go next
 
 - [`docs/getting-started.md`](getting-started.md) — installing planwright and
   operating the pilot-in-command model; §4 summarizes overlays and links here.

@@ -20,18 +20,17 @@ at a time. Each step reads `tasks.md`, selects the next ready unit, records the
 dispatch (the task branch + runtime marker), dispatches `/execute-task`, and
 exits. The step — not the session — is the unit of crash-safety (D-8): any step
 may die mid-flight without losing work, because progress state is a **derived
-projection** (D-1) rebuilt from durable evidence (git branches and
-`Planwright-Task` trailers, runtime markers, `gh`, the process/window list);
+projection** (D-1) rebuilt from durable evidence (git branches,
+`Planwright-Task` trailers, runtime markers, `gh`, the process list);
 the committed `tasks.md` sections are a discardable snapshot the reconcile
 sweep rebuilds. The tower is **disposable** (D-38): no in-memory state beyond
-the current step — surviving kills, headless cron runs, and concurrent
-towers on one spec (the per-spec lock serializes only the
-dispatch-record write, D-10).
+the current step, safe under headless cron runs and concurrent towers on one
+spec.
 
-`/orchestrate` **never** merges or marks a PR ready (sign-off and merge are
-the human's two reserved controls, REQ-J1.1), **never** auto-chains into
-`/spec-kickoff` (REQ-J1.3), and **never** force-pushes, amends, squashes, or
-rebases (REQ-J1.4). It creates draft PRs only, by way of `/execute-task`.
+`/orchestrate` **never** merges or marks a PR ready (the human's two reserved
+controls, REQ-J1.1), **never** auto-chains into `/spec-kickoff` (REQ-J1.3), and
+**never** force-pushes, amends, squashes, or rebases (REQ-J1.4). It creates draft
+PRs only, by way of `/execute-task`.
 
 ## Doctrine
 
@@ -41,6 +40,10 @@ resolved planwright root); their definitions govern wherever this skill names
 a concept. The manifest below marks which load at run start and which load at
 the named step or branch (the act-then-review finding buckets are
 `/execute-task` → `/polish`'s downstream concern, not a load here):
+
+**Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
+**resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
+`doctrine/plugin-script-invocation.md`.
 
 Doctrine: run-start proportionality
 Doctrine: point-of-use spec-format (pre-flight brief check + the freshness gate)
