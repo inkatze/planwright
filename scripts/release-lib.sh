@@ -1,9 +1,13 @@
 # shellcheck shell=bash
 # release-lib.sh — shared primitives for the release-tagging scripts (autopilot-
 # reflex Task 4; D-4, D-6, D-8, D-13; REQ-D1.1, REQ-D1.2, REQ-D1.6, REQ-D1.8,
-# REQ-D1.9). Sourced, never executed, by scripts/release-pending.sh and
-# scripts/release-publish.sh so the two agree byte-for-byte on what a version
-# is, which version is greater, and where the version of truth lives.
+# REQ-D1.9) plus the shared CI-verdict primitive rl_ci_state (release-hardening
+# Task 3; REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4). Sourced, never executed, by
+# scripts/release-pending.sh and scripts/release-publish.sh so the two agree
+# byte-for-byte on what a version is, which version is greater, and where the
+# version of truth lives; and by scripts/release-arm.sh, which shares
+# rl_ci_state with release-publish.sh so the two never drift on what counts as
+# release-gating CI (REQ-C1.2).
 #
 # The comparator (release-pending.sh) is the reusable definition of "pending"
 # the untagged-window lock and the bookkeeping surface both read (REQ-D1.8);
