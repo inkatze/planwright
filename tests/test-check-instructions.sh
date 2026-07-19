@@ -1239,6 +1239,44 @@ out="$(/bin/bash "$CHECKER" --root "$t15r" 2>&1)"
 assert_exit "a reason-less declared-exception is an error" 1 $?
 assert_absent "control byte stripped from the declared-exception parse error" "$esc" "$out"
 
+# 15w. aggregate CLOSURE floor-breach names the `closure:<skill>` surface key
+#      (the symmetric partner of 15h's start-load path; the closure aggregate
+#      was otherwise unexercised). closure error 20000, floor 1000 -> margin 896
+#      at closure 19104 (body 104 = 100 filler + the 4-word point-of-use manifest
+#      line, plus point-of-use doc 19000), still under 20000, start-load compliant.
+t15w="$tmproot/t15w"
+scaffold "$t15w"
+make_doc "$t15w" pudoc 19000
+make_skill "$t15w" aggcl 100 "Doctrine: point-of-use pudoc (rare)"
+lift_doctrine_budget "$t15w"
+out="$(/bin/bash "$CHECKER" --root "$t15w" 2>&1)"
+assert_exit "aggregate closure floor-breach is a warning, not an error" 0 $?
+assert_contains "closure floor-breach names the aggregate surface key" \
+  "floor-breach: closure:aggcl" "$out"
+
+# 15x. aggregate CLOSURE below-target + declared-exception round-trip on the
+#      documented `closure:<skill>` key (the symmetric partner of 15t's
+#      start-load path). closure error 20000, floor 1000, target 2000 -> margin
+#      1496 at closure 18504 (body 104 + point-of-use doc 18400): below-target,
+#      not breach.
+t15x="$tmproot/t15x"
+scaffold "$t15x"
+make_doc "$t15x" pudoc 18400
+make_skill "$t15x" aggclbt 100 "Doctrine: point-of-use pudoc (rare)"
+lift_doctrine_budget "$t15x"
+out="$(/bin/bash "$CHECKER" --root "$t15x" 2>&1)"
+assert_contains "aggregate below-target names the closure surface key" \
+  "below-target: closure:aggclbt" "$out"
+cat >>"$t15x/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|closure:aggclbt|accepted: this closure is intentionally near budget
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15x" 2>&1)"
+assert_exit "an aggregate closure declared-exception keeps the guard green" 0 $?
+assert_absent "declared-exception silences the aggregate closure below-target it names" \
+  "below-target: closure:aggclbt" "$out"
+assert_absent "a USED aggregate closure declared-exception is not reported stale" \
+  "declared-exception cleanup" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
