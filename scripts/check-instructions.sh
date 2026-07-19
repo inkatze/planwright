@@ -37,7 +37,8 @@
 #     effective instruction_budget_*_warn / *_error value above its shipped core
 #     default is a fail-closed error unless a matching `raise|` entry records it;
 #   - with --audit, emits a ranked report with per-surface margin-to-warn /
-#     margin-to-error columns and an offender shortlist (REQ-A1.3, REQ-D1.1).
+#     margin-to-error columns and an offender shortlist (REQ-A1.3,
+#     instruction-headroom REQ-D1.1).
 #
 # All input this guard reads (manifest entries, exemption text, rule-doc names,
 # hook scripts) is PR-controllable and treated as untrusted DATA: no content is
@@ -110,7 +111,7 @@ while [ "$#" -gt 0 ]; do
       root="${1#--root=}"
       ;;
     -h | --help)
-      sed -n '2,65p' "$0"
+      sed -n '2,66p' "$0"
       exit 0
       ;;
     *)
