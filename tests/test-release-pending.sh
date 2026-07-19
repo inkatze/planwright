@@ -371,6 +371,28 @@ assert_eq "a leaf symlink denoting the parent (../) is refused (exit 2)" "$rc" "
 case "$err" in *"outside the repository or cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
 assert_eq "a parent-denoting leaf is refused by the containment guard, not the -f check" "$hit" "yes"
 
+# 7k. Prefix-collision containment boundary. The guard compares `"$canon/"`
+#     against `"$root/"*` — the trailing slashes are load-bearing: they stop a
+#     SIBLING whose path shares the root as a textual prefix (`<root>-evil`) from
+#     matching `<root>` and being wrongly judged contained (the classic path-
+#     prefix bypass). Every other escape case above targets `$tmp/outside`, which
+#     is not a prefix-extension of any test root, so none of them exercise this
+#     boundary; dropping the trailing slash from the pattern would leave the whole
+#     suite green. This test pins it: a leaf symlink escaping into `<root>-evil`
+#     (a valid, ahead version out there) must still be refused with no read.
+r="$tmp/prefixcol"
+sibling="$tmp/prefixcol-evil"
+mkdir -p "$sibling"
+printf '9.9.9\n' >"$sibling/secret"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "$sibling/secret" "$r/siblink"
+set_vf "$r" siblink
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "a sibling sharing the root as a path prefix (<root>-evil) is refused (exit 2)" "$rc" "2"
+assert_eq "a prefix-collision sibling reads nothing (trailing-slash boundary holds)" "$out" ""
+
 # 7j. Regression guard for REQ-D1.2's "readers untouched" claim: the three
 #     git-show readers are symlink-immune and must NOT gain the canonicalization
 #     guard. Assert none of them reference the reusable function (a future edge
