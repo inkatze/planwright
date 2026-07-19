@@ -269,19 +269,25 @@ assert_eq "symlinked parent dir escaping the tree exits 2" "$rc" "2"
 assert_eq "symlinked parent dir escaping the tree reads nothing" "$out" ""
 
 # 7d. A dangling/broken symlink (target does not exist) is a CLEAN exit-2
-#     refusal, not an unhandled error.
+#     refusal via the CANONICALIZATION path, not an unhandled error. Asserting the
+#     canonicalization diagnostic (rather than only exit 2 + empty stdout, which
+#     the pre-change `[ ! -f ]` branch already produced for a dangling symlink)
+#     is what makes this discriminating — it fails on the pre-change code, which
+#     says "not found".
 r="$tmp/dangling"
 make_repo "$r" 0.2.0
 gitc "$r" tag v0.1.0
 ln -s "/no/such/path/version" "$r/broken"
 set_vf "$r" broken
 rc=0
-out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
 assert_eq "a dangling symlink version_file exits 2 (clean refusal)" "$rc" "2"
-assert_eq "a dangling symlink version_file reads nothing" "$out" ""
+case "$err" in *"cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "a dangling symlink names the canonicalization failure (not generic not-found)" "$hit" "yes"
 
-# 7e. A symlink LOOP is a clean exit-2 refusal (bounded resolution, no hang, no
-#     unhandled error).
+# 7e. A symlink LOOP is a clean exit-2 refusal via the canonicalization path
+#     (bounded resolution, no hang, no unhandled error). Same discriminating
+#     diagnostic assertion as 7d.
 r="$tmp/loop"
 make_repo "$r" 0.2.0
 gitc "$r" tag v0.1.0
@@ -289,9 +295,10 @@ ln -s loopB "$r/loopA"
 ln -s loopA "$r/loopB"
 set_vf "$r" loopA
 rc=0
-out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
 assert_eq "a symlink loop version_file exits 2 (clean refusal)" "$rc" "2"
-assert_eq "a symlink loop version_file reads nothing" "$out" ""
+case "$err" in *"cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "a symlink loop names the canonicalization failure (not generic not-found)" "$hit" "yes"
 
 # 7f. An in-tree `version_file` reached via an IN-TREE symlink still resolves and
 #     reads (canonicalization must not break the legitimate case). The real file
@@ -306,6 +313,59 @@ ln -s REALVERSION "$r/vlink"
 set_vf "$r" vlink
 out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
 assert_eq "an in-tree version_file via an in-tree symlink still reads" "$out" "pending${TAB}0.2.0"
+
+# 7g. A plain (non-symlink) in-tree `version_file` set via the knob still reads
+#     — making the "(plain, ...) still resolves and reads" half of REQ-D1.1
+#     explicit rather than only implied by the default-path sections above.
+r="$tmp/intree-plain"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/VERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add VERSION"
+gitc "$r" tag v0.1.0
+set_vf "$r" VERSION
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "a plain in-tree version_file set via the knob still reads" "$out" "pending${TAB}0.2.0"
+
+# 7h. A MULTI-HOP symlink chain resolves every hop: an in-tree chain still reads,
+#     and a chain whose final hop escapes the tree is refused (single-hop 7a-7c
+#     do not exercise the iterative leaf resolution).
+r="$tmp/chain-intree"
+make_repo "$r" 0.1.0
+printf '0.2.0\n' >"$r/REALVERSION"
+gitc "$r" add -A
+gitc "$r" commit -q -m "add REALVERSION"
+gitc "$r" tag v0.1.0
+ln -s REALVERSION "$r/hop2"
+ln -s hop2 "$r/hop1"
+set_vf "$r" hop1
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING")
+assert_eq "an in-tree multi-hop symlink chain resolves and reads" "$out" "pending${TAB}0.2.0"
+
+r="$tmp/chain-escape"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s "$outside/secret" "$r/ehop2"
+ln -s ehop2 "$r/ehop1"
+set_vf "$r" ehop1
+rc=0
+out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>/dev/null) || rc=$?
+assert_eq "a multi-hop symlink chain escaping the tree is refused (exit 2)" "$rc" "2"
+assert_eq "a multi-hop escaping chain reads nothing" "$out" ""
+
+# 7j. Regression guard for REQ-D1.2's "readers untouched" claim: the three
+#     git-show readers are symlink-immune and must NOT gain the canonicalization
+#     guard. Assert none of them reference the reusable function (a future edge
+#     that wrongly added it would otherwise pass CI silently). Grep-level, matching
+#     the [design-level] cross-check the test-spec names.
+untouched=yes
+for reader in release-window-check.sh release-publish.sh release-arm.sh; do
+  if grep -q 'rl_canonical_contained_path' "$here/../scripts/$reader"; then
+    untouched=no
+    echo "  (unexpected: $reader references rl_canonical_contained_path)" >&2
+  fi
+done
+assert_eq "the symlink-immune git-show readers do not reference the canonicalization guard" "$untouched" "yes"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
