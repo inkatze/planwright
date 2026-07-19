@@ -17,7 +17,16 @@
 #      release); GitHub CI green on the release SHA, checked against the real
 #      external state via `gh` (REQ-D1.3). Idempotency exception: a tag already
 #      pushed whose GitHub Release is absent (a partial publish) resumes by
-#      creating the Release rather than refusing.
+#      creating the Release rather than refusing. On that resume the tag is first
+#      HARDENED (release-hardening REQ-B1.1/B1.2, D-3): the ORIGIN tag object is
+#      fetched into a reserved verification ref (never the same-named local tag),
+#      its target commit is asserted to equal the recomputed release SHA, and its
+#      signature is re-verified keyed off the origin tag's own signedness — the
+#      creation gates and the tag create+push stay skipped. And a resume that
+#      finds the Release already present but the merged release PR still
+#      `autorelease: pending` performs only the idempotent relabel (REQ-B1.4,
+#      D-12), rather than dying "already published" and leaving release-please
+#      deadlocked.
 #   3. Create the annotated tag on the release SHA, signing per the
 #      `require_signed_tags` knob (`auto`/`require`/`never`, D-4/REQ-D1.4).
 #      Signing is delegated ENTIRELY to the repo's git config (`gpg.format`,
@@ -190,25 +199,36 @@ local_has=0
 git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 && local_has=1
 
 resume=0
+release_present=0
 if [ "$origin_has" -eq 1 ]; then
   release_state
   rel_rc=$?
   if [ "$rel_rc" -eq 2 ]; then
     die "idempotency gate: could not query the GitHub Release for $tag (gh release view failed); resolve connectivity/auth and re-run"
   elif [ "$rel_rc" -eq 0 ]; then
-    die "idempotency gate: tag $tag and its GitHub Release already exist (already published)"
+    # REQ-B1.4 / D-12: the tag AND its Release already exist, but the merged
+    # release PR may still be labeled `autorelease: pending` — a process killed,
+    # or a gh client error after a server-side success, between `gh release
+    # create` and the relabel below leaves the Release created but the PR stuck
+    # on `pending`, and release-please then aborts every future cycle on
+    # "untagged, merged release PRs outstanding" (issue #173). Do NOT die
+    # "already published" before the relabel runs: fall through to the idempotent
+    # relabel (a no-op when the PR is already `tagged`) and exit, skipping the
+    # creation gates, the tag create+push, and the Release creation (all done).
+    release_present=1
+  else
+    # rel_rc == 1: the tag is on origin but its Release is genuinely absent — a
+    # partial publish; resume by creating the Release, whether or not a local tag
+    # also lingers.
+    resume=1
   fi
-  # rel_rc == 1: the tag is on origin but its Release is genuinely absent — a
-  # partial publish; resume by creating the Release, whether or not a local tag
-  # also lingers.
-  resume=1
 elif [ "$local_has" -eq 1 ]; then
   die "idempotency gate: tag $tag exists locally but not on origin — push it (git push origin $tag) then re-run to create the Release, or delete it (git tag -d $tag) to re-publish"
 fi
 
-# --- Creation gates (skipped on a resume; the tag is already validated) -----
+# --- Creation gates (skipped on any recovery path; the tag is already on origin)
 
-if [ "$resume" -eq 0 ]; then
+if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
   # Monotonicity: target strictly greater than the latest release tag; vacuous
   # when there are no release tags yet (the first release). Read ORIGIN's tags
   # (read-only, via the same ls-remote probe the idempotency gate uses) rather
@@ -271,9 +291,9 @@ if [ "$resume" -eq 0 ]; then
   fi
 fi
 
-# --- Create + verify + push the tag (skipped on a resume) -------------------
+# --- Create + verify + push the tag (skipped on any recovery path) ----------
 
-if [ "$resume" -eq 0 ]; then
+if [ "$resume" -eq 0 ] && [ "$release_present" -eq 0 ]; then
   # Signing policy (D-4, REQ-D1.4). `auto`: sign when the repo has signing
   # configured, else annotated unsigned with a warning. `require`: refuse unless
   # signing is configured and succeeds. `never`: always annotated unsigned.
@@ -324,6 +344,91 @@ if [ "$resume" -eq 0 ]; then
   fi
 fi
 
+# --- Resume: harden the tag/commit correspondence (REQ-B1.1, REQ-B1.2, D-3) --
+
+# On a partial-publish resume (origin tag present, Release absent) the tag we are
+# about to publish via `gh release create --verify-tag` came from a PRIOR run, or
+# another machine. Before creating the Release, harden it: (1) fetch the ORIGIN
+# tag object into a distinct, reserved verification ref — never refs/tags/<tag>,
+# which git refuses to clobber when a local tag lingers and which would otherwise
+# shadow the object under verification — and assert its target commit equals the
+# locally recomputed release SHA; (2) re-verify THAT origin object's signature,
+# keyed off the origin tag's OWN signedness (never the resuming machine's signer
+# config, which is unknowable relative to creation on a cross-machine or
+# fresh-clone resume). A fresh-clone resume has no local tag; a lingering local
+# tag may differ from origin — the origin object is the one `--verify-tag`
+# publishes, so it is the only honest thing to check. The verification ref is
+# force-updated and cleaned up, so a stale ref left by an aborted resume never
+# blocks or misleads a retry.
+if [ "$resume" -eq 1 ]; then
+  verify_ref="refs/release-verify/$tag"
+  resume_die() {
+    # Refuse on the recovery path, cleaning the verification ref first so nothing
+    # is left behind (a mismatch/verification failure has no other side effect —
+    # no Release is created).
+    git update-ref -d "$verify_ref" >/dev/null 2>&1 || true
+    die "$1"
+  }
+  # --no-tags stops tag auto-following from ALSO writing refs/tags/<tag> as a side
+  # effect (which would recreate the very local-tag shadow this avoids); --force
+  # overwrites a stale verification ref from an aborted resume.
+  git fetch --no-tags --force origin "refs/tags/$tag:$verify_ref" >/dev/null 2>&1 \
+    || resume_die "resume gate: could not fetch the origin tag object for $tag; resolve connectivity and re-run"
+
+  # Resolve the fetched ref to its object id; `git verify-tag` and `git cat-file`
+  # take an object, not a ref path (verify-tag resolves names under refs/tags/
+  # only — the whole point of the reserved ref is to keep the object OUT of
+  # refs/tags/, so it is addressed by id here).
+  verify_obj=$(git rev-parse -q --verify "$verify_ref" 2>/dev/null) || verify_obj=""
+  [ -n "$verify_obj" ] \
+    || resume_die "resume gate: the fetched origin ref for $tag does not resolve to an object; aborted before creating the Release"
+  origin_tag_sha=$(git rev-parse -q --verify "$verify_obj^{commit}" 2>/dev/null) || origin_tag_sha=""
+  [ -n "$origin_tag_sha" ] \
+    || resume_die "resume gate: the origin tag object for $tag does not resolve to a commit; aborted before creating the Release"
+  if [ "$origin_tag_sha" != "$release_sha" ]; then
+    resume_die "resume gate: origin tag $tag targets commit $origin_tag_sha but the recomputed release commit is $release_sha; refusing to create the Release for a mismatched tag"
+  fi
+
+  # Re-verify the origin object's signature, keyed off ITS OWN signedness — the
+  # same require_signed_tags knob that governed creation (D-4/D-3).
+  rmode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null) || rmode=""
+  [ -n "$rmode" ] || rmode="auto"
+  case "$rmode" in
+    auto | require | never) : ;;
+    *) resume_die "config: require_signed_tags must be auto|require|never, got '$(sanitize_printable "$rmode")'" ;;
+  esac
+  # A lightweight tag (no annotated tag object) peels to a commit: nothing to
+  # sign, so it is treated as UNSIGNED — accepted under auto, refused under
+  # require, and NEVER fed to `git verify-tag`, which errors on a non-tag object.
+  tag_signed=0
+  if [ "$(git cat-file -t "$verify_obj" 2>/dev/null)" = "tag" ]; then
+    if git cat-file tag "$verify_obj" 2>/dev/null \
+      | grep -q -e '-----BEGIN PGP SIGNATURE-----' -e '-----BEGIN SSH SIGNATURE-----'; then
+      tag_signed=1
+    fi
+  fi
+  case "$rmode" in
+    never) : ;; # skip: the operator opted out of signature verification
+    require)
+      [ "$tag_signed" -eq 1 ] \
+        || resume_die "resume gate: require_signed_tags=require but the origin tag $tag carries no signature; refusing to create the Release"
+      git verify-tag "$verify_obj" >/dev/null 2>&1 \
+        || resume_die "resume gate: signature verification failed for the origin tag $tag (require_signed_tags=require); refusing to create the Release"
+      ;;
+    auto)
+      # Verify iff the origin tag is signed; an unsigned tag is accepted (its
+      # target commit is already pinned to the recomputed release SHA above, and
+      # auto is best-effort by construction — R10b).
+      if [ "$tag_signed" -eq 1 ]; then
+        git verify-tag "$verify_obj" >/dev/null 2>&1 \
+          || resume_die "resume gate: the origin tag $tag carries an invalid signature (require_signed_tags=auto); refusing to create the Release"
+      fi
+      ;;
+  esac
+
+  git update-ref -d "$verify_ref" >/dev/null 2>&1 || true
+fi
+
 # --- Create the GitHub Release from the CHANGELOG section (REQ-D1.7) ---------
 
 changelog_notes() {
@@ -344,20 +449,25 @@ changelog_notes() {
   '
 }
 
-notes_file=$(mktemp "${TMPDIR:-/tmp}/release-publish-notes.XXXXXX") || die "could not create a temp file for the release notes"
-trap 'rm -f "$notes_file"' EXIT
-notes=$(changelog_notes)
-if [ -n "$notes" ]; then
-  printf '%s\n' "$notes" >"$notes_file"
-else
-  echo "release-publish: no CHANGELOG.md section for $tag at the release commit; using a minimal release note" >&2
-  printf 'Release %s\n' "$tag" >"$notes_file"
-fi
+# Skipped when the Release already exists (release_present): on that path only the
+# idempotent relabel below runs, closing the release-please deadlock window
+# (REQ-B1.4) without re-creating the Release.
+if [ "$release_present" -eq 0 ]; then
+  notes_file=$(mktemp "${TMPDIR:-/tmp}/release-publish-notes.XXXXXX") || die "could not create a temp file for the release notes"
+  trap 'rm -f "$notes_file"' EXIT
+  notes=$(changelog_notes)
+  if [ -n "$notes" ]; then
+    printf '%s\n' "$notes" >"$notes_file"
+  else
+    echo "release-publish: no CHANGELOG.md section for $tag at the release commit; using a minimal release note" >&2
+    printf 'Release %s\n' "$tag" >"$notes_file"
+  fi
 
-# --verify-tag makes gh attach to the already-pushed tag and refuse to create
-# one itself (REQ-D1.7): the tag is ours, signed, on the release SHA.
-if ! gh release create "$tag" --verify-tag --title "$tag" --notes-file "$notes_file"; then
-  die "GitHub Release creation failed for $tag (the tag is pushed; re-run to resume)"
+  # --verify-tag makes gh attach to the already-pushed tag and refuse to create
+  # one itself (REQ-D1.7): the tag is ours, signed, on the release SHA.
+  if ! gh release create "$tag" --verify-tag --title "$tag" --notes-file "$notes_file"; then
+    die "GitHub Release creation failed for $tag (the tag is pushed; re-run to resume)"
+  fi
 fi
 
 # --- Relabel the merged release PR (issue #173) ------------------------------
@@ -416,7 +526,9 @@ relabel_release_pr() {
 }
 relabel_release_pr
 
-if [ "$resume" -eq 1 ]; then
+if [ "$release_present" -eq 1 ]; then
+  echo "release-publish: $tag and its GitHub Release already exist; ensured the merged release PR relabel so release-please stays unblocked (REQ-B1.4)"
+elif [ "$resume" -eq 1 ]; then
   echo "release-publish: resumed — created the GitHub Release for the already-pushed $tag"
 else
   echo "release-publish: published $tag on $release_sha"
