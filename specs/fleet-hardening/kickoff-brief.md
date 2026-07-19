@@ -293,3 +293,40 @@ Class: meaning
 Lens-pass: §8 (full-bundle first-activation fan-out, canonical lens-coverage table above, all findings dispositioned)
 Anchor: `c6d923cee5adef82b469da024e4ac9c48ab4a002` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
+
+## 9. Amendment log
+
+### 2026-07-19 — Panel-review delta (`/panel-review --nested`, iteration 1)
+
+An independent-model panel pass (gemini backend, personal profile) over the merged bundle diff, run
+after the first sign-off as a cross-distribution check. It surfaced five real completeness gaps — all
+validated three ways, none a false positive, nothing broken (validator 0/0, lint:md 0 throughout).
+The notable one (NS-1) was invisible to §8's same-session Claude lens fan-out: that fan-out reviewed
+the pre-edit bundle, and the E1.3 asymmetry was *introduced* by §8's own Task 2–9 no-LLM-assertion
+edits, so only a fresh post-edit pass could catch it. All five applied (human: apply all 5):
+
+1. **NS-1 — E1.3 no-LLM coverage made symmetric.** Task 10 (dispatch branch naming) is the ninth
+   mechanism but was omitted from test-spec REQ-E1.3's enumeration and lacked the no-LLM assertion +
+   E1.3 citation Tasks 2–9 carry; Task 7 referenced E1.3 in its Done-when without citing it.
+   → REQ-E1.3 enumeration 8 → 9 (adds branch naming); Task 10 gains the assertion + `REQ-E1.3`
+   citation; Task 7 gains the `REQ-E1.3` citation.
+2. **NS-2 — deny surface completed.** REQ-C1.2 (c)'s MCP deny list omitted the sibling destructive
+   op `mcp__github__delete_file` (a default-branch write). → added to REQ-C1.2, Task 7 Done-when, and
+   test-spec REQ-C1.2. Consistent with the Q1 full-hardening decision.
+3. **NS-3 — negative test added.** REQ-A1.3's positive-at-prompt-anchor requirement had no fixture
+   for its own negation. → added a fifth A1.3 fixture (no anchor → NOT idle, so a starting-up worker
+   is never misread as idle-at-fork).
+4. **NS-4 — terminal-clear clarified.** Task 2's `awaiting-human` exit edge covered resume but not a
+   crash/session-end before resume. → clarified that terminal exit clears the row via
+   `fleet-autonomy`'s existing SessionEnd / StopFailure transitions (precedence over the push).
+5. **NS-5 — cosmetic.** REQ-D1.2's citation date was orphaned outside the italic. → moved inside.
+
+Gemini's Security and Performance lenses returned `none`, independently re-confirming the §8 security
+hardening ("meticulously defined, fails closed, deny-blocks have precedence") and the TTL/debounce
+bounding. The nested loop then exited (Auto-applicable empty — no finding was project-tool-grounded,
+so none auto-applied; all five routed to human sign-off, applied here on approval).
+
+Class: meaning
+Lens-pass: §9 (panel-review delta, gemini backend; five findings, all applied)
+Anchor: `fb32fc83acb0e87d3e61ab4c66bfc37303e1b460` — computed as
+`scripts/spec-anchor.sh specs/fleet-hardening`

@@ -41,7 +41,9 @@ scrollback false-match); (b) a main-idle / background-busy pane (footer `Waiting
 agent`, no `esc to interrupt`) classifies busy; (c) a single-frame flap is suppressed by the
 two-frame debounce. A fourth asserts the detector runs only as the reconcile backstop — where no hook
 is registered, or where a registered hook has not pushed within the bounded reconcile interval —
-never where a fresh hook push exists.
+never where a fresh hook push exists. A fifth asserts a pane with no positive at-prompt anchor (a
+blank / loading screen, no busy marker either) classifies NOT idle — the direct test of the
+positive-anchor requirement, so a starting-up worker is never misread as idle-at-fork.
 
 ### REQ-A1.4 — Decision record carries the full labeled option set [test]
 
@@ -103,7 +105,7 @@ surfaces: the shell ops (merge, force-push in every spelling `--force`/`-f`/`--f
 `+`-refspec, amend, squash, rebase, `gh pr merge`, never-ready guardrails), default-branch writes and
 local-`main` mutation (`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), and the
 equivalent GitHub MCP tools (`mcp__github__merge_pull_request`, `update_pull_request` draft→ready,
-`push_files` / `create_or_update_file` on the default branch). Assert the allow-set never matches
+`push_files` / `create_or_update_file` / `delete_file` on the default branch). Assert the allow-set never matches
 `claude --worktree … --dangerously-skip-permissions` / `--permission-mode` nor `tmux send-keys` /
 `kill-session`; assert the sanctioned kickoff spec-PR ready-flip is distinguished from the denied
 task-PR / tower ready-marking.
@@ -163,9 +165,9 @@ behaviorally identical, so the regression is not a vacuous green from an untouch
 
 ### REQ-E1.3 — No LLM in any control-plane decision path [test]
 
-For each mechanism this bundle ships (attention push, fallback detector, decision channel, launch
-pin, glob check, tower guard, freshness gate, observation carry), a negative assertion confirms no
-model/API call occurs in its decision path.
+For each of the nine mechanisms this bundle ships (attention push, fallback detector, decision
+channel, launch pin, glob check, tower guard, freshness gate, observation carry, dispatch branch
+naming), a negative assertion confirms no model/API call occurs in its decision path.
 
 ### REQ-E1.4 — No auto-merge / autonomous-ready beyond the kickoff exception [test + design-level]
 

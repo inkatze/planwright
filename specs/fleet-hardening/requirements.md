@@ -178,8 +178,9 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
     by the fetch code path.
   - **(c) Equivalent GitHub MCP tool surface:** `mcp__github__merge_pull_request`,
     `mcp__github__update_pull_request` draft→ready transitions, and `push_files` /
-    `create_or_update_file` targeting the default branch — a PreToolUse Bash-string guard does not
-    intercept MCP calls, so the never-merge / never-ready floors must deny the MCP surface too.
+    `create_or_update_file` / `delete_file` targeting the default branch — a PreToolUse Bash-string
+    guard does not intercept MCP calls, so the never-merge / never-ready floors must deny the MCP
+    surface too.
   - **(d)** every never-merge / never-ready guardrail.
 
   The tower allow-set SHALL be pinned so a `claude --worktree` allow never matches
@@ -215,8 +216,7 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
 - **REQ-D1.2** Merge detection SHALL evaluate against freshly-fetched `origin/main` and
   remote-tracking refs, so a merged task PR whose merge trailer has not reached local `main` is not
   re-dispatched as if unmerged.
-  *(Cites: obs:04b578da (related) · drafting-session decision)*
-  (2026-07-19).
+  *(Cites: obs:04b578da (related) · drafting-session decision (2026-07-19).)*
 - **REQ-D1.3** Tower-recorded observations SHALL have a sanctioned path to the accumulator on
   `main` (the `--bookkeeping` / drain pass, or the tower, auto-opening a chore PR for accumulated
   tower observations), so autonomy learnings are not stranded on disposable, never-pushed tower

@@ -52,7 +52,9 @@ All tasks depend on Task 1.
   idle-nudge does not push a false `awaiting-human`; the event-watch carries a liveness check and a
   periodic full-store reconcile sweep (a push written before the watch is established, or a dead
   watch, degrades to poll-latency, not silent blindness); the `awaiting-human` row is cleared /
-  superseded when the worker resumes (the exit edge), asserted by a resume-clears-the-row fixture; a
+  superseded when the worker resumes (the exit edge, asserted by a resume-clears-the-row fixture;
+  terminal exit — crash / session end — clears the row via `fleet-autonomy`'s existing SessionEnd /
+  StopFailure transitions, which take precedence over the push); a
   negative assertion confirms no model/API call in the push decision path (REQ-E1.3); the shipped
   `fleet-autonomy` attention-store + classifier surface is asserted behaviorally unchanged by this
   extension (REQ-E1.2 regression); tests/CI pass.
@@ -146,7 +148,7 @@ All tasks depend on Task 1.
   `+`-refspec, amend, squash, rebase, `gh pr merge`), default-branch writes and local-`main` mutation
   (`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), and the equivalent GitHub MCP tools
   (`mcp__github__merge_pull_request`, `update_pull_request` draft→ready, `push_files` /
-  `create_or_update_file` on the default branch); the allow-set is pinned so `claude --worktree`
+  `create_or_update_file` / `delete_file` on the default branch); the allow-set is pinned so `claude --worktree`
   never matches `--dangerously-skip-permissions` / `--permission-mode` and `tmux` is scoped to
   `load-buffer` / `paste-buffer` / `capture-pane` (never `send-keys` / `kill-session`), with
   flag-appended false-allow probes in the suite; the guard fails closed on error / absence (asserted);
@@ -157,7 +159,7 @@ All tasks depend on Task 1.
   assertion); the guard invokes no LLM (REQ-E1.3); the worker-only-scoping security rationale is
   consciously re-opened and documented; tests/CI pass.
 - **Dependencies:** 1
-- **Citations:** D-8 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-E1.4
+- **Citations:** D-8 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-E1.3, REQ-E1.4
 - **Estimated effort:** 3 days
 
 ### Task 8 — Fetch-before-gate dispatch freshness & merge detection
@@ -215,9 +217,10 @@ All tasks depend on Task 1.
   merely manually confirmed; a concurrent / repeat dispatch of the same task detects an existing
   `<spec>/task-<id>` branch or worktree and aborts as already-in-flight (no collision); `[manual]`
   confirms on a real dispatch that `--tmux=classic` (not plain `--tmux`) is used and the client-switch
-  mitigation holds so a watching tower is not disrupted; tests/CI pass.
+  mitigation holds so a watching tower is not disrupted; a negative assertion confirms no model/API
+  call in the branch-naming decision path (REQ-E1.3); tests/CI pass.
 - **Dependencies:** 1
-- **Citations:** D-7 · REQ-B1.4
+- **Citations:** D-7 · REQ-B1.4, REQ-E1.3
 - **Estimated effort:** 1 day
 
 ## Awaiting input
