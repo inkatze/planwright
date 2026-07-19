@@ -1,8 +1,8 @@
 # Instruction-budget suppression list (prompt-hygiene REQ-B1.3).
 #
 # scripts/check-instructions.sh reads this file as DATA (never evaluated,
-# REQ-B1.9). Blank lines and lines beginning with '#' are ignored. Two forms
-# exist; each REQUIRES a recorded reason (a reason-less entry of either form is
+# REQ-B1.9). Blank lines and lines beginning with '#' are ignored. Four forms
+# exist; each REQUIRES a recorded reason (a reason-less entry of any form is
 # an error, REQ-B1.3 / REQ-B1.8):
 #
 #   exempt|<path>|<reason>
