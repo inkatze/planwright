@@ -1382,6 +1382,10 @@ EOF
 depbody_c=$(wc -w <"$t16c/skills/dep/SKILL.md" | tr -d ' ')
 aud="$(/bin/bash "$CHECKER" --audit --root "$t16c" 2>&1)"
 small_row="$(printf '%s\n' "$aud" | grep -F 'doctrine/smallexempt.md')"
+# guard the assert_absent against a vacuous pass: prove the row is present first,
+# so "no charged= column" cannot pass merely because the row went missing.
+assert_contains "the under-threshold exempt doc's per-file row is present (non-vacuous guard)" \
+  "words=1000" "$small_row"
 assert_absent "an under-threshold exempt doc gets no charged= column" "charged=" "$small_row"
 dep_row_c="$(printf '%s\n' "$aud" | grep -F 'dep start-load=')"
 assert_contains "an under-threshold exempt doc charges its actual to the aggregate" \
