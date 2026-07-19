@@ -411,7 +411,7 @@ deny "pv/ci-neutral: never published" gh_called "$LOG" "release create"
 #       arm-and-fire into a publish that then refuses. The green quality `check` is
 #       present so only the mis-excluded status could flip the verdict.
 # ARM_FINAL_STATE=OPEN keeps the PR from merging: the refusal we assert is a
-# PRE-VALIDATION one (the red legacy status makes the head verdict RED), so arm
+# PRE-VALIDATION one (the red legacy status makes the head verdict failing), so arm
 # must die BEFORE the watch loop. Pinning the PR open means a regression that let
 # arm past the CI gate would exhaust the watch budget with a "still not merged"
 # message (no "ci gate") — a clean failing-first signal — rather than driving into
@@ -431,7 +431,7 @@ deny "pv/ci-statuslock: never published" gh_called "$LOG" "release create"
 #       The shared rl_ci_state must emit too-many and refuse (never green) — even
 #       though the visible first-page
 #       check is green. Pinned OPEN so a regression (evaluating the incomplete set
-#       as GREEN) shows as a watch-budget timeout (no "page" message), not a fire.
+#       as green) shows as a watch-budget timeout (no "page" message), not a fire.
 r="$tmp/pv-ci-toomany"
 setup_release_pr "$r" 0.2.0 87
 run_arm "$r" 87 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \

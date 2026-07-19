@@ -383,9 +383,11 @@ fi
 # both are thin callers of this one primitive; the duplicated inline evaluators
 # are removed. Structural single-source check: the statusCheckRollup GraphQL query
 # lives ONLY in release-lib.sh. The inline CI-rollup evaluator is keyed by its
-# `gh api graphql` call (whitespace-robust: a re-inlined query MUST re-introduce
-# that call, whatever its internal spacing — unlike a bare `statusCheckRollup`
-# substring which prose also matches). And both callers must genuinely INVOKE the
+# `gh api graphql` call — a fixed-string match on the canonical single-space
+# spelling the codebase uses (robust to surrounding prose, unlike a bare
+# `statusCheckRollup` substring which prose also matches; a re-inlined query with
+# non-canonical internal spacing would slip it, an accepted limit). And both
+# callers must genuinely INVOKE the
 # primitive — matched by the call form `rl_ci_state "$` (a call with a shell-var
 # argument), NOT a bare-name mention that also matches the descriptive comments,
 # so deleting a real call cannot pass this check on comment prose alone.

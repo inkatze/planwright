@@ -199,7 +199,7 @@ case "$1" in
     # StatusContext (commit-status) node named via GH_STATUS_CONTEXT_NAME
     # (default legacy-ci) so the gate's non-CheckRun branch is exercised;
     # GH_HASNEXTPAGE=true forces hasNextPage so the >100-check pagination guard
-    # (TOO_MANY) is exercised even with a green visible page. With no checks at
+    # (too-many) is exercised even with a green visible page. With no checks at
     # all the rollup is null. The top-level `state` stays server-accurate so a
     # gate that (wrongly) read only the aggregate would still see the real state.
     nodes=""
@@ -581,7 +581,7 @@ assert_ne "gate/status-context-pending: a PENDING commit status blocks publish" 
 assert_contains "gate/status-context-pending: names the ci gate" "$ERR" "ci gate"
 deny "gate/status-context-pending: no tag created while a status is pending" local_has_tag "$r" v0.1.0
 
-# 4h-8. Pagination guard (TOO_MANY). More checks than one page can hold
+# 4h-8. Pagination guard (too-many). More checks than one page can hold
 #       (hasNextPage) fails closed EVEN with a green visible page — an unseen
 #       later page could hold a red check, so the gate refuses rather than trust
 #       a partial view. This is the blind spot the per-check rewrite closes.

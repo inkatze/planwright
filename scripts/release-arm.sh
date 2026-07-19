@@ -246,7 +246,7 @@ fi
 # GitHub CI green on the PR head — the real external state via gh, EXCLUDING the
 # untagged-window lock (it gates merges, not the publish, so it must not block
 # arming; without the exclusion a release pending elsewhere would falsely fail
-# this gate). Pre-validation requires a settled GREEN: a still-running head is a
+# this gate). Pre-validation requires a settled green: a still-running head is a
 # refusal to arm now, not a wait.
 head_ci=""
 head_ci=$(rl_ci_state "$head_oid") \
