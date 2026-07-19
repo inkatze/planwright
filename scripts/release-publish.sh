@@ -59,20 +59,14 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 MAIN_REF="main"
 ORIGIN_MAIN_REF="origin/main"
 
-# The release-window lock check (release-window.yml, D-7 / REQ-E1.1) is RED BY
-# DESIGN on `main` throughout the untagged window — from the moment a release PR
-# merges until this script publishes the tag. It is a MERGE gate (it blocks
-# further merges to `main` until the tag lands), never a PUBLISH gate. Gating
-# publish on it deadlocks: the server-aggregated CI rollup is FAILURE precisely
-# because the window is open, yet publishing the tag is the only thing that
-# closes the window — so publish could never run while it is needed. The CI gate
-# below therefore evaluates every OTHER check on the release commit and treats
-# this one as expected-red. The name is the release-window.yml job id, which is
-# its GitHub check-run name; a repo without that job simply has nothing to skip.
-# The carve-out is scoped to the Actions CheckRun of this name: a legacy
-# commit-status (StatusContext) that happens to carry the same name is NOT
-# excluded, so it still fails the gate closed rather than being silently dropped.
-RELEASE_WINDOW_CHECK="window-lock"
+# The release-window lock check is RED BY DESIGN on `main` throughout the untagged
+# window and is a MERGE gate, never a PUBLISH gate, so the CI gate below must not
+# count it (gating publish on it would deadlock). The carve-out — now
+# workflow-scoped (a CheckRun named `window-lock` whose owning workflow is
+# `release-window`; REQ-C1.3) — lives in the shared rl_ci_state primitive
+# (release-lib.sh), which release-arm.sh calls too, so the two agree by
+# construction on the release-gating verdict (D-4, REQ-C1.2). The prior inline
+# `ci_green`/RELEASE_WINDOW_CHECK evaluator is retired in favor of it.
 
 die() {
   # die <gate-or-context> — refuse, naming the gate, without side effects. Echo
@@ -253,76 +247,27 @@ if [ "$resume" -eq 0 ]; then
     die "sync gate: local $MAIN_REF is not synced with $ORIGIN_MAIN_REF"
   fi
 
-  # GitHub CI green on the release SHA — the real external state via gh. Uses the
-  # GraphQL statusCheckRollup's per-check `contexts` (check-runs AND commit
-  # statuses) rather than the REST check-runs list (whose default 30-item page
-  # could hide a failing run) OR the single aggregated rollup `state`. The
-  # aggregate cannot be used here: it folds in the release-window lock, which is
-  # red BY DESIGN during the untagged window (RELEASE_WINDOW_CHECK above), so a
-  # publish gated on the aggregate would deadlock. Instead every check is judged
-  # individually with the release-window lock excluded, then re-aggregated:
-  #   - the rollup is null (no checks at all)                → NONE
-  #   - any non-excluded check is failing                    → FAILURE
-  #   - any non-excluded check is still pending/in progress  → PENDING
-  #   - at least one non-excluded check succeeded, none bad  → SUCCESS (green)
-  #   - only the excluded lock remained (no confirmation)    → NONE
-  #   - more checks than one page could hold (>100)          → TOO_MANY (closed)
-  # SUCCESS is the only green. NEUTRAL/SKIPPED checks neither confirm nor fail, so
-  # a run with no positive success left after exclusion is NONE, not green: a
-  # release gate requires positive CI confirmation, so "no CI" fails closed by
-  # design (an adopter without CI adds it before publishing). This preserves
-  # every safety property of the aggregate read (absent CI fails, a red quality
-  # check fails, a pending check fails) and only carves out the window lock. A
-  # gh/query failure is distinct from a red verdict (return 2) so an infra outage
-  # is not misreported as red CI.
-  RL_CI_STATE=""
-  ci_green() {
-    local sha="$1" nwo owner repo raw
-    nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
-    owner=${nwo%%/*}
-    repo=${nwo#*/}
-    # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
-    raw=$(gh api graphql \
-      -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{state contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion} ... on StatusContext{context state}}}}}}}}' \
-      -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
-    # Judge each check to SUCCESS/PENDING/FAILURE/NEUTRAL, drop the release-window
-    # lock (matched by name AND CheckRun type, so a legacy commit-status of the
-    # same name is still judged), then re-aggregate. Any jq error (malformed
-    # response, missing field) fails closed via the surrounding `|| return 2`.
-    RL_CI_STATE=$(printf '%s' "$raw" | jq -r --arg excl "$RELEASE_WINDOW_CHECK" '
-      .data.repository.object.statusCheckRollup as $roll
-      | if $roll == null then "NONE"
-        elif ($roll.contexts.pageInfo.hasNextPage // false) then "TOO_MANY"
-        else
-          [ ($roll.contexts.nodes // [])[]
-            | if .__typename == "CheckRun"
-              then { type: "CheckRun", name: .name, v: (
-                  if .status != "COMPLETED" then "PENDING"
-                  elif .conclusion == "SUCCESS" then "SUCCESS"
-                  elif (.conclusion == "NEUTRAL" or .conclusion == "SKIPPED") then "NEUTRAL"
-                  else "FAILURE" end) }
-              else { type: "StatusContext", name: .context, v: (
-                  if .state == "SUCCESS" then "SUCCESS"
-                  elif (.state == "PENDING" or .state == "EXPECTED") then "PENDING"
-                  else "FAILURE" end) }
-              end
-          ]
-          | map(select(.type != "CheckRun" or .name != $excl)) | map(.v) as $vs
-          | if ($vs | length) == 0 then "NONE"
-            elif any($vs[]; . == "FAILURE") then "FAILURE"
-            elif any($vs[]; . == "PENDING") then "PENDING"
-            elif any($vs[]; . == "SUCCESS") then "SUCCESS"
-            else "NONE" end
-        end
-    ' 2>/dev/null) || return 2
-    [ "$RL_CI_STATE" = "SUCCESS" ]
-  }
+  # GitHub CI green on the release SHA — the real external state via gh, through
+  # the shared rl_ci_state primitive (release-lib.sh; D-4, REQ-C1.1, REQ-C1.2), so
+  # publish and release-arm.sh never drift on what counts as release-gating CI.
+  # rl_ci_state judges the statusCheckRollup per-check with the release-window lock
+  # excluded workflow-scoped (never the aggregate `state`, which is red by design
+  # during the untagged window and would deadlock publish — REQ-C1.3, REQ-C1.4),
+  # and returns a distinct status (2, empty stdout) on a gh/query failure so an
+  # infra outage is not misreported as red CI. `green` is the only pass; every
+  # other verdict (failing/pending/none/too-many) fails the gate closed — a
+  # release gate requires positive CI confirmation, so "no CI" (none) refuses by
+  # design (an adopter without CI adds it before publishing).
   ci_rc=0
-  ci_green "$release_sha" || ci_rc=$?
-  if [ "$ci_rc" -eq 2 ]; then
+  ci_verdict=$(rl_ci_state "$release_sha") || ci_rc=$?
+  # rl_ci_state's contract is exactly rc 0 (verdict on stdout) or rc 2 (query
+  # failure, empty stdout), so any nonzero rc here is the query-failure case; the
+  # "gh query failed" message is accurate for the whole nonzero space by that
+  # contract.
+  if [ "$ci_rc" -ne 0 ]; then
     die "ci gate: could not verify GitHub CI on $release_sha (gh query failed); resolve connectivity/auth and re-run"
-  elif [ "$ci_rc" -ne 0 ]; then
-    die "ci gate: GitHub CI is not green on the release commit $release_sha (rollup state: ${RL_CI_STATE:-unknown})"
+  elif [ "$ci_verdict" != "green" ]; then
+    die "ci gate: GitHub CI is not green on the release commit $release_sha (verdict: ${ci_verdict:-unknown})"
   fi
 fi
 
@@ -439,7 +384,8 @@ relabel_release_pr() {
   # (merge commit or squash), keyed off the release SHA — the same commit the
   # tag was just created on. The query's own failure (network/auth/rate-limit)
   # is distinguished from a genuine empty result, same posture as release_state
-  # and ci_green above: a query failure just means retry, but "no PR found"
+  # above and the shared rl_ci_state CI gate: a query failure just means retry,
+  # but "no PR found"
   # reads as an unusual release-process state and would send an operator down
   # the wrong path if the two were conflated.
   # The endpoint can return more than one PR for a commit (e.g. it also
