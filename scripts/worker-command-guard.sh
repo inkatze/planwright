@@ -83,9 +83,15 @@ emit_allow() {
 # it will not analyze: unbalanced quotes, command/process substitution, backtick
 # substitution, ANSI-C `$'…'`, a backslash line-continuation or escaped
 # operator/quote. It never executes or expands anything it scans.
+# tok_push <type> <value> [quoted]: the optional third arg records whether a W
+# token was built from any quoting or backslash-escaping (1) or is a bare,
+# unquoted literal (0, the default for operators and plain words). classify of a
+# redirect operand uses it: a quoted operand is never a bare fd-number or bare
+# /dev/null, so it must not read as a safe fd-dup / null-write (REQ-A1.4).
 tok_push() {
   TOK_TYPE[TOK_N]=$1
   TOK_VAL[TOK_N]=$2
+  TOK_QUOTED[TOK_N]=${3:-0}
   TOK_N=$((TOK_N + 1))
 }
 
@@ -93,8 +99,19 @@ tokenize() {
   local s=$1
   local n=${#s}
   local i=0
-  local cur='' have=0
+  local cur='' have=0 curq=0
   local c nc j k dc dn fdpfx
+
+  # _flush: push the accumulated word (if any) as a W token carrying its
+  # quoting-provenance flag, then reset the accumulator.
+  _flush() {
+    if [ "$have" = 1 ]; then
+      tok_push W "$cur" "$curq"
+      cur=''
+      have=0
+      curq=0
+    fi
+  }
 
   while [ "$i" -lt "$n" ]; do
     c=${s:i:1}
@@ -108,6 +125,7 @@ tokenize() {
         esac
         cur="$cur$nc"
         have=1
+        curq=1
         i=$((i + 2))
         ;;
       "'")
@@ -120,6 +138,7 @@ tokenize() {
         [ "$j" -lt "$n" ] || return 1 # unbalanced single quote
         cur="$cur$k"
         have=1
+        curq=1
         i=$((j + 1))
         ;;
       '"')
@@ -146,6 +165,7 @@ tokenize() {
         [ "$j" -lt "$n" ] || return 1 # unbalanced double quote
         cur="$cur$k"
         have=1
+        curq=1
         i=$((j + 1))
         ;;
       '`') return 1 ;; # backtick substitution
@@ -158,28 +178,16 @@ tokenize() {
         i=$((i + 1))
         ;;
       ' ' | "$TAB")
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         i=$((i + 1))
         ;;
       "$NL")
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         tok_push O ';'
         i=$((i + 1))
         ;;
       ';')
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         if [ "${s:i+1:1}" = ';' ]; then
           tok_push O ';;'
           i=$((i + 2))
@@ -189,11 +197,7 @@ tokenize() {
         fi
         ;;
       '&')
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         nc=${s:i+1:1}
         if [ "$nc" = '&' ]; then
           tok_push O '&&'
@@ -212,11 +216,7 @@ tokenize() {
         fi
         ;;
       '|')
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         nc=${s:i+1:1}
         if [ "$nc" = '|' ]; then
           tok_push O '||'
@@ -234,12 +234,15 @@ tokenize() {
         # fd number of this redirect (e.g. the 2 in 2>&1), not a word.
         fdpfx=''
         if [ "$have" = 1 ]; then
+          # A quoted digit run is a word (bash only reads an UNQUOTED digit run
+          # as this redirect's fd number), so an fd prefix is bare digits only.
           case $cur in
-            '' | *[!0-9]*) tok_push W "$cur" ;;
-            *) fdpfx=$cur ;;
+            '' | *[!0-9]*) tok_push W "$cur" "$curq" ;;
+            *) [ "$curq" = 1 ] && tok_push W "$cur" "$curq" || fdpfx=$cur ;;
           esac
           cur=''
           have=0
+          curq=0
         fi
         if [ "$c" = '<' ]; then
           nc=${s:i+1:1}
@@ -283,20 +286,12 @@ tokenize() {
         fi
         ;;
       '(')
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         tok_push O '('
         i=$((i + 1))
         ;;
       ')')
-        if [ "$have" = 1 ]; then
-          tok_push W "$cur"
-          cur=''
-          have=0
-        fi
+        _flush
         tok_push O ')'
         i=$((i + 1))
         ;;
@@ -307,7 +302,7 @@ tokenize() {
         ;;
     esac
   done
-  [ "$have" = 1 ] && tok_push W "$cur"
+  _flush
   return 0
 }
 
@@ -1067,6 +1062,10 @@ verify_tokens() {
       if [ "$nxt" -ge "$TOK_N" ] || [ "${TOK_TYPE[nxt]}" != W ]; then
         return 1 # dangling redirect operator
       fi
+      # A quoted/escaped operand is never a bare fd-number or bare /dev/null, so
+      # bash treats it as a real file target (`>&"1\2"` writes a file). Defer
+      # rather than let classify_redirect mistake it for a safe fd-dup/null-write.
+      [ "${TOK_QUOTED[nxt]}" = 1 ] && return 1
       ro[rn]=$val
       rt[rn]=${TOK_VAL[nxt]}
       rn=$((rn + 1))
@@ -1126,7 +1125,7 @@ analyze_command() {
   local cmd=$1 depth=$2
   [ "$depth" -le "$MAX_DEPTH" ] || return 1
   [ "${#cmd}" -le "$MAX_CMD_LEN" ] || return 1
-  local -a TOK_TYPE=() TOK_VAL=()
+  local -a TOK_TYPE=() TOK_VAL=() TOK_QUOTED=()
   local TOK_N=0
   local HOOK_DEPTH=$depth
   tokenize "$cmd" || return 1

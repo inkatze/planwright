@@ -249,6 +249,13 @@ assert_allow "redirect to /dev/null" "cat file > /dev/null"
 assert_allow "fd-dup 2>&1 to /dev/null idiom" "cat file > /dev/null 2>&1"
 assert_allow "fd-dup >&2" "echo err >&2"
 assert_allow "fd-close 2>&-" "cat file 2>&-"
+# A quoted/escaped redirect operand is NEVER a bare fd-number or bare /dev/null:
+# bash treats `>&"1\2"` as a file write, so a quoted operand must defer even
+# when it normalizes to digits or a /dev/null-lookalike (REQ-A1.4 write-vs-fd-dup).
+assert_defer "quoted-digit fd-dup is a file write" 'echo hi >&"1\2"'
+assert_defer "escaped fd-dup operand writes file" 'cat file >&"9\9"'
+assert_defer "quoted dev-null-lookalike write" 'echo hi > "/dev/nul\l"'
+assert_defer "single-quoted fd operand defers" "echo hi >&'1'"
 
 echo "### REQ-A1.6 — the explicit defer set"
 assert_defer "rm" "rm -rf /tmp/x"
