@@ -353,6 +353,24 @@ out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$P
 assert_eq "a multi-hop symlink chain escaping the tree is refused (exit 2)" "$rc" "2"
 assert_eq "a multi-hop escaping chain reads nothing" "$out" ""
 
+# 7i. A leaf symlink whose target is `..` (a parent-DENOTING path) must not pass
+#     containment. `<root>/..` textually sits under the root but denotes the
+#     parent; the reusable guard rejects it at canonicalization (via the clean
+#     canonicalization diagnostic), rather than relying on the caller's `-f`
+#     check to catch that the parent is a directory (REQ-D1.2 reusable-guard
+#     contract). Discriminating: the pre-fix guard returned `<root>/..` as
+#     "contained" and the caller's `[ ! -f ]` produced the generic not-found.
+r="$tmp/dotdot-leaf"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+ln -s ".." "$r/uplink"
+set_vf "$r" uplink
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "a leaf symlink denoting the parent (../) is refused (exit 2)" "$rc" "2"
+case "$err" in *"outside the repository or cannot be canonicalized"*) hit=yes ;; *) hit=no ;; esac
+assert_eq "a parent-denoting leaf is refused by the containment guard, not the -f check" "$hit" "yes"
+
 # 7j. Regression guard for REQ-D1.2's "readers untouched" claim: the three
 #     git-show readers are symlink-immune and must NOT gain the canonicalization
 #     guard. Assert none of them reference the reusable function (a future edge

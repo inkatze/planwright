@@ -218,19 +218,27 @@ _rl_resolve_leaf_symlink() {
 rl_canonical_contained_path() {
   local path="$1" resolved dir base canon top root
   resolved=$(_rl_resolve_leaf_symlink "$path") || return 1 # symlink loop
-  dir=$(dirname "$resolved")
-  base=$(basename "$resolved")
   # `pwd -P` resolves symlinks in every remaining (directory) component; a
   # dangling/unresolvable parent or a loop in a parent makes the cd fail → clean
   # refusal. `unset CDPATH` in the subshell neutralizes a hostile CDPATH.
-  canon=$(
-    unset CDPATH
-    cd -- "$dir" 2>/dev/null && pwd -P
-  ) || return 1
-  case "$base" in
-    /) : ;; # dir was the filesystem root; canon complete
-    *) canon="${canon%/}/$base" ;;
-  esac
+  if [ -d "$resolved" ]; then
+    # A leaf that resolves to a directory (including a `.`/`..` target, or the
+    # filesystem root) is canonicalized WHOLESALE, so a parent-denoting leaf
+    # cannot yield a path that textually sits under the root while denoting its
+    # parent (e.g. `<root>/..`) and slip past the containment check below.
+    canon=$(
+      unset CDPATH
+      cd -- "$resolved" 2>/dev/null && pwd -P
+    ) || return 1
+  else
+    dir=$(dirname "$resolved")
+    base=$(basename "$resolved")
+    canon=$(
+      unset CDPATH
+      cd -- "$dir" 2>/dev/null && pwd -P
+    ) || return 1
+    canon="${canon%/}/$base"
+  fi
   top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
   root=$(
     unset CDPATH
