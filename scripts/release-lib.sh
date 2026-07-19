@@ -108,6 +108,17 @@ rl_valid_semver() {
 # compared field-by-field (numeric numerically, alphanumeric by ASCII order,
 # numeric below alphanumeric, more fields above fewer). Build metadata is
 # ignored. Callers validate both inputs first; this assumes well-formed SemVer.
+#
+# 64-bit numeric-identifier overflow limit (D-6, REQ-E1.2): every numeric
+# comparison here — the major/minor/patch core and any all-digit prerelease
+# identifier — uses bash arithmetic (`((10#$x > 10#$y))`), which is signed
+# 64-bit. A numeric identifier at or above 2^63 (9223372036854775808, 19+
+# digits) overflows and ranks unreliably. This is a KNOWN, DELIBERATELY
+# UNGUARDED limit, not a live risk: a ~19-20+ digit numeric SemVer identifier
+# is not a realistic version string. D-6 rejected an arithmetic guard
+# (length-then-lexical) as hot-path cost for a pathological input; the
+# documented limit plus a boundary test at a safe, non-overflowing width
+# (tests/test-release-lib.sh) make the behavior explicit and honest instead.
 rl_version_gt() {
   local a="${1%%+*}" b="${2%%+*}" # drop build metadata
   local amain="${a%%-*}" bmain="${b%%-*}"
