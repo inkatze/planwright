@@ -107,7 +107,19 @@ rl_valid_semver() {
 # prerelease ranks lower than the same without, then prerelease identifiers
 # compared field-by-field (numeric numerically, alphanumeric by ASCII order,
 # numeric below alphanumeric, more fields above fewer). Build metadata is
-# ignored. Callers validate both inputs first; this assumes well-formed SemVer.
+# ignored.
+#
+# Tri-state result (D-2, REQ-A1.1): exit 0 = strictly greater, exit 1 = not
+# strictly greater (equal or lower), exit 2 = comparator error — a malformed or
+# unusable operand reached the comparator. Both operands are validated against
+# rl_valid_semver at entry, so a caller can tell a comparator failure from a
+# negative comparison and fail closed on it, rather than reading an undefined
+# arithmetic result as "not greater". Every caller pre-validates its operands
+# today (rl_latest_release_tag filters tags through rl_valid_semver; the
+# release-pending / window-check readers validate their version of truth), so the
+# error status is unreachable via real inputs: this is deliberate
+# defense-in-depth for a future non-validating caller, at the cost of one
+# validation branch, not the closing of a live fail-open.
 #
 # 64-bit numeric-identifier overflow limit (D-6, REQ-E1.2): every numeric
 # comparison here — the major/minor/patch core and any all-digit prerelease
@@ -120,6 +132,10 @@ rl_valid_semver() {
 # documented limit plus a boundary test at a safe, non-overflowing width
 # (tests/test-release-lib.sh) make the behavior explicit and honest instead.
 rl_version_gt() {
+  # Validate both operands at entry: a malformed/unusable input is a distinct
+  # error status (2), not a silent "not greater". This is the tri-state's spine.
+  rl_valid_semver "${1-}" || return 2
+  rl_valid_semver "${2-}" || return 2
   local a="${1%%+*}" b="${2%%+*}" # drop build metadata
   local amain="${a%%-*}" bmain="${b%%-*}"
   local apre="" bpre=""

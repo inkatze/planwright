@@ -139,6 +139,46 @@ assert_lt "safe wide numeric prerelease width (18 digits, below 2^63)" \
 assert_lt "safe wide numeric core width (18 digits, below 2^63)" \
   "999999999999999998.0.0" "999999999999999999.0.0"
 
+# --- Case 7 (REQ-A1.1, D-2): the comparator-error status. rl_version_gt
+# validates both operands against rl_valid_semver at entry and signals a distinct
+# exit 2 for a malformed or unusable operand — separate from a valid "not
+# greater" (exit 1) and a valid "greater" (exit 0) — so a caller can tell a
+# comparator failure from a negative comparison and fail closed on it. Every
+# caller pre-validates its operands today, so this status is unreachable via real
+# inputs; this unit test drives it directly (the defense-in-depth contract).
+#
+# assert_status <desc> <expected-status> <a> <b>. rl_version_gt's stderr is
+# discarded: a malformed operand also trips bash's `10#` arithmetic in the
+# pre-change comparator (the exact noise this exit-2 contract replaces), and the
+# assertion is on the STATUS, three-way.
+assert_status() {
+  local got=0
+  rl_version_gt "$3" "$4" 2>/dev/null || got=$?
+  if [ "$got" = "$2" ]; then
+    echo "ok: $1"
+  else
+    echo "FAIL: $1 — expected status $2, got $got" >&2
+    failures=$((failures + 1))
+  fi
+}
+
+assert_status "malformed first operand → error status 2" 2 "not-a-version" "1.0.0"
+assert_status "malformed second operand → error status 2" 2 "1.0.0" "not-a-version"
+assert_status "both operands malformed → error status 2" 2 "nope" "nope"
+assert_status "empty first operand → error status 2" 2 "" "1.0.0"
+assert_status "empty second operand → error status 2" 2 "1.0.0" ""
+# A leading-zero numeric prerelease identifier is malformed SemVer (§9): it must
+# reach the error status, not be silently compared (the same malformed spelling
+# rl_valid_semver rejects for the callers).
+assert_status "malformed (leading-zero prerelease) operand → error status 2" \
+  2 "1.0.0-01" "1.0.0"
+# The error status is DISTINCT from both valid comparison results, so a caller
+# switching on it three-way (0 pending · 1 none · 2 fail-closed) is well-defined.
+assert_status "valid, not greater → status 1 (distinct from the error status)" \
+  1 "1.0.0" "1.0.0"
+assert_status "valid, strictly greater → status 0 (distinct from the error status)" \
+  0 "1.0.1" "1.0.0"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

@@ -132,10 +132,24 @@ else
   fi
 
   latest=$(rl_latest_release_tag)
-  if [ -z "$latest" ] || rl_version_gt "$vot" "${latest#v}"; then
+  if [ -z "$latest" ]; then
+    # No release tags yet — the first release is always pending (window open).
     status_line=$(printf 'pending\t%s' "$vot")
   else
-    status_line="none"
+    # Capture the comparator's tri-state result (D-2, REQ-A1.3): 0 → pending,
+    # 1 → none, 2 → a comparator error, which is fail-closed (exit 2) rather than
+    # folded into `none` (which would let a merge through on an undeterminable
+    # state). Both operands are pre-validated above, so status 2 is unreachable
+    # through real inputs — defense-in-depth for a future non-validating caller.
+    rl_version_gt "$vot" "${latest#v}"
+    case $? in
+      0) status_line=$(printf 'pending\t%s' "$vot") ;;
+      1) status_line="none" ;;
+      *)
+        echo "release-window-check: version comparator failed on operands '$(sanitize_printable "$vot")' vs '$(sanitize_printable "${latest#v}")' at ref '$(sanitize_printable "$ref")' (failing closed)" >&2
+        exit 2
+        ;;
+    esac
   fi
 fi
 

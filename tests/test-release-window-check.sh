@@ -280,6 +280,38 @@ OUT=$(cd "$tmp" && "$CHECK" --ref "" 2>&1) || RC=$?
 assert_eq "--ref with an empty value is a usage error (exit 2)" "$RC" "2"
 assert_contains "--ref empty value: pins the usage() path" "$OUT" "usage:"
 
+# 17. Fail-closed on a comparator-error status in the --ref path (REQ-A1.3, D-2).
+#     As in the pending test, the comparator's exit 2 is unreachable through real
+#     inputs, so this FAULT-INJECTS it: the check is copied under a work `scripts/`
+#     dir whose release-lib.sh sources the real lib then overrides ONLY
+#     rl_version_gt to return 2. The --ref path must exit 2 (fail closed), never
+#     exit 0 (merges may proceed) — the lock does not pass on a state it could not
+#     determine. A regression that folds the error into `none` (exit 0) fails here.
+inject="$tmp/inject-cmp-err"
+mkdir -p "$inject/scripts" "$inject/.claude-plugin"
+cp "$here/../scripts/release-window-check.sh" "$here/../scripts/release-pending.sh" \
+  "$here/../scripts/echo-safety.sh" "$inject/scripts/"
+real_lib="$here/../scripts/release-lib.sh"
+cat >"$inject/scripts/release-lib.sh" <<EOF
+# Fault-injection shadow: real lib + an rl_version_gt that always returns the
+# comparator-error status (2). Sourced by the copied release-window-check.sh.
+. "$real_lib"
+rl_version_gt() { return 2; }
+EOF
+printf '{\n  "name": "fixture",\n  "version": "0.2.0"\n}\n' \
+  >"$inject/.claude-plugin/plugin.json"
+gitc "$inject" init -q
+gitc "$inject" add -A
+gitc "$inject" commit -q -m "version 0.2.0"
+inject_sha=$(gitc "$inject" rev-parse HEAD)
+gitc "$inject" tag v0.1.0 # a real tag so `latest` is non-empty and the comparator is reached
+RC=0
+OUT=$(cd "$inject" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+  scripts/release-window-check.sh --ref "$inject_sha" 2>&1) || RC=$?
+assert_eq "--ref comparator-error status fails closed (exit 2, never 0)" "$RC" "2"
+assert_contains "--ref comparator failure names the fail-closed comparator branch" \
+  "$OUT" "comparator"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
