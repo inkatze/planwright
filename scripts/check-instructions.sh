@@ -419,11 +419,11 @@ $target" ;;
         surface="${rest%%|*}"
         reason="${rest#*|}"
         if [ "$surface" = "$rest" ] || [ -z "$surface" ]; then
-          err "malformed declared-exception entry (expected declared-exception|<surface>|<reason>): $raw"
+          err "malformed declared-exception entry (expected declared-exception|<surface>|<reason>): $(sanitize_printable "$raw" "?")"
           continue
         fi
         if [ -z "$reason" ] || [ "$reason" = "$rest" ]; then
-          err "declared-exception for '$surface' has no reason (a recorded reason is required)"
+          err "declared-exception for '$(sanitize_printable "$surface" "?")' has no reason (a recorded reason is required)"
           continue
         fi
         declared_exception_surfaces="$declared_exception_surfaces
@@ -438,18 +438,18 @@ $surface	$reason"
         reason="${rest2#*|}"
         if [ "$knob" = "$rest" ] || [ "$value" = "$rest2" ] \
           || [ -z "$knob" ] || [ -z "$value" ]; then
-          err "malformed raise entry (expected raise|<knob>|<value>|<reason>): $raw"
+          err "malformed raise entry (expected raise|<knob>|<value>|<reason>): $(sanitize_printable "$raw" "?")"
           continue
         fi
         if [ -z "$reason" ] || [ "$reason" = "$rest2" ]; then
-          err "raise rationale for '$knob' has no reason (a recorded reason is required)"
+          err "raise rationale for '$(sanitize_printable "$knob" "?")' has no reason (a recorded reason is required)"
           continue
         fi
         raise_entries="$raise_entries
 $knob	$value	$reason"
         ;;
       *)
-        err "unknown suppression form '$form' (expected exempt|pending-diet|declared-exception|raise): $raw"
+        err "unknown suppression form '$(sanitize_printable "$form" "?")' (expected exempt|pending-diet|declared-exception|raise): $(sanitize_printable "$raw" "?")"
         continue
         ;;
     esac

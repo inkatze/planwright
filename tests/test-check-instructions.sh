@@ -1156,6 +1156,28 @@ assert_contains "the stale entry still yields a cleanup warning" \
   "declared-exception cleanup" "$out"
 assert_absent "the control byte is stripped from the echoed rationale" "$esc" "$out"
 
+# 15r. echo discipline on the PARSE-ERROR path (regression): a control byte in a
+#      malformed declared-exception / raise entry is stripped before the error
+#      message reaches the terminal, matching the sanitized warn/cleanup paths.
+t15r="$tmproot/t15r"
+scaffold "$t15r"
+make_skill "$t15r" small 100
+esc="$(printf '\033')"
+# a malformed raise entry (only one field after `raise`) whose field carries a
+# control byte -> the parse error echoes the offending line sanitized.
+printf 'raise|onefield%s\n' "$esc" >"$t15r/config/instruction-budget-exemptions.txt"
+out="$(/bin/bash "$CHECKER" --root "$t15r" 2>&1)"
+assert_exit "a malformed raise entry is an error" 1 $?
+assert_contains "the malformed raise entry is diagnosed" "malformed raise" "$out"
+assert_absent "control byte stripped from the raise parse-error message" "$esc" "$out"
+# a reason-less declared-exception whose surface carries a control byte -> the
+# parse error echoes the surface sanitized.
+printf 'declared-exception|surf%s|\n' "$esc" \
+  >"$t15r/config/instruction-budget-exemptions.txt"
+out="$(/bin/bash "$CHECKER" --root "$t15r" 2>&1)"
+assert_exit "a reason-less declared-exception is an error" 1 $?
+assert_absent "control byte stripped from the declared-exception parse error" "$esc" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
