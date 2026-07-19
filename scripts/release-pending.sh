@@ -61,12 +61,24 @@ case "/$vf_path/" in
     ;;
 esac
 
-if [ ! -f "$vf_path" ]; then
+# Canonicalize the version_file path (resolving symlinks in EVERY component,
+# including the leaf `version_file` itself) and confirm it stays within the repo
+# root, then read the canonicalized real path — never the original $vf_path,
+# which a leaf symlink could re-defeat (REQ-D1.1, D-5, security-posture.md). A
+# path escaping the tree, or an unresolvable one (dangling symlink / loop), is a
+# clean refusal here. The absolute-path and `..`-component checks above stay as
+# the cheap pre-filters.
+if ! vf_real=$(rl_canonical_contained_path "$vf_path"); then
+  echo "release-pending: version_file resolves outside the repository or cannot be canonicalized: '$(sanitize_printable "$vf_path")'" >&2
+  exit 2
+fi
+
+if [ ! -f "$vf_real" ]; then
   echo "release-pending: version_file not found: $(sanitize_printable "$vf_path")" >&2
   exit 2
 fi
 
-vot=$(rl_extract_version "$vf_sel" <"$vf_path") || exit 2
+vot=$(rl_extract_version "$vf_sel" <"$vf_real") || exit 2
 if [ -z "$vot" ] || ! rl_valid_semver "$vot"; then
   echo "release-pending: version of truth is not valid SemVer: '$(sanitize_printable "$vot")'" >&2
   exit 2

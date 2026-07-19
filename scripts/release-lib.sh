@@ -180,6 +180,68 @@ rl_resolve_version_file() {
   printf '%s\t%s\n' "$path" "$selector"
 }
 
+# _rl_resolve_leaf_symlink <path> — resolve a symlink at the FINAL path
+# component, iterating until the leaf is no longer a symlink, so a leaf
+# `version_file` that is itself a symlink is de-referenced (the parent-dir-only
+# `cd; pwd -P` recipe misses exactly this). Intermediate directory components
+# are left for `pwd -P` to canonicalize. Prints the de-symlinked path; returns
+# non-zero on a symlink loop. Portable to the BSD/macOS floor: one-level
+# `readlink` in a bounded loop, never `readlink -f`/`realpath` (absent there —
+# D-5, REQ-D1.2).
+_rl_resolve_leaf_symlink() {
+  local target="$1" link count=0
+  while [ -L "$target" ]; do
+    count=$((count + 1))
+    if [ "$count" -gt 40 ]; then
+      return 1 # symlink loop (bounded by the typical ELOOP limit)
+    fi
+    link=$(readlink "$target") || return 1
+    case "$link" in
+      /*) target="$link" ;;                     # absolute target
+      *) target="$(dirname "$target")/$link" ;; # relative to the link's dir
+    esac
+  done
+  printf '%s\n' "$target"
+}
+
+# rl_canonical_contained_path <path> — canonicalize <path> and confirm it sits
+# within the repository root, printing the canonical real path on success. The
+# reusable version_file containment guard (REQ-D1.1, REQ-D1.2, D-5): it resolves
+# symlinks in EVERY component including the leaf itself, then requires the result
+# to be inside the repo root. Callers read the printed path, never the original
+# value, so a resolved path cannot be re-defeated by re-following the original
+# symlink. Returns non-zero with no output on a symlink loop, a dangling or
+# otherwise unresolvable component, an unresolvable repo root, or a path escaping
+# the root — each a caller-side clean exit-2 refusal. Portable to the
+# bash 3.2 / BSD / `LC_ALL=C` floor; any future filesystem reader of a
+# config-specified path reuses it rather than re-implementing the guard.
+rl_canonical_contained_path() {
+  local path="$1" resolved dir base canon top root
+  resolved=$(_rl_resolve_leaf_symlink "$path") || return 1 # symlink loop
+  dir=$(dirname "$resolved")
+  base=$(basename "$resolved")
+  # `pwd -P` resolves symlinks in every remaining (directory) component; a
+  # dangling/unresolvable parent or a loop in a parent makes the cd fail → clean
+  # refusal. `unset CDPATH` in the subshell neutralizes a hostile CDPATH.
+  canon=$(
+    unset CDPATH
+    cd -- "$dir" 2>/dev/null && pwd -P
+  ) || return 1
+  case "$base" in
+    /) : ;; # dir was the filesystem root; canon complete
+    *) canon="${canon%/}/$base" ;;
+  esac
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  root=$(
+    unset CDPATH
+    cd -- "$top" 2>/dev/null && pwd -P
+  ) || return 1
+  case "$canon/" in
+    "$root/"*) printf '%s\n' "$canon" ;;
+    *) return 1 ;; # escapes the repository root
+  esac
+}
+
 # rl_extract_version <selector> — read a version-file blob on stdin and print
 # the version it holds. Whole-file mode (empty or `-` selector) trims all
 # whitespace and prints the remainder (a plain VERSION file). A `$.<key>`
