@@ -25,7 +25,7 @@
 #      than the latest release tag (monotonicity), and has no existing tag
 #      locally or on origin (idempotency); the release-gating GitHub CI is green
 #      on the PR head, EXCLUDING the untagged-window lock (which gates merges,
-#      not the publish — see WINDOW_LOCK_NAME below).
+#      not the publish — see rl_ci_state in release-lib.sh).
 #   2. Arm + watch: poll the PR until it is MERGED (fire) or CLOSED (disarm
 #      cleanly, publishing nothing), up to a bounded poll cap.
 #   3. On the observed merge: confirm the merge is on origin/main, re-confirm HEAD
@@ -340,7 +340,7 @@ fi
 
 # Wait for the release-gating CI to go green on the merged commit before firing
 # publish — EXCLUDING the untagged-window lock, which is red here BY DESIGN (the
-# merge just opened the untagged window; see WINDOW_LOCK_NAME above) and gates
+# merge just opened the untagged window; see rl_ci_state in release-lib.sh) and gates
 # merges, not the publish. Without this wait arm would fire the instant the merge
 # is observed, when the merge commit's CI has not even started, and publish's own
 # CI gate would refuse. Fail closed: a red release-gating check refuses outright;

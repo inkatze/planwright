@@ -181,9 +181,10 @@ case "$1" in
   api)
     # statusCheckRollup keyed by the queried sha, returning the per-check
     # `contexts` node list (with `pageInfo.hasNextPage`) plus the aggregate
-    # `state`. BOTH release-arm.sh's rl_ci_verdict AND release-publish.sh's
-    # ci_green now judge the per-check `contexts` (release-publish.sh reads the
-    # aggregate `state` only for the null-rollup case, never as the verdict). The
+    # `state`. BOTH release-arm.sh and release-publish.sh now route their CI
+    # verdict through the shared rl_ci_state primitive (release-lib.sh), which
+    # judges the per-check `contexts` and detects a null rollup directly, never
+    # using the aggregate `state`. The
     # list always carries the window-lock CheckRun (FAILURE by default — red by
     # design) plus, unless the quality selector is `none`, the `ci`/`check`
     # quality CheckRun. This lets a test model "aggregate red from the window
@@ -193,6 +194,14 @@ case "$1" in
     #   ARM_WINDOW_CONCLUSION       window-lock CheckRun conclusion (default FAILURE)
     #   ARM_MERGE_CI_GREEN_AFTER    merge quality check is `pending` until the api
     #                               call count passes this, then green (settle lag)
+    #   ARM_CI_QUERY_FAIL=1         the statusCheckRollup GraphQL query itself
+    #                               fails (network/auth): rl_ci_state returns 2, so
+    #                               arm's pre-validation must fail closed (refuse
+    #                               to arm), never treat a query failure as green.
+    if [ "${ARM_CI_QUERY_FAIL:-0}" = 1 ]; then
+      echo "gh: error connecting to api.github.com" >&2
+      exit 1
+    fi
     sha=""
     for a in "$@"; do
       case "$a" in sha=*) sha=${a#sha=} ;; esac
@@ -228,9 +237,9 @@ case "$1" in
       sc='{"__typename":"StatusContext","context":"window-lock","state":"'"${ARM_STATUS_WINDOWLOCK}"'"}'
       nodes="$nodes,$sc"
     fi
-    # ARM_HAS_NEXT_PAGE  model >100 check contexts (a second page): both
-    #   rl_ci_verdict and release-publish.sh's ci_green must fail closed (TOO_MANY)
-    #   rather than trust an incomplete first-page read. Default false.
+    # ARM_HAS_NEXT_PAGE  model >100 check contexts (a second page): the shared
+    #   rl_ci_state (both callers) must fail closed (too-many) rather than trust
+    #   an incomplete first-page read. Default false.
     hnp=${ARM_HAS_NEXT_PAGE:-false}
     printf '{"data":{"repository":{"object":{"statusCheckRollup":{"state":"%s","contexts":{"pageInfo":{"hasNextPage":%s},"nodes":[%s]}}}}}}\n' "$astate" "$hnp" "$nodes"
     exit 0
@@ -361,13 +370,28 @@ assert_contains "pv/ci: names the ci gate specifically" "$ERR" "ci gate"
 deny "pv/ci: no tag created" local_has_tag "$r" v0.2.0
 deny "pv/ci: never published" gh_called "$LOG" "release create"
 
+# 3b-1b. CI QUERY FAILURE at pre-validation fails CLOSED at the CALLER: the
+#        statusCheckRollup query itself fails, so rl_ci_state returns 2 and arm's
+#        pre-validation must refuse to arm (the `|| die` on the rl_ci_state call),
+#        never treat an infra outage as green. Guards the refactored caller
+#        rc-2 handling end-to-end (the rc-2 status is unit-tested on rl_ci_state
+#        itself in tests/test-release-lib.sh; this exercises it through arm).
+r="$tmp/pv-ci-queryfail"
+setup_release_pr "$r" 0.2.0 81
+run_arm "$r" 81 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
+  ARM_OPEN_CALLS=1 ARM_HEAD_CI=green ARM_CI_QUERY_FAIL=1 GH_RELEASE_EXISTS=0
+assert_ne "pv/ci-queryfail: exits non-zero (query failure → refuse to arm)" "$RC" "0"
+assert_contains "pv/ci-queryfail: names the query failure, not a red verdict" "$ERR" "gh query failed"
+deny "pv/ci-queryfail: no tag created on a query failure" local_has_tag "$r" v0.2.0
+deny "pv/ci-queryfail: never published on a query failure" gh_called "$LOG" "release create"
+
 # 3b-2. Positive-confirmation gate: a NEUTRAL/SKIPPED-only quality check (after the
 #       window lock is excluded) is NOT a green light — it neither fails nor
 #       confirms, so arm must refuse rather than arm-and-fire into a publish whose
-#       own ci_green (release-publish.sh, positive-confirmation model) would then
-#       refuse on the identical NONE verdict. rl_ci_verdict must mirror publish:
-#       GREEN requires at least one SUCCESS; a neutral-only set is NONE (fail
-#       closed), matching release-publish.sh:305-309.
+#       own CI gate would then refuse on the identical none verdict. Both callers
+#       share the rl_ci_state primitive (release-lib.sh), so this holds by
+#       construction: green requires at least one SUCCESS; a neutral-only set
+#       folds to none (fail closed).
 r="$tmp/pv-ci-neutral"
 setup_release_pr "$r" 0.2.0 88
 run_arm "$r" 88 ARM_HEAD_OID="$HEAD_OID" ARM_MERGE_OID="$MERGE_OID" \
@@ -380,9 +404,10 @@ deny "pv/ci-neutral: never published" gh_called "$LOG" "release create"
 # 3b-3. Exclusion parity with publish: the window lock is ONLY the Actions
 #       CheckRun named window-lock (release-window.yml has a single job). A LEGACY
 #       commit-status (StatusContext) that merely shares the name is judged, not
-#       excluded — exactly as release-publish.sh's ci_green does
-#       (`select(.type != "CheckRun" or .name != $excl)`). A red such status must
-#       therefore BLOCK arm, or arm would say GREEN while publish says FAILURE and
+#       excluded — exactly as the shared rl_ci_state does (a StatusContext carries
+#       no workflow, so it can never satisfy the workflow-scoped CheckRun
+#       exclusion). A red such status must therefore BLOCK arm, or arm would say
+#       green while publish refuses and
 #       arm-and-fire into a publish that then refuses. The green quality `check` is
 #       present so only the mis-excluded status could flip the verdict.
 # ARM_FINAL_STATE=OPEN keeps the PR from merging: the refusal we assert is a
@@ -403,8 +428,8 @@ deny "pv/ci-statuslock: never published" gh_called "$LOG" "release create"
 
 # 3b-4. Pagination fail-closed: >100 check contexts (hasNextPage) means the read
 #       is incomplete, so a failing/pending check could hide on an unread page.
-#       rl_ci_verdict must emit TOO_MANY and refuse (never GREEN), exactly as
-#       release-publish.sh's ci_green does — even though the visible first-page
+#       The shared rl_ci_state must emit too-many and refuse (never green) — even
+#       though the visible first-page
 #       check is green. Pinned OPEN so a regression (evaluating the incomplete set
 #       as GREEN) shows as a watch-budget timeout (no "page" message), not a fire.
 r="$tmp/pv-ci-toomany"

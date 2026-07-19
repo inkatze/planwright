@@ -184,6 +184,13 @@ case "$1" in
         exit 0
         ;;
     esac
+    # GH_CI_QUERY_FAIL=1 models the statusCheckRollup GraphQL query itself failing
+    # (network/auth/rate-limit): rl_ci_state returns 2, and publish's CI gate must
+    # FAIL CLOSED (refuse), never treat a query failure as green.
+    if [ "${GH_CI_QUERY_FAIL:-0}" = 1 ]; then
+      echo "gh: error connecting to api.github.com" >&2
+      exit 1
+    fi
     # The statusCheckRollup GraphQL query. Build a
     # rollup with per-check `contexts` (plus an accurate top-level `state`).
     # GH_CI drives the `ci` quality CheckRun (green|red|pending|neutral|none);
@@ -461,6 +468,18 @@ run_publish "$r" GH_CI=none GH_RELEASE_EXISTS=0
 assert_ne "gate/no-checks: exits non-zero (no CI → refuse)" "$RC" "0"
 assert_contains "gate/no-checks: names the ci gate with the verdict" "$ERR" "verdict: none"
 deny "gate/no-checks: no local tag created" local_has_tag "$r" v0.1.0
+
+# 4e-2. CI QUERY FAILURE fails closed at the CALLER: rl_ci_state returns 2 (a gh
+#       query failure), and publish's CI gate must refuse naming the query
+#       failure — never conflate an infra outage with a green verdict, and never
+#       publish. Guards the refactored `[ "$ci_rc" -ne 0 ]` branch end-to-end.
+r="$tmp/gate-ci-queryfail"
+new_repo "$r"
+seed_version "$r" 0.1.0
+run_publish "$r" GH_CI=green GH_CI_QUERY_FAIL=1 GH_RELEASE_EXISTS=0
+assert_ne "gate/ci-queryfail: exits non-zero (query failure → refuse, not publish)" "$RC" "0"
+assert_contains "gate/ci-queryfail: names the query failure, not a red verdict" "$ERR" "gh query failed"
+deny "gate/ci-queryfail: no local tag created on a query failure" local_has_tag "$r" v0.1.0
 
 # 4f. CI not green.
 r="$tmp/gate-ci"

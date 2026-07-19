@@ -9,8 +9,12 @@
 # the untagged-window lock and the bookkeeping surface both read (REQ-D1.8);
 # this lib is the layer below it, the definition of a version those two scripts
 # share. Kept dependency-light per the repo's portability conventions (bash 3.2
-# / BSD tooling, LC_ALL=C, no fish/mise/tmux dependency — REQ-D1.9): only git
-# and, for a JSON `version_file` selector, jq (already a repo tool dependency).
+# / BSD tooling, LC_ALL=C, no fish/mise/tmux dependency — REQ-D1.9): git; jq (for
+# a JSON `version_file` selector, and the rl_ci_state verdict fold); and gh —
+# used ONLY by rl_ci_state when it is CALLED (the CI-verdict primitive), never at
+# source time, so a non-gh caller that sources the lib but does not call
+# rl_ci_state (release-pending.sh) is not forced onto gh. Both are already repo
+# tool dependencies.
 #
 # Security posture (doctrine/security-posture.md, framework-script rules,
 # REQ-D1.6): a version string is validated against the SemVer grammar before it

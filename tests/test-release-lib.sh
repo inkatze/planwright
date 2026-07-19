@@ -182,13 +182,21 @@ cr_check() {
     neutral) printf '{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"NEUTRAL","checkSuite":{"workflowRun":{"workflow":{"name":"ci"}}}}' ;;
   esac
 }
-#   wl_check <workflow-json> — a `window-lock` CheckRun (conclusion FAILURE, as it
-#   is red BY DESIGN during the untagged window). <workflow-json> is the value of
-#   checkSuite.workflowRun: the real lock's `{"workflow":{"name":"release-window"}}`,
-#   a foreign workflow's `{"workflow":{"name":"other"}}`, or `null` (a non-Actions
-#   app check with no workflowRun).
+#   wl_check <workflow-json> [conclusion] — a `window-lock` CheckRun.
+#   <workflow-json> is the value of checkSuite.workflowRun: the real lock's
+#   `{"workflow":{"name":"release-window"}}`, a foreign workflow's
+#   `{"workflow":{"name":"other"}}`, or `null` (a non-Actions app check with no
+#   workflowRun). [conclusion] defaults to FAILURE (red BY DESIGN during the
+#   untagged window); pass SUCCESS to model a window-lock that has itself gone
+#   green (outside the window).
 wl_check() {
-  printf '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"workflowRun":%s}}' "$1"
+  printf '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"%s","checkSuite":{"workflowRun":%s}}' "${2:-FAILURE}" "$1"
+}
+#   sc_check <state> [context] — a legacy commit-status (StatusContext). It carries
+#   no workflow, so it can NEVER be the excluded lock (the exclusion is
+#   CheckRun-only). state → SUCCESS(green) | PENDING/EXPECTED(pending) | other(failing).
+sc_check() {
+  printf '{"__typename":"StatusContext","context":"%s","state":"%s"}' "${2:-legacy-ci}" "$1"
 }
 #   rollup <hasNextPage> <node>... — assemble a full statusCheckRollup response.
 rollup() {
@@ -270,29 +278,78 @@ assert_ci_state "excl: foreign-workflow window-lock namesake is judged (failing)
 # test and is JUDGED too, never silently excluded.
 assert_ci_state "excl: null-workflowRun window-lock namesake is judged (failing)" \
   "$(rollup false "$(cr_check green)" "$(wl_check null)")" "failing"
+# A CheckRun with checkSuite ENTIRELY ABSENT (not just null workflowRun): the
+# exclusion path still coalesces the missing workflow name to "" and judges it.
+assert_ci_state "excl: window-lock CheckRun with absent checkSuite is judged (failing)" \
+  "$(rollup false "$(cr_check green)" '{"__typename":"CheckRun","name":"window-lock","status":"COMPLETED","conclusion":"FAILURE"}')" "failing"
+
+# REQ-C1.1 — fold precedence and the neutral fold, ISOLATED so each case
+# discriminates.
+# failing outranks pending with NO green node present (the green+failing/pending
+# cases above always carried a green, so this pins failing>pending on its own).
+assert_ci_state "fold: failing outranks pending with no green node" \
+  "$(rollup false "$(cr_check failing)" "$(cr_check pending)")" "failing"
+# A window-lock that is itself SUCCESS is still excluded (exclusion keys off
+# name+workflow, not conclusion): only the real lock's workflow matters, so a
+# lone green lock is excluded → none, not green.
+assert_ci_state "excl: a SUCCESS release-window lock is still excluded (none, not green)" \
+  "$(rollup false "$(wl_check '{"workflow":{"name":"release-window"}}' SUCCESS)")" "none"
+
+# REQ-C1.1 — legacy StatusContext (commit-status) mapping, asserted directly on
+# the primitive: SUCCESS→green, EXPECTED/PENDING→pending, other→failing; and a
+# StatusContext named window-lock is JUDGED (never excluded — it carries no
+# workflow), so a red one blocks.
+assert_ci_state "statusctx: a SUCCESS commit-status confirms green" \
+  "$(rollup false "$(sc_check SUCCESS)")" "green"
+assert_ci_state "statusctx: an EXPECTED commit-status is pending" \
+  "$(rollup false "$(sc_check SUCCESS)" "$(sc_check EXPECTED)")" "pending"
+assert_ci_state "statusctx: a legacy window-lock-named commit-status is judged (failing)" \
+  "$(rollup false "$(cr_check green)" "$(sc_check FAILURE window-lock)")" "failing"
+
+# REQ-C1.1 — a malformed / non-JSON rollup fails CLOSED: jq errors, so rl_ci_state
+# returns status 2 with empty stdout, NEVER an empty or garbage verdict at rc 0.
+# (Drives the `| jq ... || return 2` branch that CI_QUERY_FAIL cannot reach — gh
+# there exits nonzero before jq runs.)
+CI_QUERY_FAIL=0
+CI_ROLLUP_JSON='}{ this is not json'
+mj_rc=0
+mj_out=$(rl_ci_state deadbeef 2>/dev/null) || mj_rc=$?
+CI_ROLLUP_JSON=""
+if [ -z "$mj_out" ] && [ "$mj_rc" -eq 2 ]; then
+  echo "ok: a malformed (non-JSON) rollup fails closed (status 2, empty stdout), not a spurious verdict"
+else
+  echo "FAIL: malformed rollup — expected empty stdout + rc 2, got [$mj_out] rc [$mj_rc]" >&2
+  failures=$((failures + 1))
+fi
 
 # REQ-C1.2 — publish and arm resolve to the SAME verdict for the same SHA because
 # both are thin callers of this one primitive; the duplicated inline evaluators
 # are removed. Structural single-source check: the statusCheckRollup GraphQL query
-# (matched by its query signature `statusCheckRollup{contexts`, which appears only
-# in the actual query string, never in prose) lives ONLY in release-lib.sh, and
-# both callers reference rl_ci_state by name.
+# lives ONLY in release-lib.sh. The inline CI-rollup evaluator is keyed by its
+# `gh api graphql` call (whitespace-robust: a re-inlined query MUST re-introduce
+# that call, whatever its internal spacing — unlike a bare `statusCheckRollup`
+# substring which prose also matches). And both callers must genuinely INVOKE the
+# primitive — matched by the call form `rl_ci_state "$` (a call with a shell-var
+# argument), NOT a bare-name mention that also matches the descriptive comments,
+# so deleting a real call cannot pass this check on comment prose alone.
 grep_count() { grep -cF "$1" "$2" 2>/dev/null || true; }
 PUB="$here/../scripts/release-publish.sh"
 ARM="$here/../scripts/release-arm.sh"
 LIBSH="$here/../scripts/release-lib.sh"
-if [ "$(grep_count 'statusCheckRollup{contexts' "$LIBSH")" -ge 1 ] \
-  && [ "$(grep_count 'statusCheckRollup{contexts' "$PUB")" -eq 0 ] \
-  && [ "$(grep_count 'statusCheckRollup{contexts' "$ARM")" -eq 0 ]; then
+if [ "$(grep_count 'gh api graphql' "$LIBSH")" -ge 1 ] \
+  && [ "$(grep_count 'gh api graphql' "$PUB")" -eq 0 ] \
+  && [ "$(grep_count 'gh api graphql' "$ARM")" -eq 0 ]; then
   echo "ok: the statusCheckRollup query lives only in release-lib.sh (inline evaluators removed)"
 else
-  echo "FAIL: statusCheckRollup query is duplicated outside release-lib.sh (publish/arm still inline)" >&2
+  echo "FAIL: a CI-rollup query (gh api graphql) is duplicated outside release-lib.sh (publish/arm still inline)" >&2
   failures=$((failures + 1))
 fi
-if [ "$(grep_count 'rl_ci_state' "$PUB")" -ge 1 ] && [ "$(grep_count 'rl_ci_state' "$ARM")" -ge 1 ]; then
-  echo "ok: both release-publish.sh and release-arm.sh call rl_ci_state (one verdict source)"
+# `rl_ci_state "$` matches only a real invocation (call + shell-var argument),
+# never the comment mentions of the name.
+if [ "$(grep_count 'rl_ci_state "$' "$PUB")" -ge 1 ] && [ "$(grep_count 'rl_ci_state "$' "$ARM")" -ge 1 ]; then
+  echo "ok: both release-publish.sh and release-arm.sh call rl_ci_state (one verdict source, so the same SHA yields the same verdict — REQ-C1.2)"
 else
-  echo "FAIL: a caller does not route through rl_ci_state (verdict sources can drift)" >&2
+  echo "FAIL: a caller does not invoke rl_ci_state (verdict sources can drift)" >&2
   failures=$((failures + 1))
 fi
 

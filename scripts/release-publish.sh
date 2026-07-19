@@ -260,6 +260,10 @@ if [ "$resume" -eq 0 ]; then
   # design (an adopter without CI adds it before publishing).
   ci_rc=0
   ci_verdict=$(rl_ci_state "$release_sha") || ci_rc=$?
+  # rl_ci_state's contract is exactly rc 0 (verdict on stdout) or rc 2 (query
+  # failure, empty stdout), so any nonzero rc here is the query-failure case; the
+  # "gh query failed" message is accurate for the whole nonzero space by that
+  # contract.
   if [ "$ci_rc" -ne 0 ]; then
     die "ci gate: could not verify GitHub CI on $release_sha (gh query failed); resolve connectivity/auth and re-run"
   elif [ "$ci_verdict" != "green" ]; then
@@ -380,7 +384,8 @@ relabel_release_pr() {
   # (merge commit or squash), keyed off the release SHA — the same commit the
   # tag was just created on. The query's own failure (network/auth/rate-limit)
   # is distinguished from a genuine empty result, same posture as release_state
-  # and ci_green above: a query failure just means retry, but "no PR found"
+  # above and the shared rl_ci_state CI gate: a query failure just means retry,
+  # but "no PR found"
   # reads as an unusual release-process state and would send an operator down
   # the wrong path if the two were conflated.
   # The endpoint can return more than one PR for a commit (e.g. it also
