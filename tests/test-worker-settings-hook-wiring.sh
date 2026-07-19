@@ -65,15 +65,17 @@ fi
 # The hook must live under a Bash matcher (it only analyzes Bash commands,
 # REQ-A1.7) and reference the plugin script through the same
 # ${CLAUDE_PLUGIN_ROOT} mechanism hooks/hooks.json uses, so it resolves under a
-# marketplace install.
+# marketplace install. Anchor the two required substrings into ONE contiguous
+# pattern (`${CLAUDE_PLUGIN_ROOT}`, an optional closing quote, then the exact
+# `/scripts/worker-command-guard.sh` path) rather than testing each substring
+# independently: two independent `test()`s could pass a malformed command that
+# merely mentions both tokens in unrelated positions, which would not pin the
+# exact wiring REQ-C1.1 requires.
 if jq -e '
   (.hooks.PreToolUse // [])
   | map(select(.matcher == "Bash"))
   | map(.hooks[]? | select(.type == "command") | .command)
-  | any(
-      test("\\$\\{CLAUDE_PLUGIN_ROOT\\}")
-      and test("worker-command-guard\\.sh")
-    )
+  | any(test("\\$\\{CLAUDE_PLUGIN_ROOT\\}\"?/scripts/worker-command-guard\\.sh"))
 ' "$worker_settings" >/dev/null 2>&1; then
   ok "worker-settings carries a PreToolUse(Bash) hook referencing the script via \${CLAUDE_PLUGIN_ROOT} (REQ-C1.1)"
 else
@@ -98,9 +100,11 @@ fi
 # --- REQ-C1.1 / REQ-A1.3: the deny block is byte-for-byte unchanged ----------
 # The deny block encodes planwright's hard invariants (never merge / force-push
 # / amend / squash / rebase / push-to-main); Task 2 must not perturb it. This
-# pins the canonical (sorted) deny array against the pre-edit baseline. A
-# LEGITIMATE future change to the deny block updates this pinned list in the
-# same commit; an accidental Task-2 perturbation fails here.
+# pins the deny array against the pre-edit baseline with an order-sensitive
+# compact string compare: `jq -cS` normalizes whitespace (and object-key
+# order), but does NOT reorder array elements, so reordering the deny list
+# fails here too. A LEGITIMATE future change to the deny block updates this
+# pinned list in the same commit; an accidental Task-2 perturbation fails here.
 expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready --undo:*)","Bash(gh pr ready * --undo*)","Bash(git merge:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit --squash:*)","Bash(git commit --fixup:*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git push --force:*)","Bash(git push --force-with-lease:*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push *+*)","Bash(git push *:main)","Bash(git push * main)","Bash(git push *refs/heads/main)","Bash(git push *heads/main)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)"]'
 actual_deny="$(jq -cS '.permissions.deny' "$worker_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
