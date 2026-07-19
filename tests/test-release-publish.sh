@@ -1252,6 +1252,29 @@ case "$ERR" in
 esac
 deny "resume/relabel-tagged: the present Release is not re-created" gh_called "$LOG" "release create"
 
+# 11n. REQ-B1.2 (trust-boundary hardening) — a MALFORMED/unreadable require_signed_tags
+#      config on the resume signature path FAILS CLOSED, never silently downgrades
+#      to auto. Fault-inject config-get exit 4 with a malformed repo-tracked
+#      overlay (a block sequence is not flat 'key: value' YAML). Even though the
+#      overlay *intends* `require`, the parse failure must NOT be swallowed into an
+#      auto fallback that would accept the unsigned lightweight origin tag and
+#      create a Release.
+r="$tmp/resume-malformed-config"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0 # lightweight (unsigned) origin tag on the release commit
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null
+mkdir -p "$r/.claude"
+# Malformed team-shared overlay: `require` is present, but the block sequence
+# makes the whole file non-flat -> config-get.sh exits 4 (empty stdout).
+printf 'require_signed_tags: require\nbroken_list:\n  - a\n  - b\n' >"$r/.claude/planwright.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "resume/malformed-config: exits non-zero (fail-closed, no silent auto downgrade)" "$RC" "0"
+assert_contains "resume/malformed-config: names the malformed-config resume gate" "$ERR" "malformed or unreadable"
+deny "resume/malformed-config: no Release created on a malformed signature-mode config" gh_called "$LOG" "release create"
+want "resume/malformed-config: the verification ref is cleaned up on the fail-closed refusal" verify_ref_gone "$r" v0.1.0
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

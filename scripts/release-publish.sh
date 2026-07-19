@@ -391,7 +391,18 @@ if [ "$resume" -eq 1 ]; then
 
   # Re-verify the origin object's signature, keyed off ITS OWN signedness — the
   # same require_signed_tags knob that governed creation (D-4/D-3).
-  rmode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null) || rmode=""
+  # Fail CLOSED on a malformed/unreadable config: config-get.sh exits 4 when the
+  # repo-tracked (team-shared) overlay is malformed — its explicit "refuse to
+  # silently degrade a shared team config" signal. On the resume TRUST BOUNDARY a
+  # parse error must NOT collapse into an auto fallback (which accepts an unsigned
+  # origin tag), so a broken config cannot defeat a `require` policy. Exit 3 (the
+  # knob is absent from every layer) is the legitimate "unset" case and defaults
+  # to auto; only exit 4 hard-fails here.
+  rmode=$("$script_dir/config-get.sh" require_signed_tags 2>/dev/null)
+  cg_rc=$?
+  if [ "$cg_rc" -eq 4 ]; then
+    resume_die "resume gate: require_signed_tags config is malformed or unreadable (config-get exit 4); refusing to fall back to auto on the signature trust boundary — fix the config and re-run"
+  fi
   [ -n "$rmode" ] || rmode="auto"
   case "$rmode" in
     auto | require | never) : ;;
