@@ -113,8 +113,10 @@ fi
 
 # --- REQ-C1.2: worker-scoped only — NOT in the plugin-global hooks.json ------
 if jq -e . "$plugin_hooks" >/dev/null 2>&1; then
+  plugin_hooks_valid=1
   ok "hooks/hooks.json is valid JSON (REQ-C1.2)"
 else
+  plugin_hooks_valid=0
   fail "hooks/hooks.json is not valid JSON (REQ-C1.2)"
 fi
 # The auto-approve hook must never be registered plugin-globally: that would
@@ -130,7 +132,13 @@ fi
 # (not "no PreToolUse hook at all") so an unrelated future plugin-global
 # PreToolUse hook does not falsely trip this — REQ-C1.2 forbids only the
 # auto-approve hook plugin-globally, not every PreToolUse hook.
-if jq -e '
+# Gate on plugin_hooks_valid: a non-zero `jq -e` exit on an INVALID JSON file
+# is a parse error, not a passing structural assertion, so without this guard
+# the `else` below would print a misleading `ok` on a corrupt hooks.json (the
+# validity check above already fails the suite in that case).
+if [ "$plugin_hooks_valid" -ne 1 ]; then
+  : # skipped: hooks.json did not parse; the validity check above already failed
+elif jq -e '
   (.hooks.PreToolUse // [])
   | map(.hooks[]? | .command // empty)
   | any(test("worker-command-guard"))
