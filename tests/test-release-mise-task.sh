@@ -131,8 +131,10 @@ esac
 assert_eq "the release-arm task forwards <pr> (bare thin wrapper, no fixed args)" "$arm_run" "scripts/release-arm.sh"
 
 # 7. release-arm.sh itself carries no mise dependency (directly invokable,
-#    portability floor). Grep non-comment lines for a `mise` invocation so a
-#    comment merely mentioning mise does not trip it.
+#    portability floor). Grep past full-line comment lines (`^[[:space:]]*#`)
+#    for a `mise` invocation, so a full-line comment merely mentioning mise does
+#    not trip it. (Inline trailing `# ...` comments are not stripped; the script
+#    carries none mentioning mise.)
 ARM_SCRIPT="$here/../scripts/release-arm.sh"
 if [ -f "$ARM_SCRIPT" ]; then
   if grep -vE '^[[:space:]]*#' "$ARM_SCRIPT" | grep -Eq '(^|[^[:alnum:]_])mise([^[:alnum:]_]|$)'; then
