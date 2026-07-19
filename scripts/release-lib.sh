@@ -185,7 +185,8 @@ rl_resolve_version_file() {
 # `version_file` that is itself a symlink is de-referenced (the parent-dir-only
 # `cd; pwd -P` recipe misses exactly this). Intermediate directory components
 # are left for `pwd -P` to canonicalize. Prints the de-symlinked path; returns
-# non-zero on a symlink loop. Portable to the BSD/macOS floor: one-level
+# non-zero on a symlink loop or an unreadable link (a failing `readlink`).
+# Portable to the BSD/macOS floor: one-level
 # `readlink` in a bounded loop, never `readlink -f`/`realpath` (absent there —
 # D-5, REQ-D1.2). Every path-util call is `--`-guarded (as the `cd --` calls in
 # rl_canonical_contained_path are) so a `version_file` value beginning with `-`
@@ -195,7 +196,7 @@ _rl_resolve_leaf_symlink() {
   while [ -L "$target" ]; do
     count=$((count + 1))
     if [ "$count" -gt 40 ]; then
-      return 1 # symlink loop (bounded by the typical ELOOP limit)
+      return 1 # symlink loop (bound sits above the BSD/macOS floor's 32-link ELOOP)
     fi
     link=$(readlink -- "$target") || return 1
     case "$link" in
@@ -212,9 +213,12 @@ _rl_resolve_leaf_symlink() {
 # symlinks in EVERY component including the leaf itself, then requires the result
 # to be inside the repo root. Callers read the printed path, never the original
 # value, so a resolved path cannot be re-defeated by re-following the original
-# symlink. Returns non-zero with no output on a symlink loop, a dangling or
-# otherwise unresolvable component, an unresolvable repo root, or a path escaping
-# the root — each a caller-side clean exit-2 refusal. Portable to the
+# symlink. Returns non-zero with no output on a symlink loop, an unresolvable
+# directory component (a dangling or looping parent), an unresolvable repo root,
+# or a path escaping the root — each a caller-side clean exit-2 refusal. A
+# dangling *leaf* whose parent directory does resolve in-tree instead returns 0
+# with the canonical (non-existent) path, leaving the caller's own existence
+# check to reject it (still a clean exit-2). Portable to the
 # bash 3.2 / BSD / `LC_ALL=C` floor; any future filesystem reader of a
 # config-specified path reuses it rather than re-implementing the guard.
 rl_canonical_contained_path() {
