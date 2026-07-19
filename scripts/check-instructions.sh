@@ -10,6 +10,10 @@
 #     instruction file, excluding doctrine/README.md (an index, REQ-A1.1);
 #   - computes each skill's manifest-derived mandatory-at-start load (SKILL.md
 #     body + run-start docs) and reachable closure (+ point-of-use docs),
+#     charging a permanently exempt manifest doc at min(actual, its per-file
+#     error threshold) so a dependent pays the budgeted size, not the overage
+#     (instruction-headroom D-4, REQ-B1.1); --audit prints the honest actual
+#     beside the charged total (REQ-B1.2),
 #     parsing the doctrine manifest defined by doctrine/instruction-hygiene.md.
 #     A skill with no manifest is scored body-only, which is not an error
 #     (REQ-A1.2); a malformed manifest entry is a fail-loud error (REQ-B1.8);
@@ -856,6 +860,12 @@ if [ -d "$skills_dir" ]; then
       "$t_skill_warn" "$t_skill_error" skill "$t_skill_floor"
     startload="$body_words"
     closure="$body_words"
+    # Uncapped ("actual") twins of the two aggregates. When a permanently exempt
+    # doc is capped (D-4, below) the charged aggregate diverges from the honest
+    # sum; --audit prints the actual beside the charged so the full load stays
+    # visible (REQ-B1.2). With no cap in play they stay equal.
+    startload_actual="$body_words"
+    closure_actual="$body_words"
     seen_docs=""
     malformed=0
     unresolved=0
@@ -897,11 +907,29 @@ $name"
         continue
       fi
       dw="$DOC_W"
+      # Capped charge for permanently exempt docs (D-4, REQ-B1.1, REQ-B1.2): a
+      # doc carrying a standing per-file exemption is charged into the aggregates
+      # at min(actual, its per-file error threshold), so a dependent pays the
+      # budgeted size, not the overage (spec-format.md charges the doctrine
+      # error threshold, not its larger actual). Manifest docs are always
+      # doctrine/*.md, so the per-file error threshold is t_doc_error. We reach
+      # here only on a resolve_doc success, so the D-4 "resolves and measures"
+      # precondition holds; a missing/unresolvable doc took the unresolved path
+      # above, and a malformed or reason-less `exempt|` entry never entered
+      # exempt_paths (the parser dropped it), so its full charge still cascades —
+      # doubly fail-closed. The actual words feed the *_actual twins for the audit.
+      charged="$dw"
+      if in_list "doctrine/$name.md" "$exempt_paths" && [ "$dw" -gt "$t_doc_error" ]; then
+        charged="$t_doc_error"
+      fi
       if [ "$cls" = run-start ]; then
-        startload=$((startload + dw))
-        closure=$((closure + dw))
+        startload=$((startload + charged))
+        closure=$((closure + charged))
+        startload_actual=$((startload_actual + dw))
+        closure_actual=$((closure_actual + dw))
       else
-        closure=$((closure + dw))
+        closure=$((closure + charged))
+        closure_actual=$((closure_actual + dw))
       fi
     done <<EOF
 $(awk "$parse_manifest" "$skill_md")
@@ -916,8 +944,8 @@ $sname"
 
     if [ "$malformed" -eq 1 ] || [ "$unresolved" -eq 1 ]; then
       # A skill whose manifest cannot be trusted is not scored under budget.
-      printf '%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
-        "unmeasured" "unmeasured" >>"$skill_list"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
+        "unmeasured" "unmeasured" "$startload_actual" "$closure_actual" >>"$skill_list"
       continue
     fi
 
@@ -925,8 +953,8 @@ $sname"
     sl_state="$_STATE"
     classify "$closure" "$t_cl_warn" "$t_cl_error"
     cl_state="$_STATE"
-    printf '%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
-      "$sl_state" "$cl_state" >>"$skill_list"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
+      "$sl_state" "$cl_state" "$startload_actual" "$closure_actual" >>"$skill_list"
 
     if [ "$sl_state" = ERROR ]; then
       if in_list "$sname" "$pd_startload"; then
@@ -1176,29 +1204,48 @@ if [ "$audit" -eq 1 ]; then
     # REQ-D1.1). A permanently exempt file carries no headroom floor, so it
     # shows no margin columns (its exempt notice stands).
     margins=""
-    if [ "$sup" != exempt ]; then
+    charged=""
+    if [ "$sup" = exempt ]; then
+      # Charged-vs-actual (D-4, REQ-B1.2): an exempt doctrine doc over its
+      # per-file error threshold is charged min(actual, threshold) into every
+      # dependent aggregate; print that charged value beside the actual words=
+      # so the honest count and the budgeted charge are both visible on the
+      # capped doc's own line. Only doctrine docs feed manifests, so only they
+      # are cap-relevant; an exempt file at or under the threshold charges its
+      # actual and shows no charged= (min() is a no-op).
+      if [ "$kind" = doctrine ] && [ "$w" -gt "$t_doc_error" ]; then
+        charged=" charged=$t_doc_error"
+      fi
+    else
       case "$kind" in
         skill) margins=" margin-to-warn=$((t_skill_warn - w)) margin-to-error=$((t_skill_error - w))" ;;
         doctrine) margins=" margin-to-warn=$((t_doc_warn - w)) margin-to-error=$((t_doc_error - w))" ;;
       esac
     fi
-    printf '  words=%s lines=%s %s %s%s%s\n' "$w" "$l" "$rel" "$st" "$margins" "$tag"
+    printf '  words=%s lines=%s %s %s%s%s%s\n' "$w" "$l" "$rel" "$st" "$margins" "$charged" "$tag"
   done
   echo
   echo "Per-skill load:"
-  while IFS="$(printf '\t')" read -r name sl cl sls cls; do
+  while IFS="$(printf '\t')" read -r name sl cl sls cls sla cla; do
     # Margin-to-warn / margin-to-error for the two floored aggregate classes
     # (D-8, REQ-D1.1); an unmeasured skill (untrusted manifest) shows none.
     slm=""
     clm=""
+    # Charged-vs-actual (D-4, REQ-B1.2): when a capped exempt doc made the
+    # charged aggregate diverge from the honest sum, print the actual beside it
+    # so the aggregate line distinguishes its charged total from the raw load.
+    slc=""
+    clc=""
     if [ "$sls" != unmeasured ]; then
       slm=" margin-to-warn=$((t_sl_warn - sl)) margin-to-error=$((t_sl_error - sl))"
+      [ -n "$sla" ] && [ "$sla" != "$sl" ] && slc=" (actual $sla)"
     fi
     if [ "$cls" != unmeasured ]; then
       clm=" margin-to-warn=$((t_cl_warn - cl)) margin-to-error=$((t_cl_error - cl))"
+      [ -n "$cla" ] && [ "$cla" != "$cl" ] && clc=" (actual $cla)"
     fi
-    printf '  %s start-load=%s (%s)%s closure=%s (%s)%s\n' \
-      "$name" "$sl" "$sls" "$slm" "$cl" "$cls" "$clm"
+    printf '  %s start-load=%s (%s)%s%s closure=%s (%s)%s%s\n' \
+      "$name" "$sl" "$sls" "$slc" "$slm" "$cl" "$cls" "$clc" "$clm"
   done <"$skill_list"
   echo
   echo "Injected-context hooks:"

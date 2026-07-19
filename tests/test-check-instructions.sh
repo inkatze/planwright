@@ -3,7 +3,9 @@
 # and audit tool (prompt-hygiene Task 2; REQ-A1.1, REQ-A1.3, REQ-A1.4,
 # REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7,
 # REQ-B1.8, REQ-B1.9; instruction-headroom Task 2: REQ-A1.1, REQ-A1.4, REQ-D1.1,
-# REQ-D1.6). The guard measures word/line counts for every instruction file,
+# REQ-D1.6; instruction-headroom Task 3: REQ-B1.1, REQ-B1.2, REQ-D1.5 — the
+# capped charge for permanently exempt docs, section 16). The guard measures
+# word/line counts for every instruction file,
 # computes manifest-derived start-load and closure per skill, scans
 # hooks.json-registered injected-context hooks statically, enforces the budgets
 # with four suppression forms (exempt / pending-diet / declared-exception /
@@ -1276,6 +1278,154 @@ assert_absent "declared-exception silences the aggregate closure below-target it
   "below-target: closure:aggclbt" "$out"
 assert_absent "a USED aggregate closure declared-exception is not reported stale" \
   "declared-exception cleanup" "$out"
+
+########################################################################
+# 16. Capped charge for permanently exempt docs (instruction-headroom Task 3:
+#     D-4, REQ-B1.1, REQ-B1.2, REQ-D1.5). An aggregate (start-load / closure)
+#     charges a permanently exempt manifest doc at min(actual, its per-file
+#     error threshold = the doctrine error threshold), so a dependent pays the
+#     budgeted size and never the overage; a non-exempt doc stays fully charged.
+#     --audit prints the honest actual beside the charged value on both the
+#     capped doc's own per-file line and the dependent aggregate line.
+########################################################################
+# 16a. cap on BOTH a dependent start-load and closure. capdoc (4500, EXEMPT, over
+#      the doctrine per-file error 4000) is charged 4000; fulldoc (4500,
+#      NON-exempt, carried transiently by a per-file pending-diet allowance so it
+#      does not trip its own per-file error) stays fully charged at 4500. dep
+#      front-loads capdoc (run-start) and reaches fulldoc (point-of-use), so its
+#      start-load caps and its closure carries one capped + one full doc.
+t16="$tmproot/t16"
+scaffold "$t16"
+make_doc "$t16" capdoc 4500  # exempt, over 4000 -> charged 4000
+make_doc "$t16" fulldoc 4500 # non-exempt, over 4000 -> stays 4500 (pending-diet covers its per-file)
+make_skill "$t16" dep 100 \
+  "Doctrine: run-start capdoc" \
+  "Doctrine: point-of-use fulldoc (rare branch)"
+make_skill "$t16" plain 100 "Doctrine: run-start fulldoc"
+cat >"$t16/config/instruction-budget-exemptions.txt" <<'EOF'
+exempt|doctrine/capdoc.md|standing rationale: kept large on purpose
+pending-diet|file|doctrine/fulldoc.md|Task 9|non-exempt over-budget doc, dieted later
+EOF
+depbody=$(wc -w <"$t16/skills/dep/SKILL.md" | tr -d ' ')
+plainbody=$(wc -w <"$t16/skills/plain/SKILL.md" | tr -d ' ')
+cap=4000
+exp_sl=$((depbody + cap))                # start-load charged: body + capped capdoc
+exp_sl_actual=$((depbody + 4500))        # start-load actual: body + full capdoc
+exp_cl=$((depbody + cap + 4500))         # closure charged: + full non-exempt fulldoc
+exp_cl_actual=$((depbody + 4500 + 4500)) # closure actual: full capdoc + full fulldoc
+exp_plain=$((plainbody + 4500))          # plain start-load: no exempt doc, full charge
+
+out="$(/bin/bash "$CHECKER" --root "$t16" 2>&1)"
+assert_exit "capped-charge fixture keeps the guard green" 0 $?
+
+aud="$(/bin/bash "$CHECKER" --audit --root "$t16" 2>&1)"
+# the exempt doc caps the dependent start-load (min(4500,4000)=4000), NOT 4500.
+dep_row="$(printf '%s\n' "$aud" | grep -F 'dep start-load=')"
+assert_contains "exempt doc caps the dependent start-load at the doctrine error threshold" \
+  "dep start-load=$exp_sl " "$dep_row"
+assert_contains "capped start-load prints the honest actual beside the charged total" \
+  "(actual $exp_sl_actual)" "$dep_row"
+assert_contains "closure carries the capped exempt doc plus the full non-exempt doc" \
+  "closure=$exp_cl " "$dep_row"
+assert_contains "capped closure prints the honest actual beside the charged total" \
+  "(actual $exp_cl_actual)" "$dep_row"
+
+# the per-file line for the capped doc shows BOTH actual (words=) and charged=.
+cap_row="$(printf '%s\n' "$aud" | grep -F 'doctrine/capdoc.md')"
+assert_contains "capped doc per-file line shows the actual word count" "words=4500" "$cap_row"
+assert_contains "capped doc per-file line shows the charged word count" "charged=4000" "$cap_row"
+
+# a NON-exempt doc stays fully charged and shows no charged= column.
+full_row="$(printf '%s\n' "$aud" | grep -F 'doctrine/fulldoc.md')"
+assert_absent "a non-exempt doc's per-file line carries no charged= column" "charged=" "$full_row"
+plain_row="$(printf '%s\n' "$aud" | grep -F 'plain start-load=')"
+assert_contains "a non-exempt doc is charged in full to a dependent start-load" \
+  "plain start-load=$exp_plain " "$plain_row"
+assert_absent "an uncapped aggregate line shows no (actual) twin" "(actual" "$plain_row"
+
+# 16b. the cap uses the per-file error threshold as its value: lowering the
+#      doctrine error knob lowers the charged cap (the knob drives the cap, not a
+#      hardcoded constant). Raising the knob needs a recorded rationale, so this
+#      fixture LOWERS it via overlay (a lowered budget needs no raise entry).
+t16b="$tmproot/t16b"
+scaffold "$t16b"
+make_doc "$t16b" capdoc 4500
+make_skill "$t16b" dep 100 "Doctrine: run-start capdoc"
+cat >"$t16b/config/instruction-budget-exemptions.txt" <<'EOF'
+exempt|doctrine/capdoc.md|standing rationale: kept large on purpose
+EOF
+mkdir -p "$t16b/.claude"
+cat >"$t16b/.claude/planwright.local.yml" <<'EOF'
+instruction_budget_doctrine_error: 3500
+EOF
+depbody_b=$(wc -w <"$t16b/skills/dep/SKILL.md" | tr -d ' ')
+aud="$(/bin/bash "$CHECKER" --audit --root "$t16b" 2>&1)"
+dep_row_b="$(printf '%s\n' "$aud" | grep -F 'dep start-load=')"
+assert_contains "the doctrine error knob (not a constant) drives the cap value" \
+  "dep start-load=$((depbody_b + 3500)) " "$dep_row_b"
+assert_contains "lowered-knob cap still prints the honest actual" \
+  "(actual $((depbody_b + 4500)))" "$dep_row_b"
+
+# 16c. an exempt doc AT or UNDER its per-file error threshold charges its actual
+#      (min() is a no-op): no cap, no charged= column, no (actual) twin.
+t16c="$tmproot/t16c"
+scaffold "$t16c"
+make_doc "$t16c" smallexempt 1000 # exempt but under 4000 -> min(1000,4000)=1000
+make_skill "$t16c" dep 100 "Doctrine: run-start smallexempt"
+cat >"$t16c/config/instruction-budget-exemptions.txt" <<'EOF'
+exempt|doctrine/smallexempt.md|standing rationale: kept exempt though small
+EOF
+depbody_c=$(wc -w <"$t16c/skills/dep/SKILL.md" | tr -d ' ')
+aud="$(/bin/bash "$CHECKER" --audit --root "$t16c" 2>&1)"
+small_row="$(printf '%s\n' "$aud" | grep -F 'doctrine/smallexempt.md')"
+assert_absent "an under-threshold exempt doc gets no charged= column" "charged=" "$small_row"
+dep_row_c="$(printf '%s\n' "$aud" | grep -F 'dep start-load=')"
+assert_contains "an under-threshold exempt doc charges its actual to the aggregate" \
+  "dep start-load=$((depbody_c + 1000)) " "$dep_row_c"
+assert_absent "an uncapped exempt-but-small aggregate shows no (actual) twin" \
+  "(actual" "$dep_row_c"
+
+# 16d. real-corpus proof (Task 3 Done-when): the orchestrate closure and
+#      execute-task start-load charge spec-format.md at its 4,000 per-file error
+#      threshold, and the larger actual stays printed beside the charged total.
+#      Derived from the guard's own output so it is robust to corpus drift (R4):
+#      the overage (actual spec-format words − 4,000) is exactly the gap between
+#      each dependent aggregate's charged and actual values.
+aud="$(/bin/bash "$CHECKER" --audit 2>&1)"
+sf_line="$(printf '%s\n' "$aud" | grep -F 'doctrine/spec-format.md ' | grep -F 'charged=')"
+assert_contains "spec-format.md is charged at its 4,000 per-file error threshold" \
+  "charged=4000" "$sf_line"
+sf_actual="$(printf '%s\n' "$sf_line" | sed -n 's/.*words=\([0-9]*\).*/\1/p')"
+overage=$((sf_actual - 4000))
+et_line="$(printf '%s\n' "$aud" | grep -F 'execute-task start-load=')"
+et_sl="$(printf '%s\n' "$et_line" | sed -n 's/.*start-load=\([0-9]*\).*/\1/p')"
+et_sl_actual="$(printf '%s\n' "$et_line" | sed -n 's/.*start-load=[0-9]* ([^)]*) (actual \([0-9]*\)).*/\1/p')"
+if [ -n "$et_sl_actual" ] && [ "$((et_sl_actual - et_sl))" -eq "$overage" ]; then
+  echo "ok: execute-task start-load charges spec-format at 4,000 (actual − charged == overage)"
+else
+  echo "FAIL: execute-task start-load charged/actual gap ($et_sl / $et_sl_actual) != spec-format overage ($overage)" >&2
+  failures=$((failures + 1))
+fi
+or_line="$(printf '%s\n' "$aud" | grep -F 'orchestrate start-load=' | grep -F 'closure=')"
+or_cl="$(printf '%s\n' "$or_line" | sed -n 's/.*closure=\([0-9]*\).*/\1/p')"
+or_cl_actual="$(printf '%s\n' "$or_line" | sed -n 's/.*closure=[0-9]* ([^)]*) (actual \([0-9]*\)).*/\1/p')"
+if [ -n "$or_cl_actual" ] && [ "$((or_cl_actual - or_cl))" -eq "$overage" ]; then
+  echo "ok: orchestrate closure charges spec-format at 4,000 (actual − charged == overage)"
+else
+  echo "FAIL: orchestrate closure charged/actual gap ($or_cl / $or_cl_actual) != spec-format overage ($overage)" >&2
+  failures=$((failures + 1))
+fi
+
+# 16e. content-pin on the rewritten spec-format exemption rationale (REQ-D1.5):
+#      the superseded "dominant run-start load" claim and the stale trim-gap
+#      figure are gone; the capped-charge law is stated.
+exem="$(cat "$REPO_ROOT/config/instruction-budget-exemptions.txt")"
+assert_absent "exemption rationale drops the superseded 'dominant run-start load' claim" \
+  "dominant run-start load" "$exem"
+assert_absent "exemption rationale drops the stale '570-word gap' trim figure" \
+  "570-word gap" "$exem"
+assert_contains "exemption rationale states the capped-charge law" \
+  "capped-charge law" "$exem"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
