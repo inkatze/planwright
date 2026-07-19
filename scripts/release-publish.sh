@@ -527,7 +527,7 @@ relabel_release_pr() {
 relabel_release_pr
 
 if [ "$release_present" -eq 1 ]; then
-  echo "release-publish: $tag and its GitHub Release already exist; ensured the merged release PR relabel so release-please stays unblocked (REQ-B1.4)"
+  echo "release-publish: $tag and its GitHub Release already exist; re-ran the idempotent relabel of the merged release PR so release-please stays unblocked (REQ-B1.4)"
 elif [ "$resume" -eq 1 ]; then
   echo "release-publish: resumed — created the GitHub Release for the already-pushed $tag"
 else
