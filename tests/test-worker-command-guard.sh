@@ -407,10 +407,13 @@ jq_absent_run() {
   local cmd="$1"
   local payload
   payload="$(jq -n --arg c "$cmd" '{tool_name:"Bash", tool_input:{command:$c}, cwd:"'"$SANDBOX"'"}')"
-  # Minimal PATH with coreutils but no jq.
+  # Minimal PATH with coreutils but no jq. `head` MUST be included: the hook
+  # reads stdin via `head -c` (worker-command-guard.sh:1145) and defers on an
+  # empty read BEFORE the jq check, so omitting `head` would make this test pass
+  # by deferring on missing `head` rather than exercising the jq-absent branch.
   local restricted
   restricted="$(mktemp -d)"
-  for b in bash sh cat grep sed tr printf dirname pwd env; do
+  for b in bash sh cat grep sed tr printf dirname pwd env head; do
     p="$(command -v "$b" 2>/dev/null)" && ln -sf "$p" "$restricted/$b" 2>/dev/null
   done
   OUT="$(printf '%s' "$payload" | PATH="$restricted" /bin/bash "$HOOK" 2>/dev/null)"
@@ -489,13 +492,14 @@ if [ "$CODE" -eq 0 ]; then pass "pathological large input terminates with exit 0
 # defers and returns quickly (well under the multi-second hang the high cap
 # allowed).
 over="$(head -c 20000 /dev/zero | tr '\0' 'a')"
-t0="$(date +%s)"
+# Bash's SECONDS is monotonic within the shell and needs no external `date`.
+SECONDS=0
 run_hook "echo $over"
-t1="$(date +%s)"
-if [ "$CODE" -eq 0 ] && is_empty && [ "$((t1 - t0))" -le 2 ]; then
+elapsed=$SECONDS
+if [ "$CODE" -eq 0 ] && is_empty && [ "$elapsed" -le 2 ]; then
   pass "over-cap command defers quickly (length short-circuit)"
 else
-  fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$((t1 - t0))"
+  fail "over-cap command — code=$CODE empty=$(is_empty && echo y || echo n) secs=$elapsed"
 fi
 
 echo

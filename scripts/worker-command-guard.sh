@@ -55,10 +55,14 @@ export LC_ALL
 # Bounds (REQ-B1.7 bounded runtime). The tokenizer scans the command with
 # bash substring indexing (`${s:i:1}`), which is O(n) per access and so O(n^2)
 # over the command — a ~40 KiB command takes ~8 s. MAX_CMD_LEN caps that at a
-# fraction of a second (~0.5 s worst case) so the hook can never hang a worker's
-# tool call; a longer command simply defers (never worse than the normal
-# prompt). 8 KiB is far above any real worker command shape. MAX_DEPTH caps
-# `fish -c` recursion so a nested-`fish -c` bomb can never spin.
+# fraction of a second (~0.5 s) PER analyze_command entry so the hook can never
+# hang a worker's tool call; a longer command simply defers (never worse than
+# the normal prompt). Because `fish -c "<inner>"` re-enters analyze_command on
+# the inner string (each entry independently re-checked against MAX_CMD_LEN),
+# the end-to-end worst case is that per-entry cost multiplied by the number of
+# levels — up to MAX_DEPTH+1 entries, i.e. ~2 s worst case, not ~0.5 s. 8 KiB is
+# far above any real worker command shape. MAX_DEPTH caps `fish -c` recursion so
+# a nested-`fish -c` bomb can never spin.
 readonly MAX_CMD_LEN=8192
 readonly MAX_DEPTH=3
 
