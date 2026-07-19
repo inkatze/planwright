@@ -294,6 +294,8 @@ assert_defer "git grep -O bundled exec" "git grep -O'sh -c id' foo"
 assert_defer "git grep --open-files-in-pager exec" "git grep --open-files-in-pager=id foo"
 assert_defer "git log --ext-diff driver exec" "git log --ext-diff"
 assert_defer "git show --textconv driver exec" "git show --textconv HEAD:f"
+assert_defer "git cat-file --filters driver exec" "git cat-file --filters --path=f HEAD:f"
+assert_allow "git cat-file batch still reads" "git cat-file --batch"
 assert_allow "git grep plain still allows" "git grep foo"
 # GNU sed 'e' substitution flag executes the pattern space (no trailing space).
 assert_defer "sed s///e exec no-space" "sed 's/.*/id/e'"

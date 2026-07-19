@@ -766,12 +766,13 @@ guard_git() {
       # Read-only, but reject a following flag that WRITES a file
       # (`git diff --output=FILE`) or SPAWNS a command: `git grep -O<cmd>` /
       # `--open-files-in-pager=<cmd>` run <cmd> through the shell, and
-      # `--ext-diff` / `--textconv` run a configured driver.
+      # `--ext-diff` / `--textconv` / `--filters` (git cat-file) run a
+      # configured driver (external-diff, textconv, or smudge/clean filter).
       for ((i = subidx + 1; i < cwn; i++)); do
         case ${cw[i]} in
           -o | --output | --output=* | --output-directory | --output-directory=*) return 1 ;;
           -O | -O* | --open-files-in-pager | --open-files-in-pager=*) return 1 ;;
-          --ext-diff | --textconv) return 1 ;;
+          --ext-diff | --textconv | --filters) return 1 ;;
         esac
       done
       return 0
