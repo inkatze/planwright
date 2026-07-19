@@ -1,6 +1,6 @@
 # Fleet Hardening — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-19
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -24,8 +24,8 @@ polling / stochastic mechanisms with deterministic, event-driven ones: native Cl
 for attention, a structured channel for decisions, an allow-rule-matchable code-level launch shape
 for ghost-text prevention, a deterministic dispatch primitive for D-36 branch naming, a tested
 allow layer fronting the tower's own permission classifier, and fetch/event triggers so dispatch
-bases and merge detection are never stale. It closes the specific gaps `fleet-autonomy`'s shipped
-design left in its attention surface (D-1/D-9) — chiefly the unwired `Notification` hook that made
+bases and merge detection are never stale. It closes the specific gaps the shipped attention surface
+left (`fleet-autonomy` D-1, `orchestration-fleet` D-9) — chiefly the unwired `Notification` hook that made
 the 7-hour fork-park invisible — and extends the same deterministic-over-heuristic discipline to
 dispatch, tower self-permission, and freshness. The deliverable is mechanism-primary with one
 carried doctrine statement; that altitude call is recorded as **D-1** (autopilot-reflex altitude
@@ -102,20 +102,23 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
 
 - **REQ-A1.1** A dispatched worker SHALL push an `awaiting-human` attention record — carrying a
   reason and a timestamp — into `fleet-autonomy`'s attention store the instant it parks for human
-  input, via a native Claude Code `Notification` hook, with no pane capture involved. The
-  record SHALL be sufficient for the classifier to resolve `awaiting-human` directly, never by
-  heartbeat-age inference.
-  *(Cites: obs:ee255934 · `fleet-autonomy` D-1, D-9.)*
+  input, via a native Claude Code `Notification` hook, with no pane capture involved, for every fork
+  type that raises `Notification`; fork types that do not are covered by the REQ-A1.3 reconcile
+  backstop. The record SHALL be sufficient for the classifier to resolve `awaiting-human` directly,
+  never by heartbeat-age inference.
+  *(Cites: obs:ee255934 · `fleet-autonomy` D-1 · `orchestration-fleet` D-9.)*
 - **REQ-A1.2** The tower SHALL learn of a pushed attention record by watching the attention store
   as an event (an inotify/Monitor-style watch or equivalent), not by polling and grep-parsing
   worker panes.
   *(Cites: obs:ee255934 · obs:26029772.)*
-- **REQ-A1.3** For dispatch backends that cannot register hooks, the fleet SHALL provide one
-  codified fallback pane-state detector that (a) reads only the bounded footer region, not the full
-  scrollback; (b) requires a positive at-prompt anchor AND the absence of every busy marker
-  (`esc to interrupt`, background-agent `Waiting for` / `to manage`, spinner words); and (c)
-  debounces across at least two consecutive frames. This detector is a reconcile backstop, never the
-  primary path where a hook exists (carrying `fleet-autonomy` D-1's push-first / reconcile pattern).
+- **REQ-A1.3** For dispatch backends that cannot register hooks — or where a registered hook has not
+  produced an attention push within a bounded reconcile interval (a registered-but-non-firing fork
+  type) — the fleet SHALL provide one codified fallback pane-state detector that (a) reads only the
+  bounded footer region, not the full scrollback; (b) requires a positive at-prompt anchor AND the
+  absence of every busy marker (`esc to interrupt`, background-agent `Waiting for` / `to manage`,
+  spinner words); and (c) debounces across at least two consecutive frames. This detector is a
+  reconcile backstop, never the primary path where a fresh hook push exists (carrying `fleet-autonomy`
+  D-1's push-first / reconcile pattern).
  
   *(Cites: obs:26029772 · `fleet-autonomy` D-1.)*
 - **REQ-A1.4** A worker parked at a multi-option decision fork SHALL surface the pending decision
@@ -162,25 +165,53 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
   *(Cites: obs:8eacaa65 · `fleet-autonomy` D-19.)*
 - **REQ-C1.2** The tower safe set SHALL be a distinct, tower-oriented allow set — not a verbatim
   reuse of the worker safe set — and the tower guard SHALL be allow-only (never emitting deny or
-  ask); every dangerous orchestration operation (merge, force-push, amend, squash, rebase, and every
-  never-merge / never-ready guardrail) SHALL be denied by the profile's deny block, effective
-  regardless of guard output.
-  *(Cites: obs:8eacaa65 · `fleet-autonomy` D-18.)*
+  ask). Because the guard has no default-deny, deny-block coverage is the security floor: anything
+  neither allowed nor explicitly denied falls to the stochastic classifier, so the profile's deny
+  block SHALL deny every dangerous operation regardless of guard output, and its coverage SHALL
+  extend beyond shell strings:
+  - **(a) Shell ops:** `merge`, `force-push` in every spelling (`--force`, `-f`,
+    `--force-with-lease`, `+`-prefixed refspecs), `amend`, `squash`, `rebase`, `gh pr merge`.
+  - **(b) Default-branch writes / local-`main` mutation:** any push that writes the default branch
+    outside the sanctioned flow (e.g. `git push origin HEAD:main`), and any local-`main`-mutating
+    command (`reset --hard`, `branch -f`, `update-ref` on the default branch, a `merge` into it) —
+    the shared-checkout read-only-local-`main` invariant is **guard-enforced**, not merely observed
+    by the fetch code path.
+  - **(c) Equivalent GitHub MCP tool surface:** `mcp__github__merge_pull_request`,
+    `mcp__github__update_pull_request` draft→ready transitions, and `push_files` /
+    `create_or_update_file` targeting the default branch — a PreToolUse Bash-string guard does not
+    intercept MCP calls, so the never-merge / never-ready floors must deny the MCP surface too.
+  - **(d)** every never-merge / never-ready guardrail.
+
+  The tower allow-set SHALL be pinned so a `claude --worktree` allow never matches
+  `--dangerously-skip-permissions` / `--permission-mode bypassPermissions` (which would launch a
+  worker with its permission layer disabled — a fleet-wide escalation), and a `tmux` allow is scoped
+  to `load-buffer` / `paste-buffer` / `capture-pane`, never `send-keys` or `kill-session`. The guard
+  SHALL **fail closed** (never emit `allow` on error, uncertainty, or absence). The sanctioned
+  kickoff spec-PR ready-flip SHALL be reconciled explicitly against the never-ready deny: the deny
+  block denies ready-marking for task PRs / by the tower, and the flip is permitted only via the
+  kickoff skill path for the spec PR.
+  *(Cites: obs:8eacaa65 · `fleet-autonomy` D-18 · `kickoff-lifecycle` (the sanctioned ready-flip).)*
 - **REQ-C1.3** The tower guard SHALL be deterministic and covered by an adversarial test suite
-  asserting zero false-allows over the tower safe set, that every dangerous / guardrail operation
-  defers or is denied, and that the allow layer is evaluated before the classifier. Tests SHALL
-  assert the *outcome* (the guard never emits `allow` for a deny-listed command) rather than relying
-  on documented Claude Code allow-vs-deny precedence.
+  asserting zero false-allows over the tower safe set, that every dangerous / guardrail operation —
+  including the flag-appended escalation shapes and the MCP / direct-`main` surfaces of REQ-C1.2 —
+  defers or is denied, and that the guard fails closed on error or absence. Tests SHALL assert the
+  *outcome* (the guard never emits `allow` for a deny-listed command) rather than relying on
+  documented Claude Code allow-vs-deny precedence, which is not confirmed for the running version
+  (obs:4dda9fe1); the allow-before-classifier evaluation order is a platform-contract note, not a
+  guard-output assertion.
   *(Cites: obs:8eacaa65 · obs:4dda9fe1.)*
 
 ## REQ-D — Freshness & propagation
 
 - **REQ-D1.1** The execution freshness gate in `/orchestrate` and `/execute-task` SHALL fetch
-  `origin` and evaluate currency and the content anchor against the fetched `origin/main` ref before
-  dispatch, so a stale local `main` cannot base a dispatch on outdated spec content or miss an
-  upstream re-anchor. The fetch SHALL NOT advance local `main`, preserving the shared-checkout
+  `origin` and evaluate currency — and re-point `anchor-integrity`'s existing content-anchor check —
+  against the fetched `origin/main` ref before dispatch, so a stale local `main` cannot base a
+  dispatch on outdated spec content or miss an upstream re-anchor. This bundle changes only which ref
+  the existing anchor check reads against; it does not implement anchor-hash comparison (that remains
+  `anchor-integrity`'s). The fetch SHALL NOT advance local `main`, preserving the shared-checkout
   read-only-local-`main` invariant.
-  *(Cites: obs:04b578da (related) · `orchestration-concurrency`.)*
+  *(Cites: obs:04b578da (related) · `orchestration-concurrency` · `anchor-integrity` (owns the
+  anchor-hash check).)*
 - **REQ-D1.2** Merge detection SHALL evaluate against freshly-fetched `origin/main` and
   remote-tracking refs, so a merged task PR whose merge trailer has not reached local `main` is not
   re-dispatched as if unmerged.
@@ -249,7 +280,7 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
   folds worktree + session + launch into one native command, but still creates a mangled
   `worktree-<suffix>` branch needing the D-36 rename; `--tmux` (non-classic) uses non-relay-targetable
   iTerm2 panes. Consumed; grounds REQ-B1.4.
-- **obs:8eacaa65** — tower-hook-extension amendment: Diego's decision (2026-07-18) to cover the tower
+- **obs:8eacaa65** — tower-hook-extension amendment: the operator's 2026-07-18 decision to cover the tower
   with a deterministic command-guard, with a distinct tower safe set and an adversarial zero-false-allow
   suite. Consumed. Routing note below.
 - **obs:1d6a2b76** — ghost-text-hazard bare launch: bare worker launches dropped the ghost-text pin
@@ -285,8 +316,17 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
   lock, and the shared-checkout coordination model (local `main` read-only; reconcile without
   clobbering a peer's unpushed commits) that REQ-D1.1's never-advance-local-`main` constraint honors.
 - **`anchor-integrity`** (Ready) — owns content-anchor hash freshness; cited as the sibling that owns
-  the *other* freshness axis so REQ-D1.x stays scoped to git-ref currency. A separate in-progress
-  `anchor-freshness` draft branch may also touch this axis; flagged for kickoff reconciliation.
+  the *other* freshness axis so REQ-D1.x stays scoped to git-ref currency. Kickoff reconciliation
+  (2026-07-19): the flagged `anchor-freshness` branch carries no `specs/anchor-freshness` bundle (it
+  predates the anchor work), so there is no competing bundle — the hash-freshness axis is
+  `anchor-integrity`'s alone, and REQ-D1.x's git-ref-currency axis stays distinct.
+- **`kickoff-lifecycle`** (Ready/Done) — owns the sanctioned spec-PR ready-flip exception; grounds the
+  REQ-E1.4 / REQ-C1.2 carried floor that auto-merge and autonomous ready-marking stay out of scope
+  beyond that one exception.
+- **`observation-recording`** (Done) — the intra-repo accumulator log and its concurrent-shared-write
+  solution; referenced by D-9's observation-propagation half (REQ-D1.3) as the sibling whose
+  conflict class the tower-observation carry must not re-open. Does **not** own a tower→`main` carry
+  path (that is net-new here).
 - **Routing supersession (drafting-session decision, 2026-07-19).** The tower command-guard
   (REQ-C1.x) was directed on 2026-07-18 (obs:8eacaa65) to land as an amendment to
   `worker-permission-ergonomics`. The 2026-07-19 hardening seed instead scopes it into this bundle as

@@ -1,6 +1,6 @@
 # Fleet Hardening — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-19
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -10,8 +10,9 @@ Coverage mix: predominantly `[test]`, since every mechanism is deterministic scr
 on the push path, no `send-keys` in the decision channel, no `allow` for a deny-listed command, no
 local-`main` advance after a fetch). `[manual]` is reserved for the platform-contract confirmations
 that depend on the running Claude Code version (whether the `Notification` hook fires for a real
-fork-park; the tmux client-switch behavior of the native launch primitive) and for the doctrine
-statement, whose signal is a design-level judgment rather than a mechanism's output.
+fork-park; the tmux client-switch behavior of the native launch primitive). `[design-level]` covers
+the checks whose signal is a design judgment rather than a mechanism's output — the doctrine statement
+(REQ-E1.1) and the review-confirmed halves of REQ-E1.2 / REQ-E1.4.
 
 ## REQ-A — Attention & decision signals
 
@@ -19,9 +20,13 @@ statement, whose signal is a design-level judgment rather than a mechanism's out
 
 `[test]`: a fixture worker firing a `Notification` hook stub asserts the attention store gains an
 `awaiting-human` row carrying a reason and a timestamp within one event cycle, and asserts no
-`capture-pane` is invoked on that path. `[manual]`: against the running Claude Code version, park a
-real worker at an `AskUserQuestion` fork and confirm the `Notification` hook fires and the record is
-pushed — the version-sensitive platform-contract confirmation D-2 flags.
+`capture-pane` is invoked on that path; a payload-gating fixture asserts a permission-park /
+idle-nudge `Notification` does not push a false `awaiting-human`; a resume fixture asserts the row is
+cleared / superseded on resume (the exit edge). **Manual ownership:** kickoff pins the doc-level
+fires-for-fork-park fact; **Task 2 execution** runs the end-to-end `[manual]` confirmation — against
+the running Claude Code version, park a real worker at an `AskUserQuestion` fork and confirm the
+`Notification` hook fires and the record is pushed (the version-sensitive platform-contract
+confirmation D-2 flags).
 
 ### REQ-A1.2 — Tower learns by event watch, not pane poll [test]
 
@@ -34,7 +39,9 @@ the worker.
 Three fixtures: (a) a pane with busy words in scrollback ABOVE an idle footer classifies idle (no
 scrollback false-match); (b) a main-idle / background-busy pane (footer `Waiting for N background
 agent`, no `esc to interrupt`) classifies busy; (c) a single-frame flap is suppressed by the
-two-frame debounce. A fourth asserts the detector runs only where no hook is registered.
+two-frame debounce. A fourth asserts the detector runs only as the reconcile backstop — where no hook
+is registered, or where a registered hook has not pushed within the bounded reconcile interval —
+never where a fresh hook push exists.
 
 ### REQ-A1.4 — Decision record carries the full labeled option set [test]
 
@@ -67,7 +74,10 @@ longer the path taken.
 
 The check flags a `Bash(<path>/:*)` directory-scoped rule and passes a `Bash(<path>/*)` rule; a
 guard-against-false-positive fixture asserts the legitimate command globs (`Bash(git status:*)`,
-`Bash(mise run:*)`, etc.) are NOT flagged. Runs under `mise run check`.
+`Bash(mise run:*)`, etc.) are NOT flagged. Runs under `mise run check`. `[design-level]`: review
+confirms the `Bash(<dir>/*)`-not-`:*` rule is documented in the adopter allow-rule guidance and
+cross-referenced from the ghost-text (D-5) and tower-guard (D-8) docs (the documentation half of D-6,
+otherwise unverified).
 
 ### REQ-B1.4 — tmux dispatch yields a D-36 branch with no rename [test + manual]
 
@@ -88,28 +98,44 @@ planwright script by literal path) is deterministically allowed by the guard.
 
 Assert the tower safe set differs from the worker safe set (a tower-only command allowed here is not
 in the worker set, and vice versa); assert the guard is allow-only (never emits deny/ask); assert
-every dangerous op (merge, force-push, amend, squash, rebase, `gh pr merge`, never-ready guardrails)
-is denied by the profile deny block regardless of guard output.
+every dangerous op is denied by the profile deny block regardless of guard output, across all
+surfaces: the shell ops (merge, force-push in every spelling `--force`/`-f`/`--force-with-lease`/
+`+`-refspec, amend, squash, rebase, `gh pr merge`, never-ready guardrails), default-branch writes and
+local-`main` mutation (`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), and the
+equivalent GitHub MCP tools (`mcp__github__merge_pull_request`, `update_pull_request` draft→ready,
+`push_files` / `create_or_update_file` on the default branch). Assert the allow-set never matches
+`claude --worktree … --dangerously-skip-permissions` / `--permission-mode` nor `tmux send-keys` /
+`kill-session`; assert the sanctioned kickoff spec-PR ready-flip is distinguished from the denied
+task-PR / tower ready-marking.
 
 ### REQ-C1.3 — Adversarial suite: zero false-allows, outcome-asserted [test]
 
-An adversarial suite over the tower safe set asserts zero false-allows; asserts allow is evaluated
-before the classifier; and asserts the *outcome* (the guard never emits `allow` for any deny-listed
-command) rather than relying on documented Claude Code allow-vs-deny precedence (obs:4dda9fe1). No
-LLM is invoked in the guard decision path (negative assertion).
+An adversarial suite over the tower safe set asserts zero false-allows, including flag-appended
+escalation probes (a `claude --worktree` command with `--dangerously-skip-permissions` /
+`--permission-mode` appended is not allowed); asserts the guard fails closed on error / absence; and
+asserts the *outcome* (the guard never emits `allow` for any deny-listed command) rather than relying
+on documented Claude Code allow-vs-deny precedence (obs:4dda9fe1). The allow-before-classifier
+evaluation order is recorded as a `[design-level]` / platform-contract note, not a guard-output
+assertion. No LLM is invoked in the guard decision path (negative assertion).
 
 ## REQ-D — Freshness & propagation
 
 ### REQ-D1.1 — Freshness gate fetches and gates against `origin/main`, local `main` untouched [test]
 
 A fixture with local `main` behind `origin/main` asserts the gate fetches `origin`, evaluates
-currency + content anchor against `origin/main` (it sees the newer anchor), and that local `main` is
-byte-for-byte unchanged after the gate. A `no-remote` fixture asserts graceful degradation.
+currency and re-points `anchor-integrity`'s existing content-anchor check against `origin/main` (it
+sees the newer anchor; this bundle re-points the ref, it does not implement anchor-hash comparison),
+and that local `main` is byte-for-byte unchanged after the gate. A `no-remote` fixture asserts
+structural graceful degradation; a distinct transient-fetch-failure fixture (present remote, fetch
+errors) asserts the gate does not silently proceed against a stale ref (it retries, then blocks or
+flags), separate from the `no-remote` path.
 
 ### REQ-D1.2 — Merge detection uses fetched `origin/main` [test]
 
 A fixture where a task PR merged on `origin` but whose merge trailer has not reached local `main`
-asserts the task is detected merged (not re-dispatched) after the fetch-based detection.
+asserts the task is detected merged (not re-dispatched) after the fetch-based detection. A `no-remote`
+/ transient-fetch fixture asserts merge detection degrades gracefully (does not falsely mark a task
+merged or unmerged) when the fetch is unavailable.
 
 ### REQ-D1.3 — Tower observations reach `main` via a sanctioned path [test]
 
@@ -122,15 +148,18 @@ run asserts a clean no-op; assert the path never merges the PR and never advance
 
 ### REQ-E1.1 — Control-plane doctrine statement present and cited [design-level]
 
-Design-level: the doctrine statement exists, extends `fleet-autonomy` D-10/D-18, and is cited by
-REQ-E1.1 and from the design Goal as the D-1 altitude record. Verified by review against the
-autopilot-reflex altitude-gate expectation, not by a runtime test.
+`[design-level]`: the doctrine statement exists in the design log (D-1, its durable home a future
+tower-builder reads), extends `fleet-autonomy` D-10/D-18, and is cited by REQ-E1.1 and from the Goal
+(in `requirements.md`) as the D-1 altitude record. Verified by review against the autopilot-reflex
+altitude-gate expectation, not by a runtime test.
 
 ### REQ-E1.2 — No redefinition of `fleet-autonomy`'s shipped surface [test + design-level]
 
 `[design-level]`: review confirms no task redefines the shipped attention store, classifier, or
-wired hooks. `[test]`: the existing `fleet-autonomy` test suite continues to pass unchanged against
-this bundle's additions (a regression assertion that the shipped surface is extended, not altered).
+wired hooks. `[test]`: owned by Tasks 2 and 4 (which extend the store) — the existing `fleet-autonomy`
+suite continues to pass unchanged, AND a positive assertion confirms the specific shipped surfaces
+(the attention-store schema, the five-state classifier, the five wired hooks) remain present and
+behaviorally identical, so the regression is not a vacuous green from an untouched suite.
 
 ### REQ-E1.3 — No LLM in any control-plane decision path [test]
 

@@ -1,6 +1,6 @@
 # Fleet Hardening — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-19
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -10,9 +10,9 @@ an existing decision from the named sibling spec rather than inventing a paralle
 
 The design leads with the principle: **prefer a deterministic, event-driven signal over a
 heuristic, screen-scraped, timed, or stochastic one wherever the harness exposes one.** The
-decisions below are ranked by the strength of the win, strongest first — the attention hooks (D-2)
-close the gap that already cost seven hours and rank first; the doctrine statement (D-1) is the
-altitude record that frames them.
+decisions below lead with the framing doctrine record (D-1), then rank the mechanisms by the
+strength of the win, strongest first — the attention hooks (D-2) close the gap that already cost
+seven hours and rank first among the mechanisms; D-1 is the altitude record that frames them.
 
 ## Decision log
 
@@ -39,7 +39,7 @@ per the autopilot-reflex altitude gate, cited from the Goal.
 **Chosen because:** the altitude trigger fired (a seed framing this as a first-class control-plane
 concern, and a mechanism — attention detection — that had acquired rules reading like doctrine), so
 the call is recorded rather than retrofitted; and the honest weight is one doctrine line carried on
-top of seven mechanisms, scoped per proportionality to the risk this bundle actually exhibited.
+top of eight mechanisms (D-2 through D-9), scoped per proportionality to the risk this bundle actually exhibited.
 
 ### D-2: Fork-park attention via the native `Notification` hook, pushed to the store the tower already watches (N)
 
@@ -72,13 +72,26 @@ that a `Notification` hook fires for the fork-park / idle-wait state, and pin th
 the kickoff. Where a given fork type is found not to raise `Notification`, D-3's fallback detector is
 the reconcile backstop — the push-first / reconcile pattern `fleet-autonomy` D-1 already establishes.
 
+Three execution-time robustness properties ride Task 2 (recorded in its Done-when and the risk
+register): the hook **gates on the `Notification` payload reason** so permission-park / idle-nudge
+notifications do not push false `awaiting-human` records; the tower's event-watch carries a
+**liveness check plus a periodic full-store reconcile sweep** so a dead watch degrades to
+poll-latency rather than the silent blindness this decision exists to end (and so a push written
+before the watch is established is not missed); and the `awaiting-human` row gets an **exit edge**
+(cleared or superseded on resume) so an answered fork does not leave a stuck row that, because the
+push overrides heartbeat, no fresh heartbeat could clear.
+
 ### D-3: One codified fallback pane-state detector — footer-only, positive-anchor, debounced (N)
 
-**Decision:** For backends that cannot register hooks, the fleet ships a single fallback pane-state
-detector: it reads only the bounded footer region (not the full scrollback), requires a positive
-at-prompt anchor AND the absence of every busy marker (`esc to interrupt`, background-agent
-`Waiting for` / `to manage`, spinner words), and debounces across at least two consecutive frames.
-It is the reconcile backstop to D-2's push, never the primary path where a hook exists.
+**Decision:** For backends that cannot register hooks — or where a registered hook has not produced
+a push within a bounded reconcile interval (a registered-but-non-firing fork type) — the fleet ships
+a single fallback pane-state detector: it reads only the bounded footer region (not the full
+scrollback), requires a positive at-prompt anchor AND the absence of every busy marker
+(`esc to interrupt`, background-agent `Waiting for` / `to manage`, spinner words), and debounces
+across at least two consecutive frames. It is the reconcile backstop to D-2's push, never the primary
+path where a fresh hook push exists. This gating closure matters: without it, a hook-capable backend
+whose specific fork type does not raise `Notification` would be covered by neither the push nor the
+detector — re-opening the exact invisible-fork-park this bundle exists to kill.
 
 **Alternatives considered:**
 - Let each tower re-derive its own pane heuristic (the status quo). Rejected because: it is
@@ -117,6 +130,13 @@ partial frames, and it is the same event-driven direction as D-2. It preserves t
 no-`send-keys` / no-impersonation contract (`orchestration-fleet`): the channel is upward-structured,
 the answer downward-attributed, and the worker's own harness permission prompts stay out of scope
 (those remain the human's gate).
+
+Two robustness properties ride Task 4 (Done-when + risk register): each decision record carries a
+**unique instance id** the answer must match, with **first-answer-wins claim/close** semantics, so a
+late answer for a resolved fork cannot mis-apply to a later fork whose labels collide (the recurring
+`Skip`/`Apply` case) and two answerers cannot double-deliver; and the channel **mechanically refuses
+to emit an answer for a record whose reason is a permission-park**, so the harness-permission gate
+stays the human's by mechanism, not by a prose scope claim alone.
 
 ### D-5: Ghost-text pin in the launch primitive, through an auto-approved launch shape (N)
 
@@ -183,7 +203,12 @@ remember.
 **Chosen because:** folding the D-36 name into the primitive removes a hand step that silently
 degrades merge detection when skipped. Two caveats carry into the task: `--tmux=classic` is mandatory
 (not plain `--tmux`), and the native command switches the attached tmux client to the new session,
-which must be mitigated so it does not disrupt a tower watching another session.
+which must be mitigated so it does not disrupt a tower watching another session. Task 10 owns two
+robustness properties (Done-when + risk register): the client-switch mitigation is **designed**
+(launch detached, or capture-and-restore the prior client attachment), not merely confirmed by a
+manual step; and the deterministic branch name means a concurrent or repeat dispatch of the same task
+must **detect an existing `<spec>/task-<id>` branch/worktree and treat it as already-in-flight**
+(abort), rather than trading the rename footgun for a collision footgun.
 
 ### D-8: Tower command-guard — a distinct tower safe set fronting the stochastic classifier (N)
 
@@ -191,9 +216,19 @@ which must be mitigated so it does not disrupt a tower watching another session.
 command-guard over the tower's own orchestration command set (tmux relay/observe, `claude --worktree`
 worker launches, planwright scripts by resolved literal path), reusing the
 `worker-permission-ergonomics` guard *pattern* but with a **distinct, tower-oriented safe set** — not
-a verbatim reuse of the worker set. The guard is allow-only; the profile's deny block denies every
-dangerous orchestration operation (merge, force-push, amend, squash, rebase, and every never-merge /
-never-ready guardrail), effective regardless of guard output.
+a verbatim reuse of the worker set. The guard is allow-only; because it has no default-deny,
+deny-block *completeness* is the security floor (anything unmatched falls to the stochastic
+classifier). The deny block therefore covers not only the shell ops (merge, force-push in every
+spelling — `--force`, `-f`, `--force-with-lease`, `+`-refspec — amend, squash, rebase, `gh pr merge`)
+but also **default-branch writes and local-`main` mutation** (`git push …:main`, `reset --hard`,
+`branch -f`, `update-ref`), the **equivalent GitHub MCP tool surface** (`merge_pull_request`,
+`update_pull_request` draft→ready, `push_files` / `create_or_update_file` on the default branch — a
+Bash-string guard cannot see MCP calls), and every never-merge / never-ready guardrail, effective
+regardless of guard output. The **allow-set is pinned** so `claude --worktree` never matches
+`--dangerously-skip-permissions` / `--permission-mode` (a fleet-wide escalation) and `tmux` is scoped
+to `load-buffer` / `paste-buffer` / `capture-pane` (never `send-keys` / `kill-session`); the guard
+**fails closed**; and the sanctioned kickoff spec-PR ready-flip is reconciled against the never-ready
+deny (denied for task PRs / by the tower, permitted only via the kickoff skill path).
 
 **Alternatives considered:**
 - Reuse `worker-command-guard.sh`'s safe set verbatim for the tower. Rejected because: the tower's
@@ -220,8 +255,10 @@ documented Claude Code allow-vs-deny precedence, which is not confirmed for the 
 ### D-9: Fetch-before-gate freshness and merge detection, without advancing local `main` (N)
 
 **Decision:** `/orchestrate` and `/execute-task` fetch `origin` and evaluate the execution freshness
-gate (currency and content anchor) and merge detection against the fetched `origin/main` and
-remote-tracking refs before dispatch. The fetch does **not** advance local `main`. A tower-recorded
+gate (currency, and `anchor-integrity`'s existing content-anchor check re-pointed at the fetched ref
+— this bundle re-points, it does not implement anchor-hash comparison) and merge detection against
+the fetched `origin/main` and remote-tracking refs before dispatch. The fetch does **not** advance
+local `main`. A tower-recorded
 observation reaches the accumulator on `main` through a sanctioned path (the `--bookkeeping` / drain
 pass, or the tower, auto-opening a chore PR), rather than being stranded on a never-pushed tower
 branch.
@@ -245,6 +282,16 @@ invariant; and a sanctioned chore-PR path stops autonomy learnings being lost on
 branches (obs:a877745e). **Scope boundary:** this is git-ref currency for the dispatch/merge path
 only. Content-anchor *hash* freshness (whether the executed bundle equals the signed one) is
 `anchor-integrity`'s (Ready); the `release-publish` stale-`main` version-derivation variant is
-`release-hardening`'s (obs:04b578da). The observation-propagation half (REQ-D1.3) may on kickoff
-route to `observation-recording` instead; flagged. `no-remote` / `no-gh` degrades gracefully, as the
-existing reconcile fetch already does.
+`release-hardening`'s (obs:04b578da). The observation-propagation half (REQ-D1.3) stays here
+(kickoff, 2026-07-19): `observation-recording` (Done) does not own a tower→`main` carry path and is
+out of scope for one, and `observation-routing` is cross-repo (a different axis) — REQ-D1.3's
+intra-repo tower→`main` carry is fleet-domain and net-new here. `no-remote` / `no-gh` degrades
+gracefully, as the existing reconcile fetch already does.
+
+Three execution-time robustness properties ride Tasks 8 and 9 (Done-when + risk register): a
+**transient fetch failure against a *present* remote** is handled distinctly from structural
+`no-remote` (retry, then block or proceed with an explicit stale flag — never a silent stale gate);
+the per-gate fetch is **bounded** (a short TTL / coalesced with the reconcile sweep) so an
+`/orchestrate --watch` idle loop does not fetch every cycle; and the observation carry is
+**idempotent** (reuse / update one open chore PR, dedupe already-carried observations) and safe under
+concurrent bookkeeping runs.
