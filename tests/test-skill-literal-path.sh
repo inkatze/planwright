@@ -117,7 +117,7 @@ if [ ! -f "$doc" ]; then
 else
   flat="$(tr '\n' ' ' <"$doc")"
   if printf '%s' "$flat" | grep -qE 'once per invocation' \
-    && printf '%s' "$flat" | grep -qE 'resolved literal absolute path|resolved literal\n?\s*absolute path'; then
+    && printf '%s' "$flat" | grep -qE 'resolved literal absolute path'; then
     ok "doctrine doc: states 'once per invocation' resolution to a literal absolute path"
   else
     fail "doctrine doc: full convention ('once per invocation' + 'resolved literal absolute path') missing"
