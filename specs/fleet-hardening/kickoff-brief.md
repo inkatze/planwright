@@ -19,7 +19,7 @@
 - **Working location:** spec worktree `.claude/worktrees/fleet-hardening`, branch
   `planwright/fleet-hardening/spec`, clean.
 
-*(Header written first; no sign-off needed.)*
+<!-- Header written first; no sign-off needed. -->
 
 ## 2. Goal & glossary
 
@@ -291,5 +291,5 @@ full REQ→task coverage after every edit.
 
 Class: meaning
 Lens-pass: §8 (full-bundle first-activation fan-out, canonical lens-coverage table above, all findings dispositioned)
-Anchor: `f657b16f0642147c568cdbe9bcb40fb2b3f3cb02` — computed as
+Anchor: `c6d923cee5adef82b469da024e4ac9c48ab4a002` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`

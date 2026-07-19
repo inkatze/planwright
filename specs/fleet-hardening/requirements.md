@@ -119,7 +119,7 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
   spinner words); and (c) debounces across at least two consecutive frames. This detector is a
   reconcile backstop, never the primary path where a fresh hook push exists (carrying `fleet-autonomy`
   D-1's push-first / reconcile pattern).
- 
+
   *(Cites: obs:26029772 · `fleet-autonomy` D-1.)*
 - **REQ-A1.4** A worker parked at a multi-option decision fork SHALL surface the pending decision
   and its full option set — each option's label and the worker's recommendation — to a structured
