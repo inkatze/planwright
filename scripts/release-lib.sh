@@ -305,19 +305,29 @@ RL_CI_WINDOW_LOCK_WORKFLOW="release-window"
 # NEUTRAL/SKIPPED neither confirm nor fail. Legacy StatusContexts map
 # SUCCESS/PENDING/EXPECTED/other the same way (commit statuses carry no
 # NEUTRAL/SKIPPED and no workflow, so a StatusContext is never the excluded lock).
-# Any jq error (malformed response, missing field) fails closed via `|| return 2`.
+# Any jq error (malformed response, missing field) fails closed via `|| return 2`,
+# as does an abnormal exit-0 gh success with an empty body (guarded before jq, so
+# an empty body is the query-failure status, never an empty rc-0 verdict).
 #
 # Uses gh (only when CALLED — sourcing this lib does not require gh; the fs reader
 # release-pending.sh sources the lib but never calls rl_ci_state) and jq.
 rl_ci_state() {
   local sha="$1" nwo owner repo raw
   nwo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
+  # An abnormal exit-0 success with an empty body is a query failure, not a
+  # verdict: an empty nameWithOwner would parse to empty owner/repo and fold the
+  # rollup to a spurious "none" (REQ-C1.1's rc-0⟺non-empty-verdict contract).
+  [ -n "$nwo" ] || return 2
   owner=${nwo%%/*}
   repo=${nwo#*/}
   # shellcheck disable=SC2016 # $o/$r/$sha are GraphQL variables, not shell expansions
   raw=$(gh api graphql \
     -f query='query($o:String!,$r:String!,$sha:GitObjectID!){repository(owner:$o,name:$r){object(oid:$sha){... on Commit{statusCheckRollup{contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name status conclusion checkSuite{workflowRun{workflow{name}}}} ... on StatusContext{context state}}}}}}}}' \
     -f o="$owner" -f r="$repo" -f sha="$sha" 2>/dev/null) || return 2
+  # jq exits 0 with no output on empty input, so an empty response body would
+  # otherwise return rc 0 with an empty verdict — the query-failure status (2),
+  # not a verdict (REQ-C1.1's rc-0⟺non-empty-verdict contract).
+  [ -n "$raw" ] || return 2
   printf '%s' "$raw" | jq -r \
     --arg nm "$RL_CI_WINDOW_LOCK_NAME" --arg wf "$RL_CI_WINDOW_LOCK_WORKFLOW" '
     .data.repository.object.statusCheckRollup as $roll

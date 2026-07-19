@@ -161,10 +161,17 @@ trap 'rm -rf "$ci_tmp"' EXIT
 cat >"$ci_tmp/gh" <<'STUB'
 #!/bin/sh
 case "$1" in
-  repo) printf 'testowner/testrepo\n'; exit 0 ;;
+  repo)
+    # A gh repo-view failure (network/auth): exit non-zero, nothing on stdout.
+    [ "${CI_REPO_FAIL:-0}" = 1 ] && { echo "gh: repo view failed" >&2; exit 1; }
+    # An ABNORMAL success: exit 0 but an empty nameWithOwner body.
+    [ "${CI_REPO_EMPTY:-0}" = 1 ] && { printf ''; exit 0; }
+    printf 'testowner/testrepo\n'; exit 0 ;;
   api)
     # A gh/query failure: exit non-zero with nothing on stdout.
     [ "${CI_QUERY_FAIL:-0}" = 1 ] && { echo "gh: query failed" >&2; exit 1; }
+    # An ABNORMAL success: exit 0 but an empty response body.
+    [ "${CI_API_EMPTY:-0}" = 1 ] && { printf ''; exit 0; }
     printf '%s\n' "${CI_ROLLUP_JSON:-}"
     exit 0 ;;
 esac
@@ -214,7 +221,10 @@ NULL_ROLLUP='{"data":{"repository":{"object":{"statusCheckRollup":null}}}}'
 # by the reassignment, so the child gh stub is found and inherits it.
 CI_ROLLUP_JSON=""
 CI_QUERY_FAIL=0
-export PATH="$ci_tmp:$PATH" CI_ROLLUP_JSON CI_QUERY_FAIL
+CI_REPO_FAIL=0
+CI_REPO_EMPTY=0
+CI_API_EMPTY=0
+export PATH="$ci_tmp:$PATH" CI_ROLLUP_JSON CI_QUERY_FAIL CI_REPO_FAIL CI_REPO_EMPTY CI_API_EMPTY
 
 # assert_ci_state <desc> <rollup-json> <expected-verdict> — drive rl_ci_state
 # with the stub returning <rollup-json>, expect verdict on stdout and rc 0.
@@ -319,6 +329,53 @@ if [ -z "$mj_out" ] && [ "$mj_rc" -eq 2 ]; then
   echo "ok: a malformed (non-JSON) rollup fails closed (status 2, empty stdout), not a spurious verdict"
 else
   echo "FAIL: malformed rollup — expected empty stdout + rc 2, got [$mj_out] rc [$mj_rc]" >&2
+  failures=$((failures + 1))
+fi
+
+# REQ-C1.1 contract hardening — an ABNORMAL gh success (exit 0 with an EMPTY body)
+# is a query failure (rc 2, empty stdout), NEVER a verdict. jq exits 0 with no
+# output on empty input, so without the non-empty guards rl_ci_state would return
+# rc 0 with an empty verdict (empty graphql body) or fold an empty owner/repo parse
+# to "none" (empty repo-view body) — misreporting an infra anomaly as a verdict.
+# The rc-0⟺non-empty-verdict contract is load-bearing: arm's fire-loop keys its
+# query-error retry off rc 2 (a verdict would keep-poll/refuse with the wrong
+# diagnosis), and publish routes rc≠0 to its "gh query failed" message.
+CI_API_EMPTY=1
+eb_rc=0
+eb_out=$(rl_ci_state deadbeef 2>/dev/null) || eb_rc=$?
+CI_API_EMPTY=0
+if [ -z "$eb_out" ] && [ "$eb_rc" -eq 2 ]; then
+  echo "ok: an empty graphql body (abnormal exit-0 success) fails closed (status 2, empty stdout), not an empty rc-0 verdict"
+else
+  echo "FAIL: empty graphql body — expected empty stdout + rc 2, got [$eb_out] rc [$eb_rc]" >&2
+  failures=$((failures + 1))
+fi
+
+# A non-empty rollup here (repository resolvable to none) isolates the owner/repo
+# guard: without it, the empty parse would fold this to a "none" verdict at rc 0.
+CI_REPO_EMPTY=1
+CI_ROLLUP_JSON="$NULL_ROLLUP"
+re_rc=0
+re_out=$(rl_ci_state deadbeef 2>/dev/null) || re_rc=$?
+CI_REPO_EMPTY=0
+CI_ROLLUP_JSON=""
+if [ -z "$re_out" ] && [ "$re_rc" -eq 2 ]; then
+  echo "ok: an empty repo-view body (empty owner/repo parse) fails closed (status 2), not misfolded to none"
+else
+  echo "FAIL: empty repo-view body — expected empty stdout + rc 2, got [$re_out] rc [$re_rc]" >&2
+  failures=$((failures + 1))
+fi
+
+# The gh repo-view rc-2 path (distinct from the graphql one the query-failure test
+# drives): a repo-view failure fails closed too.
+CI_REPO_FAIL=1
+rf_rc=0
+rf_out=$(rl_ci_state deadbeef 2>/dev/null) || rf_rc=$?
+CI_REPO_FAIL=0
+if [ -z "$rf_out" ] && [ "$rf_rc" -eq 2 ]; then
+  echo "ok: a gh repo-view failure fails closed (status 2, empty stdout) — the repo-view rc-2 path"
+else
+  echo "FAIL: repo-view failure — expected empty stdout + rc 2, got [$rf_out] rc [$rf_rc]" >&2
   failures=$((failures + 1))
 fi
 
