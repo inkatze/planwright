@@ -187,7 +187,9 @@ rl_resolve_version_file() {
 # are left for `pwd -P` to canonicalize. Prints the de-symlinked path; returns
 # non-zero on a symlink loop. Portable to the BSD/macOS floor: one-level
 # `readlink` in a bounded loop, never `readlink -f`/`realpath` (absent there —
-# D-5, REQ-D1.2).
+# D-5, REQ-D1.2). Every path-util call is `--`-guarded (as the `cd --` calls in
+# rl_canonical_contained_path are) so a `version_file` value beginning with `-`
+# is treated as an operand, not misparsed as a flag.
 _rl_resolve_leaf_symlink() {
   local target="$1" link count=0
   while [ -L "$target" ]; do
@@ -195,10 +197,10 @@ _rl_resolve_leaf_symlink() {
     if [ "$count" -gt 40 ]; then
       return 1 # symlink loop (bounded by the typical ELOOP limit)
     fi
-    link=$(readlink "$target") || return 1
+    link=$(readlink -- "$target") || return 1
     case "$link" in
-      /*) target="$link" ;;                     # absolute target
-      *) target="$(dirname "$target")/$link" ;; # relative to the link's dir
+      /*) target="$link" ;;                        # absolute target
+      *) target="$(dirname -- "$target")/$link" ;; # relative to the link's dir
     esac
   done
   printf '%s\n' "$target"
@@ -231,8 +233,8 @@ rl_canonical_contained_path() {
       cd -- "$resolved" 2>/dev/null && pwd -P
     ) || return 1
   else
-    dir=$(dirname "$resolved")
-    base=$(basename "$resolved")
+    dir=$(dirname -- "$resolved")
+    base=$(basename -- "$resolved")
     canon=$(
       unset CDPATH
       cd -- "$dir" 2>/dev/null && pwd -P

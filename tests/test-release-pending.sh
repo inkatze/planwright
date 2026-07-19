@@ -393,6 +393,28 @@ out=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$P
 assert_eq "a sibling sharing the root as a path prefix (<root>-evil) is refused (exit 2)" "$rc" "2"
 assert_eq "a prefix-collision sibling reads nothing (trailing-slash boundary holds)" "$out" ""
 
+# 7l. A version_file value beginning with '-' must not be misparsed as an OPTION
+#     by the readlink/dirname/basename calls inside the canonicalization guard.
+#     Those calls need the `--` end-of-options guard the sibling `cd --` calls
+#     already use; without it, BSD dirname/basename (GNU too) print an "illegal
+#     option"/"invalid option" usage error to stderr and the refusal falls out of
+#     an incidental cd failure rather than clean handling. The value is still a
+#     safe exit-2 refusal either way, so the leaked usage noise is the
+#     discriminating signal: this fails on the pre-`--` code (stderr carries the
+#     option-parse error) and passes once the four calls are hardened.
+r="$tmp/dash-leaf"
+make_repo "$r" 0.2.0
+gitc "$r" tag v0.1.0
+set_vf "$r" "-n"
+rc=0
+err=$(cd "$r" && env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null "$PENDING" 2>&1 >/dev/null) || rc=$?
+assert_eq "a leading-dash version_file exits 2 (clean refusal)" "$rc" "2"
+case "$err" in
+  *"illegal option"* | *"invalid option"*) leaked=yes ;;
+  *) leaked=no ;;
+esac
+assert_eq "a leading-dash version_file leaks no readlink/dirname/basename option-parse error" "$leaked" "no"
+
 # 7j. Regression guard for REQ-D1.2's "readers untouched" claim: the three
 #     git-show readers are symlink-immune and must NOT gain the canonicalization
 #     guard. Assert none of them reference the reusable function (a future edge
