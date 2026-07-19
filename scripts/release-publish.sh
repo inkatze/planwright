@@ -386,7 +386,7 @@ if [ "$resume" -eq 1 ]; then
   [ -n "$origin_tag_sha" ] \
     || resume_die "resume gate: the origin tag object for $tag does not resolve to a commit; aborted before creating the Release"
   if [ "$origin_tag_sha" != "$release_sha" ]; then
-    resume_die "resume gate: origin tag $tag targets commit $origin_tag_sha but the recomputed release commit is $release_sha; refusing to create the Release for a mismatched tag"
+    resume_die "resume gate: origin tag $tag targets commit $origin_tag_sha but the recomputed release commit is $release_sha; refusing to create the Release for a mismatched tag (if local $MAIN_REF has drifted from $ORIGIN_MAIN_REF, sync it and re-run)"
   fi
 
   # Re-verify the origin object's signature, keyed off ITS OWN signedness — the
@@ -411,6 +411,10 @@ if [ "$resume" -eq 1 ]; then
   # A lightweight tag (no annotated tag object) peels to a commit: nothing to
   # sign, so it is treated as UNSIGNED — accepted under auto, refused under
   # require, and NEVER fed to `git verify-tag`, which errors on a non-tag object.
+  # Signedness detection covers the PGP and SSH armor markers only (the signing
+  # formats planwright supports, D-4); an x509/gpgsm-signed tag carries neither
+  # marker and is therefore treated as UNSIGNED here (accepted under auto at the
+  # SHA-pinned commit, refused under require) rather than verified.
   tag_signed=0
   if [ "$(git cat-file -t "$verify_obj" 2>/dev/null)" = "tag" ]; then
     if git cat-file tag "$verify_obj" 2>/dev/null \
@@ -538,7 +542,7 @@ relabel_release_pr() {
 relabel_release_pr
 
 if [ "$release_present" -eq 1 ]; then
-  echo "release-publish: $tag and its GitHub Release already exist; re-ran the idempotent relabel of the merged release PR so release-please stays unblocked (REQ-B1.4)"
+  echo "release-publish: $tag and its GitHub Release already exist; re-ran the idempotent relabel step for the merged release PR (REQ-B1.4; any relabel warning above names the manual follow-up)"
 elif [ "$resume" -eq 1 ]; then
   echo "release-publish: resumed — created the GitHub Release for the already-pushed $tag"
 else

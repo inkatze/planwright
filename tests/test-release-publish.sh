@@ -1118,7 +1118,7 @@ mkdir -p "$r/.claude"
 printf 'require_signed_tags: require\n' >"$r/.claude/planwright.local.yml"
 run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
 assert_ne "resume/require-lightweight: exits non-zero (unsigned refused under require)" "$RC" "0"
-assert_contains "resume/require-lightweight: names the resume signature gate" "$ERR" "resume gate"
+assert_contains "resume/require-lightweight: refuses on the no-signature branch (not a spurious SHA mismatch)" "$ERR" "carries no signature"
 deny "resume/require-lightweight: no Release created" gh_called "$LOG" "release create"
 
 # 11j. REQ-B1.2 — under `auto`, an UNSIGNED annotated origin tag is accepted (the
@@ -1126,7 +1126,7 @@ deny "resume/require-lightweight: no Release created" gh_called "$LOG" "release 
 r="$tmp/resume-auto-unsigned"
 new_repo "$r"
 seed_version "$r" 0.1.0
-gc "$r" tag -a -m v0.1.0 v0.1.0 # unsigned annotated tag object
+gi "$r" tag -a -m v0.1.0 v0.1.0 # unsigned annotated tag object (config isolated so a machine-global tag.gpgsign can't sign it)
 gc "$r" push -q origin v0.1.0 2>/dev/null
 gc "$r" tag -d v0.1.0 >/dev/null
 run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
@@ -1166,7 +1166,7 @@ if command -v ssh-keygen >/dev/null 2>&1; then
   printf 'require_signed_tags: require\n' >"$r/.claude/planwright.local.yml"
   run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
   assert_ne "resume/require-signed-bad: exits non-zero (invalid signature refused)" "$RC" "0"
-  assert_contains "resume/require-signed-bad: names the resume signature gate" "$ERR" "resume gate"
+  assert_contains "resume/require-signed-bad: refuses on the signature-verify branch (not a spurious SHA mismatch)" "$ERR" "signature verification failed"
   deny "resume/require-signed-bad: no Release created" gh_called "$LOG" "release create"
 
   # 11h. auto + a VALID signed origin tag → the re-verify runs (auto verifies iff
@@ -1237,7 +1237,11 @@ want "resume/relabel-pending: the pending PR is relabeled pending -> tagged" \
 deny "resume/relabel-pending: the present Release is not re-created" gh_called "$LOG" "release create"
 
 # 11m. REQ-B1.4 — a resume where the Release exists and the PR is ALREADY `tagged`
-#      is a clean idempotent no-op: exit 0, no death, no Release re-creation.
+#      exits 0, does not die, and does not re-create the Release. The relabel is
+#      idempotent at the GitHub layer but NOT suppressed: with no PR carrying
+#      `autorelease: pending`, the relabel jq falls back to `.[0].number`, so the
+#      script still issues a (harmless) `pr edit` that re-adds `tagged` / re-removes
+#      `pending` on the already-tagged PR — a no-op on GitHub, not a skipped call.
 r="$tmp/resume-relabel-tagged"
 new_repo "$r"
 seed_version "$r" 0.1.0
@@ -1251,6 +1255,8 @@ case "$ERR" in
   *) pass "resume/relabel-tagged: does not die 'already published'" ;;
 esac
 deny "resume/relabel-tagged: the present Release is not re-created" gh_called "$LOG" "release create"
+want "resume/relabel-tagged: the redundant relabel is a harmless GitHub-layer no-op (jq falls back to the tagged PR)" \
+  gh_called "$LOG" "pr edit 66 --add-label autorelease: tagged --remove-label autorelease: pending"
 
 # 11n. REQ-B1.2 (trust-boundary hardening) — a MALFORMED/unreadable require_signed_tags
 #      config on the resume signature path FAILS CLOSED, never silently downgrades
