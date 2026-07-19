@@ -130,7 +130,7 @@ make_doc() {
 # recorded rationale (instruction-headroom REQ-A1.4/D-12), so the raise| entries
 # are appended to the exemptions file; callers that also write their own
 # exemptions must APPEND (`>>`) after this runs, so both survive.
-lift_doctrine_floor() {
+lift_doctrine_budget() {
   mkdir -p "$1/.claude"
   cat >>"$1/.claude/planwright.local.yml" <<'EOF'
 instruction_budget_doctrine_warn: 99999
@@ -390,7 +390,7 @@ make_doc "$t7" widedoc 6000 # point-of-use -> closure > 20000 error
 make_skill "$t7" heavy 5000 \
   "Doctrine: run-start bigdoc" \
   "Doctrine: point-of-use widedoc (rare branch)"
-lift_doctrine_floor "$t7"
+lift_doctrine_budget "$t7"
 cat >>"$t7/config/instruction-budget-exemptions.txt" <<'EOF'
 exempt|skills/heavy/SKILL.md|standing rationale: kept large on purpose
 EOF
@@ -446,7 +446,7 @@ t7c="$tmproot/t7c"
 scaffold "$t7c"
 make_doc "$t7c" bigdoc 9999
 make_skill "$t7c" heavy 500 "Doctrine: run-start bigdoc"
-lift_doctrine_floor "$t7c"
+lift_doctrine_budget "$t7c"
 out="$(/bin/bash "$CHECKER" --root "$t7c" 2>&1)"
 assert_exit "start-load offender fails without an allowance" 1 $?
 cat >>"$t7c/config/instruction-budget-exemptions.txt" <<'EOF'
@@ -469,7 +469,7 @@ make_doc "$t7d" pu 11000
 make_skill "$t7d" wide 500 \
   "Doctrine: run-start rs" \
   "Doctrine: point-of-use pu (at a rare branch)"
-lift_doctrine_floor "$t7d"
+lift_doctrine_budget "$t7d"
 out="$(/bin/bash "$CHECKER" --root "$t7d" 2>&1)"
 assert_exit "closure offender fails without an allowance" 1 $?
 cat >>"$t7d/config/instruction-budget-exemptions.txt" <<'EOF'
@@ -509,7 +509,7 @@ t7e2="$tmproot/t7e2"
 scaffold "$t7e2"
 make_doc "$t7e2" bigdoc 9999
 make_skill "$t7e2" heavy 500 "Doctrine: run-start bigdoc"
-lift_doctrine_floor "$t7e2"
+lift_doctrine_budget "$t7e2"
 cat >>"$t7e2/config/instruction-budget-exemptions.txt" <<'EOF'
 pending-diet|start-load|heavy|Task 7.5|reclassified to point-of-use in Task 7.5
 EOF
@@ -525,7 +525,7 @@ make_doc "$t7e3" pu 11000
 make_skill "$t7e3" wide 500 \
   "Doctrine: run-start rs" \
   "Doctrine: point-of-use pu (at a rare branch)"
-lift_doctrine_floor "$t7e3"
+lift_doctrine_budget "$t7e3"
 cat >>"$t7e3/config/instruction-budget-exemptions.txt" <<'EOF'
 pending-diet|closure|wide|Task 9|content diet pending
 EOF
@@ -810,7 +810,7 @@ mkdir -p "$t13b/skills/docskill"
   echo '```'
   echo '~~~'
 } >"$t13b/skills/docskill/SKILL.md"
-lift_doctrine_floor "$t13b"
+lift_doctrine_budget "$t13b"
 body_b=$(wc -w <"$t13b/skills/docskill/SKILL.md" | tr -d ' ')
 out="$(/bin/bash "$CHECKER" --audit --root "$t13b" 2>&1)"
 assert_exit "well-formed fenced example does not inflate start-load (exit 0)" 0 $?
@@ -1004,7 +1004,7 @@ t15h="$tmproot/t15h"
 scaffold "$t15h"
 make_doc "$t15h" rsdoc 9500
 make_skill "$t15h" aggskill 100 "Doctrine: run-start rsdoc"
-lift_doctrine_floor "$t15h"
+lift_doctrine_budget "$t15h"
 out="$(/bin/bash "$CHECKER" --root "$t15h" 2>&1)"
 assert_exit "aggregate floor-breach is a warning, not an error" 0 $?
 assert_contains "start-load floor-breach names the aggregate surface" \
@@ -1175,7 +1175,7 @@ t15t="$tmproot/t15t"
 scaffold "$t15t"
 make_doc "$t15t" rsdoc 9200
 make_skill "$t15t" aggbt 100 "Doctrine: run-start rsdoc"
-lift_doctrine_floor "$t15t"
+lift_doctrine_budget "$t15t"
 out="$(/bin/bash "$CHECKER" --root "$t15t" 2>&1)"
 assert_contains "aggregate below-target names the start-load surface key" \
   "below-target: start-load:aggbt" "$out"
