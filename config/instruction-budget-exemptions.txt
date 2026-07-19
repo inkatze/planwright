@@ -17,6 +17,24 @@
 #       <budget> is one of: file | start-load | closure
 #       <target>  is a file path (file) or a skill name (start-load | closure)
 #
+#   declared-exception|<surface>|<reason>
+#       Standing exception (instruction-headroom D-11, REQ-D1.6) that excuses
+#       exactly the warning it names — a below-target warning (whose <surface> is
+#       the surface key the warning prints: a file path, or `start-load:<skill>` /
+#       `closure:<skill>`) or a use-site warning (via the `use-site:<skill>/<doc>`
+#       surface key, REQ-D1.3). It NEVER excuses a floor-breach warning. An entry
+#       whose named warning no longer fires is stale — a named cleanup WARNING,
+#       not an error (staleness in the protective direction nudges, never blocks).
+#
+#   raise|<knob>|<value>|<reason>
+#       The recorded rationale for a budget raise (instruction-headroom D-12,
+#       REQ-A1.4). Required when an effective instruction_budget_*_warn /
+#       *_error knob exceeds its shipped core default; <value> must match the
+#       effective value. A raise with no matching entry, an absent/unreadable
+#       core-default baseline, or a stale entry (its knob at or below the core
+#       default, or unknown) is a fail-closed guard error. Floor knobs (*_floor)
+#       are protective and outside this rule.
+#
 # Originally seeded below: the per-file offenders the initial audit surfaced,
 # each carrying a transitional allowance until its diet task landed (Tasks
 # 5/6/7). Those allowances are now shed; what remains is spec-format.md's

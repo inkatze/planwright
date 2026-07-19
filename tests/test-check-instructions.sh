@@ -2,10 +2,14 @@
 # Tests for scripts/check-instructions.sh — the instruction-hygiene size guard
 # and audit tool (prompt-hygiene Task 2; REQ-A1.1, REQ-A1.3, REQ-A1.4,
 # REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7,
-# REQ-B1.8, REQ-B1.9). The guard measures word/line counts for every
-# instruction file, computes manifest-derived start-load and closure per skill,
-# scans hooks.json-registered injected-context hooks statically, enforces the
-# budgets with two suppression forms, and emits a ranked --audit report.
+# REQ-B1.8, REQ-B1.9; instruction-headroom Task 2: REQ-A1.1, REQ-A1.4, REQ-D1.1,
+# REQ-D1.6). The guard measures word/line counts for every instruction file,
+# computes manifest-derived start-load and closure per skill, scans
+# hooks.json-registered injected-context hooks statically, enforces the budgets
+# with four suppression forms (exempt / pending-diet / declared-exception /
+# raise), enforces per-surface headroom floors with floor-breach and below-target
+# warnings and a raise-rationale rule, and emits a ranked --audit report with
+# margin columns (section 15).
 #
 # Fixtures below build minimal instruction trees with known word counts so the
 # arithmetic is assertable. Every input the guard reads (manifest entries,
@@ -77,6 +81,10 @@ instruction_budget_startload_warn: 8000
 instruction_budget_startload_error: 10000
 instruction_budget_closure_warn: 15000
 instruction_budget_closure_error: 20000
+instruction_budget_skill_floor: 250
+instruction_budget_doctrine_floor: 250
+instruction_budget_startload_floor: 500
+instruction_budget_closure_floor: 1000
 instruction_budget_injected_warn: 200
 EOF
   : >"$root/config/instruction-budget-exemptions.txt"
@@ -116,14 +124,21 @@ make_doc() {
   } >"$root/doctrine/$name.md"
 }
 
-# raise the doctrine per-file floor in a fixture so a large run-start/point-of-use
+# raise the doctrine per-file budget in a fixture so a large run-start/point-of-use
 # doc does not trip its own per-file budget — isolating the start-load/closure
-# budget under test.
+# budget under test. Raising a budget knob above its core default now requires a
+# recorded rationale (instruction-headroom REQ-A1.4/D-12), so the raise| entries
+# are appended to the exemptions file; callers that also write their own
+# exemptions must APPEND (`>>`) after this runs, so both survive.
 lift_doctrine_floor() {
   mkdir -p "$1/.claude"
   cat >>"$1/.claude/planwright.local.yml" <<'EOF'
 instruction_budget_doctrine_warn: 99999
 instruction_budget_doctrine_error: 99999
+EOF
+  cat >>"$1/config/instruction-budget-exemptions.txt" <<'EOF'
+raise|instruction_budget_doctrine_warn|99999|fixture: lift the doctrine per-file budget to isolate the start-load/closure budget under test
+raise|instruction_budget_doctrine_error|99999|fixture: lift the doctrine per-file budget to isolate the start-load/closure budget under test
 EOF
 }
 
@@ -376,7 +391,7 @@ make_skill "$t7" heavy 5000 \
   "Doctrine: run-start bigdoc" \
   "Doctrine: point-of-use widedoc (rare branch)"
 lift_doctrine_floor "$t7"
-cat >"$t7/config/instruction-budget-exemptions.txt" <<'EOF'
+cat >>"$t7/config/instruction-budget-exemptions.txt" <<'EOF'
 exempt|skills/heavy/SKILL.md|standing rationale: kept large on purpose
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t7" 2>&1)"
@@ -434,7 +449,7 @@ make_skill "$t7c" heavy 500 "Doctrine: run-start bigdoc"
 lift_doctrine_floor "$t7c"
 out="$(/bin/bash "$CHECKER" --root "$t7c" 2>&1)"
 assert_exit "start-load offender fails without an allowance" 1 $?
-cat >"$t7c/config/instruction-budget-exemptions.txt" <<'EOF'
+cat >>"$t7c/config/instruction-budget-exemptions.txt" <<'EOF'
 pending-diet|start-load|heavy|Task 7.5|reclassified to point-of-use in Task 7.5
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t7c" 2>&1)"
@@ -457,7 +472,7 @@ make_skill "$t7d" wide 500 \
 lift_doctrine_floor "$t7d"
 out="$(/bin/bash "$CHECKER" --root "$t7d" 2>&1)"
 assert_exit "closure offender fails without an allowance" 1 $?
-cat >"$t7d/config/instruction-budget-exemptions.txt" <<'EOF'
+cat >>"$t7d/config/instruction-budget-exemptions.txt" <<'EOF'
 pending-diet|closure|wide|Task 9|content diet pending
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t7d" 2>&1)"
@@ -495,7 +510,7 @@ scaffold "$t7e2"
 make_doc "$t7e2" bigdoc 9999
 make_skill "$t7e2" heavy 500 "Doctrine: run-start bigdoc"
 lift_doctrine_floor "$t7e2"
-cat >"$t7e2/config/instruction-budget-exemptions.txt" <<'EOF'
+cat >>"$t7e2/config/instruction-budget-exemptions.txt" <<'EOF'
 pending-diet|start-load|heavy|Task 7.5|reclassified to point-of-use in Task 7.5
 EOF
 out="$(/bin/bash "$CHECKER" --closeout --root "$t7e2" 2>&1)"
@@ -511,7 +526,7 @@ make_skill "$t7e3" wide 500 \
   "Doctrine: run-start rs" \
   "Doctrine: point-of-use pu (at a rare branch)"
 lift_doctrine_floor "$t7e3"
-cat >"$t7e3/config/instruction-budget-exemptions.txt" <<'EOF'
+cat >>"$t7e3/config/instruction-budget-exemptions.txt" <<'EOF'
 pending-diet|closure|wide|Task 9|content diet pending
 EOF
 out="$(/bin/bash "$CHECKER" --closeout --root "$t7e3" 2>&1)"
@@ -660,6 +675,10 @@ instruction_budget_startload_warn: 8000
 instruction_budget_startload_error: 10000
 instruction_budget_closure_warn: 15000
 instruction_budget_closure_error: 20000
+instruction_budget_skill_floor: 250
+instruction_budget_doctrine_floor: 250
+instruction_budget_startload_floor: 500
+instruction_budget_closure_floor: 1000
 instruction_budget_injected_warn: 200
 EOF
 out="$(/bin/bash "$CHECKER" --root "$t10c" 2>&1)"
@@ -883,6 +902,259 @@ out="$(/bin/bash "$CHECKER" --root "$t14f" 2>&1)"
 assert_exit "malformed-manifest skill errors" 1 $?
 assert_absent "completeness assertion does not double-flag a malformed-manifest skill" \
   "declares no doctrine manifest" "$out"
+
+########################################################################
+# 15. Headroom floors, margins, declared exceptions, and raise rationale
+#     (instruction-headroom Task 2: REQ-A1.1, REQ-A1.4, REQ-D1.1, REQ-D1.6).
+########################################################################
+# 15a. floor-breach: a surface whose margin is strictly below its floor warns on
+#      every run (named), never errors. Skill error 4250, floor 250 -> margin 150
+#      at 4100 words; 4100 < 4250 so the per-file budget itself does NOT error.
+t15a="$tmproot/t15a"
+scaffold "$t15a"
+make_skill "$t15a" breachy 4100
+out="$(/bin/bash "$CHECKER" --root "$t15a" 2>&1)"
+assert_exit "floor-breach is a warning, not an error" 0 $?
+assert_contains "floor-breach warning fires and names the surface" \
+  "floor-breach: skills/breachy/SKILL.md" "$out"
+
+# 15b. compliance (silent): a surface with margin >= 2*floor emits no headroom
+#      warning at all.
+t15b="$tmproot/t15b"
+scaffold "$t15b"
+make_skill "$t15b" roomy 100
+out="$(/bin/bash "$CHECKER" --root "$t15b" 2>&1)"
+assert_absent "a compliant surface emits no floor-breach" "floor-breach" "$out"
+assert_absent "a compliant surface emits no below-target" "below-target" "$out"
+
+# 15c. at-floor boundary: margin EXACTLY at the floor is compliant (breach is
+#      strict, margin < floor). Skill error 4250, floor 250 -> margin 250 at 4000.
+#      It is below the 2*floor target (500), so a below-target warning DOES fire.
+t15c="$tmproot/t15c"
+scaffold "$t15c"
+make_skill "$t15c" atfloor 4000
+out="$(/bin/bash "$CHECKER" --root "$t15c" 2>&1)"
+assert_exit "at-floor boundary does not error" 0 $?
+assert_absent "margin exactly at the floor is not a floor-breach" \
+  "floor-breach: skills/atfloor/SKILL.md" "$out"
+assert_contains "at-floor margin below target still warns below-target" \
+  "below-target: skills/atfloor/SKILL.md" "$out"
+
+# 15d. below-target with and without a declared exception. Skill error 4250,
+#      floor 250, target 500 -> margin 350 at 3900 (floor<=margin<target).
+t15d="$tmproot/t15d"
+scaffold "$t15d"
+make_skill "$t15d" bt 3900
+out="$(/bin/bash "$CHECKER" --root "$t15d" 2>&1)"
+assert_contains "below-target warning fires and names the surface" \
+  "below-target: skills/bt/SKILL.md" "$out"
+cat >"$t15d/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|skills/bt/SKILL.md|accepted: this body is intentionally near its budget
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15d" 2>&1)"
+assert_exit "a matching declared-exception keeps the guard green" 0 $?
+assert_absent "declared-exception silences the below-target warning it names" \
+  "below-target: skills/bt/SKILL.md" "$out"
+assert_absent "a USED declared-exception is not reported stale" \
+  "declared-exception cleanup" "$out"
+
+# 15e. a declared-exception NEVER silences a floor-breach warning (D-11). Same
+#      surface at 4100 (margin 150 < floor) with a declared-exception entry.
+t15e="$tmproot/t15e"
+scaffold "$t15e"
+make_skill "$t15e" bt 4100
+cat >"$t15e/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|skills/bt/SKILL.md|attempting (and failing) to excuse a floor-breach
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15e" 2>&1)"
+assert_contains "a declared-exception cannot silence a floor-breach" \
+  "floor-breach: skills/bt/SKILL.md" "$out"
+# the entry did not match a live below-target/use-site warning, so it is stale.
+assert_contains "a declared-exception naming only a floor-breach is stale" \
+  "declared-exception cleanup" "$out"
+
+# 15f. a stale declared-exception (its surface has no live warning) is a cleanup
+#      WARNING, never an error.
+t15f="$tmproot/t15f"
+scaffold "$t15f"
+make_skill "$t15f" small 100
+cat >"$t15f/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|skills/nowhere/SKILL.md|nothing here warns
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15f" 2>&1)"
+assert_exit "a stale declared-exception does not fail the guard" 0 $?
+assert_contains "a stale declared-exception yields a cleanup warning" \
+  "declared-exception cleanup" "$out"
+
+# 15g. a reason-less declared-exception is an error.
+t15g="$tmproot/t15g"
+scaffold "$t15g"
+make_skill "$t15g" small 100
+cat >"$t15g/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|skills/small/SKILL.md|
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15g" 2>&1)"
+assert_exit "a reason-less declared-exception is an error" 1 $?
+assert_contains "reason-less declared-exception is diagnosed" "reason" "$out"
+
+# 15h. aggregate floor-breach: a skill whose START-LOAD margin is below its floor
+#      warns naming the aggregate surface. start-load error 10000, floor 500 ->
+#      margin 400 at 9600 (body 100 + run-start doc 9500), still under 10000.
+t15h="$tmproot/t15h"
+scaffold "$t15h"
+make_doc "$t15h" rsdoc 9500
+make_skill "$t15h" aggskill 100 "Doctrine: run-start rsdoc"
+lift_doctrine_floor "$t15h"
+out="$(/bin/bash "$CHECKER" --root "$t15h" 2>&1)"
+assert_exit "aggregate floor-breach is a warning, not an error" 0 $?
+assert_contains "start-load floor-breach names the aggregate surface" \
+  "floor-breach: start-load:aggskill" "$out"
+
+# 15i. raise rationale: an effective budget knob above its core default needs a
+#      matching raise| entry. Overlay raises skill_error to 5000.
+t15i="$tmproot/t15i"
+scaffold "$t15i"
+make_skill "$t15i" small 100
+mkdir -p "$t15i/.claude"
+cat >"$t15i/.claude/planwright.local.yml" <<'EOF'
+instruction_budget_skill_error: 5000
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15i" 2>&1)"
+assert_exit "a raise with no recorded rationale fails the guard's config parsing" 1 $?
+assert_contains "silent raise is diagnosed" "raise-rationale" "$out"
+cat >"$t15i/config/instruction-budget-exemptions.txt" <<'EOF'
+raise|instruction_budget_skill_error|5000|team policy: this repo's SKILL bodies run larger
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15i" 2>&1)"
+assert_exit "the same raise WITH a matching rationale passes" 0 $?
+
+# 15j. a raised FLOOR knob trips nothing (out of scope by suffix — protective).
+t15j="$tmproot/t15j"
+scaffold "$t15j"
+make_skill "$t15j" small 100
+mkdir -p "$t15j/.claude"
+cat >"$t15j/.claude/planwright.local.yml" <<'EOF'
+instruction_budget_skill_floor: 500
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15j" 2>&1)"
+assert_exit "raising a floor knob needs no rationale (protective, by suffix)" 0 $?
+assert_absent "raising a floor knob triggers no raise-rationale error" \
+  "raise-rationale" "$out"
+
+# 15k. a stale raise| entry (its knob at or below its core default) is an error;
+#      so is one naming an unknown knob.
+t15k="$tmproot/t15k"
+scaffold "$t15k"
+make_skill "$t15k" small 100
+cat >"$t15k/config/instruction-budget-exemptions.txt" <<'EOF'
+raise|instruction_budget_skill_error|9999|the knob is not actually raised here
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15k" 2>&1)"
+assert_exit "a stale raise| entry (knob not raised) is an error" 1 $?
+assert_contains "stale raise entry is diagnosed" "stale raise" "$out"
+
+t15k2="$tmproot/t15k2"
+scaffold "$t15k2"
+make_skill "$t15k2" small 100
+cat >"$t15k2/config/instruction-budget-exemptions.txt" <<'EOF'
+raise|instruction_budget_not_a_knob|9999|names a knob that is not raisable
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15k2" 2>&1)"
+assert_exit "a raise| entry naming an unknown knob is an error" 1 $?
+assert_contains "unknown-knob raise entry is diagnosed" "unknown knob" "$out"
+
+# 15l. a reason-less raise entry is an error.
+t15l="$tmproot/t15l"
+scaffold "$t15l"
+make_skill "$t15l" small 100
+printf 'raise|instruction_budget_skill_error|5000|\n' \
+  >"$t15l/config/instruction-budget-exemptions.txt"
+out="$(/bin/bash "$CHECKER" --root "$t15l" 2>&1)"
+assert_exit "a reason-less raise entry is an error" 1 $?
+assert_contains "reason-less raise is diagnosed" "reason" "$out"
+
+# 15m. an absent core-default baseline for a raisable knob is fail-closed: the
+#      knob is present only via overlay, so it cannot be validated against a core
+#      default.
+t15m="$tmproot/t15m"
+scaffold "$t15m"
+make_skill "$t15m" small 100
+cat >"$t15m/config/defaults.yml" <<'EOF'
+instruction_budget_skill_warn: 3000
+instruction_budget_doctrine_warn: 2500
+instruction_budget_doctrine_error: 4000
+instruction_budget_startload_warn: 8000
+instruction_budget_startload_error: 10000
+instruction_budget_closure_warn: 15000
+instruction_budget_closure_error: 20000
+instruction_budget_skill_floor: 250
+instruction_budget_doctrine_floor: 250
+instruction_budget_startload_floor: 500
+instruction_budget_closure_floor: 1000
+instruction_budget_injected_warn: 200
+EOF
+mkdir -p "$t15m/.claude"
+cat >"$t15m/.claude/planwright.local.yml" <<'EOF'
+instruction_budget_skill_error: 4250
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15m" 2>&1)"
+assert_exit "an absent core-default baseline is fail-closed" 1 $?
+assert_contains "absent-baseline failure is diagnosed" "baseline" "$out"
+
+# 15n. a missing floor knob is fail-loud, exactly like a missing budget knob.
+t15n="$tmproot/t15n"
+scaffold "$t15n"
+make_skill "$t15n" small 100
+grep -v '^instruction_budget_closure_floor:' \
+  "$t15n/config/defaults.yml" >"$t15n/config/defaults.yml.tmp"
+mv "$t15n/config/defaults.yml.tmp" "$t15n/config/defaults.yml"
+out="$(/bin/bash "$CHECKER" --root "$t15n" 2>&1)"
+assert_exit "a missing floor knob is a fail-loud error" 1 $?
+
+# 15o. a permanently exempt doc over its per-file threshold produces NO
+#      floor-breach row — it carries no headroom floor (REQ-D1.1); its existing
+#      exempt over-budget notice stands.
+t15o="$tmproot/t15o"
+scaffold "$t15o"
+make_doc "$t15o" bigexempt 4500 # over the doctrine per-file error (4000)
+cat >"$t15o/config/instruction-budget-exemptions.txt" <<'EOF'
+exempt|doctrine/bigexempt.md|standing rationale: kept large on purpose
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t15o" 2>&1)"
+assert_exit "an exempt over-budget doc keeps the guard green" 0 $?
+assert_absent "an exempt doc produces no floor-breach row" \
+  "floor-breach: doctrine/bigexempt.md" "$out"
+assert_contains "the exempt over-budget notice still stands" \
+  "permanently exempt" "$out"
+
+# 15p. --audit reports margin-to-warn and margin-to-error for the floored classes
+#      (per-file and per-skill aggregate), so headroom is verifiable from the one
+#      report (D-8, REQ-D1.1).
+t15p="$tmproot/t15p"
+scaffold "$t15p"
+make_doc "$t15p" rdoc 200
+make_skill "$t15p" mskill 100 "Doctrine: run-start rdoc"
+aud="$(/bin/bash "$CHECKER" --audit --root "$t15p" 2>&1)"
+assert_contains "audit shows per-file margin-to-warn" "margin-to-warn=" "$aud"
+assert_contains "audit shows per-file margin-to-error" "margin-to-error=" "$aud"
+# per-skill load line carries both aggregate margins on its start-load side.
+sk_row="$(printf '%s\n' "$aud" | grep -F 'mskill start-load=')"
+assert_contains "audit shows the start-load margin on the per-skill line" \
+  "margin-to-warn=" "$sk_row"
+
+# 15q. echo discipline (cross-cutting): a control byte in a declared-exception
+#      rationale is stripped before the cleanup warning reaches the terminal.
+t15q="$tmproot/t15q"
+scaffold "$t15q"
+make_skill "$t15q" small 100
+esc="$(printf '\033')"
+printf 'declared-exception|skills/ghost/SKILL.md|stale%swith a control byte\n' "$esc" \
+  >"$t15q/config/instruction-budget-exemptions.txt"
+out="$(/bin/bash "$CHECKER" --root "$t15q" 2>&1)"
+assert_exit "a control-byte rationale does not fail the guard" 0 $?
+assert_contains "the stale entry still yields a cleanup warning" \
+  "declared-exception cleanup" "$out"
+assert_absent "the control byte is stripped from the echoed rationale" "$esc" "$out"
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2

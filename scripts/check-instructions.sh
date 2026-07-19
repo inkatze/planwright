@@ -22,10 +22,22 @@
 #     check (REQ-B1.7);
 #   - enforces per-file / start-load / closure budgets (knobs in
 #     config/defaults.yml, overlay-tunable, REQ-B1.2) with boundary-inclusive
-#     thresholds (>=, REQ-B1.8), honoring two suppression forms from the
-#     tracked suppression list: a permanent per-file-floor exemption and a
-#     transitional `pending-diet` allowance (REQ-B1.3);
-#   - with --audit, emits a ranked report and an offender shortlist (REQ-A1.3).
+#     thresholds (>=, REQ-B1.8), honoring four suppression forms from the
+#     tracked suppression list: a permanent per-file-floor exemption, a
+#     transitional `pending-diet` allowance (REQ-B1.3), a standing
+#     `declared-exception` (instruction-headroom REQ-D1.6), and a `raise`
+#     rationale (REQ-A1.4);
+#   - enforces per-surface headroom floors (instruction-headroom D-2, REQ-A1.1,
+#     REQ-D1.1): a margin (error threshold − charged words) strictly below a
+#     class's floor knob is a named floor-breach warning on every run, and a
+#     margin below twice the floor (the restoration target) a named below-target
+#     warning; both are warnings, never errors — a permanently exempt doc carries
+#     no floor;
+#   - enforces the raise-rationale rule (instruction-headroom D-12, REQ-A1.4): an
+#     effective instruction_budget_*_warn / *_error value above its shipped core
+#     default is a fail-closed error unless a matching `raise|` entry records it;
+#   - with --audit, emits a ranked report with per-surface margin-to-warn /
+#     margin-to-error columns and an offender shortlist (REQ-A1.3, REQ-D1.1).
 #
 # All input this guard reads (manifest entries, exemption text, rule-doc names,
 # hook scripts) is PR-controllable and treated as untrusted DATA: no content is
@@ -59,6 +71,22 @@ unset CDPATH
 
 self_dir="$(cd "$(dirname "$0")" && pwd -P)"
 
+# Echo discipline for the untrusted values this guard newly surfaces to the
+# terminal — floor-breach / below-target surface keys and declared-exception
+# rationales (instruction-headroom "Echo and data hygiene", security-posture).
+# Sourced from the canonical helper; an inline fallback (byte-identical to
+# echo-safety.sh) keeps the guard self-contained if the helper is unavailable.
+if [ -r "$self_dir/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$self_dir/echo-safety.sh"
+else
+  sanitize_printable() {
+    _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237')
+    if [ -z "$_sp" ] && [ "$#" -ge 2 ]; then _sp=$2; fi
+    printf '%s' "$_sp"
+  }
+fi
+
 audit=0
 closeout=0
 root=""
@@ -82,7 +110,7 @@ while [ "$#" -gt 0 ]; do
       root="${1#--root=}"
       ;;
     -h | --help)
-      sed -n '2,53p' "$0"
+      sed -n '2,65p' "$0"
       exit 0
       ;;
     *)
@@ -189,6 +217,13 @@ t_sl_error="$(getknob instruction_budget_startload_error)" || knob_ok=0
 t_cl_warn="$(getknob instruction_budget_closure_warn)" || knob_ok=0
 t_cl_error="$(getknob instruction_budget_closure_error)" || knob_ok=0
 t_inj_warn="$(getknob instruction_budget_injected_warn)" || knob_ok=0
+# Headroom floors (instruction-headroom D-2, REQ-A1.1, REQ-D1.1): one per
+# budgeted class, in the class order skill / doctrine / start-load / closure. A
+# missing or non-numeric floor knob aborts fail-loud exactly like a budget knob.
+t_skill_floor="$(getknob instruction_budget_skill_floor)" || knob_ok=0
+t_doc_floor="$(getknob instruction_budget_doctrine_floor)" || knob_ok=0
+t_sl_floor="$(getknob instruction_budget_startload_floor)" || knob_ok=0
+t_cl_floor="$(getknob instruction_budget_closure_floor)" || knob_ok=0
 
 # A missing/non-numeric knob is fail-loud: without the thresholds no honest
 # measurement is possible, so stop here (an input that cannot be measured is
@@ -277,21 +312,38 @@ if [ "$completeness_knob_ok" -ne 1 ]; then
 fi
 
 ########################################################################
-# Suppression list — permanent exemptions and transitional allowances.
+# Suppression list — permanent exemptions, transitional allowances, standing
+# declared exceptions, and raise rationales.
 # Grammar (pipe-delimited, one entry per non-blank/non-comment line):
 #   exempt|<path>|<reason>
 #       permanent per-file-floor exemption ONLY (never start-load/closure).
 #   pending-diet|<budget>|<target>|Task <N>|<reason>
 #       transitional allowance; <budget> = file | start-load | closure;
 #       <target> = a file path (file) or a skill name (start-load/closure).
-# A reason-less entry of either form is an error; an unparseable line is an
-# error (REQ-B1.3, REQ-B1.8). Content is data, never evaluated (REQ-B1.9).
+#   declared-exception|<surface>|<reason>
+#       standing exception (instruction-headroom D-11, REQ-D1.6) excusing exactly
+#       the warning it names — a below-target warning (whose <surface> is the key
+#       the warning prints) or a use-site warning (<surface> = use-site:<skill>/
+#       <doc>); never a floor-breach. A stale entry is a cleanup warning, not
+#       an error.
+#   raise|<knob>|<value>|<reason>
+#       the recorded rationale for a budget raise (instruction-headroom D-12,
+#       REQ-A1.4): required when an effective instruction_budget_*_warn / *_error
+#       knob exceeds its shipped core default; <value> matches the effective
+#       value. A raise with no matching entry, an absent/unreadable baseline, or
+#       a stale raise| entry is a fail-closed error.
+# A reason-less entry of any form is an error; an unparseable line is an error
+# (REQ-B1.3, REQ-B1.8). Content is data, never evaluated (REQ-B1.9).
 ########################################################################
-exempt_paths=""   # permanent per-file exemptions (newline-separated paths)
-exempt_reasons="" # "path\treason" records for echoing
-pd_file_paths=""  # transitional per-file allowances (paths)
-pd_startload=""   # transitional start-load allowances (skill names)
-pd_closure=""     # transitional closure allowances (skill names)
+exempt_paths=""                # permanent per-file exemptions (newline-separated paths)
+exempt_reasons=""              # "path\treason" records for echoing
+pd_file_paths=""               # transitional per-file allowances (paths)
+pd_startload=""                # transitional start-load allowances (skill names)
+pd_closure=""                  # transitional closure allowances (skill names)
+declared_exception_surfaces="" # standing below-target/use-site exceptions (keys)
+declared_exception_reasons=""  # "surface\treason" records for echoing
+declared_exception_used=""     # surface keys whose named warning fired this run
+raise_entries=""               # "knob\tvalue\treason" raise rationales
 
 in_list() {
   # in_list <needle> <newline-list> -> 0 if present
@@ -363,13 +415,145 @@ $target" ;;
             ;;
         esac
         ;;
+      declared-exception)
+        surface="${rest%%|*}"
+        reason="${rest#*|}"
+        if [ "$surface" = "$rest" ] || [ -z "$surface" ]; then
+          err "malformed declared-exception entry (expected declared-exception|<surface>|<reason>): $raw"
+          continue
+        fi
+        if [ -z "$reason" ] || [ "$reason" = "$rest" ]; then
+          err "declared-exception for '$surface' has no reason (a recorded reason is required)"
+          continue
+        fi
+        declared_exception_surfaces="$declared_exception_surfaces
+$surface"
+        declared_exception_reasons="$declared_exception_reasons
+$surface	$reason"
+        ;;
+      raise)
+        knob="${rest%%|*}"
+        rest2="${rest#*|}"
+        value="${rest2%%|*}"
+        reason="${rest2#*|}"
+        if [ "$knob" = "$rest" ] || [ "$value" = "$rest2" ] \
+          || [ -z "$knob" ] || [ -z "$value" ]; then
+          err "malformed raise entry (expected raise|<knob>|<value>|<reason>): $raw"
+          continue
+        fi
+        if [ -z "$reason" ] || [ "$reason" = "$rest2" ]; then
+          err "raise rationale for '$knob' has no reason (a recorded reason is required)"
+          continue
+        fi
+        raise_entries="$raise_entries
+$knob	$value	$reason"
+        ;;
       *)
-        err "unknown suppression form '$form' (expected exempt|pending-diet): $raw"
+        err "unknown suppression form '$form' (expected exempt|pending-diet|declared-exception|raise): $raw"
         continue
         ;;
     esac
   done <"$exemptions_file"
 fi
+
+########################################################################
+# Raise-rationale enforcement (instruction-headroom D-12, REQ-A1.4). A budget
+# raise — an effective (layered) instruction_budget_*_warn / *_error value above
+# its shipped core default — must carry a matching raise|<knob>|<value>|<reason>
+# record. A silent raise (no matching entry), an absent or unreadable core
+# baseline, or a stale raise| entry (its knob at/below the core default, or
+# unknown) is a fail-closed guard error. Floor knobs (*_floor) are protective and
+# excluded by suffix. The core baseline is read overlay-free (config-get rooted at
+# an empty repo), a fixed set of reads that does not scale with the corpus.
+########################################################################
+raise_governed_knobs="instruction_budget_skill_warn instruction_budget_skill_error instruction_budget_doctrine_warn instruction_budget_doctrine_error instruction_budget_startload_warn instruction_budget_startload_error instruction_budget_closure_warn instruction_budget_closure_error instruction_budget_injected_warn"
+
+# effective_knob <knob> -> echo the effective (layered) value already read above;
+# returns 1 for a knob outside the governed set.
+effective_knob() {
+  case "$1" in
+    instruction_budget_skill_warn) printf '%s' "$t_skill_warn" ;;
+    instruction_budget_skill_error) printf '%s' "$t_skill_error" ;;
+    instruction_budget_doctrine_warn) printf '%s' "$t_doc_warn" ;;
+    instruction_budget_doctrine_error) printf '%s' "$t_doc_error" ;;
+    instruction_budget_startload_warn) printf '%s' "$t_sl_warn" ;;
+    instruction_budget_startload_error) printf '%s' "$t_sl_error" ;;
+    instruction_budget_closure_warn) printf '%s' "$t_cl_warn" ;;
+    instruction_budget_closure_error) printf '%s' "$t_cl_error" ;;
+    instruction_budget_injected_warn) printf '%s' "$t_inj_warn" ;;
+    *) return 1 ;;
+  esac
+}
+
+# core_baseline <knob> -> echo the shipped core-default integer, read directly
+# from config/defaults.yml (the core layer only — the "shipped core default" is
+# defined as the value in that file, D-12, so no overlay resolution is wanted; a
+# direct read also avoids a per-run config-get fork chain, keeping the
+# guard-performance invariant). Returns 1 on an absent/unreadable file or key or
+# a non-integer value (a fail-closed condition the caller surfaces). The flat-YAML
+# extraction mirrors config-get's get_value. <knob> is charset-guarded before it
+# reaches the grep/sed pattern (data is not code, REQ-B1.9); callers only pass the
+# governed knob names, but the guard is kept for defense in depth.
+core_baseline() {
+  case "$1" in
+    [a-z]*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!a-z0-9_]*) return 1 ;;
+  esac
+  [ -r "$config_defaults" ] || return 1
+  grep -q "^$1:" "$config_defaults" 2>/dev/null || return 1
+  _cbv="$(sed -n "s/^$1:[[:space:]]*//p" "$config_defaults" \
+    | head -1 \
+    | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//' \
+      -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
+  case "$_cbv" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s' "$_cbv"
+}
+
+# Per-knob: an effective value over the core default needs a matching raise entry.
+for rk in $raise_governed_knobs; do
+  reff="$(effective_knob "$rk")"
+  if rbase="$(core_baseline "$rk")"; then
+    if [ "$reff" -gt "$rbase" ]; then
+      rfound=0
+      while IFS="$(printf '\t')" read -r rek rev _rer; do
+        [ -n "$rek" ] || continue
+        if [ "$rek" = "$rk" ] && [ "$rev" = "$reff" ]; then rfound=1; fi
+      done <<EOF
+$raise_entries
+EOF
+      if [ "$rfound" -ne 1 ]; then
+        err "raise-rationale: '$rk' effective value $reff exceeds its core default $rbase with no matching 'raise|$rk|$reff|<reason>' entry (a silent raise)"
+      fi
+    fi
+  else
+    err "raise-rationale: core-default baseline for '$rk' is absent or unreadable — a raise cannot be validated fail-closed"
+  fi
+done
+
+# Per-entry: a raise entry whose knob is unknown, or is not raised above its core
+# default, is stale (REQ-A1.4).
+while IFS="$(printf '\t')" read -r rek rev _rer; do
+  [ -n "$rek" ] || continue
+  case " $raise_governed_knobs " in
+    *" $rek "*) ;;
+    *)
+      err "raise-rationale: stale raise| entry names an unknown knob '$(sanitize_printable "$rek" "?")' (only instruction_budget_*_warn / *_error knobs are raisable; floor knobs are protective)"
+      continue
+      ;;
+  esac
+  rbase="$(core_baseline "$rek")" || continue # the per-knob loop already surfaced this
+  reff="$(effective_knob "$rek")"
+  if [ "$reff" -le "$rbase" ]; then
+    err "raise-rationale: stale raise| entry for '$rek' — its effective value $reff is at or below the core default $rbase; remove the entry that un-raised it"
+  fi
+done <<EOF
+$raise_entries
+EOF
 
 ########################################################################
 # Closeout direction (REQ-D1.4, Task 8). With --closeout, any surviving
@@ -482,13 +666,38 @@ classify() {
   fi
 }
 
+# headroom_check <words> <error-threshold> <floor> <surface-key> — emit the
+# floor-breach or below-target warning for a floored surface (D-2, D-11,
+# REQ-D1.1, REQ-D1.6). margin = error - words. A margin strictly below the floor
+# is an unsuppressible floor-breach warning; a margin at or above the floor but
+# below twice it (the restoration target) is a below-target warning, which a
+# matching declared-exception excuses (the entry is then marked used so a stale
+# one is reported later). Never called for a permanently exempt surface — an
+# exempt doc carries no headroom floor (REQ-D1.1) — nor an unmeasured skill. Both
+# warnings are warnings only: they never touch the exit code. The surface key is
+# sanitized before it reaches the terminal (echo discipline).
+headroom_check() {
+  _hcm=$(($2 - $1))
+  if [ "$_hcm" -lt "$3" ]; then
+    warn "floor-breach: $(sanitize_printable "$4" "?") margin=$_hcm below headroom floor $3 (error threshold $2, words $1)"
+  elif [ "$_hcm" -lt $(($3 * 2)) ]; then
+    if in_list "$4" "$declared_exception_surfaces"; then
+      declared_exception_used="$declared_exception_used
+$4"
+    else
+      warn "below-target: $(sanitize_printable "$4" "?") margin=$_hcm below restoration target $(($3 * 2)) (headroom floor $3, error threshold $2, words $1)"
+    fi
+  fi
+}
+
 record_perfile() {
-  # record_perfile <relpath> <words> <lines> <warn> <error> <kind>
+  # record_perfile <relpath> <words> <lines> <warn> <error> <kind> <floor>
   rel="$1"
   words="$2"
   lines="$3"
   wt="$4"
   et="$5"
+  floor="$7"
   classify "$words" "$wt" "$et"
   state="$_STATE"
   suppress=""
@@ -496,6 +705,11 @@ record_perfile() {
     suppress="exempt"
   elif in_list "$rel" "$pd_file_paths"; then
     suppress="pending-diet"
+  fi
+  # Per-file headroom (D-2, REQ-D1.1): a permanently exempt doc carries no floor;
+  # every other floored file gets the floor-breach / below-target check.
+  if [ "$suppress" != exempt ]; then
+    headroom_check "$words" "$et" "$floor" "$rel"
   fi
   # Write the suppression field as a literal `none` when empty: a tab is IFS
   # whitespace, so an empty interior field would collapse under the audit
@@ -636,7 +850,7 @@ if [ -d "$skills_dir" ]; then
     mget "$skill_md" || true
     body_words="$MW"
     record_perfile "skills/$sname/SKILL.md" "$MW" "$ML" \
-      "$t_skill_warn" "$t_skill_error" skill
+      "$t_skill_warn" "$t_skill_error" skill "$t_skill_floor"
     startload="$body_words"
     closure="$body_words"
     seen_docs=""
@@ -734,6 +948,11 @@ $sname"
     elif [ "$cl_state" = WARN ]; then
       warn "closure warn: $sname ($closure words >= $t_cl_warn)"
     fi
+
+    # Aggregate headroom (D-2, REQ-D1.1): floor-breach / below-target for the
+    # start-load and reachable-closure surfaces of a measured skill.
+    headroom_check "$startload" "$t_sl_error" "$t_sl_floor" "start-load:$sname"
+    headroom_check "$closure" "$t_cl_error" "$t_cl_floor" "closure:$sname"
   done
 
   # Manifest-completeness assertion (REQ-A1.2): once the manifest convention is
@@ -764,7 +983,7 @@ if [ -d "$doctrine_dir" ]; then
     ML=0
     mget "$doc" || true
     record_perfile "doctrine/$base" "$MW" "$ML" \
-      "$t_doc_warn" "$t_doc_error" doctrine
+      "$t_doc_warn" "$t_doc_error" doctrine "$t_doc_floor"
   done
 fi
 
@@ -912,21 +1131,71 @@ EOF
 scan_injected
 
 ########################################################################
+# Declared-exception staleness (REQ-D1.6). An entry whose named warning did not
+# fire this run is stale — a named cleanup WARNING, never an error: staleness in
+# the protective direction nudges, never blocks. Runs after every floor/target
+# check has had its chance to mark an entry used. Surface and reason are
+# sanitized before echoing (echo discipline).
+########################################################################
+while IFS= read -r de_surface; do
+  [ -n "$de_surface" ] || continue
+  if in_list "$de_surface" "$declared_exception_used"; then
+    continue
+  fi
+  de_reason=""
+  case "
+$declared_exception_reasons
+" in
+    *"
+$de_surface	"*)
+      de_reason="${declared_exception_reasons#*"
+$de_surface	"}"
+      de_reason="${de_reason%%
+*}"
+      ;;
+  esac
+  warn "declared-exception cleanup: no live below-target or use-site warning names '$(sanitize_printable "$de_surface" "?")' (reason: $(sanitize_printable "$de_reason" "?")) — remove the stale entry"
+done <<EOF
+$declared_exception_surfaces
+EOF
+
+########################################################################
 # --audit report.
 ########################################################################
 if [ "$audit" -eq 1 ]; then
   echo "== Instruction hygiene audit =="
   echo
   echo "Per-file (ranked by words):"
-  sort -rn "$perfile_list" | while IFS="$(printf '\t')" read -r w rel l st sup _; do
+  sort -rn "$perfile_list" | while IFS="$(printf '\t')" read -r w rel l st sup kind; do
     tag=""
     [ "$sup" != none ] && tag=" [$sup]"
-    printf '  words=%s lines=%s %s %s%s\n' "$w" "$l" "$rel" "$st" "$tag"
+    # Margin-to-warn / margin-to-error for the floored per-file classes (D-8,
+    # REQ-D1.1). A permanently exempt file carries no headroom floor, so it
+    # shows no margin columns (its exempt notice stands).
+    margins=""
+    if [ "$sup" != exempt ]; then
+      case "$kind" in
+        skill) margins=" margin-to-warn=$((t_skill_warn - w)) margin-to-error=$((t_skill_error - w))" ;;
+        doctrine) margins=" margin-to-warn=$((t_doc_warn - w)) margin-to-error=$((t_doc_error - w))" ;;
+      esac
+    fi
+    printf '  words=%s lines=%s %s %s%s%s\n' "$w" "$l" "$rel" "$st" "$margins" "$tag"
   done
   echo
   echo "Per-skill load:"
   while IFS="$(printf '\t')" read -r name sl cl sls cls; do
-    printf '  %s start-load=%s (%s) closure=%s (%s)\n' "$name" "$sl" "$sls" "$cl" "$cls"
+    # Margin-to-warn / margin-to-error for the two floored aggregate classes
+    # (D-8, REQ-D1.1); an unmeasured skill (untrusted manifest) shows none.
+    slm=""
+    clm=""
+    if [ "$sls" != unmeasured ]; then
+      slm=" margin-to-warn=$((t_sl_warn - sl)) margin-to-error=$((t_sl_error - sl))"
+    fi
+    if [ "$cls" != unmeasured ]; then
+      clm=" margin-to-warn=$((t_cl_warn - cl)) margin-to-error=$((t_cl_error - cl))"
+    fi
+    printf '  %s start-load=%s (%s)%s closure=%s (%s)%s\n' \
+      "$name" "$sl" "$sls" "$slm" "$cl" "$cls" "$clm"
   done <"$skill_list"
   echo
   echo "Injected-context hooks:"
