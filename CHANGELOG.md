@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.23.0](https://github.com/inkatze/planwright/compare/v0.22.0...v0.23.0) (2026-07-19)
+
+
+### Features
+
+* **skills:** resolve plugin scripts by literal path in dispatching skills ([#236](https://github.com/inkatze/planwright/issues/236)) ([e907ade](https://github.com/inkatze/planwright/commit/e907ade4d8136ad96a2240ff22481aa7b062ef3b))
+* **spec:** worker-permission-ergonomics kickoff sign-off ([#234](https://github.com/inkatze/planwright/issues/234)) ([82f4ffb](https://github.com/inkatze/planwright/commit/82f4ffbd18c20c95d69aa9f67d1318457b6fd360))
+* **worker-permission-ergonomics:** wire auto-approve hook into worker-settings ([#238](https://github.com/inkatze/planwright/issues/238)) ([abfad1b](https://github.com/inkatze/planwright/commit/abfad1baa6b958ffbe1796697058db2aaec459be))
+* **worker-permission-ergonomics:** worker command-guard PreToolUse hook ([#237](https://github.com/inkatze/planwright/issues/237)) ([8543bfb](https://github.com/inkatze/planwright/commit/8543bfb623137a1a5a0b3b70413088e2d397d6f9))
+
 ## [0.22.0](https://github.com/inkatze/planwright/compare/v0.21.0...v0.22.0) (2026-07-18)
 
 
