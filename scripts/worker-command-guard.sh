@@ -582,18 +582,17 @@ guard_find() {
 }
 
 guard_sort() {
+  # sort's exec/write vectors: -o/--output writes a file, and
+  # --compress-program=<prog> execs an arbitrary program on every external-merge
+  # temp-file spill. Reject both (long and bundled-short -o forms); every other
+  # sort flag is read-only.
   local i a
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
-      -o | --output | --output=*) return 1 ;;
-      -o*) # bundled short flags containing o (e.g. -no) -> write target
-        case $a in *o*) return 1 ;; esac
-        ;;
-    esac
-    # Any bundled short-flag token that hides -o.
-    case $a in
-      -[!-]*o*) return 1 ;;
+      --output | --output=* | --compress-program | --compress-program=*) return 1 ;;
+      --*) ;;           # other long flags are read-only
+      -*o*) return 1 ;; # any short-flag token carrying -o (a write target)
     esac
   done
   return 0
@@ -665,14 +664,19 @@ guard_fish() {
 }
 
 guard_bats() {
-  # `bats [flags] <file...>`; every file operand must resolve inside the repo
-  # (REQ-A1.10) and no report-output flag may be present.
+  # `bats [safe-flags] <file...>`: each file operand must resolve inside the
+  # repo (REQ-A1.10), and ONLY no-value display/selection flags are allowed.
+  # Any value-taking or unrecognized flag defers — a `--formatter`/`--output`/
+  # `--report-formatter`/`--setup-suite-file` flag (and its `=<path>` form) can
+  # carry a path bats would execute or write OUTSIDE the containment check, so
+  # allowlisting the safe flags (rather than denylisting the dangerous ones)
+  # closes that whole class.
   local i a saw_file=0
   for ((i = 1; i < cwn; i++)); do
     a=${cw[i]}
     case $a in
-      -o | --output | --output=* | -T | --report-formatter) return 1 ;;
-      -*) ;; # other bats flags (e.g. --tap, -r, --filter) are safe
+      --tap | -t | --pretty | -p | --timing | -T | --recursive | -r | --count | -c | --trace | -x | --no-tempdir-cleanup | --print-output-on-failure | --show-output-of-passing-tests | --verbose-run | --no-parallelize-across-files | --no-parallelize-within-files | --) ;;
+      -*) return 1 ;; # value-taking / path-carrying / unknown flag: defer
       *)
         is_contained_file "$a" "$HOOK_CWD" || return 1
         saw_file=1
