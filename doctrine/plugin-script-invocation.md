@@ -15,8 +15,9 @@ absolute path**, then invoke every `scripts/<name>.sh` the skill names by that
 resolved literal absolute path. Never invoke through an unexpanded
 `$VAR/scripts/<name>.sh` shape.
 
-Resolve the root, in order (the same core chain `scripts/resolve-rule-doc.sh`
-uses):
+Resolve the root, in order (a simplified view of the core chain
+`scripts/resolve-rule-doc.sh` uses; its writer-delivery arm,
+`$CLAUDE_DIR` or `~/.claude/planwright`, is elided here):
 
 1. `$PLANWRIGHT_ROOT` — explicit override (tests, adopters);
 2. else `$CLAUDE_PLUGIN_ROOT` — plugin delivery, set by Claude Code;
