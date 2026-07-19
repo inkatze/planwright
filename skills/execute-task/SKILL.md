@@ -20,7 +20,7 @@ with a signed-off kickoff brief, and carry it from a failing test to a draft PR
 without further human keystrokes. `/orchestrate` dispatches this skill into a
 prepared worktree; a human may also invoke it directly inside one. It operates
 from the kickoff brief, the durable contract (D-3), not by re-reading the spec.
-It assumes the worktree already exists and the spec is signed off;
+It assumes the worktree already exists;
 it **never** creates worktrees (D-37, D-44), **never** merges, and **never**
 marks a PR ready — sign-off and merge are the human's two reserved controls.
 
@@ -28,17 +28,18 @@ marks a PR ready — sign-off and merge are the human's two reserved controls.
 
 This skill is procedure, not doctrine. Resolve and read the manifest's rule docs
 via the rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>`
-under the resolved planwright root, or the documented
-`PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their definitions govern wherever
-this skill names a concept. Per `doctrine/instruction-hygiene.md`, `run-start`
-entries load before work begins, `point-of-use` entries at the named step or
-branch.
+under the resolved planwright root); their definitions govern wherever this skill
+names a concept. Per `doctrine/instruction-hygiene.md`, `run-start` entries load
+before work begins, `point-of-use` entries at the named step or branch.
+
+**Invoking plugin scripts (REQ-D1.1, D-7).** Call `scripts/<name>.sh` by the
+**resolved literal absolute path**, never `$VAR/scripts/<name>.sh` —
+`doctrine/plugin-script-invocation.md`.
 
 If a manifest doc does not resolve — at run start or at its point of use —
 halt naming the missing doc and the chain consulted (REQ-K1.7).
 `decision-domains` degrades gracefully instead: absent, note it in one line,
-skip the drift check, and rely on the engineering judgment the catalog would
-otherwise structure.
+skip the drift check, and rely on engineering judgment.
 
 Doctrine: run-start spec-format (status lifecycle, anchors, sign-off/amendment — freshness gate)
 Doctrine: run-start proportionality (rigor scales with stake; scoping declared)
