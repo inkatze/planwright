@@ -143,18 +143,24 @@ fi
 # exclusions, each narrowly justified and NOT a blanket substring filter (so a
 # future genuine invocation cannot hide merely by resembling them):
 #   - whole-line comments (leading `#`) are documentation, not code;
-#   - config/worker-settings.json is the Claude Code PERMISSIONS POLICY, whose
-#     `gh pr merge` token is a DENY rule (it BANS merging) — the opposite of a
-#     violation. It is excluded by PATH, and separately asserted to be a deny.
+#   - the Claude Code PERMISSIONS POLICY files, whose `gh pr merge` token is a
+#     DENY rule (it BANS merging) — the opposite of a violation. Both the worker
+#     policy (config/worker-settings.json) and the tower policy
+#     (config/tower-settings.json, fleet-hardening D-8) carry the deny, so both
+#     are excluded by PATH and separately asserted to be a deny.
 # Note the detection code in scripts/tasks-pr-sync.sh uses the `gh_pr` wrapper
 # (underscore), which never matches the literal `gh pr merge` scanned here.
-POLICY_FILE="config/worker-settings.json"
+POLICY_FILES="config/worker-settings.json config/tower-settings.json"
+policy_exclude=''
+for pf in $POLICY_FILES; do
+  policy_exclude="${policy_exclude:+$policy_exclude|}/${pf}:"
+done
 merge_hits="$(
   grep -rnE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge' \
     "$REPO_ROOT/scripts" "$REPO_ROOT/skills" "$REPO_ROOT/.github" \
     "$REPO_ROOT/templates" "$REPO_ROOT/config" "$REPO_ROOT/hooks" 2>/dev/null \
     | grep -vE ':[0-9]+:[[:space:]]*#' \
-    | grep -vE "/${POLICY_FILE}:" \
+    | grep -vE "$policy_exclude" \
     || true
 )"
 if [ -z "$merge_hits" ]; then
@@ -164,14 +170,16 @@ else
   printf '%s\n' "$merge_hits" >&2
 fi
 
-# The one excluded file must actually DENY merging, not allow it: prove the
+# Each excluded file must actually DENY merging, not allow it: prove the
 # exclusion is safe rather than assume it.
-if grep -qE '"deny"' "$REPO_ROOT/$POLICY_FILE" 2>/dev/null \
-  && grep -qE 'Bash\(gh pr merge' "$REPO_ROOT/$POLICY_FILE" 2>/dev/null; then
-  pass "C1.4 $POLICY_FILE denies gh pr merge (exclusion is a ban, not an invocation)"
-else
-  fail "C1.4 $POLICY_FILE no longer denies gh pr merge — re-verify the exclusion"
-fi
+for POLICY_FILE in $POLICY_FILES; do
+  if grep -qE '"deny"' "$REPO_ROOT/$POLICY_FILE" 2>/dev/null \
+    && grep -qE 'Bash\(gh pr merge' "$REPO_ROOT/$POLICY_FILE" 2>/dev/null; then
+    pass "C1.4 $POLICY_FILE denies gh pr merge (exclusion is a ban, not an invocation)"
+  else
+    fail "C1.4 $POLICY_FILE no longer denies gh pr merge — re-verify the exclusion"
+  fi
+done
 
 # The release workflow and template must not merge (strict, zero tolerance).
 for wf in "$WORKFLOW" "$TEMPLATE_WORKFLOW"; do
