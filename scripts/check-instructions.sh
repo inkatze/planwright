@@ -19,6 +19,12 @@
 #     (REQ-A1.2); a malformed manifest entry is a fail-loud error (REQ-B1.8);
 #   - runs a deterministic resolution check: every manifest doc name must
 #     resolve under the doctrine root (REQ-B1.6);
+#   - runs the reverse use-site check (instruction-headroom D-7, REQ-D1.3): in
+#     the same parse pass, every point-of-use manifest doc must be named in the
+#     skill's body prose (the manifest block and fenced code excluded), matched
+#     as a fixed string over the charset-validated name; a miss is a warning
+#     (never an error), a `use-site:<skill>/<doc>` declared-exception excuses it,
+#     and a skill whose manifest failed to parse or resolve is skipped;
 #   - scans hooks.json-registered hooks that emit additionalContext /
 #     hookSpecificOutput and measures their STATIC injected prose, reading the
 #     hook script but never executing it, and excluding interpolation lines
@@ -817,12 +823,19 @@ resolve_doc() {
 
 # The manifest parser: emit one record per column-zero Doctrine: line outside a
 # fenced block. Class and name are validated here so a malformed entry is caught
-# fail-loud (REQ-B1.8) and a bad name never reaches a path (REQ-B1.9). Output:
+# fail-loud (REQ-B1.8) and a bad name never reaches a path (REQ-B1.9). It also
+# runs the reverse use-site check (D-7, REQ-D1.3) in the SAME pass (the
+# guard-performance invariant): body prose — every line that is neither a
+# manifest entry nor fenced code — is accumulated internally, and in END each
+# well-formed point-of-use doc name absent from that prose (fixed-string, never a
+# constructed pattern) is emitted as a miss marker for the shell to warn on.
+# Output:
 #   OK <class> <name>
 #   BAD <verbatim line>
+#   USESITE-MISS <name>   (a point-of-use doc named nowhere in body prose)
 # shellcheck disable=SC2016 # a single-quoted awk program; $0/$fields are awk's
 parse_manifest='
-  BEGIN { fence = 0; fence_char = "" }
+  BEGIN { fence = 0; fence_char = ""; body = ""; np = 0 }
   {
     line = $0
     # fenced-code tracking: a ``` or ~~~ marker at column zero opens a block, and
@@ -831,7 +844,8 @@ parse_manifest='
     # (the idiomatic way to display a fence example, e.g. a ```-block inside a ~~~
     # wrapper) close the block early and expose the enclosed Doctrine: example
     # lines as live entries — a false manifest error or a start-load inflation on
-    # documentation.
+    # documentation. Fenced lines are never body prose (a doc named only inside a
+    # code fence does not count as a use-site naming, D-7).
     if (fence == 0) {
       if (line ~ /^```/) { fence = 1; fence_char = "`"; next }
       if (line ~ /^~~~/) { fence = 1; fence_char = "~"; next }
@@ -840,8 +854,9 @@ parse_manifest='
       else if (fence_char == "~" && line ~ /^~~~/) { fence = 0; fence_char = "" }
       next
     }
-    # only column-zero lines are entries; indented/quoted lines never are.
-    if (line ~ /^[ \t]/) next
+    # only column-zero lines are entries; indented/quoted lines never are, but
+    # they are still body prose for the reverse use-site check (D-7).
+    if (line ~ /^[ \t]/) { body = body "\n" line; next }
     if (line ~ /^Doctrine:/) {
       rest = line
       sub(/^Doctrine:/, "", rest)
@@ -864,14 +879,35 @@ parse_manifest='
       oktail = (tail == "" || tail ~ /^\(.*\)$/)
       if (okclass && okname && oktail) {
         print "OK " cls " " nm
+        # queue every well-formed point-of-use doc for the END use-site check,
+        # deduped and in first-seen order (a duplicate is a shell-side error that
+        # skips the whole skill anyway). The manifest line itself is NOT prose, so
+        # a doc named only in its own manifest entry still counts as a miss.
+        if (cls == "point-of-use" && !(nm in pou_seen)) {
+          pou_seen[nm] = 1
+          pou_names[++np] = nm
+        }
       } else {
         print "BAD " line
       }
       next
     }
     # a column-zero case-variant near-miss (doctrine:, DOCTRINE:) is malformed,
-    # never silently dropped (it would under-report the start-load).
-    if (tolower(line) ~ /^doctrine:/) { print "BAD " line }
+    # never silently dropped (it would under-report the start-load). It is a
+    # manifest line, not prose.
+    if (tolower(line) ~ /^doctrine:/) { print "BAD " line; next }
+    # any other column-zero line is body prose for the reverse use-site check.
+    body = body "\n" line
+  }
+  END {
+    # Reverse use-site check (D-7, REQ-D1.3): a point-of-use doc named nowhere in
+    # body prose is a miss. index() is a fixed-string substring over the already
+    # charset-validated name — never a constructed pattern (REQ-B1.9). The shell
+    # applies declared-exception excusal and warns; it ignores these markers when
+    # the manifest is malformed/unresolved (the skill is skipped, D-7).
+    for (i = 1; i <= np; i++) {
+      if (index(body, pou_names[i]) == 0) print "USESITE-MISS " pou_names[i]
+    }
   }
 '
 
@@ -903,9 +939,22 @@ if [ -d "$skills_dir" ]; then
     malformed=0
     unresolved=0
     mani_entries=0
+    # Reverse use-site check (D-7, REQ-D1.3): point-of-use doc names the parse
+    # pass found named nowhere in body prose (its END emits USESITE-MISS markers).
+    pou_miss=""
 
     while IFS= read -r rec; do
       [ -n "$rec" ] || continue
+      # Reverse use-site miss markers (D-7): the parse pass emits these in its END
+      # block, after every OK/BAD entry. They are not manifest entries, so they
+      # never touch mani_entries; collect and apply after the manifest is judged.
+      case "$rec" in
+        "USESITE-MISS "*)
+          pou_miss="$pou_miss
+${rec#USESITE-MISS }"
+          continue
+          ;;
+      esac
       # every parsed Doctrine: line (OK or BAD) means the skill declared a
       # manifest — a malformed entry is still a declaration, so a garbled-only
       # manifest is not additionally flagged manifest-less (its BAD error stands).
@@ -976,11 +1025,34 @@ $sname"
     fi
 
     if [ "$malformed" -eq 1 ] || [ "$unresolved" -eq 1 ]; then
-      # A skill whose manifest cannot be trusted is not scored under budget.
+      # A skill whose manifest cannot be trusted is not scored under budget, and
+      # is skipped by the reverse use-site check — its manifest error stands
+      # (D-7). The unmeasured aggregates carry the malformed/unresolved twins.
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$closure" \
         "unmeasured" "unmeasured" "$startload_actual" "$closure_actual" >>"$skill_list"
       continue
     fi
+
+    # Reverse use-site check (D-7, REQ-D1.3): the parse pass flagged each
+    # point-of-use doc named nowhere in body prose (manifest block and fenced code
+    # excluded; fixed-string over the charset-validated name, REQ-B1.9). A miss is
+    # a WARNING, never an error — a completeness lint, not a safety gate — and
+    # only reached here for a clean manifest (the malformed/unresolved guard above
+    # already `continue`d otherwise, so its manifest error stands, D-7). A
+    # `use-site:<skill>/<doc>` declared-exception excuses exactly this warning
+    # (and is marked used so a stale one is reported later).
+    while IFS= read -r pdoc; do
+      [ -n "$pdoc" ] || continue
+      us_key="use-site:$sname/$pdoc"
+      if in_list "$us_key" "$declared_exception_surfaces"; then
+        declared_exception_used="$declared_exception_used
+$us_key"
+        continue
+      fi
+      warn "use-site: point-of-use doc '$pdoc' is named nowhere in body prose of skills/$sname/SKILL.md (manifest block and fenced code excluded); surface $us_key"
+    done <<EOF
+$pou_miss
+EOF
 
     classify "$startload" "$t_sl_warn" "$t_sl_error"
     sl_state="$_STATE"
