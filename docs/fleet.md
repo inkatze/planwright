@@ -527,7 +527,13 @@ as a PreToolUse hook (D-8). It reuses the worker guard's pattern — allow-only,
 fail-closed, no LLM in the decision path — but fronts a **distinct, tower-
 oriented safe set**: it adds the tower-only shapes (tmux relay/observe, worker
 launches) the worker guard defers, and omits the worker-only shapes (`bats`,
-`tests/` scripts, `fish -c` recursion) a tower never runs. This consciously
+`tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
+tmux-subcommand granularity: the guard pre-approves the individual relay/observe
+verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
+`orchestrate-relay.sh`'s full attributed send shape, whose brace-grouped
+`{ ...; } | tmux load-buffer` pipeline the inherited engine defers to the
+classifier (see `specs/_observations` for the follow-up). Only the underlying
+subcommands are deterministically covered. This consciously
 **re-opens** the worker-only scoping `worker-permission-ergonomics` chose for a
 blast-radius reason: the tower's radius is broader (it launches workers and
 drives tmux), so it gets its own tested layer rather than the worker guard

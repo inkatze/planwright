@@ -76,7 +76,11 @@ export LC_ALL
 # indexing (`${s:i:1}`), O(n) per access and so O(n^2) over the command;
 # MAX_CMD_LEN caps that at a fraction of a second per analyze_command entry so
 # the hook can never hang the tower's tool call — a longer command simply
-# defers. MAX_DEPTH caps any recursive re-entry.
+# defers. MAX_DEPTH is retained for parity with the worker guard's shared engine
+# — there `fish -c "<inner>"` re-enters analyze_command, so the depth cap bounds
+# that recursion. This tower guard fronts no recursive shape (`fish -c` defers),
+# so analyze_command is only ever entered at depth 0; the depth check is a
+# defensive floor here, not an active limiter.
 readonly MAX_CMD_LEN=8192
 readonly MAX_DEPTH=3
 
