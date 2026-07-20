@@ -267,8 +267,8 @@ judgment.
 
 ### Run the full project CI (REQ-E1.2)
 
-Run the command derived in step 9. The full suite must pass before convergence;
-capture its output.
+Run the command derived in pre-flight step 9. The full suite must pass before
+convergence; capture its output.
 
 ### Adaptive CI-failure handling (REQ-E1.2, D-25)
 
@@ -392,14 +392,14 @@ Halt and hand back when any of these fires, recording the unit to `tasks.md`
 Awaiting input with the reason (the pre-flight halt protocol above). Each is
 described in full at its point of use:
 
-- **Spec not Ready or Active:** step 4 (Draft/Done/Retired/Superseded; suggest
-  `/spec-kickoff` for Draft).
-- **Missing or erroring validator:** step 5.
-- **No or partial kickoff brief:** step 6.
-- **Freshness-gate halt:** step 7 (anchor mismatch, or an
+- **Spec not Ready or Active:** pre-flight step 4 (Draft/Done/Retired/Superseded;
+  suggest `/spec-kickoff` for Draft).
+- **Missing or erroring validator:** pre-flight step 5.
+- **No or partial kickoff brief:** pre-flight step 6.
+- **Freshness-gate halt:** pre-flight step 7 (anchor mismatch, or an
   absent/unparseable/non-sanctioned/wrong-writer entry).
-- **Dependency not completed:** step 8.
-- **Malformed `dispatch_isolation`:** step 10 (exit 4/5).
+- **Dependency not completed:** pre-flight step 8.
+- **Malformed `dispatch_isolation`:** pre-flight step 10 (exit 4/5).
 - **Test cannot fail for the right reason:** test-first step 2.
 - **CI logic failure:** a logic-classified failure, or transient retries
   exhausted then reclassified.
