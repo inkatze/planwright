@@ -658,12 +658,29 @@ guard_mdlint() {
 # lifecycle op (kill-*, new-session, split-window, respawn-*, run-shell, if-shell,
 # set-*, source-file), which spawn, destroy, or execute. The subcommand allowlist
 # is closed: a leading server flag (-L/-S/-f), bare `tmux`, or any unlisted
-# subcommand DEFER (REQ-C1.2).
+# subcommand DEFER (REQ-C1.2). It is also NOT sufficient on its own: tmux runs
+# the `#(shell-command)` format directive as a shell command, so an otherwise
+# read-only observe subcommand carrying a `#(...)` format arg is arbitrary code
+# execution — any arg with that form DEFERS, while the inert `#{variable}` form
+# stays allowed.
 guard_tmux() {
+  local i
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
     -*) return 1 ;; # a pre-subcommand server flag: defer, conservatively
   esac
+  # tmux evaluates the `#(shell-command)` format directive (in a `-F` format or
+  # display-message's message) as a SHELL COMMAND — so an observe subcommand
+  # carrying a `#(...)` arg is arbitrary code execution, NOT a read-only observe.
+  # The subcommand allowlist below is necessary but not sufficient: any arg with
+  # the command-substitution form defers. The inert `#{variable}` form (what the
+  # relay/observe path actually emits, e.g. `#{pane_pid}`) contains no `#(` and
+  # stays allowed.
+  for ((i = 1; i < cwn; i++)); do
+    case ${cw[i]} in
+      *'#('*) return 1 ;;
+    esac
+  done
   case ${cw[1]} in
     load-buffer | loadb | paste-buffer | pasteb | capture-pane | capturep | \
       list-sessions | ls | list-windows | lsw | list-panes | lsp | \

