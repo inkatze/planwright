@@ -196,7 +196,15 @@ run_carry() {
   # Invoke the script through its own `#!/bin/sh` shebang (not a forced
   # /bin/bash), so the tests exercise the production interpreter — dash on Linux
   # CI — and surface any accidental bashism. Matches the sibling suites.
+  #
+  # GIT_AUTHOR/COMMITTER identity: the carry's `git commit-tree` needs a
+  # committer identity. A real tower checkout has one in git config; the fixture
+  # repos only pass identity per-command via `-c` (never to config), so on a CI
+  # runner with no global git identity `commit-tree` would fail. Supplying the
+  # identity via the standard env vars mirrors the production ambient identity.
   PATH="$ghbin:$PATH" GH_STATE="$ghstate" \
+    GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid \
+    GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid \
     PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR="$ghstate/carry-lock" \
     "$CARRY" "$@"
 }
