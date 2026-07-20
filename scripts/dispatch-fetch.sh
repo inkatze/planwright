@@ -43,16 +43,22 @@
 #      present (a success exit never carries a stale or missing anchor).
 #   3  no-remote — structurally offline (no `origin` remote). Offline is
 #      first-class: the caller proceeds DEGRADED, and with --spec the anchor is
-#      computed against local `main` (the only ref available).
+#      computed against local `main` (the only ref available). With --spec, an
+#      exit-3 result ALWAYS carries an anchor line: if the bundle cannot be
+#      anchored even at local `main`/`HEAD`, the script fails closed with exit 5
+#      instead (see below) rather than degrade with no anchor.
 #   4  stale-transient — a present remote's fetch failed after the bounded
 #      retries. The caller MUST NOT silently proceed against a stale ref: block,
 #      or proceed only under an explicit operator stale flag. No anchor is
 #      printed (never anchor a stale ref).
-#   5  anchor-unresolved — the fetch/currency succeeded but, with --spec, the
-#      spec content anchor could not be computed at origin/main (ref unresolved,
-#      bundle absent there, or the anchor computer failed). No anchor is printed;
-#      the caller MUST NOT gate against a stale/missing anchor — park. Fail
-#      closed rather than fall back to a stale local `main` under a success exit.
+#   5  anchor-unresolved — with --spec, the spec content anchor could not be
+#      computed at the ref the gate would compare against (`origin/main` on the
+#      online success paths; local `main`/`HEAD` on the offline no-remote path):
+#      ref unresolved, bundle absent there, or the anchor computer failed. No
+#      anchor is printed; the caller MUST NOT gate against a stale/missing anchor
+#      — park. Fail closed on EVERY path rather than emit a success/degrade exit
+#      that carries no anchor, so the --spec guarantee "an anchor record OR a
+#      nonzero park code" holds uniformly online and offline.
 #   2  usage / invalid input / internal failure (fail closed).
 #
 # Environment overrides (tests, worktree callers):
@@ -289,7 +295,13 @@ anchor_at_ref() {
 }
 
 # Emit the anchor record for a resolved ref, falling back through a ref list.
-# Prints nothing (no record) if none of the refs can be anchored.
+# With --spec this MUST yield an anchor: if none of the fallback refs can be
+# anchored (the bundle is absent even at local `main`/`HEAD`, or the anchor
+# computer is unusable), there is no content baseline to gate against, so fail
+# CLOSED (return 5) rather than let the caller proceed under an offline-degrade
+# status with no anchor — the same silent-gate hazard emit_anchor_strict guards
+# against on the online paths (D-9: never gate on a missing anchor). Without
+# --spec there is nothing to require: return 0.
 emit_anchor() {
   [ -n "$spec_rel" ] || return 0
   # Distinguish an unusable anchor computer from "files absent at the ref": both
@@ -301,7 +313,8 @@ emit_anchor() {
       return 0
     fi
   done
-  return 0
+  printf '%s\n' "dispatch-fetch: offline, but the spec anchor is unresolvable at local main/HEAD; parking rather than gating on a missing anchor" >&2
+  return 5
 }
 
 # Emit the anchor over the CURRENT origin/main on a success (exit-0) path,
@@ -327,15 +340,18 @@ emit_anchor_strict() {
 # --- Structural no-remote: offline is first-class ----------------------------
 if ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
   printf 'fetch%sno-remote\n' "$TAB"
-  # Degrade the anchor to local main (the only ref available), then HEAD.
-  emit_anchor main HEAD
+  # Degrade the anchor to local main (the only ref available), then HEAD. With
+  # --spec, if neither can be anchored there is no content baseline, so
+  # emit_anchor returns 5 and we park (exit 5) rather than exit 3 with no anchor
+  # — keeping the --spec guarantee (anchor record OR nonzero park) intact offline.
+  emit_anchor main HEAD || exit 5
   exit 3
 fi
 
 # --- TTL bound: reuse a recent fetch, no network on an idle --watch cycle -----
 within_ttl=0
 if [ -n "$now" ] && [ -f "$stamp_file" ] && [ ! -L "$stamp_file" ]; then
-  last=$(cat "$stamp_file" 2>/dev/null || echo "")
+  last=$(cat "$stamp_file" 2>/dev/null || true)
   case "$last" in
     '' | *[!0-9]*) last="" ;;
   esac

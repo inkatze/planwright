@@ -27,11 +27,12 @@
 #   fetch<TAB><fetched|fresh-within-ttl|no-remote|stale-transient>
 #   anchor<TAB><hash><TAB><ref>     (only with --spec, when an anchor is computed)
 # Exit: 0 remote current (fetched|fresh-within-ttl); 3 no-remote (degraded,
-#   offline first-class); 4 stale-transient (fetch failed after retries, caller
-#   must not silently proceed); 5 anchor-unresolved (with --spec, fetch/currency
-#   succeeded but the origin/main spec anchor is unresolvable — fail closed, park,
-#   never gate on a stale local main; exercised by case c12); 2 usage / invalid
-#   input (fail closed).
+#   offline first-class — with --spec ALWAYS carries a local-main/HEAD anchor,
+#   else exit 5); 4 stale-transient (fetch failed after retries, caller must not
+#   silently proceed); 5 anchor-unresolved (with --spec, the spec anchor is
+#   unresolvable at the ref the gate compares against — origin/main online (c12),
+#   local main/HEAD on the offline path (c16) — fail closed, park, never gate on
+#   a missing anchor); 2 usage / invalid input (fail closed).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -734,6 +735,39 @@ c15() {
   echo "ok c15: surplus positionals fail closed (exit 2), incl. after '--'; a single '-- <repo>' still proceeds"
 }
 
+# ---------------------------------------------------------------------------
+# Case 16 — offline fail-CLOSED symmetry (D-9): on the no-remote path, --spec
+# for a bundle that cannot be anchored at local main/HEAD must fail closed
+# (exit 5, NO anchor) rather than degrade with exit 3 and no anchor line. This
+# keeps the --spec guarantee (an `anchor` record OR a nonzero park code) uniform
+# online (c12) and offline. The control — a bundle that DOES exist locally —
+# still degrades to exit 3 with a local-main anchor (that is c2), so this case
+# only pins the missing-bundle branch.
+# ---------------------------------------------------------------------------
+c16() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c16.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q "$tmp/repo"
+  # A commit exists, but NO specs/demo bundle — and NO origin remote.
+  write_spec "$tmp/repo" other v1
+  gitc "$tmp/repo" add -A
+  gitc "$tmp/repo" commit -q -m "unrelated spec"
+  gitc "$tmp/repo" branch -M main
+
+  set +e
+  out=$(PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state" \
+    "$FETCH" --spec specs/demo "$tmp/repo")
+  rc=$?
+  set -e
+  [ "$rc" -eq 5 ] \
+    || fail "c16: offline --spec for an unanchorable bundle should fail closed (exit 5), got $rc"
+  [ "$(tag_val "$out" fetch)" = no-remote ] \
+    || fail "c16: expected fetch=no-remote currency line, got '$(tag_val "$out" fetch)'"
+  [ -z "$(anchor_ref "$out")" ] \
+    || fail "c16: exit 5 must carry NO anchor line, got ref '$(anchor_ref "$out")'"
+  echo "ok c16: offline --spec fails closed (exit 5, no anchor) when the bundle is unanchorable locally"
+}
+
 c1
 c2
 c3
@@ -749,5 +783,6 @@ c12
 c13
 c14
 c15
+c16
 
 echo "PASS: test-dispatch-fetch.sh"
