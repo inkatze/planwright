@@ -23,10 +23,12 @@
 #       tower to run. The handle is validated BEFORE the claim, so a bad target
 #       never closes a fork it cannot deliver to. Exit codes:
 #         0 — the answer was claimed and the delivery command emitted.
-#         2 — usage, a malformed handle, or a malformed/unresolvable claim input
-#             (propagated from `claim`); nothing was consumed.
-#         3 — the claim was REFUSED (stale / bad label / already-claimed /
-#             permission-park); nothing was consumed, the fork is untouched.
+#         2 — usage, a malformed handle, or a propagated `claim` usage/OPERATIONAL
+#             error (a malformed input, or a lock / store-read / write failure);
+#             nothing was consumed.
+#         3 — the claim was REFUSED for a SEMANTIC reason (stale / bad label /
+#             already-claimed / permission-park / no such fork); nothing was
+#             consumed, the fork is untouched.
 #         4 — the claim SUCCEEDED (the answer is consumed and the fork closed
 #             first-answer-wins) but the downward delivery could not be completed.
 #             Two sub-cases, distinguished by the stderr message: (i) the artifact

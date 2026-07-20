@@ -83,8 +83,13 @@
 #       outside the option set, an already-claimed record, and — keeping the
 #       harness permission gate the human's — any record whose reason is a
 #       permission-park (never an answerable `fork`). Prints the matched label on
-#       success. It does NOT deliver; scripts/fleet-decision.sh composes the
-#       claim with the attributed buffer-paste downward delivery.
+#       success. Exit codes mirror the rest of this script so a caller can tell
+#       the two failure kinds apart: 0 success; 2 a usage/malformed input OR an
+#       operational error (lock / store read / mktemp / write / mv — nothing
+#       consumed, a retry may help); 3 a semantic REFUSAL (stale / bad label /
+#       already-claimed / permission-park / no such fork — nothing consumed, the
+#       answer does not apply). It does NOT deliver; scripts/fleet-decision.sh
+#       composes the claim with the attributed buffer-paste downward delivery.
 #   fleet-attention.sh park <worker> <scope> <reason>
 #       The fork-park attention push (fleet-hardening Task 2, D-2): upsert the
 #       worker as awaiting-input carrying only the notification <reason> (the
@@ -733,9 +738,15 @@ case $cmd in
         if (matched == "") { print "REFUSE\tbad-label\t"; exit }
         print "OK\t\t" matched
       }' "$store") || {
+      # An OPERATIONAL failure (the store exists but could not be read), not a
+      # semantic refusal: exit 2, matching upsert_row/clear's fs/lock/read/write
+      # convention, so a caller (fleet-decision.sh) distinguishes "store I/O
+      # broke, nothing consumed, retry may help" (2) from "the answer does not
+      # apply" (3). A genuinely ABSENT store is the separate exit-3 no-fork case
+      # above (no rows means no answerable fork, a real refusal).
       release_lock
       echo "fleet-attention: could not read the store to evaluate the claim" >&2
-      exit 3
+      exit 2
     }
     cl_status=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $1 }')
     cl_code=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $2 }')
@@ -763,10 +774,12 @@ case $cmd in
     fi
     # Close pass: stamp the winning label into field 11 for the worker's row
     # only, every other row byte-identical. Copy-filter-rename so a reader never
-    # sees a torn store (the clear/upsert discipline).
+    # sees a torn store (the clear/upsert discipline). These are all OPERATIONAL
+    # failures AFTER a successful validation (mktemp / awk write / mv) — exit 2,
+    # the script's fs/lock/write convention, never the semantic-refusal 3.
     cl_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
       release_lock
-      exit 3
+      exit 2
     }
     cl_rc=0
     # The winning label rides ENVIRON (not `-v`): it is written verbatim into
@@ -775,15 +788,15 @@ case $cmd in
     FA_LBL="$cl_matched" awk -F "$TAB" -v OFS="$TAB" -v w="$worker" '
       ($1 "") == (w "") { $11 = ENVIRON["FA_LBL"]; NF = 11; print; next }
       { print }
-    ' "$store" >"$cl_tmp" || cl_rc=3
+    ' "$store" >"$cl_tmp" || cl_rc=2
     if [ "$cl_rc" = 0 ]; then
-      mv -f "$cl_tmp" "$store" || cl_rc=3
+      mv -f "$cl_tmp" "$store" || cl_rc=2
     fi
     [ "$cl_rc" = 0 ] || rm -f "$cl_tmp" 2>/dev/null
     release_lock
     if [ "$cl_rc" != 0 ]; then
-      echo "fleet-attention: failed to record the claim" >&2
-      exit 3
+      echo "fleet-attention: failed to record the claim (store write failed)" >&2
+      exit "$cl_rc"
     fi
     # Print the canonical matched label (the exact option), so the caller relays
     # the label the record actually carries, not the raw argument spelling.

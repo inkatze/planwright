@@ -240,6 +240,25 @@ sel=$(aenv "$h5b" claim w1 "iid-bs" "$bs") || fail "claim with a backslash label
 ok "a backslash-bearing label matches and stores verbatim (no awk -v escape mangling)"
 
 # ---------------------------------------------------------------------------
+# 5c. claim distinguishes an OPERATIONAL failure (exit 2) from a semantic refusal
+#     (exit 3): a store that exists but cannot be READ exits 2 (matching
+#     upsert_row/clear's fs convention), so a caller tells "store I/O broke" from
+#     "the answer does not apply". Skipped when running as root (perms ignored).
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" != 0 ]; then
+  h5c="$tmp/h5c"
+  aenv "$h5c" fork w1 spec-a "Q?" "A" "A|B" "iid-op" || fail "fork exited non-zero"
+  chmod 000 "$h5c/attention/state"
+  rc=0
+  aenv "$h5c" claim w1 "iid-op" "A" >/dev/null 2>&1 || rc=$?
+  chmod 644 "$h5c/attention/state" 2>/dev/null || true
+  [ "$rc" = 2 ] || fail "claim on an unreadable store exited $rc, expected 2 (operational, not a refusal 3)"
+  ok "claim exits 2 (operational) on an unreadable store, distinct from a semantic refusal (REQ-A1.4)"
+else
+  ok "claim operational-vs-refusal exit code (skipped: running as root, file perms ignored)"
+fi
+
+# ---------------------------------------------------------------------------
 # 6. Double-answer: first-answer-wins claim/close. The second answer is a no-op
 #    (refused, no second close, the first label stands) (REQ-A1.4).
 # ---------------------------------------------------------------------------
