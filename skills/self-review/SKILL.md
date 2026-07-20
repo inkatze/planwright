@@ -158,7 +158,7 @@ with the divergence recorded, or routed to Needs human judgment per the
 categorization.
 
 When a finding turns on an external fact (an API contract, spec compliance, a
-deprecated-pattern or security claim, library behavior), the outside-in pass
+deprecated pattern or security claim, library behavior), the outside-in pass
 reads `research-rigor` point-of-use here — source hierarchy, recency
 discipline, antipattern check.
 
