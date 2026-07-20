@@ -21,8 +21,8 @@ pass to convergence; this skill is the single pass.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve and read these rule docs at
-run start via the rule-doc resolution convention
+This skill is procedure, not doctrine. Resolve these rule docs via
+the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
 or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
 definitions govern wherever this skill names a concept:
@@ -39,24 +39,22 @@ definitions govern wherever this skill names a concept:
 - `gate-wiring` — routing order, commit discipline, checklist and audit
   formats, ladder procedure, pause protocol, loop-end handoff, PR-body
   assembly
-- `research-rigor` — the resolution ladder's research rung: source
-  hierarchy, recency discipline, antipattern check
+- `research-rigor` — the point-of-use research pass
 - `refactor-instinct` (review mode), `security-posture` (artifact
   data-hygiene), `proportionality` (declared scoping)
 
 If a rule doc does not resolve, halt with a clear message naming the missing
-doc and the resolution chain consulted. The docs are the rules this skill
-applies; reviewing without them would silently substitute improvisation for
-doctrine.
+doc and the resolution chain consulted.
 
 Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+`doctrine/instruction-hygiene.md`; `run-start` docs load before work begins,
+`point-of-use` at the named step):
 
 Doctrine: run-start discovery-rigor
 Doctrine: run-start validation-rigor
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
-Doctrine: run-start research-rigor
+Doctrine: point-of-use research-rigor (the Validation step, where research triggers fire)
 Doctrine: run-start refactor-instinct
 Doctrine: run-start security-posture
 Doctrine: run-start proportionality
@@ -152,13 +150,17 @@ Apply the `validation-rigor` doc to every candidate finding. Declared scoping
 (per `proportionality`): the full three passes are mandatory for any finding
 that could be **applied on the branch** in this pass, which under
 act-then-review means Auto-applicable, Agent-resolvable, and Needs-sign-off
-candidates alike (the human sees Needs-sign-off fixes only after application,
-at PR review). A soft-floor spot-check (drop clear false positives) is
+candidates alike. A soft-floor spot-check (drop clear false positives) is
 sufficient for findings that will only be declined or queued as judgment
 forks, since the human finishes validation when deciding those. Findings
 whose passes do not converge are never applied; they are dropped, declined
 with the divergence recorded, or routed to Needs human judgment per the
 categorization.
+
+When a finding turns on an external fact (an API contract, spec compliance, a
+deprecated pattern or security claim, library behavior), the outside-in pass
+reads `research-rigor` point-of-use here — source hierarchy, recency
+discipline, antipattern check.
 
 ## Routing and dispositions
 
@@ -238,13 +240,13 @@ nothing is left behind unpushed.
    **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
    the audit record collapsed in `<details>`, prose never hard-wrapped, the
    structure preserved on updates) — the single normative home for the layout
-   (D-2), which this pass cites rather than copies. The collapsed audit record
+   (D-2). The collapsed audit record
    is this pass's own: the lens-coverage table, the four tables, the declined
    log, the pending-sign-off checklist, and the pass summary. On update,
    regenerate the generated sections in place rather than appending, and never
    overwrite body content outside them (handwritten notes survive); re-runs
    never duplicate entries. The PR is always a draft; never mark it ready and
-   never merge (the draft→ready flip is the human's universal review gate).
+   never merge (the draft→ready flip is the human's call).
 
 ## Observations
 

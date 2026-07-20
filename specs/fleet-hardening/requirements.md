@@ -1,7 +1,7 @@
 # Fleet Hardening — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-19
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -59,8 +59,9 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
 - Correct-glob allow-rule discipline: path-scoped Bash allow rules use the `Bash(<dir>/*)` form,
   never the word-boundary `Bash(<dir>/:*)` form that never matches `<dir>/<file>`, plus a mechanical
   check that flags the footgun.
-- Deterministic D-36 branch naming at tmux-backend dispatch (`planwright/<spec>/task-<id>`), folded
-  into the dispatch primitive so no manual post-launch `git branch -m` rename is required.
+- Deterministic D-36 branch naming at tmux-backend dispatch (`planwright/<spec>/task-<id>`), owned by
+  the dispatch primitive (create-then-attach) so no manual post-launch `git branch -m` rename is
+  required.
 - A tower-settings profile that wires a deterministic PreToolUse command-guard over the tower's own
   orchestration command set, fronting Claude Code's stochastic `auto`-mode classifier with a tested
   allow layer, with an adversarial suite proving zero false-allows and denial of every dangerous
@@ -247,6 +248,13 @@ autonomous PR-ready-marking beyond the existing sanctioned kickoff exception.
 
 ## Changelog
 
+- 2026-07-20 — Amendment (`/spec-kickoff`, meaning-class): D-7 / Task 10 dispatch-primitive mechanism
+  changed from the unrealizable pure-native `claude --worktree` fold to create-then-attach
+  (`git worktree add -b` creates the exact D-36 branch — a narrow, scoped never-shell-`git worktree`
+  exception; `claude --worktree --tmux=classic` attaches). Task 10's unrealizable no-shell + no-rename
+  requirement dropped. Lens pass folded in: `<base>` = fetched `origin/main`, token validation,
+  atomic-exit collision + live-vs-stale orphan reconcile, tower-guard (D-8) reconciliation, and
+  test-spec coverage. REQ-B1.4 unchanged (the new mechanism still satisfies it).
 - 2026-07-19 — Bundle drafted (`/spec-draft`). Fold-detection against `fleet-autonomy` (Done)
   resolved to a new bundle citing it, rather than reopening the released bundle, because several
   findings are new external interfaces (structured decision channel, native branch dispatch,

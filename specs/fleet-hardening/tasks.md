@@ -1,7 +1,7 @@
 # Fleet Hardening — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-19
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -204,24 +204,44 @@ All tasks depend on Task 1.
 
 - **Deliverables:** The tmux-backend dispatch primitive produces a worktree on the canonical D-36
   branch `planwright/<spec>/task-<id>` deterministically at launch, with no manual post-launch `git
-  branch -m` rename step. The primitive adopts `claude --worktree <bare-suffix> --tmux=classic` (which
-  folds worktree + classic tmux session + launch into one native command, satisfying D-37's
-  never-shell-`git-worktree` rule) and makes the D-36 branch name a guaranteed output rather than an
-  operator-remembered rename. Two carried caveats: `--tmux=classic` is mandatory (plain `--tmux` opens
-  non-relay-targetable iTerm2 panes), and the native command switches the attached tmux client to the
-  new session, which must be mitigated so a tower watching another session is not disrupted.
-- **Done when:** a fixture asserts the dispatch primitive's resulting branch name matches the D-36
-  grammar `planwright/<spec>/task-<id>` with no post-launch `git branch -m` step in the path; the
-  mangled `worktree-<suffix>` name is provably not the output; the client-switch mitigation is
-  designed (launch detached, or capture-and-restore the prior client attachment) and asserted, not
-  merely manually confirmed; a concurrent / repeat dispatch of the same task detects an existing
-  `<spec>/task-<id>` branch or worktree and aborts as already-in-flight (no collision); `[manual]`
-  confirms on a real dispatch that `--tmux=classic` (not plain `--tmux`) is used and the client-switch
-  mitigation holds so a watching tower is not disrupted; a negative assertion confirms no model/API
-  call in the branch-naming decision path (REQ-E1.3); tests/CI pass.
+  branch -m` rename step. **Create** via a single
+  `git worktree add -b planwright/<spec>/task-<id> .claude/worktrees/<suffix> <base>` call — the
+  narrow, documented never-shell-`git worktree` exception scoped to this one dispatch primitive
+  (D-7) — with `<base>` the freshly-fetched `origin/main`, `<suffix>` a deterministic function of
+  `(spec, task-id)`, and `<spec>` / `<id>` / `<suffix>` validated against the D-36 grammar (or passed
+  as argv) before interpolation; then **attach** via `claude --worktree <suffix> --tmux=classic` only
+  if the create exited zero. The primitive reconciles collisions against this bundle's liveness
+  signals (dispatch marker / tmux session / Task-2 heartbeat store): a live dispatch aborts as
+  already-in-flight; a stale/orphaned branch or worktree (including a leftover empty `<suffix>` dir, or
+  a partial create) is GC-adopted / rolled back before recreating, never wedging the task. Two carried
+  caveats: `--tmux=classic` is mandatory (plain `--tmux` opens non-relay-targetable iTerm2 panes), and
+  the attach switches the attached tmux client to the new session, which must be mitigated so a tower
+  watching another session is not disrupted.
+- **Done when:** a fixture asserts the resulting branch name matches the D-36 grammar
+  `planwright/<spec>/task-<id>` with no post-launch `git branch -m` step, created by the single scoped
+  `git worktree add -b` call, with the mangled `worktree-<suffix>` name provably not the output;
+  `<base>` is asserted to be the freshly-fetched `origin/main` (not stale local `main`/HEAD), and
+  `<spec>` / `<id>` / `<suffix>` are validated against the D-36 grammar before interpolation — a
+  fixture feeds a metacharacter/`..`-bearing value and asserts it is rejected (no shell execution, no
+  path escape); a guard over this bundle's dispatch/tower sources asserts the dispatch primitive is
+  the **only** worktree-creation path in the bundle that shells out to `git worktree` (grep /
+  call-site allowlist), so the exception (D-7) stays narrow; **collision/orphan fixtures** assert that
+  a *live* concurrent/repeat dispatch aborts as already-in-flight (via `git worktree add -b`'s atomic
+  non-zero exit, not a pre-check), while a *stale* orphan — a dead branch or worktree with no live
+  session, a leftover empty `<suffix>` dir, and a partial create (branch made, worktree-add failed) —
+  is GC-adopted / rolled back and the dispatch proceeds, never a permanent already-in-flight wedge;
+  the create exit-code is asserted to gate the attach (non-zero create ⇒ no attach); the client-switch
+  mitigation is designed (launch detached, or capture-and-restore the prior client attachment) and
+  **asserted by a fixture**, not merely manually confirmed; the tower deny floor is asserted to deny
+  the dangerous `git worktree` forms (default-branch / detach / `--force`) and the primitive's own
+  `git worktree add` runs inside the literal-path script (never a classifier-exposed Bash string); a
+  negative assertion confirms no model/API call in the branch-naming decision path (REQ-E1.3);
+  `[manual]` confirms on a real dispatch that `--tmux=classic` (not plain `--tmux`) is used and the
+  client-switch mitigation holds so a watching tower is not disrupted; tests/CI pass.
 - **Dependencies:** 1
-- **Citations:** D-7 · REQ-B1.4, REQ-E1.3
-- **Estimated effort:** 1 day
+- **Citations:** D-7 · REQ-B1.4, REQ-C1.1, REQ-C1.2, REQ-E1.3
+- **Estimated effort:** 2–3 days (was 1 day; expanded at the 2026-07-20 amendment with collision/orphan
+  reconcile, token validation, `<base>` pinning, and the tower-guard assertions)
 
 ## Awaiting input
 
