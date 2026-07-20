@@ -389,8 +389,12 @@ transitions to the attention store the instant they happen, through
 enabled in; only a dispatched worker may write. The gate is a
 dispatch-time env contract: a worker launched with `PLANWRIGHT_WORKER_HANDLE`
 and `PLANWRIGHT_WORKER_SCOPE` in its environment (hook commands inherit the
-launched process env) is the one whose transitions the handler records, and
-the handler is a silent no-op without both. **The dispatch-side wiring that
+launched process env) is the one whose transitions the handler records. With
+*neither* var set the handler is a silent no-op; a *half-set or malformed*
+identity (one var present, the other missing, or a value failing the field
+grammar) is refused with a one-line stderr warning — still exit 0 and no write,
+so a misconfigured dispatch is visible rather than silently dropped. **The
+dispatch-side wiring that
 exports these vars is not in place yet** — the per-backend dispatch adaptation
 that sets them is a later task, so until it lands every session no-ops this
 handler and the fleet stays on the existing observation path (a graceful

@@ -352,9 +352,10 @@ research-rigor recency discipline).
 - The `Notification` hook fires with a JSON payload carrying a **`notification_type`**
   field — the machine-reliable discriminator (the human-readable `message` is a
   secondary signal). Documented types: `permission_prompt` (permission needed);
-  `idle_prompt`, `agent_needs_input`, `elicitation_dialog`, `elicitation_response`
-  (input-wait variants); `auth_success`, `agent_completed`, `elicitation_complete`
-  (informational). Other payload fields: `session_id`, `transcript_path`, `cwd`,
+  `idle_prompt`, `agent_needs_input`, `elicitation_dialog` (input-wait variants);
+  `auth_success`, `agent_completed`, `elicitation_complete`, `elicitation_response`
+  (informational — a completion/answer, not a wait, so the gating below suppresses
+  it). Other payload fields: `session_id`, `transcript_path`, `cwd`,
   `hook_event_name`.
 - A `Notification` hook is **non-blocking**: exit 0 shows stdout to the user only;
   any non-zero exit is a non-blocking error (the notification proceeds). A
