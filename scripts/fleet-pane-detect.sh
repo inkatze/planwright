@@ -140,9 +140,13 @@ bypassing permissions
 plan mode on
 EOF
 }
+# prompt_anchors — emit the anchor needles, always lowercased. raw_classify
+# lowercases the haystack, so the needles must be lowercase too; folding here (a
+# harmless passthrough for the already-lowercase default) means a mixed-case
+# FLEET_PANE_PROMPT_ANCHORS override matches instead of silently never matching.
 prompt_anchors() {
   if [ -n "${FLEET_PANE_PROMPT_ANCHORS:-}" ]; then
-    printf '%s\n' "$FLEET_PANE_PROMPT_ANCHORS"
+    printf '%s\n' "$FLEET_PANE_PROMPT_ANCHORS" | tr '[:upper:]' '[:lower:]'
   else
     default_prompt_anchors
   fi
@@ -371,8 +375,15 @@ mkdir -p "$state_dir" 2>/dev/null || {
   echo "fleet-pane-detect: cannot create the debounce state dir $state_dir" >&2
   exit 2
 }
-# Key the state file by scope+worker; sanitize to a safe basename.
-key=$(printf '%s__%s' "$scope" "$worker" | tr -c 'A-Za-z0-9._-' '_')
+# Key the state file by scope+worker. A readable sanitized prefix aids
+# debugging, but sanitizing alone collides (slash-style handles like
+# `spec/task-3` fold `/` to `_`, and a literal `__` in either component is
+# ambiguous), so a cksum of the raw, newline-delimited pair disambiguates every
+# distinct (scope,worker) — the newline can never appear in either component, so
+# the hashed input is unambiguous.
+key_prefix=$(printf '%s' "$worker" | tr -c 'A-Za-z0-9._-' '_')
+key_hash=$(printf '%s\n%s\n' "$scope" "$worker" | cksum | cut -d' ' -f1)
+key="$key_prefix-$key_hash"
 state_file="$state_dir/$key"
 
 prev_raw=""

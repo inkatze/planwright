@@ -114,6 +114,30 @@ cat >"$busy_pane" <<'EOF'
   ✳ Simmering… (12s · ↑ 1.2k tokens · esc to interrupt)
 EOF
 
+# A busy pane where the positive anchor is ALSO present — the most realistic
+# main-agent-busy layout: the `auto mode on` mode line persists on screen while
+# the agent runs and shows `esc to interrupt` above it. Busy must take
+# precedence over the anchor (idle requires the ABSENCE of every busy marker).
+busy_with_anchor_pane="$tmp/busy-with-anchor.txt"
+cat >"$busy_with_anchor_pane" <<'EOF'
+● Working on the implementation…
+  ✳ Simmering… (12s · esc to interrupt)
+╭──────────────────────────────────────────────────╮
+│ >                                                  │
+╰──────────────────────────────────────────────────╯
+  ⏵⏵ auto mode on · ? for shortcuts
+EOF
+
+# A spinner-only busy pane: a spinner gerund in the footer but NO `esc to
+# interrupt` clause (it wrapped / scrolled off) and NO anchor — the
+# belt-and-suspenders spinner-word path the header documents.
+spinner_only_pane="$tmp/spinner-only.txt"
+cat >"$spinner_only_pane" <<'EOF'
+● Kicked off the work.
+
+  ✳ Pondering…
+EOF
+
 # A no-anchor pane: a blank / loading screen — no busy marker AND no positive
 # at-prompt anchor. A starting-up worker must never be misread as idle-at-fork.
 no_anchor_pane="$tmp/no-anchor.txt"
@@ -160,6 +184,11 @@ classify_confirmed plain-idle "$idle_pane" idle
 classify_confirmed background-busy "$background_busy_pane" busy
 # and the plain main-agent busy pane
 classify_confirmed main-busy "$busy_pane" busy
+# busy-precedence: a footer carrying BOTH a busy marker AND a positive anchor
+# (the realistic persistent-mode-line layout) classifies busy, never idle
+classify_confirmed busy-with-anchor "$busy_with_anchor_pane" busy
+# the spinner-word-only path (no `esc to interrupt`, no anchor) classifies busy
+classify_confirmed spinner-only "$spinner_only_pane" busy
 
 # --- (e) no positive at-prompt anchor classifies NOT idle -----------------
 classify_confirmed no-anchor "$no_anchor_pane" indeterminate
@@ -172,6 +201,38 @@ na=$("$FPD" classify --pane "$no_anchor_pane" --backend subagent --worker w-na2 
   --state-dir "$na_state")
 [ "$na" != idle ] || fail "no-anchor pane must never classify idle (positive-anchor requirement)"
 echo "ok: no-anchor never idle"
+
+# --- FLEET_PANE_PROMPT_ANCHORS override, case-insensitively ----------------
+# A bespoke TUI's at-prompt anchor supplied via the override env var must match
+# regardless of case (the override is folded to lowercase, as the default
+# anchors already are). A pane whose only anchor is a MIXED-CASE custom token
+# classifies idle; without the override it is indeterminate.
+custom_anchor_pane="$tmp/custom-anchor.txt"
+cat >"$custom_anchor_pane" <<'EOF'
+● Idle at the bespoke prompt.
+   ›  Ready To Go
+EOF
+ov_state="$tmp/state-override"
+mkdir -p "$ov_state"
+FLEET_PANE_PROMPT_ANCHORS="Ready To Go" \
+  "$FPD" classify --pane "$custom_anchor_pane" --backend subagent --worker w-ov \
+  --state-dir "$ov_state" >/dev/null
+ov=$(FLEET_PANE_PROMPT_ANCHORS="Ready To Go" \
+  "$FPD" classify --pane "$custom_anchor_pane" --backend subagent --worker w-ov \
+  --state-dir "$ov_state")
+[ "$ov" = idle ] \
+  || fail "mixed-case FLEET_PANE_PROMPT_ANCHORS override must match (case-folded), got '$ov'"
+# and without the override the same pane is NOT idle (the custom token is not a
+# default anchor) — proves the override, not a default, drove the match above
+ov2_state="$tmp/state-override-off"
+mkdir -p "$ov2_state"
+"$FPD" classify --pane "$custom_anchor_pane" --backend subagent --worker w-ov2 \
+  --state-dir "$ov2_state" >/dev/null
+ov2=$("$FPD" classify --pane "$custom_anchor_pane" --backend subagent --worker w-ov2 \
+  --state-dir "$ov2_state")
+[ "$ov2" != idle ] \
+  || fail "without the override the bespoke token must not classify idle, got '$ov2'"
+echo "ok: FLEET_PANE_PROMPT_ANCHORS override matches case-insensitively"
 
 # --- (c) single-frame flap suppressed by the two-frame debounce -----------
 flap_state="$tmp/state-flap"
