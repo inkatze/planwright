@@ -103,25 +103,29 @@ if [ "$1" = "--emit-launch" ]; then
   # of worker-permission-ergonomics), so the constructed launch is auto-approved
   # without a permission flood (D-5, REQ-B1.2).
   self=$0
+  # For a bare name (no directory component), resolve it via PATH first so we
+  # have a path to absolutize — never `dirname`-of-a-bare-name (`.`), which would
+  # fabricate a CWD-relative "/<cwd>/<name>" verb. `command -v` may itself return
+  # a RELATIVE path when PATH holds a relative element (e.g. `PATH=scripts:...`),
+  # so its result is absolutized by the next block, not trusted as-is.
+  case $self in
+    */*) ;; # already has a directory component
+    *)
+      _resolved=$(command -v "$self" 2>/dev/null) || _resolved=
+      [ -n "$_resolved" ] && self=$_resolved
+      ;;
+  esac
+  # Absolutize any path that still carries a directory component but is not yet
+  # absolute (a relative `$0` like `scripts/fleet-dispatch-env.sh`, or a relative
+  # `command -v` result). If the directory cannot be resolved, keep the value
+  # rather than collapsing to a broken "/<basename>". A value that is still a
+  # bare name here means `command -v` found nothing; leave it, and the guard
+  # resolves it against the launch cwd — the honest fallback, not a fabrication.
   case $self in
     /*) ;; # already absolute
     */*)
-      # A directory-qualified relative path (e.g. `scripts/fleet-dispatch-env.sh`):
-      # absolutize against its own directory. If that directory cannot be
-      # resolved, keep $0 as given rather than collapsing to a broken
-      # "/<basename>" — the guard then resolves it against the launch cwd.
       _dir=$(cd "$(dirname "$self")" 2>/dev/null && pwd) || _dir=
       [ -n "$_dir" ] && self="$_dir/$(basename "$self")"
-      ;;
-    *)
-      # A bare name found on PATH (no slash): resolve it to its real location via
-      # PATH, not the caller's CWD (`dirname` of a bare name is `.`, which would
-      # emit a non-existent "/<cwd>/<name>"). If PATH resolution fails, keep $0
-      # as given rather than fabricating a CWD-relative path.
-      _resolved=$(command -v "$self" 2>/dev/null) || _resolved=
-      case $_resolved in
-        /*) self=$_resolved ;;
-      esac
       ;;
   esac
   # Construct the launch line: the wrapper prefix (which applies the pin when the

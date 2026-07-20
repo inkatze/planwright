@@ -31,6 +31,8 @@
 #      guard-trusted scripts/*.sh path.
 #   c8 (REQ-B1.2): a single-quote / newline launch token is refused (exit 2)
 #      rather than emitted in a form the worker-command-guard tokenizer defers on.
+#   c9 (REQ-B1.2): a relative PATH element still yields the absolute wrapper verb
+#      (a relative `command -v` result is absolutized, not emitted bare).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-dispatch-launch-pin.sh
@@ -281,6 +283,23 @@ c8() {
   fi
 }
 
+# --- c9: a relative PATH element still yields the absolute wrapper verb -------
+# When PATH holds a relative element (e.g. `PATH=scripts:...` from the repo
+# root), `command -v` returns a RELATIVE path; the construction must absolutize
+# it so the emitted verb stays the guard-trusted absolute scripts/*.sh path
+# rather than a bare / cwd-relative one that the guard would defer on.
+c9() {
+  local emitted
+  emitted=$(cd "$REPO_ROOT" && PATH="scripts:$PATH" fleet-dispatch-env.sh --emit-launch claude --model opus) || {
+    fail "c9: relative-PATH --emit-launch failed"
+    return
+  }
+  case $emitted in
+    "'$FDE'"*) pass "c9: a relative PATH element still emits the absolute wrapper path (REQ-B1.2)" ;;
+    *) fail "c9: relative-PATH invocation emitted a non-absolute verb: $emitted" ;;
+  esac
+}
+
 c1
 c2
 c3
@@ -289,6 +308,7 @@ c5
 c6
 c7
 c8
+c9
 
 if [ "$failures" -ne 0 ]; then
   echo "test-dispatch-launch-pin: $failures failure(s)" >&2
