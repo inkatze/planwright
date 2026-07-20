@@ -89,11 +89,10 @@ conventional format or slips the format check.
 **Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
 commit self-lints the subject before committing, while it can still reword —
 `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin` —
-requiring the canonical placement (pre-prefix, mid-subject, and duplicate
-markers fail) on top of the conventional check. It is deliberately *not* wired
-into the CI commit-range lint (history is never rewritten, so a mis-placed
-historical marker would redden the PR permanently); that range lint stays
-marker-agnostic.
+requiring the canonical placement (mis-placed and duplicate markers fail) on
+top of the conventional check. It is deliberately *not* wired
+into the CI commit-range lint (history is never rewritten); that range lint
+stays marker-agnostic.
 
 **Branch-scoped consumption (REQ-C1.4).** The marker is meaningful only on the
 PR branch. Its sole consumer is the pending-sign-off checklist regeneration
@@ -278,13 +277,13 @@ per [`spec-format.md`](spec-format.md).
 ```markdown
 ## Summary
 
-Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion annotation so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading to a date-only form with no remote.
+Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion annotation so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading with no remote to a date-only form or no stamp.
 
 **How to review:** `scripts/tasks-pr-sync.sh` and its `tests/` fixtures.
 
 - **Tasks:** output-hygiene/7 · **REQs:** REQ-E1.1, REQ-E1.2
 - **Brief:** `specs/output-hygiene/kickoff-brief.md`
-- **Tests:** `tests/tasks-pr-sync.bats` — merged-PR evidence yields the canonical string; a no-remote fixture yields the degraded form.
+- **Tests:** `tests/tasks-pr-sync.bats` — merged-PR evidence yields the canonical string; a no-remote fixture yields the date-only form or no stamp, never an invented PR number.
 - **Pending sign-off:** PS-1 (annotation-format wording) — see the collapsed checklist.
 
 <details>
