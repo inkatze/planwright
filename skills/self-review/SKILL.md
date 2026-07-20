@@ -21,7 +21,7 @@ pass to convergence; this skill is the single pass.
 
 ## Doctrine
 
-This skill is procedure, not doctrine. Resolve and read these rule docs via
+This skill is procedure, not doctrine. Resolve these rule docs via
 the rule-doc resolution convention
 (`scripts/resolve-rule-doc.sh <doc-name>` under the resolved planwright root,
 or the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain); their
@@ -39,8 +39,7 @@ definitions govern wherever this skill names a concept:
 - `gate-wiring` — routing order, commit discipline, checklist and audit
   formats, ladder procedure, pause protocol, loop-end handoff, PR-body
   assembly
-- `research-rigor` — the point-of-use research pass (read at the Validation
-  step, below)
+- `research-rigor` — the point-of-use research pass
 - `refactor-instinct` (review mode), `security-posture` (artifact
   data-hygiene), `proportionality` (declared scoping)
 
@@ -48,7 +47,8 @@ If a rule doc does not resolve, halt with a clear message naming the missing
 doc and the resolution chain consulted.
 
 Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+`doctrine/instruction-hygiene.md`; `run-start` docs load before work begins,
+`point-of-use` at the named step):
 
 Doctrine: run-start discovery-rigor
 Doctrine: run-start validation-rigor
