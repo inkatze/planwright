@@ -534,6 +534,7 @@ c11() {
   # An OSC set-window-title escape (ESC ] 0 ; ... BEL) embedded in the spec value.
   # It fails the identifier grammar, so it flows to the invalid-spec-name echo —
   # the exact place attacker-influenced bytes reach the terminal.
+  # (a) Already-FORMED control bytes (raw ESC/BEL) must be stripped before echo.
   evil=$(printf 'specs/\033]0;PWNED\007x')
   set +e
   err=$("$FETCH" --spec "$evil" "$tmp/repo" 2>&1 >/dev/null)
@@ -543,7 +544,30 @@ c11() {
   if printf '%s' "$err" | LC_ALL=C grep -q '[[:cntrl:]]'; then
     fail "c11: a raw control byte reached stderr (escape-injection not sanitized)"
   fi
-  echo "ok c11: untrusted --spec escape is rejected and the diagnostic is sanitized"
+
+  # (b) A LITERAL backslash-escape (the four bytes \ 0 3 3): sanitize_printable
+  # only strips FORMED control bytes, so these survive it — and a
+  # backslash-interpreting echo (dash, macOS /bin/sh under xpg_echo) would
+  # RE-SYNTHESIZE a live ESC from them AFTER sanitizing (the re-synthesis hole,
+  # obs 2026-07-15). The diagnostic must use printf '%s', not echo, so no live ESC
+  # is emitted even under such a shell. Exercised by running the script under any
+  # available sh whose echo actually re-synthesizes.
+  esc=$(printf '\033')
+  set +e
+  for _sh in dash sh /bin/sh; do
+    command -v "$_sh" >/dev/null 2>&1 || continue
+    [ "$("$_sh" -c 'echo "\033"' 2>/dev/null | od -An -tx1 | tr -d ' \n')" = 1b0a ] || continue
+    out=$("$_sh" "$FETCH" --spec 'specs/\033]0;PWNEDx' "$tmp/repo" 2>&1 >/dev/null)
+    case $out in
+      *"$esc"*)
+        set -e
+        fail "c11: literal-backslash --spec re-synthesized a live ESC under $_sh (use printf '%s', not echo)"
+        ;;
+    esac
+    break
+  done
+  set -e
+  echo "ok c11: untrusted --spec escapes (formed and literal-backslash) are rejected and sanitized"
 }
 
 c1
