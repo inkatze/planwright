@@ -217,48 +217,56 @@ ref_exists "$source_ref" || {
   exit 2
 }
 
+# Refresh the remote-tracking refs so the dedupe reads a current origin/main and
+# origin/<branch>. Refspec-isolated so a hostile remote.origin.fetch can never
+# fast-forward local `main` (the read-only-local-`main` invariant holds by
+# construction — mirrors dispatch-fetch.sh). Best-effort: a down remote degrades
+# below rather than stranding the whole pass.
+refresh_remote() {
+  [ "$have_remote" -eq 1 ] || return 0
+  g fetch origin --refmap='' '+refs/heads/*:refs/remotes/origin/*' --quiet >/dev/null 2>&1 || true
+}
+
+# Recompute the stranded set against the CURRENT refs, setting the globals
+# `stranded`, `stranded_count`, `remote_branch`. It is called once before the
+# lock (for the no-op / degrade decisions) and again AFTER the lock (authoritative
+# — so a run that lost a concurrent race sees the winner's just-pushed branch and
+# cleanly no-ops instead of building a doomed non-fast-forward push).
+#   stranded = src_list − (main_list ∪ chore_list), matched on the full repo-
+#   relative path (fragment filenames are globally unique, so path == identity).
+# The set difference is POSIX `grep -Fxv -f <baseline>` (no bash process-subst):
+# a fixed-string, whole-line, inverted match keeps only src paths absent from the
+# carried baseline; an empty baseline matches nothing, so every src path passes —
+# the correct "carry all" degenerate case.
+remote_branch="origin/$branch"
+compute_stranded() {
+  # Dedup baselines. Offline, origin/main is unavailable; fall back to local
+  # `main` READ-ONLY (only its tree is read, never advanced) so a fully offline
+  # run still dedupes against what main already has.
+  _base="$base_ref"
+  ref_exists "$_base" || _base="main"
+  _main_list=""
+  ref_exists "$_base" && _main_list=$(entries_at "$_base")
+  _chore_list=""
+  ref_exists "$remote_branch" && _chore_list=$(entries_at "$remote_branch")
+
+  _bf=$(mktemp "${TMPDIR:-/tmp}/observation-carry.base.XXXXXX") || {
+    printf '%s\n' "observation-carry: could not create a temp file" >&2
+    exit 2
+  }
+  printf '%s\n%s\n' "$_main_list" "$_chore_list" | grep -v '^$' | LC_ALL=C sort -u >"$_bf" || true
+  stranded=$(printf '%s\n' "$src_list" | grep -v '^$' | grep -Fxv -f "$_bf" 2>/dev/null || true)
+  rm -f -- "$_bf" 2>/dev/null || true
+  stranded=$(printf '%s\n' "$stranded" | grep -v '^$' || true)
+  stranded_count=$(printf '%s\n' "$stranded" | grep -c . || true)
+  [ -n "$stranded_count" ] || stranded_count=0
+}
+
 src_list=$(entries_at "$source_ref")
 have_remote=0
-if g remote get-url origin >/dev/null 2>&1; then
-  have_remote=1
-  # Refresh the remote-tracking refs so the dedupe reads a current origin/main
-  # and origin/<branch>. Refspec-isolated so a hostile remote.origin.fetch can
-  # never fast-forward local `main` (the read-only-local-`main` invariant holds
-  # by construction — mirrors dispatch-fetch.sh). Best-effort: a down remote
-  # degrades below rather than stranding the whole pass.
-  g fetch origin --refmap='' '+refs/heads/*:refs/remotes/origin/*' --quiet >/dev/null 2>&1 || true
-fi
-
-# The dedup baselines. When offline, origin/main is unavailable; fall back to
-# local `main` READ-ONLY (we only read its tree, never advance it) so a fully
-# offline run still dedupes against what main already has.
-base_for_dedupe="$base_ref"
-ref_exists "$base_for_dedupe" || base_for_dedupe="main"
-main_list=""
-ref_exists "$base_for_dedupe" && main_list=$(entries_at "$base_for_dedupe")
-
-remote_branch="origin/$branch"
-chore_list=""
-if ref_exists "$remote_branch"; then
-  chore_list=$(entries_at "$remote_branch")
-fi
-
-# stranded = src_list - (main_list ∪ chore_list), matched on the full repo-
-# relative path (fragment filenames are globally unique, so path == identity).
-# POSIX set difference via `grep -Fxv -f <baseline>` (no bash process-subst): a
-# fixed-string, whole-line, inverted match keeps only src paths not in the
-# carried baseline. An empty baseline file matches nothing, so every src line
-# passes — the correct "carry all" degenerate case.
-baseline_file=$(mktemp "${TMPDIR:-/tmp}/observation-carry.base.XXXXXX") || {
-  printf '%s\n' "observation-carry: could not create a temp file" >&2
-  exit 2
-}
-printf '%s\n%s\n' "$main_list" "$chore_list" | grep -v '^$' | LC_ALL=C sort -u >"$baseline_file" || true
-stranded=$(printf '%s\n' "$src_list" | grep -v '^$' | grep -Fxv -f "$baseline_file" 2>/dev/null || true)
-rm -f -- "$baseline_file" 2>/dev/null || true
-stranded=$(printf '%s\n' "$stranded" | grep -v '^$' || true)
-stranded_count=$(printf '%s\n' "$stranded" | grep -c . || true)
-[ -n "$stranded_count" ] || stranded_count=0
+g remote get-url origin >/dev/null 2>&1 && have_remote=1
+refresh_remote
+compute_stranded
 
 # --- Clean no-op: nothing stranded -------------------------------------------
 if [ "$stranded_count" -eq 0 ]; then
@@ -344,6 +352,18 @@ if ! acquire_lock; then
   exit 0
 fi
 
+# Authoritative recompute inside the lock: re-fetch and re-derive the stranded
+# set so a run that lost a concurrent race sees the winner's just-pushed chore
+# branch and cleanly no-ops, rather than building a doomed non-fast-forward push.
+refresh_remote
+compute_stranded
+if [ "$stranded_count" -eq 0 ]; then
+  release_lock
+  printf 'carry%snoop\n' "$TAB"
+  printf 'stranded%s0\n' "$TAB"
+  exit 0
+fi
+
 # --- Build the carry commit with plumbing (never touches local main) ----------
 # Parent: the chore branch tip if it exists (append, fast-forward), else the
 # base ref. Base tree = the parent's tree; add each stranded fragment's EXISTING
@@ -382,7 +402,7 @@ printf '%s\n' "$stranded" | while IFS= read -r path; do
     printf 'ADDFAIL\n'
     break
   fi
-  if ! GIT_INDEX_FILE="$tmp_index" g update-index --add --cacheinfo "100644,$blob,$path" 2>/dev/null; then
+  if ! GIT_INDEX_FILE="$tmp_index" g update-index --add --cacheinfo 100644 "$blob" "$path" 2>/dev/null; then
     printf 'ADDFAIL\n'
     break
   fi
