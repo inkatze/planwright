@@ -214,6 +214,12 @@ fresh_push_exists() {
     "" | *[!0-9]* | 0?*) return 1 ;;
   esac
   fpe_age=$(($3 - fpe_hb))
+  # Fresh iff the age is in [0, ttl). A NEGATIVE age (a heartbeat later than
+  # --now: clock skew or a corrupt future timestamp) is not evidence of a fresh
+  # push — treating it as fresh would defer indefinitely until real time catches
+  # up, exactly the silent-blindness the backstop exists to prevent. Fail toward
+  # running the detector.
+  [ "$fpe_age" -ge 0 ] 2>/dev/null || return 1
   [ "$fpe_age" -lt "$4" ] 2>/dev/null || return 1
   return 0
 }

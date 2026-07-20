@@ -365,6 +365,23 @@ res4=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-corrupt \
   || fail "gate-corrupt: a non-numeric heartbeat is not a fresh push -> detector runs -> idle, got '$res4'"
 echo "ok: hook-capable backend with a corrupt heartbeat runs the backstop"
 
+# 6f. push-capable backend + FUTURE heartbeat (negative age) -> NOT fresh ->
+# detector runs. A heartbeat later than --now (clock skew or a corrupt future
+# timestamp) must not be read as a fresh push: treating a negative age as fresh
+# would defer indefinitely until real time catches up (silent blindness). It
+# must fail toward running the backstop.
+root_future="$tmp/root-future"
+write_row "$root_future" w-future awaiting-input "$((now + 100000))"
+gate_state5="$tmp/state-gate-future"
+mkdir -p "$gate_state5"
+"$FPD" classify --pane "$idle_pane" --backend tmux --worker w-future \
+  --root "$root_future" --now "$now" --reconcile-ttl 300 --state-dir "$gate_state5" >/dev/null
+res5=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-future \
+  --root "$root_future" --now "$now" --reconcile-ttl 300 --state-dir "$gate_state5")
+[ "$res5" = idle ] \
+  || fail "gate-future: a future (negative-age) heartbeat must not defer; detector runs -> idle, got '$res5'"
+echo "ok: hook-capable backend with a future heartbeat runs the backstop (no indefinite defer)"
+
 # --- state-file shape guard: a tampered state file never leaks a verdict ------
 # A corrupted state file (arbitrary strings on the two lines) must never reach
 # stdout as a classification; the reader coerces unknown values to empty, so the
@@ -385,7 +402,15 @@ esac
 echo "ok: corrupt state file never leaks an arbitrary verdict ($tampered)"
 
 # --- REQ-E1.3: no model / API in the detector's decision path -------------
-if grep -Eq '\b(curl|wget|claude|anthropic|openai)\b' "$FPD"; then
+# Whole-word match via grep -w (POSIX-portable), NOT `\b…\b` (a GNU extension
+# that is a literal backspace under some ERE engines, which would let the
+# assertion pass vacuously). Prove the pattern is LIVE with a positive control
+# before trusting a no-match on the script: a planted forbidden token must be
+# caught, or the assertion is meaningless.
+model_pattern='(curl|wget|claude|anthropic|openai)'
+printf 'x claude x\n' | grep -Ewq "$model_pattern" \
+  || fail "REQ-E1.3 assertion is vacuous: the grep pattern fails to match a planted forbidden token"
+if grep -Ewq "$model_pattern" "$FPD"; then
   fail "detector references a network/model call in its decision path (REQ-E1.3)"
 fi
 echo "ok: no model/API call in the detector's decision path (REQ-E1.3)"
