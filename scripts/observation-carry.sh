@@ -257,12 +257,20 @@ refresh_remote() {
 # carried baseline; an empty baseline matches nothing, so every src path passes —
 # the correct "carry all" degenerate case.
 remote_branch="origin/$branch"
+# `eff_base` is the effective base ref both the dedup baseline AND the carry
+# commit's parent resolve to: `base_ref` (default origin/main) when it resolves,
+# else local `main` (read-only). Publishing it from compute_stranded keeps the
+# parent selection consistent with the dedup — a base_ref that does not resolve
+# (fetch failed / tracking ref absent) falls back to `main` in BOTH places
+# instead of deduping against `main` but then degrading on the parent.
+eff_base=""
 compute_stranded() {
   # Dedup baselines. Offline, origin/main is unavailable; fall back to local
   # `main` READ-ONLY (only its tree is read, never advanced) so a fully offline
   # run still dedupes against what main already has.
   _base="$base_ref"
   ref_exists "$_base" || _base="main"
+  eff_base="$_base"
   _main_list=""
   ref_exists "$_base" && _main_list=$(entries_at "$_base")
   _chore_list=""
@@ -429,7 +437,9 @@ fi
 if ref_exists "$remote_branch"; then
   parent="$remote_branch"
 else
-  parent="$base_ref"
+  # Same base compute_stranded deduped against (base_ref, else local main), so a
+  # base_ref that does not resolve does not carry-vs-dedup inconsistently.
+  parent="$eff_base"
 fi
 if ! ref_exists "$parent"; then
   release_lock

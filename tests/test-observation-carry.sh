@@ -342,7 +342,7 @@ c5() {
   frag_body "on-main-aaaa1111" >"$repo/$(frag_path 2026-07-19-seed-aaaa1111.md)"
   frag_body "new-gggg7777" >"$repo/$(frag_path 2026-07-20-tower-gggg7777.md)"
   gitc "$repo" add -A
-  gitc "$repo" commit -qm "obs(tower): a new one alongside an already-carried one" || true
+  gitc "$repo" commit -qm "obs(tower): a new one alongside an already-carried one"
   gh="$tmp/bin"
   make_gh_stub "$gh"
 
@@ -614,6 +614,43 @@ c15() {
   echo "ok c15: --dry-run reports read-only even offline (no remote), never degrades"
 }
 
+# ---------------------------------------------------------------------------
+# Case 16 — base fallback consistency: an origin remote exists but origin/main
+# is unresolvable (e.g. never fetched). The carry parent must fall back to local
+# `main` (the same base compute_stranded deduped against), not degrade — carry
+# succeeds (created) instead of a spurious exit 3.
+# ---------------------------------------------------------------------------
+c16() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c16.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  mkdir -p "$repo"
+  gitc "$repo" init -q -b main
+  mkdir -p "$repo/$OBSREL"
+  frag_body "seed-oooo0000" >"$repo/$(frag_path 2026-07-19-seed-oooo0000.md)"
+  gitc "$repo" add -A
+  gitc "$repo" commit -qm "seed: main with a carried observation"
+  # An origin remote that exists but has NO main branch → origin/main never
+  # resolves even after the carry's best-effort fetch.
+  gitc "$repo" init -q --bare "$repo.git"
+  gitc "$repo" remote add origin "$repo.git"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower pppp1111
+  main_before=$(gitc "$repo" rev-parse main)
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  out=$(run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err") \
+    || fail "c16: carry should not degrade when base_ref is unresolvable but main exists — exit $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = created ] \
+    || fail "c16: expected carry=created via local-main parent fallback, got: $out"
+  [ "$(gitc "$repo" rev-parse main)" = "$main_before" ] \
+    || fail "c16: local main must stay unchanged"
+  gitc "$repo" ls-remote --heads origin "planwright/chore/observations" 2>/dev/null | grep -q . \
+    || fail "c16: chore branch should have been pushed"
+  echo "ok c16: base fallback is consistent (parent falls back to local main, no spurious degrade)"
+}
+
 c1
 c2
 c3
@@ -629,4 +666,5 @@ c12
 c13
 c14
 c15
+c16
 echo "ALL PASS: observation-carry"
