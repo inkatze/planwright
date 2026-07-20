@@ -234,6 +234,45 @@ ov2=$("$FPD" classify --pane "$custom_anchor_pane" --backend subagent --worker w
   || fail "without the override the bespoke token must not classify idle, got '$ov2'"
 echo "ok: FLEET_PANE_PROMPT_ANCHORS override matches case-insensitively"
 
+# --- --footer-lines bounds the window height ------------------------------
+# A pane with a busy marker 4 lines up and an idle footer in the last 2 lines:
+# a narrow --footer-lines=2 window sees only the idle footer (idle); the default
+# window reaches the busy marker above (busy). Same pane, different window ->
+# the flag bounds the region.
+footer_lines_pane="$tmp/footer-lines.txt"
+cat >"$footer_lines_pane" <<'EOF'
+● transcript line
+  ✳ Simmering… (esc to interrupt)
+  more transcript text
+╭────────────────────╮
+│ >                   │
+  ⏵⏵ auto mode on · ? for shortcuts
+EOF
+classify_confirmed footer-narrow "$footer_lines_pane" idle --footer-lines 2
+classify_confirmed footer-wide "$footer_lines_pane" busy
+
+# --- --scope keys the debounce state independently ------------------------
+# The same worker handle under two different scopes keeps separate two-frame
+# histories (the state key folds scope + worker), so one scope's frames never
+# advance the other's debounce.
+sc_state="$tmp/state-scope"
+mkdir -p "$sc_state"
+sa1=$("$FPD" classify --pane "$idle_pane" --backend subagent --worker w-sc \
+  --scope alpha --state-dir "$sc_state")
+sb1=$("$FPD" classify --pane "$idle_pane" --backend subagent --worker w-sc \
+  --scope beta --state-dir "$sc_state")
+{ [ "$sa1" = pending ] && [ "$sb1" = pending ]; } \
+  || fail "scope: the first frame under each scope must be pending (independent state), got '$sa1'/'$sb1'"
+sa2=$("$FPD" classify --pane "$idle_pane" --backend subagent --worker w-sc \
+  --scope alpha --state-dir "$sc_state")
+[ "$sa2" = idle ] \
+  || fail "scope: alpha's second frame should confirm idle independently, got '$sa2'"
+sb2=$("$FPD" classify --pane "$idle_pane" --backend subagent --worker w-sc \
+  --scope beta --state-dir "$sc_state")
+[ "$sb2" = idle ] \
+  || fail "scope: beta's second frame should confirm idle independently, got '$sb2'"
+echo "ok: --scope keys the debounce state independently"
+
 # --- (c) single-frame flap suppressed by the two-frame debounce -----------
 flap_state="$tmp/state-flap"
 mkdir -p "$flap_state"
