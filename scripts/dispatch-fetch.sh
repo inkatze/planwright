@@ -323,7 +323,12 @@ fi
 # symlink-refusing read above).
 if mkdir -p "$state_dir" 2>/dev/null; then
   stamp_tmp="$stamp_file.tmp.$$"
-  if printf '%s\n' "$now" >"$stamp_tmp" 2>/dev/null; then
+  # Stamp the instant the fetch COMPLETED, not the pre-fetch gate-entry instant
+  # ($now used for the age check above): the TTL measures time since the ref was
+  # made current, so a slow (retried) fetch must not shorten the next window by
+  # its own duration. Fall back to $now if this clock read fails.
+  stamp_now=$(date +%s 2>/dev/null) || stamp_now=$now
+  if printf '%s\n' "$stamp_now" >"$stamp_tmp" 2>/dev/null; then
     mv -f "$stamp_tmp" "$stamp_file" 2>/dev/null || rm -f "$stamp_tmp" 2>/dev/null || true
   fi
 fi
