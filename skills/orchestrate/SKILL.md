@@ -2,13 +2,12 @@
 name: orchestrate
 description: >
   Advance one planwright spec by one step: pick the next ready unit
-  critical-path-first (or a cohesion bundle), run the execution freshness gate,
-  record the dispatch (task branch + runtime marker, never a tasks.md write) under
-  the per-spec lock, and dispatch /execute-task via the configured backend. A
-  stateless, disposable control tower: every step is atomic and a reconcile sweep
-  rebuilds the picture from disk. Never merges, marks a PR ready, or auto-chains
-  into /spec-kickoff. --bookkeeping runs the out-of-session drain + PR reconcile;
-  --watch loops the step.
+  critical-path-first (or a cohesion bundle), run the freshness gate, record the
+  dispatch (task branch + runtime marker, never a tasks.md write) under the
+  per-spec lock, and dispatch /execute-task via the backend. A stateless,
+  disposable control tower; a reconcile sweep rebuilds from disk. Never merges,
+  marks a PR ready, or auto-chains into /spec-kickoff. --bookkeeping runs the drain
+  + PR reconcile; --watch loops the step.
 argument-hint: "[<spec-path>] [--fleet] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
 ---
 
@@ -23,7 +22,7 @@ branches, `Planwright-Task` trailers, runtime markers, `gh`, the process list),
 so a step may die mid-flight without losing work; the committed `tasks.md`
 sections are a discardable snapshot the reconcile sweep rebuilds. The tower is
 **disposable** (D-38): no in-memory state beyond the current step, safe under
-headless cron and concurrent towers.
+headless cron and concurrent towers on one spec.
 
 ## Doctrine
 
@@ -142,11 +141,11 @@ completed task is never re-dispatched. The dependency graph is still parsed from
 blind to tasks that *gate other tasks' verification* without a dependency edge.
 When the spec's prose or a `Done when:` marks a unit as guard/CI infrastructure
 everything else should merge under, prefer it over the raw critical-path head and
-say so — a judgment overlay, not a silent override.
+say so in the step report — a judgment overlay, not a silent override.
 
-**Cohesion-first bundling (REQ-F1.7, D-9).** Bundle the selected unit with the
-next consecutive ready task(s) **only** when together they form one coherent,
-revertable, single-purpose deliverable (same module/concern, shared
+**Cohesion-first bundling (REQ-F1.7, D-9).** Consider bundling the selected unit
+with the next consecutive ready task(s) **only** when together they form one
+coherent, revertable, single-purpose deliverable (same module/concern, shared
 dependencies). Combined size is a bloat guardrail, not the primary signal.
 Non-cohesive ready tasks ship as separate units/PRs; a bundle takes one
 `planwright/<spec>/task-<id>-<id>` branch (D-36). Bundling, ceremony, and reconcile
@@ -296,11 +295,11 @@ REQ-C1.4).** A `--watch` tower can silently fill its context window. Each
 iteration, before selecting new work, run `scripts/context-budget-monitor.sh
 <steps-completed>` (the loop's iteration count). On `ok` or `disabled`, proceed.
 On `near-limit`, hand over per `context-budget-autoheal` (read here): **start a
-fresh tower** seeded with this tower's wake prompt, **confirm it is alive before
-retiring** (never leave a zero-tower gap — on a failed launch, record `## Awaiting
-input` and stay up), then **stop**. The fresh tower rebuilds from durable state via
-its first reconcile sweep. Auto-heal is inert for a single-step run and when
-`context_budget_threshold` is `off`.
+fresh tower** seeded with this tower's standing-instructions / wake prompt,
+**confirm it is alive before retiring** (never leave a zero-tower gap — on a
+failed launch, record `## Awaiting input` and stay up), then **stop**. The fresh
+tower rebuilds from durable state via its first sweep. Auto-heal is inert for a
+single-step run and when `context_budget_threshold` is `off`.
 
 ## Meta-tower and fleet entry (`--meta` / `--fleet`)
 
@@ -386,7 +385,7 @@ attended, present it and wait.
 | Lock contention | `acquire` exit 1: clean no-op, skip the step (bookkeeping reconciles). |
 | Cohesion ambiguity | Bundling admits multiple valid groupings; surface and ask. |
 | Worker halt relayed | A dispatched worker halted to Awaiting input; recorded, not re-dispatched. |
-| `gh` unreachable | A reconcile/PR read needs `gh` unauthenticated; record Awaiting input, continue local (REQ-K1.6, K1.7). |
+| `gh` unreachable | A reconcile/PR read needs `gh` and it is unauthenticated; record Awaiting input, continue local (REQ-K1.6, K1.7). |
 
 ## Invariants
 
