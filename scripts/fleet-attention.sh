@@ -767,9 +767,16 @@ case $cmd in
       echo "fleet-attention: could not read the store to evaluate the claim" >&2
       exit 2
     }
-    cl_status=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $1 }')
-    cl_code=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $2 }')
-    cl_matched=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $3 }')
+    # Split the three tab-delimited verdict fields with pure PARAMETER EXPANSION,
+    # not `printf | awk` — the parse needs no store access, so keeping subprocesses
+    # (three awk + three printf) out of the held critical section shrinks lock hold
+    # time under high-frequency answering. An IFS=TAB `read` is unusable here: TAB
+    # is IFS-whitespace, so it would collapse the empty middle field of the OK
+    # verdict (`OK<TAB><TAB>label`); `%%`/`#` expansion preserves empty fields.
+    cl_status=${cl_verdict%%"$TAB"*}
+    cl_rest=${cl_verdict#*"$TAB"}
+    cl_code=${cl_rest%%"$TAB"*}
+    cl_matched=${cl_rest#*"$TAB"}
     if [ "$cl_status" != OK ]; then
       release_lock
       case $cl_code in
