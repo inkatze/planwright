@@ -28,7 +28,10 @@
 #   anchor<TAB><hash><TAB><ref>     (only with --spec, when an anchor is computed)
 # Exit: 0 remote current (fetched|fresh-within-ttl); 3 no-remote (degraded,
 #   offline first-class); 4 stale-transient (fetch failed after retries, caller
-#   must not silently proceed); 2 usage / invalid input (fail closed).
+#   must not silently proceed); 5 anchor-unresolved (with --spec, fetch/currency
+#   succeeded but the origin/main spec anchor is unresolvable — fail closed, park,
+#   never gate on a stale local main; exercised by case c12); 2 usage / invalid
+#   input (fail closed).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -691,6 +694,41 @@ c14() {
   echo "ok c14: a supplied-but-empty --spec fails closed (exit 2), not downgraded to currency-only"
 }
 
+# ---------------------------------------------------------------------------
+# Case 15 — surplus positional arguments fail CLOSED (exit 2), including after a
+# `--` terminator. The in-loop guard already rejects a second bare positional
+# (`<repo> extra`); this pins the symmetric `--`-terminated forms
+# (`-- <repo> extra`, `<repo> -- extra`) that previously slipped past the loop's
+# `break` and silently dropped the surplus. A single positional after `--` must
+# still proceed (here to the no-remote degrade, exit 3), not be misread as
+# surplus.
+# ---------------------------------------------------------------------------
+c15() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c15.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q "$tmp/repo"
+
+  set +e
+  "$FETCH" "$tmp/repo" extra >/dev/null 2>&1
+  rc_bare=$?
+  "$FETCH" -- "$tmp/repo" extra >/dev/null 2>&1
+  rc_dashdash=$?
+  "$FETCH" "$tmp/repo" -- extra >/dev/null 2>&1
+  rc_trailing=$?
+  "$FETCH" -- "$tmp/repo" >/dev/null 2>&1
+  rc_ok=$?
+  set -e
+  [ "$rc_bare" -eq 2 ] \
+    || fail "c15: surplus positional '<repo> extra' should exit 2, got $rc_bare"
+  [ "$rc_dashdash" -eq 2 ] \
+    || fail "c15: surplus positional '-- <repo> extra' should fail closed (exit 2), got $rc_dashdash (surplus silently dropped)"
+  [ "$rc_trailing" -eq 2 ] \
+    || fail "c15: surplus positional '<repo> -- extra' should fail closed (exit 2), got $rc_trailing (surplus silently dropped)"
+  [ "$rc_ok" -ne 2 ] \
+    || fail "c15: a single positional after '--' must not be rejected as surplus (got exit 2)"
+  echo "ok c15: surplus positionals fail closed (exit 2), incl. after '--'; a single '-- <repo>' still proceeds"
+}
+
 c1
 c2
 c3
@@ -705,5 +743,6 @@ c11
 c12
 c13
 c14
+c15
 
 echo "PASS: test-dispatch-fetch.sh"

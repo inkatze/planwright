@@ -139,7 +139,17 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-[ $# -eq 0 ] || { [ -z "$repo_root" ] && repo_root="$1"; }
+# After option parsing (including a `--` terminator), consume at most ONE
+# positional as <repo-root>. Any surplus positional is a mis-invocation: fail
+# closed (usage/exit 2) rather than silently ignore it — symmetric with the
+# in-loop guard that rejects a second positional before `--`. Without this, a
+# `--`-terminated invocation (`dispatch-fetch.sh -- <repo> extra`) or a trailing
+# `--` (`dispatch-fetch.sh <repo> -- extra`) would silently drop the surplus.
+if [ -z "$repo_root" ] && [ $# -gt 0 ]; then
+  repo_root="$1"
+  shift
+fi
+[ $# -eq 0 ] || usage
 [ -n "$repo_root" ] || usage
 
 # A supplied-but-empty --spec is invalid input, not "no --spec". Treating an
@@ -201,7 +211,7 @@ ttl_sec=""
 if [ -n "${PLANWRIGHT_DISPATCH_FETCH_TTL:-}" ]; then
   case "$PLANWRIGHT_DISPATCH_FETCH_TTL" in
     *[!0-9]* | '' | 0?*)
-      echo "dispatch-fetch: ignoring malformed PLANWRIGHT_DISPATCH_FETCH_TTL" >&2
+      printf '%s\n' "dispatch-fetch: ignoring malformed PLANWRIGHT_DISPATCH_FETCH_TTL" >&2
       ;;
     *) ttl_sec=$PLANWRIGHT_DISPATCH_FETCH_TTL ;;
   esac
@@ -216,7 +226,7 @@ if [ -z "$ttl_sec" ]; then
   case "$cv" in
     '') ;; # key absent everywhere: the 2m default stands
     *[!0-9]* | 0?*)
-      echo "dispatch-fetch: ignoring malformed dispatch_fetch_ttl; using ${ttl_min}m" >&2
+      printf '%s\n' "dispatch-fetch: ignoring malformed dispatch_fetch_ttl; using ${ttl_min}m" >&2
       ;;
     *) ttl_min=$cv ;;
   esac
