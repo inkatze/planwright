@@ -94,16 +94,15 @@ EOF
     rm -rf "$tmp"
     return
   }
-  # Structural: the emitted line begins with the wrapper's own path — the pin
-  # prefix is emitted by CODE, not assembled by the model.
-  case $emitted in
-    "$FDE "*) ;;
-    *)
-      fail "c1: emitted launch does not begin with the wrapper prefix: $emitted"
-      rm -rf "$tmp"
-      return
-      ;;
-  esac
+  # Structural: the emitted line is exactly the wrapper's own path followed by
+  # the launch argv in order — the pin prefix is emitted by CODE (not assembled
+  # by the model) and the dispatch tokens are preserved verbatim.
+  local expected="$FDE $fake --worktree task-5 --model opus"
+  if [ "$emitted" != "$expected" ]; then
+    fail "c1: emitted launch is not the wrapper-prefixed argv; want '$expected' got '$emitted'"
+    rm -rf "$tmp"
+    return
+  fi
   # End-to-end: running the emitted launch pins the var on the launched process.
   out=$(sh -c "$emitted") || {
     fail "c1: running the emitted launch failed"
@@ -164,10 +163,25 @@ c4() {
   fi
 }
 
+# --- c5: --emit-launch with no launch argv is a usage error (exit 2) ----------
+# Guards the `[ "$#" -ge 1 ] || usage` branch: a no-argv construction is a usage
+# error, never a silent emit of the bare wrapper path (which would be an empty,
+# pinless launch).
+c5() {
+  local code=0
+  "$FDE" --emit-launch >/dev/null 2>&1 || code=$?
+  if [ "$code" -eq 2 ]; then
+    pass "c5: --emit-launch with no launch argv is a usage error (exit 2)"
+  else
+    fail "c5: --emit-launch with no argv should exit 2 (usage), got $code"
+  fi
+}
+
 c1
 c2
 c3
 c4
+c5
 
 if [ "$failures" -ne 0 ]; then
   echo "test-dispatch-launch-pin: $failures failure(s)" >&2
