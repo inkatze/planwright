@@ -392,25 +392,25 @@ Halt and hand back when any of these fires, recording the unit to `tasks.md`
 Awaiting input with the reason (the pre-flight halt protocol above). Each is
 described in full at its point of use:
 
-- **Spec not Ready or Active** — step 4 (Draft/Done/Retired/Superseded; suggest
+- **Spec not Ready or Active:** step 4 (Draft/Done/Retired/Superseded; suggest
   `/spec-kickoff` for Draft).
-- **Missing or erroring validator** — step 5.
-- **No or partial kickoff brief** — step 6.
-- **Freshness-gate halt** — step 7 (anchor mismatch, or an
+- **Missing or erroring validator:** step 5.
+- **No or partial kickoff brief:** step 6.
+- **Freshness-gate halt:** step 7 (anchor mismatch, or an
   absent/unparseable/non-sanctioned/wrong-writer entry).
-- **Dependency not completed** — step 8.
-- **Malformed `dispatch_isolation`** — step 10 (exit 4/5).
-- **Test cannot fail for the right reason** — test-first step 2.
-- **CI logic failure** — a logic-classified failure, or transient retries
+- **Dependency not completed:** step 8.
+- **Malformed `dispatch_isolation`:** step 10 (exit 4/5).
+- **Test cannot fail for the right reason:** test-first step 2.
+- **CI logic failure:** a logic-classified failure, or transient retries
   exhausted then reclassified.
-- **Research reveals an uncovered risk** the brief did not anticipate.
-- **Contract drift** — a meaning-class spec change is needed; route to
+- **Research reveals an uncovered risk:** one the brief did not anticipate.
+- **Contract drift:** a meaning-class spec change is needed; route to
   `/spec-kickoff`.
-- **Ambiguity in the task definition** — `Done when:` or `Deliverables:` admit
+- **Ambiguity in the task definition:** `Done when:` or `Deliverables:` admit
   multiple valid interpretations.
-- **Hard-disqualifier finding in convergence** a review-sequence skill could not
-  resolve.
-- **`gh` not authenticated or push rejected** — the PR step cannot reach GitHub;
+- **Hard-disqualifier finding in convergence:** a review-sequence skill could
+  not resolve it.
+- **`gh` not authenticated or push rejected:** the PR step cannot reach GitHub;
   local work is complete.
 
 ## Invariants
