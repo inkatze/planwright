@@ -246,7 +246,7 @@ nothing is left behind unpushed.
    regenerate the generated sections in place rather than appending, and never
    overwrite body content outside them (handwritten notes survive); re-runs
    never duplicate entries. The PR is always a draft; never mark it ready and
-   never merge (the draft→ready flip is the human's).
+   never merge (the draft→ready flip is the human's call).
 
 ## Observations
 
