@@ -570,6 +570,50 @@ c11() {
   echo "ok c11: untrusted --spec escapes (formed and literal-backslash) are rejected and sanitized"
 }
 
+# ---------------------------------------------------------------------------
+# Case 12 — fail CLOSED when the spec anchor is unresolvable at the fetched
+# origin/main (D-9 "never a silent stale gate"). origin/main is current but has
+# DROPPED the spec bundle upstream, while the stale local main still carries it.
+# With --spec the gate has no current baseline: the script must exit 5 with NO
+# anchor line, never exit 0 with a stale local-main anchor the caller would
+# silently gate on. Local main must stay put on the fail path.
+# ---------------------------------------------------------------------------
+c12() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c12.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q --bare "$tmp/origin.git"
+  git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
+  write_spec "$tmp/primary" demo v1
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "spec v1"
+  gitc "$tmp/primary" branch -M main
+  gitc "$tmp/primary" push -q origin main
+
+  # An upstream change drops specs/demo from origin/main; primary has not fetched,
+  # so its origin/main tracking (and its local main) still carry the stale spec.
+  git clone -q "$tmp/origin.git" "$tmp/dev2" 2>/dev/null
+  rm -rf "$tmp/dev2/specs/demo"
+  gitc "$tmp/dev2" add -A
+  gitc "$tmp/dev2" commit -q -m "drop spec"
+  gitc "$tmp/dev2" push -q origin main
+
+  main_before=$(gitc "$tmp/primary" rev-parse main)
+  set +e
+  out=$(PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state" \
+    "$FETCH" --spec specs/demo "$tmp/primary" 2>/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -eq 5 ] \
+    || fail "c12: expected exit 5 (fail closed; origin/main dropped the spec), got $rc"
+  [ "$(tag_val "$out" fetch)" = fetched ] \
+    || fail "c12: expected fetch=fetched (the fetch itself succeeded), got '$(tag_val "$out" fetch)'"
+  printf '%s\n' "$out" | awk -F"$TAB" '$1=="anchor"{exit 0} END{exit 1}' \
+    && fail "c12: emitted a STALE local-main anchor instead of failing closed"
+  [ "$(gitc "$tmp/primary" rev-parse main)" = "$main_before" ] \
+    || fail "c12: local main moved on the fail-closed path"
+  echo "ok c12: fail closed (exit 5, no stale-main fallback) when origin/main drops the spec"
+}
+
 c1
 c2
 c3
@@ -581,5 +625,6 @@ c8
 c9
 c10
 c11
+c12
 
 echo "PASS: test-dispatch-fetch.sh"

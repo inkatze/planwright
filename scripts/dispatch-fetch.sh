@@ -39,7 +39,8 @@
 # Exit codes:
 #   0  remote current (fetched, or fresh-within-ttl — a prior fetch is still
 #      within the TTL, so no network I/O ran). The gate proceeds against
-#      origin/main.
+#      origin/main; with --spec, an `origin/main` anchor line is guaranteed
+#      present (a success exit never carries a stale or missing anchor).
 #   3  no-remote — structurally offline (no `origin` remote). Offline is
 #      first-class: the caller proceeds DEGRADED, and with --spec the anchor is
 #      computed against local `main` (the only ref available).
@@ -47,6 +48,11 @@
 #      retries. The caller MUST NOT silently proceed against a stale ref: block,
 #      or proceed only under an explicit operator stale flag. No anchor is
 #      printed (never anchor a stale ref).
+#   5  anchor-unresolved — the fetch/currency succeeded but, with --spec, the
+#      spec content anchor could not be computed at origin/main (ref unresolved,
+#      bundle absent there, or the anchor computer failed). No anchor is printed;
+#      the caller MUST NOT gate against a stale/missing anchor — park. Fail
+#      closed rather than fall back to a stale local `main` under a success exit.
 #   2  usage / invalid input / internal failure (fail closed).
 #
 # Environment overrides (tests, worktree callers):
@@ -255,6 +261,26 @@ emit_anchor() {
   return 0
 }
 
+# Emit the anchor over the CURRENT origin/main on a success (exit-0) path,
+# failing CLOSED. With --spec the anchor MUST come from origin/main — the very
+# ref the gate compares against: if it cannot be computed there (origin/main
+# unresolved, the bundle absent at that ref, or the anchor computer failing),
+# there is no current baseline, so we must not silently fall back to a stale
+# local `main` or emit nothing under a success exit — either would let the caller
+# gate on a stale or missing anchor (the silent-stale-gate D-9 forbids). Print no
+# anchor, note the reason, return 5 (the caller parks on any nonzero). With no
+# --spec there is nothing to require: return 0.
+emit_anchor_strict() {
+  [ -n "$spec_rel" ] || return 0
+  if _hash=$(anchor_at_ref origin/main); then
+    printf 'anchor%s%s%sorigin/main\n' "$TAB" "$_hash" "$TAB"
+    return 0
+  fi
+  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $anchor_script missing/not executable" >&2
+  printf '%s\n' "dispatch-fetch: fetch succeeded but the spec anchor is unresolvable at origin/main; parking rather than gating on a stale/missing anchor" >&2
+  return 5
+}
+
 # --- Structural no-remote: offline is first-class ----------------------------
 if ! git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
   printf 'fetch%sno-remote\n' "$TAB"
@@ -282,7 +308,7 @@ fi
 
 if [ "$within_ttl" -eq 1 ]; then
   printf 'fetch%sfresh-within-ttl\n' "$TAB"
-  emit_anchor origin/main main
+  emit_anchor_strict || exit $?
   exit 0
 fi
 
@@ -337,7 +363,9 @@ if mkdir -p "$state_dir" 2>/dev/null; then
 fi
 
 printf 'fetch%sfetched\n' "$TAB"
-# The gate reads the fetched origin/main; fall back to local main only if
-# origin/main does not resolve (an unusual remote without a main branch).
-emit_anchor origin/main main
+# The gate reads the fetched origin/main. With --spec the anchor must come from
+# origin/main; fail closed (exit 5, no anchor) rather than fall back to a stale
+# local `main` under this success exit, so the caller never gates on a
+# stale/missing anchor. The caller parks on any nonzero.
+emit_anchor_strict || exit $?
 exit 0
