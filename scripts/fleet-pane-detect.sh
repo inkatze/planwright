@@ -84,9 +84,28 @@ FL="$here/fleet-liveness.sh"
 FS="$here/fleet-state.sh"
 RCK="$here/resolve-config-knob.sh"
 
+# The canonical echo-discipline sanitizer, sourced the way fleet-liveness.sh
+# does: caller-controlled values (pane path, backend, handles) are wrapped in
+# sanitize_printable before reaching stderr, so a crafted argument cannot inject
+# terminal escapes into an operator's display (doctrine/security-posture.md).
+# shellcheck source=scripts/echo-safety.sh
+. "$here/echo-safety.sh"
+
 usage() {
   echo "usage: fleet-pane-detect.sh classify --pane <file> --backend <b> --worker <w> [--scope <s>] [--root <dir>] [--reconcile-ttl <sec>] [--now <epoch>] [--state-dir <dir>] [--footer-lines <n>]" >&2
   exit 2
+}
+
+# valid_field <value> — the fleet field grammar (fleet-liveness.sh valid_field):
+# non-empty, not `.`/`..`, only [A-Za-z0-9._=@:-], at most 128 chars. A worker /
+# scope carrying a tab, newline, or control char would silently break the
+# tab-delimited store lookup and the state-file key; reject it up front.
+valid_field() {
+  vf_v=$1
+  case $vf_v in
+    "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
+  esac
+  [ "${#vf_v}" -le 128 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -311,8 +330,20 @@ case $footer_lines in
   "" | *[!0-9]* | 0) footer_lines=8 ;;
 esac
 
+# Validate the caller-controlled handles against the fleet field grammar before
+# they key a store lookup or a state filename (a tab / newline / control char
+# would silently break both). Same discipline as fleet-liveness.sh.
+valid_field "$worker" || {
+  echo "fleet-pane-detect: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+  exit 2
+}
+valid_field "$scope" || {
+  echo "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+  exit 2
+}
+
 [ -f "$pane" ] && [ -r "$pane" ] || {
-  echo "fleet-pane-detect: pane file not readable: $pane" >&2
+  echo "fleet-pane-detect: pane file not readable: $(sanitize_printable "$pane" "(unprintable path)")" >&2
   exit 2
 }
 
@@ -331,7 +362,7 @@ else
     tmux) push_capable=0 ;;
     subagent | print | in-session) push_capable=1 ;;
     *)
-      echo "fleet-pane-detect: unknown backend '$backend' (tmux|subagent|print|in-session)" >&2
+      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
       exit 2
       ;;
   esac
@@ -340,7 +371,7 @@ case $push_capable in
   0) ;; # push-capable — apply the freshness gate below
   1) ;; # hook-less — the detector is the primary path; skip the gate
   *)
-    echo "fleet-pane-detect: unknown backend '$backend' (tmux|subagent|print|in-session)" >&2
+    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
     exit 2
     ;;
 esac
@@ -385,7 +416,7 @@ if [ -z "$state_dir" ]; then
   fi
 fi
 mkdir -p "$state_dir" 2>/dev/null || {
-  echo "fleet-pane-detect: cannot create the debounce state dir $state_dir" >&2
+  echo "fleet-pane-detect: cannot create the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 }
 # Key the state file by scope+worker. A readable sanitized prefix aids
@@ -425,7 +456,7 @@ fi
 
 # Persist the new state atomically (same-dir temp + rename).
 state_tmp=$(mktemp "$state_dir/.tmp.XXXXXX" 2>/dev/null) || {
-  echo "fleet-pane-detect: cannot create a temp file under $state_dir" >&2
+  echo "fleet-pane-detect: cannot create a temp file under $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 }
 if ! printf '%s\n%s\n' "$raw" "$confirmed" >"$state_tmp"; then

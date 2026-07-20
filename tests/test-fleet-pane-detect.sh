@@ -429,4 +429,26 @@ uc=0
 [ "$uc" -eq 2 ] || fail "unknown subcommand must be a usage error (exit 2), got '$uc'"
 echo "ok: usage-error floor"
 
+# --- field-grammar validation of --worker / --scope -----------------------
+# A handle carrying a tab, newline, or control char would silently break the
+# tab-delimited store lookup and the state-file key; it must be refused (exit 2),
+# matching fleet-liveness.sh's valid_field discipline. A long-but-legal handle
+# over the 128-char bound is refused too.
+vg_state="$tmp/state-vg"
+mkdir -p "$vg_state"
+uc=0
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker "$(printf 'bad\tworker')" \
+  --state-dir "$vg_state" >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "a worker handle with a tab must be refused (exit 2), got '$uc'"
+uc=0
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-ok \
+  --scope "$(printf 'bad\nscope')" --state-dir "$vg_state" >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "a scope with a newline must be refused (exit 2), got '$uc'"
+uc=0
+long_handle=$(printf 'a%.0s' $(seq 1 200))
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker "$long_handle" \
+  --state-dir "$vg_state" >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "an over-128-char worker handle must be refused (exit 2), got '$uc'"
+echo "ok: malformed --worker / --scope refused (field-grammar validation)"
+
 echo "ok: test-fleet-pane-detect"
