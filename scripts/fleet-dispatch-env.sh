@@ -101,13 +101,24 @@ if [ "$1" = "--emit-launch" ]; then
   # without a permission flood (D-5, REQ-B1.2).
   self=$0
   case $self in
-    /*) ;;
-    *)
-      # Absolutize relative to the wrapper's own directory. If that directory
-      # cannot be resolved, keep $0 as given rather than collapsing to a broken
+    /*) ;; # already absolute
+    */*)
+      # A directory-qualified relative path (e.g. `scripts/fleet-dispatch-env.sh`):
+      # absolutize against its own directory. If that directory cannot be
+      # resolved, keep $0 as given rather than collapsing to a broken
       # "/<basename>" — the guard then resolves it against the launch cwd.
       _dir=$(cd "$(dirname "$self")" 2>/dev/null && pwd) || _dir=
       [ -n "$_dir" ] && self="$_dir/$(basename "$self")"
+      ;;
+    *)
+      # A bare name found on PATH (no slash): resolve it to its real location via
+      # PATH, not the caller's CWD (`dirname` of a bare name is `.`, which would
+      # emit a non-existent "/<cwd>/<name>"). If PATH resolution fails, keep $0
+      # as given rather than fabricating a CWD-relative path.
+      _resolved=$(command -v "$self" 2>/dev/null) || _resolved=
+      case $_resolved in
+        /*) self=$_resolved ;;
+      esac
       ;;
   esac
   # Construct the launch line: the wrapper prefix (which applies the pin when the

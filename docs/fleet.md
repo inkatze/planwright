@@ -352,8 +352,9 @@ capture. Claude Code can render a greyed-out *prompt suggestion* (ghost text) in
 that line — text the operator never typed — which a naive capture could mistake
 for real pending input. planwright removes the ambiguity at the source: the
 dispatch primitive **constructs** every fleet-launched session through
-`scripts/fleet-dispatch-env.sh` as a code path — `fleet-dispatch-env.sh
---emit-launch <launch-argv>` emits the wrapper-prefixed launch command — so the
+`scripts/fleet-dispatch-env.sh` as a code path —
+`scripts/fleet-dispatch-env.sh --emit-launch <launch-argv>` emits the
+wrapper-prefixed launch command — so the
 pin `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` is baked into the launched
 process's environment by the construction itself, not by a prose step the model
 must remember (D-5, D-10, REQ-B1.1, REQ-B1.2). This is prevention, not detection
@@ -361,7 +362,7 @@ must remember (D-5, D-10, REQ-B1.1, REQ-B1.2). This is prevention, not detection
 every time.
 
 The pin rides an **auto-approved launch shape** (D-5): the emitted verb is the
-repo-contained `fleet-dispatch-env.sh` path the `worker-command-guard`
+repo-contained `scripts/fleet-dispatch-env.sh` path the `worker-command-guard`
 literal-path resolution auto-approves, so the pinned launch never floods the
 worker and never falls back to the bare launch that once dropped the pin. The
 allow rules that front it follow one discipline worth knowing when you add or

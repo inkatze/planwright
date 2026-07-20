@@ -26,6 +26,9 @@
 #   c6 (REQ-B1.1): the emitted launch is boundary-safe — a spaced wrapper path
 #      and a metacharacter dispatch token survive re-splitting (no broken launch,
 #      no injection), matching the exec path's `exec "$@"` argument safety.
+#   c7 (REQ-B1.2): a bare-name (PATH) invocation emits the wrapper's real
+#      location, not a cwd-relative fabrication, so the emitted verb stays the
+#      guard-trusted scripts/*.sh path.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-dispatch-launch-pin.sh
@@ -225,12 +228,39 @@ EOF
   rm -rf "$tmp"
 }
 
+# --- c7: a bare-name (PATH) invocation emits the wrapper's real location ------
+# When the wrapper is invoked by bare name resolved through PATH, `$0` has no
+# slash and `dirname` is `.`; a naive absolutization would emit a CWD-relative
+# "/<cwd>/<name>" verb (broken, and not the guard-trusted scripts/*.sh path).
+# The construction must resolve the bare name via PATH to its real location.
+c7() {
+  local tmp emitted
+  tmp=$(mktemp -d) || {
+    fail "c7: mktemp failed"
+    return
+  }
+  # Invoke by bare name from an UNRELATED cwd, with the wrapper's dir on PATH.
+  emitted=$(cd "$tmp" && PATH="$REPO_ROOT/scripts:$PATH" fleet-dispatch-env.sh --emit-launch claude --model opus) || {
+    fail "c7: bare-name --emit-launch failed"
+    rm -rf "$tmp"
+    return
+  }
+  # The emitted (shell-quoted) verb must be the wrapper's real path, not a
+  # cwd-relative fabrication.
+  case $emitted in
+    "'$FDE'"*) pass "c7: bare-name PATH invocation emits the real wrapper path, not a cwd-relative one (REQ-B1.2)" ;;
+    *) fail "c7: bare-name invocation emitted the wrong verb (want prefix '$FDE'): $emitted" ;;
+  esac
+  rm -rf "$tmp"
+}
+
 c1
 c2
 c3
 c4
 c5
 c6
+c7
 
 if [ "$failures" -ne 0 ]; then
   echo "test-dispatch-launch-pin: $failures failure(s)" >&2
