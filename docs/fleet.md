@@ -350,15 +350,26 @@ gate belongs to the human at every tier.
 Fleet supervision reads a worker's (or an observed tower's) input line by pane
 capture. Claude Code can render a greyed-out *prompt suggestion* (ghost text) in
 that line — text the operator never typed — which a naive capture could mistake
-for real pending input. planwright removes the ambiguity at the source: every
-fleet-launched session goes through `scripts/fleet-dispatch-env.sh`, which pins
-`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` into the launched process's
-environment (D-10, REQ-D1.1). This is prevention, not detection — an official
-disable switch applied at launch beats a per-capture heuristic every time.
+for real pending input. planwright removes the ambiguity at the source: the
+dispatch primitive **constructs** every fleet-launched session through
+`scripts/fleet-dispatch-env.sh` as a code path —
+`scripts/fleet-dispatch-env.sh --emit-launch <launch-argv>` emits the
+wrapper-prefixed launch command (it prints the line; it does not itself mutate
+the environment). When that line runs, the wrapper prefix sets the pin
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` in the launched process's
+environment — so the pin is guaranteed by the construction (the prefix is always
+there), not by a prose step the model must remember (D-5, D-10, REQ-B1.1,
+REQ-B1.2). This is prevention, not detection
+— an official disable switch applied at launch beats a per-capture heuristic
+every time.
 
-The pin rides an **auto-approved launch shape** (D-5), so the allow rules that
-front it follow one discipline worth knowing when you add or edit them:
-see the [glob discipline](overlays.md#path-scoped-allow-rules-use-the-slash-star-glob).
+The pin rides an **auto-approved launch shape** (D-5): the emitted verb is the
+repo-contained `scripts/fleet-dispatch-env.sh` path the `worker-command-guard`
+literal-path resolution auto-approves, so the pinned launch never floods the
+worker and never falls back to the bare launch that once dropped the pin. The
+allow rules that front it follow one discipline worth knowing when you add or
+edit them: see the
+[glob discipline](overlays.md#path-scoped-allow-rules-use-the-slash-star-glob).
 
 A **backspace-probe** disambiguation check — send a backspace to the pane and
 diff it before and after to tell real input from a rendered suggestion — stays

@@ -1,0 +1,378 @@
+#!/bin/bash
+# Tests for the ghost-text pin in the dispatch launch primitive
+# (fleet-hardening Task 5; D-5, REQ-B1.1, REQ-B1.2, REQ-E1.3).
+#
+# The worker launch construction applies CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=
+# false as a CODE PATH: `fleet-dispatch-env.sh --emit-launch <launch-argv>`
+# deterministically constructs the pin-carrying wrapped launch command, so the
+# pin is a structural property of dispatch (the wrapper prefix is emitted by the
+# primitive), never a SKILL-prose instruction the model must remember to apply.
+# The emitted shape is one the worker-command-guard auto-approves (its verb is a
+# repo-contained scripts/*.sh, trusted by REQ-A1.10 of worker-permission-
+# ergonomics), so the pin-carrying launch never floods the worker with
+# permission prompts and never falls back to the 2026-07-19 BARE launch that
+# dropped the pin (D-5).
+#
+# Coverage (mapped to the task Done-when):
+#   c1 (REQ-B1.1): the emitted launch, when run, sets the ghost-text var on the
+#      LAUNCHED process — the pin is applied by the primitive's construction,
+#      asserted without any SKILL-prose step in the path.
+#   c2 (REQ-B1.2): the emitted (wrapped) launch command is auto-approved by the
+#      worker-command-guard decision path (no permission prompt/flood).
+#   c3 (REQ-B1.2 regression): the 2026-07-19 bare-launch shape is NOT the
+#      auto-approved path (the guard defers it) — the wrapped shape replaces it.
+#   c4 (REQ-E1.3): no model/API call in the launch-construction decision path.
+#   c5 (usage): --emit-launch with no launch argv is a usage error (exit 2).
+#   c6 (REQ-B1.1): the emitted launch is boundary-safe — a spaced wrapper path
+#      and a metacharacter dispatch token survive re-splitting (no broken launch,
+#      no injection), matching the exec path's `exec "$@"` argument safety.
+#   c7 (REQ-B1.2): a bare-name (PATH) invocation emits the wrapper's real
+#      location, not a cwd-relative fabrication, so the emitted verb stays the
+#      guard-trusted scripts/*.sh path.
+#   c8 (REQ-B1.1/B1.2): an apostrophe in the wrapper path or an argv token is
+#      emitted via the guard-accepted `'"'"'` form (still auto-approved, still
+#      round-trips); only a newline is refused (exit 2).
+#   c9 (REQ-B1.2): a relative PATH element still yields the absolute wrapper verb
+#      (a relative `command -v` result is absolutized, not emitted bare).
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor):
+#   ./tests/test-dispatch-launch-pin.sh
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$here/.." && pwd)
+FDE="$REPO_ROOT/scripts/fleet-dispatch-env.sh"
+GUARD="$REPO_ROOT/scripts/worker-command-guard.sh"
+VAR=CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION
+
+failures=0
+GOUT=""
+GCODE=0
+
+pass() { echo "ok: $1"; }
+fail() {
+  echo "FAIL: $1" >&2
+  failures=$((failures + 1))
+}
+
+[ -x "$FDE" ] || {
+  echo "FAIL: $FDE missing or not executable" >&2
+  exit 1
+}
+[ -x "$GUARD" ] || {
+  echo "FAIL: $GUARD missing or not executable" >&2
+  exit 1
+}
+command -v jq >/dev/null 2>&1 || {
+  echo "FAIL: jq is required to run this suite" >&2
+  exit 1
+}
+
+# run_guard <command>: feed <command> through the worker-command-guard PreToolUse
+# decision path with a cwd inside this repo (so a repo-contained script verb
+# resolves in-repo) and capture its stdout into GOUT and its exit code into
+# GCODE. The guard emits an `allow` object for an auto-approved shape and nothing
+# (defer) otherwise.
+run_guard() {
+  local cwd="${2:-$REPO_ROOT}" payload
+  payload=$(jq -n --arg c "$1" --arg w "$cwd" \
+    '{tool_name: "Bash", tool_input: {command: $c}, cwd: $w}')
+  GOUT=$(printf '%s' "$payload" | /bin/bash "$GUARD" 2>/dev/null)
+  GCODE=$?
+}
+# guard_invariants_ok <label>: enforce the guard's universal contract (mirrors
+# test-worker-command-guard.sh) before interpreting GOUT — it must exit 0 and
+# must NEVER emit deny/ask (allow or nothing). Without this, an is_defer check
+# would false-pass if the guard crashed to empty stdout with a nonzero exit.
+guard_invariants_ok() {
+  if [ "$GCODE" -ne 0 ]; then
+    fail "$1: guard exited nonzero ($GCODE) — must always exit 0"
+    return 1
+  fi
+  if printf '%s' "$GOUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(deny|ask)"'; then
+    fail "$1: guard emitted deny/ask — it must only ever allow or defer"
+    return 1
+  fi
+  return 0
+}
+is_allow() { printf '%s' "$GOUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'; }
+is_defer() { [ -z "$(printf '%s' "$GOUT" | tr -d '[:space:]')" ]; }
+
+# --- c1: the emitted launch pins the var on the launched process (REQ-B1.1) ---
+# The constructor emits "<wrapper-abs> <launch words...>". Executing it launches
+# the (stand-in) worker THROUGH the wrapper, which pins the var into the
+# launched process's environment. `claude` is stood in for by a script that
+# prints the value it actually sees, so the assertion is on the LAUNCHED
+# process's environment (the test-spec REQ-B1.1 inspection), with no prose step.
+c1() {
+  local tmp fake emitted out
+  tmp=$(mktemp -d) || {
+    fail "c1: mktemp failed"
+    return
+  }
+  fake="$tmp/fake-claude.sh"
+  cat >"$fake" <<EOF
+#!/bin/sh
+printf 'seen=%s\n' "\${$VAR-<unset>}"
+printf 'args=%s\n' "\$*"
+EOF
+  chmod +x "$fake"
+  emitted=$("$FDE" --emit-launch "$fake" --worktree task-5 --model opus) || {
+    fail "c1: --emit-launch exited nonzero"
+    rm -rf "$tmp"
+    return
+  }
+  # End-to-end: running the emitted launch pins the var on the launched process
+  # and delivers the dispatch tokens in order (the wrapper prefix is emitted by
+  # CODE, not assembled by the model). Asserted on behaviour, not on the exact
+  # quoting style, so the check survives a change in how tokens are quoted.
+  out=$(sh -c "$emitted") || {
+    fail "c1: running the emitted launch failed"
+    rm -rf "$tmp"
+    return
+  }
+  if ! printf '%s\n' "$out" | grep -qx "seen=false"; then
+    fail "c1: launched process did not see $VAR=false, got: $out"
+    rm -rf "$tmp"
+    return
+  fi
+  if printf '%s\n' "$out" | grep -qx "args=--worktree task-5 --model opus"; then
+    pass "c1: emitted launch pins $VAR=false and delivers the dispatch tokens in order (REQ-B1.1)"
+  else
+    fail "c1: launched process did not receive the dispatch tokens in order, got: $out"
+  fi
+  rm -rf "$tmp"
+}
+
+# --- c2: the wrapped launch shape is auto-approved by the guard (REQ-B1.2) -----
+c2() {
+  local emitted
+  emitted=$("$FDE" --emit-launch claude --worktree task-5 --model opus /execute-task 5) || {
+    fail "c2: --emit-launch exited nonzero"
+    return
+  }
+  run_guard "$emitted"
+  guard_invariants_ok "c2" || return
+  if is_allow; then
+    pass "c2: emitted wrapped launch is auto-approved by worker-command-guard (REQ-B1.2)"
+  else
+    fail "c2: emitted wrapped launch was NOT auto-approved (no flood-free path); guard emitted: '${GOUT:-<defer>}'"
+  fi
+}
+
+# --- c3: the 2026-07-19 bare-launch shape is NOT the auto-approved path --------
+# The bare launch (no wrapper, `--permission-mode auto`) is the fallback that
+# dropped the pin. Its verb is `claude` — not an enumerated safe shape — so the
+# guard defers it: it is not the path taken; the wrapped shape (c2) is.
+c3() {
+  run_guard "claude --worktree task-5 --tmux=classic --model opus --permission-mode auto"
+  guard_invariants_ok "c3" || return
+  if is_defer; then
+    pass "c3: the 2026-07-19 bare-launch shape is not auto-approved — replaced by the wrapped shape (REQ-B1.2)"
+  else
+    fail "c3: the bare-launch shape was unexpectedly auto-approved: '$GOUT'"
+  fi
+}
+
+# --- c4: no model/API call in the launch-construction decision path (E1.3) -----
+# A source grep asserts the constructor invokes no LLM/model endpoint (the same
+# negative-assertion idiom sibling REQ-E1.3 mechanisms use). The launch VERB
+# (`claude`) is a caller-supplied argument, never a literal in the constructor,
+# so the construction path contains no model/API surface of its own.
+c4() {
+  local src code
+  src="$FDE"
+  # Fail loudly if the source can't be read: an unreadable file would leave
+  # `code` empty and vacuously "pass" the no-model/API assertion. The `|| true`
+  # below then only absorbs grep's benign exit 1 (a file that is all comments),
+  # never a read error.
+  [ -r "$src" ] || {
+    fail "c4: launch-construction source is not readable: $src"
+    return
+  }
+  code=$(grep -vE '^[[:space:]]*#' "$src" || true)
+  if printf '%s\n' "$code" | grep -nE '(^|[^A-Za-z_./])claude[[:space:]]' >/dev/null \
+    || printf '%s\n' "$code" | grep -niE 'anthropic|/v1/messages|https?://' >/dev/null \
+    || printf '%s\n' "$code" | grep -niwE '(curl|wget)' >/dev/null; then
+    fail "c4: $src references a model/API/network surface in the launch-construction path (REQ-E1.3)"
+  else
+    pass "c4: no model/API call in the launch-construction decision path (REQ-E1.3)"
+  fi
+}
+
+# --- c5: --emit-launch with no launch argv is a usage error (exit 2) ----------
+# Guards the `[ "$#" -ge 1 ] || usage` branch: a no-argv construction is a usage
+# error, never a silent emit of the bare wrapper path (which would be an empty,
+# pinless launch).
+c5() {
+  local code=0
+  "$FDE" --emit-launch >/dev/null 2>&1 || code=$?
+  if [ "$code" -eq 2 ]; then
+    pass "c5: --emit-launch with no launch argv is a usage error (exit 2)"
+  else
+    fail "c5: --emit-launch with no argv should exit 2 (usage), got $code"
+  fi
+}
+
+# --- c6: the emitted launch is boundary-safe (spaces + metacharacters) --------
+# Shell-quoting the emitted tokens preserves the argument-boundary safety the
+# exec path gets from `exec "$@"`: a wrapper path in a directory whose name
+# contains a space, and a dispatch token carrying a shell metacharacter, both
+# survive re-splitting by the backend that runs the line — no broken launch, no
+# injection. Guards against a regression to a naive space-joined emit.
+c6() {
+  local tmp dir fake emitted out
+  tmp=$(mktemp -d) || {
+    fail "c6: mktemp failed"
+    return
+  }
+  dir="$tmp/a b" # a space in the launch-target path
+  mkdir -p "$dir"
+  fake="$dir/fake claude.sh"
+  cat >"$fake" <<EOF
+#!/bin/sh
+printf 'seen=%s\n' "\${$VAR-<unset>}"
+printf 'arg1=%s\n' "\${1-<none>}"
+EOF
+  chmod +x "$fake"
+  # A launch token carrying a shell metacharacter; a naive unquoted emit would
+  # split or execute it when the line is run.
+  emitted=$("$FDE" --emit-launch "$fake" 'x;touch PWNED') || {
+    fail "c6: --emit-launch exited nonzero"
+    rm -rf "$tmp"
+    return
+  }
+  out=$(cd "$tmp" && sh -c "$emitted") || {
+    fail "c6: running the emitted launch failed: $emitted"
+    rm -rf "$tmp"
+    return
+  }
+  if [ -e "$tmp/PWNED" ]; then
+    fail "c6: a metacharacter token was executed by the shell (injection): $emitted"
+  elif printf '%s\n' "$out" | grep -qx "seen=false" \
+    && printf '%s\n' "$out" | grep -qx "arg1=x;touch PWNED"; then
+    pass "c6: emitted launch is boundary-safe across spaces and metacharacters (REQ-B1.1)"
+  else
+    fail "c6: spaced-path / metacharacter token was not delivered intact, got: $out"
+  fi
+  rm -rf "$tmp"
+}
+
+# --- c7: a bare-name (PATH) invocation emits the wrapper's real location ------
+# When the wrapper is invoked by bare name resolved through PATH, `$0` has no
+# slash and `dirname` is `.`; a naive absolutization would emit a CWD-relative
+# "/<cwd>/<name>" verb (broken, and not the guard-trusted scripts/*.sh path).
+# The construction must resolve the bare name via PATH to its real location.
+c7() {
+  local tmp emitted
+  tmp=$(mktemp -d) || {
+    fail "c7: mktemp failed"
+    return
+  }
+  # Invoke by bare name from an UNRELATED cwd, with the wrapper's dir on PATH.
+  emitted=$(cd "$tmp" && PATH="$REPO_ROOT/scripts:$PATH" fleet-dispatch-env.sh --emit-launch claude --model opus) || {
+    fail "c7: bare-name --emit-launch failed"
+    rm -rf "$tmp"
+    return
+  }
+  # The emitted (shell-quoted) verb must be the wrapper's real path, not a
+  # cwd-relative fabrication.
+  case $emitted in
+    "'$FDE'"*) pass "c7: bare-name PATH invocation emits the real wrapper path, not a cwd-relative one (REQ-B1.2)" ;;
+    *) fail "c7: bare-name invocation emitted the wrong verb (want prefix '$FDE'): $emitted" ;;
+  esac
+  rm -rf "$tmp"
+}
+
+# --- c8: an apostrophe (in the wrapper path or an argv token) is handled -------
+# An embedded single quote is emitted with the backslash-free `'"'"'` form the
+# guard accepts, so a checkout path containing an apostrophe (e.g.
+# /Users/O'Connor) or an apostrophe in a launch token does NOT break the
+# auto-approved launch. A newline, which cannot sit in a single-line launch, is
+# refused (exit 2).
+c8() {
+  local tmp aporepo fde2 emitted out
+  tmp=$(mktemp -d) || {
+    fail "c8: mktemp failed"
+    return
+  }
+  # (1) Wrapper path containing an apostrophe: copy the wrapper into an
+  #     apostrophe-named repo, invoke it there, and assert the emitted launch is
+  #     still auto-approved by the guard (cwd = that repo).
+  aporepo="$tmp/O'Connor/repo"
+  mkdir -p "$aporepo/scripts"
+  : >"$aporepo/.git"
+  cp "$FDE" "$aporepo/scripts/fleet-dispatch-env.sh"
+  chmod +x "$aporepo/scripts/fleet-dispatch-env.sh"
+  fde2="$aporepo/scripts/fleet-dispatch-env.sh"
+  emitted=$("$fde2" --emit-launch claude --worktree task-5) || {
+    fail "c8: emit from an apostrophe wrapper path failed"
+    rm -rf "$tmp"
+    return
+  }
+  run_guard "$emitted" "$aporepo"
+  if guard_invariants_ok "c8" && is_allow; then
+    pass "c8: an apostrophe wrapper path still yields an auto-approved launch (REQ-B1.2)"
+  else
+    fail "c8: apostrophe wrapper path was not auto-approved; guard emitted: '${GOUT:-<defer>}'"
+  fi
+  # (2) An apostrophe in a launch token round-trips through the emitted line.
+  local fake
+  fake="$tmp/fake.sh"
+  cat >"$fake" <<EOF
+#!/bin/sh
+printf 'arg1=%s\n' "\${1-<none>}"
+EOF
+  chmod +x "$fake"
+  out=$(sh -c "$("$FDE" --emit-launch "$fake" "a'b")")
+  if printf '%s\n' "$out" | grep -qx "arg1=a'b"; then
+    pass "c8b: an apostrophe in a launch token round-trips intact (REQ-B1.1)"
+  else
+    fail "c8b: apostrophe token not delivered intact, got: $out"
+  fi
+  # (3) A newline token is refused (cannot sit in a single-line launch).
+  local code=0
+  "$FDE" --emit-launch claude "$(printf 'a\nb')" >/dev/null 2>&1 || code=$?
+  if [ "$code" -eq 2 ]; then
+    pass "c8c: a newline launch token is refused (exit 2)"
+  else
+    fail "c8c: newline token: expected exit 2, got exit $code"
+  fi
+  rm -rf "$tmp"
+}
+
+# --- c9: a relative PATH element still yields the absolute wrapper verb -------
+# When PATH holds a relative element (e.g. `PATH=scripts:...` from the repo
+# root), `command -v` returns a RELATIVE path; the construction must absolutize
+# it so the emitted verb stays the guard-trusted absolute scripts/*.sh path
+# rather than a bare / cwd-relative one that the guard would defer on.
+c9() {
+  local emitted
+  emitted=$(cd "$REPO_ROOT" && PATH="scripts:$PATH" fleet-dispatch-env.sh --emit-launch claude --model opus) || {
+    fail "c9: relative-PATH --emit-launch failed"
+    return
+  }
+  case $emitted in
+    "'$FDE'"*) pass "c9: a relative PATH element still emits the absolute wrapper path (REQ-B1.2)" ;;
+    *) fail "c9: relative-PATH invocation emitted a non-absolute verb: $emitted" ;;
+  esac
+}
+
+c1
+c2
+c3
+c4
+c5
+c6
+c7
+c8
+c9
+
+if [ "$failures" -ne 0 ]; then
+  echo "test-dispatch-launch-pin: $failures failure(s)" >&2
+  exit 1
+fi
+echo "ok: test-dispatch-launch-pin"
