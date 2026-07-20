@@ -49,6 +49,7 @@ VAR=CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION
 
 failures=0
 GOUT=""
+GCODE=0
 
 pass() { echo "ok: $1"; }
 fail() {
@@ -71,13 +72,30 @@ command -v jq >/dev/null 2>&1 || {
 
 # run_guard <command>: feed <command> through the worker-command-guard PreToolUse
 # decision path with a cwd inside this repo (so a repo-contained script verb
-# resolves in-repo) and capture its stdout into GOUT. The guard emits an `allow`
-# object for an auto-approved shape and nothing (defer) otherwise.
+# resolves in-repo) and capture its stdout into GOUT and its exit code into
+# GCODE. The guard emits an `allow` object for an auto-approved shape and nothing
+# (defer) otherwise.
 run_guard() {
   local payload
   payload=$(jq -n --arg c "$1" --arg w "$REPO_ROOT" \
     '{tool_name: "Bash", tool_input: {command: $c}, cwd: $w}')
   GOUT=$(printf '%s' "$payload" | /bin/bash "$GUARD" 2>/dev/null)
+  GCODE=$?
+}
+# guard_invariants_ok <label>: enforce the guard's universal contract (mirrors
+# test-worker-command-guard.sh) before interpreting GOUT — it must exit 0 and
+# must NEVER emit deny/ask (allow or nothing). Without this, an is_defer check
+# would false-pass if the guard crashed to empty stdout with a nonzero exit.
+guard_invariants_ok() {
+  if [ "$GCODE" -ne 0 ]; then
+    fail "$1: guard exited nonzero ($GCODE) — must always exit 0"
+    return 1
+  fi
+  if printf '%s' "$GOUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"(deny|ask)"'; then
+    fail "$1: guard emitted deny/ask — it must only ever allow or defer"
+    return 1
+  fi
+  return 0
 }
 is_allow() { printf '%s' "$GOUT" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'; }
 is_defer() { [ -z "$(printf '%s' "$GOUT" | tr -d '[:space:]')" ]; }
@@ -136,6 +154,7 @@ c2() {
     return
   }
   run_guard "$emitted"
+  guard_invariants_ok "c2" || return
   if is_allow; then
     pass "c2: emitted wrapped launch is auto-approved by worker-command-guard (REQ-B1.2)"
   else
@@ -149,6 +168,7 @@ c2() {
 # guard defers it: it is not the path taken; the wrapped shape (c2) is.
 c3() {
   run_guard "claude --worktree task-5 --tmux=classic --model opus --permission-mode auto"
+  guard_invariants_ok "c3" || return
   if is_defer; then
     pass "c3: the 2026-07-19 bare-launch shape is not auto-approved — replaced by the wrapped shape (REQ-B1.2)"
   else
