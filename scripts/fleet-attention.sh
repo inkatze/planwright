@@ -225,7 +225,8 @@ resolve_home() {
 # the Task 9 lock. Copy-filter-append-rename so a concurrent reader sees only a
 # complete store and the worker never appears twice (a state store, not a log).
 # The record is assembled HERE, with the heartbeat timestamp stamped UNDER the
-# lock (below), so this is the single authority for the 8-field record layout.
+# lock (below), so this is the single authority for the record layout (the 8
+# shipped fields plus the optional additive park reason at field 9).
 # The optional <guard> `unless-awaiting` makes the upsert a clean no-op when
 # the worker's CURRENT row is awaiting-input, with the check made inside this
 # same critical section — the atomic escalation-preserve primitive the

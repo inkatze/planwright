@@ -385,3 +385,22 @@ type, so it is robust to which one a fork-park raises; and if a fork type raises
 D-3's reconcile backstop plus the retained heartbeat-age `hung` classifier catch it
 (the three-layer defense-in-depth of risk row 3) — never the silent 7-hour blindness.
 No significant unanticipated risk surfaced; no stop condition.
+
+**`idle_prompt` vs the terminal Stop-downgrade (a convergence-review fork, deferred to
+the same `[manual]` check).** `idle_prompt` is the most likely `notification_type` for
+the central `AskUserQuestion` fork, so it stays in the push set. But `idle_prompt` is
+also the "turn ended, agent idle at the prompt" condition — exactly when the `Stop`
+hook fires. For the other two push types (`agent_needs_input`, `elicitation_dialog`)
+a tool call is still pending, so the turn has not ended and no `Stop` fires; for
+`idle_prompt`, if `Notification` lands before `Stop`, the terminal exit edge clears the
+fresh fork-park to `idle` (and the reconcile cannot recover a downgraded-to-`idle` row).
+This is arguably self-correcting — a genuine mid-turn fork raises no `Stop`, and a real
+turn-end idle *should* resolve to `idle` — but it hinges on the undocumented
+Notification/Stop firing order. The live `[manual]` check must confirm that order for
+`idle_prompt`, and the human decides between: **(a)** keep `idle_prompt` in the push
+set and accept the self-correcting behavior (recommended: it is the primary fork
+signal); **(b)** exempt an `idle_prompt`-reason park from the terminal clobber (risks a
+stuck `awaiting-human` on a real turn-end idle); or **(c)** drop `idle_prompt` from the
+push set (risks missing the primary `AskUserQuestion` fork). Surfaced as a queued fork
+in this task's PR, not resolved in code — every option has a downside the live
+confirmation must inform.

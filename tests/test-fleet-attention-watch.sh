@@ -172,6 +172,26 @@ grep -q "^w1$" "$cblog7" || fail "watch --once did not run a pass"
 ok "watch --once runs a single pass and returns"
 
 # ---------------------------------------------------------------------------
+# 7b. The watch fires for a NON-park awaiting-human row (a permission / flailing
+#     decide) too, with an empty reason — the tower learns of every
+#     awaiting-human cause and distinguishes a fork-park by its non-empty reason.
+# ---------------------------------------------------------------------------
+h7b="$tmp/h7b"
+cblog7b="$tmp/cb7b.log"
+: >"$cblog7b"
+cb7b="$tmp/cb7b.sh"
+cat >"$cb7b" <<EOF
+#!/bin/sh
+printf '[%s][%s][%s]\n' "\$1" "\$2" "\$3" >>"$cblog7b"
+EOF
+chmod +x "$cb7b"
+aenv "$h7b" "$FA" decide w1 spec-a "Approve?" "hold" "A|B" high >/dev/null || fail "decide failed"
+watch "$h7b" pass --on-change "$cb7b" >/dev/null || fail "pass (decide) exited non-zero"
+grep -q '^\[w1\]\[spec-a\]\[\]$' "$cblog7b" \
+  || fail "watch did not fire for a non-park decide with an empty reason: [$(cat "$cblog7b")]"
+ok "the watch fires for a non-park awaiting-human row (decide) with an empty reason"
+
+# ---------------------------------------------------------------------------
 # 8. No capture-pane, no jq, no model / network call in EXECUTABLE code.
 # ---------------------------------------------------------------------------
 code_only() { grep -vE '^[[:space:]]*#' "$1"; }

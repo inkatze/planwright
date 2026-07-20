@@ -285,9 +285,10 @@ release_lock() {
 }
 
 # The attention record's field indices this script reads (fleet-attention.sh
-# upsert_row is the single authority for the 8-field layout:
-# worker/scope/state/heartbeat/priority/question/default/options — named here
-# so the positional coupling is explicit and single-sourced in this file).
+# upsert_row is the single authority for the layout: the 8 shipped fields
+# worker/scope/state/heartbeat/priority/question/default/options, plus the
+# additive park reason at field 9 — named here so the positional coupling is
+# explicit and single-sourced in this file).
 FIELD_SCOPE=2
 FIELD_STATE=3
 FIELD_HEARTBEAT=4
@@ -297,7 +298,8 @@ FIELD_HEARTBEAT=4
 FIELD_REASON=9
 
 # store_row_field <root> <worker> <field-index> — print one field of the
-# worker's 8-field attention record, or nothing when no row exists. The ""
+# worker's attention record (the 8 shipped fields plus the additive park reason
+# at field 9), or nothing when no row exists. The ""
 # concatenation pins awk to string comparison for numeric-looking handles
 # (the fleet-attention upsert discipline). LAST-WRITE-WINS: the store is
 # one-row-per-worker (upsert, last wins under the lock), so a well-formed store
@@ -396,7 +398,22 @@ marker_live_permission() { marker_live "$1/liveness/pending/$2" "$1" "$2"; }
 # stamps it so PostToolUse (resume) and the terminal transitions (Stop /
 # SessionEnd / StopFailure) clear ONLY a genuine fork-park, never a permission /
 # flailing decision that merely shares the awaiting-input state.
-marker_live_awaiting() { marker_live "$1/liveness/awaiting/$2" "$1" "$2"; }
+#
+# Beyond the shared heartbeat-token identity, a fork-park is discriminated by a
+# NON-EMPTY reason (field 9): `park` is the only writer that sets it, so a
+# permission / flailing `decide` that replaced the row — even within the same
+# wall-clock second (the heartbeat token is second-granular, so a same-second
+# escalation could otherwise carry a colliding token), or between the
+# notification arm's ownership check and its heartbeat read (a TOCTOU) — has an
+# EMPTY field 9 and is never mistaken for our fork-park. This keeps the exit
+# edge from auto-resolving a queued human decision (REQ-A1.3). The permission
+# marker cannot use this discriminator (a permission row has no field 9), so it
+# retains the heartbeat-only identity; only the fork-park path needs and gets
+# the extra check.
+marker_live_awaiting() {
+  marker_live "$1/liveness/awaiting/$2" "$1" "$2" || return 1
+  [ -n "$(store_row_field "$1" "$2" "$FIELD_REASON")" ]
+}
 
 # extract_notification_type — print the JSON string value of the FIRST
 # "notification_type" key on stdin, or nothing. This is the one hook arm that
@@ -585,12 +602,16 @@ case "$cmd" in
         if [ ! -e "$marker" ] && [ ! -e "$await_marker" ]; then
           exit 0
         fi
+        # Each resolving branch drops BOTH markers, not just the one it fired on:
+        # a permission decide overwriting a fork-park row (or vice versa) leaves
+        # the other marker co-resident, and a leaked marker must never outlive
+        # the row it identified (the liveness-artifacts-cleanup discipline).
         if marker_live_permission "$root" "$handle"; then
-          rm -f "$marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
             || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
         elif marker_live_awaiting "$root" "$handle"; then
-          rm -f "$await_marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
             || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
         else
@@ -622,8 +643,10 @@ case "$cmd" in
         # safe on this path too, not just post-tool-use: the token mismatch
         # routes it through --unless-awaiting, preserving the escalation. Drop
         # any stale marker we find so it can't mislead a later push.
+        # Each resolving branch drops BOTH markers (co-resident cleanup, as in
+        # post-tool-use): the marker that fired plus any leaked sibling.
         if marker_live_permission "$root" "$handle"; then
-          rm -f "$marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         elif marker_live_awaiting "$root" "$handle"; then
@@ -634,7 +657,7 @@ case "$cmd" in
           # clear it to the downgrade state unconditionally, exactly as a live
           # permission marker does. A flailing / pending-permission decision
           # (no fork-park marker) still falls through to --unless-awaiting below.
-          rm -f "$await_marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         else

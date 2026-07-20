@@ -259,6 +259,27 @@ fire "$h9" w4 spec-a stop-failure >/dev/null 2>&1 || fail "stop-failure failed"
 ok "REQ-E1.2 regression: the five shipped hook transitions are behaviorally identical"
 
 # ---------------------------------------------------------------------------
+# 9b. Same-second heartbeat collision (REQ-A1.3): a decide (empty field 9) that
+#     replaced a fork-park row while carrying the SAME heartbeat as the fork-park
+#     marker is NOT cleared by a terminal exit — the field-9 ownership
+#     discriminator in marker_live_awaiting keeps the exit edge from
+#     auto-resolving a queued human decision, which the heartbeat token alone
+#     (second-granular) cannot.
+# ---------------------------------------------------------------------------
+h9b="$tmp/h9b"
+fire_note "$h9b" w1 spec-a '{"notification_type":"idle_prompt"}' >/dev/null 2>&1 || fail "park failed"
+tok=$(cat "$h9b/liveness/awaiting/w1" 2>/dev/null) || tok=""
+[ -n "$tok" ] || fail "no fork-park marker token was written"
+# A flailing / permission decide that replaced the row in the SAME wall-clock
+# second (same heartbeat as the marker token) with an EMPTY reason (field 9).
+printf 'w1\tspec-a\tawaiting-input\t%s\thigh\tReal human decision?\thold\tA|B\n' "$tok" \
+  >"$h9b/attention/state"
+fire "$h9b" w1 spec-a stop >/dev/null 2>&1 || fail "stop hook failed"
+[ "$(state_of "$h9b" w1)" = "awaiting-input" ] \
+  || fail "same-second collision: the exit edge auto-resolved a queued decision (REQ-A1.3): '$(state_of "$h9b" w1)'"
+ok "a same-second heartbeat collision cannot make the fork-park exit edge clear a queued decision (REQ-A1.3)"
+
+# ---------------------------------------------------------------------------
 # 10. No jq, no capture-pane, no model / network call in EXECUTABLE code
 #     (comment lines that merely NAME jq / Claude Code as documentation are
 #     fine and expected — only an actual invocation is a violation).

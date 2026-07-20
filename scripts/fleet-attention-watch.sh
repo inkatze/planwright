@@ -146,16 +146,32 @@ do_pass() {
     echo "fleet-attention-watch: could not stamp liveness" >&2
     return 2
   }
-  [ -f "$store" ] || {
-    # No store yet: nothing awaiting. Reset the signature to empty so a later
-    # push is seen as new.
-    : >"$sigfile" 2>/dev/null || true
+  mkdir -p "$attn_dir" 2>/dev/null || true
+  if [ ! -f "$store" ]; then
+    # No store yet: nothing awaiting. Reset the signature (through
+    # atomic_write_file, never a truncating `>` redirect that would follow a
+    # planted symlink) so a later push is seen as new.
+    atomic_write_file "$sigfile" "" 2>/dev/null || true
     return 0
+  fi
+  # Snapshot the store ONCE and compute BOTH the fire set and the new signature
+  # set from that single snapshot. The store is written temp+rename, so one `cp`
+  # captures a consistent, untorn view; reading it twice (as this used to) opened
+  # a window where a row written between the two reads landed in the signature
+  # file without ever being fired — silently dropped by the low-latency event
+  # path until the next reconcile. One snapshot closes that TOCTOU.
+  dp_snap=$(mktemp "$attn_dir/.watch-snap.XXXXXX") || {
+    echo "fleet-attention-watch: could not create a store snapshot" >&2
+    return 2
   }
-  # Compute the current awaiting-human set and the rows to fire. A row's
-  # change-identity signature is worker|heartbeat|reason (a re-park re-stamps the
-  # commit-time heartbeat, so a genuine change re-fires). The seen set is the
-  # previous pass's signatures.
+  if ! cp "$store" "$dp_snap" 2>/dev/null; then
+    rm -f "$dp_snap" 2>/dev/null
+    echo "fleet-attention-watch: could not snapshot the attention store" >&2
+    return 2
+  fi
+  # A row's change-identity signature is worker|heartbeat|reason (a re-park
+  # re-stamps the commit-time heartbeat, so a genuine change re-fires). The seen
+  # set is the previous pass's signatures.
   dp_new=$(awk -F "$TAB" -v sigfile="$sigfile" -v all="$dp_all" '
     BEGIN {
       if (all == 0) {
@@ -170,7 +186,8 @@ do_pass() {
         printf "%s\037%s\037%s\n", $1, $2, $9
       }
     }
-  ' "$store") || {
+  ' "$dp_snap") || {
+    rm -f "$dp_snap" 2>/dev/null
     echo "fleet-attention-watch: could not read the attention store" >&2
     return 2
   }
@@ -181,9 +198,12 @@ do_pass() {
       emit_and_fire "$fw" "$fs" "$fr"
     done
   fi
-  # Rewrite the signature file to the CURRENT awaiting-human set (so the next
-  # pass fires only post-now changes; a reconcile also resets it here).
-  dp_sigs=$(awk -F "$TAB" '$3 == "awaiting-input" { print $1 "|" $4 "|" $9 }' "$store") || dp_sigs=""
+  # Rewrite the signature file to the CURRENT awaiting-human set from the SAME
+  # snapshot (so the next pass fires only post-snapshot changes; a reconcile also
+  # resets it here). Every awaiting row in the snapshot was just considered for
+  # firing, so none can be recorded here without having been fired.
+  dp_sigs=$(awk -F "$TAB" '$3 == "awaiting-input" { print $1 "|" $4 "|" $9 }' "$dp_snap") || dp_sigs=""
+  rm -f "$dp_snap" 2>/dev/null
   atomic_write_file "$sigfile" "$dp_sigs
 " 2>/dev/null || true
   return 0
@@ -260,7 +280,9 @@ case $cmd in
             echo "fleet-attention-watch: --max-age needs seconds" >&2
             exit 2
           }
-          case $2 in "" | *[!0-9]* | 0?*) ;; *) max_age=$2 ;; esac
+          # Reject bare 0 too (the `0?*` alternation alone lets a single "0"
+          # through): a non-positive max-age is meaningless.
+          case $2 in "" | *[!0-9]* | 0 | 0?*) ;; *) max_age=$2 ;; esac
           shift 2
           ;;
         *)
@@ -295,7 +317,9 @@ case $cmd in
             echo "fleet-attention-watch: --interval needs seconds" >&2
             exit 2
           }
-          case $2 in "" | *[!0-9]* | 0?*) ;; *) interval=$2 ;; esac
+          # Reject bare 0 (busy loop: `sleep 0` / `--timeout 0`) as well as
+          # leading-zero values.
+          case $2 in "" | *[!0-9]* | 0 | 0?*) ;; *) interval=$2 ;; esac
           shift 2
           ;;
         --reconcile-every)
@@ -303,7 +327,7 @@ case $cmd in
             echo "fleet-attention-watch: --reconcile-every needs a count" >&2
             exit 2
           }
-          case $2 in "" | *[!0-9]* | 0?*) ;; *) reconcile_every=$2 ;; esac
+          case $2 in "" | *[!0-9]* | 0 | 0?*) ;; *) reconcile_every=$2 ;; esac
           shift 2
           ;;
         --once)
