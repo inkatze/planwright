@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.25.0](https://github.com/inkatze/planwright/compare/v0.24.0...v0.25.0) (2026-07-20)
+
+
+### Features
+
+* **fleet-hardening:** correct-glob allow-rule discipline & check (Task 6) ([#255](https://github.com/inkatze/planwright/issues/255)) ([96d35f9](https://github.com/inkatze/planwright/commit/96d35f95f6bf6469db4ff4c6c7e0d30bd640cfee))
+* **fleet-hardening:** tower command-guard & tower-settings profile (task 7) ([#256](https://github.com/inkatze/planwright/issues/256)) ([5a4abad](https://github.com/inkatze/planwright/commit/5a4abadff3d97f54b1dd5ebbe0036a44a0827634))
+* **instruction-hygiene:** pending-diet Task field on audit surface, derived offender expectations (task 4) ([#254](https://github.com/inkatze/planwright/issues/254)) ([b3f1357](https://github.com/inkatze/planwright/commit/b3f13571769ad2598703ce54aae907706436fdd0))
+
 ## [0.24.0](https://github.com/inkatze/planwright/compare/v0.23.0...v0.24.0) (2026-07-19)
 
 
