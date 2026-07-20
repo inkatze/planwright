@@ -355,6 +355,23 @@ Scope it to a **worker** settings file only. Like the hook itself, this entry
 widens what runs without a prompt; merging it into a general (tower or human)
 `settings.json` extends the auto-approval into sessions it was never meant for.
 
+### Path-scoped allow rules use the slash-star glob
+
+The literal-path entry above ends in `/*`, not `:*`, and that distinction is
+load-bearing. Claude Code's `:*` is a **command-boundary** glob: it matches only
+where a space or the end of the string follows the prefix. That is correct for a
+*command* rule — `Bash(git status:*)`, `Bash(mise run:*)` — but wrong for a
+*directory*. `Bash(<dir>/:*)` never matches `<dir>/<file>`, because a filename,
+not a space, follows the slash, so the rule silently never fires — no error, it
+just never applies. A machine-local `Bash(<scripts-dir>/:*)` rule is exactly what
+silently never matched the wrapper path on 2026-07-19 and forced a bare launch.
+
+So a **path-scoped** allow rule uses the trailing `/*` glob — `Bash(<dir>/*)` —
+never `:*`. The `mise run check` guard `scripts/check-glob-allow-rules.sh` flags
+any shipped or documented `Bash(<path>/:*)` directory-scoped rule as a likely
+never-match footgun, and confirms this guidance stays cross-referenced from the
+launch-time and tower guards (D-6, REQ-B1.3).
+
 ## 10. Where to go next
 
 - [`docs/getting-started.md`](getting-started.md) — installing planwright and
