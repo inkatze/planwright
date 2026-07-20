@@ -189,22 +189,28 @@ assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $
 #     15x/16*); this asserts the *shipped corpus* is in the restored end state,
 #     keeping the closing gate permanently enforced in CI (the diets rewrite the
 #     very bodies the use-site check scans, so this re-checks them on the whole).
-assert_absent "closing gate: no floor-breach warning on the real corpus" "floor-breach" "$out"
-assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "below-target" "$out"
-assert_absent "closing gate: no use-site warning on the real corpus" "use-site" "$out"
-# "unmeasured" is an --audit-only surface state: the Per-skill load section
-# renders it for a skill whose manifest is malformed or unresolved (the state
-# never reaches the default run's output), so this absence is asserted against
-# the audit render, confirming every floored aggregate on the real corpus is
-# actually measured.
-aud0="$(/bin/bash "$CHECKER" --audit 2>&1)"
-assert_exit "closing gate: the --audit render exits zero (guards the absence check below)" 0 $?
-assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$aud0"
-
-# Post-Task-7.5 the audit carries no transitional allowance anywhere: the
-# Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
+# Match the warn() emission prefix ("WARN: <type>:") rather than the bare type
+# name: the guard also prints a "declared-exception cleanup: no live below-target
+# or use-site warning ..." notice that contains those type names (and, for a
+# stale use-site entry, the "use-site:<surface>" key), so a bare-substring gate
+# could false-fail on a future stale exception with no actual warning of that
+# type.
+assert_absent "closing gate: no floor-breach warning on the real corpus" "WARN: floor-breach:" "$out"
+assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "WARN: below-target:" "$out"
+assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
+# A single --audit capture serves both the unmeasured closing-gate check and the
+# transitional-allowance assertions. "unmeasured" is an --audit-only surface
+# state: the Per-skill load section renders it for a skill whose manifest is
+# malformed or unresolved (the state never reaches the default run's output), so
+# that absence is asserted against the audit render, confirming every floored
+# aggregate on the real corpus is actually measured. Guard the capture's exit so
+# a non-rendering crash is caught rather than masked into a false-passing absence
+# check. Post-Task-7.5 the audit also carries no transitional allowance anywhere:
+# the Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
 # the closeout direction REQ-D1.4 forbids any lingering `pending-diet` entry).
 aud="$(/bin/bash "$CHECKER" --audit 2>&1)"
+assert_exit "closing gate: the --audit render exits zero (guards the checks below)" 0 $?
+assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$aud"
 assert_contains "audit lists orchestrate SKILL.md" "skills/orchestrate/SKILL.md" "$aud"
 assert_absent "audit carries no pending-diet allowance (Task 7.5)" "pending-diet" "$aud"
 sl="${aud##*Offender shortlist}"
