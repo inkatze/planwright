@@ -1,0 +1,145 @@
+#!/bin/sh
+# fleet-decision.sh — the structured worker-to-tower DECISION CHANNEL's
+# answer + delivery half (fleet-hardening Task 4; D-4, REQ-A1.4, REQ-A1.5,
+# REQ-E1.3).
+#
+# The channel has two halves. The WRITE + atomic-claim half lives in the store
+# authority (scripts/fleet-attention.sh `fork` / `claim`), so the record layout
+# and the first-answer-wins close stay under the one store lock. THIS script is
+# the higher-level channel that COMPOSES them: it answers an answerable fork BY
+# LABEL and delivers the answer DOWNWARD to the parked worker through the
+# existing attributed buffer-paste / structured-marker path
+# (scripts/orchestrate-relay.sh) — NEVER a `send-keys` menu-navigation path
+# (REQ-A1.5: no impersonation of the worker's input, immune to menu reordering).
+#
+# Subcommand:
+#   fleet-decision.sh answer <backend> <handle> <worker> <instance-id> <label>
+#       Claim the worker's answerable fork by <label> under the store lock
+#       (fleet-attention.sh claim: first-answer-wins, stale/invalid-label/
+#       permission-park refusals), then — only on a successful claim — write the
+#       chosen option as a structured-marker answer artifact and emit the
+#       attributed buffer-paste delivery command for <handle> (orchestrate-relay
+#       .sh relay-command). Prints the delivery command(s) on stdout for the
+#       tower to run. The handle is validated BEFORE the claim, so a bad target
+#       never closes a fork it cannot deliver to. Exit 0 on delivery; 2 on usage
+#       / a malformed handle; 3 when the claim is refused (no delivery, no close
+#       beyond what claim already enforces).
+#
+# What this script NEVER does, by construction (REQ-A1.5, REQ-E1.3): it never
+# emits a `send-keys` path (delivery is delegated wholesale to orchestrate-relay
+# .sh, which is `send-keys`-free by construction and tested so), never answers a
+# worker's harness permission prompt (claim refuses a permission-park record),
+# and never invokes a model / network call — the answer is selected by exact
+# label match in pure awk, no eval.
+#
+# Portable POSIX sh (bash 3.2 / BSD compatible): no eval, no bashisms, all input
+# is data (REQ-K1.5).
+set -u
+
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+me=fleet-decision
+
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+echo_safety="$script_dir/echo-safety.sh"
+if [ ! -r "$echo_safety" ]; then
+  echo "$me: required helper $echo_safety missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/echo-safety.sh
+. "$echo_safety"
+
+FA="$script_dir/fleet-attention.sh"
+FS="$script_dir/fleet-state.sh"
+RELAY="$script_dir/orchestrate-relay.sh"
+
+for _dep in "$FA" "$FS" "$RELAY"; do
+  [ -x "$_dep" ] || {
+    echo "$me: required sibling '$_dep' is missing or not executable" >&2
+    exit 2
+  }
+done
+
+cmd="${1:-}"
+if [ -z "$cmd" ]; then
+  echo "usage: $me answer <backend> <handle> <worker> <instance-id> <label>" >&2
+  exit 2
+fi
+shift || true
+
+case $cmd in
+  answer)
+    backend="${1:-}"
+    handle="${2:-}"
+    worker="${3:-}"
+    instance="${4:-}"
+    label="${5:-}"
+    if [ -z "$backend" ] || [ -z "$handle" ] || [ -z "$worker" ] \
+      || [ -z "$instance" ] || [ -z "$label" ]; then
+      echo "usage: $me answer <backend> <handle> <worker> <instance-id> <label>" >&2
+      exit 2
+    fi
+    # Validate the delivery target BEFORE the claim (a read-only check, no store
+    # mutation): a claim closes the fork first-answer-wins, so a target we cannot
+    # deliver to must be refused before we consume the answer. orchestrate-relay
+    # owns the per-backend handle grammar; reuse it rather than re-deriving.
+    if ! "$RELAY" validate-handle "$backend" "$handle" >/dev/null 2>&1; then
+      echo "$me: refusing an invalid $(sanitize_printable "$backend" "(backend)") handle '$(sanitize_printable "$handle" "(handle)")' before answering" >&2
+      exit 2
+    fi
+    # Atomic claim by label under the store lock (first-answer-wins). Its stderr
+    # already diagnoses the refusal class (stale / invalid label / already
+    # -claimed / permission-park); surface it and map any non-zero to exit 3 (no
+    # delivery). matched is the canonical option label the record carries.
+    matched=$("$FA" claim "$worker" "$instance" "$label") || {
+      exit 3
+    }
+    # The claim succeeded, so worker is a validated handle (no path separator,
+    # control byte, or whitespace) safe to use as a per-worker artifact basename.
+    root=$("$FS" root) || {
+      echo "$me: could not resolve the fleet home to persist the answer artifact" >&2
+      exit 3
+    }
+    answers_dir="$root/attention/answers"
+    if ! mkdir -p "$answers_dir" 2>/dev/null; then
+      echo "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)")" >&2
+      exit 3
+    fi
+    answer_file="$answers_dir/$worker"
+    # The structured-marker answer artifact: a fixed marker naming the instance
+    # id and the chosen option LABEL (not a menu position). The tower's paste
+    # command reads this file as DATA, so the marker is delivered verbatim,
+    # attributed by orchestrate-relay's header. Temp + rename so a reader never
+    # sees a half-written artifact (the atomic-write discipline).
+    tmp_ans=$(mktemp "$answers_dir/.answer.XXXXXX") || {
+      echo "$me: could not stage the answer artifact" >&2
+      exit 3
+    }
+    if ! printf 'planwright-decision-answer instance=%s option=%s\n' "$instance" "$matched" >"$tmp_ans"; then
+      rm -f "$tmp_ans" 2>/dev/null
+      echo "$me: could not write the answer artifact" >&2
+      exit 3
+    fi
+    if ! mv -f "$tmp_ans" "$answer_file"; then
+      rm -f "$tmp_ans" 2>/dev/null
+      echo "$me: could not commit the answer artifact" >&2
+      exit 3
+    fi
+    # Emit the attributed buffer-paste delivery for the tower to run. NEVER
+    # send-keys — orchestrate-relay guarantees the buffer-paste / structured
+    # -marker path by construction. Its stdout is the command(s) to deliver the
+    # answer artifact to the parked worker.
+    if ! "$RELAY" relay-command "$backend" "$handle" "$answer_file"; then
+      echo "$me: the answer was claimed and staged at $(sanitize_printable "$answer_file" "(file)") but the delivery command could not be emitted" >&2
+      exit 3
+    fi
+    exit 0
+    ;;
+
+  *)
+    echo "$me: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (answer)" >&2
+    exit 2
+    ;;
+esac

@@ -64,6 +64,27 @@
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
+#   fleet-attention.sh fork <worker> <scope> <question> <recommend> <options> <instance-id> [priority]
+#       The answerable decision channel (fleet-hardening Task 4, D-4): upsert the
+#       worker as awaiting-input with a STRUCTURED, answerable decision — the
+#       question, the worker's <recommend>ation, the full labeled <options> set
+#       (`|`-delimited labels), and a UNIQUE <instance-id> the answer must match.
+#       Field 9 is the fixed marker `fork` (distinguishing an answerable fork
+#       from a park / permission / plain decide); the instance id lands in the
+#       additive 10th field. <recommend> must be one of the <options> labels, and
+#       <options> must carry at least two non-empty labels. [priority] ∈ high |
+#       normal | low (default normal).
+#   fleet-attention.sh claim <worker> <instance-id> <label>
+#       Answer an answerable fork BY LABEL, atomically, under the store lock —
+#       the read-and-answer primitive (fleet-hardening Task 4, D-4). First-answer
+#       -wins claim/close: the winning <label> is stamped into the additive 11th
+#       field, so a second answer is a refused no-op. Refuses (exit 3, no close):
+#       a stale <instance-id> (the answer is for a resolved fork), a <label>
+#       outside the option set, an already-claimed record, and — keeping the
+#       harness permission gate the human's — any record whose reason is a
+#       permission-park (never an answerable `fork`). Prints the matched label on
+#       success. It does NOT deliver; scripts/fleet-decision.sh composes the
+#       claim with the attributed buffer-paste downward delivery.
 #   fleet-attention.sh park <worker> <scope> <reason>
 #       The fork-park attention push (fleet-hardening Task 2, D-2): upsert the
 #       worker as awaiting-input carrying only the notification <reason> (the
@@ -220,7 +241,7 @@ resolve_home() {
 }
 
 # upsert_row <worker> <scope> <state> <priority> <question> <default> <options>
-# [<guard>]
+# [<guard>] [<reason>] [<instance-id>]
 # — replace <worker>'s row in the state store (or insert it), atomically, under
 # the Task 9 lock. Copy-filter-append-rename so a concurrent reader sees only a
 # complete store and the worker never appears twice (a state store, not a log).
@@ -248,6 +269,14 @@ upsert_row() {
   # an older 8-field reader ignores the trailing field, a newer reader reads it
   # (REQ-E1.2, additive-with-older-reader-ignores).
   ur_reason=${9:-}
+  # ur_iid (field 10) is the fleet-hardening Task 4 additive extension (D-4): the
+  # unique instance id an answerable fork record carries, so a late answer for a
+  # resolved fork cannot mis-apply to a later fork whose labels collide. It is
+  # APPENDED only when non-empty AND field 9 is set (a fork always stamps field 9
+  # = `fork`), so the additive ladder stays monotonic — 8 shipped fields, +9 for
+  # a park reason, +10 for a fork instance id. An older 8/9-field reader ignores
+  # the trailing field (REQ-E1.2, additive-with-older-reader-ignores).
+  ur_iid=${10:-}
   acquire_lock || return 2
   if [ "$ur_guard" = unless-awaiting ] && [ -f "$store" ]; then
     # Fail SAFE if ANY matching row is awaiting-input, not just when the sole
@@ -310,7 +339,14 @@ upsert_row() {
     awk -F "$TAB" -v w="$ur_worker" '($1 "") != (w "")' "$store" >"$ur_tmp" || ur_rc=2
   fi
   if [ "$ur_rc" = 0 ]; then
-    if [ -n "$ur_reason" ]; then
+    if [ -n "$ur_iid" ]; then
+      # A fork row carries the additive 10th field (the instance id), on top of
+      # the 9th (reason = `fork`). fork is the only writer that sets field 10, and
+      # it always sets field 9, so the ladder never skips a field.
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" "$ur_reason" "$ur_iid" \
+        >>"$ur_tmp" || ur_rc=2
+    elif [ -n "$ur_reason" ]; then
       # A park row carries the additive 9th field (the notification reason).
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
         "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" "$ur_reason" \
@@ -347,7 +383,7 @@ suppressed() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-attention.sh heartbeat|decide|park|clear|render|queue|notify [args]" >&2
+  echo "usage: fleet-attention.sh heartbeat|decide|fork|claim|park|clear|render|queue|notify [args]" >&2
   exit 2
 fi
 shift || true
@@ -483,6 +519,229 @@ case $cmd in
     exit 0
     ;;
 
+  fork)
+    # The answerable decision channel (fleet-hardening Task 4, D-4/REQ-A1.4): a
+    # worker parked at a MULTI-OPTION fork records the pending decision, its full
+    # labeled option set, its recommendation, and a UNIQUE instance id as a
+    # structured store record — so the tower/human answers BY LABEL (immune to
+    # menu reordering) and a late answer for a resolved fork cannot mis-apply to
+    # a later fork whose labels collide (the instance id is the discriminator).
+    # Field 9 is the fixed marker `fork`; the instance id is the additive 10th
+    # field. Unlike `park` (Task 2, reason-only) this is deliberately NOT
+    # --unless-awaiting: a fork is the worker's authoritative current decision,
+    # written the same way `decide` writes (a plain upsert), so it establishes
+    # the answerable record rather than deferring to a prior row.
+    worker="${1:-}"
+    scope="${2:-}"
+    question="${3:-}"
+    recommend="${4:-}"
+    options="${5:-}"
+    instance="${6:-}"
+    priority="${7:-normal}"
+    if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$question" ] \
+      || [ -z "$recommend" ] || [ -z "$options" ] || [ -z "$instance" ]; then
+      echo "usage: fleet-attention.sh fork <worker> <scope> <question> <recommend> <options> <instance-id> [priority]" >&2
+      exit 2
+    fi
+    if ! valid_field "$worker"; then
+      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 2
+    fi
+    if ! valid_field "$scope"; then
+      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      exit 2
+    fi
+    # The instance id shares the worker/scope handle grammar (no path separator,
+    # whitespace, control byte, or tab/newline) so it can neither tear the record
+    # nor be mistaken for a multi-field value on read-back.
+    if ! valid_field "$instance"; then
+      echo "fleet-attention: refusing malformed instance id '$(sanitize_printable "$instance" "(unprintable instance)")'" >&2
+      exit 2
+    fi
+    if ! valid_priority "$priority"; then
+      echo "fleet-attention: refusing priority '$(sanitize_printable "$priority" "(unprintable priority)")' (high|normal|low)" >&2
+      exit 2
+    fi
+    for _f in "$question" "$recommend" "$options"; do
+      if ! valid_text "$_f"; then
+        echo "fleet-attention: refusing a decision field with a control byte, an embedded tab/newline, or over-length text (would tear the record or drive the terminal)" >&2
+        exit 2
+      fi
+    done
+    # The option set must carry at least two non-empty `|`-delimited labels (a
+    # single-option "fork" is not a decision), and the recommendation must be one
+    # of them — so answering by label always resolves to a real option and the
+    # recommendation is never off-set. Pure awk, no eval, all input is data.
+    # The free-text values pass through ENVIRON, NOT `-v`: awk processes backslash
+    # escapes in a `-v` value (a label `x\ty` would become `x<TAB>y`), which would
+    # both misjudge membership and, on the claim write below, tear the record.
+    # ENVIRON is not escape-processed, so the values compare and store verbatim.
+    opt_check=$(FA_OPTS="$options" FA_REC="$recommend" awk '
+      BEGIN {
+        n = split(ENVIRON["FA_OPTS"], a, "|")
+        rec = ENVIRON["FA_REC"]
+        cnt = 0; recfound = 0; empty = 0
+        for (i = 1; i <= n; i++) {
+          if (a[i] == "") { empty = 1 } else { cnt++ }
+          if (a[i] == rec) recfound = 1
+        }
+        if (empty) { print "empty"; exit }
+        if (cnt < 2) { print "toofew"; exit }
+        if (!recfound) { print "norec"; exit }
+        print "ok"
+      }')
+    case $opt_check in
+      ok) ;;
+      empty)
+        echo "fleet-attention: refusing a fork option set with an empty label ('|'-delimited, each label non-empty)" >&2
+        exit 2
+        ;;
+      toofew)
+        echo "fleet-attention: refusing a fork with fewer than two labels (a single-option fork is not a decision)" >&2
+        exit 2
+        ;;
+      norec)
+        echo "fleet-attention: refusing a fork whose recommendation '$(sanitize_printable "$recommend" "(unprintable)")' is not one of the option labels" >&2
+        exit 2
+        ;;
+      *)
+        echo "fleet-attention: could not validate the fork option set" >&2
+        exit 2
+        ;;
+    esac
+    root=$(resolve_home) || exit 2
+    attn_dir="$root/attention"
+    store="$attn_dir/state"
+    # awaiting-input with the fork marker (field 9) and the instance id (field
+    # 10); the recommendation rides the `default` slot (field 7) and the labeled
+    # option set the `options` slot (field 8). upsert_row stamps the commit-time
+    # timestamp under the lock.
+    upsert_row "$worker" "$scope" "awaiting-input" "$priority" "$question" "$recommend" "$options" "" "fork" "$instance" \
+      || exit 2
+    exit 0
+    ;;
+
+  claim)
+    # Answer an answerable fork BY LABEL, atomically (fleet-hardening Task 4,
+    # D-4/REQ-A1.4). All validation AND the first-answer-wins close happen inside
+    # ONE critical section so two answerers can never both close a fork: the
+    # winning label is stamped into the additive 11th field, and a second claim
+    # (already-claimed) is a refused no-op. The refusals are mechanical (pure
+    # awk, no model call): a stale instance id, a label outside the option set,
+    # an already-claimed record, and — keeping the harness permission gate the
+    # human's — any record whose reason is a permission-park (never a `fork`).
+    worker="${1:-}"
+    instance="${2:-}"
+    label="${3:-}"
+    if [ -z "$worker" ] || [ -z "$instance" ] || [ -z "$label" ]; then
+      echo "usage: fleet-attention.sh claim <worker> <instance-id> <label>" >&2
+      exit 2
+    fi
+    if ! valid_field "$worker"; then
+      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 2
+    fi
+    if ! valid_field "$instance"; then
+      echo "fleet-attention: refusing malformed instance id '$(sanitize_printable "$instance" "(unprintable instance)")'" >&2
+      exit 2
+    fi
+    if ! valid_text "$label"; then
+      echo "fleet-attention: refusing a label with a control byte, an embedded tab/newline, or over-length text" >&2
+      exit 2
+    fi
+    root=$(resolve_home) || exit 2
+    attn_dir="$root/attention"
+    store="$attn_dir/state"
+    acquire_lock || exit 2
+    if [ ! -f "$store" ]; then
+      release_lock
+      echo "fleet-attention: no answerable fork for worker '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 3
+    fi
+    # Validation pass: locate the worker's row and decide the outcome. `matched`
+    # is the exact option label the answer resolves to (by label, not position),
+    # empty on any refusal; the code names the refusal for the diagnostic. The
+    # claimed-label field (11) is captured in the matched block because $11 is not
+    # addressable in END. String-forced comparisons (see upsert_row) so numeric
+    # -looking handles/ids never numerically alias.
+    # w and iid ride `-v` (their valid_field grammar excludes backslash, so no
+    # escape processing can alter them); the free-text label rides ENVIRON so a
+    # backslash in a label neither misjudges membership nor is escape-mangled.
+    cl_verdict=$(FA_LBL="$label" awk -F "$TAB" -v w="$worker" -v iid="$instance" '
+      ($1 "") == (w "") {
+        found = 1; st = $3; f9 = ($9 ""); f10 = ($10 ""); opts = $8
+        cl = (NF >= 11 ? ($11 "") : "")
+      }
+      END {
+        lbl = ENVIRON["FA_LBL"]
+        if (!found || st != "awaiting-input") { print "REFUSE\tno-fork\t"; exit }
+        if (f9 ~ /^permission/) { print "REFUSE\tpermission\t"; exit }
+        if (f9 != "fork") { print "REFUSE\tno-fork\t"; exit }
+        if (f10 != (iid "")) { print "REFUSE\tstale\t"; exit }
+        if (cl != "") { print "REFUSE\tclaimed\t"; exit }
+        n = split(opts, a, "|"); matched = ""
+        for (i = 1; i <= n; i++) if (a[i] == lbl) matched = a[i]
+        if (matched == "") { print "REFUSE\tbad-label\t"; exit }
+        print "OK\t\t" matched
+      }' "$store") || {
+      release_lock
+      echo "fleet-attention: could not read the store to evaluate the claim" >&2
+      exit 3
+    }
+    cl_status=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $1 }')
+    cl_code=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $2 }')
+    cl_matched=$(printf '%s' "$cl_verdict" | awk -F "$TAB" '{ print $3 }')
+    if [ "$cl_status" != OK ]; then
+      release_lock
+      case $cl_code in
+        permission)
+          echo "fleet-attention: refusing to answer a permission-park record — the harness permission gate stays the human's" >&2
+          ;;
+        stale)
+          echo "fleet-attention: refusing a stale answer (instance id does not match the current fork)" >&2
+          ;;
+        claimed)
+          echo "fleet-attention: fork already answered (first-answer-wins); this answer is a no-op" >&2
+          ;;
+        bad-label)
+          echo "fleet-attention: refusing an answer whose label is not in the fork's option set" >&2
+          ;;
+        *)
+          echo "fleet-attention: no answerable fork with that instance id for the worker" >&2
+          ;;
+      esac
+      exit 3
+    fi
+    # Close pass: stamp the winning label into field 11 for the worker's row
+    # only, every other row byte-identical. Copy-filter-rename so a reader never
+    # sees a torn store (the clear/upsert discipline).
+    cl_tmp=$(mktemp "$attn_dir/.state.XXXXXX") || {
+      release_lock
+      exit 3
+    }
+    cl_rc=0
+    # The winning label rides ENVIRON (not `-v`): it is written verbatim into
+    # field 11, so escape processing must not alter it (an unescaped `-v` value
+    # could inject a tab and tear the record).
+    FA_LBL="$cl_matched" awk -F "$TAB" -v OFS="$TAB" -v w="$worker" '
+      ($1 "") == (w "") { $11 = ENVIRON["FA_LBL"]; NF = 11; print; next }
+      { print }
+    ' "$store" >"$cl_tmp" || cl_rc=3
+    if [ "$cl_rc" = 0 ]; then
+      mv -f "$cl_tmp" "$store" || cl_rc=3
+    fi
+    [ "$cl_rc" = 0 ] || rm -f "$cl_tmp" 2>/dev/null
+    release_lock
+    if [ "$cl_rc" != 0 ]; then
+      echo "fleet-attention: failed to record the claim" >&2
+      exit 3
+    fi
+    # Print the canonical matched label (the exact option), so the caller relays
+    # the label the record actually carries, not the raw argument spelling.
+    printf '%s\n' "$cl_matched"
+    exit 0
+    ;;
+
   clear)
     worker="${1:-}"
     if [ -z "$worker" ]; then
@@ -605,10 +864,12 @@ case $cmd in
     [ "$n" = 0 ] && exit 0
     now=$(now_epoch)
     # Sorted lines carry the two sort-key fields ahead of the stored fields. The
-    # trailing `reason` var reads the additive 9th field (fleet-hardening Task 2):
-    # it is empty for a shipped decide row (8 fields → the var reads nothing, so
-    # the decide branch below is byte-identical to before) and carries the reason
-    # for a fork-park row (9 fields).
+    # trailing vars read the additive fields: `reason` the 9th (fleet-hardening
+    # Task 2 park / Task 4 fork marker), `iid` the 10th and `claimed` the 11th
+    # (Task 4 fork). They are empty for a shipped decide row (8 fields → the vars
+    # read nothing, so the decide branch below is byte-identical to before),
+    # carry the reason for a park row (9 fields), and carry the instance id and
+    # (once answered) the claimed label for a fork row (10/11 fields).
     # US-delimit the read. TAB is IFS-whitespace, so `read` collapses a run of
     # consecutive empty fields (a park row carries empty prio/q/def/opts with
     # only field 9 set) and would slide the reason into the priority slot,
@@ -616,7 +877,7 @@ case $cmd in
     # TAB delimiters to the US control byte (never a valid field byte) makes each
     # empty field survive the split — the fleet-attention-watch.sh do_pass idiom.
     us=$(printf '\037')
-    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason; do
+    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason iid claimed; do
       [ -n "$worker" ] || continue
       age="?"
       case $ts in
@@ -631,10 +892,27 @@ case $cmd in
       s_scope=$(sanitize_printable "$scope" "?")
       s_worker=$(sanitize_printable "$worker" "?")
       printf -- '- [%s] %s  (%s, waiting %ss)\n' "$s_prio" "$s_scope" "$s_worker" "$age"
-      if [ -n "$reason" ]; then
+      if [ "$reason" = fork ]; then
+        # An answerable fork (Task 4, D-4): a structured decision the tower/human
+        # answers BY LABEL. Surface the question, the recommendation (the
+        # `default` slot), the full labeled option set, and the instance id the
+        # answer must match; once answered, the claimed label (first-answer-wins).
+        s_q=$(sanitize_printable "$q" "?")
+        s_def=$(sanitize_printable "$def" "?")
+        s_opts=$(sanitize_printable "$opts" "?")
+        s_iid=$(sanitize_printable "$iid" "?")
+        printf '    Q: %s\n' "$s_q"
+        printf '    recommend: %s\n' "$s_def"
+        printf '    options: %s\n' "$s_opts"
+        printf '    instance: %s\n' "$s_iid"
+        if [ -n "$claimed" ]; then
+          s_claimed=$(sanitize_printable "$claimed" "?")
+          printf '    answered: %s\n' "$s_claimed"
+        fi
+      elif [ -n "$reason" ]; then
         # A fork-park (Task 2): it carries the notification reason, not a labeled
-        # option set (that is Task 4's answerable channel). Surface the reason so
-        # the tower distinguishes a fork-park from a permission / flailing decide.
+        # option set. Surface the reason so the tower distinguishes a fork-park
+        # from a permission / flailing decide.
         s_reason=$(sanitize_printable "$reason" "?")
         printf '    reason: %s\n' "$s_reason"
       else
@@ -742,7 +1020,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|park|clear|render|queue|notify)" >&2
+    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|fork|claim|park|clear|render|queue|notify)" >&2
     exit 2
     ;;
 esac
