@@ -306,7 +306,7 @@ emit_anchor() {
   [ -n "$spec_rel" ] || return 0
   # Distinguish an unusable anchor computer from "files absent at the ref": both
   # yield no anchor line, but only the former is a tooling fault worth a note.
-  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $anchor_script missing/not executable; no anchor emitted" >&2
+  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $(sanitize_printable "$anchor_script") missing/not executable; no anchor emitted" >&2
   for _r in "$@"; do
     if _hash=$(anchor_at_ref "$_r"); then
       printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$_r"
@@ -332,7 +332,7 @@ emit_anchor_strict() {
     printf 'anchor%s%s%sorigin/main\n' "$TAB" "$_hash" "$TAB"
     return 0
   fi
-  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $anchor_script missing/not executable" >&2
+  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $(sanitize_printable "$anchor_script") missing/not executable" >&2
   printf '%s\n' "dispatch-fetch: fetch succeeded but the spec anchor is unresolvable at origin/main; parking rather than gating on a stale/missing anchor" >&2
   return 5
 }
