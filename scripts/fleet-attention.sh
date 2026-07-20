@@ -282,6 +282,18 @@ upsert_row() {
   # a park reason, +10 for a fork instance id. An older 8/9-field reader ignores
   # the trailing field (REQ-E1.2, additive-with-older-reader-ignores).
   ur_iid=${10:-}
+  # Enforce the additive ladder as an invariant, not just a caller convention:
+  # field 10 (the instance id) may only be written when field 9 (the reason) is
+  # also set, so a malformed field-10-without-field-9 row can never be committed
+  # (such a row would carry an empty field 9 and be misread as a decide/permission
+  # row by the unless-decide guard). The only iid writer, `fork`, always stamps
+  # field 9 = `fork`, so this never fires for real callers; it fails closed on a
+  # future misuse of the primitive rather than tearing the ladder. No lock needed
+  # (a pure argument check).
+  if [ -n "$ur_iid" ] && [ -z "$ur_reason" ]; then
+    echo "fleet-attention: internal error — an instance id (field 10) requires a reason (field 9); refusing to write a ladder-skipping row" >&2
+    return 2
+  fi
   acquire_lock || return 2
   if [ "$ur_guard" = unless-awaiting ] && [ -f "$store" ]; then
     # Fail SAFE if ANY matching row is awaiting-input, not just when the sole
