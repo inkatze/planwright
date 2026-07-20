@@ -185,7 +185,7 @@ h4="$tmp/h4"
 aenv "$h4" fork w1 spec-a "Q?" "Apply" "Apply|Skip" "iid-1" || fail "fork exited non-zero"
 rc=0
 aenv "$h4" claim w1 "iid-1" "Frobnicate" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "claim accepted a label outside the option set"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)claim accepted a label outside the option set"
 [ -z "$(row_field "$h4" w1 11)" ] || fail "claim recorded a label despite refusing an invalid one"
 # Numeric-string aliasing: answering `01` against a `1|2` set must be refused —
 # `01` is not a member, and awk must not numerically alias it onto option `1`.
@@ -193,7 +193,7 @@ h4b="$tmp/h4b"
 aenv "$h4b" fork w1 spec-a "Q?" "1" "1|2" "iid-n" || fail "numeric fork exited non-zero"
 rc=0
 aenv "$h4b" claim w1 "iid-n" "01" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "claim numerically aliased label 01 onto option 1 (accepted a non-member)"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)claim numerically aliased label 01 onto option 1 (accepted a non-member)"
 [ -z "$(row_field "$h4b" w1 11)" ] || fail "claim closed a fork with a numeric-aliased non-member label"
 # The exact member still resolves.
 sel=$(aenv "$h4b" claim w1 "iid-n" "1") || fail "claim of the exact numeric label 1 exited non-zero"
@@ -218,7 +218,7 @@ aenv "$h5" fork w1 spec-a "Second fork" "Skip" "Apply|Skip" "iid-new" \
 # applied to the new fork despite the colliding labels.
 rc=0
 aenv "$h5" claim w1 "iid-old" "Apply" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "a stale answer (old instance id) was accepted against the new fork"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)a stale answer (old instance id) was accepted against the new fork"
 [ "$(row_field "$h5" w1 10)" = "iid-new" ] || fail "the new fork instance id was overwritten"
 [ -z "$(row_field "$h5" w1 11)" ] || fail "a stale answer mis-applied a claimed label to the new fork"
 # The correct (fresh) instance id still resolves.
@@ -270,7 +270,7 @@ first=$(aenv "$h6" claim w1 "iid-1" "Apply") || fail "first claim exited non-zer
 [ "$first" = "Apply" ] || fail "first claim resolved to '$first'"
 rc=0
 aenv "$h6" claim w1 "iid-1" "Skip" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "a second answer to an already-claimed fork was accepted (first-answer-wins violated)"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)a second answer to an already-claimed fork was accepted (first-answer-wins violated)"
 [ "$(row_field "$h6" w1 11)" = "Apply" ] || fail "the second answer overwrote the first claim (got '$(row_field "$h6" w1 11)')"
 ok "double-answer: first-answer-wins; the second answer is a no-op (REQ-A1.4)"
 
@@ -292,7 +292,7 @@ aenv "$h7" decide w1 spec-a "Worker is awaiting a permission decision in its ses
   || fail "permission-record setup (decide) exited non-zero"
 rc=0
 aenv "$h7" claim w1 "iid-perm" "approve in the worker session" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "claim answered a production-shape permission record (empty field 9)"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)claim answered a production-shape permission record (empty field 9)"
 [ -z "$(row_field "$h7" w1 11)" ] || fail "claim closed a production-shape permission record"
 # (b) defense-in-depth: an explicit permission-reason record (field 9), with an
 #     instance id so the permission branch — not a missing id — is what refuses.
@@ -302,7 +302,7 @@ printf 'w1\tspec-a\tawaiting-input\t1700000000\tnormal\tPermission?\tanswer in s
   >"$h7b/attention/state"
 rc=0
 aenv "$h7b" claim w1 "iid-perm" "approve" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "claim answered an explicit permission-reason record (the human's gate was bypassed)"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)claim answered an explicit permission-reason record (the human's gate was bypassed)"
 [ -z "$(row_field "$h7b" w1 11)" ] || fail "claim closed an explicit permission-reason record"
 ok "claim refuses a permission-park — production (empty field 9) and explicit (permission: reason) shapes (REQ-A1.5)"
 
@@ -369,7 +369,7 @@ printf 'w1\tspec-a\tawaiting-input\t1700000000\tnormal\tPermission?\tanswer in s
   >"$h9/attention/state"
 rc=0
 denv "$h9" answer tmux "dev:1.0" w1 "iid-perm" "approve" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "answer delivered a permission-park record (the human's gate was bypassed)"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)answer delivered a permission-park record (the human's gate was bypassed)"
 [ ! -f "$h9/attention/answers/w1" ] || fail "answer wrote a delivery artifact for a permission-park record"
 ok "answer refuses a permission-park record end-to-end (REQ-A1.5)"
 
@@ -385,7 +385,7 @@ aenv "$h9b" decide w1 spec-a "Approve the risky migration?" "hold" "Apply|Skip" 
   || fail "decide setup exited non-zero"
 rc=0
 aenv "$h9b" fork w1 spec-a "Different fork?" "X" "X|Y" "iid-clobber" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "fork clobbered a queued human decision (permission/flailing)"
+[ "$rc" = 3 ] || fail "(want semantic-refusal exit 3, got $rc)fork clobbered a queued human decision (permission/flailing)"
 [ "$(row_field "$h9b" w1 6)" = "Approve the risky migration?" ] \
   || fail "fork overwrote the queued decide question: '$(row_field "$h9b" w1 6)'"
 [ -z "$(row_field "$h9b" w1 10)" ] || fail "fork wrote an instance id over a queued decide"
