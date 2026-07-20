@@ -92,12 +92,14 @@ sub="${1:-}"
 act="${2:-}"
 head=""
 jqexpr=""
+base=""
 has_draft=0
 prev=""
 for a in "$@"; do
   case "$prev" in
     --head) head="$a" ;;
     --jq) jqexpr="$a" ;;
+    --base) base="$a" ;;
   esac
   [ "$a" = "--draft" ] && has_draft=1
   prev="$a"
@@ -121,14 +123,21 @@ case "$sub $act" in
     fi
     ;;
   "pr create")
+    # Test hook: a `fail-create` marker makes `gh pr create` fail (to exercise
+    # the PR-open-failure degrade). The log still records the attempt.
+    if [ -f "$st/fail-create" ]; then
+      printf '%s draft=%s base=%s FAILED\n' "${head:-?}" "$has_draft" "${base:-?}" >>"$st/create-log"
+      echo "gh: simulated pr create failure" >&2
+      exit 1
+    fi
     if [ -n "$head" ] && grep -qxF "$head" "$open" 2>/dev/null; then
       echo "gh: a pull request for branch \"$head\" already exists" >&2
       exit 1
     fi
     [ -n "$head" ] && printf '%s\n' "$head" >>"$open"
-    # Log the head plus whether --draft was passed, so a dropped-draft regression
-    # is detectable.
-    printf '%s draft=%s\n' "${head:-?}" "$has_draft" >>"$st/create-log"
+    # Log head + whether --draft was passed + the --base value, so dropped-draft
+    # and base-derivation regressions are detectable.
+    printf '%s draft=%s base=%s\n' "${head:-?}" "$has_draft" "${base:-?}" >>"$st/create-log"
     printf 'https://example.invalid/pr/101\n'
     ;;
   "pr merge")
@@ -219,6 +228,9 @@ c1() {
     || fail "c1: expected exactly one gh pr create"
   grep -q "draft=1" "$tmp/ghstate/create-log" \
     || fail "c1: PR must be created with --draft (got: $(cat "$tmp/ghstate/create-log"))"
+  # Default base origin/main → PR base 'main' (the remote segment stripped).
+  grep -q "base=main" "$tmp/ghstate/create-log" \
+    || fail "c1: PR base should be 'main' for default origin/main (got: $(cat "$tmp/ghstate/create-log"))"
   # Never merged.
   [ ! -s "$tmp/ghstate/merge-log" ] || fail "c1: carry must never merge the PR"
   # Local main byte-for-byte unchanged.
@@ -483,6 +495,62 @@ c11() {
   echo "ok c11: a real lock error degrades non-silently (not a silent no-op)"
 }
 
+# ---------------------------------------------------------------------------
+# Case 12 — PR-base derivation is remote-aware: a local base branch that
+# contains a slash (release/9.9) is used verbatim, NOT corrupted to its tail,
+# because "release" is not a configured remote.
+# ---------------------------------------------------------------------------
+c12() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c12.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  seed_repo "$repo"
+  # A local base branch whose name legitimately contains a slash.
+  gitc "$repo" branch "release/9.9" main
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower kkkkbbbb
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  out=$(run_carry "$gh" "$tmp/ghstate" --base "release/9.9" "$repo" 2>"$tmp/err") \
+    || fail "c12: carry exit $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = created ] || fail "c12: expected created, got: $out"
+  grep -q "base=release/9.9" "$tmp/ghstate/create-log" \
+    || fail "c12: local slashed base must be preserved, not stripped (got: $(cat "$tmp/ghstate/create-log"))"
+  echo "ok c12: PR-base derivation is remote-aware (local slashed base preserved)"
+}
+
+# ---------------------------------------------------------------------------
+# Case 13 — a `gh pr create` failure degrades non-silently AND names the
+# fragments now on the pushed chore branch awaiting a manual PR (REQ-D1.3).
+# ---------------------------------------------------------------------------
+c13() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c13.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  seed_repo "$repo"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower llllcccc
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+  mkdir -p "$tmp/ghstate"
+  : >"$tmp/ghstate/fail-create" # make `gh pr create` fail
+
+  set +e
+  out=$(run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err")
+  rc=$?
+  set -e
+  [ "$rc" = 3 ] || fail "c13: pr-create failure should degrade (exit 3), got $rc — $out"
+  [ "$(tag_val "$out" carry)" = degraded ] || fail "c13: expected carry=degraded, got: $out"
+  # The chore branch was still pushed (fragments reached the remote).
+  gitc "$repo" ls-remote --heads origin "planwright/chore/observations" 2>/dev/null | grep -q . \
+    || fail "c13: chore branch should have been pushed before the PR-create attempt"
+  # The degrade names the specific fragment on the branch.
+  grep -q "2026-07-20-tower-llllcccc.md" "$tmp/err" \
+    || fail "c13: pr-create degrade must name the carried fragment (err: $(cat "$tmp/err"))"
+  echo "ok c13: pr-create failure degrades non-silently and names the fragments"
+}
+
 c1
 c2
 c3
@@ -494,4 +562,6 @@ c8
 c9
 c10
 c11
+c12
+c13
 echo "ALL PASS: observation-carry"

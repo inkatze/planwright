@@ -527,17 +527,25 @@ pr_body=$(
   printf 'Carried this run:\n\n'
   printf '%s\n' "$stranded" | sed 's#.*/##;s/^/- /'
 )
-# The PR base is the branch name behind `base_ref`, not a hardcoded `main`: strip
-# a leading remote segment (`origin/main` → `main`; `origin/release/x` →
-# `release/x`); a bare local branch name (no slash) is used as-is.
-pr_base=${base_ref#*/}
+# The PR base is the branch name behind `base_ref`, not a hardcoded `main`. Strip
+# the leading segment ONLY when it is an actual configured remote (`origin/main`
+# → `main`), so a local base branch that legitimately contains a slash
+# (`release/1.2`) or a `refs/...` form is used verbatim rather than corrupted to
+# its tail.
+pr_base="$base_ref"
+_base_first="${base_ref%%/*}"
+if [ "$_base_first" != "$base_ref" ] && g remote get-url "$_base_first" >/dev/null 2>&1; then
+  pr_base="${base_ref#*/}"
+fi
 pr_url=$(cd -- "$repo_root" && gh pr create --draft --base "$pr_base" --head "$branch" \
   --title "$pr_title" --body "$pr_body" 2>/dev/null) || pr_url=""
 if [ -z "$pr_url" ]; then
   # The branch is pushed (un-stranded), but the PR could not be opened. Surface
-  # it rather than claim success.
+  # it — and NAME the fragments now sitting on the chore branch awaiting a manual
+  # PR — rather than claim success (the non-silent contract, matching degrade()).
   release_lock
-  printf '%s\n' "observation-carry: chore branch '$branch' pushed but 'gh pr create' failed; open the PR manually" >&2
+  printf '%s\n' "observation-carry: chore branch '$branch' pushed but 'gh pr create' failed; open the PR manually. On the chore branch:" >&2
+  printf '%s\n' "$stranded" | sed 's#.*/##;s/^/  - /' >&2
   printf 'carry%sdegraded\n' "$TAB"
   printf 'stranded%s%s\n' "$TAB" "$stranded_count"
   exit 3
