@@ -99,8 +99,8 @@ report them together (D-45).
    non-Active refusal — REQ-F1.4, REQ-J1.2, D-33). Read the `**Status:**` line in
    `requirements.md`. `Ready` (signed off, no work started) and `Active` (work in
    flight) are both dispatchable; refuse Draft, Done, Retired, and Superseded. For
-   **Draft**, halt and prompt `/spec-kickoff`; for a Done or terminal spec, say it
-   has nothing to orchestrate. There is no bypass flag; this skill **never**
+   **Draft**, halt and prompt `/spec-kickoff`; for Done or terminal, say it has
+   nothing to orchestrate. There is no bypass flag; this skill **never**
    invokes `/spec-kickoff` itself (REQ-J1.3) — the human runs it. A `Ready` spec is
    dispatched on the same terms as Active: the freshness gate below still applies
    (REQ-C1.3), composing with this one.
@@ -206,14 +206,13 @@ mechanism (`claude --worktree` / `EnterWorktree` / the Agent tool's worktree
 isolation) — planwright **never** shells out to `git worktree`. Placement is always
 `<repo>/.claude/worktrees/<branch-suffix>`, attachable via `claude --worktree
 <name>`. Reuse the current worktree when clean, after a one-line confirm
-(**attended only**; unattended always creates fresh); print the re-open command
-after.
+(**attended only**; unattended always creates fresh); print the re-open command.
 
-**Dispatch-time environment hardening**: launch every fleet session through
-`scripts/fleet-dispatch-env.sh` (D-10, REQ-D1.1), which pins only
-`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` against ghost-text. Separately, pin
-the umask, pre-trust the worktree's config paths, and verify the SSH-agent
-indirection before signed commits.
+**Dispatch-time environment hardening**: `scripts/fleet-dispatch-env.sh --emit-launch <argv>`
+emits the `worker-command-guard`-auto-approved launch whose prefix applies
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` at exec (D-5, REQ-B1.1, REQ-B1.2).
+Separately, pin the umask, pre-trust the worktree's config paths, and verify the
+SSH-agent indirection before signed commits.
 
 **Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
 `scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until reset
