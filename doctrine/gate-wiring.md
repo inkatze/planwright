@@ -89,7 +89,7 @@ conventional format or slips the format check.
 **Emit-time guard (REQ-C1.3), not range-time.** A skill writing a marked
 commit self-lints the subject before committing, while it can still reword —
 `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin` —
-requiring the canonical placement (mis-placed and duplicate markers fail) on
+requiring the canonical placement (misplaced and duplicate markers fail) on
 top of the conventional check. It is deliberately *not* wired
 into the CI commit-range lint (history is never rewritten); that range lint
 stays marker-agnostic.
