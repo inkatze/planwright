@@ -192,7 +192,13 @@ assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $
 assert_absent "closing gate: no floor-breach warning on the real corpus" "floor-breach" "$out"
 assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "below-target" "$out"
 assert_absent "closing gate: no use-site warning on the real corpus" "use-site" "$out"
-assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$out"
+# "unmeasured" is an --audit-only surface state: the Per-skill load section
+# renders it for a skill whose manifest is malformed or unresolved (the state
+# never reaches the default run's output), so this absence is asserted against
+# the audit render, confirming every floored aggregate on the real corpus is
+# actually measured.
+aud0="$(/bin/bash "$CHECKER" --audit 2>&1)"
+assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$aud0"
 
 # Post-Task-7.5 the audit carries no transitional allowance anywhere: the
 # Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
