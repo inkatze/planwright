@@ -11,7 +11,10 @@ human-gated, signed publish step, never by CI.
 adopt this workflow **without** planwright core, you must supply your own
 signed-tag publish step and name it wherever this template says
 `scripts/release-publish.sh` (the workflow header and the config's PR body).
-The template gets you the proposal PR; the signed publish is yours to wire.
+The template gets you the proposal PR; the signed publish is yours to wire. If
+you go this route, note the relabel obligation under "Publish-time obligations
+and caveats" below: a bring-your-own-publish path must relabel the merged
+release PR by hand, or release-please deadlocks on the next cycle.
 
 This template is **opt-in**. It lives under `templates/` so planwright never
 auto-lands a workflow in your repository (the customization-boundary rule:
@@ -59,7 +62,60 @@ is configuration). Nothing here runs until you copy it in.
    SHA and bump the `# vX.Y.Z` comment alongside it.
 5. Confirm the token posture: the default `GITHUB_TOKEN` with `contents:
    write` and `pull-requests: write` is sufficient. No PAT or stored secret is
-   needed.
+   needed. The one exception is making the `ci` check a *required* status check
+   on the release PR — see "Do not make `ci` a required check on the release
+   PR" below before you do.
+
+## Publish-time obligations and caveats
+
+Read these before your first publish. Each is a foot-gun the happy-path
+walkthrough above does not surface on its own.
+
+### Relabel the merged release PR (bring-your-own-publish only)
+
+If you supply your own publish step instead of planwright core's
+`scripts/release-publish.sh`, you must also relabel the merged release PR from
+`autorelease: pending` to `autorelease: tagged` once you have tagged. That is
+the bookkeeping that release-please's skipped github-release step would have
+done for you; release-please's own publish path does it, and planwright core's
+`scripts/release-publish.sh` does it too, so **only** the bring-your-own-publish
+path has to do it by hand. Skip it and release-please aborts the **next** cycle's
+release PR with "untagged, merged release PRs outstanding" — the documented path
+works for cycle 1 and deadlocks on cycle 2.
+
+### The publish CI gate refuses a no-CI repo by default
+
+planwright core's `scripts/release-publish.sh` gates publishing on CI: it reads
+the release commit's `statusCheckRollup`, and its **strict default treats a null
+rollup (no checks at all) as not-green and refuses**. If your repo runs no CI on
+the release commit, the publish step will not tag. Two ways forward:
+
+- Add a CI workflow (this template's `ci` gate is the natural one), so the
+  release commit carries a green check; or
+- Set the core `require_ci` knob to `false` to relax **only** the
+  "no positive CI confirmation" verdict. It weakens no other gate: a genuinely
+  failing or still-pending check still refuses. When it does publish on a no-CI
+  rollup it emits a stderr note recording that it published without positive CI
+  confirmation (`require_ci=false`), so the relaxation stays auditable.
+
+This obligation applies only if you publish with planwright core's script; a
+bring-your-own publish step gates however you wrote it.
+
+### Do not make `ci` a required check on the release PR
+
+It is tempting to make the `ci` status check **required** on the release PR via
+branch protection. Do not — unless you first change the token posture. A release
+PR authored by the default `GITHUB_TOKEN` raises no `pull_request`/`push`
+workflow run (GitHub suppresses workflow triggers on token-authored events to
+prevent recursion), so a required `ci` check never reports and the PR can never
+satisfy it: a deadlock. (In this repository the finding is dormant — there is no
+required status check on the release PR, verified via `gh api`.)
+
+To make `ci` required on the release PR, first apply a CI-triggering token fix:
+author the release PR with a Personal Access Token or a GitHub App token (whose
+pushes **do** trigger `pull_request`/`push` workflows) via release-please's
+`token:` input, instead of the default `GITHUB_TOKEN`. With that in place the
+check runs and the requirement becomes satisfiable.
 
 ## Invariants this template preserves
 

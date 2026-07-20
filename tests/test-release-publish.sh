@@ -292,6 +292,15 @@ origin_has_tag() { [ -n "$(git -C "$1.git" tag -l "$2")" ]; }
 local_has_tag() { [ -n "$(git -C "$1" tag -l "$2")" ]; }
 gh_called() { grep -q "$2" "$1" 2>/dev/null; }
 
+# gi <dir> <git-args...> — run git in <dir> with the developer's global/system
+# config isolated, so creating a SIGNED tag in a fixture uses ONLY the repo-local
+# signing config (gpg.format ssh + user.signingkey) and never the machine's real
+# signer (e.g. a 1Password op-ssh-sign program that would intercept and fail).
+gi() { env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git -C "$1" "${@:2}"; }
+# verify_ref_gone <dir> <tag> — the reserved resume verification ref was cleaned
+# up (no stale ref left behind, REQ-B1.1).
+verify_ref_gone() { ! git -C "$1" rev-parse -q --verify "refs/release-verify/$2" >/dev/null 2>&1; }
+
 # ===========================================================================
 # 1. Signer-agnostic: no signer name hardcoded in the script (REQ-D1.1).
 # ===========================================================================
@@ -363,7 +372,11 @@ assert_contains "gate/local-tag: names the idempotency gate" "$ERR" "idempotency
 deny "gate/local-tag: no tag pushed to origin" origin_has_tag "$r" v0.1.0
 deny "gate/local-tag: no Release created" gh_called "$LOG" "release create"
 
-# 4b. existing origin tag, fully published (Release present).
+# 4b. Origin tag AND Release both present. REQ-B1.4/D-12 changed this from a hard
+#     "already published" refusal into the idempotent-relabel path: the run must
+#     NOT die before the relabel, must NOT re-create the already-present Release,
+#     and — with no release PR found for the commit — degrades to a stderr warning
+#     and exits 0 (the deadlock window stays closed either way).
 r="$tmp/gate-origintag"
 new_repo "$r"
 seed_version "$r" 0.1.0
@@ -371,9 +384,13 @@ gc "$r" tag v0.1.0
 gc "$r" push -q origin v0.1.0 2>/dev/null
 gc "$r" tag -d v0.1.0 >/dev/null
 run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=1
-assert_ne "gate/origin-tag: exits non-zero" "$RC" "0"
-assert_contains "gate/origin-tag: names already-published" "$ERR" "already published"
-deny "gate/origin-tag: no Release create attempted (no side effect)" gh_called "$LOG" "release create"
+assert_eq "gate/origin-tag: exit 0 (relabel path, no longer a hard refusal)" "$RC" "0"
+case "$ERR" in
+  *"already published"*) bad "gate/origin-tag: still dies 'already published' (REQ-B1.4 regressed)" ;;
+  *) pass "gate/origin-tag: does not die 'already published'" ;;
+esac
+deny "gate/origin-tag: no Release re-created (already present)" gh_called "$LOG" "release create"
+assert_contains "gate/origin-tag: relabel degrades gracefully with no PR found" "$ERR" "no pull request found"
 
 # 4b-2. A TRANSIENT gh failure during resume-detection must fail closed, not read
 #       as "Release absent" (which would flip resume=1 and fire a misleading
@@ -739,6 +756,26 @@ else
   echo "skip: ssh-keygen unavailable — signing sub-tests (5a-5d) skipped"
 fi
 
+# 5e. Creation-path trust-boundary hardening (release-hardening Task 4 follow-up):
+#     a MALFORMED/unreadable require_signed_tags config FAILS CLOSED on the
+#     CREATION path too, never silently downgrading to auto — symmetric with the
+#     resume-path 11n fix. Fault-inject config-get exit 4 via a malformed
+#     repo-tracked overlay (a block sequence is not flat 'key: value' YAML). Even
+#     though the overlay intends `require`, the parse failure must NOT be swallowed
+#     into an auto fallback that tags UNSIGNED; a fresh publish must die with no
+#     tag created or pushed. No ssh-keygen needed (config-get exits 4 regardless).
+r="$tmp/create-malformed-config"
+new_repo "$r"
+seed_version "$r" 0.1.0
+mkdir -p "$r/.claude"
+printf 'require_signed_tags: require\nbroken_list:\n  - a\n  - b\n' >"$r/.claude/planwright.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "sign/create-malformed: exits non-zero (fail-closed, no silent auto downgrade)" "$RC" "0"
+assert_contains "sign/create-malformed: names the malformed-config error" "$ERR" "malformed or unreadable"
+deny "sign/create-malformed: no tag created" local_has_tag "$r" v0.1.0
+deny "sign/create-malformed: nothing pushed to origin" origin_has_tag "$r" v0.1.0
+deny "sign/create-malformed: no Release created" gh_called "$LOG" "release create"
+
 # ===========================================================================
 # 6. version_file knob ports the version of truth (REQ-D1.6).
 # ===========================================================================
@@ -1014,7 +1051,258 @@ deny "relabel/multi-pr: the first-listed PR without the pending label is left al
   gh_called "$LOG" "pr edit 11"
 
 # ===========================================================================
-# 11. require_ci knob (REQ-G1.3, release-hardening Task 6): a core `require_ci`
+# 11. Resume-path integrity (release-hardening Task 4; REQ-B1.1..REQ-B1.4,
+#     D-3, D-12). On a partial-publish resume (origin tag present, Release
+#     absent) the tag is hardened before the Release is created: the ORIGIN
+#     tag object is fetched to a reserved verification ref, its target commit is
+#     asserted == the recomputed release SHA, and its signature is re-verified
+#     keyed off the origin tag's OWN signedness. A resume that finds the Release
+#     already present but the merged PR still `autorelease: pending` performs
+#     only the idempotent relabel instead of dying "already published".
+# ===========================================================================
+
+# 11a. REQ-B1.1 — a matching-SHA fresh-clone resume (origin tag present, NO local
+#      tag, Release absent) fetches the origin object, matches, and proceeds; the
+#      reserved verification ref is cleaned up afterward.
+r="$tmp/resume-match-freshclone"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0 # lightweight tag on the release commit
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null # fresh-clone: no local tag lingers
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_eq "resume/match: exit 0 (matching origin tag resumes)" "$RC" "0"
+assert_contains "resume/match: reports a resume" "$OUT" "resumed"
+want "resume/match: gh release create invoked" gh_called "$LOG" "release create"
+want "resume/match: the verification ref is cleaned up" verify_ref_gone "$r" v0.1.0
+
+# 11b. REQ-B1.1 — a mismatched-SHA resume refuses, NAMING BOTH SHAs, and creates
+#      no Release. The origin tag points at a later commit than the recomputed
+#      release SHA (the "main was rewritten under a pushed tag" hole).
+r="$tmp/resume-mismatch"
+new_repo "$r"
+seed_version "$r" 0.1.0
+RS_SHA=$(git -C "$r" rev-parse HEAD) # release SHA (0.1.0 introduced here)
+gc "$r" commit -q --allow-empty -m "later, still 0.1.0"
+TAG_SHA=$(git -C "$r" rev-parse HEAD) # a later commit
+gc "$r" push -q origin main 2>/dev/null
+gc "$r" tag v0.1.0 # origin tag lands on the LATER commit
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "resume/mismatch: exits non-zero (SHA assertion refuses)" "$RC" "0"
+assert_contains "resume/mismatch: names the recomputed release SHA" "$ERR" "$RS_SHA"
+assert_contains "resume/mismatch: names the origin tag's target SHA" "$ERR" "$TAG_SHA"
+deny "resume/mismatch: no Release created on a mismatch" gh_called "$LOG" "release create"
+want "resume/mismatch: the verification ref is cleaned up even on refusal" verify_ref_gone "$r" v0.1.0
+
+# 11c. REQ-B1.1 — a lingering same-named LOCAL tag does not shadow the origin
+#      object: the local tag points at a WRONG commit while origin points at the
+#      correct release SHA. The resume must read ORIGIN (proceed), not the local
+#      tag (which would spuriously mismatch and refuse).
+r="$tmp/resume-no-shadow"
+new_repo "$r"
+seed_version "$r" 0.1.0
+RS_SHA=$(git -C "$r" rev-parse HEAD)
+gc "$r" tag v0.1.0 "$RS_SHA" # local + origin tag on the release SHA
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" commit -q --allow-empty -m "later, still 0.1.0"
+gc "$r" push -q origin main 2>/dev/null
+gc "$r" tag -f v0.1.0 >/dev/null # move the LOCAL tag to the later commit
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_eq "resume/no-shadow: exit 0 (reads the origin object, not the local tag)" "$RC" "0"
+want "resume/no-shadow: gh release create invoked" gh_called "$LOG" "release create"
+
+# 11d. REQ-B1.3 — a resume SKIPS the creation gates. Proof: with GH_CI=red a fresh
+#      publish would refuse at the CI gate, but a resume proceeds (the CI gate is
+#      not evaluated) and never issues the CI GraphQL query.
+r="$tmp/resume-skips-gates"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+gc "$r" push -q origin v0.1.0 2>/dev/null # local tag kept (lingering)
+run_publish "$r" GH_CI=red GH_RELEASE_EXISTS=0
+assert_eq "resume/skips-gates: exit 0 despite red CI (creation CI gate skipped)" "$RC" "0"
+deny "resume/skips-gates: no CI GraphQL query issued on resume" gh_called "$LOG" "graphql"
+want "resume/skips-gates: the Release is still created" gh_called "$LOG" "release create"
+
+# 11f. REQ-B1.2 — under `require`, a LIGHTWEIGHT origin tag (unsigned, no tag
+#      object) is refused and never fed to signature verification.
+r="$tmp/resume-require-lightweight"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0 # lightweight → treated as unsigned
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null
+mkdir -p "$r/.claude"
+printf 'require_signed_tags: require\n' >"$r/.claude/planwright.local.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "resume/require-lightweight: exits non-zero (unsigned refused under require)" "$RC" "0"
+assert_contains "resume/require-lightweight: refuses on the no-signature branch (not a spurious SHA mismatch)" "$ERR" "carries no signature"
+deny "resume/require-lightweight: no Release created" gh_called "$LOG" "release create"
+
+# 11j. REQ-B1.2 — under `auto`, an UNSIGNED annotated origin tag is accepted (the
+#      SHA is already pinned; auto is best-effort).
+r="$tmp/resume-auto-unsigned"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gi "$r" tag -a -m v0.1.0 v0.1.0 # unsigned annotated tag object (config isolated so a machine-global tag.gpgsign can't sign it)
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_eq "resume/auto-unsigned: exit 0 (auto accepts an unsigned tag)" "$RC" "0"
+want "resume/auto-unsigned: gh release create invoked" gh_called "$LOG" "release create"
+
+# --- REQ-B1.2 signature re-verify against real signed tags (needs ssh-keygen) --
+if command -v ssh-keygen >/dev/null 2>&1; then
+  # 11e. require + a VALID signed origin tag (fresh-clone: no local tag) → the
+  #      re-verify runs against the fetched origin object and the resume proceeds.
+  r="$tmp/resume-require-signed-ok"
+  new_repo "$r"
+  seed_version "$r" 0.1.0
+  configure_signing "$r"          # allowed-signers = the signing key
+  gi "$r" tag -s -m v0.1.0 v0.1.0 # signed annotated tag (config isolated)
+  gi "$r" push -q origin v0.1.0 2>/dev/null
+  gi "$r" tag -d v0.1.0 >/dev/null # fresh-clone: verify the FETCHED object
+  mkdir -p "$r/.claude"
+  printf 'require_signed_tags: require\n' >"$r/.claude/planwright.local.yml"
+  run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+  assert_eq "resume/require-signed-ok: exit 0 (valid signature verifies)" "$RC" "0"
+  want "resume/require-signed-ok: gh release create invoked" gh_called "$LOG" "release create"
+  want "resume/require-signed-ok: the verification ref is cleaned up" verify_ref_gone "$r" v0.1.0
+
+  # 11g. require + a signed tag whose signature does NOT verify (allowed-signers is
+  #      a DIFFERENT key) → refuse before creating the Release.
+  r="$tmp/resume-require-signed-bad"
+  new_repo "$r"
+  seed_version "$r" 0.1.0
+  mkdir -p "$r.keys"
+  ssh-keygen -q -t ed25519 -N '' -C other -f "$r.keys/otherkey" 2>/dev/null
+  configure_signing "$r" "$r.keys/otherkey.pub" # sign with key, allow otherkey
+  gi "$r" tag -s -m v0.1.0 v0.1.0
+  gi "$r" push -q origin v0.1.0 2>/dev/null
+  gi "$r" tag -d v0.1.0 >/dev/null
+  mkdir -p "$r/.claude"
+  printf 'require_signed_tags: require\n' >"$r/.claude/planwright.local.yml"
+  run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+  assert_ne "resume/require-signed-bad: exits non-zero (invalid signature refused)" "$RC" "0"
+  assert_contains "resume/require-signed-bad: refuses on the signature-verify branch (not a spurious SHA mismatch)" "$ERR" "signature verification failed"
+  deny "resume/require-signed-bad: no Release created" gh_called "$LOG" "release create"
+
+  # 11h. auto + a VALID signed origin tag → the re-verify runs (auto verifies iff
+  #      signed) and the resume proceeds.
+  r="$tmp/resume-auto-signed-ok"
+  new_repo "$r"
+  seed_version "$r" 0.1.0
+  configure_signing "$r"
+  gi "$r" tag -s -m v0.1.0 v0.1.0
+  gi "$r" push -q origin v0.1.0 2>/dev/null
+  gi "$r" tag -d v0.1.0 >/dev/null
+  run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+  assert_eq "resume/auto-signed-ok: exit 0 (auto verifies a signed tag, valid)" "$RC" "0"
+  want "resume/auto-signed-ok: gh release create invoked" gh_called "$LOG" "release create"
+
+  # 11i. auto + a signed tag whose signature does NOT verify → refuse (a
+  #      present-but-invalid signature is refused even under auto).
+  r="$tmp/resume-auto-signed-bad"
+  new_repo "$r"
+  seed_version "$r" 0.1.0
+  mkdir -p "$r.keys"
+  ssh-keygen -q -t ed25519 -N '' -C other -f "$r.keys/otherkey" 2>/dev/null
+  configure_signing "$r" "$r.keys/otherkey.pub"
+  gi "$r" tag -s -m v0.1.0 v0.1.0
+  gi "$r" push -q origin v0.1.0 2>/dev/null
+  gi "$r" tag -d v0.1.0 >/dev/null
+  run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+  assert_ne "resume/auto-signed-bad: exits non-zero (invalid signature refused under auto)" "$RC" "0"
+  deny "resume/auto-signed-bad: no Release created" gh_called "$LOG" "release create"
+
+  # 11k. never + a signed tag whose signature does NOT verify → the re-verify is
+  #      SKIPPED and the resume proceeds (the operator opted out).
+  r="$tmp/resume-never-signed-bad"
+  new_repo "$r"
+  seed_version "$r" 0.1.0
+  mkdir -p "$r.keys"
+  ssh-keygen -q -t ed25519 -N '' -C other -f "$r.keys/otherkey" 2>/dev/null
+  configure_signing "$r" "$r.keys/otherkey.pub"
+  gi "$r" tag -s -m v0.1.0 v0.1.0
+  gi "$r" push -q origin v0.1.0 2>/dev/null
+  gi "$r" tag -d v0.1.0 >/dev/null
+  mkdir -p "$r/.claude"
+  printf 'require_signed_tags: never\n' >"$r/.claude/planwright.local.yml"
+  run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+  assert_eq "resume/never-signed-bad: exit 0 (never skips the re-verify)" "$RC" "0"
+  want "resume/never-signed-bad: gh release create invoked" gh_called "$LOG" "release create"
+else
+  echo "skip: ssh-keygen unavailable — resume signature sub-tests (11e/g/h/i/k) skipped"
+fi
+
+# 11l. REQ-B1.4 — a resume where the Release ALREADY exists but the merged release
+#      PR is still `autorelease: pending` performs the pending -> tagged relabel
+#      (does NOT die "already published" first) and does not re-create the Release.
+r="$tmp/resume-relabel-pending"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+gc "$r" push -q origin v0.1.0 2>/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=1 GH_LABEL_TAGGED_EXISTS=1 \
+  GH_PR_JSON='[{"number":55,"labels":[{"name":"autorelease: pending"}]}]'
+assert_eq "resume/relabel-pending: exit 0 (no 'already published' death)" "$RC" "0"
+case "$ERR" in
+  *"already published"*) bad "resume/relabel-pending: dies 'already published' before the relabel" ;;
+  *) pass "resume/relabel-pending: does not die 'already published'" ;;
+esac
+want "resume/relabel-pending: the pending PR is relabeled pending -> tagged" \
+  gh_called "$LOG" "pr edit 55 --add-label autorelease: tagged --remove-label autorelease: pending"
+deny "resume/relabel-pending: the present Release is not re-created" gh_called "$LOG" "release create"
+
+# 11m. REQ-B1.4 — a resume where the Release exists and the PR is ALREADY `tagged`
+#      exits 0, does not die, and does not re-create the Release. The relabel is
+#      idempotent at the GitHub layer but NOT suppressed: with no PR carrying
+#      `autorelease: pending`, the relabel jq falls back to `.[0].number`, so the
+#      script still issues a (harmless) `pr edit` that re-adds `tagged` / re-removes
+#      `pending` on the already-tagged PR — a no-op on GitHub, not a skipped call.
+r="$tmp/resume-relabel-tagged"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0
+gc "$r" push -q origin v0.1.0 2>/dev/null
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=1 GH_LABEL_TAGGED_EXISTS=1 \
+  GH_PR_JSON='[{"number":66,"labels":[{"name":"autorelease: tagged"}]}]'
+assert_eq "resume/relabel-tagged: exit 0 (idempotent, already tagged)" "$RC" "0"
+case "$ERR" in
+  *"already published"*) bad "resume/relabel-tagged: dies 'already published'" ;;
+  *) pass "resume/relabel-tagged: does not die 'already published'" ;;
+esac
+deny "resume/relabel-tagged: the present Release is not re-created" gh_called "$LOG" "release create"
+want "resume/relabel-tagged: the redundant relabel is a harmless GitHub-layer no-op (jq falls back to the tagged PR)" \
+  gh_called "$LOG" "pr edit 66 --add-label autorelease: tagged --remove-label autorelease: pending"
+
+# 11n. REQ-B1.2 (trust-boundary hardening) — a MALFORMED/unreadable require_signed_tags
+#      config on the resume signature path FAILS CLOSED, never silently downgrades
+#      to auto. Fault-inject config-get exit 4 with a malformed repo-tracked
+#      overlay (a block sequence is not flat 'key: value' YAML). Even though the
+#      overlay *intends* `require`, the parse failure must NOT be swallowed into an
+#      auto fallback that would accept the unsigned lightweight origin tag and
+#      create a Release.
+r="$tmp/resume-malformed-config"
+new_repo "$r"
+seed_version "$r" 0.1.0
+gc "$r" tag v0.1.0 # lightweight (unsigned) origin tag on the release commit
+gc "$r" push -q origin v0.1.0 2>/dev/null
+gc "$r" tag -d v0.1.0 >/dev/null
+mkdir -p "$r/.claude"
+# Malformed team-shared overlay: `require` is present, but the block sequence
+# makes the whole file non-flat -> config-get.sh exits 4 (empty stdout).
+printf 'require_signed_tags: require\nbroken_list:\n  - a\n  - b\n' >"$r/.claude/planwright.yml"
+run_publish "$r" GH_CI=green GH_RELEASE_EXISTS=0
+assert_ne "resume/malformed-config: exits non-zero (fail-closed, no silent auto downgrade)" "$RC" "0"
+assert_contains "resume/malformed-config: names the malformed-config resume gate" "$ERR" "malformed or unreadable"
+deny "resume/malformed-config: no Release created on a malformed signature-mode config" gh_called "$LOG" "release create"
+want "resume/malformed-config: the verification ref is cleaned up on the fail-closed refusal" verify_ref_gone "$r" v0.1.0
+
+# ===========================================================================
+# 12. require_ci knob (REQ-G1.3, release-hardening Task 6): a core `require_ci`
 #     knob (default `true`) that, when `false`, relaxes ONLY the NONE / "no
 #     positive CI confirmation" verdict — across all three NONE sub-cases (null
 #     rollup, empty-after-window-lock-exclusion, all-NEUTRAL/SKIPPED) — while a
@@ -1037,7 +1325,7 @@ assert_no_diag() {
   esac
 }
 
-# 11a. Default (no config): the NONE null rollup still refuses — the knob defaults
+# 12a. Default (no config): the NONE null rollup still refuses — the knob defaults
 #      to `true`, preserving today's strict behavior, with no diagnostic.
 r="$tmp/reqci-default-none"
 new_repo "$r"
@@ -1048,7 +1336,7 @@ assert_contains "reqci/default-none: names the ci gate verdict none" "$ERR" "ver
 deny "reqci/default-none: no tag created" local_has_tag "$r" v0.1.0
 assert_no_diag "reqci/default-none: no relaxation diagnostic on the strict refusal" "$ERR"
 
-# 11b. require_ci=false: the NONE null rollup (no checks at all) publishes, and
+# 12b. require_ci=false: the NONE null rollup (no checks at all) publishes, and
 #      the stderr diagnostic naming require_ci=false is emitted.
 r="$tmp/reqci-false-none-null"
 new_repo "$r"
@@ -1060,7 +1348,7 @@ want "reqci/false-none-null: tag created" local_has_tag "$r" v0.1.0
 want "reqci/false-none-null: tag pushed to origin" origin_has_tag "$r" v0.1.0
 assert_contains "reqci/false-none-null: emits the require_ci=false relaxation diagnostic" "$ERR" "require_ci=false"
 
-# 11c. require_ci=false: the empty-after-window-lock-exclusion NONE sub-case (only
+# 12c. require_ci=false: the empty-after-window-lock-exclusion NONE sub-case (only
 #      the excluded release-window lock is present) publishes with the diagnostic.
 r="$tmp/reqci-false-none-lockonly"
 new_repo "$r"
@@ -1071,7 +1359,7 @@ assert_eq "reqci/false-none-lockonly: exit 0 (empty-after-exclusion NONE relaxed
 want "reqci/false-none-lockonly: tag created" local_has_tag "$r" v0.1.0
 assert_contains "reqci/false-none-lockonly: emits the relaxation diagnostic" "$ERR" "require_ci=false"
 
-# 11d. require_ci=false: the all-NEUTRAL/SKIPPED NONE sub-case (a check present but
+# 12d. require_ci=false: the all-NEUTRAL/SKIPPED NONE sub-case (a check present but
 #      neither confirming nor blocking) publishes with the diagnostic.
 r="$tmp/reqci-false-none-neutral"
 new_repo "$r"
@@ -1082,7 +1370,7 @@ assert_eq "reqci/false-none-neutral: exit 0 (all-NEUTRAL NONE relaxed)" "$RC" "0
 want "reqci/false-none-neutral: tag created" local_has_tag "$r" v0.1.0
 assert_contains "reqci/false-none-neutral: emits the relaxation diagnostic" "$ERR" "require_ci=false"
 
-# 11e. require_ci=false with a genuinely GREEN CI: publishes as usual, but the
+# 12e. require_ci=false with a genuinely GREEN CI: publishes as usual, but the
 #      diagnostic is ABSENT — green is positive confirmation, not the relaxed path.
 r="$tmp/reqci-false-green"
 new_repo "$r"
@@ -1093,7 +1381,7 @@ assert_eq "reqci/false-green: exit 0 (green publishes normally)" "$RC" "0"
 want "reqci/false-green: tag created" local_has_tag "$r" v0.1.0
 assert_no_diag "reqci/false-green: no diagnostic when CI is genuinely green" "$ERR"
 
-# 11f. require_ci=false NEVER relaxes a FAILING check: still refuses, no tag, and
+# 12f. require_ci=false NEVER relaxes a FAILING check: still refuses, no tag, and
 #      no relaxation diagnostic (the refusal is not the relaxed path).
 r="$tmp/reqci-false-failing"
 new_repo "$r"
@@ -1105,7 +1393,7 @@ assert_contains "reqci/false-failing: names the ci gate" "$ERR" "ci gate"
 deny "reqci/false-failing: no tag created" local_has_tag "$r" v0.1.0
 assert_no_diag "reqci/false-failing: no relaxation diagnostic on a failing refusal" "$ERR"
 
-# 11g. require_ci=false NEVER relaxes a still-PENDING check: still refuses, no tag.
+# 12g. require_ci=false NEVER relaxes a still-PENDING check: still refuses, no tag.
 r="$tmp/reqci-false-pending"
 new_repo "$r"
 seed_version "$r" 0.1.0
@@ -1115,7 +1403,7 @@ assert_ne "reqci/false-pending: exits non-zero (PENDING stays fail-closed)" "$RC
 assert_contains "reqci/false-pending: names the ci gate" "$ERR" "ci gate"
 deny "reqci/false-pending: no tag created" local_has_tag "$r" v0.1.0
 
-# 11h. require_ci=false NEVER relaxes the TOO_MANY unread-overflow verdict (>100
+# 12h. require_ci=false NEVER relaxes the TOO_MANY unread-overflow verdict (>100
 #      checks, an incomplete read): still refuses, no tag.
 r="$tmp/reqci-false-toomany"
 new_repo "$r"
@@ -1126,7 +1414,7 @@ assert_ne "reqci/false-toomany: exits non-zero (TOO_MANY stays fail-closed)" "$R
 assert_contains "reqci/false-toomany: names the ci gate" "$ERR" "ci gate"
 deny "reqci/false-toomany: no tag created" local_has_tag "$r" v0.1.0
 
-# 11i. require_ci=false NEVER relaxes a CI-query FAILURE (infra outage): the gate
+# 12i. require_ci=false NEVER relaxes a CI-query FAILURE (infra outage): the gate
 #      still refuses naming the query failure, never conflating it with NONE.
 r="$tmp/reqci-false-queryfail"
 new_repo "$r"
@@ -1138,7 +1426,7 @@ assert_contains "reqci/false-queryfail: names the query failure, not a NONE rela
 deny "reqci/false-queryfail: no tag created" local_has_tag "$r" v0.1.0
 assert_no_diag "reqci/false-queryfail: no relaxation diagnostic on a query-failure refusal" "$ERR"
 
-# 11j. A non-boolean require_ci value is a clean fail-closed configuration error
+# 12j. A non-boolean require_ci value is a clean fail-closed configuration error
 #      (symmetric with require_signed_tags), with no tag created.
 r="$tmp/reqci-badvalue"
 new_repo "$r"
@@ -1149,7 +1437,7 @@ assert_ne "reqci/bad-value: exits non-zero (non-boolean is a config error)" "$RC
 assert_contains "reqci/bad-value: names require_ci and the boolean requirement" "$ERR" "require_ci"
 deny "reqci/bad-value: no tag created on a config error" local_has_tag "$r" v0.1.0
 
-# 11k. The boolean validation is UNCONDITIONAL of code path: on the resume path
+# 12k. The boolean validation is UNCONDITIONAL of code path: on the resume path
 #      (origin tag present, Release absent — the CI gate is skipped per REQ-B1.3),
 #      a non-boolean require_ci must STILL fail at config-read time, never resume.
 #      This is the "validate when the knob is read, not lazily inside the CI gate"
