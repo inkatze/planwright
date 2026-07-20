@@ -16,6 +16,10 @@
 #      allow/deny entry whose inner text ends in `/:*`, while passing the
 #      correct `/*` path form and the legitimate command globs
 #      (`Bash(git status:*)`, `Bash(mise run:*)`), whose `:*` is correct.
+#      The scan matches one rule token per line (the pretty-printed
+#      one-entry-per-line JSON the profiles ship as, which excludes `_about`
+#      prose so the pedagogical `:*` examples are not flagged); a compact or
+#      minified array with multiple tokens on a line is out of scope.
 #
 #   2. Doc-presence. The correct-form rule must be documented in the adopter
 #      allow-rule guidance (docs/overlays.md) and the worker-settings profile,

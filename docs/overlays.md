@@ -368,7 +368,7 @@ silently never matched the wrapper path on 2026-07-19 and forced a bare launch.
 
 So a **path-scoped** allow rule uses the trailing `/*` glob — `Bash(<dir>/*)` —
 never `:*`. The `mise run check` guard `scripts/check-glob-allow-rules.sh` flags
-any shipped or documented `Bash(<path>/:*)` directory-scoped rule as a likely
+any shipped `Bash(<path>/:*)` directory-scoped rule as a likely
 never-match footgun, and confirms this guidance stays cross-referenced from the
 launch-time and tower guards (D-6, REQ-B1.3).
 

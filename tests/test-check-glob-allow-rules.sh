@@ -37,7 +37,7 @@ trap 'rm -rf "$tmp"' EXIT
 # --- 1. Footgun scan --------------------------------------------------------
 
 # 1a. The real repo passes the full check (footgun scan over the shipped config
-#     profiles + doc-presence): every shipped/documented path-scoped rule is
+#     profiles + doc-presence): every shipped path-scoped rule is
 #     `/*`, and the guidance + ghost-text cross-reference exist.
 /bin/bash "$CHECKER" >/dev/null 2>&1
 assert "real repo passes the full check (footgun + docs)" 0 $?
