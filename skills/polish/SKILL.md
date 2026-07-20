@@ -37,7 +37,8 @@ does not resolve, halt with a clear message naming the missing doc and the
 chain consulted.
 
 Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+`doctrine/instruction-hygiene.md`; `run-start` docs load before work begins,
+`point-of-use` at the named step):
 
 Doctrine: run-start discovery-rigor
 Doctrine: run-start validation-rigor
