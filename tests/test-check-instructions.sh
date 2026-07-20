@@ -179,6 +179,21 @@ trap 'rm -rf "$tmproot"' EXIT
 out="$(/bin/bash "$CHECKER" 2>&1)"
 assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $?
 
+# 0a. Closing-gate assertions (instruction-headroom Task 11, REQ-C1.1, D-11;
+#     the closure-margin target assertions relocated from Tasks 7 and 9 per
+#     kickoff §6). The restoration campaign is complete: every budgeted surface
+#     sits at or above its restoration target (twice its floor) or carries a
+#     declared-exception, so the real-corpus guard run emits none of the D-11
+#     margin warnings and measures every surface. The floor-breach / below-target
+#     / use-site machinery itself is proven by the fixtures below (15c/15d/15t/
+#     15x/16*); this asserts the *shipped corpus* is in the restored end state,
+#     keeping the closing gate permanently enforced in CI (the diets rewrite the
+#     very bodies the use-site check scans, so this re-checks them on the whole).
+assert_absent "closing gate: no floor-breach warning on the real corpus" "floor-breach" "$out"
+assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "below-target" "$out"
+assert_absent "closing gate: no use-site warning on the real corpus" "use-site" "$out"
+assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$out"
+
 # Post-Task-7.5 the audit carries no transitional allowance anywhere: the
 # Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
 # the closeout direction REQ-D1.4 forbids any lingering `pending-diet` entry).

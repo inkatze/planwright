@@ -664,6 +664,16 @@ declare, and the validator applies the rules for the declared version. A
 bundle migrates by updating its `Format-version:` line and conforming to
 the new version's rules.
 
+For the v1→v2 migration specifically, `scripts/migrate-format-version.sh
+<spec-dir>` performs the conversion mechanically: it collapses the placement
+sections into a single `## Tasks`, strips the state-annotation bullets while
+preserving each task-definition line byte-for-byte (so the content anchor is
+unchanged), relocates parked blocks behind reference bullets, bumps the
+`Format-version:` line, and inserts the `**Execution:** derived` pointer. A
+signed bundle additionally gains a dated changelog entry and the machine-written
+self-re-anchor. The transform is mechanical or it refuses — content it cannot
+place deterministically stops the bundle untouched.
+
 - 2026-07-14 — **Format-version 2**: the invariant ledger (invariant-tasks
   D-1, D-2), defined in *Format-version 2 — the invariant ledger*; version 1
   rules are retained above, unchanged in meaning. This entry scopes the
