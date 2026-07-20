@@ -151,16 +151,21 @@ fi
 # Note the detection code in scripts/tasks-pr-sync.sh uses the `gh_pr` wrapper
 # (underscore), which never matches the literal `gh pr merge` scanned here.
 POLICY_FILES="config/worker-settings.json config/tower-settings.json"
-policy_exclude=''
+# Fixed-string exclusion, not ERE: a path like config/worker-settings.json carries
+# a regex metacharacter (the "." before json). Under grep -E that "." is a wildcard,
+# so the exclusion would also swallow look-alike paths (config/worker-settingsXjson)
+# and could hide a real merge invocation in such a file. Build one -e fixed pattern
+# per policy file and match with grep -vF so only the exact paths are excluded.
+policy_exclude_args=()
 for pf in $POLICY_FILES; do
-  policy_exclude="${policy_exclude:+$policy_exclude|}/${pf}:"
+  policy_exclude_args+=(-e "/${pf}:")
 done
 merge_hits="$(
   grep -rnE 'gh pr merge|pulls/[^ ]*/merge|mergePullRequest|enablePullRequestAutoMerge|--auto-merge' \
     "$REPO_ROOT/scripts" "$REPO_ROOT/skills" "$REPO_ROOT/.github" \
     "$REPO_ROOT/templates" "$REPO_ROOT/config" "$REPO_ROOT/hooks" 2>/dev/null \
     | grep -vE ':[0-9]+:[[:space:]]*#' \
-    | grep -vE "$policy_exclude" \
+    | grep -vF "${policy_exclude_args[@]}" \
     || true
 )"
 if [ -z "$merge_hits" ]; then

@@ -55,6 +55,14 @@ if [ ! -f "$HOOK" ]; then
   echo "FAIL: tower guard script missing at $HOOK" >&2
   exit 1
 fi
+# The worker guard backs the REQ-C1.2 distinctness cross-checks (run_worker_hook).
+# Without it, a failed /bin/bash invocation leaves worker_is_allow() false, so the
+# tower-only assertions ("tower-allowed AND worker-deferred") pass VACUOUSLY. Fail
+# fast with a clear message instead of a confusing distinctness mismatch downstream.
+if [ ! -f "$WORKER_HOOK" ]; then
+  echo "FAIL: worker guard script missing at $WORKER_HOOK (distinctness cross-checks would be vacuous)" >&2
+  exit 1
+fi
 
 # Default cwd for containment: a scratch repo with a .git marker and a
 # scripts/ + tests/ dir so in-repo script/bats paths resolve inside it.
