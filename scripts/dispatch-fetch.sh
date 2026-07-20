@@ -96,7 +96,7 @@ else
 fi
 
 usage() {
-  echo "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
+  printf '%s\n' "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
   exit 2
 }
 

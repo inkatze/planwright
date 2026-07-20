@@ -136,7 +136,12 @@ EOF
 c1() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c1.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
-  git init -q --bare "$tmp/origin.git"
+  # Pin the bare origin's default branch to `main` at creation so these fixtures
+  # do not depend on the ambient `init.defaultBranch`. On a host/CI defaulting to
+  # `master`, a `dev2` clone (which has no `branch -M main`) would otherwise commit
+  # on `master` and `push origin main` would fail 'src refspec main does not match
+  # any'. This keeps the primary/dev2 origins main-rooted regardless of the host.
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
 
   git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
   write_spec "$tmp/primary" demo v1
@@ -280,7 +285,7 @@ c3() {
 c4() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c4.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
-  git init -q --bare "$tmp/origin.git"
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
   git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
   write_spec "$tmp/primary" demo v1
   gitc "$tmp/primary" add -A
@@ -332,7 +337,7 @@ c4() {
 c5() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c5.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
-  git init -q --bare "$tmp/origin.git"
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
   git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
   write_spec "$tmp/primary" demo v1
   gitc "$tmp/primary" add -A
@@ -452,7 +457,7 @@ c8() {
 c9() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c9.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
-  git init -q --bare "$tmp/origin.git"
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
   git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
   write_spec "$tmp/primary" demo v1
   gitc "$tmp/primary" add -A
@@ -584,7 +589,7 @@ c11() {
 c12() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c12.XXXXXX")
   trap 'rm -rf "$tmp"' RETURN
-  git init -q --bare "$tmp/origin.git"
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
   git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
   write_spec "$tmp/primary" demo v1
   gitc "$tmp/primary" add -A
