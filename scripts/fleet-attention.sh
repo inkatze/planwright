@@ -73,7 +73,9 @@
 #       from a park / permission / plain decide); the instance id lands in the
 #       additive 10th field. <recommend> must be one of the <options> labels, and
 #       <options> must carry at least two non-empty labels. [priority] ∈ high |
-#       normal | low (default normal).
+#       normal | low (default normal). Exits 3 (a semantic refusal) rather than
+#       clobber a queued human decision (a pending permission / flailing decide);
+#       it still replaces a park (upgrade) or a prior fork (re-fork).
 #   fleet-attention.sh claim <worker> <instance-id> <label>
 #       Answer an answerable fork BY LABEL, atomically, under the store lock —
 #       the read-and-answer primitive (fleet-hardening Task 4, D-4). First-answer
@@ -108,8 +110,13 @@
 #       Push <summary> through the resolved notification channel.
 #
 # Exit codes: 0 success; 2 usage error, unresolvable home, refused hostile
-#   input, or a filesystem/lock error (fail closed); other non-zero from a
-#   propagated resolver hard-fail (notify).
+#   input, or a filesystem/lock error (fail closed); 3 a SEMANTIC refusal on the
+#   Task 4 decision channel — `claim` refusing an answer (stale / bad label /
+#   already-claimed / permission-park / no such fork) and `fork` refusing to
+#   clobber a queued human decision (the unless-decide guard) — distinct from the
+#   operational 2 so a caller can tell "the request does not apply" from "the
+#   store I/O broke"; other non-zero from a propagated resolver hard-fail
+#   (notify).
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): uses the
 # same widely-portable extensions fleet-state.sh does — `date +%s`, a fractional
