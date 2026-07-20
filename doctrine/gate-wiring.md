@@ -91,9 +91,9 @@ commit self-lints the subject before committing, while it can still reword —
 `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin` —
 requiring the canonical placement (pre-prefix, mid-subject, and duplicate
 markers fail) on top of the conventional check. It is deliberately *not* wired
-into the CI commit-range lint — history is never rewritten, so a range rule
-over a mis-placed historical marker would redden the PR permanently — and that
-range lint stays marker-agnostic.
+into the CI commit-range lint (history is never rewritten, so a mis-placed
+historical marker would redden the PR permanently); that range lint stays
+marker-agnostic.
 
 **Branch-scoped consumption (REQ-C1.4).** The marker is meaningful only on the
 PR branch. Its sole consumer is the pending-sign-off checklist regeneration
@@ -278,10 +278,13 @@ per [`spec-format.md`](spec-format.md).
 ```markdown
 ## Summary
 
-Stamps the completion annotation from the reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading to a date-only form or no stamp with no remote. Closes the unowned-refresh gap REQ-E1 names. Start review at `scripts/tasks-pr-sync.sh` and its `tests/` fixtures.
+Stamps the completion annotation from the reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading to a date-only form or no stamp with no remote.
+
+**How to review:** `scripts/tasks-pr-sync.sh` and its `tests/` fixtures.
 
 - **Tasks:** output-hygiene/7 · **REQs:** REQ-E1.1, REQ-E1.2
 - **Brief:** `specs/output-hygiene/kickoff-brief.md`
+- **Tests:** `tests/tasks-pr-sync.bats` — merged-PR evidence yields the canonical string; a no-remote fixture yields the degraded form.
 - **Pending sign-off:** PS-1 (annotation-format wording) — see the collapsed checklist.
 
 <details>
@@ -332,5 +335,4 @@ Stamps the completion annotation from the reconcile so a merged task's block get
 (Task 12) implement this wiring. The conformance scenarios live in the
 bootstrap test-spec's REQ-C1.3, REQ-C1.4, and REQ-C1.7 entries
 (state/trigger/outcome), exercised by the manual-verification sweep the work
-fork's first multi-contributor run carries, with the REQ-C1.5 and REQ-C1.6
-manual entries.
+fork's first run carries, with the REQ-C1.5 and REQ-C1.6 manual entries.
