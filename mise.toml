@@ -74,7 +74,7 @@ fi
 '''
 
 [tasks."lint:json"]
-description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker-settings permissions/hook fragment"
+description = "validate the plugin + marketplace manifests, plugin-global hook registration, and the worker/tower-settings permissions/hook fragments"
 run = '''
 set -e
 jq . .claude-plugin/plugin.json >/dev/null
@@ -85,6 +85,8 @@ jq . hooks/hooks.json >/dev/null
 echo hooks.json valid
 jq . config/worker-settings.json >/dev/null
 echo worker-settings.json valid
+jq . config/tower-settings.json >/dev/null
+echo tower-settings.json valid
 '''
 
 [tasks."lint:plugin-schema"]
