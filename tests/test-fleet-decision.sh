@@ -341,6 +341,25 @@ grep -q "Apply" "$ans" || fail "the answer artifact does not carry the chosen la
 ok "answer delivers the chosen label by buffer-paste, never send-keys (REQ-A1.5)"
 
 # ---------------------------------------------------------------------------
+# 8b. answer validates the delivery HANDLE before it claims (fleet-decision.sh's
+#     contract), so an invalid handle refuses (exit 2) WITHOUT closing the fork —
+#     first-answer-wins must never consume an answer that can't be delivered. The
+#     fork stays answerable for a valid retry.
+# ---------------------------------------------------------------------------
+h8b="$tmp/h8b"
+aenv "$h8b" fork w1 spec-a "Approve?" "Apply" "Apply|Skip" "iid-h" || fail "fork exited non-zero"
+rc=0
+denv "$h8b" answer tmux "bad handle!" w1 "iid-h" "Apply" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "answer with an invalid handle exited $rc, expected 2 (rejected before claim)"
+[ -z "$(row_field "$h8b" w1 11)" ] \
+  || fail "answer closed the fork despite an invalid delivery handle (validate-handle must precede claim)"
+# The fork is untouched, so a valid retry still resolves it.
+out=$(denv "$h8b" answer tmux "dev:1.0" w1 "iid-h" "Apply") \
+  || fail "valid-handle answer after a rejected one exited non-zero"
+[ "$(row_field "$h8b" w1 11)" = "Apply" ] || fail "the fork did not close on the valid retry"
+ok "answer validates the handle before claiming; an invalid handle refuses without closing the fork (REQ-A1.5)"
+
+# ---------------------------------------------------------------------------
 # 9. answer refuses to deliver a permission-park record — the mechanical refusal
 #    reaches through the whole channel, not just the store primitive (REQ-A1.5).
 # ---------------------------------------------------------------------------
