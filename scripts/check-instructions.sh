@@ -42,7 +42,8 @@
 #     default is a fail-closed error unless a matching `raise|` entry records it;
 #   - with --audit, emits a ranked report with per-surface margin-to-warn /
 #     margin-to-error columns and an offender shortlist (REQ-A1.3,
-#     instruction-headroom REQ-D1.1).
+#     instruction-headroom REQ-D1.1); each pending-diet allowance's Task field
+#     rides both the ranked report and the shortlist (REQ-D1.2, D-8).
 #
 # All input this guard reads (manifest entries, exemption text, rule-doc names,
 # hook scripts) is PR-controllable and treated as untrusted DATA: no content is
@@ -346,6 +347,7 @@ exempt_reasons=""              # "path\treason" records for echoing
 pd_file_paths=""               # transitional per-file allowances (paths)
 pd_startload=""                # transitional start-load allowances (skill names)
 pd_closure=""                  # transitional closure allowances (skill names)
+pd_tasks=""                    # "<budget>\t<target>\t<task>" — the allowance's Task field (REQ-D1.2)
 declared_exception_surfaces="" # standing below-target/use-site exceptions (keys)
 declared_exception_reasons=""  # "surface\treason" records for echoing
 declared_exception_used=""     # surface keys whose named warning fired this run
@@ -362,6 +364,25 @@ $list
 $needle
 "*) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+pd_task_for() {
+  # pd_task_for <budget> <target> -> prints the pending-diet allowance's Task
+  # field (REQ-D1.2, D-8), or nothing if the target has no allowance of that
+  # budget class. Data-only: the stored task string is never evaluated.
+  _pdb="$1"
+  _pdt="$2"
+  case "
+$pd_tasks
+" in
+    *"
+$_pdb	$_pdt	"*)
+      _pdrest="${pd_tasks#*"
+$_pdb	$_pdt	"}"
+      printf '%s' "${_pdrest%%
+*}"
+      ;;
   esac
 }
 
@@ -420,6 +441,10 @@ $target" ;;
             continue
             ;;
         esac
+        # Record the allowance's Task field for the audit surface (REQ-D1.2);
+        # only reached for a valid budget class (the unknown arm `continue`s).
+        pd_tasks="$pd_tasks
+$budget	$target	$task"
         ;;
       declared-exception)
         surface="${rest%%|*}"
@@ -718,17 +743,25 @@ record_perfile() {
   if [ "$suppress" != exempt ]; then
     headroom_check "$words" "$et" "$floor" "$rel"
   fi
-  # Write the suppression field as a literal `none` when empty: a tab is IFS
+  # The pending-diet allowance's Task field rides the audit surface (REQ-D1.2,
+  # D-8); a non-allowance file carries the literal `none`. A tab is IFS
   # whitespace, so an empty interior field would collapse under the audit
-  # reader's `read`, sliding `kind` into the suppression-tag slot.
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$words" "$rel" "$lines" "$state" "${suppress:-none}" "$6" >>"$perfile_list"
+  # reader's `read` — the `none` sentinel keeps every column aligned.
+  pd_task=none
+  if [ "$suppress" = pending-diet ]; then
+    pd_task="$(pd_task_for file "$rel")"
+    [ -n "$pd_task" ] || pd_task=none
+  fi
+  # Write the suppression field as a literal `none` when empty for the same
+  # IFS-collapse reason.
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$words" "$rel" "$lines" "$state" "${suppress:-none}" "$6" "$pd_task" >>"$perfile_list"
 
   if [ "$state" = ERROR ]; then
     # Every over-floor file is an offender and goes on the shortlist (it needs a
     # diet plan, REQ-A1.3), whether or not a suppression currently keeps CI
     # green; suppression governs only the exit code, not offender status.
-    printf 'per-file\t%s\t%s\t%s\t%s\n' "$rel" "$words" "$et" "${suppress:-unsuppressed}" >>"$shortlist"
+    printf 'per-file\t%s\t%s\t%s\t%s\t%s\n' "$rel" "$words" "$et" "${suppress:-unsuppressed}" "$pd_task" >>"$shortlist"
     if [ "$suppress" = exempt ]; then
       # echo the standing rationale so a reviewer sees why the floor is waived.
       ereason=""
@@ -958,10 +991,12 @@ $sname"
 
     if [ "$sl_state" = ERROR ]; then
       if in_list "$sname" "$pd_startload"; then
-        printf 'start-load\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$t_sl_error" "pending-diet" >>"$shortlist"
+        sl_task="$(pd_task_for start-load "$sname")"
+        [ -n "$sl_task" ] || sl_task=none
+        printf 'start-load\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$t_sl_error" "pending-diet" "$sl_task" >>"$shortlist"
         warn "start-load over budget, pending-diet allowance in place: $sname ($startload >= $t_sl_error)"
       else
-        printf 'start-load\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$t_sl_error" "unsuppressed" >>"$shortlist"
+        printf 'start-load\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$startload" "$t_sl_error" "unsuppressed" "none" >>"$shortlist"
         err "start-load over budget: $sname ($startload words >= $t_sl_error)"
       fi
     elif [ "$sl_state" = WARN ]; then
@@ -970,10 +1005,12 @@ $sname"
 
     if [ "$cl_state" = ERROR ]; then
       if in_list "$sname" "$pd_closure"; then
-        printf 'closure\t%s\t%s\t%s\t%s\n' "$sname" "$closure" "$t_cl_error" "pending-diet" >>"$shortlist"
+        cl_task="$(pd_task_for closure "$sname")"
+        [ -n "$cl_task" ] || cl_task=none
+        printf 'closure\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$closure" "$t_cl_error" "pending-diet" "$cl_task" >>"$shortlist"
         warn "closure over budget, pending-diet allowance in place: $sname ($closure >= $t_cl_error)"
       else
-        printf 'closure\t%s\t%s\t%s\t%s\n' "$sname" "$closure" "$t_cl_error" "unsuppressed" >>"$shortlist"
+        printf 'closure\t%s\t%s\t%s\t%s\t%s\n' "$sname" "$closure" "$t_cl_error" "unsuppressed" "none" >>"$shortlist"
         err "closure over budget: $sname ($closure words >= $t_cl_error)"
       fi
     elif [ "$cl_state" = WARN ]; then
@@ -1197,9 +1234,14 @@ if [ "$audit" -eq 1 ]; then
   echo "== Instruction hygiene audit =="
   echo
   echo "Per-file (ranked by words):"
-  sort -rn "$perfile_list" | while IFS="$(printf '\t')" read -r w rel l st sup kind; do
+  sort -rn "$perfile_list" | while IFS="$(printf '\t')" read -r w rel l st sup kind tk; do
     tag=""
     [ "$sup" != none ] && tag=" [$sup]"
+    # A pending-diet allowance's Task field rides its ranked-report row (REQ-D1.2,
+    # D-8), so a Task retag is visible in the audit surface. The field is raw,
+    # PR-controllable exemptions-file text, so it is sanitized on echo like every
+    # other surfaced untrusted value (REQ-B1.9, echo discipline).
+    [ "$tk" != none ] && tag="$tag [$(sanitize_printable "$tk" "?")]"
     # Margin-to-warn / margin-to-error for the floored per-file classes (D-8,
     # REQ-D1.1). A permanently exempt file carries no headroom floor, so it
     # shows no margin columns (its exempt notice stands).
@@ -1259,9 +1301,15 @@ if [ "$audit" -eq 1 ]; then
   echo
   echo "Offender shortlist:"
   if [ -s "$shortlist" ]; then
-    while IFS="$(printf '\t')" read -r cls tgt w th sup; do
-      printf '  %s %s (%s words >= %s %s budget) [%s]\n' \
-        "$cls" "$tgt" "$w" "$th" "$cls" "$sup"
+    while IFS="$(printf '\t')" read -r cls tgt w th sup tk; do
+      # A pending-diet allowance's Task field rides its shortlist row (REQ-D1.2,
+      # D-8); a non-allowance offender carries the `none` sentinel and no tag.
+      # The field is raw, PR-controllable exemptions-file text, sanitized on echo
+      # like every other surfaced untrusted value (REQ-B1.9, echo discipline).
+      tasktag=""
+      [ "$tk" != none ] && tasktag=" [$(sanitize_printable "$tk" "?")]"
+      printf '  %s %s (%s words >= %s %s budget) [%s]%s\n' \
+        "$cls" "$tgt" "$w" "$th" "$cls" "$sup" "$tasktag"
     done <"$shortlist"
   else
     echo "  none"
