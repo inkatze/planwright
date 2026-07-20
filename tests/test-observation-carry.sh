@@ -50,11 +50,14 @@ fail() {
 # than as a confusing `command not found` inside the stub.
 command -v jq >/dev/null 2>&1 || fail "jq required to run this suite (the gh stub runs jq)"
 
-# git with a deterministic, signing-free identity (fixtures never sign).
+# git with a deterministic, signing-free identity (fixtures never sign). Uses a
+# uniquely-named internal var (NOT `repo`) so a call like `gitc "$repo.git" …`
+# outside a subshell never clobbers the caller's `repo` variable (these fixture
+# functions share globals — no `local`).
 gitc() {
-  repo="$1"
+  _gitc_dir="$1"
   shift
-  git -C "$repo" -c user.name=test -c user.email=test@example.invalid \
+  git -C "$_gitc_dir" -c user.name=test -c user.email=test@example.invalid \
     -c commit.gpgsign=false -c init.defaultBranch=main "$@"
 }
 
@@ -198,12 +201,22 @@ run_carry() {
     "$CARRY" "$@"
 }
 
-# origin/<ref> tree listing of the entries dir (basenames), sorted.
+# Entries-dir basenames at <ref>, read from the BARE ORIGIN repo (<root>.git)
+# directly — NOT the local `origin/...` tracking ref. `git push` does not reliably
+# update `refs/remotes/origin/*` (it varies by git version / config, especially
+# for the carry's raw-commit-to-ref push), so reading the bare origin is the
+# authoritative, non-flaky way to see what actually landed on the remote. <ref>
+# is a branch name or SHA that exists in the bare repo.
 origin_entries() {
   root="$1"
   ref="$2"
-  gitc "$root" ls-tree -r --name-only "$ref" -- "$OBSREL" 2>/dev/null \
+  gitc "$root.git" ls-tree -r --name-only "$ref" -- "$OBSREL" 2>/dev/null \
     | sed 's#.*/##' | LC_ALL=C sort
+}
+# Resolve a ref (branch name / SHA) in the bare origin, authoritative over the
+# local tracking ref.
+origin_rev() {
+  gitc "$1.git" rev-parse "$2" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------------
@@ -242,7 +255,7 @@ c1() {
 
   # The chore branch on origin carries BOTH stranded fragments and NOT the
   # pre-existing on-main fragment beyond what main already has.
-  chore_entries=$(origin_entries "$repo" "origin/planwright/chore/observations")
+  chore_entries=$(origin_entries "$repo" "planwright/chore/observations")
   printf '%s\n' "$chore_entries" | grep -qx "2026-07-20-tower-bbbb2222.md" \
     || fail "c1: chore branch missing fragment bbbb2222"
   printf '%s\n' "$chore_entries" | grep -qx "2026-07-20-tower-cccc3333.md" \
@@ -310,17 +323,17 @@ c4() {
   make_gh_stub "$gh"
 
   run_carry "$gh" "$tmp/ghstate" "$repo" >/dev/null 2>"$tmp/err" || fail "c4: run1 — $(cat "$tmp/err")"
-  chore_before=$(gitc "$repo" rev-parse "origin/planwright/chore/observations")
+  chore_before=$(origin_rev "$repo" "planwright/chore/observations")
   add_frags "$repo" tower ffff6666
   out=$(run_carry "$gh" "$tmp/ghstate" "$repo" 2>"$tmp/err") || fail "c4: run2 exit $? — $(cat "$tmp/err")"
   [ "$(tag_val "$out" carry)" = updated ] || fail "c4: run2 expected updated, got: $out"
   [ "$(wc -l <"$tmp/ghstate/create-log" | tr -d ' ')" = 1 ] \
     || fail "c4: incremental carry opened a second PR (must reuse one)"
 
-  chore_after=$(gitc "$repo" rev-parse "origin/planwright/chore/observations")
+  chore_after=$(origin_rev "$repo" "planwright/chore/observations")
   [ "$chore_after" != "$chore_before" ] || fail "c4: chore branch not advanced by the new fragment"
   # New commit is a fast-forward (chore_before is an ancestor — never force-push).
-  gitc "$repo" merge-base --is-ancestor "$chore_before" "$chore_after" \
+  gitc "$repo.git" merge-base --is-ancestor "$chore_before" "$chore_after" \
     || fail "c4: chore branch was not fast-forwarded (force-push forbidden)"
   entries=$(origin_entries "$repo" "$chore_after")
   printf '%s\n' "$entries" | grep -qx "2026-07-20-tower-eeee5555.md" || fail "c4: lost first fragment"
