@@ -1,7 +1,7 @@
 # Fleet Hardening — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-07-19
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -182,33 +182,94 @@ the correct shape both the documented rule and a mechanical check closes it at a
 than at incident time. Grounded in the Claude Code Bash-glob word-boundary behavior (`:*` == a
 following space-or-end-of-string).
 
-### D-7: Deterministic D-36 branch naming folded into the tmux dispatch primitive (N)
+### D-7: Deterministic D-36 branch naming in the tmux dispatch primitive (N, amended at kickoff 2026-07-20)
 
 **Decision:** The tmux-backend dispatch primitive produces a worktree on the canonical D-36 branch
 `planwright/<spec>/task-<id>` deterministically at launch, with no manual post-launch `git branch -m`
-rename. The primitive adopts `claude --worktree <bare-suffix> --tmux=classic` (which folds worktree +
-classic tmux session + launch into one native command, satisfying D-37's never-shell-`git-worktree`
-rule) and makes the D-36 branch name a guaranteed output rather than a rename an operator must
-remember.
+rename. Mechanism, in two steps:
+
+1. **Create** the worktree with a single
+   `git worktree add -b planwright/<spec>/task-<id> .claude/worktrees/<suffix> <base>` call, where
+   `<base>` is the **freshly-fetched `origin/main`** (never stale local `main` or the tower's current
+   HEAD — the fetch-before-act discipline of D-9); `<suffix>` is a **deterministic** function of
+   `(spec, task-id)` so the same task always maps to the same worktree path; and `<spec>` / `<id>` /
+   `<suffix>` are **validated against the D-36 grammar before interpolation** (or passed as argv, not
+   a shell string) so no shell metacharacter or `..` path-traversal can reach the command. The
+   shell-out is a narrow, documented exception to the never-shell-`git worktree` rule (scope below).
+2. **Attach** with `claude --worktree <suffix> --tmux=classic`, which discovers the already-placed
+   worktree (`docs/conventions.md`: "any worktree placed there is attachable … regardless of which
+   backend created it") and folds the classic tmux session + launch. The attach runs **only if step 1
+   exited zero**; a non-zero create aborts the dispatch and never attaches to a missing or wrong
+   worktree.
+
+Splitting create-then-attach makes the exact D-36 branch name a guaranteed output rather than a rename
+an operator must remember.
 
 **Alternatives considered:**
-- Keep the manual `git branch -m planwright/<spec>/task-<id>` post-launch rename (current operator
+- The pure-native `claude --worktree <bare-suffix> --tmux=classic` fold (this decision's own prior
+  mechanism, superseded here). Rejected because: `claude --worktree <name>` couples the worktree
+  directory and the new branch to a single token and always names the branch `worktree-<name>`, never
+  the slashed D-36 `planwright/<spec>/task-<id>` — there is no flag to set a slashed branch name
+  (confirmed against `claude --worktree` behaviour, the running CLI, and the recurring
+  tmux-dispatch-branch-rename operational evidence). Of the three constraints {deterministic D-36
+  name, no post-launch rename, honour D-37's no-shell-`git worktree`}, only two are simultaneously
+  satisfiable, so the fold cannot yield the D-36 name without a forbidden `git branch -m` rename.
+- Keep the manual `git branch -m planwright/<spec>/task-<id>` post-launch rename (prior operator
   practice). Rejected because: it is a per-dispatch manual step; when forgotten, the worktree sits on
   the mangled `worktree-<suffix>` name, which the tasks-PR-sync hook cannot map back to a task (the
   non-convention-headref miss), so a merged task can read as unmerged.
-- Use plain `--tmux` (non-classic). Rejected because: it opens iTerm2 native panes that are not
-  `load-buffer` / `capture-pane` relay-targetable; `--tmux=classic` is required for the relay to
-  function.
+- Use plain `--tmux` (non-classic) for the attach. Rejected because: it opens iTerm2 native panes that
+  are not `load-buffer` / `capture-pane` relay-targetable; `--tmux=classic` is required for the relay
+  to function.
 
-**Chosen because:** folding the D-36 name into the primitive removes a hand step that silently
-degrades merge detection when skipped. Two caveats carry into the task: `--tmux=classic` is mandatory
-(not plain `--tmux`), and the native command switches the attached tmux client to the new session,
-which must be mitigated so it does not disrupt a tower watching another session. Task 10 owns two
-robustness properties (Done-when + risk register): the client-switch mitigation is **designed**
-(launch detached, or capture-and-restore the prior client attachment), not merely confirmed by a
-manual step; and the deterministic branch name means a concurrent or repeat dispatch of the same task
-must **detect an existing `<spec>/task-<id>` branch/worktree and treat it as already-in-flight**
-(abort), rather than trading the rename footgun for a collision footgun.
+**Chosen because:** of the three constraints above only two hold at once, and spending the no-shell
+constraint — as a narrowly-scoped, documented exception — is the only way to keep **both** the
+deterministic D-36 name and the zero-rename property; the mangled `worktree-<suffix>` name is exactly
+what the tasks-PR-sync hook cannot map back to a task, so a merged task reads as unmerged. Two caveats
+carry into the task: `--tmux=classic` is mandatory (not plain `--tmux`), and the attach command still
+switches the attached tmux client to the new session, which must be mitigated so it does not disrupt a
+tower watching another session — Task 10 **designs** that mitigation (launch detached, or
+capture-and-restore the prior client attachment), not a manual confirmation.
+
+**Collision / orphan handling.** `<suffix>` and the branch name are deterministic per task, so a
+concurrent or repeat dispatch collides. Detection **relies on `git worktree add -b`'s own atomic
+non-zero exit** (git locks the worktrees admin dir; `-b` refuses an existing branch) — never a
+check-then-create pre-check, which would race (TOCTOU). On that failure the primitive **reconciles
+rather than blindly aborting**, distinguishing in-flight from stale via this bundle's existing
+liveness signals (the dispatch marker, the attached tmux session, the Task-2 attention/heartbeat
+store — not a new source of truth):
+- **Live** dispatch in flight → abort as **already-in-flight** (the intended collision guard).
+- **Stale / orphaned** existing branch or worktree with no live session — a prior create that died
+  before attach (step 1 succeeded, step 2 never ran), or a finished task whose branch outlived its
+  worktree — is an orphan, not in-flight: the primitive **GC-adopts** it (remove the leftover
+  worktree; delete the branch only when safe — not a live PR head, not unmerged-and-wanted) before
+  recreating, so a crash can never wedge a task as permanently "already-in-flight". A leftover
+  **empty** `.claude/worktrees/<suffix>` dir (which `git worktree add` would otherwise silently
+  create into) is treated as such an orphan and cleaned, not silently reused.
+- A **partial create** (branch made, worktree add failed) is **rolled back** (delete the just-made
+  branch) so it cannot masquerade as an in-flight collision next time.
+
+This replaces the earlier bare "detect an existing branch/worktree and abort" with a reconcile that
+does not trade the rename footgun for a permanent-collision footgun.
+
+**Exception scope.** The `git worktree add` shell-out is **confined to the dispatch primitive within
+this bundle's shipped code**: a guard over the bundle's dispatch/tower sources (a grep / call-site
+allowlist) asserts no other worktree-creation path in the bundle shells out to `git worktree`. It does
+**not** claim planwright never shells out elsewhere — the same slashed-branch impossibility applies to
+planwright's own spec-worktree creation (the `/spec-kickoff` path already uses `git worktree add` to
+place `<spec>-spec` on `planwright/<spec>/spec`), so `docs/conventions.md`'s "planwright never shells
+out to `git worktree`" and bootstrap-D-37 are already aspirational there. Reconciling that repo-wide
+invariant (relax the never-shell rule to sanction `git worktree add` for the slashed-branch placement
+contract, or add a native path that yields a slashed branch) is **delegated to planwright core**
+(bootstrap-D-37 + `docs/conventions.md`), not resolved in this fleet bundle; an observation ties this
+scoped exception to the existing 2026-06-16 D-37 opportunity so core reconciles it.
+
+**Tower-guard interaction (D-8).** The `git worktree add` call lives **inside** the dispatch
+primitive, which the tower runs as a planwright script by resolved literal path — allowed by the tower
+guard's literal-path script allowance (REQ-C1.1), so the inner git call is never a separate PreToolUse
+Bash string exposed to the stochastic `auto`-mode classifier. For defense-in-depth the tower deny
+floor (REQ-C1.2) still names the dangerous `git worktree` forms (a `git worktree add` targeting or
+detaching the default branch, `--force`) so no loose allow can pass them.
 
 ### D-8: Tower command-guard — a distinct tower safe set fronting the stochastic classifier (N)
 

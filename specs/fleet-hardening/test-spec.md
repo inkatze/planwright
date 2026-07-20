@@ -1,7 +1,7 @@
 # Fleet Hardening — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-19
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -84,9 +84,20 @@ otherwise unverified).
 ### REQ-B1.4 — tmux dispatch yields a D-36 branch with no rename [test + manual]
 
 `[test]`: a fixture asserts the dispatch primitive's resulting branch name matches the D-36 grammar
-`planwright/<spec>/task-<id>` with no post-launch `git branch -m` step in the path. `[manual]`:
-confirm on a real dispatch that `--tmux=classic` is used (not plain `--tmux`) and that the
-client-switch caveat is mitigated so a watching tower is not disrupted.
+`planwright/<spec>/task-<id>` with no post-launch `git branch -m` step — created by the single scoped
+`git worktree add -b` call (D-7), with the mangled `worktree-<suffix>` name provably not the output,
+`<base>` pinned to the freshly-fetched `origin/main`, and `<spec>`/`<id>`/`<suffix>` validated against
+the D-36 grammar before interpolation (a metacharacter/`..`-bearing value is rejected — no shell
+execution, no path escape). A guard over the bundle's dispatch/tower sources asserts the dispatch
+primitive is the only bundle path that shells out to `git worktree`. Collision/orphan fixtures assert
+a *live* concurrent/repeat dispatch aborts as already-in-flight (via `git worktree add -b`'s atomic
+non-zero exit), while a *stale* orphan (dead branch/worktree, empty leftover `<suffix>` dir, or partial
+create) is GC-adopted/rolled back so the dispatch proceeds; the create exit-code gates the attach. The
+client-switch mitigation is asserted by fixture (designed: detached launch or capture-and-restore), the
+tower deny floor is asserted to deny the dangerous `git worktree` forms, and a negative assertion
+confirms no model/API call in the branch-naming path (REQ-E1.3). `[manual]`: confirm on a real dispatch
+that `--tmux=classic` is used (not plain `--tmux`) and the client-switch mitigation holds so a watching
+tower is not disrupted.
 
 ## REQ-C — Tower self-governance
 
