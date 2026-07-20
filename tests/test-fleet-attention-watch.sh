@@ -204,6 +204,37 @@ grep -q '^\[w1\]\[spec-a\]\[\]$' "$cblog7b" \
 ok "the watch fires for a non-park awaiting-human row (decide) with an empty reason"
 
 # ---------------------------------------------------------------------------
+# 7c. Invalid numeric option values are a usage error (exit 2), never a silent
+#     fall-back to the default (the fleet-liveness classify --now/--heartbeat
+#     discipline): a misconfigured watch must fail loudly, not run an unintended
+#     cadence or read health from an unintended window.
+# ---------------------------------------------------------------------------
+h7c="$tmp/h7c"
+for bad in abc 0 012 -5; do
+  rc=0
+  watch "$h7c" liveness --max-age "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "liveness --max-age '$bad' was accepted (expected exit 2, got $rc)"
+done
+for bad in 0 xx 099 -1; do
+  rc=0
+  # --once guards against a loop should an invalid value ever slip through.
+  watch "$h7c" watch --interval "$bad" --once >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "watch --interval '$bad' was accepted (expected exit 2, got $rc)"
+  rc=0
+  watch "$h7c" watch --reconcile-every "$bad" --once >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "watch --reconcile-every '$bad' was accepted (expected exit 2, got $rc)"
+done
+# Regression: valid values are NOT over-rejected.
+park "$h7c" wv spec-a "notification:idle_prompt" || fail "park failed"
+rc=0
+watch "$h7c" watch --interval 5 --reconcile-every 3 --once >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "valid --interval/--reconcile-every were rejected (exit $rc)"
+rc=0
+watch "$h7c" liveness --max-age 3600 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "valid --max-age was rejected (exit $rc)"
+ok "invalid --max-age/--interval/--reconcile-every are usage errors (exit 2); valid values pass"
+
+# ---------------------------------------------------------------------------
 # 8. No capture-pane, no jq, no model / network call in EXECUTABLE code.
 # ---------------------------------------------------------------------------
 code_only() { grep -vE '^[[:space:]]*#' "$1"; }

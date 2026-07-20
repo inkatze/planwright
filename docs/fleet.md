@@ -405,12 +405,12 @@ string — no raw payload text ever reaches a command or the store.
 **Guards worth knowing.** A downgrade push (`Stop`/`SessionEnd`/`StopFailure`)
 never overwrites an `awaiting-input` row that has no **decision marker**
 (pending-permission or fork-park): that row is a queued human decision (a
-flailing escalation, a crash-loop disable), and REQ-A1.3 forbids auto-resolving
-it. A live decision marker is the exception — it means this handler queued the
+flailing escalation, a crash-loop disable), and `fleet-autonomy` REQ-A1.3 forbids
+auto-resolving it. A live decision marker is the exception — it means this handler queued the
 row, so a resume (`PostToolUse`) or a terminal exit clears it with precedence,
 the permission and fork-park flows symmetrically. A denied permission whose turn
 then ends clears on the `Stop` push; anything beyond that heals on the periodic
-ground-truth reconcile (REQ-A1.8, a later task), which stays the
+ground-truth reconcile (`fleet-autonomy` REQ-A1.8, a later task), which stays the
 correctness backstop for every missed or dropped push — push is a latency
 optimization, never the source of truth. Precedence between push and reconcile
 writes is last-write-wins by commit-time timestamp (the store stamps
@@ -448,7 +448,7 @@ expects no progress and resets the streak, so a permission block never
 inflates it into a spurious escalation on resume. A
 `flailing` classification queues exactly one human decision ("this task may be
 stuck") and records the escalation in the audit trail — there is no automatic
-nudge or restart path at all (REQ-A1.3). Routine classification is *not*
+nudge or restart path at all (`fleet-autonomy` REQ-A1.3). Routine classification is *not*
 audited: the trail records actions, not status noise. The classifier consumes
 only grammar-validated tokens, never raw pane text — a capture-pane consumer
 sanitizes before anything reaches it.

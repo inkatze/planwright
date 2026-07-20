@@ -140,10 +140,21 @@ ok "additive regression: heartbeat/decide rows stay 8 fields, park adds field 9 
 h5="$tmp/h5"
 aenv "$h5" park w1 spec-a "notification:idle_prompt" || fail "park exited non-zero"
 q_park=$(aenv "$h5" queue) || fail "queue (park) exited non-zero"
-printf '%s' "$q_park" | grep -q "notification:idle_prompt" \
-  || fail "queue does not surface the park reason: [$q_park]"
-printf '%s' "$q_park" | grep -q "options: notification:idle_prompt" \
-  && fail "queue mis-renders the park reason as options"
+# The reason must land on its own `reason:` line, NOT smashed into the priority
+# bracket or the Q/options lines. A park row carries empty q/def/opts (only the
+# priority and field-9 reason set); the `queue` reader must not collapse that
+# empty run and slide the reason into the wrong slot (a TAB-IFS `read` would —
+# see the US-delimited read).
+printf '%s' "$q_park" | grep -q "^    reason: notification:idle_prompt$" \
+  || fail "queue did not render the park reason on its own reason: line: [$q_park]"
+printf '%s' "$q_park" | grep -q "^- \[notification:idle_prompt\]" \
+  && fail "queue rendered the park reason in the priority bracket (field collapse): [$q_park]"
+printf '%s' "$q_park" | grep -qE "^    (options|Q): notification:idle_prompt" \
+  && fail "queue mis-rendered the park reason as an option set / question: [$q_park]"
+# A park carries a concrete priority label (not the `?` placeholder), consistent
+# with decide's default, so the decision queue renders and sorts it sanely.
+printf '%s' "$q_park" | grep -q "^- \[normal\] spec-a" \
+  || fail "queue did not render the park with a normal priority label: [$q_park]"
 : # decide-row regression
 h5b="$tmp/h5b"
 aenv "$h5b" decide w1 spec-a "Approve?" "hold" "Apply|Skip" || fail "decide exited non-zero"

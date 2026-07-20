@@ -452,7 +452,10 @@ case $cmd in
     # an atomic no-op when the worker is ALREADY awaiting-input (a pending
     # permission or a flailing escalation), so a fork-park coincident with such a
     # decision preserves that decision instead of clobbering it (REQ-A1.3,
-    # REQ-E1.2). The reason lands in the additive 9th field.
+    # REQ-E1.2). The reason lands in the additive 9th field. Priority defaults to
+    # `normal` (matching `decide`), so the decision queue renders a concrete
+    # `[normal]` label rather than the `?` placeholder and sorts a fork-park level
+    # with a routine decide (the empty-priority sort weight was already `normal`).
     worker="${1:-}"
     scope="${2:-}"
     reason="${3:-}"
@@ -475,7 +478,7 @@ case $cmd in
     root=$(resolve_home) || exit 2
     attn_dir="$root/attention"
     store="$attn_dir/state"
-    upsert_row "$worker" "$scope" "awaiting-input" "" "" "" "" unless-awaiting "$reason" \
+    upsert_row "$worker" "$scope" "awaiting-input" "normal" "" "" "" unless-awaiting "$reason" \
       || exit 2
     exit 0
     ;;
@@ -606,7 +609,14 @@ case $cmd in
     # it is empty for a shipped decide row (8 fields → the var reads nothing, so
     # the decide branch below is byte-identical to before) and carries the reason
     # for a fork-park row (9 fields).
-    printf '%s\n' "$sortable" | while IFS="$TAB" read -r _w _tskey worker scope _state ts prio q def opts reason; do
+    # US-delimit the read. TAB is IFS-whitespace, so `read` collapses a run of
+    # consecutive empty fields (a park row carries empty prio/q/def/opts with
+    # only field 9 set) and would slide the reason into the priority slot,
+    # dropping the fork-park `reason:` branch entirely. Translating the sort's
+    # TAB delimiters to the US control byte (never a valid field byte) makes each
+    # empty field survive the split — the fleet-attention-watch.sh do_pass idiom.
+    us=$(printf '\037')
+    printf '%s\n' "$sortable" | tr "$TAB" "$us" | while IFS="$us" read -r _w _tskey worker scope _state ts prio q def opts reason; do
       [ -n "$worker" ] || continue
       age="?"
       case $ts in

@@ -75,6 +75,20 @@ now_epoch() {
   esac
 }
 
+# valid_posint <value> — a positive integer CLI option value: digits only, no
+# leading zero (shell arithmetic would read it as octal), 1..15 digits (the
+# overflow guard the sibling resolvers use), and not bare 0 (a 0 interval /
+# max-age / reconcile-every is meaningless). An invalid option value is a usage
+# error (exit 2 at the call site), never a silent fall-back to the default — the
+# same discipline fleet-liveness.sh classify applies to --now / --heartbeat, so a
+# misconfigured watch fails loudly instead of running an unintended cadence.
+valid_posint() {
+  case $1 in
+    "" | *[!0-9]* | 0 | 0?*) return 1 ;;
+  esac
+  [ "${#1}" -le 15 ]
+}
+
 # atomic_write_file <file> <content> — same-dir temp + rename (never a truncating
 # `>` redirect, which would follow a planted symlink).
 atomic_write_file() {
@@ -142,16 +156,17 @@ do_pass() {
   dp_all=$1
   resolve_paths || return 2
   read_store_guard || return 2
-  stamp_liveness || {
-    echo "fleet-attention-watch: could not stamp liveness" >&2
-    return 2
-  }
   mkdir -p "$attn_dir" 2>/dev/null || true
   if [ ! -f "$store" ]; then
     # No store yet: nothing awaiting. Reset the signature (through
     # atomic_write_file, never a truncating `>` redirect that would follow a
-    # planted symlink) so a later push is seen as new.
+    # planted symlink) so a later push is seen as new. Stamp liveness (a
+    # completed pass over an empty fleet) and return.
     atomic_write_file "$sigfile" "" 2>/dev/null || true
+    stamp_liveness || {
+      echo "fleet-attention-watch: could not stamp liveness" >&2
+      return 2
+    }
     return 0
   fi
   # Snapshot the store ONCE and compute BOTH the fire set and the new signature
@@ -206,6 +221,14 @@ do_pass() {
   rm -f "$dp_snap" 2>/dev/null
   atomic_write_file "$sigfile" "$dp_sigs
 " 2>/dev/null || true
+  # Stamp liveness only after the pass has actually COMPLETED — never before the
+  # snapshot / read, which can still fail and exit the watch loop while
+  # watch.alive reads fresh for --max-age, masking a dead watch (the whole point
+  # of the liveness tell is that a watcher that dies stops stamping).
+  stamp_liveness || {
+    echo "fleet-attention-watch: could not stamp liveness" >&2
+    return 2
+  }
   return 0
 }
 
@@ -280,9 +303,14 @@ case $cmd in
             echo "fleet-attention-watch: --max-age needs seconds" >&2
             exit 2
           }
-          # Reject bare 0 too (the `0?*` alternation alone lets a single "0"
-          # through): a non-positive max-age is meaningless.
-          case $2 in "" | *[!0-9]* | 0 | 0?*) ;; *) max_age=$2 ;; esac
+          # An invalid value is a usage error (exit 2), never a silent fall-back
+          # to the default: a mistyped --max-age must fail loudly, not read health
+          # from an unintended window.
+          valid_posint "$2" || {
+            echo "fleet-attention-watch: --max-age needs a positive integer of seconds (1..15 digits, no leading zero)" >&2
+            exit 2
+          }
+          max_age=$2
           shift 2
           ;;
         *)
@@ -317,9 +345,13 @@ case $cmd in
             echo "fleet-attention-watch: --interval needs seconds" >&2
             exit 2
           }
-          # Reject bare 0 (busy loop: `sleep 0` / `--timeout 0`) as well as
-          # leading-zero values.
-          case $2 in "" | *[!0-9]* | 0 | 0?*) ;; *) interval=$2 ;; esac
+          # A usage error, not a silent default: a bad --interval (a busy-loop 0,
+          # a typo) must fail loudly rather than silently watching at 15s.
+          valid_posint "$2" || {
+            echo "fleet-attention-watch: --interval needs a positive integer of seconds (1..15 digits, no leading zero)" >&2
+            exit 2
+          }
+          interval=$2
           shift 2
           ;;
         --reconcile-every)
@@ -327,7 +359,11 @@ case $cmd in
             echo "fleet-attention-watch: --reconcile-every needs a count" >&2
             exit 2
           }
-          case $2 in "" | *[!0-9]* | 0 | 0?*) ;; *) reconcile_every=$2 ;; esac
+          valid_posint "$2" || {
+            echo "fleet-attention-watch: --reconcile-every needs a positive integer count (1..15 digits, no leading zero)" >&2
+            exit 2
+          }
+          reconcile_every=$2
           shift 2
           ;;
         --once)
