@@ -81,6 +81,17 @@ stale_lock_threshold: 15m
 # progress. Safe to revert because dispatch writes no authoritative state (D-1).
 stale_marker_threshold: 15m
 
+# Bounded-fetch TTL for the fetch-before-gate dispatch primitive
+# (scripts/dispatch-fetch.sh; fleet-hardening D-9, REQ-D1.1). Before the
+# freshness gate and merge detection run, /orchestrate and /execute-task fetch
+# `origin` so both evaluate against a current `origin/main` (never advancing
+# local `main`). A successful fetch is stamped; a subsequent gate within this
+# TTL reuses the stamp instead of re-fetching, so an `/orchestrate --watch` idle
+# loop and the reconcile sweep coalesce onto one fetch rather than hitting the
+# network every cycle. Same `<n>[m]` minutes convention as the staleness knobs
+# above; the SECONDS env override PLANWRIGHT_DISPATCH_FETCH_TTL wins for tests.
+dispatch_fetch_ttl: 2m
+
 # Which channel the fleet attention/notification seam pushes a notification
 # through (D-13, REQ-E1.4). This is the capability-vs-style split (REQ-A1.5):
 # the notification SEAM lives in core; the specific channel VALUE is

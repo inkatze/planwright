@@ -188,26 +188,29 @@ ordered steps:
 1. **Acquire the lock.** `scripts/orchestrate-lock.sh acquire specs/<spec>`.
    Exit 1 (another live holder) is a **clean no-op**: skip this step;
    `--bookkeeping` reconciles anything dropped.
-2. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45), **inside
-   the lock, immediately before the durable acts**. This stops dispatch
-   against spec content that changed since the brief was last signed:
-   - Read the brief's **most recent anchor entry** and the four spec files
-     **from the primary checkout's main view** (divergence in either
-     direction halts). Anchor-entry and sign-off formats: `spec-format`, read
-     here.
-   - **Parse and validate the entry**: execution-valid only if it parses,
-     uses a **sanctioned command form** (`scripts/spec-anchor.sh <spec-dir>`,
-     or the interim whole-file form the meta-spec still sanctions), was
-     written by a **sanctioned writer** (a `/spec-kickoff` sign-off for
-     meaning-class, or the marked `Class: expression-only` ritual), and — for
-     meaning-class — carries a dispositioned `Lens-pass:` reference.
-   - **Recompute** with the exact command the entry records and compare.
-     **Match** → proceed. **Mismatch** (any anchored content changed,
-     committed or not) → halt; remedy: a `/spec-kickoff` delta re-walkthrough.
-     **No entry / unparseable / non-sanctioned command / non-sanctioned
-     writer** → halt; remedy: complete or repair the sign-off record per
-     REQ-F1.10. Every halt is to Awaiting input naming its remedy. No bypass
-     flag.
+2. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45;
+   fleet-hardening D-9), **inside the lock, before the durable acts**. It stops
+   dispatch against spec content changed since sign-off, and against a **stale
+   local `main`**:
+   - **Fetch-before-gate** (D-9, REQ-D1.1). Run `scripts/dispatch-fetch.sh
+     --spec specs/<spec> <primary-checkout>`: it fetches `origin` (bounded by
+     `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch so a gate
+     inside the TTL hits no network, **no local-`main` advance**) and prints the
+     fetched **`origin/main`** anchor (re-pointing `spec-anchor.sh`).
+     Exit **0** → gate vs `origin/main`; **3** (`no-remote`, offline) → gate vs
+     local `main`; **4** (`stale-transient`) or any other nonzero → park to
+     Awaiting input, don't proceed. On the exit-0 paths, that `origin/main`
+     backs merge detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
+     task merged on `origin` but not local `main` isn't re-dispatched.
+   - **Validate the entry** (brief's most recent, from the resolved ref;
+     formats: `spec-format`): a **sanctioned command form**
+     (`scripts/spec-anchor.sh <spec-dir>` or the interim whole-file form), a
+     **sanctioned writer** (a `/spec-kickoff` sign-off or the marked `Class:
+     expression-only` ritual), and — meaning-class — a dispositioned `Lens-pass:`.
+   - **Compare** the recorded anchor against `dispatch-fetch.sh`'s. **Match** →
+     proceed. **Mismatch** → halt (remedy: `/spec-kickoff` delta re-walkthrough).
+     **No / unparseable / non-sanctioned / wrong-writer entry** → halt (remedy:
+     repair the record per REQ-F1.10). Halts go to Awaiting input; no bypass flag.
 3. **Create the task branch as the first durable act** (REQ-A1.1, D-3),
    through the worktree create/reuse step below, cut from `main`, named
    `planwright/<spec>/task-<id>` (a bundle: one `task-<id>-<id>` branch,
@@ -361,10 +364,14 @@ The predicate's law and rationale are `orchestration-concurrency` (read at
 this step). Its version-keyed arms read the declared `Format-version:`;
 unparseable fails closed, never the v1 write (D-7). The sweep:
 
-1. **Refresh the remote view (best-effort).** `git -C <primary-checkout>
-   fetch origin --quiet` — remote named explicitly; remote-tracking refs
-   only; failure is non-fatal and offline is first-class. It does **not** advance local
-   `main`, so the freshness gate's local-main view is unaffected.
+1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
+   --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
+   so the sweep and the per-dispatch gate coalesce onto one TTL-stamped fetch
+   instead of fetching every `--watch` cycle. `--best-effort` is one attempt (no
+   retries), since a reconcile tolerates staleness. Remote-tracking refs only;
+   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4`
+   stale-transient, `2` internal) → continue on last-known refs (the gate, in
+   contrast, blocks on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's
    in-progress set — no committed placement exists), **reconcile PR state
