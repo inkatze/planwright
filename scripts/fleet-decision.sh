@@ -28,11 +28,14 @@
 #         3 — the claim was REFUSED (stale / bad label / already-claimed /
 #             permission-park); nothing was consumed, the fork is untouched.
 #         4 — the claim SUCCEEDED (the answer is consumed and the fork closed
-#             first-answer-wins) but the downward delivery could not be completed
-#             (fs error, or the relay command could not be emitted). The chosen
-#             answer is PERSISTED at <fleet-home>/attention/answers/<worker>, so
-#             the tower recovers by re-emitting the delivery from that artifact —
-#             it must NOT re-claim (the record is already closed).
+#             first-answer-wins) but the downward delivery could not be completed.
+#             Two sub-cases, distinguished by the stderr message: (i) the artifact
+#             WAS persisted at <fleet-home>/attention/answers/<worker> and only
+#             the relay emit failed — the tower recovers by re-emitting from that
+#             artifact (never re-claim, the record is closed); (ii) an earlier fs
+#             / home-resolution failure closed the fork but persisted NOTHING —
+#             the answer is lost, so the operator clears the worker's record to
+#             re-ask. Either way the fork is already closed; never re-claim.
 #
 # What this script NEVER does, by construction (REQ-A1.5, REQ-E1.3): it never
 # emits a `send-keys` path (delivery is delegated wholesale to orchestrate-relay
@@ -114,13 +117,16 @@ case $cmd in
     fi
     # The claim succeeded, so worker is a validated handle (no path separator,
     # control byte, or whitespace) safe to use as a per-worker artifact basename.
+    # These pre-commit failures leave the fork CLOSED but NO artifact persisted
+    # (the mv below is the commit point), so the answer is lost — the operator
+    # clears the worker's record to re-ask, NOT "recover from a persisted answer".
     root=$("$FS" root) || {
-      echo "$me: could not resolve the fleet home to persist the answer artifact (fork already closed; recover from the persisted answer)" >&2
+      echo "$me: could not resolve the fleet home (fork already closed, answer NOT persisted — clear the worker's record to re-ask)" >&2
       exit 4
     }
     answers_dir="$root/attention/answers"
     if ! mkdir -p "$answers_dir" 2>/dev/null; then
-      echo "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)") (fork already closed)" >&2
+      echo "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)") (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     fi
     answer_file="$answers_dir/$worker"
@@ -130,17 +136,17 @@ case $cmd in
     # attributed by orchestrate-relay's header. Temp + rename so a reader never
     # sees a half-written artifact (the atomic-write discipline).
     tmp_ans=$(mktemp "$answers_dir/.answer.XXXXXX") || {
-      echo "$me: could not stage the answer artifact (fork already closed)" >&2
+      echo "$me: could not stage the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     }
     if ! printf 'planwright-decision-answer instance=%s option=%s\n' "$instance" "$matched" >"$tmp_ans"; then
       rm -f "$tmp_ans" 2>/dev/null
-      echo "$me: could not write the answer artifact (fork already closed)" >&2
+      echo "$me: could not write the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     fi
     if ! mv -f "$tmp_ans" "$answer_file"; then
       rm -f "$tmp_ans" 2>/dev/null
-      echo "$me: could not commit the answer artifact (fork already closed)" >&2
+      echo "$me: could not commit the answer artifact (fork already closed, answer NOT persisted — clear the record to re-ask)" >&2
       exit 4
     fi
     # Emit the attributed buffer-paste delivery for the tower to run. NEVER
