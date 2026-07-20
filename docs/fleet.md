@@ -378,7 +378,7 @@ transitions to the attention store the instant they happen, through
 
 | Hook event | Transition pushed |
 | --- | --- |
-| `Stop` | working → `idle` (the turn ended) |
+| `Stop` | working → `idle` (the turn ended). A **live fork-park is preserved**, not cleared — a turn-end is not a dead worker, so `Stop` never downgrades an awaiting-human fork-park (fleet-hardening Task 2 NS-4) |
 | `PermissionRequest` | working → `awaiting-input`, queued, plus a pending-permission marker |
 | `PostToolUse` | `awaiting-input` → working — when a live **decision marker** exists: a pending-permission marker (the human allowed the next tool use) or a fork-park marker (the worker resumed from a fork; fleet-hardening Task 2). Otherwise a fast no-op |
 | `SessionEnd` | → `ended` (session termination) |
