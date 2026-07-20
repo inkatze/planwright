@@ -184,6 +184,14 @@ c3() {
 c4() {
   local src code
   src="$FDE"
+  # Fail loudly if the source can't be read: an unreadable file would leave
+  # `code` empty and vacuously "pass" the no-model/API assertion. The `|| true`
+  # below then only absorbs grep's benign exit 1 (a file that is all comments),
+  # never a read error.
+  [ -r "$src" ] || {
+    fail "c4: launch-construction source is not readable: $src"
+    return
+  }
   code=$(grep -vE '^[[:space:]]*#' "$src" || true)
   if printf '%s\n' "$code" | grep -nE '(^|[^A-Za-z_./])claude[[:space:]]' >/dev/null \
     || printf '%s\n' "$code" | grep -niE 'anthropic|/v1/messages|https?://' >/dev/null \
