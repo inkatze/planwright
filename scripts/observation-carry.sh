@@ -293,6 +293,17 @@ if [ "$stranded_count" -eq 0 ]; then
   exit 0
 fi
 
+# --- Read-only dry run: report and exit BEFORE the remote/gh gates ------------
+# A dry run pushes nothing and opens no PR, and compute_stranded already degrades
+# to a local-`main` baseline offline, so it must report the stranded set and exit
+# 0 even with no remote / no gh — never degrade (exit 3) on a read-only path.
+if [ "$dry_run" -eq 1 ]; then
+  printf 'carry%snoop\n' "$TAB"
+  printf 'stranded%s%s\n' "$TAB" "$stranded_count"
+  printf '%s\n' "observation-carry: --dry-run: $stranded_count observation(s) would be carried" >&2
+  exit 0
+fi
+
 # --- Degrade paths (never silent) --------------------------------------------
 # There ARE stranded observations but the carry cannot reach the remote / gh.
 # Name them and exit 3 so the caller surfaces the pending carry, rather than
@@ -311,13 +322,6 @@ if [ "$have_remote" -ne 1 ]; then
 fi
 if ! command -v gh >/dev/null 2>&1; then
   degrade "the 'gh' CLI is unavailable, so no PR can be opened"
-fi
-
-if [ "$dry_run" -eq 1 ]; then
-  printf 'carry%snoop\n' "$TAB"
-  printf 'stranded%s%s\n' "$TAB" "$stranded_count"
-  printf '%s\n' "observation-carry: --dry-run: $stranded_count observation(s) would be carried" >&2
-  exit 0
 fi
 
 # --- Advisory lock: serialize the push+PR critical section --------------------

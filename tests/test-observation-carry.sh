@@ -584,6 +584,36 @@ c14() {
   echo "ok c14: --branch rejects remote-qualified / full-ref forms"
 }
 
+# ---------------------------------------------------------------------------
+# Case 15 — --dry-run is read-only and must report the stranded set (exit 0)
+# even OFFLINE (no origin remote), not degrade: it pushes nothing and opens no
+# PR, and compute_stranded falls back to local main for the dedupe baseline.
+# ---------------------------------------------------------------------------
+c15() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c15.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  mkdir -p "$repo"
+  gitc "$repo" init -q -b main
+  echo seed >"$repo/seed"
+  gitc "$repo" add -A
+  gitc "$repo" commit -qm "seed: main"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  mkdir -p "$repo/$OBSREL"
+  frag_body "nnnneeee" >"$repo/$(frag_path 2026-07-20-tower-nnnneeee.md)"
+  gitc "$repo" add -A
+  gitc "$repo" commit -qm "obs(tower): stranded, no remote"
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  # No origin remote AND --dry-run → must report (exit 0), NOT degrade (exit 3).
+  out=$(run_carry "$gh" "$tmp/ghstate" --dry-run "$repo" 2>"$tmp/err") \
+    || fail "c15: offline --dry-run should exit 0, got $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = noop ] || fail "c15: offline --dry-run expected carry=noop, got: $out"
+  [ "$(tag_val "$out" stranded)" = 1 ] || fail "c15: offline --dry-run should report stranded=1, got: $out"
+  echo "ok c15: --dry-run reports read-only even offline (no remote), never degrades"
+}
+
 c1
 c2
 c3
@@ -598,4 +628,5 @@ c11
 c12
 c13
 c14
+c15
 echo "ALL PASS: observation-carry"
