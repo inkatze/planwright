@@ -22,6 +22,10 @@
 #   c3 (REQ-B1.2 regression): the 2026-07-19 bare-launch shape is NOT the
 #      auto-approved path (the guard defers it) — the wrapped shape replaces it.
 #   c4 (REQ-E1.3): no model/API call in the launch-construction decision path.
+#   c5 (usage): --emit-launch with no launch argv is a usage error (exit 2).
+#   c6 (REQ-B1.1): the emitted launch is boundary-safe — a spaced wrapper path
+#      and a metacharacter dispatch token survive re-splitting (no broken launch,
+#      no injection), matching the exec path's `exec "$@"` argument safety.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-dispatch-launch-pin.sh
@@ -87,6 +91,7 @@ c1() {
   cat >"$fake" <<EOF
 #!/bin/sh
 printf 'seen=%s\n' "\${$VAR-<unset>}"
+printf 'args=%s\n' "\$*"
 EOF
   chmod +x "$fake"
   emitted=$("$FDE" --emit-launch "$fake" --worktree task-5 --model opus) || {
@@ -94,25 +99,24 @@ EOF
     rm -rf "$tmp"
     return
   }
-  # Structural: the emitted line is exactly the wrapper's own path followed by
-  # the launch argv in order — the pin prefix is emitted by CODE (not assembled
-  # by the model) and the dispatch tokens are preserved verbatim.
-  local expected="$FDE $fake --worktree task-5 --model opus"
-  if [ "$emitted" != "$expected" ]; then
-    fail "c1: emitted launch is not the wrapper-prefixed argv; want '$expected' got '$emitted'"
-    rm -rf "$tmp"
-    return
-  fi
-  # End-to-end: running the emitted launch pins the var on the launched process.
+  # End-to-end: running the emitted launch pins the var on the launched process
+  # and delivers the dispatch tokens in order (the wrapper prefix is emitted by
+  # CODE, not assembled by the model). Asserted on behaviour, not on the exact
+  # quoting style, so the check survives a change in how tokens are quoted.
   out=$(sh -c "$emitted") || {
     fail "c1: running the emitted launch failed"
     rm -rf "$tmp"
     return
   }
-  if printf '%s\n' "$out" | grep -qx "seen=false"; then
-    pass "c1: emitted launch pins $VAR=false on the launched process (REQ-B1.1)"
-  else
+  if ! printf '%s\n' "$out" | grep -qx "seen=false"; then
     fail "c1: launched process did not see $VAR=false, got: $out"
+    rm -rf "$tmp"
+    return
+  fi
+  if printf '%s\n' "$out" | grep -qx "args=--worktree task-5 --model opus"; then
+    pass "c1: emitted launch pins $VAR=false and delivers the dispatch tokens in order (REQ-B1.1)"
+  else
+    fail "c1: launched process did not receive the dispatch tokens in order, got: $out"
   fi
   rm -rf "$tmp"
 }
@@ -177,11 +181,56 @@ c5() {
   fi
 }
 
+# --- c6: the emitted launch is boundary-safe (spaces + metacharacters) --------
+# Shell-quoting the emitted tokens preserves the argument-boundary safety the
+# exec path gets from `exec "$@"`: a wrapper path in a directory whose name
+# contains a space, and a dispatch token carrying a shell metacharacter, both
+# survive re-splitting by the backend that runs the line — no broken launch, no
+# injection. Guards against a regression to a naive space-joined emit.
+c6() {
+  local tmp dir fake emitted out
+  tmp=$(mktemp -d) || {
+    fail "c6: mktemp failed"
+    return
+  }
+  dir="$tmp/a b" # a space in the launch-target path
+  mkdir -p "$dir"
+  fake="$dir/fake claude.sh"
+  cat >"$fake" <<EOF
+#!/bin/sh
+printf 'seen=%s\n' "\${$VAR-<unset>}"
+printf 'arg1=%s\n' "\${1-<none>}"
+EOF
+  chmod +x "$fake"
+  # A launch token carrying a shell metacharacter; a naive unquoted emit would
+  # split or execute it when the line is run.
+  emitted=$("$FDE" --emit-launch "$fake" 'x;touch PWNED') || {
+    fail "c6: --emit-launch exited nonzero"
+    rm -rf "$tmp"
+    return
+  }
+  out=$(cd "$tmp" && sh -c "$emitted") || {
+    fail "c6: running the emitted launch failed: $emitted"
+    rm -rf "$tmp"
+    return
+  }
+  if [ -e "$tmp/PWNED" ]; then
+    fail "c6: a metacharacter token was executed by the shell (injection): $emitted"
+  elif printf '%s\n' "$out" | grep -qx "seen=false" \
+    && printf '%s\n' "$out" | grep -qx "arg1=x;touch PWNED"; then
+    pass "c6: emitted launch is boundary-safe across spaces and metacharacters (REQ-B1.1)"
+  else
+    fail "c6: spaced-path / metacharacter token was not delivered intact, got: $out"
+  fi
+  rm -rf "$tmp"
+}
+
 c1
 c2
 c3
 c4
 c5
+c6
 
 if [ "$failures" -ne 0 ]; then
   echo "test-dispatch-launch-pin: $failures failure(s)" >&2

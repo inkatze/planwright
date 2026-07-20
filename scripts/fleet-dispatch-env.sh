@@ -52,7 +52,10 @@
 # adds one fixed literal assignment and hands control to the operator-supplied
 # command. `--emit-launch` is pure string construction (no exec, no model/API
 # call — REQ-E1.3): it prints the launch line for a backend to run, the wrapper
-# prefix applying the pin only when that emitted line is later exec'd.
+# prefix applying the pin only when that emitted line is later exec'd. Its tokens
+# are shell-quoted, so a repo path or dispatch token carrying a space or shell
+# metacharacter survives re-splitting and adds no injection surface — the same
+# argument-boundary safety the exec path gets from `exec "$@"`.
 #
 # Exit: execs <cmd> (adopting its exit status); a failed exec follows the
 # shell's not-found/not-executable convention (typically 127/126, but
@@ -99,18 +102,33 @@ if [ "$1" = "--emit-launch" ]; then
   self=$0
   case $self in
     /*) ;;
-    *) self=$(cd "$(dirname "$self")" 2>/dev/null && pwd)/$(basename "$self") ;;
+    *)
+      # Absolutize relative to the wrapper's own directory. If that directory
+      # cannot be resolved, keep $0 as given rather than collapsing to a broken
+      # "/<basename>" — the guard then resolves it against the launch cwd.
+      _dir=$(cd "$(dirname "$self")" 2>/dev/null && pwd) || _dir=
+      [ -n "$_dir" ] && self="$_dir/$(basename "$self")"
+      ;;
   esac
   # Construct the launch line: the wrapper prefix (which applies the pin when the
   # line is exec'd) followed by the caller-supplied launch argv. The prefix is
   # emitted by CODE — the pin is a structural property of dispatch, never a prose
-  # step the model must remember (REQ-B1.1). The launch argv are individual
-  # dispatch tokens (model, worktree suffix, flags), forwarded as words exactly
-  # as the exec path forwards "$@"; being space-free by construction, a
-  # space-joined line re-splits faithfully for the backend that runs it.
-  printf '%s' "$self"
+  # step the model must remember (REQ-B1.1). Every token is SHELL-QUOTED so the
+  # wrapper path and each dispatch token survive a repo path or argument carrying
+  # a space or shell metacharacter — preserving the argument-boundary safety the
+  # exec path gets from `exec "$@"`, so the emitted line re-splits faithfully for
+  # the backend that runs it and offers no injection surface of its own.
+  shq() {
+    # POSIX single-quote wrap; an embedded single quote becomes '\''.
+    case $1 in
+      *\'*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
+      *) printf "'%s'" "$1" ;;
+    esac
+  }
+  shq "$self"
   for _arg in "$@"; do
-    printf ' %s' "$_arg"
+    printf ' '
+    shq "$_arg"
   done
   printf '\n'
   exit 0
