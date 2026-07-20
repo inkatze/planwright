@@ -60,7 +60,8 @@ Selected from `$ARGUMENTS` at pre-flight:
   see below.
 - **`--bookkeeping`.** The out-of-session drain pass (D-31): reconcile merged
   PRs, evaluate open gates (no auto-drop), surface observation staleness, report
-  any pending release. Dispatches nothing. See below.
+  any pending release, carry stranded tower observations toward `main`.
+  Dispatches nothing. See below.
 - **`--meta`.** The **meta-tower** (D-6): supervise several Ready/Active specs,
   advancing one unit across the fleet per step under a fleet-level bound, via
   subordinate single-spec towers. Composes with `--watch` and the
@@ -360,9 +361,21 @@ The out-of-session drain pass. Dispatches nothing; it:
    In the untagged window it prints the pending version and publish command; else
    silence. On comparator trouble it degrades to a silent no-op (diagnostic on
    stderr), always exits 0, and never blocks the pass.
+5. **Carries stranded tower observations toward `main`** (fleet-hardening Task 9,
+   D-9, REQ-D1.3): runs `scripts/observation-carry.sh <repo-root>` in the tower's
+   checkout — pushes the current `HEAD` (tower-branch) observation fragments absent
+   from `origin/main` onto ONE chore branch (`planwright/chore/observations`) and
+   opens or reuses ONE **draft** chore PR, so learnings are not stranded unpushed.
+   Idempotent (deduped against `origin/main` and the chore branch — a repeat opens
+   no second PR), concurrency-safe (a per-repo lock), git-plumbing-built so local
+   `main` is never touched; never merges, marks ready, or force-pushes; a degrade
+   (no remote/`gh`, rejected push/PR) **names** the stranded observations and exits
+   non-zero; no LLM (REQ-E1.3). See the script header.
 
 On `--bookkeeping`, missing prerequisites degrade with a message (not a dispatch
-path); it never merges or pushes.
+path); it never merges and never advances local `main`. Its one sanctioned push
+is the observation carry's chore branch (step 5); the draft→ready flip and every
+merge stay the human's.
 
 ## Halt → Awaiting input (REQ-F1.5)
 
@@ -405,8 +418,10 @@ These hold at every step:
   is the task branch (first durable act) + runtime marker (D-1, D-3, REQ-A1.1), so
   `main` carries no dispatch commit and worker bases stay pristine (REQ-A1.2);
   placement is the level-triggered reconcile's, off the dispatch path.
-- **Never** push, force-push, amend, squash, or rebase; any commit is local only
-  (REQ-J1.4).
+- **Never** force-push, amend, squash, or rebase; new commits only (REQ-J1.4).
+  Every commit is local only except the **one** sanctioned push — the
+  `--bookkeeping` observation carry's own chore branch (Task 9, D-9, REQ-D1.3):
+  a fast-forward, never `main`, never a task branch, never a merge or ready-flip.
 - **Never** create a worktree by shelling out to `git worktree`; use the native
   mechanism and the `.claude/worktrees/` placement (D-37).
 - **Never** answer a worker's permission prompt or type into its input line;
