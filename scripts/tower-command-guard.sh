@@ -634,17 +634,6 @@ guard_file() {
   return 0
 }
 
-guard_mdlint() {
-  local i a
-  for ((i = 1; i < cwn; i++)); do
-    a=${cw[i]}
-    case $a in
-      --fix | -f | --output | --output=* | -o) return 1 ;;
-    esac
-  done
-  return 0
-}
-
 # guard_tmux: the tower's tmux RELAY/OBSERVE safe set — buffer relay
 # (load-buffer / paste-buffer), pane observation (capture-pane), the buffer/
 # session/window/pane listings the relay targets by handle, has-session, and
@@ -960,7 +949,12 @@ classify_verb() {
     file) guard_file ;;
     find) guard_find ;;
     sed) guard_sed ;;
-    markdownlint | markdownlint-cli2) guard_mdlint ;;
+    # markdownlint / markdownlint-cli2 are deliberately ABSENT from the tower
+    # safe set: their --config/-c and -r/--rules flags load an arbitrary file as
+    # an executable module (a code-exec vector a denylist leaks), and the tower
+    # never invokes them directly — it lints via `mise run lint:md` (guarded by
+    # guard_mise). If a direct invocation is ever wanted, re-add as a flag
+    # ALLOWLIST (the guard_claude posture), never a patched denylist.
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
     gh) guard_gh ;;

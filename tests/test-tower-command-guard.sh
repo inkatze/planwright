@@ -271,6 +271,17 @@ assert_defer "claude --worktree with unknown positional DEFER (fail closed)" "cl
 assert_allow "claude --worktree --resume recovery launch" "claude --worktree fh-task-7 --resume"
 assert_allow "claude --worktree --fallback-model launch" "claude --worktree fh-task-7 --model opus --fallback-model sonnet"
 
+echo "### REQ-C1.2/C1.3 — markdownlint config/rules module load is arbitrary code exec: DEFERS (F1)"
+# markdownlint-cli2 --config / -c loads the config path as an executable module
+# (.cjs/.mjs import, or a jsonc whose customRules string identifiers are require()d),
+# and markdownlint -r/--rules loads a custom-rule module — both arbitrary code
+# execution. The verb is dropped from the tower safe set entirely (the tower lints
+# via `mise run lint:md`), so every markdownlint shape now DEFERS.
+assert_defer "markdownlint-cli2 --config .cjs code-exec DEFER" "markdownlint-cli2 --config /tmp/evil.markdownlint-cli2.cjs README.md"
+assert_defer "markdownlint-cli2 -c jsonc customRules DEFER" "markdownlint-cli2 -c /tmp/evil.jsonc README.md"
+assert_defer "markdownlint -r rules-module DEFER" "markdownlint -r /tmp/evilrule.js foo.md"
+assert_defer "markdownlint-cli2 plain now DEFER (verb dropped from tower set)" "markdownlint-cli2 README.md"
+
 echo "### REQ-C1.2 — distinct safe set: worker-only shapes DEFER on the tower"
 # vice-versa distinctness: these are ALLOWED by the worker guard but must DEFER
 # on the tower (the tower does not run test files or recurse fish -c).
