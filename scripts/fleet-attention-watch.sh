@@ -325,7 +325,13 @@ case $cmd in
     case $la_stamp in "" | *[!0-9]* | 0?*) exit 1 ;; esac
     la_now=$(now_epoch)
     [ -n "$la_now" ] || exit 2
-    if [ $((la_now - la_stamp)) -le "$max_age" ]; then
+    # A negative delta means the stamp is in the FUTURE relative to now (the
+    # clock stepped backwards — an NTP correction, a manual set). Fail SAFE
+    # (stale, exit 1): a nonsensical delta must never read as fresh and mask a
+    # dead watch, the same fail-closed posture the rest of the fleet takes when
+    # its evidence is untrustworthy.
+    la_delta=$((la_now - la_stamp))
+    if [ "$la_delta" -ge 0 ] && [ "$la_delta" -le "$max_age" ]; then
       exit 0
     fi
     exit 1

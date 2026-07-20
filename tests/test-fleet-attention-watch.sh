@@ -167,6 +167,19 @@ watch "$h6" liveness --max-age 1 >/dev/null 2>&1 || rc=$?
 ok "liveness reports stale (the dead-watch tell) when the last pass predates --max-age"
 
 # ---------------------------------------------------------------------------
+# 6d. liveness fails SAFE (stale) when the alive stamp is in the FUTURE (the
+#     clock stepped backwards): a negative delta must never read as fresh and
+#     mask a dead watch.
+# ---------------------------------------------------------------------------
+watch "$h6" pass >/dev/null || fail "pass exited non-zero"
+# Force a far-future stamp (as if now stepped back well behind the last stamp).
+printf '%s' "$(($(date +%s) + 100000))" >"$h6/attention/watch.alive"
+rc=0
+watch "$h6" liveness --max-age 60 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "liveness reported fresh (exit $rc) for a future stamp (backward clock) — should fail safe stale"
+ok "liveness fails safe (stale) when the alive stamp is in the future (backward clock step)"
+
+# ---------------------------------------------------------------------------
 # 7. watch --once runs a single pass and returns (does not hang).
 # ---------------------------------------------------------------------------
 h7="$tmp/h7"
