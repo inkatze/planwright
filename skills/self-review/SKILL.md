@@ -197,8 +197,8 @@ resolved within the finding's own scope, revert that finding's change (new
 commit, never history rewrite) and surface the failure in the pass summary.
 The reverted finding's terminal disposition is declined-with-rationale
 ("fix attempted, broke the wider suite, reverted"), recorded in the
-declined log: it stays visible and re-raisable, never masquerading as a
-held fix.
+declined log: it stays visible and re-raisable without re-entering the
+routing order or masquerading as a held fix.
 
 ## The audit record
 

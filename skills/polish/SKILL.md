@@ -91,8 +91,7 @@ Each iteration:
 1. **Run a `/self-review` pass, nested.** Invoke `/self-review --nested`
    in-session. The pass does its own discovery, validation, routing, and
    dispositions per the gate wiring, and returns the audit record; its
-   finding-validation is where `research-rigor` is read point-of-use, this
-   loop's use site for that doc. Pass the
+   finding-validation is where `research-rigor` loads point-of-use. Pass the
    loop ledger in: findings already dispositioned in a previous iteration are
    not re-routed (a declined finding stays declined; a queued fork stays
    queued), with one deliberate exception: a re-discovered finding whose
