@@ -155,6 +155,18 @@ watch "$h6" liveness --max-age 3600 >/dev/null 2>&1 || rc=$?
 ok "liveness reports fresh after a pass and stale/absent when the watch never ran"
 
 # ---------------------------------------------------------------------------
+# 6b. liveness reports STALE (exit 1) when the last pass is older than
+#     --max-age — the actual dead-watch tell (test 6 only covered the fresh and
+#     never-ran cases, never the staleness boundary the subcommand exists for).
+# ---------------------------------------------------------------------------
+watch "$h6" pass >/dev/null || fail "pass exited non-zero"
+sleep 2
+rc=0
+watch "$h6" liveness --max-age 1 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "liveness did not report stale (exit 1) for a pass older than --max-age: exit $rc"
+ok "liveness reports stale (the dead-watch tell) when the last pass predates --max-age"
+
+# ---------------------------------------------------------------------------
 # 7. watch --once runs a single pass and returns (does not hang).
 # ---------------------------------------------------------------------------
 h7="$tmp/h7"

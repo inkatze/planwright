@@ -181,12 +181,15 @@ ok "permission_prompt / informational / unknown / absent types push no false awa
 # 4. A hostile notification_type is refused by the strict allow-list: no push.
 # ---------------------------------------------------------------------------
 h4="$tmp/h4"
+# The injection target lives under the test's own mktemp dir (never a shared
+# /tmp path), so a stray file or a parallel run can never cross-contaminate.
+pwn="$tmp/pwn_fh2"
 rc=0
-fire_note "$h4" w1 spec-a '{"notification_type":"idle_prompt; touch /tmp/pwn_fh2"}' >/dev/null 2>&1 || rc=$?
+fire_note "$h4" w1 spec-a "{\"notification_type\":\"idle_prompt; touch $pwn\"}" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 0 ] || fail "hostile payload exited $rc"
 [ -z "$(state_of "$h4" w1)" ] || fail "a spoofed notification_type pushed a row"
-[ ! -e /tmp/pwn_fh2 ] || {
-  rm -f /tmp/pwn_fh2
+[ ! -e "$pwn" ] || {
+  rm -f "$pwn"
   fail "a payload value was executed (command injection)"
 }
 ok "a spoofed / metacharacter notification_type is refused by the allow-list (no push, no execution)"
@@ -241,6 +244,31 @@ for ev in stop session-end stop-failure; do
     || fail "$ev auto-resolved a queued decision with no fork-park marker (REQ-A1.3 violation): '$(state_of "$hp" w1)'"
 done
 ok "a real queued decision (no fork-park marker) is preserved by every downgrade (REQ-A1.3 holds)"
+
+# ---------------------------------------------------------------------------
+# 8b. REQ-A1.3 WRITE-SIDE ownership gate: a Notification that no-op's over a
+#     PRE-EXISTING queued decision (park --unless-awaiting) must NOT stamp the
+#     fork-park exit-edge marker — so a later resume (PostToolUse) can never
+#     mistake that decision for a fork-park and auto-resolve it. This exercises
+#     the write-side ownership check (state == awaiting-input AND field-9 reason
+#     == our reason) that gates the marker stamp, distinct from #9b's read-side
+#     marker_live_awaiting check on a hand-built colliding row.
+# ---------------------------------------------------------------------------
+h8b="$tmp/h8b"
+attn "$h8b" decide w1 spec-a "Real human decision?" "hold" "A|B" high >/dev/null 2>&1 || fail "decide setup failed"
+[ "$(state_of "$h8b" w1)" = "awaiting-input" ] || fail "precondition: decide row not present"
+fire_note "$h8b" w1 spec-a '{"notification_type":"idle_prompt"}' >/dev/null 2>&1 || fail "notification hook failed"
+# The park no-op'd over the decision, so no fork-park marker may exist.
+[ ! -e "$h8b/liveness/awaiting/w1" ] \
+  || fail "notification stamped a fork-park marker over a pre-existing decision (would hijack its exit edge)"
+# The decision is intact: still a decide row (empty field-9 reason), not clobbered.
+[ "$(state_of "$h8b" w1)" = "awaiting-input" ] || fail "notification clobbered the decision state"
+[ -z "$(reason_of "$h8b" w1)" ] || fail "notification overwrote the decision with a fork-park reason: '$(reason_of "$h8b" w1)'"
+# A resume must NOT clear a decision the notification never parked.
+fire "$h8b" w1 spec-a post-tool-use >/dev/null 2>&1 || fail "post-tool-use failed"
+[ "$(state_of "$h8b" w1)" = "awaiting-input" ] \
+  || fail "resume cleared a decision the notification did not park (REQ-A1.3 write-side): '$(state_of "$h8b" w1)'"
+ok "a Notification that no-op's over a queued decision never claims its exit edge (REQ-A1.3 write-side)"
 
 # ---------------------------------------------------------------------------
 # 9. REQ-E1.2 regression: the five shipped hook transitions are unchanged.
