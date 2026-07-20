@@ -411,8 +411,14 @@ never overwrites an `awaiting-input` row that has no **decision marker**
 (pending-permission or fork-park): that row is a queued human decision (a
 flailing escalation, a crash-loop disable), and `fleet-autonomy` REQ-A1.3 forbids
 auto-resolving it. A live decision marker is the exception — it means this handler queued the
-row, so a resume (`PostToolUse`) or a terminal exit clears it with precedence,
-the permission and fork-park flows symmetrically. A denied permission whose turn
+row, so its own exit edge clears it with precedence. The permission and fork-park
+flows differ on a plain `Stop`: a permission marker clears on a resume
+(`PostToolUse`) or any terminal exit, but a fork-park clears on a resume or a
+*genuine* termination (`SessionEnd`/`StopFailure`) while a plain `Stop`
+**preserves** it — `Stop` fires on every turn-end (including a park-and-wait) and
+races the asynchronous `Notification` with no guaranteed order, so a `Stop` on a
+live fork-park means the worker is alive and waiting, not gone (fleet-hardening
+Task 2 NS-4). A denied permission whose turn
 then ends clears on the `Stop` push; anything beyond that heals on the periodic
 ground-truth reconcile (`fleet-autonomy` REQ-A1.8, a later task), which stays the
 correctness backstop for every missed or dropped push — push is a latency
