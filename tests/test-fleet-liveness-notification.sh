@@ -26,8 +26,11 @@
 #     refused by the strict allow-list — no push, no execution;
 #   - the identity gate holds (a non-worker session is a silent no-op);
 #   - resume exit edge: a PostToolUse after a fork-park clears the row to working;
-#   - terminal exit edge: SessionEnd -> ended, StopFailure -> hung, Stop -> idle
-#     all clear a fork-park row (precedence over the push);
+#   - genuine-termination exit edge: SessionEnd -> ended, StopFailure -> hung
+#     clear a fork-park row (precedence over the push — the parked worker is gone);
+#   - (b)-refined / NS-4: a plain Stop while a fork-park is live PRESERVES the
+#     awaiting-human row and its marker (a turn-end is not a dead worker; Stop and
+#     the async Notification race), and the resume edge still fires afterwards;
 #   - REQ-A1.3 preservation regression: a queued decision this hook did NOT park
 #     (a plain decide row, no fork-park marker) is NEVER cleared by
 #     Stop / SessionEnd / StopFailure — the escalation-preserve guard still holds;
@@ -218,10 +221,11 @@ fire "$h6" w1 spec-a post-tool-use >/dev/null 2>&1 || fail "post-tool-use failed
 ok "resume exit edge: PostToolUse after a fork-park clears the row to working"
 
 # ---------------------------------------------------------------------------
-# 7. Terminal exit edges: SessionEnd -> ended, StopFailure -> hung, Stop -> idle
-#    each clear a fork-park (precedence over the push).
+# 7. Genuine-termination exit edges: SessionEnd -> ended, StopFailure -> hung
+#    each clear a live fork-park (precedence over the push — the parked worker
+#    really is gone). A plain Stop is NOT a termination and is covered by 7d.
 # ---------------------------------------------------------------------------
-for pair in "session-end:ended" "stop-failure:hung" "stop:idle"; do
+for pair in "session-end:ended" "stop-failure:hung"; do
   ev=${pair%%:*}
   want=${pair##*:}
   ht="$tmp/h7-$ev"
@@ -230,7 +234,32 @@ for pair in "session-end:ended" "stop-failure:hung" "stop:idle"; do
   fire "$ht" w1 spec-a "$ev" >/dev/null 2>&1 || fail "$ev hook failed"
   [ "$(state_of "$ht" w1)" = "$want" ] || fail "terminal edge $ev: got '$(state_of "$ht" w1)', expected $want (precedence over the park)"
 done
-ok "terminal exit edges (session-end/stop-failure/stop) clear a fork-park with precedence over the push"
+ok "genuine-termination edges (session-end/stop-failure) clear a fork-park with precedence over the push"
+
+# ---------------------------------------------------------------------------
+# 7d. (b)-refined (NS-4): a plain Stop while a fork-park is LIVE does NOT clear
+#     it. Claude Code fires Stop on every turn-end (including a park-and-wait),
+#     and Notification(idle_prompt) races Stop with no guaranteed order, so a
+#     Stop on a live fork-park means the worker is ALIVE and waiting for the
+#     human — the awaiting-human row AND its await_marker must survive, and the
+#     post-tool-use resume exit-edge must still fire afterwards.
+# ---------------------------------------------------------------------------
+h7d="$tmp/h7d"
+fire_note "$h7d" w1 spec-a '{"notification_type":"idle_prompt"}' >/dev/null 2>&1 || fail "park failed"
+[ "$(state_of "$h7d" w1)" = "awaiting-input" ] || fail "precondition: not parked"
+[ -e "$h7d/liveness/awaiting/w1" ] || fail "precondition: no fork-park marker written"
+fire "$h7d" w1 spec-a stop >/dev/null 2>&1 || fail "stop hook failed"
+[ "$(state_of "$h7d" w1)" = "awaiting-input" ] \
+  || fail "a plain stop cleared a live fork-park (must PRESERVE it, NS-4): '$(state_of "$h7d" w1)'"
+[ "$(reason_of "$h7d" w1)" = "notification:idle_prompt" ] \
+  || fail "stop lost the fork-park reason: '$(reason_of "$h7d" w1)'"
+[ -e "$h7d/liveness/awaiting/w1" ] \
+  || fail "stop dropped the fork-park await_marker (the resume exit-edge would no longer fire)"
+# the resume edge still works after a preserving stop.
+fire "$h7d" w1 spec-a post-tool-use >/dev/null 2>&1 || fail "post-tool-use failed"
+[ "$(state_of "$h7d" w1)" = "working" ] \
+  || fail "resume after a stop-preserved fork-park did not clear to working: '$(state_of "$h7d" w1)'"
+ok "a plain stop PRESERVES a live fork-park and keeps its marker; the resume edge still fires (NS-4, (b)-refined)"
 
 # ---------------------------------------------------------------------------
 # 8. REQ-A1.3 preservation regression: a queued decision this hook did NOT park

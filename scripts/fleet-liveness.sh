@@ -21,7 +21,9 @@
 #    (hook commands inherit the launched process env — verified against the
 #    current hooks reference, kickoff-brief Task 2 research notes), and a
 #    session without both is a silent no-op. Event -> transition map:
-#      stop                Stop              -> idle   (working -> idle)
+#      stop                Stop              -> idle   (working -> idle; a LIVE
+#                          fork-park is PRESERVED, not cleared — a turn-end is not
+#                          a dead worker, fleet-hardening Task 2 NS-4)
 #      permission-request  PermissionRequest -> awaiting-input (decide) +
 #                          a pending-permission marker
 #      post-tool-use       PostToolUse       -> working, when a pending-
@@ -42,10 +44,17 @@
 #    session-end / stop-failure) never overwrites an awaiting-input row that
 #    has NO decision marker (permission or fork-park) — that row is a queued
 #    human decision (a flailing escalation, a crash-loop disable), and hooks
-#    must never auto-resolve it. A LIVE fork-park marker is the exception the
-#    same way a live permission marker is: it means THIS handler parked the
-#    row, so a resume (post-tool-use) or a terminal exit (stop / session-end /
-#    stop-failure) clears it with precedence over the push. The deny path
+#    must never auto-resolve it. A LIVE decision marker (permission or fork-park)
+#    is the exception: it means THIS handler parked the row, so its own exit edge
+#    clears it with precedence over the push. The two markers differ on which
+#    exits count as that edge. A LIVE permission marker clears on a resume
+#    (post-tool-use) OR any terminal exit (stop / session-end / stop-failure). A
+#    LIVE fork-park clears on a resume or a GENUINE termination (session-end /
+#    stop-failure), but a plain `stop` PRESERVES it (fleet-hardening Task 2, D-2 /
+#    NS-4, operator resolution): Stop fires on every turn-end including a
+#    park-and-wait, and Notification(idle_prompt) races Stop with no guaranteed
+#    order, so a Stop on a live fork-park means the worker is alive and waiting,
+#    not gone — clobbering it would drop the fork-park signal. The deny path
 #    (kickoff risk row 28): a denied permission whose turn ends with no further
 #    tool use clears on the Stop push (marker present -> idle); any residue
 #    beyond that heals on the REQ-A1.8 reconcile sweep, which this bundle
@@ -395,9 +404,11 @@ marker_live_permission() { marker_live "$1/liveness/pending/$2" "$1" "$2"; }
 
 # marker_live_awaiting <root> <handle> — the fork-park exit-edge marker
 # (fleet-hardening Task 2, D-2), under liveness/awaiting/. The Notification push
-# stamps it so PostToolUse (resume) and the terminal transitions (Stop /
-# SessionEnd / StopFailure) clear ONLY a genuine fork-park, never a permission /
-# flailing decision that merely shares the awaiting-input state.
+# stamps it so the fork-park exit edges act ONLY on a genuine fork-park, never a
+# permission / flailing decision that merely shares the awaiting-input state.
+# Those edges are: PostToolUse (resume) and a GENUINE termination (SessionEnd /
+# StopFailure) clear it; a plain Stop does NOT (a turn-end is not a dead worker —
+# it PRESERVES the fork-park, see the stop/session-end/stop-failure handler).
 #
 # Beyond the shared heartbeat-token identity, a fork-park is discriminated by a
 # NON-EMPTY reason (field 9): `park` is the only writer that sets it, so a
@@ -643,23 +654,54 @@ case "$cmd" in
         # safe on this path too, not just post-tool-use: the token mismatch
         # routes it through --unless-awaiting, preserving the escalation. Drop
         # any stale marker we find so it can't mislead a later push.
-        # Each resolving branch drops BOTH markers (co-resident cleanup, as in
-        # post-tool-use): the marker that fired plus any leaked sibling.
+        # Marker cleanup: a branch that terminally clears a decision drops BOTH
+        # markers (co-resident cleanup, as in post-tool-use); the one exception is
+        # a plain `stop` on a LIVE fork-park, which PRESERVES the awaiting-human
+        # row and therefore KEEPS its await_marker (see the marker_live_awaiting
+        # branch below — a turn-end is not a dead worker).
         if marker_live_permission "$root" "$handle"; then
           rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         elif marker_live_awaiting "$root" "$handle"; then
-          # A FORK-PARK ending terminally (fleet-hardening Task 2, D-2 / NS-4):
-          # the worker crashed / the session ended / the turn stopped while
-          # parked. The terminal transition takes PRECEDENCE over the fork-park
-          # push (the row was never answered, so the parked worker is gone) —
-          # clear it to the downgrade state unconditionally, exactly as a live
-          # permission marker does. A flailing / pending-permission decision
-          # (no fork-park marker) still falls through to --unless-awaiting below.
-          rm -f "$marker" "$await_marker" 2>/dev/null || true
-          "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
-            || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+          # A LIVE fork-park meeting a terminal push (fleet-hardening Task 2,
+          # D-2 / NS-4). The event decides whether the parked worker is gone or
+          # merely waiting — a turn-end is NOT a death:
+          case "$event" in
+            stop)
+              # Claude Code fires Stop on EVERY turn-end, INCLUDING a
+              # park-and-wait, and the Notification(idle_prompt) that raised the
+              # park fires asynchronously with NO guaranteed order vs Stop
+              # (verified against the hooks reference). So a plain Stop landing on
+              # a live fork-park does not mean the worker died — it means the
+              # worker is ALIVE and waiting for the human. Clobbering it here was
+              # a real race that could silently drop the operator's fork-park
+              # signal. PRESERVE it: route the push through --unless-awaiting (an
+              # atomic no-op over the awaiting-input row, so the awaiting-human
+              # decision survives) and KEEP the await_marker intact, so the
+              # post-tool-use resume exit-edge still fires when the human answers.
+              # Same identity-token / atomic-preserve discipline the permission
+              # and flailing paths use. A genuine death that somehow arrives as a
+              # bare Stop is still re-derived by the ground-truth reconcile sweep
+              # (REQ-A1.8), so nothing is stranded. Drop only a stale/leaked
+              # permission marker (co-resident cleanup); never the fork-park
+              # await_marker.
+              [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
+              "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
+                || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+              ;;
+            *)
+              # session-end (the session terminated) / stop-failure (the turn
+              # ended on an API error resembling a stopped-responding worker):
+              # GENUINE termination — the parked worker really is gone, so the
+              # terminal transition takes PRECEDENCE over the fork-park push. Clear
+              # it unconditionally (drop BOTH markers, downgrade), exactly as a
+              # live permission marker does.
+              rm -f "$marker" "$await_marker" 2>/dev/null || true
+              "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
+                || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+              ;;
+          esac
         else
           [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
           [ -e "$await_marker" ] && rm -f "$await_marker" 2>/dev/null
