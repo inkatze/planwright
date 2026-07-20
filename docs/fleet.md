@@ -356,6 +356,10 @@ fleet-launched session goes through `scripts/fleet-dispatch-env.sh`, which pins
 environment (D-10, REQ-D1.1). This is prevention, not detection — an official
 disable switch applied at launch beats a per-capture heuristic every time.
 
+The pin rides an **auto-approved launch shape** (D-5), so the allow rules that
+front it follow one discipline worth knowing when you add or edit them:
+see the [glob discipline](overlays.md#path-scoped-allow-rules-use-the-slash-star-glob).
+
 A **backspace-probe** disambiguation check — send a backspace to the pane and
 diff it before and after to tell real input from a rendered suggestion — stays
 documented as a defense-in-depth fallback but is deliberately **not** built or

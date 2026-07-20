@@ -37,7 +37,7 @@ run = "shfmt -d scripts/*.sh tests/*.sh"
 
 [tasks."lint:md"]
 description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation; the _observations accumulator is data, excluded)"
-run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' '!specs/_observations/**'"
+run = "markdownlint-cli2 README.md 'doctrine/*.md' 'docs/*.md' 'skills/**/*.md' 'specs/**/*.md' 'templates/**/*.md' '!specs/_observations/**'"
 
 [tasks."lint:yaml"]
 description = "yamllint on tracked config and workflows"
@@ -97,6 +97,10 @@ run = "/bin/bash scripts/check-plugin-schema.sh"
 description = "options-reference coverage drift check (D-43)"
 run = "/bin/bash scripts/check-options-reference.sh"
 
+[tasks."check:glob-allow-rules"]
+description = "correct-glob allow-rule discipline: flag any shipped `Bash(<path>/:*)` directory-scoped rule (a never-match footgun) and verify the `/*` guidance is documented + cross-referenced (fleet-hardening Task 6, D-6, REQ-B1.3, REQ-E1.3)"
+run = "/bin/bash scripts/check-glob-allow-rules.sh"
+
 [tasks."check:ledger"]
 description = "structural-corruption + duplicate-Status guards over committed tasks.md snapshots (REQ-E1.1, REQ-E1.2)"
 run = "/bin/bash scripts/check-ledger.sh"
@@ -139,6 +143,7 @@ depends = [
   "check:links",
   "check:memory-links",
   "check:options",
+  "check:glob-allow-rules",
   "check:ledger",
   "check:obs",
   "check:instructions",

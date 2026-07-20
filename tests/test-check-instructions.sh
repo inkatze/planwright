@@ -4,7 +4,9 @@
 # REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5, REQ-B1.6, REQ-B1.7,
 # REQ-B1.8, REQ-B1.9; instruction-headroom Task 2: REQ-A1.1, REQ-A1.4, REQ-D1.1,
 # REQ-D1.6; instruction-headroom Task 3: REQ-B1.1, REQ-B1.2, REQ-D1.5 — the
-# capped charge for permanently exempt docs, section 16). The guard measures
+# capped charge for permanently exempt docs, section 16; instruction-headroom
+# Task 4: REQ-D1.2, REQ-D1.4 — the pending-diet Task field on the audit surface
+# and suppression-derived present-offender expectations, sections 17–18). The guard measures
 # word/line counts for every instruction file,
 # computes manifest-derived start-load and closure per skill, scans
 # hooks.json-registered injected-context hooks statically, enforces the budgets
@@ -144,6 +146,28 @@ raise|instruction_budget_doctrine_error|99999|fixture: lift the doctrine per-fil
 EOF
 }
 
+# Derive the present-offender expectations from a suppression list instead of
+# hardcoding file names (instruction-headroom REQ-D1.4, D-8). Every `exempt` and
+# `pending-diet` entry names a surface that must still appear on the offender
+# shortlist, tagged with its suppression; the emitted "<shortlist-target>\t<tag>"
+# records track the config that defines the corpus's sanctioned state, so adding
+# an exemption grows the expectations with no test edit. The dieted-clean
+# absent-checks are structurally underivable and stay an explicit list.
+derive_present_offenders() {
+  # derive_present_offenders <exemptions-file>
+  awk -F '|' '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    $1 == "exempt" { print $2 "\t[exempt]"; next }
+    $1 == "pending-diet" {
+      if      ($2 == "file")       print $3 "\t[pending-diet]"
+      else if ($2 == "start-load") print "start-load " $3 "\t[pending-diet]"
+      else if ($2 == "closure")    print "closure " $3 "\t[pending-diet]"
+      next
+    }
+  ' "$1"
+}
+
 tmproot="$(mktemp -d)" || exit 1
 trap 'rm -rf "$tmproot"' EXIT
 
@@ -174,9 +198,21 @@ assert_absent "shortlist no longer names the dieted execute-task" "skills/execut
 assert_absent "shortlist no longer names the dieted spec-kickoff body" "skills/spec-kickoff/SKILL.md" "$sl"
 assert_absent "shortlist no longer names the spec-kickoff start-load carry" "start-load spec-kickoff" "$sl"
 assert_absent "shortlist no longer names the spec-draft start-load carry" "start-load spec-draft" "$sl"
-assert_contains "shortlist names spec-format offender" "doctrine/spec-format.md" "$sl"
-sf_row="$(printf '%s\n' "$sl" | grep -F 'doctrine/spec-format.md')"
-assert_contains "spec-format offender is tagged exempt" "[exempt]" "$sf_row"
+# Present-offender expectations are DERIVED from the shipped suppression list
+# (REQ-D1.4, D-8), not hardcoded: every exempt / pending-diet entry names an
+# offender that must still appear on the shortlist, tagged with its suppression
+# (suppression governs the exit code, not offender status). Today the corpus
+# carries exactly the permanent spec-format exemption, so this derives the
+# doctrine/spec-format.md [exempt] row that was previously asserted by name;
+# adding an exemption grows the set with no edit here.
+while IFS="$(printf '\t')" read -r tgt tag; do
+  [ -n "$tgt" ] || continue
+  row="$(printf '%s\n' "$sl" | grep -F "$tgt" | head -n1)"
+  assert_contains "shortlist names derived offender '$tgt'" "$tgt" "$sl"
+  assert_contains "derived offender '$tgt' is tagged $tag" "$tag" "$row"
+done <<EOF
+$(derive_present_offenders "$REPO_ROOT/config/instruction-budget-exemptions.txt")
+EOF
 
 ########################################################################
 # 1. Ranked report (REQ-A1.1): every file ranked by words, line counts present,
@@ -1461,6 +1497,99 @@ assert_absent "exemption rationale drops the stale '570-word gap' trim figure" \
   "570-word gap" "$exem"
 assert_contains "exemption rationale states the capped-charge law" \
   "capped-charge law" "$exem"
+
+########################################################################
+# 17. pending-diet Task field is visible in the audit surface (REQ-D1.2, D-8).
+#     The offender shortlist and the ranked per-file report print each
+#     pending-diet allowance's Task field, so retagging the allowance's Task
+#     changes the asserted output — the signal the suppression-derived test
+#     surface (section 0, REQ-D1.4) reads.
+########################################################################
+# 17a. a START-LOAD allowance's Task field rides its shortlist row, and a retag
+#      changes the asserted output.
+t17="$tmproot/t17"
+scaffold "$t17"
+make_doc "$t17" bigdoc 9999
+make_skill "$t17" heavy 500 "Doctrine: run-start bigdoc"
+lift_doctrine_budget "$t17"
+cat >>"$t17/config/instruction-budget-exemptions.txt" <<'EOF'
+pending-diet|start-load|heavy|Task 7|reclassified to point-of-use in Task 7
+EOF
+aud="$(/bin/bash "$CHECKER" --audit --root "$t17" 2>&1)"
+sl="${aud##*Offender shortlist}"
+assert_contains "shortlist prints the allowance's Task field" "[Task 7]" "$sl"
+heavy_row="$(printf '%s\n' "$sl" | grep -F 'start-load heavy')"
+assert_contains "the Task field is on the offender's own shortlist row" "[Task 7]" "$heavy_row"
+
+# Retag the SAME allowance (Task 7 -> Task 8); nothing else changes. The raise
+# rationales stay so the lifted doctrine budget keeps its recorded rationale.
+cat >"$t17/config/instruction-budget-exemptions.txt" <<'EOF'
+raise|instruction_budget_doctrine_warn|99999|fixture: lift the doctrine per-file budget to isolate the start-load/closure budget under test
+raise|instruction_budget_doctrine_error|99999|fixture: lift the doctrine per-file budget to isolate the start-load/closure budget under test
+pending-diet|start-load|heavy|Task 8|reclassified to point-of-use in Task 8
+EOF
+aud2="$(/bin/bash "$CHECKER" --audit --root "$t17" 2>&1)"
+sl2="${aud2##*Offender shortlist}"
+assert_contains "the retagged Task field appears in output" "[Task 8]" "$sl2"
+assert_absent "the old Task field is gone after the retag" "[Task 7]" "$sl2"
+
+# 17b. a PER-FILE allowance's Task field rides the ranked per-file report row.
+t17b="$tmproot/t17b"
+scaffold "$t17b"
+make_skill "$t17b" dietme 5000 # over skill error 4250 -> per-file offender
+cat >"$t17b/config/instruction-budget-exemptions.txt" <<'EOF'
+pending-diet|file|skills/dietme/SKILL.md|Task 6|body diet pending
+EOF
+aud="$(/bin/bash "$CHECKER" --audit --root "$t17b" 2>&1)"
+ranked="${aud%%Offender shortlist*}" # the ranked report is everything before the shortlist
+dietme_row="$(printf '%s\n' "$ranked" | grep -F 'skills/dietme/SKILL.md')"
+assert_contains "ranked per-file row carries the pending-diet tag" "[pending-diet]" "$dietme_row"
+assert_contains "ranked per-file row carries the allowance Task field" "[Task 6]" "$dietme_row"
+
+# 17c. echo discipline (cross-cutting, REQ-B1.9): the Task field is raw,
+#      PR-controllable exemptions-file text, so a control byte in it is stripped
+#      before it reaches the audit surface — matching every other echoed value.
+t17c="$tmproot/t17c"
+scaffold "$t17c"
+make_skill "$t17c" dietme 5000
+esc="$(printf '\033')"
+printf 'pending-diet|file|skills/dietme/SKILL.md|Task%s6|body diet pending\n' "$esc" \
+  >"$t17c/config/instruction-budget-exemptions.txt"
+aud="$(/bin/bash "$CHECKER" --audit --root "$t17c" 2>&1)"
+assert_exit "a control-byte Task field does not fail the guard" 0 $?
+assert_contains "the offender still appears in the audit surface" "skills/dietme/SKILL.md" "$aud"
+assert_absent "the control byte is stripped from the echoed Task field" "$esc" "$aud"
+
+########################################################################
+# 18. Section-0 present-offender expectations are DERIVED from the suppression
+#     list, not a hardcoded name list (REQ-D1.4, D-8): adding an exemption to a
+#     fixture's config grows the derived set with no test name-list edit.
+########################################################################
+t18="$tmproot/t18"
+scaffold "$t18"
+make_skill "$t18" dietme 5000 # an over-threshold offender the guard will list
+before="$(derive_present_offenders "$t18/config/instruction-budget-exemptions.txt")"
+assert_absent "derived expectations are empty before any exemption is added" \
+  "skills/dietme/SKILL.md" "$before"
+# Add ONE exemption — the only edit — and the derived expectation set grows.
+cat >"$t18/config/instruction-budget-exemptions.txt" <<'EOF'
+pending-diet|file|skills/dietme/SKILL.md|Task 6|body diet pending
+EOF
+after="$(derive_present_offenders "$t18/config/instruction-budget-exemptions.txt")"
+assert_contains "adding an exemption grows the derived expectations (no name-list edit)" \
+  "skills/dietme/SKILL.md" "$after"
+# The derived expectation matches real guard output: the offender is on the
+# shortlist, tagged with the suppression the derivation predicted.
+aud="$(/bin/bash "$CHECKER" --audit --root "$t18" 2>&1)"
+sl="${aud##*Offender shortlist}"
+while IFS="$(printf '\t')" read -r tgt tag; do
+  [ -n "$tgt" ] || continue
+  row="$(printf '%s\n' "$sl" | grep -F "$tgt" | head -n1)"
+  assert_contains "derived offender '$tgt' appears on the fixture shortlist" "$tgt" "$sl"
+  assert_contains "derived offender '$tgt' carries its predicted tag $tag" "$tag" "$row"
+done <<EOF
+$after
+EOF
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
