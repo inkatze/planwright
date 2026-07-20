@@ -370,6 +370,12 @@ assert_defer "deny git update-ref" "git update-ref refs/heads/main HEAD"
 assert_defer "deny git push --mirror" "git push --mirror"
 assert_defer "deny gh pr ready (tower never-ready)" "gh pr ready 5"
 assert_defer "deny gh pr ready --undo" "gh pr ready --undo"
+# F2 hardened spellings: the guard defers these too (belt-and-suspenders — the
+# deny block is the floor, but the guard must never false-allow them either).
+assert_defer "deny push origin main + trailing arg (F2 twin)" "git push origin main --no-verify"
+assert_defer "deny push HEAD:main + trailing arg (F2 twin)" "git push origin HEAD:main -o ci.skip"
+assert_defer "deny --force-with-lease=value form (F2)" "git push --force-with-lease=origin/feature master"
+assert_defer "deny git -c ... push config-injection (F2)" "git -c push.default=current push origin main"
 
 echo "### REQ-C1.3 — guard fails closed on malformed / absent input"
 malformed_run() {

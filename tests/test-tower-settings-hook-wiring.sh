@@ -108,13 +108,18 @@ require_deny "deny git commit --amend (REQ-C1.2a)" "Bash(git commit --amend:*)"
 require_deny "deny git commit --squash (REQ-C1.2a)" "Bash(git commit --squash:*)"
 require_deny "deny git push --force (REQ-C1.2a)" "Bash(git push --force:*)"
 require_deny "deny git push --force-with-lease (REQ-C1.2a)" "Bash(git push --force-with-lease:*)"
+require_deny "deny git push --force-with-lease=value form (REQ-C1.2a)" "Bash(git push --force-with-lease=*)"
 require_deny "deny git push -f (REQ-C1.2a)" "Bash(git push -f:*)"
 require_deny "deny force flag after remote (REQ-C1.2a)" "Bash(git push * --force*)"
 require_deny "deny +refspec force form (REQ-C1.2a)" "Bash(git push *+*)"
 # (b) Default-branch writes / local-main mutation.
 require_deny "deny push HEAD:main short form (REQ-C1.2b)" "Bash(git push *:main)"
+require_deny "deny push HEAD:main + trailing args (REQ-C1.2b)" "Bash(git push *:main *)"
 require_deny "deny push origin main bare form (REQ-C1.2b)" "Bash(git push * main)"
+require_deny "deny push origin main + trailing args (REQ-C1.2b)" "Bash(git push * main *)"
 require_deny "deny push refs/heads/main (REQ-C1.2b)" "Bash(git push *refs/heads/main)"
+require_deny "deny push heads/main + trailing args (REQ-C1.2b)" "Bash(git push *heads/main *)"
+require_deny "deny git -c ... push config-injection bypass (REQ-C1.2b)" "Bash(git -c * push:*)"
 require_deny "deny git reset --hard (REQ-C1.2b)" "Bash(git reset --hard:*)"
 require_deny "deny git branch -f (REQ-C1.2b)" "Bash(git branch -f:*)"
 require_deny "deny git branch --force (REQ-C1.2b)" "Bash(git branch --force:*)"
@@ -135,7 +140,7 @@ require_deny "deny MCP delete_file default-branch write (REQ-C1.2d)" "mcp__githu
 # object-key order but preserves array order, so a reorder or accidental
 # perturbation fails here. A legitimate future change updates this pinned list in
 # the same commit.
-expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready:*)","Bash(git merge:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit --squash:*)","Bash(git commit --fixup:*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git branch -f:*)","Bash(git branch --force:*)","Bash(git update-ref:*)","Bash(git push --force:*)","Bash(git push --force-with-lease:*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push *+*)","Bash(git push *:main)","Bash(git push * main)","Bash(git push *refs/heads/main)","Bash(git push *heads/main)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","mcp__github__merge_pull_request","mcp__github__update_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
+expected_deny='["Bash(gh pr merge:*)","Bash(gh pr ready:*)","Bash(git merge:*)","Bash(git rebase:*)","Bash(git commit --amend:*)","Bash(git commit --squash:*)","Bash(git commit --fixup:*)","Bash(git reset --hard:*)","Bash(git filter-branch:*)","Bash(git filter-repo:*)","Bash(git branch -f:*)","Bash(git branch --force:*)","Bash(git update-ref:*)","Bash(git push --force:*)","Bash(git push --force-with-lease:*)","Bash(git push --force-with-lease=*)","Bash(git push -f:*)","Bash(git push * --force*)","Bash(git push * -f*)","Bash(git push *+*)","Bash(git push *:main)","Bash(git push *:main *)","Bash(git push * main)","Bash(git push * main *)","Bash(git push *refs/heads/main)","Bash(git push *heads/main)","Bash(git push *heads/main *)","Bash(git push --mirror:*)","Bash(git push * --mirror*)","Bash(git push --all:*)","Bash(git push * --all*)","Bash(git -c * push:*)","mcp__github__merge_pull_request","mcp__github__update_pull_request","mcp__github__push_files","mcp__github__create_or_update_file","mcp__github__delete_file"]'
 actual_deny="$(jq -cS '.permissions.deny' "$tower_settings")"
 if [ "$actual_deny" = "$(printf '%s' "$expected_deny" | jq -cS .)" ]; then
   ok "the deny block matches the pinned tower baseline (REQ-C1.2, REQ-E1.4)"
