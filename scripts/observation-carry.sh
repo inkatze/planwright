@@ -343,7 +343,25 @@ release_lock() {
   [ "$lock_held" -eq 1 ] && rmdir -- "$lock_dir" 2>/dev/null || true
   lock_held=0
 }
-trap 'release_lock' EXIT INT TERM
+# Temp artifacts, declared before the trap so `cleanup` can reference them under
+# `set -u` even if a signal arrives before they are assigned.
+tmp_index=""
+msg_file=""
+# Invoked indirectly through the traps below (SC2329 cannot see trap-string uses).
+# shellcheck disable=SC2329
+cleanup() {
+  release_lock
+  [ -n "$tmp_index" ] && rm -f -- "$tmp_index" 2>/dev/null
+  [ -n "$msg_file" ] && rm -f -- "$msg_file" 2>/dev/null
+  return 0
+}
+# A signal trap MUST exit: a handler that only cleans up and returns lets the
+# shell RESUME the interrupted command, which would carry on the push/PR after
+# the lock was already released. So INT/TERM clean up and exit with the
+# conventional 128+signo code; the EXIT trap then re-runs cleanup idempotently.
+trap 'cleanup' EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 if ! acquire_lock; then
   # Another carry holds the lock — a clean no-op (it will carry this set).
@@ -463,7 +481,11 @@ fi
 # Run gh from the repo so it resolves the GitHub repo from the checkout (no
 # fragile `-R <url>` parsing of the origin URL). An open PR for this head means
 # the push above already updated it; reuse it rather than opening a second.
-existing=$(cd -- "$repo_root" && gh pr list --head "$branch" --state open --json number --jq '.[0].number' 2>/dev/null) || existing=""
+# `.[0].number // empty` is load-bearing: a bare `.[0].number` prints the literal
+# string "null" for an empty result set (no open PR), which `[ -n ]` reads as
+# truthy and would wrongly skip PR creation forever. `// empty` yields no output
+# when there is no PR, so `existing` is empty exactly when no PR exists.
+existing=$(cd -- "$repo_root" && gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>/dev/null) || existing=""
 
 if [ -n "$existing" ]; then
   # The push already updated the open PR with the new commit — reuse it.
@@ -487,7 +509,11 @@ pr_body=$(
   printf 'Carried this run:\n\n'
   printf '%s\n' "$stranded" | sed 's#.*/##;s/^/- /'
 )
-pr_url=$(cd -- "$repo_root" && gh pr create --draft --base main --head "$branch" \
+# The PR base is the branch name behind `base_ref`, not a hardcoded `main`: strip
+# a leading remote segment (`origin/main` → `main`; `origin/release/x` →
+# `release/x`); a bare local branch name (no slash) is used as-is.
+pr_base=${base_ref#*/}
+pr_url=$(cd -- "$repo_root" && gh pr create --draft --base "$pr_base" --head "$branch" \
   --title "$pr_title" --body "$pr_body" 2>/dev/null) || pr_url=""
 if [ -z "$pr_url" ]; then
   # The branch is pushed (un-stranded), but the PR could not be opened. Surface

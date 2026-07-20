@@ -86,16 +86,33 @@ if [ "${1:-}" = "-R" ]; then shift 2 2>/dev/null || shift; fi
 sub="${1:-}"
 act="${2:-}"
 head=""
+jqexpr=""
+has_draft=0
 prev=""
 for a in "$@"; do
-  [ "$prev" = "--head" ] && head="$a"
+  case "$prev" in
+    --head) head="$a" ;;
+    --jq) jqexpr="$a" ;;
+  esac
+  [ "$a" = "--draft" ] && has_draft=1
   prev="$a"
 done
 case "$sub $act" in
   "pr list")
-    # Honor --jq '.[0].number': print the number, or nothing for an empty set.
+    # Faithfully emulate `gh pr list --json number --jq <expr>` by running the
+    # SAME jq expression the script passes over the synthesized result set: an
+    # empty match is `[]`, a match is `[{"number":101}]`. This is what exposes a
+    # bare `.[0].number` (which prints the literal "null" on []); the script must
+    # use `.[0].number // empty` so an empty set yields empty output.
     if [ -n "$head" ] && grep -qxF "$head" "$open" 2>/dev/null; then
-      printf '101\n'
+      json='[{"number":101,"url":"https://example.invalid/pr/101","headRefName":"'"$head"'"}]'
+    else
+      json='[]'
+    fi
+    if [ -n "$jqexpr" ]; then
+      printf '%s' "$json" | jq -r "$jqexpr"
+    else
+      printf '%s\n' "$json"
     fi
     ;;
   "pr create")
@@ -104,7 +121,9 @@ case "$sub $act" in
       exit 1
     fi
     [ -n "$head" ] && printf '%s\n' "$head" >>"$open"
-    printf '%s\n' "${head:-?}" >>"$st/create-log"
+    # Log the head plus whether --draft was passed, so a dropped-draft regression
+    # is detectable.
+    printf '%s draft=%s\n' "${head:-?}" "$has_draft" >>"$st/create-log"
     printf 'https://example.invalid/pr/101\n'
     ;;
   "pr merge")
@@ -190,9 +209,11 @@ c1() {
   [ "$(tag_val "$out" carry)" = created ] || fail "c1: expected carry=created, got: $out"
   [ "$(tag_val "$out" stranded)" = 2 ] || fail "c1: expected stranded=2, got: $out"
 
-  # Exactly one PR created.
+  # Exactly one PR created, and it was created as a DRAFT.
   [ "$(wc -l <"$tmp/ghstate/create-log" | tr -d ' ')" = 1 ] \
     || fail "c1: expected exactly one gh pr create"
+  grep -q "draft=1" "$tmp/ghstate/create-log" \
+    || fail "c1: PR must be created with --draft (got: $(cat "$tmp/ghstate/create-log"))"
   # Never merged.
   [ ! -s "$tmp/ghstate/merge-log" ] || fail "c1: carry must never merge the PR"
   # Local main byte-for-byte unchanged.
@@ -392,10 +413,36 @@ c8() {
 # ---------------------------------------------------------------------------
 c9() {
   code=$(grep -vE '^[[:space:]]*#' "$CARRY" || true)
-  if printf '%s\n' "$code" | grep -niE 'gh[[:space:]]+pr[[:space:]]+merge|--auto|merge_pull_request|pr[[:space:]]+ready|--force|force-with-lease|push[^\n]*--force' >/dev/null; then
+  # grep is already line-oriented, so `--force` / `force-with-lease` as bare
+  # alternatives catch a force-push anywhere; no `[^\n]` bridge is needed (and
+  # `[^\n]` inside a bracket wrongly excludes the literal letter n).
+  if printf '%s\n' "$code" | grep -niE 'gh[[:space:]]+pr[[:space:]]+merge|--auto|merge_pull_request|pr[[:space:]]+ready|--force|force-with-lease' >/dev/null; then
     fail "c9: carry references a merge / ready-flip / force-push surface"
   fi
   echo "ok c9: no merge / ready-flip / force-push surface in the carry"
+}
+
+# ---------------------------------------------------------------------------
+# Case 10 — --dry-run: computes + reports the stranded count but opens no PR and
+# pushes no branch (the read-only surface).
+# ---------------------------------------------------------------------------
+c10() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c10.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  seed_repo "$repo"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower iiii9999
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  out=$(run_carry "$gh" "$tmp/ghstate" --dry-run "$repo" 2>"$tmp/err") || fail "c10: carry exit $? — $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = noop ] || fail "c10: --dry-run expected carry=noop, got: $out"
+  [ "$(tag_val "$out" stranded)" = 1 ] || fail "c10: --dry-run should report stranded=1, got: $out"
+  [ ! -s "$tmp/ghstate/create-log" ] || fail "c10: --dry-run must open no PR"
+  gitc "$repo" ls-remote --heads origin "planwright/chore/observations" 2>/dev/null | grep -q . \
+    && fail "c10: --dry-run must push no chore branch"
+  echo "ok c10: --dry-run reports stranded count without pushing or opening a PR"
 }
 
 c1
@@ -407,4 +454,5 @@ c6
 c7
 c8
 c9
+c10
 echo "ALL PASS: observation-carry"

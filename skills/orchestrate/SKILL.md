@@ -402,15 +402,16 @@ The out-of-session drain pass. Dispatches nothing; it:
    silence. On comparator trouble it degrades to a silent no-op (diagnostic
    on stderr) and always exits 0; it never blocks the pass.
 5. **Carries stranded tower observations toward `main`** (fleet-hardening
-   Task 9, D-9, REQ-D1.3): runs `scripts/observation-carry.sh <repo-root>` —
-   pushes tower-branch observation fragments absent from `origin/main` onto ONE
-   chore branch (`planwright/chore/observations`) and opens or reuses ONE
-   **draft** chore PR, so learnings are not stranded unpushed. Idempotent (deduped
-   against `origin/main` and the chore branch — a repeat opens no second PR),
+   Task 9, D-9, REQ-D1.3): runs `scripts/observation-carry.sh <repo-root>` in the
+   tower's checkout — pushes the current `HEAD` (tower-branch) observation
+   fragments absent from `origin/main` onto ONE chore branch
+   (`planwright/chore/observations`) and opens or reuses ONE **draft** chore PR,
+   so learnings are not stranded unpushed. Idempotent (deduped against
+   `origin/main` and the chore branch — a repeat opens no second PR),
    concurrency-safe (a per-repo lock), git-plumbing-built so local `main` is
    never touched; never merges, marks ready, or force-pushes; a degrade
    (no remote/`gh`, rejected push/PR) **names** the stranded observations and
-   exits non-zero; no LLM (REQ-E1.3). See the script header for the full contract.
+   exits non-zero; no LLM (REQ-E1.3). See the script header.
 
 On `--bookkeeping`, missing prerequisites degrade with a message (it is not a
 dispatch path); it never merges and never advances local `main`. Its one
