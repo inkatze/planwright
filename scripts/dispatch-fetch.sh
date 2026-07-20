@@ -101,6 +101,7 @@ usage() {
 }
 
 spec_rel=""
+spec_given=0
 repo_root=""
 best_effort=0
 while [ $# -gt 0 ]; do
@@ -108,10 +109,12 @@ while [ $# -gt 0 ]; do
     --spec)
       [ $# -ge 2 ] || usage
       spec_rel="$2"
+      spec_given=1
       shift 2
       ;;
     --spec=*)
       spec_rel="${1#--spec=}"
+      spec_given=1
       shift
       ;;
     --best-effort)
@@ -138,6 +141,17 @@ while [ $# -gt 0 ]; do
 done
 [ $# -eq 0 ] || { [ -z "$repo_root" ] && repo_root="$1"; }
 [ -n "$repo_root" ] || usage
+
+# A supplied-but-empty --spec is invalid input, not "no --spec". Treating an
+# empty value as omitted would silently waive the --spec anchor guarantee (a
+# success exit is contracted to carry an origin/main anchor), so fail closed
+# here rather than downgrade to currency-only. (A realistic `--spec specs/<name>`
+# with an empty name is already caught by the grammar below; this closes the
+# literally-empty flag.)
+if [ "$spec_given" -eq 1 ] && [ -z "$spec_rel" ]; then
+  printf '%s\n' "dispatch-fetch: --spec requires a non-empty 'specs/<name>' value" >&2
+  exit 2
+fi
 
 # Validate the spec path against traversal / injection before it reaches
 # `git show <ref>:<path>`. It must be a plain `specs/<identifier>` under the
@@ -171,13 +185,22 @@ repo_root=$repo_top
 anchor_script="$script_dir/spec-anchor.sh"
 config_get="$script_dir/config-get.sh"
 
+# Numeric-input validation rejects a leading zero on a multi-digit value (the
+# `0?*` arm) alongside non-digits and empty. Digits-only is not enough: a value
+# like `08`/`09` passes `*[!0-9]*` but is an invalid octal literal inside POSIX
+# `$(( ))`, which errors (fatal under dash, and outside this script's
+# {0,2,3,4,5} exit contract) — so leading-zero values are treated as malformed
+# (warn + default) exactly as any other bad value is. A bare `0` (documented:
+# TTL 0 forces a re-fetch; retries 0 is best-effort) is one char and never
+# matches `0?*`, so it stays valid.
+
 # --- Resolve the TTL (seconds) ------------------------------------------------
 # SECONDS env override wins (raw integer, for test precision); else the config
 # knob `dispatch_fetch_ttl` in the `<n>[m]` minutes convention; else 2m.
 ttl_sec=""
 if [ -n "${PLANWRIGHT_DISPATCH_FETCH_TTL:-}" ]; then
   case "$PLANWRIGHT_DISPATCH_FETCH_TTL" in
-    *[!0-9]* | '')
+    *[!0-9]* | '' | 0?*)
       echo "dispatch-fetch: ignoring malformed PLANWRIGHT_DISPATCH_FETCH_TTL" >&2
       ;;
     *) ttl_sec=$PLANWRIGHT_DISPATCH_FETCH_TTL ;;
@@ -192,7 +215,7 @@ if [ -z "$ttl_sec" ]; then
   cv=${cv%m}
   case "$cv" in
     '') ;; # key absent everywhere: the 2m default stands
-    *[!0-9]*)
+    *[!0-9]* | 0?*)
       echo "dispatch-fetch: ignoring malformed dispatch_fetch_ttl; using ${ttl_min}m" >&2
       ;;
     *) ttl_min=$cv ;;
@@ -202,20 +225,30 @@ fi
 
 # Retry bounds. Best-effort mode (the reconcile sweep) defaults to a single
 # attempt so a down remote never stalls an idle cycle; an explicit env override
-# still wins in either mode.
+# still wins in either mode. A malformed override falls back to the SAME
+# mode-specific default (0 in best-effort, 2 otherwise), so a bad env value in
+# best-effort mode does not silently restore the retry budget the sweep omits.
 if [ "$best_effort" -eq 1 ]; then
-  retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-0}
+  retries_default=0
 else
-  retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-2}
+  retries_default=2
 fi
-case "$retries" in *[!0-9]* | '') retries=2 ;; esac
+retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-$retries_default}
+case "$retries" in *[!0-9]* | '' | 0?*) retries=$retries_default ;; esac
 retry_sleep=${PLANWRIGHT_DISPATCH_FETCH_RETRY_SLEEP:-2}
-case "$retry_sleep" in *[!0-9]* | '') retry_sleep=2 ;; esac
+case "$retry_sleep" in *[!0-9]* | '' | 0?*) retry_sleep=2 ;; esac
 
 state_dir="${PLANWRIGHT_DISPATCH_FETCH_STATE_DIR:-$repo_root/.claude/orchestrate.local}"
 stamp_file="$state_dir/last-fetch"
 
-now=$(date +%s)
+# Read the clock for the TTL age math. On the (near-impossible) failure of
+# `date +%s`, leave `now` empty rather than let it default to 0: an empty/zero
+# `now` would make `age = now - last` negative and read as fresh — the WRONG
+# degrade (it would reuse a stale ref). The within-TTL check below requires a
+# numeric `now`, so an unreadable clock forces a fetch instead (the safe
+# direction), symmetric with the stamp-write clock read further down.
+now=$(date +%s 2>/dev/null) || now=""
+case "$now" in '' | *[!0-9]*) now="" ;; esac
 
 # --- Anchor a spec bundle at a git ref ---------------------------------------
 # Re-point the EXISTING content-anchor computer at <ref> by materializing that
@@ -251,7 +284,7 @@ emit_anchor() {
   [ -n "$spec_rel" ] || return 0
   # Distinguish an unusable anchor computer from "files absent at the ref": both
   # yield no anchor line, but only the former is a tooling fault worth a note.
-  [ -x "$anchor_script" ] || echo "dispatch-fetch: anchor computer $anchor_script missing/not executable; no anchor emitted" >&2
+  [ -x "$anchor_script" ] || printf '%s\n' "dispatch-fetch: anchor computer $anchor_script missing/not executable; no anchor emitted" >&2
   for _r in "$@"; do
     if _hash=$(anchor_at_ref "$_r"); then
       printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$_r"
@@ -291,7 +324,7 @@ fi
 
 # --- TTL bound: reuse a recent fetch, no network on an idle --watch cycle -----
 within_ttl=0
-if [ -f "$stamp_file" ] && [ ! -L "$stamp_file" ]; then
+if [ -n "$now" ] && [ -f "$stamp_file" ] && [ ! -L "$stamp_file" ]; then
   last=$(cat "$stamp_file" 2>/dev/null || echo "")
   case "$last" in
     '' | *[!0-9]*) last="" ;;
@@ -355,9 +388,13 @@ if mkdir -p "$state_dir" 2>/dev/null; then
   # Stamp the instant the fetch COMPLETED, not the pre-fetch gate-entry instant
   # ($now used for the age check above): the TTL measures time since the ref was
   # made current, so a slow (retried) fetch must not shorten the next window by
-  # its own duration. Fall back to $now if this clock read fails.
+  # its own duration. Fall back to $now if this clock read fails; if that too is
+  # unavailable (both clock reads failed, $now empty), skip the stamp rather than
+  # write a non-numeric one — a missing stamp simply forfeits the next window's
+  # coalescing, which is harmless, whereas a blank stamp is dead weight.
   stamp_now=$(date +%s 2>/dev/null) || stamp_now=$now
-  if printf '%s\n' "$stamp_now" >"$stamp_tmp" 2>/dev/null; then
+  case "$stamp_now" in '' | *[!0-9]*) stamp_now="" ;; esac
+  if [ -n "$stamp_now" ] && printf '%s\n' "$stamp_now" >"$stamp_tmp" 2>/dev/null; then
     mv -f "$stamp_tmp" "$stamp_file" 2>/dev/null || rm -f "$stamp_tmp" 2>/dev/null || true
   fi
 fi

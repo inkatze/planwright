@@ -614,6 +614,83 @@ c12() {
   echo "ok c12: fail closed (exit 5, no stale-main fallback) when origin/main drops the spec"
 }
 
+# ---------------------------------------------------------------------------
+# Case 13 — malformed-numeric hardening: a digits-only-but-leading-zero override
+# (e.g. `08`) is an invalid octal literal inside POSIX `$(( ))` and would abort
+# the script with a raw shell error and an exit code OUTSIDE the {0,2,3,4,5}
+# contract. It must instead be treated as malformed (ignored, fall back to the
+# default) so the script still reaches a contracted exit. Uses the unreachable-
+# origin fixture so the post-parse path runs to the bounded-retry stale exit.
+# ---------------------------------------------------------------------------
+c13() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c13.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q "$tmp/repo"
+  write_spec "$tmp/repo" demo v1
+  gitc "$tmp/repo" add -A
+  gitc "$tmp/repo" commit -q -m "spec v1"
+  gitc "$tmp/repo" branch -M main
+  gitc "$tmp/repo" remote add origin "$tmp/does-not-exist.git"
+
+  # Leading-zero RETRIES (`08`) reaches `max_attempts=$((retries + 1))`; a
+  # leading-zero TTL (`09`) reaches the `-lt` age math — both crashed pre-fix.
+  for badval in 08 09; do
+    set +e
+    out=$(PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state.$badval" \
+      PLANWRIGHT_DISPATCH_FETCH_RETRIES="$badval" \
+      PLANWRIGHT_DISPATCH_FETCH_TTL="$badval" \
+      PLANWRIGHT_DISPATCH_FETCH_RETRY_SLEEP=0 \
+      "$FETCH" "$tmp/repo" 2>/dev/null)
+    rc=$?
+    set -e
+    # Contract exit (stale-transient here), NOT the pre-fix crash exit 1.
+    [ "$rc" -eq 4 ] \
+      || fail "c13: leading-zero override '$badval' gave exit $rc, not the contracted 4 (arithmetic crash not guarded)"
+    [ "$(tag_val "$out" fetch)" = stale-transient ] \
+      || fail "c13: leading-zero override '$badval' did not reach the stale-transient path (got '$(tag_val "$out" fetch)')"
+  done
+
+  # A bare `0` remains VALID (documented: TTL 0 forces a re-fetch, retries 0 is
+  # the best-effort default) — it must NOT be swept up as malformed.
+  set +e
+  PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state.zero" \
+    PLANWRIGHT_DISPATCH_FETCH_RETRIES=0 \
+    PLANWRIGHT_DISPATCH_FETCH_RETRY_SLEEP=0 \
+    "$FETCH" "$tmp/repo" >/dev/null 2>&1
+  rc0=$?
+  set -e
+  [ "$rc0" -eq 4 ] \
+    || fail "c13: bare RETRIES=0 should be valid (exit 4 stale-transient), got $rc0"
+  echo "ok c13: leading-zero numeric overrides are treated as malformed, not crashed; bare 0 stays valid"
+}
+
+# ---------------------------------------------------------------------------
+# Case 14 — a supplied-but-empty --spec is invalid input, not "no --spec": it
+# must fail closed (exit 2), never silently downgrade to currency-only and waive
+# the --spec anchor guarantee. Both the space-separated and `=` forms.
+# ---------------------------------------------------------------------------
+c14() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c14.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q "$tmp/repo"
+  write_spec "$tmp/repo" demo v1
+  gitc "$tmp/repo" add -A
+  gitc "$tmp/repo" commit -q -m "spec v1"
+  gitc "$tmp/repo" branch -M main
+
+  set +e
+  "$FETCH" --spec '' "$tmp/repo" >/dev/null 2>&1
+  rc_space=$?
+  "$FETCH" --spec= "$tmp/repo" >/dev/null 2>&1
+  rc_eq=$?
+  set -e
+  [ "$rc_space" -eq 2 ] \
+    || fail "c14: empty '--spec \"\"' should fail closed (exit 2), got $rc_space (silently treated as no --spec)"
+  [ "$rc_eq" -eq 2 ] \
+    || fail "c14: empty '--spec=' should fail closed (exit 2), got $rc_eq"
+  echo "ok c14: a supplied-but-empty --spec fails closed (exit 2), not downgraded to currency-only"
+}
+
 c1
 c2
 c3
@@ -626,5 +703,7 @@ c9
 c10
 c11
 c12
+c13
+c14
 
 echo "PASS: test-dispatch-fetch.sh"
