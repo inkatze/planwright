@@ -98,23 +98,26 @@ session, present it and wait instead.
    — anchor-written-last makes a killed kickoff indistinguishable from
    absent-anchor, by design): halt and prompt `/spec-kickoff`.
 7. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45; the
-   `spec-format` anchor rules). This stops execution against spec content that
-   changed since the brief was last signed:
-   - Read the brief's **most recent anchor entry** and the four spec files
-     **from the primary checkout's main view** (not the possibly-ahead worktree
-     copy).
-   - **Parse and validate the entry.** It is execution-valid only if it parses,
-     uses a **sanctioned command form** (`scripts/spec-anchor.sh <spec-dir>`, or
-     the interim whole-file form the meta-spec still sanctions), was written by a
-     **sanctioned writer** (a `/spec-kickoff` sign-off, or the marked `Class:
-     expression-only` ritual), and — for a meaning-class entry — carries a
-     dispositioned `Lens-pass:` reference.
-   - **Recompute** the anchor with the exact command the entry records, and
-     compare. **Match** → proceed. **Mismatch** (any anchored content changed,
-     committed or not) → halt, remedy: a `/spec-kickoff` delta re-walkthrough.
-     **No entry / unparseable / non-sanctioned command / non-sanctioned writer**
-     → halt, remedy: complete or repair the sign-off record per REQ-F1.10. Every
-     halt is to Awaiting input, naming its remedy. There is no bypass flag.
+   `spec-format` anchor rules; fleet-hardening D-9). It stops execution against
+   spec content changed since the brief was signed, and against a **stale local
+   `main`**:
+   - **Fetch-before-gate** (D-9, REQ-D1.1). Run `scripts/dispatch-fetch.sh
+     --spec specs/<spec> <primary-checkout>`: it fetches `origin` (bounded, **no
+     local-`main` advance**) and prints the fetched **`origin/main`** anchor
+     (re-pointing `spec-anchor.sh` at that ref). Exit
+     **0** → gate vs `origin/main`; **3** (`no-remote`, offline) → gate vs local
+     `main`; **4** (`stale-transient`) → do not silently proceed: park to
+     Awaiting input.
+   - **Validate the entry** (brief's most recent, from the resolved ref): it
+     parses, uses a **sanctioned command form** (`scripts/spec-anchor.sh
+     <spec-dir>` or the interim whole-file form), a **sanctioned writer** (a
+     `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
+     — meaning-class — a dispositioned `Lens-pass:`.
+   - **Compare** the recorded anchor against the one `dispatch-fetch.sh`
+     recomputed. **Match** → proceed. **Mismatch** → halt (remedy: a
+     `/spec-kickoff` delta re-walkthrough). **No / unparseable / non-sanctioned /
+     wrong-writer entry** → halt (remedy: repair the record per REQ-F1.10). Halts
+     go to Awaiting input; no bypass flag.
 8. **Read the brief slice and task block(s).** From the brief: the signed-off
    goal restatement (it anchors every judgment call), the task-graph section,
    and the risk-register entries relevant to the unit. From `tasks.md`: each
