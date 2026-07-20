@@ -1591,6 +1591,92 @@ done <<EOF
 $after
 EOF
 
+########################################################################
+# 19. Reverse use-site check (instruction-headroom Task 5: REQ-D1.3, D-7).
+#     Every point-of-use manifest doc must be named in body prose outside the
+#     manifest block and fenced code; a miss is a WARNING (never an error),
+#     matched as a fixed string over the charset-validated name. A
+#     `declared-exception|use-site:<skill>/<doc>|<reason>` entry excuses exactly
+#     that use-site warning and nothing else (REQ-D1.6, D-11).
+########################################################################
+# 19a. missing: a point-of-use doc named nowhere in body prose warns naming the
+#      skill and doc, and does NOT fail the guard.
+t19a="$tmproot/t19a"
+scaffold "$t19a"
+make_doc "$t19a" lonelydoc 10
+make_skill "$t19a" usmiss 100 \
+  "Doctrine: point-of-use lonelydoc (at the widget step)"
+out="$(/bin/bash "$CHECKER" --root "$t19a" 2>&1)"
+assert_exit "a missing use-site is a warning, not an error" 0 $?
+assert_contains "use-site warning fires naming the skill and doc" \
+  "use-site:usmiss/lonelydoc" "$out"
+
+# 19b. named: the same doc named at a step in body prose silences the warning.
+t19b="$tmproot/t19b"
+scaffold "$t19b"
+make_doc "$t19b" nameddoc 10
+make_skill "$t19b" usnamed 100 \
+  "Doctrine: point-of-use nameddoc (at the widget step)" \
+  "The nameddoc doc is consulted at the widget step."
+out="$(/bin/bash "$CHECKER" --root "$t19b" 2>&1)"
+assert_exit "a named use-site keeps the guard green" 0 $?
+assert_absent "a point-of-use doc named in body prose emits no use-site warning" \
+  "use-site:usnamed/nameddoc" "$out"
+
+# 19c. named only in the manifest line and inside fenced code STILL warns: neither
+#      the manifest block nor fenced code counts as a body-prose naming.
+t19c="$tmproot/t19c"
+scaffold "$t19c"
+make_doc "$t19c" fenceddoc 10
+make_skill "$t19c" usfenced 100 \
+  "Doctrine: point-of-use fenceddoc (at the widget step)" \
+  '```' \
+  'the fenceddoc doc is only shown here, inside a code fence' \
+  '```'
+out="$(/bin/bash "$CHECKER" --root "$t19c" 2>&1)"
+assert_exit "a manifest/fenced-only naming does not error" 0 $?
+assert_contains "a doc named only in the manifest or fenced code still warns" \
+  "use-site:usfenced/fenceddoc" "$out"
+
+# 19d. a `use-site:<skill>/<doc>` declared-exception excuses that use-site warning
+#      and NOTHING else. The skill body (3900) is also below its per-file
+#      restoration target, so a below-target warning fires on a DIFFERENT surface;
+#      the use-site exception must silence the use-site warning while leaving the
+#      below-target warning untouched. A used exception is not reported stale.
+t19d="$tmproot/t19d"
+scaffold "$t19d"
+make_doc "$t19d" exdoc 10
+make_skill "$t19d" usbt 3900 \
+  "Doctrine: point-of-use exdoc (at the widget step)"
+out="$(/bin/bash "$CHECKER" --root "$t19d" 2>&1)"
+assert_contains "baseline: the use-site warning fires" "use-site:usbt/exdoc" "$out"
+assert_contains "baseline: a below-target warning fires on the body surface" \
+  "below-target: skills/usbt/SKILL.md" "$out"
+cat >"$t19d/config/instruction-budget-exemptions.txt" <<'EOF'
+declared-exception|use-site:usbt/exdoc|accepted: exdoc is consulted only via an external cross-reference
+EOF
+out="$(/bin/bash "$CHECKER" --root "$t19d" 2>&1)"
+assert_exit "a matching use-site declared-exception keeps the guard green" 0 $?
+assert_absent "the use-site declared-exception silences the use-site warning it names" \
+  "use-site:usbt/exdoc" "$out"
+assert_contains "the use-site declared-exception does not silence the below-target warning" \
+  "below-target: skills/usbt/SKILL.md" "$out"
+assert_absent "a USED use-site declared-exception is not reported stale" \
+  "declared-exception cleanup" "$out"
+
+# 19e. a skill whose manifest failed to resolve is SKIPPED by the use-site check
+#      (its manifest error stands, and no use-site warning is emitted for it).
+t19e="$tmproot/t19e"
+scaffold "$t19e"
+make_skill "$t19e" usbroken 100 \
+  "Doctrine: point-of-use nosuchdoc (at the widget step)"
+out="$(/bin/bash "$CHECKER" --root "$t19e" 2>&1)"
+assert_exit "an unresolvable manifest doc fails the guard" 1 $?
+assert_contains "the unresolvable manifest error stands" \
+  "unresolvable doctrine reference 'nosuchdoc'" "$out"
+assert_absent "a skill with an unresolved manifest emits no use-site warning" \
+  "use-site:usbroken/nosuchdoc" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
