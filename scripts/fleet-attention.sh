@@ -64,6 +64,12 @@
 #   fleet-attention.sh decide <worker> <scope> <question> <default> <options> [priority]
 #       Upsert the worker as awaiting-input WITH a structured decision.
 #       [priority] ∈ high | normal | low (default normal).
+#   fleet-attention.sh park <worker> <scope> <reason>
+#       The fork-park attention push (fleet-hardening Task 2, D-2): upsert the
+#       worker as awaiting-input carrying only the notification <reason> (the
+#       additive 9th field) — no option set (that is `decide`'s answerable
+#       channel). Atomic --unless-awaiting: a no-op that preserves a queued
+#       decision. The classifier resolves the row to awaiting-human directly.
 #   fleet-attention.sh clear <worker>
 #       Remove the worker's row (idempotent) — cleanup on merged/done teardown.
 #   fleet-attention.sh render [--surface-provided]
@@ -235,6 +241,12 @@ upsert_row() {
   ur_def=$6
   ur_opts=$7
   ur_guard=${8:-}
+  # ur_reason (field 9) is the fleet-hardening Task 2 additive extension (D-2):
+  # the fork-park notification reason. It is APPENDED only when non-empty, so a
+  # heartbeat / decide row stays byte-identical to the shipped 8-field layout —
+  # an older 8-field reader ignores the trailing field, a newer reader reads it
+  # (REQ-E1.2, additive-with-older-reader-ignores).
+  ur_reason=${9:-}
   acquire_lock || return 2
   if [ "$ur_guard" = unless-awaiting ] && [ -f "$store" ]; then
     # Fail SAFE if ANY matching row is awaiting-input, not just when the sole
@@ -297,9 +309,17 @@ upsert_row() {
     awk -F "$TAB" -v w="$ur_worker" '($1 "") != (w "")' "$store" >"$ur_tmp" || ur_rc=2
   fi
   if [ "$ur_rc" = 0 ]; then
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" \
-      >>"$ur_tmp" || ur_rc=2
+    if [ -n "$ur_reason" ]; then
+      # A park row carries the additive 9th field (the notification reason).
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" "$ur_reason" \
+        >>"$ur_tmp" || ur_rc=2
+    else
+      # Every shipped writer (heartbeat, decide) — byte-identical 8-field layout.
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$ur_worker" "$ur_scope" "$ur_state" "$ur_ts" "$ur_prio" "$ur_q" "$ur_def" "$ur_opts" \
+        >>"$ur_tmp" || ur_rc=2
+    fi
   fi
   if [ "$ur_rc" = 0 ]; then
     mv -f "$ur_tmp" "$store" || ur_rc=2
@@ -326,7 +346,7 @@ suppressed() {
 # ---------------------------------------------------------------------------
 cmd="${1:-}"
 if [ -z "$cmd" ]; then
-  echo "usage: fleet-attention.sh heartbeat|decide|clear|render|queue|notify [args]" >&2
+  echo "usage: fleet-attention.sh heartbeat|decide|park|clear|render|queue|notify [args]" >&2
   exit 2
 fi
 shift || true
@@ -415,6 +435,46 @@ case $cmd in
     # awaiting-input is the one decision-bearing state; upsert_row stamps the
     # commit-time timestamp under the lock.
     upsert_row "$worker" "$scope" "awaiting-input" "$priority" "$question" "$default" "$options" \
+      || exit 2
+    exit 0
+    ;;
+
+  park)
+    # The fork-park attention push (fleet-hardening Task 2, D-2/REQ-A1.1): a
+    # worker parks at a decision fork and pushes an `awaiting-human` record
+    # carrying the notification reason and a commit-time timestamp, with NO pane
+    # capture. The classifier resolves this row to `awaiting-human` DIRECTLY off
+    # the stored awaiting-input state (never by heartbeat-age inference). Unlike
+    # `decide`, park carries only the reason — never an option set: the
+    # answerable, labeled option-set is the Task 4 decision channel. park never
+    # auto-resolves a queued human decision: the --unless-awaiting guard makes it
+    # an atomic no-op when the worker is ALREADY awaiting-input (a pending
+    # permission or a flailing escalation), so a fork-park coincident with such a
+    # decision preserves that decision instead of clobbering it (REQ-A1.3,
+    # REQ-E1.2). The reason lands in the additive 9th field.
+    worker="${1:-}"
+    scope="${2:-}"
+    reason="${3:-}"
+    if [ -z "$worker" ] || [ -z "$scope" ] || [ -z "$reason" ]; then
+      echo "usage: fleet-attention.sh park <worker> <scope> <reason>" >&2
+      exit 2
+    fi
+    if ! valid_field "$worker"; then
+      echo "fleet-attention: refusing malformed worker handle '$(sanitize_printable "$worker" "(unprintable worker)")'" >&2
+      exit 2
+    fi
+    if ! valid_field "$scope"; then
+      echo "fleet-attention: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
+      exit 2
+    fi
+    if ! valid_text "$reason"; then
+      echo "fleet-attention: refusing a park reason with a control byte, an embedded tab/newline, or over-length text (would tear the record or drive the terminal)" >&2
+      exit 2
+    fi
+    root=$(resolve_home) || exit 2
+    attn_dir="$root/attention"
+    store="$attn_dir/state"
+    upsert_row "$worker" "$scope" "awaiting-input" "" "" "" "" unless-awaiting "$reason" \
       || exit 2
     exit 0
     ;;
@@ -540,8 +600,12 @@ case $cmd in
     fi
     [ "$n" = 0 ] && exit 0
     now=$(now_epoch)
-    # Sorted lines carry the two sort-key fields ahead of the 8 stored fields.
-    printf '%s\n' "$sortable" | while IFS="$TAB" read -r _w _tskey worker scope _state ts prio q def opts; do
+    # Sorted lines carry the two sort-key fields ahead of the stored fields. The
+    # trailing `reason` var reads the additive 9th field (fleet-hardening Task 2):
+    # it is empty for a shipped decide row (8 fields → the var reads nothing, so
+    # the decide branch below is byte-identical to before) and carries the reason
+    # for a fork-park row (9 fields).
+    printf '%s\n' "$sortable" | while IFS="$TAB" read -r _w _tskey worker scope _state ts prio q def opts reason; do
       [ -n "$worker" ] || continue
       age="?"
       case $ts in
@@ -555,13 +619,21 @@ case $cmd in
       s_prio=$(sanitize_printable "$prio" "?")
       s_scope=$(sanitize_printable "$scope" "?")
       s_worker=$(sanitize_printable "$worker" "?")
-      s_q=$(sanitize_printable "$q" "?")
-      s_def=$(sanitize_printable "$def" "?")
-      s_opts=$(sanitize_printable "$opts" "?")
       printf -- '- [%s] %s  (%s, waiting %ss)\n' "$s_prio" "$s_scope" "$s_worker" "$age"
-      printf '    Q: %s\n' "$s_q"
-      printf '    default: %s\n' "$s_def"
-      printf '    options: %s\n' "$s_opts"
+      if [ -n "$reason" ]; then
+        # A fork-park (Task 2): it carries the notification reason, not a labeled
+        # option set (that is Task 4's answerable channel). Surface the reason so
+        # the tower distinguishes a fork-park from a permission / flailing decide.
+        s_reason=$(sanitize_printable "$reason" "?")
+        printf '    reason: %s\n' "$s_reason"
+      else
+        s_q=$(sanitize_printable "$q" "?")
+        s_def=$(sanitize_printable "$def" "?")
+        s_opts=$(sanitize_printable "$opts" "?")
+        printf '    Q: %s\n' "$s_q"
+        printf '    default: %s\n' "$s_def"
+        printf '    options: %s\n' "$s_opts"
+      fi
     done
     exit 0
     ;;
@@ -659,7 +731,7 @@ case $cmd in
     ;;
 
   *)
-    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|clear|render|queue|notify)" >&2
+    echo "fleet-attention: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (heartbeat|decide|park|clear|render|queue|notify)" >&2
     exit 2
     ;;
 esac
