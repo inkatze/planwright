@@ -278,7 +278,7 @@ per [`spec-format.md`](spec-format.md).
 ```markdown
 ## Summary
 
-Stamps the completion annotation from the reconcile so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading to a date-only form or no stamp with no remote.
+Closes the unowned-refresh gap REQ-E1 names: stamps the reconcile's completion annotation so a merged task's block gets `Completed · PR #<n> merged <YYYY-MM-DD>`, degrading to a date-only form with no remote.
 
 **How to review:** `scripts/tasks-pr-sync.sh` and its `tests/` fixtures.
 
