@@ -518,6 +518,40 @@ the in-process (subagent) shape, where a worker inherits the hosting
 session's effective mode. A refusal is a dispatch stop condition, surfaced,
 never bypassed.
 
+**The tower runs under its own tested allow layer.** A tower's own
+orchestration commands — tmux relay/observe, `claude --worktree` worker
+launches, planwright scripts by resolved literal path — were being blocked
+non-deterministically by the same `auto`-mode classifier, so the tower runs
+under `config/tower-settings.json`, which wires `scripts/tower-command-guard.sh`
+as a PreToolUse hook (D-8). It reuses the worker guard's pattern — allow-only,
+fail-closed, no LLM in the decision path — but fronts a **distinct, tower-
+oriented safe set**: it adds the tower-only shapes (tmux relay/observe, worker
+launches) the worker guard defers, and omits the worker-only shapes (`bats`,
+`tests/` scripts, `fish -c` recursion) a tower never runs. Coverage is at the
+tmux-subcommand granularity: the guard pre-approves the individual relay/observe
+verbs (`load-buffer`, `paste-buffer`, `capture-pane`), but not yet
+`orchestrate-relay.sh`'s full attributed send shape, whose brace-grouped
+`{ ...; } | tmux load-buffer` pipeline the inherited engine defers to the
+classifier (see `specs/_observations` for the follow-up). Only the underlying
+subcommands are deterministically covered. This consciously
+**re-opens** the worker-only scoping `worker-permission-ergonomics` chose for a
+blast-radius reason: the tower's radius is broader (it launches workers and
+drives tmux), so it gets its own tested layer rather than the worker guard
+silently widened. Because the guard is allow-only with no default-deny, the
+profile's **deny block is the security floor**, effective regardless of guard
+output: it denies the shell guardrails (merge, every force-push spelling, amend
+/ squash / rebase, `gh pr merge`), default-branch and local-`main` mutation
+(`git push …:main`, `reset --hard`, `branch -f`, `update-ref`), the equivalent
+GitHub MCP tools (`merge_pull_request`, `update_pull_request`, `push_files` /
+`create_or_update_file` / `delete_file` — denied wholesale by name because a
+Bash-string guard cannot intercept an MCP call), and `gh pr ready`: a tower
+**never** performs the draft→ready flip. The one sanctioned ready-flip
+(kickoff-lifecycle D-6: `/spec-kickoff` marks the spec PR ready) runs in a
+kickoff session under different settings, not under this tower profile, so the
+deny does not block it. The guard's `claude --worktree` allow also **pins**
+against launching a worker with its permission layer weakened: any
+`--dangerously-*` or `--permission-*` flag, in any position, defers.
+
 ## What the fleet decides without you (and what it never does)
 
 Unattended operation follows the

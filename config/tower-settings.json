@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_about": "planwright tower-settings profile (fleet-hardening REQ-C1.1, REQ-C1.2, REQ-C1.3; D-8). A Claude Code settings fragment an ORCHESTRATING TOWER (a /orchestrate control session) runs under so its own routine orchestration toolset is deterministically pre-approved and the autonomy loop does not stall on the stochastic auto-mode classifier, which non-deterministically blocked the tower's own relay/observe/launch commands. planwright never edits settings.json itself (REQ-I1.2): merge this into the tower session's settings (or reference it) the same way hook wiring is a manual step. AUTO-APPROVE HOOK: the hooks.PreToolUse (Bash) entry below wires scripts/tower-command-guard.sh, the deterministic tower command-guard. It reads the Claude Code PreToolUse payload on stdin, extracts the fully-expanded Bash command Claude Code hands it (variables already expanded before the hook runs), then returns permissionDecision: allow ONLY for an enumerated, TOWER-ORIENTED set of known-safe shapes — tmux relay/observe (load-buffer / paste-buffer / show-buffer / capture-pane / list-* / has-session / display-message), `claude --worktree` worker launches, planwright scripts by resolved literal path (under the repo checkout's or the installed plugin's scripts/), and read-only state-observation shapes (read-only git / gh / mise / coreutils) — deferring everything else to the normal permission flow. DISTINCT SAFE SET (REQ-C1.2, D-8): this is NOT a verbatim reuse of the worker safe set. It ADDS the tower-only shapes (tmux relay/observe, `claude --worktree` launches) the worker guard defers, and it OMITS the worker-only shapes (`bats`, `tests/` scripts, `fish -c` recursion) the tower does not run — worker-permission-ergonomics deliberately scoped its guard worker-only for a blast-radius reason (D-5/R7), and this bundle consciously RE-OPENS that scoping to give the tower its own tested allow layer rather than silently widening the worker guard. Guard properties (carried from worker-permission-ergonomics): no-LLM (pure-shell analysis, no model in the decision path, honoring fleet-autonomy D-18); allow-only (it can ONLY auto-approve — it never emits deny or ask, so it is never worse than today); deny-precedence (a hook allow can never un-block a command the deny block below forbids, because Claude Code evaluates deny before ask before allow regardless of hook output); fail-closed (jq absent, malformed input, an unknown construct, or any internal error all defer — the tests assert zero false-allows by construction, not merely across the corpus). ESCALATION PINS (REQ-C1.2): the guard's `claude --worktree` allow is an ALLOWLIST of known-safe launch flags — it auto-approves a launch only when every arg is --worktree or a curated benign flag, and any unrecognized flag DEFERS. This fails closed on the FULL escalation surface, not just the two flags REQ-C1.2 names: --dangerously-skip-permissions, the --allow-dangerously-* and --permission-* variants, and --settings / --setting-sources / --mcp-config / --agents / --plugin-dir / --add-dir (all of which weaken or redirect the launched worker's permission/trust layer, and a --dangerously-*/--permission-* denylist would miss), plus any future flag. The tower can therefore never auto-approve launching a worker with its permission layer disabled — a fleet-wide escalation. The `tmux` allow is likewise a closed subcommand allowlist scoped to the relay/observe subcommands, never send-keys / kill-session / any lifecycle op. TOWER-SCOPED — DO NOT MIS-MERGE: this stanza belongs ONLY in a tower's settings, never in a dispatched worker's settings.json (the worker runs config/worker-settings.json's DIFFERENT allow set) and never in a general human interactive settings.json; the two safe sets are distinct by design, and tower-scoping is enforced only by where the hook is wired, not by any runtime session-type check. It references the script through ${CLAUDE_PLUGIN_ROOT} exactly as the plugin's hooks/hooks.json does, so it resolves under a marketplace install, and it is deliberately NOT registered in that plugin-global hooks/hooks.json (a plugin-global registration would load it into every worker and human session, breaching the tower-scoping). OPTIONAL literal-path allow entry: as defense-in-depth for the guard's jq-absent degradation path (which defers everything, so the tower would flood on the auto-mode classifier), an adopter MAY additionally add a persistent Bash allow entry matching the resolved literal absolute path of the plugin scripts their tower invokes (for example `Bash(/abs/path/to/planwright/scripts/*)`); this path is install-location-specific, so it stays adopter-documented rather than shipped. Note: path-scoped allow entries use the trailing `/*` glob (as that literal-path entry does), never the `:*` command-boundary form — `:*` matches only where a space or end-of-string follows the prefix, so a directory-scoped `:*` rule silently never matches `<dir>/<file>` and never fires (D-6, REQ-B1.3; the `mise run check` guard scripts/check-glob-allow-rules.sh flags it; see docs/overlays.md). SECURITY: this is a permissions allowlist and needs human sign-off before use; the deny block encodes planwright's hard invariants as GUARDRAILS that hold regardless of guard output, and the tower's blast radius is broader than the worker's (it launches workers and drives tmux), so review the allow set against your risk posture first. THE DENY BLOCK is the security FLOOR (the guard is allow-only with no default-deny, so anything neither allowed nor denied falls to the stochastic classifier): it denies every dangerous / guardrail operation across all surfaces. (a) Shell ops: merge, force-push in every spelling (`--force` / `-f` / `--force-with-lease` in both the `:`-boundary and `=value` forms / `+`-prefixed refspecs whether before or after the remote), amend, squash, fixup, rebase, filter-branch/filter-repo, `gh pr merge`. (b) Default-branch writes / local-main mutation — the shared-checkout read-only-local-main invariant is GUARD-ENFORCED here, not merely observed: any push writing the default branch (`git push *:main` / `* main` / `*refs/heads/main` / `*heads/main`, each also with a trailing-arg `… *` twin so a routine `git push origin main --no-verify` / `-o ci.skip` / `-v` cannot slip past the end-anchored form), the `git -c … push …` config-injection bypass (a pre-`push` global option that would otherwise shift the anchored `git push` prefix), `--mirror` / `--all` bulk-ref escapes, `git reset --hard`, `git branch -f` / `--force`, and `git update-ref` (which can move refs/heads/main). (c) NEVER-READY: `gh pr ready` is DENIED for the tower — marking a PR ready is a reserved human control, and the tower NEVER performs the draft->ready flip. The ONE sanctioned exception (kickoff-lifecycle D-6: /spec-kickoff marks the SPEC PR ready as its terminal step) runs in a /spec-kickoff session under different settings, NOT under this tower profile, so denying `gh pr ready` here does not block it; the scope (only the spec PR, only via the skill) is enforced by the skill, and this profile's deny keeps a tower from ever ready-flipping a task PR. (d) EQUIVALENT GITHUB MCP TOOL SURFACE: a PreToolUse Bash-string guard does not intercept MCP calls, so the never-merge / never-ready / no-default-branch-write floors must deny the MCP tools by name too: `mcp__github__merge_pull_request` (merge), `mcp__github__update_pull_request` (the draft->ready transition), and `mcp__github__push_files` / `mcp__github__create_or_update_file` / `mcp__github__delete_file` (default-branch writes). These are denied WHOLESALE by tool name because a permissions.deny entry cannot discriminate the specific field (update_pull_request's draft->ready) or the target branch (the push/create/delete tools) — wholesale deny is the safe floor, and the tower does not need these MCP tools (it commits via git in worktrees and reads PR state via read-only `gh`; PR bodies are authored at create time by the /execute-task and /spec-kickoff sessions, not updated by the tower). Deny precedence: Claude Code evaluates deny before allow, so these rules override any broad allow regardless of specificity; the shell-string denies are glob rules matched as literal substrings, best-effort against exotic refspec spellings rather than exhaustive, so review them against your repo's risk posture. Known residuals kept best-effort (the guard defers all `git push`, so these fall to the permission prompt rather than auto-running, and hardening them exhaustively is the denylist-leaks anti-pattern): bundled short-flag force (`git push -fu`), and pre-`push` global options other than `-c` (`git -C <dir> push`, `--git-dir`, `--work-tree`). A tower has no need for these shapes; treat a prompt for one as a signal to stop. Compound commands are parsed per-subcommand by Claude Code, so a denied op cannot be smuggled via `&&` / `;` / `|` / subshell.",
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Edit",
+      "Write"
+    ],
+    "deny": [
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr ready:*)",
+      "Bash(git merge:*)",
+      "Bash(git rebase:*)",
+      "Bash(git commit --amend:*)",
+      "Bash(git commit --squash:*)",
+      "Bash(git commit --fixup:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git filter-repo:*)",
+      "Bash(git branch -f:*)",
+      "Bash(git branch --force:*)",
+      "Bash(git update-ref:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git push --force-with-lease=*)",
+      "Bash(git push -f:*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push *+*)",
+      "Bash(git push *:main)",
+      "Bash(git push *:main *)",
+      "Bash(git push * main)",
+      "Bash(git push * main *)",
+      "Bash(git push *refs/heads/main)",
+      "Bash(git push *heads/main)",
+      "Bash(git push *heads/main *)",
+      "Bash(git push --mirror:*)",
+      "Bash(git push * --mirror*)",
+      "Bash(git push --all:*)",
+      "Bash(git push * --all*)",
+      "Bash(git -c * push:*)",
+      "mcp__github__merge_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__push_files",
+      "mcp__github__create_or_update_file",
+      "mcp__github__delete_file"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/tower-command-guard.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
