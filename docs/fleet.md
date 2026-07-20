@@ -354,10 +354,12 @@ for real pending input. planwright removes the ambiguity at the source: the
 dispatch primitive **constructs** every fleet-launched session through
 `scripts/fleet-dispatch-env.sh` as a code path —
 `scripts/fleet-dispatch-env.sh --emit-launch <launch-argv>` emits the
-wrapper-prefixed launch command — so the
-pin `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` is baked into the launched
-process's environment by the construction itself, not by a prose step the model
-must remember (D-5, D-10, REQ-B1.1, REQ-B1.2). This is prevention, not detection
+wrapper-prefixed launch command (it prints the line; it does not itself mutate
+the environment). When that line runs, the wrapper prefix sets the pin
+`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` in the launched process's
+environment — so the pin is guaranteed by the construction (the prefix is always
+there), not by a prose step the model must remember (D-5, D-10, REQ-B1.1,
+REQ-B1.2). This is prevention, not detection
 — an official disable switch applied at launch beats a per-capture heuristic
 every time.
 
