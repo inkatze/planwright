@@ -53,9 +53,12 @@
 # command. `--emit-launch` is pure string construction (no exec, no model/API
 # call — REQ-E1.3): it prints the launch line for a backend to run, the wrapper
 # prefix applying the pin only when that emitted line is later exec'd. Its tokens
-# are shell-quoted, so a repo path or dispatch token carrying a space or shell
-# metacharacter survives re-splitting and adds no injection surface — the same
-# argument-boundary safety the exec path gets from `exec "$@"`.
+# are single-quote-wrapped, so a repo path or dispatch token carrying a space or
+# shell metacharacter survives re-splitting and adds no injection surface — the
+# same argument-boundary safety the exec path gets from `exec "$@"` — while
+# staying accepted by the worker-command-guard tokenizer. A token containing a
+# single quote or newline is refused (exit 2): its only single-quoted escape uses
+# a backslash the guard defers on, and neither is a valid dispatch token.
 #
 # Exit: execs <cmd> (adopting its exit status); a failed exec follows the
 # shell's not-found/not-executable convention (typically 127/126, but
@@ -124,22 +127,33 @@ if [ "$1" = "--emit-launch" ]; then
   # Construct the launch line: the wrapper prefix (which applies the pin when the
   # line is exec'd) followed by the caller-supplied launch argv. The prefix is
   # emitted by CODE — the pin is a structural property of dispatch, never a prose
-  # step the model must remember (REQ-B1.1). Every token is SHELL-QUOTED so the
-  # wrapper path and each dispatch token survive a repo path or argument carrying
-  # a space or shell metacharacter — preserving the argument-boundary safety the
-  # exec path gets from `exec "$@"`, so the emitted line re-splits faithfully for
-  # the backend that runs it and offers no injection surface of its own.
-  shq() {
-    # POSIX single-quote wrap; an embedded single quote becomes '\''.
-    case $1 in
-      *\'*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;;
-      *) printf "'%s'" "$1" ;;
+  # step the model must remember (REQ-B1.1). Every token is single-quote-wrapped:
+  # a single-quoted token is inert to the shell (spaces and metacharacters
+  # included), preserving the argument-boundary safety the exec path gets from
+  # `exec "$@"`, AND it is accepted by the worker-command-guard tokenizer, so the
+  # emitted line stays deterministically auto-approved (D-5, REQ-B1.2).
+  #
+  # A token containing a single quote or a newline is refused up front, before
+  # anything is emitted: the only single-quoted escape for an embedded quote is
+  # the `'\''` form, whose backslash the guard deliberately DEFERS on (it would
+  # break the auto-approve contract), and a newline cannot sit in a single-line
+  # launch command at all. Neither is a valid dispatch token (models, worktree
+  # suffixes, flags), so refusing is the honest, deterministic contract rather
+  # than emitting a shape the guard silently declines. The message never echoes
+  # the token content (mirrors the guard's never-reflect discipline).
+  nl=$(printf '\nx')
+  nl=${nl%x}
+  for _tok in "$self" "$@"; do
+    case $_tok in
+      *\'* | *"$nl"*)
+        echo "fleet-dispatch-env.sh: --emit-launch: a launch token contains a single quote or newline, which cannot be emitted as a guard-auto-approved launch" >&2
+        exit 2
+        ;;
     esac
-  }
-  shq "$self"
+  done
+  printf "'%s'" "$self"
   for _arg in "$@"; do
-    printf ' '
-    shq "$_arg"
+    printf " '%s'" "$_arg"
   done
   printf '\n'
   exit 0

@@ -29,6 +29,8 @@
 #   c7 (REQ-B1.2): a bare-name (PATH) invocation emits the wrapper's real
 #      location, not a cwd-relative fabrication, so the emitted verb stays the
 #      guard-trusted scripts/*.sh path.
+#   c8 (REQ-B1.2): a single-quote / newline launch token is refused (exit 2)
+#      rather than emitted in a form the worker-command-guard tokenizer defers on.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-dispatch-launch-pin.sh
@@ -254,6 +256,31 @@ c7() {
   rm -rf "$tmp"
 }
 
+# --- c8: a single-quote / newline token is refused, not emitted deferring -----
+# The only single-quoted escape for an embedded single quote is the `'\''` form,
+# whose backslash the worker-command-guard tokenizer DEFERS on — so such a token
+# could never be part of a guard-auto-approved launch. --emit-launch refuses it
+# (exit 2) up front rather than emitting a shape the guard silently declines; a
+# newline (which cannot sit in a single-line launch) is refused the same way.
+# Neither is a valid dispatch token.
+c8() {
+  local code out
+  code=0
+  out=$("$FDE" --emit-launch claude --foo "a'b" 2>/dev/null) || code=$?
+  if [ "$code" -eq 2 ] && [ -z "$out" ]; then
+    pass "c8: a single-quote launch token is refused (exit 2), not emitted guard-deferring (REQ-B1.2)"
+  else
+    fail "c8: single-quote token: expected exit 2 and no stdout, got exit $code out='$out'"
+  fi
+  code=0
+  "$FDE" --emit-launch claude "$(printf 'a\nb')" >/dev/null 2>&1 || code=$?
+  if [ "$code" -eq 2 ]; then
+    pass "c8b: a newline launch token is refused (exit 2)"
+  else
+    fail "c8b: newline token: expected exit 2, got exit $code"
+  fi
+}
+
 c1
 c2
 c3
@@ -261,6 +288,7 @@ c4
 c5
 c6
 c7
+c8
 
 if [ "$failures" -ne 0 ]; then
   echo "test-dispatch-launch-pin: $failures failure(s)" >&2
