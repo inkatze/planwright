@@ -330,3 +330,78 @@ Class: meaning
 Lens-pass: §9 (panel-review delta, gemini backend; five findings, all applied)
 Anchor: `fb32fc83acb0e87d3e61ab4c66bfc37303e1b460` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
+
+## 10. Execution research log
+
+<!-- Research-rigor recordings appended during execution (findings, tradeoffs,
+     sources). These are NOT anchor entries and never carry a Class:/Anchor:
+     line; the spec anchor is computed over the four spec files, not this brief,
+     so an execution research note never moves it. -->
+
+### 2026-07-19 — Task 2: the `Notification` hook platform contract (risk rows 1, 2)
+
+The bundle's headline mechanism (D-2) rests on Claude Code's native `Notification`
+hook firing for the fork-park / idle-wait state, and on the payload distinguishing
+a fork-park from a permission-park. D-2 flagged this as a version-sensitive research
+trigger deferred to Task 2 execution; this is that recording. Source consulted: the
+current Claude Code hooks documentation (the official reference, over model memory —
+research-rigor recency discipline).
+
+**Findings (pinned against the running-version docs):**
+
+- The `Notification` hook fires with a JSON payload carrying a **`notification_type`**
+  field — the machine-reliable discriminator (the human-readable `message` is a
+  secondary signal). Documented types: `permission_prompt` (permission needed);
+  `idle_prompt`, `agent_needs_input`, `elicitation_dialog` (input-wait variants);
+  `auth_success`, `agent_completed`, `elicitation_complete`, `elicitation_response`
+  (informational — a completion/answer, not a wait, so the gating below suppresses
+  it). Other payload fields: `session_id`, `transcript_path`, `cwd`,
+  `hook_event_name`.
+- A `Notification` hook is **non-blocking**: exit 0 shows stdout to the user only;
+  any non-zero exit is a non-blocking error (the notification proceeds). A
+  side-effect script (push a store record) just needs to exit 0 — which the hook
+  arm does unconditionally, honoring the fleet-autonomy always-exit-0 discipline.
+- **Matchers:** the docs are internally inconsistent (one section says matchers are
+  ignored for `Notification`; the matcher table lists it as supported). Decision:
+  the arm does NOT rely on the matcher — it gates in-script on `notification_type`,
+  so correctness holds regardless of how the running version treats the matcher.
+
+**How Task 2 uses it (the payload-reason gating, risk row 2):** the hook arm parses
+`notification_type` with awk (never jq, REQ-K1.5), STRICTLY validates it against a
+fixed allow-list, and pushes an `awaiting-human` record ONLY for a genuine input-wait
+(`idle_prompt` / `agent_needs_input` / `elicitation_dialog`). `permission_prompt` is
+suppressed (fleet-autonomy's `PermissionRequest` hook already owns permission-park;
+a second push here would race it — the "false awaiting-human" the Done-when forbids);
+`elicitation_response` (the user already answered), `auth_success`, `agent_completed`,
+`elicitation_complete`, and any unknown / absent / spoofed type push NOTHING. A
+spoofed value can only map to a known-safe action or be suppressed — no payload text
+is executed or stored raw.
+
+**Residual (delegated per risk row 1, an accepted completion path):** the end-to-end
+`[manual]` confirmation (park a REAL worker at an `AskUserQuestion` fork on the live
+Claude Code version and confirm which `notification_type` it raises, and that the push
+lands) is a human-in-the-loop check the automated suite cannot run; it is surfaced in
+the PR's pending-sign-off checklist. The push set covers every documented input-wait
+type, so it is robust to which one a fork-park raises; and if a fork type raises none,
+D-3's reconcile backstop plus the retained heartbeat-age `hung` classifier catch it
+(the three-layer defense-in-depth of risk row 3) — never the silent 7-hour blindness.
+No significant unanticipated risk surfaced; no stop condition.
+
+**`idle_prompt` vs the terminal Stop-downgrade (a convergence-review fork, deferred to
+the same `[manual]` check).** `idle_prompt` is the most likely `notification_type` for
+the central `AskUserQuestion` fork, so it stays in the push set. But `idle_prompt` is
+also the "turn ended, agent idle at the prompt" condition — exactly when the `Stop`
+hook fires. For the other two push types (`agent_needs_input`, `elicitation_dialog`)
+a tool call is still pending, so the turn has not ended and no `Stop` fires; for
+`idle_prompt`, if `Notification` lands before `Stop`, the terminal exit edge clears the
+fresh fork-park to `idle` (and the reconcile cannot recover a downgraded-to-`idle` row).
+This is arguably self-correcting — a genuine mid-turn fork raises no `Stop`, and a real
+turn-end idle *should* resolve to `idle` — but it hinges on the undocumented
+Notification/Stop firing order. The live `[manual]` check must confirm that order for
+`idle_prompt`, and the human decides between: **(a)** keep `idle_prompt` in the push
+set and accept the self-correcting behavior (recommended: it is the primary fork
+signal); **(b)** exempt an `idle_prompt`-reason park from the terminal clobber (risks a
+stuck `awaiting-human` on a real turn-end idle); or **(c)** drop `idle_prompt` from the
+push set (risks missing the primary `AskUserQuestion` fork). Surfaced as a queued fork
+in this task's PR, not resolved in code — every option has a downside the live
+confirmation must inform.

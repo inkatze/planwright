@@ -372,7 +372,7 @@ code path depends on it.
 ## Push-based worker liveness: events, the five states, crash backoff
 
 Worker liveness is **pushed, not polled** (D-1, REQ-A1.1): the plugin registers
-five hook events, and a dispatched worker's own session writes its state
+six hook events, and a dispatched worker's own session writes its state
 transitions to the attention store the instant they happen, through
 `scripts/fleet-liveness.sh`:
 
@@ -380,29 +380,41 @@ transitions to the attention store the instant they happen, through
 | --- | --- |
 | `Stop` | working → `idle` (the turn ended) |
 | `PermissionRequest` | working → `awaiting-input`, queued, plus a pending-permission marker |
-| `PostToolUse` | `awaiting-input` → working — **only** when the pending-permission marker exists (the documented inference: no permission-resolution hook exists, so the next tool use after a pending permission means the human allowed it) |
+| `PostToolUse` | `awaiting-input` → working — when a live **decision marker** exists: a pending-permission marker (the human allowed the next tool use) or a fork-park marker (the worker resumed from a fork; fleet-hardening Task 2). Otherwise a fast no-op |
 | `SessionEnd` | → `ended` (session termination) |
 | `StopFailure` | → `hung` (a turn ended on an API error resembles a stopped-responding worker — the decided kickoff risk-row-27 mapping) |
+| `Notification` | working → `awaiting-input` + a fork-park marker, for a genuine fork / input-wait `notification_type` only (fleet-hardening Task 2, D-2). The instant a worker parks at an `AskUserQuestion` fork it fires `Notification`; the arm gates on the payload reason (a permission-park, an auth / completion notification, or an unknown type push nothing) and pushes an `awaiting-human` record with the reason — no pane capture |
 
 **The identity gate.** These hooks fire in *every* session the plugin is
 enabled in; only a dispatched worker may write. The gate is a
 dispatch-time env contract: a worker launched with `PLANWRIGHT_WORKER_HANDLE`
 and `PLANWRIGHT_WORKER_SCOPE` in its environment (hook commands inherit the
-launched process env) is the one whose transitions the handler records, and
-the handler is a silent no-op without both. **The dispatch-side wiring that
+launched process env) is the one whose transitions the handler records. With
+*neither* var set the handler is a silent no-op; a *half-set or malformed*
+identity (one var present, the other missing, or a value failing the field
+grammar) is refused with a one-line stderr warning — still exit 0 and no write,
+so a misconfigured dispatch is visible rather than silently dropped. **The
+dispatch-side wiring that
 exports these vars is not in place yet** — the per-backend dispatch adaptation
 that sets them is a later task, so until it lands every session no-ops this
 handler and the fleet stays on the existing observation path (a graceful
-REQ-A1.1 degradation, no breakage). The hook payload itself is drained, never
-parsed: identity comes from the env contract, so no payload field is ever
-interpolated anywhere.
+REQ-A1.1 degradation, no breakage). The hook payload is drained, never parsed,
+for every event **except `Notification`**: identity comes from the env contract,
+so no payload field is interpolated anywhere. The one exception is the
+`Notification` arm (fleet-hardening Task 2), which reads a bounded payload prefix,
+extracts `notification_type` with awk (never jq, REQ-K1.5), and strictly
+validates it against a fixed allow-list before mapping it to a fixed reason
+string — no raw payload text ever reaches a command or the store.
 
 **Guards worth knowing.** A downgrade push (`Stop`/`SessionEnd`/`StopFailure`)
-never overwrites an `awaiting-input` row that has no pending-permission marker:
-that row is a queued human decision (a flailing escalation, a crash-loop
-disable), and REQ-A1.3 forbids auto-resolving it. A denied permission whose
-turn then ends clears on the `Stop` push; anything beyond that heals on the
-periodic ground-truth reconcile (REQ-A1.8, a later task), which stays the
+never overwrites an `awaiting-input` row that has no **decision marker**
+(pending-permission or fork-park): that row is a queued human decision (a
+flailing escalation, a crash-loop disable), and `fleet-autonomy` REQ-A1.3 forbids
+auto-resolving it. A live decision marker is the exception — it means this handler queued the
+row, so a resume (`PostToolUse`) or a terminal exit clears it with precedence,
+the permission and fork-park flows symmetrically. A denied permission whose turn
+then ends clears on the `Stop` push; anything beyond that heals on the periodic
+ground-truth reconcile (`fleet-autonomy` REQ-A1.8, a later task), which stays the
 correctness backstop for every missed or dropped push — push is a latency
 optimization, never the source of truth. Precedence between push and reconcile
 writes is last-write-wins by commit-time timestamp (the store stamps
@@ -440,7 +452,7 @@ expects no progress and resets the streak, so a permission block never
 inflates it into a spurious escalation on resume. A
 `flailing` classification queues exactly one human decision ("this task may be
 stuck") and records the escalation in the audit trail — there is no automatic
-nudge or restart path at all (REQ-A1.3). Routine classification is *not*
+nudge or restart path at all (`fleet-autonomy` REQ-A1.3). Routine classification is *not*
 audited: the trail records actions, not status noise. The classifier consumes
 only grammar-validated tokens, never raw pane text — a capture-pane consumer
 sanitizes before anything reaches it.

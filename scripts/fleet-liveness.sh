@@ -24,31 +24,44 @@
 #      stop                Stop              -> idle   (working -> idle)
 #      permission-request  PermissionRequest -> awaiting-input (decide) +
 #                          a pending-permission marker
-#      post-tool-use       PostToolUse       -> working, ONLY when a pending-
-#                          permission marker exists (the documented
-#                          awaiting-human -> working INFERENCE, D-1: no
-#                          permission-resolution hook exists)
+#      post-tool-use       PostToolUse       -> working, when a pending-
+#                          permission OR a fork-park marker is live (the
+#                          documented awaiting-human -> working INFERENCE /
+#                          resume exit edge; D-1 for permissions, fleet-
+#                          hardening Task 2 D-2 for the fork-park)
 #      session-end         SessionEnd        -> ended  (session termination)
 #      stop-failure        StopFailure       -> hung   (turn ended on an API
 #                          error resembles a stopped-responding worker —
 #                          the kickoff risk row 27 mapping, decided here)
+#      notification        Notification      -> awaiting-input (park) + a fork-
+#                          park marker, for a genuine fork / input-wait
+#                          notification_type ONLY (fleet-hardening Task 2, D-2 /
+#                          REQ-A1.1). permission-park / non-park / unknown types
+#                          push NOTHING (payload-reason gating).
 #    THE ESCALATION-PRESERVE GUARD (REQ-A1.3): a downgrade push (stop /
 #    session-end / stop-failure) never overwrites an awaiting-input row that
-#    has NO pending-permission marker — that row is a queued human decision
-#    (a flailing escalation, a crash-loop disable), and hooks must never
-#    auto-resolve it. The deny path (kickoff risk row 28): a denied
-#    permission whose turn ends with no further tool use clears on the Stop
-#    push (marker present -> idle); any residue beyond that heals on the
-#    REQ-A1.8 reconcile sweep, which this bundle documents as the
-#    correctness backstop for every missed or dropped push.
+#    has NO decision marker (permission or fork-park) — that row is a queued
+#    human decision (a flailing escalation, a crash-loop disable), and hooks
+#    must never auto-resolve it. A LIVE fork-park marker is the exception the
+#    same way a live permission marker is: it means THIS handler parked the
+#    row, so a resume (post-tool-use) or a terminal exit (stop / session-end /
+#    stop-failure) clears it with precedence over the push. The deny path
+#    (kickoff risk row 28): a denied permission whose turn ends with no further
+#    tool use clears on the Stop push (marker present -> idle); any residue
+#    beyond that heals on the REQ-A1.8 reconcile sweep, which this bundle
+#    documents as the correctness backstop for every missed or dropped push.
 #    HOOK EXIT DISCIPLINE: a valid event always exits 0 — for the Stop hook
 #    an exit 2 would BLOCK the worker's own stop, and any non-zero is noise
 #    in someone else's session — so runtime failures warn on stderr and rely
 #    on the reconcile backstop (D-1); only a malformed invocation (unknown
 #    event: a wiring bug in hooks.json, not a runtime state) exits 2. The
-#    hook payload on stdin is drained, never parsed: identity comes from the
-#    env contract, so no payload field is ever interpolated anywhere
-#    (kickoff risk row 25).
+#    hook payload on stdin is drained, never parsed FOR EVERY EVENT EXCEPT
+#    notification: identity comes from the env contract, so no payload field
+#    is interpolated anywhere (kickoff risk row 25). The one exception is the
+#    notification arm (fleet-hardening Task 2), which reads a bounded payload
+#    prefix, extracts notification_type WITHOUT jq (REQ-K1.5), and STRICTLY
+#    validates it against a fixed allow-list before mapping it to a FIXED
+#    reason string — no raw payload text ever reaches a command or the store.
 #
 # 2. FIVE-STATE CLASSIFIER (`classify`, D-2/REQ-A1.2). Resolves exactly one
 #    of working | idle | hung | awaiting-human | flailing from the store row
@@ -117,12 +130,13 @@
 #    actions log through the audit trail (REQ-F1.4).
 #
 # Usage:
-#   fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure>
+#   fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification>
 #       The registered hook handler (identity from the env contract; the
-#       payload is drained on the worker path, never parsed). Exits 0 for
-#       every valid invocation, including runtime failures and signals;
-#       exit 2 only on a malformed invocation (wrong arg count or an
-#       unknown event token — a hooks.json wiring bug).
+#       payload is drained on the worker path, never parsed — except the
+#       notification arm, which reads + strictly validates notification_type,
+#       no jq). Exits 0 for every valid invocation, including runtime failures
+#       and signals; exit 2 only on a malformed invocation (wrong arg count or
+#       an unknown event token — a hooks.json wiring bug).
 #   fleet-liveness.sh push-capable <backend>
 #       Which liveness mechanism the backend gets: prints `push` (exit 0)
 #       for tmux (the one backend whose dispatched process inherits the
@@ -159,9 +173,10 @@
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): `date
 # +%s`, awk, a fractional `sleep` (the lock retry, as the sibling fleet
-# scripts use). No eval, no jq (REQ-K1.5) — which is also why the hook
-# payload is never parsed. All input is data. Pathname expansion is disabled
-# (set -f).
+# scripts use). No eval, no jq (REQ-K1.5): every hook event drains its payload
+# unparsed EXCEPT notification, which extracts + strictly validates
+# notification_type with awk (never jq) and maps it to a fixed reason. All input
+# is treated as data. Pathname expansion is disabled (set -f).
 set -uf
 
 LC_ALL=C
@@ -270,15 +285,21 @@ release_lock() {
 }
 
 # The attention record's field indices this script reads (fleet-attention.sh
-# upsert_row is the single authority for the 8-field layout:
-# worker/scope/state/heartbeat/priority/question/default/options — named here
-# so the positional coupling is explicit and single-sourced in this file).
+# upsert_row is the single authority for the layout: the 8 shipped fields
+# worker/scope/state/heartbeat/priority/question/default/options, plus the
+# additive park reason at field 9 — named here so the positional coupling is
+# explicit and single-sourced in this file).
 FIELD_SCOPE=2
 FIELD_STATE=3
 FIELD_HEARTBEAT=4
+# The additive 9th field (fleet-hardening Task 2, D-2): the fork-park
+# notification reason. Present only on a park row; an 8-field heartbeat/decide
+# row reads empty here (REQ-E1.2, older-reader-ignores).
+FIELD_REASON=9
 
 # store_row_field <root> <worker> <field-index> — print one field of the
-# worker's 8-field attention record, or nothing when no row exists. The ""
+# worker's attention record (the 8 shipped fields plus the additive park reason
+# at field 9), or nothing when no row exists. The ""
 # concatenation pins awk to string comparison for numeric-looking handles
 # (the fleet-attention upsert discipline). LAST-WRITE-WINS: the store is
 # one-row-per-worker (upsert, last wins under the lock), so a well-formed store
@@ -343,25 +364,79 @@ atomic_write_file() {
   return 0
 }
 
-# marker_live_permission <root> <handle> — is the pending-permission marker the
-# LIVE permission this handler set, rather than a LEAKED marker (D-1: a marker
-# can outlive an ungraceful session death; the liveness-artifacts-cleanup
-# observation tracks the accumulation) now colliding with an unrelated
-# awaiting-input escalation on a REUSED handle? The marker carries the decision
-# identity: permission-request stamps the awaiting-input row's commit-time
-# heartbeat into it, so this is true iff the marker exists and carries a token,
-# the current store row is STILL awaiting-input, AND its heartbeat equals that
-# token. A flailing/crash escalation replacing the row re-stamps the heartbeat
-# (a fresh commit-time), so the token no longer matches and the caller must
-# preserve that queued human decision instead of auto-resolving it to
-# working/idle (REQ-A1.3). A truly leaked marker heals on the reconcile sweep.
-marker_live_permission() {
-  mlp_marker="$1/liveness/pending/$2"
-  [ -e "$mlp_marker" ] || return 1
-  mlp_tok=$(cat "$mlp_marker" 2>/dev/null) || mlp_tok=""
-  [ -n "$mlp_tok" ] || return 1
-  [ "$(store_row_field "$1" "$2" "$FIELD_STATE")" = awaiting-input ] || return 1
-  [ "$(store_row_field "$1" "$2" "$FIELD_HEARTBEAT")" = "$mlp_tok" ]
+# marker_live <marker-file> <root> <handle> — the shared decision-identity
+# predicate: is <marker-file> the LIVE decision this handler set, rather than a
+# LEAKED marker (D-1: a marker can outlive an ungraceful session death; the
+# liveness-artifacts-cleanup observation tracks the accumulation) now colliding
+# with an unrelated awaiting-input escalation on a REUSED handle? The marker
+# carries the decision identity: the writer stamps the awaiting-input row's
+# commit-time heartbeat into it, so this is true iff the marker exists and
+# carries a token, the current store row is STILL awaiting-input, AND its
+# heartbeat equals that token. A flailing/crash escalation replacing the row
+# re-stamps the heartbeat (a fresh commit-time), so the token no longer matches
+# and the caller must preserve that queued human decision instead of
+# auto-resolving it (REQ-A1.3). A truly leaked marker heals on the reconcile
+# sweep. Both the pending-permission marker (fleet-autonomy D-1) and the
+# fork-park marker (fleet-hardening Task 2, D-2) share this identity discipline.
+marker_live() {
+  ml_marker=$1
+  ml_root=$2
+  ml_handle=$3
+  [ -e "$ml_marker" ] || return 1
+  ml_tok=$(cat "$ml_marker" 2>/dev/null) || ml_tok=""
+  [ -n "$ml_tok" ] || return 1
+  [ "$(store_row_field "$ml_root" "$ml_handle" "$FIELD_STATE")" = awaiting-input ] || return 1
+  [ "$(store_row_field "$ml_root" "$ml_handle" "$FIELD_HEARTBEAT")" = "$ml_tok" ]
+}
+
+# marker_live_permission <root> <handle> — the pending-permission marker
+# (fleet-autonomy D-1), under liveness/pending/.
+marker_live_permission() { marker_live "$1/liveness/pending/$2" "$1" "$2"; }
+
+# marker_live_awaiting <root> <handle> — the fork-park exit-edge marker
+# (fleet-hardening Task 2, D-2), under liveness/awaiting/. The Notification push
+# stamps it so PostToolUse (resume) and the terminal transitions (Stop /
+# SessionEnd / StopFailure) clear ONLY a genuine fork-park, never a permission /
+# flailing decision that merely shares the awaiting-input state.
+#
+# Beyond the shared heartbeat-token identity, a fork-park is discriminated by a
+# NON-EMPTY reason (field 9): `park` is the only writer that sets it, so a
+# permission / flailing `decide` that replaced the row — even within the same
+# wall-clock second (the heartbeat token is second-granular, so a same-second
+# escalation could otherwise carry a colliding token), or between the
+# notification arm's ownership check and its heartbeat read (a TOCTOU) — has an
+# EMPTY field 9 and is never mistaken for our fork-park. This keeps the exit
+# edge from auto-resolving a queued human decision (REQ-A1.3). The permission
+# marker cannot use this discriminator (a permission row has no field 9), so it
+# retains the heartbeat-only identity; only the fork-park path needs and gets
+# the extra check.
+marker_live_awaiting() {
+  marker_live "$1/liveness/awaiting/$2" "$1" "$2" || return 1
+  [ -n "$(store_row_field "$1" "$2" "$FIELD_REASON")" ]
+}
+
+# extract_notification_type — print the JSON string value of the FIRST
+# "notification_type" key on stdin, or nothing. This is the one hook arm that
+# reads its payload (fleet-hardening Task 2 gates on the notification reason);
+# every other arm still drains stdin unparsed (identity comes from the env
+# contract). No jq (REQ-K1.5): a scoped, minimal awk extraction, and the CALLER
+# STRICTLY validates the result against the fixed notification-type allow-list —
+# so a spoofed / garbage / injected value can only map to a known-safe action or
+# be suppressed; no payload text is ever executed, and only a validated type
+# maps to a FIXED reason string that reaches the store (never raw payload text).
+# The value is expected to be a short lowercase token; a value bearing a `"` is
+# truncated at it and then fails the allow-list, so it is refused, not honored.
+extract_notification_type() {
+  awk '
+    { s = s $0 "\n" }
+    END {
+      if (match(s, /"notification_type"[ \t\r\n]*:[ \t\r\n]*"[^"]*"/)) {
+        seg = substr(s, RSTART, RLENGTH)
+        sub(/^"notification_type"[ \t\r\n]*:[ \t\r\n]*"/, "", seg)
+        sub(/"$/, "", seg)
+        print seg
+      }
+    }'
 }
 
 if [ "$#" -lt 1 ]; then
@@ -380,12 +455,12 @@ case "$cmd" in
     # so exiting 0 on a signal abandons nothing.
     trap 'exit 0' INT TERM
     if [ "$#" -ne 1 ]; then
-      echo "usage: fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure>" >&2
+      echo "usage: fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification>" >&2
       exit 2
     fi
     event=$1
     case "$event" in
-      stop | permission-request | post-tool-use | session-end | stop-failure) ;;
+      stop | permission-request | post-tool-use | session-end | stop-failure | notification) ;;
       *)
         # A malformed invocation (unknown event, wrong arg count above) is a
         # hooks.json wiring bug, not a runtime state: the hook-path exit 2.
@@ -414,16 +489,73 @@ case "$cmd" in
       echo "fleet-liveness: refusing malformed worker identity env (PLANWRIGHT_WORKER_HANDLE/PLANWRIGHT_WORKER_SCOPE); no state written" >&2
       exit 0
     fi
-    # The payload is deliberately unparsed (risk 25): identity comes from
-    # the env contract. Drain it only on the valid worker path, where the
-    # handler does real work anyway.
-    cat >/dev/null 2>&1 || true
+    # Stdin handling by event. Every event EXCEPT notification drains the
+    # payload unparsed (risk 25): identity comes from the env contract, so no
+    # payload field is ever interpolated. The notification arm is the one
+    # exception (fleet-hardening Task 2, D-2): it must READ the payload to gate
+    # on the notification reason, so it captures a BOUNDED prefix (head -c caps
+    # a pathological payload) and extracts + strictly validates the type below —
+    # no raw payload text ever reaches a command or the store.
+    if [ "$event" = notification ]; then
+      note_payload=$(head -c 65536 2>/dev/null) || note_payload=""
+    else
+      cat >/dev/null 2>&1 || true
+    fi
     root=$("$FS" root) || {
       echo "fleet-liveness: cannot resolve the fleet home; state push dropped (the reconcile sweep self-heals, D-1)" >&2
       exit 0
     }
     marker="$root/liveness/pending/$handle"
+    await_marker="$root/liveness/awaiting/$handle"
     case "$event" in
+      notification)
+        # Fork-park attention (D-2/REQ-A1.1): a native Notification hook fires
+        # the instant a worker parks for human input. Gate on the payload
+        # reason so ONLY a genuine fork / input-wait pushes awaiting-human — a
+        # permission-park is owned by the PermissionRequest hook, and
+        # auth / completion / unknown notifications are not parks and must not
+        # push a false awaiting-human (Task 2 Done-when). No pane capture: the
+        # signal is the payload alone.
+        ntype=$(printf '%s' "$note_payload" | extract_notification_type)
+        case "$ntype" in
+          idle_prompt | agent_needs_input | elicitation_dialog)
+            # A genuine input-wait park. Push awaiting-human with a FIXED reason
+            # derived from the validated type (never raw payload text). park is
+            # atomic --unless-awaiting, so a coincident queued decision (a
+            # pending permission / flailing escalation) is preserved, not
+            # clobbered (REQ-A1.3, REQ-E1.2).
+            if ! "$FA" park "$handle" "$scope" "notification:$ntype" >/dev/null 2>&1; then
+              echo "fleet-liveness: fork-park push failed; reconcile self-heals (D-1)" >&2
+              exit 0
+            fi
+            # Stamp the exit-edge marker ONLY for a fork-park row we actually own
+            # (state awaiting-input AND field 9 == our reason). If park no-op'd
+            # over a pre-existing permission / flailing decision (no field 9), we
+            # never claim its exit edge — that decision keeps its own lifecycle
+            # (the reconcile / permission flow), so a resume or terminal exit
+            # can never mistake it for a fork-park and auto-resolve it.
+            if [ "$(store_row_field "$root" "$handle" "$FIELD_STATE")" = awaiting-input ] \
+              && [ "$(store_row_field "$root" "$handle" "$FIELD_REASON")" = "notification:$ntype" ]; then
+              await_ts=$(store_row_field "$root" "$handle" "$FIELD_HEARTBEAT")
+              if ! mkdir -p "$root/liveness/awaiting" 2>/dev/null \
+                || ! atomic_write_file "$await_marker" "$await_ts" 2>/dev/null; then
+                echo "fleet-liveness: fork-park exit-edge marker write failed; the row clears on the reconcile sweep rather than on resume (warn)" >&2
+              fi
+            fi
+            ;;
+          *)
+            # permission_prompt (the PermissionRequest hook owns permission-park),
+            # auth_success / agent_completed / elicitation_complete /
+            # elicitation_response (not input-waits), and any unknown / absent /
+            # spoofed type: push NOTHING. A genuine park that raises an
+            # unrecognized type is caught by the D-3 reconcile backstop and the
+            # heartbeat-age classifier (risk row 1) — never a false
+            # awaiting-human pushed here on an unvalidated reason.
+            :
+            ;;
+        esac
+        exit 0
+        ;;
       permission-request)
         # Decide BEFORE the marker: a PostToolUse racing this handler (a
         # parallel tool call in the same session) that saw the marker before
@@ -456,25 +588,40 @@ case "$cmd" in
         exit 0
         ;;
       post-tool-use)
-        # Only the documented inference acts: the next tool use AFTER a
-        # pending permission means the human allowed it — awaiting-human ->
-        # working. Every other tool use is a fast no-op (push fires on the
-        # REQ-A1.1 transitions, never per tool call). Known inference
-        # limitation (D-1 documents the transition as inference, not a
-        # direct signal): a parallel unrelated tool's PostToolUse can clear
-        # a still-pending permission's marker; the ground-truth reconcile
-        # (REQ-A1.8) re-derives the awaiting state next sweep.
-        [ -e "$marker" ] || exit 0
+        # Two documented inferences act; every other tool use is a fast no-op
+        # (push fires on the REQ-A1.1 transitions, never per tool call), so exit
+        # immediately when neither decision marker exists — the common case.
+        #   1. A pending PERMISSION: the next tool use means the human allowed it
+        #      — awaiting-human -> working (fleet-autonomy D-1).
+        #   2. A FORK-PARK (fleet-hardening Task 2, D-2): the next tool use after
+        #      an answered AskUserQuestion fork is the worker resuming — the exit
+        #      edge, awaiting-human -> working.
+        # Known inference limitation (D-1): a parallel unrelated tool's
+        # PostToolUse can clear a still-pending marker; the ground-truth
+        # reconcile (REQ-A1.8) re-derives the awaiting state next sweep.
+        if [ ! -e "$marker" ] && [ ! -e "$await_marker" ]; then
+          exit 0
+        fi
+        # Each resolving branch drops BOTH markers, not just the one it fired on:
+        # a permission decide overwriting a fork-park row (or vice versa) leaves
+        # the other marker co-resident, and a leaked marker must never outlive
+        # the row it identified (the liveness-artifacts-cleanup discipline).
         if marker_live_permission "$root" "$handle"; then
-          rm -f "$marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
+          "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
+            || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
+        elif marker_live_awaiting "$root" "$handle"; then
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" working >/dev/null 2>&1 \
             || echo "fleet-liveness: state push (working) failed; reconcile self-heals (D-1)" >&2
         else
-          # A leaked/stale marker: the row was re-decided since (a flailing or
-          # crash-disable escalation now occupies it) or the permission already
-          # resolved. Drop the orphan marker but NEVER clobber the current row —
-          # auto-resolving a queued human decision is the REQ-A1.3 violation.
-          rm -f "$marker" 2>/dev/null || true
+          # A leaked/stale marker (either kind): the row was re-decided since (a
+          # flailing or crash-disable escalation now occupies it) or the
+          # permission / fork already resolved. Drop the orphan marker(s) but
+          # NEVER clobber the current row — auto-resolving a queued human
+          # decision is the REQ-A1.3 violation.
+          [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
+          [ -e "$await_marker" ] && rm -f "$await_marker" 2>/dev/null
         fi
         exit 0
         ;;
@@ -496,12 +643,26 @@ case "$cmd" in
         # safe on this path too, not just post-tool-use: the token mismatch
         # routes it through --unless-awaiting, preserving the escalation. Drop
         # any stale marker we find so it can't mislead a later push.
+        # Each resolving branch drops BOTH markers (co-resident cleanup, as in
+        # post-tool-use): the marker that fired plus any leaked sibling.
         if marker_live_permission "$root" "$handle"; then
-          rm -f "$marker" 2>/dev/null || true
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
+          "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
+            || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
+        elif marker_live_awaiting "$root" "$handle"; then
+          # A FORK-PARK ending terminally (fleet-hardening Task 2, D-2 / NS-4):
+          # the worker crashed / the session ended / the turn stopped while
+          # parked. The terminal transition takes PRECEDENCE over the fork-park
+          # push (the row was never answered, so the parked worker is gone) —
+          # clear it to the downgrade state unconditionally, exactly as a live
+          # permission marker does. A flailing / pending-permission decision
+          # (no fork-park marker) still falls through to --unless-awaiting below.
+          rm -f "$marker" "$await_marker" 2>/dev/null || true
           "$FA" heartbeat "$handle" "$scope" "$target" >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         else
           [ -e "$marker" ] && rm -f "$marker" 2>/dev/null
+          [ -e "$await_marker" ] && rm -f "$await_marker" 2>/dev/null
           "$FA" heartbeat "$handle" "$scope" "$target" --unless-awaiting >/dev/null 2>&1 \
             || echo "fleet-liveness: state push ($target) failed; reconcile self-heals (D-1)" >&2
         fi
