@@ -397,16 +397,19 @@ c7() {
   # so the "no model/API call anywhere in the decision path" claim covers what
   # actually runs. Patterns are command/endpoint-anchored: a `claude` CLI call is
   # lowercase followed by whitespace (so the `CLAUDE_PLUGIN_ROOT` path env var and
-  # `.claude/` paths never trip it); the API/network surfaces are matched
-  # case-insensitively.
+  # `.claude/` paths never trip it); the endpoint surfaces (anthropic, the
+  # messages path, any URL) are matched case-insensitively as substrings; and the
+  # `curl`/`wget` command words are matched with `-w` so one at column zero, one
+  # indented, or one at end of line is caught alike (a plain `[^a-z]…[^a-z]`
+  # bracket would miss a curl with no character on one side).
   for src in "$here/../scripts/dispatch-fetch.sh" \
     "$here/../scripts/spec-anchor.sh" "$here/../scripts/config-get.sh"; do
     [ -f "$src" ] || fail "c7: expected decision-path script missing: $src"
     # Strip comments so a word appearing only in prose never trips the guard.
     code=$(grep -vE '^[[:space:]]*#' "$src" || true)
     if printf '%s\n' "$code" | grep -nE '(^|[^A-Za-z_./])claude[[:space:]]' >/dev/null \
-      || printf '%s\n' "$code" \
-      | grep -niE 'anthropic|/v1/messages|[^a-z](curl|wget)[^a-z]|https?://' >/dev/null; then
+      || printf '%s\n' "$code" | grep -niE 'anthropic|/v1/messages|https?://' >/dev/null \
+      || printf '%s\n' "$code" | grep -niwE '(curl|wget)' >/dev/null; then
       fail "c7: $src references a model/API/network surface in the decision path (REQ-E1.3)"
     fi
   done
