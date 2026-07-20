@@ -331,6 +331,56 @@ Lens-pass: §9 (panel-review delta, gemini backend; five findings, all applied)
 Anchor: `fb32fc83acb0e87d3e61ab4c66bfc37303e1b460` — computed as
 `scripts/spec-anchor.sh specs/fleet-hardening`
 
+### 2026-07-20 — Amendment (`/spec-kickoff`, meaning-class): D-7 / Task 10 dispatch-primitive mechanism
+
+Human-declared amendment on the Active bundle: the tmux dispatch primitive's worktree-creation
+mechanism. The prior D-7 mechanism (pure-native `claude --worktree <suffix> --tmux=classic` as a
+single fold "satisfying D-37") was found **unrealizable** — confirmed three ways (the `claude
+--worktree` contract, the running CLI 2.1.215, and the recurring tmux-dispatch-branch-rename
+operational evidence): `claude --worktree <name>` always names the branch `worktree-<name>`, never the
+slashed D-36 `planwright/<spec>/task-<id>`, and of {deterministic D-36 name, no rename,
+no-shell-`git worktree`} only two hold at once. The task-10 executor had already halted on this exact
+contract-drift; the human chose the **narrow D-37 exception** direction.
+
+**Applied (D-7, Task 10, test-spec REQ-B1.4; REQ-B1.4 itself unchanged — the new mechanism still
+satisfies it):** create-then-attach — `git worktree add -b planwright/<spec>/task-<id>
+.claude/worktrees/<suffix> <base>` creates the exact D-36 branch (a narrow, documented
+never-shell-`git worktree` exception scoped to this one dispatch primitive), then
+`claude --worktree <suffix> --tmux=classic` discovers/attaches (grounded in `docs/conventions.md`'s
+"any worktree placed there is attachable … regardless of which backend created it"). Task 10's
+unrealizable no-shell + no-rename framing dropped.
+
+**D-37 boundary (human: document in D-7 + observe).** D-37 lives in the sibling `bootstrap` bundle
+(`design.md:595`), and `docs/conventions.md:103-105` carries the same never-shell rule; both are
+already aspirational (kickoff's own spec-worktree creation shells out too). The scoped exception is
+documented in D-7; reconciling the repo-wide invariant is delegated to core via an observation
+(`d37-slashed-branch-shell-exception`, tying to the 2026-06-16 opportunity `opportunities.md:68`).
+
+**Lens pass (delta-scoped, parallel fan-out — four read-only sub-agents over the delta).** Findings
+dispositioned with the human. *Mechanism soundness (apply all):* `<base>` pinned to fetched
+`origin/main`; interpolated `<spec>`/`<id>`/`<suffix>` validated (or argv) against
+injection/traversal; collision detection via `git worktree add -b`'s atomic non-zero exit (no TOCTOU)
+with the create exit-code gating the attach; tower-guard (D-8) reconciliation (the `git worktree add`
+runs inside the literal-path dispatch primitive; the deny floor names the dangerous forms); test-spec
+collision coverage + the client-switch [test]/[manual] contradiction resolved. *Broader robustness
+(fully specify):* live-vs-stale orphan reconcile — a dead branch/worktree, empty leftover dir, or
+partial create is GC-adopted / rolled back rather than wedging the task permanently already-in-flight;
+`<suffix>` determinism. *My own guard bug (fixed):* the guard's "no other path shells out" was
+self-contradictory (kickoff shells out too) — rescoped to this bundle's dispatch code, at the task's
+altitude. Task 10 effort 1 → 2–3 days. *Out of scope:* the pre-existing 8-vs-9 mechanism count →
+observation `fleet-hardening-mechanism-count-8-vs-9`; the 2026-07-19 obs:4e24463c Sources note left as
+a dated audit record.
+
+Lens-coverage: correctness 4 · security 2 · error-handling 3 · performance n/a · concurrency 2 ·
+naming 1 · documentation 2 · tests 4 · cross-file 1. Altitude check (REQ-H1.3): the delta is
+mechanism-level; no altitude trigger fired; not applicable.
+
+Class: meaning
+Lens-pass: §9 (delta-scoped fan-out, four sub-agents; mechanism-soundness + broader-robustness
+applied, one guard bug fixed, one pre-existing item deferred to an observation)
+Anchor: `6c1f836ddbdec1db3bd8ebbe121139fc5e71a0fa` — computed as
+`scripts/spec-anchor.sh specs/fleet-hardening`
+
 ## 10. Execution research log
 
 <!-- Research-rigor recordings appended during execution (findings, tradeoffs,

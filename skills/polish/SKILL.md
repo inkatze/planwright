@@ -24,24 +24,27 @@ creation (`/execute-task` per REQ-E1.5, or a standalone `/self-review`).
 
 ## Doctrine
 
-Resolve and read the same rule docs as `/self-review` at run start via the
+Resolve and read the same rule docs as `/self-review` via the
 rule-doc resolution convention (`scripts/resolve-rule-doc.sh <doc-name>` or
 the documented `PLANWRIGHT_ROOT`/`CLAUDE_PLUGIN_ROOT` chain):
 `discovery-rigor`, `validation-rigor`, `finding-categorization`,
 `gate-wiring`, `research-rigor`, `refactor-instinct`, `security-posture`,
-`proportionality`.
+`proportionality`. All load at run start except `research-rigor`, read
+point-of-use inside the nested `/self-review` pass's finding-validation
+(the iteration loop below).
 Their definitions govern wherever this skill names a concept. If a rule doc
 does not resolve, halt with a clear message naming the missing doc and the
 chain consulted.
 
 Doctrine manifest (the reading model above in machine-parseable form, per
-`doctrine/instruction-hygiene.md`; `run-start` loads before work begins):
+`doctrine/instruction-hygiene.md`; `run-start` docs load before work begins,
+`point-of-use` at the named step):
 
 Doctrine: run-start discovery-rigor
 Doctrine: run-start validation-rigor
 Doctrine: run-start finding-categorization
 Doctrine: run-start gate-wiring
-Doctrine: run-start research-rigor
+Doctrine: point-of-use research-rigor (the nested /self-review pass's finding-validation)
 Doctrine: run-start refactor-instinct
 Doctrine: run-start security-posture
 Doctrine: run-start proportionality
@@ -88,7 +91,8 @@ Each iteration:
 
 1. **Run a `/self-review` pass, nested.** Invoke `/self-review --nested`
    in-session. The pass does its own discovery, validation, routing, and
-   dispositions per the gate wiring, and returns the audit record. Pass the
+   dispositions per the gate wiring, and returns the audit record; its
+   finding-validation is where `research-rigor` loads point-of-use. Pass the
    loop ledger in: findings already dispositioned in a previous iteration are
    not re-routed (a declined finding stays declined; a queued fork stays
    queued), with one deliberate exception: a re-discovered finding whose
