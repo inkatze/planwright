@@ -623,6 +623,13 @@ c16() {
   run_prim dispatch demo "5 6" --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 2 ] || fail "c16: bundle id '5 6' accepted (exit $RC, expected 2)"
 
+  # A flag-shaped value is refused in BOTH the space-separated and the attached
+  # (`--model=-x`) forms (symmetric validation).
+  run_prim dispatch demo 22 --repo-root "$tmp/primary" --attach-dry-run -- --model -opus
+  [ "$RC" -eq 2 ] || fail "c16: '--model -opus' (flag-shaped value) not refused (exit $RC)"
+  run_prim dispatch demo 23 --repo-root "$tmp/primary" --attach-dry-run -- --model=-opus
+  [ "$RC" -eq 2 ] || fail "c16: '--model=-opus' (attached flag-shaped value) not refused (exit $RC)"
+
   # A benign --model VALUE is accepted and flows into the launch.
   run_prim dispatch demo 21 --repo-root "$tmp/primary" --attach-dry-run -- --model opus
   [ "$RC" -eq 0 ] || {

@@ -287,6 +287,11 @@ validate_launch_extra() {
         esac
         shift 2
         ;;
+      --model=-* | --fallback-model=-*)
+        # Symmetry with the space-separated form: an attached flag-shaped value.
+        warn "launch flag has a flag-shaped value: $1"
+        exit 2
+        ;;
       --model=* | --fallback-model=*) shift ;;
       --continue | -c) shift ;;
       --resume | -r)
@@ -359,16 +364,24 @@ do_attach() {
     _prior=$(tmux display-message -p '#{client_session}' 2>/dev/null || true)
   fi
 
+  # Restore via a trap so the client is returned to its prior session on ANY
+  # exit path — a normal launch return AND a SIGINT/SIGTERM that kills the
+  # launch — never stranding a watching tower on the worker session (D-7). The
+  # trap is idempotent (guarded on a non-empty prior + tmux present).
+  _restore_client() {
+    if [ -n "$_prior" ] && command -v tmux >/dev/null 2>&1; then
+      tmux switch-client -t "$_prior" 2>/dev/null || true
+    fi
+  }
+  trap '_restore_client' EXIT INT TERM
+
   # Run the pinned launch. It creates the classic tmux worker session and folds
-  # the launch; the session persists after the client is restored below.
+  # the launch; the session persists after the client is restored.
   "$@"
   _rc=$?
 
-  # Restore the tower's client to its prior session (capture-and-restore), so a
-  # tower watching another session is not left on the worker session (D-7).
-  if [ -n "$_prior" ] && command -v tmux >/dev/null 2>&1; then
-    tmux switch-client -t "$_prior" 2>/dev/null || true
-  fi
+  _restore_client
+  trap - EXIT INT TERM
   return "$_rc"
 }
 
