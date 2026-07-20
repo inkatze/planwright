@@ -306,6 +306,34 @@ upsert_row() {
       return 0
     fi
   fi
+  if [ "$ur_guard" = unless-decide ] && [ -f "$store" ]; then
+    # The fork-write guard (fleet-hardening Task 4): a `fork` must never clobber a
+    # QUEUED HUMAN DECISION — a `decide`-family row (awaiting-input with an EMPTY
+    # field 9: a pending permission or a flailing escalation). It CAN replace a
+    # park (field 9 = `notification:*`, the coarse fork-park signal a structured
+    # fork legitimately upgrades) and a prior fork (field 9 = `fork`, a re-fork),
+    # both of which carry a NON-EMPTY field 9. Same multi-row-safe, fail-closed
+    # read as the unless-awaiting guard; unlike park's downgrade no-op this REFUSES
+    # (a fork over a queued decision is anomalous — the two states are mutually
+    # exclusive by construction — so surface it rather than silently drop the
+    # fork), keeping the harness permission gate the human's even if the store is
+    # reached out of band. Returns 3 (a refusal, distinct from a 2 write/lock
+    # error) so the caller can name it.
+    ur_dec_rc=0
+    ur_decide=$(awk -F "$TAB" -v w="$ur_worker" \
+      '($1 "") == (w "") && $3 == "awaiting-input" && ($9 "") == "" { f = 1 } END { print (f ? "y" : "") }' "$store") \
+      || ur_dec_rc=$?
+    if [ "$ur_dec_rc" != 0 ]; then
+      release_lock
+      echo "fleet-attention: could not read the store to evaluate --unless-decide; refusing to risk clobbering a queued decision" >&2
+      return 2
+    fi
+    if [ -n "$ur_decide" ]; then
+      release_lock
+      echo "fleet-attention: refusing to overwrite a queued human decision (a pending permission / flailing escalation) with a fork" >&2
+      return 3
+    fi
+  fi
   # Stamp the heartbeat UNDER the lock, so the recorded time is COMMIT time, not
   # invocation time — byte-for-byte the discipline fleet-state.sh register uses
   # (scripts/fleet-state.sh, "stamp the record's time UNDER the lock"). Without
@@ -576,16 +604,25 @@ case $cmd in
     # escapes in a `-v` value (a label `x\ty` would become `x<TAB>y`), which would
     # both misjudge membership and, on the claim write below, tear the record.
     # ENVIRON is not escape-processed, so the values compare and store verbatim.
+    # Comparisons are STRING-forced (`(x "") == (y "")`): awk compares two
+    # numeric-looking operands NUMERICALLY (strnum), and both the split labels and
+    # the ENVIRON recommendation carry that attribute, so a bare `==` would treat
+    # labels `1` and `01` (or `1.0`, `1e0`) as equal — accepting an off-set
+    # recommendation and, at claim time, resolving the wrong option. `seen`
+    # (a real string-keyed array) counts DISTINCT non-empty labels and rejects an
+    # exact-duplicate label, so `a|a` is not miscounted as a two-option decision.
     opt_check=$(FA_OPTS="$options" FA_REC="$recommend" awk '
       BEGIN {
         n = split(ENVIRON["FA_OPTS"], a, "|")
         rec = ENVIRON["FA_REC"]
-        cnt = 0; recfound = 0; empty = 0
+        cnt = 0; recfound = 0; empty = 0; dup = 0
         for (i = 1; i <= n; i++) {
-          if (a[i] == "") { empty = 1 } else { cnt++ }
-          if (a[i] == rec) recfound = 1
+          if (a[i] == "") { empty = 1; continue }
+          if (a[i] in seen) { dup = 1 } else { seen[a[i]] = 1; cnt++ }
+          if ((a[i] "") == (rec "")) recfound = 1
         }
         if (empty) { print "empty"; exit }
+        if (dup) { print "dup"; exit }
         if (cnt < 2) { print "toofew"; exit }
         if (!recfound) { print "norec"; exit }
         print "ok"
@@ -596,8 +633,12 @@ case $cmd in
         echo "fleet-attention: refusing a fork option set with an empty label ('|'-delimited, each label non-empty)" >&2
         exit 2
         ;;
+      dup)
+        echo "fleet-attention: refusing a fork option set with a duplicate label (each label must be distinct so an answer resolves unambiguously)" >&2
+        exit 2
+        ;;
       toofew)
-        echo "fleet-attention: refusing a fork with fewer than two labels (a single-option fork is not a decision)" >&2
+        echo "fleet-attention: refusing a fork with fewer than two distinct labels (a single-option fork is not a decision)" >&2
         exit 2
         ;;
       norec)
@@ -615,9 +656,14 @@ case $cmd in
     # awaiting-input with the fork marker (field 9) and the instance id (field
     # 10); the recommendation rides the `default` slot (field 7) and the labeled
     # option set the `options` slot (field 8). upsert_row stamps the commit-time
-    # timestamp under the lock.
-    upsert_row "$worker" "$scope" "awaiting-input" "$priority" "$question" "$recommend" "$options" "" "fork" "$instance" \
-      || exit 2
+    # timestamp under the lock. The `unless-decide` guard makes the write refuse
+    # (return 3) rather than clobber a queued human decision (a pending permission
+    # / flailing escalation); it still replaces a park (upgrade) or a prior fork
+    # (re-fork).
+    fork_rc=0
+    upsert_row "$worker" "$scope" "awaiting-input" "$priority" "$question" "$recommend" "$options" unless-decide "fork" "$instance" \
+      || fork_rc=$?
+    [ "$fork_rc" = 0 ] || exit "$fork_rc"
     exit 0
     ;;
 
@@ -680,7 +726,10 @@ case $cmd in
         if (f10 != (iid "")) { print "REFUSE\tstale\t"; exit }
         if (cl != "") { print "REFUSE\tclaimed\t"; exit }
         n = split(opts, a, "|"); matched = ""
-        for (i = 1; i <= n; i++) if (a[i] == lbl) matched = a[i]
+        # String-force (see fork opt_check): a bare `a[i] == lbl` compares numeric
+        # -looking labels numerically, so `01` would match option `1` (a label
+        # outside the set answered as if inside it, or the wrong option resolved).
+        for (i = 1; i <= n; i++) if ((a[i] "") == (lbl "")) matched = a[i]
         if (matched == "") { print "REFUSE\tbad-label\t"; exit }
         print "OK\t\t" matched
       }' "$store") || {
@@ -892,11 +941,14 @@ case $cmd in
       s_scope=$(sanitize_printable "$scope" "?")
       s_worker=$(sanitize_printable "$worker" "?")
       printf -- '- [%s] %s  (%s, waiting %ss)\n' "$s_prio" "$s_scope" "$s_worker" "$age"
-      if [ "$reason" = fork ]; then
+      if [ "$reason" = fork ] && [ -n "$iid" ]; then
         # An answerable fork (Task 4, D-4): a structured decision the tower/human
-        # answers BY LABEL. Surface the question, the recommendation (the
-        # `default` slot), the full labeled option set, and the instance id the
-        # answer must match; once answered, the claimed label (first-answer-wins).
+        # answers BY LABEL. The `[ -n "$iid" ]` guard disambiguates from a park
+        # whose free-text reason happens to be the literal `fork` (field 10 empty),
+        # so only a genuine fork record (a non-empty instance id) renders here.
+        # Surface the question, the recommendation (the `default` slot), the full
+        # labeled option set, and the instance id the answer must match; once
+        # answered, the claimed label (first-answer-wins).
         s_q=$(sanitize_printable "$q" "?")
         s_def=$(sanitize_printable "$def" "?")
         s_opts=$(sanitize_printable "$opts" "?")

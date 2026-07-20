@@ -137,7 +137,21 @@ aenv "$h2" fork w1 spec-a "Q?" "Nope" "Apply|Skip" "fork-x" >/dev/null 2>&1 || r
 rc=0
 aenv "$h2" fork w1 spec-a "Q?" "Apply" "Apply" "fork-y" >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "fork accepted a single-option (non-)fork (exit $rc, expected 2)"
-ok "fork rejects an off-set recommendation and a single-option set (REQ-A1.4)"
+# A duplicate label makes the "two distinct labels" set degenerate (an answer
+# would be ambiguous), and must be rejected — not counted as two options.
+rc=0
+aenv "$h2" fork w1 spec-a "Q?" "a" "a|a" "fork-d" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "fork accepted a duplicate-label option set as a two-option decision (exit $rc, expected 2)"
+rc=0
+aenv "$h2" fork w1 spec-a "Q?" "a" "a|b|a" "fork-d2" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "fork accepted a set with a repeated label (exit $rc, expected 2)"
+# Numeric-string aliasing: a recommendation `1` must NOT be treated as present in
+# a `01|2` set (awk numeric aliasing would equate `1` and `01`), so this is an
+# off-set recommendation and must be refused.
+rc=0
+aenv "$h2" fork w1 spec-a "Q?" "1" "01|2" "fork-n" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "fork accepted a numeric-aliased off-set recommendation (1 vs 01) (exit $rc, expected 2)"
+ok "fork rejects off-set recommendation, single-option, duplicate labels, and numeric aliasing (REQ-A1.4)"
 
 # ---------------------------------------------------------------------------
 # 3. Answer by LABEL selects the correct option even when the option order is
@@ -171,7 +185,18 @@ rc=0
 aenv "$h4" claim w1 "iid-1" "Frobnicate" >/dev/null 2>&1 || rc=$?
 [ "$rc" != 0 ] || fail "claim accepted a label outside the option set"
 [ -z "$(row_field "$h4" w1 11)" ] || fail "claim recorded a label despite refusing an invalid one"
-ok "claim refuses a label outside the option set (REQ-A1.4)"
+# Numeric-string aliasing: answering `01` against a `1|2` set must be refused —
+# `01` is not a member, and awk must not numerically alias it onto option `1`.
+h4b="$tmp/h4b"
+aenv "$h4b" fork w1 spec-a "Q?" "1" "1|2" "iid-n" || fail "numeric fork exited non-zero"
+rc=0
+aenv "$h4b" claim w1 "iid-n" "01" >/dev/null 2>&1 || rc=$?
+[ "$rc" != 0 ] || fail "claim numerically aliased label 01 onto option 1 (accepted a non-member)"
+[ -z "$(row_field "$h4b" w1 11)" ] || fail "claim closed a fork with a numeric-aliased non-member label"
+# The exact member still resolves.
+sel=$(aenv "$h4b" claim w1 "iid-n" "1") || fail "claim of the exact numeric label 1 exited non-zero"
+[ "$sel" = "1" ] || fail "claim of label 1 resolved to '$sel'"
+ok "claim refuses an out-of-set label, including numeric-aliased ones (01 vs 1) (REQ-A1.4)"
 
 # ---------------------------------------------------------------------------
 # 5. The instance id the answer must match: a STALE answer for a resolved fork
@@ -229,21 +254,36 @@ aenv "$h6" claim w1 "iid-1" "Skip" >/dev/null 2>&1 || rc=$?
 ok "double-answer: first-answer-wins; the second answer is a no-op (REQ-A1.4)"
 
 # ---------------------------------------------------------------------------
-# 7. The channel mechanically refuses to emit an answer for a record whose
-#    reason is a permission-park, keeping that gate the human's (REQ-A1.5).
-#    A permission-park record is NOT an answerable fork (field 9 != 'fork').
+# 7. The channel mechanically refuses to emit an answer for a permission-park,
+#    keeping that gate the human's (REQ-A1.5). TWO shapes are covered:
+#    (a) the PRODUCTION shape — a permission record is a `decide` row with an
+#        EMPTY field 9 (the permission state lives in a separate liveness marker,
+#        per fleet-liveness.sh), refused by the generic not-a-fork branch;
+#    (b) DEFENSE-IN-DEPTH — a record whose field 9 explicitly marks `permission:`
+#        (a shape no shipped writer emits today) is refused by the permission
+#        branch with its own diagnostic. Neither is an answerable fork.
 # ---------------------------------------------------------------------------
+# (a) production shape: a decide-written permission record — empty field 9, no
+#     instance id — must be refused (never answered as a fork).
 h7="$tmp/h7"
-mkdir -p "$h7/attention"
-# Hand-write a record whose reason (field 9) marks a permission-park, carrying an
-# instance id so ONLY the permission-reason gate can refuse it (not a missing id).
-printf 'w1\tspec-a\tawaiting-input\t1700000000\tnormal\tPermission?\tanswer in session\tapprove|deny\tpermission:tool-x\tiid-perm\n' \
-  >"$h7/attention/state"
+aenv "$h7" decide w1 spec-a "Worker is awaiting a permission decision in its session" \
+  "answer in the worker session" "approve in the worker session|deny in the worker session" normal \
+  || fail "permission-record setup (decide) exited non-zero"
 rc=0
-aenv "$h7" claim w1 "iid-perm" "approve" >/dev/null 2>&1 || rc=$?
-[ "$rc" != 0 ] || fail "claim answered a permission-park record (the human's gate was bypassed)"
-[ -z "$(row_field "$h7" w1 11)" ] || fail "claim closed a permission-park record"
-ok "claim refuses a permission-park record — the harness permission gate stays the human's (REQ-A1.5)"
+aenv "$h7" claim w1 "iid-perm" "approve in the worker session" >/dev/null 2>&1 || rc=$?
+[ "$rc" != 0 ] || fail "claim answered a production-shape permission record (empty field 9)"
+[ -z "$(row_field "$h7" w1 11)" ] || fail "claim closed a production-shape permission record"
+# (b) defense-in-depth: an explicit permission-reason record (field 9), with an
+#     instance id so the permission branch — not a missing id — is what refuses.
+h7b="$tmp/h7b"
+mkdir -p "$h7b/attention"
+printf 'w1\tspec-a\tawaiting-input\t1700000000\tnormal\tPermission?\tanswer in session\tapprove|deny\tpermission:tool-x\tiid-perm\n' \
+  >"$h7b/attention/state"
+rc=0
+aenv "$h7b" claim w1 "iid-perm" "approve" >/dev/null 2>&1 || rc=$?
+[ "$rc" != 0 ] || fail "claim answered an explicit permission-reason record (the human's gate was bypassed)"
+[ -z "$(row_field "$h7b" w1 11)" ] || fail "claim closed an explicit permission-reason record"
+ok "claim refuses a permission-park — production (empty field 9) and explicit (permission: reason) shapes (REQ-A1.5)"
 
 # ---------------------------------------------------------------------------
 # 8. ANSWER + DELIVERY (REQ-A1.5): fleet-decision.sh answer claims by label and
@@ -255,11 +295,16 @@ h8="$tmp/h8"
 aenv "$h8" fork w1 spec-a "Approve?" "Apply" "Apply|Skip" "iid-1" || fail "fork exited non-zero"
 out=$(denv "$h8" answer tmux "dev:1.0" w1 "iid-1" "Apply") || fail "answer exited non-zero"
 # The emitted delivery is a buffer-paste relay (load-buffer + paste-buffer) at
-# the target handle — the same attributed path orchestrate-relay.sh emits.
+# the target handle — the same attributed path orchestrate-relay.sh emits. Assert
+# the buffer-paste verbs and the target handle SEPARATELY (not orchestrate-relay's
+# exact flag layout), so a benign relay-format change does not break this channel
+# test while the channel behavior is unchanged.
 printf '%s\n' "$out" | grep -q "load-buffer" \
   || fail "answer did not emit a buffer-paste (load-buffer) delivery: [$out]"
-printf '%s\n' "$out" | grep -q "paste-buffer -b .* -t 'dev:1.0'" \
-  || fail "answer did not emit a paste-buffer to the target handle: [$out]"
+printf '%s\n' "$out" | grep -q "paste-buffer" \
+  || fail "answer did not emit a paste-buffer delivery: [$out]"
+printf '%s\n' "$out" | grep -q "dev:1.0" \
+  || fail "answer did not target the requested handle: [$out]"
 # NEVER a send-keys menu-navigation path.
 printf '%s\n' "$out" | grep -q "send-keys" \
   && fail "answer emitted a send-keys path (impersonation / menu navigation)"
@@ -287,6 +332,36 @@ denv "$h9" answer tmux "dev:1.0" w1 "iid-perm" "approve" >/dev/null 2>&1 || rc=$
 [ "$rc" != 0 ] || fail "answer delivered a permission-park record (the human's gate was bypassed)"
 [ ! -f "$h9/attention/answers/w1" ] || fail "answer wrote a delivery artifact for a permission-park record"
 ok "answer refuses a permission-park record end-to-end (REQ-A1.5)"
+
+# ---------------------------------------------------------------------------
+# 9b. fork must NOT clobber a queued human decision (a pending permission /
+#     flailing `decide` row — awaiting-input with an empty field 9), keeping that
+#     gate the human's; but it MUST replace a park (upgrade) and a prior fork
+#     (re-fork), both of which carry a non-empty field 9.
+# ---------------------------------------------------------------------------
+# (a) refuse over a queued decide/permission row (empty field 9).
+h9b="$tmp/h9b"
+aenv "$h9b" decide w1 spec-a "Approve the risky migration?" "hold" "Apply|Skip" high \
+  || fail "decide setup exited non-zero"
+rc=0
+aenv "$h9b" fork w1 spec-a "Different fork?" "X" "X|Y" "iid-clobber" >/dev/null 2>&1 || rc=$?
+[ "$rc" != 0 ] || fail "fork clobbered a queued human decision (permission/flailing)"
+[ "$(row_field "$h9b" w1 6)" = "Approve the risky migration?" ] \
+  || fail "fork overwrote the queued decide question: '$(row_field "$h9b" w1 6)'"
+[ -z "$(row_field "$h9b" w1 10)" ] || fail "fork wrote an instance id over a queued decide"
+# (b) upgrade a park (field 9 = notification:*) to an answerable fork.
+h9c="$tmp/h9c"
+aenv "$h9c" park w1 spec-a "notification:idle_prompt" || fail "park setup exited non-zero"
+aenv "$h9c" fork w1 spec-a "Now a structured fork?" "X" "X|Y" "iid-up" \
+  || fail "fork failed to upgrade a park"
+[ "$(row_field "$h9c" w1 9)" = "fork" ] || fail "fork did not upgrade the park to a fork marker"
+[ "$(row_field "$h9c" w1 10)" = "iid-up" ] || fail "fork did not stamp the instance id over the park"
+# (c) re-fork replaces a prior fork (field 9 = fork).
+h9d="$tmp/h9d"
+aenv "$h9d" fork w1 spec-a "First" "X" "X|Y" "iid-1" || fail "first fork exited non-zero"
+aenv "$h9d" fork w1 spec-a "Second" "Y" "X|Y" "iid-2" || fail "re-fork exited non-zero"
+[ "$(row_field "$h9d" w1 10)" = "iid-2" ] || fail "re-fork did not replace the prior fork instance id"
+ok "fork refuses to clobber a queued decision, upgrades a park, and allows a re-fork (REQ-A1.5)"
 
 # ---------------------------------------------------------------------------
 # 10. Additive-field regression (REQ-E1.2): the shipped writers are unchanged.
@@ -331,11 +406,16 @@ printf '%s' "$q_fork" | grep -q "^- \[fork\]" \
 ok "queue renders a decide row unchanged and surfaces a fork as an answerable decision (REQ-E1.2)"
 
 # ---------------------------------------------------------------------------
-# 12. Source audit (REQ-E1.3, REQ-A1.5): the EXECUTABLE code of BOTH channel
-#     scripts contains no model/network call, no capture-pane, and no send-keys
-#     path. Comment lines are stripped first so the doc blocks (which name the
-#     prohibitions) are not themselves read as violations — the audit targets
-#     code, not documentation, exactly as test-orchestrate-relay.sh does.
+# 12. Source audit (REQ-E1.3, REQ-A1.5): the EXECUTABLE code of the channel's
+#     OWN scripts (fleet-attention.sh, fleet-decision.sh) contains no
+#     model/network call, no capture-pane, and no send-keys path. Comment lines
+#     are stripped first so the doc blocks (which name the prohibitions) are not
+#     themselves read as violations — the audit targets code, not documentation,
+#     exactly as test-orchestrate-relay.sh does. The delegated DELIVERY path
+#     (orchestrate-relay.sh) is asserted send-keys-free behaviorally in Test 8
+#     (the emitted command) and by orchestrate-relay's own source-audit suite, so
+#     it is not re-grepped wholesale here (its observe path legitimately uses
+#     capture-pane, which is not part of this channel's delivery).
 # ---------------------------------------------------------------------------
 for f in "$FA" "$FD"; do
   code="$tmp/$(basename "$f").code"

@@ -21,9 +21,18 @@
 #       attributed buffer-paste delivery command for <handle> (orchestrate-relay
 #       .sh relay-command). Prints the delivery command(s) on stdout for the
 #       tower to run. The handle is validated BEFORE the claim, so a bad target
-#       never closes a fork it cannot deliver to. Exit 0 on delivery; 2 on usage
-#       / a malformed handle; 3 when the claim is refused (no delivery, no close
-#       beyond what claim already enforces).
+#       never closes a fork it cannot deliver to. Exit codes:
+#         0 — the answer was claimed and the delivery command emitted.
+#         2 — usage, a malformed handle, or a malformed/unresolvable claim input
+#             (propagated from `claim`); nothing was consumed.
+#         3 — the claim was REFUSED (stale / bad label / already-claimed /
+#             permission-park); nothing was consumed, the fork is untouched.
+#         4 — the claim SUCCEEDED (the answer is consumed and the fork closed
+#             first-answer-wins) but the downward delivery could not be completed
+#             (fs error, or the relay command could not be emitted). The chosen
+#             answer is PERSISTED at <fleet-home>/attention/answers/<worker>, so
+#             the tower recovers by re-emitting the delivery from that artifact —
+#             it must NOT re-claim (the record is already closed).
 #
 # What this script NEVER does, by construction (REQ-A1.5, REQ-E1.3): it never
 # emits a `send-keys` path (delivery is delegated wholesale to orchestrate-relay
@@ -33,8 +42,10 @@
 # label match in pure awk, no eval.
 #
 # Portable POSIX sh (bash 3.2 / BSD compatible): no eval, no bashisms, all input
-# is data (REQ-K1.5).
-set -u
+# is data (REQ-K1.5). Pathname expansion is disabled (set -f): valid_text admits
+# glob metacharacters in a label, so this closes any future unquoted-expansion
+# surface as a defense-in-depth (matching fleet-attention.sh's `set -uf`).
+set -uf
 
 LC_ALL=C
 export LC_ALL
@@ -90,22 +101,27 @@ case $cmd in
       exit 2
     fi
     # Atomic claim by label under the store lock (first-answer-wins). Its stderr
-    # already diagnoses the refusal class (stale / invalid label / already
-    # -claimed / permission-park); surface it and map any non-zero to exit 3 (no
-    # delivery). matched is the canonical option label the record carries.
-    matched=$("$FA" claim "$worker" "$instance" "$label") || {
-      exit 3
-    }
+    # already diagnoses the refusal class; PROPAGATE its exit code faithfully — 2
+    # for a malformed input / lock error (nothing consumed), 3 for a semantic
+    # refusal (nothing consumed) — rather than flattening both to 3. matched is
+    # the canonical option label the record carries. Everything BELOW this point
+    # runs after the fork is already closed, so its failures are exit 4 (consumed
+    # -but-undelivered), never a claim-refusal 3.
+    matched=$("$FA" claim "$worker" "$instance" "$label")
+    claim_rc=$?
+    if [ "$claim_rc" -ne 0 ]; then
+      exit "$claim_rc"
+    fi
     # The claim succeeded, so worker is a validated handle (no path separator,
     # control byte, or whitespace) safe to use as a per-worker artifact basename.
     root=$("$FS" root) || {
-      echo "$me: could not resolve the fleet home to persist the answer artifact" >&2
-      exit 3
+      echo "$me: could not resolve the fleet home to persist the answer artifact (fork already closed; recover from the persisted answer)" >&2
+      exit 4
     }
     answers_dir="$root/attention/answers"
     if ! mkdir -p "$answers_dir" 2>/dev/null; then
-      echo "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)")" >&2
-      exit 3
+      echo "$me: cannot create the answers dir $(sanitize_printable "$answers_dir" "(dir)") (fork already closed)" >&2
+      exit 4
     fi
     answer_file="$answers_dir/$worker"
     # The structured-marker answer artifact: a fixed marker naming the instance
@@ -114,26 +130,28 @@ case $cmd in
     # attributed by orchestrate-relay's header. Temp + rename so a reader never
     # sees a half-written artifact (the atomic-write discipline).
     tmp_ans=$(mktemp "$answers_dir/.answer.XXXXXX") || {
-      echo "$me: could not stage the answer artifact" >&2
-      exit 3
+      echo "$me: could not stage the answer artifact (fork already closed)" >&2
+      exit 4
     }
     if ! printf 'planwright-decision-answer instance=%s option=%s\n' "$instance" "$matched" >"$tmp_ans"; then
       rm -f "$tmp_ans" 2>/dev/null
-      echo "$me: could not write the answer artifact" >&2
-      exit 3
+      echo "$me: could not write the answer artifact (fork already closed)" >&2
+      exit 4
     fi
     if ! mv -f "$tmp_ans" "$answer_file"; then
       rm -f "$tmp_ans" 2>/dev/null
-      echo "$me: could not commit the answer artifact" >&2
-      exit 3
+      echo "$me: could not commit the answer artifact (fork already closed)" >&2
+      exit 4
     fi
     # Emit the attributed buffer-paste delivery for the tower to run. NEVER
     # send-keys — orchestrate-relay guarantees the buffer-paste / structured
     # -marker path by construction. Its stdout is the command(s) to deliver the
-    # answer artifact to the parked worker.
+    # answer artifact to the parked worker. On failure the answer is already
+    # persisted at $answer_file, so the tower re-emits the delivery from it (exit
+    # 4, consumed-but-undelivered) — it must NOT re-claim the closed fork.
     if ! "$RELAY" relay-command "$backend" "$handle" "$answer_file"; then
-      echo "$me: the answer was claimed and staged at $(sanitize_printable "$answer_file" "(file)") but the delivery command could not be emitted" >&2
-      exit 3
+      echo "$me: the answer was claimed and persisted at $(sanitize_printable "$answer_file" "(file)") but the delivery command could not be emitted; re-emit from that artifact (do not re-claim)" >&2
+      exit 4
     fi
     exit 0
     ;;
