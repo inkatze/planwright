@@ -234,7 +234,7 @@ for pair in "session-end:ended" "stop-failure:hung"; do
   fire_note "$ht" w1 spec-a '{"notification_type":"idle_prompt"}' >/dev/null 2>&1 || fail "park failed ($ev)"
   [ "$(state_of "$ht" w1)" = "awaiting-input" ] || fail "precondition ($ev): not parked"
   fire "$ht" w1 spec-a "$ev" >/dev/null 2>&1 || fail "$ev hook failed"
-  [ "$(state_of "$ht" w1)" = "$want" ] || fail "terminal edge $ev: got '$(state_of "$ht" w1)', expected $want (precedence over the park)"
+  [ "$(state_of "$ht" w1)" = "$want" ] || fail "genuine-termination edge $ev: got '$(state_of "$ht" w1)', expected $want (precedence over the park)"
 done
 ok "genuine-termination edges (session-end/stop-failure) clear a fork-park with precedence over the push"
 
