@@ -99,15 +99,14 @@ session, present it and wait instead.
    absent-anchor, by design): halt and prompt `/spec-kickoff`.
 7. **Run the execution freshness gate** (REQ-F1.9, REQ-F1.10, D-45; the
    `spec-format` anchor rules; fleet-hardening D-9). It stops execution against
-   spec content changed since the brief was signed, and against a **stale local
-   `main`**:
+   content changed since sign-off, and against a **stale local `main`**:
    - **Fetch-before-gate** (D-9, REQ-D1.1). Run `scripts/dispatch-fetch.sh
      --spec specs/<spec> <primary-checkout>`: it fetches `origin` (bounded, **no
      local-`main` advance**) and prints the fetched **`origin/main`** anchor
-     (re-pointing `spec-anchor.sh` at that ref). Exit
+     (re-pointing `spec-anchor.sh`). Exit
      **0** → gate vs `origin/main`; **3** (`no-remote`, offline) → gate vs local
-     `main`; **4** (`stale-transient`) → do not silently proceed: park to
-     Awaiting input.
+     `main`; **4** (`stale-transient`) or any other nonzero → do not silently
+     proceed: park to Awaiting input.
    - **Validate the entry** (brief's most recent, from the resolved ref): it
      parses, uses a **sanctioned command form** (`scripts/spec-anchor.sh
      <spec-dir>` or the interim whole-file form), a **sanctioned writer** (a

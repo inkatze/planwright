@@ -10,10 +10,11 @@
 # whose merge trailer has not reached local `main`. This script fetches `origin`
 # and reports the currency + (with --spec) the content anchor over the fetched
 # `origin/main`, WITHOUT advancing local `main` (the shared-checkout read-only-
-# local-`main` invariant, orchestration-concurrency). It advances no ref other
-# than the remote-tracking refs `git fetch origin` updates, and it makes no
-# model/API call — the whole decision path is deterministic git plumbing
-# (REQ-E1.3).
+# local-`main` invariant, orchestration-concurrency). The fetch pins an explicit
+# `+refs/heads/*:refs/remotes/origin/*` refspec, so it updates only
+# remote-tracking refs and never fast-forwards local `main`, independent of the
+# repo's configured `remote.origin.fetch`. It makes no model/API call — the whole
+# decision path is deterministic git plumbing (REQ-E1.3).
 #
 # Scope boundary (D-9): this is git-ref currency for the dispatch/merge path
 # only. It RE-POINTS the existing content-anchor computer (scripts/spec-anchor.sh)
@@ -23,11 +24,13 @@
 # scripts/orchestrate-state.sh — this primitive only makes `origin/main` current
 # so that engine's existing union scan reads a fresh ref.
 #
-# Usage: dispatch-fetch.sh [--spec <repo-rel-spec-dir>] <repo-root>
+# Usage: dispatch-fetch.sh [--spec <repo-rel-spec-dir>] [--best-effort] <repo-root>
 #   <repo-root>            the primary checkout to fetch in (fetch runs there;
 #                          local `main` is never advanced).
 #   --spec <specs/<name>>  also compute and print the content anchor over the
 #                          resolved ref's version of that spec bundle.
+#   --best-effort          single fetch attempt (no retries) for the reconcile
+#                          sweep, so a down remote does not stall each idle cycle.
 #
 # Output — a tagged TSV stream on stdout (consumers switch on column 1):
 #   fetch<TAB><fetched|fresh-within-ttl|no-remote|stale-transient>
@@ -68,12 +71,13 @@ unset CDPATH
 TAB=$(printf '\t')
 
 usage() {
-  echo "usage: dispatch-fetch.sh [--spec <specs/<name>>] <repo-root>" >&2
+  echo "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
   exit 2
 }
 
 spec_rel=""
 repo_root=""
+best_effort=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --spec)
@@ -83,6 +87,13 @@ while [ $# -gt 0 ]; do
       ;;
     --spec=*)
       spec_rel="${1#--spec=}"
+      shift
+      ;;
+    --best-effort)
+      # Single-attempt mode for the reconcile sweep: a down remote must not stall
+      # every idle `--watch` cycle on the retry budget (the sweep tolerates
+      # staleness; the dispatch gate does not, so it omits this flag).
+      best_effort=1
       shift
       ;;
     --)
@@ -165,8 +176,14 @@ if [ -z "$ttl_sec" ]; then
   ttl_sec=$((ttl_min * 60))
 fi
 
-# Retry bounds.
-retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-2}
+# Retry bounds. Best-effort mode (the reconcile sweep) defaults to a single
+# attempt so a down remote never stalls an idle cycle; an explicit env override
+# still wins in either mode.
+if [ "$best_effort" -eq 1 ]; then
+  retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-0}
+else
+  retries=${PLANWRIGHT_DISPATCH_FETCH_RETRIES:-2}
+fi
 case "$retries" in *[!0-9]* | '') retries=2 ;; esac
 retry_sleep=${PLANWRIGHT_DISPATCH_FETCH_RETRY_SLEEP:-2}
 case "$retry_sleep" in *[!0-9]* | '') retry_sleep=2 ;; esac
@@ -208,6 +225,9 @@ anchor_at_ref() {
 # Prints nothing (no record) if none of the refs can be anchored.
 emit_anchor() {
   [ -n "$spec_rel" ] || return 0
+  # Distinguish an unusable anchor computer from "files absent at the ref": both
+  # yield no anchor line, but only the former is a tooling fault worth a note.
+  [ -x "$anchor_script" ] || echo "dispatch-fetch: anchor computer $anchor_script missing/not executable; no anchor emitted" >&2
   for _r in "$@"; do
     if _hash=$(anchor_at_ref "$_r"); then
       printf 'anchor%s%s%s%s\n' "$TAB" "$_hash" "$TAB" "$_r"
@@ -256,7 +276,15 @@ max_attempts=$((retries + 1))
 fetched=0
 while [ "$attempt" -lt "$max_attempts" ]; do
   attempt=$((attempt + 1))
-  if git -C "$repo_root" fetch origin --quiet >/dev/null 2>&1; then
+  # Isolate the fetch from the repo's configured `remote.origin.fetch`:
+  # `--refmap=''` disables config-driven opportunistic ref updates, and the
+  # explicit `+refs/heads/*:refs/remotes/origin/*` pins the update to
+  # remote-tracking refs. Together they guarantee a non-default refspec (e.g. one
+  # mapping into `refs/heads/*`) can never fast-forward local `main` — the
+  # read-only-local-`main` invariant holds by construction, not by config
+  # convention or git's checked-out-branch guard.
+  if git -C "$repo_root" fetch origin --refmap='' \
+    '+refs/heads/*:refs/remotes/origin/*' --quiet >/dev/null 2>&1; then
     fetched=1
     break
   fi
@@ -274,9 +302,15 @@ if [ "$fetched" -ne 1 ]; then
 fi
 
 # Success: record the TTL stamp (best-effort; a write failure is non-fatal — it
-# only forfeits the coalescing, never correctness).
+# only forfeits the coalescing, never correctness). Write to a temp file and
+# rename over the target: atomic against a concurrent reader (no torn read), and
+# it replaces a pre-planted symlink rather than following it (symmetric with the
+# symlink-refusing read above).
 if mkdir -p "$state_dir" 2>/dev/null; then
-  printf '%s\n' "$now" >"$stamp_file" 2>/dev/null || true
+  stamp_tmp="$stamp_file.tmp.$$"
+  if printf '%s\n' "$now" >"$stamp_tmp" 2>/dev/null; then
+    mv -f "$stamp_tmp" "$stamp_file" 2>/dev/null || rm -f "$stamp_tmp" 2>/dev/null || true
+  fi
 fi
 
 printf 'fetch%sfetched\n' "$TAB"

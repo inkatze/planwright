@@ -194,6 +194,7 @@ c2() {
   gitc "$tmp/repo" commit -q -m "spec v1"
   gitc "$tmp/repo" branch -M main
   anchor_local=$("$ANCHOR" "$tmp/repo/specs/demo")
+  main_before=$(gitc "$tmp/repo" rev-parse main)
 
   set +e
   out=$(PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state" \
@@ -208,6 +209,8 @@ c2() {
     || fail "c2: no-remote anchor '$got_anchor' != local-main anchor '$anchor_local'"
   [ "$(anchor_ref "$out")" = main ] \
     || fail "c2: expected degraded anchor ref main, got '$(anchor_ref "$out")'"
+  [ "$(gitc "$tmp/repo" rev-parse main)" = "$main_before" ] \
+    || fail "c2: local main moved on the no-remote path"
   echo "ok c2: no-remote degrades gracefully to local main (exit 3)"
 }
 
@@ -227,6 +230,7 @@ c3() {
   # A configured-but-unreachable origin: `git remote` is non-empty (present
   # remote → transient class, NOT no-remote), but the fetch cannot connect.
   gitc "$tmp/repo" remote add origin "$tmp/does-not-exist.git"
+  main_before=$(gitc "$tmp/repo" rev-parse main)
 
   # A counting `git` shim on PATH: every real git call passes through, but a
   # `git ... fetch ...` invocation increments a counter so we can prove retry.
@@ -258,6 +262,9 @@ c3() {
   n=$(cat "$tmp/fetch-count" 2>/dev/null || echo 0)
   [ "$n" -ge 3 ] \
     || fail "c3: expected >=3 fetch attempts (1 + 2 retries), got $n — no retry"
+  # The invariant must survive the path where a fetch actually RUNS and fails.
+  [ "$(gitc "$tmp/repo" rev-parse main)" = "$main_before" ] \
+    || fail "c3: local main moved on the transient-failure path"
   echo "ok c3: transient failure retries then blocks (exit 4, no anchor), $n attempts"
 }
 
@@ -385,15 +392,25 @@ c6() {
 # assertion idiom sibling REQ-E1.3 mechanisms use).
 # ---------------------------------------------------------------------------
 c7() {
-  src="$here/../scripts/dispatch-fetch.sh"
-  # Strip comments so a word appearing only in prose never trips the guard.
-  code=$(grep -vE '^[[:space:]]*#' "$src" || true)
-  if printf '%s\n' "$code" \
-    | grep -niE 'anthropic|claude[ _-]|ANTHROPIC_API_KEY|api\.anthropic|--bare|/v1/messages|curl|wget|http[s]?://' \
-      >/dev/null; then
-    fail "c7: dispatch-fetch.sh decision path references a model/API/network fetch surface (REQ-E1.3)"
-  fi
-  echo "ok c7: no model/API call in the decision path (REQ-E1.3)"
+  # The whole decision path = dispatch-fetch.sh (the mechanism this bundle
+  # introduces) AND the two helpers it invokes (spec-anchor.sh, config-get.sh),
+  # so the "no model/API call anywhere in the decision path" claim covers what
+  # actually runs. Patterns are command/endpoint-anchored: a `claude` CLI call is
+  # lowercase followed by whitespace (so the `CLAUDE_PLUGIN_ROOT` path env var and
+  # `.claude/` paths never trip it); the API/network surfaces are matched
+  # case-insensitively.
+  for src in "$here/../scripts/dispatch-fetch.sh" \
+    "$here/../scripts/spec-anchor.sh" "$here/../scripts/config-get.sh"; do
+    [ -f "$src" ] || fail "c7: expected decision-path script missing: $src"
+    # Strip comments so a word appearing only in prose never trips the guard.
+    code=$(grep -vE '^[[:space:]]*#' "$src" || true)
+    if printf '%s\n' "$code" | grep -nE '(^|[^A-Za-z_./])claude[[:space:]]' >/dev/null \
+      || printf '%s\n' "$code" \
+      | grep -niE 'anthropic|/v1/messages|[^a-z](curl|wget)[^a-z]|https?://' >/dev/null; then
+      fail "c7: $src references a model/API/network surface in the decision path (REQ-E1.3)"
+    fi
+  done
+  echo "ok c7: no model/API call anywhere in the decision path (REQ-E1.3)"
 }
 
 # ---------------------------------------------------------------------------
@@ -419,6 +436,87 @@ c8() {
   echo "ok c8: fails closed on missing/invalid input (exit 2)"
 }
 
+# ---------------------------------------------------------------------------
+# Case 9 — the read-only-local-main invariant survives a HOSTILE
+# `remote.origin.fetch` (F1.1). A checkout whose configured refspec maps into
+# `refs/heads/*` would fast-forward local main on a bare `git fetch origin`; the
+# script pins an explicit `+refs/heads/*:refs/remotes/origin/*` refspec, so local
+# main must stay put while origin/main advances, independent of repo config.
+# ---------------------------------------------------------------------------
+c9() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c9.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q --bare "$tmp/origin.git"
+  git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
+  write_spec "$tmp/primary" demo v1
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "spec v1"
+  gitc "$tmp/primary" branch -M main
+  gitc "$tmp/primary" push -q origin main
+  # The hostile config: fetch maps remote heads straight onto LOCAL heads.
+  gitc "$tmp/primary" config remote.origin.fetch '+refs/heads/*:refs/heads/*'
+
+  git clone -q "$tmp/origin.git" "$tmp/dev2" 2>/dev/null
+  gitc "$tmp/dev2" commit -q --allow-empty -m "advance origin"
+  gitc "$tmp/dev2" push -q origin main
+  advanced=$(gitc "$tmp/dev2" rev-parse main)
+
+  main_before=$(gitc "$tmp/primary" rev-parse main)
+  [ "$main_before" != "$advanced" ] || fail "c9: fixture broken — primary main already advanced"
+
+  PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state" \
+    "$FETCH" "$tmp/primary" >/dev/null || fail "c9: fetch failed"
+
+  [ "$(gitc "$tmp/primary" rev-parse main)" = "$main_before" ] \
+    || fail "c9: local main advanced under a hostile refspec — invariant depends on config"
+  [ "$(gitc "$tmp/primary" rev-parse origin/main)" = "$advanced" ] \
+    || fail "c9: origin/main not updated — the pinned refspec did not fetch"
+  echo "ok c9: read-only-local-main holds under a hostile remote.origin.fetch"
+}
+
+# ---------------------------------------------------------------------------
+# Case 10 — --best-effort makes a single attempt (F4.1): a down remote must not
+# cost the retry budget every reconcile-sweep cycle. Same unreachable-origin
+# fixture as c3, but --best-effort defaults retries to 0 → exactly one attempt.
+# ---------------------------------------------------------------------------
+c10() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c10.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q "$tmp/repo"
+  write_spec "$tmp/repo" demo v1
+  gitc "$tmp/repo" add -A
+  gitc "$tmp/repo" commit -q -m "spec v1"
+  gitc "$tmp/repo" branch -M main
+  gitc "$tmp/repo" remote add origin "$tmp/does-not-exist.git"
+
+  shim="$tmp/bin"
+  mkdir -p "$shim"
+  realgit=$(command -v git)
+  {
+    echo '#!/bin/sh'
+    echo "cnt=\"$tmp/fetch-count\""
+    # shellcheck disable=SC2016 # $cnt/$@ are literal shim-script source, expanded at shim runtime, not here
+    echo 'for a in "$@"; do if [ "$a" = fetch ]; then n=$(cat "$cnt" 2>/dev/null || echo 0); echo $((n+1)) >"$cnt"; break; fi; done'
+    echo "exec \"$realgit\" \"\$@\""
+  } >"$shim/git"
+  chmod +x "$shim/git"
+
+  set +e
+  out=$(PATH="$shim:$PATH" \
+    PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$tmp/state" \
+    PLANWRIGHT_DISPATCH_FETCH_RETRY_SLEEP=0 \
+    "$FETCH" --best-effort "$tmp/repo")
+  rc=$?
+  set -e
+  [ "$rc" -eq 4 ] || fail "c10: expected exit 4 (stale-transient), got $rc"
+  [ "$(tag_val "$out" fetch)" = stale-transient ] \
+    || fail "c10: expected fetch=stale-transient, got '$(tag_val "$out" fetch)'"
+  n=$(cat "$tmp/fetch-count" 2>/dev/null || echo 0)
+  [ "$n" -eq 1 ] \
+    || fail "c10: --best-effort should make exactly 1 attempt, got $n"
+  echo "ok c10: --best-effort is a single attempt (no retry budget)"
+}
+
 c1
 c2
 c3
@@ -427,5 +525,7 @@ c5
 c6
 c7
 c8
+c9
+c10
 
 echo "PASS: test-dispatch-fetch.sh"

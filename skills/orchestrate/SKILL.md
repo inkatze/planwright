@@ -196,10 +196,11 @@ ordered steps:
      --spec specs/<spec> <primary-checkout>`: it fetches `origin` (bounded by
      `dispatch_fetch_ttl`, coalesced with the reconcile-sweep fetch so a gate
      inside the TTL hits no network, **no local-`main` advance**) and prints the
-     fetched **`origin/main`** anchor (re-pointing `spec-anchor.sh` at that ref).
+     fetched **`origin/main`** anchor (re-pointing `spec-anchor.sh`).
      Exit **0** → gate vs `origin/main`; **3** (`no-remote`, offline) → gate vs
-     local `main`; **4** (`stale-transient`) → park to Awaiting input, don't
-     proceed. The same fresh `origin/main` backs merge detection in selection
+     local `main`; **4** (`stale-transient`) or any other nonzero → park to
+     Awaiting input, don't proceed. The same fresh `origin/main` backs merge
+     detection in selection
      (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a task merged on `origin`
      but not yet on local `main` isn't re-dispatched.
    - **Validate the entry** (brief's most recent, from the resolved ref;
@@ -365,12 +366,13 @@ this step). Its version-keyed arms read the declared `Format-version:`;
 unparseable fails closed, never the v1 write (D-7). The sweep:
 
 1. **Refresh the remote view (best-effort).** `scripts/dispatch-fetch.sh
-   <primary-checkout>` — the same bounded fetch the gate uses (D-9), so the sweep
-   and the per-dispatch gate coalesce onto one TTL-stamped fetch instead of
-   fetching every `--watch` cycle. Remote-tracking refs only; it does **not**
-   advance local `main`. Exit **3** (`no-remote`) is offline first-class; **4**
-   (`stale-transient`) means the remote was unreachable — the sweep continues on
-   last-known refs (a reconcile tolerates staleness), whereas the gate blocks.
+   --best-effort <primary-checkout>` — the same bounded fetch the gate uses (D-9),
+   so the sweep and the per-dispatch gate coalesce onto one TTL-stamped fetch
+   instead of fetching every `--watch` cycle. `--best-effort` is one attempt (no
+   retries), since a reconcile tolerates staleness. Remote-tracking refs only;
+   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4` unreachable,
+   `2` internal) → continue on last-known refs (the gate, in contrast, blocks
+   on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's
    in-progress set — no committed placement exists), **reconcile PR state
