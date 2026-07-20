@@ -201,6 +201,24 @@ repo_root=$repo_top
 
 g() { git -C "$repo_root" "$@"; }
 
+# The chore --branch must be a PLAIN branch name, not a remote-qualified or
+# full-ref form: `valid_ref` accepts `origin/main` and `refs/heads/foo`, but the
+# carry uses the value both as `gh pr list --head "$branch"` and as the push
+# target `refs/heads/$branch`, so a remote-qualified value would push to
+# `refs/heads/origin/main` and discover the wrong PR. Reject a leading `refs/`
+# and any value whose first segment is an actual configured remote (`origin/…`).
+case "$branch" in
+  refs/*)
+    printf '%s\n' "observation-carry: --branch must be a plain branch name, not a 'refs/...' form ('$(sanitize_printable "$branch")')" >&2
+    exit 2
+    ;;
+esac
+_branch_first="${branch%%/*}"
+if [ "$_branch_first" != "$branch" ] && g remote get-url "$_branch_first" >/dev/null 2>&1; then
+  printf '%s\n' "observation-carry: --branch must be a plain branch name, not remote-qualified ('$(sanitize_printable "$branch")' starts with remote '$_branch_first')" >&2
+  exit 2
+fi
+
 # List the entries-dir fragment PATHS (repo-relative) at a ref; empty if the ref
 # or the dir is absent. Sorted for deterministic set math.
 entries_at() {

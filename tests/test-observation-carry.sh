@@ -190,9 +190,12 @@ run_carry() {
   ghbin="$1"
   ghstate="$2"
   shift 2
+  # Invoke the script through its own `#!/bin/sh` shebang (not a forced
+  # /bin/bash), so the tests exercise the production interpreter — dash on Linux
+  # CI — and surface any accidental bashism. Matches the sibling suites.
   PATH="$ghbin:$PATH" GH_STATE="$ghstate" \
     PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR="$ghstate/carry-lock" \
-    /bin/bash "$CARRY" "$@"
+    "$CARRY" "$@"
 }
 
 # origin/<ref> tree listing of the entries dir (basenames), sorted.
@@ -485,7 +488,7 @@ c11() {
   set +e
   out=$(PATH="$gh:$PATH" GH_STATE="$tmp/ghstate" \
     PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR="$tmp/afile/state" \
-    /bin/bash "$CARRY" "$repo" 2>"$tmp/err")
+    "$CARRY" "$repo" 2>"$tmp/err")
   rc=$?
   set -e
   [ "$rc" = 3 ] || fail "c11: real lock error must degrade (exit 3), got $rc — out: $out; err: $(cat "$tmp/err")"
@@ -551,6 +554,36 @@ c13() {
   echo "ok c13: pr-create failure degrades non-silently and names the fragments"
 }
 
+# ---------------------------------------------------------------------------
+# Case 14 — --branch must be a plain branch name: a remote-qualified value
+# (origin/main) or a full-ref form (refs/heads/foo) is rejected (exit 2), so the
+# carry never pushes to refs/heads/origin/main or discovers the wrong PR.
+# ---------------------------------------------------------------------------
+c14() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c14.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  seed_repo "$repo" # gives origin remote
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower mmmmdddd
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+
+  set +e
+  run_carry "$gh" "$tmp/ghstate" --branch "origin/main" "$repo" >/dev/null 2>&1
+  rc_remote=$?
+  run_carry "$gh" "$tmp/ghstate" --branch "refs/heads/foo" "$repo" >/dev/null 2>&1
+  rc_refs=$?
+  # A plain namespaced branch whose first segment is NOT a remote is still fine.
+  run_carry "$gh" "$tmp/ghstate" --branch "planwright/chore/observations" "$repo" >/dev/null 2>"$tmp/err"
+  rc_ok=$?
+  set -e
+  [ "$rc_remote" = 2 ] || fail "c14: remote-qualified --branch origin/main should exit 2, got $rc_remote"
+  [ "$rc_refs" = 2 ] || fail "c14: refs/... --branch should exit 2, got $rc_refs"
+  [ "$rc_ok" = 0 ] || fail "c14: a plain namespaced --branch should be accepted, got $rc_ok — $(cat "$tmp/err")"
+  echo "ok c14: --branch rejects remote-qualified / full-ref forms"
+}
+
 c1
 c2
 c3
@@ -564,4 +597,5 @@ c10
 c11
 c12
 c13
+c14
 echo "ALL PASS: observation-carry"
