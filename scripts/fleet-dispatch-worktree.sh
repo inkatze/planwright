@@ -94,15 +94,28 @@
 #
 # Portable POSIX sh (bash 3.2 / BSD compatible): no eval, no bashisms, input
 # treated as data only.
-set -u
+# set -uf: pathname expansion disabled (the dispatch-path house convention —
+# dispatch-fetch.sh / orchestrate-marker.sh / fleet-worktree-track.sh), so a
+# stray glob metacharacter is never expanded even though every expansion below
+# is already quoted and grammar-validated.
+set -uf
 
 LC_ALL=C
 export LC_ALL
 unset CDPATH
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
-# shellcheck source=scripts/echo-safety.sh
-. "$script_dir/echo-safety.sh"
+# Guarded source with an inline fallback, matching dispatch-fetch.sh: a missing
+# echo-safety.sh must not turn every sanitize_printable on an error path into a
+# "command not found" (set -e is unset, so the source would not otherwise abort).
+if [ -r "$script_dir/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$script_dir/echo-safety.sh"
+else
+  sanitize_printable() {
+    printf '%s' "$1" | tr -d '\000-\037\177'
+  }
+fi
 
 FETCH="$script_dir/dispatch-fetch.sh"
 ENVWRAP="$script_dir/fleet-dispatch-env.sh"
@@ -114,6 +127,11 @@ TRACK="$script_dir/fleet-worktree-track.sh"
 # never cleared its marker) is treated as stale and reconciled, so a crash never
 # wedges a task. Overridable for tests.
 LIVENESS_TTL="${PLANWRIGHT_DISPATCH_LIVENESS_TTL:-900}"
+# A non-numeric override must not make the age comparison error and degrade
+# toward the unsafe (treat-live-as-stale) direction — fall back to the default.
+case $LIVENESS_TTL in
+  '' | *[!0-9]*) LIVENESS_TTL=900 ;;
+esac
 
 warn() {
   # Untrusted values are sanitized before they reach stderr.
@@ -171,8 +189,20 @@ valid_suffix() {
 }
 
 # --- Liveness signals (dispatch marker + tmux session) -----------------------
-# A dispatch is LIVE iff a tmux session named for the suffix exists, OR the
+# A dispatch is LIVE iff a tmux session for the suffix exists, OR the
 # orchestrate-marker for the task id exists and is younger than LIVENESS_TTL.
+#
+# Every ambiguous read fails SAFE — toward LIVE — because the cost of a wrong
+# "stale" is the reconcile force-removing a genuinely running worker's checkout
+# (data loss), while the cost of a wrong "live" is only a spurious
+# already-in-flight abort the operator retries. This matches the unparseable-
+# marker arm and dispatch-fetch.sh's clock-failure discipline.
+#
+# The tmux probe accepts either the bare `<suffix>` or the `worktree-<suffix>`
+# session name: `claude --worktree <suffix> --tmux=classic` names the classic
+# session from the suffix, and the exact spelling is confirmed only by the
+# Done-when's [manual] arm, so both plausible names are treated as live.
+LIVENESS_SKIP_TMUX="${PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX:-0}"
 
 is_live() {
   # $1 spec-dir  $2 id  $3 suffix
@@ -180,8 +210,9 @@ is_live() {
   _id=$2
   _suffix=$3
 
-  if command -v tmux >/dev/null 2>&1; then
-    if tmux has-session -t "=$_suffix" 2>/dev/null; then
+  if [ "$LIVENESS_SKIP_TMUX" != 1 ] && command -v tmux >/dev/null 2>&1; then
+    if tmux has-session -t "=$_suffix" 2>/dev/null \
+      || tmux has-session -t "=worktree-$_suffix" 2>/dev/null; then
       return 0
     fi
   fi
@@ -193,9 +224,16 @@ is_live() {
     case $_written in
       '' | *[!0-9]*) return 0 ;; # unparseable marker: fail safe, treat as live
     esac
-    _now=$(date +%s 2>/dev/null || echo 0)
+    # A clock-read failure (empty $_now) fails SAFE to live, not stale — never
+    # let a broken `date` degrade a running worker into a reconcile target.
+    _now=$(date +%s 2>/dev/null || echo '')
+    case $_now in
+      '' | *[!0-9]*) return 0 ;;
+    esac
     _age=$((_now - _written))
-    if [ "$_age" -ge 0 ] && [ "$_age" -lt "$LIVENESS_TTL" ]; then
+    # age < 0 is a future-dated marker (writer clock ahead / NFS skew): treat as
+    # live (fresh), matching dispatch-fetch.sh, not as stale.
+    if [ "$_age" -lt 0 ] || [ "$_age" -lt "$LIVENESS_TTL" ]; then
       return 0
     fi
   fi
@@ -222,10 +260,60 @@ branch_has_work() {
   [ "${_n:-0}" -gt 0 ]
 }
 
+# Validate the caller-supplied EXTRA launch args against a known-safe flag
+# allowlist before they reach `claude`. The tower runs this primitive as a
+# resolved-literal-path script, so the tower command-guard approves the whole
+# invocation WHOLESALE (is_repo_script) and never applies its per-flag
+# `guard_claude` escalation pin to the launch this script constructs. The pin
+# must therefore live HERE: a permission/trust-weakening flag
+# (`--dangerously-skip-permissions`, `--permission-mode`, `--settings`,
+# `--mcp-config`, `--add-dir`, `--agents`, `--plugin-dir`, …) or any stray
+# argument is refused (exit 2), so `dispatch … -- <flag>` can never launch a
+# worker with its permission layer disabled — the fleet-wide escalation
+# REQ-C1.2 exists to stop.
+validate_launch_extra() {
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --model | --fallback-model)
+        [ "$#" -ge 2 ] || {
+          warn "launch flag $1 needs a value"
+          exit 2
+        }
+        case $2 in
+          -*)
+            warn "launch flag $1 has a flag-shaped value: $2"
+            exit 2
+            ;;
+        esac
+        shift 2
+        ;;
+      --model=* | --fallback-model=*) shift ;;
+      --continue | -c) shift ;;
+      --resume | -r)
+        shift
+        # An optional session-id value that is not itself a flag.
+        if [ "$#" -ge 1 ]; then
+          case $1 in
+            -*) ;;
+            *) shift ;;
+          esac
+        fi
+        ;;
+      --resume=* | -r=*) shift ;;
+      *)
+        warn "refusing unsanctioned launch arg (escalation-pin, REQ-C1.2): $1"
+        exit 2
+        ;;
+    esac
+  done
+}
+
 # --- attach: capture-and-restore the tmux client around the pinned launch ----
 
 do_attach() {
-  # $1 suffix, then optional --dry-run, then optional `--` + extra launch args.
+  # <suffix> [--dry-run] [-- <extra launch args>...]. Guard the positional so a
+  # bare `attach` fails with the clean usage/exit-2 path, not a set -u abort.
+  [ "$#" -ge 1 ] || usage
   _suffix=$1
   shift
   _dry=0
@@ -240,6 +328,8 @@ do_attach() {
     warn "invalid worktree suffix: $_suffix"
     exit 2
   }
+  # Refuse any unsanctioned extra launch flag before it reaches claude.
+  validate_launch_extra "$@"
 
   # The pinned launch argv: fleet-dispatch-env.sh applies the ghost-text pin
   # (CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false) structurally, then exec's the
@@ -251,10 +341,12 @@ do_attach() {
     # The attach PLAN — the designed client-switch mitigation, printed for the
     # fixture (no `claude` exec, no model/API call). Capture the prior client
     # session, run the pinned launch, restore the client to the prior session.
-    printf 'attach-plan\tsuffix\t%s\n' "$_suffix"
+    # Launch tokens are sanitized: a validated `--model` VALUE can still carry
+    # control bytes, and this plan prints to the operator's terminal.
+    printf 'attach-plan\tsuffix\t%s\n' "$(sanitize_printable "$_suffix")"
     printf 'attach-plan\tcapture\ttmux display-message -p #{client_session}\n'
     printf 'attach-plan\tlaunch'
-    for _a in "$@"; do printf '\t%s' "$_a"; done
+    for _a in "$@"; do printf '\t%s' "$(sanitize_printable "$_a")"; done
     printf '\n'
     printf 'attach-plan\trestore\ttmux switch-client -t <prior-session>\n'
     return 0
@@ -345,6 +437,12 @@ do_dispatch() {
   }
   _branch="planwright/$_spec/task-$_id"
 
+  # Validate the extra launch args (the escalation-pin allowlist) NOW — before
+  # any side effect — so a refused flag exits 2 without ever creating a worktree,
+  # marker, or registry entry. (do_attach re-validates as defense-in-depth for a
+  # direct `attach` invocation.)
+  validate_launch_extra "$@"
+
   # Resolve the repo root.
   if [ -z "$_repo_root" ]; then
     _repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
@@ -365,7 +463,8 @@ do_dispatch() {
   # dispatch-fetch.sh updates refs/remotes/origin/main without advancing local
   # main; we then read the fetched SHA. exit 0 fetched/fresh-within-ttl (use
   # origin/main); exit 3 no-remote (degrade to local main with a NOTE); exit 4
-  # stale-transient (must NOT proceed on a stale ref); other -> fail closed.
+  # stale-transient (must NOT proceed on a stale ref); exit 2 usage/internal
+  # (fail closed); other -> fail closed.
   # Redirect stdin from /dev/null: a dispatch primitive must never block on an
   # inherited open stdin (an interactive tty or a still-open pipe), which a
   # config/overlay read down the fetch path can otherwise wait on forever.
@@ -373,19 +472,27 @@ do_dispatch() {
   _frc=$?
   case $_frc in
     0)
-      _base=$(git -C "$_repo_root" rev-parse origin/main 2>/dev/null || true)
+      # `rev-parse --verify <ref>^{commit}` errors cleanly when the ref does not
+      # resolve, instead of the bare `rev-parse <ref>` that ECHOES the literal
+      # argument (`origin/main`) on failure — which would defeat the emptiness
+      # guard below and hand git a bogus non-SHA base.
+      _base=$(git -C "$_repo_root" rev-parse --verify --quiet "origin/main^{commit}" 2>/dev/null </dev/null || true)
       if [ -z "$_base" ]; then
-        warn "origin/main unresolved after fetch"
+        warn "origin/main unresolved after a successful fetch; cannot base the worktree"
         exit 4
       fi
       ;;
     3)
-      _base=$(git -C "$_repo_root" rev-parse main 2>/dev/null || true)
+      _base=$(git -C "$_repo_root" rev-parse --verify --quiet "main^{commit}" 2>/dev/null </dev/null || true)
       [ -n "$_base" ] || {
         warn "no remote and no local main to base on"
         exit 4
       }
       warn "NOTE: no remote reachable; basing on local main (degraded, D-9)"
+      ;;
+    2)
+      warn "dispatch-fetch reported a usage/internal error (exit 2); refusing to dispatch"
+      exit 5
       ;;
     *)
       warn "cannot resolve a fresh base (dispatch-fetch exit $_frc); refusing to base on a stale ref"
@@ -405,8 +512,11 @@ do_dispatch() {
 
   # --- Create: the SINGLE scoped `git worktree add -b` call (argv, no shell) --
   # Its atomic non-zero exit IS the collision detector (no TOCTOU pre-check).
+  # `</dev/null` on every git worktree call: `add` runs a checkout that may fire
+  # a repo `post-checkout` hook, which can read stdin and would otherwise block
+  # on an inherited tty/pipe (the same hazard the FETCH redirect guards).
   if git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
-    >/dev/null 2>&1; then
+    >/dev/null 2>&1 </dev/null; then
     _created=1
   else
     _created=0
@@ -421,37 +531,51 @@ do_dispatch() {
 
     # Stale orphan. Remove any leftover worktree checkout (disposable).
     if is_registered_worktree "$_repo_root" "$_worktree"; then
-      git -C "$_repo_root" worktree remove --force "$_worktree" >/dev/null 2>&1 || true
+      git -C "$_repo_root" worktree remove --force "$_worktree" >/dev/null 2>&1 </dev/null || true
     fi
     if [ -d "$_worktree" ] && [ -z "$(ls -A "$_worktree" 2>/dev/null)" ]; then
       rmdir "$_worktree" 2>/dev/null || true
     fi
-    git -C "$_repo_root" worktree prune >/dev/null 2>&1 || true
+    # A NON-EMPTY, unregistered leftover that is a dead git-worktree remnant (a
+    # crashed `add` that populated files + a `.git` gitlink but never registered)
+    # is cleaned so it cannot permanently wedge the path; a non-empty dir that is
+    # NOT a worktree remnant is foreign data and is refused, never destroyed.
+    if [ -d "$_worktree" ] \
+      && ! is_registered_worktree "$_repo_root" "$_worktree" \
+      && [ -n "$(ls -A "$_worktree" 2>/dev/null)" ]; then
+      if [ -e "$_worktree/.git" ]; then
+        rm -rf "$_worktree" 2>/dev/null || true
+      else
+        warn "refusing to reuse a non-empty non-worktree dir at $_worktree (clear it manually)"
+        exit 5
+      fi
+    fi
+    git -C "$_repo_root" worktree prune >/dev/null 2>&1 </dev/null || true
 
     if branch_exists "$_repo_root" "$_branch"; then
       if branch_has_work "$_repo_root" "$_branch" "$_base"; then
         # ADOPT the existing branch's work: place a fresh worktree on it (no
         # -b, no base re-apply, no data loss). Unwedges without discarding work.
         if ! git -C "$_repo_root" worktree add "$_worktree" "$_branch" \
-          >/dev/null 2>&1; then
+          >/dev/null 2>&1 </dev/null; then
           warn "failed to adopt stale branch $_branch onto a worktree"
           exit 5
         fi
       else
         # Bare partial create (branch made, no commits): roll it back and
         # recreate on the fresh base.
-        git -C "$_repo_root" branch -D "$_branch" >/dev/null 2>&1 || true
+        git -C "$_repo_root" branch -D "$_branch" >/dev/null 2>&1 </dev/null || true
         if ! git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
-          >/dev/null 2>&1; then
+          >/dev/null 2>&1 </dev/null; then
           warn "failed to recreate $_branch after rolling back a partial create"
           exit 5
         fi
       fi
     else
-      # No branch, but the create still failed (e.g. a leftover path we could
-      # not clean). Retry once now that hygiene has run.
+      # No branch, but the create still failed (e.g. a leftover path we just
+      # cleaned). Retry once now that hygiene has run.
       if ! git -C "$_repo_root" worktree add -b "$_branch" "$_worktree" "$_base" \
-        >/dev/null 2>&1; then
+        >/dev/null 2>&1 </dev/null; then
         warn "worktree create failed for $_branch (non-reconcilable)"
         exit 5
       fi
@@ -461,6 +585,17 @@ do_dispatch() {
   # Push the worktree into the registry and stamp the dispatch marker (the
   # liveness signals a later collision reconcile reads). Best-effort: a tracking
   # failure must not fail an otherwise-good dispatch.
+  #
+  # Concurrency scope (two known, bounded residuals): the marker is stamped AFTER
+  # the create, and it is an ownerless timestamp, so this primitive does not by
+  # itself serialize two concurrent dispatches of the SAME task — the real
+  # /orchestrate flow provides that serialization (it records the marker under
+  # the per-spec lock BEFORE dispatching, so a concurrent B sees A's marker and
+  # aborts). Giving the marker an owner token to close the direct-invocation race
+  # is a lock-discipline change deferred repo-wide across the planwright lock
+  # family (see scripts/fleet-state.sh's stale-break note), not resolved here. A
+  # failed attach leaves the marker stamped, so a retry reads already-in-flight
+  # until the marker ages past LIVENESS_TTL — bounded, never a PERMANENT wedge.
   [ -x "$TRACK" ] && "$TRACK" record-create "$_worktree" >/dev/null 2>&1 </dev/null || true
   if [ -x "$MARKER" ] && [ -d "$_spec_dir" ]; then
     "$MARKER" write "$_spec_dir" "$_id" >/dev/null 2>&1 </dev/null || true

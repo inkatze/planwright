@@ -87,11 +87,17 @@ gitc() {
 
 # Per-case state isolation: fresh fleet/marker/fetch state dirs so a case never
 # touches the real machine's fleet home (whose lock would otherwise contend).
+# Also disable the live-tmux liveness probe: the tmux session namespace is
+# global and NOT sandboxed by the state dirs, so a developer/CI box that happens
+# to hold a session named `task-10`/`task-7` would otherwise flip a stale-orphan
+# case (c6/c7/c8) into a spurious already-in-flight. Cases that need liveness=true
+# (c5/c9) force it deterministically via the fresh marker, not tmux.
 iso_env() {
   _t=$1
   export PLANWRIGHT_FLEET_STATE_DIR="$_t/fleet"
   export PLANWRIGHT_ORCH_STATE_DIR="$_t/markers"
   export PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$_t/fstate"
+  export PLANWRIGHT_DISPATCH_LIVENESS_SKIP_TMUX=1
 }
 
 # Seed a bare origin + a primary clone carrying a minimal spec bundle, with main
@@ -148,6 +154,13 @@ c1() {
   # The worktree is placed at .claude/worktrees/task-10 (branch's final segment).
   [ -d "$tmp/primary/.claude/worktrees/task-10" ] \
     || fail "c1: worktree dir .claude/worktrees/task-10 not created"
+  # The primitive contains NO `git branch -m` rename (the Done-when's zero-rename
+  # clause) — the D-36 name is a create-time output, never a post-launch rename.
+  # Strip comments first (the header comment names the rename it AVOIDS).
+  if grep -v '^[[:space:]]*#' "$SCRIPTS_DIR/fleet-dispatch-worktree.sh" \
+    | grep -Eq 'git( -C [^ ]+)? branch -m'; then
+    fail "c1: the primitive contains a 'git branch -m' rename (zero-rename violated)"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -331,10 +344,22 @@ c8() {
   iso_env "$tmp"
   seed_repo "$tmp"
 
-  base=$(gitc "$tmp/primary" rev-parse main)
-  # A bare partial: the branch exists (step 1 succeeded) but no worktree was
-  # placed (step 2 never ran), no commits beyond base, no live session.
-  gitc "$tmp/primary" branch planwright/demo/task-10 "$base"
+  # A bare partial branch made from a STALE base: origin/main is then advanced,
+  # so a real rollback+recreate must land the branch on the FRESH origin/main,
+  # not silently keep the stale partial.
+  stale=$(gitc "$tmp/primary" rev-parse main)
+  gitc "$tmp/primary" branch planwright/demo/task-10 "$stale"
+  git clone -q "$tmp/origin.git" "$tmp/dev2" 2>/dev/null
+  printf 'v2\n' >"$tmp/dev2/specs/demo/requirements.md"
+  gitc "$tmp/dev2" add -A
+  gitc "$tmp/dev2" commit -q -m "advance origin/main"
+  gitc "$tmp/dev2" branch -M main
+  gitc "$tmp/dev2" push -q origin main
+  fresh=$(gitc "$tmp/dev2" rev-parse main)
+  [ "$stale" != "$fresh" ] || {
+    fail "c8: fixture broken — stale==fresh"
+    return
+  }
 
   run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
   [ "$RC" -eq 0 ] || {
@@ -345,6 +370,9 @@ c8() {
     || fail "c8: branch missing after rollback+recreate"
   [ -d "$tmp/primary/.claude/worktrees/task-10" ] \
     || fail "c8: worktree not placed after rollback+recreate"
+  # The recreated (rolled-back) branch is based on the FRESH origin/main.
+  [ "$(gitc "$tmp/primary" rev-parse planwright/demo/task-10)" = "$fresh" ] \
+    || fail "c8: recreated branch not rebased onto the fresh origin/main"
 }
 
 # ---------------------------------------------------------------------------
@@ -453,10 +481,15 @@ PY
 # c12 — the dispatch primitive is the ONLY worktree-CREATION path in the bundle.
 # ---------------------------------------------------------------------------
 c12() {
-  # Any shipped script that shells out to `git worktree add` (creation) other
+  # Any shipped SHELL file that shells out to `git worktree add` (creation) other
   # than the primitive violates the narrow D-7 exception. `remove`/`list`/`prune`
-  # (non-creation) elsewhere are out of scope for the creation guard.
-  offenders=$(grep -rlE '^[^#]*git( -C [^ ]+)? worktree add' "$SCRIPTS_DIR"/*.sh 2>/dev/null \
+  # (non-creation) are out of scope. Scan every .sh under the bundle (scripts/ +
+  # hooks/), so a creation shell-out hiding in a hook script is caught too; JSON
+  # deny rules and Markdown prose (config/, skills/) don't shell out and are not
+  # scanned (a "git worktree add" substring there is a deny glob or an example).
+  bundle_root=$(cd "$here/.." && pwd)
+  offenders=$(find "$bundle_root/scripts" "$bundle_root/hooks" -name '*.sh' \
+    -exec grep -lE '^[^#]*git( -C [^ ]+)? worktree add' {} + 2>/dev/null \
     | grep -v '/fleet-dispatch-worktree.sh$' || true)
   [ -z "$offenders" ] \
     || fail "c12: extra git-worktree-add creation path(s) in the bundle: $offenders"
@@ -520,20 +553,87 @@ c14() {
   sandbox=$(mktemp -d "${TMPDIR:-/tmp}/dw.c14.XXXXXX")
   trap 'rm -rf "$sandbox"' RETURN
   plugin_root=$(cd "$here/.." && pwd)
+  guard() {
+    payload=$(jq -n --arg c "$1" --arg w "$sandbox" \
+      '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')
+    printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="$plugin_root" /bin/bash "$TOWER_HOOK" 2>/dev/null
+  }
+  guard_allows() {
+    printf '%s' "$1" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'
+  }
+  # Positive control: a known-safe read-only command IS allowed, proving the
+  # guard actually runs (so the negative assertions below are meaningful, not
+  # vacuously satisfied by a broken/silent guard).
+  guard_allows "$(guard 'git status')" \
+    || fail "c14: positive control failed — the tower guard did not allow 'git status' (guard not running?)"
+  # Negative: raw dangerous git worktree forms are NOT allowed (they DEFER, and
+  # the deny floor c11 blocks them).
   for cmd in \
     'git worktree add -b planwright/demo/task-10 .claude/worktrees/task-10 origin/main' \
     'git worktree add --force /tmp/x main' \
     'git worktree add --detach /tmp/y'; do
-    payload=$(jq -n --arg c "$cmd" --arg w "$sandbox" \
-      '{tool_name:"Bash", tool_input:{command:$c}, cwd:$w}')
-    out=$(printf '%s' "$payload" | CLAUDE_PLUGIN_ROOT="$plugin_root" /bin/bash "$TOWER_HOOK" 2>/dev/null)
-    if printf '%s' "$out" | grep -Eq '"permissionDecision"[[:space:]]*:[[:space:]]*"allow"'; then
+    if guard_allows "$(guard "$cmd")"; then
       fail "c14: tower guard ALLOWED a raw git worktree add: $cmd"
     fi
   done
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14; do
+# ---------------------------------------------------------------------------
+# c15 — a dotted-decimal id (3.5) is a valid D-36 token and yields task-3.5.
+# ---------------------------------------------------------------------------
+c15() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c15.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 3.5 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 0 ] || {
+    fail "c15: dotted-id dispatch exited $RC (expected 0)"
+    return
+  }
+  [ "$(dfield "$OUT" branch)" = "planwright/demo/task-3.5" ] \
+    || fail "c15: dotted-id branch '$(dfield "$OUT" branch)' != planwright/demo/task-3.5"
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-3.5 \
+    || fail "c15: refs/heads/planwright/demo/task-3.5 not created"
+  [ -d "$tmp/primary/.claude/worktrees/task-3.5" ] \
+    || fail "c15: worktree dir task-3.5 not created"
+}
+
+# ---------------------------------------------------------------------------
+# c16 — the extra launch-arg allowlist refuses escalation flags (SEC), a
+# bundle-id is rejected, and a benign --model flows through.
+# ---------------------------------------------------------------------------
+c16() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c16.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  # An escalation flag after `--` is REFUSED (exit 2) and never reaches claude —
+  # the tower approves this script wholesale, so the per-flag pin lives here.
+  for bad in --dangerously-skip-permissions "--permission-mode" "--settings" "--mcp-config" "--add-dir"; do
+    run_prim dispatch demo 20 --repo-root "$tmp/primary" --attach-dry-run -- "$bad" x
+    [ "$RC" -eq 2 ] || fail "c16: escalation flag '$bad' not refused (exit $RC, expected 2)"
+    printf '%s\n' "$OUT" | grep -q 'attach-plan' \
+      && fail "c16: an attach plan was printed for a refused escalation flag '$bad'"
+  done
+
+  # A bundle id ("5 6") is rejected by the id grammar (space) with exit 2.
+  run_prim dispatch demo "5 6" --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 2 ] || fail "c16: bundle id '5 6' accepted (exit $RC, expected 2)"
+
+  # A benign --model VALUE is accepted and flows into the launch.
+  run_prim dispatch demo 21 --repo-root "$tmp/primary" --attach-dry-run -- --model opus
+  [ "$RC" -eq 0 ] || {
+    fail "c16: benign --model launch refused (exit $RC)"
+    return
+  }
+  printf '%s\n' "$OUT" | grep 'attach-plan' | grep 'launch' | grep -q 'opus' \
+    || fail "c16: --model opus did not flow into the launch plan"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
