@@ -432,7 +432,7 @@ These hold at every step:
 - **Never** skip the test-first loop for a behavior-introducing unit with a
   `test-spec.md` verification path (REQ-E1.1).
 - **Never** retry a logic CI failure; transient retries cap at two; unknown
-  defaults to logic (REQ-E1.2).
+  classifications default to logic (REQ-E1.2).
 - **Never** silently proceed past a meaning-class contract drift; route to
   `/spec-kickoff` (REQ-A3.3).
 - **Never** write a meaning-class anchor entry; the only one this skill writes
