@@ -635,9 +635,10 @@ guard_file() {
 }
 
 # guard_tmux: the tower's tmux RELAY/OBSERVE safe set — buffer relay
-# (load-buffer / paste-buffer), pane observation (capture-pane), the buffer/
-# session/window/pane listings the relay targets by handle, has-session, and
-# display-message. Deliberately SCOPED to the relay/observe surface planwright
+# (load-buffer / paste-buffer), buffer inspection (show-buffer — dumps a paste
+# buffer's contents to stdout, read-only), pane observation (capture-pane), the
+# buffer/session/window/pane listings the relay targets by handle, has-session,
+# and display-message. Deliberately SCOPED to the relay/observe surface planwright
 # actually emits: it does NOT include the config-introspection subcommands
 # (show-options, show-environment) — show-environment would surface a worker's
 # environment into the tower's context (a mild info-exposure), and neither is a
