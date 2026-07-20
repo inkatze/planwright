@@ -90,7 +90,7 @@ TAB=$(printf '\t')
 # sh (dash, macOS /bin/sh under xpg_echo) from re-synthesizing a live escape out
 # of a literal backslash sequence that survives the strip
 # (doctrine/security-posture.md echo discipline; obs 2026-07-15).
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd) || exit 2
 if [ -r "$script_dir/echo-safety.sh" ]; then
   # shellcheck source=scripts/echo-safety.sh
   . "$script_dir/echo-safety.sh"
@@ -191,7 +191,7 @@ fi
 
 # Repo-root must be inside a git work tree; resolve its top so refs/paths are
 # unambiguous regardless of the caller's cwd.
-repo_top=$(cd "$repo_root" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || repo_top=""
+repo_top=$(cd -- "$repo_root" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || repo_top=""
 if [ -z "$repo_top" ]; then
   printf '%s\n' "dispatch-fetch: '$(sanitize_printable "$repo_root")' is not inside a git work tree" >&2
   exit 2
@@ -289,7 +289,7 @@ anchor_at_ref() {
   else
     _a=""
   fi
-  rm -rf "$_td"
+  rm -rf -- "$_td"
   [ -n "$_a" ] || return 1
   printf '%s' "$_a"
 }
@@ -352,8 +352,13 @@ fi
 within_ttl=0
 if [ -n "$now" ] && [ -f "$stamp_file" ] && [ ! -L "$stamp_file" ]; then
   last=$(cat "$stamp_file" 2>/dev/null || true)
+  # Same leading-zero rejection as the numeric env overrides above: `last` is fed
+  # straight into `$((now - last))`, so a corrupted stamp like `09` (all digits,
+  # passes `*[!0-9]*`) would be an invalid octal literal inside `$(( ))` and abort
+  # the script fatally under dash, outside the {0,2,3,4,5} exit contract. Treat a
+  # leading-zero stamp as unreadable (re-fetch, the safe direction).
   case "$last" in
-    '' | *[!0-9]*) last="" ;;
+    '' | *[!0-9]* | 0?*) last="" ;;
   esac
   if [ -n "$last" ]; then
     age=$((now - last))
@@ -409,7 +414,7 @@ fi
 # rename over the target: atomic against a concurrent reader (no torn read), and
 # it replaces a pre-planted symlink rather than following it (symmetric with the
 # symlink-refusing read above).
-if mkdir -p "$state_dir" 2>/dev/null; then
+if mkdir -p -- "$state_dir" 2>/dev/null; then
   stamp_tmp="$stamp_file.tmp.$$"
   # Stamp the instant the fetch COMPLETED, not the pre-fetch gate-entry instant
   # ($now used for the age check above): the TTL measures time since the ref was
@@ -421,7 +426,7 @@ if mkdir -p "$state_dir" 2>/dev/null; then
   stamp_now=$(date +%s 2>/dev/null) || stamp_now=$now
   case "$stamp_now" in '' | *[!0-9]*) stamp_now="" ;; esac
   if [ -n "$stamp_now" ] && printf '%s\n' "$stamp_now" >"$stamp_tmp" 2>/dev/null; then
-    mv -f "$stamp_tmp" "$stamp_file" 2>/dev/null || rm -f "$stamp_tmp" 2>/dev/null || true
+    mv -f -- "$stamp_tmp" "$stamp_file" 2>/dev/null || rm -f -- "$stamp_tmp" 2>/dev/null || true
   fi
 fi
 

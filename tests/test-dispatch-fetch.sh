@@ -768,6 +768,48 @@ c16() {
   echo "ok c16: offline --spec fails closed (exit 5, no anchor) when the bundle is unanchorable locally"
 }
 
+# ---------------------------------------------------------------------------
+# Case 17 — corrupted-stamp arithmetic hardening (sibling of c13): the TTL stamp
+# file is read into `last` and fed straight into `age=$((now - last))`. A stamp
+# manually corrupted to a leading-zero value (e.g. `09`) is digits-only (passes
+# `*[!0-9]*`) but an invalid octal literal inside POSIX `$(( ))`, which aborts
+# the script under dash with an exit OUTSIDE the {0,2,3,4,5} contract — the same
+# hazard c13 guards for the numeric ENV overrides, here on the file-read path.
+# The guard must treat a leading-zero stamp as unreadable and re-fetch (the safe
+# direction: never reuse a corrupt stamp), reaching a contracted exit (0,
+# fetched) against a live origin.
+# ---------------------------------------------------------------------------
+c17() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c17.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git -c init.defaultBranch=main init -q --bare "$tmp/origin.git"
+  git clone -q "$tmp/origin.git" "$tmp/primary" 2>/dev/null
+  write_spec "$tmp/primary" demo v1
+  gitc "$tmp/primary" add -A
+  gitc "$tmp/primary" commit -q -m "spec v1"
+  gitc "$tmp/primary" branch -M main
+  gitc "$tmp/primary" push -q origin main
+
+  # Plant a corrupted leading-zero stamp within a generous TTL: pre-fix the
+  # within-TTL age math parses `09` and crashes; post-fix the stamp is rejected
+  # as unreadable, so the run re-fetches instead of reusing it.
+  state="$tmp/state"
+  mkdir -p "$state"
+  printf '09\n' >"$state/last-fetch"
+
+  set +e
+  out=$(PLANWRIGHT_DISPATCH_FETCH_STATE_DIR="$state" \
+    PLANWRIGHT_DISPATCH_FETCH_TTL=3600 \
+    "$FETCH" "$tmp/primary")
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] \
+    || fail "c17: corrupted leading-zero stamp gave exit $rc, not the contracted 0 (arithmetic crash not guarded on the stamp-read path)"
+  [ "$(tag_val "$out" fetch)" = fetched ] \
+    || fail "c17: corrupted stamp should be rejected and re-fetched, got '$(tag_val "$out" fetch)'"
+  echo "ok c17: a corrupted leading-zero stamp is rejected (re-fetch), not crashed on the age math"
+}
+
 c1
 c2
 c3
@@ -784,5 +826,6 @@ c13
 c14
 c15
 c16
+c17
 
 echo "PASS: test-dispatch-fetch.sh"
