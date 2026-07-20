@@ -311,6 +311,40 @@ res3=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-none \
   || fail "gate-empty: no store row means no push -> detector runs -> idle, got '$res3'"
 echo "ok: hook-capable backend with no store row runs the backstop"
 
+# 6e. push-capable backend + CORRUPT (non-numeric) heartbeat -> no fresh push
+# (the freshness guard rejects a non-numeric / leading-zero-octal timestamp) ->
+# detector runs as the backstop rather than deferring to an unparseable push.
+root_corrupt="$tmp/root-corrupt"
+write_row "$root_corrupt" w-corrupt awaiting-input "not-a-number"
+gate_state4="$tmp/state-gate-corrupt"
+mkdir -p "$gate_state4"
+"$FPD" classify --pane "$idle_pane" --backend tmux --worker w-corrupt \
+  --root "$root_corrupt" --now "$now" --reconcile-ttl 300 --state-dir "$gate_state4" >/dev/null
+res4=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-corrupt \
+  --root "$root_corrupt" --now "$now" --reconcile-ttl 300 --state-dir "$gate_state4")
+[ "$res4" = idle ] \
+  || fail "gate-corrupt: a non-numeric heartbeat is not a fresh push -> detector runs -> idle, got '$res4'"
+echo "ok: hook-capable backend with a corrupt heartbeat runs the backstop"
+
+# --- state-file shape guard: a tampered state file never leaks a verdict ------
+# A corrupted state file (arbitrary strings on the two lines) must never reach
+# stdout as a classification; the reader coerces unknown values to empty, so the
+# frame degrades to `pending` (no prior state), never emits the garbage.
+tamper_state="$tmp/state-tamper"
+mkdir -p "$tamper_state"
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-tamper \
+  --state-dir "$tamper_state" >/dev/null
+tamper_file=$(find "$tamper_state" -type f ! -name '.tmp.*' | head -n1)
+[ -n "$tamper_file" ] || fail "tamper: could not locate the debounce state file"
+printf '%s\n%s\n' 'rm -rf /' 'arbitrary garbage' >"$tamper_file"
+tampered=$("$FPD" classify --pane "$idle_pane" --backend subagent --worker w-tamper \
+  --state-dir "$tamper_state")
+case $tampered in
+  idle | busy | indeterminate | pending) ;;
+  *) fail "tamper: a corrupt state file leaked a non-verdict token '$tampered'" ;;
+esac
+echo "ok: corrupt state file never leaks an arbitrary verdict ($tampered)"
+
 # --- REQ-E1.3: no model / API in the detector's decision path -------------
 if grep -Eq '\b(curl|wget|claude|anthropic|openai)\b' "$FPD"; then
   fail "detector references a network/model call in its decision path (REQ-E1.3)"

@@ -201,8 +201,12 @@ fresh_push_exists() {
   fpe_root="$1"
   fpe_store="$fpe_root/attention/state"
   [ -f "$fpe_store" ] && [ -r "$fpe_store" ] || return 1
-  # Reuse fleet-liveness.sh's store-row reader for the heartbeat field (4) so
-  # the field layout is single-sourced, not re-encoded here.
+  # Read the heartbeat field (4) with the same awk idiom fleet-liveness.sh's
+  # store_row_field uses — string-forced key comparison (`($1 "") == (w "")`) so
+  # a numeric-looking handle is not strnum-matched. The field index is re-stated
+  # here (store_row_field is an internal function, not a callable entry point);
+  # it must track fleet-liveness.sh FIELD_HEARTBEAT=4 / fleet-attention.sh's row
+  # layout (worker·scope·state·heartbeat·…).
   fpe_hb=$(awk -F "$(printf '\t')" -v w="$2" \
     '($1 "") == (w "") { v = $4; found = 1 } END { if (found) print v }' \
     "$fpe_store" 2>/dev/null) || return 1
@@ -354,7 +358,7 @@ if [ "$push_capable" -eq 0 ]; then
 fi
 
 # --- Footer-region extraction (bounded; scrollback excluded) ----------------
-footer=$(tail -n "$footer_lines" "$pane" 2>/dev/null) || footer=""
+footer=$(tail -n "$footer_lines" -- "$pane" 2>/dev/null) || footer=""
 
 raw=$(raw_classify "$footer")
 
@@ -371,7 +375,7 @@ if [ -z "$state_dir" ]; then
     state_dir="${TMPDIR:-/tmp}/fleet-pane-detect"
   fi
 fi
-mkdir -p "$state_dir" 2>/dev/null || {
+mkdir -p -- "$state_dir" 2>/dev/null || {
   echo "fleet-pane-detect: cannot create the debounce state dir $state_dir" >&2
   exit 2
 }
@@ -389,9 +393,22 @@ state_file="$state_dir/$key"
 prev_raw=""
 confirmed=""
 if [ -f "$state_file" ] && [ -r "$state_file" ]; then
-  prev_raw=$(sed -n '1p' "$state_file" 2>/dev/null) || prev_raw=""
-  confirmed=$(sed -n '2p' "$state_file" 2>/dev/null) || confirmed=""
+  # One read of the two-line state file (line 1: previous raw class; line 2:
+  # last confirmed class), no per-line fork.
+  {
+    IFS= read -r prev_raw || prev_raw=""
+    IFS= read -r confirmed || confirmed=""
+  } <"$state_file" 2>/dev/null || {
+    prev_raw=""
+    confirmed=""
+  }
 fi
+# Shape-guard both values read from disk: only the known raw classes (and empty)
+# are legal. A torn or externally tampered state file must never let an
+# arbitrary string reach stdout as a verdict — coerce anything else to empty,
+# which the debounce treats as "no prior state" (a `pending` frame, self-heals).
+case $prev_raw in idle | busy | indeterminate | "") ;; *) prev_raw="" ;; esac
+case $confirmed in idle | busy | indeterminate | "") ;; *) confirmed="" ;; esac
 
 if [ "$raw" = "$prev_raw" ] && [ -n "$prev_raw" ]; then
   confirmed="$raw"
