@@ -646,14 +646,19 @@ guard_mdlint() {
 }
 
 # guard_tmux: the tower's tmux RELAY/OBSERVE safe set — buffer relay
-# (load-buffer / paste-buffer), pane observation (capture-pane), and read-only
-# introspection (list-*, has-session, display-message, show-*). NEVER
-# `send-keys` (the impersonation path the relay contract forbids — it defers to
-# the normal permission flow, it is not auto-approved) nor any session / window
-# / pane lifecycle op (kill-*, new-session, split-window, respawn-*, run-shell,
-# if-shell, set-*, source-file), which spawn, destroy, or execute. The
-# subcommand allowlist is closed: a leading server flag (-L/-S/-f), bare `tmux`,
-# or any unlisted subcommand DEFER (REQ-C1.2).
+# (load-buffer / paste-buffer), pane observation (capture-pane), the buffer/
+# session/window/pane listings the relay targets by handle, has-session, and
+# display-message. Deliberately SCOPED to the relay/observe surface planwright
+# actually emits: it does NOT include the config-introspection subcommands
+# (show-options, show-environment) — show-environment would surface a worker's
+# environment into the tower's context (a mild info-exposure), and neither is a
+# relay/observe op — so they fall to the normal permission flow rather than being
+# auto-approved. NEVER `send-keys` (the impersonation path the relay contract
+# forbids — it defers, it is not auto-approved) nor any session / window / pane
+# lifecycle op (kill-*, new-session, split-window, respawn-*, run-shell, if-shell,
+# set-*, source-file), which spawn, destroy, or execute. The subcommand allowlist
+# is closed: a leading server flag (-L/-S/-f), bare `tmux`, or any unlisted
+# subcommand DEFER (REQ-C1.2).
 guard_tmux() {
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
@@ -663,8 +668,7 @@ guard_tmux() {
     load-buffer | loadb | paste-buffer | pasteb | capture-pane | capturep | \
       list-sessions | ls | list-windows | lsw | list-panes | lsp | \
       list-clients | lsc | list-buffers | lsb | has-session | \
-      display-message | display | show-buffer | showb | \
-      show-options | show | show-environment | showenv)
+      display-message | display | show-buffer | showb)
       return 0
       ;;
     *) return 1 ;;

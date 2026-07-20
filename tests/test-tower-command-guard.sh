@@ -217,6 +217,8 @@ assert_defer "tmux run-shell exec DEFER" "tmux run-shell 'rm -rf x'"
 assert_defer "tmux set-option DEFER" "tmux set-option -g status off"
 assert_defer "tmux source-file DEFER" "tmux source-file /tmp/evil.conf"
 assert_defer "tmux if-shell exec DEFER" "tmux if-shell 'true' 'rm -rf x'"
+assert_defer "tmux show-environment info-exposure DEFER" "tmux show-environment -t fleet"
+assert_defer "tmux show-options config-introspection DEFER" "tmux show-options -g"
 assert_defer "tmux bare (no subcommand) DEFER" "tmux"
 assert_defer "tmux unknown subcommand DEFER" "tmux frobnicate"
 
