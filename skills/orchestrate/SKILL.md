@@ -238,11 +238,16 @@ backend launches the work. Reuse the current worktree when it is clean,
 after a one-line confirm (**attended only**; unattended mode always creates a
 fresh worktree). Print the re-open command after create-or-reuse.
 
-**Dispatch-time environment hardening**: launch every fleet session through
-`scripts/fleet-dispatch-env.sh` (D-10, REQ-D1.1), which pins only
-`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` against ghost-text. Separately,
-pin the umask, pre-trust the worktree's config paths, and verify the SSH-agent
-indirection before signed commits.
+**Dispatch-time environment hardening**: construct the worker launch through the
+dispatch primitive's own code path — `scripts/fleet-dispatch-env.sh
+--emit-launch <launch-argv>` emits the pin-carrying wrapped launch command, so
+the ghost-text pin (`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`) is applied by
+the construction itself, not by a prose step the model must remember (D-5, D-10,
+REQ-B1.1, REQ-B1.2). The emitted verb is the repo-contained script the
+`worker-command-guard` literal-path resolution auto-approves, so the pinned
+launch never floods the worker and never falls back to a bare launch that drops
+the pin. Separately, pin the umask, pre-trust the worktree's config paths, and
+verify the SSH-agent indirection before signed commits.
 
 **Resource governance** (REQ-E1.1–REQ-E1.4; contract in `docs/fleet.md`):
 `scripts/fleet-throttle.sh check` before dispatch — exit 1 = paused until
