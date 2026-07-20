@@ -3,9 +3,9 @@ name: orchestrate
 description: >
   Advance one planwright spec by one step: pick the next ready unit
   critical-path-first (or a cohesion bundle), run the freshness gate, record the
-  dispatch (task branch + runtime marker, never a tasks.md write) under the
-  per-spec lock, and dispatch /execute-task via the backend. A stateless,
-  disposable control tower; a reconcile sweep rebuilds from disk. Never merges,
+  dispatch under the per-spec lock, and dispatch /execute-task via the backend. A
+  stateless, disposable control tower; a reconcile sweep rebuilds from disk. Never
+  merges,
   marks a PR ready, or auto-chains into /spec-kickoff. --bookkeeping runs the drain
   + PR reconcile; --watch loops the step.
 argument-hint: "[<spec-path>] [--fleet] [--meta [<spec-path>...]] [--watch] [--bookkeeping] [--backend <b>] [--unattended]"
@@ -75,10 +75,10 @@ would-be prompt to Awaiting input), implied for non-interactive sessions.
 
 ## Pre-flight (per step)
 
-Run in order. Any halt records the selected unit to `## Awaiting input` with the
-reason and ends the step — the `gate-wiring` pause protocol's dispatched arm;
-attended, present and wait instead. When several pre-flight halts fire at once,
-report them together (D-45).
+Run in order. Any halt records the unit (when one is selected) to `## Awaiting
+input` with the reason and ends the step — the `gate-wiring` pause protocol's
+dispatched arm; in an attended session, present and wait instead. When several
+pre-flight halts fire at once, report them together (D-45).
 
 1. **Parse `$ARGUMENTS`.** Extract the mode flags above and an optional spec
    path (`specs/<spec>` or bare `<spec>`). Validate the `<spec>` segment against
