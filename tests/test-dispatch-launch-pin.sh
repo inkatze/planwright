@@ -29,8 +29,9 @@
 #   c7 (REQ-B1.2): a bare-name (PATH) invocation emits the wrapper's real
 #      location, not a cwd-relative fabrication, so the emitted verb stays the
 #      guard-trusted scripts/*.sh path.
-#   c8 (REQ-B1.2): a single-quote / newline launch token is refused (exit 2)
-#      rather than emitted in a form the worker-command-guard tokenizer defers on.
+#   c8 (REQ-B1.1/B1.2): an apostrophe in the wrapper path or an argv token is
+#      emitted via the guard-accepted `'"'"'` form (still auto-approved, still
+#      round-trips); only a newline is refused (exit 2).
 #   c9 (REQ-B1.2): a relative PATH element still yields the absolute wrapper verb
 #      (a relative `command -v` result is absolutized, not emitted bare).
 #
@@ -76,8 +77,8 @@ command -v jq >/dev/null 2>&1 || {
 # GCODE. The guard emits an `allow` object for an auto-approved shape and nothing
 # (defer) otherwise.
 run_guard() {
-  local payload
-  payload=$(jq -n --arg c "$1" --arg w "$REPO_ROOT" \
+  local cwd="${2:-$REPO_ROOT}" payload
+  payload=$(jq -n --arg c "$1" --arg w "$cwd" \
     '{tool_name: "Bash", tool_input: {command: $c}, cwd: $w}')
   GOUT=$(printf '%s' "$payload" | /bin/bash "$GUARD" 2>/dev/null)
   GCODE=$?
@@ -286,29 +287,61 @@ c7() {
   rm -rf "$tmp"
 }
 
-# --- c8: a single-quote / newline token is refused, not emitted deferring -----
-# The only single-quoted escape for an embedded single quote is the `'\''` form,
-# whose backslash the worker-command-guard tokenizer DEFERS on — so such a token
-# could never be part of a guard-auto-approved launch. --emit-launch refuses it
-# (exit 2) up front rather than emitting a shape the guard silently declines; a
-# newline (which cannot sit in a single-line launch) is refused the same way.
-# Neither is a valid dispatch token.
+# --- c8: an apostrophe (in the wrapper path or an argv token) is handled -------
+# An embedded single quote is emitted with the backslash-free `'"'"'` form the
+# guard accepts, so a checkout path containing an apostrophe (e.g.
+# /Users/O'Connor) or an apostrophe in a launch token does NOT break the
+# auto-approved launch. A newline, which cannot sit in a single-line launch, is
+# refused (exit 2).
 c8() {
-  local code out
-  code=0
-  out=$("$FDE" --emit-launch claude --foo "a'b" 2>/dev/null) || code=$?
-  if [ "$code" -eq 2 ] && [ -z "$out" ]; then
-    pass "c8: a single-quote launch token is refused (exit 2), not emitted guard-deferring (REQ-B1.2)"
+  local tmp aporepo fde2 emitted out
+  tmp=$(mktemp -d) || {
+    fail "c8: mktemp failed"
+    return
+  }
+  # (1) Wrapper path containing an apostrophe: copy the wrapper into an
+  #     apostrophe-named repo, invoke it there, and assert the emitted launch is
+  #     still auto-approved by the guard (cwd = that repo).
+  aporepo="$tmp/O'Connor/repo"
+  mkdir -p "$aporepo/scripts"
+  : >"$aporepo/.git"
+  cp "$FDE" "$aporepo/scripts/fleet-dispatch-env.sh"
+  chmod +x "$aporepo/scripts/fleet-dispatch-env.sh"
+  fde2="$aporepo/scripts/fleet-dispatch-env.sh"
+  emitted=$("$fde2" --emit-launch claude --worktree task-5) || {
+    fail "c8: emit from an apostrophe wrapper path failed"
+    rm -rf "$tmp"
+    return
+  }
+  run_guard "$emitted" "$aporepo"
+  if guard_invariants_ok "c8" && is_allow; then
+    pass "c8: an apostrophe wrapper path still yields an auto-approved launch (REQ-B1.2)"
   else
-    fail "c8: single-quote token: expected exit 2 and no stdout, got exit $code out='$out'"
+    fail "c8: apostrophe wrapper path was not auto-approved; guard emitted: '${GOUT:-<defer>}'"
   fi
-  code=0
+  # (2) An apostrophe in a launch token round-trips through the emitted line.
+  local fake
+  fake="$tmp/fake.sh"
+  cat >"$fake" <<EOF
+#!/bin/sh
+printf 'arg1=%s\n' "\${1-<none>}"
+EOF
+  chmod +x "$fake"
+  out=$(sh -c "$("$FDE" --emit-launch "$fake" "a'b")")
+  if printf '%s\n' "$out" | grep -qx "arg1=a'b"; then
+    pass "c8b: an apostrophe in a launch token round-trips intact (REQ-B1.1)"
+  else
+    fail "c8b: apostrophe token not delivered intact, got: $out"
+  fi
+  # (3) A newline token is refused (cannot sit in a single-line launch).
+  local code=0
   "$FDE" --emit-launch claude "$(printf 'a\nb')" >/dev/null 2>&1 || code=$?
   if [ "$code" -eq 2 ]; then
-    pass "c8b: a newline launch token is refused (exit 2)"
+    pass "c8c: a newline launch token is refused (exit 2)"
   else
-    fail "c8b: newline token: expected exit 2, got exit $code"
+    fail "c8c: newline token: expected exit 2, got exit $code"
   fi
+  rm -rf "$tmp"
 }
 
 # --- c9: a relative PATH element still yields the absolute wrapper verb -------

@@ -56,9 +56,10 @@
 # are single-quote-wrapped, so a repo path or dispatch token carrying a space or
 # shell metacharacter survives re-splitting and adds no injection surface — the
 # same argument-boundary safety the exec path gets from `exec "$@"` — while
-# staying accepted by the worker-command-guard tokenizer. A token containing a
-# single quote or newline is refused (exit 2): its only single-quoted escape uses
-# a backslash the guard defers on, and neither is a valid dispatch token.
+# staying accepted by the worker-command-guard tokenizer. An embedded single
+# quote uses the backslash-free `'"'"'` concatenation form the guard accepts (so
+# an apostrophe in the checkout path still auto-approves); only a newline, which
+# cannot sit in a single-line launch, is refused (exit 2).
 #
 # Exit: execs <cmd> (adopting its exit status); a failed exec follows the
 # shell's not-found/not-executable convention (typically 127/126, but
@@ -137,27 +138,38 @@ if [ "$1" = "--emit-launch" ]; then
   # `exec "$@"`, AND it is accepted by the worker-command-guard tokenizer, so the
   # emitted line stays deterministically auto-approved (D-5, REQ-B1.2).
   #
-  # A token containing a single quote or a newline is refused up front, before
-  # anything is emitted: the only single-quoted escape for an embedded quote is
-  # the `'\''` form, whose backslash the guard deliberately DEFERS on (it would
-  # break the auto-approve contract), and a newline cannot sit in a single-line
-  # launch command at all. Neither is a valid dispatch token (models, worktree
-  # suffixes, flags), so refusing is the honest, deterministic contract rather
-  # than emitting a shape the guard silently declines. The message never echoes
-  # the token content (mirrors the guard's never-reflect discipline).
+  # An embedded single quote is emitted with the CONCATENATION form `'"'"'` (close
+  # quote, a double-quoted quote, reopen quote) — NOT the `'\''` backslash form,
+  # which the guard deliberately DEFERS on. The `'"'"'` form carries no backslash,
+  # so the guard tokenizes it cleanly (verified) and a wrapper path or argument
+  # containing an apostrophe (e.g. a checkout under /Users/O'Connor) still yields
+  # an auto-approved launch. A newline is the one thing that cannot sit in a
+  # single-line launch command, so a token containing one is refused (exit 2)
+  # before anything is emitted; it is not a valid dispatch token. The message
+  # never echoes the token content (mirrors the guard's never-reflect discipline).
   nl=$(printf '\nx')
   nl=${nl%x}
   for _tok in "$self" "$@"; do
     case $_tok in
-      *\'* | *"$nl"*)
-        echo "fleet-dispatch-env.sh: --emit-launch: a launch token contains a single quote or newline, which cannot be emitted as a guard-auto-approved launch" >&2
+      *"$nl"*)
+        echo "fleet-dispatch-env.sh: --emit-launch: a launch token contains a newline, which cannot be emitted as a single-line launch" >&2
         exit 2
         ;;
     esac
   done
-  printf "'%s'" "$self"
+  emit_token() {
+    # Single-quote-wrap; an embedded single quote becomes the backslash-free
+    # concatenation `'"'"'` the guard accepts. The sed runs only for a token that
+    # actually contains a quote (rare — an apostrophe in the checkout path).
+    case $1 in
+      *\'*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")" ;;
+      *) printf "'%s'" "$1" ;;
+    esac
+  }
+  emit_token "$self"
   for _arg in "$@"; do
-    printf " '%s'" "$_arg"
+    printf ' '
+    emit_token "$_arg"
   done
   printf '\n'
   exit 0
