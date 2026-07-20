@@ -370,9 +370,9 @@ unparseable fails closed, never the v1 write (D-7). The sweep:
    so the sweep and the per-dispatch gate coalesce onto one TTL-stamped fetch
    instead of fetching every `--watch` cycle. `--best-effort` is one attempt (no
    retries), since a reconcile tolerates staleness. Remote-tracking refs only;
-   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4` unreachable,
-   `2` internal) → continue on last-known refs (the gate, in contrast, blocks
-   on `4`).
+   **no local-`main` advance**. Any nonzero exit (`3` no-remote, `4`
+   stale-transient, `2` internal) → continue on last-known refs (the gate, in
+   contrast, blocks on `4`).
 2. **Rebuild** from `tasks.md`, `gh`, and the process/window list; for each
    in-flight unit (v1: its `## In progress` entry; v2: the derivation's
    in-progress set — no committed placement exists), **reconcile PR state
