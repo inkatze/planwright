@@ -172,9 +172,9 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      local-`main` advance**) and prints the fetched **`origin/main`** anchor
      (re-pointing `spec-anchor.sh`). Exit **0** → gate vs `origin/main`; **3**
      (`no-remote`, offline) → gate vs local `main`; **4** (`stale-transient`) or
-     any nonzero → park to Awaiting input. That `origin/main` also backs merge
-     detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a task merged on
-     `origin` but not local `main` isn't re-dispatched.
+     any nonzero → park to Awaiting input. On the exit-0 paths, that `origin/main`
+     backs merge detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
+     task merged on `origin` but not local `main` isn't re-dispatched.
    - **Validate the entry** (brief's most recent, from the resolved ref; formats:
      `spec-format`): a **sanctioned command form** (`scripts/spec-anchor.sh
      <spec-dir>` or the interim whole-file form), a **sanctioned writer** (a
