@@ -364,7 +364,10 @@ if [ "$push_capable" -eq 0 ]; then
 fi
 
 # --- Footer-region extraction (bounded; scrollback excluded) ----------------
-footer=$(tail -n "$footer_lines" -- "$pane" 2>/dev/null) || footer=""
+# stdin redirection (not `tail … -- "$pane"`) reads the bounded footer without
+# relying on `--` end-of-options support and with no option-injection surface;
+# $pane was already confirmed readable above.
+footer=$(tail -n "$footer_lines" <"$pane" 2>/dev/null) || footer=""
 
 raw=$(raw_classify "$footer")
 
@@ -381,7 +384,7 @@ if [ -z "$state_dir" ]; then
     state_dir="${TMPDIR:-/tmp}/fleet-pane-detect"
   fi
 fi
-mkdir -p -- "$state_dir" 2>/dev/null || {
+mkdir -p "$state_dir" 2>/dev/null || {
   echo "fleet-pane-detect: cannot create the debounce state dir $state_dir" >&2
   exit 2
 }

@@ -402,15 +402,17 @@ esac
 echo "ok: corrupt state file never leaks an arbitrary verdict ($tampered)"
 
 # --- REQ-E1.3: no model / API in the detector's decision path -------------
-# Whole-word match via grep -w (POSIX-portable), NOT `\b…\b` (a GNU extension
-# that is a literal backspace under some ERE engines, which would let the
-# assertion pass vacuously). Prove the pattern is LIVE with a positive control
-# before trusting a no-match on the script: a planted forbidden token must be
-# caught, or the assertion is meaningless.
-model_pattern='(curl|wget|claude|anthropic|openai)'
-printf 'x claude x\n' | grep -Ewq "$model_pattern" \
+# Whole-word match via a pure-POSIX ERE that spells out the word boundaries with
+# `[^[:alnum:]_]` — NOT `\b…\b` (a GNU extension, a literal backspace under some
+# ERE engines) and NOT `grep -w` (the -w flag is not in POSIX grep), either of
+# which could let the assertion pass vacuously on a non-conforming engine. Prove
+# the pattern is LIVE with a positive control before trusting a no-match on the
+# script: a planted forbidden token must be caught, or the assertion is
+# meaningless.
+model_pattern='(^|[^[:alnum:]_])(curl|wget|claude|anthropic|openai)([^[:alnum:]_]|$)'
+printf 'x claude x\n' | grep -Eq "$model_pattern" \
   || fail "REQ-E1.3 assertion is vacuous: the grep pattern fails to match a planted forbidden token"
-if grep -Ewq "$model_pattern" "$FPD"; then
+if grep -Eq "$model_pattern" "$FPD"; then
   fail "detector references a network/model call in its decision path (REQ-E1.3)"
 fi
 echo "ok: no model/API call in the detector's decision path (REQ-E1.3)"
