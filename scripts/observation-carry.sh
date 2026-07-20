@@ -322,20 +322,30 @@ if [ -x "$config_get" ]; then
 fi
 
 lock_held=0
+# acquire_lock exit codes (mirrors orchestrate-lock.sh's real-error-vs-contention
+# split): 0 held; 1 live contention (another carry holds it — a clean no-op);
+# 2 real error (mkdir failed AND the lock dir does not exist — an unwritable
+# state dir or filesystem fault). A real error must NOT be misread as contention:
+# reporting a clean no-op while observations are still stranded would be a silent
+# drop, so the caller degrades on 2.
 acquire_lock() {
   if mkdir -- "$lock_dir" 2>/dev/null; then
     lock_held=1
     return 0
   fi
-  # Break a stale lock: compare its mtime age to the threshold via `find`.
-  if [ -d "$lock_dir" ]; then
-    if find "$lock_dir" -maxdepth 0 -mmin +"$stale_min" 2>/dev/null | grep -q .; then
-      rmdir -- "$lock_dir" 2>/dev/null || true
-      if mkdir -- "$lock_dir" 2>/dev/null; then
-        lock_held=1
-        return 0
-      fi
+  # mkdir failed. If the lock dir does not exist, this is a real error (the state
+  # dir is unwritable or the filesystem faulted), never contention.
+  [ -d "$lock_dir" ] || return 2
+  # Contention: break a stale holder (older than the threshold), then retry.
+  if find "$lock_dir" -maxdepth 0 -mmin +"$stale_min" 2>/dev/null | grep -q .; then
+    rmdir -- "$lock_dir" 2>/dev/null || true
+    if mkdir -- "$lock_dir" 2>/dev/null; then
+      lock_held=1
+      return 0
     fi
+    # Post-break: same distinction — an absent lock dir is a real error, a
+    # present one means another holder won the race.
+    [ -d "$lock_dir" ] || return 2
   fi
   return 1
 }
@@ -363,7 +373,15 @@ trap 'cleanup' EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-if ! acquire_lock; then
+acquire_lock
+lock_rc=$?
+if [ "$lock_rc" -eq 2 ]; then
+  # Real error creating the lock (unwritable state dir / filesystem fault): the
+  # observations are still stranded, so degrade non-silently rather than report a
+  # clean no-op that would drop them.
+  degrade "the carry lock could not be created (state dir unwritable or filesystem error)"
+fi
+if [ "$lock_rc" -ne 0 ]; then
   # Another carry holds the lock — a clean no-op (it will carry this set).
   printf 'carry%snoop\n' "$TAB"
   printf 'stranded%s0\n' "$TAB"

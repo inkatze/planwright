@@ -44,6 +44,11 @@ fail() {
 }
 
 [ -x "$CARRY" ] || fail "scripts/observation-carry.sh missing or not executable"
+# The gh stub faithfully emulates `gh ... --jq <expr>` by running the SAME
+# expression through real jq, so this suite hard-depends on jq (as many sibling
+# suites do). Preflight-check it so a missing jq fails clearly and early rather
+# than as a confusing `command not found` inside the stub.
+command -v jq >/dev/null 2>&1 || fail "jq required to run this suite (the gh stub runs jq)"
 
 # git with a deterministic, signing-free identity (fixtures never sign).
 gitc() {
@@ -445,6 +450,39 @@ c10() {
   echo "ok c10: --dry-run reports stranded count without pushing or opening a PR"
 }
 
+# ---------------------------------------------------------------------------
+# Case 11 — a REAL lock error (state dir unwritable / filesystem error) must
+# degrade non-silently, not be misread as lock contention and reported as a
+# clean no-op while observations are still stranded (REQ-D1.3 non-silent
+# stranding; mirrors orchestrate-lock.sh's real-error-vs-contention split).
+# ---------------------------------------------------------------------------
+c11() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/obs-carry.c11.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  repo="$tmp/repo"
+  seed_repo "$repo"
+  gitc "$repo" checkout -q -b planwright/fleet-hardening/task-9
+  add_frags "$repo" tower jjjjaaaa
+  gh="$tmp/bin"
+  make_gh_stub "$gh"
+  # Force a real lock-dir creation error: point the state dir UNDER a regular
+  # file, so both `mkdir -p <state-dir>` and `mkdir <state-dir>/...lock` fail and
+  # the lock dir never comes into existence (a genuine error, not contention).
+  printf 'x' >"$tmp/afile"
+
+  set +e
+  out=$(PATH="$gh:$PATH" GH_STATE="$tmp/ghstate" \
+    PLANWRIGHT_OBSERVATION_CARRY_STATE_DIR="$tmp/afile/state" \
+    /bin/bash "$CARRY" "$repo" 2>"$tmp/err")
+  rc=$?
+  set -e
+  [ "$rc" = 3 ] || fail "c11: real lock error must degrade (exit 3), got $rc — out: $out; err: $(cat "$tmp/err")"
+  [ "$(tag_val "$out" carry)" = degraded ] || fail "c11: expected carry=degraded, got: $out"
+  [ "$(tag_val "$out" stranded)" = 1 ] || fail "c11: degrade must name the stranded count, got: $out"
+  [ ! -s "$tmp/ghstate/create-log" ] || fail "c11: a lock-error degrade must open no PR"
+  echo "ok c11: a real lock error degrades non-silently (not a silent no-op)"
+}
+
 c1
 c2
 c3
@@ -455,4 +493,5 @@ c7
 c8
 c9
 c10
+c11
 echo "ALL PASS: observation-carry"
