@@ -399,8 +399,18 @@ marker_live() {
 }
 
 # marker_live_permission <root> <handle> — the pending-permission marker
-# (fleet-autonomy D-1), under liveness/pending/.
-marker_live_permission() { marker_live "$1/liveness/pending/$2" "$1" "$2"; }
+# (fleet-autonomy D-1), under liveness/pending/. Guarded by an EMPTY field 9 (the
+# COMPLEMENT of marker_live_awaiting's non-empty check): a permission row never
+# carries a park reason, so requiring field 9 empty prevents a LEAKED
+# pending-permission marker whose token collides (same wall-clock second) with a
+# live fork-park's heartbeat from matching the fork-park. Without this guard the
+# permission branch (checked before the fork-park branch) would claim the
+# fork-park's exit edge and a plain stop would clobber it to idle, defeating the
+# fork-park-survives-stop guarantee (fleet-hardening Task 2 NS-4).
+marker_live_permission() {
+  marker_live "$1/liveness/pending/$2" "$1" "$2" || return 1
+  [ -z "$(store_row_field "$1" "$2" "$FIELD_REASON")" ]
+}
 
 # marker_live_awaiting <root> <handle> — the fork-park exit-edge marker
 # (fleet-hardening Task 2, D-2), under liveness/awaiting/. The Notification push
@@ -418,9 +428,12 @@ marker_live_permission() { marker_live "$1/liveness/pending/$2" "$1" "$2"; }
 # notification arm's ownership check and its heartbeat read (a TOCTOU) — has an
 # EMPTY field 9 and is never mistaken for our fork-park. This keeps the exit
 # edge from auto-resolving a queued human decision (REQ-A1.3). The permission
-# marker cannot use this discriminator (a permission row has no field 9), so it
-# retains the heartbeat-only identity; only the fork-park path needs and gets
-# the extra check.
+# marker uses the COMPLEMENT of this discriminator (field 9 EMPTY, see
+# marker_live_permission), so a leaked permission marker can never match a
+# fork-park and steal its exit edge. Field 9 still cannot separate a permission
+# from a flailing decide (both carry an empty field 9) — a narrow, pre-existing
+# same-second residual on the permission path, tracked separately and healed by
+# the reconcile sweep, distinct from this fork-park guarantee.
 marker_live_awaiting() {
   marker_live "$1/liveness/awaiting/$2" "$1" "$2" || return 1
   [ -n "$(store_row_field "$1" "$2" "$FIELD_REASON")" ]

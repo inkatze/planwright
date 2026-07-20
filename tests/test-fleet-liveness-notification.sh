@@ -10,9 +10,11 @@
 # fork-park exit-edge marker. A permission-park (owned by the PermissionRequest
 # hook) and every non-park notification (auth / completion / unknown) are gated
 # OUT so no false `awaiting-human` is pushed. The row clears on RESUME (the next
-# PostToolUse) and on TERMINAL exit (SessionEnd / StopFailure / Stop take
-# precedence over the park), while a real queued decision (a flailing / pending
-# permission awaiting-input row that this hook did NOT park) is still preserved.
+# PostToolUse) and on GENUINE termination (SessionEnd / StopFailure take
+# precedence over the park); a plain Stop PRESERVES a live fork-park ((b)-refined,
+# NS-4 — a turn-end is not a dead worker, and Stop races the async Notification).
+# A real queued decision (a flailing / pending permission awaiting-input row that
+# this hook did NOT park) is still preserved.
 #
 # What is covered:
 #   - a fork-park notification (idle_prompt / agent_needs_input /
@@ -260,6 +262,29 @@ fire "$h7d" w1 spec-a post-tool-use >/dev/null 2>&1 || fail "post-tool-use faile
 [ "$(state_of "$h7d" w1)" = "working" ] \
   || fail "resume after a stop-preserved fork-park did not clear to working: '$(state_of "$h7d" w1)'"
 ok "a plain stop PRESERVES a live fork-park and keeps its marker; the resume edge still fires (NS-4, (b)-refined)"
+
+# ---------------------------------------------------------------------------
+# 7e. (b)-refined completeness: a LEAKED pending-permission marker whose token
+#     collides (same wall-clock second) with a live fork-park's heartbeat must
+#     NOT let a plain Stop clobber the fork-park. marker_live_permission is
+#     checked BEFORE marker_live_awaiting, so without its field-9-EMPTY guard the
+#     fork-park (non-empty field 9) would be misread as a permission decision and
+#     cleared to idle — silently defeating the stop-preserve guarantee.
+# ---------------------------------------------------------------------------
+h7e="$tmp/h7e"
+fire_note "$h7e" w1 spec-a '{"notification_type":"idle_prompt"}' >/dev/null 2>&1 || fail "park failed"
+[ "$(state_of "$h7e" w1)" = "awaiting-input" ] || fail "precondition: not parked"
+hb=$(awk -F "$tab" -v w=w1 '($1 "") == (w "") { print $4 }' "$h7e/attention/state")
+[ -n "$hb" ] || fail "could not read the fork-park heartbeat"
+# a leaked pending-permission marker carrying that same heartbeat token.
+mkdir -p "$h7e/liveness/pending"
+printf '%s' "$hb" >"$h7e/liveness/pending/w1"
+fire "$h7e" w1 spec-a stop >/dev/null 2>&1 || fail "stop hook failed"
+[ "$(state_of "$h7e" w1)" = "awaiting-input" ] \
+  || fail "a colliding leaked permission marker let a plain stop clobber the fork-park: '$(state_of "$h7e" w1)'"
+[ -e "$h7e/liveness/awaiting/w1" ] \
+  || fail "the fork-park await_marker was dropped under the permission-collision path"
+ok "a same-second leaked-permission-marker collision cannot let a plain stop clobber a fork-park (NS-4 completeness)"
 
 # ---------------------------------------------------------------------------
 # 8. REQ-A1.3 preservation regression: a queued decision this hook did NOT park
