@@ -198,6 +198,7 @@ assert_absent "closing gate: no use-site warning on the real corpus" "use-site" 
 # the audit render, confirming every floored aggregate on the real corpus is
 # actually measured.
 aud0="$(/bin/bash "$CHECKER" --audit 2>&1)"
+assert_exit "closing gate: the --audit render exits zero (guards the absence check below)" 0 $?
 assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$aud0"
 
 # Post-Task-7.5 the audit carries no transitional allowance anywhere: the
