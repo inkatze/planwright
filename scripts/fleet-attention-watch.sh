@@ -358,6 +358,7 @@ case $cmd in
       fi
       [ "$once" = 1 ] && break
       mkdir -p "$attn_dir" 2>/dev/null || true
+      w_t0=$(now_epoch)
       case $watcher in
         fswatch)
           # Block until the store dir changes or the interval elapses (the
@@ -371,6 +372,20 @@ case $cmd in
           sleep "$interval"
           ;;
       esac
+      # Busy-spin floor. A filesystem watcher is supposed to BLOCK until the store
+      # changes or the interval elapses, but an unsupported flag (an old fswatch /
+      # inotifywait) or an unwatchable dir can make it exit instantly, and the
+      # `|| true` above swallows that — leaving the loop to re-enter do_pass with
+      # no delay at 100% CPU. When a watcher returned in under a second, sleep out
+      # a one-second floor so a broken watcher degrades to a 1s poll, never a spin.
+      # The poll branch already slept `interval`, so this only bites the watcher
+      # branches; a genuine sub-second event costs at most one added second.
+      if [ -n "$watcher" ]; then
+        w_t1=$(now_epoch)
+        if [ -n "$w_t0" ] && [ -n "$w_t1" ] && [ "$((w_t1 - w_t0))" -lt 1 ]; then
+          sleep 1
+        fi
+      fi
     done
     exit 0
     ;;
