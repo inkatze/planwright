@@ -517,6 +517,32 @@ c10() {
   echo "ok c10: --best-effort is a single attempt (no retry budget)"
 }
 
+# ---------------------------------------------------------------------------
+# Case 11 — echo discipline (security-posture, "Framework-script security"): an
+# untrusted `--spec` carrying a terminal escape is rejected (exit 2) AND the
+# rejection diagnostic is stripped of the raw control bytes before it reaches
+# stderr, so a hostile spec name cannot drive the terminal via the error path.
+# ---------------------------------------------------------------------------
+c11() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-fetch.c11.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  git init -q "$tmp/repo"
+
+  # An OSC set-window-title escape (ESC ] 0 ; ... BEL) embedded in the spec value.
+  # It fails the identifier grammar, so it flows to the invalid-spec-name echo —
+  # the exact place attacker-influenced bytes reach the terminal.
+  evil=$(printf 'specs/\033]0;PWNED\007x')
+  set +e
+  err=$("$FETCH" --spec "$evil" "$tmp/repo" 2>&1 >/dev/null)
+  rc=$?
+  set -e
+  [ "$rc" -eq 2 ] || fail "c11: escape-bearing --spec should exit 2, got $rc"
+  if printf '%s' "$err" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    fail "c11: a raw control byte reached stderr (escape-injection not sanitized)"
+  fi
+  echo "ok c11: untrusted --spec escape is rejected and the diagnostic is sanitized"
+}
+
 c1
 c2
 c3
@@ -527,5 +553,6 @@ c7
 c8
 c9
 c10
+c11
 
 echo "PASS: test-dispatch-fetch.sh"

@@ -70,6 +70,22 @@ unset CDPATH
 
 TAB=$(printf '\t')
 
+# Resolve the install dir up front so the echo-discipline sanitizer is available
+# to the arg-parse error paths below (script_dir is reused for the sibling
+# helpers further down). Untrusted values (a caller-supplied --spec or repo-root)
+# must be stripped of terminal-driving control bytes before they are echoed
+# (doctrine/security-posture.md echo discipline; sibling scripts/spec-status.sh).
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+if [ -r "$script_dir/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$script_dir/echo-safety.sh"
+else
+  # Fallback keeps the script functional if the sibling lib is absent: strips C0,
+  # DEL, and C1 (0x80-0x9F, including single-byte CSI 0x9B) — byte-identical scope
+  # to the canonical sanitize_printable.
+  sanitize_printable() { printf '%s' "$1" | tr -d '\000-\037\177\200-\237'; }
+fi
+
 usage() {
   echo "usage: dispatch-fetch.sh [--spec <specs/<name>>] [--best-effort] <repo-root>" >&2
   exit 2
@@ -101,7 +117,7 @@ while [ $# -gt 0 ]; do
       break
       ;;
     -*)
-      echo "dispatch-fetch: unknown option '$1'" >&2
+      echo "dispatch-fetch: unknown option '$(sanitize_printable "$1")'" >&2
       usage
       ;;
     *)
@@ -121,14 +137,14 @@ if [ -n "$spec_rel" ]; then
   case "$spec_rel" in
     specs/*) : ;;
     *)
-      echo "dispatch-fetch: --spec must be 'specs/<name>' (got '$spec_rel')" >&2
+      echo "dispatch-fetch: --spec must be 'specs/<name>' (got '$(sanitize_printable "$spec_rel")')" >&2
       exit 2
       ;;
   esac
   spec_name="${spec_rel#specs/}"
   case "$spec_name" in
     '' | */* | *[!a-z0-9-]* | [!a-z0-9]*)
-      echo "dispatch-fetch: invalid spec name in '$spec_rel'" >&2
+      echo "dispatch-fetch: invalid spec name in '$(sanitize_printable "$spec_rel")'" >&2
       exit 2
       ;;
   esac
@@ -138,12 +154,11 @@ fi
 # unambiguous regardless of the caller's cwd.
 repo_top=$(cd "$repo_root" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || repo_top=""
 if [ -z "$repo_top" ]; then
-  echo "dispatch-fetch: '$repo_root' is not inside a git work tree" >&2
+  echo "dispatch-fetch: '$(sanitize_printable "$repo_root")' is not inside a git work tree" >&2
   exit 2
 fi
 repo_root=$repo_top
 
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 anchor_script="$script_dir/spec-anchor.sh"
 config_get="$script_dir/config-get.sh"
 
