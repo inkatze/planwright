@@ -341,7 +341,7 @@ reap_stale() {
 # name: prefix, fixture, persona, pid, a monotonic seq, and a urandom nonce so
 # two runs (even at the same pid+seq) never collide (REQ-G1.5).
 unique_session() {
-  _us_nonce="$(od -An -tx1 -N4 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  _us_nonce="$(od -An -t x1 -N4 /dev/urandom 2>/dev/null | tr -d ' \n')"
   [ -n "$_us_nonce" ] || _us_nonce="$seq"
   printf '%s-%s-%s-%s-%s-%s' "$SESSION_PREFIX" "$1" "$2" "$$" "$seq" "$_us_nonce"
 }
@@ -704,7 +704,14 @@ run_fixture() {
     warn "fixture dir not found: $fx_dir"
     return 2
   }
-  fx_dir="$(cd "$fx_dir" && pwd -P)"
+  # Canonicalize; guard the subshell so a cd failure (a TOCTOU removal between the
+  # -d check above and here) is a clean refusal rather than an empty fx_dir that
+  # would silently mis-resolve every path derived from it.
+  fx_dir="$(cd "$fx_dir" 2>/dev/null && pwd -P)" || fx_dir=""
+  [ -n "$fx_dir" ] || {
+    warn "cannot resolve fixture dir '$(sanitize_printable "$1")'"
+    return 2
+  }
   fx_id="$(read_conf "$fx_dir" id)"
   [ -n "$fx_id" ] || fx_id="$(basename "$fx_dir")"
   case "$fx_id" in
