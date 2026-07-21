@@ -95,8 +95,13 @@ marking, or the tower non-authoring boundary.
   positive-evidence-of-death handle by which a peer confirms its liveness, and a marker distinguishing a
   meta-tower from an ordinary tower (`fleet-tower-marker.sh`) — to a shared presence surface on which
   concurrent towers land distinct files by construction (one file per tower, never a single hand-edited
-  registry file). Each record SHALL be written **atomically** (write-to-temp-then-rename) so a
-  concurrent reader never observes a torn or partially-written record.
+  registry file). The **repository identity SHALL be derived from an origin-anchored signal** (a
+  normalized `origin` remote URL, or an equivalent repository fingerprint) that is **identical across
+  separate clones of the same repository**, and SHALL NOT be the local checkout path — otherwise two
+  peer clones would compute different repository identities, fail to recognize each other as peers, and
+  silently defeat cross-clone coordination (the whole point of the machine-local shared surface). Each
+  record SHALL be written **atomically** (write-to-temp-then-rename) so a concurrent reader never
+  observes a torn or partially-written record.
   *(Cites: D-2.)*
 - **REQ-A1.3** A stale or dead tower's presence record SHALL be reclaimable only on positive
   evidence of death (the existing `fleet-death-evidence` predicate), never on model judgment, a bare
@@ -167,34 +172,50 @@ marking, or the tower non-authoring boundary.
 
 - **REQ-C1.1** Before dispatching a unit, a tower SHALL claim that unit on the shared machine-local
   surface peer towers read, and SHALL NOT dispatch a unit a live peer tower already holds, so no unit
-  is dispatched by more than one tower. The claim SHALL be taken by an **atomic exclusive-create** of a
-  unit-keyed claim object on that surface (the same `mkdir`-atomicity primitive
-  `orchestration-concurrency`'s advisory lock is built on): the create itself is the serializer — the
-  first tower's create succeeds and the tower holds the unit, a losing tower's create fails, whereupon
-  it reads the existing claim and skips. Because the surface is machine-local and shared by all
-  co-located clones, this serializes peer towers **across separate per-tower checkouts**, where the
-  checkout-local per-spec advisory lock cannot (that lock fences intra-clone ledger writes only, not
-  cross-clone claim selection).
+  is dispatched by more than one tower. The claim SHALL be taken by an **atomic, exclusive
+  create-with-content** of a unit-keyed claim object on that surface: the claim object SHALL appear
+  complete (carrying its owner identity and death handle, REQ-C1.2) in a single indivisible step, and
+  the create SHALL fail if the unit-keyed object already exists — so the create itself is the serializer
+  (the first tower's create succeeds and holds the unit; a losing tower's create fails, whereupon it
+  reads the existing claim and skips), and no reader ever observes a claim lacking its contents. A bare
+  `mkdir` provides the exclusivity but leaves a crash window in which the claim exists empty (REQ-A1.6
+  would then fail it closed and strand the unit), and a plain temp-then-rename provides the atomic
+  content but not the exclusivity (rename overwrites); the primitive SHALL provide both (e.g. a hardlink
+  of a fully-written temp into the unit-keyed name, which fails if the name exists yet is complete the
+  instant it appears). Because the surface is machine-local and shared by all co-located clones, this
+  serializes peer towers **across separate per-tower checkouts**, where the checkout-local per-spec
+  advisory lock cannot (that lock fences intra-clone ledger writes only, not cross-clone claim
+  selection).
   *(Cites: D-4, D-5.)*
 - **REQ-C1.2** A work-claim SHALL be a **unit-keyed** object (keyed by the unit's stable id under the
   repository scope), contended by construction so exactly one tower can hold a given unit — the inverse
   of the presence surface's distinct-per-writer discipline, which exists so tower records never collide.
-  Claiming SHALL never directly mutate a peer tower's or a worker's branch state; a tower coordinates
-  only by creating, reading, and (on positive death evidence) removing claim objects on the shared
-  surface.
+  Each claim object SHALL carry, as part of its atomic create-with-content (REQ-C1.1), the claiming
+  tower's identity and a **self-contained positive-evidence-of-death handle**, so a peer can evaluate the
+  claimant's liveness from the claim alone — independent of the claimant's presence record, which
+  presence GC may have already deleted. Claiming SHALL never directly mutate a peer tower's or a worker's
+  branch state; a tower coordinates only by creating, reading, and (on positive death evidence) removing
+  or atomically renaming claim objects on the shared surface.
   *(Cites: D-4, D-5; the division-of-labor "directly" boundary (Sources).)*
 - **REQ-C1.3** A live peer claim SHALL be honored; a claim SHALL be reclaimable only on **positive
   evidence of death** of the claiming tower (the `fleet-death-evidence` predicate), never on a bare
   timeout, a stale heartbeat alone, or an "unknown" liveness result — an unknown or errored death
   result SHALL be treated as not-dead (fail closed: never reclaim on a guess). Reclaim SHALL be
-  serialized: a reclaiming tower removes the dead claim and re-takes it by the same atomic
-  exclusive-create, so two towers reclaiming one unit resolve to a single holder rather than
-  double-dispatching. Before re-dispatching a reclaimed unit, a tower SHALL confirm no live downstream
-  dispatch artifact for that unit exists (a branch or open PR, per `orchestration-concurrency`'s
-  branch-as-fence), so a dead tower whose worker outlived it is not re-dispatched into duplicate work.
-  A live-but-hung tower's claim is honored and SHALL NOT be auto-reclaimed (it is not dead); recovering
-  such a unit is an operator-intervention case, not an automatic one — so a *crashed* tower never
-  strands a unit, while a *live* tower is never preempted on a guess.
+  **serialized by an atomic rename**, not by a delete-then-recreate: a reclaiming tower first atomically
+  renames the dead claim aside to a reclaimer-owned name (e.g. `claims/<unit>` →
+  `claims/.reclaiming-<unit>-<reclaimer-id>`), which by the atomicity of `rename(2)` exactly one
+  concurrent reclaimer can perform — the source vanishes after the first rename, so every other
+  reclaimer's rename fails and it re-reads rather than proceeding. Only the rename winner then confirms
+  the claimant's death (below) and, on confirmation, deletes the renamed-aside object and takes the unit
+  by the normal atomic create-with-content (REQ-C1.1). A delete-then-recreate reclaim is forbidden: it
+  leaves a window in which a second reclaimer's delete removes a first reclaimer's freshly created claim,
+  reintroducing double-dispatch. Before re-dispatching a reclaimed unit, the reclaim winner SHALL confirm
+  no live downstream dispatch artifact for that unit exists (a branch or open PR, per
+  `orchestration-concurrency`'s branch-as-fence), so a dead tower whose worker outlived it is not
+  re-dispatched into duplicate work. A live-but-hung tower's claim is honored and SHALL NOT be
+  auto-reclaimed (it is not dead); recovering such a unit is an operator-intervention case, not an
+  automatic one — so a *crashed* tower never strands a unit, while a *live* tower is never preempted on
+  a guess.
   *(Cites: D-5; the positive-evidence-of-death floor (Sources).)*
 - **REQ-C1.4** Where a meta-tower ("tower of towers") is present, work division SHALL reuse its
   cross-spec selection under the fleet bound; the peer work-claim mechanism SHALL compose with, and
@@ -205,9 +226,13 @@ marking, or the tower non-authoring boundary.
   *(Cites: D-4; orchestration-fleet (Sources).)*
 - **REQ-C1.5** A tower SHALL release its claim on a unit when the unit is handed off (its worker is
   dispatched and its branch/PR exists, so the branch-as-fence takes over) or immediately on a dispatch
-  failure, and dead-tower claims SHALL be garbage-collected on discovery along the reclaim path, so
-  claims do not outlive their coordination need and the claims surface does not grow unbounded. A
-  dispatch failure SHALL NOT leave a live-tower claim stranding the unit.
+  failure, so claims do not outlive their coordination need and a dispatch failure never leaves a
+  live-tower claim stranding the unit. Independently, **dead-tower claims SHALL be garbage-collected
+  during discovery** — any claim whose owning tower is positively dead is removed when the surface is
+  scanned, symmetric with the presence-file GC (REQ-A1.3) — not only along the reclaim path of a unit a
+  peer happens to re-select. A claim left by a tower that died after dispatch (whose worker may already
+  have completed the unit, so no peer ever re-selects it) is therefore reclaimed by the discovery sweep
+  rather than leaking on the surface forever.
   *(Cites: D-5.)*
 
 ## REQ-D — Carried floors, boundaries & hygiene
@@ -234,12 +259,14 @@ marking, or the tower non-authoring boundary.
   *(Cites: D-6; security-posture, inter-orchestrator-coordination security bounds (Sources).)*
 - **REQ-D1.5** The coordination scripts (presence publish/discover, claim take/reclaim/release) SHALL
   meet planwright's framework-script security bars, since they parse records other sessions write to a
-  shared surface: (a) **every parsed identifier** — the tower identity, the repository identity, the
-  unit id, the spec id — SHALL be grammar-validated against its declared pattern before any use, never
-  only the tower-identity token; (b) **path access SHALL be canonicalized and containment-checked**
-  before any read, write, or unlink — the surface directory, each record path, and in particular the
-  claim object a reclaim path removes SHALL be confirmed to resolve inside the surface, so a crafted
-  unit/tower id can never drive a delete or write outside it; (c) untrusted record fields echoed to a
+  shared surface: (a) **every parsed field consumed by the coordination logic** — the tower identity,
+  the repository identity, the unit id, the spec id, **and the positive-evidence-of-death handle**
+  (which is read from an untrusted peer record and passed to `fleet-death-evidence.sh`) — SHALL be
+  grammar-validated against its declared pattern before any use, never only the tower-identity token;
+  (b) **path access SHALL be canonicalized and containment-checked**
+  before any read, write, rename, or unlink — the surface directory, each record path, and in particular
+  the claim object a reclaim path renames aside and then removes SHALL be confirmed to resolve inside the
+  surface, so a crafted unit/tower id can never drive a rename, delete, or write outside it; (c) untrusted record fields echoed to a
   terminal or log SHALL pass the echo-discipline sanitizer (`scripts/echo-safety.sh`,
   `sanitize_printable`), so an embedded escape sequence in a peer record cannot drive the terminal.
   These are the enforcement of the same-operator trust model at the script boundary, complementing the
@@ -273,13 +300,13 @@ marking, or the tower non-authoring boundary.
   §8 and the recorded observation); the bundle stays Draft, no Draft→Ready flip.
 - 2026-07-20 — `/spec-draft` rework (in place, Draft) closing the kickoff §8 backlog (`obs:3ecf4293`).
   **Keystone (operator decision, 2026-07-20):** the claim TOCTOU is closed by making the claim itself
-  the serializer — an atomic exclusive-create (`mkdir`) of a unit-keyed claim object on the shared
-  machine-local surface — rather than by the checkout-local per-spec lock, which cannot serialize
-  separate-clone peers. This reverses the walkthrough's in-lock-ordering edit (S3) and its
-  distinct-per-writer-for-claims premise: claims are now unit-keyed and contended-by-construction
-  (REQ-C1.1, REQ-C1.2, D-5); the atomic re-create also serializes concurrent reclaimers (REQ-C1.3) and
-  the presence/claim collision-semantics split (distinct-per-writer vs unit-keyed) gives the two
-  surfaces a natural discriminator. Doctrine-resolved gaps folded in: claim lifecycle — release on
+  the serializer — an atomic, exclusive create of a unit-keyed claim object on the shared machine-local
+  surface — rather than by the checkout-local per-spec lock, which cannot serialize separate-clone peers.
+  (The exact create/reclaim primitives were hardened in the panel-review pass below.) This reverses the
+  walkthrough's in-lock-ordering edit (S3) and its distinct-per-writer-for-claims premise: claims are now
+  unit-keyed and contended-by-construction (REQ-C1.1, REQ-C1.2, D-5), and the presence/claim
+  collision-semantics split (distinct-per-writer vs unit-keyed) gives the two surfaces a natural
+  discriminator. Doctrine-resolved gaps folded in: claim lifecycle — release on
   handoff/dispatch-failure, dead-claim GC, reclaim gated on no-live-branch/PR downstream artifact so a
   dead tower's surviving worker is not double-dispatched, a self-contained death handle in each record,
   and a live-but-hung tower honored not auto-reclaimed (REQ-C1.3, REQ-C1.5, D-5, D-7); repository
@@ -290,6 +317,22 @@ marking, or the tower non-authoring boundary.
   and the framework-script security bars — echo-discipline, all-identifier grammar validation, path
   canonicalization + containment on record and reclaim-unlink paths, and the checkout-path
   no-leak rule (REQ-D1.4, REQ-D1.5). The bundle stays Draft; re-run `/spec-kickoff` for sign-off.
+- 2026-07-20 — `/panel-review --nested` (gemini backend) hardening pass over the atomic-claim rework.
+  The independent-model pass found the claim primitive was locality-correct but not fully atomic, and
+  six confirmed design gaps were folded in: (G5, critical) reclaim was delete-then-recreate, which
+  double-dispatches when concurrent reclaimers race — replaced with an **atomic rename-aside** so
+  exactly one reclaimer wins (REQ-C1.3, D-5, D-7); (G3) a bare-`mkdir` claim left a crash window in
+  which the claim exists without its death handle and strands the unit — replaced with an **atomic,
+  exclusive create-with-content** (e.g. hardlink of a populated temp), aligning the claim write with the
+  presence record's atomic-write discipline (REQ-C1.1, REQ-C1.2, D-5); (G4) dead claims were GC'd only
+  along the reclaim path, leaking a completed-unit claim forever — now GC'd during **discovery**,
+  symmetric with presence GC (REQ-C1.5, D-7); (G10) the death handle, read from an untrusted peer record
+  and passed to a script, was not grammar-validated — added to REQ-D1.5's validated-field list; (S-A,
+  self-critique) the **repository identity** was underspecified and, if keyed off the checkout path,
+  would give separate clones different ids and silently defeat cross-clone peering — pinned to an
+  origin-anchored signal identical across clones (REQ-A1.2, D-2); (G8) added the
+  atomic-create-with-content and rename-aside-reclaim test coverage (test-spec REQ-C1.1, REQ-C1.3).
+  Bundle stays Draft; re-run `/spec-kickoff` for sign-off.
 
 ## Sources
 
@@ -311,8 +354,9 @@ marking, or the tower non-authoring boundary.
   **branch-as-fence** dispatch discipline (a live branch / open PR for a unit is the durable evidence
   the unit is already in flight — reused by the reclaim guard, REQ-C1.3), and the no-remote fallback.
   Consumed here as an authoritative contract; this bundle is the awareness/coordination layer strictly
-  above it. The claim mechanism (D-5) reuses the same `mkdir`-atomicity primitive at the correct
-  (machine-local) locality.
+  above it. The claim mechanism (D-5) reuses the same class of atomic filesystem primitive (an atomic,
+  exclusive create-with-content, plus an atomic rename for reclaim) at the correct (machine-local)
+  locality.
 - **orchestration-fleet** (Done) — the scaling/resilience/UX sibling: the backend capability contract,
   the meta-tower ("tower of towers") cross-spec selection, the division-of-labor model, and the
   attributed non-impersonating relay (REQ-D1.2, REQ-D1.3, REQ-D1.7). Reused, not re-implemented.

@@ -34,7 +34,10 @@ spec(s), start time, heartbeat, death handle, meta-tower marker) as a single fil
 directory, and that two concurrent writers land two distinct files with no shared-registry write path
 invoked (grep-level assertion that no single-registry-file edit exists on the publish path). Asserts the
 write is **atomic** (write-temp-then-rename): a concurrent reader observes either the old record or the
-complete new one, never a torn/partial record.
+complete new one, never a torn/partial record. Asserts the **repository id is origin-anchored**: two
+records produced from **separate clones of the same repo** (same `origin`, different checkout paths)
+carry the **same** repo id and therefore discover each other as peers, while the derivation is shown
+**not** to be the checkout path (which would split genuine peers).
 
 ### REQ-A1.3 — Reclaim on positive death evidence only, tri-state, no LLM [test]
 
@@ -110,16 +113,20 @@ failure fails closed (the tower surfaces the failure and does not proceed on a s
 
 ## REQ-C — Work division across peer towers
 
-### REQ-C1.1 — Atomic claim serializes before dispatch, no double-dispatch [test]
+### REQ-C1.1 — Atomic create-with-content serializes before dispatch, no empty-claim window [test]
 
 A two-tower fixture asserts tower B, selecting work, skips a unit tower A holds a live claim for, so the
 unit is never dispatched twice; and that a tower takes its claim before the dispatch step, not after. A
-concurrency fixture asserts the serializer is the **atomic exclusive-create** (`mkdir`) of the unit-keyed
-claim object on the machine-local surface: two towers racing to claim one unit resolve to a single holder
-— exactly one create succeeds, the loser's create fails atomically and it reads the existing claim rather
-than writing a second one. The fixture exercises the **separate-clone** case (two surfaces that are the
-same machine-local directory, distinct checkout paths) to assert serialization holds where the
-checkout-local per-spec lock cannot.
+concurrency fixture asserts the serializer is the **atomic, exclusive create-with-content** of the
+unit-keyed claim object on the machine-local surface: two towers racing to claim one unit resolve to a
+single holder — exactly one create succeeds, the loser's create fails atomically and it reads the
+existing claim rather than writing a second one. The fixture exercises the **separate-clone** case (two
+surfaces that are the same machine-local directory, distinct checkout paths) to assert serialization
+holds where the checkout-local per-spec lock cannot. Atomicity-with-content is asserted directly: a
+reader never observes a claim object lacking its owner identity + death handle (no bare-`mkdir`
+empty-claim window — a tower interrupted before its claim is complete leaves no half-claim that would
+strand the unit under REQ-A1.6), and a plain temp-then-rename is shown insufficient (it would overwrite
+a peer's claim, losing exclusivity).
 
 ### REQ-C1.2 — Claim is unit-keyed and contended, no direct peer mutation [test]
 
@@ -135,11 +142,13 @@ Fixtures: a live claiming tower's claim is honored (a peer skips the unit), **in
 tower's** (it is not dead, so its claim is never auto-reclaimed); a claim whose tower is positively dead
 per `fleet-death-evidence.sh` is reclaimable (a peer may take the unit); a claim whose tower is
 stale-by-timeout, or whose death predicate returns **unknown/errored**, is **not** reclaimable (no
-reclaim on a guess); two towers reclaiming one positively-dead claim resolve to a **single** holder (the
-re-create serializes concurrent reclaimers — no double-dispatch on reclaim); and a reclaim whose unit has
-a **live downstream artifact** (a branch / open PR) does **not** re-dispatch (the branch-as-fence guard,
-so a dead tower's surviving worker is not doubled). So a crashed tower never strands a unit and a live one
-is never preempted on a guess.
+reclaim on a guess); two towers reclaiming one positively-dead claim resolve to a **single** holder via
+the **atomic rename-aside** (exactly one reclaimer's `rename` of the dead claim succeeds, the other
+re-reads — no double-dispatch on reclaim), and a naive **delete-then-recreate** reclaim is shown to
+double-dispatch under the same race and is therefore not used; and a reclaim whose unit has a **live
+downstream artifact** (a branch / open PR) does **not** re-dispatch (the branch-as-fence guard, so a dead
+tower's surviving worker is not doubled). So a crashed tower never strands a unit and a live one is never
+preempted on a guess.
 
 ### REQ-C1.4 — Composes with meta-tower selection [test + design-level]
 
@@ -154,7 +163,9 @@ claim does not double-assign; the meta-tower is distinguished on the presence su
 Fixtures: a claim is **released** once the unit is handed off (its worker is dispatched and a branch/PR
 exists, so the branch-as-fence takes over) and **immediately** on a dispatch failure (a failed dispatch
 strands nothing — no live-tower claim is left blocking the unit); and a positively-dead tower's claim is
-**garbage-collected** on discovery along the reclaim path, so the claims surface does not grow unbounded.
+**garbage-collected during discovery** — including a claim on an already-completed unit that no peer ever
+re-selects (asserting the sweep is not gated on re-selection), symmetric with presence-file GC — so the
+claims surface does not grow unbounded.
 
 ## REQ-D — Carried floors, boundaries & hygiene
 
@@ -190,10 +201,12 @@ out of scope (a co-tenant threat), so no cryptographic spoof-proofing is require
 
 ### REQ-D1.5 — Framework-script security bars on the coordination scripts [test]
 
-`[test]`: **every** parsed identifier — tower id, repository id, unit id, spec id — is refused when it
-violates its declared grammar (not only the tower token), asserted per identifier; a crafted record path
-or reclaim-unlink target that would resolve **outside** the surface is refused (canonicalized +
-containment-checked before any read / write / `rm`); an embedded non-printable / escape sequence in a
+`[test]`: **every** parsed field consumed by the coordination logic — tower id, repository id, unit id,
+spec id, **and the death handle** (read from an untrusted peer record and passed to
+`fleet-death-evidence.sh`) — is refused when it violates its declared grammar (not only the tower token),
+asserted per field; a crafted record path
+or reclaim rename/unlink target that would resolve **outside** the surface is refused (canonicalized +
+containment-checked before any read / write / `mv` / `rm`); an embedded non-printable / escape sequence in a
 record field is stripped before it is echoed to a terminal or log (`scripts/echo-safety.sh`,
 `sanitize_printable`); and the surface directory is created / verified `0700` (user-private). Together
 these are the script-boundary enforcement of the same-operator single-host trust model.

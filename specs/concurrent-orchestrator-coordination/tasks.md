@@ -99,31 +99,41 @@ parallel after Task 1.
 
 - **Deliverables:** A work-claim mechanism keyed by unit id under the repository scope on Task 2's
   machine-local surface (`<surface>/<repo-id>/claims/<unit-id>`): a tower claims a unit before dispatch by
-  an **atomic exclusive-create** (`mkdir`) of that unit-keyed claim object — the create is the serializer,
-  so a losing tower's create fails atomically and it reads the existing claim and skips (no double-dispatch
-  across separate clones, where the checkout-local per-spec lock cannot serialize). Each claim object
-  records the claiming tower's identity and its self-contained positive-evidence-of-death handle. A
-  selection guard skips any unit with a live claim. **Reclaim** removes a positively-dead tower's claim and
-  re-takes it by the same atomic create (serializing concurrent reclaimers), gated on the tri-state death
-  predicate (only positively-dead; unknown treated as not-dead) **and** on confirming no live downstream
-  dispatch artifact (branch / open PR, the branch-as-fence) exists for the unit, so a dead tower whose
-  worker outlived it is not re-dispatched. **Lifecycle:** the tower releases its claim on handoff (worker
-  dispatched / branch exists) and immediately on dispatch failure, and dead-tower claims are GC'd on
-  discovery — no held critical section around the death check (the create returns immediately; liveness /
-  artifact checks run after). All record and reclaim-unlink paths are canonicalized and containment-checked
-  to the surface before any create or `rm`. The mechanism composes with `orchestration-fleet`'s meta-tower
-  selection where a meta-tower is present (distinguished by the presence-schema marker).
+  an **atomic, exclusive create-with-content** of that unit-keyed claim object — exclusive (fails if the
+  name exists) *and* complete the instant it appears (carrying the owner identity + death handle), e.g. a
+  hardlink of a fully-written temp into the unit-keyed name; NOT a bare `mkdir` (which leaves an
+  empty-claim crash window) and NOT a plain temp-then-rename (which overwrites, losing exclusivity). The
+  create is the serializer, so a losing tower's create fails atomically and it reads the existing claim
+  and skips (no double-dispatch across separate clones, where the checkout-local per-spec lock cannot
+  serialize). A selection guard skips any unit with a live claim. **Reclaim** is serialized by an
+  **atomic rename-aside** (`claims/<unit>` → `claims/.reclaiming-<unit>-<id>`; by `rename(2)`'s atomicity
+  exactly one concurrent reclaimer wins, the rest re-read), NOT a delete-then-recreate (which
+  double-dispatches when two reclaimers race); the rename winner confirms the tri-state death predicate
+  (only positively-dead; unknown treated as not-dead) **and** that no live downstream dispatch artifact
+  (branch / open PR, the branch-as-fence) exists for the unit, so a dead tower whose worker outlived it is
+  not re-dispatched, then takes the unit by the normal create-with-content. **Lifecycle:** the tower
+  releases its claim on handoff (worker dispatched / branch exists) and immediately on dispatch failure,
+  and dead-tower claims are GC'd **during discovery** (any positively-dead owner's claim, symmetric with
+  presence GC), not only along the reclaim path — no held critical section around the death check (the
+  atomic step returns immediately; liveness / artifact checks run after). All record, rename, and unlink
+  paths are canonicalized and containment-checked to the surface before any create, `mv`, or `rm`. The
+  mechanism composes with `orchestration-fleet`'s meta-tower selection where a meta-tower is present
+  (distinguished by the presence-schema marker).
 - **Done when:** a two-tower fixture shows two towers racing to claim one unit resolve to a single holder
-  via the atomic create (the loser reads the winner's claim and skips — no double-dispatch), including
-  across separate-clone surfaces; two towers reclaiming one positively-dead claim likewise resolve to a
-  single holder (concurrent reclaimers serialized by the re-create); a live claim (including a live-but-hung
-  tower's) is honored and never auto-reclaimed, a positively-dead tower's claim is reclaimable, and an
-  unknown/errored death result is treated as not-dead (no reclaim on a guess); a reclaim whose unit has a
-  live branch/PR does **not** re-dispatch (downstream-artifact guard); a claim is released on handoff and
-  on dispatch failure (a failed dispatch strands nothing) and dead claims are GC'd; a crafted unit/tower id
-  cannot drive a create or unlink outside the surface (containment asserted); reclaim invokes no LLM; the
-  mechanism creates/reads/removes only claim objects and never mutates a peer's or worker's branch state;
-  the meta-tower-present path defers to meta-tower selection (asserted or documented-and-delegated); the
+  via the atomic create-with-content (the loser reads the winner's claim and skips — no double-dispatch),
+  including across separate-clone surfaces; a claim is never observed lacking its death handle (the create
+  is atomic-with-content — no empty-claim window), and a bare-`mkdir` or plain-rename primitive is shown
+  insufficient / not used; two towers reclaiming one positively-dead claim resolve to a single holder via
+  the **atomic rename-aside** (exactly one rename wins; a delete-then-recreate reclaim is shown to
+  double-dispatch and is not used); a live claim (including a live-but-hung tower's) is honored and never
+  auto-reclaimed, a positively-dead tower's claim is reclaimable, and an unknown/errored death result is
+  treated as not-dead (no reclaim on a guess); a reclaim whose unit has a live branch/PR does **not**
+  re-dispatch (downstream-artifact guard); a claim is released on handoff and on dispatch failure (a failed
+  dispatch strands nothing), and a dead tower's claim on an already-completed unit is swept by the
+  **discovery GC** (not left to leak); a crafted unit/tower id cannot drive a create, rename, or unlink
+  outside the surface (containment asserted); reclaim invokes no LLM; the mechanism creates / reads /
+  renames / removes only claim objects and never mutates a peer's or worker's branch state; the
+  meta-tower-present path defers to meta-tower selection (asserted or documented-and-delegated); the
   validator and CI pass.
 - **Dependencies:** 2
 - **Citations:** D-4, D-5, D-7 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5, REQ-D1.5
