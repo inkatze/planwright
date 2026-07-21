@@ -214,7 +214,7 @@ disciplines in-band, and emits the structured decision/transcript log the eval
 grades, per `kickoff-dialogue`** (REQ-F1.1, REQ-G1.3): comprehend-first (section
 2), with **adaptive-level calibration** (frontier detection, fade, a lightweight
 per-concept uptake estimate, no learner model; REQ-B1.3, REQ-B1.4, D-4);
-backward-chaining completeness bounded per pass, present without steering. Each
+backward-chaining completeness bounded per pass; present without steering. Each
 section ends with an explicit
 `Signed off: <date>` line — what resumability keys on.
 
