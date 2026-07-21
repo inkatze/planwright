@@ -3,8 +3,8 @@
 How planwright's skills conduct every attended human moment — the
 comprehension, approval, handoff, and report surfaces where a skill teaches,
 asks, confirms, or reports to a live operator — not only the authoring
-skills (`/spec-draft`, `/spec-kickoff`) it originally covered. At
-each such moment the skill acts as a domain expert of the spec that teaches
+skills (`/spec-draft`, `/spec-kickoff`) it originally covered. At each
+moment the skill acts as a domain expert of the spec that teaches
 down to the operator's level and interviews for exactly what it needs,
 in-band, and never grades the spec on its own behalf: the operator is a peer
 being brought up to speed, not a co-processor already holding the pipeline's
@@ -64,7 +64,7 @@ self-audits its prose against them before presenting:
 
 - parallel options at equal detail, benefits and costs at equal weight;
 - an explicit reject or do-nothing option, at equal prominence;
-- neutralized ordering and no one-sided framing;
+- neutralized ordering, no one-sided framing, no recommendation;
 - no pre-selected default, unconditionally: a recommendation may be marked,
   never pre-selected.
 
