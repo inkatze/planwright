@@ -12,7 +12,7 @@ full instantiation stays authoritative in one place.
 
 Citations: operator-dialogue REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.2,
 REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1, REQ-F1.2, REQ-F1.3,
-REQ-G1.3 · operator-dialogue D-2, D-3, D-5, D-9, D-10.
+REQ-G1.3, REQ-G1.6, REQ-H1.3 · operator-dialogue D-2, D-3, D-5, D-6, D-9, D-10.
 
 ## Comprehend before interviewing (teach to the frontier, D-2)
 
