@@ -105,7 +105,12 @@ fi
 # parsed from the input is interpolated, so the output is safe to echo raw.
 violations="$(printf '%s' "$doc" | jq -r '
   def norm($s): ($s // "") | ascii_downcase | gsub("^[[:space:]]+|[[:space:]]+$"; "");
-  def blank($s): (($s // "") | tostring | gsub("[[:space:]]"; "") | length) == 0;
+  # A field is blank when it is absent, non-string, or whitespace-only. The
+  # non-string arm matters because jq `// ""` only substitutes null/false, so a
+  # truthy non-string (true, a number, an array) would otherwise stringify and
+  # pass as a "restatement" that carries no text — the same string type-guard
+  # the question stem already carries, applied to the option fields (REQ-E1.1).
+  def blank($s): ($s | type) != "string" or (($s | gsub("[[:space:]]"; "") | length) == 0);
   def banned_labels: ["ok", "yes", "no", "y", "n", "approve", "confirm", "proceed"];
   def banned_stems:  ["approve?", "approve", "ok?", "ok", "confirm?", "confirm",
                       "proceed?", "proceed", "continue?", "continue",

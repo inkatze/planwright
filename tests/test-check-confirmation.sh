@@ -302,6 +302,42 @@ case "$out" in
   *) echo "ok: no raw escape byte in the output (echo discipline)" ;;
 esac
 
+# 14. `selected: true` is treated as a pre-selected default too (the third
+#     default-marker alias alongside `default` and `preselected`, REQ-E1.2).
+cat >"$tmp/selected.json" <<'EOF'
+{
+  "question": "Sign off the kickoff brief and flip the spec to Ready?",
+  "options": [
+    { "label": "Sign off and open the draft PR",
+      "description": "Records the sign-off.", "selected": true },
+    { "label": "Hold as Draft, do not sign off",
+      "description": "Leaves the spec at Draft.", "reject": true }
+  ]
+}
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/selected.json" 2>&1)"
+assert "selected flag fails" 1 $?
+assert_contains "names DEFAULT_PRESELECTED for selected" "DEFAULT_PRESELECTED" "$out"
+
+# 15. A non-string description (a boolean, number, or array) is NOT a self-
+#     contained restatement; it must fire NO_CONSEQUENCE exactly as an absent
+#     one does (REQ-E1.1). jq's `// ""` only replaces null/false, so a truthy
+#     non-string would otherwise stringify and slip past the check — the same
+#     string type-guard the stem carries must cover the option fields.
+for bad in 'true' '123' '[]' '{"note":"x"}'; do
+  printf '{"question":"Sign off the brief and flip the spec to Ready now?","options":[{"label":"Sign off and open the PR","description":%s},{"label":"Hold as Draft","description":"Leaves the spec at Draft.","reject":true}]}' "$bad" >"$tmp/nonstring-desc.json"
+  out="$(/bin/bash "$CHECKER" "$tmp/nonstring-desc.json" 2>&1)"
+  assert "non-string description ($bad) fails" 1 $?
+  assert_contains "non-string description ($bad) names NO_CONSEQUENCE" "NO_CONSEQUENCE" "$out"
+done
+
+# 16. A non-string label is likewise not a valid action name; it must fire
+#     NO_LABEL (REQ-E1.3), symmetric with the description guard above.
+printf '{"question":"Sign off the brief and flip the spec to Ready now?","options":[{"label":true,"description":"Records the sign-off and opens the PR."},{"label":"Hold as Draft","description":"Leaves the spec at Draft.","reject":true}]}' >"$tmp/nonstring-label.json"
+out="$(/bin/bash "$CHECKER" "$tmp/nonstring-label.json" 2>&1)"
+assert "non-string label fails" 1 $?
+assert_contains "non-string label names NO_LABEL" "NO_LABEL" "$out"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
