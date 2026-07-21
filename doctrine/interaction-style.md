@@ -89,8 +89,8 @@ fourth peer.
 
 Every interaction names where the session stands: the current phase and the
 total, plus the step within it when phases are long (for example
-`[Requirements 3/6 — group B of D]`). The human never has to ask "how much is
-left?". When a phase's length is unknowable up front (elicitation can
+`[Requirements 3/6 — group B of D]`). The operator never has to ask "how much
+is left?". When a phase's length is unknowable up front (elicitation can
 grow), say so and give the count of what is known.
 
 ### Progressive disclosure
@@ -98,7 +98,7 @@ grow), say so and give the count of what is known.
 Present one layer of detail at a time. Open with the shape of a decision (what
 is being decided and why it matters), then reveal alternatives, then details
 of the selected path. Never paste a wall of everything-at-once; never bury a
-decision in an information dump. Background the human did not ask for is
+decision in an information dump. Background the operator did not ask for is
 one sentence plus an offer to expand.
 
 ### Selectors with recommendations
@@ -108,14 +108,15 @@ alternatives (the actual branches of the decision), not timing labels. A
 recommendation passes the grounding test before it is marked: grounded, the
 recommended option comes first, marked, with its reason in one or two
 sentences; otherwise the options are presented level, per the balance rules.
-No option is ever pre-selected. The human can always answer outside the
-offered set; the selector is a scaffold, not a fence. Decisions the agent can
+No option is ever pre-selected. The operator can always answer outside the
+offered set; the selector is a scaffold, not a fence. Decisions the skill can
 resolve from recorded answers, the seed material, or framework
 doctrine are resolved and reported, not asked.
 
 **Self-contained.** The selector prompt carries everything needed to answer
 it. In a terminal the open selector hides the prose emitted before it, so the
-human answering sees only the question, the options, and their previews. Never
+operator answering sees only the question, the options, and their previews.
+Never
 assume they can read what came earlier, and never tell them to scroll up.
 Restate the decision and its load-bearing context in the question text; put
 each option's consequence in that option's description; put comparative or long
@@ -127,8 +128,8 @@ prose is a short status line only, never the place a load-bearing detail lives.
 After each phase (and at any natural pause), restate what has been decided so
 far in a compact, cumulative summary: decisions taken, their one-line
 rationale, and what remains open. The summary is the checkpoint that the
-agent heard the human; a misunderstanding surfaces at the next summary, not
-at the end of the session.
+skill heard the operator; a misunderstanding surfaces at the next summary,
+not at the end of the session.
 
 ### Small bites
 
