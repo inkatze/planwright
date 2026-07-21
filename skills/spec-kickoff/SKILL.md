@@ -63,9 +63,10 @@ gracefully instead:
   inline summary (progress indicator, small bites, selectors with a
   recommendation, running summary) and note the missing doc.
 - `kickoff-verification` — the kickoff lens/verification mechanics: the mid-walk
-  lens and stale-reference sweep (walkthrough), the sign-off lens-review scope,
-  fan-out, and altitude check (step 1), and the terminal ready-flip CI gate
-  (step 8). Each pass's load-bearing spine stays inline. Absent: run each from
+  lens (walkthrough), the stale-reference sweep and sign-off lens-review scope,
+  fan-out, and altitude check (sign-off), and the terminal ready-flip CI gate
+  (step 8). Each pass's load-bearing spine stays inline.
+  Absent: run each from
   that spine and its halt-if-absent base (`discovery-rigor`, `autopilot-reflex`),
   and skip the ready-flip, leaving the PR draft (fail closed).
 
@@ -292,8 +293,8 @@ most recent anchor entry never describes spec content that was not walked.
    execution-valid anchor: say exactly what is missing, leave the record without
    its anchor line (the freshness gate treats that as absent-anchor and halts
    dispatch — fail closed), and stop. No override.
-3. **Pre-flip verification (REQ-B1.2, REQ-B1.3, D-3, D-4).** When any walkthrough
-   lens pass (mid-walk or terminal) mints or re-scopes a REQ, first run the
+3. **Pre-flip verification (REQ-B1.2, REQ-B1.3, D-3, D-4).** When any lens pass
+   (mid-walk or terminal sign-off) mints or re-scopes a REQ, first run the
    **post-lens stale-reference sweep** over the bundle and earlier brief sections
    before the anchor and before the recorded-claim re-derivation below is
    finalized (`kickoff-verification`, REQ-B1.5, D-6). Then two checks gate the

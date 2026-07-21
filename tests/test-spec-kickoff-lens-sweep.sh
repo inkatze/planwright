@@ -122,8 +122,10 @@ fi
 # Both skill references point at the doctrine doc that carries the mechanics
 # (the Task 6 relocation precedent). The skill must name kickoff-verification at
 # both new passes; it already names it once (the terminal ready-flip gate), so
-# require strictly more than one occurrence.
-kv_count="$(grep -c 'kickoff-verification' "$skill")"
+# require strictly more than one occurrence. Count occurrences (grep -o | wc -l),
+# not matching lines (grep -c): a Markdown reflow that lands two references on
+# one line would make grep -c undercount and falsely fail this guard.
+kv_count="$(grep -o 'kickoff-verification' "$skill" | wc -l | tr -d '[:space:]')"
 if [ "$kv_count" -ge 3 ]; then
   ok "the skill references kickoff-verification at both new passes (count $kv_count >= 3)"
 else

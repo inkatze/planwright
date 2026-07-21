@@ -30,8 +30,8 @@ terminal pass caught it (D-5); the mid-walk pass catches it at application.
 
 ## Post-lens stale-reference sweep (REQ-B1.5, D-6)
 
-After any walkthrough lens pass (mid-walk or terminal sign-off) mints or
-re-scopes a REQ, sweep the bundle and the earlier brief sections for now-stale
+After any lens pass (mid-walk or terminal sign-off) mints or re-scopes a REQ,
+sweep the bundle and the earlier brief sections for now-stale
 references and reconcile them before the anchor is computed. The lens reviews
 the delta, not every earlier section's references to it, so stragglers (three
 from one root cause on a past bundle) otherwise reach the review gauntlet as
