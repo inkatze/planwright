@@ -32,6 +32,12 @@
 #     `commit_on_state_move` to v1;
 #   - /spec-kickoff documents Ready as the v2 header's resting state and reads
 #     derived execution state for delta/amendment mode selection;
+#   - /self-review's no-arg fallback rung resolves candidate specs through the
+#     derived-status render (scripts/spec-status.sh) and accepts Ready or
+#     Active — so a v2 bundle with work in flight (stored Ready, derived
+#     Active) resolves — with the legacy stored `Status: Active` requirements
+#     grep gone and no fall-through to another spec's brief (skill-rigor
+#     Task 3, REQ-A1.1, REQ-A1.2);
 #   - polish-pass guards: the reopen-cycle flip source is version-keyed
 #     (spec-draft), every state-writing skill states D-7's fail-closed rule
 #     for an unparseable Format-version:, the orphan park checks the
