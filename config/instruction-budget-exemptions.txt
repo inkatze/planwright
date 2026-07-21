@@ -43,11 +43,28 @@
 # start-load computable — not here, where no manifest yet existed.
 exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), Task 7 disposition. spec-format.md is the meta-spec: its authorable-from-alone contract requires it to stay self-contained (a compliant four-file bundle is authorable from this doc alone), and at ~5,208 words it sits ~1,208 over the 4,000 per-file error threshold — a gap a compliant trim (only ~99 removable words) cannot close without weakening that contract, so it is exempted rather than trimmed. Aggregate coupling: under the capped-charge law (instruction-headroom D-4) every dependent mandatory-at-start and reachable-closure aggregate charges this doc at min(actual, its per-file error threshold) — the doctrine error knob, 4,000 at the shipped default — not its larger actual, so the overage never cascades and never strands a dependent; the doc's own audit line still prints the honest actual beside the charged threshold value.
 
+# Standing below-target exceptions for /orchestrate (instruction-headroom D-11,
+# REQ-D1.6). fleet-hardening Task 9 (#271) added the observation-carry step to
+# skills/orchestrate/SKILL.md after this spec's restoration campaign brought the
+# body to its 2x target, spending ~163 words of the restored headroom and
+# dropping both the per-file and closure surfaces below their 2x restoration
+# targets. The safety floors stay intact (headroom remains positive: per-file
+# margin 337 >= floor 250, closure margin 1899 >= floor 1000), so this is a
+# below-target shortfall, never a floor-breach. The diet back to target is
+# deferred to fleet-hardening (or a dedicated follow-up) rather than trimming
+# that spec's just-landed doctrine here; these exceptions keep the closing gate
+# honest about the state without silently deferring gating law (the surfaces are
+# named, the cause recorded, and a future diet makes each entry stale and
+# self-reporting).
+declared-exception|skills/orchestrate/SKILL.md|Below the 2x per-file restoration target (margin 337 < target 500) after fleet-hardening Task 9 (#271) grew the /orchestrate body with the observation-carry step; the per-file floor (250) is not breached. Diet back to target deferred to fleet-hardening / a follow-up; do not trim #271's doctrine here.
+declared-exception|closure:orchestrate|Below the 2x closure restoration target (margin 1899 < target 2000) after fleet-hardening Task 9 (#271) grew the /orchestrate body; the closure floor (1000) is not breached. Diet back to target deferred to fleet-hardening / a follow-up.
+
 # The start-load allowances seeded at Task 3 (when manifests first made
 # mandatory-at-start computable, REQ-A1.2, REQ-B1.3b) are all shed: Tasks 5/6
 # removed /orchestrate's and /execute-task's in their own diet PRs, and
 # Task 7.5's point-of-use reclassification of the non-gating doctrine reads
 # brought /spec-kickoff and /spec-draft under the start-load budget, removing
 # the last two. No transitional `pending-diet` allowance remains (the REQ-D1.4
-# closeout direction); the permanent spec-format exemption above is the only
-# live entry.
+# closeout direction); the live entries are the permanent spec-format per-file
+# exemption above and the two /orchestrate below-target declared exceptions
+# (cross-spec headroom collision, fleet-hardening #271).
