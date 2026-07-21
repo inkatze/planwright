@@ -31,6 +31,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 FS="$here/../scripts/fleet-stats.sh"
 FA="$here/../scripts/fleet-audit.sh"
 FT="$here/../scripts/fleet-throttle.sh"
+UGATE="$here/../scripts/fleet-usage-gate.sh"
 
 fail() {
   echo "FAIL: $1" >&2
@@ -40,6 +41,10 @@ fail() {
 [ -x "$FS" ] || fail "scripts/fleet-stats.sh missing or not executable"
 [ -x "$FA" ] || fail "scripts/fleet-audit.sh missing or not executable"
 [ -x "$FT" ] || fail "scripts/fleet-throttle.sh missing or not executable"
+# fleet-stats now folds the usage-gate rung into the throttle channel (Task 9),
+# so fleet-usage-gate.sh is a hard dependency here: fail loudly if it is absent
+# or loses its executable bit rather than silently skipping the folding test.
+[ -x "$UGATE" ] || fail "scripts/fleet-usage-gate.sh missing or not executable"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -151,19 +156,19 @@ echo "ok: throttle stat returns to idle after a live clear"
 #         stat channel (the gate is throttle-family; no new stat type — REQ-E1.6).
 #         Drive the real producer: feed a defer-heavy weekly signal, evaluate to
 #         record the rung transition, then assert the throttle line reflects it.
-UGATE="$here/../scripts/fleet-usage-gate.sh"
-if [ -x "$UGATE" ]; then
-  gate() { PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$UGATE" "$@"; }
-  printf 'Current session\n10%% used\n\nCurrent week (all models)\n88%% used\n' \
-    | gate capture >/dev/null || fail "usage-gate capture failed"
-  gate evaluate >/dev/null || fail "usage-gate evaluate failed"
-  out=$(stats render)
-  case $out in
-    *throttle*usage-gate:*defer-heavy*) ;;
-    *) fail "the throttle stat did not fold in the usage-gate rung (got: $out)" ;;
-  esac
-  echo "ok: the proactive usage-gate rung surfaces through the throttle stat channel"
-fi
+#         fleet-usage-gate.sh is asserted present up top, so this runs
+#         unconditionally — a missing/non-executable gate is a loud failure there,
+#         never a silent skip of this folding assertion.
+gate() { PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$UGATE" "$@"; }
+printf 'Current session\n10%% used\n\nCurrent week (all models)\n88%% used\n' \
+  | gate capture >/dev/null || fail "usage-gate capture failed"
+gate evaluate >/dev/null || fail "usage-gate evaluate failed"
+out=$(stats render)
+case $out in
+  *throttle*usage-gate:*defer-heavy*) ;;
+  *) fail "the throttle stat did not fold in the usage-gate rung (got: $out)" ;;
+esac
+echo "ok: the proactive usage-gate rung surfaces through the throttle stat channel"
 
 # --- 5. THE NO-NEW-SHARED-WRITE-FILE FLOOR (D-13, REQ-F1.1 design-level).
 #        A render must derive on demand and write NOTHING: snapshot the fleet
