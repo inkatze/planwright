@@ -500,13 +500,18 @@ cascade (D-11).
 `scripts/fleet-resource-select.sh select <task-type>` resolves one
 model/effort/command row per task type — `execution` (the `/execute-task`
 workhorse: strong model, high effort), `bookkeeping` (the reconcile/drain
-sweep: mid tier), `drain` (the read-only gate pass: light tier). The model
-column is overlay-tunable per type (`fleet_model_execution`,
-`fleet_model_bookkeeping`, `fleet_model_drain` — the stable Claude Code
-aliases `fable | opus | sonnet | haiku`); effort and command are fixed table
-cells. The selectable command set is disjoint from `review_sequence`'s
-nestable-review-skill set by cross-checked construction (REQ-E1.2), so the
-dispatch table and the convergence knob can never both claim the same skill.
+sweep: mid tier), `drain` (the read-only gate pass: light tier). All three
+columns are overlay-tunable per type (Task 10, REQ-E1.8): the model column
+(`fleet_model_*` — the stable Claude Code aliases `fable | opus | sonnet |
+haiku`), the effort column (`fleet_effort_*` — `low | medium | high`), and the
+command column (`fleet_command_*` — the dispatch-entry set `execute-task |
+orchestrate | drain`). The shipped defaults preserve today's table, so an
+operator who configures nothing gets today's mapping. The selectable command
+set is disjoint from `review_sequence`'s nestable-review-skill set by
+construction — the `fleet_command_*` enum is exactly the non-nestable
+dispatch-entry set, so an out-of-enum command is refused at every overlay layer
+(REQ-E1.2), and the dispatch table and the convergence knob can never both claim
+the same skill.
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
@@ -588,6 +593,50 @@ the live `/usage` TUI) is environment-specific; wire it as, e.g.:
 Then at dispatch time a tower consults `scripts/fleet-usage-gate.sh admit
 <model>` (a fast, audit-derived read — no scrape) to decide whether a unit of a
 given tier may launch under the current rung.
+
+**Transitions do not flap; a lost signal decays, it does not pin.** The rung
+ladder applies **hysteresis** (Task 10, REQ-E1.10): a *climb* (more restrictive)
+is immediate — restriction degrades capability only, so engaging it promptly is
+always safe — but a *descend* (relaxing) is held until the rung has dwelt at
+least `fleet_usage_rung_min_dwell_seconds` since its last transition, so a read
+oscillating across a threshold cannot flap the ladder down-and-up
+(fast-attack/slow-release). While the signal is **unavailable** the ladder
+*holds* its last-known rung (a transient scrape failure must not relax
+restriction), then **decays** to `normal` once `fleet_usage_unavailable_grace_seconds`
+have elapsed since the last transition, so a persistently broken parse never
+pins the fleet at a restrictive rung against a signal it can no longer read (the
+reactive backstop remains the floor). Both windows measure from the
+audit-derived last-transition timestamp (D-28), so a memoryless relaunch is
+consistent, and the decay is edge-triggered and lock-serialized like any
+transition.
+
+**The rung VALUES and per-tier budget caps: `scripts/fleet-allocate.sh`.** The
+gate above decides the *rung*; `fleet-allocate.sh resolve <task-type>
+[--reserved]` decides what that rung *means* for a dispatch (Task 10, REQ-E1.9,
+REQ-E1.10), reading the derived rung and the raw signal and emitting the
+effective `admit / model / effort / command / concurrency / rung / reserved`.
+At `downshift` and heavier it clamps a routine unit's model no more capable than
+`fleet_downshift_model` and effort no higher than `fleet_downshift_effort`; at
+`reduce-concurrency` and heavier it drops the worker limit from
+`fleet_concurrency_normal` to `fleet_concurrency_reduced`. Independently,
+**per-tier budget caps** (`fleet_cap_fable | fleet_cap_opus | fleet_cap_sonnet |
+fleet_cap_haiku`) withdraw expensive tiers from **routine** units sooner: each
+is a global-usage threshold (the more expensive a tier, the lower its threshold,
+`opus < sonnet`), a stateless `≥` read against the more-restrictive available
+window — never per-model accounting or a reservation ledger — and **inactive
+when the signal is unavailable**. A unit dispatched **`--reserved`** (the
+operator's "keep the most capable tier for the genuinely-hardest unit") is
+exempt from `downshift`, `defer-heavy`, and the caps, but still yields at
+`defer-all` and the reactive wall — a preference honored up to the
+fleet-critical rung, not an inviolable floor; the shipped default reserves
+nothing. Every degrade step degrades **capability only** — never below a full
+session-grade worker, never relaxing the determinism floor (REQ-G1.2), never
+engaging `--permission-mode auto` (REQ-E1.4); `fleet-allocate.sh guard <model>
+[<permission-mode>]` is the explicit assertion of those invariants. When the
+operator kill-switch (`fleet_daemon_pause`) is engaged, allocation reverts to the
+un-degraded `normal` policy — the operator has assumed manual control, so the
+ladder stops degrading rather than blocking dispatch. The whole path is
+deterministic script logic with no LLM call.
 
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend

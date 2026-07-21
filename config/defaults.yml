@@ -232,6 +232,22 @@ fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
 fleet_model_drain: sonnet
 
+# Per-task-type reasoning effort and dispatch command (fleet-autonomy Task 10,
+# D-24, REQ-E1.8). Task 7 made only the MODEL column overlay-tunable; Task 10
+# extends the same shared-resolver treatment to effort and command so the whole
+# selection policy is operator-configurable without a code change, shipped
+# defaults preserving today's table (opt-in, default-preserving). Effort is one
+# of (low medium high); command is one of the dispatch-entry set
+# (execute-task orchestrate drain) — that enum is exactly the non-nestable set,
+# so review-sequence disjointness (REQ-E1.2) holds by construction at every
+# overlay layer, not just for these defaults.
+fleet_effort_execution: high
+fleet_effort_bookkeeping: medium
+fleet_effort_drain: low
+fleet_command_execution: execute-task
+fleet_command_bookkeeping: orchestrate
+fleet_command_drain: drain
+
 # The bounded fallback hold, in seconds, when a native rate-limit signal is
 # detected but its reset time cannot be parsed (fleet-autonomy D-12,
 # REQ-E1.3; kickoff risk row 24). The rate-limit prompt is version-sensitive
@@ -282,6 +298,65 @@ fleet_usage_weekly_downshift: 60
 fleet_usage_weekly_reduce_concurrency: 75
 fleet_usage_weekly_defer_heavy: 85
 fleet_usage_weekly_defer_all: 95
+
+# Restriction-ladder hysteresis and unavailable-signal decay (fleet-autonomy
+# Task 10, D-25/D-28; REQ-E1.10). scripts/fleet-usage-gate.sh applies these so
+# the ladder does not flap on a noisy read and does not pin the fleet at a
+# restrictive rung against a signal it can no longer read. Both are positive
+# integers (seconds) resolved through the shared resolver under the REQ-E1.4
+# by-layer malformed policy; both measure from the audit-derived last-transition
+# timestamp (D-28), so a memoryless relaunch computes the same window.
+
+# The minimum dwell before a DESCEND (relaxing) rung transition: a rung is held
+# at least this long after its last transition before it may step down, so a
+# read oscillating across a threshold cannot flap the ladder. A CLIMB
+# (restricting) is always immediate — restriction degrades capability only and
+# never a safety floor, so engaging it promptly is safe.
+fleet_usage_rung_min_dwell_seconds: 300
+
+# The grace window during which the ladder holds its last-known rung while the
+# `/usage` signal is unavailable, before decaying to `normal`. A transient
+# scrape failure must not relax restriction; a persistent one must not pin the
+# fleet at a restrictive rung forever (the reactive backstop remains the floor).
+fleet_usage_unavailable_grace_seconds: 1800
+
+# Budget-aware allocation: the restriction-ladder rung VALUES and per-tier budget
+# caps (fleet-autonomy Task 10, D-24/D-25/D-28; REQ-E1.9, REQ-E1.10).
+# scripts/fleet-allocate.sh reads the current rung (Task 9) and the raw usage
+# signal and applies these to produce the EFFECTIVE model/effort/concurrency a
+# dispatch uses. Every degrade step degrades CAPABILITY only — never below a full
+# session-grade worker, never relaxing the determinism floor (REQ-G1.2), never
+# engaging `--permission-mode auto` (REQ-E1.4). All knobs resolve through the
+# shared resolver under the REQ-E1.4 by-layer malformed policy; the shipped
+# defaults preserve today's behavior at the `normal` rung.
+
+# The downshift-rung tier values: under `downshift` (and every heavier rung) no
+# routine unit runs a model more expensive than `fleet_downshift_model` or an
+# effort higher than `fleet_downshift_effort` (a clamp — a unit already at or
+# below the cap is unchanged). Model is a Claude Code alias (fable opus sonnet
+# haiku); effort is one of (low medium high).
+fleet_downshift_model: sonnet
+fleet_downshift_effort: medium
+
+# The per-rung concurrency limit (max simultaneous workers): the full limit at
+# `normal`/`downshift`, the reduced limit at `reduce-concurrency` and every
+# heavier rung. Positive integers.
+fleet_concurrency_normal: 3
+fleet_concurrency_reduced: 1
+
+# Per-tier budget caps as GLOBAL-USAGE THRESHOLDS (REQ-E1.9): the account-global
+# usage percentage (1-100) at or above which a tier is withdrawn from ROUTINE
+# units (a reserved unit is exempt — REQ-E1.10). The more expensive a tier, the
+# LOWER its threshold, so expensive tiers drop out for routine work before
+# cheaper tiers do (fable < opus < sonnet < haiku). A cap is a stateless
+# threshold read against the shared signal, never per-model accounting or a
+# reservation ledger (E1.5 forbids both); caps are inactive when the signal is
+# unavailable. haiku's 100 means the cheapest tier is effectively never withdrawn
+# (it is the session-grade floor). Validated within 1-100.
+fleet_cap_fable: 55
+fleet_cap_opus: 70
+fleet_cap_sonnet: 90
+fleet_cap_haiku: 100
 
 # Credit-continuation spend policy at the rate-limit wall (fleet-autonomy
 # D-27, REQ-E1.11). When Claude Code's wall offers a credit-continuation
