@@ -522,7 +522,11 @@ record_result() {
     warn "[$2] cannot write artifact to '$record_dir'"
     return 1
   }
-  printf '%s\n' "behavioral-eval: [$1/$2] recorded scrubbed result -> $record_dir/$1.$2.json"
+  # $1/$2 are grammar-validated (fixture id / persona); $record_dir is the
+  # operator's --record argument, so sanitize it before the terminal (echo
+  # discipline) even though printf %s already blocks backslash re-expansion — a
+  # raw control byte would otherwise pass straight through.
+  printf '%s\n' "behavioral-eval: [$1/$2] recorded scrubbed result -> $(sanitize_printable "$record_dir")/$1.$2.json"
   return 0
 }
 
