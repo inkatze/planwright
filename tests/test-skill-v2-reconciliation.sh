@@ -64,7 +64,7 @@ flat() {
   tr '\n' ' ' <"$1" | tr -s ' '
 }
 
-for s in spec-draft execute-task resume orchestrate drain spec-kickoff; do
+for s in spec-draft execute-task resume orchestrate drain spec-kickoff self-review; do
   if [ ! -f "$REPO_ROOT/skills/$s/SKILL.md" ]; then
     echo "FAIL: skills/$s/SKILL.md missing" >&2
     exit 1
@@ -408,6 +408,40 @@ if printf '%s' "$sk" | grep -qE 'rests at Ready[^.]{0,240}(derivation|render)'; 
   ok "spec-kickoff: delta/amendment mode selection reads derived execution state on v2"
 else
   fail "spec-kickoff: mode selection does not read derived execution state on a v2 bundle whose stored header rests at Ready (D-6)"
+fi
+
+# --- /self-review: no-arg fallback resolves via the render (skill-rigor ---
+# --- Task 3; REQ-A1.1, REQ-A1.2, D-2, D-9). The no-arg fallback rung must  ---
+# --- resolve candidate specs through the derived-status render and accept  ---
+# --- Ready or Active — so a format-version-2 bundle with work in flight    ---
+# --- (stored Ready, derived Active) resolves — with the legacy stored      ---
+# --- `Status: Active` requirements grep gone, and must never fall through  ---
+# --- to another spec's brief when the branch-named spec has none.          ---
+
+sr="$(flat "$REPO_ROOT/skills/self-review/SKILL.md")"
+
+if printf '%s' "$sr" | grep -qE 'scripts/spec-status\.sh|mise run status'; then
+  ok "self-review: no-arg fallback resolves through the status render (D-9, REQ-A1.1)"
+else
+  fail "self-review: fallback rung does not name the status render (scripts/spec-status.sh / mise run status) (REQ-A1.1)"
+fi
+
+if printf '%s' "$sr" | grep -qE 'Ready or Active'; then
+  ok "self-review: fallback rung accepts Ready or Active (REQ-A1.1)"
+else
+  fail "self-review: fallback rung does not state Ready-or-Active acceptance (REQ-A1.1)"
+fi
+
+if printf '%s' "$sr" | grep -qE 'Status: Active'; then
+  fail "self-review: fallback rung still greps stored 'Status: Active' (REQ-A1.1: the stored-status grep must be removed)"
+else
+  ok "self-review: no stored 'Status: Active' grep remains in the rung (REQ-A1.1)"
+fi
+
+if printf '%s' "$sr" | grep -qE 'never a fall-through to another spec.s brief'; then
+  ok "self-review: named-spec-without-brief yields brief-absent, no foreign-brief fall-through (REQ-A1.2)"
+else
+  fail "self-review: named-spec-without-brief rule (no fall-through to another spec's brief) missing (REQ-A1.2)"
 fi
 
 if [ "$failures" -gt 0 ]; then

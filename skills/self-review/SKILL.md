@@ -117,11 +117,18 @@ pass summary.
    the parsed `<spec>` segment against the spec-identifier discipline,
    `^[a-z0-9][a-z0-9-]*$` and at most 64 characters per REQ-A1.8, before
    forming the path; a failing segment is treated as no match, never
-   interpolated); otherwise
-   a single Active spec (`specs/*/requirements.md` with `Status: Active`)
-   with a sibling `kickoff-brief.md`; otherwise ask when attended (unattended
-   or dispatched with no unambiguous match: proceed without a brief). With no
-   active brief, the Agent-resolvable bucket is unavailable for this pass
+   interpolated); a branch-named spec whose own `kickoff-brief.md` is absent
+   means the brief is absent for this pass, never a fall-through to another
+   spec's brief. Otherwise resolve through the status render (`mise run status
+   specs/<spec>`, i.e. `scripts/spec-status.sh`; the canonical derived-status
+   read surface, invariant-tasks D-6), accepting a bundle whose derived status
+   is Ready or Active — so a format-version-2 bundle with work in flight
+   (stored Ready, derived Active) resolves, not only a stored-`Active` v1 spec
+   — and taking its sibling `kickoff-brief.md` when exactly one such bundle
+   carries one. A render error, zero candidates, or multiple Ready-or-Active
+   candidates is not an unambiguous match: degrade to the existing arm — ask
+   when attended, proceed brief-less when unattended or dispatched (D-2). With
+   no active brief, the Agent-resolvable bucket is unavailable for this pass
    (its predicate requires brief alignment); record that and proceed with
    the remaining buckets.
 
