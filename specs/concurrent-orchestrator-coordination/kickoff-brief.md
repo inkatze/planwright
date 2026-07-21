@@ -6,6 +6,14 @@
 **Validator outcome (pre-flight):** 0 errors, 0 warnings (clean)
 **Mode:** First activation (Draft, no prior brief)
 
+**Re-kickoff run 2 (2026-07-21).** Spec commit at re-walkthrough start: `e69556e`
+(the `/spec-draft` rework + 3 `/panel-review` iterations that followed run 1's
+halt). Focused re-walk (operator-selected): framing confirmed, reworked
+coordination mechanics walked, full-bundle Discovery-Rigor lens pass re-run.
+**Outcome: HALTED AGAIN (fail closed) — see §8 (run 2).** Sections 2–7 below
+describe the *pre-rework* spec (commit `18e0088`) and are **stale**; they are
+regenerated at the next kickoff after the run-2 rework, not re-signed here.
+
 <!-- Sections 8 (sign-off) and 9 (amendment log) are written by the sign-off flow. -->
 
 ## 2. Goal & glossary
@@ -261,99 +269,171 @@ risk (R1–R9). The sign-off lens pass then reopened the coordination mechanics 
 
 Signed off: 2026-07-20
 
-## 8. Sign-off — HALTED (fail closed, no anchor)
+## 8. Sign-off (run 1, 2026-07-20) — HALTED (fail closed, no anchor)
 
-**This run did not sign off.** The sign-off Discovery-Rigor lens pass (full bundle,
-first activation) surfaced a genuine inconsistency plus a set of load-bearing
-coordination-mechanics gaps. Per the refusal rule (REQ-F1.10) and the inconsistency
-halt (REQ-B2.3), no Draft→Ready flip, no anchor line, no spec-PR ready-flip. The
-bundle stays Draft. Operator direction (2026-07-20): fix the mechanical bundle-hygiene
-slips now, defer the design gaps to a `/spec-draft` rework.
+**Superseded by §8 (run 2) below.** Run 1's sign-off lens pass halted on the
+checkout-local-lock inconsistency (the per-spec advisory lock at
+`<spec-dir>/.orchestrate.lock` cannot serialize claims across D-3's separate clones)
+plus ~20 coordination-mechanics gaps, all deferred to a `/spec-draft` rework. That
+rework happened (spec commits `228e835`→`e69556e`, changelog 2026-07-20) and closed the
+run-1 backlog by making the claim its own serializer and demoting it to a best-effort
+optimization *below* `orchestration-concurrency`'s branch-as-fence. Run 2 (below) is the
+re-kickoff of that reworked bundle. The full run-1 detail lives in git history
+(commit `6fb6ff9`) and the `requirements.md` changelog; it is not re-transcribed here.
+
+## 8. Sign-off (run 2, 2026-07-21) — HALTED AGAIN (fail closed, no anchor)
+
+**This run did not sign off.** The re-kickoff's full-bundle Discovery-Rigor lens pass
+surfaced a **second genuine inconsistency on the same work-division correctness axis**,
+plus ~39 findings after dedup. Per the inconsistency halt (REQ-B2.3) and the refusal
+rule (REQ-F1.10): **no Draft→Ready flip, no anchor line, no push, no spec-PR.** The
+bundle stays Draft.
+
+**Operator resolution (2026-07-21): Option A — establish the fence at dispatch.** Add a
+requirement that dispatch pushes the task branch to `origin` **immediately at dispatch**
+(before the worker runs), so the branch-as-fence is genuinely live cross-clone from
+dispatch *and* survives the dispatching tower's death — the durable, peer-visible,
+death-surviving in-flight marker that both the double-dispatch window and the
+orphan-worker reclaim need. Stated preconditions: a reachable `origin` is required for
+separate-clone multi-tower (no-remote stays the single-checkout solo flow); branch names
+must be byte-identical across clones. Compatible with `orchestration-concurrency`, which
+rejected pushing bookkeeping *commits to main*, not a task-branch *ref*. Routed to a
+`/spec-draft` rework to instantiate, then re-kickoff.
 
 ### Lens pass — path and coverage
 
-Path: parallel read-only sub-agent fan-out, one brief per canonical lens (six agents
-covering the nine lenses), per `discovery-rigor` (non-trivial first-activation bundle).
-Findings validated (the pivotal lock-locality claim verified against
-`orchestrate-lock.sh:97` — the lock is `<spec-dir>/.orchestrate.lock`, checkout-local).
+Path: parallel read-only sub-agent fan-out, six agents covering the nine canonical
+lenses, per `discovery-rigor` (non-trivial bundle). Findings validated per
+`validation-rigor` (three-pass + adversarial); the pivotal branch-as-fence timing claim
+confirmed against ground truth (`orchestration-concurrency` design.md:41 rejects
+push-at-dispatch, REQ-A1.3 makes no-remote first-class; `execute-task` SKILL.md:349
+pushes only at PR-open, post-convergence). Three independent lenses (correctness,
+concurrency, error-handling) converged on the root defect.
 
 | Lens | Findings | Notes |
 | --- | --- | --- |
-| Correctness, logic, edge cases | 8 | Lock clone-local defeats the claim serialization; repo-id missing from schema; bootstrap vs fail-closed; self-exclusion; claim lifecycle; meta-tower marker; hung-tower; presence/claim file discrimination |
-| Security | 5 | Echo-safety, per-field validation, path containment, user-private surface, checkout-path→committed-artifact leak — doctrine bars not imported |
-| Error handling / failure modes | 4 | Per-record corruption fail-open; death-predicate error outcome; claim-without-dispatch; git-sync + fallback-rung failure paths |
-| Performance | 1 | Death-predicate subprocess inside the lock → critical-section / livelock |
-| Concurrency / state | 13 | Reclaim not serialized; death-handle GC'd; worker outlives tower; torn reads; heartbeat-liveness shortcut; wrong-branch merge |
-| Naming, readability, structure | none | No new structural mess introduced by the bundle |
-| Documentation | 2 | Two broken `(Sources)` citations — fixed (see §Fixed) |
-| Tests / verification | 6 | S5 unverified (fixed); heartbeat untested; merge-vs-rebase unmeasurable under ff; in-lock TOCTOU needs white-box; absence-by-grep weak; `[manual]` untracked |
-| Cross-file consistency | 4 | REQ-A1.5 unwired (fixed); S-labels leaked (fixed); brief tally wrong (fixed); S5 ripple missing (fixed) |
+| Correctness, logic, edge cases | 8 | **Halt cluster**: branch-as-fence not cross-clone-live at dispatch; orphan-worker reclaim; REQ-C1.1↔Task-4 contradiction; branch-name determinism; no-remote gap; corrupt-claim strand; PID reuse; Task 2→4 verify cycle |
+| Security | 6 | `0700` named as enforcement but no verify-or-refuse on over-broad surface; meta-marker / checkout-path / death-handle omitted from validated-field list; death-handle grammar undeclared + leakable; surface-root symlink (mostly OOS) |
+| Error handling / failure modes | 13 | Fail-closed-**then-what** undefined across the board (fetch-error, ENOENT absent-vs-unreadable, surface-error action, `--ff-only` refusal, release-rm failure, concurrent bootstrap); no-remote contradictions; corrupt-claim + orphan-temp strands |
+| Performance | 2 | Death-predicate subprocess per record per heartbeat, unbounded / spec-silent; discovery scan scope described two incompatible ways (also cross-file) |
+| Concurrency / state | 6 | Same halt cluster from the race angle; presence-GC unguarded `rm` (vs hardened claim-GC); tower-identity derivation unspecified; PID reuse; orphan temps; `0700` create not atomic |
+| Naming, readability, structure | 2 | External `REQ-D1.x` refs collide with local IDs (bare, not namespaced); "lock" overloaded across the reclaim section |
+| Documentation | 3 | `orchestration-fleet REQ-D1.7` dangling (only D1.1–D1.6 exist, confirmed); `obs:8cbe0123` / `obs:3ecf4293` resolve to no files (confirmed); rest of Sources checks out |
+| Tests / verification | 6 | Atomicity pinned to an unobservable/flaky "never observes torn" assertion; `fetch origin main:main` path untested; REQ-B1.1 two-tower `[manual]` un-anchored / droppable; grep-for-absence passes vacuously; fence assertion un-harnessed; meta-tower test hedged to nonexistence |
+| Cross-file consistency | 4 | REQ-D1.4/D1.5 cite D-6 (scope-boundary only) — the security bars have **no numbered decision home**; stale-reclaim-lock GC verified by tasks/test but no REQ mandates it; sync two-option narrowed; brief §8 (this section, run 1) presented the superseded pre-rework design as normative |
 
-**Altitude check (REQ-H1.3):** triggered bundle; D-1 altitude record present, cited
-from the Goal, task decomposition matches mechanism-primary + one doctrine line. OK —
-not a finding.
+**Altitude check (REQ-H1.3):** triggered bundle; D-1 altitude record present, cited from
+the Goal, decomposition matches mechanism-primary + one doctrine line. OK — not a finding.
 
-### The inconsistency halt (finding #1)
+### The inconsistency halt (finding #1 cluster)
 
-**D-3 (separate per-tower clones) contradicts REQ-C1.1 / D-5 (claim serialized by the
-per-spec advisory lock).** The lock is `<spec-dir>/.orchestrate.lock` — checkout-local —
-so separate-clone peers never contend on it, and the claim TOCTOU is not closed under
-the *primary* topology (only under the single-checkout fallback). Two resolutions, for
-the rework to choose:
-- **(a)** Move the claim serialization to a machine-local surface/lock (like the
-  presence surface), independent of the checkout-local ledger lock.
-- **(b)** State that cross-clone peer-claiming requires the machine-local surface, and
-  scope the per-spec lock to intra-clone ledger fencing only.
+**REQ-C1.1 / D-5 designate `orchestration-concurrency`'s branch-as-fence as the
+authoritative cross-clone no-duplicate-*dispatch* guarantee, "verified immediately before
+dispatching," that "catches the duplicate before a second worker starts," so residual
+claim races cost only "wasted *selection* work, never a double dispatch." Under D-3's
+primary separate-clone topology this is false.** The task branch is created *locally* at
+dispatch and reaches `origin` only at PR-open (post-convergence, hours later), so across
+separate clones there is no fence on `origin` for the entire worker run. A claim lost in
+the dispatch→first-push window (GC / stale-break — the design's own "safe" cases) lets a
+peer clone's pre-dispatch check pass and dispatch a **second full worker** on the unit;
+only the second *PR* is rejected. That is a double **dispatch**, which REQ-C1.1 says
+never happens — and Task 4's own Done-when contradicts REQ-C1.1 by validating success via
+"the second tower's *rejected origin push*" (conceding a worker ran to push time).
 
-### Design backlog deferred to `/spec-draft` rework (#1–#20)
+**Both readings:** (a) the spec *means* dispatch establishes an `origin` fence
+immediately — unstated, and it would need to be added; (b) the spec means the *local*
+branch-ref fence — invisible across clones. Either way the bundle is internally
+inconsistent as written. **Resolution chosen: (a), Option A above (fence at dispatch).**
 
-All meaning-class; recorded here and in the observations log as `/spec-draft` seed.
-Two root axes: *machine-local vs checkout-local surface* (the lock, claim
-serialization, repo scoping, user-private access) and *death-handle location + claim/
-presence lifecycle*.
+### `/spec-draft` rework backlog (run 2) — ~39 findings, all meaning-class seed
 
-- **Claim mechanism:** #1 lock locality (halt, above); #2 reclaim not serialized →
-  concurrent reclaimers double-dispatch; #3 death-handle lives in the presence file but
-  GC deletes it → surviving claim permanently un-reclaimable; #4 no claim release on
-  completion/dispatch-failure and no dead-claim GC → unbounded growth + live-tower
-  dispatch-failure strands the unit; #5 reclaim proves the tower dead, not its worker →
-  double work.
-- **Presence/discovery:** #6 no repository id in the schema (one machine-local path
-  shared by all repos on the host → cross-repo false peers, violates "same repository");
-  #7 fresh-host bootstrap collides with REQ-A1.5 fail-closed (publish/discover order
-  undefined); #8 no self-exclusion; #9 no presence-vs-claim file discriminator; #10
-  meta-tower marker absent from the schema + meta-tower may not honor the lock/claim;
-  #11 non-atomic writes → torn reads, per-record corruption not fail-closed; #12
-  death-predicate error/unknown outcome undefined + heartbeat-freshness liveness
-  shortcut; #13 hung-but-alive tower strands units ("never permanently strands"
-  overstates); #14 death-predicate inside the lock → livelock.
-- **Git sync (#15):** not always fast-forward (`--ff-only` left optional); merges into
-  the current branch (no "main checked out" precondition → risks dragging origin/main
-  onto a worker branch); fetch-failure → stale main unhandled; merge-vs-rebase test
-  can't distinguish under fast-forward.
-- **Security bars (#16–#20):** echo-safety (`sanitize_printable`) for peer fields;
-  validation beyond the identity token (unit-id / spec-id); path containment +
-  canonicalization for record paths / GC unlink; the surface must be *user-private*
-  (the enforcing mechanism for the single-host trust model); peer checkout-path leaking
-  into committed artifacts (PR bodies) beyond Task 5's current guard scope.
+Recorded here and in the observations log as `/spec-draft` seed (`obs` fragment this
+run). Grouped by cluster; `[Cn]` = converged across n independent lens agents.
 
-### Fixed this run (mechanical bundle-hygiene, #21–#26)
+- **Halt cluster — no authoritative cross-clone fence at dispatch (Option A instantiates
+  the fix):** #1 branch-as-fence absent during dispatch→first-push window → double
+  dispatch `[C3, CRITICAL]`; #2 reclaim downstream-artifact guard blind to a dead tower's
+  not-yet-pushed orphan worker → re-dispatch into live duplicate `[C2, HIGH]`; #3
+  REQ-C1.1 "never reaches a worker / wasted *selection* work" contradicts Task-4 Done-when
+  "rejected origin push" `[HIGH]`; #4 fence requires byte-identical cross-clone branch
+  names — unstated; repo history shows `claude --worktree` name-mangling → two branches /
+  two PRs, fence fails entirely `[MED]`; #5 no-remote separate-clone multi-tower has no
+  authoritative layer (no `origin` to arbitrate); repo-id no-`origin` fingerprint
+  unspecified `[C2, HIGH]`; #6 the fence check's own error / lost-observability outcome
+  undefined (fail-open reopens the incident class) `[HIGH]`.
+- **Fail-closed → then-what undefined:** #7 REQ-B1.4 blanket "failed fetch fails closed"
+  contradicts no-remote degrade; never distinguishes no-remote from transient `[HIGH]`;
+  #8 "absent vs unreadable" undecidable — same ENOENT in both buckets, no persistence
+  marker → vanished surface reads as solitude or breaks first run `[HIGH]`; #9 after a
+  fail-closed surface error the tower's action is undefined, and the claim layer (same
+  dir) is down simultaneously `[HIGH]`; #10 `--ff-only` refusal recovery action undefined
+  `[MED]`; #11 live-tower release-`rm` failure → un-reclaimable, un-GC'able claim, no
+  retry `[MED]`; #12 concurrent first-run `mkdir` EEXIST handling undefined `[LOW]`.
+- **Corrupt / leak / strand:** #13 a corrupt *claim* record is honored forever but can
+  never be GC'd (GC needs to parse owner + death handle) → permanent strand + leak, no
+  operator/quarantine path `[C2, MED]`; #14 orphan temp files from the atomic
+  create-with-content leak on crash, un-swept, poison the presence scan forever `[C2,
+  MED]`; #15 rename/hardlink atomicity has an unstated same-filesystem precondition
+  (`$TMPDIR` / EXDEV) `[LOW-MED]`.
+- **Death handle / PID:** #16 bare-PID death handle defeated by PID reuse → false alive →
+  strand, breaking REQ-C1.3's "a crashed tower never strands a unit"; needs a
+  reuse-resistant discriminator (process start-time) or a handle-grammar decision `[C2,
+  HIGH]`; #17 the death handle's "declared grammar" is never declared in the bundle
+  `[LOW]`; #18 the death handle (pid / tmux session+window name) is leakable operational
+  detail, absent from the no-leak set and the Task 5 scan targets `[LOW]`.
+- **Identity / presence:** #19 tower-identity derivation is unspecified, yet
+  distinct-per-writer presence AND self-exclusion both rest on it — two towers on one spec
+  can collide (overwrite a peer's record / self-exclude a peer) `[MED]`; #20 presence-file
+  GC is an unguarded `rm` (no under-lock re-read, unlike the it3-hardened claim GC) → a
+  dead-then-restarted tower's fresh live record is deleted `[MED]`.
+- **Security (trust enforcement + field completeness):** #21 `0700` is named as *the*
+  same-operator trust enforcement but nothing verifies-or-refuses a pre-existing
+  over-broad surface, and creation is not shown atomic `[C2, MED]`; #22 the meta-tower
+  marker is omitted from REQ-D1.5's grammar-validated field list + test, though it drives
+  a defer-to-authority decision `[MED/LOW]`; #23 the checkout-path field is omitted from
+  the validated-field list `[LOW]`; #24 a surface-root symlink defeats path containment
+  (co-tenant exploit OOS; robustness note in-scope) `[LOW]`.
+- **Performance:** #25 discovery fans out the death-predicate subprocess per record on
+  every heartbeat — unbounded, spec-silent (no cadence cap, no per-pass liveness cache)
+  `[MED]`; #26 the discovery scan *scope* is described two incompatible ways — REQ-A1.1
+  filter-the-whole-host-surface vs D-2 per-`<repo-id>/` subdir `[LOW-MED, also cross-file]`.
+- **Tests / verification:** #27 both atomicity claims are pinned to an unobservable
+  "reader never observes a torn/empty record" assertion (flaky by construction); only the
+  structural "primitive is `rename`/`link`, not `mkdir`+populate" check is sound `[MED]`;
+  #28 REQ-B1.4's mandated `git fetch origin main:main` ref-update path is untested and
+  Task 3's Done-when drops it `[C2, MED]`; #29 REQ-B1.1's two-real-tower `[manual]` proof
+  has no Done-when anchor / owner → silently droppable `[MED]`; #30 REQ-D1.1/D1.2 verified
+  only by grep-for-absence — passes vacuously, never verifies the positive "consumes the
+  relay" claim `[LOW-MED]`; #31 the newly-authoritative branch-as-fence push-rejection
+  assertion has no described harness and no real-`origin` cross-check `[LOW-MED]`; #32 the
+  meta-tower `[test]` is hedged ("asserted or documented-and-delegated") into possible
+  non-existence `[LOW]`.
+- **Cross-file / docs:** #33 `orchestration-fleet REQ-D1.7` is a dangling reference (only
+  REQ-D1.1–D1.6 exist), and the bare external `REQ-D1.x` refs collide with this bundle's
+  own `REQ-D1.x` IDs (namespace them) `[C3, MED]`; #34 REQ-D1.4 / REQ-D1.5 / Task 5 cite
+  D-6, whose decision is only the scope boundary — the framework-script security bars and
+  the attribution model have **no numbered decision record**, living only in un-numbered
+  Cross-cutting prose `[MED]`; #35 tasks.md + test-spec verify "stale reclaim lock broken
+  during discovery," but no REQ mandates it (REQ-C1.5 mandates only dead-*claim* GC; D-7
+  breaks the lock on-contention) — add the clause or drop the over-spec `[C2, MED]`; #36
+  the two canonical seed sources `obs:8cbe0123` and `obs:3ecf4293` resolve to no files
+  under `specs/_observations/` (confirmed) — broken provenance `[MED]`; #37 REQ-D1.1 cites
+  only D-6, omitting D-4 (the decision that most directly grounds it) `[LOW]`; #38 Sources
+  routes readers to this brief's run-1 §8, which presented the reversed pre-rework design
+  as live — now marked superseded above `[LOW]`; #39 "lock" is overloaded across the
+  reclaim section (advisory / per-unit reclaim / rejected alternatives) `[LOW]`.
 
-Validator re-run clean (0/0) after: #21 REQ-A1.5 wired into Task 2 (Citations +
-Done-when); #22 leaked S-labels removed from `requirements.md` changelog and `tasks.md`
-Task 5; #23 brief REQ tally corrected to a cite (no copied count); #24 REQ-A1.5's
-fail-closed floor added to `## Sources`; #25 `security-posture` added to `## Sources`;
-#26 the S5 `auth_sock`/env deliverable given a `[manual]` verification (REQ-B1.3) and a
-Task 3 Done-when clause.
+### Halt record (run 2)
 
-### Halt record
-
-Class: n/a (no sign-off recorded — halted)
-Lens-pass: recorded above; findings NOT all dispositioned to spec edits (20 deferred to
-`/spec-draft` by operator direction), so per REQ-F1.10 no execution-valid anchor is
-written. The freshness gate treats the absent anchor as blocking — dispatch stays
-blocked until a fresh kickoff signs off the reworked bundle.
+Class: n/a (no sign-off recorded — inconsistency halt, REQ-B2.3).
+Lens-pass: recorded above (six-agent fan-out, nine lenses, canonical coverage table);
+the inconsistency is unresolved on disk (operator chose Option A, to be instantiated by
+`/spec-draft`), so per REQ-F1.10 no execution-valid anchor is written. The freshness gate
+treats the absent anchor as blocking — dispatch stays blocked until a fresh kickoff signs
+off the re-reworked bundle.
 Anchor: (none — fail closed)
 
-Next step: `/spec-draft specs/concurrent-orchestrator-coordination` to rework REQ-C and
-the presence schema against the §8 backlog, then re-run `/spec-kickoff`.
+Next step: `/spec-draft specs/concurrent-orchestrator-coordination` to instantiate
+**Option A (fence at dispatch)** as the authoritative cross-clone dispatch-time fence and
+work the full run-2 backlog above (leading with the correctness model, not re-mechanizing
+the claim primitive first), then re-run `/spec-kickoff`.
