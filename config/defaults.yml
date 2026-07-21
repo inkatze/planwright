@@ -23,6 +23,24 @@ commit_on_state_move: true
 # value.
 mark_spec_pr_ready_on_kickoff: true
 
+# The bounded wait /spec-kickoff's terminal ready-flip holds for the spec PR's
+# head-SHA check rollup to complete before it marks the PR ready (skill-rigor
+# D-3, REQ-B1.1). After the push, CI rarely reports within seconds, so the gate
+# polls the head commit's statusCheckRollup (checks on the SHA, never PR review
+# states — an errored or stale review must not masquerade as a completed check)
+# at a bounded cadence (tens of queries per wait, not hundreds) up to this
+# bound, flipping only on a positive green (at least one completed check and
+# overall success); head identity is re-confirmed immediately before the flip
+# (a moved head refuses). On red, empty, unresolved, a query failure, an expired
+# wait, or a moved head it leaves the PR draft and records the pending
+# ready-flip in tasks.md `## Awaiting input` (the re-entry point). Same `<n>[m]`
+# minutes convention as the staleness knobs; an absent or malformed value falls
+# back to the default with a one-line warning. Read by /spec-kickoff at
+# pre-flight step 4 (alongside mark_spec_pr_ready_on_kickoff) and consumed at
+# the sign-off terminal ready-flip (step 8); the gate is skipped when the
+# upstream no-remote/no-PR degradation arm has already fired.
+kickoff_ready_ci_wait: 10m
+
 # Dispatch layer (D-38, REQ-F1.8). Each backend value maps to an advertised
 # capability set defined by doctrine/backend-capability-contract.md (D-2), which
 # specifies how the orchestrator is to adapt to what is advertised rather than
@@ -264,6 +282,21 @@ fleet_usage_weekly_downshift: 60
 fleet_usage_weekly_reduce_concurrency: 75
 fleet_usage_weekly_defer_heavy: 85
 fleet_usage_weekly_defer_all: 95
+
+# Credit-continuation spend policy at the rate-limit wall (fleet-autonomy
+# D-27, REQ-E1.11). When Claude Code's wall offers a credit-continuation
+# prompt ("spend credits / extra usage to continue past the limit"),
+# scripts/fleet-credit-continuation.sh decides how the fleet responds. The
+# shipped default is `false` — decline and wait for the window to reset (the
+# REQ-E1.7 reactive backstop): auto-spend is NEVER the default, since an
+# unattended, unbounded money spend is an irreversible action planwright
+# reserves for the operator. Set `true` only to explicitly permit spending
+# credits to keep the fleet moving past the limit. A spend-AVOIDANCE knob, not
+# a spend-accounting ceiling (Out of scope): it neither meters nor caps spend.
+# Resolved through the shared knob resolver (scripts/resolve-config-knob.sh ->
+# config-get, D-22/REQ-G1.5); a value other than true/false is malformed under
+# the customization-overlay REQ-E1.4 by-layer policy.
+fleet_credit_continuation_spend: false
 
 # Release-tagging policy (autopilot-reflex D-4, D-13; release-hardening D-7 —
 # REQ-D1.4, REQ-D1.6, REQ-G1.3). The publish script (scripts/release-publish.sh)

@@ -589,6 +589,30 @@ Then at dispatch time a tower consults `scripts/fleet-usage-gate.sh admit
 <model>` (a fast, audit-derived read — no scrape) to decide whether a unit of a
 given tier may launch under the current rung.
 
+**Credit-continuation defaults to decline-and-wait, never auto-spend.** The
+rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
+credits / extra usage to continue past the limit".
+`scripts/fleet-credit-continuation.sh decide`, invoked on the same captured wall
+text the throttle reads, rides that reactive detection: it recognizes the
+spend-to-continue offer (demanding both a spend-offer token and a continuation
+token, so a plain wall or a garbled variant is never mistaken for one) and makes
+a single deterministic
+fleet policy decision. The shipped default is **decline and wait** for the
+window to reset — the reactive backstop already gives "wait for reset" a
+well-defined behavior to fall into, so declining costs no new mechanism, and
+an unattended, unbounded money spend is exactly the irreversible act
+planwright reserves for the operator (like merge). Spending credits to
+continue requires explicit opt-in: set `fleet_credit_continuation_spend: true`.
+The decision is a daemon action — kill-switch-gated (`fleet_daemon_pause`) and
+audit-logged (`fleet-audit.sh`, mechanism `credit-continuation`, with only the
+sanitized excerpt and the decline/spend decision recorded) — and, being a pure
+recognizer-plus-config-read, it makes no session-launch decision and so can
+never engage `auto` permission mode. An unrecognized wall variant is a clean
+no-op that falls through to the plain reactive backstop above, so no accidental
+spend is ever possible. This is a spend-*avoidance* default, distinct from a
+dollar-spend accounting ceiling (out of scope): it neither meters nor caps
+spend, it only refuses to incur it without opt-in.
+
 **Workers never run in `auto` permission mode.** The
 `config/worker-settings.json` allowlist — human-reviewed, human-installed,
 pinning a non-auto `defaultMode` — is the sole permission-approval mechanism
