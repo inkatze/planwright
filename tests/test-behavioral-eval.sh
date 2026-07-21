@@ -90,6 +90,23 @@ mkdir -p "$ST" 2>/dev/null || true
 untag() { printf '%s' "${1#=}"; }
 # state dir for a session name (name is already grammar-safe)
 sdir() { printf '%s/%s' "$ST" "$1"; }
+# mark_liveness <state-dir> — model tmux session DEATH: under real tmux the pane
+# dies when the launched skill exits. The stub can't keep a live process, so it
+# infers death from the render: a skill that exited without leaving an at-prompt
+# anchor (`turn=`) AND without writing a sign-off has terminated early (a crash /
+# early-exit), and has-session must then report it dead so the harness's
+# invalid-run (exit 3) branch is reachable. A completed run (sign-off present) is
+# NOT dead — the harness breaks on the sign-off first, matching real tmux where
+# the pane lingers after the skill exits.
+mark_liveness() {
+  _ml_d="$1"
+  if ! grep -q 'turn=' "$_ml_d/pane" 2>/dev/null &&
+    [ ! -f "$(cat "$_ml_d/art")/sign-off.json" ]; then
+    : >"$_ml_d/dead"
+  else
+    rm -f "$_ml_d/dead" 2>/dev/null
+  fi
+}
 
 sub="${1:-}"
 shift 2>/dev/null || true
@@ -120,6 +137,7 @@ case "$sub" in
     printf '%s\t%s\n' "$name" "$launch" >>"$ST/.new-sessions"
     # render the first pane (zero answers)
     sh "$skill" "$art" </dev/null >"$d/pane" 2>&1
+    mark_liveness "$d"
     exit 0
     ;;
   capture-pane)
@@ -164,6 +182,7 @@ case "$sub" in
       skill="$(cat "$d/skill")"; art="$(cat "$d/art")"
       # replay ALL accumulated answers through the real skill
       sh "$skill" "$art" <"$d/answers" >"$d/pane" 2>&1
+      mark_liveness "$d"
     fi
     exit 0
     ;;
@@ -175,7 +194,8 @@ case "$sub" in
         *) shift ;;
       esac
     done
-    [ -d "$(sdir "$name")" ] && exit 0
+    d="$(sdir "$name")"
+    { [ -d "$d" ] && [ ! -f "$d/dead" ]; } && exit 0
     exit 1
     ;;
   kill-session)
@@ -203,9 +223,12 @@ STUB_EOF
 chmod +x "$STUB"
 
 # run_harness <workdir> <extra-args...> — invoke the harness against the greeter
-# fixture with the stub tmux and a fresh state. Echoes combined output; sets
-# RC to the exit code and STATE to the stub state dir.
+# fixture with the stub tmux and a fresh state. Sets the globals OUT (combined
+# output), RC (exit code), and STATE (stub state dir). Call it DIRECTLY, never in
+# a command substitution — `x="$(run_harness ...)"` would run it in a subshell
+# and the RC it sets would be lost to the parent (asserting a stale RC).
 RC=0
+OUT=""
 STATE=""
 run_harness() {
   wd="$1"
@@ -219,7 +242,6 @@ run_harness() {
     BEHAVIORAL_EVAL_POLL_SLEEP=0 \
     /bin/sh "$RUNNER" --record "$wd/rec" "$@" "$FIXTURE" 2>&1)"
   RC=$?
-  printf '%s' "$OUT"
 }
 
 # A single main run drives BOTH personas under a grader that records depth and
@@ -242,7 +264,8 @@ GRADER_EOF
 chmod +x "$GSTUB"
 rm -f "$TMP/observed.txt"
 MAIN="$TMP/main"
-mainout="$(run_harness "$MAIN" --grader "$GSTUB" --grader-id ext-panel)"
+run_harness "$MAIN" --grader "$GSTUB" --grader-id ext-panel
+mainout="$OUT"
 
 echo "== G1.1: end-to-end persona-driven run, artifact-graded result =="
 assert_exit "the persona-driven run completes end-to-end" 0 "$RC"
@@ -277,7 +300,8 @@ GBAD="$TMP/grader-bad.sh"
 printf '#!/bin/sh\nexit 7\n' >"$GBAD"
 chmod +x "$GBAD"
 w="$TMP/g14b"
-out="$(run_harness "$w" --persona novice --grader "$GBAD" --grader-id ext-panel)"
+run_harness "$w" --persona novice --grader "$GBAD" --grader-id ext-panel
+out="$OUT"
 assert_exit "an unavailable grader does not fail the run" 0 "$RC"
 assert_contains "degrades to human-rater on grader failure" "degrading to human-rater" "$out"
 assert_eq "no self-graded score substituted on degrade" "human-rater-required" "$(jq -r .outcome "$w/rec/greeter.novice.json" 2>/dev/null)"
@@ -292,6 +316,16 @@ else
   echo "FAIL: session names not unique ('$n1' vs '$n2')" >&2
   failures=$((failures + 1))
 fi
+# the uniqueness guarantee rests on the urandom NONCE, not just persona/seq/pid:
+# assert each name ends in an 8-hex-digit nonce segment (so an empty-nonce
+# regression that still varies by persona would be caught).
+case "$n1" in
+  planwright-eval-greeter-*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) echo "ok: session name carries a urandom nonce segment" ;;
+  *)
+    echo "FAIL: session name '$n1' lacks the 8-hex nonce segment" >&2
+    failures=$((failures + 1))
+    ;;
+esac
 # stale-session reaping: pre-seed a stale session for this fixture+persona
 w="$TMP/g15b"
 STATE="$w/tmux-state"
@@ -398,6 +432,137 @@ out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$STATE" \
 assert_contains "harness warns it stamped a non-eval-only sign-off" "stamping it" "$out"
 # after stamping, the structural grade (eval_only && !authoritative) passes
 assert_eq "a stamped sign-off grades eval-only" "true" "$(jq -r .structural_pass "$w/rec/noeval.novice.json" 2>/dev/null)"
+
+echo "== fail path: a graded fail exits 1 but keeps structural_pass true =="
+# an independent grader that returns `fail` on a structurally-sound run: the
+# outcome is a graded fail (exit 1), but the MECHANICAL structural grade held, so
+# structural_pass must stay true (the conflation bug this guards against).
+GFAIL="$TMP/grader-fail.sh"
+cat >"$GFAIL" <<'GF'
+#!/bin/sh
+echo fail
+GF
+chmod +x "$GFAIL"
+w="$TMP/gfail"
+run_harness "$w" --persona novice --grader "$GFAIL" --grader-id ext
+out="$OUT"
+assert_exit "a graded fail exits 1" 1 "$RC"
+assert_eq "the fail outcome is recorded" "fail" "$(jq -r .outcome "$w/rec/greeter.novice.json" 2>/dev/null)"
+assert_eq "structural_pass stays true on an experiential fail" "true" "$(jq -r .structural_pass "$w/rec/greeter.novice.json" 2>/dev/null)"
+
+echo "== fail path: a structural (grade.jq) failure records structural_pass false =="
+# a fixture whose grade.jq is unconditionally false: outcome fail, structural
+# false, exit 1 — the other axis of the structural_pass fix.
+SFAIL="$TMP/sfail"
+mkdir -p "$SFAIL/personas"
+cp "$FIXTURE/skill.sh" "$SFAIL/skill.sh"
+printf 'false\n' >"$SFAIL/grade.jq"
+cat >"$SFAIL/fixture.conf" <<'CONF'
+id=sfail
+skill=skill.sh
+personas=novice
+turns=3
+anchor=eval-ready
+footer_lines=50
+CONF
+printf 'expertise=novice\nanswer.1=Ada\nanswer.2=novice\nanswer.3=approve-and-record\n' >"$SFAIL/personas/novice.persona"
+w="$TMP/gsfail"
+STATE="$w/tmux-state"
+rm -rf "$w"
+mkdir -p "$w/wb" "$w/rec" "$STATE"
+out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$STATE" \
+  BEHAVIORAL_EVAL_WORKBASE="$w/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --record "$w/rec" --persona novice "$SFAIL" 2>&1)"
+assert_exit "a structural failure exits 1" 1 "$?"
+assert_eq "structural_pass is false on a structural failure" "false" "$(jq -r .structural_pass "$w/rec/sfail.novice.json" 2>/dev/null)"
+
+echo "== invalid run: a skill that exits without a sign-off is exit 3 =="
+# the harness's core liveness claim: a session that dies without writing its
+# durable sign-off is an invalid run, not a graded result.
+CRASH="$TMP/crash"
+mkdir -p "$CRASH/personas"
+cat >"$CRASH/fixture.conf" <<'CONF'
+id=crash
+skill=skill.sh
+personas=novice
+turns=1
+anchor=eval-ready
+footer_lines=50
+CONF
+printf 'expertise=novice\nanswer.1=Ada\n' >"$CRASH/personas/novice.persona"
+# a skill that prints a line WITHOUT an at-prompt anchor and exits — no sign-off
+cat >"$CRASH/skill.sh" <<'SK'
+#!/bin/sh
+printf 'Greeter: boom — crashing before any prompt\n'
+exit 0
+SK
+cp "$FIXTURE/grade.jq" "$CRASH/grade.jq"
+chmod +x "$CRASH/skill.sh"
+w="$TMP/gcrash"
+STATE="$w/tmux-state"
+rm -rf "$w"
+mkdir -p "$w/wb" "$w/rec" "$STATE"
+out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$STATE" \
+  BEHAVIORAL_EVAL_WORKBASE="$w/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --record "$w/rec" --persona novice "$CRASH" 2>&1)"
+assert_exit "a session that dies without a sign-off is an invalid run (exit 3)" 3 "$?"
+assert_contains "the invalid run is explained" "without writing a sign-off" "$out"
+
+echo "== suite mode: --suite runs every fixture; overall rc survives the loop =="
+# two fixtures under a suite root; a here-doc (not a pipe) keeps overall_rc/seq
+# alive across fixtures, so a passing and a failing fixture both land.
+SUITE="$TMP/suite"
+mkdir -p "$SUITE"
+cp -R "$FIXTURE" "$SUITE/greeter"
+cp -R "$SFAIL" "$SUITE/sfail"
+w="$TMP/gsuite"
+STATE="$w/tmux-state"
+rm -rf "$w"
+mkdir -p "$w/wb" "$w/rec" "$STATE"
+out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$STATE" \
+  BEHAVIORAL_EVAL_WORKBASE="$w/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --record "$w/rec" --persona novice --suite "$SUITE" 2>&1)"
+srrc=$?
+assert_eq "both suite fixtures produced a result (greeter)" "greeter" "$(jq -r .fixture "$w/rec/greeter.novice.json" 2>/dev/null)"
+assert_eq "both suite fixtures produced a result (sfail)" "sfail" "$(jq -r .fixture "$w/rec/sfail.novice.json" 2>/dev/null)"
+assert_exit "the failing fixture makes the suite exit 1 (overall_rc survived the loop)" 1 "$srrc"
+
+echo "== cost bound: a never-completing dialogue trips the turn ceiling (exit 6) =="
+# a skill that emits a fresh turn on every answer and never writes a sign-off; the
+# driver keeps answering until sends exceed the turn ceiling (turns+3), then stops
+# fail-closed rc=6 rather than looping to the poll ceiling.
+LOOP="$TMP/loop"
+mkdir -p "$LOOP/personas"
+cat >"$LOOP/fixture.conf" <<'CONF'
+id=loop
+skill=skill.sh
+personas=novice
+turns=1
+anchor=eval-ready
+footer_lines=50
+CONF
+printf 'expertise=novice\nanswer.1=a\nanswer.2=b\nanswer.3=c\nanswer.4=d\nanswer.5=e\nanswer.6=f\n' >"$LOOP/personas/novice.persona"
+cat >"$LOOP/skill.sh" <<'SK'
+#!/bin/sh
+art="$1"; mkdir -p "$art"; : >"$art/decision-log.jsonl"
+n=1
+while :; do
+  printf 'EVAL-READY turn=%s\n' "$n"
+  IFS= read -r a || exit 0
+  n=$((n + 1))
+done
+SK
+cp "$FIXTURE/grade.jq" "$LOOP/grade.jq"
+chmod +x "$LOOP/skill.sh"
+w="$TMP/gloop"
+STATE="$w/tmux-state"
+rm -rf "$w"
+mkdir -p "$w/wb" "$w/rec" "$STATE"
+out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$STATE" \
+  BEHAVIORAL_EVAL_WORKBASE="$w/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --record "$w/rec" --persona novice "$LOOP" 2>&1)"
+assert_exit "a never-completing dialogue trips the turn ceiling (exit 6)" 6 "$?"
+assert_contains "the turn ceiling is named" "turn ceiling" "$out"
 
 echo "== usage/guard: --grader without --grader-id is a usage error =="
 out="$(BEHAVIORAL_EVAL_TMUX="$STUB" /bin/sh "$RUNNER" --grader /bin/true "$FIXTURE" 2>&1)"

@@ -116,7 +116,11 @@ suite_root=""
 only_personas=""
 
 die_usage() {
-  echo "behavioral-eval: $1" >&2
+  # Sanitize before the terminal: the message often carries an operator-supplied
+  # token (an unknown option, a bad --suite path), which could embed a terminal
+  # escape (echo discipline, security-posture). sanitize_printable is sourced
+  # above; on the fallback path it is still defined.
+  echo "behavioral-eval: $(sanitize_printable "$1")" >&2
   echo "run 'behavioral-eval.sh --help' for usage" >&2
   exit 2
 }
@@ -216,18 +220,18 @@ fi
 
 if [ -n "$record_dir" ]; then
   mkdir -p "$record_dir" || {
-    echo "behavioral-eval: cannot create record dir '$record_dir'" >&2
+    echo "behavioral-eval: cannot create record dir '$(sanitize_printable "$record_dir")'" >&2
     exit 5
   }
 fi
 mkdir -p "$WORKBASE" || {
-  echo "behavioral-eval: cannot create work base '$WORKBASE'" >&2
+  echo "behavioral-eval: cannot create work base '$(sanitize_printable "$WORKBASE")'" >&2
   exit 5
 }
 # Resolve $WORKBASE to its physical path once: the teardown containment check
 # compares the run tree's canonical path against this.
 WORKBASE_PHYS="$(cd "$WORKBASE" && pwd -P)" || {
-  echo "behavioral-eval: cannot canonicalize work base '$WORKBASE'" >&2
+  echo "behavioral-eval: cannot canonicalize work base '$(sanitize_printable "$WORKBASE")'" >&2
   exit 5
 }
 
@@ -351,6 +355,13 @@ containment_rm() {
     warn "teardown: cannot canonicalize run tree '$1'"
     return 1
   }
+  # Strict descendant only: the run tree must resolve to a path STRICTLY UNDER the
+  # work base, never the base itself. (Equal would let the `"$base"/*` glob match
+  # via an empty trailing segment and rm the whole base — reject it explicitly.)
+  if [ "$_cr_phys" = "$WORKBASE_PHYS" ]; then
+    warn "teardown: refusing to remove the work base itself (containment guard)"
+    return 1
+  fi
   case "$_cr_phys/" in
     "$WORKBASE_PHYS"/*) ;;
     *)
@@ -370,9 +381,12 @@ containment_rm() {
 # grade_run <persona> <artifacts-dir> <merged-out> — merge the durable artifacts
 # into one fixture-only object (never a scraped pane, REQ-G1.3), validate they
 # parse (escape-safe), apply the fixture's structural grade, then route to the
-# independent grader or the human-rater degrade. Echoes the outcome token
-# (pass | fail | human-rater-required) on stdout; returns 4 fail-closed on an
-# unparseable artifact or a build failure.
+# independent grader or the human-rater degrade. Echoes TWO space-separated
+# tokens on stdout — `<outcome> <structural>` where outcome is
+# pass|fail|human-rater-required and structural is true|false — so the caller
+# gets the MECHANICAL grade separately from the experiential outcome without a
+# subshell-lost global (grade_run is invoked in a command substitution). Returns
+# 4 fail-closed on an unparseable artifact or a build failure.
 grade_run() {
   _gr_persona="$1"
   _gr_art="$2"
@@ -428,8 +442,13 @@ grade_run() {
       fi
     fi
   fi
+  # The structural verdict (`$_gr_struct`) is emitted alongside every outcome
+  # token, so the recorded result reflects the MECHANICAL grade — not the
+  # experiential one. A grader `fail` on a structurally-sound run must not read as
+  # a structural failure: the two verdicts are distinct axes (a mechanical floor
+  # vs a quality opinion), and conflating them mislabels the artifact.
   if [ "$_gr_struct" = "false" ]; then
-    printf 'fail'
+    printf 'fail %s' "$_gr_struct"
     return 0
   fi
 
@@ -450,15 +469,15 @@ grade_run() {
       # Grader unavailable (failure / timeout / rate-limit): DEGRADE to the human
       # rater, do not fail the run, and substitute NO self-graded score.
       warn "[$_gr_persona] grade: independent grader unavailable (exit $_gr_grc) — degrading to human-rater"
-      printf 'human-rater-required'
+      printf 'human-rater-required %s' "$_gr_struct"
       return 0
     fi
     case "$_gr_verdict" in
-      pass) printf 'pass' ;;
-      fail) printf 'fail' ;;
+      pass) printf 'pass %s' "$_gr_struct" ;;
+      fail) printf 'fail %s' "$_gr_struct" ;;
       *)
         warn "[$_gr_persona] grade: grader returned an unrecognized verdict — degrading to human-rater"
-        printf 'human-rater-required'
+        printf 'human-rater-required %s' "$_gr_struct"
         ;;
     esac
     return 0
@@ -467,7 +486,7 @@ grade_run() {
   # No independent grader configured: the experiential verdict is the human's.
   # The structural floor passed, but the harness records NO quality score of its
   # own (REQ-G1.4).
-  printf 'human-rater-required'
+  printf 'human-rater-required %s' "$_gr_struct"
   return 0
 }
 
@@ -555,17 +574,28 @@ run_persona() {
   fi
 
   # ---- the driver loop: idle-detect, then answer the current turn ----------
+  # Two bounds fire the fail-closed cost ceiling (REQ-G1.5): the TURN ceiling
+  # (answers sent past the fixture's turn budget + margin — the direct analogue of
+  # prompt-eval's per-run cap, and the bound the model-backed Task-6 surface binds
+  # USD cost to), and the POLL ceiling (wall-clock polls, the backstop for a skill
+  # that never advances a turn). Either tripping stops the run rc=6.
   _rp_max_turns="$turns"
   _rp_turn_cap=$((_rp_max_turns + 3))
   _rp_poll_cap=$((_rp_turn_cap * 60))
   _rp_last=0
   _rp_now=0
   _rp_poll=0
+  _rp_sends=0
   _rp_rc=0
   while :; do
     _rp_poll=$((_rp_poll + 1))
     if [ "$_rp_poll" -gt "$_rp_poll_cap" ]; then
       warn "[$fx_id/$_rp_persona] poll ceiling hit without completion"
+      _rp_rc=6
+      break
+    fi
+    if [ "$_rp_sends" -gt "$_rp_turn_cap" ]; then
+      warn "[$fx_id/$_rp_persona] turn ceiling ($_rp_turn_cap) exceeded without completion"
       _rp_rc=6
       break
     fi
@@ -598,6 +628,7 @@ run_persona() {
       if [ -n "$_rp_cur" ] && [ "$_rp_cur" -gt "$_rp_last" ]; then
         if _rp_ans="$(persona_answer "$_rp_persona_file" "$_rp_cur")"; then
           tmux_send "$_rp_session" "$_rp_ans"
+          _rp_sends=$((_rp_sends + 1))
           _rp_last="$_rp_cur"
         else
           # The persona has no answer for this turn; nothing more to send. Let the
@@ -631,24 +662,25 @@ run_persona() {
     fi
   fi
 
-  # Grade the durable artifacts.
-  _rp_outcome="$(grade_run "$_rp_persona" "$_rp_art" "$_rp_merged")"
+  # Grade the durable artifacts. grade_run emits `<outcome> <structural>`, so the
+  # recorded structural verdict is the MECHANICAL grade, never re-derived from the
+  # outcome token — a grader `fail` on a structurally sound run keeps
+  # structural_pass true.
+  _rp_graded="$(grade_run "$_rp_persona" "$_rp_art" "$_rp_merged")"
   _rp_grc=$?
   if [ "$_rp_grc" -ne 0 ]; then
     containment_rm "$_rp_run" || return 5
     return "$_rp_grc"
   fi
+  _rp_outcome="${_rp_graded%% *}"
+  _rp_struct="${_rp_graded##* }"
 
   # Surface a one-line, echo-safe summary of the graded subject.
   _rp_subject="$(sanitize_printable "$(jq -r '.sign_off.subject // ""' "$_rp_merged" 2>/dev/null)" "(none)")"
-  _rp_struct_json=true
-  case "$_rp_outcome" in
-    fail) _rp_struct_json=false ;;
-  esac
   echo "behavioral-eval: [$fx_id/$_rp_persona] outcome=$_rp_outcome subject=$_rp_subject"
 
   if [ -n "$record_dir" ]; then
-    record_result "$fx_id" "$_rp_persona" "$_rp_outcome" "$_rp_struct_json" "0.000000" || {
+    record_result "$fx_id" "$_rp_persona" "$_rp_outcome" "$_rp_struct" "0.000000" || {
       containment_rm "$_rp_run" || return 5
       return 4
     }

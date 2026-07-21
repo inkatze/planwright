@@ -109,22 +109,28 @@ emit_ready 3
 IFS= read -r decision || exit 0
 log_turn 3 confirmation "$decision"
 
-# The dialogue completed: write the durable sign-off. It is stamped eval-only and
-# non-authoritative unconditionally, and additionally honors the harness's
-# PLANWRIGHT_EVAL_ONLY signal — a driver-produced sign-off must never be mistaken
-# for a human one (REQ-G1.6).
-eval_only=true
-case "${PLANWRIGHT_EVAL_ONLY:-}" in
-  0 | "") : ;; # still eval-only by default; this fixture never emits authoritative sign-off
-esac
-jq -n \
+# The dialogue completed: write the durable sign-off. This fixture is a driver
+# under eval, so it ALWAYS marks the record eval-only / non-authoritative — a
+# driver-produced sign-off must never be mistaken for a human one (REQ-G1.6). The
+# harness sets PLANWRIGHT_EVAL_ONLY=1 and re-verifies the marking post-run; the
+# invariant here is unconditional, not gated on that signal.
+#
+# ATOMIC PUBLISH: write to a temp file and rename into place. The harness treats
+# the mere existence of sign-off.json as "the run completed, grade it now"; a
+# bare `>` truncates the file to zero bytes before jq writes it, so a grader poll
+# that lands in that window would read empty/partial JSON and fail-closed. The
+# rename makes the sign-off appear only once fully written.
+if ! jq -n \
   --arg subject "$name" \
   --arg decision "$decision" \
   --arg depth "$depth" \
-  --argjson eval_only "$eval_only" \
-  '{subject: $subject, decision: $decision, depth: $depth, eval_only: $eval_only, authoritative: false}' \
-  >"$signoff" 2>/dev/null || {
+  '{subject: $subject, decision: $decision, depth: $depth, eval_only: true, authoritative: false}' \
+  >"$signoff.tmp" 2>/dev/null; then
   echo "greeter/skill.sh: failed to write the sign-off record" >&2
+  exit 2
+fi
+mv "$signoff.tmp" "$signoff" || {
+  echo "greeter/skill.sh: failed to publish the sign-off record" >&2
   exit 2
 }
 
