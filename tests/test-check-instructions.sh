@@ -173,8 +173,10 @@ trap 'rm -rf "$tmproot"' EXIT
 
 ########################################################################
 # 0. Real repo passes the guard with no transitional allowances remaining
-#    (Task 2 Done-when: `mise run check` passes on the repo; post-Task-7.5
-#    the only suppression is the permanent spec-format exemption).
+#    (Task 2 Done-when: `mise run check` passes on the repo; post-Task-7.5 no
+#    transitional pending-diet allowance remains — the standing suppressions are
+#    the permanent spec-format per-file exemption plus the two /orchestrate
+#    below-target declared exceptions from the fleet-hardening #271 collision).
 ########################################################################
 out="$(/bin/bash "$CHECKER" 2>&1)"
 assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $?
@@ -611,8 +613,10 @@ out="$(/bin/bash "$CHECKER" --closeout --root "$t7e4" 2>&1)"
 assert_exit "closeout: a permanent exemption alone passes --closeout" 0 $?
 assert_absent "closeout: permanent exemption raises no closeout error" "closeout" "$out"
 
-# the real repo (post-Task-7.5, only the permanent spec-format exemption)
-# passes --closeout: the closeout direction holds on the shipped corpus.
+# the real repo passes --closeout (post-Task-7.5 no transitional pending-diet
+# allowance remains; the standing spec-format exemption and the two /orchestrate
+# declared exceptions are permanent, so the closeout direction holds on the
+# shipped corpus).
 out="$(/bin/bash "$CHECKER" --closeout 2>&1)"
 assert_exit "closeout: the real repo passes --closeout (no lingering allowance)" 0 $?
 
