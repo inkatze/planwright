@@ -160,6 +160,40 @@ else
   failures=$((failures + 1))
 fi
 
+# 11c. Self-location resolves EVERY shipped core doctrine doc (Task 1 Done-when:
+#      from a worktree with PLANWRIGHT_ROOT, CLAUDE_PLUGIN_ROOT, CLAUDE_DIR, and
+#      HOME all unset, resolve-rule-doc.sh resolves every core doctrine doc).
+#      Test 11b pins one doc; this makes the "every doc" guarantee mechanical, so
+#      a core doc the self-location arm cannot reach fails CI rather than a
+#      manual spot-check. Iterate the shipped doctrine/ set minus README (the
+#      convention index, not a rule doc). All four roots are genuinely unset
+#      (-u), matching the REQ-D1.1 environment literally; 11b's empty-string
+#      idiom is equivalent here (the resolver reads ${VAR:-} then skips empty
+#      roots), but unsetting removes any doubt that the writer-root arm could
+#      mask the self-location arm.
+selfloc_misses=0
+selfloc_total=0
+for doc in "$REPO_ROOT"/doctrine/*.md; do
+  [ -e "$doc" ] || continue # nullglob-off guard: skip the literal glob if doctrine/ is empty
+  base="$(basename "$doc" .md)"
+  [ "$base" = "README" ] && continue
+  selfloc_total=$((selfloc_total + 1))
+  out="$(env -u HOME -u CLAUDE_DIR -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT \
+    /bin/bash "$RESOLVER" "$base" 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ] || [ ! -f "$out" ] || [ ! "$out" -ef "$doc" ]; then
+    echo "FAIL: self-location did not resolve core doc '$base' (got '$out')" >&2
+    selfloc_misses=$((selfloc_misses + 1))
+  fi
+done
+assert "self-location resolves every shipped core doctrine doc" 0 "$selfloc_misses"
+if [ "$selfloc_total" -lt 1 ]; then
+  echo "FAIL: no core doctrine docs found to exercise self-location" >&2
+  failures=$((failures + 1))
+else
+  echo "ok: self-location exercised $selfloc_total core doctrine docs"
+fi
+
 # ===========================================================================
 # Task 4 — doctrine-overlay resolution (D-4, D-5, D-7, D-8, D-9, D-11;
 # REQ-A1.2, REQ-B1.2, REQ-B1.6, REQ-B1.7, REQ-E1.4, REQ-E1.5).
