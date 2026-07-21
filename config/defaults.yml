@@ -36,9 +36,9 @@ mark_spec_pr_ready_on_kickoff: true
 # ready-flip in tasks.md `## Awaiting input` (the re-entry point). Same `<n>[m]`
 # minutes convention as the staleness knobs; an absent or malformed value falls
 # back to the default with a one-line warning. Read by /spec-kickoff at
-# pre-flight step 4 (sign-off terminal step) alongside
-# mark_spec_pr_ready_on_kickoff; the gate is skipped when the upstream
-# no-remote/no-PR degradation arm has already fired.
+# pre-flight step 4 (alongside mark_spec_pr_ready_on_kickoff) and consumed at
+# the sign-off terminal ready-flip (step 8); the gate is skipped when the
+# upstream no-remote/no-PR degradation arm has already fired.
 kickoff_ready_ci_wait: 10m
 
 # Dispatch layer (D-38, REQ-F1.8). Each backend value maps to an advertised
