@@ -37,11 +37,11 @@ vague prose.
 ### Interview to completeness
 
 Elicitation is goal-directed against the spec's own dependency structure. The
-skill never declares a section or a sign-off ready while a decision that
-structure requires is still undefined, and a changed upstream answer reopens
-the dependent decisions it invalidates rather than leaving a stale answer
-standing. Questions are bounded — at most five per pass, asked only when
-actually needed — so the interview converges rather than interrogates. The
+skill never declares a section or a sign-off ready while a decision it
+requires is still undefined, and a changed upstream answer reopens the
+dependent decisions it invalidates, never leaving a stale answer standing.
+Questions are bounded — at most five per pass, asked only when needed — so
+the interview converges rather than interrogates. The
 skill carries the clerical weight (deriving candidates, formatting, tracking
 state); the operator supplies judgment, not formatting. Input the skill
 cannot parse gets a re-prompt restating what is needed, never a silent
@@ -65,10 +65,12 @@ self-audits its prose against them before presenting:
 - parallel options at equal detail, benefits and costs at equal weight;
 - an explicit reject or do-nothing option, at equal prominence;
 - neutralized ordering and no one-sided framing;
-- no pre-selected default — unconditional: a recommendation may be marked,
-  never pre-selected;
-- any surfaced likelihood (coverage, confidence, risk) as a natural frequency
-  over a fixed denominator, never a lone percentage or one-sided frame.
+- no pre-selected default, unconditionally: a recommendation may be marked,
+  never pre-selected.
+
+Any likelihood the skill surfaces (coverage, confidence, risk) is expressed
+as a natural frequency over a fixed denominator, never a lone percentage or
+one-sided frame.
 
 The equal-weight, neutralized-ordering, and no-recommendation rules yield
 only to a grounded recommendation (the grounding test): the skill MAY mark a
