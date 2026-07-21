@@ -267,12 +267,15 @@ resolve_posint() {
 #
 # Each window is found BY LABEL, never by position: a single top-to-bottom pass
 # tracks the most-recently-seen window label (`session` / `week`), and the first
-# plausible percentage AND the first reset phrase within a window's section are
-# assigned to that window. "Most recent label owns the value" bounds each window
-# to its own section — a percentage cannot bleed from one window into the other
-# even when a label line carries no percentage of its own, and window ORDER does
-# not matter. A percentage absent from a window's section, or present but
-# outside 0-100, yields `unavailable`.
+# PLAUSIBLE (0-100) percentage AND the first reset phrase within a window's
+# section are assigned to that window. "Most recent label owns the value" bounds
+# each window to its own section — a percentage cannot bleed from one window into
+# the other even when a label line carries no percentage of its own, and window
+# ORDER does not matter. An implausible token (a garbled or decorative "999%") is
+# skipped rather than locked in, so a stray leading token does not falsely mark a
+# window unavailable when the real usage line follows. A window whose section has
+# NO percentage, or whose only percentage is implausible, yields `unavailable` —
+# no implausible value is ever recorded or acted on (REQ-E1.5).
 parse_usage() {
   head -c 262144 | awk '
     BEGIN { TAB = sprintf("\t") }
@@ -289,7 +292,7 @@ parse_usage() {
     }
     END {
       cur = ""             # the most-recently-seen window: "s" | "w" | ""
-      s_pct = -2; w_pct = -2   # -2 section absent, -1 implausible, else 0..100
+      s_pct = -1; w_pct = -1   # -1 = no plausible value yet; else 0..100
       s_reset = ""; w_reset = ""
       for (i = 1; i <= n; i++) {
         # A line naming a window opens that window section. A legend line naming
@@ -298,11 +301,19 @@ parse_usage() {
         if (index(lower[i], "session")) cur = "s"
         if (index(lower[i], "week")) cur = "w"
         if (cur == "") continue
+        # Take the first PLAUSIBLE (0-100) percentage in a window section. An
+        # implausible token (e.g. a garbled or decorative "999%") is skipped, not
+        # locked in, so a stray leading token does not falsely mark the window
+        # unavailable when the real usage line follows. A section whose only
+        # percentage is implausible still yields unavailable (no plausible value
+        # is ever recorded), so the REQ-E1.5 never-act-on-implausible rule holds.
+        # The plausibility bound is the guard; a >100 number is never acted on.
         if (match(lines[i], /[0-9]+%/)) {
           num = substr(lines[i], RSTART, RLENGTH - 1) + 0
-          val = (num >= 0 && num <= 100) ? num : -1
-          if (cur == "s" && s_pct == -2) s_pct = val
-          else if (cur == "w" && w_pct == -2) w_pct = val
+          if (num >= 0 && num <= 100) {
+            if (cur == "s" && s_pct == -1) s_pct = num
+            else if (cur == "w" && w_pct == -1) w_pct = num
+          }
         }
         # The first reset phrase in a window section: informational only,
         # bounded to 100 chars, captured from the "reset" keyword to end of line.

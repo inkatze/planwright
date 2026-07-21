@@ -539,4 +539,24 @@ throttle check >/dev/null 2>&1 || rc=$?
 [ "$rc" = 1 ] || fail "with the gate signal unavailable, the reactive backstop must still govern (throttle check exit $rc, expected 1)"
 echo "ok: the reactive backstop is load-bearing when the proactive signal is unavailable"
 
+# --- 25. The first PLAUSIBLE percentage in a section wins: a garbled/implausible
+#         leading token is skipped, not locked in (so it does not falsely mark a
+#         window unavailable). A section whose ONLY value is implausible still
+#         yields unavailable. ---
+reset_state
+skip=$(printf 'Current session\n[bar 999%%]\n52%% used\nResets 3pm\n\nCurrent week\n38%% used\n' | run capture) \
+  || fail "capture (implausible-leading) failed"
+case $skip in
+  *session*52*) ;;
+  *) fail "an implausible leading token (999%) should be skipped for the real 52% (got: $skip)" ;;
+esac
+# But a section whose only percentage is implausible stays unavailable.
+onlybad=$(printf 'Current session\n250%% used\nCurrent week\n38%% used\n' | run capture) \
+  || fail "capture (implausible-only) failed"
+case $onlybad in
+  *session*unavailable*) ;;
+  *) fail "a section whose only value is implausible must be unavailable (got: $onlybad)" ;;
+esac
+echo "ok: the first plausible percentage wins; an implausible-only section is unavailable"
+
 echo "ALL fleet-usage-gate tests passed"
