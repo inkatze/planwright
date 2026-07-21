@@ -534,6 +534,85 @@ throttle-engaged state from the trail. An operator ends a hold early with
 like every state change, but not gate-checked, because the kill-switch
 pauses autonomous actions, never the operator's own lever.
 
+**Gating is proactive, off Claude Code's own `/usage`.** The reactive
+throttle only fires at the wall; `scripts/fleet-usage-gate.sh` reads real
+account-level usage *ahead* of it (D-23). `fleet-usage-gate.sh capture` takes
+a captured `/usage` render on stdin (a throwaway-pane scrape, off the hot
+path), strips control bytes, parses **both** windows Claude Code renders — the
+session (~5-hour) and the weekly — **by label**, plausibility-checks each
+(0–100 and the expected shape), and caches the extracted signal per-tower with
+a read timestamp. `fleet-usage-gate.sh evaluate` maps each window's percentage
+to a rung on one monotone restriction ladder —
+`normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
+deterministic `≥` comparison against the overlay-resolved per-window thresholds
+(`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
+1–100, validated). The **more restrictive** window governs; the session window
+is **capped at `defer-heavy`** (a session spike never proactively halts the
+fleet), while only the weekly window can reach `defer-all` (the weekly wall can
+halt work for days). `fleet-usage-gate.sh admit <model>` answers the
+dispatch-time question: at `defer-heavy` heavy tiers (`opus`, `fable`) wait
+while cheaper ones dispatch; at `defer-all` everything waits. The ladder's live
+state (current rung, last transition) is **derived from the shared audit
+trail**, not stored (D-28), so a memoryless, cron-relaunched tower recovers the
+fleet rung; each transition is taken under the same advisory lock, logged
+**edge-triggered** (only on an actual rung change), and carries only the
+extracted percentages and the rung decision — never the raw `/usage` render,
+which can carry account or plan identifiers. Every rung transition is a
+throttle-family daemon action: kill-switch-gated (`fleet_daemon_pause`) and
+audit-logged (mechanism `usage-gate`), and the current rung folds into the
+existing throttle line Task 8's stats already render (no new stat type). When
+`/usage` cannot be captured, parsed, is implausible, or is stale beyond
+`fleet_usage_signal_ttl_seconds`, the signal is reported **unavailable**:
+governance falls back to the reactive throttle (the deterministic floor) with
+no block and no guessed number, and unavailability sustained across
+`fleet_usage_sustained_loss_count` consecutive read cadences raises the
+required operator surface (a warning escalating to an Awaiting-input hold), so
+a permanently broken parse is never silent. The proactive read is
+**shared-aware by construction**: `/usage` is account-global, already
+reflecting every concurrent tower, all workers, and unrelated same-account
+work, so no per-orchestrator usage reservation is kept. Because the `/usage`
+render is an undocumented, version-fragile surface (D-23), the parser carries a
+`[manual]` drift check — the automatable core (parse, plausibility, hygiene,
+ladder) is in CI; confirming the parser still matches a live `/usage` format is
+the operator's periodic manual check.
+
+Schedule the read + evaluation on the `fleet_usage_read_cadence_seconds`
+cadence, off the dispatch hot path — the gate never scrapes `/usage`
+synchronously per dispatch. The scrape mechanism (a throwaway-pane capture of
+the live `/usage` TUI) is environment-specific; wire it as, e.g.:
+
+```cron
+*/5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
+```
+
+Then at dispatch time a tower consults `scripts/fleet-usage-gate.sh admit
+<model>` (a fast, audit-derived read — no scrape) to decide whether a unit of a
+given tier may launch under the current rung.
+
+**Credit-continuation defaults to decline-and-wait, never auto-spend.** The
+rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
+credits / extra usage to continue past the limit".
+`scripts/fleet-credit-continuation.sh decide`, invoked on the same captured wall
+text the throttle reads, rides that reactive detection: it recognizes the
+spend-to-continue offer (demanding both a spend-offer token and a continuation
+token, so a plain wall or a garbled variant is never mistaken for one) and makes
+a single deterministic
+fleet policy decision. The shipped default is **decline and wait** for the
+window to reset — the reactive backstop already gives "wait for reset" a
+well-defined behavior to fall into, so declining costs no new mechanism, and
+an unattended, unbounded money spend is exactly the irreversible act
+planwright reserves for the operator (like merge). Spending credits to
+continue requires explicit opt-in: set `fleet_credit_continuation_spend: true`.
+The decision is a daemon action — kill-switch-gated (`fleet_daemon_pause`) and
+audit-logged (`fleet-audit.sh`, mechanism `credit-continuation`, with only the
+sanitized excerpt and the decline/spend decision recorded) — and, being a pure
+recognizer-plus-config-read, it makes no session-launch decision and so can
+never engage `auto` permission mode. An unrecognized wall variant is a clean
+no-op that falls through to the plain reactive backstop above, so no accidental
+spend is ever possible. This is a spend-*avoidance* default, distinct from a
+dollar-spend accounting ceiling (out of scope): it neither meters nor caps
+spend, it only refuses to incur it without opt-in.
+
 **Workers never run in `auto` permission mode.** The
 `config/worker-settings.json` allowlist — human-reviewed, human-installed,
 pinning a non-auto `defaultMode` — is the sole permission-approval mechanism

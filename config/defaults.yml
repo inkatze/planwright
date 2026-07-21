@@ -23,6 +23,24 @@ commit_on_state_move: true
 # value.
 mark_spec_pr_ready_on_kickoff: true
 
+# The bounded wait /spec-kickoff's terminal ready-flip holds for the spec PR's
+# head-SHA check rollup to complete before it marks the PR ready (skill-rigor
+# D-3, REQ-B1.1). After the push, CI rarely reports within seconds, so the gate
+# polls the head commit's statusCheckRollup (checks on the SHA, never PR review
+# states — an errored or stale review must not masquerade as a completed check)
+# at a bounded cadence (tens of queries per wait, not hundreds) up to this
+# bound, flipping only on a positive green (at least one completed check and
+# overall success); head identity is re-confirmed immediately before the flip
+# (a moved head refuses). On red, empty, unresolved, a query failure, an expired
+# wait, or a moved head it leaves the PR draft and records the pending
+# ready-flip in tasks.md `## Awaiting input` (the re-entry point). Same `<n>[m]`
+# minutes convention as the staleness knobs; an absent or malformed value falls
+# back to the default with a one-line warning. Read by /spec-kickoff at
+# pre-flight step 4 (alongside mark_spec_pr_ready_on_kickoff) and consumed at
+# the sign-off terminal ready-flip (step 8); the gate is skipped when the
+# upstream no-remote/no-PR degradation arm has already fired.
+kickoff_ready_ci_wait: 10m
+
 # Dispatch layer (D-38, REQ-F1.8). Each backend value maps to an advertised
 # capability set defined by doctrine/backend-capability-contract.md (D-2), which
 # specifies how the orchestrator is to adapt to what is advertised rather than
@@ -223,6 +241,62 @@ fleet_model_drain: sonnet
 # resolver (D-22/REQ-G1.5); a positive integer under the
 # customization-overlay REQ-E1.4 by-layer malformed policy.
 fleet_throttle_default_hold: 300
+
+# The proactive, shared-aware `/usage` budget gate and its restriction ladder
+# (fleet-autonomy Task 9, D-23/D-28; REQ-E1.5, REQ-E1.6). scripts/fleet-usage-gate.sh
+# reads Claude Code's own `/usage` render, parses BOTH windows (session ~5-hour,
+# weekly), and maps each window's percentage to a rung on the monotone ladder
+# normal -> downshift -> reduce-concurrency -> defer-heavy -> defer-all. The more
+# restrictive window governs; the session window is capped at defer-heavy while
+# only weekly can reach defer-all. All knobs resolve through the shared resolver
+# (scripts/resolve-config-knob.sh -> config-get, D-22/REQ-G1.5) under the
+# customization-overlay REQ-E1.4 by-layer malformed policy; every value is a
+# positive integer. The `downshift`/`reduce-concurrency` rung CONSEQUENCE values
+# (which model/effort/concurrency) are fleet-autonomy Task 10's, not here.
+
+# The read cadence and cache TTL, in seconds. `/usage` capture is expensive, so
+# the signal is cached off the dispatch hot path and refreshed on the cadence,
+# never scraped synchronously per dispatch. A cached signal staler than the TTL
+# is treated as unavailable; the TTL MUST exceed the cadence (validated) so a
+# fresh read always lands inside the TTL.
+fleet_usage_read_cadence_seconds: 300
+fleet_usage_signal_ttl_seconds: 900
+
+# How many consecutive read cadences the signal may be unavailable before the
+# REQUIRED operator surface fires (a warning escalating to an Awaiting-input
+# hold via scripts/fleet-attention.sh), so a permanently broken `/usage` parse
+# (the D-23 version-drift fragility) is never silent.
+fleet_usage_sustained_loss_count: 3
+
+# Per-window percentage thresholds mapping usage to a rung (>= at the threshold
+# trips it). Each window's thresholds MUST be strictly ascending and within
+# 1-100 (validated; a non-monotonic or out-of-range set is refused). The session
+# window has no defer-all threshold — it is capped at defer-heavy by design (a
+# session spike never proactively halts the fleet; the reactive backstop catches
+# a genuine session wall). The weekly window escalates harder and earlier and
+# alone can reach defer-all (hitting the weekly wall can halt work for days).
+fleet_usage_session_downshift: 50
+fleet_usage_session_reduce_concurrency: 70
+fleet_usage_session_defer_heavy: 85
+fleet_usage_weekly_downshift: 60
+fleet_usage_weekly_reduce_concurrency: 75
+fleet_usage_weekly_defer_heavy: 85
+fleet_usage_weekly_defer_all: 95
+
+# Credit-continuation spend policy at the rate-limit wall (fleet-autonomy
+# D-27, REQ-E1.11). When Claude Code's wall offers a credit-continuation
+# prompt ("spend credits / extra usage to continue past the limit"),
+# scripts/fleet-credit-continuation.sh decides how the fleet responds. The
+# shipped default is `false` — decline and wait for the window to reset (the
+# REQ-E1.7 reactive backstop): auto-spend is NEVER the default, since an
+# unattended, unbounded money spend is an irreversible action planwright
+# reserves for the operator. Set `true` only to explicitly permit spending
+# credits to keep the fleet moving past the limit. A spend-AVOIDANCE knob, not
+# a spend-accounting ceiling (Out of scope): it neither meters nor caps spend.
+# Resolved through the shared knob resolver (scripts/resolve-config-knob.sh ->
+# config-get, D-22/REQ-G1.5); a value other than true/false is malformed under
+# the customization-overlay REQ-E1.4 by-layer policy.
+fleet_credit_continuation_spend: false
 
 # Release-tagging policy (autopilot-reflex D-4, D-13; release-hardening D-7 —
 # REQ-D1.4, REQ-D1.6, REQ-G1.3). The publish script (scripts/release-publish.sh)
