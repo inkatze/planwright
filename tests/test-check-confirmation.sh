@@ -301,6 +301,25 @@ out="$(/bin/bash "$CHECKER" "$tmp/malformed-option.json" 2>&1)"
 assert "malformed option fails" 1 $?
 assert_contains "names MALFORMED_OPTION" "MALFORMED_OPTION" "$out"
 
+# 12b. A top-level array carrying a non-object entry is flagged per-entry as
+#      MALFORMED_CONFIRMATION (the array-walking guard), not crashed on.
+cat >"$tmp/malformed-confirmation.json" <<'EOF'
+[
+  42,
+  {
+    "question": "Sign off the kickoff brief and flip the spec to Ready?",
+    "options": [
+      { "label": "Sign off and open the draft PR", "description": "Records the sign-off." },
+      { "label": "Hold as Draft", "description": "Leaves the spec at Draft.", "reject": true }
+    ]
+  }
+]
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/malformed-confirmation.json" 2>&1)"
+assert "malformed (non-object) confirmation entry fails" 1 $?
+assert_contains "names MALFORMED_CONFIRMATION" "MALFORMED_CONFIRMATION" "$out"
+assert_contains "malformed confirmation names its index" "confirmation #0" "$out"
+
 # 13. The check emits no raw untrusted input bytes: a label carrying a terminal
 #     escape sequence never reaches the output (echo discipline; the check
 #     reports by index and static rule text only). The fixture is built with jq
