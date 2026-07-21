@@ -116,11 +116,11 @@ pass summary.
    forming the path; a failing segment is treated as no match, never
    interpolated); a branch-named spec whose own `kickoff-brief.md` is absent
    means the brief is absent for this pass, never a fall-through to another
-   spec's brief. Otherwise resolve through the status render (`mise run status
-   specs/<spec>`, i.e. `scripts/spec-status.sh`; the canonical read surface,
-   invariant-tasks D-6), accepting a bundle whose derived status is Ready or
-   Active — so a format-version-2 bundle with work in flight (stored Ready,
-   derived Active) resolves, not only a stored-`Active` v1 spec
+   spec's brief. Otherwise resolve through the status render
+   (`scripts/spec-status.sh` / `mise run status`; invariant-tasks D-6),
+   accepting any `specs/*/` bundle whose derived status
+   is Ready or Active — so a format-version-2 bundle with work in flight
+   (stored Ready, derived Active) resolves, not only a stored-`Active` v1 spec
    — and taking its sibling `kickoff-brief.md` when exactly one such bundle
    carries one. A render error, zero candidates, or multiple Ready-or-Active
    candidates is not an unambiguous match: degrade to the existing arm — ask
@@ -273,8 +273,7 @@ record a drift observation through the shared helper (`scripts/obs-record.sh
 --slug skill-drift --scope <repo> --text 'skill-drift(self-review): <what>'`
 — the entry text keeps the `skill-drift(...)` prefix; in repositories
 without `specs/`, surface the drift to the user instead of recording it),
-commit the fragment as its own chore commit, and surface a non-zero helper
-exit rather than silently dropping the observation. Do not edit this skill
-or the doctrine docs to resolve the
-drift; the accumulator's canonical reader (`/spec-draft`) owns folding drift
-into spec amendments.
+commit the fragment as its own chore commit, tell the user what drifted, and
+surface a non-zero helper exit rather than silently dropping the observation.
+Do not edit this skill or the doctrine docs to resolve the drift; `/spec-draft`
+owns folding drift into spec amendments.

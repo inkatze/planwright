@@ -450,6 +450,14 @@ else
   fail "self-review: named-spec-without-brief rule (no fall-through to another spec's brief) missing (REQ-A1.2)"
 fi
 
+# A render error, zero, or multiple Ready-or-Active candidates must degrade to
+# the existing ask-when-attended / proceed-brief-less arm (D-2), never a guess.
+if printf '%s' "$sr" | grep -qE 'render error[^.]{0,120}degrade to the existing arm'; then
+  ok "self-review: render error / zero / multiple candidates degrade to the existing arm (D-2)"
+else
+  fail "self-review: fallback rung does not degrade a render error / zero / multiple candidates to the existing arm (D-2)"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1
