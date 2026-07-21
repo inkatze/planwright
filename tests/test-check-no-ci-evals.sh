@@ -192,6 +192,23 @@ rc=$?
 assert_exit "direct sh scripts/behavioral-eval.sh is caught" 1 "$rc"
 assert_contains "names the behavioral-eval offender" "behav-direct/ci.yml" "$out"
 
+# ---- the TEST script name (test-behavioral-eval.sh) is NOT a false positive ----
+# CI legitimately runs the eval harness's own tests via the tests/*.sh glob; the
+# runner-name match is anchored at a token boundary so the `test-` prefix does
+# not trip the guard (operator-dialogue REQ-G1.5 follow-up).
+mkdir -p "$TMP/testname"
+cat >"$TMP/testname/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: bash tests/test-behavioral-eval.sh
+      - run: bash tests/test-prompt-eval-runner.sh
+EOF
+out="$("$GUARD" "$TMP/testname" 2>&1)"
+assert_exit "the eval harness TEST scripts are not flagged as runners" 0 "$?"
+
 # ---- a benign task whose name merely contains 'eval' is NOT flagged ----
 # `evaluate-release` is not in the `eval:` namespace; a substring match would
 # be a false positive that blocks legitimate task names.
