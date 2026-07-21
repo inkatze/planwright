@@ -1,21 +1,92 @@
-# Interaction Style for Spec-Authoring Skills
+# Interaction Style
 
-How planwright's spec-authoring skills (`/spec-draft`, `/spec-kickoff`)
-conduct a long interactive session without losing the human. Authoring a spec
-is hours of joint decision-making; these rules keep the human oriented,
-informed, and in control of every decision while the agent carries the
-clerical weight.
+How planwright's skills conduct every attended human moment — the
+comprehension, approval, handoff, and report surfaces where a skill teaches,
+asks, confirms, or reports to a live operator — not only the authoring
+skills (`/spec-draft`, `/spec-kickoff`) it originally covered. At
+each such moment the skill acts as a domain expert of the spec that teaches
+down to the operator's level and interviews for exactly what it needs,
+in-band, and never grades the spec on its own behalf: the operator is a peer
+being brought up to speed, not a co-processor already holding the pipeline's
+internal model.
 
-Citations: REQ-B3.1 · the bootstrap seed (Sources).
+Citations: REQ-B3.1 · operator-dialogue REQ-A1.1, REQ-A1.2, REQ-B1.3,
+REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5 ·
+operator-dialogue D-1, D-3, D-4, D-5, D-6, D-12 · the bootstrap seed
+(Sources).
 
-## The rules
+## The three disciplines
+
+Each is stated as inspectable rules a surface can be checked against, not a
+tone.
+
+### Teach to the frontier
+
+Comprehend first: the skill builds its own faithful model of the spec before
+it interviews, and teaches inside the live dialogue, never through a separate
+artifact the operator must remember to generate and open. Explanation is
+pitched at the operator's frontier — skip what the operator demonstrably
+already holds, teach the gap — and scaffolding fades as uptake shows, so a
+later section is not re-explained at the depth of the first. Calibration is a
+lightweight running sense of the operator's uptake, per concept, never a
+heavyweight learner model. Translating down never distorts: a
+normative token the explanation does convey (MUST, SHALL, SHALL NOT, MAY, a
+threshold, an enumerated state) is preserved verbatim, never softened into
+vague prose.
+
+### Interview to completeness
+
+Elicitation is goal-directed against the spec's own dependency structure. The
+skill never declares a section or a sign-off ready while a decision that
+structure requires is still undefined, and a changed upstream answer reopens
+the dependent decisions it invalidates rather than leaving a stale answer
+standing. Questions are bounded — at most five per pass, asked only when
+actually needed — so the interview converges rather than interrogates. The
+skill carries the clerical weight (deriving candidates, formatting, tracking
+state); the operator supplies judgment, not formatting. Input the skill
+cannot parse gets a re-prompt restating what is needed, never a silent
+advance.
+
+### Present without steering
+
+The skill never delivers a verdict, score, pass/fail, or quality assessment
+of the spec on its own behalf — the independence firewall; judgment lives in
+the doctrine and the rigor passes, not in a per-run take. The governing line
+is information versus advice: the skill MAY present information *about* the
+spec (what a decision says, what it depends on, the tradeoffs the design
+already records) but never crosses into an outcome-driven verdict on whether
+to approve. Its escape valve: withhold the quality verdict, never information
+the operator asked for — a mute refusal of an information request is a
+defect, not compliance.
+
+Presenting alternatives or a fork applies the balance rules; the skill
+self-audits its prose against them before presenting:
+
+- parallel options at equal detail, benefits and costs at equal weight;
+- an explicit reject or do-nothing option, at equal prominence;
+- neutralized ordering and no one-sided framing;
+- no pre-selected default — unconditional: a recommendation may be marked,
+  never pre-selected;
+- any surfaced likelihood (coverage, confidence, risk) as a natural frequency
+  over a fixed denominator, never a lone percentage or one-sided frame.
+
+The equal-weight, neutralized-ordering, and no-recommendation rules yield
+only to a grounded recommendation (the grounding test): the skill MAY mark a
+recommended option when the basis is derivable from the spec, the doctrine,
+or mechanical consistency — a reason the operator can verify against the
+artifact. When the only basis is the skill's own opinion of the spec, the
+self-audit strips the recommendation and re-levels the options.
+Self-contained confirmation (under *Selectors with recommendations* below) is
+a named rule of this discipline, not a fourth peer.
+
+## Session mechanics
 
 ### Progress indicator
 
 Every interaction names where the session stands: the current phase and the
 total, plus the step within the phase when phases are long (for example
-`[Requirements 3/6 — group B of D]`). The human should never have to ask "how
-much is left?". When a phase's length is unknowable up front (elicitation can
+`[Requirements 3/6 — group B of D]`). The human never has to ask "how much is
+left?". When a phase's length is unknowable up front (elicitation can
 grow), say so and give the count of what is known.
 
 ### Progressive disclosure
@@ -28,13 +99,15 @@ one sentence plus an offer to expand.
 
 ### Selectors with recommendations
 
-A decision is presented as a small set of concrete options, with the agent's
-recommended option first and marked as such, plus the reason for the
-recommendation in one or two sentences. Options are real alternatives (the
-actual branches of the decision), not timing labels. The human can always
-answer outside the offered set; the selector is a scaffold, not a fence.
-Decisions the agent can resolve from already-recorded answers, the seed
-material, or framework doctrine are resolved and reported, not asked.
+A decision is presented as a small set of concrete options — real
+alternatives (the actual branches of the decision), not timing labels. A
+recommendation passes the grounding test before it is marked: grounded, the
+recommended option comes first, marked, with its reason in one or two
+sentences; otherwise the options are presented level, per the balance rules.
+No option is ever pre-selected. The human can always answer outside the
+offered set; the selector is a scaffold, not a fence. Decisions the agent can
+resolve from already-recorded answers, the seed material, or framework
+doctrine are resolved and reported, not asked.
 
 **Self-contained.** The selector prompt carries everything needed to answer
 it. In a terminal the open selector hides the prose emitted before it, so the
@@ -49,14 +122,13 @@ prose is a short status line only, never the place a load-bearing detail lives.
 
 After each phase (and at any natural pause), restate what has been decided so
 far in a compact, cumulative summary: decisions taken, their one-line
-rationale, and what remains open. The summary is the human's checkpoint that
-the agent heard what they said; a misunderstanding surfaces at the next
-summary, not at the end of the session.
+rationale, and what remains open. The summary is the checkpoint that the
+agent heard the human; a misunderstanding surfaces at the next summary, not
+at the end of the session.
 
 ### Small bites
 
-One question, or one tightly related cluster, per turn. A turn that asks five
-unrelated things gets degraded answers to four of them. Long elicitation runs
+One question, or one tightly related cluster, per turn. Long elicitation runs
 are sequences of small exchanges, not questionnaires. When several questions
 are genuinely coupled (answering one constrains the others), present them
 together and say why.
@@ -65,11 +137,11 @@ together and say why.
 
 - The rules govern attended, interactive flows. Where a skill has a
   non-interactive arm, would-be prompts follow that skill's degradation rules
-  (for example recording an Awaiting-input entry) rather than being silently
+  (for example recording an Awaiting-input entry), never silently
   auto-answered.
 - The rules are a floor, not a script: skills choose the phase names and
-  granularity that fit their flow, but every authoring flow shows the
-  indicator, discloses progressively, offers recommended selectors that are
-  self-contained, keeps a running summary, and works in small bites.
-- Verification is design-level (REQ-B3.1): the rules are documented here, and
-  each authoring skill's instructions show the indicator and selectors.
+  granularity that fit their flow, but every attended flow instantiates the
+  three disciplines and shows the mechanics above.
+- Verification is design-level (REQ-B3.1; operator-dialogue REQ-A1.1,
+  REQ-A1.2): the scope and disciplines are documented here; each surface's
+  instructions show their instantiation.

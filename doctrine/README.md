@@ -26,7 +26,7 @@ resolution path defined below (REQ-I1.1, D-24).
 | [instruction-hygiene.md](instruction-hygiene.md) | The instruction-layer authoring law: flow in skills / law in rule docs, the doctrine-manifest grammar, the loading convention and its safety floor, the word budgets, the test-and-measure principle, and the kept prompt-eval convention | prompt-hygiene REQ-C1.1, prompt-hygiene REQ-C1.2, prompt-hygiene REQ-C1.3, prompt-hygiene REQ-C1.4, prompt-hygiene REQ-C1.6 · prompt-hygiene D-1, prompt-hygiene D-2, prompt-hygiene D-3, prompt-hygiene D-5, prompt-hygiene D-6, prompt-hygiene D-7, prompt-hygiene D-8, prompt-hygiene D-9, prompt-hygiene D-10, prompt-hygiene D-11 |
 | [accumulator-taxonomy.md](accumulator-taxonomy.md) | The three accumulator classes and their drain rituals, the `GATE(when:)` convention and its closed grammar (normative home), the shared drain pass behind `/drain` and `--bookkeeping` | REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18, D-31 |
 | [spec-format.md](spec-format.md) | The versioned four-file spec format meta-spec: per-file fields, ID and citation conventions, status lifecycle, amendment ritual, kickoff-brief structure, sign-off records and content anchors, glossary | REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8, REQ-B2.2 · D-1, D-20, D-25, D-40, D-45 |
-| [interaction-style.md](interaction-style.md) | How spec-authoring skills conduct interactive sessions: progress indicator, progressive disclosure, selectors with recommendations, running summary, small bites | REQ-B3.1 |
+| [interaction-style.md](interaction-style.md) | How skills conduct every attended human moment (comprehension, approval, handoff, report): the three disciplines (teach to the frontier, interview to completeness, present without steering) and the session mechanics (progress indicator, progressive disclosure, selectors with recommendations, running summary, small bites) | REQ-B3.1 · operator-dialogue REQ-A1.1, REQ-A1.2 · operator-dialogue D-1, D-3, D-4, D-5, D-6, D-12 |
 | [backend-capability-contract.md](backend-capability-contract.md) | The dispatch-backend capability contract and advertisement: the five named capabilities, the advertised capability set, orchestrator adaptation, and the existing backends mapped to it | orchestration-fleet REQ-B1.1, REQ-B1.2, REQ-B1.3 · orchestration-fleet D-2 |
 | [context-budget-autoheal.md](context-budget-autoheal.md) | The long-running tower's context-budget monitor (the completed-step-count proxy signal and its knob) and the disposable-tower auto-heal handover (`continue-as-new`): rebuild-from-disk, the wake prompt as handover document, state-safety across the handover, and the never-auto-merge floor | orchestration-fleet REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-A1.2 · orchestration-fleet D-4 |
 | [attention-notification-capability.md](attention-notification-capability.md) | The substrate-agnostic attention/notification capability lifted into core: heartbeat/awareness state under the cross-spec home, the portable status renderer, the alarm-rationalized decision queue, the overlay-valued notification seam, and deferral to a backend's own attention surface | orchestration-fleet REQ-E1.3, REQ-E1.4, REQ-A1.5, REQ-A1.6 · orchestration-fleet D-13 |
@@ -107,9 +107,9 @@ budget, verified how — and it is itself a catalogued breadth dimension
 (`instruction-hygiene` in the [Core Guard Catalog](guard-catalog.md#instruction-hygiene)),
 so the builder can recommend the same size guard and kept-eval convention to an
 adopter whose repo authors an instruction layer. Upstream of execution,
-[Interaction Style](interaction-style.md) governs how the spec-authoring
-skills conduct the interactive sessions that produce the specs everything
-above executes against, and the
+[Interaction Style](interaction-style.md) governs every attended human moment
+across the pipeline — beginning with the interactive authoring sessions that
+produce the specs everything above executes against — and the
 [Customization Boundary](customization-boundary.md) governs a scoping call made
 in those sessions: whether a candidate preference belongs in core (as an opt-in
 config knob) or in an adopter/team overlay.
