@@ -13,11 +13,11 @@ argument-hint: "[--nested]"
 # /self-review
 
 One complete review pass of the feature branch against its base, wired into
-planwright's act-then-review autonomy gate (REQ-E2.1, D-12). Discovery Rigor
+planwright's act-then-review autonomy gate (REQ-E2.1, D-12): Discovery Rigor
 produces the finding list, Validation Rigor confirms it, the finding
-categorization routes every confirmed finding to a disposition, and the gate
-wiring's audit record is what the pass hands over. `/polish` iterates this
-pass to convergence; this skill is the single pass.
+categorization routes each confirmed finding to a disposition, and the gate
+wiring's audit record is the handoff. `/polish` iterates it to convergence;
+this skill is the single pass.
 
 ## Doctrine
 
@@ -31,17 +31,16 @@ definitions govern wherever this skill names a concept:
   discovery, fan-out, self-critique pass
 - `validation-rigor` — the three identification passes plus the adversarial
   bi-directional re-validation; solution validation, including the altitude
-  check; surface-relative whole-system end-to-end reproduction preferred for
-  both issue identification and solution validation
+  check; surface-relative whole-system end-to-end reproduction preferred
 - `finding-categorization` — the four buckets, their predicates, hard
   pauses and the hard-disqualifier zones, declined-with-rationale, the
   resolution ladder
 - `gate-wiring` — routing order, commit discipline, checklist and audit
   formats, ladder procedure, pause protocol, loop-end handoff, PR-body
   assembly
-- `research-rigor` — the point-of-use research pass
-- `refactor-instinct` (review mode), `security-posture` (artifact
-  data-hygiene), `proportionality` (declared scoping)
+- `research-rigor` (point-of-use), `refactor-instinct` (review mode),
+  `security-posture` (artifact data-hygiene), `proportionality` (declared
+  scoping)
 
 If a rule doc does not resolve, halt with a clear message naming the missing
 doc and the resolution chain consulted.
@@ -67,11 +66,10 @@ Read the literal flag `--nested` from `$ARGUMENTS` at the start of the run:
   or updating a draft PR carrying the audit record (see "Publishing the audit
   record").
 - **Nested** (`--nested`): another planwright skill (typically `/polish`)
-  invoked this pass in the same session and owns everything after it. Skip
-  pushing and PR handling entirely; end by handing the audit record back to
-  the invoking skill. The invoking skill may pass its loop ledger of
-  already-dispositioned findings: a re-discovered finding that already
-  carries a disposition is reported in the audit record but never
+  invoked this pass and owns everything after it. Skip push and PR handling;
+  hand the audit record back to the invoking skill. It may pass its loop
+  ledger of already-dispositioned findings: a re-discovered finding that
+  already carries a disposition is reported in the audit record but never
   re-routed, re-applied, or re-paused. One exception: surface a
   re-discovered finding whose ledger disposition is any on-branch
   application (applied, resolved, or applied pending sign-off) prominently
@@ -91,11 +89,11 @@ pass summary.
    the remote-tracking base: `git fetch origin` and
    `git diff origin/main...HEAD` (substitute the repository's actual default
    branch). Fall back to the local base only when no remote is configured
-   (REQ-K1.7); a stale local base in a long-lived worktree inflates the diff
-   with already-merged commits. In nested mode, skip the fetch and reuse the
-   base the invoking skill recorded at its own pre-flight; the parent owns
-   remote interaction. Not a git repository, or no commits to diff:
-   surface a clear message and stop; there is nothing to review.
+   (REQ-K1.7), since a stale local base inflates the diff with already-merged
+   commits. In nested mode, skip the fetch and reuse the base the invoking
+   skill recorded at its own pre-flight; the parent owns remote interaction.
+   Not a git repository, or no commits to diff: surface a clear message and
+   stop; there is nothing to review.
 3. **Require a clean working tree.** The gate's commit discipline (one commit
    per Needs-sign-off finding, batched action commits) needs unambiguous
    boundaries. If `git status --porcelain` is non-empty, surface the dirty
@@ -108,9 +106,8 @@ pass summary.
    definitions, and the tool-discovery summary when a SessionStart hook has
    injected one. Capture the output; it is shared input for every lens. A
    tool whose runner itself errors out (as opposed to reporting rule
-   violations) is surfaced in the pass summary and noted as degraded
-   grounding for the lenses that rely on it; never treat a crashed tool as a
-   clean pass.
+   violations) is surfaced in the pass summary as degraded grounding for the
+   lenses that rely on it; never treat a crashed tool as a clean pass.
 5. **Detect the active kickoff brief.** Walk in order, stopping at the first
    unambiguous match: the branch convention `planwright/<spec>/task-<ids>`
    names the spec, so the brief is `specs/<spec>/kickoff-brief.md` (validate
@@ -120,10 +117,10 @@ pass summary.
    interpolated); a branch-named spec whose own `kickoff-brief.md` is absent
    means the brief is absent for this pass, never a fall-through to another
    spec's brief. Otherwise resolve through the status render (`mise run status
-   specs/<spec>`, i.e. `scripts/spec-status.sh`; the canonical derived-status
-   read surface, invariant-tasks D-6), accepting a bundle whose derived status
-   is Ready or Active — so a format-version-2 bundle with work in flight
-   (stored Ready, derived Active) resolves, not only a stored-`Active` v1 spec
+   specs/<spec>`, i.e. `scripts/spec-status.sh`; the canonical read surface,
+   invariant-tasks D-6), accepting a bundle whose derived status is Ready or
+   Active — so a format-version-2 bundle with work in flight (stored Ready,
+   derived Active) resolves, not only a stored-`Active` v1 spec
    — and taking its sibling `kickoff-brief.md` when exactly one such bundle
    carries one. A render error, zero candidates, or multiple Ready-or-Active
    candidates is not an unambiguous match: degrade to the existing arm — ask
@@ -143,7 +140,7 @@ Apply the `discovery-rigor` doc against the diff:
   prose or config, a few hundred changed lines at most); inline walking
   waives no other invariant. Declare which path was taken.
 - **Merge and dedupe.** A finding hitting two lenses gets one row with both
-  lens labels.
+  labels.
 - **Filter refactor flags in review mode** per `refactor-instinct`: anchored
   in tool output or made worse by this branch, otherwise dropped.
 - **Emit the canonical lens-coverage table** before any per-finding output:
@@ -188,9 +185,9 @@ this skill executes:
   pending-sign-off checklist. Before committing, self-lint the subject by
   piping it in —
   `printf '%s\n' "$subject" | scripts/check-commit-msgs.sh --marker subject --stdin`
-  (under the resolved planwright root) — so the marker sits at the canonical end-of-subject position
-  (`gate-wiring`); a mis-placed marker caught here is reworded before it
-  reaches history, never after.
+  (under the resolved planwright root) — so the marker sits at the canonical
+  end-of-subject position (`gate-wiring`) and a mis-placed one is reworded
+  before it reaches history.
 - Needs-human-judgment candidates climb the resolution ladder; every
   consulted rung is recorded. Only irreducible forks queue, with bespoke
   options.
@@ -204,8 +201,8 @@ resolved within the finding's own scope, revert that finding's change (new
 commit, never history rewrite) and surface the failure in the pass summary.
 The reverted finding's terminal disposition is declined-with-rationale
 ("fix attempted, broke the wider suite, reverted"), recorded in the
-declined log: it stays visible and re-raisable without re-entering the
-routing order or masquerading as a held fix.
+declined log, where it stays visible and re-raisable without re-entering the
+routing order.
 
 ## The audit record
 
@@ -214,46 +211,43 @@ extended with the lens-coverage table at the front and the pass summary at
 the end):
 
 1. The lens-coverage table.
-2. The four bucket tables in fixed order, an empty bucket as a single `none`
+2. The four bucket tables in fixed order, an empty bucket a single `none`
    row, columns per the wiring doc's formats.
 3. The declined log.
 4. The pending-sign-off checklist, regenerated from the
    `[pending-sign-off]` commits ahead of the base per the wiring doc (an
    empty checklist emits with a single `none` row).
 5. Queued irreducible forks with their bespoke options; in an attended
-   standalone run these are presented to the human now, as the only
-   questions the pass asks.
+   standalone run these are the only questions presented to the human.
 6. The pass summary: resolved mode, base used, tooling and wider-suite
-   results (command and outcome), and any reverts or surfaced failures.
+   results, and any reverts or surfaced failures.
 
 Table content lands in a committed PR body: apply `security-posture` artifact
-data-hygiene before emitting (no secrets, credentials, or sensitive
-operational detail in finding text or captured output).
+data-hygiene before emitting (no secrets, credentials, or sensitive detail
+in finding text or captured output).
 
 ## Publishing the audit record (standalone only)
 
 Skipped entirely in nested mode; the invoking skill owns push and PR.
 Publishing is the pass's final action: the Observations and Maintenance
-steps below run first, so their chore commits land before the push and
-nothing is left behind unpushed.
+steps below run first, so their chore commits land before the push.
 
 1. **Push:** `git push origin <branch>` (with `-u` on first push). Never
    force-push. On push or authentication failure, degrade gracefully
-   (REQ-K1.6, REQ-K1.7): the local work is intact and committed; surface
-   what failed and stop.
+   (REQ-K1.6, REQ-K1.7): the local work is committed; surface what failed
+   and stop.
 2. **Draft PR:** if a PR already exists for the branch, update its body;
    otherwise `gh pr create --draft` with an explicit `--title` and `--body`
    (headless `gh` prompts or fails without them). Assemble the body per the
    **PR-body assembly** section of the `gate-wiring` doctrine (summary first,
    the audit record collapsed in `<details>`, prose never hard-wrapped, the
    structure preserved on updates) — the single normative home for the layout
-   (D-2). The collapsed audit record
-   is this pass's own: the lens-coverage table, the four tables, the declined
-   log, the pending-sign-off checklist, and the pass summary. On update,
-   regenerate the generated sections in place rather than appending, and never
-   overwrite body content outside them (handwritten notes survive); re-runs
-   never duplicate entries. The PR is always a draft; never mark it ready and
-   never merge (the draft→ready flip is the human's call).
+   (D-2). The collapsed audit record is this pass's own (the sequence in **The
+   audit record** above). On update, regenerate the generated sections in
+   place rather than appending, and never overwrite body content outside them
+   (handwritten notes survive); re-runs never duplicate entries. The PR is
+   always a draft; never mark it ready and never merge (the draft→ready flip
+   is the human's call).
 
 ## Observations
 
@@ -262,14 +256,13 @@ least one spec bundle exists), record anything noticed during the pass that
 is outside the branch's scope (complexity growth, outdated patterns, tooling
 gaps, doctrine gaps) as one fragment per observation through the shared
 helper: `scripts/obs-record.sh --slug <topic> --scope <repo> --text
-'<observation>'` (resolved under the planwright root; it composes the
-one-line entry form and writes one file under the host repo's
-`specs/_observations/entries/`). Commit the fragment within the pass (the
-action commit, or its own chore commit when nothing else landed); never
-leave the tree dirty at a pass boundary, and surface a non-zero helper exit
-rather than silently dropping the observation. Do not act on observations
-during the pass; they are seed material for `/spec-draft` (REQ-E2.1,
-REQ-H1.6). Skip this step entirely in repositories without `specs/`.
+'<observation>'` (resolved under the planwright root; it writes one fragment
+file under the host repo's `specs/_observations/entries/`). Commit the
+fragment within the pass (the action commit, or its own chore commit when
+nothing else landed); never leave the tree dirty at a pass boundary, and
+surface a non-zero helper exit rather than silently dropping the
+observation. Do not act on observations during the pass; they are seed
+material for `/spec-draft` (REQ-E2.1, REQ-H1.6).
 
 ## Maintenance
 
@@ -280,8 +273,8 @@ record a drift observation through the shared helper (`scripts/obs-record.sh
 --slug skill-drift --scope <repo> --text 'skill-drift(self-review): <what>'`
 — the entry text keeps the `skill-drift(...)` prefix; in repositories
 without `specs/`, surface the drift to the user instead of recording it),
-commit the fragment (its own chore commit), and tell the user what drifted;
-surface a non-zero helper exit rather than silently dropping the
-observation. Do not edit this skill or the doctrine docs to resolve the
+commit the fragment as its own chore commit, and surface a non-zero helper
+exit rather than silently dropping the observation. Do not edit this skill
+or the doctrine docs to resolve the
 drift; the accumulator's canonical reader (`/spec-draft`) owns folding drift
 into spec amendments.
