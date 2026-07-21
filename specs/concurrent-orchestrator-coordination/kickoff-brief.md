@@ -633,3 +633,113 @@ path): a cross-clone reaper / worker-liveness signal for the origin fence ref (H
 per-unit-fence-vs-cohesion-bundle reconciliation (A2), no-remote multi-tower enforcement (A3),
 fence naming/sequencing aligned to the real dispatch flow (S1–S5), and the quarantine/residue
 gaps (Q1, Q2). Then re-run `/spec-kickoff`.
+
+### Halt record (run 4)
+
+Kickoff run 4 walked the run-3 worker-liveness-claim rework (Architecture A: the machine-local,
+worker-liveness-keyed claim is authoritative, D-5/D-7/D-11; the origin ref is demoted to a
+best-effort double-PR guard, D-8). The comprehension walk (streamlined, operator-confirmed) found
+the model internally coherent at the model altitude. The sign-off Discovery-Rigor lens pass — a
+**full-bundle parallel per-lens fan-out** (8 read-only agents: correctness+concurrency, security,
+error-handling, performance, tests, cross-file, docs+altitude, and a spec-vs-shipped-code
+reconciliation) — did **not** come back clean. It surfaced ~31 validated findings, **6 HIGH**,
+several of them genuine REQ-B2.3 inconsistencies on the same work-division correctness axis the
+prior three runs halted on. Per REQ-F1.10 the run **fails closed**: no sign-off, no Draft→Ready
+flip, no anchor; the bundle stays Draft; dispatch stays blocked until a re-reworked bundle is
+signed off.
+
+**Lens-coverage table (canonical):**
+
+| Lens | Findings | Load-bearing |
+| --- | --- | --- |
+| Correctness / concurrency | 3 HIGH, 3 MED, 1 LOW | claim-before-worker ordering paradox; cohesion-bundle double-dispatch; reclaim-predicate asymmetry |
+| Security | 4 MED, 5 LOW | surface trust boundary (uid/owner/EEXIST); echo-on-unparseable; repo-id path grammar |
+| Error handling | 2 HIGH, 4 MED, 2 LOW | permanent-origin never reclaims; sentinel gaps; rm permission failure; no-origin detection fails open |
+| Performance | 2 MED, 2 LOW | unclassifiable-forever leak (presence + claim), no TTL/aged sweep |
+| Tests / verification | 1 HIGH, 4 MED, 2 LOW | manual anchors missing from tasks; ordering-fixtures no deterministic seam |
+| Cross-file consistency | 1 HIGH (converged), 1 MED, 2 LOW | stale D-5 parenthetical; obs paths; Last-reviewed date |
+| Docs + altitude | 1 HIGH (converged), 3 MED, 1 LOW | stale D-5 parenthetical; no-strand absolute; D-1 one/two; companion-doctrine trigger un-pinned |
+| Spec-vs-shipped-code | 1 HIGH, 1 MED | phantom "second dispatch backend"; bare-empty CAS literal |
+
+**The four-halt diagnosis (why this recurs).** Runs 1–3 were one bug — the *authoritative* signal
+was assumed cross-clone-and-death-surviving but was not (checkout-local lock → local ref → passive
+origin ref). Run 4 correctly fixed that **locality** axis. This run's HIGHs are a *different axis
+each*, none of which the model checked: **lifecycle** (the claim is created before the worker
+exists yet must contain the worker's death handle — a `process <pid>` is unknowable pre-fork, and a
+pre-created tmux window reads *alive-but-worker-never-ran* → silent strand, never even
+"unclassifiable" so never surfaced; correctness + error-handling agents converged), **granularity /
+keying** (one unit-keyed atomic create cannot fence a cohesion-bundle *set* — a peer selecting a
+non-lead member creates its own key and double-dispatches, contradicting REQ-C1.1), **case-
+completeness** (reclaim-blocking artifact = "open PR *or commits on ref*" but GC-resolution = "PR
+merged/present *or ledger-done*", so a dead worker with pushed-commits-no-PR is neither reclaimed
+nor GC'd nor surfaced; and a *permanently*-erroring configured `origin` is treated transient every
+pass → a positively-dead worker never reclaimed — both contradict REQ-C1.3's "always reclaimed"),
+and **versioning** (quarantine-on-first assumes parse-fail = corruption, but a *live* claim written
+by a different-planwright-version peer is well-formed-but-unparseable → quarantined → unit freed →
+**double dispatch** — this reverses the run's own earlier "schema-skew is availability-only" call;
+it is a safety bug). Plus a **classification** gap (a reused pid reads confident-*alive*, not
+unknown, so the bare-pid case is *silently honored*, contradicting the stated unclassifiable-always-
+surfaced guarantee; root: the worker handle grammar `process <pid>` carries no start-time, unlike
+the reuse-resistant tower-identity composite) and a **surfacing/bounding** gap ("surfaced" for
+unclassifiable liveness has no durable dedup'd sink, and unclassifiable presence-records/claims have
+no TTL/aged sweep — REQ-C1.3 was tightened but REQ-C1.5's growth guarantee was not).
+
+**S-class recurrence (spec vs shipped code).** The bundle models "two shipped dispatch backends,
+one that mangles slashed names and `git branch -m` renames to canonical." Only **one** ships
+(`fleet-dispatch-worktree.sh`) and it **direct-creates** the canonical branch; the mangle is the
+native `claude --worktree` behavior that primitive was *built to eliminate*; `git branch -m` appears
+nowhere but a negative header line. So REQ-C1.6(2) / D-8 / test-spec REQ-C1.6(d) harden and fixture
+a **phantom backend** — but this *simplifies*: the canonical name holds by construction and the
+whole S1–S5 rename/verify burden collapses to a conditional future-path note. (The CAS literal
+`--force-with-lease=refs/heads/<branch>:` is the bare-empty form in all four files under prose
+demanding the "explicit all-zeros OID"; verified. `fleet-death-evidence.sh` two-form grammar +
+tri-state, `fleet-tower-marker.sh` `unattended|interactive` field, the checkout-local per-spec
+`mkdir` lock, `orchestrate-relay.sh`, and `echo-safety.sh sanitize_printable` all VERIFIED against
+shipped code.)
+
+**The load-bearing realization for the rework.** Architecture A was chosen over B largely to get
+"always reclaimed" — but the lens shows the worker-claim model does **not** deliver "always
+reclaimed" either (findings on lifecycle, case-completeness, and classification are all its own
+unclassifiable strands), while paying heavy complexity (worker-handle provenance, per-unit reclaim
+locks, under-lock re-reads, four-residue GC, quarantine) for a guarantee it does not reach. The
+complexity is itself the surface area the next seam hides in.
+
+**Operator decision (2026-07-21): rework, framed structurally first, not patched instance-by-
+instance.** Route to `/spec-draft` with this framing, applied **before** re-touching the model:
+
+1. **Enumerate the failure-axis matrix once** — {locality, worker-lifecycle, keying/granularity,
+   full death-state machine, version/schema skew, a defined recovery action per fail-closed path, a
+   durable sink per residue} — and require the spec to answer **every cell**, converting "find the
+   next interleaving" (unbounded) into "fill every cell" (finite, checkable).
+2. **Downgrade the top-level guarantee** from absolute ("authoritative floor / always reclaimed / no
+   unit dispatched twice") to **"best-effort exclusion + every residue is bounded-and-swept OR
+   durably-surfaced-to-the-operator, never silent."** Then the correctness HIGHs stop being
+   inconsistencies (spec contradicts mechanism) and become verifiable coverage items. Run 3 already
+   began this walk ("never strands" → "positively-dead-reclaimed / unclassifiable-surfaced"); the
+   remaining absolutes are exactly where this run's HIGHs landed.
+3. **Re-open Architecture A vs B** with the new data: worker-claim does not beat origin-fence on
+   "always reclaimed" (both strand on the unclassifiable case), so the *simpler* origin-fence-only
+   model with operator-surfaced (not auto-recovered) strands may now win — fewer moving parts is
+   fewer seams. A real comparison, not inheritance of run-4's choice.
+
+The full validated backlog (the 6 HIGH above plus the lower-severity clusters: surface uid-scoping /
+owner-check / EEXIST-verify, echo-sanitize on unparseable bytes, repo-id path grammar, sentinel
+location + 2×2 quadrants, claim-`rm` permission-failure escalation, no-`origin` detection
+fail-closed, the three `[manual]` Done-when anchors, deterministic interleaving seams for the
+ordering-safety fixtures, obs-path `entries/`→`archive/`, D-4 tag `+ orchestration-fleet D-6`,
+Last-reviewed `2026-07-20`→`2026-07-21`, the stale D-5 parenthetical, the no-strand absolutes, the
+D-1 "one"/"two" heading, the companion-doctrine altitude trigger, and the all-zeros CAS literal) is
+seeded to `obs:a45c20d6`
+(`specs/_observations/entries/2026-07-21-coc-multiaxis-halt4-a45c20d6.md`), the canonical `/spec-
+draft` reader's input. **Hygiene fixes are deferred to the rework** (not hand-applied here), matching
+runs 1–3, since `/spec-draft` will substantially rewrite these files.
+
+Class: n/a (no sign-off recorded — REQ-B2.3 inconsistency halt).
+Lens-pass: recorded above (8-agent full-bundle fan-out, findings validated; convergence on the
+ordering paradox and the stale D-5 parenthetical). Per REQ-F1.10 **no execution-valid anchor is
+written** while the load-bearing inconsistencies stand.
+Anchor: (none — fail closed)
+
+Next step: `/spec-draft specs/concurrent-orchestrator-coordination` with the axis-matrix +
+guarantee-downgrade framing above (consuming `obs:a45c20d6`); let the model fall out of the filled
+table rather than patching the run-4 HIGHs instance-by-instance. Then re-run `/spec-kickoff`.
