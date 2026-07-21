@@ -177,11 +177,15 @@ resolve_home() {
 # nested fleet-audit record runs with PLANWRIGHT_FLEET_LOCK_HELD=1 to skip the
 # re-acquire that would deadlock on this same non-reentrant primitive.
 HOLD_LOCK=0
-# Release on ANY exit, signals included (the fleet-audit.sh trap discipline): a
-# SIGINT/SIGTERM mid-critical-section must not leave the shared cross-spec lock
-# held until the stale-break threshold. INT/TERM route through EXIT via explicit
-# exits with the conventional codes.
-trap 'release_lock' EXIT
+CUR_TMP=""
+# Release the lock AND reap any in-flight cache write temp on ANY exit, signals
+# included (the fleet-throttle.sh trap discipline): a SIGINT/SIGTERM
+# mid-critical-section must not leave the shared cross-spec lock held until the
+# stale-break threshold, nor litter the signal dir with a `.signal.XXXXXX`
+# orphan. INT/TERM route through EXIT via explicit exits with the conventional
+# codes. Inlined (not a named cleanup function) so the trap reference is visible
+# to static analysis.
+trap 'release_lock; [ -n "$CUR_TMP" ] && rm -f "$CUR_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_lock() {
@@ -523,6 +527,7 @@ case "$cmd" in
       echo "fleet-usage-gate: cannot create a write temp under '$r_dir'" >&2
       exit 2
     }
+    CUR_TMP=$r_tmp
     chmod 600 "$r_tmp" 2>/dev/null || true
     # Line 1 the read epoch; lines 2-3 `<window><TAB><pct><TAB><reset>`. The
     # reset field is informational (the gate reads only the percentage).
@@ -530,13 +535,16 @@ case "$cmd" in
       "$r_now" "$r_session" "$r_sreset" "$r_weekly" "$r_wreset" >"$r_tmp" || {
       echo "fleet-usage-gate: cannot write the signal cache" >&2
       rm -f "$r_tmp"
+      CUR_TMP=""
       exit 2
     }
     mv -f "$r_tmp" "$r_file" || {
       echo "fleet-usage-gate: cannot commit the signal cache" >&2
       rm -f "$r_tmp"
+      CUR_TMP=""
       exit 2
     }
+    CUR_TMP=""
     printf 'session\t%s\t%s\nweekly\t%s\t%s\n' "$r_session" "$r_sreset" "$r_weekly" "$r_wreset"
     exit 0
     ;;
