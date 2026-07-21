@@ -264,6 +264,21 @@ assert_contains "empty set is the checker's diagnostic" "no confirmations" "$out
 /bin/bash "$CHECKER" "$tmp/no-such-file.json" >/dev/null 2>&1
 assert "missing input file is an error" 2 $?
 
+# 11b. The file-not-found error must not echo the raw filename argument bytes:
+#      a filename carrying a terminal escape sequence is sanitized before it
+#      reaches stderr (echo discipline extends to the argv, not only the parsed
+#      confirmation values).
+esc="$(printf '\033')"
+out="$(/bin/bash "$CHECKER" "${esc}[31m/no/such/file.json" 2>&1)"
+assert "missing-file error is a usage error" 2 $?
+case "$out" in
+  *$'\033'*)
+    echo "FAIL: raw escape byte from the filename argument reached stderr" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: filename argument is sanitized before echo (echo discipline)" ;;
+esac
+
 # 12. A malformed (non-object) option is flagged, not crashed on.
 cat >"$tmp/malformed-option.json" <<'EOF'
 {
@@ -281,7 +296,7 @@ assert_contains "names MALFORMED_OPTION" "MALFORMED_OPTION" "$out"
 # 13. The check emits no raw untrusted input bytes: a label carrying a terminal
 #     escape sequence never reaches the output (echo discipline; the check
 #     reports by index and static rule text only). The fixture is built with jq
-#     so the raw ESC byte is emitted as a valid JSON  escape (a raw ESC in
+#     so the raw ESC byte is emitted as a valid JSON unicode escape (a raw ESC in
 #     a JSON string would be invalid JSON, which jq would reject as exit 2); jq
 #     decodes it back to a raw ESC in the string value the checker sees.
 esc="$(printf '\033')"

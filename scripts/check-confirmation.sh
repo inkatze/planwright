@@ -44,9 +44,12 @@
 # Output carries no untrusted input bytes: violations are reported by
 # confirmation/option index and static rule text only, so an escape sequence
 # embedded in a label can never drive the terminal (echo discipline,
-# doctrine/security-posture.md). Input JSON is parsed as data by jq, never
-# executed. Portable bash 3.2 / BSD tooling; jq is the only external dependency
-# (already relied on by lint:json and sibling checks).
+# doctrine/security-posture.md). The one place an argument value is echoed — the
+# file-not-found diagnostic — passes the filename through the canonical
+# sanitize_printable first, so the argv cannot smuggle control bytes to stderr
+# either. Input JSON is parsed as data by jq, never executed. Portable bash 3.2
+# / BSD tooling; jq is the only external dependency (already relied on by
+# lint:json and sibling checks).
 set -u
 
 # Pin the C locale so the bracket expressions in the jq regexes mean exactly
@@ -56,6 +59,11 @@ export LC_ALL
 
 # A user CDPATH would make cd echo into the command substitution below.
 unset CDPATH
+
+# The canonical echo-discipline sanitizer, so a filename argument carrying
+# control bytes cannot drive the terminal when echoed in the not-found path.
+# shellcheck source=scripts/echo-safety.sh
+. "$(dirname "$0")/echo-safety.sh"
 
 prog="check-confirmation"
 
@@ -67,7 +75,7 @@ fi
 input="${1:-}"
 if [ -n "$input" ]; then
   if [ ! -f "$input" ]; then
-    echo "$prog: input file not found: $input" >&2
+    echo "$prog: input file not found: $(sanitize_printable "$input" "(unprintable filename)")" >&2
     exit 2
   fi
   src="$input"
