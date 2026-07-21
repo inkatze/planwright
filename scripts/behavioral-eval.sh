@@ -329,9 +329,16 @@ reap_stale() {
     [ "$_rs_name" = "$3" ] && continue
     case "$_rs_name" in
       "$_rs_pat"*)
-        "$TMUX_BIN" kill-session -t "=$_rs_name" >/dev/null 2>&1 || true
-        printf 'behavioral-eval: reaped stale eval session %s\n' \
-          "$(sanitize_printable "$_rs_name")" >&2
+        # Log the ACTUAL outcome of the kill, not a blanket "reaped": a
+        # kill-session that fails (a race where the session just vanished, or an
+        # unkillable session) must not be reported as a successful reap.
+        if "$TMUX_BIN" kill-session -t "=$_rs_name" >/dev/null 2>&1; then
+          printf 'behavioral-eval: reaped stale eval session %s\n' \
+            "$(sanitize_printable "$_rs_name")" >&2
+        else
+          printf 'behavioral-eval: stale eval session %s could not be reaped (gone or unkillable)\n' \
+            "$(sanitize_printable "$_rs_name")" >&2
+        fi
         ;;
     esac
   done
@@ -666,8 +673,22 @@ run_persona() {
   if [ "$_rp_evalok" != "true" ]; then
     warn "[$fx_id/$_rp_persona] sign-off was not marked eval-only/non-authoritative — stamping it"
     _rp_stamp="$(jq '. + {eval_only: true, authoritative: false}' "$_rp_art/sign-off.json" 2>/dev/null)"
-    if [ -n "$_rp_stamp" ]; then
-      printf '%s\n' "$_rp_stamp" >"$_rp_art/sign-off.json"
+    # Fail-closed on a jq failure: an empty stamp means the sign-off could not be
+    # re-marked, and proceeding would grade an authoritative-looking record.
+    if [ -z "$_rp_stamp" ]; then
+      warn "[$fx_id/$_rp_persona] fail-closed — could not stamp the sign-off eval-only"
+      containment_rm "$_rp_run" || return 5
+      return 4
+    fi
+    # Atomic publish (tmp + mv), matching the fixture skill's own sign-off write,
+    # so an interrupt mid-write never leaves a partial/zero-byte JSON the grader
+    # would then choke on.
+    if ! { printf '%s\n' "$_rp_stamp" >"$_rp_art/sign-off.json.tmp" \
+      && mv "$_rp_art/sign-off.json.tmp" "$_rp_art/sign-off.json"; }; then
+      warn "[$fx_id/$_rp_persona] fail-closed — could not publish the stamped sign-off"
+      rm -f "$_rp_art/sign-off.json.tmp" 2>/dev/null
+      containment_rm "$_rp_run" || return 5
+      return 4
     fi
   fi
 
