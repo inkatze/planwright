@@ -118,10 +118,11 @@ only_personas=""
 die_usage() {
   # Sanitize before the terminal: the message often carries an operator-supplied
   # token (an unknown option, a bad --suite path), which could embed a terminal
-  # escape (echo discipline, security-posture). sanitize_printable is sourced
-  # above; on the fallback path it is still defined.
-  echo "behavioral-eval: $(sanitize_printable "$1")" >&2
-  echo "run 'behavioral-eval.sh --help' for usage" >&2
+  # escape (echo discipline, security-posture). sanitize_printable strips control
+  # bytes; `printf '%s'` (never `echo`) then prevents a SysV/dash echo from
+  # re-expanding a literal `\033`-style sequence back into a control byte.
+  printf '%s\n' "behavioral-eval: $(sanitize_printable "$1")" >&2
+  printf '%s\n' "run 'behavioral-eval.sh --help' for usage" >&2
   exit 2
 }
 
@@ -203,7 +204,7 @@ command -v jq >/dev/null 2>&1 || {
   exit 4
 }
 [ -x "$PANE_DETECT" ] || {
-  echo "behavioral-eval: the pane detector is missing or not executable: $PANE_DETECT" >&2
+  printf '%s\n' "behavioral-eval: the pane detector is missing or not executable: $(sanitize_printable "$PANE_DETECT")" >&2
   exit 4
 }
 
@@ -220,18 +221,18 @@ fi
 
 if [ -n "$record_dir" ]; then
   mkdir -p "$record_dir" || {
-    echo "behavioral-eval: cannot create record dir '$(sanitize_printable "$record_dir")'" >&2
+    printf '%s\n' "behavioral-eval: cannot create record dir '$(sanitize_printable "$record_dir")'" >&2
     exit 5
   }
 fi
 mkdir -p "$WORKBASE" || {
-  echo "behavioral-eval: cannot create work base '$(sanitize_printable "$WORKBASE")'" >&2
+  printf '%s\n' "behavioral-eval: cannot create work base '$(sanitize_printable "$WORKBASE")'" >&2
   exit 5
 }
 # Resolve $WORKBASE to its physical path once: the teardown containment check
 # compares the run tree's canonical path against this.
 WORKBASE_PHYS="$(cd "$WORKBASE" && pwd -P)" || {
-  echo "behavioral-eval: cannot canonicalize work base '$(sanitize_printable "$WORKBASE")'" >&2
+  printf '%s\n' "behavioral-eval: cannot canonicalize work base '$(sanitize_printable "$WORKBASE")'" >&2
   exit 5
 }
 
@@ -521,7 +522,7 @@ record_result() {
     warn "[$2] cannot write artifact to '$record_dir'"
     return 1
   }
-  echo "behavioral-eval: [$1/$2] recorded scrubbed result -> $record_dir/$1.$2.json"
+  printf '%s\n' "behavioral-eval: [$1/$2] recorded scrubbed result -> $record_dir/$1.$2.json"
   return 0
 }
 
@@ -677,7 +678,7 @@ run_persona() {
 
   # Surface a one-line, echo-safe summary of the graded subject.
   _rp_subject="$(sanitize_printable "$(jq -r '.sign_off.subject // ""' "$_rp_merged" 2>/dev/null)" "(none)")"
-  echo "behavioral-eval: [$fx_id/$_rp_persona] outcome=$_rp_outcome subject=$_rp_subject"
+  printf '%s\n' "behavioral-eval: [$fx_id/$_rp_persona] outcome=$_rp_outcome subject=$_rp_subject"
 
   if [ -n "$record_dir" ]; then
     record_result "$fx_id" "$_rp_persona" "$_rp_outcome" "$_rp_struct" "0.000000" || {
