@@ -66,6 +66,12 @@ cat >"$core_cfg" <<'EOF'
 fleet_model_execution: opus
 fleet_model_bookkeeping: sonnet
 fleet_model_drain: sonnet
+fleet_effort_execution: high
+fleet_effort_bookkeeping: medium
+fleet_effort_drain: low
+fleet_command_execution: execute-task
+fleet_command_bookkeeping: orchestrate
+fleet_command_drain: drain
 EOF
 
 # Stub outbound clients: any invocation is an LLM/API call in the resolution
@@ -169,6 +175,33 @@ out=$(run select bookkeeping 2>/dev/null) || fail "overlay: select bookkeeping e
   || fail "overlay: bookkeeping must be unaffected by the execution override, got '$out'"
 echo "ok: machine-local model override wins for the targeted type only"
 
+# 6b. Effort and command are overlay-tunable too (Task 10, REQ-E1.8): a
+#     machine-local override retunes them, and only the targeted column/type
+#     changes. The shipped defaults (test 1) already proved default-preserving.
+reset_layers
+printf 'fleet_effort_execution: low\nfleet_command_bookkeeping: drain\n' >"$mlocal_cfg"
+out=$(run select execution 2>/dev/null) || fail "overlay: select execution (effort) exited nonzero"
+[ "$out" = "opus${TAB}low${TAB}execute-task" ] \
+  || fail "overlay: a machine-local effort override (low) should win, got '$out'"
+out=$(run select bookkeeping 2>/dev/null) || fail "overlay: select bookkeeping (command) exited nonzero"
+[ "$out" = "sonnet${TAB}medium${TAB}drain" ] \
+  || fail "overlay: a machine-local command override (drain) should win, got '$out'"
+out=$(run select drain 2>/dev/null) || fail "overlay: select drain exited nonzero"
+[ "$out" = "sonnet${TAB}low${TAB}drain" ] \
+  || fail "overlay: drain must be unaffected by the execution/bookkeeping overrides, got '$out'"
+echo "ok: machine-local effort/command overrides win for the targeted column only"
+
+# 6c. The command column stays disjoint by CONSTRUCTION: a configured command
+#     outside the dispatch-entry enum is refused (malformed), never resolved —
+#     so an operator cannot point a task-type at a nestable review skill and
+#     break REQ-E1.2. A repo-tracked out-of-enum command hard-fails (exit 4).
+reset_layers
+printf 'fleet_command_execution: polish\n' >"$tracked_cfg"
+rc=0
+run select execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "an out-of-enum repo-tracked command (polish) must hard-fail exit 4, got $rc"
+echo "ok: an out-of-enum command is refused (disjointness holds by construction)"
+
 # 7. By-layer malformed policy (customization-overlay REQ-E1.4 shape, via
 #    the shared resolver):
 #    repo-tracked malformed hard-fails exit 4; adopter malformed degrades to
@@ -216,7 +249,9 @@ echo "ok: usage errors exit 2"
 #     knobs with the table's defaults, so the isolated core fixture above
 #     cannot silently diverge from the shipped file.
 real_defaults="$here/../config/defaults.yml"
-for kv in "fleet_model_execution: opus" "fleet_model_bookkeeping: sonnet" "fleet_model_drain: sonnet"; do
+for kv in "fleet_model_execution: opus" "fleet_model_bookkeeping: sonnet" "fleet_model_drain: sonnet" \
+  "fleet_effort_execution: high" "fleet_effort_bookkeeping: medium" "fleet_effort_drain: low" \
+  "fleet_command_execution: execute-task" "fleet_command_bookkeeping: orchestrate" "fleet_command_drain: drain"; do
   grep -q "^$kv" "$real_defaults" \
     || fail "config/defaults.yml does not ship '$kv' (table and shipped defaults drifted)"
 done

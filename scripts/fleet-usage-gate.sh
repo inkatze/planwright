@@ -30,8 +30,22 @@
 # new daemon-action TYPE and no new stat type — it reuses the throttle-family
 # surfaces (fleet-stats renders the current rung on the existing throttle line).
 # The `downshift`/`reduce-concurrency` rung VALUES (which model/effort/
-# concurrency they map to) are Task 10's; this task ships the ladder mechanism,
-# the threshold->rung mapping, and the `defer-heavy`/`defer-all` admission gate.
+# concurrency they map to) are Task 10's (scripts/fleet-allocate.sh); this task
+# ships the ladder mechanism, the threshold->rung mapping, and the
+# `defer-heavy`/`defer-all` admission gate.
+#
+# TASK 10 EXTENSIONS (D-24, D-25, REQ-E1.10) added to this ladder mechanism:
+#   - Hysteresis on transitions: a DESCEND (relaxing) is held for at least
+#     `fleet_usage_rung_min_dwell_seconds` since the last transition, so a read
+#     oscillating across a threshold cannot flap the rung; a CLIMB (restricting)
+#     is immediate (fast-attack/slow-release; restriction is always safe).
+#   - Unavailable-signal decay: while unavailable the ladder holds its last-known
+#     rung, then decays to `normal` once `fleet_usage_unavailable_grace_seconds`
+#     have elapsed since the last transition (the reactive backstop remains the
+#     floor). Both use the audit-derived last-transition epoch (D-28) and record
+#     edge-triggered under the advisory lock, so a memoryless relaunch is
+#     consistent. The `signal` subcommand exposes the raw per-window percentages
+#     (read-only) for fleet-allocate's per-tier budget caps.
 #
 # STATE IS DERIVED, NOT STORED (D-28, REQ-E1.6). The ladder's live state — the
 # current rung and the last-transition time — is DERIVED from the shared audit
@@ -97,6 +111,11 @@
 #   fleet-usage-gate.sh rung
 #       Print the current rung derived from the audit trail (a pure read: no
 #       gate, no lock, no transition). `normal` when the trail has no rows.
+#   fleet-usage-gate.sh signal
+#       Read-only view of the cached signal (Task 10): print
+#       `session<TAB><pct|unavailable>` / `weekly<TAB><pct|unavailable>` after
+#       the same TTL/staleness handling `evaluate` applies, with no side effect.
+#       For fleet-allocate.sh's per-tier caps (which need the raw percentage).
 #   fleet-usage-gate.sh admit <model>
 #       Given the derived current rung, answer whether a unit running <model>
 #       (a Claude Code alias: fable opus sonnet haiku) may dispatch. Heavy tiers
@@ -151,7 +170,7 @@ TAB=$(printf '\t')
 SESSION_CAP=3 # the session window never selects above defer-heavy (REQ-E1.6).
 
 usage() {
-  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | admit <model>" >&2
+  echo "usage: fleet-usage-gate.sh capture | evaluate | rung | signal | admit <model>" >&2
 }
 
 # rung_name <index>: the ladder rung name for an index, for composing the
@@ -164,6 +183,20 @@ rung_name() {
     3) printf defer-heavy ;;
     4) printf defer-all ;;
     *) printf '' ;;
+  esac
+}
+
+# rung_index <name>: the numeric restriction order of a rung name (the inverse
+# of rung_name), so climb-vs-descend is a numeric comparison. Returns 1 on an
+# unknown name (the caller has already validated the derived rung).
+rung_index() {
+  case $1 in
+    normal) printf 0 ;;
+    downshift) printf 1 ;;
+    reduce-concurrency) printf 2 ;;
+    defer-heavy) printf 3 ;;
+    defer-all) printf 4 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -482,6 +515,76 @@ last_transition_epoch() {
   printf '%s\n' "$lte_out" | awk -F "$TAB" -v m="$MECHANISM" 'NF >= 4 && $3 == m { e = $1 } END { printf "%s", e }'
 }
 
+# --- Hysteresis on rung transitions (Task 10, REQ-E1.10) -------------------
+#
+# hysteresis_target <cur> <target-raw>: apply anti-flap hysteresis to a
+# signal-driven target rung and print the EFFECTIVE target the ladder should
+# hold. The design is fast-attack/slow-release:
+#   - CLIMB (target more restrictive than cur, higher index) OR unchanged:
+#     applied immediately, no dwell. Restriction degrades capability only and
+#     never a safety floor (REQ-E1.10), so engaging it promptly is always safe —
+#     and the Task 9 suite's rapid successive climbs depend on this.
+#   - DESCEND (target less restrictive, lower index): held until the rung has
+#     dwelt at least `fleet_usage_rung_min_dwell_seconds` since its last
+#     transition, so a read oscillating across a threshold cannot flap the ladder
+#     down-and-up. The dwell BASIS — the last-transition timestamp — is DERIVED
+#     from the audit trail (D-28), so a memoryless relaunch computes the same
+#     dwell rather than resetting the clock.
+# Prints cur when a descend is held, else target-raw. A malformed dwell knob or
+# an unreadable clock propagates a fail-closed exit through the caller's `|| exit`.
+hysteresis_target() {
+  ht_cur=$1
+  ht_target=$2
+  ht_ci=$(rung_index "$ht_cur") || {
+    printf '%s' "$ht_target"
+    return 0
+  }
+  ht_ti=$(rung_index "$ht_target") || {
+    printf '%s' "$ht_target"
+    return 0
+  }
+  # Climb or unchanged: no dwell (and no dwell-knob resolution on the hot path).
+  if [ "$ht_ti" -ge "$ht_ci" ]; then
+    printf '%s' "$ht_target"
+    return 0
+  fi
+  # Descend: require the minimum dwell since the last transition.
+  ht_dwell=$(resolve_posint fleet_usage_rung_min_dwell_seconds 300) || exit $?
+  ht_last=$(last_transition_epoch 2>/dev/null) || ht_last=""
+  case $ht_last in
+    "" | *[!0-9]*)
+      # No numeric last-transition basis under a non-normal rung should not
+      # happen (the rung got here via a recorded transition); if it does, allow
+      # the descend rather than pin the fleet at a restrictive rung forever.
+      printf '%s' "$ht_target"
+      return 0
+      ;;
+  esac
+  ht_now=$(now_epoch) || {
+    echo "fleet-usage-gate: cannot read the clock for the hysteresis dwell" >&2
+    exit 2
+  }
+  if [ "$((ht_now - ht_last))" -ge "$ht_dwell" ]; then
+    printf '%s' "$ht_target" # dwell satisfied — descend allowed
+  else
+    printf '%s' "$ht_cur" # still within the dwell — hold the rung (no flap)
+  fi
+}
+
+# grace_elapsed <grace-seconds>: 0 when the last rung transition is at least
+# <grace-seconds> in the past (a numeric basis exists in the trail), else 1
+# (hold — no basis, unreadable clock/trail, or still within the grace window).
+# The basis is the audit-derived last-transition epoch (D-28). Used by the
+# unavailable-signal decay-to-normal (Task 10, REQ-E1.10).
+grace_elapsed() {
+  ge_last=$(last_transition_epoch 2>/dev/null) || return 1
+  case $ge_last in
+    "" | *[!0-9]*) return 1 ;;
+  esac
+  ge_now=$(now_epoch) || return 1
+  [ "$((ge_now - ge_last))" -ge "$1" ]
+}
+
 # --- The sustained-loss counter (evaluate) ---------------------------------
 #
 # The consecutive-unavailable count is a per-tower LOCAL scalar beside the
@@ -583,6 +686,23 @@ case "$cmd" in
     exit 0
     ;;
 
+  signal)
+    # A read-only view of the cached usage signal (Task 10): the per-window
+    # percentages after the same TTL/staleness/plausibility handling `evaluate`
+    # applies, with NO lock, NO transition, and NO side effect. Prints
+    # `session<TAB><pct|unavailable>` / `weekly<TAB><pct|unavailable>`. Used by
+    # the budget-aware allocator (fleet-allocate.sh) for per-tier caps, which
+    # need the raw percentage, not just the derived rung. A malformed
+    # cadence/TTL config propagates read_signal's fail-closed exit.
+    [ "$#" -eq 0 ] || {
+      usage
+      exit 2
+    }
+    sig=$(read_signal) || exit $?
+    printf 'session\t%s\nweekly\t%s\n' "${sig% *}" "${sig#* }"
+    exit 0
+    ;;
+
   admit)
     [ "$#" -eq 1 ] || {
       usage
@@ -660,6 +780,38 @@ case "$cmd" in
       }
       loss_limit=$(resolve_posint fleet_usage_sustained_loss_count 3) || exit $?
       cur=$(derive_rung) || exit 2
+      # Grace-window decay (Task 10, REQ-E1.10). While the signal is unavailable
+      # the ladder HOLDS its last-known rung (a transient scrape failure must not
+      # relax restriction), but a PERSISTENT loss must not pin the fleet at a
+      # restrictive rung forever against a signal we can no longer read. After a
+      # bounded, overlay-configurable grace window measured from the last
+      # transition's timestamp (audit-derived, D-28), the rung decays to normal;
+      # the reactive backstop (REQ-E1.7) remains the floor throughout. The decay
+      # is edge-triggered and lock-serialized like any transition, and re-checks
+      # grace under the lock so a concurrent fresh-signal climb (which resets the
+      # last-transition stamp) is never wrongly relaxed.
+      if [ "$cur" != normal ]; then
+        grace=$(resolve_posint fleet_usage_unavailable_grace_seconds 1800) || exit $?
+        if grace_elapsed "$grace"; then
+          acquire_lock || exit 2
+          cur=$(derive_rung) || {
+            release_lock
+            exit 2
+          }
+          if [ "$cur" != normal ] && grace_elapsed "$grace"; then
+            trap '' INT TERM
+            PLANWRIGHT_FLEET_LOCK_HELD="$MECHANISM" "$AUDIT" record "$MECHANISM" normal \
+              "proactive usage gate rung decay" \
+              "usage gate: signal unavailable past grace ${grace}s -> rung normal (was $cur)" || {
+              release_lock
+              echo "fleet-usage-gate: the audit trail refused the rung-decay record — surfacing, not swallowing" >&2
+              exit 2
+            }
+            cur=normal
+          fi
+          release_lock
+        fi
+      fi
       if [ "$count" -ge "$loss_limit" ]; then
         # The REQUIRED operator surface: a warning escalating to an
         # Awaiting-input hold, so a permanently broken /usage parse is never
@@ -693,13 +845,15 @@ case "$cmd" in
     # The more restrictive window governs: a numeric max of the two targets.
     target_idx=$s_rung
     [ "$w_rung" -gt "$target_idx" ] && target_idx=$w_rung
-    target=$(rung_name "$target_idx")
+    target_raw=$(rung_name "$target_idx")
 
     # Fast, lockless edge-trigger check: an unchanged rung records NO row (D-28)
     # and needs no lock. A concurrent transition in flight can at worst make this
     # read slightly stale, which the authoritative under-lock re-derive below
-    # corrects before any write.
+    # corrects before any write. Apply hysteresis (Task 10, REQ-E1.10) so a
+    # relaxing signal within the dwell holds the rung rather than flapping it.
     cur=$(derive_rung) || exit 2
+    target=$(hysteresis_target "$cur" "$target_raw") || exit $?
     if [ "$target" = "$cur" ]; then
       since=$(last_transition_epoch 2>/dev/null) || since=""
       printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
@@ -719,6 +873,13 @@ case "$cmd" in
     cur=$(derive_rung) || {
       release_lock
       exit 2
+    }
+    # Re-apply hysteresis under the lock: cur may have advanced since the lockless
+    # read (a concurrent tower transitioned), which can turn a would-be descend
+    # into a no-op or change whether the dwell has elapsed.
+    target=$(hysteresis_target "$cur" "$target_raw") || {
+      release_lock
+      exit $?
     }
     if [ "$target" = "$cur" ]; then
       # Read `since` under the lock (as the transition path does) for a
