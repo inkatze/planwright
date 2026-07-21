@@ -413,9 +413,11 @@ window_rung() {
 }
 
 # resolve_thresholds: resolve every per-window threshold through the overlay,
-# validate 0-100 and strict monotone ordering per window (REQ-E1.6). A
-# malformed set is a fail-closed config error (exit 4) — the ladder must never
-# run on non-monotonic thresholds. Sets the S_* and W_* globals.
+# validate 1-100 and strict monotone ordering per window (REQ-E1.6). Thresholds
+# are positive integers (the shared resolver's `posint` type rejects 0), so the
+# valid range is 1-100 — distinct from a usage PERCENTAGE, which may legitimately
+# be 0. A malformed set is a fail-closed config error (exit 4) — the ladder must
+# never run on out-of-range or non-monotonic thresholds. Sets the S_*/W_* globals.
 resolve_thresholds() {
   S_DS=$(resolve_posint fleet_usage_session_downshift 50) || exit $?
   S_RC=$(resolve_posint fleet_usage_session_reduce_concurrency 70) || exit $?
