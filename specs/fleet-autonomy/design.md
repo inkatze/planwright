@@ -1,7 +1,7 @@
 # Fleet Autonomy — Design
 
-**Status:** Ready
-**Last reviewed:** 2026-07-14
+**Status:** Draft
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -285,6 +285,12 @@ survey (`amux`'s fleet-wide rate-limit recovery: detect the shared rate-limit pr
 sessions on one account, parse the reset time, resume all parked sessions) — it reacts to Claude
 Code's own authoritative signal rather than guessing at a number Claude Code doesn't expose.
 
+**Superseded-by: D-23** (2026-07-20) — this decision's second alternative ("Proactive polling of a
+usage/quota API," rejected because "no supported, machine-readable way exists to read Claude Code's
+own account-level usage") rested on a premise now falsified: the `/usage` command output is
+capturable and parseable. D-23 adds the proactive read and gate; the reactive mechanism this
+decision describes is retained as the hard backstop (REQ-E1.7), not removed.
+
 ### D-13: Fleet stats as a derived, rendered view (N)
 
 **Decision:** Fleet health/activity statistics are derived and rendered on demand from existing
@@ -461,6 +467,114 @@ strictly better than a bundle-local variant, and it directly answers the operato
 ("we need to make as much of this as configurable as possible") using infrastructure that already
 exists rather than new infrastructure that would need its own review.
 
+### D-23: Proactive account-usage read via capturable `/usage`, gating dispatch ahead of the wall (N, supersedes D-12's premise)
+
+**Decision:** The fleet reads real account-level usage by capturing and parsing Claude Code's own
+`/usage` command output into a machine-readable signal, and gates heavy/opus dispatch proactively
+on a configurable budget threshold evaluated against it (REQ-E1.5, REQ-E1.6). The reactive
+rate-limit throttle (D-12) is retained as the hard backstop (REQ-E1.7), not replaced. No
+per-orchestrator usage reservation is kept: because `/usage` is account-global it is inherently
+shared-aware, so the shared figure is ground truth.
+
+**Alternatives considered:**
+- Keep reactive-only throttling (D-12 as-is). Rejected because: its founding premise — "no
+  supported machine-readable way exists to proactively query account-level usage" (Claude Code
+  issues #38380, #40793, #33820) — is now stale; `/usage` output is capturable and parseable (the
+  tower did exactly this in-run via a throwaway pane). Reactive-only means the fleet always reaches
+  the wall before governance reacts, and it is blind to concurrent towers and unrelated
+  same-account work until the shared limit is already hit.
+- Per-orchestrator usage reservation/accounting (each tower tracks its own budget share). Rejected
+  because: `/usage` is account-global ground truth that already reflects every concurrent tower,
+  all workers, and non-planwright work; a reservation ledger would be redundant, drift-prone, and
+  reintroduce the shared-write-conflict class D-13 deliberately avoided.
+- Local-transcript (`ccusage`-style) estimation as the proactive trigger. Rejected as the trigger
+  (same reasoning as D-12): it reconstructs *past* consumption from local JSONL, not *remaining*
+  server-side quota — it stays a Deferred corroborating estimate, not the gate input.
+
+**Chosen because:** `/usage` is the one account-global, server-authoritative signal now reachable,
+and gating on it proactively closes the exact cross-orchestrator blind spot the operator flagged
+(orchestrators not keeping tabs on usage while other towers and unrelated work run) without any new
+accumulator or reservation bookkeeping. **Research-rigor note (version-sensitive/undocumented
+interface):** `/usage` output is an undocumented CLI surface with no stability guarantee — the same
+three closed issues confirm Anthropic exposes no supported machine-readable usage API, so the
+capture is a text-parse of a human-facing render and is inherently fragile across Claude Code
+versions. The mechanism therefore MUST degrade gracefully (REQ-E1.5): an uncapturable or
+unparseable `/usage` reports the signal unavailable and governance falls back to the reactive
+backstop (D-12/REQ-E1.7) rather than blocking dispatch or guessing a number — the reactive throttle
+is exactly the safety net that makes a best-effort proactive read safe to depend on.
+
+### D-24: Configurable, budget-aware model/effort/command allocation (N, extends D-11)
+
+**Decision:** The D-11 rule table (per-task model/effort/command selection) becomes
+operator-configurable through the four-layer overlay mechanism (REQ-E1.8), with shipped defaults
+preserving current behavior, and gains per-model budget caps/shares of the shared account limit
+(REQ-E1.9). It remains a deterministic rule table; D-11's rejection of a confidence-calibrated
+cascade stands unchanged.
+
+**Alternatives considered:**
+- Keep the hard-coded D-11 table. Rejected because: it cannot express the budget-aware allocation
+  the operator applies by hand today (cheap model for mechanical/doc work, the most capable model
+  reserved for the single foundational/hardest unit per wave) and cannot be tuned per repo/machine
+  without code edits.
+- A confidence-calibrated model cascade. Still rejected — D-11's reasoning holds: calibrating the
+  escalation threshold is an open, hard problem, disproportionate to this bundle's need.
+- An LLM deciding allocation per task. Rejected: violates the no-LLM-daemon-mechanics floor (D-18,
+  REQ-G1.2); allocation stays deterministic script logic over structured inputs.
+
+**Chosen because:** overlay-configurable knobs are planwright's one established configuration
+contract (D-22, `customization-overlay` D-1), so the *capability* (config-driven, budget-aware
+allocation) lands in core as opt-in and default-preserving while the specific *policy values*
+(which model for which task type, the cap percentages) live in adopter/repo/machine-local overlays
+— the `customization-boundary` capability-vs-style split. This lets an operator encode the manual
+"reserve the most capable tier for the hardest unit per wave" heuristic as configuration without
+taking on the calibration problem D-11 rejected or the determinism risk D-18 forbids.
+
+### D-25: Budget-aware degrade ladder degrades capability, never safety (N)
+
+**Decision:** When the proactive gate (REQ-E1.6) or a per-model cap (REQ-E1.9) signals a tight
+budget, allocation steps down a configured degrade ladder to a cheaper model/effort tier
+(REQ-E1.10). The ladder degrades **capability only** and never a carried safety floor: never below
+a full session-grade worker session, never relaxing the autonomous-safe-decision determinism floor
+(REQ-G1.2), never engaging `auto` permission mode (REQ-E1.4).
+
+**Alternatives considered:**
+- Binary pause-all on tight budget (no ladder). Rejected because: it throws away capacity the
+  cheaper tier could still use for forward progress; the reactive throttle (REQ-E1.7) already
+  handles the genuine hard wall, so the proactive layer should downshift, not stop, while budget
+  merely tightens.
+- Degrade by reducing worker count only. Rejected because: it does not address per-unit cost, and a
+  single expensive unit can still exhaust budget while fewer-but-still-expensive workers run.
+- Degrade safety to save tokens (e.g. swap session-grade workers for lighter-weight scripts, or
+  loosen the safe-decision floor). Rejected because: it violates fleet-autonomy's session-grade
+  worker floor (Out of scope, carried) and the D-6/D-18 determinism floors — cost pressure is never
+  a licence to weaken safety.
+
+**Chosen because:** capability degradation preserves forward progress under budget pressure while
+every carried safety floor stays intact — the operator's explicit constraint ("degrade capability,
+never safety"). Encoding it as a configured ladder (rather than a fixed step) keeps the specific
+tiers an overlay value (D-24) while the invariant — capability-only — is normative in the REQ.
+
+### D-26: This extension lands as configurable mechanism, not new doctrine (altitude, N)
+
+**Decision:** The resource-governance extension is scoped as opt-in, default-preserving
+configuration knobs plus deterministic script logic **within** this mechanism-primary bundle — not
+as a new doctrine document or a first-class cross-cutting principle.
+
+**Alternatives considered:**
+- Mint budget governance as new doctrine (a standalone principle document). Rejected because: the
+  seed's framing ("first-class governance concern", "we do this model-selection manually today")
+  fires an altitude trigger, but the deliverable that resolves it is mechanism — config-driven
+  allocation and a proactive gate — and the one genuinely doctrine-shaped invariant it relies on
+  ("degrade capability, never safety") is an *application* of floors this bundle already carries
+  (session-grade workers, D-6/D-18 determinism), not a new principle needing its own home.
+
+**Chosen because:** per `autopilot-reflex`, an altitude trigger fired (a codified-manual-practice
+claim) and must be reconciled with an explicit record rather than pencil-whipped; per
+`proportionality` and `customization-boundary`, the resolution is a core *capability* with overlay
+*values*, which fleet-autonomy's existing REQ-E/D-22 shape already accommodates. Recorded as the
+trigger-scoped altitude D-ID (REQ-H1.1), cited from the Goal's resource-governance-extension
+paragraph, so the REQ-H1.3 kickoff check reads it from the bundle.
+
 ## Changelog
 
 - 2026-07-14 — Initial draft.
@@ -468,6 +582,14 @@ exists rather than new infrastructure that would need its own review.
   tower crash-loop backoff/disable alternative, citing new REQ-A1.9). Amended D-17: recorded as
   the altitude D-ID for the doctrine-gap(tower-role) trigger, per the kickoff sign-off lens pass's
   altitude check (`autopilot-reflex` REQ-H1.3).
+- 2026-07-20 — Resource-governance extension (`/spec-draft` extend mode, Draft delta). Marked D-12
+  `Superseded-by D-23` (premise "no machine-readable usage query" falsified by capturable
+  `/usage`; body unchanged). Added D-23 (proactive `/usage` read + configurable dispatch gate,
+  reactive throttle retained as backstop; carries the research-rigor fragility/degradation note for
+  parsing an undocumented CLI surface), D-24 (configurable, budget-aware allocation extending D-11;
+  capability-in-core / values-in-overlay per `customization-boundary`), D-25 (degrade ladder:
+  capability only, never a carried safety floor), and D-26 (altitude record: this extension is
+  configurable mechanism, not new doctrine, cited from the Goal per `autopilot-reflex` REQ-H1.1).
 
 ## Sources
 

@@ -1,17 +1,20 @@
 # Fleet Autonomy — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Eight tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
+Ten tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
 selection rule; every task except Task 6 depends on it (Task 6's ghost-text prevention is a static
 env-var set unconditionally at dispatch, never a runtime kill/cleanup/restart/throttle decision, so
 it needs none of Task 1's kill-switch or audit-trail infrastructure — a deliberate non-edge, not an
 oversight). Tasks 2, 3, 4, 5, and 7 are otherwise independent of one another; Task 8
 (observability/rendering) depends on Tasks 2, 3, 4, and 7's real daemon activity existing to
-render.
+render. Tasks 9 and 10 are the 2026-07-20 resource-governance extension: Task 9 (proactive usage
+gate) depends on Task 1's daemon/audit infrastructure and Task 7's throttle mechanism; Task 10
+(configurable budget-aware allocation) depends on Task 1, on Task 7's selection table, and on Task
+9 — the degrade ladder cannot downshift without Task 9's usage signal.
 
 ## Tasks
 
@@ -163,6 +166,51 @@ render.
 - **Citations:** D-13, D-14, D-16 · REQ-F1.1, REQ-F1.2, REQ-F1.4
 - **Estimated effort:** 1.5 days
 
+### Task 9 — Proactive shared-aware usage gate
+
+- **Deliverables:** A helper that captures and parses Claude Code's own `/usage` output into a
+  machine-readable usage signal (at minimum the percentage consumed of the active rate-limit
+  window), degrading to an explicit "unavailable" on any capture/parse failure; a proactive
+  dispatch gate that pauses heavy/opus dispatch at a configurable budget threshold (with an earlier
+  warn threshold), evaluated by deterministic comparison against that signal, with thresholds
+  resolved through the four-layer overlay mechanism; wiring so the gate is a first-class daemon
+  action (kill-switch-pausable, audited); the Task 7 reactive throttle retained unchanged as the
+  backstop the gate degrades to.
+- **Done when:** a fixture feeding a representative `/usage` render asserts the parser extracts the
+  usage percentage deterministically with no LLM/API call in the path; a fixture with the signal
+  above the configured pause threshold asserts heavy/opus dispatch is gated, and below-threshold
+  asserts it proceeds; the warn threshold emits a warning without gating; a fixture with
+  unparseable or absent `/usage` asserts the signal reports unavailable and governance falls back to
+  the reactive backstop (REQ-E1.7) — no block, no guessed number; the threshold knobs resolve
+  through the overlay (a machine-local override wins, verified via `config-get.sh`); gate
+  engage/clear events log through Task 1's audit-trail helper and honor the kill-switch; tests/CI
+  pass.
+- **Dependencies:** 1, 7
+- **Citations:** D-23, D-12 · REQ-E1.5, REQ-E1.6, REQ-E1.7, REQ-F1.3, REQ-F1.4, REQ-G1.2, REQ-G1.5
+- **Estimated effort:** 2 days
+
+### Task 10 — Configurable, budget-aware model allocation & degrade ladder
+
+- **Deliverables:** The Task 7 model/effort/command selection table made operator-configurable
+  through the four-layer overlay mechanism, with shipped defaults that preserve current selection
+  behavior; per-model budget caps/shares of the shared account limit, enforced by deterministic
+  comparison against Task 9's usage signal; a configured degrade ladder that steps allocation to a
+  cheaper model/effort tier when the proactive gate or a per-model cap signals a tight budget, and
+  restores when budget recovers; a guard proving every degrade step degrades capability only —
+  never below a full session-grade worker session, never relaxing the autonomous-safe-decision
+  determinism floor, never engaging `auto` permission mode.
+- **Done when:** a fixture asserts an operator overlay retunes the per-task-type model/effort
+  mapping while the shipped defaults reproduce today's selection when nothing is configured; a
+  fixture asserts per-model caps/shares are enforced by deterministic comparison against a stubbed
+  usage signal with no LLM call; a fixture driving the usage signal tight asserts allocation
+  degrades one ladder step to the configured cheaper tier and restores when it recovers; a guard
+  fixture asserts every degrade step stays session-grade, never relaxes the determinism floor
+  (REQ-G1.2), and never selects `--permission-mode auto` (REQ-E1.4); each degrade step logs through
+  Task 1's audit trail; the knobs resolve through the overlay (machine-local wins); tests/CI pass.
+- **Dependencies:** 1, 7, 9
+- **Citations:** D-24, D-25, D-26 · REQ-E1.8, REQ-E1.9, REQ-E1.10, REQ-E1.4, REQ-F1.4, REQ-G1.2, REQ-G1.5
+- **Estimated effort:** 2.5 days
+
 ## Awaiting input
 
 (none yet)
@@ -174,12 +222,17 @@ render.
   but unimplemented until prevention proves insufficient. Confidence: high.
   **Gate:** a concrete case where `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` fails to prevent
   ghost-text ambiguity is observed in the drain loop. Citations: D-10 · REQ-D1.2.
-- **Local-transcript (`ccusage`-style) usage estimation as a throttle corroborating signal.** Task
-  7 ships reactive throttling off Claude Code's native rate-limit signal alone; a supplementary
-  local-transcript-based estimate of past consumption is not built until the reactive-only signal
-  proves insufficient. Confidence: medium.
-  **Gate:** a concrete case where the reactive signal fires too late relative to actual quota
-  exhaustion is observed in the drain loop. Citations: D-12 · REQ-E1.3.
+- **Local-transcript (`ccusage`-style) usage estimation as a corroborating signal.** Task 7 ships
+  reactive throttling off Claude Code's native rate-limit signal, and the 2026-07-20 extension adds
+  the proactive `/usage` gate (Task 9) as the ahead-of-the-wall mechanism — so the original "reactive
+  fires too late" gap is now covered by the proactive gate, not by ccusage. A supplementary
+  local-transcript estimate of past consumption stays deferred as a *corroborating* cross-check on
+  the `/usage` read (never the gate input: it reconstructs past consumption, not remaining
+  server-side quota), not built until the `/usage` read plus reactive backstop prove insufficient.
+  Confidence: medium.
+  **Gate:** a concrete case where the `/usage` read is unavailable or wrong often enough that a
+  corroborating estimate would materially help is observed in the drain loop. Citations: D-12, D-23
+  · REQ-E1.5, REQ-E1.7.
 - **A turnkey scheduler-registration helper for the tower-liveness watchdog.** Task 3 ships the
   watchdog as a deterministic script the operator schedules from their own cron/launchd (the
   no-LLM-daemon floor, D-4/REQ-G1.2, is why it is never a Claude Code scheduled-agent); the operator

@@ -1,7 +1,7 @@
 # Fleet Autonomy — Test Spec
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -139,16 +139,66 @@ no outbound LLM/API call occurs during resolution (a stubbed client asserts zero
 A cross-check test asserts the heuristic's selectable command set and `resolve-review-sequence.sh`'s
 nestable-skill set are disjoint, so the two mechanisms can never both claim the same skill.
 
-### REQ-E1.3 — Reactive fleet-wide throttling [test]
+### REQ-E1.3 — Reactive fleet-wide throttling [test] (superseded by REQ-E1.7)
 
 A fixture simulating Claude Code's native rate-limit prompt/retry event asserts fleet-wide dispatch
 pauses and asserts it resumes at the signaled reset time, with no dispatch attempted in between.
+The mechanism is unchanged; verification now pins to REQ-E1.7 (reactive throttle as the hard
+backstop), below.
 
 ### REQ-E1.4 — Auto-mode guard [test]
 
 A fixture attempting to launch a worker with `--permission-mode auto` asserts the guard refuses
 the launch; a fixture launching with the standard worker-settings-profile allowlist asserts it
 succeeds.
+
+### REQ-E1.5 — Proactive `/usage` read, shared-aware, graceful degradation [test]
+
+A fixture feeding a representative captured `/usage` render asserts the parser extracts the usage
+percentage deterministically (same input, same output) with a stubbed client asserting zero
+LLM/API invocations. A second fixture feeding malformed/empty `/usage` output asserts the signal is
+reported unavailable (not a fabricated number) and that no per-orchestrator reservation state is
+written. The account-global / shared-aware property is design-level (the signal is whatever
+`/usage` reports for the whole account); the parser test is the automatable core.
+
+### REQ-E1.6 — Configurable proactive dispatch gate [test]
+
+Fixtures assert: a usage signal above the configured pause threshold gates heavy/opus dispatch; a
+signal below it lets dispatch proceed; a signal in the warn band emits a warning without gating. A
+config fixture asserts the pause/warn thresholds resolve through the four-layer overlay (a
+machine-local override wins via `config-get.sh`). A stubbed-client assertion confirms the gate
+decision is a deterministic comparison with no LLM call; an audit-trail assertion confirms engage
+and clear rows are queryable and that the kill-switch pauses the gate.
+
+### REQ-E1.7 — Reactive throttle retained as the hard backstop [test]
+
+Reuses the REQ-E1.3 reactive-throttle fixture (native rate-limit prompt → fleet-wide pause →
+resume at reset), plus a composition fixture asserting that when the proactive `/usage` signal is
+unavailable (REQ-E1.5 degradation path), dispatch still proceeds under the reactive backstop rather
+than blocking — proving the two mechanisms compose and the backstop is load-bearing.
+
+### REQ-E1.8 — Overlay-configurable, default-preserving selection policy [test]
+
+A fixture asserts an operator overlay retunes the per-task-type model/effort/command mapping and
+that the resolver reads the tuned values; a companion fixture asserts that with no operator
+configuration the shipped defaults reproduce today's REQ-E1.1/REQ-E1.2 selection exactly
+(default-preserving). A stubbed-client assertion confirms resolution stays a deterministic rule
+table with no LLM call and no cascade.
+
+### REQ-E1.9 — Per-model budget caps / shares [test]
+
+A fixture configures a per-model cap/share and asserts allocation is refused (or redirected per the
+ladder) once the stubbed usage signal shows the cap reached, and permitted below it — enforced by
+deterministic comparison, stubbed-client asserting zero LLM calls. A config fixture asserts the
+caps/shares resolve through the overlay (machine-local wins).
+
+### REQ-E1.10 — Degrade ladder degrades capability, never safety [test]
+
+A fixture driving the usage signal tight asserts allocation degrades one configured ladder step to
+the cheaper model/effort tier and restores when budget recovers. A guard fixture asserts the
+degraded selection is still a full session-grade worker (never a lighter-weight script), never
+relaxes the autonomous-safe-decision determinism floor (REQ-G1.2), and never selects
+`--permission-mode auto` (REQ-E1.4); an audit assertion confirms each degrade step is logged.
 
 ## REQ-F — Operator control & observability
 
@@ -213,3 +263,8 @@ A parametrized test over every config knob this bundle introduces asserts each r
 
 - 2026-07-14 — Initial draft.
 - 2026-07-14 — Kickoff walkthrough: added the REQ-A1.9 entry (tower crash-loop backoff/disable).
+- 2026-07-20 — Resource-governance extension: added verification entries for REQ-E1.5–REQ-E1.10
+  (proactive `/usage` parse + degradation, configurable dispatch gate, reactive backstop
+  composition, overlay-configurable/default-preserving selection policy, per-model caps/shares,
+  capability-not-safety degrade ladder); marked the REQ-E1.3 entry superseded by REQ-E1.7 (same
+  fixture, unchanged mechanism).
