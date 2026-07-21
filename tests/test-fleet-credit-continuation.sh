@@ -50,7 +50,14 @@ fail() {
 
 [ -x "$FCC" ] || fail "scripts/fleet-credit-continuation.sh missing or not executable"
 
-tmp=$(mktemp -d)
+tmp=$(mktemp -d) || {
+  echo "FAIL: mktemp -d failed; cannot create the test scratch dir" >&2
+  exit 1
+}
+[ -n "$tmp" ] || {
+  echo "FAIL: mktemp -d produced no usable directory ('$tmp')" >&2
+  exit 1
+}
 trap 'rm -rf "$tmp"' EXIT
 
 fleet_home="$tmp/fleet"

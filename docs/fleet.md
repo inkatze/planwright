@@ -536,11 +536,12 @@ pauses autonomous actions, never the operator's own lever.
 
 **Credit-continuation defaults to decline-and-wait, never auto-spend.** The
 rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
-credits / extra usage to continue past the limit". `scripts/fleet-credit-continuation.sh
-decide`, invoked on the same captured wall text the throttle reads, rides
-that reactive detection: it recognizes the spend-to-continue offer (demanding
-both a spend-offer token and a continuation token, so a plain wall or a
-garbled variant is never mistaken for one) and makes a single deterministic
+credits / extra usage to continue past the limit".
+`scripts/fleet-credit-continuation.sh decide`, invoked on the same captured wall
+text the throttle reads, rides that reactive detection: it recognizes the
+spend-to-continue offer (demanding both a spend-offer token and a continuation
+token, so a plain wall or a garbled variant is never mistaken for one) and makes
+a single deterministic
 fleet policy decision. The shipped default is **decline and wait** for the
 window to reset — the reactive backstop already gives "wait for reset" a
 well-defined behavior to fall into, so declining costs no new mechanism, and
