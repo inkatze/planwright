@@ -129,11 +129,13 @@ a task is a candidate while its block sits in `## Forward plan`; on a
 derivational and parked-ness is a live reference bullet naming the task in
 `## Awaiting input`, `## Deferred`, or `## Out of scope` (invariant-tasks D-8).
 
-Selector exits (full contract: `selection-contract`): **Exit 0** returns the unit
-(subject to bundling below); **Exit 1** is no ready unit (in `--watch` stop the
-loop, else report it and exit cleanly); **Exit 2** is a fail-closed halt
-(missing/taskless `tasks.md`, or the derivation failed closed).
+Selector exits (full contract: `selection-contract`):
 
+- Exit 0 → the unit (subject to bundling below).
+- Exit 1 → no ready unit; in `--watch` stop the loop, else report it and exit
+  cleanly.
+- Exit 2 → a fail-closed halt (missing/taskless `tasks.md`, or the derivation
+  failed closed).
 - Exit 3 (format-version 2 transient evidence hold) → a configured remote's
   evidence fetch failed, so the derivation is partial (REQ-B1.5). **Report the
   hold and end the step cleanly** — the lock-contention shape, not a halt; the
