@@ -173,16 +173,46 @@ trap 'rm -rf "$tmproot"' EXIT
 
 ########################################################################
 # 0. Real repo passes the guard with no transitional allowances remaining
-#    (Task 2 Done-when: `mise run check` passes on the repo; post-Task-7.5
-#    the only suppression is the permanent spec-format exemption).
+#    (Task 2 Done-when: `mise run check` passes on the repo; post-Task-7.5 no
+#    transitional pending-diet allowance remains — the standing suppressions are
+#    the permanent spec-format per-file exemption plus the two /orchestrate
+#    below-target declared exceptions from the fleet-hardening #271 collision).
 ########################################################################
 out="$(/bin/bash "$CHECKER" 2>&1)"
 assert_exit "real repo passes the guard (no transitional allowances remain)" 0 $?
 
-# Post-Task-7.5 the audit carries no transitional allowance anywhere: the
-# Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
+# 0a. Closing-gate assertions (instruction-headroom Task 11, REQ-C1.1, D-11;
+#     the closure-margin target assertions relocated from Tasks 7 and 9 per
+#     kickoff §6). The restoration campaign is complete: every budgeted surface
+#     sits at or above its restoration target (twice its floor) or carries a
+#     declared-exception, so the real-corpus guard run emits none of the D-11
+#     margin warnings and measures every surface. The floor-breach / below-target
+#     / use-site machinery itself is proven by the fixtures below (15c/15d/15t/
+#     15x/16*); this asserts the *shipped corpus* is in the restored end state,
+#     keeping the closing gate permanently enforced in CI (the diets rewrite the
+#     very bodies the use-site check scans, so this re-checks them on the whole).
+# Match the warn() emission prefix ("WARN: <type>:") rather than the bare type
+# name: the guard also prints a "declared-exception cleanup: no live below-target
+# or use-site warning ..." notice that contains those type names (and, for a
+# stale use-site entry, the "use-site:<surface>" key), so a bare-substring gate
+# could false-fail on a future stale exception with no actual warning of that
+# type.
+assert_absent "closing gate: no floor-breach warning on the real corpus" "WARN: floor-breach:" "$out"
+assert_absent "closing gate: no unexcepted below-target warning on the real corpus" "WARN: below-target:" "$out"
+assert_absent "closing gate: no use-site warning on the real corpus" "WARN: use-site:" "$out"
+# A single --audit capture serves both the unmeasured closing-gate check and the
+# transitional-allowance assertions. "unmeasured" is an --audit-only surface
+# state: the Per-skill load section renders it for a skill whose manifest is
+# malformed or unresolved (the state never reaches the default run's output), so
+# that absence is asserted against the audit render, confirming every floored
+# aggregate on the real corpus is actually measured. Guard the capture's exit so
+# a non-rendering crash is caught rather than masked into a false-passing absence
+# check. Post-Task-7.5 the audit also carries no transitional allowance anywhere:
+# the Task 3-seeded start-load carries were shed by their diet tasks (REQ-B1.3b;
 # the closeout direction REQ-D1.4 forbids any lingering `pending-diet` entry).
 aud="$(/bin/bash "$CHECKER" --audit 2>&1)"
+assert_exit "closing gate: the --audit render exits zero (guards the checks below)" 0 $?
+assert_absent "closing gate: no unmeasured surface on the real corpus" "unmeasured" "$aud"
 assert_contains "audit lists orchestrate SKILL.md" "skills/orchestrate/SKILL.md" "$aud"
 assert_absent "audit carries no pending-diet allowance (Task 7.5)" "pending-diet" "$aud"
 sl="${aud##*Offender shortlist}"
@@ -583,8 +613,10 @@ out="$(/bin/bash "$CHECKER" --closeout --root "$t7e4" 2>&1)"
 assert_exit "closeout: a permanent exemption alone passes --closeout" 0 $?
 assert_absent "closeout: permanent exemption raises no closeout error" "closeout" "$out"
 
-# the real repo (post-Task-7.5, only the permanent spec-format exemption)
-# passes --closeout: the closeout direction holds on the shipped corpus.
+# the real repo passes --closeout (post-Task-7.5 no transitional pending-diet
+# allowance remains; the standing spec-format exemption and the two /orchestrate
+# declared exceptions are permanent, so the closeout direction holds on the
+# shipped corpus).
 out="$(/bin/bash "$CHECKER" --closeout 2>&1)"
 assert_exit "closeout: the real repo passes --closeout (no lingering allowance)" 0 $?
 
