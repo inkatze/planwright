@@ -717,8 +717,11 @@ case "$cmd" in
       exit 2
     }
     if [ "$target" = "$cur" ]; then
-      release_lock
+      # Read `since` under the lock (as the transition path does) for a
+      # consistent rung/since snapshot: while we hold the lock no other tower can
+      # transition, so `since` is the epoch of the rung we are reporting.
       since=$(last_transition_epoch 2>/dev/null) || since=""
+      release_lock
       printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
       exit 0
     fi
@@ -735,8 +738,14 @@ case "$cmd" in
       echo "fleet-usage-gate: the audit trail refused the rung-transition record — surfacing, not swallowing" >&2
       exit 2
     }
-    release_lock
+    # Read `since` while STILL holding the lock, so the printed rung/since pair is
+    # a consistent snapshot: under the lock the last usage-gate row is the one we
+    # just wrote (no other tower can transition), so `since` is this transition's
+    # own epoch. Reading it after release would let a concurrent tower's later
+    # transition land in between, pairing our rung with a stranger's timestamp.
+    # last_transition_epoch does a lockless query, so it is safe to call here.
     since=$(last_transition_epoch 2>/dev/null) || since=""
+    release_lock
     printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$target" "$since" "$sess" "$week"
     exit 0
     ;;

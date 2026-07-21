@@ -391,7 +391,9 @@ rm -f "$mlocal_cfg"
 echo "ok: the kill-switch pauses the gate — no transition recorded"
 
 # --- 16. Concurrent evaluations serialize under the advisory lock: a single
-#         real transition, no duplicate rows. ---
+#         real transition, no duplicate rows, and EVERY concurrent evaluate exits
+#         cleanly (the winner records, the losers no-op — a non-zero exit would
+#         mean a lock-acquisition or contention bug, not just an extra row). ---
 reset_state
 usage_render 10 88 | run capture >/dev/null || fail "read (concurrency) failed"
 pids=""
@@ -399,10 +401,12 @@ for _i in 1 2 3 4 5; do
   run evaluate >/dev/null 2>&1 &
   pids="$pids $!"
 done
-for p in $pids; do wait "$p" || true; done
+conc_rc=0
+for p in $pids; do wait "$p" || conc_rc=1; done
+[ "$conc_rc" = 0 ] || fail "a concurrent evaluate exited non-zero — contention handling bug (winner should record, losers no-op, all exit 0)"
 rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
 [ "$rows" = 1 ] || fail "concurrent evaluations must yield exactly one transition row (found $rows)"
-echo "ok: concurrent evaluations serialize under the advisory lock (one row, no duplicates)"
+echo "ok: concurrent evaluations serialize under the advisory lock (one row, all exit 0)"
 
 # --- 17. The TTL knob resolves through the overlay: a machine-local TTL makes
 #         an otherwise-fresh signal stale (so it evaluates unavailable). ---
