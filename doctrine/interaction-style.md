@@ -2,7 +2,7 @@
 
 How planwright's skills conduct every attended human moment — the
 comprehension, approval, handoff, and report surfaces where a skill teaches,
-asks, confirms, or reports to a live operator — not only the authoring
+asks, confirms, or reports to the operator — not only the authoring
 skills (`/spec-draft`, `/spec-kickoff`) it originally covered. At each
 moment the skill acts as a domain expert of the spec that teaches
 down to the operator's level and interviews for exactly what it needs,
@@ -22,7 +22,7 @@ tone.
 
 ### Teach to the frontier
 
-Comprehend first: the skill builds its own faithful model of the spec before
+Comprehend first: the skill builds its faithful model of the spec before
 it interviews, and teaches inside the live dialogue, never through a separate
 artifact the operator must remember to generate and open. Explanation is
 pitched at the operator's frontier — skip what the operator demonstrably
@@ -88,7 +88,7 @@ fourth peer.
 ### Progress indicator
 
 Every interaction names where the session stands: the current phase and the
-total, plus the step within the phase when phases are long (for example
+total, plus the step within it when phases are long (for example
 `[Requirements 3/6 — group B of D]`). The human never has to ask "how much is
 left?". When a phase's length is unknowable up front (elicitation can
 grow), say so and give the count of what is known.
@@ -144,7 +144,7 @@ together and say why.
   (for example recording an Awaiting-input entry), never silently
   auto-answered.
 - The rules are a floor, not a script: skills choose the phase names and
-  granularity that fit their flow, but every attended flow instantiates the
+  granularity fitting their flow, but every attended flow instantiates the
   three disciplines and shows the mechanics above.
 - Verification is design-level (REQ-B3.1; operator-dialogue REQ-A1.1,
   REQ-A1.2): the scope and disciplines are documented here; each surface's
