@@ -24,10 +24,14 @@
 # credit-continuation offer — a plain wall, a garbled variant, unrelated text
 # — is a clean no-op (exit 3), so the caller falls through to the plain
 # reactive backstop with no accidental spend. The recognizer is deliberately
-# precise: it demands BOTH a spend-offer token (credit / extra usage / ...)
-# AND a continuation token (continue / keep going), so text that merely
-# mentions "continue" or a plain "rate limit reached" is never mistaken for a
-# spend offer.
+# precise: it first demands the SAME rate-limit-wall context the reactive
+# throttle detects (a credit offer is a variant of the wall), then a
+# spend-offer token (credit / extra usage / ...) AND a continuation token
+# (continue / keep going) — the "spend ... to continue" shape. So a plain
+# "rate limit reached", a bare "press enter to continue", or informational
+# copy about extra usage that is NOT at the wall is never mistaken for a spend
+# offer. A miss is the safe direction: it falls through to the reactive
+# backstop (decline-and-wait), never a spurious spend.
 #
 # DETERMINISM FLOOR (REQ-G1.2). The decision is a pure, deterministic reaction
 # to the detected prompt: no LLM/API call is ever in the decision path. The
@@ -119,9 +123,18 @@ case "$cmd" in
       { gsub(/[^[:print:]]/, ""); text = text " " $0 }
       END {
         lt = tolower(text)
+        # A credit-continuation offer is a VARIANT OF THE WALL: recognition
+        # first demands the same rate-limit-wall context the reactive throttle
+        # detects (fleet-throttle.sh observe), so informational copy that
+        # merely mentions "extra usage" and "continue" off the wall is never
+        # mistaken for an actionable spend prompt. Then it demands both a
+        # spend-offer token and a continuation token — the "spend ... to
+        # continue" shape. A miss here is the safe direction: it falls through
+        # to the reactive backstop (decline-and-wait), never a spurious spend.
+        wall  = (lt ~ /rate.?limit|usage limit|limit reached|too many requests/)
         offer = (lt ~ /credit|extra usage|extra paid usage|additional usage|pay.as.you.go/)
         cont  = (lt ~ /continue|keep going|keep working/)
-        if (offer && cont) { print "credit"; print substr(text, 2, 200); exit }
+        if (wall && offer && cont) { print "credit"; print substr(text, 2, 200); exit }
         print "none"
       }') || {
       echo "fleet-credit-continuation: recognizer failed" >&2

@@ -221,6 +221,27 @@ rows=$(audit_query --mechanism credit-continuation 2>/dev/null || true)
 [ -z "$rows" ] || fail "non-offer text wrote an audit row (accidental spend risk): '$rows'"
 echo "ok: 'continue' without a credit offer is not mistaken for a spend offer"
 
+# 7b. Adversarial variant C: informational text that mentions an offer token
+#     ("extra usage") AND a continuation token ("continue") but is NOT at the
+#     rate-limit wall (no wall-context signal) must NOT be recognized — even
+#     with the opt-in armed. Without a wall-context gate the bare offer+cont
+#     substrings would spuriously decide `spend`; the recognizer demands the
+#     same rate-limit-wall context the reactive throttle detects, so this
+#     falls through (exit 3) with no accidental spend.
+reset_state
+printf 'fleet_credit_continuation_spend: true\n' >"$mlocal_cfg"
+for blurb in \
+  'Extra usage is available on paid plans. Press Enter to continue.' \
+  "You've used your included usage. Extra usage is available on paid plans, press enter to continue."; do
+  rc=0
+  out=$(printf '%s\n' "$blurb" | run decide 2>/dev/null) || rc=$?
+  [ "$rc" = 3 ] || fail "non-wall offer blurb: exit $rc, expected 3 (no wall context) for '$blurb'"
+done
+rm -f "$mlocal_cfg"
+rows=$(audit_query --mechanism credit-continuation 2>/dev/null || true)
+[ -z "$rows" ] || fail "non-wall offer blurb wrote an audit row (spurious spend risk): '$rows'"
+echo "ok: an offer mentioned off the wall is not mistaken for a spend prompt"
+
 # 8. Non-signal / empty text is a clean no-op (exit 3).
 reset_state
 rc=0
