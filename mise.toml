@@ -121,6 +121,10 @@ run = "/bin/sh scripts/check-no-ci-evals.sh"
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
 run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
 
+[tasks."eval:behavioral"]
+description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
+run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
+
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
 run = "/bin/sh scripts/obs-render.sh"

@@ -1,0 +1,7 @@
+# expert.persona — a domain-expert simulated operator (REQ-G1.2). Same question
+# sequence, a different level signal, so the skill pitches differently and the
+# divergence is observable in the graded artifacts (seeds REQ-H1.4).
+expertise=expert
+answer.1=Grace
+answer.2=expert, skip the primer
+answer.3=approve-and-record

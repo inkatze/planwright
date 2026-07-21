@@ -1,0 +1,8 @@
+# novice.persona — a domain-novice simulated operator (REQ-G1.2).
+# Meta lines are key=value; answer.<turn> supplies the answer the driver sends
+# when the skill reports `EVAL-READY turn=<turn>`. Answers are treated as data:
+# the harness sanitizes each before send-keys (REQ-G1.6), never interprets it.
+expertise=novice
+answer.1=Ada
+answer.2=novice, please walk me through it
+answer.3=approve-and-record
