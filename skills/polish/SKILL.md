@@ -78,8 +78,9 @@ Record the resolved mode in every iteration summary.
    `/self-review` pre-flight does (remote-tracking base first; brief from the
    `planwright/<spec>/task-<ids>` branch convention, with the parsed `<spec>`
    segment validated against the REQ-A1.8 identifier discipline before any
-   path is formed; else the single Active spec). Record both; with no active
-   brief the Agent-resolvable bucket is unavailable for the whole run.
+   path is formed; else resolved via the status render, accepting Ready or
+   Active). Record both; with no active brief the Agent-resolvable bucket is
+   unavailable for the whole run.
 4. **Initialize the loop ledger**: an iteration counter at zero, plus the
    record of every finding the loop has already dispositioned (applied,
    resolved, applied pending sign-off, declined, queued). The loop ledger is
