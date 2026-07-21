@@ -111,11 +111,13 @@ utc_iso() {
 # lightweight incremental counters — still derived, no new shared-write file.
 LAST_CLEANUP=""
 WATCHDOG_TRIPS=""
+GATE_RUNG=""
 derive_from_audit() {
   if [ ! -x "$AUDIT" ]; then
     echo "fleet-stats: audit helper '$AUDIT' is missing or not executable" >&2
     LAST_CLEANUP="unknown"
     WATCHDOG_TRIPS="unknown"
+    GATE_RUNG=""
     return 0
   fi
   da_rc=0
@@ -124,6 +126,7 @@ derive_from_audit() {
     echo "fleet-stats: could not read the audit trail (fleet-audit query exit $da_rc); cleanup/watchdog stats degraded to unknown" >&2
     LAST_CLEANUP="unknown"
     WATCHDOG_TRIPS="unknown"
+    GATE_RUNG=""
     return 0
   fi
   # Newest `cleanup`-action row across every cleanup mechanism. The "" pins
@@ -138,10 +141,29 @@ derive_from_audit() {
     ($3 "") == "tower-watchdog" &&
     (($4 "") == "relaunch" || ($4 "") == "relaunch-failed" || ($4 "") == "disable") { n++ }
     END { print n + 0 }')
+  # The usage-gate's current rung, derived from the SAME single scan (Task 9,
+  # D-28) — the action of the most recent usage-gate row, matching
+  # fleet-usage-gate.sh's own derive_rung. Deriving it here rather than shelling
+  # out to `fleet-usage-gate.sh rung` avoids a second full audit scan and two
+  # extra process spawns on the high-frequency statusLine path. An empty trail
+  # (no usage-gate rows) leaves GATE_RUNG empty (the throttle line is left
+  # as-is). A NON-empty but unrecognized action is a corrupt trail: surface it as
+  # `corrupt` rather than silently dropping it, so the stats line reflects the
+  # same corruption fleet-usage-gate.sh fails loud on (an operator debugging sees
+  # it instead of a falsely-normal line).
+  dgr_raw=$(printf '%s\n' "$da_all" | awk -F "$TAB" '($3 "") == "usage-gate" { a = $4 } END { print a }')
+  case $dgr_raw in
+    normal | downshift | reduce-concurrency | defer-heavy | defer-all) GATE_RUNG=$dgr_raw ;;
+    "") GATE_RUNG="" ;;
+    *) GATE_RUNG="corrupt" ;;
+  esac
 }
 
-# derive_throttle — Task 7's LIVE throttle state (never a stale audit row). Sets
-# THROTTLE_STATE. `check` exits 0 when idle (nothing engaged), 1 with an
+# derive_throttle — Task 7's LIVE throttle state (never a stale audit row), then
+# fold in Task 9's proactive usage-gate rung (the gate is throttle-family, so it
+# reuses this channel — REQ-E1.6). The rung is GATE_RUNG, already derived from
+# the shared audit trail by derive_from_audit's single scan (call it first).
+# Sets THROTTLE_STATE. `check` exits 0 when idle (nothing engaged), 1 with an
 # `until\t<epoch>` line when engaged, and 2 on an error (degrade to unknown).
 THROTTLE_STATE=""
 derive_throttle() {
@@ -173,6 +195,13 @@ derive_throttle() {
       THROTTLE_STATE="unknown"
       ;;
   esac
+  # Fold in the proactive gate's rung when it is engaged (a non-normal rung, or
+  # the `corrupt` marker for an unrecognized last action). This reuses the
+  # throttle-engaged channel (no new stat type): a normal rung, an absent gate
+  # rung (empty), or an unknown throttle state leaves the reactive line as-is.
+  if [ "$THROTTLE_STATE" != "unknown" ] && [ -n "$GATE_RUNG" ] && [ "$GATE_RUNG" != normal ]; then
+    THROTTLE_STATE="$THROTTLE_STATE (usage-gate: $GATE_RUNG)"
+  fi
 }
 
 # queue_count — the decision-queue length via fleet-attention.sh (composition,
