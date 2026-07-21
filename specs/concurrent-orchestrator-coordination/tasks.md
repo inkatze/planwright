@@ -97,15 +97,19 @@ parallel after Task 1.
 
 ### Task 4 — Peer work-claim (claim-before-dispatch, death-evidence reclaim)
 
-- **Deliverables:** A work-claim mechanism keyed by unit id under the repository scope on Task 2's
-  machine-local surface (`<surface>/<repo-id>/claims/<unit-id>`): a tower claims a unit before dispatch by
-  an **atomic, exclusive create-with-content** of that unit-keyed claim object — exclusive (fails if the
-  name exists) *and* complete the instant it appears (carrying the owner identity + death handle), e.g. a
-  hardlink of a fully-written temp into the unit-keyed name; NOT a bare `mkdir` (which leaves an
-  empty-claim crash window) and NOT a plain temp-then-rename (which overwrites, losing exclusivity). The
-  create is the serializer, so a losing tower's create fails atomically and it reads the existing claim
-  and skips (no double-dispatch across separate clones, where the checkout-local per-spec lock cannot
-  serialize). A selection guard skips any unit with a live claim. **Reclaim** — a read → check → swap
+- **Deliverables:** A two-layer work-division mechanism. **Authoritative layer:** the no-duplicate-dispatch
+  guarantee is `orchestration-concurrency`'s **branch-as-fence** (origin arbitrates one branch push per
+  unit) — a tower verifies no live branch / PR exists for the unit *immediately before dispatch*, so a
+  duplicate never reaches a worker even if the claim layer races. **Best-effort claim layer** (keyed by
+  unit id under the repository scope on Task 2's machine-local surface, `<surface>/<repo-id>/claims/<unit-id>`):
+  a tower claims a unit before dispatch by an **atomic, exclusive create-with-content** of that unit-keyed
+  claim object — exclusive (fails if the name exists) *and* complete the instant it appears (carrying the
+  owner identity + death handle), e.g. a hardlink of a fully-written temp into the unit-keyed name; NOT a
+  bare `mkdir` (which leaves an empty-claim crash window) and NOT a plain temp-then-rename (which
+  overwrites, losing exclusivity). The create is the serializer, so a losing tower's create fails
+  atomically and it reads the existing claim and skips (reducing double-*selection* across separate clones,
+  where the checkout-local per-spec lock cannot serialize; duplicate *dispatch* is prevented by the
+  authoritative branch-as-fence, not the claim). A selection guard skips any unit with a live claim. **Reclaim** — a read → check → swap
   that cannot be one atomic FS step — is serialized by a **per-unit reclaim lock** held only across the
   fast swap: (1) read the claim, honoring a live/unknown owner with no mutation; (2) *outside the lock*
   confirm the owner positively dead (tri-state; unknown treated as not-dead) and that no live downstream
@@ -117,14 +121,21 @@ parallel after Task 1.
   Initial claims stay lock-free. **Lifecycle:** the tower releases its claim on handoff (worker dispatched
   / branch exists) and immediately on dispatch failure, and dead-tower claims **and stale reclaim locks**
   are GC'd **during discovery** (any positively-dead owner's claim, and a reclaim lock stale past the
-  threshold, symmetric with presence GC), not only along the reclaim path. The death / artifact check is
-  never inside the lock. All record, reclaim-lock, and unlink paths are canonicalized and
+  threshold, symmetric with presence GC), not only along the reclaim path. The discovery GC of a claim
+  SHALL take the **same per-unit reclaim lock and under-lock re-read** as the reclaim path before
+  unlinking, so it never deletes a claim a concurrent reclaimer just swapped for a fresh live one. The
+  death / artifact check is never inside the lock. All record, reclaim-lock, and unlink paths are canonicalized and
   containment-checked to the surface before any create, `mkdir`, or `rm`. The mechanism composes with
   `orchestration-fleet`'s meta-tower selection where a meta-tower is present (distinguished by the
   presence-schema marker).
-- **Done when:** a two-tower fixture shows two towers racing to claim one unit resolve to a single holder
-  via the atomic create-with-content (the loser reads the winner's claim and skips — no double-dispatch),
-  including across separate-clone surfaces; a claim is never observed lacking its death handle (the create
+- **Done when:** the **authoritative branch-as-fence** is asserted — a tower verifies no live branch / PR
+  for the unit immediately before dispatch, and a forced claim-layer failure (two towers made to both hold
+  a claim, e.g. a simulated stale-broken reclaim lock) still yields a **single dispatch** (the second
+  tower's branch-as-fence check / rejected origin push aborts it), so the race degrades to wasted work not
+  double dispatch; a two-tower fixture shows two towers racing to claim one unit resolve to a single holder
+  via the atomic create-with-content (the loser reads the winner's claim and skips), including across
+  separate-clone surfaces; a concurrent **discovery-GC racing a reclaimer** does not delete a
+  freshly-swapped live claim (GC takes the reclaim lock and re-reads under it); a claim is never observed lacking its death handle (the create
   is atomic-with-content — no empty-claim window), and a bare-`mkdir` or plain-rename primitive is shown
   insufficient / not used; two towers reclaiming one positively-dead claim resolve to a single holder via
   the **per-unit reclaim lock** (concurrent reclaimers serialize on the lock; the loser skips the round),

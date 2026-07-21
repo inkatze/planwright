@@ -56,7 +56,9 @@ marking, or the tower non-authoring boundary.
 - Cross-checkout `main` currency by fetch/merge (never rebase, never a direct push to a shared `main`).
 - A **peer work-claim** mechanism: a tower claims a unit before dispatch on an observable surface peer
   towers read, honors live peer claims, and reclaims a dead tower's claim only on positive death
-  evidence — so no unit is dispatched by two towers.
+  evidence — a best-effort optimization that keeps two towers from usually selecting one unit, above
+  `orchestration-concurrency`'s branch-as-fence, which remains the authoritative guarantee that no unit
+  is *dispatched* by two towers (REQ-C1.1).
 - Composition with `orchestration-fleet`'s meta-tower selection and division-of-labor doctrine (reuse,
   not re-implementation) and consumption of its attributed non-impersonating relay as-is.
 - Data hygiene and non-spoofable attribution of every committed coordination artifact.
@@ -172,10 +174,20 @@ marking, or the tower non-authoring boundary.
 
 ## REQ-C — Work division across peer towers
 
-- **REQ-C1.1** Before dispatching a unit, a tower SHALL claim that unit on the shared machine-local
-  surface peer towers read, and SHALL NOT dispatch a unit a live peer tower already holds, so no unit
-  is dispatched by more than one tower. The claim SHALL be taken by an **atomic, exclusive
-  create-with-content** of a unit-keyed claim object on that surface: the claim object SHALL appear
+- **REQ-C1.1** No unit SHALL be dispatched by more than one tower. That guarantee is **authoritative in
+  `orchestration-concurrency`'s branch-as-fence**: a unit's dispatch creates a branch / PR whose
+  existence on `origin` is the durable, cross-clone single-dispatch fence (origin accepts exactly one
+  branch push per unit; a losing tower's push is rejected and it does not open a duplicate PR). A tower
+  SHALL verify that no live branch / PR exists for a unit **immediately before dispatching it**, so a
+  duplicate never reaches a worker even if the claim layer below races. The **work-claim is a best-effort
+  optimization above that fence**: before dispatching, a tower claims the unit on the shared machine-local
+  surface and skips a unit a live peer already holds, so peer towers rarely both select one unit and burn
+  worker cycles — but the claim is **not** the correctness guarantee. A filesystem claim on a shared
+  surface cannot be made authoritative under garbage-collection, stale-lock-break, and process-pause
+  races (each such race degrades to at most wasted selection work, never a double dispatch, precisely
+  because the branch-as-fence catches the duplicate before a second worker starts). The claim SHALL be
+  taken by an **atomic, exclusive create-with-content** of a unit-keyed claim object on that surface: the
+  claim object SHALL appear
   complete (carrying its owner identity and death handle, REQ-C1.2) in a single indivisible step, and
   the create SHALL fail if the unit-keyed object already exists — so the create itself is the serializer
   (the first tower's create succeeds and holds the unit; a losing tower's create fails, whereupon it
@@ -220,12 +232,16 @@ marking, or the tower non-authoring boundary.
   SHALL NOT remove or move a claim before confirming death (which would destroy a live claim), and SHALL
   NOT assume the claim is unchanged across the slow check (a fresh claimant may have taken the freed
   unit). The death check SHALL remain **outside** the lock, so the lock is never held across a subprocess
-  (no livelock, no critical-section cost). A live-but-hung tower's claim is honored and SHALL NOT be
+  (no livelock, no critical-section cost). The reclaim lock is a best-effort serializer, not an
+  authoritative one: should it be stale-broken while a paused holder still intends to swap, or otherwise
+  lost, the worst case is two towers proceeding toward dispatch — which the **pre-dispatch branch-as-fence
+  check (REQ-C1.1) resolves to a single dispatch**, so the race degrades to wasted selection work, never a
+  double dispatch. A live-but-hung tower's claim is honored and SHALL NOT be
   auto-reclaimed (it is not dead); recovering such a unit is an operator-intervention case, not an
   automatic one — so a *crashed* tower never strands a unit, while a *live* tower is never preempted on
   a guess.
   *(Cites: D-5, D-7; the positive-evidence-of-death floor, orchestration-concurrency's advisory-lock
-  stale-break discipline (Sources).)*
+  stale-break discipline and branch-as-fence (Sources).)*
 - **REQ-C1.4** Where a meta-tower ("tower of towers") is present, work division SHALL reuse its
   cross-spec selection under the fleet bound; the peer work-claim mechanism SHALL compose with, and
   never contradict, `orchestration-fleet`'s division-of-labor doctrine. A meta-tower SHALL be
@@ -239,10 +255,14 @@ marking, or the tower non-authoring boundary.
   live-tower claim stranding the unit. Independently, **dead-tower claims SHALL be garbage-collected
   during discovery** — any claim whose owning tower is positively dead is removed when the surface is
   scanned, symmetric with the presence-file GC (REQ-A1.3) — not only along the reclaim path of a unit a
-  peer happens to re-select. A claim left by a tower that died after dispatch (whose worker may already
-  have completed the unit, so no peer ever re-selects it) is therefore reclaimed by the discovery sweep
-  rather than leaking on the surface forever.
-  *(Cites: D-5.)*
+  peer happens to re-select. The discovery GC of a claim SHALL take the **same per-unit reclaim lock and
+  under-lock re-read as the reclaim path (REQ-C1.3)** before unlinking: an unguarded GC `rm` would delete
+  a claim a concurrent reclaimer had just swapped for a fresh live one, so the GC removes a claim only
+  while holding the lock and only if it is still that same positively-dead owner's. A claim left by a
+  tower that died after dispatch (whose worker may already have completed the unit, so no peer ever
+  re-selects it) is therefore reclaimed by the locked discovery sweep rather than leaking on the surface
+  forever.
+  *(Cites: D-5, D-7.)*
 
 ## REQ-D — Carried floors, boundaries & hygiene
 
@@ -357,6 +377,20 @@ marking, or the tower non-authoring boundary.
   (REQ-D1.5); the `main`-currency sync tightened so a non-checked-out `main` is updated via
   `git fetch origin main:main` rather than a bare merge onto a worker branch (REQ-B1.4). Bundle stays
   Draft; re-run `/spec-kickoff` for sign-off.
+- 2026-07-20 — `/panel-review --nested` iteration 3 (gemini) — the branch-as-fence reframe. The pass
+  found two further reclaim races: the discovery GC's unguarded `rm` could delete a claim a reclaimer had
+  just swapped for a fresh live one (I3a, Critical), and a stale-broken/paused reclaim-lock holder could
+  clobber a live claim and double-dispatch (I3b, High). Root cause, converged across three rounds: a
+  filesystem claim on a shared surface **cannot** be the authoritative no-duplicate-dispatch guarantee
+  under GC / stale-break / pause races. **Operator decision (2026-07-20):** reframe to a two-layer model
+  — `orchestration-concurrency`'s **branch-as-fence** (origin arbitrates one branch push per unit),
+  verified immediately before every dispatch, is the authoritative guarantee; the claim + reclaim-lock is
+  a **best-effort optimization** above it, so every residual filesystem-lock race degrades to wasted
+  selection work, never a double dispatch (REQ-C1.1, D-5, D-7). Also folded in: the discovery GC takes
+  the same per-unit reclaim lock and under-lock re-read as the reclaim path, so it never deletes a
+  freshly-swapped live claim (I3a fix, REQ-C1.5). This closes the whole filesystem-claim race class by
+  delegating correctness to the proven Done foundation rather than trying to make the claim airtight.
+  Bundle stays Draft; re-run `/spec-kickoff` for sign-off.
 
 ## Sources
 

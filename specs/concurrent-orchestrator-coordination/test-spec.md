@@ -113,11 +113,16 @@ failure fails closed (the tower surfaces the failure and does not proceed on a s
 
 ## REQ-C — Work division across peer towers
 
-### REQ-C1.1 — Atomic create-with-content serializes before dispatch, no empty-claim window [test]
+### REQ-C1.1 — Branch-as-fence is authoritative; atomic claim is best-effort [test]
 
-A two-tower fixture asserts tower B, selecting work, skips a unit tower A holds a live claim for, so the
-unit is never dispatched twice; and that a tower takes its claim before the dispatch step, not after. A
-concurrency fixture asserts the serializer is the **atomic, exclusive create-with-content** of the
+**Authoritative layer:** a fixture asserts a tower verifies **no live branch / PR exists for the unit
+immediately before dispatch**, and that when the claim layer is forced to fail (two towers made to both
+"hold" a claim, e.g. by simulating a stale-broken reclaim lock) the result is still a **single dispatch**
+— the second tower's pre-dispatch branch-as-fence check (or its rejected `origin` branch push) aborts it,
+so the race degrades to wasted selection work, not a double dispatch. **Best-effort layer:** a two-tower
+fixture asserts tower B, selecting work, skips a unit tower A holds a live claim for, so the unit is
+rarely selected twice; and that a tower takes its claim before the dispatch step, not after. A
+concurrency fixture asserts the claim serializer is the **atomic, exclusive create-with-content** of the
 unit-keyed claim object on the machine-local surface: two towers racing to claim one unit resolve to a
 single holder — exactly one create succeeds, the loser's create fails atomically and it reads the
 existing claim rather than writing a second one. The fixture exercises the **separate-clone** case (two
@@ -168,11 +173,15 @@ Fixtures: a claim is **released** once the unit is handed off (its worker is dis
 exists, so the branch-as-fence takes over) and **immediately** on a dispatch failure (a failed dispatch
 strands nothing — no live-tower claim is left blocking the unit); a positively-dead tower's claim is
 **garbage-collected during discovery** — including a claim on an already-completed unit that no peer ever
-re-selects (asserting the sweep is not gated on re-selection), symmetric with presence-file GC; and a
-**stale reclaim lock** left by a reclaimer that crashed mid-swap is broken during discovery (past the
-stale threshold, the same `mkdir`-plus-stale-break discipline the per-spec advisory lock uses), so a
-crashed reclaimer never wedges a unit's reclaim path — so the claims surface does not grow unbounded and
-no unit is permanently blocked.
+re-selects (asserting the sweep is not gated on re-selection), symmetric with presence-file GC. The
+discovery GC of a claim is asserted to take the **same per-unit reclaim lock and under-lock re-read** as
+the reclaim path: a fixture with a GC pass racing a reclaimer that has just swapped a dead claim for a
+fresh live one shows the GC does **not** delete the fresh live claim (it re-reads under the lock, sees the
+owner changed, and leaves it) — an unguarded GC `rm` would be a double-dispatch. And a **stale reclaim
+lock** left by a reclaimer that crashed mid-swap is broken during discovery (past the stale threshold,
+the same `mkdir`-plus-stale-break discipline the per-spec advisory lock uses), so a crashed reclaimer
+never wedges a unit's reclaim path — so the claims surface does not grow unbounded and no unit is
+permanently blocked.
 
 ## REQ-D — Carried floors, boundaries & hygiene
 

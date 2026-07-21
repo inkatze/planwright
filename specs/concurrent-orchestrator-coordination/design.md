@@ -17,10 +17,12 @@ and reuses `orchestration-fleet`'s relay and meta-tower selection rather than fo
 
 **Decision-domains walk.** The feature crosses several catalogued stake-bearing domains, all decided
 in-spec rather than auto-defaulted: **concurrency** (the central domain — shared coordination surfaces,
-claim serialization across separate clones, crash-mid-flight reclaim; decided by the atomic
-exclusive-create claim primitive in D-5 / REQ-C1.1 (which serializes cross-clone where the checkout-local
-lock cannot), the death-evidence reclaim with concurrent-reclaimer serialization and a downstream-artifact
-guard in D-7, and the presence/claim collision-semantics split); **integration surface** (the git
+claim serialization across separate clones, crash-mid-flight reclaim; decided by a two-layer model — the
+authoritative no-duplicate-dispatch guarantee is `orchestration-concurrency`'s branch-as-fence, with the
+claim + reclaim-lock as a best-effort optimization above it (D-5, REQ-C1.1) — plus the atomic
+create-with-content claim primitive (which serializes cross-clone where the checkout-local lock cannot),
+the death-evidence reclaim serialized by a per-unit lock with an under-lock re-read and a
+downstream-artifact guard in D-7, and the presence/claim collision-semantics split); **integration surface** (the git
 checkout / origin coordination topology and the hardened `main`-currency sync — decided in D-3);
 **authentication / attribution** (tower identity on the presence and claim surfaces — decided by carrying
 `inter-orchestrator-coordination`'s relay security bounds scoped to the same-operator single-host trust
@@ -175,8 +177,17 @@ layer, not a parallel coordination stack.
 
 ### D-5: Work-claim before dispatch, serialized by an atomic create-with-content on the machine-local surface (N)
 
-**Decision:** A tower claims a unit before dispatch by an **atomic, exclusive create-with-content of a
-unit-keyed claim object** on the shared machine-local surface. The claim object is keyed by the unit's
+**Decision:** The authoritative no-duplicate-dispatch guarantee is **not** the claim — it is
+`orchestration-concurrency`'s **branch-as-fence** (origin accepts exactly one branch push per unit; a
+losing tower's push is rejected, so it opens no duplicate PR), verified immediately before every
+dispatch. The claim layer this decision builds is a **best-effort optimization above that fence**: it
+keeps two peer towers from usually *selecting* the same unit and wasting worker cycles, but is not relied
+on for correctness, because a filesystem claim on a shared surface cannot be authoritative under
+garbage-collection, stale-lock-break, and process-pause races (three rounds of review converged on this;
+every such race degrades to at most wasted selection work, never a double dispatch, precisely because the
+branch-as-fence catches the duplicate before a second worker starts). Within that best-effort role: a
+tower claims a unit before dispatch by an **atomic, exclusive create-with-content of a unit-keyed claim
+object** on the shared machine-local surface. The claim object is keyed by the unit's
 stable id under the repository scope (`<surface>/<repo-id>/claims/<unit-id>`); the create **is** the
 serializer: the first tower's create succeeds and it owns the unit, while a losing tower's create fails
 atomically, whereupon it reads the existing claim and skips the unit. Crucially the create is *both*
@@ -269,8 +280,11 @@ lifecycle, not just at the instant of the create:
   the surface is scanned, symmetric with the presence-file GC (D-2) — *not* only along the reclaim path
   of a unit some peer happens to re-select. Without the discovery sweep, a claim left by a tower that
   died after dispatch (whose worker may already have completed the unit, so no peer ever re-selects it)
-  would leak on the surface forever. Claims thus do not outlive their coordination need and the claims
-  surface does not grow unbounded (REQ-C1.5).
+  would leak on the surface forever. The GC sweep SHALL take the **same per-unit reclaim lock and
+  under-lock re-read as the reclaim path**: an unguarded GC `rm` would delete a claim a concurrent
+  reclaimer had just swapped for a fresh live one, so GC is itself a locked, identity-verified remove.
+  Claims thus do not outlive their coordination need and the claims surface does not grow unbounded
+  (REQ-C1.5).
 - **Serialized, artifact-guarded reclaim.** Reclaim is a read → check → swap that *cannot* be collapsed
   into a single atomic filesystem step (the way the initial claim can), so it is serialized by a
   **per-unit reclaim lock held only across the fast swap**: (1) read the claim; a live or unknown owner
@@ -295,6 +309,11 @@ lifecycle, not just at the instant of the create:
   under-lock swap (re-read + remove + compete-to-create), never across the subprocess-heavy death /
   artifact check, which runs *before* the lock is acquired — so the death predicate never sits inside a
   critical section (no livelock, no critical-section cost).
+- **Best-effort under the branch-as-fence.** The reclaim lock and the GC lock are best-effort
+  serializers, not authoritative ones. A stale-break of a paused holder, or any lost lock, can let two
+  towers proceed toward dispatch — but the pre-dispatch branch-as-fence (D-5, REQ-C1.1) resolves that to
+  a single dispatch, so the residual filesystem-lock race costs at most wasted selection work, never a
+  double dispatch. The lock exists to make that waste rare, not to be the correctness boundary.
 
 **Alternatives considered:**
 - Keep the death handle only in the presence record (the pre-rework shape). Rejected because: presence
