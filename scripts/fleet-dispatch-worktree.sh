@@ -287,6 +287,12 @@ validate_launch_extra() {
         esac
         shift 2
         ;;
+      --model= | --fallback-model=)
+        # Empty attached value — inconsistent with the space form (which requires
+        # a value) and would pass an empty model to claude.
+        warn "launch flag has an empty value: $1"
+        exit 2
+        ;;
       --model=-* | --fallback-model=-*)
         # Symmetry with the space-separated form: an attached flag-shaped value.
         warn "launch flag has a flag-shaped value: $1"
@@ -588,7 +594,11 @@ do_dispatch() {
     if [ -d "$_worktree" ] \
       && ! is_registered_worktree "$_repo_root" "$_worktree" \
       && [ -n "$(ls -A "$_worktree" 2>/dev/null)" ]; then
-      if [ -e "$_worktree/.git" ]; then
+      # A git worktree's `.git` is a gitlink FILE (`gitdir: …`), not a directory;
+      # require `-f` so a standalone git repo (whose `.git` is a DIRECTORY) that
+      # happens to sit under the path is treated as foreign data and refused,
+      # never rm -rf'd.
+      if [ -f "$_worktree/.git" ]; then
         rm -rf "$_worktree" 2>/dev/null || true
       else
         warn "refusing to reuse a non-empty non-worktree dir at $_worktree (clear it manually)"

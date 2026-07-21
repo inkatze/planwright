@@ -628,6 +628,9 @@ c16() {
   [ "$RC" -eq 2 ] || fail "c16: '--model -opus' (flag-shaped value) not refused (exit $RC)"
   run_prim dispatch demo 23 --repo-root "$tmp/primary" --attach-dry-run -- --model=-opus
   [ "$RC" -eq 2 ] || fail "c16: '--model=-opus' (attached flag-shaped value) not refused (exit $RC)"
+  # An empty attached value (`--model=`) is refused, matching the space form.
+  run_prim dispatch demo 24 --repo-root "$tmp/primary" --attach-dry-run -- --model=
+  [ "$RC" -eq 2 ] || fail "c16: empty '--model=' not refused (exit $RC)"
 
   # A benign --model VALUE is accepted and flows into the launch.
   run_prim dispatch demo 21 --repo-root "$tmp/primary" --attach-dry-run -- --model opus
@@ -671,7 +674,35 @@ c17() {
     || fail "c17: a worktree escaped into the .claude symlink target"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17; do
+# ---------------------------------------------------------------------------
+# c18 — a standalone git repo (`.git` is a DIRECTORY) left under the worktree
+# path is treated as foreign data and refused, never rm -rf'd (the remnant check
+# requires a gitlink FILE, not any `.git`).
+# ---------------------------------------------------------------------------
+c18() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c18.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  # A non-empty, unregistered dir at the worktree path that is a STANDALONE repo
+  # (its `.git` is a directory), not a worktree remnant (gitlink file). No branch.
+  wt="$tmp/primary/.claude/worktrees/task-30"
+  mkdir -p "$wt"
+  git -c init.defaultBranch=main init -q "$wt"
+  printf 'precious\n' >"$wt/keep.txt"
+  [ -d "$wt/.git" ] || {
+    fail "c18: fixture broken — .git is not a directory"
+    return
+  }
+
+  run_prim dispatch demo 30 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 5 ] || fail "c18: standalone repo under the path not refused (exit $RC, expected 5)"
+  [ -f "$wt/keep.txt" ] && [ -d "$wt/.git" ] \
+    || fail "c18: the standalone repo was destroyed (data loss)"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
