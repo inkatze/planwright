@@ -36,11 +36,12 @@ vague prose.
 
 ### Interview to completeness
 
-Elicitation is goal-directed against the spec's own dependency structure. The
+Elicitation is goal-directed against the spec's dependency structure. The
 skill never declares a section or a sign-off ready while a decision it
 requires is still undefined, and a changed upstream answer reopens the
 dependent decisions it invalidates, never leaving a stale answer standing.
-Questions are bounded — at most five per pass, asked only when needed — so
+Questions are bounded — at most five per multi-turn pass, asked only when
+needed — so
 the interview converges rather than interrogates. The
 skill carries the clerical weight (deriving candidates, formatting, tracking
 state); the operator supplies judgment, not formatting. Input the skill
@@ -78,8 +79,9 @@ recommended option when the basis is derivable from the spec, the doctrine,
 or mechanical consistency — a reason the operator can verify against the
 artifact. When the only basis is the skill's own opinion of the spec, the
 self-audit strips the recommendation and re-levels the options.
-Self-contained confirmation (under *Selectors with recommendations* below) is
-a named rule of this discipline, not a fourth peer.
+Self-contained confirmation — the *Self-contained* rule under *Selectors
+with recommendations* below — is a named rule of this discipline, not a
+fourth peer.
 
 ## Session mechanics
 
@@ -96,7 +98,7 @@ grow), say so and give the count of what is known.
 Present one layer of detail at a time. Open with the shape of a decision (what
 is being decided and why it matters), then reveal alternatives, then details
 of the selected path. Never paste a wall of everything-at-once; never bury a
-decision inside an information dump. Background the human did not ask for is
+decision in an information dump. Background the human did not ask for is
 one sentence plus an offer to expand.
 
 ### Selectors with recommendations
@@ -108,10 +110,10 @@ recommended option comes first, marked, with its reason in one or two
 sentences; otherwise the options are presented level, per the balance rules.
 No option is ever pre-selected. The human can always answer outside the
 offered set; the selector is a scaffold, not a fence. Decisions the agent can
-resolve from already-recorded answers, the seed material, or framework
+resolve from recorded answers, the seed material, or framework
 doctrine are resolved and reported, not asked.
 
-**Self-contained confirmation.** The selector prompt carries everything needed to answer
+**Self-contained.** The selector prompt carries everything needed to answer
 it. In a terminal the open selector hides the prose emitted before it, so the
 human answering sees only the question, the options, and their previews. Never
 assume they can read what came earlier, and never tell them to scroll up.
