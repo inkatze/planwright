@@ -454,14 +454,13 @@ c11() {
     fail "c11: config/tower-settings.json missing"
     return
   }
-  deny=$(
-    python3 - "$SETTINGS" <<'PY' 2>/dev/null
-import json, sys
-d = json.load(open(sys.argv[1]))
-for r in d["permissions"]["deny"]:
-    print(r)
-PY
-  )
+  command -v jq >/dev/null 2>&1 || {
+    echo "ok c11: skipped (jq absent)"
+    return
+  }
+  # Read the deny array with jq (a repo hard-dependency, as c14 and the rest of
+  # the suite use), not python3 which the suite does not otherwise require.
+  deny=$(jq -r '.permissions.deny[]' "$SETTINGS" 2>/dev/null)
   [ -n "$deny" ] || {
     fail "c11: could not read tower-settings deny array"
     return
