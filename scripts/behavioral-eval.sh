@@ -611,6 +611,15 @@ run_persona() {
   _rp_rc=0
   while :; do
     _rp_poll=$((_rp_poll + 1))
+    # Check the completion sentinel FIRST, before the ceilings: a run that wrote
+    # its sign-off HAS completed and is a success regardless of whether a ceiling
+    # was reached on the same iteration — checking a ceiling first could report a
+    # completed run as a false rc=6 timeout, and it keeps the ceiling warnings'
+    # "without completion" wording truthful (they only fire when no sign-off).
+    if [ -f "$_rp_art/sign-off.json" ]; then
+      _rp_rc=0
+      break
+    fi
     if [ "$_rp_poll" -gt "$_rp_poll_cap" ]; then
       warn "[$fx_id/$_rp_persona] poll ceiling hit without completion"
       _rp_rc=6
@@ -623,10 +632,6 @@ run_persona() {
     if [ "$_rp_sends" -ge "$_rp_turn_cap" ]; then
       warn "[$fx_id/$_rp_persona] turn ceiling ($_rp_turn_cap) reached without completion"
       _rp_rc=6
-      break
-    fi
-    if [ -f "$_rp_art/sign-off.json" ]; then
-      _rp_rc=0
       break
     fi
     if ! tmux_alive "$_rp_session"; then
