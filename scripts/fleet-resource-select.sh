@@ -24,23 +24,31 @@
 # heavy, routed to the strong-model/high-effort tier. `bookkeeping` is the
 # tower's reconcile/drain sweep pass (/orchestrate --bookkeeping):
 # mechanical, mid-tier. `drain` is the read-only gate-evaluation pass
-# (/drain): the lightest tier. The MODEL column is overlay-tunable per task
-# type through the shared knob resolver (resolve-config-knob.sh ->
-# config-get; D-22/REQ-G1.5, the customization-overlay REQ-E1.4 by-layer
-# malformed policy — distinct from this bundle's same-numbered auto-mode
-# REQ), values
-# restricted to the stable Claude Code model-alias enum (fable opus sonnet
-# haiku) — aliases, not dated model ids, so the enum survives model
-# releases. Effort and command are FIXED table cells: changing them is a
-# table (code) change, reviewed like one.
+# (/drain): the lightest tier. ALL THREE columns — model, effort, and command
+# — are overlay-tunable per task type through the shared knob resolver
+# (resolve-config-knob.sh -> config-get; D-22/REQ-G1.5, the customization-
+# overlay REQ-E1.4 by-layer malformed policy — distinct from this bundle's
+# same-numbered auto-mode REQ), so an operator can retune the selection policy
+# without a code change (fleet-autonomy Task 10, D-24, REQ-E1.8). The shipped
+# defaults are the table cells above, so an operator who configures nothing
+# gets today's mapping exactly (opt-in, default-preserving). Each column's
+# values are restricted to a stable enum: model to the Claude Code model
+# aliases (fable opus sonnet haiku) — aliases, not dated model ids, so the
+# enum survives model releases; effort to (low medium high); command to the
+# dispatch-entry set (execute-task orchestrate drain).
 #
 # REVIEW-SEQUENCE DISJOINTNESS (REQ-E1.2). The selectable command set names
 # dispatch-entry skills only and must never overlap `review_sequence`'s
 # convergence-phase scope (the nestable-review-skill set
 # resolve-review-sequence.sh validates against — polish, self-review). The
-# cross-check test (tests/test-fleet-resource-select.sh) asserts every
-# command in this table fails the nestable predicate, so the two mechanisms
-# can never both claim the same skill.
+# command column being overlay-tunable does NOT reopen this: the COMMAND_VALUES
+# enum is exactly the dispatch-entry set {execute-task orchestrate drain}, none
+# of which is a nestable review skill, so the resolver refuses any configured
+# command outside that set (by-layer malformed policy) and disjointness holds by
+# CONSTRUCTION at every layer, not merely for the shipped defaults. The cross-
+# check test (tests/test-fleet-resource-select.sh) asserts every command in this
+# table fails the nestable predicate, so the two mechanisms can never both claim
+# the same skill.
 #
 # HOW THE CHOICE IS APPLIED. This script only RESOLVES the choice; applying
 # it is the dispatching backend's job (`claude --model <model>` at launch,
@@ -87,8 +95,13 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 RESOLVER="$script_dir/resolve-config-knob.sh"
 
-# The stable Claude Code model-alias enum every model knob validates against.
+# The stable enums each column's knobs validate against (Task 10, REQ-E1.8):
+# model to the Claude Code aliases; effort to the three reasoning tiers;
+# command to the dispatch-entry set (disjoint from the nestable-review set by
+# construction — see the header).
 MODEL_VALUES="fable opus sonnet haiku"
+EFFORT_VALUES="low medium high"
+COMMAND_VALUES="execute-task orchestrate drain"
 
 usage() {
   echo "usage: fleet-resource-select.sh select <task-type> | list" >&2
@@ -97,48 +110,60 @@ usage() {
 
 # table_row <task-type>: 0 with the row parameters set, 1 for an unknown
 # type. The single source of the table; `select` and `list` both read it.
-#   row_knob     the model knob key      row_model_default  its core default
-#   row_effort   the fixed effort cell   row_command        the fixed command
+# Every column carries its overlay knob key and its shipped default (the
+# default-preserving table cell), so `emit_row` resolves all three the same way.
+#   row_model_knob   / row_model_default    the model column
+#   row_effort_knob  / row_effort_default   the effort column
+#   row_command_knob / row_command_default  the command column
 table_row() {
   case "$1" in
     execution)
-      row_knob=fleet_model_execution
+      row_model_knob=fleet_model_execution
       row_model_default=opus
-      row_effort=high
-      row_command=execute-task
+      row_effort_knob=fleet_effort_execution
+      row_effort_default=high
+      row_command_knob=fleet_command_execution
+      row_command_default=execute-task
       ;;
     bookkeeping)
-      row_knob=fleet_model_bookkeeping
+      row_model_knob=fleet_model_bookkeeping
       row_model_default=sonnet
-      row_effort=medium
-      row_command=orchestrate
+      row_effort_knob=fleet_effort_bookkeeping
+      row_effort_default=medium
+      row_command_knob=fleet_command_bookkeeping
+      row_command_default=orchestrate
       ;;
     drain)
-      row_knob=fleet_model_drain
+      row_model_knob=fleet_model_drain
       row_model_default=sonnet
-      row_effort=low
-      row_command=drain
+      row_effort_knob=fleet_effort_drain
+      row_effort_default=low
+      row_command_knob=fleet_command_drain
+      row_command_default=drain
       ;;
     *) return 1 ;;
   esac
 }
 
-# resolve_model: resolve the current row's model knob through the shared
-# resolver (four overlay layers, by-layer malformed policy). Propagates the
-# resolver's hard-fail exits (4/5) verbatim; the fallback is the row's core
-# default so a partial install still resolves (REQ-K1.6).
-resolve_model() {
+# resolve_col <knob-key> <enum-values> <core-default>: resolve one column knob
+# through the shared resolver (four overlay layers, by-layer malformed policy).
+# Propagates the resolver's hard-fail exits (4/5) verbatim; the fallback is the
+# column's shipped default so a partial install still resolves (REQ-K1.6) and an
+# operator who configures nothing gets today's mapping (REQ-E1.8).
+resolve_col() {
   if [ ! -x "$RESOLVER" ]; then
     echo "fleet-resource-select: shared knob resolver '$RESOLVER' is missing or not executable — broken install" >&2
     exit 5
   fi
-  rm_out=$("$RESOLVER" --key "$row_knob" --type enum --values "$MODEL_VALUES" --fallback "$row_model_default") || exit $?
-  printf '%s' "$rm_out"
+  rc_out=$("$RESOLVER" --key "$1" --type enum --values "$2" --fallback "$3") || exit $?
+  printf '%s' "$rc_out"
 }
 
 emit_row() {
-  er_model=$(resolve_model) || exit $?
-  printf '%s\t%s\t%s\n' "$er_model" "$row_effort" "$row_command"
+  er_model=$(resolve_col "$row_model_knob" "$MODEL_VALUES" "$row_model_default") || exit $?
+  er_effort=$(resolve_col "$row_effort_knob" "$EFFORT_VALUES" "$row_effort_default") || exit $?
+  er_command=$(resolve_col "$row_command_knob" "$COMMAND_VALUES" "$row_command_default") || exit $?
+  printf '%s\t%s\t%s\n' "$er_model" "$er_effort" "$er_command"
 }
 
 [ "$#" -ge 1 ] || {
@@ -171,8 +196,10 @@ case "$cmd" in
     rows=""
     for lt_type in execution bookkeeping drain; do
       table_row "$lt_type" || exit 5 # unreachable: the loop names table rows
-      lt_model=$(resolve_model) || exit $?
-      rows="$rows$lt_type	$lt_model	$row_effort	$row_command
+      lt_model=$(resolve_col "$row_model_knob" "$MODEL_VALUES" "$row_model_default") || exit $?
+      lt_effort=$(resolve_col "$row_effort_knob" "$EFFORT_VALUES" "$row_effort_default") || exit $?
+      lt_command=$(resolve_col "$row_command_knob" "$COMMAND_VALUES" "$row_command_default") || exit $?
+      rows="$rows$lt_type	$lt_model	$lt_effort	$lt_command
 "
     done
     printf '%s' "$rows"

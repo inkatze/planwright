@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.27.0](https://github.com/inkatze/planwright/compare/v0.26.0...v0.27.0) (2026-07-21)
+
+
+### Features
+
+* **fleet-autonomy:** credit-continuation recovery (task 11) ([#282](https://github.com/inkatze/planwright/issues/282)) ([4b046da](https://github.com/inkatze/planwright/commit/4b046da674d97e2971166d6f4c4bc2240066cf5d))
+* **fleet:** proactive shared-aware /usage budget gate + restriction ladder (task 9) ([#284](https://github.com/inkatze/planwright/issues/284)) ([9e4c724](https://github.com/inkatze/planwright/commit/9e4c7248c303334ab7eee1a491b2bf7ad4bf8c66))
+* **operator-dialogue:** behavioral eval harness scaffold (task 5) ([#279](https://github.com/inkatze/planwright/issues/279)) ([3cec425](https://github.com/inkatze/planwright/commit/3cec42598c4636c86009971591e5a273d7604f05))
+* **operator-dialogue:** self-contained-confirmation rule and structural check (task 2) ([#281](https://github.com/inkatze/planwright/issues/281)) ([7e74539](https://github.com/inkatze/planwright/commit/7e74539be1b403da56368690e7c9da7bf30d3e9f))
+* **operator-dialogue:** widen interaction-style to every attended surface (task 1) ([#277](https://github.com/inkatze/planwright/issues/277)) ([2830cb1](https://github.com/inkatze/planwright/commit/2830cb1ecc8acb02c6cd1a347121cdd86f2df9ef))
+* **spec-kickoff:** mid-walk lens + post-lens stale-reference sweep (task 7) ([#286](https://github.com/inkatze/planwright/issues/286)) ([f2ec9d0](https://github.com/inkatze/planwright/commit/f2ec9d07b53a2f640cede0e9c386d20613d373d2))
+* **spec-kickoff:** pre-flip lint + recorded-claim re-derivation (task 5) ([#283](https://github.com/inkatze/planwright/issues/283)) ([381d87f](https://github.com/inkatze/planwright/commit/381d87f429729ecc0b89791824f485054fd9a09a))
+* **spec-kickoff:** ready-flip CI gate + wait-bound config (task 6) ([#285](https://github.com/inkatze/planwright/issues/285)) ([0b237b6](https://github.com/inkatze/planwright/commit/0b237b6fd81de9624ede811a720e9d3dff410a91))
+
 ## [0.26.0](https://github.com/inkatze/planwright/compare/v0.25.0...v0.26.0) (2026-07-21)
 
 
