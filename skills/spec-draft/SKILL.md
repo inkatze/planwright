@@ -332,8 +332,26 @@ validator the first time.
 6. **Review & validate.** Assemble all four files (shared header block,
    `**Status:** Draft`, `**Last reviewed:** <date>`, `**Format-version:** 2`,
    and — fixed vocabulary, on all four files (D-5) — the canonical pointer
-   line `**Execution:** derived — see the status render`),
-   present the bundle for a final read-through with the cumulative summary.
+   line `**Execution:** derived — see the status render`).
+
+   **Self-critique pass (REQ-C1.1, D-7).** Before the validator runs and
+   before commit, run one scoped self-critique lens over the freshly
+   assembled bundle: assume the draft is incomplete and re-read it for gaps,
+   contradictions, uncited claims, mis-scoped or unverifiable REQs, dangling
+   citations, and missing edge cases (`doctrine/discovery-rigor.md`'s
+   self-critique pass, applied to the assembled bundle rather than a diff).
+   **Declared scoping (`proportionality`):** this pass is inline, not a
+   Discovery-Rigor fan-out — the Draft bundle gets the heavyweight lens
+   fan-out at `/spec-kickoff` activation, so a fan-out here would spend the
+   rigor budget twice (D-7); the lighter inline pass is the proportional form
+   where a human review still follows. **Disposition every finding — never
+   silently drop one:** either fix it in place in the bundle, or surface it to
+   the human as an open question in the read-through summary below. A pass
+   that cannot complete (it errors) is surfaced as an erroring pass, never
+   treated as a clean one.
+
+   Then present the bundle for a final read-through with the cumulative
+   summary and the self-critique disposition list.
    Run `scripts/spec-validate.sh specs/<spec>` when present and executable
    (findings are warnings on Draft: surface them, fix structural ones,
    let the human defer judgment ones); validator absent: note it and
