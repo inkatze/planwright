@@ -157,12 +157,13 @@ a terminal state.
    unvalidated (whether or not it flips Draft→Ready). Naming the Draft→Ready
    flip only when this run flips, ask the human whether to proceed anyway or
    stop, install the validator, and re-run.
-4. **Read the config.** `commit_on_kickoff` and
-   `mark_spec_pr_ready_on_kickoff` from `config/defaults.yml` overridden by
-   `<repo>/.claude/planwright.local.yml` (local wins). Both default `true`; an
-   absent, unreadable, or malformed config falls back to the defaults with a
-   one-line warning, now and in the handoff. `mark_spec_pr_ready_on_kickoff`
-   gates the terminal ready-flip (sign-off step 8).
+4. **Read the config.** `commit_on_kickoff`, `mark_spec_pr_ready_on_kickoff`,
+   and `kickoff_ready_ci_wait` from `config/defaults.yml` overridden by
+   `<repo>/.claude/planwright.local.yml` (local wins). The two booleans default
+   `true` and `kickoff_ready_ci_wait` to `10m`; an absent, unreadable, or
+   malformed value falls back to its default with a one-line warning, now and in
+   the handoff. `mark_spec_pr_ready_on_kickoff` gates the terminal ready-flip and
+   `kickoff_ready_ci_wait` bounds its CI wait (sign-off step 8).
 5. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the reserved namespace the
    `tasks-pr-sync` hook no-ops on); the spec worktree is
@@ -389,6 +390,24 @@ most recent anchor entry never describes spec content that was not walked.
    ready; **task PRs stay drafts** (their review is owned by the execution and
    review skills). Merge stays the human's second key —
    **never auto-merge**.
+   - **Gate on the head SHA's CI before the flip (REQ-B1.1, D-3).** Verify the
+     spec PR's checks first: query the **head commit's** `statusCheckRollup`
+     (`gh pr view <spec-PR> --json statusCheckRollup,headRefOid` — checks **on
+     the SHA**, never PR review states, which an errored or stale review can
+     masquerade as done) and flip only on a **positive green**: at least one
+     completed check and overall success (an empty rollup is not success). CI
+     rarely reports within seconds of the push, so poll within a **bounded
+     wait** (`kickoff_ready_ci_wait`, default `10m`, read at pre-flight step 4;
+     malformed → default with a warning) at a **bounded cadence** (tens of
+     queries per wait, not hundreds). **Re-confirm head identity** immediately
+     before `gh pr ready`: a `headRefOid` that moved during the wait refuses the
+     flip. On **red, empty, unresolved, a query failure, an expired wait, or a
+     moved head**, leave the PR draft and record the pending ready-flip in
+     `tasks.md` `## Awaiting input` — the re-entry point, naming the pending
+     flip and the **neutral failure class only** (full remedy detail stays
+     operator-facing per D-3, `security-posture` data hygiene) — so a re-run
+     completes only the flip. **Skip the gate cleanly** when the no-remote/no-PR
+     degradation arm (step 7) already fired.
    - **Do not flip** when sign-off parked on a fork (inconsistency halt, carried
      open question, undispositioned finding) or the configured verification did
      not converge: leave the PR draft and say so in the handoff.

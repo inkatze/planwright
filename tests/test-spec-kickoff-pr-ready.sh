@@ -199,6 +199,107 @@ else
   fail "scripts/check-options-reference.sh missing"
 fi
 
+# ---------------------------------------------------------------------------
+# Task 6 (specs/skill-rigor; REQ-B1.1, D-3): the terminal ready-flip gates on
+# the head SHA's CI check rollup before `gh pr ready`. REQ-B1.1's verification
+# path is [design-level + manual]; these structural assertions fence the
+# documented rollup query, positive-green condition, bounded wait, head re-pin,
+# refusal arm, and no-PR skip against a regression. The [manual] half (a real
+# red CI leaves the PR draft with the remedy surfaced; a green one flips it; a
+# mid-wait push refuses the flip) is exercised by the human at review.
+# ---------------------------------------------------------------------------
+
+# REQ-B1.1: the rollup is pinned to the head commit's checks, never PR review
+# states (an errored/stale review must not masquerade as a completed check).
+if printf '%s' "$flat" | grep -qE "head commit's.{0,40}statusCheckRollup"; then
+  ok "the ready-flip queries the head commit's statusCheckRollup (REQ-B1.1)"
+else
+  fail "the ready-flip does not pin the rollup to the head commit's checks (REQ-B1.1)"
+fi
+if printf '%s' "$flat" | grep -qE 'never PR review states'; then
+  ok "the rollup excludes PR review states (REQ-B1.1, D-3)"
+else
+  fail "the rollup does not exclude PR review states (REQ-B1.1)"
+fi
+
+# REQ-B1.1: the positive-green condition — at least one completed check AND
+# overall success (an empty rollup is not success).
+if printf '%s' "$flat" | grep -qE 'at least one completed check and overall success'; then
+  ok "the flip requires at least one completed check and overall success (REQ-B1.1)"
+else
+  fail "the flip's positive-green condition is not stated (REQ-B1.1)"
+fi
+
+# REQ-B1.1 / D-3: the wait is bounded by the kickoff_ready_ci_wait config knob.
+if printf '%s' "$flat" | grep -qE 'kickoff_ready_ci_wait'; then
+  ok "the CI wait is bounded by the kickoff_ready_ci_wait knob (REQ-B1.1, D-3)"
+else
+  fail "the CI gate does not reference the kickoff_ready_ci_wait wait bound (REQ-B1.1)"
+fi
+
+# REQ-B1.1 (risk R3): head identity is re-confirmed immediately before the flip;
+# a head that moved during the wait refuses it.
+if printf '%s' "$flat" | grep -qE 'Re-confirm head identity'; then
+  ok "head identity is re-confirmed before the flip (REQ-B1.1, R3)"
+else
+  fail "the skill does not re-confirm head identity before the flip (REQ-B1.1)"
+fi
+if printf '%s' "$flat" | grep -qE 'moved .{0,40}refuses the flip'; then
+  ok "a head that moved during the wait refuses the flip (REQ-B1.1, R3)"
+else
+  fail "a moved head is not bound to refusing the flip (REQ-B1.1)"
+fi
+
+# REQ-B1.1: the refusal arm leaves the PR draft and records the pending
+# ready-flip in Awaiting input as the re-entry point, naming only the neutral
+# failure class (full remedy detail stays operator-facing, D-3).
+if printf '%s' "$flat" | grep -qE 'red, empty, unresolved, a query failure, an expired wait, or a moved head'; then
+  ok "the refusal arm enumerates every failure class (REQ-B1.1)"
+else
+  fail "the refusal arm does not enumerate the failure classes (REQ-B1.1)"
+fi
+if printf '%s' "$flat" | grep -qE 'pending ready-flip in .{0,40}Awaiting.{0,20}input.{0,80}re-entry'; then
+  ok "the refusal arm records the pending flip in Awaiting input as the re-entry point (REQ-B1.1)"
+else
+  fail "the refusal arm does not record the pending flip as an Awaiting-input re-entry (REQ-B1.1)"
+fi
+if printf '%s' "$flat" | grep -qE 'neutral failure class only'; then
+  ok "the Awaiting-input entry names only the neutral failure class (REQ-B1.1, D-3 hygiene)"
+else
+  fail "the Awaiting-input entry does not restrict to the neutral failure class (REQ-B1.1)"
+fi
+
+# REQ-B1.1: the gate skips cleanly when the upstream no-remote/no-PR arm fired.
+if printf '%s' "$flat" | grep -qE 'no-remote/no-PR degradation arm .{0,40}already fired'; then
+  ok "the CI gate skips cleanly when the no-remote/no-PR arm already fired (REQ-B1.1)"
+else
+  fail "the CI gate does not skip when the no-remote/no-PR arm already fired (REQ-B1.1)"
+fi
+
+# REQ-B1.1 / D-3 citations trace the new prose to the contract.
+for ref in REQ-B1.1 D-3; do
+  if grep -q "$ref" "$skill"; then
+    ok "reference $ref is cited"
+  else
+    fail "reference $ref is not cited"
+  fi
+done
+
+# REQ-B1.1 / D-3: the wait-bound knob is registered in the default config with a
+# reference row (bootstrap D-43/REQ-K1.8; the check-options-reference run above
+# also covers the pairing).
+if grep -qE '^kickoff_ready_ci_wait:[[:space:]]*10m' "$defaults"; then
+  ok "kickoff_ready_ci_wait: 10m is in config/defaults.yml (REQ-B1.1)"
+else
+  fail "kickoff_ready_ci_wait is not a default config option (REQ-B1.1)"
+fi
+# shellcheck disable=SC2016 # the backtick is literal markdown, not expansion
+if grep -qE '^\|[[:space:]]*`kickoff_ready_ci_wait`' "$reference"; then
+  ok "kickoff_ready_ci_wait has a docs/options-reference.md row (REQ-B1.1)"
+else
+  fail "kickoff_ready_ci_wait has no row in docs/options-reference.md (REQ-B1.1)"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

@@ -59,20 +59,25 @@ exempt|doctrine/spec-format.md|Permanent per-file-floor exemption (REQ-B1.3a), T
 declared-exception|skills/orchestrate/SKILL.md|Below the 2x per-file restoration target (margin 337 < target 500) after fleet-hardening Task 9 (#271) grew the /orchestrate body with the observation-carry step; the per-file floor (250) is not breached. Diet back to target deferred to fleet-hardening / a follow-up; do not trim #271's doctrine here.
 declared-exception|closure:orchestrate|Below the 2x closure restoration target (margin 1899 < target 2000) after fleet-hardening Task 9 (#271) grew the /orchestrate body; the closure floor (1000) is not breached. Diet back to target deferred to fleet-hardening / a follow-up.
 
-# Standing below-target exception for /spec-kickoff (instruction-headroom D-11,
+# Standing headroom note for /spec-kickoff (instruction-headroom D-11,
 # REQ-D1.6). skill-rigor Task 5 added the sign-off pre-flip verification step
 # (the REQ-B1.2 lint over the brief and edited spec files, the REQ-B1.3 recorded-
-# claim re-derivation) to skills/spec-kickoff/SKILL.md. This spec's own
-# restoration campaign had brought that body to just above its 2x per-file
-# target (margin ~503), so the required step spends that thin headroom and drops
-# the surface below the 2x restoration target. The safety floor stays intact
-# (per-file margin 308 >= floor 250), so this is a below-target shortfall, never
-# a floor-breach. Trimming the just-restored spec-kickoff doctrine to reabsorb a
-# required verification step would risk its meaning; the diet back to target is
-# deferred to a follow-up. The surface is named and the cause recorded, so the
-# closing gate stays honest and a future diet makes this entry stale and
-# self-reporting.
-declared-exception|skills/spec-kickoff/SKILL.md|Below the 2x per-file restoration target (margin 308 < target 500) after skill-rigor Task 5 added the sign-off pre-flip verification step (REQ-B1.2 pre-flip lint, REQ-B1.3 recorded-claim re-derivation) to skills/spec-kickoff/SKILL.md; the per-file floor (250) is not breached. Diet back to target deferred to a follow-up; do not trim the just-restored spec-kickoff doctrine to reabsorb the required step.
+# claim re-derivation) and Task 6 added the terminal ready-flip CI gate (REQ-B1.1:
+# the head-SHA `statusCheckRollup` query, the bounded `kickoff_ready_ci_wait`,
+# the head re-pin, and the six-class refusal arm). Task 5 alone left the body
+# below its 2x per-file restoration target with the safety floor intact (margin
+# 308 >= floor 250, a below-target shortfall). Task 6's required CI gate spends
+# the remaining thin headroom and carries the surface below the per-file safety
+# floor itself (margin ~96 < floor 250) — an *unsuppressible* floor-breach
+# warning (never an error; the closing gate stays green at exit 0). A
+# floor-breach cannot be excused by a `declared-exception` (only a below-target
+# warning can, per check-instructions.sh), so no directive is recorded here —
+# the floor-breach warning is itself the honest, self-reporting standing signal.
+# Trimming the just-restored (Task 5) or just-added (Task 6) spec-kickoff
+# doctrine to reabsorb these required steps would risk their meaning; the real
+# fix is instruction-headroom relief (skill-rigor R1: relief or a compensating
+# trim, whichever lands first), which must land before a further spec-kickoff
+# addition (Task 7) can fit under the 4250 per-file error floor.
 
 # The start-load allowances seeded at Task 3 (when manifests first made
 # mandatory-at-start computable, REQ-A1.2, REQ-B1.3b) are all shed: Tasks 5/6
@@ -80,8 +85,11 @@ declared-exception|skills/spec-kickoff/SKILL.md|Below the 2x per-file restoratio
 # Task 7.5's point-of-use reclassification of the non-gating doctrine reads
 # brought /spec-kickoff and /spec-draft under the start-load budget, removing
 # the last two. No transitional `pending-diet` allowance remains (the REQ-D1.4
-# closeout direction); the live entries are the permanent spec-format per-file
-# exemption above, the two /orchestrate below-target declared exceptions
-# (cross-spec headroom collision, fleet-hardening #271), and the /spec-kickoff
-# below-target declared exception (skill-rigor Task 5's required pre-flip step
-# spending this spec's own just-restored headroom).
+# closeout direction); the live directive entries are the permanent spec-format
+# per-file exemption above and the two /orchestrate below-target declared
+# exceptions (cross-spec headroom collision, fleet-hardening #271). /spec-kickoff
+# no longer carries a directive: skill-rigor Tasks 5 and 6's required steps
+# (pre-flip verification, terminal ready-flip CI gate) took it past its per-file
+# safety floor into an unsuppressible floor-breach, documented above without a
+# directive (a floor-breach cannot be excused) and awaiting instruction-headroom
+# relief (R1).
