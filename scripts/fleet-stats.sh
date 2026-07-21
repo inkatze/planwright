@@ -83,7 +83,6 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 AUDIT="$script_dir/fleet-audit.sh"
 THROTTLE="$script_dir/fleet-throttle.sh"
-USAGE_GATE="$script_dir/fleet-usage-gate.sh"
 ATTN="$script_dir/fleet-attention.sh"
 TAB=$(printf '\t')
 
@@ -112,11 +111,13 @@ utc_iso() {
 # lightweight incremental counters — still derived, no new shared-write file.
 LAST_CLEANUP=""
 WATCHDOG_TRIPS=""
+GATE_RUNG=""
 derive_from_audit() {
   if [ ! -x "$AUDIT" ]; then
     echo "fleet-stats: audit helper '$AUDIT' is missing or not executable" >&2
     LAST_CLEANUP="unknown"
     WATCHDOG_TRIPS="unknown"
+    GATE_RUNG=""
     return 0
   fi
   da_rc=0
@@ -125,6 +126,7 @@ derive_from_audit() {
     echo "fleet-stats: could not read the audit trail (fleet-audit query exit $da_rc); cleanup/watchdog stats degraded to unknown" >&2
     LAST_CLEANUP="unknown"
     WATCHDOG_TRIPS="unknown"
+    GATE_RUNG=""
     return 0
   fi
   # Newest `cleanup`-action row across every cleanup mechanism. The "" pins
@@ -139,36 +141,26 @@ derive_from_audit() {
     ($3 "") == "tower-watchdog" &&
     (($4 "") == "relaunch" || ($4 "") == "relaunch-failed" || ($4 "") == "disable") { n++ }
     END { print n + 0 }')
-}
-
-# derive_gate_rung — the proactive usage gate's current restriction rung (Task 9,
-# D-23/D-28), DERIVED from the shared audit trail by fleet-usage-gate.sh. The gate
-# is throttle-family, so its rung is folded into the existing throttle stat
-# channel below rather than minting a new stat type (REQ-E1.6). Prints the rung
-# name, or empty on any absence/error — a missing or failing gate must degrade
-# the throttle line, never break it.
-derive_gate_rung() {
-  [ -x "$USAGE_GATE" ] || {
-    printf ''
-    return 0
-  }
-  dgr_out=$("$USAGE_GATE" rung 2>/dev/null) || {
-    printf ''
-    return 0
-  }
-  case $dgr_out in
-    normal | downshift | reduce-concurrency | defer-heavy | defer-all)
-      printf '%s' "$dgr_out"
-      ;;
-    *) printf '' ;;
+  # The usage-gate's current rung, derived from the SAME single scan (Task 9,
+  # D-28) — the action of the most recent usage-gate row, matching
+  # fleet-usage-gate.sh's own derive_rung. Deriving it here rather than shelling
+  # out to `fleet-usage-gate.sh rung` avoids a second full audit scan and two
+  # extra process spawns on the high-frequency statusLine path. A non-rung token
+  # (an empty trail, or a corrupt/unknown action) degrades to empty, so the
+  # throttle line below is left as-is rather than broken.
+  dgr_raw=$(printf '%s\n' "$da_all" | awk -F "$TAB" '($3 "") == "usage-gate" { a = $4 } END { print a }')
+  case $dgr_raw in
+    normal | downshift | reduce-concurrency | defer-heavy | defer-all) GATE_RUNG=$dgr_raw ;;
+    *) GATE_RUNG="" ;;
   esac
 }
 
 # derive_throttle — Task 7's LIVE throttle state (never a stale audit row), then
 # fold in Task 9's proactive usage-gate rung (the gate is throttle-family, so it
-# reuses this channel — REQ-E1.6). Sets THROTTLE_STATE. `check` exits 0 when idle
-# (nothing engaged), 1 with an `until\t<epoch>` line when engaged, and 2 on an
-# error (degrade to unknown).
+# reuses this channel — REQ-E1.6). The rung is GATE_RUNG, already derived from
+# the shared audit trail by derive_from_audit's single scan (call it first).
+# Sets THROTTLE_STATE. `check` exits 0 when idle (nothing engaged), 1 with an
+# `until\t<epoch>` line when engaged, and 2 on an error (degrade to unknown).
 THROTTLE_STATE=""
 derive_throttle() {
   if [ ! -x "$THROTTLE" ]; then
@@ -201,12 +193,10 @@ derive_throttle() {
   esac
   # Fold in the proactive gate's rung when it is engaged (non-normal). This
   # reuses the throttle-engaged channel (no new stat type): a normal rung, an
-  # absent gate, or an unknown throttle state leaves the reactive line as-is.
-  if [ "$THROTTLE_STATE" != "unknown" ]; then
-    dt_rung=$(derive_gate_rung)
-    if [ -n "$dt_rung" ] && [ "$dt_rung" != normal ]; then
-      THROTTLE_STATE="$THROTTLE_STATE (usage-gate: $dt_rung)"
-    fi
+  # absent/unknown gate rung, or an unknown throttle state leaves the reactive
+  # line as-is.
+  if [ "$THROTTLE_STATE" != "unknown" ] && [ -n "$GATE_RUNG" ] && [ "$GATE_RUNG" != normal ]; then
+    THROTTLE_STATE="$THROTTLE_STATE (usage-gate: $GATE_RUNG)"
   fi
 }
 

@@ -105,12 +105,21 @@
 #
 # Exit codes: 0 success; 1 kill-switch short-circuit (evaluate) or withheld
 #   (admit); 2 usage error, corrupt state, refused input, or a filesystem/lock
-#   error (fail closed); 4 malformed threshold/cadence configuration (a
-#   non-monotonic or out-of-range per-window threshold set from ANY layer, or a
-#   read cadence >= the TTL) or a resolver hard-fail on a team-shared value —
-#   the ladder is fail-closed, never run under invalid configuration; 5 broken
-#   install (a resolver or helper is unavailable or its core default is itself
-#   malformed). Never fails opaquely.
+#   error (fail closed) — this also covers a missing/unrunnable fleet-state.sh,
+#   fleet-audit.sh, or fleet-attention.sh helper, whose failure surfaces through
+#   its invocation's non-zero return and fails closed here (the same posture the
+#   sibling fleet scripts carry; they are not pre-checked); 4 malformed
+#   threshold/cadence configuration (a non-monotonic or out-of-range per-window
+#   threshold set from ANY layer, or a read cadence >= the TTL) or a resolver
+#   hard-fail on a team-shared value — the ladder is fail-closed, never run under
+#   invalid configuration; 5 broken install, raised by the up-front executability
+#   pre-checks on the two helpers this script calls a bare success/1/4/5 contract
+#   on — the daemon gate (fleet-daemon-gate.sh) and the shared config resolver
+#   (resolve-config-knob.sh) — or a malformed/unresolvable core default. The
+#   sourced echo-safety.sh is a required sibling: under the /bin/sh target a
+#   failed `.` of a missing special-builtin file aborts the shell immediately
+#   (it never proceeds past the source), matching the whole fleet script family.
+#   Never fails opaquely.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # `date +%s`, a fractional sleep for the lock retry. No eval, no jq (REQ-K1.5).
