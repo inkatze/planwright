@@ -88,7 +88,7 @@ fourth peer.
 ### Progress indicator
 
 Every interaction names where the session stands: the current phase and the
-total, plus the step within it when phases are long (for example
+total, plus the step within it when phases are long (for example,
 `[Requirements 3/6 — group B of D]`). The operator never has to ask "how much
 is left?". When a phase's length is unknowable up front (elicitation can
 grow), say so and give the count of what is known.
@@ -128,8 +128,8 @@ prose is a short status line only, never the place a load-bearing detail lives.
 After each phase (and at any natural pause), restate what has been decided so
 far in a compact, cumulative summary: decisions taken, their one-line
 rationale, and what remains open. The summary is the checkpoint that the
-skill heard the operator; a misunderstanding surfaces at the next summary,
-not at the end of the session.
+skill heard what the operator said; a misunderstanding surfaces at the next
+summary, not at session end.
 
 ### Small bites
 
@@ -142,7 +142,7 @@ together and say why.
 
 - The rules govern attended, interactive flows. Where a skill has a
   non-interactive arm, would-be prompts follow that skill's degradation rules
-  (for example recording an Awaiting-input entry), never silently
+  (for example, recording an Awaiting-input entry), never silently
   auto-answered.
 - The rules are a floor, not a script: skills choose the phase names and
   granularity fitting their flow, but every attended flow instantiates the
