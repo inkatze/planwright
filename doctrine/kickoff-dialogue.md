@@ -36,9 +36,11 @@ enumerated state — appears unsoftened, never paraphrased into vague prose
 simply not conveyed; non-distortion of what *is* presented is the rule, not
 presence of every source token.
 
-## Adaptive-level calibration: the running per-concept estimate (D-4)
+### Adaptive-level calibration: the running per-concept estimate (D-4)
 
-The depth each explanation is pitched at (the frontier teaching above) is driven
+Calibration is the mechanism of the teach-to-the-frontier discipline above, not a
+fourth discipline. The depth each explanation is pitched at (the frontier teaching
+above) is driven
 by a **lightweight running per-concept estimate** of what the operator has picked
 up — a run-local heuristic sense, held per concept (a spec term, a requirement's
 intent, a design rationale, a pipeline mechanic) and updated as the dialogue
