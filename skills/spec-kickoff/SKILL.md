@@ -248,7 +248,7 @@ section ends with an explicit
    count, REQ-D1.1); any catalogued domain the spec touches but never decides
    becomes a risk-register row naming the domain and the undecided question
    (REQ-G1.4, D-39). Catalog absent: record the one-line skip here. Open
-   questions must end resolved to decisions or explicit accepted risks before
+   questions must be resolved into decisions or explicitly accepted risks before
    sign-off.
 
 **Spec edits during the walkthrough.** A Draft bundle is unsigned: edits land
