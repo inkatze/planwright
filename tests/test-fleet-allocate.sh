@@ -341,4 +341,29 @@ out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken/fleet-allocate.s
 [ -z "$out" ] || fail "a malformed row must emit no allocation on stdout, got: $out"
 echo "ok: a malformed resource-select row fails closed (exit 5), never a silent invalid allocation"
 
+# 15. A non-monotonic per-tier cap set (an expensive tier's cap above a cheaper
+#     tier's, which would invert "expensive withdraws sooner") fails closed
+#     (exit 4), mirroring the ladder-threshold refusal. Only validated when caps
+#     are active (signal available, routine unit); a reserved unit and an
+#     unavailable signal both skip cap validation.
+reset_state
+capture_signal 10 50 # a signal so caps are active
+printf 'fleet_cap_opus: 95\nfleet_cap_sonnet: 70\n' >"$mlocal_cfg"
+rc=0
+run resolve execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "a non-monotonic cap set (opus 95 > sonnet 70) must fail closed exit 4, got $rc"
+# A reserved unit skips caps entirely — unaffected by the cap misconfig.
+rc=0
+run resolve execution --reserved >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "a reserved unit skips caps and must not be blocked by a cap misconfig, got $rc"
+rm -f "$mlocal_cfg"
+# With the signal unavailable, caps are inactive and never validated.
+reset_state
+printf 'fleet_cap_opus: 95\nfleet_cap_sonnet: 70\n' >"$mlocal_cfg"
+rc=0
+run resolve execution >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "with no signal, caps are inactive and a cap misconfig must not block, got $rc"
+rm -f "$mlocal_cfg"
+echo "ok: a non-monotonic cap set fails closed when caps are active; inactive/exempt paths skip it"
+
 echo "ALL PASS: fleet-allocate"

@@ -219,22 +219,49 @@ resolve_posint() {
   printf '%s' "$rp_out"
 }
 
-# cap_for_model <alias>: the per-tier global-usage cap threshold (1-100) at or
-# above which the tier is withdrawn from routine units. Expensive tiers ship a
-# LOWER threshold. Validated 1-100; a malformed set is a fail-closed config error.
-cap_for_model() {
-  case $1 in
-    fable) cfm_v=$(resolve_posint fleet_cap_fable 55) || exit $? ;;
-    opus) cfm_v=$(resolve_posint fleet_cap_opus 70) || exit $? ;;
-    sonnet) cfm_v=$(resolve_posint fleet_cap_sonnet 90) || exit $? ;;
-    haiku) cfm_v=$(resolve_posint fleet_cap_haiku 100) || exit $? ;;
-    *) return 1 ;;
-  esac
-  if [ "$cfm_v" -lt 1 ] || [ "$cfm_v" -gt 100 ]; then
-    echo "fleet-allocate: per-tier cap for '$1' ($cfm_v) is outside 1-100 — refusing an out-of-range cap" >&2
+# resolve_caps: resolve the full per-tier cap set once into globals and validate
+# it — each cap is 1-100, AND the cross-knob ordering is monotonic so an
+# expensive tier withdraws no LATER than a cheaper one
+# (fable <= opus <= sonnet <= haiku). A misconfigured overlay that inverts the
+# "expensive withdraws sooner" semantics (e.g. opus's cap above sonnet's) fails
+# closed (exit 4) rather than silently withdrawing a cheaper tier before an
+# expensive one — mirroring resolve_thresholds' fail-closed refusal of
+# non-monotonic ladder thresholds (fleet-usage-gate.sh). Equal adjacent caps are
+# allowed (two tiers withdraw together, which does not invert the ordering), so
+# the check is `>` (strictly later), not `>=`. Resolved once per invocation, only
+# when caps are active (signal available, routine unit).
+CAP_FABLE=""
+CAP_OPUS=""
+CAP_SONNET=""
+CAP_HAIKU=""
+resolve_caps() {
+  CAP_FABLE=$(resolve_posint fleet_cap_fable 55) || exit $?
+  CAP_OPUS=$(resolve_posint fleet_cap_opus 70) || exit $?
+  CAP_SONNET=$(resolve_posint fleet_cap_sonnet 90) || exit $?
+  CAP_HAIKU=$(resolve_posint fleet_cap_haiku 100) || exit $?
+  for rc_v in "$CAP_FABLE" "$CAP_OPUS" "$CAP_SONNET" "$CAP_HAIKU"; do
+    if [ "$rc_v" -lt 1 ] || [ "$rc_v" -gt 100 ]; then
+      echo "fleet-allocate: a per-tier cap ($rc_v) is outside 1-100 — refusing an out-of-range cap" >&2
+      exit 4
+    fi
+  done
+  if [ "$CAP_FABLE" -gt "$CAP_OPUS" ] || [ "$CAP_OPUS" -gt "$CAP_SONNET" ] \
+    || [ "$CAP_SONNET" -gt "$CAP_HAIKU" ]; then
+    echo "fleet-allocate: per-tier caps are non-monotonic (require fable<=opus<=sonnet<=haiku so an expensive tier withdraws no later than a cheaper one; got fable=$CAP_FABLE opus=$CAP_OPUS sonnet=$CAP_SONNET haiku=$CAP_HAIKU) — refusing a config that inverts the withdraw ordering" >&2
     exit 4
   fi
-  printf '%s' "$cfm_v"
+}
+
+# cap_of <alias>: the validated cap for a model, read from the resolve_caps
+# globals (resolve_caps must have run first). Returns 1 on an unknown alias.
+cap_of() {
+  case $1 in
+    fable) printf '%s' "$CAP_FABLE" ;;
+    opus) printf '%s' "$CAP_OPUS" ;;
+    sonnet) printf '%s' "$CAP_SONNET" ;;
+    haiku) printf '%s' "$CAP_HAIKU" ;;
+    *) return 1 ;;
+  esac
 }
 
 # global_usage: the account-global usage percentage the caps compare against —
@@ -367,13 +394,15 @@ cmd_resolve() {
       eff_effort=$(lower_effort "$eff_effort" "$ds_effort") || exit 4
     fi
     # Per-tier budget caps: withdraw expensive tiers from routine units when the
-    # global signal is at/above the tier's cap. Inactive when unavailable.
+    # global signal is at/above the tier's cap. Inactive when unavailable. The
+    # cap set is resolved and its ordering validated once, only when active.
     gpct=$(global_usage) || exit $?
     if [ "$gpct" != unavailable ]; then
+      resolve_caps
       cap_guard=0
       while [ "$cap_guard" -lt 8 ]; do # bounded: at most 4 tiers to step through
         cap_guard=$((cap_guard + 1))
-        capval=$(cap_for_model "$eff_model") || exit $?
+        capval=$(cap_of "$eff_model") || exit 4
         if [ "$gpct" -ge "$capval" ]; then
           emcost=$(model_cost "$eff_model")
           [ "$emcost" -ge 3 ] && break # haiku floor: nothing cheaper to fall to
