@@ -11,9 +11,9 @@ being brought up to speed, not a co-processor already holding the pipeline's
 internal model.
 
 Citations: REQ-B3.1 · operator-dialogue REQ-A1.1, REQ-A1.2, REQ-B1.3,
-REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5 ·
-operator-dialogue D-1, D-3, D-4, D-5, D-6, D-12 · the bootstrap seed
-(Sources).
+REQ-C1.1, REQ-C1.3, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-D1.4, REQ-D1.5,
+REQ-E1.1, REQ-E1.2, REQ-E1.3, REQ-E1.4 · operator-dialogue D-1, D-3, D-4, D-5,
+D-6, D-7, D-12 · the bootstrap seed (Sources).
 
 ## The three disciplines
 
@@ -79,7 +79,7 @@ recommended option when the basis is derivable from the spec, the doctrine,
 or mechanical consistency — a reason the operator can verify against the
 artifact. When the only basis is the skill's own opinion of the spec, the
 self-audit strips the recommendation and re-levels the options.
-Self-contained confirmation — the *Self-contained* rule under *Selectors
+Self-contained confirmation — the *Confirmations* rule under *Selectors
 with recommendations* below — is a named rule of this discipline, not a
 fourth peer.
 
@@ -119,9 +119,23 @@ operator answering sees only the question, the options, and their previews.
 Never
 assume they can read what came earlier, and never tell them to scroll up.
 Restate the decision and its load-bearing context in the question text; put
-each option's consequence in that option's description; put comparative or long
-content (diffs, tables, side-by-side snippets) in option previews. Pre-selector
-prose is a short status line only, never the place a load-bearing detail lives.
+each option's action and consequence in that option's description; put
+comparative or long content (diffs, tables, side-by-side snippets) in option
+previews. Pre-selector prose is a short status line only, never the place a
+load-bearing detail lives.
+
+**Confirmations.** A confirmation is that self-contained rule applied to an
+approval, so each option restates its own action and consequence and the choice
+is answerable from the option set alone. It carries an explicit reject-or-defer
+option at equal prominence, and no option is pre-selected as a default (a
+grounded recommendation may be marked, never pre-selected). Generic labels that
+send the operator back to unseen context — OK, Yes, No, a bare "Approve?" — are
+banned; the question stem restates in full what is being decided. Deeper detail
+may be offered as an optional in-band layer, but the choice stays answerable
+without it: the layer is supplementary, never load-bearing. The structural half
+of this rule (a consequence on every option, an explicit reject, no
+pre-selected default, no generic labels) is machine-checkable by
+`scripts/check-confirmation.sh`.
 
 ### Running summary
 
