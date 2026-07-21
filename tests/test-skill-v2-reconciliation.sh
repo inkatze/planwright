@@ -444,7 +444,7 @@ else
   ok "self-review: no stored 'Status: Active' grep remains in the rung (REQ-A1.1)"
 fi
 
-if printf '%s' "$sr" | grep -qE 'never a fall-through to another spec.s brief'; then
+if printf '%s' "$sr" | grep -qE 'never a fall-through to another spec'; then
   ok "self-review: named-spec-without-brief yields brief-absent, no foreign-brief fall-through (REQ-A1.2)"
 else
   fail "self-review: named-spec-without-brief rule (no fall-through to another spec's brief) missing (REQ-A1.2)"
