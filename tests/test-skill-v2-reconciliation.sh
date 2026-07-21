@@ -388,13 +388,13 @@ else
   fail "orchestrate: ready-task candidacy prose is not version-keyed ('Candidacy is version-keyed' missing, REQ-A1.4)"
 fi
 
-if printf '%s' "$oc" | grep -qE 'version 1\*\* bundle a task is a candidate'; then
+if printf '%s' "$oc" | grep -qE '\*\*version 1\*\* bundle a task is a candidate'; then
   ok "orchestrate: version-keyed candidacy states the version 1 condition (REQ-A1.4)"
 else
   fail "orchestrate: version-keyed candidacy does not state the version 1 condition explicitly (REQ-A1.4)"
 fi
 
-if printf '%s' "$oc" | grep -qE 'format-version 2\*\* bundle no placement section exists, so candidacy'; then
+if printf '%s' "$oc" | grep -qE '\*\*format-version 2\*\* bundle no placement section exists, so candidacy'; then
   ok "orchestrate: version-keyed candidacy states the format-version-2 condition (REQ-A1.4)"
 else
   fail "orchestrate: version-keyed candidacy does not state the format-version-2 condition explicitly (REQ-A1.4)"
