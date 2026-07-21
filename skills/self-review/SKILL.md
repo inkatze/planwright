@@ -122,7 +122,7 @@ pass summary.
    a format-version-2 bundle with work in flight (stored Ready, derived
    Active) resolves, not only a stored-`Active` v1 spec. When exactly one such
    candidate exists, take its sibling `kickoff-brief.md`. A render error, zero
-   candidates, or multiple Ready-or-Active candidates is not an unambiguous
+   candidates, or multiple Ready-or-Active candidates are not an unambiguous
    match: degrade to the existing arm — ask when attended, proceed brief-less
    when unattended or dispatched (D-2). With
    no active brief, the Agent-resolvable bucket is unavailable for this pass
