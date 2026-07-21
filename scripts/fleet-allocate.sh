@@ -140,9 +140,12 @@ model_at_cost() {
   esac
 }
 
-# cheaper_model <a> <b>: print whichever of two aliases is cheaper (higher cost
-# index). A clamp: `cheaper_model $base $cap` never returns a model more
-# expensive than the cap, and never one cheaper than the base.
+# cheaper_model <a> <b>: print whichever of two aliases is cheaper — the less
+# capable, higher cost index. Used as a downshift clamp `cheaper_model $base
+# $cap`: the result is never more capable than the cap (an expensive base is
+# clamped down to the cap) and never more capable than the base (a base already
+# at or below the cap is kept, never upgraded). When the cap is cheaper than the
+# base the result IS cheaper than the base — that is the intended downshift.
 cheaper_model() {
   cm_a=$(model_cost "$1") || return 1
   cm_b=$(model_cost "$2") || return 1
