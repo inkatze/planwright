@@ -7,11 +7,13 @@
 
 Coverage mix: predominantly `[test]`, since every mechanism is deterministic script logic over
 structured signals (per-tower record files, the `fleet-death-evidence` predicate, git state) and is
-fixture-testable, including the assertions that carry the design: the **dispatch-time origin fence**
-serializes a unit across separate clones against a **local bare-repo `origin` fixture** (one winner, the
-loser's expect-absent ref push rejected, aborting before it launches a worker), the atomic
-exclusive-create claim serializes selection above that fence (one winner, the loser reads-and-skips), and
-the negative assertions (no shared-registry write path, no LLM on discovery/reclaim, no rebase under
+fixture-testable, including the assertions that carry the design: the **authoritative
+worker-liveness-keyed claim** serializes a unit across separate clones on one host via its atomic
+exclusive-create (one winner, the loser reads-and-skips), reclaim keys on the **worker's** direct
+same-host death plus a completion-artifact check, and the demoted **best-effort origin guard** is asserted
+against a **local bare-repo `origin` fixture** (one winner, the loser's expect-absent ref push rejected)
+without being relied on for correctness, and the negative assertions (no shared-registry write path, no LLM
+on discovery/reclaim, no rebase under
 `autosetuprebase`, no double-dispatch on the fence / claim / reclaim, no `eval` of peer output, no
 record / reclaim / quarantine path escaping the surface). Atomicity is asserted **structurally** — the
 write primitive *is* a temp-then-rename / hardlink, never a `mkdir`-then-populate — rather than by the
@@ -100,10 +102,10 @@ A fixture asserts that a malformed, truncated, or unparseable presence/claim rec
 surfaced error** — never interpreted as absent, empty, or "no such peer/claim" — so a corrupt record can
 never cause a tower to conclude a live peer or claim does not exist (the per-record analog of REQ-A1.5's
 surface-level fail-closed rule). A further fixture asserts a **corrupt claim** record (which cannot be
-liveness-checked, so it would otherwise be honored forever and strand its unit) is **quarantined** on
-repeated parse failure — moved to the containment-checked dead-letter sub-surface and surfaced for the
+liveness-checked, so it would otherwise be honored forever and strand its unit) is **quarantined** on the
+**first** parse failure — moved to the containment-checked dead-letter sub-surface and surfaced for the
 operator — after which the unit is **re-selectable**, and that the quarantine is *not* a blind delete of
-the untrusted content (REQ-C1.5).
+the untrusted content and does *not* require repeated failures a stateless tower cannot count (REQ-C1.5).
 
 ### REQ-A1.7 — Tower identity is deterministic, unique per tower, and self-excluding [test]
 
@@ -159,59 +161,63 @@ operator with no force / rebase / reset.
 
 ## REQ-C — Work division across peer towers
 
-### REQ-C1.1 — Dispatch-time origin fence is authoritative; atomic claim is best-effort [test]
+### REQ-C1.1 — Worker-liveness-keyed claim is authoritative; origin ref is best-effort [test]
 
-**Authoritative layer (REQ-C1.6):** against a **local bare-repo `origin` fixture**, two towers dispatch
-one unit and both attempt the atomic expect-absent ref create
-(`git push --force-with-lease=refs/heads/<branch>:`); exactly **one succeeds** and the loser's push is
-**rejected**, whereupon the loser **aborts before launching a worker**. When the claim layer is forced to
-fail (two towers made to both "hold" a claim, e.g. by simulating a stale-broken reclaim lock) the result
-is still a **single dispatch** — the second tower's fence push is rejected at dispatch, so the race
-degrades to wasted *selection* work, not a double dispatch (and specifically **not** a second worker that
-runs to push time). **Best-effort layer:** a two-tower fixture asserts tower B, selecting work, skips a
-unit tower A holds a live claim for, so the unit is rarely selected twice; and that a tower takes its
-claim before the dispatch step, not after. A concurrency fixture asserts the claim serializer is the
-**atomic, exclusive create-with-content** of the unit-keyed claim object on the machine-local surface:
-two towers racing to claim one unit resolve to a single holder — exactly one create succeeds, the loser's
+**Authoritative layer (REQ-C1.2, D-11):** a concurrency fixture asserts the claim serializer is the
+**atomic, exclusive create-with-content** of the unit-keyed claim object on the machine-local surface: two
+towers racing to claim one unit resolve to a single holder — exactly one create succeeds, the loser's
 create fails atomically and it reads the existing claim rather than writing a second one. The fixture
 exercises the **separate-clone** case (two surfaces that are the same machine-local directory, distinct
-checkout paths) to assert serialization holds where the checkout-local per-spec lock cannot.
-Atomicity-with-content is asserted **structurally**: the claim primitive *is* a hardlink of a
-fully-written temp into the unit-keyed name (asserted at the call level), so no bare-`mkdir` empty-claim
-window can exist — a tower interrupted before its claim is complete leaves no half-claim that would strand
-the unit under REQ-A1.6 — and a plain temp-then-rename is shown insufficient (it would overwrite a peer's
-claim, losing exclusivity). The temp is created inside the surface directory (same filesystem) so the
-hardlink cannot hit `EXDEV`.
+checkout paths) to assert serialization holds where the checkout-local per-spec lock cannot — so even when
+the best-effort origin guard is forced to fail (or is absent entirely, no-remote), the result is still a
+**single dispatch** (the race degrades to wasted *selection* work, never a double dispatch, and specifically
+**not** a second worker that runs to push time). The claim is asserted to carry the **dispatched worker's
+death handle** and to **persist past dispatch** (a fixture shows it is not removed at the dispatch step, so
+an orphan worker whose tower exited remains covered). Atomicity-with-content is asserted **structurally**:
+the primitive *is* a hardlink of a fully-written temp into the unit-keyed name (asserted at the call level),
+so no bare-`mkdir` empty-claim window can exist — a tower interrupted before its claim is complete leaves no
+half-claim that would strand the unit under REQ-A1.6 — and a plain temp-then-rename is shown insufficient
+(it would overwrite a peer's claim, losing exclusivity). The temp is created inside the surface directory
+(same filesystem) so the hardlink cannot hit `EXDEV`. **Best-effort layer (REQ-C1.6):** a two-tower fixture
+asserts tower B, selecting work, skips a unit tower A holds a live claim for, and that the demoted origin
+guard is not relied on for the no-double-dispatch guarantee (the authoritative claim is).
 
-### REQ-C1.2 — Claim is unit-keyed and contended, no direct peer mutation [test]
+### REQ-C1.2 — Claim is unit-keyed, worker-keyed, bundle-complete, no direct peer mutation [test]
 
 A fixture asserts a claim is a **unit-keyed** object (keyed by the unit's stable id under the repository
-scope) that is contended by construction — two towers claiming the *same* unit collide so exactly one
-wins (the inverse of the presence surface's distinct-per-writer semantics) — and that the claim path only
+scope) that is contended by construction — two towers claiming the *same* unit collide so exactly one wins
+(the inverse of the presence surface's distinct-per-writer semantics); that it carries the **dispatched
+worker's** positive-evidence-of-death handle (one of the two `fleet-death-evidence.sh` forms), not merely
+the tower's; that a **cohesion-bundle** claim **enumerates every member unit-id** it covers, and a peer
+selecting any non-lead member finds the unit claimed (no unfenced member); and that the claim path only
 creates / reads / removes claim objects and never writes into a peer tower's or a worker's branch state
 (no cross-slice mutation on the path).
 
-### REQ-C1.3 — Live claim honored; reclaim positive-death, serialized, artifact-guarded [test]
+### REQ-C1.3 — Live worker's claim honored; reclaim on worker-death + no-completion-artifact, serialized [test]
 
-Fixtures: a live claiming tower's claim is honored (a peer skips the unit), **including a live-but-hung
-tower's** (it is not dead, so its claim is never auto-reclaimed); a claim whose tower is positively dead
-per `fleet-death-evidence.sh` is reclaimable (a peer may take the unit); a claim whose tower is
-stale-by-timeout, or whose death predicate returns **unknown/errored**, is **not** reclaimable (no
-reclaim on a guess); two towers reclaiming one positively-dead claim resolve to a **single** holder via
-the **per-unit reclaim lock** (concurrent reclaimers serialize on the lock — one wins the swap, the other
-finds the lock busy and skips the round), and the lock-free schemes are shown unsafe and not used (a
-rename-aside destroys a live claim if it moves before confirming death; a delete-then-recreate
-double-dispatches when two reclaimers race). A concurrency fixture asserts the **under-lock re-read
-aborts** the swap when the claim changed during the slow death/artifact check — a fresh claimant that took
-the freed unit between the reclaimer's read and its lock acquisition is neither clobbered nor
-double-dispatched. Fixtures also assert the death / artifact check runs **outside** the lock (no
-subprocess held under the lock); and a reclaim whose unit has a **live downstream artifact — the unit's
-task-branch ref on `origin` (D-8) or an open PR** — does **not** re-dispatch (the origin-fence guard). A
-dedicated fixture seeds a **dead tower's orphan ref on `origin` that has no PR yet** (a worker that
-started but has not reached PR-open) and asserts the reclaim guard **sees the ref and does not
-re-dispatch** — the pre-rework local-branch guard was blind to this not-yet-pushed orphan; the origin ref
-is present from dispatch. So a crashed tower never strands a unit and a live one is never preempted on a
-guess.
+Fixtures: a live claiming **worker's** claim is honored (a peer skips the unit), **including a
+live-but-hung worker's** (it is not dead, so its claim is never auto-reclaimed); a claim whose **worker**
+is positively dead per `fleet-death-evidence.sh` **and** whose unit has **no live completion artifact** is
+reclaimable (a peer may take the unit); a claim whose worker is stale-by-timeout, or whose death predicate
+returns **unknown/errored**, is **not** reclaimable and is instead **surfaced for operator reclaim** (never
+silently honored — the tightened guarantee: positively-dead-always-reclaimed, unclassifiable-always-
+surfaced). The **completion-artifact guard** is asserted both ways against a **local bare-repo `origin`
+fixture**: a dead worker whose unit has an **open PR or commits on the origin ref** (read live via
+`ls-remote`) is **not** reclaimed (it exited after opening its PR — the work is in review; a stale
+checkout-local remote-tracking ref is not trusted), while a dead worker whose unit has **no artifact**
+(died before PR-open) **is** reclaimed and re-dispatched. The no-remote-vs-transient split is asserted: a
+**transient `origin` read error** (origin configured but unreachable) **fails closed** — not reclaimed,
+retried — while in **no-remote mode** (no origin configured) a dead worker is reclaimed on worker-death
+alone (no completion artifact can exist), so a no-remote unit is never stranded. Two towers
+reclaiming one positively-dead-worker claim resolve to a **single** holder via the **per-unit reclaim lock**
+(concurrent reclaimers serialize on the lock — one wins the swap, the other finds the lock busy and skips),
+and the lock-free schemes are shown unsafe and not used (a rename-aside destroys a live claim if it moves
+before confirming death; a delete-then-recreate double-dispatches when two reclaimers race). A concurrency
+fixture asserts the **under-lock re-read aborts** the swap when the claim changed during the slow
+death/artifact check — a fresh claimant that took the freed unit between the reclaimer's read and its lock
+acquisition is neither clobbered nor double-dispatched. Fixtures also assert the death/artifact check runs
+**outside** the lock (no subprocess held under the lock). So a positively-dead worker's unit is always
+reclaimed, an unclassifiable one is always surfaced, and a live one is never preempted on a guess.
 
 ### REQ-C1.4 — Composes with meta-tower selection [test + design-level]
 
@@ -223,41 +229,48 @@ is distinguished on the presence surface by the **record's own validated meta-to
 (REQ-A1.2) — **not** `fleet-tower-marker.sh`, whose field is the orthogonal `unattended|interactive`
 recovery mode.
 
-### REQ-C1.5 — Claim lifecycle: release on handoff / dispatch-failure, dead-claim GC [test]
+### REQ-C1.5 — Claim lifecycle: persist-for-worker-run, worker-keyed removal, four-residue GC [test]
 
-Fixtures: a claim is **released** once the unit is handed off (its worker is dispatched and the **`origin`
-task-branch ref exists**, so the D-8 fence takes over) and **immediately** on a dispatch failure (a failed
-dispatch strands nothing — no live-tower claim is left blocking the unit); a live tower's own **release
-`rm` that fails** is surfaced and retried, not silently dropped, and the unit is backstopped by the
-discovery GC once the tower is dead (bounded delay, not a permanent strand). The discovery sweep GC's
-**three residues** are each asserted: a positively-dead tower's claim — including a claim on an
-already-completed unit that no peer ever re-selects (the sweep is not gated on re-selection), symmetric
-with presence-file GC; a **stale reclaim lock** left by a reclaimer that crashed mid-swap, broken past the
-stale threshold (the same `mkdir`-plus-stale-break discipline the per-spec advisory lock uses); and an
-**orphan temp file** from an interrupted create-with-content, swept past a threshold. Each GC remove is
-asserted to take the **same per-unit reclaim lock and under-lock re-read** as the reclaim path: a fixture
-with a GC pass racing a reclaimer that has just swapped a dead claim for a fresh live one shows the GC
-does **not** delete the fresh live claim (it re-reads under the lock, sees the owner changed, and leaves
-it) — an unguarded GC `rm` would be a double-dispatch. So the claims surface does not grow unbounded, a
-crashed reclaimer never wedges a unit's reclaim path, and no unit is permanently blocked.
+Fixtures: a claim is **not released at dispatch** (a fixture asserts it persists past the dispatch step);
+it is removed when the tower observes its **worker terminated on a resolved unit** (PR merged/present or
+ledger-done) and **immediately** on a **dispatch failure before the worker launches** (a failed dispatch
+strands nothing — no claim is left blocking the unit); a **removal `rm` that fails** is surfaced and
+retried, not silently dropped, and the unit is backstopped by the discovery GC once the worker is
+positively dead (bounded delay, not a permanent strand). The discovery sweep GC's **four residues** are
+each asserted: a **terminated-worker claim on a resolved unit** — including a claim on an already-completed
+unit that no peer ever re-selects (the sweep is not gated on re-selection), symmetric with presence-file
+GC; a **stale reclaim lock** left by a reclaimer that crashed mid-swap, broken past the stale threshold
+(the same `mkdir`-plus-stale-break discipline the per-spec advisory lock uses); an **orphan temp file**
+from an interrupted create-with-content, swept past a threshold; and an **aged dead-letter record past a
+TTL** (so the dead-letter sub-surface does not itself grow unbounded). Each GC remove is asserted to take
+the **same per-unit reclaim lock and under-lock re-read** as the reclaim path: a fixture with a GC pass
+racing a reclaimer that has just swapped a dead claim for a fresh live one shows the GC does **not** delete
+the fresh live claim (it re-reads under the lock, sees the owner changed, and leaves it) — an unguarded GC
+`rm` would be a double-dispatch. Distinct from the four, a **corrupt (unparseable) claim** is **quarantined
+on the first parse failure** (not requiring repeated failures a stateless tower cannot count) to a
+containment-checked dead-letter sub-surface and surfaced for the operator — a fixture asserts a single
+malformed record is quarantined on one pass, the unit becomes re-selectable, and the record is not blindly
+deleted. So neither the claims surface nor the dead-letter sub-surface grows unbounded, a crashed reclaimer
+never wedges a unit's reclaim path, and no unit is permanently or invisibly blocked.
 
-### REQ-C1.6 — Dispatch-time origin fence: atomic, cross-clone, death-surviving [test + manual]
+### REQ-C1.6 — Origin ref is a best-effort double-PR guard, both backends, no-remote-safe [test + manual]
 
-`[test]`: against a **local bare-repo `origin` fixture**, the fence is asserted end-to-end: (a) a tower's
-dispatch performs an **atomic expect-absent ref create** (`git push --force-with-lease=refs/heads/<branch>:`),
-and two towers contending for one unit resolve to **exactly one successful create**, the loser's push
-**rejected**, the loser aborting **before launching a worker**; (b) the fence ref is created **at dispatch**
-(before the worker runs), so a peer clone reading `origin` sees it immediately — not only at PR-open; (c)
-the branch name is a **canonical byte-identical** function of the unit id, and both clones contend for the
-**same** `origin` ref (a fixture shows `claude --worktree` mangling is not the naming path, and that a
-mangled divergent name would create two refs / two PRs and defeat the fence); (d) the fence pushes a
-**task-branch ref only** (pointing at the existing base commit), adding **no commit to `main`** (asserted
-against the `orchestration-concurrency` no-dispatch-commit floor); (e) a **lost / errored** fence result
-**fails closed** (the unit is treated as possibly-taken and not dispatched), never fail-open; (f) the
-**no-`origin`** path is the single-checkout **solo flow** — no fence attempted, no multi-tower claimed.
-`[manual]`: two real towers on two separate clones sharing one `origin` dispatch one unit and are
-confirmed to yield a single worker and a single PR (the end-to-end cross-clone confirmation a bare-repo
-fixture stands in for).
+`[test]`: against a **local bare-repo `origin` fixture**, the guard is asserted as best-effort, not the
+correctness floor: (a) a tower's dispatch performs an **atomic expect-absent ref create** with the
+**explicit all-zeros OID** (`git push --force-with-lease=refs/heads/<branch>:`), pushing the branch's
+current local tip, and two towers contending for one unit resolve to **exactly one successful create**, the
+loser's push **rejected**; (b) the guard push is placed **before worker launch**; (c) the guard **degrades
+to absent** when `origin` is unreachable, and a **no-remote multi-tower** fixture still yields a **single
+dispatch** via the authoritative claim (no fail-open); (d) both dispatch backends produce the canonical
+ref name — a fixture shows `fleet-dispatch-worktree.sh` **direct-creates** `planwright/<spec>/task-<id>`,
+while the `claude --worktree`/tmux path **renames to canonical then verifies the pushed refname equals
+canonical or drops the guard for that unit** (failing the guard, not the dispatch; a divergent name drops
+the guard rather than defeating correctness); (e) the guard pushes a **task-branch ref only** (at the
+existing base commit), adding **no commit to `main`** (asserted against the `orchestration-concurrency`
+no-dispatch-commit floor). `[manual]`: two real towers on two separate clones sharing one `origin` dispatch
+one unit and are confirmed to yield a single worker and a single PR (the end-to-end cross-clone confirmation
+a bare-repo fixture stands in for), and a run with the coordination surface deleted mid-flight confirms the
+guard catches the otherwise-double PR.
 
 ## REQ-D — Carried floors, boundaries & hygiene
 
@@ -311,3 +324,13 @@ surface; an embedded non-printable / escape sequence in a record field is stripp
 a terminal or log (`scripts/echo-safety.sh`, `sanitize_printable`); and the surface directory is created /
 verified `0700` (user-private) with a pre-existing over-broad surface refused. Together these are the
 script-boundary enforcement of the same-operator single-host trust model.
+
+### REQ-D1.6 — Companion doctrine line present; ready-push mechanism cross-referenced, not implemented [design-level]
+
+Verified by review + cross-reference, both a **negative** and a **positive** assertion. Positive: the
+companion coordination-floor doctrine line — a merge-ready PR reaches the operator by deterministic push,
+with an LLM tower polling GitHub as the fallback — exists under the D-1 altitude record and is cited from
+the Goal (REQ-D1.6, Task 1). Negative: this bundle introduces **no** ready-surface hook and **no**
+attention-surface reclassification — a grep confirms no `gh pr ready` / draft→ready interception and no
+`pr-ready`-reclassification code is added here — and the mechanism is cross-referenced to the planned
+`merge-currency-guard` spec (D-6). So the doctrine floor lands without the mechanism, exactly as scoped.
