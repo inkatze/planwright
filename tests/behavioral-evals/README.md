@@ -12,22 +12,31 @@ a scraped pane.
 
 It runs **on demand**, never in CI (see "Never in CI" below).
 
-This is the **scaffold**: it demonstrates against the generic `greeter` fixture
-skill. The acceptance assertions that drive the real `/spec-kickoff` surface
-(the invariant checks, persona pilots, and rubric instrument) live in **Task 6**.
+The `greeter` fixture is the **scaffold** (Task 5): a generic fixture skill that
+demonstrates the harness. The **`kickoff` fixture** (Task 6) is the
+measurable-acceptance layer: a deterministic stand-in for the real `/spec-kickoff`
+surface that pins the assertable invariants (self-contained option set, absence
+of verdict tokens, preserved normative tokens, completeness), the novice/expert
+persona pilots, and the changed-answer/input-robustness paths. Driving the true
+model-backed `/spec-kickoff` needs a live Claude TTY session (nondeterministic,
+priced), so the invariants are pinned against the fixture; the experiential
+qualities remain scored by the rubric instrument (`rubrics/`) and the human.
 
 ## Layout
 
 ```text
 tests/behavioral-evals/
   README.md                 this file
-  fixtures/<id>/            one directory per fixture
+  fixtures/<id>/            one directory per fixture (greeter, kickoff)
     fixture.conf            id, skill, personas, turns, anchor, footer_lines
                             (KEY=VALUE, data only)
     skill.sh                the interactive program the harness drives
     personas/<name>.persona a simulated-operator answer script (expertise +
                             answer.<turn> lines; data only)
     grade.jq                the structural (invariant) grade over the artifacts
+  lib/tmux-stub.sh          the shared faithful tmux double the hermetic tests use
+  rubrics/                  the CDC CCI + IPDAS experiential-quality instrument
+                            (see rubrics/experiential-rubrics.md)
 ```
 
 ## Running it
@@ -42,9 +51,11 @@ scripts/behavioral-eval.sh --persona novice \
 ```
 
 The real-tmux path needs `tmux` and `jq` on `PATH`. The hermetic branch coverage
-(`tests/test-behavioral-eval.sh`, run by `mise run test`) uses a **stub tmux**
-that replays the driver's answers through the real fixture skill, so CI needs no
-tmux, model, or API key.
+(`tests/test-behavioral-eval.sh` for the harness, `tests/test-behavioral-eval-kickoff.sh`
+for the kickoff acceptance layer, and `tests/test-rubric-instrument.sh` for the
+rubric grader/self-audit — all run by `mise run test`) uses the shared **stub
+tmux** (`lib/tmux-stub.sh`) that replays the driver's answers through the real
+fixture skill, so CI needs no tmux, model, or API key.
 
 ## Grading and the independence firewall
 

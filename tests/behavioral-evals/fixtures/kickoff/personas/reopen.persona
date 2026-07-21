@@ -1,0 +1,11 @@
+# reopen.persona — changed-answer-reopens-dependents (REQ-C1.2). The design
+# decision is answered, then the upstream level is CHANGED, which reopens and
+# re-asks the dependent decision; the final sign-off reflects the NEW answers,
+# not the stale ones. Turn map: 1 level(novice), 2 decision(alpha),
+# 3 level-restate(expert -> changed), 4 reopened decision(beta), 5 sign-off.
+expertise=novice
+answer.1=novice
+answer.2=option-alpha
+answer.3=expert
+answer.4=option-beta
+answer.5=record-approval

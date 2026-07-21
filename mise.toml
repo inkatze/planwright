@@ -117,6 +117,10 @@ run = "/bin/bash scripts/check-instructions.sh --closeout"
 description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
+[tasks."check:doctrine-manifest"]
+description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
+run = "/bin/bash scripts/check-doctrine-manifest.sh"
+
 [tasks."eval:skill"]
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
 run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
@@ -152,6 +156,7 @@ depends = [
   "check:obs",
   "check:instructions",
   "check:no-ci-evals",
+  "check:doctrine-manifest",
   "check:specs",
   "scan:secrets",
 ]
