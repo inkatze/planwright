@@ -212,8 +212,10 @@ rules
 recommendation, running summary after each section) and **instantiates the three
 disciplines in-band, and emits the structured decision/transcript log the eval
 grades, per `kickoff-dialogue`** (REQ-F1.1, REQ-G1.3): comprehend-first (section
-2 is that step), backward-chaining completeness bounded per pass, present without
-steering. Each section ends with an explicit
+2), with **adaptive-level calibration** (frontier detection, fade, a lightweight
+per-concept uptake estimate, no learner model; REQ-B1.3, REQ-B1.4, D-4);
+backward-chaining completeness bounded per pass; present without steering. Each
+section ends with an explicit
 `Signed off: <date>` line — what resumability keys on.
 
 1. **Header block.** Spec path, spec commit at walkthrough start, walkthrough
@@ -221,8 +223,7 @@ steering. Each section ends with an explicit
 2. **Goal & glossary.** Restate the goal in the agent's own words — a
    restatement, not a summary: what the spec is for, rules out, and assumes.
    Surface implicit terms (vocabulary the spec uses but never defines) and
-   record resolutions to every ambiguity the restatement exposes. This section
-   anchors every later judgment call.
+   record resolutions to every ambiguity the restatement exposes.
 3. **Requirements walkthrough.** Per REQ group: restate the group's intent,
    probe edge cases and gaps Socratically, and record per-group outcomes and
    decisions. Collect spec edits in a consolidated list rather than scattering
@@ -247,8 +248,8 @@ steering. Each section ends with an explicit
    count, REQ-D1.1); any catalogued domain the spec touches but never decides
    becomes a risk-register row naming the domain and the undecided question
    (REQ-G1.4, D-39). Catalog absent: record the one-line skip here. Open
-   questions must end resolved to decisions or explicit accepted risks; an open
-   question is not a sign-off.
+   questions must be resolved into decisions or explicitly accepted risks before
+   sign-off.
 
 **Spec edits during the walkthrough.** A Draft bundle is unsigned: edits land
 in place, applied with the human section by section, and the consolidated list
