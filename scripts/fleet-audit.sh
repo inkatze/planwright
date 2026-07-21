@@ -54,6 +54,22 @@
 # swallowing it — an unrecorded action is exactly what the trail exists to
 # prevent.
 #
+# CALLER-HELD LOCK (fleet-autonomy Task 9; REQ-G1.3): a mechanism whose state
+# is DERIVED from this trail (the usage-gate restriction ladder, D-28) must
+# check-then-append atomically — derive the current rung and record the
+# transition under ONE hold of the shared advisory lock, so concurrent towers
+# cannot both record the same transition. Because that caller already holds the
+# lock (`fleet-state.sh lock`) and this helper's own acquire would deadlock on
+# the same non-reentrant primitive, `record` skips its acquire/release when the
+# caller sets PLANWRIGHT_FLEET_LOCK_HELD to the MECHANISM it is recording under
+# (e.g. `usage-gate`). The skip is scoped to that mechanism: the acquire is
+# skipped only when the env value equals THIS record's mechanism arg, so a stale
+# or inherited env var (or an unrelated mechanism's record) never disables
+# locking and reintroduces concurrent-write corruption. The timestamp-under-lock
+# and copy-append-rename guarantees still hold — the caller's hold provides the
+# mutual exclusion this helper's own acquire otherwise would. Query never locks,
+# so it is unaffected. Default (unset): record acquires and releases as before.
+#
 # Usage:
 #   fleet-audit.sh record <mechanism> <action> <trigger> <reasoning>
 #       Append one action row. <action> is a short token (cleanup, restart,
@@ -204,7 +220,23 @@ case "$cmd" in
       echo "fleet-audit: cannot create the audit dir $audit_dir" >&2
       exit 2
     fi
-    acquire_lock || exit 2
+    # A caller whose state is derived from this trail (the usage-gate ladder)
+    # holds the shared lock across its own derive+record critical section; a
+    # nested acquire of the same non-reentrant primitive would deadlock, so skip
+    # it here and let the caller's hold provide the mutual exclusion. The skip is
+    # scoped to a SPECIFIC mechanism: PLANWRIGHT_FLEET_LOCK_HELD carries the
+    # mechanism the caller is recording under while holding the lock, and the
+    # acquire is skipped only when it equals THIS record's mechanism. A stale or
+    # inherited env var that does not match (or the legacy/global `1`) never
+    # disables locking for an unrelated mechanism — that would reintroduce the
+    # concurrent-write corruption the lock prevents.
+    lock_held=0
+    if [ -n "${PLANWRIGHT_FLEET_LOCK_HELD:-}" ] && [ "$PLANWRIGHT_FLEET_LOCK_HELD" = "$mechanism" ]; then
+      lock_held=1
+    fi
+    if [ "$lock_held" = 0 ]; then
+      acquire_lock || exit 2
+    fi
     # Stamp the row's time UNDER the lock (commit time, not invocation time) —
     # the fleet-state.sh register discipline — so lock contention can never
     # commit an invocation-ordered older stamp after a newer one. Epoch and
@@ -258,7 +290,9 @@ case "$cmd" in
       mv -f "$w_tmp" "$store" || w_rc=2
     fi
     [ "$w_rc" = 0 ] || rm -f "$w_tmp" 2>/dev/null
-    release_lock
+    if [ "$lock_held" = 0 ]; then
+      release_lock
+    fi
     if [ "$w_rc" != 0 ]; then
       echo "fleet-audit: failed to write the audit trail" >&2
       exit 2

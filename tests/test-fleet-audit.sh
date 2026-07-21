@@ -324,4 +324,53 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "ok: an unreadable audit dir fails the query loudly (exit 2)"
 fi
 
+# 9. Caller-held-lock mode (fleet-autonomy Task 9; REQ-G1.3). A mechanism whose
+#    state is DERIVED from this trail (the usage-gate ladder) holds the shared
+#    advisory lock across its own derive+record critical section and sets
+#    PLANWRIGHT_FLEET_LOCK_HELD to the MECHANISM it records under, so record
+#    skips the nested acquire that would deadlock on the same non-reentrant
+#    primitive. The skip is scoped to that mechanism, so a stale/inherited env
+#    var never disables locking for an unrelated mechanism.
+FS="$here/../scripts/fleet-state.sh"
+held_home="$tmp/held-lock-home"
+mkdir -p "$held_home"
+# 9a. Positive: env value == the recorded mechanism -> skips acquire, so the
+#     record appends WITHOUT acquiring even while we (the "caller") hold the lock.
+PLANWRIGHT_FLEET_STATE_DIR="$held_home" /bin/bash "$FS" lock >/dev/null 2>&1 \
+  || fail "could not acquire the fleet-state lock for the held-lock test"
+rc=0
+PLANWRIGHT_FLEET_STATE_DIR="$held_home" PLANWRIGHT_FLEET_LOCK_HELD=usage-gate \
+  /bin/bash "$FA" record usage-gate defer-heavy "held-lock trigger" "recorded while the caller held the lock" \
+  >/dev/null 2>&1 || rc=$?
+PLANWRIGHT_FLEET_STATE_DIR="$held_home" /bin/bash "$FS" unlock >/dev/null 2>&1 || true
+[ "$rc" = 0 ] || fail "record with a matching PLANWRIGHT_FLEET_LOCK_HELD under a held lock: exit $rc, expected 0"
+out=$(PLANWRIGHT_FLEET_STATE_DIR="$held_home" /bin/bash "$FA" query --mechanism usage-gate) \
+  || fail "held-lock query failed"
+case $out in
+  *defer-heavy*) ;;
+  *) fail "the held-lock record did not append the row (got: $out)" ;;
+esac
+echo "ok: record with a mechanism-matching PLANWRIGHT_FLEET_LOCK_HELD skips the nested acquire"
+
+# 9b. Negative: env value != the recorded mechanism must NOT skip the lock. Hold
+#     the lock, then a record for a DIFFERENT mechanism blocks trying to acquire
+#     (never skips); kill it after a short grace and assert it did NOT append. If
+#     the skip were global, the row would land while we hold the lock.
+held2="$tmp/held-lock-mismatch-home"
+mkdir -p "$held2"
+PLANWRIGHT_FLEET_STATE_DIR="$held2" /bin/bash "$FS" lock >/dev/null 2>&1 \
+  || fail "could not acquire the fleet-state lock for the mismatch test"
+PLANWRIGHT_FLEET_STATE_DIR="$held2" PLANWRIGHT_FLEET_LOCK_HELD=usage-gate \
+  /bin/bash "$FA" record cleanup cleanup "mismatch trigger" "a different mechanism must still acquire" \
+  >/dev/null 2>&1 &
+recpid=$!
+sleep 2
+kill "$recpid" 2>/dev/null || true
+wait "$recpid" 2>/dev/null || true
+PLANWRIGHT_FLEET_STATE_DIR="$held2" /bin/bash "$FS" unlock >/dev/null 2>&1 || true
+mismatch_out=$(PLANWRIGHT_FLEET_STATE_DIR="$held2" /bin/bash "$FA" query --mechanism cleanup 2>/dev/null || true)
+[ -z "$mismatch_out" ] \
+  || fail "a non-matching PLANWRIGHT_FLEET_LOCK_HELD skipped the lock (row appended while lock held): $mismatch_out"
+echo "ok: a mechanism-mismatched PLANWRIGHT_FLEET_LOCK_HELD does not skip the lock (blocks, never corrupts)"
+
 echo "ALL PASS: fleet-audit"
