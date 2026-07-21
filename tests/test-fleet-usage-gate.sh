@@ -126,6 +126,21 @@ reset_state() {
   rm -f "$tmp/llm-invoked"
 }
 
+# Backdate every usage-gate row's epoch (field 1) to <seconds> in the past, so a
+# hysteresis-dwell or grace-window test can exercise "the window has elapsed"
+# without a real sleep (the same timestamp-manipulation style the cache-TTL
+# tests use). In these focused tests there is exactly one prior transition row.
+backdate_transition() {
+  bt_af=""
+  for bt_f in "$fleet_home"/audit/audit-*.tsv; do
+    [ -f "$bt_f" ] && bt_af=$bt_f && break
+  done
+  [ -n "$bt_af" ] || fail "backdate_transition: no audit file under $fleet_home/audit"
+  bt_ts=$(($(date +%s) - $1))
+  awk -F'\t' -v OFS='\t' -v ts="$bt_ts" '$3=="usage-gate"{$1=ts} {print}' "$bt_af" >"$bt_af.tmp" \
+    && mv "$bt_af.tmp" "$bt_af"
+}
+
 # A representative captured /usage render (ANSI already implied; the control
 # variant is exercised separately). Labels carry the window name; the percent
 # lands on the following line — the by-label, not by-position, contract.
@@ -562,5 +577,105 @@ case $onlybad in
   *) fail "a section whose only value is implausible must be unavailable (got: $onlybad)" ;;
 esac
 echo "ok: the first plausible percentage wins; an implausible-only section is unavailable"
+
+# --- 26. Descend hysteresis (Task 10, REQ-E1.10): a relaxing signal WITHIN the
+#         dwell holds the rung (no flap); a re-restricting signal still climbs
+#         immediately (fast-attack/slow-release). ---
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_rung_min_dwell_seconds: 3600
+EOF
+usage_render 10 65 | run capture >/dev/null || fail "capture (hyst climb) failed"
+run evaluate >/dev/null || fail "evaluate (hyst climb) failed"
+[ "$(run rung)" = downshift ] || fail "expected downshift after the climb"
+# Relax below the threshold: target normal, but within the 3600s dwell the
+# descend is HELD — the rung stays downshift and no row is recorded.
+usage_render 10 10 | run capture >/dev/null || fail "capture (hyst relax) failed"
+ro=$(run evaluate) || fail "evaluate (hyst relax) failed"
+rung_now=$(printf '%s\n' "$ro" | awk -F'\t' '/^rung/{print $2; exit}')
+[ "$rung_now" = downshift ] || fail "a relaxing signal within the dwell must hold the rung (got $rung_now)"
+[ "$(run rung)" = downshift ] || fail "the held rung must persist in the trail (no descend row)"
+rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
+[ "$rows" = 1 ] || fail "a held descend must not record a transition (expected 1 row, found $rows)"
+# A re-restricting signal still climbs immediately, dwell notwithstanding.
+usage_render 10 88 | run capture >/dev/null || fail "capture (hyst re-climb) failed"
+run evaluate >/dev/null || fail "evaluate (hyst re-climb) failed"
+[ "$(run rung)" = defer-heavy ] || fail "a climb must apply immediately even within the descend dwell"
+no_llm "hysteresis"
+rm -f "$mlocal_cfg"
+echo "ok: a relaxing signal within the dwell holds the rung; a climb applies immediately"
+
+# --- 27. Past the dwell, budget recovery descends the ladder (Task 10). ---
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_rung_min_dwell_seconds: 1
+EOF
+usage_render 10 65 | run capture >/dev/null || fail "capture (descend climb) failed"
+run evaluate >/dev/null || fail "evaluate (descend climb) failed"
+[ "$(run rung)" = downshift ] || fail "expected downshift"
+backdate_transition 10 # push the transition past the 1s dwell
+usage_render 10 10 | run capture >/dev/null || fail "capture (descend relax) failed"
+run evaluate >/dev/null || fail "evaluate (descend relax) failed"
+[ "$(run rung)" = normal ] || fail "past the dwell a relaxing signal must descend to normal (got $(run rung))"
+rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
+[ "$rows" = 2 ] || fail "an allowed descend records exactly one more row (expected 2, found $rows)"
+rm -f "$mlocal_cfg"
+echo "ok: past the dwell, budget recovery descends the ladder"
+
+# --- 28. Unavailable-signal grace window (Task 10, REQ-E1.10): the ladder HOLDS
+#         its last-known rung within the grace window, then DECAYS to normal once
+#         the grace window elapses with the signal still unavailable. ---
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_unavailable_grace_seconds: 3600
+EOF
+usage_render 10 88 | run capture >/dev/null || fail "capture (grace hold climb) failed"
+run evaluate >/dev/null || fail "evaluate (grace hold climb) failed"
+[ "$(run rung)" = defer-heavy ] || fail "expected defer-heavy"
+printf 'garbage\n' | run capture >/dev/null || fail "capture (grace hold unavail) failed"
+run evaluate >/dev/null 2>&1 || fail "evaluate (grace hold) should not block on an unavailable signal"
+[ "$(run rung)" = defer-heavy ] || fail "within the grace window the ladder must HOLD its rung (got $(run rung))"
+rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
+[ "$rows" = 1 ] || fail "a held rung within grace must not record a decay (expected 1 row, found $rows)"
+rm -f "$mlocal_cfg"
+echo "ok: an unavailable signal holds the last-known rung within the grace window"
+
+reset_state
+cat >"$mlocal_cfg" <<'EOF'
+fleet_usage_unavailable_grace_seconds: 1
+EOF
+usage_render 10 88 | run capture >/dev/null || fail "capture (decay climb) failed"
+run evaluate >/dev/null || fail "evaluate (decay climb) failed"
+[ "$(run rung)" = defer-heavy ] || fail "expected defer-heavy"
+backdate_transition 100 # push the transition past the 1s grace window
+printf 'garbage\n' | run capture >/dev/null || fail "capture (decay unavail) failed"
+run evaluate >/dev/null 2>&1 || fail "evaluate (decay) should not block"
+[ "$(run rung)" = normal ] || fail "past the grace window an unavailable signal must decay to normal (got $(run rung))"
+rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
+[ "$rows" = 2 ] || fail "the decay records exactly one normal row (expected 2, found $rows)"
+last_action=$(audit_query --mechanism usage-gate 2>/dev/null | awk -F'\t' 'END{print $4}')
+[ "$last_action" = normal ] || fail "the decay row's action must be normal (got $last_action)"
+no_llm "grace-decay"
+rm -f "$mlocal_cfg"
+echo "ok: past the grace window the ladder decays to normal (recovered from the trail)"
+
+# --- 29. The read-only `signal` subcommand (Task 10): the per-window
+#         percentages after TTL handling, with NO transition/side effect. ---
+reset_state
+usage_render 52 38 | run capture >/dev/null || fail "capture (signal) failed"
+sig=$(run signal) || fail "signal subcommand failed"
+sess=$(printf '%s\n' "$sig" | awk -F'\t' '$1=="session"{print $2}')
+week=$(printf '%s\n' "$sig" | awk -F'\t' '$1=="weekly"{print $2}')
+[ "$sess" = 52 ] || fail "signal must report session 52 (got: $sig)"
+[ "$week" = 38 ] || fail "signal must report weekly 38 (got: $sig)"
+rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
+[ "$rows" = 0 ] || fail "signal must be read-only (recorded $rows transitions)"
+no_llm "signal"
+# An absent cache reports unavailable, never a guessed number.
+reset_state
+sigu=$(run signal) || fail "signal (no cache) failed"
+sessu=$(printf '%s\n' "$sigu" | awk -F'\t' '$1=="session"{print $2}')
+[ "$sessu" = unavailable ] || fail "an absent cache must report session unavailable (got: $sigu)"
+echo "ok: the signal subcommand is a read-only per-window view"
 
 echo "ALL fleet-usage-gate tests passed"
