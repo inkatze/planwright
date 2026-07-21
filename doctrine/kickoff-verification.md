@@ -1,4 +1,4 @@
-# Kickoff verification gates
+# Kickoff verification passes and gates
 
 Verification passes and gates the `/spec-kickoff` flow runs: the walkthrough's
 mid-walk lens and post-lens stale-reference sweep, the sign-off lens review, and
