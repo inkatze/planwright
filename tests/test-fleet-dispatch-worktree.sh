@@ -640,7 +640,39 @@ c16() {
     || fail "c16: --model opus did not flow into the launch plan"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16; do
+# ---------------------------------------------------------------------------
+# c17 — a symlinked .claude/worktrees (or .claude) is refused (path-escape
+# guard): git worktree add / the reconcile rm -rf must never follow it outside
+# the repo root.
+# ---------------------------------------------------------------------------
+c17() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c17.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  # .claude/worktrees -> an external dir outside the repo.
+  mkdir -p "$tmp/EXTERNAL" "$tmp/primary/.claude"
+  ln -s "$tmp/EXTERNAL" "$tmp/primary/.claude/worktrees"
+
+  run_prim dispatch demo 10 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -ne 0 ] || fail "c17: symlinked .claude/worktrees was NOT refused (exit 0 — path escape)"
+  [ -z "$(ls -A "$tmp/EXTERNAL" 2>/dev/null)" ] \
+    || fail "c17: a worktree escaped into the external symlink target"
+  printf '%s\n' "$OUT" | grep -q 'attach-plan' \
+    && fail "c17: an attach plan was printed despite the refused path-escape"
+
+  # A symlinked .claude itself is also refused.
+  rm -rf "$tmp/primary/.claude"
+  mkdir -p "$tmp/EXTERNAL2"
+  ln -s "$tmp/EXTERNAL2" "$tmp/primary/.claude"
+  run_prim dispatch demo 11 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -ne 0 ] || fail "c17: symlinked .claude was NOT refused"
+  [ -z "$(ls -A "$tmp/EXTERNAL2" 2>/dev/null)" ] \
+    || fail "c17: a worktree escaped into the .claude symlink target"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

@@ -470,7 +470,39 @@ do_dispatch() {
   # mismatches the porcelain path).
   _repo_root=$(cd "$_repo_root" && pwd -P) || exit 2
   _spec_dir="$_repo_root/specs/$_spec"
-  _worktree="$_repo_root/.claude/worktrees/$_suffix"
+  _wt_root="$_repo_root/.claude/worktrees"
+  _worktree="$_wt_root/$_suffix"
+
+  # Path-escape guard. `git worktree add` (and the reconcile `rm -rf`) FOLLOW a
+  # symlink component, so a repo carrying a malicious `.claude` /
+  # `.claude/worktrees` symlink (a compromised or untrusted checkout) could make
+  # the primitive read/write/delete OUTSIDE the repo root. Refuse a symlinked
+  # `.claude`, `.claude/worktrees`, or leaf worktree dir; materialize the root as
+  # a REAL directory; and confirm it physically resolves UNDER the repo root
+  # (catching a deeper symlink escape), fail-closed. Mirrors the canon-contained
+  # discipline the command guards and fleet-cleanup already apply.
+  if [ -L "$_repo_root/.claude" ]; then
+    warn "refusing: $_repo_root/.claude is a symlink (path-escape guard)"
+    exit 5
+  fi
+  mkdir -p "$_repo_root/.claude" 2>/dev/null || true
+  if [ -L "$_wt_root" ]; then
+    warn "refusing: $_wt_root is a symlink (path-escape guard)"
+    exit 5
+  fi
+  mkdir -p "$_wt_root" 2>/dev/null || true
+  _wt_root_phys=$(cd "$_wt_root" 2>/dev/null && pwd -P || echo '')
+  case "$_wt_root_phys/" in
+    "$_repo_root"/*) ;; # contained under the repo root
+    *)
+      warn "refusing: worktrees root does not resolve under the repo root (path-escape guard)"
+      exit 5
+      ;;
+  esac
+  if [ -L "$_worktree" ]; then
+    warn "refusing: $_worktree is a symlink (path-escape guard)"
+    exit 5
+  fi
 
   # --- Resolve <base>: the freshly-fetched origin/main (D-9) ---------------
   # dispatch-fetch.sh updates refs/remotes/origin/main without advancing local
