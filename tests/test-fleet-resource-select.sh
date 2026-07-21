@@ -245,9 +245,10 @@ for args in "" "bogus" "select"; do
 done
 echo "ok: usage errors exit 2"
 
-# 10. Repo-drift check: the real config/defaults.yml ships the three model
-#     knobs with the table's defaults, so the isolated core fixture above
-#     cannot silently diverge from the shipped file.
+# 10. Repo-drift check: the real config/defaults.yml ships all nine selection
+#     knobs (model, effort, and command per task type) with the table's
+#     defaults, so the isolated core fixture above cannot silently diverge from
+#     the shipped file.
 real_defaults="$here/../config/defaults.yml"
 for kv in "fleet_model_execution: opus" "fleet_model_bookkeeping: sonnet" "fleet_model_drain: sonnet" \
   "fleet_effort_execution: high" "fleet_effort_bookkeeping: medium" "fleet_effort_drain: low" \
