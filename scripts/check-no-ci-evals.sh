@@ -18,8 +18,10 @@
 #      rather than let a novel invocation form through. Matching the `eval:`
 #      namespace (not the bare substring "eval") still spares a legitimately
 #      named task like `evaluate-release` and prose that merely says "eval".
-#   2. Invoking the runner script directly, bypassing mise entirely
-#      (`sh scripts/prompt-eval.sh …`, `./scripts/prompt-eval.sh …`).
+#   2. Invoking a kept-eval runner script directly, bypassing mise entirely
+#      (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`). Both
+#      on-demand runners are covered — the guard must see EVERY eval harness, not
+#      only `prompt-eval.sh` (operator-dialogue REQ-G1.5, D-8).
 # A residual this guard does NOT cover (out of REQ-C1.6's "workflow files"
 # scope): an eval task reached transitively through a mise.toml `depends` chain
 # from a CI-run task. That is recorded as an observation, not enforced here.
@@ -93,7 +95,7 @@ fi
 #   * a direct call to the runner script, bypassing mise entirely.
 # -H forces the filename prefix even for a single file (file:line:match report).
 mise_eval="$(grep -HnE '(^|[^[:alnum:]_-])mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
-direct="$(grep -HnE 'prompt-eval\.sh' "$@" 2>/dev/null || true)"
+direct="$(grep -HnE '(prompt-eval|behavioral-eval)\.sh' "$@" 2>/dev/null || true)"
 hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort -u || true)"
 
 if [ -n "$hits" ]; then

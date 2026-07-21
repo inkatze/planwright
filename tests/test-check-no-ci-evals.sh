@@ -165,6 +165,33 @@ rc=$?
 assert_exit "direct sh scripts/prompt-eval.sh is caught" 1 "$rc"
 assert_contains "names the direct-runner offender" "direct/ci.yml" "$out"
 
+# ---- the behavioral-eval harness is covered too (REQ-G1.5: not only prompt-eval) ----
+mkdir -p "$TMP/behav-task"
+cat >"$TMP/behav-task/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: mise run eval:behavioral
+EOF
+out="$("$GUARD" "$TMP/behav-task" 2>&1)"
+assert_exit "mise run eval:behavioral wired in CI fails" 1 "$?"
+
+mkdir -p "$TMP/behav-direct"
+cat >"$TMP/behav-direct/ci.yml" <<'EOF'
+name: ci
+"on": [push]
+jobs:
+  check:
+    steps:
+      - run: sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures
+EOF
+out="$("$GUARD" "$TMP/behav-direct" 2>&1)"
+rc=$?
+assert_exit "direct sh scripts/behavioral-eval.sh is caught" 1 "$rc"
+assert_contains "names the behavioral-eval offender" "behav-direct/ci.yml" "$out"
+
 # ---- a benign task whose name merely contains 'eval' is NOT flagged ----
 # `evaluate-release` is not in the `eval:` namespace; a substring match would
 # be a false positive that blocks legitimate task names.
