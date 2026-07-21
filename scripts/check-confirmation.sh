@@ -172,6 +172,15 @@ violations="$(printf '%s' "$doc" | jq -r '
       end )
   | .[]
 ')"
+# Fail closed if the scan itself errored (a jq runtime or version failure): an
+# empty $violations from a crashed jq must never be read as "no violations".
+# This mirrors the count pass's guard above so the fail-closed guarantee holds
+# on both jq invocations, not only the first.
+jq_status=$?
+if [ "$jq_status" -ne 0 ]; then
+  echo "$prog: internal error scanning confirmations (jq exit $jq_status)" >&2
+  exit 2
+fi
 
 if [ -n "$violations" ]; then
   # Print each violation prefixed with the program name. The lines are static

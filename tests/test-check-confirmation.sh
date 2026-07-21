@@ -11,6 +11,14 @@ unset CDPATH
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHECKER="$REPO_ROOT/scripts/check-confirmation.sh"
 
+# Fail early with a clear message when jq is absent: both the checker's parsing
+# and the escape-sequence fixture below depend on it (mirrors the jq guard many
+# sibling suites carry).
+if ! command -v jq >/dev/null 2>&1; then
+  echo "FAIL: jq is required to run these tests (the checker and a fixture both use it)" >&2
+  exit 1
+fi
+
 failures=0
 assert() {
   if [ "$2" -eq "$3" ]; then
@@ -352,6 +360,37 @@ printf '{"question":"Sign off the brief and flip the spec to Ready now?","option
 out="$(/bin/bash "$CHECKER" "$tmp/nonstring-label.json" 2>&1)"
 assert "non-string label fails" 1 $?
 assert_contains "non-string label names NO_LABEL" "NO_LABEL" "$out"
+
+# 17. If the violations-scanning jq pass itself errors (e.g. a jq runtime or
+#     version failure), the checker must fail closed (exit 2), never fall
+#     through to a false "all self-contained" success. A jq shim passes the
+#     first invocation (the count/parse pass) through to real jq and errors on
+#     the second (the violations pass), isolating the guard under test.
+real_jq="$(command -v jq)"
+shimdir="$tmp/shim"
+mkdir -p "$shimdir"
+counter="$tmp/jq-calls"
+: >"$counter"
+cat >"$shimdir/jq" <<SHIM
+#!/bin/sh
+n=\$(( \$(cat "$counter" 2>/dev/null || echo 0) + 1 ))
+echo "\$n" > "$counter"
+if [ "\$n" -ge 2 ]; then
+  echo "simulated jq failure" >&2
+  exit 5
+fi
+exec "$real_jq" "\$@"
+SHIM
+chmod +x "$shimdir/jq"
+out="$(PATH="$shimdir:$PATH" /bin/bash "$CHECKER" "$tmp/good.json" 2>&1)"
+assert "violations-pass jq failure fails closed (exit 2)" 2 $?
+case "$out" in
+  *"all"*"self-contained"*)
+    echo "FAIL: a failed violations pass reported false success" >&2
+    failures=$((failures + 1))
+    ;;
+  *) echo "ok: a failed violations pass did not report false success" ;;
+esac
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
