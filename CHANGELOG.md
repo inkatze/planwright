@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.28.0](https://github.com/inkatze/planwright/compare/v0.27.0...v0.28.0) (2026-07-21)
+
+
+### Features
+
+* **fleet:** configurable budget-aware model allocation & degrade ladder (task 10) ([#287](https://github.com/inkatze/planwright/issues/287)) ([641de7d](https://github.com/inkatze/planwright/commit/641de7d09d6a74dddb883c78b5f1808a28463a30))
+* **self-review:** render-based no-arg spec resolution (skill-rigor task 3) ([#292](https://github.com/inkatze/planwright/issues/292)) ([8648de0](https://github.com/inkatze/planwright/commit/8648de011a5aa31e8d4eef0d678031f196e8cb70))
+* **spec-draft:** inline self-critique lens in review-and-validate (task 2) ([#288](https://github.com/inkatze/planwright/issues/288)) ([1249553](https://github.com/inkatze/planwright/commit/124955380cf1de86fdfc94600e751e87d1714566))
+* **spec-kickoff:** adaptive-level calibration in the kickoff dialogue (task 4) ([#294](https://github.com/inkatze/planwright/issues/294)) ([8e32f6e](https://github.com/inkatze/planwright/commit/8e32f6e3eabf2012016a872590560613ec0e344a))
+* **spec-kickoff:** instantiate interaction disciplines in-band (task 3) ([#290](https://github.com/inkatze/planwright/issues/290)) ([15c6f06](https://github.com/inkatze/planwright/commit/15c6f0659f0547319fac03c958095512595f349a))
+
 ## [0.27.0](https://github.com/inkatze/planwright/compare/v0.26.0...v0.27.0) (2026-07-21)
 
 
