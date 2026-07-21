@@ -458,6 +458,15 @@ else
   fail "self-review: fallback rung does not degrade a render error / zero / multiple candidates to the existing arm (D-2)"
 fi
 
+# Acceptance gates on candidate uniqueness (exactly one Ready-or-Active
+# candidate), not on how many carry a brief — keeping it consistent with the
+# multiple-candidates degradation rule above (Copilot #292 thread).
+if printf '%s' "$sr" | grep -qE 'exactly one such candidate exists'; then
+  ok "self-review: brief taken only when exactly one Ready-or-Active candidate exists (D-2)"
+else
+  fail "self-review: acceptance not gated on a single Ready-or-Active candidate (contradicts the multiple-candidates degradation rule)"
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)" >&2
   exit 1

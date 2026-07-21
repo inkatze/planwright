@@ -118,13 +118,13 @@ pass summary.
    means the brief is absent for this pass, never a fall-through to another
    spec's brief. Otherwise resolve through the status render
    (`scripts/spec-status.sh` / `mise run status`; invariant-tasks D-6),
-   accepting any `specs/*/` bundle whose derived status
-   is Ready or Active — so a format-version-2 bundle with work in flight
-   (stored Ready, derived Active) resolves, not only a stored-`Active` v1 spec
-   — and taking its sibling `kickoff-brief.md` when exactly one such bundle
-   carries one. A render error, zero candidates, or multiple Ready-or-Active
-   candidates is not an unambiguous match: degrade to the existing arm — ask
-   when attended, proceed brief-less when unattended or dispatched (D-2). With
+   accepting a `specs/*/` bundle whose derived status is Ready or Active — so
+   a format-version-2 bundle with work in flight (stored Ready, derived
+   Active) resolves, not only a stored-`Active` v1 spec. When exactly one such
+   candidate exists, take its sibling `kickoff-brief.md`. A render error, zero
+   candidates, or multiple Ready-or-Active candidates is not an unambiguous
+   match: degrade to the existing arm — ask when attended, proceed brief-less
+   when unattended or dispatched (D-2). With
    no active brief, the Agent-resolvable bucket is unavailable for this pass
    (its predicate requires brief alignment); record that and proceed with
    the remaining buckets.
@@ -211,7 +211,7 @@ extended with the lens-coverage table at the front and the pass summary at
 the end):
 
 1. The lens-coverage table.
-2. The four bucket tables in fixed order, an empty bucket a single `none`
+2. The four bucket tables in fixed order, an empty bucket as a single `none`
    row, columns per the wiring doc's formats.
 3. The declined log.
 4. The pending-sign-off checklist, regenerated from the
