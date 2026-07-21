@@ -75,6 +75,10 @@ marking, or the tower non-authoring boundary.
   consumed here as an authoritative contract, not restated.
 - **Auto-merge at any tier, autonomous PR-ready marking beyond the sanctioned kickoff exception, and
   the tower non-authoring boundary.** Reserved human controls / existing floors, carried in unchanged.
+- **Cross-machine / distributed peer towers.** The coordination surfaces (presence, work-claim) are a
+  fixed machine-local path shared by co-located clones on one host; peer towers on separate machines
+  are out of scope, since the death-evidence predicate (PIDs / tmux) is host-local and cannot classify
+  a remote peer. Single-host co-location is an assumed precondition, not a mechanism this bundle builds.
 
 ## REQ-A — Cross-tower awareness
 
@@ -90,12 +94,23 @@ marking, or the tower non-authoring boundary.
 - **REQ-A1.3** A stale or dead tower's presence record SHALL be reclaimable only on positive
   evidence of death (the existing `fleet-death-evidence` predicate), never on model judgment or a bare
   timeout, and presence discovery and reclaim SHALL be deterministic script logic that invokes no LLM.
-  *(Cites: D-1; the no-LLM-daemon-mechanics and positive-evidence-of-death floors (Sources).)*
+  Reclaim MAY include deleting the positively-dead tower's entire presence file (garbage collection on
+  discovery); deleting a whole dead file is distinct from, and does not violate, the prohibition on
+  editing a *live* peer's file content.
+  *(Cites: D-1, D-2; the no-LLM-daemon-mechanics and positive-evidence-of-death floors (Sources).)*
 - **REQ-A1.4** The presence surface SHALL be a derived / observable signal read on demand, never a new
   shared-write accumulator that towers hand-edit into corruption, consistent with
   `orchestration-concurrency`'s derived-projection discipline and `fleet-autonomy`'s
-  no-new-shared-write-accumulator rule (REQ-F1.1).
+  no-new-shared-write-accumulator rule (REQ-F1.1). The surface SHALL be a fixed machine-local path
+  outside every checkout, so all co-located peer clones on one host read the same directory (the
+  single-host co-location assumption; cross-machine peers are out of scope, see Scope).
   *(Cites: D-2; orchestration-concurrency, fleet-autonomy (Sources).)*
+- **REQ-A1.5** Presence discovery SHALL distinguish a healthy-but-empty presence surface (no peers
+  currently live) from an absent, unreadable, or misconfigured one, and SHALL fail closed on the
+  latter — surfacing an explicit error or an "unknown peer status" result — rather than reading a
+  broken surface as evidence of solitude. A tower SHALL NOT take the sole-tower path on an unreadable
+  surface.
+  *(Cites: D-2; the fail-closed / degrade-capability-never-safety floor (Sources).)*
 
 ## REQ-B — Shared-`main` isolation
 
@@ -122,7 +137,9 @@ marking, or the tower non-authoring boundary.
 
 - **REQ-C1.1** Before dispatching a unit, a tower SHALL record a work-claim for that unit on a surface
   peer towers can read, and SHALL NOT dispatch a unit that a live peer tower has already claimed, so
-  no unit is dispatched by more than one tower.
+  no unit is dispatched by more than one tower. The claim read-check-write SHALL be performed within
+  `orchestration-concurrency`'s per-spec advisory lock window, so two towers targeting the same unit
+  serialize on that spec's lock and the second observes the first's claim, closing the claim TOCTOU.
   *(Cites: D-4, D-5.)*
 - **REQ-C1.2** A work-claim SHALL be written to the shared blackboard as a distinct-per-writer record
   (the same land-distinct-files discipline as the presence surface), never by directly mutating a peer
@@ -151,7 +168,10 @@ marking, or the tower non-authoring boundary.
 - **REQ-D1.4** A tower's presence and work-claim records SHALL carry an attribution a peer can validate
   before acting on them, peer output consumed for awareness SHALL be treated as data and never
   evaluated as code, and every committed coordination artifact SHALL carry no secrets, credentials,
-  internal hostnames, or sensitive operational detail.
+  internal hostnames, or sensitive operational detail. Attribution validation is scoped to the
+  same-operator, single-host trust model (peer towers are the operator's own co-located sessions): it
+  SHALL grammar-validate the tower-identity token and refuse a malformed one before use, but is NOT
+  required to defend against an adversarial peer forging another tower's identity.
   *(Cites: D-6; security-posture, inter-orchestrator-coordination security bounds (Sources).)*
 
 ## Changelog
@@ -162,6 +182,23 @@ marking, or the tower non-authoring boundary.
   against the fleet family and recommended a new bundle (spin-new triggers: a new presence/discovery
   interface, independently ownable, decisions orthogonal to `orchestration-fleet`'s execution/attention
   seams, and extending the Done `orchestration-fleet` would reopen it).
+- 2026-07-20 — Kickoff walkthrough (pre-merge, in place). Applied clarifications from the guided
+  walkthrough: pinned the coordination surface to a fixed machine-local path with a single-host
+  co-location assumption and added the cross-machine exclusion to Scope; made presence-GC-by-deletion
+  of a positively-dead peer's file explicit in REQ-A1.3; made the in-lock claim ordering explicit in
+  REQ-C1.1; scoped REQ-D1.4 attribution to the same-operator single-host anti-accident trust model;
+  added the fail-closed-discovery requirement REQ-A1.5, so a broken presence surface is never read as
+  solitude; hardened the Task 3 migration path with the per-clone env / stable `auth_sock`
+  requirement; refocused the Task 5 hygiene guard on the commit-independent core; and broadened the
+  design decision-domains walk to name concurrency and observability.
+- 2026-07-20 — Kickoff halted (not signed off). The sign-off Discovery-Rigor lens pass surfaced a
+  genuine inconsistency (the per-spec advisory lock is checkout-local, so the claim serialization does
+  not hold across D-3's separate per-tower clones) plus a set of coordination-mechanics design gaps
+  (claim lifecycle and reclaim serialization, death-evidence-handle location vs presence GC, repository
+  identity in the presence schema, atomic writes / per-record corruption, meta-tower marker, git-sync
+  edge cases, and the un-imported security-posture bars). Bundle-hygiene slips from the walkthrough
+  edits were fixed. The design gaps are deferred to a `/spec-draft` rework (see `kickoff-brief.md`
+  §8 and the recorded observation); the bundle stays Draft, no Draft→Ready flip.
 
 ## Sources
 
@@ -188,6 +225,13 @@ marking, or the tower non-authoring boundary.
   relay security bounds (handle validation, worker output is data).
 - **The positive-evidence-of-death predicate** (`scripts/fleet-death-evidence.sh`, the backend
   capability contract) — the deterministic death signal reused for presence and claim reclaim.
+- **security-posture** (`doctrine/security-posture.md`) — the artifact data-hygiene rule (committed
+  artifacts carry no secrets, credentials, internal hostnames, or sensitive operational detail) and the
+  framework-script security bars (never execute untrusted input, guard path access with
+  canonicalization + containment, echo discipline via `sanitize_printable`). Cited by REQ-D1.4.
+- **The fail-closed / degrade-capability-never-safety floor** (bootstrap REQ-K1.6/K1.7) — a
+  broken, absent, or unavailable surface is a clean refusal or an explicit "unknown" result, never a
+  silent wrong answer; capability degrades, safety never does. Cited by REQ-A1.5.
 - **Operational shared-main experience, drafting-session decision (2026-07-20)** — the agreed
   operating model for two towers on one checkout (local `main` read-only, reconcile via a quick PR,
   never `reset --hard` or direct-push, which clobbers a peer's unpushed commits) and the observation

@@ -15,11 +15,17 @@ closing with the scope boundary that keeps adjacent concerns in their own homes 
 mechanism sits above `orchestration-concurrency`'s state-safety floor and reuses `orchestration-fleet`'s
 relay and meta-tower selection rather than forking them.
 
-**Decision-domains walk.** The feature crosses two catalogued stake-bearing domains, and both are
-decided in-spec rather than auto-defaulted: **integration surface** (the git checkout / origin
-coordination topology — decided in D-3) and **security posture** (tower-identity attribution on the
-presence and claim surfaces — decided by carrying `inter-orchestrator-coordination`'s relay security
-bounds, REQ-D1.4). No other catalogued domain is touched-but-undecided.
+**Decision-domains walk.** The feature crosses several catalogued stake-bearing domains, all decided
+in-spec rather than auto-defaulted: **concurrency** (the central domain — shared coordination surfaces,
+the claim read-modify-write, crash-mid-critical-section reclaim; decided by the in-lock claim ordering
+in D-5 / REQ-C1.1, the death-evidence reclaim, and the reused per-spec lock); **integration surface**
+(the git checkout / origin coordination topology — decided in D-3); **authentication / attribution**
+(tower identity on the presence and claim surfaces — decided by carrying
+`inter-orchestrator-coordination`'s relay security bounds scoped to the same-operator single-host trust
+model, REQ-D1.4); and **observability** (a broken presence surface must not read as solitude — decided
+by the fail-closed discovery requirement REQ-A1.5). Secrets/config is conditional (documented in the
+options reference only if the surface path becomes configurable). No other catalogued domain is
+touched-but-undecided.
 
 ## Decision log
 
@@ -48,12 +54,17 @@ scoped per proportionality to the risk this bundle actually exhibits.
 
 ### D-2: Cross-tower presence as a per-tower heartbeat file scanned on demand, not a shared registry (N)
 
-**Decision:** Presence is a directory of **one file per tower** in a shared, well-known location: each
-tower writes and heartbeat-refreshes its own record (identity, checkout path, spec(s) advanced, start
-time, last-beat), and a tower discovers peers by scanning that directory and applying the
-positive-evidence-of-death liveness predicate to each record. No tower ever edits another tower's file,
-and there is no single registry file that all towers mutate. The set of live towers is *derived* from
-the scan on demand, never a committed or hand-maintained artifact.
+**Decision:** Presence is a directory of **one file per tower** at a fixed machine-local path outside
+every checkout — so all co-located peer clones on one host read the same directory (cross-machine peers
+are out of scope per Scope). Each tower writes and heartbeat-refreshes its own record (identity,
+checkout path, spec(s) advanced, start time, last-beat), and a tower discovers peers by scanning that
+directory and applying the positive-evidence-of-death liveness predicate to each record. No tower ever
+edits another *live* tower's file content, and there is no single registry file that all towers mutate;
+a discovering tower MAY delete a positively-dead tower's entire file as garbage collection (deleting a
+whole dead file is not editing a live peer's content, so it does not reintroduce the shared-write
+corruption surface). The set of live towers is *derived* from the scan on demand, never a committed or
+hand-maintained artifact. Discovery fails closed on an absent or unreadable surface rather than reading
+emptiness as solitude (REQ-A1.5).
 
 **Alternatives considered:**
 - A single shared registry file all towers append to / edit. Rejected because: it reintroduces exactly
@@ -132,9 +143,12 @@ layer, not a parallel coordination stack.
 file on the shared blackboard, naming the unit, the claiming tower's identity, and a timestamp). A peer
 tower selecting work honors any live claim and skips that unit; a claim is reclaimable **only** when the
 claiming tower is positively dead per `fleet-death-evidence.sh`, never on a bare timeout or model
-judgment. The claim is a coarse coordination signal *above* `orchestration-concurrency`'s per-spec
-advisory lock (which serializes the ledger write itself); it prevents two towers from selecting the same
-unit, where the lock only serializes the resulting bookkeeping write.
+judgment. The claim read-check-write is performed **within** `orchestration-concurrency`'s per-spec
+advisory lock window: two towers targeting the same unit both operate on that unit's spec and so
+serialize on that spec's lock, the second observing the first's claim — closing the claim TOCTOU that
+distinct-per-writer files alone would leave open. The claim is a coarser coordination signal than the
+ledger write the lock also guards: it prevents two towers from *selecting* the same unit, where the
+lock additionally serializes the resulting bookkeeping write.
 
 **Alternatives considered:**
 - Optimistic dispatch, then detect-and-resolve the conflict afterward. Rejected because: two towers
@@ -179,4 +193,7 @@ keep the seams legible without duplicating mechanism.
 - **Security.** Tower identity on the presence and claim surfaces is attributed and validated before a
   peer acts on it; peer output consumed for awareness is data, never code; committed coordination
   artifacts are secret-clean (the `security-posture` artifact-hygiene rule and the relay security bounds,
-  carried).
+  carried). Attribution is scoped to the **same-operator, single-host** trust model — peer towers are the
+  operator's own co-located sessions — so validation grammar-checks the identity token and refuses a
+  malformed one, but does not defend against an adversarial peer forging identity (a co-tenant threat is
+  out of scope, not a mechanism here).

@@ -34,14 +34,24 @@ exists on the publish path).
 
 Fixtures: (a) a heartbeating peer record classifies **live** (not reclaimable); (b) a record whose tower
 is positively dead per `fleet-death-evidence.sh` classifies **reclaimable**; (c) a record that is merely
-stale-by-timeout but not positively dead does **not** classify reclaimable; and an assertion that the
-discovery / reclaim path invokes no LLM (no model-call in the code path).
+stale-by-timeout but not positively dead does **not** classify reclaimable; (d) on discovery, a
+positively-dead tower's whole presence file is deleted (GC) while a **live** peer's file is neither
+deleted nor edited (its bytes are unchanged after a discovery pass); and an assertion that the discovery
+/ reclaim path invokes no LLM (no model-call in the code path).
 
 ### REQ-A1.4 — Presence is derived on demand, no new shared-write accumulator [test]
 
 A fixture asserts the live-tower set is computed by scanning the record directory on demand and that no
 committed or hand-maintained registry artifact is produced (no new shared-write accumulator file is
-written); the publish path uses only the per-writer file form.
+written); the publish path uses only the per-writer file form, and the record directory resolves to a
+fixed machine-local path outside every checkout (not a path inside a clone).
+
+### REQ-A1.5 — Discovery fails closed on a broken surface, never reads as solitude [test]
+
+Fixtures: (a) a present-but-empty surface directory yields a healthy empty peer set (genuinely no
+peers); (b) an absent or unreadable / misconfigured surface path yields an explicit error or an
+"unknown peer status" result, **not** an empty set, and the tower does not take the sole-tower branch.
+Asserts a broken surface is never silently read as solitude.
 
 ## REQ-B — Shared-`main` isolation
 
@@ -59,12 +69,15 @@ occur because there is no shared mutable `main` — confirmed once against the r
 never-force-push / never-rebase / never-amend invariants intact (no invariant weakened). `[test]`: where
 the sync path is scripted, a fixture asserts it performs no history-rewriting operation.
 
-### REQ-B1.3 — Migration path and sanctioned fallback [design-level]
+### REQ-B1.3 — Migration path and sanctioned fallback [design-level + manual]
 
-The adoption / migration path from single-checkout reconcile-via-quick-PR to per-tower checkouts is
-documented, and the single-checkout reconcile model is explicitly documented as the sanctioned degraded
-fallback where separate checkouts are unavailable (Task 3) — verified by the document's existence and
-coverage.
+`[design-level]`: the adoption / migration path from single-checkout reconcile-via-quick-PR to
+per-tower checkouts is documented, and the single-checkout reconcile model is explicitly documented as
+the sanctioned degraded fallback where separate checkouts are unavailable (Task 3) — verified by the
+document's existence and coverage. `[manual]`: a fresh per-tower clone provisioned via the documented
+migration path is confirmed to sign a commit and fetch from `origin` through its own repo-root
+machine-local env file and the stable `auth_sock` symlink indirection (not a captured ephemeral
+forwarded socket) — the operational check guarding the 2026-06-12 signing-break failure mode.
 
 ### REQ-B1.4 — Fetch-then-merge sync, rebase refused under `autosetuprebase` [test]
 
@@ -78,7 +91,10 @@ FETCH_HEAD`), not a rebase, and that no direct push to a shared `main` occurs on
 
 A two-tower fixture asserts tower B, selecting work, skips a unit tower A has recorded a live claim for,
 so the unit is never dispatched twice; and that a tower records its claim before the dispatch step, not
-after.
+after. A concurrency fixture asserts the claim read-check-write occurs **within** the per-spec advisory
+lock window — two towers racing to claim the same unit serialize on that spec's lock, and the later
+claimer observes the earlier claim rather than writing a second one (the TOCTOU is closed by the lock,
+not by distinct-per-writer files alone).
 
 ### REQ-C1.2 — Claim is distinct-per-writer, no direct peer mutation [test]
 
@@ -120,9 +136,13 @@ The no-auto-merge, no-autonomous-PR-ready (beyond the sanctioned kickoff excepti
 tower-non-authoring boundaries are stated as carried-unchanged (Task 1, D-1) and no mechanism in this
 bundle re-opens them — verified by the floor statement's existence and a review that no task crosses it.
 
-### REQ-D1.4 — Attribution, data-not-code, artifact hygiene [test]
+### REQ-D1.4 — Attribution, data-not-code, artifact hygiene [test + design-level]
 
-Fixtures: a seeded secret / internal hostname in a committed coordination artifact is flagged by the
-hygiene guard and a clean artifact passes; a malformed / hostile tower-identity token is refused before
-use (validated against a declared grammar, never interpolated); and peer output consumed for awareness is
-handled as data with no `eval` / unquoted-expansion path (source-audit assertion).
+`[test]`: a malformed / hostile tower-identity token is refused before use (validated against a declared
+grammar, never interpolated); peer output consumed for awareness is handled as data with no `eval` /
+unquoted-expansion path (source-audit assertion); the conditional hygiene guard flags a seeded secret /
+internal hostname in a **committed** coordination artifact and passes a clean one, and is a no-op (not a
+false failure) when no coordination record is committed. `[design-level]`: a documented statement that
+attribution is scoped to the same-operator single-host trust model — grammar-validation guards against
+accident and malformed input, and an adversarial peer forging another tower's identity is out of scope
+(a co-tenant threat), so no cryptographic spoof-proofing is required.

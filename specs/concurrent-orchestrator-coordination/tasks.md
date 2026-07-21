@@ -46,9 +46,11 @@ is Task 1 → Task 2 → Task 4; Task 3 and Task 5 run in parallel after Task 1.
   one live); concurrent writers are shown to land distinct files with no collision (no shared-registry
   write path exists); the discovery scan invokes no LLM and issues no backend-specific pane/process scrape;
   a tower that finds ≥1 live peer does not behave as sole tower (asserted via the selection path in Task 4,
-  or a standalone flag until then); the validator and CI pass.
+  or a standalone flag until then); discovery distinguishes a healthy-but-empty surface from an absent /
+  unreadable / misconfigured one and fails closed on the latter (an explicit error or "unknown peer
+  status", never read as solitude); the validator and CI pass.
 - **Dependencies:** 1
-- **Citations:** D-1, D-2 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4
+- **Citations:** D-1, D-2 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5
 - **Estimated effort:** 2 days
 
 ### Task 3 — Per-tower checkout model, migration path & cross-checkout `main` currency
@@ -59,13 +61,17 @@ is Task 1 → Task 2 → Task 4; Task 3 and Task 5 run in parallel after Task 1.
   retained as the sanctioned degraded fallback; and the cross-checkout `main`-currency sync path using
   explicit `git fetch origin main && git merge FETCH_HEAD` (never rebase, never a direct push to a shared
   `main`), accounting for the `branch.autosetuprebase=always` pitfall that turns a bare `git pull` into a
-  forbidden rebase.
+  forbidden rebase. The migration path SHALL cover each clone's own repo-root machine-local env file and
+  a stable `auth_sock` symlink indirection (never a captured ephemeral forwarded socket), so a fresh
+  per-tower clone signs and fetches without inheriting a dead session's plumbing.
 - **Done when:** the per-tower-checkout model and its migration/fallback path are documented and
   verified against `orchestration-concurrency`'s derived-projection and never-rewrite-history invariants
   (no invariant weakened); the sync path is demonstrated to fetch-then-merge and to refuse / avoid a
   rebase even under `branch.autosetuprebase=always` (a fixture asserts the resulting operation is a merge,
-  not a rebase); the degraded single-checkout fallback is explicitly documented as sanctioned; the
-  validator and CI pass.
+  not a rebase); the degraded single-checkout fallback is explicitly documented as sanctioned; a fresh
+  per-tower clone is confirmed (manual sweep) to sign and fetch through its own repo-root machine-local
+  env file and the stable `auth_sock` symlink indirection, without inheriting a dead session's plumbing;
+  the validator and CI pass.
 - **Dependencies:** 1
 - **Citations:** D-3 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4
 - **Estimated effort:** 2 days
@@ -90,17 +96,22 @@ is Task 1 → Task 2 → Task 4; Task 3 and Task 5 run in parallel after Task 1.
 
 ### Task 5 — Coordination-artifact hygiene guard & cross-reference wiring
 
-- **Deliverables:** A guard covering every committed coordination artifact (presence and claim records
-  that land in a committed log, coordination/handover documents) for secrets, credentials, internal
-  hostnames, and sensitive operational detail — wired into `mise run check` alongside the existing
-  secret-scan coverage of fleet artifacts; attribution-validation of a peer's tower identity before it is
-  acted on (the relay handle-validation discipline applied to presence/claim records); and the
-  cross-reference wiring into `orchestration-concurrency` (state-safety floor), `orchestration-fleet`
-  (relay + meta-tower), and `fleet-autonomy` (usage-governance boundary) so the seams are legible.
-- **Done when:** the hygiene guard flags a seeded secret in a coordination artifact and passes a clean
-  one; a malformed / hostile tower-identity token is refused before use (validated against a declared
-  grammar, never interpolated); peer output consumed for awareness is treated as data (no `eval` /
-  unquoted-expansion path); the cross-references resolve to the named bundles; the validator and CI pass.
+- **Deliverables:** The commit-independent core first — attribution-validation of a peer's tower
+  identity before it is acted on (the relay handle-validation discipline applied to presence/claim
+  records, grammar-validated and never interpolated) and the data-not-code discipline on peer records
+  read from the machine-local surface (no `eval` / unquoted-expansion path); plus a *conditional* hygiene
+  guard that scans any coordination record a deployment does commit (a committed audit / handover log, or
+  a summary of presence/claims that lands in git) for secrets, credentials, internal hostnames, and
+  sensitive operational detail, wired into `mise run check` alongside the existing secret-scan of fleet
+  artifacts — noting that presence/claim records are normally machine-local and uncommitted, so the scan
+  targets only what actually lands in git; and the cross-reference wiring into
+  `orchestration-concurrency` (state-safety floor), `orchestration-fleet` (relay + meta-tower), and
+  `fleet-autonomy` (usage-governance boundary) so the seams are legible.
+- **Done when:** a malformed / hostile tower-identity token is refused before use (validated against a
+  declared grammar, never interpolated) and peer output consumed for awareness is treated as data (no
+  `eval` / unquoted-expansion path); the conditional hygiene guard flags a seeded secret in a committed
+  coordination artifact and passes a clean one, and is a no-op (not a false failure) when no coordination
+  record is committed; the cross-references resolve to the named bundles; the validator and CI pass.
 - **Dependencies:** 1
 - **Citations:** D-6 · REQ-D1.1, REQ-D1.2, REQ-D1.4
 - **Estimated effort:** 1 day
