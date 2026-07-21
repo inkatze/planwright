@@ -103,9 +103,20 @@ TAB=$(printf '\t')
 
 MODEL_VALUES="fable opus sonnet haiku"
 EFFORT_VALUES="low medium high"
+COMMAND_VALUES="execute-task orchestrate drain"
 
 usage() {
   echo "usage: fleet-allocate.sh resolve <task-type> [--reserved] | guard <model> [<permission-mode>]" >&2
+}
+
+# in_enum <value> <space-separated-set>: 0 when <value> is a member of the set.
+# `set -f` keeps the unquoted $2 word-split (on IFS) from glob-expanding, so a
+# token like `*` is compared literally, never expanded.
+in_enum() {
+  for _ie in $2; do
+    [ "$1" = "$_ie" ] && return 0
+  done
+  return 1
 }
 
 # require_exec <path> <label>: fail-closed broken-install guard for a sibling.
@@ -285,6 +296,18 @@ cmd_resolve() {
   base_model=$(printf '%s' "$base" | cut -f1)
   base_effort=$(printf '%s' "$base" | cut -f2)
   base_command=$(printf '%s' "$base" | cut -f3)
+  # fleet-resource-select's exit-0 contract is a 3-column TSV of valid-enum
+  # values. Validate all three fields here so a truncated/corrupt row or an
+  # unexpectedly-older helper fails closed as a broken install (exit 5) instead
+  # of emitting an empty or invalid effort/command into the allocation. This
+  # validates base_model symmetrically with effort/command (not only via the
+  # tier derivation below), closing the model-vs-effort/command asymmetry.
+  if ! in_enum "$base_model" "$MODEL_VALUES" \
+    || ! in_enum "$base_effort" "$EFFORT_VALUES" \
+    || ! in_enum "$base_command" "$COMMAND_VALUES"; then
+    echo "fleet-allocate: resource-select returned a malformed row (model='$(sanitize_printable "$base_model" "?")' effort='$(sanitize_printable "$base_effort" "?")' command='$(sanitize_printable "$base_command" "?")') — broken or outdated install" >&2
+    exit 5
+  fi
 
   # The un-degraded normal policy, resolved once (also the kill-switch answer).
   conc_normal=$(resolve_posint fleet_concurrency_normal 3) || exit $?

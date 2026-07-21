@@ -316,4 +316,29 @@ sonnet_cap=$(sed -n 's/^fleet_cap_sonnet: *//p' "$real_defaults")
 [ "$opus_cap" -lt "$sonnet_cap" ] || fail "shipped caps violate REQ-E1.9: opus ($opus_cap) must be below sonnet ($sonnet_cap)"
 echo "ok: shipped allocation defaults match the table and opus's cap is below sonnet's"
 
+# 14. A malformed resource-select row (truncated / older helper) fails closed as
+#     a broken install (exit 5), never a silent empty/invalid effort or command
+#     in the allocation. Runs a copy of the script from a tree whose stub
+#     resource-select emits a 1-field row on exit 0; the other siblings are
+#     executable stubs (validation exits before they are invoked).
+reset_state
+broken="$tmp/broken-select-tree"
+mkdir -p "$broken"
+cp "$FAL" "$broken/fleet-allocate.sh"
+cp "$here/../scripts/echo-safety.sh" "$broken/echo-safety.sh"
+cat >"$broken/fleet-resource-select.sh" <<'EOF'
+#!/bin/sh
+printf 'opus\n'
+EOF
+chmod +x "$broken/fleet-resource-select.sh"
+for s in resolve-config-knob.sh fleet-usage-gate.sh fleet-daemon-gate.sh; do
+  printf '#!/bin/sh\nexit 0\n' >"$broken/$s"
+  chmod +x "$broken/$s"
+done
+rc=0
+out=$(PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" /bin/bash "$broken/fleet-allocate.sh" resolve execution 2>/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "a malformed resource-select row must fail closed as broken-install exit 5, got $rc"
+[ -z "$out" ] || fail "a malformed row must emit no allocation on stdout, got: $out"
+echo "ok: a malformed resource-select row fails closed (exit 5), never a silent invalid allocation"
+
 echo "ALL PASS: fleet-allocate"
