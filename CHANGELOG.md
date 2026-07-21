@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.26.0](https://github.com/inkatze/planwright/compare/v0.25.0...v0.26.0) (2026-07-21)
+
+
+### Features
+
+* **fleet-hardening:** deterministic D-36 branch naming in the tmux dispatch primitive (task 10) ([#274](https://github.com/inkatze/planwright/issues/274)) ([e079116](https://github.com/inkatze/planwright/commit/e079116a12451856534c6fd59a3ecb96e9cf818e))
+* **fleet-hardening:** fallback pane-state detector, footer-only debounced backstop (task 3) ([#263](https://github.com/inkatze/planwright/issues/263)) ([ae35dd6](https://github.com/inkatze/planwright/commit/ae35dd6eadfa9700bc232be0b61bb4e39d6a6ec2))
+* **fleet-hardening:** fetch-before-gate dispatch freshness and merge detection ([#257](https://github.com/inkatze/planwright/issues/257)) ([bd54f7d](https://github.com/inkatze/planwright/commit/bd54f7d6ef130e304eb65750fc2b0dd8acff97d3))
+* **fleet-hardening:** fork-park attention via the Notification hook (Task 2) ([#259](https://github.com/inkatze/planwright/issues/259)) ([044dd89](https://github.com/inkatze/planwright/commit/044dd891aad7153190c39698c5b59808b369c88d))
+* **fleet-hardening:** ghost-text pin in the dispatch launch primitive (task 5) ([#264](https://github.com/inkatze/planwright/issues/264)) ([c6002aa](https://github.com/inkatze/planwright/commit/c6002aa2ee1f69857895881e008dede7a4d727d1))
+* **fleet-hardening:** sanctioned tower-observation-to-main carry path (task 9) ([#271](https://github.com/inkatze/planwright/issues/271)) ([5db7bad](https://github.com/inkatze/planwright/commit/5db7badbf3de037a52991d160adeda4b17612d78))
+* **fleet-hardening:** structured worker-to-tower decision channel (task 4) ([#268](https://github.com/inkatze/planwright/issues/268)) ([6274bb5](https://github.com/inkatze/planwright/commit/6274bb5fd1d5cb5b2c38c83beac5c44472855643))
+* **instruction-headroom:** closing verification and guidance re-land (task 11) ([#273](https://github.com/inkatze/planwright/issues/273)) ([1dc9550](https://github.com/inkatze/planwright/commit/1dc9550b34dceca7b0c876a5e688d670c63ac8cb))
+* **instruction-headroom:** execute-task body diet (task 7) ([#266](https://github.com/inkatze/planwright/issues/266)) ([e42ef44](https://github.com/inkatze/planwright/commit/e42ef44d3739ec74ffc508780cb00d150b842f15))
+* **instruction-headroom:** guard reverse use-site check (task 5) ([#262](https://github.com/inkatze/planwright/issues/262)) ([db2ec7c](https://github.com/inkatze/planwright/commit/db2ec7c87278ff654b1ba2bba8a95cde9678922e))
+
+
+### Bug Fixes
+
+* **fleet-hardening:** fork-park survives turn-end Stop (idle_prompt/Stop async race) ([#265](https://github.com/inkatze/planwright/issues/265)) ([ce1a1b8](https://github.com/inkatze/planwright/commit/ce1a1b851bb90b107cdbe5cb641c7ba5539fde95))
+
 ## [0.25.0](https://github.com/inkatze/planwright/compare/v0.24.0...v0.25.0) (2026-07-20)
 
 
