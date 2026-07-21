@@ -59,10 +59,10 @@ gracefully instead:
 - `decision-domains` — the gap check's catalog. Absent: note it in one line,
   skip the gap check, and record the skip in the brief.
 - `interaction-style` — governs the flow's exchanges; `kickoff-dialogue`
-  (point-of-use) records their `/spec-kickoff` instantiation. Absent: follow the
-  inline summary (progress indicator, small bites, selectors with a
+  (point-of-use) records their `/spec-kickoff` instantiation. Either doc absent:
+  follow the inline summary (progress indicator, small bites, selectors with a
   recommendation, running summary) and the walk/sign-off spine below, and note
-  the missing doc(s).
+  which is missing.
 - `kickoff-verification` — the kickoff lens/verification mechanics: the mid-walk
   lens (walkthrough), the stale-reference sweep and sign-off lens-review scope,
   fan-out, and altitude check (sign-off), and the terminal ready-flip CI gate

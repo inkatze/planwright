@@ -77,9 +77,9 @@ declared-exception|closure:orchestrate|Below the 2x closure restoration target (
 # spec-kickoff doctrine to reabsorb it would risk its meaning, so the diet back
 # to the 2x target is deferred to instruction-headroom relief. operator-dialogue
 # Task 3 (a further same-file addition — the interaction-discipline instantiation)
-# lands the same way: its heavy prose is relocated into doctrine/kickoff-
-# dialogue.md and procedural flow is compressed to offset the lean inline
-# references, so the surface stays below-target with the safety floor intact.
+# lands the same way: its heavy prose is relocated into
+# `doctrine/kickoff-dialogue.md` and procedural flow is compressed to offset the
+# lean inline references, so the surface stays below-target with the floor intact.
 # The surface is named and the cause recorded, so the closing gate stays honest.
 declared-exception|skills/spec-kickoff/SKILL.md|Below the 2x per-file restoration target (margin ~255 < target 500); the per-file floor (250) is not breached. skill-rigor Tasks 5 and 6 added the sign-off pre-flip verification step and the terminal ready-flip CI gate, relocating those gate mechanics into doctrine/kickoff-verification.md per REQ-E1.1's compensating-trim path; operator-dialogue Task 3 then instantiated the interaction disciplines in-band, relocating the discipline-instantiation prose, the shared-understanding approval summary, the plain-language gate framing, and the structured decision/transcript log schema into doctrine/kickoff-dialogue.md and compressing procedural flow to offset the added references, keeping the surface below-target rather than floor-breaching. Diet back to target deferred to instruction-headroom relief; do not trim the just-restored spec-kickoff doctrine to reabsorb the residual.
 
