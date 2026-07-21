@@ -104,6 +104,21 @@ else
   fail "the sweep is not ordered before the recorded-claim re-derivation (REQ-B1.5, D-4)"
 fi
 
+# REQ-B1.5 / D-6 ordering, by file position (not just prose claim): the sweep
+# must be documented BEFORE the sign-off anchor is computed (spec-anchor.sh at
+# the sign-off record step). A future edit that moved the sweep after the anchor
+# step while keeping the "before the anchor" words would break the D-6 contract
+# yet pass the presence checks above; assert the actual position too. The
+# degrade-note mention says "stale-reference sweep" without "post-lens", so
+# anchoring on the "post-lens" form targets the sign-off-flow occurrence.
+sweep_line="$(grep -n 'post-lens stale-reference sweep' "$skill" | head -1 | cut -d: -f1)"
+anchor_line="$(grep -n 'Compute the anchor' "$skill" | head -1 | cut -d: -f1)"
+if [ -n "$sweep_line" ] && [ -n "$anchor_line" ] && [ "$sweep_line" -lt "$anchor_line" ]; then
+  ok "the sweep is documented before the anchor is computed (sweep=$sweep_line < anchor=$anchor_line) (REQ-B1.5, D-6)"
+else
+  fail "the sweep prose does not precede the anchor computation (sweep=$sweep_line anchor=$anchor_line) (REQ-B1.5, D-6)"
+fi
+
 # Both skill references point at the doctrine doc that carries the mechanics
 # (the Task 6 relocation precedent). The skill must name kickoff-verification at
 # both new passes; it already names it once (the terminal ready-flip gate), so
