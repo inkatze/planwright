@@ -183,8 +183,10 @@ resolve_home() {
 # The shared cross-spec advisory lock (fleet-state.sh — REQ-G1.3, no second
 # lock primitive). The gate holds it across its derive-then-record critical
 # section so concurrent towers cannot both record the same transition; the
-# nested fleet-audit record runs with PLANWRIGHT_FLEET_LOCK_HELD=1 to skip the
-# re-acquire that would deadlock on this same non-reentrant primitive.
+# nested fleet-audit record runs with PLANWRIGHT_FLEET_LOCK_HELD set to this
+# mechanism name (usage-gate) to skip the re-acquire that would deadlock on this
+# same non-reentrant primitive — scoped to the mechanism so a stray env value
+# never disables locking for an unrelated caller (fleet-audit header).
 HOLD_LOCK=0
 CUR_TMP=""
 # Release the lock AND reap any in-flight cache write temp on ANY exit, signals
