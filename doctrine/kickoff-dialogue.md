@@ -10,9 +10,10 @@ its point of use and follows the mechanics here; lifting them out keeps
 `skills/spec-kickoff/SKILL.md` within its instruction budget (D-10) while the
 full instantiation stays authoritative in one place.
 
-Citations: operator-dialogue REQ-B1.1, REQ-B1.2, REQ-B1.5, REQ-C1.1, REQ-C1.2,
-REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1, REQ-F1.2, REQ-F1.3,
-REQ-G1.3, REQ-G1.6, REQ-H1.3 · operator-dialogue D-2, D-3, D-5, D-6, D-9, D-10.
+Citations: operator-dialogue REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-B1.5,
+REQ-C1.1, REQ-C1.2, REQ-C1.4, REQ-C1.5, REQ-D1.1, REQ-D1.2, REQ-D1.3, REQ-F1.1,
+REQ-F1.2, REQ-F1.3, REQ-G1.3, REQ-G1.6, REQ-H1.3 · operator-dialogue D-2, D-3,
+D-4, D-5, D-6, D-9, D-10.
 
 ## Comprehend before interviewing (teach to the frontier, D-2)
 
@@ -34,6 +35,43 @@ enumerated state — appears unsoftened, never paraphrased into vague prose
 (REQ-B1.5). Tokens for concepts the run legitimately skips as already-held are
 simply not conveyed; non-distortion of what *is* presented is the rule, not
 presence of every source token.
+
+## Adaptive-level calibration: the running per-concept estimate (D-4)
+
+The depth each explanation is pitched at (the frontier teaching above) is driven
+by a **lightweight running per-concept estimate** of what the operator has picked
+up — a run-local heuristic sense, held per concept (a spec term, a requirement's
+intent, a design rationale, a pipeline mechanic) and updated as the dialogue
+proceeds. It is not a stored profile, a score, or a formal learner model.
+
+- **Frontier detection (REQ-B1.3).** Before explaining a concept, the skill reads
+  what the operator has already demonstrated about it — a correct restatement in
+  their own words, a question that presupposes it, an answer that applies it, or
+  explicit prior exposure. A concept demonstrably held is skipped or named in
+  passing; the gap between what the operator holds and what the section needs is
+  what gets taught. Demonstrated command raises the estimate for that concept; a
+  confusion signal (a mis-restatement, a question exposing a gap) lowers it and
+  pulls the explanation back down.
+- **Fade across sections (REQ-B1.3).** As the estimate rises the scaffolding
+  tapers: a concept taught in full early is referenced, not re-derived, when it
+  recurs later, and the shared vocabulary the early sections built is assumed.
+  Fade is **per concept, not global** — an operator fluent in the requirements
+  vocabulary but new to the task-graph mechanics still gets the task graph taught.
+- **The no-model bound (REQ-B1.4, D-4 proportionality).** The estimate stays
+  deliberately lightweight: a running sense carried in the live dialogue, never
+  knowledge tracing, a knowledge-space lattice, an HMM, or any machinery that
+  models the operator formally — the borrowable core is "teach the frontier,
+  fade," not the learner model behind it. When uptake is uncertain the skill
+  teaches rather than guesses held: an over-explanation costs a sentence, a wrong
+  skip loses the operator.
+- **The estimate never absorbs garbage (REQ-C1.5, REQ-B1.4).** Input the skill
+  cannot parse leaves the per-concept estimate exactly where it was (it earns a
+  re-prompt, per *Interview to completeness*), so malformed input can neither
+  inflate a concept to "held" nor corrupt the calibration that drives later depth.
+
+Depth is all this varies: a normative token a presented concept carries stays
+verbatim however tersely it is pitched (*Comprehend before interviewing*,
+REQ-B1.5) — skipping a held concept is allowed, softening a presented one is not.
 
 ## Interview to completeness by backward-chaining (D-5)
 
@@ -143,7 +181,9 @@ bundle: the committed artifacts stay the brief and the four spec files.
 ## Degradation
 
 Absent this doc, `/spec-kickoff` follows the load-bearing spine inline: comprehend
-the spec in-band before interviewing, interview to completeness by
+the spec in-band before interviewing, pitch each explanation at the operator's
+frontier and fade scaffolding across sections via a lightweight per-concept uptake
+estimate (no learner model), interview to completeness by
 backward-chaining the bundle's open questions (bounded per pass), present without
 steering, emit the shared-understanding approval summary in place of a
 verdict-demand, frame the gates in plain language, and emit the structured
