@@ -36,6 +36,7 @@ marks which load at run start and which at the named step/branch:
 `doctrine/plugin-script-invocation.md`.
 
 Doctrine: run-start proportionality
+Doctrine: point-of-use selection-contract (candidacy semantics + the selector exit contract)
 Doctrine: point-of-use spec-format (pre-flight brief check + the freshness gate)
 Doctrine: point-of-use gate-wiring (recording a halt to Awaiting input)
 Doctrine: point-of-use accumulator-taxonomy (--bookkeeping / gate drain)
@@ -117,26 +118,30 @@ pre-flight halts fire at once, report them together (D-45).
 
 ## Selection (REQ-F1.2)
 
-Pick the next ready unit with `scripts/orchestrate-select.sh specs/<spec>`, which
-applies critical-path-first deterministically: a **ready** task is one the live
-derivation reports neither completed nor in-progress, every dependency completed,
-and not parked — on a v1 bundle a candidate sits in `## Forward plan`; on a
-format-version 2 bundle no placement sections exist, and parked-ness is a live
-reference bullet naming the task in `## Awaiting input`, `## Deferred`, or `## Out
-of scope` (invariant-tasks D-8) — among ready tasks it returns the head of the
-effort-weighted longest dependent chain, FIFO on ties.
+Pick the next ready unit with `scripts/orchestrate-select.sh specs/<spec>`,
+critical-path-first over the **live derivation** (`scripts/orchestrate-state.sh`:
+git + trailer + marker + gh evidence), not the committed `tasks.md` snapshot (D-3,
+REQ-B1.2); the full candidacy and exit-code mechanics are the `selection-contract`
+doctrine. **Candidacy is version-keyed** to the declared `Format-version:` (the
+selector refuses a missing or unparseable one, REQ-C1.8): on a **version 1** bundle
+a task is a candidate while its block sits in `## Forward plan`; on a
+**format-version 2** bundle no placement section exists, so candidacy is
+derivational and parked-ness is a live reference bullet naming the task in
+`## Awaiting input`, `## Deferred`, or `## Out of scope` (invariant-tasks D-8).
 
-Completed / in-progress state is read from the **live derivation**
-(`scripts/orchestrate-state.sh`: git + trailer + marker + gh evidence), not the
-committed `tasks.md` snapshot (D-3, REQ-B1.2) — so an already in-flight or
-completed task is never re-dispatched. The dependency graph is still parsed from
-`tasks.md`; per-block Status is advisory, not consulted.
+Selector exits (full contract: `selection-contract`):
 
-- Exit 0 with an id → that is the unit (subject to bundling below).
-- Exit 1 (no ready unit) → nothing to dispatch this step. In `--watch` stop the
-  loop; else report it and exit cleanly.
-- Exit 2 (missing/taskless tasks.md, or the derivation failed closed) → fail
-  closed; halt with the message.
+- Exit 0 → the unit (subject to bundling below).
+- Exit 1 → no ready unit; in `--watch` stop the loop, else report it and exit
+  cleanly.
+- Exit 2 → a fail-closed halt (missing/taskless `tasks.md`, or the derivation
+  failed closed).
+- Exit 3 (format-version 2 transient evidence hold) → a configured remote's
+  evidence fetch failed, so the derivation is partial (REQ-B1.5). **Report the
+  hold and end the step cleanly** — the lock-contention shape, not a halt; the
+  hold is transient (evidence settling), so a later step re-selects once it lands
+  (the `--watch` loop continues to that later step, unlike exit 1). v1 keeps its
+  degraded-but-proceed behavior.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* without a dependency edge.
@@ -395,6 +400,7 @@ attended, present it and wait.
 | No / partial kickoff brief | Step 6: no brief, or one without its anchor line. |
 | Freshness-gate halt | Locked-window gate: anchor mismatch, or an absent / unparseable / non-sanctioned / wrong-writer entry. |
 | Taskless / unreadable tasks.md | Selection exit 2. |
+| Selection transient-evidence hold | Selection exit 3 (v2): a configured remote's evidence fetch failed; report and end cleanly (lock-contention shape), not a halt — a later step re-selects. |
 | Lock contention | `acquire` exit 1: clean no-op, skip the step (bookkeeping reconciles). |
 | Cohesion ambiguity | Bundling admits multiple valid groupings; surface and ask. |
 | Worker halt relayed | A dispatched worker halted to Awaiting input; recorded, not re-dispatched. |
