@@ -18,8 +18,14 @@
 #      rather than let a novel invocation form through. Matching the `eval:`
 #      namespace (not the bare substring "eval") still spares a legitimately
 #      named task like `evaluate-release` and prose that merely says "eval".
-#   2. Invoking the runner script directly, bypassing mise entirely
-#      (`sh scripts/prompt-eval.sh …`, `./scripts/prompt-eval.sh …`).
+#   2. Invoking a kept-eval runner script directly, bypassing mise entirely
+#      (`sh scripts/prompt-eval.sh …`, `./scripts/behavioral-eval.sh …`). Both
+#      on-demand runners are covered — the guard must see EVERY eval harness, not
+#      only `prompt-eval.sh` (operator-dialogue REQ-G1.5, D-8). The runner name is
+#      matched at a leading TOKEN BOUNDARY (`(^|[^[:alnum:]_-])`), so a path or
+#      whitespace before it triggers but a `-`/word-char prefix does not — the
+#      test file `tests/test-behavioral-eval.sh` (which CI legitimately runs via
+#      the `tests/*.sh` glob) is NOT mistaken for the runner it exercises.
 # A residual this guard does NOT cover (out of REQ-C1.6's "workflow files"
 # scope): an eval task reached transitively through a mise.toml `depends` chain
 # from a CI-run task. That is recorded as an observation, not enforced here.
@@ -93,12 +99,13 @@ fi
 #   * a direct call to the runner script, bypassing mise entirely.
 # -H forces the filename prefix even for a single file (file:line:match report).
 mise_eval="$(grep -HnE '(^|[^[:alnum:]_-])mise[[:space:]]' "$@" 2>/dev/null | grep -E '(^|[^[:alnum:]_-])eval:' || true)"
-direct="$(grep -HnE 'prompt-eval\.sh' "$@" 2>/dev/null || true)"
+direct="$(grep -HnE '(^|[^[:alnum:]_-])(prompt-eval|behavioral-eval)\.sh' "$@" 2>/dev/null || true)"
 hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort -u || true)"
 
 if [ -n "$hits" ]; then
   echo "check-no-ci-evals: an eval task is wired into a CI workflow (D-8 forbids it)." >&2
-  echo "The kept prompt-eval suite runs on demand via 'mise run eval:skill', never in CI." >&2
+  echo "The kept eval harnesses (the eval: mise namespace — e.g. eval:skill, eval:behavioral)" >&2
+  echo "run on demand only, never in CI or 'mise run check'." >&2
   echo "Offending references:" >&2
   printf '%s\n' "$hits" | while IFS= read -r h; do
     [ -n "$h" ] && echo "  $h" >&2
