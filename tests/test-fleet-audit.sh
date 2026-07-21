@@ -324,4 +324,31 @@ if [ "$(id -u)" -ne 0 ]; then
   echo "ok: an unreadable audit dir fails the query loudly (exit 2)"
 fi
 
+# 9. Caller-held-lock mode (fleet-autonomy Task 9; REQ-G1.3). A mechanism whose
+#    state is DERIVED from this trail (the usage-gate ladder) holds the shared
+#    advisory lock across its own derive+record critical section and sets
+#    PLANWRIGHT_FLEET_LOCK_HELD=1 so record skips the nested acquire that would
+#    deadlock on the same non-reentrant primitive. Prove it appends WITHOUT
+#    acquiring: hold the lock ourselves, then record with the flag; without the
+#    flag the same call would block on the held lock until it stale-breaks.
+FS="$here/../scripts/fleet-state.sh"
+held_home="$tmp/held-lock-home"
+mkdir -p "$held_home"
+# Acquire the shared lock as the "caller".
+PLANWRIGHT_FLEET_STATE_DIR="$held_home" /bin/bash "$FS" lock >/dev/null 2>&1 \
+  || fail "could not acquire the fleet-state lock for the held-lock test"
+rc=0
+PLANWRIGHT_FLEET_STATE_DIR="$held_home" PLANWRIGHT_FLEET_LOCK_HELD=1 \
+  /bin/bash "$FA" record usage-gate defer-heavy "held-lock trigger" "recorded while the caller held the lock" \
+  >/dev/null 2>&1 || rc=$?
+PLANWRIGHT_FLEET_STATE_DIR="$held_home" /bin/bash "$FS" unlock >/dev/null 2>&1 || true
+[ "$rc" = 0 ] || fail "record with PLANWRIGHT_FLEET_LOCK_HELD=1 under a held lock: exit $rc, expected 0"
+out=$(PLANWRIGHT_FLEET_STATE_DIR="$held_home" /bin/bash "$FA" query --mechanism usage-gate) \
+  || fail "held-lock query failed"
+case $out in
+  *defer-heavy*) ;;
+  *) fail "the held-lock record did not append the row (got: $out)" ;;
+esac
+echo "ok: record under a caller-held lock (PLANWRIGHT_FLEET_LOCK_HELD=1) appends without a nested acquire"
+
 echo "ALL PASS: fleet-audit"

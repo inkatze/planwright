@@ -83,6 +83,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 
 AUDIT="$script_dir/fleet-audit.sh"
 THROTTLE="$script_dir/fleet-throttle.sh"
+USAGE_GATE="$script_dir/fleet-usage-gate.sh"
 ATTN="$script_dir/fleet-attention.sh"
 TAB=$(printf '\t')
 
@@ -140,9 +141,34 @@ derive_from_audit() {
     END { print n + 0 }')
 }
 
-# derive_throttle — Task 7's LIVE throttle state (never a stale audit row). Sets
-# THROTTLE_STATE. `check` exits 0 when idle (nothing engaged), 1 with an
-# `until\t<epoch>` line when engaged, and 2 on an error (degrade to unknown).
+# derive_gate_rung — the proactive usage gate's current restriction rung (Task 9,
+# D-23/D-28), DERIVED from the shared audit trail by fleet-usage-gate.sh. The gate
+# is throttle-family, so its rung is folded into the existing throttle stat
+# channel below rather than minting a new stat type (REQ-E1.6). Prints the rung
+# name, or empty on any absence/error — a missing or failing gate must degrade
+# the throttle line, never break it.
+derive_gate_rung() {
+  [ -x "$USAGE_GATE" ] || {
+    printf ''
+    return 0
+  }
+  dgr_out=$("$USAGE_GATE" rung 2>/dev/null) || {
+    printf ''
+    return 0
+  }
+  case $dgr_out in
+    normal | downshift | reduce-concurrency | defer-heavy | defer-all)
+      printf '%s' "$dgr_out"
+      ;;
+    *) printf '' ;;
+  esac
+}
+
+# derive_throttle — Task 7's LIVE throttle state (never a stale audit row), then
+# fold in Task 9's proactive usage-gate rung (the gate is throttle-family, so it
+# reuses this channel — REQ-E1.6). Sets THROTTLE_STATE. `check` exits 0 when idle
+# (nothing engaged), 1 with an `until\t<epoch>` line when engaged, and 2 on an
+# error (degrade to unknown).
 THROTTLE_STATE=""
 derive_throttle() {
   if [ ! -x "$THROTTLE" ]; then
@@ -173,6 +199,15 @@ derive_throttle() {
       THROTTLE_STATE="unknown"
       ;;
   esac
+  # Fold in the proactive gate's rung when it is engaged (non-normal). This
+  # reuses the throttle-engaged channel (no new stat type): a normal rung, an
+  # absent gate, or an unknown throttle state leaves the reactive line as-is.
+  if [ "$THROTTLE_STATE" != "unknown" ]; then
+    dt_rung=$(derive_gate_rung)
+    if [ -n "$dt_rung" ] && [ "$dt_rung" != normal ]; then
+      THROTTLE_STATE="$THROTTLE_STATE (usage-gate: $dt_rung)"
+    fi
+  fi
 }
 
 # queue_count — the decision-queue length via fleet-attention.sh (composition,

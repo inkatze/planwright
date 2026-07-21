@@ -147,6 +147,24 @@ case $out in
 esac
 echo "ok: throttle stat returns to idle after a live clear"
 
+# --- 4b. Task 9's proactive usage-gate rung is folded into the SAME throttle
+#         stat channel (the gate is throttle-family; no new stat type — REQ-E1.6).
+#         Drive the real producer: feed a defer-heavy weekly signal, evaluate to
+#         record the rung transition, then assert the throttle line reflects it.
+UGATE="$here/../scripts/fleet-usage-gate.sh"
+if [ -x "$UGATE" ]; then
+  gate() { PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$UGATE" "$@"; }
+  printf 'Current session\n10%% used\n\nCurrent week (all models)\n88%% used\n' \
+    | gate capture >/dev/null || fail "usage-gate capture failed"
+  gate evaluate >/dev/null || fail "usage-gate evaluate failed"
+  out=$(stats render)
+  case $out in
+    *throttle*usage-gate:*defer-heavy*) ;;
+    *) fail "the throttle stat did not fold in the usage-gate rung (got: $out)" ;;
+  esac
+  echo "ok: the proactive usage-gate rung surfaces through the throttle stat channel"
+fi
+
 # --- 5. THE NO-NEW-SHARED-WRITE-FILE FLOOR (D-13, REQ-F1.1 design-level).
 #        A render must derive on demand and write NOTHING: snapshot the fleet
 #        home around a render and assert it is byte-identical. `cksum` per file
