@@ -72,7 +72,8 @@
 #       Field 9 is the fixed marker `fork` (distinguishing an answerable fork
 #       from a park / permission / plain decide); the instance id lands in the
 #       additive 10th field. <recommend> must be one of the <options> labels, and
-#       <options> must carry at least two non-empty labels. [priority] ∈ high |
+#       <options> must carry at least two DISTINCT non-empty labels (a duplicate
+#       label is refused so an answer resolves unambiguously). [priority] ∈ high |
 #       normal | low (default normal). Exits 3 (a semantic refusal) rather than
 #       clobber a queued human decision (a pending permission / flailing decide);
 #       it still replaces a park (upgrade) or a prior fork (re-fork).
