@@ -548,15 +548,22 @@ hysteresis_target() {
     printf '%s' "$ht_target"
     return 0
   fi
-  # Descend: require the minimum dwell since the last transition.
+  # Descend: require the minimum dwell since the last transition. If the dwell
+  # basis (the audit-derived last-transition epoch) cannot be read — a broken or
+  # partial audit access — HOLD the current rung rather than relax it: relaxing
+  # on an unverifiable basis drops restriction (the safety-leaning direction),
+  # so it fails closed, mirroring grace_elapsed's treatment of the same read
+  # failure. (An empty/non-numeric basis is unreachable while descending from a
+  # non-normal rung — that rung was set by a recorded transition, which
+  # derive_rung read moments earlier — but is held here too, defensively.)
   ht_dwell=$(resolve_posint fleet_usage_rung_min_dwell_seconds 300) || exit $?
-  ht_last=$(last_transition_epoch 2>/dev/null) || ht_last=""
+  ht_last=$(last_transition_epoch 2>/dev/null) || {
+    printf '%s' "$ht_cur"
+    return 0
+  }
   case $ht_last in
     "" | *[!0-9]*)
-      # No numeric last-transition basis under a non-normal rung should not
-      # happen (the rung got here via a recorded transition); if it does, allow
-      # the descend rather than pin the fleet at a restrictive rung forever.
-      printf '%s' "$ht_target"
+      printf '%s' "$ht_cur"
       return 0
       ;;
   esac
