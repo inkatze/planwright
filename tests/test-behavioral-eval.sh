@@ -68,7 +68,17 @@ command -v jq >/dev/null 2>&1 || {
   exit 1
 }
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d)" || {
+  echo "FAIL: mktemp -d failed; cannot create the test scratch dir" >&2
+  exit 1
+}
+# Guard against an empty TMP (a mktemp that exits 0 but prints nothing): every
+# path below is derived from $TMP, and an empty $TMP would write to filesystem
+# root and run `rm -rf` on an empty path.
+[ -n "$TMP" ] && [ -d "$TMP" ] || {
+  echo "FAIL: mktemp -d produced no usable directory ('$TMP')" >&2
+  exit 1
+}
 trap 'rm -rf "$TMP"' EXIT
 
 # ---- the stub tmux -----------------------------------------------------------
