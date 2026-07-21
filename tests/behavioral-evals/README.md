@@ -22,8 +22,8 @@ skill. The acceptance assertions that drive the real `/spec-kickoff` surface
 tests/behavioral-evals/
   README.md                 this file
   fixtures/<id>/            one directory per fixture
-    fixture.conf            id, skill, personas, turns, anchor, footer_lines,
-                            budget cap (KEY=VALUE, data only)
+    fixture.conf            id, skill, personas, turns, anchor, footer_lines
+                            (KEY=VALUE, data only)
     skill.sh                the interactive program the harness drives
     personas/<name>.persona a simulated-operator answer script (expertise +
                             answer.<turn> lines; data only)
