@@ -1,7 +1,7 @@
 # Fleet Autonomy — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -30,6 +30,23 @@ process supervision (systemd, Kubernetes, CI-runner fleets), the young Claude-Co
 ecosystem, and LLM cost-governance practice — three areas surveyed and found thin, without a
 mature precedent this spec can simply defer to wholesale.
 
+**Resource-governance extension (2026-07-20).** This bundle's `REQ-E — Resource governance` group
+is extended to close two coupled gaps that surfaced in fleet operation after the original bundle
+shipped. First, the fleet's usage governance is **reactive only**: `REQ-E1.3`/D-12's throttle
+waits until a session *hits* the wall and renders the retry text before pausing, on the premise
+that "no supported machine-readable way exists to proactively query account-level usage." That
+premise is now stale — the `/usage` command output is capturable and parseable, and because
+`/usage` is **account-global** it is inherently shared-aware (it reflects every concurrent tower,
+all workers, and unrelated non-planwright work on the same account), which is exactly the
+cross-orchestrator blind spot the reactive-only model cannot see. Second, the `REQ-E1.1`/D-11
+model/effort/command selection table is deterministic but not operator-configurable for **smart,
+budget-aware allocation** (per-task model by complexity, per-model budget caps/shares of the
+shared limit, a degrade-to-cheaper ladder when budget is tight). The two are coupled: budget-aware
+allocation needs the proactive usage read to decide *when* to downshift. The extension lands as
+opt-in, default-preserving configuration knobs and deterministic script logic within this
+mechanism-primary bundle — a capability in core, its policy values in overlays — not as new
+doctrine (the altitude call, D-26).
+
 ## Scope
 
 ### In scope
@@ -54,7 +71,19 @@ mature precedent this spec can simply defer to wholesale.
   read via pane capture.
 - Rule-based per-task selection of model, reasoning effort, and which slash command(s) (generic
   or custom) a dispatched unit runs.
-- Reactive fleet-wide dispatch throttling keyed off Claude Code's own native rate-limit signal.
+- Reactive fleet-wide dispatch throttling keyed off Claude Code's own native rate-limit signal,
+  retained as the hard backstop beneath the proactive gate below.
+- A proactive, shared-aware usage gate: reading real account-level usage from the capturable
+  `/usage` command output — both the session (~5-hour) and weekly windows — and gating heavy/opus
+  dispatch on configurable per-window budget thresholds (a consequence-aware default: the weekly
+  window is the more sensitive metric), warning earlier, ahead of the reactive wall.
+- Credit-continuation recovery: when the wall offers to spend credits to continue, declining and
+  waiting for reset by default (never auto-spending), with credit-spend gated behind explicit
+  operator opt-in.
+- Operator-configurable, budget-aware model/effort/command allocation: the selection policy tunable
+  through the overlay layers, per-model budget caps/shares of the shared limit, and a
+  degrade-to-cheaper-tier ladder driven by the proactive gate — degrading capability, never any
+  carried safety floor.
 - An operator kill-switch pausing the autonomous daemon layer without disabling the fleet, and an
   audit trail for every autonomous daemon action.
 - Lightweight fleet stats, derived and rendered on demand (never a new shared-write accumulator),
@@ -78,8 +107,12 @@ mature precedent this spec can simply defer to wholesale.
 - New AI/agent frameworks (Claude Code primitives only).
 - A confidence-calibrated model-routing cascade (a rule-based heuristic is in scope; the
   calibration problem the cascade literature flags as hard is not).
-- A self-imposed dollar-spend ceiling, distinct from rate-limit throttling (parked as a pending
-  seed; no framework surveyed has a mature precedent to build on).
+- A self-imposed **dollar-spend** ceiling, distinct from both the reactive rate-limit throttle and
+  the proactive usage gate this bundle adds (parked as a pending seed; no framework surveyed has a
+  mature precedent to build on). The proactive gate added here reads the account's own usage
+  percentage against its rate-limit window — it is not a currency-denominated budget. REQ-E1.11's
+  default refusal to spend credits at the wall is spend-*avoidance*, not spend *accounting*: it
+  neither meters nor caps dollars, so it does not reopen this parked ceiling.
 - Extending the `review_sequence` knob to chain post-PR autonomous-loop skills
   (`/panel-pairing`, `/copilot-pairing`) or introducing task-PR-ready-marking automation (parked
   as the `review-gauntlet` pending seed — a different decision domain, task-execution convergence
@@ -199,11 +232,139 @@ mature precedent this spec can simply defer to wholesale.
   dispatch until the signaled reset time, since no supported machine-readable way exists to
   proactively query Claude Code's own account-level usage or rate-limit state.
   *(Cites: D-12.)*
+  **Superseded-by: REQ-E1.7** (2026-07-20) — the "no machine-readable usage query" premise is
+  stale (`/usage` is now capturable, D-23); reactive throttling is retained as the hard backstop
+  but is no longer the sole governance mechanism.
 - **REQ-E1.4** Fleet dispatch SHALL NOT use Claude Code's `auto` permission mode for worker
   sessions. The existing human-reviewed, human-installed static worker-settings-profile allowlist
   (`config/worker-settings.json`) SHALL remain the sole permission-approval mechanism for
   dispatched workers.
   *(Cites: D-19.)*
+- **REQ-E1.5** A proactive account-usage read SHALL capture and parse Claude Code's own `/usage`
+  command output into a machine-readable usage signal covering **both** concurrently-active windows
+  it renders — the **session** (~5-hour rolling) window and the **weekly** window — each identified
+  explicitly (by label, never by position) with its consumed percentage and, where the render shows
+  it, its reset time. If an expected window is absent or unparseable, that window's signal SHALL be
+  reported unavailable rather than guessed. The read is a **point-in-time** truth: the weekly window
+  may reset unpredictably (Anthropic may reset it mid-week, unobservably to the fleet), and the
+  mechanism SHALL NOT predict or model reset timing — it acts on the current reading and relaxes as
+  soon as a fresh read shows lower usage. Because `/usage` is account-global, the read SHALL be
+  treated as inherently shared-aware — reflecting every concurrent tower, all workers, and unrelated
+  non-planwright work on the same account — and the mechanism SHALL NOT maintain any
+  per-orchestrator usage reservation or accounting (the shared `/usage` figure is ground truth).
+  Because the capture is expensive, the signal SHALL be cached and refreshed on an
+  overlay-configurable cadence off the dispatch hot path (never a synchronous per-dispatch scrape),
+  with a conservative shipped default cadence; the refresh cadence SHALL be shorter than the TTL
+  (validated), and a cached value staler than its TTL SHALL be treated as unavailable. The cache is
+  per-tower and local (each tower reads `/usage` independently; there is no shared cache file, so no
+  cross-tower write hazard). The captured render is **untrusted terminal output**: control and escape
+  bytes SHALL be stripped before parsing (security-posture echo-discipline), and any intermediate
+  capture artifact SHALL be access-restricted and removed after parse. Only the extracted signal and
+  the resulting rung decision SHALL be recorded in logs, the audit trail, and any operator-facing
+  surface (warnings, escalation holds) — never the raw `/usage` render, which can carry account or
+  plan identifiers (security-posture artifact-hygiene). The read SHALL apply a plausibility check —
+  the parsed value within 0–100 and consistent with the render's expected shape — and a parse that
+  succeeds but yields an implausible value SHALL be treated as unavailable, never acted on. The read
+  SHALL degrade gracefully: when a window's `/usage` value cannot be captured, cannot be parsed, is
+  implausible, or is stale beyond its configured TTL, that window's signal SHALL be reported
+  unavailable, and where no window signal is available governance SHALL fall back to the reactive
+  backstop (REQ-E1.7) — the deterministic floor, so
+  the fleet never hard-blocks on a missing signal — and MAY additionally escalate to the operator
+  (an Awaiting-input hold, where the operator may choose a model, wait, or proceed) rather than
+  silently continuing. The mechanism SHALL never block or guess a number on an unavailable signal.
+  Whereas that per-incidence escalation is optional, **sustained** unavailability (the signal
+  unavailable across an overlay-configurable number of consecutive read cadences) SHALL raise a
+  **required** operator-facing surface — a warning escalating to an Awaiting-input hold — so a
+  permanently broken `/usage` parse (the D-23 version-drift fragility) is never silent. An
+  outstanding operator hold SHALL be cleared when the kill-switch is engaged (the operator has
+  assumed control; the hold no longer applies).
+  *(Cites: D-23; obs:5d6d206c.)*
+- **REQ-E1.6** Proactive governance SHALL express dispatch gating and allocation degrade as a
+  single monotone **restriction ladder**, not two competing mechanisms. The rungs, lightest to
+  heaviest, are: `normal` → `downshift` (cheaper model/effort tier, REQ-E1.10) → `reduce-concurrency`
+  (fewer simultaneous workers) → `defer-heavy` (admit only cheaper units; heavy/opus units wait) →
+  `defer-all` (admit no new dispatch). "Pause heavy dispatch" is the `defer-heavy` rung, not a
+  separate action. Each window (session and weekly) SHALL carry overlay-resolved thresholds mapping
+  its usage percentage to a target rung, and the **effective rung SHALL be the more restrictive** of
+  the two windows' targets. The shipped default SHALL be **consequence-aware**: the **session**
+  (~5-hour) window — fast-burning but short to recover — SHALL be **capped at `defer-heavy`** (a
+  session spike never proactively halts the fleet; the reactive backstop catches a genuine session
+  wall), while the **weekly** window MAY reach `defer-all` (hitting it can halt work for days, so it
+  escalates harder and earlier). Because the proactive layer's common range only throttles (down to
+  `defer-heavy`), a wrong or unavailable read can at worst mis-throttle, never fully halt the fleet —
+  authoritative full-stop remains the reactive backstop (REQ-E1.7). Comparisons SHALL be
+  deterministic (≥ at the configured percentage), never an LLM judgment (REQ-G1.2); thresholds SHALL
+  resolve through the four-layer overlay mechanism (REQ-G1.5); each window's rung thresholds SHALL be
+  monotonically ordered (validated). Each rung transition is a throttle-family daemon action —
+  audited and kill-switchable on the same footing as the reactive throttle (REQ-F1.3, REQ-F1.4) — and
+  introduces no new daemon-action type.
+  *(Cites: D-23; obs:5d6d206c.)*
+- **REQ-E1.7** Reactive fleet-wide dispatch throttling (the REQ-E1.3 mechanism: detect Claude
+  Code's native rate-limit signal, pause fleet-wide, resume at the signaled reset time) SHALL be
+  retained as the hard backstop beneath the proactive gate (REQ-E1.6). The two SHALL compose: the
+  proactive gate aims to keep the fleet from reaching the wall, and the reactive throttle catches
+  the case where it does anyway (including load the proactive read cannot see between reads). This
+  requirement carries no premise about the (un)availability of a machine-readable usage query. When
+  the operator kill-switch (REQ-F1.3) pauses the daemon layer, the proactive gate and this reactive
+  throttle are paused with it — the operator has assumed manual control, so under the kill-switch the
+  governing floor is the operator by design, not an always-on software backstop; absent the
+  kill-switch, this reactive throttle is the authoritative full-stop.
+  *(Cites: D-12, D-23; supersedes REQ-E1.3.)*
+- **REQ-E1.8** The per-task model/effort/command selection policy (the REQ-E1.1/REQ-E1.2 rule
+  table) SHALL be operator-configurable through the four-layer overlay mechanism (REQ-G1.5), so an
+  operator can tune per-task-type model and effort without code changes. The shipped defaults SHALL
+  preserve the current selection behavior (opt-in, default-preserving): an operator who configures
+  nothing gets today's mapping. The policy SHALL remain a deterministic rule table (REQ-E1.1's
+  no-cascade, no-LLM property is preserved, REQ-G1.2).
+  *(Cites: D-24; obs:9af1f82f.)*
+- **REQ-E1.9** The allocation config SHALL support per-tier budget caps expressed as **global-usage
+  thresholds**: the more expensive a tier (e.g. opus), the lower the account-global usage percentage
+  at which it is withdrawn from **routine** units — so as budget tightens, expensive tiers drop out
+  for routine work before cheaper tiers do. Because the REQ-E1.5 signal is account-global with no
+  per-model breakdown (and E1.5 forbids per-model accounting), a cap is a per-tier threshold on that
+  global signal, never per-model budget accounting or a reservation ledger; the "reserve the most
+  capable tier for the genuinely-hardest unit" outcome is realized through the REQ-E1.10 pinned-unit
+  exemption (the pinned unit keeps its tier while routine units withdraw from it), not a ledger.
+  Caps SHALL resolve through the overlay mechanism (REQ-G1.5), SHALL be enforced by deterministic
+  comparison against the signal, never an LLM judgment (REQ-G1.2), and SHALL be inactive when the
+  signal is unavailable (allocation then follows the REQ-E1.10 unavailable-signal behavior).
+  *(Cites: D-24; obs:9af1f82f.)*
+- **REQ-E1.10** The `downshift` and `reduce-concurrency` rungs of the restriction ladder (REQ-E1.6)
+  SHALL degrade **capability only** and SHALL NEVER weaken a carried safety floor: they SHALL NOT
+  downgrade a worker below a full session-grade Claude Code session (Out of scope:
+  lighter-weight-script workers), SHALL NOT relax the autonomous-safe-decision determinism floor
+  (REQ-G1.2), and SHALL NOT engage Claude Code's `auto` permission mode (REQ-E1.4). The ladder — its
+  rungs, per-window thresholds, and tier/concurrency values — SHALL resolve through the overlay
+  mechanism (REQ-G1.5); each rung transition SHALL be an audited daemon action subject to the
+  kill-switch (REQ-F1.3, REQ-F1.4) — engaging the kill-switch returns allocation to the default
+  (un-degraded `normal`) policy. Rung transitions (climb and descend) SHALL apply hysteresis — a
+  descend threshold below the climb threshold, and/or a minimum dwell at a rung before the next
+  transition — resolved through the overlay (REQ-G1.5), so the ladder does not flap on a noisy read.
+  A per-model reservation (REQ-E1.9) is honored thus: the reserved unit (e.g. opus pinned for the
+  genuinely-hardest unit) SHALL be exempt from the `downshift` and `defer-heavy` rungs — running at
+  its reserved tier through normal-and-high pressure — but SHALL NOT be exempt from `defer-all` or
+  the reactive wall. A reservation is therefore a preference honored up to the fleet-critical rung,
+  not an inviolable floor; the shipped default reserves nothing (every unit follows the ladder).
+  When the usage signal is **unavailable** (REQ-E1.5), the ladder SHALL hold its last-known rung —
+  read from the audit trail (REQ-F1.4), not in-memory tower state, so a relaunched memoryless tower
+  recovers it — for a bounded, overlay-configurable grace window measured from the last transition's
+  timestamp, then decay to the `normal` (un-degraded) policy if the signal is still unavailable; the
+  reactive backstop (REQ-E1.7) remains the floor throughout. Ladder state (current rung, last
+  transition) SHALL be derived from the shared audit trail rather than stored (D-28), so it is
+  fleet-coherent and survives a memoryless relaunch; each rung transition SHALL be taken under the
+  existing advisory lock (REQ-G1.3) and logged **edge-triggered** (only on an actual rung change,
+  never per evaluation).
+  *(Cites: D-25, D-28; obs:9af1f82f, obs:5d6d206c.)*
+- **REQ-E1.11** When Claude Code's rate-limit wall presents a **credit-continuation prompt**
+  (offering to spend credits or extra paid usage to continue past the limit), fleet governance
+  SHALL by default **decline and wait** for the window to reset (the REQ-E1.7 reactive-backstop
+  behavior) and SHALL NEVER automatically spend credits. Spending credits to continue SHALL require
+  explicit operator opt-in through the overlay mechanism (REQ-G1.5); auto-spend SHALL NEVER be the
+  shipped default. The response SHALL be a deterministic reaction to the detected prompt (REQ-G1.2),
+  audited and subject to the kill-switch (REQ-F1.3, REQ-F1.4). This is a spend-**avoidance** default,
+  distinct from a dollar-spend accounting ceiling (which remains Out of scope): it neither meters nor
+  caps spend, it only refuses to incur it without opt-in.
+  *(Cites: D-27; obs:5d6d206c.)*
 
 ## REQ-F — Operator control & observability
 
@@ -331,6 +492,48 @@ mature precedent this spec can simply defer to wholesale.
   so dispatch of the next ready task (Task 8) is unblocked; no accepted decision
   contradicted, no REQ meaning altered.
 
+- 2026-07-20 — Resource-governance extension (`/spec-draft` extend mode, delta at Status Draft;
+  reopen cycle REQ-A3.1 flips stored Ready → Draft on all four headers). Two coupled dimensions
+  added to `REQ-E`: (1) a proactive, shared-aware usage gate — REQ-E1.5 (parse `/usage`), REQ-E1.6
+  (configurable budget-threshold dispatch gate), superseding REQ-E1.3 with REQ-E1.7 (reactive
+  throttle retained as the hard backstop, premise dropped); (2) configurable budget-aware model
+  allocation — REQ-E1.8 (overlay-configurable, default-preserving selection policy), REQ-E1.9
+  (per-model budget caps/shares), REQ-E1.10 (capability-not-safety degrade ladder). Design adds
+  D-23 (proactive `/usage` read, superseding D-12), D-24 (configurable budget-aware allocation,
+  extending D-11), D-25 (degrade-capability-not-safety ladder), and D-26 (the altitude record:
+  this extension lands as configurable mechanism, not new doctrine, cited from the Goal). Tasks 9
+  and 10 appended; test-spec pins REQ-E1.5–E1.10; the `ccusage` Deferred entry updated to note the
+  proactive gate now covers its "reactive fires too late" gate. The proactive gate is framed as a
+  throttle-family daemon action (a proactive dispatch pause) and each degrade step as an audited,
+  kill-switchable daemon action, so REQ-F1.3/REQ-F1.4's universal "every daemon action this spec
+  introduces" coverage extends to both without minting a fourth daemon-action *type* — the
+  "cleanup, restart, throttle" set established on 2026-07-15 stands. Seeds: obs:5d6d206c
+  (proactive-shared-usage-governance) and obs:9af1f82f (configurable-model-allocation).
+
+- 2026-07-20 — Extension-delta kickoff walkthrough (reopened-bundle delta; edits landed in place at
+  Status Draft, then Draft→Ready at sign-off). Resolved four design forks surfaced by the sign-off
+  lens pass and added two behaviors the operator raised. **Windows (Fork 1):** REQ-E1.5 now parses
+  **both** `/usage` windows (session ~5h + weekly), each by label, as a point-in-time read that never
+  models reset timing; REQ-E1.6 gates per-window with a consequence-aware default (weekly the more
+  sensitive metric), the more-restrictive window governing. **Unified ladder (Fork 2):** REQ-E1.6/
+  REQ-E1.10 recast dispatch-gating and allocation-degrade as one monotone restriction ladder
+  (`normal`→`downshift`→`reduce-concurrency`→`defer-heavy`→`defer-all`); "pause" is the `defer-heavy`
+  rung, session capped at `defer-heavy`, only weekly reaching `defer-all`; the pinned hardest unit is
+  exempt from `downshift`/`defer-heavy` but not `defer-all`; a wrong/unavailable read can at worst
+  mis-throttle, never halt (reactive backstop owns full-stop). **Unavailable-signal + caps (Fork
+  3):** REQ-E1.10 holds the last-known rung within a grace window then decays to `normal`; REQ-E1.5
+  raises a required sustained-loss operator surface; REQ-E1.9 reframed — caps are per-tier
+  global-usage thresholds, not per-model accounting (the reservation is the E1.10 exemption).
+  **Ladder state (Fork 4):** new D-28 — rung state is derived from the shared audit trail (not stored
+  / in-memory), fleet-coherent, transitions under the advisory lock (REQ-G1.3) and edge-triggered,
+  surviving the memoryless relaunch. **New behavior:** REQ-E1.11 + D-27 + Task 11 — credit-continuation
+  at the wall defaults to decline-and-wait, never auto-spend, credit-spend behind explicit opt-in
+  (spend-avoidance, distinct from the parked dollar-ceiling). Batch tightenings (lens clusters 5–10):
+  cache `SHALL` + safe default + off-hot-path + cadence<TTL + per-tower; strip control bytes / scrub
+  the intermediate capture artifact / hygiene extended to operator surfaces; kill-switch floor wording
+  and coverage (F1.3 test + Task 10 cite) extended to Tasks 9–11; `[manual]` `/usage` drift check;
+  "per wave" removed; D-26 foreign refs qualified.
+
 ## Sources
 
 - **The `fleet-autonomy` drafting session** (2026-07-14) — the full elicitation: the original
@@ -367,3 +570,20 @@ mature precedent this spec can simply defer to wholesale.
   where LLM-driven cleanup reasoning non-deterministically issued `tmux kill-session` against its
   own hosting pane, destroying the entire session. Consumed as the motivating precedent for
   REQ-B1.1's self-targeting guard and D-6's deterministic-script-only cleanup decision.
+- **The proactive-shared-usage-governance observation** — `obs:5d6d206c`
+  (`2026-07-20-proactive-shared-usage-governance-5d6d206c`): planwright's usage governance is
+  reactive only; `fleet-throttle.sh` (D-12) waits until a session hits the rate limit before
+  pausing, on a "no machine-readable usage query" premise that is now stale because `/usage` is
+  capturable and parseable. Because `/usage` is account-global the read is inherently shared-aware.
+  Frames REQ-E1.5–E1.7 and D-23. Recorded on the chore branch of PR #275 (not yet merged to
+  `main`); the fragment's archive-move consumption is therefore deferred until #275 lands, at which
+  point it should be consumed to this spec via `scripts/obs-consume.sh --uid 5d6d206c --spec
+  fleet-autonomy` (the `obs:` citation is stable across the move).
+- **The configurable-model-allocation observation** — `obs:9af1f82f`
+  (`2026-07-20-configurable-model-allocation-9af1f82f`): `fleet-resource-select.sh` resolves a
+  unit's model/effort but the policy is not operator-configurable for smart, budget-aware
+  allocation; the operator wants per-task model by complexity, per-model budget caps/shares, and a
+  degrade-to-cheaper ladder driven by the proactive usage gate, all configurable through the config
+  layers, degrading capability never safety. Frames REQ-E1.8–E1.10 and D-24/D-25. Also recorded on
+  PR #275 (not yet merged); consumption deferred identically, via `scripts/obs-consume.sh --uid
+  9af1f82f --spec fleet-autonomy` once #275 lands.

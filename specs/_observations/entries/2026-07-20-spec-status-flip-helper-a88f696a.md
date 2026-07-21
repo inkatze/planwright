@@ -1,0 +1,1 @@
+- 2026-07-20 [planwright] spec-kickoff and other lifecycle skills flip Status Dray->Ready by ad-hoc file edits; a deterministic scripts/spec-set-status.sh (validate the transition, rewrite all four headers atomically) would remove a footgun class (a bad in-place sed/perl can truncate the four spec files). Surfaced during fleet-autonomy extension kickoff.
