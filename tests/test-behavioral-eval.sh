@@ -119,7 +119,9 @@ mark_liveness() {
 }
 
 sub="${1:-}"
-shift 2>/dev/null || true
+# Drop only the subcommand, leaving its flags in "$@" for the per-subcommand
+# parsers below. Guard on $# so a zero-arg invocation does not error under set -u.
+[ "$#" -gt 0 ] && shift
 
 case "$sub" in
   new-session)
