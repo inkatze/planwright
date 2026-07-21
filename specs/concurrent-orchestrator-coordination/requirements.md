@@ -162,10 +162,12 @@ marking, or the tower non-authoring boundary.
   SHALL be **fast-forward-only** (`--ff-only`): a per-tower private `main` is never directly committed
   to (commits ride task branches; merges reach `origin` via PR), so currency is always a fast-forward,
   and `--ff-only` surfaces any unexpected divergence as an explicit refusal rather than a silent merge
-  commit. The sync SHALL run only with `main` as the checked-out branch (or SHALL operate on the `main`
-  ref explicitly), so it never merges `origin/main` onto a worker branch. A failed `git fetch` SHALL
-  fail closed — the tower SHALL NOT proceed on a silently-stale `main` — surfacing the fetch failure
-  rather than treating the pre-fetch state as current.
+  commit. Because a plain `git merge FETCH_HEAD` always merges into the currently checked-out branch, the
+  sync SHALL either run with `main` as the checked-out branch, or update the `main` ref without a checkout
+  via a fast-forward-only ref update (`git fetch origin main:main`, which refuses a non-fast-forward by
+  nature) — never a bare `git merge` while a worker branch is checked out, which would merge `origin/main`
+  onto that worker branch. A failed `git fetch` SHALL fail closed — the tower SHALL NOT proceed on a
+  silently-stale `main` — surfacing the fetch failure rather than treating the pre-fetch state as current.
   *(Cites: D-3; the autosetuprebase-pull pitfall, drafting-session decision (2026-07-20) (Sources).)*
 
 ## REQ-C — Work division across peer towers
@@ -194,29 +196,36 @@ marking, or the tower non-authoring boundary.
   tower's identity and a **self-contained positive-evidence-of-death handle**, so a peer can evaluate the
   claimant's liveness from the claim alone — independent of the claimant's presence record, which
   presence GC may have already deleted. Claiming SHALL never directly mutate a peer tower's or a worker's
-  branch state; a tower coordinates only by creating, reading, and (on positive death evidence) removing
-  or atomically renaming claim objects on the shared surface.
+  branch state; a tower coordinates only by creating, reading, and (on positive death evidence, under the
+  per-unit reclaim lock of REQ-C1.3) removing claim objects on the shared surface.
   *(Cites: D-4, D-5; the division-of-labor "directly" boundary (Sources).)*
 - **REQ-C1.3** A live peer claim SHALL be honored; a claim SHALL be reclaimable only on **positive
   evidence of death** of the claiming tower (the `fleet-death-evidence` predicate), never on a bare
   timeout, a stale heartbeat alone, or an "unknown" liveness result — an unknown or errored death
-  result SHALL be treated as not-dead (fail closed: never reclaim on a guess). Reclaim SHALL be
-  **serialized by an atomic rename**, not by a delete-then-recreate: a reclaiming tower first atomically
-  renames the dead claim aside to a reclaimer-owned name (e.g. `claims/<unit>` →
-  `claims/.reclaiming-<unit>-<reclaimer-id>`), which by the atomicity of `rename(2)` exactly one
-  concurrent reclaimer can perform — the source vanishes after the first rename, so every other
-  reclaimer's rename fails and it re-reads rather than proceeding. Only the rename winner then confirms
-  the claimant's death (below) and, on confirmation, deletes the renamed-aside object and takes the unit
-  by the normal atomic create-with-content (REQ-C1.1). A delete-then-recreate reclaim is forbidden: it
-  leaves a window in which a second reclaimer's delete removes a first reclaimer's freshly created claim,
-  reintroducing double-dispatch. Before re-dispatching a reclaimed unit, the reclaim winner SHALL confirm
-  no live downstream dispatch artifact for that unit exists (a branch or open PR, per
-  `orchestration-concurrency`'s branch-as-fence), so a dead tower whose worker outlived it is not
-  re-dispatched into duplicate work. A live-but-hung tower's claim is honored and SHALL NOT be
+  result SHALL be treated as not-dead (fail closed: never reclaim on a guess). Reclaim is a
+  read → check → swap that cannot be collapsed into a single atomic filesystem step (unlike the initial
+  claim), so it SHALL be serialized by a **per-unit reclaim lock held only across the fast swap, with the
+  slow checks outside it**: (1) a tower reads the claim and its owner; a live or unknown owner is honored
+  and the unit skipped, with no mutation whatsoever; (2) **outside any lock**, it confirms the owner is
+  positively dead and that no live downstream dispatch artifact for the unit exists (a branch or open PR,
+  per `orchestration-concurrency`'s branch-as-fence — death proves the *tower* dead, not its *worker*, so
+  a tower that died after dispatching a still-running worker is not re-dispatched into duplicate work);
+  (3) it acquires the per-unit reclaim lock (a `mkdir` lock on the surface, broken when stale by the same
+  discipline `orchestration-concurrency`'s advisory lock uses; a busy lock means a peer is mid-swap, so
+  the tower skips this round); (4) **under the lock it re-reads the claim** and proceeds only if it is
+  still exactly the same dead owner's claim — if the claim has since changed, been released, or is now a
+  live owner's, it aborts without mutating — then removes the dead claim and competes for the unit by the
+  normal atomic create-with-content (REQ-C1.1), which yields a single holder even against a fresh
+  claimant; (5) it releases the lock. The under-lock re-read is what makes reclaim safe: a reclaimer
+  SHALL NOT remove or move a claim before confirming death (which would destroy a live claim), and SHALL
+  NOT assume the claim is unchanged across the slow check (a fresh claimant may have taken the freed
+  unit). The death check SHALL remain **outside** the lock, so the lock is never held across a subprocess
+  (no livelock, no critical-section cost). A live-but-hung tower's claim is honored and SHALL NOT be
   auto-reclaimed (it is not dead); recovering such a unit is an operator-intervention case, not an
   automatic one — so a *crashed* tower never strands a unit, while a *live* tower is never preempted on
   a guess.
-  *(Cites: D-5; the positive-evidence-of-death floor (Sources).)*
+  *(Cites: D-5, D-7; the positive-evidence-of-death floor, orchestration-concurrency's advisory-lock
+  stale-break discipline (Sources).)*
 - **REQ-C1.4** Where a meta-tower ("tower of towers") is present, work division SHALL reuse its
   cross-spec selection under the fleet bound; the peer work-claim mechanism SHALL compose with, and
   never contradict, `orchestration-fleet`'s division-of-labor doctrine. A meta-tower SHALL be
@@ -259,14 +268,15 @@ marking, or the tower non-authoring boundary.
   *(Cites: D-6; security-posture, inter-orchestrator-coordination security bounds (Sources).)*
 - **REQ-D1.5** The coordination scripts (presence publish/discover, claim take/reclaim/release) SHALL
   meet planwright's framework-script security bars, since they parse records other sessions write to a
-  shared surface: (a) **every parsed field consumed by the coordination logic** — the tower identity,
-  the repository identity, the unit id, the spec id, **and the positive-evidence-of-death handle**
-  (which is read from an untrusted peer record and passed to `fleet-death-evidence.sh`) — SHALL be
-  grammar-validated against its declared pattern before any use, never only the tower-identity token;
+  shared surface: (a) **every parsed field consumed by the coordination logic SHALL be validated against
+  its declared grammar before any use** — not only the tower identity, but the repository identity, the
+  unit id, the spec id, the timestamps (start time and heartbeat, validated as well-formed timestamps),
+  and in particular the **positive-evidence-of-death handle** (read from an untrusted peer record and
+  passed to `fleet-death-evidence.sh`); a field that fails its grammar is refused, not coerced;
   (b) **path access SHALL be canonicalized and containment-checked**
-  before any read, write, rename, or unlink — the surface directory, each record path, and in particular
-  the claim object a reclaim path renames aside and then removes SHALL be confirmed to resolve inside the
-  surface, so a crafted unit/tower id can never drive a rename, delete, or write outside it; (c) untrusted record fields echoed to a
+  before any read, write, or unlink — the surface directory, each record path, the per-unit reclaim lock,
+  and in particular the claim object a reclaim removes SHALL be confirmed to resolve inside the
+  surface, so a crafted unit/tower id can never drive a delete or write outside it; (c) untrusted record fields echoed to a
   terminal or log SHALL pass the echo-discipline sanitizer (`scripts/echo-safety.sh`,
   `sanitize_printable`), so an embedded escape sequence in a peer record cannot drive the terminal.
   These are the enforcement of the same-operator trust model at the script boundary, complementing the
@@ -333,6 +343,20 @@ marking, or the tower non-authoring boundary.
   origin-anchored signal identical across clones (REQ-A1.2, D-2); (G8) added the
   atomic-create-with-content and rename-aside-reclaim test coverage (test-spec REQ-C1.1, REQ-C1.3).
   Bundle stays Draft; re-run `/spec-kickoff` for sign-off.
+- 2026-07-20 — `/panel-review --nested` iteration 2 (gemini) — reclaim safety corrected. The
+  confirmatory pass found the iteration-1 rename-aside reclaim was **itself unsafe**: it moved the claim
+  before confirming death (destroying a live claim if contested) and freed the unit during the slow
+  death/artifact check (letting a fresh claimant double-dispatch). Reclaim is a read → check → swap whose
+  check is slow, so it cannot be a single atomic filesystem step the way the initial claim is.
+  **Operator decision (2026-07-20):** serialize reclaim with a **per-unit reclaim lock** held only across
+  the fast swap — slow death/artifact checks outside it, an under-lock re-verification that the claim is
+  still the same dead owner, then remove-and-compete via the normal create-with-content; initial claims
+  stay lock-free (REQ-C1.2, REQ-C1.3, D-5, D-7). This is a deliberate, reclaim-scoped reintroduction of a
+  lock, walking back Option 1's "no second lock" only where the lock-free schemes provably fail. Also
+  folded in: grammar-validation generalized to **every** parsed field including the timestamps
+  (REQ-D1.5); the `main`-currency sync tightened so a non-checked-out `main` is updated via
+  `git fetch origin main:main` rather than a bare merge onto a worker branch (REQ-B1.4). Bundle stays
+  Draft; re-run `/spec-kickoff` for sign-off.
 
 ## Sources
 
@@ -349,14 +373,17 @@ marking, or the tower non-authoring boundary.
   this rework.
 - **orchestration-concurrency** (Done) — the ledger state-safety foundation: progress state as a
   derived projection, the single level-triggered `tasks.md` writer, dispatch-commit isolation, the
-  per-spec advisory lock (a `mkdir`-atomicity directory lock at `<spec-dir>/.orchestrate.lock`,
-  checkout-local — it fences intra-clone ledger writes, not cross-clone claim selection), the
+  per-spec advisory lock (a `mkdir`-atomicity directory lock at `<spec-dir>/.orchestrate.lock`, broken
+  when stale past a threshold, checkout-local — it fences intra-clone ledger writes, not cross-clone
+  claim selection; the per-unit reclaim lock of REQ-C1.3 reuses the same `mkdir`-plus-stale-break
+  discipline at the machine-local surface), the
   **branch-as-fence** dispatch discipline (a live branch / open PR for a unit is the durable evidence
   the unit is already in flight — reused by the reclaim guard, REQ-C1.3), and the no-remote fallback.
   Consumed here as an authoritative contract; this bundle is the awareness/coordination layer strictly
-  above it. The claim mechanism (D-5) reuses the same class of atomic filesystem primitive (an atomic,
-  exclusive create-with-content, plus an atomic rename for reclaim) at the correct (machine-local)
-  locality.
+  above it. The claim mechanism (D-5) reuses the same class of atomic filesystem primitive at the correct
+  (machine-local) locality: an atomic, exclusive create-with-content for the initial claim, and — because
+  reclaim is a read-check-swap whose check is slow — the same `mkdir`-plus-stale-break lock discipline,
+  scoped per unit, for reclaim.
 - **orchestration-fleet** (Done) — the scaling/resilience/UX sibling: the backend capability contract,
   the meta-tower ("tower of towers") cross-spec selection, the division-of-labor model, and the
   attributed non-impersonating relay (REQ-D1.2, REQ-D1.3, REQ-D1.7). Reused, not re-implemented.

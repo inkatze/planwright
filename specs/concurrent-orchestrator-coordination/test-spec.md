@@ -143,12 +143,16 @@ tower's** (it is not dead, so its claim is never auto-reclaimed); a claim whose 
 per `fleet-death-evidence.sh` is reclaimable (a peer may take the unit); a claim whose tower is
 stale-by-timeout, or whose death predicate returns **unknown/errored**, is **not** reclaimable (no
 reclaim on a guess); two towers reclaiming one positively-dead claim resolve to a **single** holder via
-the **atomic rename-aside** (exactly one reclaimer's `rename` of the dead claim succeeds, the other
-re-reads — no double-dispatch on reclaim), and a naive **delete-then-recreate** reclaim is shown to
-double-dispatch under the same race and is therefore not used; and a reclaim whose unit has a **live
-downstream artifact** (a branch / open PR) does **not** re-dispatch (the branch-as-fence guard, so a dead
-tower's surviving worker is not doubled). So a crashed tower never strands a unit and a live one is never
-preempted on a guess.
+the **per-unit reclaim lock** (concurrent reclaimers serialize on the lock — one wins the swap, the other
+finds the lock busy and skips the round), and the lock-free schemes are shown unsafe and not used (a
+rename-aside destroys a live claim if it moves before confirming death; a delete-then-recreate
+double-dispatches when two reclaimers race). A concurrency fixture asserts the **under-lock re-read
+aborts** the swap when the claim changed during the slow death/artifact check — a fresh claimant that took
+the freed unit between the reclaimer's read and its lock acquisition is neither clobbered nor
+double-dispatched. Fixtures also assert the death / artifact check runs **outside** the lock (no
+subprocess held under the lock); and a reclaim whose unit has a **live downstream artifact** (a branch /
+open PR) does **not** re-dispatch (the branch-as-fence guard, so a dead tower's surviving worker is not
+doubled). So a crashed tower never strands a unit and a live one is never preempted on a guess.
 
 ### REQ-C1.4 — Composes with meta-tower selection [test + design-level]
 
@@ -162,10 +166,13 @@ claim does not double-assign; the meta-tower is distinguished on the presence su
 
 Fixtures: a claim is **released** once the unit is handed off (its worker is dispatched and a branch/PR
 exists, so the branch-as-fence takes over) and **immediately** on a dispatch failure (a failed dispatch
-strands nothing — no live-tower claim is left blocking the unit); and a positively-dead tower's claim is
+strands nothing — no live-tower claim is left blocking the unit); a positively-dead tower's claim is
 **garbage-collected during discovery** — including a claim on an already-completed unit that no peer ever
-re-selects (asserting the sweep is not gated on re-selection), symmetric with presence-file GC — so the
-claims surface does not grow unbounded.
+re-selects (asserting the sweep is not gated on re-selection), symmetric with presence-file GC; and a
+**stale reclaim lock** left by a reclaimer that crashed mid-swap is broken during discovery (past the
+stale threshold, the same `mkdir`-plus-stale-break discipline the per-spec advisory lock uses), so a
+crashed reclaimer never wedges a unit's reclaim path — so the claims surface does not grow unbounded and
+no unit is permanently blocked.
 
 ## REQ-D — Carried floors, boundaries & hygiene
 
@@ -202,11 +209,11 @@ out of scope (a co-tenant threat), so no cryptographic spoof-proofing is require
 ### REQ-D1.5 — Framework-script security bars on the coordination scripts [test]
 
 `[test]`: **every** parsed field consumed by the coordination logic — tower id, repository id, unit id,
-spec id, **and the death handle** (read from an untrusted peer record and passed to
-`fleet-death-evidence.sh`) — is refused when it violates its declared grammar (not only the tower token),
-asserted per field; a crafted record path
-or reclaim rename/unlink target that would resolve **outside** the surface is refused (canonicalized +
-containment-checked before any read / write / `mv` / `rm`); an embedded non-printable / escape sequence in a
+spec id, the timestamps (start time, heartbeat, validated as well-formed timestamps), **and the death
+handle** (read from an untrusted peer record and passed to `fleet-death-evidence.sh`) — is refused when
+it violates its declared grammar (not only the tower token), asserted per field; a crafted record path,
+reclaim-lock path, or unlink target that would resolve **outside** the surface is refused (canonicalized +
+containment-checked before any read / write / `mkdir` / `rm`); an embedded non-printable / escape sequence in a
 record field is stripped before it is echoed to a terminal or log (`scripts/echo-safety.sh`,
 `sanitize_printable`); and the surface directory is created / verified `0700` (user-private). Together
 these are the script-boundary enforcement of the same-operator single-host trust model.

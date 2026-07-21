@@ -190,9 +190,12 @@ name — `link(2)` fails if the name already exists (exclusive) yet the name res
 the instant it exists (atomic-with-content). Because the surface is machine-local and shared by all
 co-located clones, this serializes peer towers **across separate per-tower checkouts (D-3)** — precisely
 where the checkout-local per-spec lock cannot, because each clone's lock is a different filesystem path.
-A claim is reclaimable **only** when the claiming tower is positively dead per `fleet-death-evidence.sh`,
-and reclaim is serialized by an **atomic rename-aside**, not a delete-then-recreate (D-7 governs the
-reclaim's safety and explains why the naive delete-then-recreate reintroduces double-dispatch).
+A claim is reclaimable **only** when the claiming tower is positively dead per `fleet-death-evidence.sh`.
+Unlike the initial claim, reclaim is a read → check → swap that cannot be a single atomic filesystem
+step, so it is serialized by a **per-unit reclaim lock held only across the fast swap**, with the slow
+death/artifact checks outside it and an under-lock re-verification that the claim is still the same dead
+owner (D-7 governs the reclaim's safety and explains why the lock-free schemes — the original in-lock
+ordering and the rename-aside — do not hold).
 
 This corrects the walkthrough's earlier framing (S3), which put the claim read-check-write inside the
 per-spec lock and modeled the claim as a distinct-per-writer record. Both were wrong for claims
@@ -268,39 +271,45 @@ lifecycle, not just at the instant of the create:
   died after dispatch (whose worker may already have completed the unit, so no peer ever re-selects it)
   would leak on the surface forever. Claims thus do not outlive their coordination need and the claims
   surface does not grow unbounded (REQ-C1.5).
-- **Serialized, artifact-guarded reclaim.** Reclaim is serialized by an **atomic rename-aside**, not a
-  delete-then-recreate: a reclaiming tower first atomically renames the dead claim aside to a
-  reclaimer-owned name (`claims/<unit>` → `claims/.reclaiming-<unit>-<id>`), which by `rename(2)`'s
-  atomicity exactly one concurrent reclaimer can perform (the source vanishes after the first rename, so
-  every other reclaimer's rename fails and it re-reads). Only the rename winner then confirms death and
-  takes the unit by the normal create-with-content (D-5). A **delete-then-recreate reclaim is unsafe**
-  and is rejected: between one reclaimer's `rm` and its re-create, a second reclaimer's `rm` can delete
-  the first's freshly created claim, so both proceed — the exact double-dispatch the mechanism exists to
-  prevent (the atomic re-create alone does *not* serialize reclaimers, because the destructive `rm` that
-  precedes it is unguarded). Before re-dispatching a reclaimed unit, the reclaim winner confirms **no
-  live downstream dispatch artifact** exists for it — no branch, no open PR (the branch-as-fence) —
-  because `fleet-death-evidence` proves the *tower* dead, not its *worker*: a tower can die after
-  dispatching a worker that is still running or has already opened a PR, and re-dispatching then doubles
-  the work. The artifact check closes that gap.
+- **Serialized, artifact-guarded reclaim.** Reclaim is a read → check → swap that *cannot* be collapsed
+  into a single atomic filesystem step (the way the initial claim can), so it is serialized by a
+  **per-unit reclaim lock held only across the fast swap**: (1) read the claim; a live or unknown owner
+  is honored, no mutation; (2) **outside the lock**, confirm the owner positively dead and that no live
+  downstream dispatch artifact (branch / open PR, the branch-as-fence) exists — because
+  `fleet-death-evidence` proves the *tower* dead, not its *worker* (a tower can die after dispatching a
+  worker that still runs or has opened a PR, and re-dispatching then doubles the work); (3) acquire the
+  per-unit reclaim lock (a `mkdir` lock on the surface, stale-broken by the same discipline the per-spec
+  advisory lock uses; a busy lock → a peer is mid-swap → skip this round); (4) **under the lock, re-read
+  the claim** and proceed only if it is still exactly that dead owner's claim — else abort untouched —
+  then remove it and compete for the unit by the normal create-with-content (D-5), which yields a single
+  holder even against a fresh claimant; (5) release the lock. The under-lock re-read is the safety
+  hinge, and the death check stays *outside* the lock so no lock is ever held across a subprocess.
 - **Tri-state liveness, never a guess.** Honoring and reclaim both run on the tri-state death predicate
   (alive / positively-dead / unknown): only positively-dead permits reclaim; unknown or errored is
   treated as not-dead. A live-but-hung tower is *alive*, so its claim is honored and never
   auto-reclaimed — recovering that unit is an operator-intervention case, not an automatic one. This is
   the deliberate scoping of REQ-C1.3's guarantee: a *crashed* tower never strands a unit, but the design
   does not (and safely cannot) auto-recover a *live-but-hung* one without risking double-dispatch.
-- **No held critical section.** Because the serializer is an atomic filesystem step (the
-  create-with-content for an initial claim, the rename-aside for a reclaim), there is no lock held across
-  the subprocess-heavy death check: the atomic step returns immediately, and liveness/artifact checks run
-  afterward on a claim already known to be contested — so the death predicate never sits inside a
+- **No lock across a subprocess.** The initial claim's serializer is a single atomic filesystem step
+  (create-with-content), so it holds nothing. The reclaim's per-unit lock is held only across the fast
+  under-lock swap (re-read + remove + compete-to-create), never across the subprocess-heavy death /
+  artifact check, which runs *before* the lock is acquired — so the death predicate never sits inside a
   critical section (no livelock, no critical-section cost).
 
 **Alternatives considered:**
 - Keep the death handle only in the presence record (the pre-rework shape). Rejected because: presence
   GC deletes it, leaving a surviving claim un-reclaimable — the kickoff §8 finding #3.
-- Delete-then-recreate reclaim (`rm` the dead claim, then atomic create). Rejected because: the `rm`
-  preceding the create is unguarded, so two concurrent reclaimers can each delete the other's freshly
-  created claim and both proceed — double-dispatch (the panel-review G5 finding). The atomic rename-aside
-  makes the *right to break* the dead claim the serialized step, which the bare re-create is not.
+- Lock-free rename-aside reclaim (`mv claims/<unit>` aside, then confirm death, then take). Rejected
+  (panel-review iteration 2): it moves the claim *before* confirming death, destroying a *live* claim if
+  it is ever contested, and it frees the unit during the slow check, letting a fresh claimant
+  double-dispatch — the rename serializes reclaimers against each other but not against fresh claimants.
+- Lock-free delete-then-recreate reclaim (`rm` the dead claim, then atomic create). Rejected because: the
+  `rm` preceding the create is unguarded, so two concurrent reclaimers can each delete the other's freshly
+  created claim and both proceed (the panel-review G5 finding). These two lock-free schemes, plus the
+  walkthrough's checkout-local in-lock ordering (S3, the original §8 halt), are why reclaim takes a
+  scoped per-unit lock: reclaim is a read-check-swap whose check is slow, so it cannot be a single atomic
+  filesystem step the way the initial claim is. The lock is confined to reclaim; initial claims stay
+  lock-free.
 - GC dead claims only lazily, when a peer re-selects the unit. Rejected because: a claim from a tower
   that died after dispatch, on a unit its worker then completed, is never re-selected and leaks forever
   (the panel-review G4 finding); the discovery sweep bounds the surface.
