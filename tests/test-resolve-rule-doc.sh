@@ -166,15 +166,19 @@ fi
 #      Test 11b pins one doc; this makes the "every doc" guarantee mechanical, so
 #      a core doc the self-location arm cannot reach fails CI rather than a
 #      manual spot-check. Iterate the shipped doctrine/ set minus README (the
-#      convention index, not a rule doc). Same four-unset env as 11b, so the
-#      writer-root arm cannot mask the self-location arm.
+#      convention index, not a rule doc). All four roots are genuinely unset
+#      (-u), matching the REQ-D1.1 environment literally; 11b's empty-string
+#      idiom is equivalent here (the resolver reads ${VAR:-} then skips empty
+#      roots), but unsetting removes any doubt that the writer-root arm could
+#      mask the self-location arm.
 selfloc_misses=0
 selfloc_total=0
 for doc in "$REPO_ROOT"/doctrine/*.md; do
+  [ -e "$doc" ] || continue # nullglob-off guard: skip the literal glob if doctrine/ is empty
   base="$(basename "$doc" .md)"
   [ "$base" = "README" ] && continue
   selfloc_total=$((selfloc_total + 1))
-  out="$(env -u HOME -u CLAUDE_DIR PLANWRIGHT_ROOT="" CLAUDE_PLUGIN_ROOT="" \
+  out="$(env -u HOME -u CLAUDE_DIR -u PLANWRIGHT_ROOT -u CLAUDE_PLUGIN_ROOT \
     /bin/bash "$RESOLVER" "$base" 2>/dev/null)"
   rc=$?
   if [ "$rc" -ne 0 ] || [ ! -f "$out" ] || [ ! "$out" -ef "$doc" ]; then
