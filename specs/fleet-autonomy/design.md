@@ -1,6 +1,6 @@
 # Fleet Autonomy — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -471,10 +471,16 @@ exists rather than new infrastructure that would need its own review.
 
 **Decision:** The fleet reads real account-level usage by capturing and parsing Claude Code's own
 `/usage` command output into a machine-readable signal, and gates heavy/opus dispatch proactively
-on a configurable budget threshold evaluated against it (REQ-E1.5, REQ-E1.6). The reactive
-rate-limit throttle (D-12) is retained as the hard backstop (REQ-E1.7), not replaced. No
-per-orchestrator usage reservation is kept: because `/usage` is account-global it is inherently
-shared-aware, so the shared figure is ground truth.
+on configurable budget thresholds evaluated against it (REQ-E1.5, REQ-E1.6). The read covers **both**
+windows `/usage` renders — the session (~5-hour rolling) and the weekly — each parsed explicitly,
+because they carry different consequences: the session window burns fast but recovers in hours
+(drives lighter, reversible downshift/concurrency responses), while the weekly window is the more
+sensitive metric (hitting it can halt all work for days, so it warns earlier and harder). The
+effective response is the more conservative across both windows, and the read is point-in-time (the
+weekly window may reset unpredictably; the mechanism never models reset timing, it re-reads and
+relaxes). The reactive rate-limit throttle (D-12) is retained as the hard backstop (REQ-E1.7), not
+replaced. No per-orchestrator usage reservation is kept: because `/usage` is account-global it is
+inherently shared-aware, so the shared figure is ground truth.
 
 **Alternatives considered:**
 - Keep reactive-only throttling (D-12 as-is). Rejected because: its founding premise — "no
@@ -507,9 +513,12 @@ is exactly the safety net that makes a best-effort proactive read safe to depend
 
 **Decision:** The D-11 rule table (per-task model/effort/command selection) becomes
 operator-configurable through the four-layer overlay mechanism (REQ-E1.8), with shipped defaults
-preserving current behavior, and gains per-model budget caps/shares of the shared account limit
-(REQ-E1.9). It remains a deterministic rule table; D-11's rejection of a confidence-calibrated
-cascade stands unchanged.
+preserving current behavior, and gains per-tier budget caps (REQ-E1.9). A cap is a **global-usage
+threshold per tier** — expensive tiers withdraw from routine units at a lower account-global
+percentage than cheap tiers — not per-model budget accounting, which the account-global `/usage`
+signal cannot provide and E1.5 forbids; the "reserve opus for the hardest unit" outcome is realized
+by the REQ-E1.10 pinned-unit exemption, not a reservation ledger. It remains a deterministic rule
+table; D-11's rejection of a confidence-calibrated cascade stands unchanged.
 
 **Alternatives considered:**
 - Keep the hard-coded D-11 table. Rejected because: it cannot express the budget-aware allocation
@@ -529,30 +538,50 @@ allocation) lands in core as opt-in and default-preserving while the specific *p
 "reserve the most capable tier for the hardest unit per wave" heuristic as configuration without
 taking on the calibration problem D-11 rejected or the determinism risk D-18 forbids.
 
-### D-25: Budget-aware degrade ladder degrades capability, never safety (N)
+### D-25: One restriction ladder (throttle, not two mechanisms); degrades capability, never safety (N)
 
-**Decision:** When the proactive gate (REQ-E1.6) or a per-model cap (REQ-E1.9) signals a tight
-budget, allocation steps down a configured degrade ladder to a cheaper model/effort tier
-(REQ-E1.10). The ladder degrades **capability only** and never a carried safety floor: never below
-a full session-grade worker session, never relaxing the autonomous-safe-decision determinism floor
-(REQ-G1.2), never engaging `auto` permission mode (REQ-E1.4).
+**Decision:** Proactive governance is a single monotone **restriction ladder** rather than a
+separate "pause gate" and "degrade ladder": `normal` → `downshift` (cheaper model/effort) →
+`reduce-concurrency` (fewer workers) → `defer-heavy` (only cheap units admitted) → `defer-all`
+(REQ-E1.6, REQ-E1.10). "Pause heavy dispatch" is just the `defer-heavy` rung — the same burn-reduction
+axis as downshift, expressed harder — so the two never need a precedence rule. Each window maps its
+usage to a target rung and the effective rung is the more restrictive of the two; the session window
+is capped at `defer-heavy` (fast recovery — never proactively halt on it) while only the weekly
+window may reach `defer-all`. The `downshift`/`reduce-concurrency` rungs degrade **capability only**
+and never a carried safety floor: never below a full session-grade worker, never relaxing the
+determinism floor (REQ-G1.2), never engaging `auto` (REQ-E1.4). Transitions apply hysteresis so the
+ladder does not flap. A per-model reservation (REQ-E1.9, e.g. opus held for the hardest unit) is
+exempt from `downshift` and `defer-heavy` but not from `defer-all` or the reactive wall — a
+preference honored up to the fleet-critical rung, not an inviolable floor.
 
 **Alternatives considered:**
+- Two separate mechanisms (a pause gate and a degrade ladder) with a precedence rule deciding which
+  fires. Rejected because: pause and downshift are two strengths on one burn-reduction axis, so a
+  precedence rule is a symptom of the wrong model; unifying them into one rung ladder removes the
+  ambiguity ("which fires at the threshold") entirely and makes the pinned-unit and both-windows
+  cases fall out cleanly.
 - Binary pause-all on tight budget (no ladder). Rejected because: it throws away capacity the
-  cheaper tier could still use for forward progress; the reactive throttle (REQ-E1.7) already
-  handles the genuine hard wall, so the proactive layer should downshift, not stop, while budget
-  merely tightens.
-- Degrade by reducing worker count only. Rejected because: it does not address per-unit cost, and a
-  single expensive unit can still exhaust budget while fewer-but-still-expensive workers run.
-- Degrade safety to save tokens (e.g. swap session-grade workers for lighter-weight scripts, or
-  loosen the safe-decision floor). Rejected because: it violates fleet-autonomy's session-grade
-  worker floor (Out of scope, carried) and the D-6/D-18 determinism floors — cost pressure is never
-  a licence to weaken safety.
+  cheaper rungs could still use for forward progress; the reactive throttle (REQ-E1.7) already
+  handles the genuine hard wall, so the proactive layer should throttle, not stop, until budget is
+  fleet-critical.
+- Degrade by reducing worker count **only**. Rejected as the *sole* lever: it does not address
+  per-unit cost, and one expensive unit can still exhaust budget while fewer-but-still-expensive
+  workers run — so `reduce-concurrency` is *one rung* between `downshift` and `defer-heavy`, not the
+  whole mechanism.
+- Degrade safety to save tokens (swap session-grade workers for lighter scripts, or loosen the
+  safe-decision floor). Rejected because: it violates fleet-autonomy's session-grade worker floor
+  (Out of scope, carried) and the D-6/D-18 determinism floors — cost pressure never licenses weaker
+  safety.
 
-**Chosen because:** capability degradation preserves forward progress under budget pressure while
-every carried safety floor stays intact — the operator's explicit constraint ("degrade capability,
-never safety"). Encoding it as a configured ladder (rather than a fixed step) keeps the specific
-tiers an overlay value (D-24) while the invariant — capability-only — is normative in the REQ.
+**Chosen because:** one ladder dissolves the E1.6/E1.10 precedence bug, and its shape yields three
+properties the operator wanted: forward progress is preserved under pressure (throttle, don't stop);
+the reserved hardest unit keeps its tier through normal-and-high pressure yet still yields at the
+fleet-critical rung; and — because the *common* proactive range only throttles down to `defer-heavy`
+— a wrong or unavailable `/usage` read can at worst mis-throttle, never halt the fleet, leaving
+authoritative full-stop to the reactive backstop. Capability-only degradation keeps every safety
+floor intact (the operator's "degrade capability, never safety"); the rungs, thresholds, and
+tier/concurrency values are overlay values (D-24) while the invariants — capability-only, session
+capped at `defer-heavy`, reservation-yields-at-`defer-all` — are normative in the REQs.
 
 ### D-26: This extension lands as configurable mechanism, not new doctrine (altitude, N)
 
@@ -572,8 +601,62 @@ as a new doctrine document or a first-class cross-cutting principle.
 claim) and must be reconciled with an explicit record rather than pencil-whipped; per
 `proportionality` and `customization-boundary`, the resolution is a core *capability* with overlay
 *values*, which fleet-autonomy's existing REQ-E/D-22 shape already accommodates. Recorded as the
-trigger-scoped altitude D-ID (REQ-H1.1), cited from the Goal's resource-governance-extension
-paragraph, so the REQ-H1.3 kickoff check reads it from the bundle.
+trigger-scoped altitude D-ID (`autopilot-reflex` REQ-H1.1), cited from the Goal's
+resource-governance-extension paragraph, so the `autopilot-reflex` REQ-H1.3 kickoff check reads it
+from the bundle.
+
+### D-27: Credit-continuation defaults to decline-and-wait, never auto-spend (N)
+
+**Decision:** When Claude Code's wall offers a credit-continuation prompt (spend credits / extra
+paid usage to keep going past the limit), the fleet's default response is to decline and wait for
+the window to reset (REQ-E1.11); spending credits requires explicit operator opt-in through the
+overlay. Auto-spend is never the shipped default.
+
+**Alternatives considered:**
+- Auto-accept credits to keep the fleet moving. Rejected because: it converts a rate-limit pause
+  into unbounded, unattended money spend — an irreversible cost action taken with no human in the
+  loop, exactly the class of act planwright reserves for the operator; a runaway loop could spend
+  without limit.
+- Say nothing (let each worker session answer the prompt however it happens to). Rejected because:
+  non-deterministic per-session handling of a spend prompt is both a determinism-floor violation
+  (REQ-G1.2) and a silent-spend risk; the response must be a single deterministic fleet policy.
+- Build a dollar-spend ceiling to bound credit use. Rejected here as out of scope: the parked
+  dollar-ceiling seed is a spend-*accounting* mechanism; this decision is spend-*avoidance* by
+  default and needs no meter, so it ships without reopening that parked work.
+
+**Chosen because:** declining by default keeps cost strictly opt-in — the safe, reversible choice
+that matches planwright's treatment of irreversible/outward-facing actions as human-reserved, while
+still letting an operator who genuinely wants to trade credits for continuity configure it. The
+reactive backstop (REQ-E1.7) already gives "wait for reset" a well-defined behavior to fall into, so
+decline-and-wait costs no new mechanism.
+
+### D-28: Restriction-ladder state is derived from the shared audit trail, not stored (N)
+
+**Decision:** The ladder's runtime state — the current rung and the timestamp of the last rung
+transition (the input to hysteresis dwell) — is **derived from the shared audit trail** (Task 1's
+audit helper, REQ-F1.4), not held in tower memory or a separate rung-state file. A tower reconstructs
+the current fleet rung by reading the last rung-transition entry; a transition is taken under the
+existing advisory lock (REQ-G1.3) and logged only on an actual rung change (edge-triggered).
+
+**Alternatives considered:**
+- In-memory per-tower rung + dwell clock. Rejected because: fleet-autonomy's towers are memoryless
+  and cron-relaunched (REQ-A1.5/D-4), so a relaunch loses the state and the ladder re-evaluates from
+  scratch — re-degrading/re-restoring, the exact flap REQ-E1.10's hysteresis forbids; and per-tower
+  clocks make the anti-flap guarantee hold only within one tower's lifetime, not across the fleet
+  sharing one account budget.
+- A dedicated shared rung-state file each tower writes. Rejected because: it reintroduces the
+  concurrent-shared-write-conflict class D-13 deliberately avoided (torn reads, lock discipline on a
+  new artifact), for state that is already recoverable from the audit trail the ladder writes anyway.
+- Level-triggered logging (log the rung on every per-dispatch evaluation). Rejected because: under
+  multiple towers plus per-dispatch evaluation it floods the trail and makes "last transition"
+  unrecoverable; edge-triggered logging keeps the trail the clean derivation source.
+
+**Chosen because:** deriving state from the append-only audit trail the ladder already writes is
+planwright's established "derive, never a shared-write accumulator" pattern (D-2, D-13): it costs no
+new store, survives the memoryless relaunch by construction, and — because the trail is shared and
+the `/usage` signal is account-global — yields one fleet-coherent rung rather than N drifting
+per-tower clocks. The advisory lock (REQ-G1.3) already serializes daemon actions, so transition
+writes inherit its ordering with no new concurrency machinery.
 
 ## Changelog
 
@@ -590,6 +673,15 @@ paragraph, so the REQ-H1.3 kickoff check reads it from the bundle.
   capability-in-core / values-in-overlay per `customization-boundary`), D-25 (degrade ladder:
   capability only, never a carried safety floor), and D-26 (altitude record: this extension is
   configurable mechanism, not new doctrine, cited from the Goal per `autopilot-reflex` REQ-H1.1).
+- 2026-07-20 — Extension-delta kickoff walkthrough. D-23 now reads both `/usage` windows
+  (session + weekly) as a consequence-aware, point-in-time signal. D-25 recast as one **restriction
+  ladder** (throttle, not two mechanisms): `normal`→`downshift`→`reduce-concurrency`→`defer-heavy`→
+  `defer-all`, session capped at `defer-heavy`, reservation-yields-at-`defer-all`, and the safety
+  property that the common proactive range can only mis-throttle, never halt. D-24 reframed caps as
+  per-tier global-usage thresholds (not per-model accounting). Added D-27 (credit-continuation
+  defaults to decline-and-wait, never auto-spend) and D-28 (ladder state derived from the shared
+  audit trail, not stored — fleet-coherent, survives the memoryless relaunch, transitions under the
+  advisory lock and edge-triggered). Fixed D-26's unqualified `REQ-H` refs to `autopilot-reflex`.
 
 ## Sources
 
