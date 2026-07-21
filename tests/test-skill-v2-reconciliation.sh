@@ -351,6 +351,70 @@ else
   fail "orchestrate: --bookkeeping placement reconcile not scoped to v1 ('no placement to reconcile' on v2 missing)"
 fi
 
+# --- /orchestrate: selection-contract reconciliation (skill-rigor Task 4, ---
+# --- REQ-A1.3, REQ-A1.4, D-10). The selector ships exit 3 (the
+# --- format-version-2 transient evidence hold) and refuses selection when
+# --- Format-version: is unparseable; the skill prose must fold both in.
+# --- Cross read: scripts/orchestrate-select.sh's exit-3 site.
+
+# REQ-A1.3: the selection prose documents exit 3 as the transient evidence hold.
+if printf '%s' "$oc" | grep -qE 'Exit 3 \(format-version 2 transient evidence hold\)'; then
+  ok "orchestrate: selection prose documents exit 3 as the v2 transient evidence hold (REQ-A1.3)"
+else
+  fail "orchestrate: selection prose does not document selector exit 3 (REQ-A1.3; matches scripts/orchestrate-select.sh's exit-3 contract)"
+fi
+
+# REQ-A1.3: the hold is a clean report-and-end, the lock-contention shape (D-10).
+if printf '%s' "$oc" | grep -qE '[Rr]eport the hold and end the step cleanly'; then
+  ok "orchestrate: exit-3 hold described as a clean report-and-end (REQ-A1.3, D-10)"
+else
+  fail "orchestrate: exit-3 hold not described as 'report the hold and end the step cleanly' (REQ-A1.3, D-10: not a halt)"
+fi
+
+# REQ-A1.3: the stop-conditions table carries the exit-3 row.
+if printf '%s' "$oc" | grep -qE 'Selection transient-evidence hold'; then
+  ok "orchestrate: stop-conditions table carries the selection exit-3 row (REQ-A1.3)"
+else
+  fail "orchestrate: stop-conditions table has no selection exit-3 row ('Selection transient-evidence hold' missing, REQ-A1.3)"
+fi
+
+# REQ-A1.4: the ready-task candidacy prose is version-keyed, stating v1 and
+# format-version-2 candidacy each. Three separate fixed-shape greps (no nested
+# bounded quantifiers, which backtrack catastrophically on the flattened body):
+# the version-keyed lead, then each version's candidacy clause.
+if printf '%s' "$oc" | grep -qE 'Candidacy is version-keyed'; then
+  ok "orchestrate: ready-task candidacy prose is version-keyed (REQ-A1.4)"
+else
+  fail "orchestrate: ready-task candidacy prose is not version-keyed ('Candidacy is version-keyed' missing, REQ-A1.4)"
+fi
+
+if printf '%s' "$oc" | grep -qE '\*\*version 1\*\* bundle a task is a candidate'; then
+  ok "orchestrate: version-keyed candidacy states the version 1 condition (REQ-A1.4)"
+else
+  fail "orchestrate: version-keyed candidacy does not state the version 1 condition explicitly (REQ-A1.4)"
+fi
+
+if printf '%s' "$oc" | grep -qE '\*\*format-version 2\*\* bundle no placement section exists, so candidacy'; then
+  ok "orchestrate: version-keyed candidacy states the format-version-2 condition (REQ-A1.4)"
+else
+  fail "orchestrate: version-keyed candidacy does not state the format-version-2 condition explicitly (REQ-A1.4)"
+fi
+
+# REQ-E1.1 compensating trim: the heavy selection mechanics were relocated into
+# doctrine/selection-contract.md (kept resolvable), declared point-of-use in the
+# manifest so the skill still names the contract at its point of use.
+if [ -f "$REPO_ROOT/doctrine/selection-contract.md" ]; then
+  ok "orchestrate: the relocated selection-contract doctrine doc exists (REQ-E1.1)"
+else
+  fail "orchestrate: doctrine/selection-contract.md missing (REQ-E1.1 compensating-trim relocation)"
+fi
+
+if printf '%s' "$oc" | grep -qE 'Doctrine: point-of-use selection-contract'; then
+  ok "orchestrate: manifest declares selection-contract point-of-use (REQ-E1.1)"
+else
+  fail "orchestrate: manifest does not declare selection-contract point-of-use (REQ-E1.1)"
+fi
+
 # --- /drain: gate atoms via the derivation engine (REQ-E1.2, D-8) ---
 
 dr="$(flat "$REPO_ROOT/skills/drain/SKILL.md")"
