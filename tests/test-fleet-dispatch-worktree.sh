@@ -396,11 +396,12 @@ c9() {
   printf '%s\n' "$OUT" | grep -q 'attach-plan' \
     && fail "c9: an attach plan was printed despite a non-zero create (attach not gated)"
 
-  # Unresolvable fresh base (no remote reachable AND no local main) -> exit 4,
-  # no attach. Use a bare repo with an origin that cannot resolve origin/main.
+  # Unresolvable fresh base (no remote reachable AND no local main) -> non-zero,
+  # no attach. Use a repo with a spec bundle (so it passes the spec-dir gate) but
+  # no commits and no remote: origin/main and local main are both unresolvable.
   bare=$(mktemp -d "${TMPDIR:-/tmp}/dw.c9b.XXXXXX")
   git -c init.defaultBranch=main init -q "$bare/repo"
-  # No commits, no remote: origin/main and local main both unresolvable.
+  mkdir -p "$bare/repo/specs/demo"
   run_prim dispatch demo 10 --repo-root "$bare/repo" --attach-dry-run
   [ "$RC" -ne 0 ] || fail "c9: unresolvable-base dispatch unexpectedly succeeded"
   printf '%s\n' "$OUT" | grep -q 'attach-plan' \
@@ -508,11 +509,21 @@ c13() {
 
   # Deterministic naming: two dispatches of the same (spec,id) derive the exact
   # same D-36 branch — pure string logic, no stochastic/model step. (Run in
-  # separate clones so the second is not a collision.)
+  # separate clones so the second is not a collision.) Assert each dispatch
+  # SUCCEEDED before reading its branch, so a real dispatch failure surfaces as
+  # itself, not a misleading "not deterministic" with empty values.
   run_prim dispatch demo 7 --repo-root "$tmp/primary" --attach-dry-run
+  [ "$RC" -eq 0 ] || {
+    fail "c13: first dispatch exited $RC (expected 0)"
+    return
+  }
   b1=$(dfield "$OUT" branch)
   git clone -q "$tmp/origin.git" "$tmp/primary2" 2>/dev/null
   run_prim dispatch demo 7 --repo-root "$tmp/primary2" --attach-dry-run
+  [ "$RC" -eq 0 ] || {
+    fail "c13: second dispatch exited $RC (expected 0)"
+    return
+  }
   b2=$(dfield "$OUT" branch)
   [ "$b1" = "planwright/demo/task-7" ] && [ "$b2" = "planwright/demo/task-7" ] \
     || fail "c13: branch naming is not deterministic ('$b1' vs '$b2')"

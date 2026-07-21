@@ -476,6 +476,14 @@ do_dispatch() {
   # mismatches the porcelain path).
   _repo_root=$(cd "$_repo_root" && pwd -P) || exit 2
   _spec_dir="$_repo_root/specs/$_spec"
+  # Fail closed when the spec bundle dir is missing: a task is only ever
+  # dispatched within an existing spec, and without `specs/<spec>` the dispatch
+  # marker cannot be written, which would degrade liveness to "not live" and let
+  # a later collision reconcile force-remove an actually-running worker.
+  if [ ! -d "$_spec_dir" ]; then
+    warn "spec bundle not found: $_spec_dir (dispatch requires an existing spec)"
+    exit 2
+  fi
   _wt_root="$_repo_root/.claude/worktrees"
   _worktree="$_wt_root/$_suffix"
 
@@ -660,9 +668,12 @@ do_dispatch() {
   # We only reach here with the worktree created on the exact D-36 branch, so
   # the attach never targets a missing or wrong worktree.
   if [ "$_attach_dry" -eq 1 ]; then
-    printf 'dispatch\tbranch\t%s\n' "$_branch"
-    printf 'dispatch\tworktree\t%s\n' "$_worktree"
-    printf 'dispatch\tbase\t%s\n' "$_base"
+    # Sanitize the header fields too (consistent with the attach-plan tokens): a
+    # repo checkout path carrying control bytes would otherwise inject terminal
+    # sequences into the operator's output via $_worktree.
+    printf 'dispatch\tbranch\t%s\n' "$(sanitize_printable "$_branch")"
+    printf 'dispatch\tworktree\t%s\n' "$(sanitize_printable "$_worktree")"
+    printf 'dispatch\tbase\t%s\n' "$(sanitize_printable "$_base")"
     if [ "$_have_extra" -eq 1 ]; then
       do_attach "$_suffix" --dry-run -- "$@"
     else
