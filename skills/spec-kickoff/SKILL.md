@@ -53,7 +53,7 @@ follows them exactly. Three more, at Sign-off step 1:
 - `validation-rigor` — validation of lens findings before disposition.
 
 If any of those five does not resolve — at run start or point of use — halt
-naming the missing doc and the chain consulted (REQ-K1.7). Three degrade
+naming the missing doc and the chain consulted (REQ-K1.7). The rest degrade
 gracefully instead:
 
 - `decision-domains` — the gap check's catalog. Absent: note it in one line,
