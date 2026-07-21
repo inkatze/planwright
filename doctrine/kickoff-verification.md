@@ -1,13 +1,76 @@
-# Kickoff verification gates
+# Kickoff verification passes and gates
 
-Verification gates the `/spec-kickoff` sign-off flow runs around the terminal
-spec-PR ready-flip. The skill names each gate at its point of use and follows
-the mechanics recorded here; lifting the heavy mechanics out of the skill body
-keeps `skills/spec-kickoff/SKILL.md` within its instruction budget while the
-full rule stays authoritative in one place. (The pre-flip lint and
-recorded-claim re-derivation, REQ-B1.2 / REQ-B1.3, stay documented inline in the
-sign-off flow; this doc covers the gates whose mechanics are heavy enough to
-lift out.)
+Verification passes and gates the `/spec-kickoff` flow runs: the walkthrough's
+mid-walk lens and post-lens stale-reference sweep, the sign-off lens review, and
+the terminal spec-PR ready-flip CI gate. The skill names each at its point of
+use and follows the mechanics recorded here; lifting the heavy mechanics out of
+the skill body keeps `skills/spec-kickoff/SKILL.md` within its instruction
+budget while the full rule stays authoritative in one place. (The pre-flip lint
+and recorded-claim re-derivation, REQ-B1.2 / REQ-B1.3, stay documented inline in
+the sign-off flow; this doc covers the passes and gates whose mechanics are
+heavy enough to lift out.)
+
+## Mid-walk delta-scoped lens (REQ-B1.4, D-5)
+
+When `/spec-kickoff` applies an agent-authored meaning-class edit during the
+walkthrough, a delta-scoped lens pass runs at the point of application — not
+deferred to the terminal sign-off pass. In the status-quo terminal-only flow a
+self-introduced spec deadlock propagated through four brief sections before the
+terminal pass caught it (D-5); the mid-walk pass catches it at application.
+
+- **Scope.** The edit's delta and what depends on it — proportionate, not a
+  full-bundle re-lens (a full re-lens after every edit is disproportionate; the
+  risk is scoped to the edit).
+- **Disposition.** The pass's finding disposition is recorded in the brief
+  section carrying the edit.
+- **Erroring pass.** A lens pass that errors is surfaced, never treated as
+  clean.
+- **Terminal pass.** The terminal sign-off lens pass is unchanged and still
+  runs; the mid-walk pass is additive.
+
+## Post-lens stale-reference sweep (REQ-B1.5, D-6)
+
+After any lens pass (mid-walk or terminal sign-off) mints or re-scopes a REQ,
+sweep the bundle and the earlier brief sections for now-stale
+references and reconcile them before the anchor is computed. The lens reviews
+the delta, not every earlier section's references to it, so stragglers (three
+from one root cause on a past bundle) otherwise reach the review gauntlet as
+review-cycle amendments.
+
+- **Targets.** Now-stale counts, cross-references, dependent task and test
+  wording, and risk-IDs.
+- **Ordering vs the D-4 re-derivation.** The sweep completes before the
+  recorded-claim re-derivation is finalized (REQ-B1.3, D-4): figures the sweep
+  changed are re-derived.
+- **Mechanical, once.** Grep for the minted and re-scoped IDs and the figures
+  they change; the sweep runs once, at the only moment new-REQ staleness can
+  exist but the anchor does not yet seal it.
+
+## Sign-off lens review — scope and fan-out (REQ-A3.3, D-45)
+
+The sign-off lens review is a Discovery-Rigor review of the bundle — the last
+line of defense against spec bugs execution feedback cannot catch (D-45).
+
+- **Scope.** Full bundle at first activation; delta-scoped at re-walkthroughs
+  and amendments; skipped for expression-only changes (REQ-A3.3).
+- **Fan-out.** One read-only sub-agent per canonical lens for any non-trivial
+  delta per `discovery-rigor`; walk inline only for small, narrow deltas, and
+  declare the path taken.
+- **Lens-coverage table.** Emit the canonical lens-coverage table.
+
+### Kickoff-specific altitude check (REQ-H1.3)
+
+A check item within the sign-off lens review, not a new lens (the
+`discovery-rigor` list is untouched). Determine **bundle-locally** whether
+drafting fired an altitude trigger, from the pinned seed claims in
+`requirements.md`'s `## Sources` section (never drafting-session memory); per
+`autopilot-reflex`, a present altitude D-ID is the record a trigger leaves.
+
+- **Triggered bundle.** Verify the altitude D-ID exists, is cited from the
+  bundle's goal, and that the task decomposition matches the claimed altitude (a
+  doctrine-first bundle with only mechanism tasks is a finding).
+- **Untriggered bundle.** Needs no altitude record (per `proportionality`):
+  record not-applicable.
 
 ## Terminal ready-flip CI gate (REQ-B1.1, D-3)
 
