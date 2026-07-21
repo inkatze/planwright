@@ -563,6 +563,9 @@ out="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$STATE" \
   /bin/sh "$RUNNER" --record "$w/rec" --persona novice "$LOOP" 2>&1)"
 assert_exit "a never-completing dialogue trips the turn ceiling (exit 6)" 6 "$?"
 assert_contains "the turn ceiling is named" "turn ceiling" "$out"
+# the ceiling stops at EXACTLY turns+3 sends (turns=1 -> 4), not one past it: the
+# `-ge` bound. `-gt` would send a 5th answer before firing.
+assert_eq "the turn ceiling caps sends at turns+3 (no off-by-one)" "4" "$(wc -l <"$STATE/.sends-log" 2>/dev/null | tr -d ' ')"
 
 echo "== usage/guard: --grader without --grader-id is a usage error =="
 out="$(BEHAVIORAL_EVAL_TMUX="$STUB" /bin/sh "$RUNNER" --grader /bin/true "$FIXTURE" 2>&1)"

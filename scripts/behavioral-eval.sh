@@ -595,8 +595,12 @@ run_persona() {
       _rp_rc=6
       break
     fi
-    if [ "$_rp_sends" -gt "$_rp_turn_cap" ]; then
-      warn "[$fx_id/$_rp_persona] turn ceiling ($_rp_turn_cap) exceeded without completion"
+    # `-ge`, not `-gt`: `_rp_sends` is incremented AFTER each send, so testing
+    # `-ge` at the loop top stops once exactly `_rp_turn_cap` answers have been
+    # sent — `-gt` would let a `cap + 1`th answer through before firing, one turn
+    # past the intended `turns + 3` cost bound.
+    if [ "$_rp_sends" -ge "$_rp_turn_cap" ]; then
+      warn "[$fx_id/$_rp_persona] turn ceiling ($_rp_turn_cap) reached without completion"
       _rp_rc=6
       break
     fi
