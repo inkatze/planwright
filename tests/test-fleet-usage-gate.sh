@@ -441,4 +441,102 @@ run evaluate >/dev/null 2>&1 || rc=$?
 rm -f "$mlocal_cfg"
 echo "ok: a read cadence at or above the TTL is rejected"
 
+# --- 19. A percentage never bleeds across windows: a label with no percentage
+#         of its own must not adopt the next window's number (by-label, not
+#         by-position). ---
+reset_state
+bleed=$(printf 'Current session\n(quota resets 3pm)\nWeekly usage\n78%% used\n' | run capture) \
+  || fail "capture (bleed) failed"
+case $bleed in
+  *session*unavailable*) ;;
+  *) fail "a session label with no percentage must be unavailable, not the weekly value (got: $bleed)" ;;
+esac
+case $bleed in
+  *weekly*78*) ;;
+  *) fail "the weekly window should still parse its own 78 (got: $bleed)" ;;
+esac
+echo "ok: a percentage does not bleed from one window into the other"
+
+# --- 20. The reset time is captured where the render shows it, and defaults to
+#         '-' where absent (REQ-E1.5 / the Task 9 deliverable). ---
+reset_state
+withreset=$(usage_render 52 38 | run capture) || fail "capture (reset) failed"
+case $withreset in
+  *session*52*[Rr]esets*3:00pm*) ;;
+  *) fail "the session reset time was not captured (got: $withreset)" ;;
+esac
+noreset=$(printf 'Current session\n52%% used\n' | run capture) || fail "capture (no reset) failed"
+sline=$(printf '%s\n' "$noreset" | awk -F'\t' '$1=="session"{print $3}')
+[ "$sline" = "-" ] || fail "a window with no reset time shown should record '-' (got: '$sline')"
+echo "ok: the reset time is captured where shown and defaults to '-' where absent"
+
+# --- 21. A future-dated cache (backward clock step / corrupt future epoch) is
+#         treated as unavailable, not as fresh-forever. ---
+reset_state
+usage_render 10 88 | run capture >/dev/null || fail "capture (future) failed"
+signal_file="$fleet_home/usage/signal"
+future_epoch=$(($(date +%s) + 100000))
+{
+  echo "$future_epoch"
+  tail -n +2 "$signal_file"
+} >"$signal_file.new"
+mv "$signal_file.new" "$signal_file"
+fut_out=$(run evaluate 2>/dev/null) || fail "evaluate (future cache) should not block"
+case $fut_out in
+  *unavailable*) ;;
+  *) fail "a future-dated cache should evaluate unavailable, not fresh-forever (got: $fut_out)" ;;
+esac
+rows=$(audit_query --mechanism usage-gate 2>/dev/null | wc -l | tr -d ' ')
+[ "$rows" = 0 ] || fail "a future-dated (unavailable) cache must not record a rung transition (found $rows)"
+echo "ok: a future-dated cache is treated as unavailable, not fresh"
+
+# --- 22. The last-transition timestamp is derived from the audit trail and
+#         surfaced by evaluate; a fresh process recovers it (D-28, Task 10 input). ---
+reset_state
+usage_render 10 88 | run capture >/dev/null || fail "capture (since) failed"
+ev=$(run evaluate) || fail "evaluate (since) failed"
+since=$(printf '%s\n' "$ev" | awk -F'\t' '/^rung/{for(i=1;i<=NF;i++) if($i=="since"){print $(i+1); exit}}')
+case $since in
+  "" | *[!0-9]*) fail "evaluate did not surface a numeric last-transition epoch (got: '$since')" ;;
+esac
+# It must equal the audit row's own epoch (field 1) — derived, not invented.
+row_epoch=$(audit_query --mechanism usage-gate 2>/dev/null | awk -F'\t' 'END{print $1}')
+[ "$since" = "$row_epoch" ] || fail "the surfaced since-epoch ($since) must equal the audit row epoch ($row_epoch)"
+echo "ok: the last-transition timestamp is derived from the trail and recovered by a fresh process"
+
+# --- 23. A corrupt/unknown last action fails loud rather than silently
+#         collapsing to 'normal' (which would drop the fleet to unrestricted). ---
+reset_state
+# Seed a real transition, then append a row whose action is a garbled rung token.
+usage_render 10 88 | run capture >/dev/null || fail "capture (corrupt) failed"
+run evaluate >/dev/null || fail "evaluate (corrupt seed) failed"
+PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" /bin/bash "$FA" record usage-gate defer-hea \
+  "garbled" "a truncated rung token" >/dev/null || fail "seeding a corrupt row failed"
+rc=0
+run rung >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "an unrecognized last action must fail loud, not derive a silent 'normal' (exit $rc, expected 2)"
+echo "ok: a corrupt last action fails loud instead of collapsing to 'normal'"
+
+# --- 24. Backstop composition (REQ-E1.7): when the gate signal is unavailable,
+#         the reactive throttle remains the load-bearing floor — the gate does
+#         not block, and an engaged reactive throttle still governs dispatch. ---
+reset_state
+THROTTLE="$here/../scripts/fleet-throttle.sh"
+throttle() {
+  PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" /bin/bash "$THROTTLE" "$@"
+}
+printf 'garbage\n' | run capture >/dev/null || fail "capture (composition) failed"
+run evaluate >/dev/null 2>&1 || fail "evaluate must not block on an unavailable signal (backstop composes)"
+# The gate abstained (no rung transition); now the reactive throttle engages and
+# is the governing floor.
+until_epoch=$(($(date +%s) + 3600))
+throttle engage --until "$until_epoch" --trigger "rate-limit prompt" >/dev/null 2>&1 \
+  || fail "engaging the reactive throttle failed"
+rc=0
+throttle check >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "with the gate signal unavailable, the reactive backstop must still govern (throttle check exit $rc, expected 1)"
+echo "ok: the reactive backstop is load-bearing when the proactive signal is unavailable"
+
 echo "ALL fleet-usage-gate tests passed"

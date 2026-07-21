@@ -576,6 +576,19 @@ render is an undocumented, version-fragile surface (D-23), the parser carries a
 ladder) is in CI; confirming the parser still matches a live `/usage` format is
 the operator's periodic manual check.
 
+Schedule the read + evaluation on the `fleet_usage_read_cadence_seconds`
+cadence, off the dispatch hot path — the gate never scrapes `/usage`
+synchronously per dispatch. The scrape mechanism (a throwaway-pane capture of
+the live `/usage` TUI) is environment-specific; wire it as, e.g.:
+
+```cron
+*/5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
+```
+
+Then at dispatch time a tower consults `scripts/fleet-usage-gate.sh admit
+<model>` (a fast, audit-derived read — no scrape) to decide whether a unit of a
+given tier may launch under the current rung.
+
 **Workers never run in `auto` permission mode.** The
 `config/worker-settings.json` allowlist — human-reviewed, human-installed,
 pinning a non-auto `defaultMode` — is the sole permission-approval mechanism

@@ -56,32 +56,44 @@
 # fleet-coherent state that DOES need serialization is the audit-derived rung.
 # The gate NEVER invokes an LLM/API (REQ-G1.2): the whole path is sh/sed/awk.
 #
-# DEGRADATION (REQ-E1.5). When no window signal is available, governance falls
+# DEGRADATION (REQ-E1.5). When NO window signal is available, governance falls
 # back to the reactive backstop: `evaluate` reports unavailable and takes NO
 # proactive rung transition (no block, no guessed number). Sustained
-# unavailability — the signal unavailable across an overlay-configurable number
-# of consecutive read cadences — raises a REQUIRED operator surface (a warning
-# escalating to an Awaiting-input hold via fleet-attention.sh), so a permanently
-# broken `/usage` parse (the D-23 version-drift fragility) is never silent. An
-# outstanding hold is cleared when the kill-switch is engaged (the operator has
-# assumed control; the hold no longer applies).
+# unavailability — the signal (BOTH windows) unavailable across an
+# overlay-configurable number of consecutive `evaluate` cadences — raises a
+# REQUIRED operator surface (a warning escalating to an Awaiting-input hold via
+# fleet-attention.sh), so a permanently broken `/usage` parse that loses both
+# windows (the D-23 version-drift fragility) is never silent. A partial break —
+# one window still parsing while the other is lost — is NOT a silent gap: the
+# surviving window still governs the ladder, and the `[manual]` `/usage` drift
+# check (REQ-E1.5) owns catching a live-format change that breaks one window.
+# The consecutive-unavailable counter is a per-tower LOCAL, advisory scalar
+# (`evaluate` is the per-cadence daemon action, so consecutive invocations are
+# consecutive cadences); it needs no lock because the fleet-coherent state is
+# the audit-derived rung, not this counter. An outstanding hold is cleared when
+# the kill-switch is engaged (the operator has assumed control; the hold no
+# longer applies).
 #
 # Usage:
 #   fleet-usage-gate.sh capture
 #       Read a captured /usage render on stdin, parse both windows, cache the
-#       signal, and print it as two lines:
-#         session<TAB><percent|unavailable>
-#         weekly<TAB><percent|unavailable>
-#       Exit 0 (a per-window unavailable is a normal state, not an error);
-#       exit 2 on a usage or I/O error.
+#       signal, and print it as two TAB-separated lines:
+#         session<TAB><percent|unavailable><TAB><reset-text|->
+#         weekly<TAB><percent|unavailable><TAB><reset-text|->
+#       The reset field is the window's reset-time text where the render shows
+#       it (informational only; the gate acts on the percentage and never models
+#       reset timing). Exit 0 (a per-window unavailable is a normal state, not an
+#       error); exit 2 on a usage or I/O error.
 #   fleet-usage-gate.sh evaluate
 #       The proactive gate. Read the cached signal (absent or stale-beyond-TTL
 #       => unavailable), compute the target rung (per-window thresholds via the
 #       overlay, more-restrictive-wins, session capped at defer-heavy), derive
 #       the current rung from the audit trail, and — on a change — record an
 #       edge-triggered transition under the advisory lock. Prints
-#       `rung<TAB><name><TAB>session<TAB><s><TAB>weekly<TAB><w>`. Exit 0; exit 1
-#       when the kill-switch pauses the gate; exit 2/4/5 on error (see below).
+#       `rung<TAB><name><TAB>since<TAB><last-transition-epoch><TAB>session<TAB><s><TAB>weekly<TAB><w>`
+#       (the `since` epoch, derived from the trail, is empty when no transition
+#       has been recorded). Exit 0; exit 1 when the kill-switch pauses the gate;
+#       exit 2/4/5 on error (see below).
 #   fleet-usage-gate.sh rung
 #       Print the current rung derived from the audit trail (a pure read: no
 #       gate, no lock, no transition). `normal` when the trail has no rows.
@@ -93,10 +105,12 @@
 #
 # Exit codes: 0 success; 1 kill-switch short-circuit (evaluate) or withheld
 #   (admit); 2 usage error, corrupt state, refused input, or a filesystem/lock
-#   error (fail closed); 4 malformed team-shared config (a non-monotonic or
-#   out-of-range repo-tracked threshold, or a resolver hard-fail); 5 broken
-#   install (a resolver or helper is unavailable or its core default is
-#   itself malformed). Never fails opaquely.
+#   error (fail closed); 4 malformed threshold/cadence configuration (a
+#   non-monotonic or out-of-range per-window threshold set from ANY layer, or a
+#   read cadence >= the TTL) or a resolver hard-fail on a team-shared value —
+#   the ladder is fail-closed, never run under invalid configuration; 5 broken
+#   install (a resolver or helper is unavailable or its core default is itself
+#   malformed). Never fails opaquely.
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling): awk,
 # `date +%s`, a fractional sleep for the lock retry. No eval, no jq (REQ-K1.5).
@@ -227,50 +241,66 @@ resolve_posint() {
 
 # --- The /usage parser (capture) ------------------------------------------
 #
-# parse_usage: read the captured render on stdin, print two lines
-# `session <value>` and `weekly <value>` where <value> is a plausible 0-100
-# integer or the literal `unavailable`. Control/escape bytes are stripped
-# BEFORE parsing (a CSI sequence removed whole, then any residual non-print
-# byte), so a smuggled escape cannot survive into the output or forge a value.
-# Each window is found BY LABEL (`session` / `week`) with a bounded lookahead
-# to the percentage — the render puts the percent on the label line or the
-# next — and by-label means window ORDER does not matter. A percentage that is
-# absent near its label, or present but outside 0-100, yields `unavailable`.
+# parse_usage: read the captured render on stdin, print two TAB-separated lines
+# `session<TAB><pct><TAB><reset>` and `weekly<TAB><pct><TAB><reset>` where
+# <pct> is a plausible 0-100 integer or the literal `unavailable`, and <reset>
+# is the window's reset-time text where the render shows it, else `-` (captured
+# for observability only; the gate acts on the percentage and NEVER models
+# reset timing — REQ-E1.5). Control/escape bytes are stripped BEFORE parsing
+# (a CSI sequence removed whole, then any residual non-print byte — the
+# echo-discipline awk form), so a smuggled escape cannot survive into the
+# output, the cache, or forge a value; the strip also removes any TAB, so the
+# reset field can never tear the TAB-separated line.
+#
+# Each window is found BY LABEL, never by position: a single top-to-bottom pass
+# tracks the most-recently-seen window label (`session` / `week`), and the first
+# plausible percentage AND the first reset phrase within a window's section are
+# assigned to that window. "Most recent label owns the value" bounds each window
+# to its own section — a percentage cannot bleed from one window into the other
+# even when a label line carries no percentage of its own, and window ORDER does
+# not matter. A percentage absent from a window's section, or present but
+# outside 0-100, yields `unavailable`.
 parse_usage() {
   head -c 262144 | awk '
+    BEGIN { TAB = sprintf("\t") }
     {
       line = $0
       # Remove whole ANSI CSI sequences (ESC [ ... final-byte), then strip any
-      # residual non-printable byte — the echo-discipline awk form. A color
-      # code cannot leave a bracket-number fragment that forges "NN%".
+      # residual non-printable byte (including TAB). A color code cannot leave a
+      # bracket-number fragment that forges "NN%".
       gsub(/\033\[[0-9;?]*[ -\/]*[@-~]/, "", line)
       gsub(/[^[:print:]]/, "", line)
       n++
       lines[n] = line
       lower[n] = tolower(line)
     }
-    function pct_near(kw,    i, j, s, num) {
-      # First line whose lowercased text mentions the keyword; then scan that
-      # line and up to three following lines for the first NN% token.
-      for (i = 1; i <= n; i++) {
-        if (index(lower[i], kw) == 0) continue
-        for (j = i; j <= n && j <= i + 3; j++) {
-          s = lines[j]
-          if (match(s, /[0-9]+%/)) {
-            num = substr(s, RSTART, RLENGTH - 1) + 0
-            if (num >= 0 && num <= 100) return num
-            return -1 # present but implausible -> unavailable, never guessed
-          }
-        }
-        return -1 # labelled window with no plausible percentage nearby
-      }
-      return -2 # window label absent
-    }
     END {
-      sv = pct_near("session")
-      wv = pct_near("week")
-      printf "session %s\n", (sv < 0 ? "unavailable" : sv)
-      printf "weekly %s\n", (wv < 0 ? "unavailable" : wv)
+      cur = ""             # the most-recently-seen window: "s" | "w" | ""
+      s_pct = -2; w_pct = -2   # -2 section absent, -1 implausible, else 0..100
+      s_reset = ""; w_reset = ""
+      for (i = 1; i <= n; i++) {
+        # A line naming a window opens that window section. A legend line naming
+        # both is transient: the real data label lines below re-open the correct
+        # section, so the last label before a value owns it.
+        if (index(lower[i], "session")) cur = "s"
+        if (index(lower[i], "week")) cur = "w"
+        if (cur == "") continue
+        if (match(lines[i], /[0-9]+%/)) {
+          num = substr(lines[i], RSTART, RLENGTH - 1) + 0
+          val = (num >= 0 && num <= 100) ? num : -1
+          if (cur == "s" && s_pct == -2) s_pct = val
+          else if (cur == "w" && w_pct == -2) w_pct = val
+        }
+        # The first reset phrase in a window section: informational only,
+        # bounded to 100 chars, captured from the "reset" keyword to end of line.
+        if (match(lower[i], /reset[a-z]*/)) {
+          rt = substr(lines[i], RSTART, 100)
+          if (cur == "s" && s_reset == "") s_reset = rt
+          else if (cur == "w" && w_reset == "") w_reset = rt
+        }
+      }
+      printf "session%s%s%s%s\n", TAB, (s_pct < 0 ? "unavailable" : s_pct), TAB, (s_reset == "" ? "-" : s_reset)
+      printf "weekly%s%s%s%s\n", TAB, (w_pct < 0 ? "unavailable" : w_pct), TAB, (w_reset == "" ? "-" : w_reset)
     }'
 }
 
@@ -307,8 +337,10 @@ read_signal() {
     return 0
   fi
   rs_epoch=$(sed -n '1p' "$rs_file" 2>/dev/null | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-  rs_session=$(sed -n '2p' "$rs_file" 2>/dev/null | awk '{print $2}')
-  rs_weekly=$(sed -n '3p' "$rs_file" 2>/dev/null | awk '{print $2}')
+  # Field 2 is the percentage (field 3 is the informational reset text); split on
+  # TAB so a reset string starting with a digit can never be mistaken for the pct.
+  rs_session=$(sed -n '2p' "$rs_file" 2>/dev/null | awk -F "$TAB" '{print $2}')
+  rs_weekly=$(sed -n '3p' "$rs_file" 2>/dev/null | awk -F "$TAB" '{print $2}')
   case $rs_epoch in
     "" | *[!0-9]*)
       echo "fleet-usage-gate: signal cache '$rs_file' has a corrupt timestamp — treating as unavailable" >&2
@@ -322,8 +354,12 @@ read_signal() {
     echo "fleet-usage-gate: cannot read the clock" >&2
     exit 2
   }
-  if [ $((rs_now - rs_epoch)) -gt "$rs_ttl" ]; then
-    # Staler than the TTL: the whole reading is unavailable, never acted on.
+  # Reject BOTH a reading older than the TTL and a future-dated one (a backward
+  # clock step or a corrupt future epoch yields a negative age that an
+  # upper-bound-only test would accept as fresh forever). Either way the whole
+  # reading is unavailable, never acted on.
+  rs_age=$((rs_now - rs_epoch))
+  if [ "$rs_age" -lt 0 ] || [ "$rs_age" -gt "$rs_ttl" ]; then
     rs_session=unavailable
     rs_weekly=unavailable
   fi
@@ -380,10 +416,17 @@ resolve_thresholds() {
 
 # --- Rung derivation from the audit trail (rung / evaluate) ----------------
 #
-# derive_rung: print the current rung — the action of the most recent
-# usage-gate audit row (D-28: state derived, not stored). No rows -> normal. An
-# unreadable trail is a hard error (never a silent `normal`, which would mask a
-# corrupt store and let the ladder re-degrade from scratch).
+# The ladder's state — the current rung AND its last-transition timestamp — is
+# DERIVED from the most recent usage-gate audit row, never stored (D-28), so a
+# memoryless relaunch recovers it. `derive_rung` reads the rung; the epoch of
+# that same row is the last-transition timestamp (Task 10's hysteresis-dwell
+# input), read by `last_transition_epoch`.
+#
+# derive_rung: print the current rung. No rows -> `normal`. An unreadable trail
+# is a hard error (return 2), and a NON-empty but unrecognized last action is
+# treated as corruption and also fails loud (never a silent `normal`, which
+# would mask a corrupt store and silently drop the fleet from a restrictive rung
+# to unrestricted).
 derive_rung() {
   dr_out=$("$AUDIT" query --mechanism "$MECHANISM" 2>/dev/null) || {
     echo "fleet-usage-gate: cannot read the audit trail to derive the current rung" >&2
@@ -393,8 +436,22 @@ derive_rung() {
   case $dr_last in
     normal | downshift | reduce-concurrency | defer-heavy | defer-all) printf '%s' "$dr_last" ;;
     "") printf 'normal' ;;
-    *) printf 'normal' ;;
+    *)
+      echo "fleet-usage-gate: the last usage-gate audit action ('$(sanitize_printable "$dr_last" "(unprintable)")') is not a known rung — refusing to derive a silent 'normal' from a corrupt trail" >&2
+      return 2
+      ;;
   esac
+}
+
+# last_transition_epoch: print the epoch (field 1) of the most recent usage-gate
+# row — the last-transition timestamp, derived from the same trail. Empty when
+# the trail has no rows. An unreadable trail is a hard error (return 2).
+last_transition_epoch() {
+  lte_out=$("$AUDIT" query --mechanism "$MECHANISM" 2>/dev/null) || {
+    echo "fleet-usage-gate: cannot read the audit trail to derive the last transition time" >&2
+    return 2
+  }
+  printf '%s\n' "$lte_out" | awk -F "$TAB" -v m="$MECHANISM" 'NF >= 4 && $3 == m { e = $1 } END { printf "%s", e }'
 }
 
 # --- The sustained-loss counter (evaluate) ---------------------------------
@@ -440,10 +497,14 @@ case "$cmd" in
       echo "fleet-usage-gate: failed parsing the /usage render" >&2
       exit 2
     }
-    r_session=$(printf '%s\n' "$parsed" | awk '/^session /{print $2; exit}')
-    r_weekly=$(printf '%s\n' "$parsed" | awk '/^weekly /{print $2; exit}')
+    r_session=$(printf '%s\n' "$parsed" | awk -F "$TAB" '$1 == "session" { print $2; exit }')
+    r_sreset=$(printf '%s\n' "$parsed" | awk -F "$TAB" '$1 == "session" { print $3; exit }')
+    r_weekly=$(printf '%s\n' "$parsed" | awk -F "$TAB" '$1 == "weekly" { print $2; exit }')
+    r_wreset=$(printf '%s\n' "$parsed" | awk -F "$TAB" '$1 == "weekly" { print $3; exit }')
     [ -n "$r_session" ] || r_session=unavailable
     [ -n "$r_weekly" ] || r_weekly=unavailable
+    [ -n "$r_sreset" ] || r_sreset="-"
+    [ -n "$r_wreset" ] || r_wreset="-"
     r_dir=$(signal_dir) || exit 2
     r_file="$r_dir/signal"
     mkdir -p "$r_dir" || {
@@ -463,7 +524,10 @@ case "$cmd" in
       exit 2
     }
     chmod 600 "$r_tmp" 2>/dev/null || true
-    printf '%s\nsession %s\nweekly %s\n' "$r_now" "$r_session" "$r_weekly" >"$r_tmp" || {
+    # Line 1 the read epoch; lines 2-3 `<window><TAB><pct><TAB><reset>`. The
+    # reset field is informational (the gate reads only the percentage).
+    printf '%s\nsession\t%s\t%s\nweekly\t%s\t%s\n' \
+      "$r_now" "$r_session" "$r_sreset" "$r_weekly" "$r_wreset" >"$r_tmp" || {
       echo "fleet-usage-gate: cannot write the signal cache" >&2
       rm -f "$r_tmp"
       exit 2
@@ -473,7 +537,7 @@ case "$cmd" in
       rm -f "$r_tmp"
       exit 2
     }
-    printf 'session\t%s\nweekly\t%s\n' "$r_session" "$r_weekly"
+    printf 'session\t%s\t%s\nweekly\t%s\t%s\n' "$r_session" "$r_sreset" "$r_weekly" "$r_wreset"
     exit 0
     ;;
 
@@ -578,7 +642,8 @@ case "$cmd" in
       else
         echo "fleet-usage-gate: warning: the /usage signal is unavailable ($count of $loss_limit consecutive); deferring to the reactive backstop, no proactive rung change" >&2
       fi
-      printf 'rung\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur"
+      since=$(last_transition_epoch 2>/dev/null) || since=""
+      printf 'rung\t%s\tsince\t%s\tsession\tunavailable\tweekly\tunavailable\n' "$cur" "$since"
       exit 0
     fi
 
@@ -604,7 +669,8 @@ case "$cmd" in
     # corrects before any write.
     cur=$(derive_rung) || exit 2
     if [ "$target" = "$cur" ]; then
-      printf 'rung\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$sess" "$week"
+      since=$(last_transition_epoch 2>/dev/null) || since=""
+      printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
       exit 0
     fi
 
@@ -624,7 +690,8 @@ case "$cmd" in
     }
     if [ "$target" = "$cur" ]; then
       release_lock
-      printf 'rung\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$sess" "$week"
+      since=$(last_transition_epoch 2>/dev/null) || since=""
+      printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$cur" "$since" "$sess" "$week"
       exit 0
     fi
     # Defer INT/TERM across the commit span so a signal cannot land a rung
@@ -638,7 +705,8 @@ case "$cmd" in
       exit 2
     }
     release_lock
-    printf 'rung\t%s\tsession\t%s\tweekly\t%s\n' "$target" "$sess" "$week"
+    since=$(last_transition_epoch 2>/dev/null) || since=""
+    printf 'rung\t%s\tsince\t%s\tsession\t%s\tweekly\t%s\n' "$target" "$since" "$sess" "$week"
     exit 0
     ;;
 
