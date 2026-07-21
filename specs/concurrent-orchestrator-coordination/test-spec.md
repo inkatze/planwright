@@ -7,9 +7,11 @@
 
 Coverage mix: predominantly `[test]`, since every mechanism is deterministic script logic over
 structured signals (per-tower record files, the `fleet-death-evidence` predicate, git state) and is
-fixture-testable, including the negative assertions that carry the design (no shared-registry write path,
-no LLM on discovery/reclaim, no rebase under `autosetuprebase`, no double-dispatch, no `eval` of peer
-output). `[manual]` is reserved for the genuinely multi-checkout / multi-tower end-to-end confirmations
+fixture-testable, including the assertions that carry the design: the atomic exclusive-create claim
+serializes a unit across separate clones (one winner, the loser reads-and-skips), and the negative
+assertions (no shared-registry write path, no LLM on discovery/reclaim, no rebase under `autosetuprebase`,
+no double-dispatch on claim or reclaim, no `eval` of peer output, no record/reclaim path escaping the
+surface). `[manual]` is reserved for the genuinely multi-checkout / multi-tower end-to-end confirmations
 that a fixture cannot fully stand in for (two real towers on two checkouts). `[design-level]` covers the
 checks whose signal is a design judgment rather than a mechanism's output — the doctrine statement
 (REQ-A1.1's floor half, REQ-D1.3) and the scope-boundary cross-references (REQ-D1.1, REQ-D1.2).
@@ -18,40 +20,57 @@ checks whose signal is a design judgment rather than a mechanism's output — th
 
 ### REQ-A1.1 — Tower discovers peers, never assumes solitude [test + design-level]
 
-`[test]`: a discovery fixture seeded with ≥1 live peer record asserts the tower's discovery scan returns
-a non-empty live-peer set and the selection path does not take the sole-tower branch. `[design-level]`:
-the assume-multiplicity floor statement (Task 1, D-1) exists and is cited from the Goal and by this REQ —
-the doctrine half is verified by the artifact's existence and citation, not a runtime assertion.
+`[test]`: a discovery fixture seeded with ≥1 live peer record **for the same repository id** asserts the
+tower's discovery scan returns a non-empty live-peer set and the selection path does not take the
+sole-tower branch; a record for a **different** repository id is excluded from the peer set; and the
+tower's **own** record is excluded (no self-as-peer). `[design-level]`: the assume-multiplicity floor
+statement (Task 1, D-1) exists and is cited from the Goal and by this REQ — the doctrine half is verified
+by the artifact's existence and citation, not a runtime assertion.
 
-### REQ-A1.2 — Per-tower record published, distinct-per-writer [test]
+### REQ-A1.2 — Per-tower record published, distinct-per-writer, atomic [test]
 
-A fixture asserts a tower writes its own presence record (identity, checkout path, spec(s), start time,
-heartbeat) as a single file in the shared directory, and that two concurrent writers land two distinct
-files with no shared-registry write path invoked (grep-level assertion that no single-registry-file edit
-exists on the publish path).
+A fixture asserts a tower writes its own presence record (repository id, tower identity, checkout path,
+spec(s), start time, heartbeat, death handle, meta-tower marker) as a single file in the shared
+directory, and that two concurrent writers land two distinct files with no shared-registry write path
+invoked (grep-level assertion that no single-registry-file edit exists on the publish path). Asserts the
+write is **atomic** (write-temp-then-rename): a concurrent reader observes either the old record or the
+complete new one, never a torn/partial record.
 
-### REQ-A1.3 — Reclaim on positive death evidence only, no LLM [test]
+### REQ-A1.3 — Reclaim on positive death evidence only, tri-state, no LLM [test]
 
 Fixtures: (a) a heartbeating peer record classifies **live** (not reclaimable); (b) a record whose tower
 is positively dead per `fleet-death-evidence.sh` classifies **reclaimable**; (c) a record that is merely
-stale-by-timeout but not positively dead does **not** classify reclaimable; (d) on discovery, a
-positively-dead tower's whole presence file is deleted (GC) while a **live** peer's file is neither
-deleted nor edited (its bytes are unchanged after a discovery pass); and an assertion that the discovery
-/ reclaim path invokes no LLM (no model-call in the code path).
+stale-by-timeout but not positively dead does **not** classify reclaimable; (c′) a record whose death
+predicate returns **unknown/errored** does **not** classify reclaimable (unknown treated as not-dead —
+never reclaim on a guess); (d) on discovery, a positively-dead tower's whole presence file is deleted
+(GC) while a **live** peer's file is neither deleted nor edited (its bytes are unchanged after a
+discovery pass); and an assertion that the discovery / reclaim path invokes no LLM (no model-call in the
+code path).
 
-### REQ-A1.4 — Presence is derived on demand, no new shared-write accumulator [test]
+### REQ-A1.4 — Presence is derived on demand, user-private, no new shared-write accumulator [test]
 
 A fixture asserts the live-tower set is computed by scanning the record directory on demand and that no
 committed or hand-maintained registry artifact is produced (no new shared-write accumulator file is
-written); the publish path uses only the per-writer file form, and the record directory resolves to a
-fixed machine-local path outside every checkout (not a path inside a clone).
+written); the publish path uses only the per-writer file form; the record directory resolves to a fixed
+machine-local path outside every checkout (not a path inside a clone); and the surface directory is
+**user-private** (`0700` — owner-only), the access-control enforcement of the same-operator trust model.
 
-### REQ-A1.5 — Discovery fails closed on a broken surface, never reads as solitude [test]
+### REQ-A1.5 — Discovery fails closed on a broken surface; first-run bootstraps [test]
 
 Fixtures: (a) a present-but-empty surface directory yields a healthy empty peer set (genuinely no
-peers); (b) an absent or unreadable / misconfigured surface path yields an explicit error or an
-"unknown peer status" result, **not** an empty set, and the tower does not take the sole-tower branch.
-Asserts a broken surface is never silently read as solitude.
+peers); (a′) a **first-run** surface path that does not yet exist yields a healthy empty peer set with
+the tower creating the user-private (`0700`) directory (bootstrap), and the tower never reads the surface
+as absent between creating and populating it; (b) an existing surface path that is unreadable /
+misconfigured yields an explicit error or an "unknown peer status" result, **not** an empty set, and the
+tower does not take the sole-tower branch. Asserts a broken surface is never silently read as solitude,
+while first-run absence is the healthy-empty bootstrap case.
+
+### REQ-A1.6 — Per-record parsing fails closed [test]
+
+A fixture asserts that a malformed, truncated, or unparseable presence/claim record is **skipped with a
+surfaced error** — never interpreted as absent, empty, or "no such peer/claim" — so a corrupt record can
+never cause a tower to conclude a live peer or claim does not exist (the per-record analog of REQ-A1.5's
+surface-level fail-closed rule).
 
 ## REQ-B — Shared-`main` isolation
 
@@ -79,42 +98,63 @@ migration path is confirmed to sign a commit and fetch from `origin` through its
 machine-local env file and the stable `auth_sock` symlink indirection (not a captured ephemeral
 forwarded socket) — the operational check guarding the 2026-06-12 signing-break failure mode.
 
-### REQ-B1.4 — Fetch-then-merge sync, rebase refused under `autosetuprebase` [test]
+### REQ-B1.4 — Fast-forward-only fetch-then-merge, hardened against three edge cases [test]
 
-A fixture configures `branch.autosetuprebase=always` and asserts the sync path's `main`-currency
-operation resolves to a **merge** of `FETCH_HEAD` (explicit `git fetch origin main && git merge
-FETCH_HEAD`), not a rebase, and that no direct push to a shared `main` occurs on the path.
+A fixture configures `branch.autosetuprebase=always` and asserts, **at the command level** (the invoked
+git operation, since a fast-forward merge and a rebase produce an indistinguishable graph), that the sync
+path's `main`-currency operation is an explicit `git fetch origin main && git merge --ff-only
+FETCH_HEAD` — a fast-forward-only merge, not a rebase, not a bare `git pull` — and that no direct push to
+a shared `main` occurs. Additional fixtures assert: the sync refuses / no-ops when `main` is not the
+checked-out branch (it never merges `origin/main` onto a worker branch); and a simulated `git fetch`
+failure fails closed (the tower surfaces the failure and does not proceed on a stale `main`).
 
 ## REQ-C — Work division across peer towers
 
-### REQ-C1.1 — Claim before dispatch, no double-dispatch [test]
+### REQ-C1.1 — Atomic claim serializes before dispatch, no double-dispatch [test]
 
-A two-tower fixture asserts tower B, selecting work, skips a unit tower A has recorded a live claim for,
-so the unit is never dispatched twice; and that a tower records its claim before the dispatch step, not
-after. A concurrency fixture asserts the claim read-check-write occurs **within** the per-spec advisory
-lock window — two towers racing to claim the same unit serialize on that spec's lock, and the later
-claimer observes the earlier claim rather than writing a second one (the TOCTOU is closed by the lock,
-not by distinct-per-writer files alone).
+A two-tower fixture asserts tower B, selecting work, skips a unit tower A holds a live claim for, so the
+unit is never dispatched twice; and that a tower takes its claim before the dispatch step, not after. A
+concurrency fixture asserts the serializer is the **atomic exclusive-create** (`mkdir`) of the unit-keyed
+claim object on the machine-local surface: two towers racing to claim one unit resolve to a single holder
+— exactly one create succeeds, the loser's create fails atomically and it reads the existing claim rather
+than writing a second one. The fixture exercises the **separate-clone** case (two surfaces that are the
+same machine-local directory, distinct checkout paths) to assert serialization holds where the
+checkout-local per-spec lock cannot.
 
-### REQ-C1.2 — Claim is distinct-per-writer, no direct peer mutation [test]
+### REQ-C1.2 — Claim is unit-keyed and contended, no direct peer mutation [test]
 
-A fixture asserts a claim is written as a distinct-per-writer record (one file per claim/tower, no
-collision) and that the claim path never writes into a peer tower's or a worker's branch state (no
-cross-slice mutation on the path).
+A fixture asserts a claim is a **unit-keyed** object (keyed by the unit's stable id under the repository
+scope) that is contended by construction — two towers claiming the *same* unit collide so exactly one
+wins (the inverse of the presence surface's distinct-per-writer semantics) — and that the claim path only
+creates / reads / removes claim objects and never writes into a peer tower's or a worker's branch state
+(no cross-slice mutation on the path).
 
-### REQ-C1.3 — Live claim honored, dead-tower claim reclaimable [test]
+### REQ-C1.3 — Live claim honored; reclaim positive-death, serialized, artifact-guarded [test]
 
-Fixtures: a live claiming tower's claim is honored (a peer skips the unit); a claim whose tower is
-positively dead per `fleet-death-evidence.sh` is reclaimable (a peer may take the unit); a claim that is
-stale-by-timeout but not positively dead is **not** reclaimable — so a crashed tower never permanently
-strands a unit and a live one is never preempted on a guess.
+Fixtures: a live claiming tower's claim is honored (a peer skips the unit), **including a live-but-hung
+tower's** (it is not dead, so its claim is never auto-reclaimed); a claim whose tower is positively dead
+per `fleet-death-evidence.sh` is reclaimable (a peer may take the unit); a claim whose tower is
+stale-by-timeout, or whose death predicate returns **unknown/errored**, is **not** reclaimable (no
+reclaim on a guess); two towers reclaiming one positively-dead claim resolve to a **single** holder (the
+re-create serializes concurrent reclaimers — no double-dispatch on reclaim); and a reclaim whose unit has
+a **live downstream artifact** (a branch / open PR) does **not** re-dispatch (the branch-as-fence guard,
+so a dead tower's surviving worker is not doubled). So a crashed tower never strands a unit and a live one
+is never preempted on a guess.
 
 ### REQ-C1.4 — Composes with meta-tower selection [test + design-level]
 
 `[design-level]`: a documented statement that the peer work-claim composes with, and never contradicts,
 `orchestration-fleet`'s division-of-labor doctrine and meta-tower cross-spec selection. `[test]` (where
 scriptable): a meta-tower-present fixture asserts division defers to meta-tower selection and the peer
-claim does not double-assign.
+claim does not double-assign; the meta-tower is distinguished on the presence surface by the
+`fleet-tower-marker.sh` marker carried in the schema.
+
+### REQ-C1.5 — Claim lifecycle: release on handoff / dispatch-failure, dead-claim GC [test]
+
+Fixtures: a claim is **released** once the unit is handed off (its worker is dispatched and a branch/PR
+exists, so the branch-as-fence takes over) and **immediately** on a dispatch failure (a failed dispatch
+strands nothing — no live-tower claim is left blocking the unit); and a positively-dead tower's claim is
+**garbage-collected** on discovery along the reclaim path, so the claims surface does not grow unbounded.
 
 ## REQ-D — Carried floors, boundaries & hygiene
 
@@ -140,9 +180,20 @@ bundle re-opens them — verified by the floor statement's existence and a revie
 
 `[test]`: a malformed / hostile tower-identity token is refused before use (validated against a declared
 grammar, never interpolated); peer output consumed for awareness is handled as data with no `eval` /
-unquoted-expansion path (source-audit assertion); the conditional hygiene guard flags a seeded secret /
-internal hostname in a **committed** coordination artifact and passes a clean one, and is a no-op (not a
-false failure) when no coordination record is committed. `[design-level]`: a documented statement that
-attribution is scoped to the same-operator single-host trust model — grammar-validation guards against
-accident and malformed input, and an adversarial peer forging another tower's identity is out of scope
-(a co-tenant threat), so no cryptographic spoof-proofing is required.
+unquoted-expansion path (source-audit assertion); a peer tower's machine-local **checkout path** is shown
+not to reach a committed artifact (a PR body); the conditional hygiene guard flags a seeded secret /
+internal hostname / checkout path in a **committed** coordination artifact and passes a clean one, and is
+a no-op (not a false failure) when no coordination record is committed. `[design-level]`: a documented
+statement that attribution is scoped to the same-operator single-host trust model — grammar-validation
+guards against accident and malformed input, and an adversarial peer forging another tower's identity is
+out of scope (a co-tenant threat), so no cryptographic spoof-proofing is required.
+
+### REQ-D1.5 — Framework-script security bars on the coordination scripts [test]
+
+`[test]`: **every** parsed identifier — tower id, repository id, unit id, spec id — is refused when it
+violates its declared grammar (not only the tower token), asserted per identifier; a crafted record path
+or reclaim-unlink target that would resolve **outside** the surface is refused (canonicalized +
+containment-checked before any read / write / `rm`); an embedded non-printable / escape sequence in a
+record field is stripped before it is echoed to a terminal or log (`scripts/echo-safety.sh`,
+`sanitize_printable`); and the surface directory is created / verified `0700` (user-private). Together
+these are the script-boundary enforcement of the same-operator single-host trust model.
