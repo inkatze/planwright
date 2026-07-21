@@ -48,6 +48,8 @@ The selector's shipped exit codes (cross-read: `scripts/orchestrate-select.sh`):
   selecting here could re-dispatch work whose completion evidence sits behind the
   failed fetch (REQ-B1.5). **Report the hold and end the step cleanly** — the same
   shape as lock contention, not a halt: the hold is transient by design (evidence
-  settling), so a later step re-selects once it lands, and `--bookkeeping` needs no
-  action. Version 1 selection keeps its documented degraded-but-proceed behavior
-  (the record is forwarded to stderr) — v1 behavior unchanged.
+  settling), so a later step re-selects once it lands (in `--watch` the loop
+  continues to that later step — unlike exit 1, which stops it), and
+  `--bookkeeping` needs no action. Version 1 selection keeps its documented
+  degraded-but-proceed behavior (the record is forwarded to stderr) — v1 behavior
+  unchanged.

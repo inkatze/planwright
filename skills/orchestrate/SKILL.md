@@ -140,7 +140,8 @@ Selector exits (full contract: `selection-contract`):
   evidence fetch failed, so the derivation is partial (REQ-B1.5). **Report the
   hold and end the step cleanly** — the lock-contention shape, not a halt; the
   hold is transient (evidence settling), so a later step re-selects once it lands
-  (`--watch` ends the loop). v1 keeps its degraded-but-proceed behavior.
+  (the `--watch` loop continues to that later step, unlike exit 1). v1 keeps its
+  degraded-but-proceed behavior.
 
 **Selection-policy note (guard-infrastructure-first).** Critical-path-first is
 blind to tasks that *gate other tasks' verification* without a dependency edge.
