@@ -14,6 +14,18 @@ coordination mechanics walked, full-bundle Discovery-Rigor lens pass re-run.
 describe the *pre-rework* spec (commit `18e0088`) and are **stale**; they are
 regenerated at the next kickoff after the run-2 rework, not re-signed here.
 
+**Re-kickoff run 3 (2026-07-21).** Spec commit at re-walkthrough start: `381c8d8`
+(the `/spec-draft` fence-at-dispatch rework closing the run-2 backlog). Operator-selected
+**focused delta walk** on the fence/reclaim/dispatch correctness axis (the run-3 change).
+**Outcome: HALTED AGAIN (fail closed) — see §8 (run 3).** A **third** genuine inconsistency
+on the same work-division correctness axis (a death-surviving origin fence ref with no
+cross-clone reaper), plus a validated ~18-finding backlog including **new breaks of the
+*authoritative* guarantee** (cohesion-bundle units unfenced; lost-CAS-ACK live-tower strand;
+no-remote multi-tower fail-open) and a **spec-vs-shipped-code contradiction** (the mandated
+"rename before fence push" step does not exist on the subagent dispatch primitive). Routed
+to a `/spec-draft` rework (operator Option a, 2026-07-21). The bundle stays Draft; no anchor,
+no Ready flip, not pushed (as with runs 1–2).
+
 <!-- Sections 8 (sign-off) and 9 (amendment log) are written by the sign-off flow. -->
 
 ## 2. Goal & glossary
@@ -437,3 +449,187 @@ Next step: `/spec-draft specs/concurrent-orchestrator-coordination` to instantia
 **Option A (fence at dispatch)** as the authoritative cross-clone dispatch-time fence and
 work the full run-2 backlog above (leading with the correctness model, not re-mechanizing
 the claim primitive first), then re-run `/spec-kickoff`.
+
+## 8. Sign-off (run 3, 2026-07-21) — HALTED AGAIN (fail closed, no anchor)
+
+**This run did not sign off.** The focused delta walk on the fence-at-dispatch rework
+surfaced a **third genuine inconsistency on the same work-division correctness axis**, plus
+a validated ~18-finding backlog. Per the inconsistency halt (REQ-B2.3) and the refusal rule
+(REQ-F1.10): **no Draft→Ready flip, no anchor line, no push, no spec-PR.** The bundle stays
+Draft.
+
+**Operator resolution (2026-07-21): Option a — halt and route to `/spec-draft`.** The fix is
+a genuine fourth iteration of the correctness model (a cross-clone reaper / worker-liveness
+signal for the origin fence ref, reconciliation of the per-unit fence with cohesion-bundle
+dispatch, no-remote enforcement, and alignment of the fence's naming/sequencing with the
+*actual* shipped dispatch primitives) — too much to bolt on mid-walkthrough, and the
+"lead with the correctness model" discipline argues for drafting it deliberately.
+
+### The inconsistency halt (headline finding, confirmed)
+
+**REQ-C1.3 promises "a *crashed* tower never strands a unit," but under D-8/D-7 a tower that
+crashes after the fence push but before its worker ever reaches PR-open strands the unit
+permanently.** The D-8 fence ref is pushed to `origin` at dispatch pointing at the *base
+commit* (zero-commit), and `execute-task` pushes the worker's commits only at PR-open
+(confirmed SKILL.md:349) — so from `origin` the fence ref is a zero-commit ref with no PR for
+the whole worker run. The D-7 reclaim guard refuses reclaim whenever "the unit's task-branch
+ref on `origin` or an open PR" exists — mere ref existence, no stale-break, no commit test —
+and **no GC sweep touches `origin` refs** (the three sweeps are all machine-local).
+`orchestration-concurrency` *does* recover exactly this case, via its timestamped dispatch
+marker + "zero-commit branch → stale → revert to Ready" rule (OC design.md:96–100) — **but
+that marker is checkout-local** (COC's own framing, requirements.md:561–562, the basis of the
+run-1 halt), so under D-3 separate clones a peer can't see it and the recovery never fires
+cross-clone. **D-8 moved the fence to `origin` but left the recovery/stale-break
+checkout-local — the exact mirror image of the run-2 halt.**
+
+**Both readings:** (a) the spec *means* the fence ref must carry a cross-clone
+worker-liveness/staleness signal so a provably-not-in-flight ref is reapable — unstated, must
+be added; (b) the spec means bare-ref existence blocks reclaim indefinitely — which
+contradicts REQ-C1.3's own "a crashed tower never strands a unit." Either way the bundle is
+internally inconsistent as written. **Resolution chosen: (a), routed to `/spec-draft`.**
+**Crux:** safe recovery needs a *cross-clone signal that the WORKER (not just the tower) is
+dead* — reclaim on tower-death alone is exactly the live-orphan-worker case D-8 exists to
+protect (worker commits sit local in the dead clone until PR-open), and `origin` alone can't
+tell "dead worker, zero-commit ref" from "live worker, commits not yet pushed."
+
+### Lens pass — path and coverage
+
+Path: three parallel read-only adversarial sub-agents (Explore) over the fence/reclaim/
+dispatch correctness axis — the axis the run-3 rework changed and where a run-4 kickoff would
+otherwise find the next hole — rather than a full nine-lens whole-bundle sweep (run-2's
+non-correctness findings were closed by this rework and would largely be reshaped by it).
+Agents: (1) fence & dispatch race hunter, (2) reclaim & lifecycle hole hunter, (3) cross-clone
+signal locality auditor. Each cleared its own false positives and grounded findings against
+real code — including the shipped `scripts/fleet-dispatch-worktree.sh` and OC's design. Three
+converged on the "no cross-clone reaper for the origin fence ref" root.
+
+**Altitude check (REQ-H1.3):** triggered bundle; D-1 altitude record present, cited from the
+Goal, decomposition matches mechanism-primary + one doctrine line. OK — not a finding
+(unchanged from run 2).
+
+### `/spec-draft` rework backlog (run 3) — validated, grouped by cluster
+
+`[Cn]` = converged across n independent lens agents. Severities are the agents' calibrated
+ratings after false-positive clearing.
+
+**Cluster 1 — the origin fence has no cross-clone reaper (headline + generalizations).**
+- **H1 (headline, `[CRITICAL]`, confirmed):** zero-commit orphan fence ref from an
+  early-crashed tower permanently blocks reclaim (above). OC's stale-break is checkout-local.
+- **H2 (`[HIGH]`, agent-3 F1):** *generalization* — an orphan ref **with commits** (worker
+  committed then died pre-PR) strands identically; same root, broader than the zero-commit case.
+- **H3 (`[HIGH]`, `[C2]`):** **no origin-ref GC on any non-merge terminal path.** GitHub's
+  auto-delete-head-branch fires *only on merge*; a **closed-unmerged / abandoned** PR leaves
+  the ref → blocks re-dispatch and reads in-flight forever. And if auto-delete *is* enabled,
+  a rejected PR re-dispatches deliberately-rejected work on every pass (a dispatch/reject
+  loop). The outcome flips on an **unstated GitHub branch-deletion policy**.
+- *Root & fix shape:* D-8/D-7 introduce a death-surviving origin ref but **no reaper** for it
+  on any path but clean merge. Needs a cross-clone worker-liveness/staleness signal plus a
+  fence-ref reclaim path (delete the origin ref + re-dispatch when the unit is provably not in
+  flight), mirroring OC's zero-commit-branch stale-break *at `origin`*.
+
+**Cluster 2 — new breaks of the AUTHORITATIVE guarantee / fail-open (not just availability).**
+- **A1 (`[CRITICAL]`, agent-1 #1):** **lost-CAS-ACK live-tower strand.** `origin` writes the
+  ref, network cut before the tower reads the response → the tower is *alive*, fails closed,
+  does not dispatch; the ref exists but **encodes no owner** (every tower pushes the identical
+  base-sha), so no tower can prove ownership and the owner is not positively dead → never
+  reclaimed → permanent strand of a *live* tower's unit. Implies the fence ref should encode
+  owner identity and/or the CAS needs an idempotent-retry story. D-10 has no entry for this path.
+- **A2 (`[CRITICAL/HIGH]`, agent-1 #4):** **cohesion-bundle units are unfenced.** Dispatch
+  supports a task *or a cohesion bundle* sharing one branch/PR (the lead id); non-lead bundle
+  units have **no `origin` fence ref of their own**, so a peer independently selecting a
+  non-lead unit fences successfully → genuine double **dispatch**. The *authoritative*
+  guarantee fails for every non-lead bundle member; the per-unit fence is never reconciled
+  with bundle dispatch (which `/orchestrate` and `/execute-task` both support).
+- **A3 (`[MED]`, the *only* fail-open case, agent-3 F3):** **no-remote multi-tower fails
+  OPEN.** The "every residual race degrades to wasted selection work" claim is *conditional on
+  the fence*, which requires a reachable remote. No-remote multi-tower is a *declared*
+  precondition but **not mechanically enforced**; an operator running two towers with no
+  remote (separate clones one host, or two towers one checkout) gets a genuine double dispatch
+  with no backstop. Needs enforcement (refuse / detect-and-degrade), not just documentation.
+
+**Cluster 3 — the spec models dispatch against the wrong (non-shipped) picture.**
+- **S1 (`[HIGH]`, agent-1 #3, confirmed vs `fleet-dispatch-worktree.sh:3-4,577`):** REQ-C1.6 /
+  D-8 / Task 4 pin a normative "dispatch **SHALL rename** the worktree branch to the canonical
+  name before the fence push," but the shipped subagent primitive creates the canonical
+  `planwright/<spec>/task-<id>` **directly** via `git worktree add -b`, deliberately "with no
+  manual post-launch rename." The rename is needed *only* on the `claude --worktree`/tmux
+  backend (which mangles slashed names — and this machine's `dispatch_backend: tmux` uses it).
+  The spec models a single rename-then-push flow and ignores the two backends' different naming
+  behavior.
+- **S2 (`[HIGH]`, agent-1 #3 cont.):** the fence push is **never sequenced relative to worker
+  launch.** The shipped flow launches the worker (`do_attach`) as its final act, so
+  REQ-C1.1 / Task-4's "aborts **before launching a worker**" is unproven and is *violated* if
+  the fence is inserted at/after attach. The fence must be placed before worker launch in both
+  backends.
+- **S3 (`[MED]`, agent-1 #6):** the losing tower's **teardown is unspecified.** The local
+  worktree/branch/tracking-record/dispatch-marker are created before the fence resolves; the
+  loser "aborts" but rolls none back → a stale marker reads in-flight until TTL, and the
+  canonical branch forces the adopt/rollback reconcile path on retry.
+- **S4 (`[MED]`, agent-1 #7):** **adopt-path fence-base mismatch.** If the fence is pushed at a
+  fresh `origin/main` base while an *adopted* worker-tip descends from an older base, the
+  worker's PR-open push is non-fast-forward → **rejected after the work is done.** The fence
+  base is undefined for the adopt path.
+- **S5 (`[MED]`, agent-1 #5):** rename/normalization **failure is an undefined path** — no
+  "verify the pushed refname equals the canonical name, or fail closed" guard → can fail open
+  into a divergent ref (two refs, two PRs, fence defeated).
+
+**Cluster 4 — quarantine / residue-GC gaps (claim lifecycle).**
+- **Q1 (`[HIGH]`, agent-2 #3):** quarantine fires on "**repeated** parse failure across
+  passes," but towers are **stateless/disposable** with no defined store for the per-claim
+  count; an in-process counter resets every pass/restart → the corrupt claim never reaches the
+  threshold → never quarantined → honored forever = a **permanent, invisible strand** (strictly
+  worse than the "availability-only, operator-recoverable" promise). No cross-clone keying (the
+  record is unparseable, so it can't be keyed by owner), and the quarantine `mv` is **not**
+  among the reclaim-lock-guarded ops → concurrent dead-letter race.
+- **Q2 (`[MED]`, agent-2 #5):** a **permanently-"unknown"-liveness** claim is covered by no
+  sweep and never surfaced — e.g. the tmux server dies so the `tmux-window` handle is
+  unclassifiable → unknown forever → honored forever, invisible (not positively-dead → no GC;
+  parses fine → no quarantine). Plus the **dead-letter sub-surface has no GC** (grows unbounded,
+  in tension with REQ-C1.5's no-unbounded-growth).
+
+**Cluster 5 — under-spec / robustness (`[LOW–MED]`).**
+- **U1 (`[LOW]`, hardening, agent-1 #8):** the empty-expected CAS is **correct on modern git**
+  — the colon-empty form `--force-with-lease=refs/heads/<branch>:` maps to the zero-OID
+  "must-be-absent" expectation (the "some versions treat empty as unchecked" danger is the
+  *no-colon* form, not this one), and a plain `git push base:refs/heads/<branch>` would report
+  up-to-date and fail to reject the loser (all towers push the identical base), so
+  force-with-lease-expect-absent is the correct primitive. But the spec pins **no git-version
+  floor and no server-CAS assumption**; harden with the explicit all-zeros OID.
+- **U2 (`[LOW]`, agent-3 F4):** the reclaim artifact check doesn't specify a **live
+  `ls-remote`** vs a possibly-stale checkout-local remote-tracking ref, nor fail-closed on an
+  `origin` read error (unlike the fence and the main-sync, which both specify fail-closed).
+- **U3 (`[LOW-MED]`, agent-3 F2):** repo-id is derived from the checkout-local `origin` URL;
+  **divergent spellings** (SSH vs HTTPS, `.git` suffix, host aliases) yield divergent repo-ids
+  → false solitude (fence-safe, but defeats awareness/optimization). Needs a normalization spec.
+
+**Cluster 6 — cross-host / out-of-scope, fail-safe (note as accepted, not fixes).**
+- **N1 (agent-3 F5):** the meta-tower marker is machine-local; second-host towers can't see a
+  host-1 meta-tower → redundant selection (fence-safe; consistent with the single-host scope).
+- **N2 (agent-3 F6):** a "machine-local" surface placed on a **shared network FS** would
+  mis-evaluate death handles cross-host (fail-safe via the fence, *unless* no-remote per A3).
+
+**Seed artifact (agent 3):** a full signal-locality classification table (origin / machine-local
+/ checkout-local / in-process for the fence ref, OC marker, advisory lock, claim, reclaim lock,
+presence record, sentinel, death handle, worker liveness, worker local commits, PR state,
+meta marker, repo-id, base-sha, canonical branch name, identity) lives in the run-3 lens
+transcript; the load-bearing conclusion is that **the origin fence is the *only* class-A
+cross-clone floor, so every class-B/C/D signal below it degrades to availability (strand) not
+safety — *provided a remote exists* (A3 is the one exception).**
+
+### Halt record (run 3)
+
+Class: n/a (no sign-off recorded — inconsistency halt, REQ-B2.3).
+Lens-pass: recorded above (three-agent adversarial fan-out on the correctness axis, false
+positives cleared, ground-truth-grounded); the inconsistency is unresolved on disk (operator
+chose Option a, to be instantiated by `/spec-draft`), so per REQ-F1.10 **no execution-valid
+anchor is written.** The freshness gate treats the absent anchor as blocking — dispatch stays
+blocked until a fresh kickoff signs off the re-reworked bundle.
+Anchor: (none — fail closed)
+
+Next step: `/spec-draft specs/concurrent-orchestrator-coordination` to work the run-3 backlog
+above — leading (again) with the correctness model and **this time reconciling it with the
+*shipped* dispatch primitives** (`fleet-dispatch-worktree.sh` and the `claude --worktree`/tmux
+path): a cross-clone reaper / worker-liveness signal for the origin fence ref (H1–H3, A1), the
+per-unit-fence-vs-cohesion-bundle reconciliation (A2), no-remote multi-tower enforcement (A3),
+fence naming/sequencing aligned to the real dispatch flow (S1–S5), and the quarantine/residue
+gaps (Q1, Q2). Then re-run `/spec-kickoff`.
