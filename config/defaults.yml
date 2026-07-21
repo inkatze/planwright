@@ -224,6 +224,21 @@ fleet_model_drain: sonnet
 # customization-overlay REQ-E1.4 by-layer malformed policy.
 fleet_throttle_default_hold: 300
 
+# Credit-continuation spend policy at the rate-limit wall (fleet-autonomy
+# D-27, REQ-E1.11). When Claude Code's wall offers a credit-continuation
+# prompt ("spend credits / extra usage to continue past the limit"),
+# scripts/fleet-credit-continuation.sh decides how the fleet responds. The
+# shipped default is `false` — decline and wait for the window to reset (the
+# REQ-E1.7 reactive backstop): auto-spend is NEVER the default, since an
+# unattended, unbounded money spend is an irreversible action planwright
+# reserves for the operator. Set `true` only to explicitly permit spending
+# credits to keep the fleet moving past the limit. A spend-AVOIDANCE knob, not
+# a spend-accounting ceiling (Out of scope): it neither meters nor caps spend.
+# Resolved through the shared knob resolver (scripts/resolve-config-knob.sh ->
+# config-get, D-22/REQ-G1.5); a value other than true/false is malformed under
+# the customization-overlay REQ-E1.4 by-layer policy.
+fleet_credit_continuation_spend: false
+
 # Release-tagging policy (autopilot-reflex D-4, D-13; release-hardening D-7 —
 # REQ-D1.4, REQ-D1.6, REQ-G1.3). The publish script (scripts/release-publish.sh)
 # reads require_signed_tags, require_ci, and version_file; the comparator
