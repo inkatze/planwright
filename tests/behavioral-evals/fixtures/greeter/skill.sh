@@ -99,12 +99,15 @@ esac
 log_turn 2 familiarity "$familiarity" "$depth"
 
 # Turn 3 — a self-contained confirmation (REQ-E in miniature): each option
-# restates its action and consequence, and there is an explicit equal-weight
-# reject. The stem does not lean on prose the operator's terminal may have
-# scrolled off.
-printf 'Greeter: Approve the greeting for this run?\n'
-printf 'Greeter:   [approve-and-record]  record the greeting to the sign-off\n'
-printf 'Greeter:   [reject-and-discard]  discard it; nothing is recorded\n'
+# restates its action and its TRUTHFUL consequence, and there is an explicit
+# equal-weight reject. The stem does not lean on prose the operator's terminal
+# may have scrolled off. Both choices are recorded — the run always writes a
+# sign-off carrying the decision, so the eval has a durable artifact to grade
+# either way; the option text says so rather than claiming a reject records
+# nothing (which the skill does not do).
+printf 'Greeter: Record your decision on the greeting for this run.\n'
+printf 'Greeter:   [approve-and-record]  approve it; the sign-off records the approval\n'
+printf 'Greeter:   [reject-and-record]   reject it; the sign-off records the rejection\n'
 emit_ready 3
 IFS= read -r decision || exit 0
 log_turn 3 confirmation "$decision"
