@@ -578,7 +578,17 @@ run_persona() {
   # Publishing disabled + eval-only marking are set in the session's environment
   # (REQ-G1.6): no eval run pushes / opens a PR / marks ready, and any
   # driver-produced sign-off is stamped non-authoritative.
-  _rp_launch="env PLANWRIGHT_EVAL_ONLY=1 PLANWRIGHT_PUBLISH_DISABLED=1 sh $_rp_skill_abs $_rp_art"
+  #
+  # Respect the skill's own shebang / executable bit: run an executable skill
+  # DIRECTLY (so a fixture may be a binary, a Python script, or any interpreter's
+  # program, not just POSIX sh), and fall back to `sh` only for a non-executable
+  # script. The path is already metachar-validated above, so either form is safe
+  # to interpolate.
+  if [ -x "$_rp_skill_abs" ]; then
+    _rp_launch="env PLANWRIGHT_EVAL_ONLY=1 PLANWRIGHT_PUBLISH_DISABLED=1 $_rp_skill_abs $_rp_art"
+  else
+    _rp_launch="env PLANWRIGHT_EVAL_ONLY=1 PLANWRIGHT_PUBLISH_DISABLED=1 sh $_rp_skill_abs $_rp_art"
+  fi
   if ! tmux_new "$_rp_session" "$_rp_launch"; then
     warn "[$fx_id/$_rp_persona] could not start the tmux session"
     containment_rm "$_rp_run" || return 5

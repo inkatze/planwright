@@ -104,7 +104,8 @@ hits="$(printf '%s\n%s' "$mise_eval" "$direct" | grep -v '^[[:space:]]*$' | sort
 
 if [ -n "$hits" ]; then
   echo "check-no-ci-evals: an eval task is wired into a CI workflow (D-8 forbids it)." >&2
-  echo "The kept prompt-eval suite runs on demand via 'mise run eval:skill', never in CI." >&2
+  echo "The kept eval harnesses (the eval: mise namespace — e.g. eval:skill, eval:behavioral)" >&2
+  echo "run on demand only, never in CI or 'mise run check'." >&2
   echo "Offending references:" >&2
   printf '%s\n' "$hits" | while IFS= read -r h; do
     [ -n "$h" ] && echo "  $h" >&2
