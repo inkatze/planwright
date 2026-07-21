@@ -62,8 +62,13 @@ gracefully instead:
 - `interaction-style` — governs the flow's exchanges. Absent: follow the
   inline summary (progress indicator, small bites, selectors with a
   recommendation, running summary) and note the missing doc.
-- `kickoff-verification` (Sign-off step 8) — the terminal ready-flip CI gate.
-  Absent: skip the ready-flip, leave the PR draft, and say so (fail closed).
+- `kickoff-verification` — the kickoff lens/verification mechanics: the mid-walk
+  lens (walkthrough), the stale-reference sweep and sign-off lens-review scope,
+  fan-out, and altitude check (sign-off), and the terminal ready-flip CI gate
+  (step 8). Each pass's load-bearing spine stays inline.
+  Absent: run each from
+  that spine and its halt-if-absent base (`discovery-rigor`, `autopilot-reflex`),
+  and skip the ready-flip, leaving the PR draft (fail closed).
 
 Doctrine manifest (the reading model above in machine-parseable form, per
 `doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
@@ -76,7 +81,7 @@ Doctrine: point-of-use discovery-rigor (the sign-off lens pass)
 Doctrine: point-of-use autopilot-reflex (the sign-off altitude check)
 Doctrine: point-of-use validation-rigor (lens-finding validation)
 Doctrine: point-of-use decision-domains (the sign-off gap check)
-Doctrine: point-of-use kickoff-verification (the sign-off terminal ready-flip gate)
+Doctrine: point-of-use kickoff-verification (kickoff lens/sweep passes and the ready-flip gate)
 
 ## Modes
 
@@ -251,7 +256,10 @@ explicit `Signed off: <date>` line — what resumability keys on.
 in place, applied with the human section by section, and the consolidated list
 is recorded in the brief. On a signed bundle the stage-scaled change-handling
 above governs (REQ-D1.4); post-merge changes follow `spec-format`'s supersede /
-changelog rules.
+changelog rules. An agent-authored meaning-class edit applied here also gets the
+mid-walk delta-scoped lens pass at the point of application — its disposition
+recorded in the brief section carrying it, an erroring pass surfaced
+(`kickoff-verification`, REQ-B1.4, D-5).
 
 **The inconsistency halt (REQ-B2.3).** A genuine spec inconsistency — two
 requirements that contradict, a design decision that contradicts a requirement,
@@ -271,24 +279,11 @@ most recent anchor entry never describes spec content that was not walked.
 
 1. **The lens review pass.** On a re-walkthrough or amendment, first ask the
    human to classify the delta on the REQ-A3.3 axis (recorded later in the
-   `Class:` line, but needed now to scope this pass). Then the pass: a
-   Discovery-Rigor review of the bundle — the last line of defense against spec
-   bugs execution feedback cannot catch (D-45). Scope: **full bundle at first
-   activation**, **delta-scoped at re-walkthroughs and amendments**, **skipped
-   for expression-only changes** (REQ-A3.3). Fan out one read-only sub-agent per
-   canonical lens for any non-trivial delta per `discovery-rigor`; walk inline
-   only for small, narrow deltas, and declare the path taken. Emit the canonical
-   lens-coverage table.
-   **Kickoff-specific altitude check (REQ-H1.3)** — a check item, not a new
-   lens (the `discovery-rigor` list is untouched). Determine **bundle-locally**
-   whether drafting fired an altitude trigger, from the pinned seed claims in
-   `requirements.md`'s `## Sources` section (never drafting-session memory); per
-   `autopilot-reflex`, a present altitude D-ID is the record a trigger leaves.
-   For a **triggered** bundle, verify the altitude D-ID exists, is cited from the
-   bundle's goal, and that the task decomposition matches the claimed altitude (a
-   doctrine-first bundle with only
-   mechanism tasks is a finding). An **untriggered** bundle needs no altitude
-   record (per `proportionality`): record not-applicable.
+   `Class:` line, but needed now to scope this pass). Then run the
+   Discovery-Rigor lens review of the bundle per `kickoff-verification` (scope,
+   fan-out, and the canonical lens-coverage table there; D-45, REQ-A3.3). The
+   **kickoff-specific altitude check (REQ-H1.3)** — a check item, not a new lens
+   — runs within this pass per `kickoff-verification`.
    Validate findings per `validation-rigor`, then disposition every one with the
    human (applied as a spec edit, declined with rationale, or deferred to a
    named backlog in the brief) — an undispositioned finding blocks the anchor.
@@ -298,7 +293,11 @@ most recent anchor entry never describes spec content that was not walked.
    execution-valid anchor: say exactly what is missing, leave the record without
    its anchor line (the freshness gate treats that as absent-anchor and halts
    dispatch — fail closed), and stop. No override.
-3. **Pre-flip verification (REQ-B1.2, REQ-B1.3, D-3, D-4).** Two checks gate the
+3. **Pre-flip verification (REQ-B1.2, REQ-B1.3, D-3, D-4).** When any lens pass
+   (mid-walk or terminal sign-off) mints or re-scopes a REQ, first run the
+   **post-lens stale-reference sweep** over the bundle and earlier brief sections
+   before the anchor and before the recorded-claim re-derivation below is
+   finalized (`kickoff-verification`, REQ-B1.5, D-6). Then two checks gate the
    Draft→Ready flip below; either one failing blocks the flip, and either check
    that **cannot run** blocks the flip as a surfaced failure (fail closed),
    never a silent skip.
