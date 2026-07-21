@@ -276,14 +276,16 @@ else
   fail "the CI gate does not skip when the no-remote/no-PR arm already fired (REQ-B1.1)"
 fi
 
-# REQ-B1.1 / D-3 citations trace the new prose to the contract.
-for ref in REQ-B1.1 D-3; do
-  if grep -q "$ref" "$skill"; then
-    ok "reference $ref is cited"
-  else
-    fail "reference $ref is not cited"
-  fi
-done
+# REQ-B1.1 / D-3: the CI-gate step cites both the requirement and the design
+# decision in its own heading, so the citation guards the new prose specifically.
+# A bare `grep D-3` would false-pass on the unrelated D-3 references elsewhere in
+# the skill (the two-brief-model D-3, Task 5's pre-flip step), so bind the pair
+# to the CI-gate heading text instead.
+if printf '%s' "$flat" | grep -qE 'Gate on the head SHA.{0,60}\(REQ-B1\.1, D-3\)'; then
+  ok "the CI-gate step cites REQ-B1.1 and D-3 in its heading (traceable to the contract)"
+else
+  fail "the CI-gate step does not cite (REQ-B1.1, D-3) in its heading"
+fi
 
 # REQ-B1.1 / D-3: the wait-bound knob is registered in the default config with a
 # reference row (bootstrap D-43/REQ-K1.8; the check-options-reference run above
