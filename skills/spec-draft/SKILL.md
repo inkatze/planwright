@@ -335,7 +335,7 @@ validator the first time.
    line `**Execution:** derived — see the status render`).
 
    **Self-critique pass (REQ-C1.1, D-7).** Before the validator runs and
-   before commit, run one scoped self-critique lens over the freshly
+   before commit, run one scoped self-critique lens pass over the freshly
    assembled bundle: assume the draft is incomplete and re-read it for gaps,
    contradictions, uncited claims, mis-scoped or unverifiable REQs, dangling
    citations, and missing edge cases (`doctrine/discovery-rigor.md`'s
