@@ -69,8 +69,8 @@ proceeds. It is not a stored profile, a score, or a formal learner model.
   re-prompt, per *Interview to completeness*), so malformed input can neither
   inflate a concept to "held" nor corrupt the calibration that drives later depth.
 
-Depth is all this varies: a normative token a presented concept carries stays
-verbatim however tersely it is pitched (*Comprehend before interviewing*,
+Depth is all this varies: a normative token that a presented concept carries
+stays verbatim, however tersely it is pitched (*Comprehend before interviewing*,
 REQ-B1.5) — skipping a held concept is allowed, softening a presented one is not.
 
 ## Interview to completeness by backward-chaining (D-5)
