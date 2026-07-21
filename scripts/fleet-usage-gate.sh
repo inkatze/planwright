@@ -726,7 +726,10 @@ case "$cmd" in
     # change with a half-written trail; the lock is released on the way out.
     trap '' INT TERM
     reasoning="usage gate: session=$sess% weekly=$week% -> rung $target (was $cur)"
-    PLANWRIGHT_FLEET_LOCK_HELD=1 "$AUDIT" record "$MECHANISM" "$target" \
+    # Pass the mechanism name (not a bare 1) so fleet-audit skips its acquire
+    # ONLY for this usage-gate record — a global flag could let an inherited env
+    # var disable locking for an unrelated mechanism (fleet-audit header).
+    PLANWRIGHT_FLEET_LOCK_HELD="$MECHANISM" "$AUDIT" record "$MECHANISM" "$target" \
       "proactive usage gate rung transition" "$reasoning" || {
       release_lock
       echo "fleet-usage-gate: the audit trail refused the rung-transition record — surfacing, not swallowing" >&2

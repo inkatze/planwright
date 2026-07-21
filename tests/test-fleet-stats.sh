@@ -170,6 +170,18 @@ case $out in
 esac
 echo "ok: the proactive usage-gate rung surfaces through the throttle stat channel"
 
+# --- 4c. A corrupt/unknown last usage-gate action surfaces as `corrupt` on the
+#         throttle line (rather than silently looking normal), consistent with
+#         fleet-usage-gate.sh failing loud on the same corruption.
+audit record usage-gate defer-hea "garbled" "a truncated rung token" \
+  || fail "recording a corrupt usage-gate action failed"
+out=$(stats render)
+case $out in
+  *throttle*usage-gate:*corrupt*) ;;
+  *) fail "a corrupt usage-gate action should surface as 'corrupt' on the throttle line (got: $out)" ;;
+esac
+echo "ok: a corrupt usage-gate action surfaces as 'corrupt', not a falsely-normal line"
+
 # --- 5. THE NO-NEW-SHARED-WRITE-FILE FLOOR (D-13, REQ-F1.1 design-level).
 #        A render must derive on demand and write NOTHING: snapshot the fleet
 #        home around a render and assert it is byte-identical. `cksum` per file

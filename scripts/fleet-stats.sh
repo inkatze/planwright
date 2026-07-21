@@ -145,13 +145,17 @@ derive_from_audit() {
   # D-28) — the action of the most recent usage-gate row, matching
   # fleet-usage-gate.sh's own derive_rung. Deriving it here rather than shelling
   # out to `fleet-usage-gate.sh rung` avoids a second full audit scan and two
-  # extra process spawns on the high-frequency statusLine path. A non-rung token
-  # (an empty trail, or a corrupt/unknown action) degrades to empty, so the
-  # throttle line below is left as-is rather than broken.
+  # extra process spawns on the high-frequency statusLine path. An empty trail
+  # (no usage-gate rows) leaves GATE_RUNG empty (the throttle line is left
+  # as-is). A NON-empty but unrecognized action is a corrupt trail: surface it as
+  # `corrupt` rather than silently dropping it, so the stats line reflects the
+  # same corruption fleet-usage-gate.sh fails loud on (an operator debugging sees
+  # it instead of a falsely-normal line).
   dgr_raw=$(printf '%s\n' "$da_all" | awk -F "$TAB" '($3 "") == "usage-gate" { a = $4 } END { print a }')
   case $dgr_raw in
     normal | downshift | reduce-concurrency | defer-heavy | defer-all) GATE_RUNG=$dgr_raw ;;
-    *) GATE_RUNG="" ;;
+    "") GATE_RUNG="" ;;
+    *) GATE_RUNG="corrupt" ;;
   esac
 }
 
@@ -191,10 +195,10 @@ derive_throttle() {
       THROTTLE_STATE="unknown"
       ;;
   esac
-  # Fold in the proactive gate's rung when it is engaged (non-normal). This
-  # reuses the throttle-engaged channel (no new stat type): a normal rung, an
-  # absent/unknown gate rung, or an unknown throttle state leaves the reactive
-  # line as-is.
+  # Fold in the proactive gate's rung when it is engaged (a non-normal rung, or
+  # the `corrupt` marker for an unrecognized last action). This reuses the
+  # throttle-engaged channel (no new stat type): a normal rung, an absent gate
+  # rung (empty), or an unknown throttle state leaves the reactive line as-is.
   if [ "$THROTTLE_STATE" != "unknown" ] && [ -n "$GATE_RUNG" ] && [ "$GATE_RUNG" != normal ]; then
     THROTTLE_STATE="$THROTTLE_STATE (usage-gate: $GATE_RUNG)"
   fi
