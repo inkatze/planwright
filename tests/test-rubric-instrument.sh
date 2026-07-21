@@ -126,6 +126,27 @@ rc=$?
 assert_exit "grading a compliant run exits 0" 0 "$rc"
 assert_eq "a compliant run is graded pass" "pass" "$out"
 
+echo "== rubric-grade: a correctly-blocked (not-ready) run is exempt, not failed =="
+# A run that correctly HELD (a required decision left undefined) writes a
+# ready:false sign-off with no summary/confirmation. The completion criteria
+# (summary present, names downstream) must be exempt for it, not failed
+# (REQ-C1.1) — otherwise the documented full-fixture grader run false-fails it.
+BLOCKED="$TMP/blocked.json"
+cat >"$BLOCKED" <<'JSON'
+{
+  "persona": "undefined",
+  "decision_log": [
+    {"turn": 1, "kind": "explanation", "normative_tokens": ["SHALL"], "text": "Each option SHALL restate its consequence."},
+    {"turn": 2, "kind": "reprompt", "reason": "unparseable", "answer": "@@nope@@"}
+  ],
+  "sign_off": {"subject": "x", "ready": false, "blocked_on": ["design-decision"], "approved": false, "eval_only": true, "authoritative": false}
+}
+JSON
+out="$(/bin/bash "$GRADE" "$BLOCKED" 2>&1)"
+rc=$?
+assert_exit "grading a blocked run exits 0" 0 "$rc"
+assert_eq "a correctly-blocked run is graded pass (exempt from completion criteria)" "pass" "$out"
+
 echo "== rubric-grade: a rubric-violating run is graded fail =="
 out="$(/bin/bash "$GRADE" "$BAD" 2>&1)"
 rc=$?

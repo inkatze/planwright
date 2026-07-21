@@ -53,16 +53,22 @@ observations="$(jq -r '
     ([.decision_log[]? | select(.kind == "explanation") | .text]
      + [.decision_log[]? | select(.kind == "summary") | .text]
      + [.decision_log[]? | select(.kind == "confirmation") | .question]
+     + [.decision_log[]? | select(.kind == "confirmation") | .options[]? | (.description, .label)]
      | map(select(. != null)) | join(" "));
   def confs: [.decision_log[]? | select(.kind == "confirmation")];
+  # Keep this verdict blocklist in sync with grade.jq and rubric-grade.sh.
+  def verdicts: ["this spec is good", "ready-quality", "i recommend approv",
+                 "looks good to me", "quality score", "strong spec",
+                 "i would approve", "i'"'"'d approve"];
   (corpus) as $c
   | ($c | ascii_downcase) as $lc
   | (confs) as $conf
+  | (.sign_off.ready == true) as $ready
   | [
-      {label: "CDC Clear Communication Index — shared-understanding summary present",
-       ok: (([.decision_log[]? | select(.kind == "summary")] | length) > 0)},
+      {label: "CDC Clear Communication Index — shared-understanding summary present (when the run reached readiness)",
+       ok: (($ready | not) or (([.decision_log[]? | select(.kind == "summary")] | length) > 0))},
       {label: "CDC Clear Communication Index — names the downstream effect (actionable)",
-       ok: ($lc | contains("downstream"))},
+       ok: (($ready | not) or ($lc | contains("downstream")))},
       {label: "CDC Clear Communication Index — natural frequencies, no lone percentage",
        ok: (($c | test("[0-9]+ *%")) | not)},
       {label: "IPDAS balance — explicit equal-weight reject on any presented confirmation",
@@ -70,8 +76,7 @@ observations="$(jq -r '
       {label: "IPDAS balance — no pre-selected default",
        ok: (([$conf[] | .options[]? | select((.default == true) or (.preselected == true) or (.selected == true))] | length) == 0)},
       {label: "IPDAS balance — no self-verdict on the spec",
-       ok: (["this spec is good", "ready-quality", "i recommend approv", "quality score", "strong spec"]
-             | all(. as $v | ($lc | contains($v)) | not))}
+       ok: (verdicts | all(. as $v | ($lc | contains($v)) | not))}
     ]
   | .[] | "diagnostic: \(.label): \(if .ok then "met" else "not met" end)"
 ' -- "$src" 2>/dev/null)" || {

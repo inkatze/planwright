@@ -60,19 +60,27 @@ verdict="$(jq -r '
     ([.decision_log[]? | select(.kind == "explanation") | .text]
      + [.decision_log[]? | select(.kind == "summary") | .text]
      + [.decision_log[]? | select(.kind == "confirmation") | .question]
+     + [.decision_log[]? | select(.kind == "confirmation") | .options[]? | (.description, .label)]
      | map(select(. != null)) | join(" "));
   def confs: [.decision_log[]? | select(.kind == "confirmation")];
+  # Keep this verdict blocklist in sync with grade.jq and rubric-self-audit.sh.
+  def verdicts: ["this spec is good", "ready-quality", "i recommend approv",
+                 "looks good to me", "quality score", "strong spec",
+                 "i would approve", "i'"'"'d approve"];
   (corpus) as $c
   | ($c | ascii_downcase) as $lc
   | (confs) as $conf
+  | (.sign_off.ready == true) as $ready
   | [
-      (([.decision_log[]? | select(.kind == "summary")] | length) > 0),
-      ($lc | contains("downstream")),
+      # The CCI completion criteria apply only when the run reached readiness; a
+      # run that correctly HELD (ready:false, a required decision undefined) has
+      # no summary/confirmation and is exempt, not failed (REQ-C1.1).
+      (($ready | not) or (([.decision_log[]? | select(.kind == "summary")] | length) > 0)),
+      (($ready | not) or ($lc | contains("downstream"))),
       (($c | test("[0-9]+ *%")) | not),
       (($conf | length) == 0) or (([$conf[] | .options[]? | select(.reject == true)] | length) > 0),
       (([$conf[] | .options[]? | select((.default == true) or (.preselected == true) or (.selected == true))] | length) == 0),
-      (["this spec is good", "ready-quality", "i recommend approv", "quality score", "strong spec"]
-        | all(. as $v | ($lc | contains($v)) | not))
+      (verdicts | all(. as $v | ($lc | contains($v)) | not))
     ]
   | if all then "pass" else "fail" end
 ' -- "$src" 2>/dev/null)" || {

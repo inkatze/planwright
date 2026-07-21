@@ -28,7 +28,9 @@
 | ([$log[] | select(.kind == "explanation")]) as $expl
 | ([$log[] | select(.kind == "confirmation")]) as $conf
 | ([$log[] | select(.kind == "summary")]) as $summ
-| ([$expl[].text] + [$summ[].text] + [$conf[].question] | join(" ") | ascii_downcase) as $corpus
+| ([$expl[].text] + [$summ[].text] + [$conf[].question]
+   + [$conf[].options[]?.description] + [$conf[].options[]?.label]
+   | map(select(. != null)) | join(" ") | ascii_downcase) as $corpus
 | (["this spec is good", "ready-quality", "i recommend approv", "looks good to me",
     "quality score", "strong spec", "i would approve", "i'd approve"]) as $verdicts
 | ($s.eval_only == true and $s.authoritative == false) as $p_evalonly
@@ -44,6 +46,19 @@
       and (($conf | map(.turn) | min) as $ct | ($summ | map(.turn) | min) < $ct)
       and (($s.approved | type) == "boolean")
       and (($s.decision // "") | length > 0)
+      # Self-contained-confirmation STRUCTURE, not just existence (REQ-E1.1,
+      # REQ-E1.2, REQ-H1.2): every reached confirmation carries >=2 options, an
+      # explicit reject, a non-empty label + consequence on each, and no
+      # pre-selected default. This makes grade.jq a genuine floor for the
+      # invariant even on a real harness run where the independent grader is
+      # unavailable.
+      and ($conf | all(
+            ((.options | type) == "array") and ((.options | length) >= 2)
+            and ((.options | map(select(.reject == true)) | length) >= 1)
+            and (.options | all(
+                  ((.label | type) == "string") and ((.label | length) > 0)
+                  and ((.description | type) == "string") and ((.description | length) > 0)
+                  and (.default != true) and (.preselected != true) and (.selected != true)))))
     else
       ($s.approved == false)
     end) as $p_ready

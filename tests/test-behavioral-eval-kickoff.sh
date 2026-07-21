@@ -181,7 +181,7 @@ assert_gt "the run emitted a structured confirmation to grade" "$confcount" 0
 assert_exit "Task 2's check-confirmation passes the kickoff confirmation" 0 "$?"
 
 echo "== REQ-D1.1/H1.2: no verdict tokens in the run's durable output =="
-corpus="$(jq -r '[.text // empty, .question // empty] | join(" ")' "$A_NOV/decision-log.jsonl" | tr '[:upper:]' '[:lower:]')"
+corpus="$(jq -r '[.text // empty, .question // empty, ((.options // [])[] | .description // empty), ((.options // [])[] | .label // empty)] | join(" ")' "$A_NOV/decision-log.jsonl" | tr '[:upper:]' '[:lower:]')"
 for v in "this spec is good" "ready-quality" "i recommend approv" "quality score" "strong spec"; do
   case "$corpus" in
     *"$v"*)
@@ -239,14 +239,45 @@ cal_before="$(jq -s 'map(select(.kind == "question" and .concept == "level") | .
 cal_reprompt="$(jq -s 'map(select(.kind == "reprompt") | .calibration) | first' "$A_MAL/decision-log.jsonl")"
 assert_eq "the calibration estimate is unchanged by the malformed input" "$cal_before" "$cal_reprompt"
 
-echo "== REQ-H1.4: novice vs expert pilots diverge, and scaffolding fades =="
+echo "== REQ-H1.4/B1.3: novice vs expert pilots diverge, and scaffolding fades =="
 A_EXP="$TMP/exp"
 run_skill expert "$A_EXP" >/dev/null 2>&1
+# Divergence — genuine: the expertise signal flips the base depth full->brief.
 nov_s1="$(jq -r '.sections[0].chars' "$A_NOV/sign-off.json")"
 exp_s1="$(jq -r '.sections[0].chars' "$A_EXP/sign-off.json")"
 assert_gt "the novice section-1 explanation is longer than the expert's" "$nov_s1" "$exp_s1"
-nov_s2="$(jq -r '.sections[1].chars' "$A_NOV/sign-off.json")"
-assert_gt "scaffolding fades: novice section-2 is terser than section-1" "$nov_s1" "$nov_s2"
+# Fade — a COMPUTED decision from run state, not a per-concept string artifact:
+# the novice's base level is full, yet section 2 is pitched brief because the
+# scaffold faded after section 1. Assert the decision (depth + faded), so a
+# regression that deleted the fade logic (leaving section 2 at the base full
+# depth) is caught — not just a fixed length difference between two strings.
+assert_eq "the novice's first section is at the base (full) depth" "full" "$(jq -r '.sections[0].depth' "$A_NOV/sign-off.json")"
+assert_eq "the novice's first section is not faded" "false" "$(jq -r '.sections[0].faded' "$A_NOV/sign-off.json")"
+assert_eq "scaffolding fades: the novice's later section drops to brief" "brief" "$(jq -r '.sections[1].depth' "$A_NOV/sign-off.json")"
+assert_eq "the later section is marked faded" "true" "$(jq -r '.sections[1].faded' "$A_NOV/sign-off.json")"
+
+echo "== grade.jq floor rejects a non-self-contained confirmation (REQ-E1.1/E1.2) =="
+# A ready run whose confirmation carries a pre-selected default and no explicit
+# reject must FAIL the structural floor — existence of a confirmation is not
+# enough; its self-contained structure is the invariant.
+GRADEJQ="$FIXTURE/grade.jq"
+printf '%s' '{"persona":"x","decision_log":[{"turn":1,"kind":"explanation","normative_tokens":["SHALL"],"text":"x SHALL y"},{"turn":3,"kind":"summary","text":"downstream ..."},{"turn":4,"kind":"confirmation","question":"Record your decision.","options":[{"label":"record-approval","description":"ok","default":true}]}],"sign_off":{"ready":true,"blocked_on":[],"approved":true,"decision":"option-alpha","summary_before_confirmation":true,"calibration":2,"eval_only":true,"authoritative":false,"normative_tokens_presented":["SHALL"]}}' \
+  | jq -e -f "$GRADEJQ" >/dev/null 2>&1
+assert_exit "grade.jq rejects a defaulted / reject-less confirmation" 1 "$?"
+
+echo "== the rubric grader over the FULL fixture: the blocked persona is exempt, not failed =="
+# The documented on-demand usage runs the whole fixture (all personas). The
+# undefined persona correctly HOLDS (ready:false); the experiential rubric must
+# exempt it from the completion criteria rather than false-fail it (REQ-C1.1).
+RG="$REPO_ROOT/scripts/rubric-grade.sh"
+w="$TMP/rgfull"
+mkdir -p "$w/wb" "$w/rec" "$w/state"
+rgout="$(BEHAVIORAL_EVAL_TMUX="$STUB" BEHAVIORAL_EVAL_TMUX_STATE="$w/state" \
+  BEHAVIORAL_EVAL_WORKBASE="$w/wb" BEHAVIORAL_EVAL_POLL_SLEEP=0 \
+  /bin/sh "$RUNNER" --record "$w/rec" --grader "$RG" --grader-id ext-rubric-panel "$FIXTURE" 2>&1)"
+assert_exit "the whole fixture (incl. the blocked undefined persona) passes the rubric grader" 0 "$?"
+assert_contains "the rubric-graded run reports an outcome per persona" "outcome=" "$rgout"
+assert_eq "the blocked undefined run is graded pass, not a false-fail" "pass" "$(jq -r .outcome "$w/rec/kickoff.undefined.json" 2>/dev/null)"
 
 if [ "$failures" -eq 0 ]; then
   echo "PASS: all kickoff-acceptance tests passed"

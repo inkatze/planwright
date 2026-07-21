@@ -104,11 +104,12 @@ depth_for() { # depth_for <level> -> full|brief
   if [ "$1" = "expert" ]; then printf 'brief'; else printf 'full'; fi
 }
 
-# render_section <n> <concept> <depth> — echo the rendered explanation text for a
-# section at the given depth. Each carries a VERBATIM normative token (SHALL);
-# fade is modeled by the brief form being materially shorter, and section 2 is
-# always terser than section 1 for the same depth (scaffolding fades across
-# sections, REQ-B1.3). No verdict phrasing appears in any branch (REQ-D1.1).
+# render_section <n> <concept> <effective-depth> — echo the rendered explanation
+# text for a section at the given EFFECTIVE depth (full | brief). Each carries a
+# VERBATIM normative token (SHALL). The caller decides the effective depth from
+# run state (the operator's base level, then the fade below); render_section only
+# renders it, so the fade is a computed decision, not a per-concept string
+# artifact. No verdict phrasing appears in any branch (REQ-D1.1).
 render_section() {
   case "$1.$3" in
     1.full) printf 'A self-contained confirmation means each option SHALL restate its own action and its consequence, so the choice is answerable from the option set alone even when the prose above the selector is scrolled off. That is why the sign-off below spells out what each choice records.' ;;
@@ -143,17 +144,39 @@ log_entry "$(jq -cn --argjson turn "$t" --arg a "$level_raw" --arg lvl "$level" 
 # ---- Two taught sections, pitched to the frontier and faded -------------------
 # Rendered as durable explanation entries (comprehend-then-teach); the normative
 # token each conveys is recorded so B1.5 non-distortion is mechanically checkable.
-sec1_text="$(render_section 1 confirmation-rule "$depth")"
+#
+# FADE (REQ-B1.3, REQ-B1.4): the FIRST section is pitched at the operator's base
+# level. A LATER section fades — it is not re-explained at the first section's
+# depth — DRIVEN by the running uptake estimate: once a section has been taught
+# and the operator has demonstrably engaged (calibration seeded), the scaffold
+# drops to the brief form. The effective depth is therefore a computed decision
+# from run state (`taught` + `calibration`), not a fixed per-concept string, so a
+# regression that deleted the fade would leave section 2 at the base depth and be
+# caught. `taught` counts sections already explained.
+taught=0
+
+sec1_depth="$depth"
+sec1_faded=false
+sec1_text="$(render_section 1 confirmation-rule "$sec1_depth")"
 sec1_len="$(text_len "$sec1_text")"
 printf 'Kickoff (section 1/2): %s\n' "$sec1_text"
-log_entry "$(jq -cn --argjson turn "$t" --arg text "$sec1_text" --arg depth "$depth" --argjson chars "$sec1_len" --argjson cal "$calibration" \
-  '{turn:$turn, kind:"explanation", concept:"confirmation-rule", section:1, depth:$depth, chars:$chars, normative_tokens:["SHALL"], text:$text}')"
+log_entry "$(jq -cn --argjson turn "$t" --arg text "$sec1_text" --arg depth "$sec1_depth" --argjson faded "$sec1_faded" --argjson chars "$sec1_len" --argjson cal "$calibration" \
+  '{turn:$turn, kind:"explanation", concept:"confirmation-rule", section:1, depth:$depth, faded:$faded, chars:$chars, normative_tokens:["SHALL"], text:$text}')"
+taught=$((taught + 1))
 
-sec2_text="$(render_section 2 frequency-rule "$depth")"
+# Section 2: fade if a prior section was taught AND the operator has engaged.
+sec2_depth="$depth"
+sec2_faded=false
+if [ "$taught" -ge 1 ] && [ "$calibration" -ge 1 ]; then
+  sec2_depth=brief
+  sec2_faded=true
+fi
+sec2_text="$(render_section 2 frequency-rule "$sec2_depth")"
 sec2_len="$(text_len "$sec2_text")"
 printf 'Kickoff (section 2/2): %s\n' "$sec2_text"
-log_entry "$(jq -cn --argjson turn "$t" --arg text "$sec2_text" --arg depth "$depth" --argjson chars "$sec2_len" --argjson cal "$calibration" \
-  '{turn:$turn, kind:"explanation", concept:"frequency-rule", section:2, depth:$depth, chars:$chars, normative_tokens:["SHALL"], text:$text}')"
+log_entry "$(jq -cn --argjson turn "$t" --arg text "$sec2_text" --arg depth "$sec2_depth" --argjson faded "$sec2_faded" --argjson chars "$sec2_len" --argjson cal "$calibration" \
+  '{turn:$turn, kind:"explanation", concept:"frequency-rule", section:2, depth:$depth, faded:$faded, chars:$chars, normative_tokens:["SHALL"], text:$text}')"
+taught=$((taught + 1))
 
 # ---- Required design decision, presented without steering --------------------
 # Two options in parallel, neutral order, NO pre-selected default. The decision
@@ -231,11 +254,21 @@ if [ "$level2" != "$level" ]; then
   IFS= read -r dec2_raw || exit 0
   decision="$(parse_decision "$dec2_raw")"
   if [ -z "$decision" ]; then
+    # Fail-closed on the artifact write, exactly as the initial-blocked and
+    # completed paths do: a failed durable write must never surface as a clean
+    # exit-0 with no sign-off on disk.
     jq -n --arg subject "$subject" --arg level "$level" --arg depth "$depth" --argjson cal "$calibration" \
       '{subject:$subject, level:$level, depth:$depth, calibration:$cal, decision:null, approved:false,
         ready:false, blocked_on:["design-decision"], summary_before_confirmation:false, reopened:true,
         normative_tokens_presented:["SHALL"], eval_only:true, authoritative:false}' \
-      >"$signoff.tmp" 2>/dev/null && mv "$signoff.tmp" "$signoff"
+      >"$signoff.tmp" 2>/dev/null || {
+      echo "kickoff/skill.sh: failed to write the reopened-blocked sign-off" >&2
+      exit 2
+    }
+    mv "$signoff.tmp" "$signoff" || {
+      echo "kickoff/skill.sh: failed to publish the reopened-blocked sign-off" >&2
+      exit 2
+    }
     printf 'Kickoff: the reopened decision is undefined — holding; not ready to sign off.\n'
     exit 0
   fi
@@ -295,12 +328,16 @@ if ! jq -n \
   --argjson reopened "$reopened" \
   --argjson sec1 "$sec1_len" \
   --argjson sec2 "$sec2_len" \
+  --arg sec1_depth "$sec1_depth" \
+  --arg sec2_depth "$sec2_depth" \
+  --argjson sec1_faded "$sec1_faded" \
+  --argjson sec2_faded "$sec2_faded" \
   --argjson summary_turn "$summary_turn" \
   --argjson conf_turn "$conf_turn" \
   '{subject:$subject, level:$level, depth:$depth, calibration:$cal, decision:$decision, approved:$approved,
     ready:true, blocked_on:[], summary_before_confirmation:($summary_turn < $conf_turn), reopened:$reopened,
-    sections:[{concept:"confirmation-rule", section:1, depth:$depth, chars:$sec1},
-              {concept:"frequency-rule", section:2, depth:$depth, chars:$sec2}],
+    sections:[{concept:"confirmation-rule", section:1, depth:$sec1_depth, faded:$sec1_faded, chars:$sec1},
+              {concept:"frequency-rule", section:2, depth:$sec2_depth, faded:$sec2_faded, chars:$sec2}],
     normative_tokens_presented:["SHALL"], eval_only:true, authoritative:false}' \
   >"$signoff.tmp" 2>/dev/null; then
   echo "kickoff/skill.sh: failed to write the sign-off record" >&2
