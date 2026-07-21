@@ -47,6 +47,11 @@ worker_settings="$REPO_ROOT/config/worker-settings.json"
 defaults="$REPO_ROOT/config/defaults.yml"
 reference="$REPO_ROOT/docs/options-reference.md"
 options_check="$REPO_ROOT/scripts/check-options-reference.sh"
+# Task 6 relocated the terminal ready-flip CI-gate mechanics out of the skill
+# body into this doctrine doc (a compensating trim per REQ-E1.1, keeping
+# spec-kickoff/SKILL.md within its instruction budget); the mechanics assertions
+# below target the doc, the reference/manifest assertions target the skill.
+gate_doc="$REPO_ROOT/doctrine/kickoff-verification.md"
 
 failures=0
 
@@ -59,7 +64,7 @@ ok() {
   echo "ok: $1"
 }
 
-for f in "$skill" "$worker_settings" "$defaults" "$reference"; do
+for f in "$skill" "$worker_settings" "$defaults" "$reference" "$gate_doc"; do
   if [ ! -f "$f" ]; then
     echo "FAIL: required file missing: $f" >&2
     exit 1
@@ -69,6 +74,8 @@ done
 # Flatten newlines and squeeze whitespace so multi-line prose assertions match
 # across markdown line-wraps; the raw file is used for single-line/absence checks.
 flat="$(tr '\n' ' ' <"$skill" | tr -s '[:space:]' ' ')"
+# Same flattening for the relocated CI-gate doctrine doc.
+doc_flat="$(tr '\n' ' ' <"$gate_doc" | tr -s '[:space:]' ' ')"
 
 # REQ-D1.2: the flip is the terminal step of clean completion.
 if printf '%s' "$flat" | grep -qE '[Mm]ark the spec PR ready \(terminal step'; then
@@ -197,6 +204,131 @@ if [ -f "$options_check" ]; then
   fi
 else
   fail "scripts/check-options-reference.sh missing"
+fi
+
+# ---------------------------------------------------------------------------
+# Task 6 (specs/skill-rigor; REQ-B1.1, D-3): the terminal ready-flip gates on
+# the head SHA's CI check rollup before `gh pr ready`. REQ-B1.1's verification
+# path is [design-level + manual]. The gate MECHANICS live in the relocated
+# doctrine doc doctrine/kickoff-verification.md (a compensating trim per
+# REQ-E1.1); these assertions fence the documented rollup query, positive-green
+# condition, bounded wait, head re-pin, refusal arm, and no-PR skip against a
+# regression there. The skill body carries only a lean point-of-use reference,
+# fenced separately below. The [manual] half (a real red CI leaves the PR draft
+# with the remedy surfaced; a green one flips it; a mid-wait push refuses the
+# flip) is exercised by the human at review.
+# ---------------------------------------------------------------------------
+
+# --- Gate mechanics: asserted against the relocated doctrine doc -------------
+
+# REQ-B1.1: the rollup is pinned to the head commit's checks, never PR review
+# states (an errored/stale review must not masquerade as a completed check).
+if printf '%s' "$doc_flat" | grep -qE "head commit's.{0,40}statusCheckRollup"; then
+  ok "the gate queries the head commit's statusCheckRollup (REQ-B1.1)"
+else
+  fail "the gate doc does not pin the rollup to the head commit's checks (REQ-B1.1)"
+fi
+if printf '%s' "$doc_flat" | grep -qE 'never PR review states'; then
+  ok "the rollup excludes PR review states (REQ-B1.1, D-3)"
+else
+  fail "the gate doc does not exclude PR review states (REQ-B1.1)"
+fi
+
+# REQ-B1.1: the positive-green condition — at least one completed check AND
+# overall success (an empty rollup is not success).
+if printf '%s' "$doc_flat" | grep -qE 'at least one completed check and overall success'; then
+  ok "the flip requires at least one completed check and overall success (REQ-B1.1)"
+else
+  fail "the gate doc's positive-green condition is not stated (REQ-B1.1)"
+fi
+
+# REQ-B1.1 / D-3: the wait is bounded by the kickoff_ready_ci_wait config knob.
+if printf '%s' "$doc_flat" | grep -qE 'kickoff_ready_ci_wait'; then
+  ok "the CI wait is bounded by the kickoff_ready_ci_wait knob (REQ-B1.1, D-3)"
+else
+  fail "the gate doc does not reference the kickoff_ready_ci_wait wait bound (REQ-B1.1)"
+fi
+
+# REQ-B1.1 (risk R3): head identity is re-confirmed immediately before the flip;
+# a head that moved during the wait refuses it.
+if printf '%s' "$doc_flat" | grep -qE 'Re-confirm head identity'; then
+  ok "head identity is re-confirmed before the flip (REQ-B1.1, R3)"
+else
+  fail "the gate doc does not re-confirm head identity before the flip (REQ-B1.1)"
+fi
+if printf '%s' "$doc_flat" | grep -qE 'moved .{0,40}refuses the flip'; then
+  ok "a head that moved during the wait refuses the flip (REQ-B1.1, R3)"
+else
+  fail "a moved head is not bound to refusing the flip (REQ-B1.1)"
+fi
+
+# REQ-B1.1: the refusal arm leaves the PR draft and records the pending
+# ready-flip in Awaiting input as the re-entry point, naming only the neutral
+# failure class (full remedy detail stays operator-facing, D-3).
+if printf '%s' "$doc_flat" | grep -qE 'red, empty, unresolved, a query failure, an expired wait, or a moved head'; then
+  ok "the refusal arm enumerates every failure class (REQ-B1.1)"
+else
+  fail "the gate doc's refusal arm does not enumerate the failure classes (REQ-B1.1)"
+fi
+if printf '%s' "$doc_flat" | grep -qE 'pending ready-flip in .{0,40}Awaiting.{0,20}input.{0,80}re-entry'; then
+  ok "the refusal arm records the pending flip in Awaiting input as the re-entry point (REQ-B1.1)"
+else
+  fail "the gate doc does not record the pending flip as an Awaiting-input re-entry (REQ-B1.1)"
+fi
+if printf '%s' "$doc_flat" | grep -qE 'neutral failure class only'; then
+  ok "the Awaiting-input entry names only the neutral failure class (REQ-B1.1, D-3 hygiene)"
+else
+  fail "the gate doc does not restrict to the neutral failure class (REQ-B1.1)"
+fi
+
+# REQ-B1.1: the gate skips cleanly when the upstream no-remote/no-PR arm fired.
+if printf '%s' "$doc_flat" | grep -qE 'no-remote/no-PR degradation arm .{0,40}already fired'; then
+  ok "the CI gate skips cleanly when the no-remote/no-PR arm already fired (REQ-B1.1)"
+else
+  fail "the gate doc does not skip when the no-remote/no-PR arm already fired (REQ-B1.1)"
+fi
+
+# REQ-B1.1 / D-3: the gate doc's ready-flip section cites both the requirement
+# and the design decision, so the citation guards the relocated prose
+# specifically (not an incidental D-3 elsewhere).
+if printf '%s' "$doc_flat" | grep -qE 'ready-flip CI gate \(REQ-B1\.1, D-3\)'; then
+  ok "the gate doc's ready-flip section cites REQ-B1.1 and D-3 (traceable to the contract)"
+else
+  fail "the gate doc does not cite (REQ-B1.1, D-3) in its ready-flip section"
+fi
+
+# --- Skill body: the lean point-of-use reference + manifest -----------------
+
+# REQ-B1.1 / D-3: the skill body keeps a lean reference to the relocated gate at
+# the terminal ready-flip, citing the contract and naming the doc.
+if printf '%s' "$flat" | grep -qE 'gate the flip on the head SHA.{0,60}kickoff-verification.{0,20}\(REQ-B1\.1, D-3\)'; then
+  ok "the skill references the relocated CI gate at the ready-flip (REQ-B1.1, D-3)"
+else
+  fail "the skill's ready-flip does not reference kickoff-verification with (REQ-B1.1, D-3)"
+fi
+
+# REQ-B1.1: the doctrine manifest declares the relocated gate doc point-of-use,
+# so it is loaded when the terminal ready-flip step is reached (and charged to
+# the skill's reachable closure, not its start load).
+if printf '%s' "$flat" | grep -qE 'Doctrine: point-of-use kickoff-verification'; then
+  ok "the manifest declares kickoff-verification point-of-use (REQ-B1.1)"
+else
+  fail "the manifest does not declare the kickoff-verification gate doc point-of-use (REQ-B1.1)"
+fi
+
+# REQ-B1.1 / D-3: the wait-bound knob is registered in the default config with a
+# reference row (bootstrap D-43/REQ-K1.8; the check-options-reference run above
+# also covers the pairing).
+if grep -qE '^kickoff_ready_ci_wait:[[:space:]]*10m' "$defaults"; then
+  ok "kickoff_ready_ci_wait: 10m is in config/defaults.yml (REQ-B1.1)"
+else
+  fail "kickoff_ready_ci_wait is not a default config option (REQ-B1.1)"
+fi
+# shellcheck disable=SC2016 # the backtick is literal markdown, not expansion
+if grep -qE '^\|[[:space:]]*`kickoff_ready_ci_wait`' "$reference"; then
+  ok "kickoff_ready_ci_wait has a docs/options-reference.md row (REQ-B1.1)"
+else
+  fail "kickoff_ready_ci_wait has no row in docs/options-reference.md (REQ-B1.1)"
 fi
 
 if [ "$failures" -gt 0 ]; then

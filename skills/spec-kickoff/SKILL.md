@@ -54,7 +54,7 @@ sign-off rules name; it follows them exactly. Three more, at Sign-off step 1:
 - `validation-rigor` — validation of lens findings before disposition.
 
 If any of those five does not resolve — at run start or point of use — halt
-naming the missing doc and the chain consulted (REQ-K1.7). Two degrade
+naming the missing doc and the chain consulted (REQ-K1.7). Three degrade
 gracefully instead:
 
 - `decision-domains` — the gap check's catalog. Absent: note it in one line,
@@ -62,6 +62,8 @@ gracefully instead:
 - `interaction-style` — governs the flow's exchanges. Absent: follow the
   inline summary (progress indicator, small bites, selectors with a
   recommendation, running summary) and note the missing doc.
+- `kickoff-verification` (Sign-off step 8) — the terminal ready-flip CI gate.
+  Absent: skip the ready-flip, leave the PR draft, and say so (fail closed).
 
 Doctrine manifest (the reading model above in machine-parseable form, per
 `doctrine/instruction-hygiene.md`; `run-start` loads before work begins,
@@ -74,6 +76,7 @@ Doctrine: point-of-use discovery-rigor (the sign-off lens pass)
 Doctrine: point-of-use autopilot-reflex (the sign-off altitude check)
 Doctrine: point-of-use validation-rigor (lens-finding validation)
 Doctrine: point-of-use decision-domains (the sign-off gap check)
+Doctrine: point-of-use kickoff-verification (the sign-off terminal ready-flip gate)
 
 ## Modes
 
@@ -157,12 +160,13 @@ a terminal state.
    unvalidated (whether or not it flips Draft→Ready). Naming the Draft→Ready
    flip only when this run flips, ask the human whether to proceed anyway or
    stop, install the validator, and re-run.
-4. **Read the config.** `commit_on_kickoff` and
-   `mark_spec_pr_ready_on_kickoff` from `config/defaults.yml` overridden by
-   `<repo>/.claude/planwright.local.yml` (local wins). Both default `true`; an
-   absent, unreadable, or malformed config falls back to the defaults with a
-   one-line warning, now and in the handoff. `mark_spec_pr_ready_on_kickoff`
-   gates the terminal ready-flip (sign-off step 8).
+4. **Read the config.** `commit_on_kickoff`, `mark_spec_pr_ready_on_kickoff`,
+   and `kickoff_ready_ci_wait` (default `10m`) from `config/defaults.yml`
+   overridden by `<repo>/.claude/planwright.local.yml` (local wins). The
+   booleans default `true`; an absent, unreadable, or malformed value falls back
+   to its default with a one-line warning, now and in the handoff.
+   `mark_spec_pr_ready_on_kickoff` gates the terminal ready-flip and
+   `kickoff_ready_ci_wait` bounds its CI wait (sign-off step 8).
 5. **Resolve the working location** (D-44, graceful in every starting state).
    The spec branch is `planwright/<spec>/spec` (the reserved namespace the
    `tasks-pr-sync` hook no-ops on); the spec worktree is
@@ -380,8 +384,9 @@ most recent anchor entry never describes spec content that was not walked.
    overlay may run an additional review pass over the spec PR whose terminal
    step is this flip. When
    `mark_spec_pr_ready_on_kickoff` is true (pre-flight step 4) and the
-   completion is clean, un-draft the spec PR — but **first check its state**
-   (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
+   completion is clean, un-draft the spec PR — but **first gate the flip on the
+   head SHA's CI** per `kickoff-verification` (REQ-B1.1, D-3), then **check its
+   state** (`gh pr view <spec-PR> --json isDraft,state`) and run `gh pr ready
    <spec-PR>` **only while it is still a draft**; skip it when the PR is already
    ready or merged/closed (a benign no-op that would otherwise exit non-zero and
    wrongly trip the degradation path). This is the narrow exception to bootstrap
