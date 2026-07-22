@@ -204,6 +204,30 @@ esac
 [ ! -s "$tmp/dup.out" ] || fail "duplicate-id failure emitted a partial stream"
 echo "ok: duplicate task ids fail closed with no partial stream"
 
+# Two distinct ids that collide onto one sort key are refused the same way
+# (documented id-grammar bound: the key reads at most two numeric
+# components, so a third component like 2.5.1 collides with 2.5).
+cat >"$tmp/dup-key.md" <<'EOF'
+## Forward plan
+
+### Task 2.5 — Two-component id
+
+- **Done when:** The gizmo exists.
+
+### Task 2.5.1 — Colliding three-component id
+
+- **Done when:** Never; the id grammar has no third component.
+EOF
+if err=$(spec_parse_extract_tasks "$tmp/dup-key.md" 2>&1 >"$tmp/dup-key.out"); then
+  fail "colliding sort keys (2.5 vs 2.5.1) did not fail"
+fi
+case $err in
+  *"duplicate task id"*) ;;
+  *) fail "sort-key collision lacks the duplicate-id message: $err" ;;
+esac
+[ ! -s "$tmp/dup-key.out" ] || fail "sort-key collision emitted a partial stream"
+echo "ok: ids colliding onto one sort key are refused as duplicates (id-grammar bound)"
+
 # ---------------------------------------------------------------------------
 # Property 4b: NUL-bearing input is malformed and fails closed (REQ-B1.6d,
 # generalizing the drain-gates.sh screen — awk truncates records at NUL,
@@ -238,6 +262,19 @@ if out=$(
 fi
 [ -z "$out" ] || fail "NUL-screen tool failure emitted a stream: $out"
 echo "ok: NUL screen fails closed when its tooling fails (REQ-B1.6d)"
+
+# Same property for the tr side. A failing tr is NOT caught by its `||`
+# (the pipeline's exit status is wc's): it shortens the kept count instead,
+# so the screen must refuse via the count mismatch — still fail-closed,
+# with no stream on stdout.
+if out=$(
+  tr() { return 1; }
+  spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
+); then
+  fail "NUL screen fell open when tr failed (REQ-B1.6d fail-closed)"
+fi
+[ -z "$out" ] || fail "NUL-screen tr failure emitted a stream: $out"
+echo "ok: NUL screen fails closed when tr fails (REQ-B1.6d)"
 
 # ---------------------------------------------------------------------------
 # Property 4b3: lib stderr diagnostics sanitize the echoed path (REQ-B1.6c).

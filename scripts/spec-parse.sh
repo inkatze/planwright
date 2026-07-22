@@ -93,9 +93,12 @@ spec_parse_extract_tasks() {
   fi
   # NUL screen before the parse: a byte-count mismatch after tr -d '\000'
   # means at least one NUL is present. Both counts are captured through
-  # checked assignments and verified non-empty so a failing wc/tr fails the
+  # checked assignments and verified non-empty so a failing wc fails the
   # screen CLOSED — an errored `[ "" -ne "" ]` comparison would otherwise
   # skip the screen and let awk parse a NUL-truncated stream (REQ-B1.6d).
+  # A failing tr is not caught by its `||` (a pipeline's exit status is the
+  # last command's, wc's); it shortens the kept count instead and trips the
+  # mismatch refusal below — still fail-closed.
   # Known bound: the file is read separately by the screen and by awk, so a
   # concurrent rewrite between the reads can produce a spurious (fail-closed)
   # refusal or a screen/parse divergence; no in-repo writer emits NULs, and
