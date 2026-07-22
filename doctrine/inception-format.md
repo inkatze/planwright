@@ -127,9 +127,10 @@ sources register.
 - **KC-1:** <observable state that must hold> — by <YYYY-MM-DD>
 ```
 
-A criterion whose date passes with the state unmet is *tripped*. Tripped and
-approaching criteria surface at every gate run and status view; a tripped
-criterion prompts kill-or-re-scope and never auto-kills.
+A criterion whose date passes with the state unmet is *tripped*; one whose
+date is within 30 days is *approaching*. Tripped and approaching criteria
+surface at every gate run and status view; a tripped criterion prompts
+kill-or-re-scope and never auto-kills.
 
 ## `brief.md`
 
