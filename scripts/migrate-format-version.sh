@@ -37,8 +37,10 @@
 # deterministically — prose or stray bullets in a placement section, plain
 # non-reference content in `## Awaiting input`, non-definition content
 # inside a task block, an unknown H2 section, a non-task H3, a malformed or
-# duplicate task id, disagreeing Status mirrors — is a clean per-bundle
-# refusal, never a silent drop or relocation.
+# duplicate task id, disagreeing Status mirrors, NUL-bearing tasks.md
+# content (refused by the sourced extraction lib's screen at the
+# self-check, REQ-B1.6d) — is a clean per-bundle refusal, never a silent
+# drop or relocation.
 #
 # Done and terminal (Retired/Superseded) bundles are never rewritten; an
 # already-v2 bundle is a clean no-op. Idempotent and re-runnable after a
@@ -76,8 +78,8 @@
 # bundles refused (reported on stderr, recoverable by re-run where noted);
 # 2 usage or environment error.
 #
-# Portable: POSIX sh + awk + git (bash 3.2 / BSD compatible, no eval, input
-# treated as data only).
+# Portable: POSIX sh + awk + git, plus tr + wc via the sourced extraction
+# lib (bash 3.2 / BSD compatible, no eval, input treated as data only).
 set -eu
 
 # Pin the C locale: charset checks and awk ranges must not vary by host

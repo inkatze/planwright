@@ -13,10 +13,27 @@
 # In-repo scripts are the only supported consumers; no adopter stability
 # promise is made for function names or output framing.
 #
+# Naming: exported entry points are namespaced `spec_parse_*` (a
+# multi-family lib sourced alongside echo-safety.sh needs namespace
+# hygiene; echo-safety predates the convention and keeps its unprefixed
+# name). Internal helpers are `spec_parse__*` (double underscore).
+#
 # Consumer contract (REQ-B1.6):
 #   (a) fail closed when this file cannot be sourced — guard the source with
 #       an existence/readability check plus `|| exit`; a bare POSIX `.` of a
-#       missing file continuing fail-open is forbidden;
+#       missing file continuing fail-open is forbidden. Canonical block:
+#
+#         spec_parse_sh="$here/spec-parse.sh"
+#         if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+#           printf '%s\n' "<caller>: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+#           exit 2
+#         fi
+#         # shellcheck source=scripts/spec-parse.sh
+#         . "$spec_parse_sh" || exit 2
+#
+#   (b) stream-record framing is injection-safe. The extraction stream is
+#       strictly line-oriented with no out-of-band delimiters to spoof;
+#       future tagged-record families must state their framing here.
 #   (f) check every lib call's exit status — a truncated stream consumed
 #       with an unchecked exit is the named fail-open. Capture via command
 #       substitution under `set -e`, or guard with `|| ...` explicitly.
@@ -24,12 +41,15 @@
 # Sanitization boundary (REQ-B1.6c): the emitted stream is raw bytes —
 # anchor stability forbids lib-side mutation — and echo discipline remains
 # at each caller's output sites. The lib's own stderr diagnostics strip
-# non-printables from parsed content before echoing it.
+# non-printables from parsed content and echoed paths before printing
+# (printf, never echo).
 #
-# Portable: POSIX sh + awk (bash 3.2 / BSD compatible, no eval, input
-# treated as data only). Locale is pinned per invocation (LC_ALL=C on the
-# commands that read untrusted bytes) so matches and emitted bytes do not
-# vary by the caller's host locale.
+# Portable: POSIX sh + awk + tr + wc (bash 3.2 / BSD compatible, no eval,
+# input treated as data only). LC_ALL=C is pinned on the locale-sensitive
+# commands (tr, awk); wc -c is byte-counting and locale-free. The awk
+# duplicate-id diagnostic uses `print > "/dev/stderr"`, emulated by every
+# supported awk (one-true-awk, gawk, mawk, busybox) though not literally
+# POSIX. Matches and emitted bytes do not vary by the caller's host locale.
 
 # spec_parse_extract_tasks <tasks.md> — the canonical `tasks.md`
 # definition-content extraction (doctrine/spec-format.md). Emits, for each
@@ -41,10 +61,20 @@
 # annotations, Deferred / Out-of-scope bullets, non-task H3 content) is
 # excluded.
 #
+# Id-grammar bounds (shared byte-for-byte with the three pre-lib copies):
+# task ids follow the meta-spec grammar `<n>` or `<n>.<m>`. The sort key
+# reads at most two numeric components of up to eight digits — ids with a
+# third component (`2.5.1`), leading zeros (`007` vs `7`), a trailing `.0`
+# (`2.0` vs `2`), or a non-numeric suffix collide onto one key and are
+# refused as duplicates; components at or above 10^8 break the numeric
+# ordering. Conforming bundles are unaffected.
+#
 # Fails closed (non-zero return, message on stderr, no partial stream on
-# stdout) on: a missing or unreadable file, NUL-bearing input (REQ-B1.6d,
-# generalizing the drain-gates.sh screen — awk truncates records at NUL,
-# which would silently hide definition lines), or a duplicate task id.
+# stdout) on: a missing, unreadable, or non-regular file path (reported as
+# "missing or unreadable"), NUL-bearing input (REQ-B1.6d, generalizing the
+# drain-gates.sh screen — awk truncates records at NUL, which would
+# silently hide definition lines), a NUL screen whose own tooling failed,
+# or a duplicate task id.
 # spec_parse__printable <value> — internal: strip C0 + DEL + C1 bytes
 # (echo-safety.sh's canonical range) for the lib's own stderr diagnostics.
 # The lib cannot source echo-safety.sh itself (a sourced POSIX-sh file

@@ -16,11 +16,17 @@
 #   scripts/spec-anchor.sh <spec-dir>
 #
 # Fails closed (non-zero exit, message on stderr, no anchor printed) on a
-# missing or unreadable spec file, a failed extraction, or duplicate task
-# ids; a successful exit is the only state that yields an anchor (REQ-F1.9).
+# missing or unreadable spec file, a failed extraction, duplicate task ids,
+# a missing/unreadable/syntax-erroring scripts/spec-parse.sh (the extraction
+# lib this script sources, exit 2), or NUL-bearing tasks.md content; a
+# successful exit is the only state that yields an anchor (REQ-F1.9).
+# The NUL refusal is a deliberate behavior change from the pre-lib
+# revisions, which silently computed an anchor over an awk-NUL-truncated
+# stream (REQ-B1.6d); such an anchor was wrong and can no longer be
+# reproduced.
 #
-# Portable: POSIX sh + awk + git (bash 3.2 / BSD compatible, no eval, input
-# treated as data only).
+# Portable: POSIX sh + awk + git, plus tr + wc via the sourced lib
+# (bash 3.2 / BSD compatible, no eval, input treated as data only).
 set -eu
 
 # Pin the C locale: range patterns are collation-dependent under UTF-8
@@ -29,7 +35,7 @@ LC_ALL=C
 export LC_ALL
 
 # A CDPATH-resolved cd would echo the destination into the command
-# substitution below, corrupting the derived lib path (house pattern).
+# substitution below, corrupting the derived lib path.
 unset CDPATH 2>/dev/null || true
 
 # The canonical tasks.md definition-content extraction comes from the shared
