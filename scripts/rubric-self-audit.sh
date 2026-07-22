@@ -45,10 +45,26 @@ if [ "$src" != "-" ]; then
   fi
 fi
 
+# Buffer the whole document once so the shape guard and the observation pass can
+# each read it (stdin can only be consumed once).
+if [ "$src" = "-" ]; then
+  doc="$(cat)"
+else
+  doc="$(cat -- "$src")"
+fi
+
+# Shape guard (fail-closed): a parseable but wrong-shaped input (missing sign_off
+# / decision_log, wrong types) is not a run this instrument can observe; surface
+# it fail-closed rather than emitting diagnostics from vacuous defaults.
+if ! printf '%s' "$doc" | jq -e 'type == "object" and (.sign_off | type) == "object" and (.decision_log | type) == "array"' >/dev/null 2>&1; then
+  echo "$prog: input is not a well-formed merged-artifacts object (need an object with a sign_off object and a decision_log array)" >&2
+  exit 2
+fi
+
 # Per-criterion observations. The vocabulary is deliberately met / not met — never
 # pass / fail / score — so this pre-pass can never be mistaken for a score of
 # record (REQ-H1.3). Pure jq data transform.
-observations="$(jq -r '
+observations="$(printf '%s' "$doc" | jq -r '
   def corpus:
     ([.decision_log[]? | select(.kind == "explanation") | .text]
      + [.decision_log[]? | select(.kind == "summary") | .text]
@@ -71,15 +87,15 @@ observations="$(jq -r '
        ok: (($ready | not) or ($lc | contains("downstream")))},
       {label: "CDC Clear Communication Index — natural frequencies, no lone percentage",
        ok: (($c | test("[0-9]+ *%")) | not)},
-      {label: "IPDAS balance — explicit equal-weight reject on any presented confirmation",
-       ok: ($conf | all(([.options[]? | select(.reject == true)] | length) > 0))},
+      {label: "IPDAS balance — a ready run presents at least one confirmation, each with an explicit equal-weight reject",
+       ok: (($ready | not) or (($conf | length) > 0 and ($conf | all(([.options[]? | select(.reject == true)] | length) > 0))))},
       {label: "IPDAS balance — no pre-selected default",
        ok: (([$conf[] | .options[]? | select((.default == true) or (.preselected == true) or (.selected == true))] | length) == 0)},
       {label: "IPDAS balance — no self-verdict on the spec",
        ok: (verdicts | all(. as $v | ($lc | contains($v)) | not))}
     ]
   | .[] | "diagnostic: \(.label): \(if .ok then "met" else "not met" end)"
-' -- "$src" 2>/dev/null)" || {
+' 2>/dev/null)" || {
   echo "$prog: input is not a parseable artifacts object (fail-closed)" >&2
   exit 2
 }

@@ -52,10 +52,28 @@ if [ "$src" != "-" ]; then
   fi
 fi
 
+# Buffer the whole document once so the shape guard and the criteria pass can each
+# read it (stdin can only be consumed once). Mirrors check-confirmation.sh.
+if [ "$src" = "-" ]; then
+  doc="$(cat)"
+else
+  doc="$(cat -- "$src")"
+fi
+
+# Shape guard (fail-closed, REQ-G1.6 data-hygiene / defensive completeness): a
+# parseable but wrong-shaped input (missing sign_off / decision_log, wrong types)
+# must be UNGRADEABLE (exit 2), never silently graded from vacuous defaults. The
+# merged-artifacts object always carries a sign_off object and a decision_log
+# array; anything else is not a run this instrument can score.
+if ! printf '%s' "$doc" | jq -e 'type == "object" and (.sign_off | type) == "object" and (.decision_log | type) == "array"' >/dev/null 2>&1; then
+  echo "$prog: input is not a well-formed merged-artifacts object (need an object with a sign_off object and a decision_log array)" >&2
+  exit 2
+fi
+
 # The shared rubric criteria: emit `pass` iff every criterion holds. The criteria
 # are a pure jq data transform (doctrine/security-posture.md: artifact values are
 # data, never code). A parse failure is a non-zero (ungradeable) exit.
-verdict="$(jq -r '
+verdict="$(printf '%s' "$doc" | jq -r '
   def corpus:
     ([.decision_log[]? | select(.kind == "explanation") | .text]
      + [.decision_log[]? | select(.kind == "summary") | .text]
@@ -78,12 +96,16 @@ verdict="$(jq -r '
       (($ready | not) or (([.decision_log[]? | select(.kind == "summary")] | length) > 0)),
       (($ready | not) or ($lc | contains("downstream"))),
       (($c | test("[0-9]+ *%")) | not),
-      ($conf | all(([.options[]? | select(.reject == true)] | length) > 0)),
+      # A ready run MUST present at least one confirmation, and every presented
+      # confirmation MUST carry an explicit reject; a not-ready run is exempt
+      # (no confirmation is reached). This closes the vacuous pass where a ready
+      # run with zero confirmations satisfied the reject check trivially.
+      (($ready | not) or (($conf | length) > 0 and ($conf | all(([.options[]? | select(.reject == true)] | length) > 0)))),
       (([$conf[] | .options[]? | select((.default == true) or (.preselected == true) or (.selected == true))] | length) == 0),
       (verdicts | all(. as $v | ($lc | contains($v)) | not))
     ]
   | if all then "pass" else "fail" end
-' -- "$src" 2>/dev/null)" || {
+' 2>/dev/null)" || {
   echo "$prog: input is not gradeable (unparseable artifacts JSON)" >&2
   exit 2
 }

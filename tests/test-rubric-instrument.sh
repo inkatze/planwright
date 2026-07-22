@@ -178,6 +178,23 @@ printf 'not json at all' >"$TMP/junk.json"
 /bin/bash "$GRADE" "$TMP/junk.json" >/dev/null 2>&1
 assert_exit "an ungradeable input exits non-zero so the harness degrades" 2 "$?"
 
+echo "== rubric-grade: a wrong-shaped (but parseable) input is fail-closed, not a vacuous pass =="
+printf '%s' '{}' >"$TMP/shapeless.json"
+out="$(/bin/bash "$GRADE" "$TMP/shapeless.json" 2>&1)"
+assert_exit "a shapeless object is ungradeable (exit 2), not a silent pass" 2 "$?"
+printf '%s' '{"sign_off": {"ready": true}, "decision_log": "not-an-array"}' >"$TMP/badlog.json"
+/bin/bash "$GRADE" "$TMP/badlog.json" >/dev/null 2>&1
+assert_exit "a wrong-typed decision_log is ungradeable (exit 2)" 2 "$?"
+
+echo "== rubric-grade: a ready run with ZERO confirmations fails (not a vacuous pass) =="
+printf '%s' '{"persona":"x","decision_log":[{"kind":"summary","text":"downstream"}],"sign_off":{"ready":true,"blocked_on":[],"eval_only":true,"authoritative":false}}' >"$TMP/noconf.json"
+out="$(/bin/bash "$GRADE" "$TMP/noconf.json" 2>&1)"
+assert_eq "a ready run that presents no confirmation is graded fail" "fail" "$out"
+
+echo "== rubric-self-audit: a wrong-shaped input is fail-closed =="
+/bin/bash "$AUDIT" "$TMP/shapeless.json" >/dev/null 2>&1
+assert_exit "the self-audit rejects a shapeless object (exit 2)" 2 "$?"
+
 echo "== rubric-self-audit: a diagnostic pre-pass that emits NO score of record =="
 out="$(/bin/bash "$AUDIT" "$GOOD" 2>&1)"
 rc=$?
