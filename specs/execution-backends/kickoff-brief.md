@@ -396,3 +396,16 @@ validation as a new decision. Cites the requirements.md Changelog entry "Panel i
 Class: expression-only
 Anchor: `845b132198b19a424f05ae31cad1261da375c026` — computed as
 `scripts/spec-anchor.sh specs/execution-backends`
+
+### Re-anchor 5 — Task 1 execution, test-spec fixture pinning (2026-07-22)
+
+Expression-only self-re-anchor by `/execute-task` (the one anchor entry an execution skill may
+write): test-spec REQ-F1.1 now names `tests/test-fleet-pane-detect.sh` as the home of the
+pane-scrape false-idle fixture (the pane-side half; the liveness suite covers the store-side
+correction and every other REQ-F1.1 clause). Gap-fill consistent with the accepted decisions —
+D-11's demotion puts the pane fixture beside the pane heuristics it gates. Cites the
+requirements.md Changelog entry "Task 1 execution, expression-only: test-spec REQ-F1.1".
+
+Class: expression-only
+Anchor: `d332fc7da182d53e145b9524a72643713f27ab42` — computed as
+`scripts/spec-anchor.sh specs/execution-backends`
