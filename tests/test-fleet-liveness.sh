@@ -294,6 +294,46 @@ done
 rc=0
 run "$tmp/h8" push-capable no-such-backend >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "push-capable unknown backend: exit $rc, expected 2"
+# The contract-read closure's motivating case: a PLUGGABLE backend advertising
+# hook_registration=true gets `push` with no fleet-liveness edit — resolved
+# through its adapter via the caps accessor.
+hookbin="$tmp/hookbin"
+mkdir -p "$hookbin"
+cat >"$hookbin/planwright-backend-hooky" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+printf 'false false false false true yes light true\n'
+EOF
+chmod +x "$hookbin/planwright-backend-hooky"
+rc=0
+out=$(PATH="$hookbin:$PATH" run "$tmp/h8" push-capable hooky) || rc=$?
+[ "$rc" = 0 ] || fail "push-capable pluggable hooky: exit $rc, expected 0"
+[ "$out" = push ] || fail "push-capable pluggable hooky: '$out', expected 'push'"
+# A malformed adapter fails closed AND its advertise diagnostic stays visible
+# through the push-capable path (REQ-A1.7: never a silent absence).
+cat >"$hookbin/planwright-backend-badline" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+printf 'false false false false true yes light\n'
+EOF
+chmod +x "$hookbin/planwright-backend-badline"
+rc=0
+PATH="$hookbin:$PATH" run "$tmp/h8" push-capable badline >/dev/null 2>"$tmp/pc-err" || rc=$?
+[ "$rc" = 2 ] || fail "push-capable malformed-adapter backend: exit $rc, expected 2"
+grep -q "malformed advertise line" "$tmp/pc-err" \
+  || fail "push-capable must forward the malformed-advertise diagnostic, not swallow it"
+# A missing capability accessor is a self-identified broken install (exit 2
+# with the broken-install message), never misreported as an unknown backend:
+# run a copied fleet-liveness.sh whose scripts dir lacks orchestrate-backends.sh.
+brokedir="$tmp/broken-install"
+mkdir -p "$brokedir"
+cp "$FL" "$here/../scripts/echo-safety.sh" "$brokedir/"
+rc=0
+out=$(env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
+  push-capable tmux 2>"$tmp/pc-err") || rc=$?
+[ "$rc" = 2 ] || fail "push-capable with a missing caps accessor: exit $rc, expected 2"
+grep -q "broken install" "$tmp/pc-err" \
+  || fail "a missing caps accessor must be diagnosed as a broken install, not an unknown backend"
 echo "ok: push-capable reads hook_registration from the contract, never backend names"
 
 # ---------------------------------------------------------------------------

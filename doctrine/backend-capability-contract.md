@@ -25,7 +25,7 @@ Extended in place by execution-backends (its D-2): the `overhead` and
 `hook_registration` properties, the `stream-json-persistent` and
 `headless-oneshot` rows, the pinned ladder ordering, the non-`--bare` pinning
 rule, and the 6→8 adapter grammar (execution-backends D-3, D-5, D-6, D-7,
-D-12, D-13 · REQ-A1.1–A1.9).
+D-8, D-12, D-13 · REQ-A1.1–A1.9).
 
 ## The capabilities
 
@@ -230,8 +230,11 @@ rows below.
 
 The two execution-backends rows ship in the contract and registry ahead of
 their dispatch support (execution-backends Tasks 3–4): until the dispatch rung
-lands, host autodetection reports them absent, so the unattended pick can never
-select a rung the tower cannot yet drive.
+lands, host autodetection reports them absent by default, so the unattended
+pick does not select a rung the tower cannot yet drive. (The
+`PLANWRIGHT_BACKEND_*` presence overrides are a deliberate test/early-adopter
+escape hatch that bypasses this default; forcing one present makes it
+selectable before its dispatch wiring exists.)
 
 ## The pinned degradation ladder
 
@@ -255,10 +258,11 @@ Every headless and stream-json launch invocation planwright emits — every
 (execution-backends REQ-A1.5, D-12), so a future CLI default flip cannot
 silently strip SessionStart hooks and harness surface from every headless
 worker at once. At the verified CLI version there is no explicit inverse flag:
-pinning means **never passing `--bare`**, with the launch-pin guard enforcing
-that at every site and per-task re-verification against the running CLI
-(execution-backends D-4). A future CLI that ships an explicit non-bare flag
-flips the pin to passing that flag at every launch site.
+pinning means **never passing `--bare`** at any worker launch site, enforced by
+the launch-pin guard (whose `-p`-family site coverage lands with the dispatch
+tasks that introduce those launch sites) and per-task re-verification against
+the running CLI (execution-backends D-4). A future CLI that ships an explicit
+non-bare flag flips the pin to passing that flag at every launch site.
 
 ## Adding a backend
 
@@ -295,7 +299,8 @@ arity (seven, nine or more) is **malformed**, and a malformed line fails closed
 with a **visible diagnostic** on stderr — the backend is never selected, and
 the refusal is never a silent absence. Advertise lines are treated as untrusted
 input (execution-backends REQ-A1.9): the first line is length-bounded (512
-bytes) and stripped of non-printable bytes **before** any parse, use, or echo.
+bytes) and stripped of control bytes (the echo-safety C0/DEL/C1 range)
+**before** any parse, use, or echo, and no diagnostic reproduces line content.
 `/orchestrate` reports an adapter absent (the fail-safe: a backend whose
 capabilities are unknown is never selected) when `advertise` is missing or its
 output is not a well-formed six- or eight-field set.

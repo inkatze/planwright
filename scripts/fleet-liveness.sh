@@ -749,14 +749,38 @@ case "$cmd" in
     # liveness predicate) keeps the EXISTING observation path — the fleet
     # degrades to pre-spec observation for that slice, never to a broken
     # mechanism. A backend the contract cannot resolve (unknown name, absent
-    # adapter, broken accessor) fails closed (exit 2).
-    caps_helper="$(dirname "$0")/orchestrate-backends.sh"
+    # adapter, broken accessor) fails closed (exit 2). Two boundary notes:
+    # answering for a PLUGGABLE name runs its `planwright-backend-<name>`
+    # adapter (the caps accessor's resolution path — an operator-installed
+    # executable, the adapter trust model), where the old name-case ran no
+    # external code; and the answer describes the backend TYPE's mechanism —
+    # presence is a separate axis (the two headless contract rows advertise
+    # push while their host presence defaults absent until dispatch support
+    # lands).
+    caps_helper="$script_dir/orchestrate-backends.sh"
+    if [ ! -x "$caps_helper" ]; then
+      # Distinct from an unknown backend: the sibling accessor is missing or
+      # lost its exec bit — a broken install, self-identified so a packaging
+      # error is not misread as a bad backend name. Fail-closed exit 2 (the
+      # callers' unknown-mechanism arm; pane-detect maps it to a hard stop).
+      echo "fleet-liveness: broken install — capability accessor missing or not executable: $caps_helper" >&2
+      exit 2
+    fi
+    # The accessor's stderr flows through: a malformed adapter's advertise
+    # diagnostic stays visible on this path too (REQ-A1.7's never-a-silent-
+    # absence), instead of collapsing into the generic unknown-backend line.
     hook_reg=''
-    if [ -x "$caps_helper" ] && caps_line=$("$caps_helper" caps "$backend" 2>/dev/null); then
+    if caps_line=$("$caps_helper" caps "$backend"); then
       # Field 8 of the eight-field advertised set. Word-split a trusted
       # accessor answer; hook_registration is grammar-validated at the source.
       # shellcheck disable=SC2086
       set -- $caps_line
+      if [ "$#" -ne 8 ]; then
+        # A caps answer with the wrong arity means a version-skewed accessor
+        # (e.g. a stale pre-extension sibling), not an unknown backend.
+        echo "fleet-liveness: capability accessor answered $# field(s), expected 8 — version-skewed install at $caps_helper" >&2
+        exit 2
+      fi
       hook_reg=${8-}
     fi
     case "$hook_reg" in

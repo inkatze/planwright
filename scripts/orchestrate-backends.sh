@@ -189,26 +189,43 @@ advertise_malformed() {
 adapter_caps() {
   ac_cmd="planwright-backend-$1"
   command -v "$ac_cmd" >/dev/null 2>&1 || return 1
+  # The capture trusts the adapter process itself (a PATH-installed executable
+  # the operator chose to ship — the adapter trust model): output is slurped
+  # before the first-line/length handling below, and a hanging adapter blocks
+  # the caller. The hygiene bounds below govern what is PARSED and ECHOED, not
+  # the capture.
   ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
   # First line only.
   ac_line=''
   IFS= read -r ac_line <<EOF
 $ac_raw
 EOF
-  # Length bound BEFORE any further handling: an overlong line is refused, not
+  # Length-bound the parsed line: an overlong line is refused, not
   # truncated-then-parsed.
   if [ "${#ac_line}" -gt 512 ]; then
     advertise_malformed "$1" "line exceeds 512 bytes"
     return 1
   fi
-  # Strip non-printable bytes before use or echo (REQ-A1.9). Tabs are folded to
+  # Strip control bytes before use or echo (REQ-A1.9): tabs are folded to
   # spaces first so a tab-separated line still tokenizes; the C0/DEL/C1 strip
-  # then mirrors echo-safety's sanitize_printable range.
+  # then mirrors echo-safety's sanitize_printable range (high bytes 0xA0-0xFF
+  # survive into tokens and are refused by the enum validation below, never
+  # echoed — no diagnostic reproduces line content).
   ac_line=$(printf '%s' "$ac_line" | tr '\t' ' ' | tr -d '\000-\037\177\200-\237')
+  case "$ac_line" in
+    *[!\ ]*) ;;
+    *)
+      advertise_malformed "$1" "empty advertise line"
+      return 1
+      ;;
+  esac
   # Tokenize: a well-formed set is six or eight known tokens (6->8
-  # back-compatible grammar; seven or nine-plus is malformed). The read targets
-  # are `f_`-prefixed so this helper never clobbers a caller's loop variable
-  # (`p`, `rung`) — sh has no lexical scope.
+  # back-compatible grammar; seven or nine-plus is malformed). Arity is judged
+  # on the POST-strip tokens — a token stripped to nothing drops out of the
+  # count, degrading conservatively (a 7th all-control-byte token parses as a
+  # legacy six-field line taking the most conservative defaults). The read
+  # targets are `f_`-prefixed so this helper never clobbers a caller's loop
+  # variable (`p`, `rung`) — sh has no lexical scope.
   f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
   read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
 $ac_line
@@ -318,7 +335,7 @@ cmd_detect() {
     esac
     seen="$seen$p "
     if ! caps=$(adapter_caps "$p"); then
-      echo "orchestrate-backends: no usable adapter for pluggable backend: $p" >&2
+      echo "orchestrate-backends: no usable adapter (absent, crashed, or malformed) for pluggable backend: $p" >&2
       continue
     fi
     emit_row "$p" "$caps"
@@ -358,6 +375,11 @@ cmd_select_unattended() {
 
   # 2. Degrade down the shipped autonomous chain: subagent, then the always-
   #    present in-session terminal rung. Never interactive, never manual `print`.
+  #    Deliberately NOT the full pinned five-way ladder: walking the
+  #    stream-json-persistent / headless-oneshot rungs here is the
+  #    degradation-ladder wiring that lands with the `full-session` resolver
+  #    (execution-backends Task 5), so a forced-present new rung is picked only
+  #    when explicitly configured, never as a degrade target yet.
   for rung in subagent in-session; do
     if caps=$(resolve_caps "$rung") && eligible "$caps"; then
       echo "NOTE: unattended backend '$configured' is unavailable or not autonomously selectable; degraded to '$rung' (never an interactive backend)." >&2
@@ -523,7 +545,7 @@ cmd_caps() {
     return 2
   fi
   if ! cp_caps=$(adapter_caps "$cp_b"); then
-    echo "orchestrate-backends: no usable adapter for pluggable backend: $cp_b" >&2
+    echo "orchestrate-backends: no usable adapter (absent, crashed, or malformed) for pluggable backend: $cp_b" >&2
     return 1
   fi
   printf '%s\n' "$cp_caps"

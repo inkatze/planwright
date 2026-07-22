@@ -193,8 +193,10 @@ The shipped `dispatch_backend` values, by what they give you:
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
 
 The two headless rows are contract-defined ahead of their dispatch support:
-until it lands, autodetection reports them absent, so they cannot be selected
-on a host that cannot drive them.
+until it lands, autodetection reports them absent by default, so unattended
+selection does not pick a rung the tower cannot drive (the presence env
+overrides remain a deliberate test/early-adopter escape hatch that bypasses
+this default).
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
 on the host and collects each one's advertised set. Attended, it presents the
@@ -448,16 +450,19 @@ writes is last-write-wins by commit-time timestamp (the store stamps
 heartbeats under the lock), so a reconcile that started before a fresher push
 cannot overwrite it with stale state.
 
-**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): only
-`tmux` launches a dispatch-controlled Claude Code process that inherits the
-identity env and fires plugin hooks, so only `tmux` pushes. `subagent` runs
-workers in-process, `in-session` shares the tower's own session, and `print`
-spawns no process at all (the human runs the printed command, so the
-dispatch env is never injected; the capability contract exempts
-print-backend units from the liveness predicate) — all three keep the
-existing observation path, and a fleet composed mostly of those backends
-keeps pre-spec observation latency for that slice, degrading capability,
-never safety.
+**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
+liveness mechanism a backend gets is read from the capability contract's
+`hook_registration` field, never a backend-name case. A hook-registering
+backend (`tmux`, and the `stream-json-persistent` / `headless-oneshot`
+contract rows once their dispatch support lands) launches a
+dispatch-controlled Claude Code process that inherits the identity env and
+fires plugin hooks, so it pushes. `subagent` runs workers in-process,
+`in-session` shares the tower's own session, and `print` spawns no process at
+all (the human runs the printed command, so the dispatch env is never
+injected; the capability contract exempts print-backend units from the
+liveness predicate) — those keep the existing observation path, and a fleet
+composed mostly of them keeps pre-spec observation latency for that slice,
+degrading capability, never safety.
 
 **The five-state classifier** (`fleet-liveness.sh classify`, D-2, REQ-A1.2)
 resolves exactly one of `working` / `idle` / `hung` / `awaiting-human` /

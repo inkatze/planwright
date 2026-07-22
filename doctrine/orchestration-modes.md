@@ -14,13 +14,16 @@ D-12, D-13.
 
 ## Degradation ladder & runtime failover (REQ-B1.5, REQ-B1.6, D-3)
 
-The four shipped backends are rungs of one **graceful-degradation ladder**,
+The shipped backends are rungs of one **graceful-degradation ladder**,
 ordered by their advertised capability set (not their name), richest to
 safest: rung 1 interactive multiplexer **with** steer (`tmux`); rung 2
 interactive **without** steer, or a headless `claude -p` pool (session-grade
 and parallel but no live steer — its ambiguity routes to the decision queue,
 so it is **not** a quality-equivalent middle rung and sits near the
-fallback); rung 3 the in-harness `subagent`; rung 4 the synchronous
+fallback; the contract's `stream-json-persistent` and `headless-oneshot`
+rows both classify here, with the finer pinned ordering between them the
+capability contract's); rung 3 the in-harness `subagent`; rung 4 the
+synchronous
 **in-session** terminal rung (no external substrate, so it **always works**).
 The manual `print` backend is off the autonomous ladder — a human runs the
 printed command, so planwright is not driving the worker.

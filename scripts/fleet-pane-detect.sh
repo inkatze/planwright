@@ -349,20 +349,24 @@ valid_field "$scope" || {
 
 # --- Backstop gate: defer where a fresh hook push exists (D-3 boundary) -----
 # Only a push-capable backend can register a hook, so only it is gated. The
-# capability is single-sourced from fleet-liveness.sh push-capable (exit 0 =>
-# push-capable/tmux; exit 1 => observe-only/hook-less; exit 2 => unknown).
+# capability is single-sourced from fleet-liveness.sh push-capable, which reads
+# the capability contract's hook_registration field (exit 0 => push-capable;
+# exit 1 => observe-only/hook-less; exit 2 => unresolvable or broken install).
 push_capable=1
 if [ -x "$FL" ]; then
   "$FL" push-capable "$backend" >/dev/null 2>&1
   push_capable=$?
 else
-  # No liveness helper to consult — assume hook-capable only for the known
-  # push backend, so the freshness gate still applies to a real tmux worker.
+  # No liveness helper to consult — degrade to a static mirror of the contract
+  # table's hook_registration column for the shipped names (name-keying is
+  # acceptable only on this no-helper path, where the contract accessor is
+  # unreachable), so the freshness gate still applies to a real push-capable
+  # worker.
   case "$backend" in
-    tmux) push_capable=0 ;;
+    tmux | stream-json-persistent | headless-oneshot) push_capable=0 ;;
     subagent | print | in-session) push_capable=1 ;;
     *)
-      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
+      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no liveness helper to resolve it)" >&2
       exit 2
       ;;
   esac
@@ -371,7 +375,7 @@ case $push_capable in
   0) ;; # push-capable — apply the freshness gate below
   1) ;; # hook-less — the detector is the primary path; skip the gate
   *)
-    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
+    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via fleet-liveness push-capable)" >&2
     exit 2
     ;;
 esac

@@ -54,8 +54,10 @@ unset CDPATH
 # Hermeticity: the suite controls backend presence only via per-invocation env
 # prefixes (and the real `command -v` probe for the unforced cases). A backend
 # override inherited from the developer's/CI's ambient shell would flip those
-# cases, so clear them up front.
-unset PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT
+# cases, so clear them up front — including the two new-row overrides, whose
+# ambient presence would flip the default-absent assertions in test 31.
+unset PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT \
+  PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
 
 here=$(cd "$(dirname "$0")" && pwd)
 BACKENDS="$here/../scripts/orchestrate-backends.sh"
@@ -778,6 +780,19 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
 [ "$sel" = stream-json-persistent ] \
   || fail "select-unattended: a forced-present new row should be picked, got '$sel'"
 [ ! -s "$err" ] || fail "select-unattended: a forced-present pick must not warn"
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 \
+  "$BACKENDS" select-unattended headless-oneshot 2>"$err") \
+  || fail "select-unattended(headless-oneshot, forced) non-zero"
+[ "$sel" = headless-oneshot ] \
+  || fail "select-unattended: forced-present headless-oneshot should be picked, got '$sel'"
+# The degrade chain deliberately stays subagent -> in-session until the Task 5
+# ladder wiring: a forced-present new rung is never a degrade TARGET, only an
+# explicit configured pick (pins the deliberate deferral).
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
+  "$BACKENDS" select-unattended tmux 2>"$err") \
+  || fail "select-unattended(tmux absent, sjp forced) non-zero"
+[ "$sel" = subagent ] \
+  || fail "select-unattended: the degrade chain must stay subagent-first pre-Task-5, got '$sel'"
 echo "ok: the new contract rows default absent and honor the env presence overrides"
 
 # ---------------------------------------------------------------------------
@@ -820,6 +835,27 @@ make_adapter badhr false true true false true yes light maybe
 rc=0
 PATH="$BIN" "$BACKENDS" caps badhr >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 1 ] || fail "caps of a bad-hook_registration adapter: exit $rc, expected 1"
+grep -q "malformed advertise line" "$err" \
+  || fail "caps: an invalid hook_registration token must get the visible malformed diagnostic"
+# The pre-extension token paths carry the diagnostic too (never a silent
+# absence, REQ-A1.7): an invalid session_grade and an EMPTY advertise line.
+make_adapter badsg2 false false false false true maybe
+rc=0
+PATH="$BIN" "$BACKENDS" caps badsg2 >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of a bad-session_grade adapter: exit $rc, expected 1"
+grep -q "malformed advertise line" "$err" \
+  || fail "caps: an invalid session_grade token must get the visible malformed diagnostic"
+cat >"$BIN/planwright-backend-emptyline" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+printf '\n'
+EOF
+chmod +x "$BIN/planwright-backend-emptyline"
+rc=0
+PATH="$BIN" "$BACKENDS" caps emptyline >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of an empty advertise line: exit $rc, expected 1"
+grep -q "empty advertise line" "$err" \
+  || fail "caps: an empty advertise line must get its own empty-line diagnostic"
 echo "ok: the adapter grammar is 6-or-8 with fail-closed, diagnosed malformed arities"
 
 # ---------------------------------------------------------------------------
@@ -839,6 +875,28 @@ PATH="$BIN" "$BACKENDS" caps longline >/dev/null 2>"$err" || rc=$?
 [ "$rc" = 1 ] || fail "caps of an overlong advertise line: exit $rc, expected 1"
 grep -q "malformed advertise line" "$err" \
   || fail "caps: an overlong advertise line must get the visible malformed diagnostic"
+# Pin the exact boundary (the bound is `-gt 512`): an exactly-512-byte line is
+# accepted, a 513-byte line refused — so the bound cannot silently drift.
+cat >"$BIN/planwright-backend-b512" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+awk 'BEGIN { s="false true true false true yes"; while (length(s) < 512) s = s " "; print s }'
+EOF
+cat >"$BIN/planwright-backend-b513" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+awk 'BEGIN { s="false true true false true yes"; while (length(s) < 513) s = s " "; print s }'
+EOF
+chmod +x "$BIN/planwright-backend-b512" "$BIN/planwright-backend-b513"
+out=$(PATH="$BIN" "$BACKENDS" caps b512) \
+  || fail "caps of an exactly-512-byte advertise line: expected acceptance"
+[ "$out" = "false true true false true yes full-session+supervisor false" ] \
+  || fail "caps b512: got '$out', expected the padded legacy line to parse"
+rc=0
+PATH="$BIN" "$BACKENDS" caps b513 >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 1 ] || fail "caps of a 513-byte advertise line: exit $rc, expected 1 (refused)"
+grep -q "exceeds 512 bytes" "$err" \
+  || fail "caps: the 513-byte refusal must carry the length-bound diagnostic"
 # Strip-before-use: control bytes embedded in an otherwise-valid token are
 # stripped BEFORE grammar validation, so the line parses (here as a legacy
 # six-field line taking the fail-safe defaults).
@@ -886,8 +944,12 @@ CONTRACT_DOC="$here/../doctrine/backend-capability-contract.md"
 # are trimmed, backticks dropped, and the doc's n/a display form normalized to
 # the script's `na` token.
 parse_contract_rows() {
+  # NF must be EXACTLY 11 (leading empty + 9 cells + trailing empty): a doc
+  # table that grows a column the script lacks changes NF, drops the row here,
+  # and fails the per-name coverage check below — the one-directional drift a
+  # >= guard would silently pass.
   awk -F'|' '
-    NF >= 11 && $2 ~ /^[[:space:]]*`[a-z0-9-]+`[[:space:]]*$/ {
+    NF == 11 && $2 ~ /^[[:space:]]*`[a-z0-9-]+`[[:space:]]*$/ {
       out = ""
       for (i = 2; i <= 10; i++) {
         v = $i
@@ -930,11 +992,15 @@ EOF
 
 check_drift "$CONTRACT_DOC" \
   || fail "drift guard: doctrine/backend-capability-contract.md and orchestrate-backends.sh disagree"
-# Seeded divergence: flip one field in a copy — the guard must fail. Assert the
-# seed actually changed the copy first, so a doc rewording can never turn this
-# into a vacuous same-file comparison.
+# Seeded divergence: flip one field in a copy — the guard must fail. The seed
+# is anchored to the FULL subagent table row (not a bare `light` token, which
+# also appears in the enum-pin lines: mangling those would make check_drift
+# fail via the grep pins and vacate the row-comparison assertion this case
+# exists to prove). Assert the seed actually changed the copy first, so a doc
+# rewording can never turn this into a vacuous same-file comparison.
 # shellcheck disable=SC2016 # the backticks are literal markdown, not expansion
-sed 's/| `light` |/| `none` |/' "$CONTRACT_DOC" >"$tmp/contract-diverged.md"
+sed 's/^| `subagent` | false | false | false | false | true | no | `light` | false |$/| `subagent` | false | false | false | false | true | no | `light` | true |/' \
+  "$CONTRACT_DOC" >"$tmp/contract-diverged.md"
 cmp -s "$CONTRACT_DOC" "$tmp/contract-diverged.md" \
   && fail "drift guard: the divergence seed no longer matches the doc (fixture rot)"
 check_drift "$tmp/contract-diverged.md" \
@@ -943,6 +1009,22 @@ check_drift "$tmp/contract-diverged.md" \
 printf 'no table here\n' >"$tmp/contract-empty.md"
 check_drift "$tmp/contract-empty.md" \
   && fail "drift guard: an unparseable contract table must fail, not pass on zero rows"
+
+# The THIRD copy of the table — orchestrate-degrade.sh's caps_for — is not
+# reachable through a caps accessor, so guard it textually: both scripts'
+# caps_for case arms must be byte-identical (the lockstep-comment promise).
+# rung classification alone would never catch a divergence in the two appended
+# fields, which the classifier deliberately ignores.
+extract_caps_table() {
+  awk '/^caps_for\(\) \{/,/^\}/' "$1" | grep ') echo "'
+}
+bk_table=$(extract_caps_table "$here/../scripts/orchestrate-backends.sh")
+dg_table=$(extract_caps_table "$here/../scripts/orchestrate-degrade.sh")
+[ -n "$bk_table" ] || fail "drift guard: could not extract orchestrate-backends.sh caps_for"
+[ "$(printf '%s\n' "$bk_table" | grep -c .)" -eq 6 ] \
+  || fail "drift guard: orchestrate-backends.sh caps_for should have six rows"
+[ "$bk_table" = "$dg_table" ] \
+  || fail "drift guard: orchestrate-degrade.sh caps_for diverged from orchestrate-backends.sh"
 echo "ok: the contract doc and the script agree under the drift guard"
 
 echo "PASS: test-orchestrate-backends.sh"

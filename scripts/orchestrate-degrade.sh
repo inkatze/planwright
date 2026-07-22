@@ -189,6 +189,9 @@ advertise_malformed() {
 adapter_caps() {
   ac_cmd="planwright-backend-$1"
   command -v "$ac_cmd" >/dev/null 2>&1 || return 1
+  # Capture trusts the adapter process (the adapter trust model); the hygiene
+  # bounds govern what is parsed and echoed, not the capture — see the
+  # orchestrate-backends.sh copy for the full rationale comments.
   ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
   ac_line=''
   IFS= read -r ac_line <<EOF
@@ -199,6 +202,13 @@ EOF
     return 1
   fi
   ac_line=$(printf '%s' "$ac_line" | tr '\t' ' ' | tr -d '\000-\037\177\200-\237')
+  case "$ac_line" in
+    *[!\ ]*) ;;
+    *)
+      advertise_malformed "$1" "empty advertise line"
+      return 1
+      ;;
+  esac
   f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
   read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
 $ac_line
@@ -553,12 +563,17 @@ cmd_failover() {
   # fails safe to a human decision rather than descending to a real rung.
   fo_cur_n=$(rung_num "$fo_cur_rung") || fo_cur_n=5
 
-  # No explicit candidates: re-detect the shipped present set at failover time.
+  # No explicit candidates: re-detect the shipped present set at failover time,
+  # enumerated in the contract's pinned ladder order so an intra-rung tie (both
+  # execution-backends rows classify rung 2) resolves to the richer pinned rung
+  # (REQ-A1.8; the strict `-lt` best-rung compare below is first-seen-wins
+  # within a rung, so probe order IS the tie-break — an explicit candidate list
+  # keeps its caller's order until the finer five-way resolver lands).
   # (A pluggable candidate must be passed explicitly — its name is not known to
   # the shipped presence probe.)
   if [ "$#" -eq 0 ]; then
     set --
-    for b in tmux subagent in-session print; do
+    for b in tmux stream-json-persistent headless-oneshot subagent in-session print; do
       is_present "$b" && set -- "$@" "$b"
     done
   fi
