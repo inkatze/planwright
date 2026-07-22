@@ -342,7 +342,7 @@ must be byte-identical across clones. Compatible with `orchestration-concurrency
 rejected pushing bookkeeping *commits to main*, not a task-branch *ref*. Routed to a
 `/spec-draft` rework to instantiate, then re-kickoff.
 
-### Lens pass — path and coverage
+### Lens pass — path and coverage (run 2)
 
 Path: parallel read-only sub-agent fan-out, six agents covering the nine canonical
 lenses, per `discovery-rigor` (non-trivial bundle). Findings validated per
@@ -522,7 +522,7 @@ dead* — reclaim on tower-death alone is exactly the live-orphan-worker case D-
 protect (worker commits sit local in the dead clone until PR-open), and `origin` alone can't
 tell "dead worker, zero-commit ref" from "live worker, commits not yet pushed."
 
-### Lens pass — path and coverage
+### Lens pass — path and coverage (run 3)
 
 Path: three parallel read-only adversarial sub-agents (Explore) over the fence/reclaim/
 dispatch correctness axis — the axis the run-3 rework changed and where a run-4 kickoff would
@@ -785,7 +785,7 @@ coverage contract. Run 5's full-bundle lens pass confirmed the core dissolutions
 asserted**, and the remaining defects were **definition-level fixes inside Architecture B**, not a
 fifth architecture fork — so they were applied in place (operator-approved) and the run signed off.
 
-### Lens pass — path and coverage
+### Lens pass — path and coverage (run 5)
 
 Path: full-bundle parallel read-only sub-agent fan-out — **6 agents** covering the nine canonical
 lenses plus the three kickoff-specific checks (altitude, spec-vs-shipped-code, coverage-matrix
