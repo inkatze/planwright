@@ -1,14 +1,16 @@
 # The Fleet Coordination Floor
 
-Two floors constrain every fleet mechanism planwright runs — the towers that
+Four floors constrain every fleet mechanism planwright runs — the towers that
 dispatch and the daemon layer that self-maintains. They are doctrine, not
 mechanism: each was mined from a real incident or a real bootstrapping
 constraint, and every fleet skill, hook, and daemon script operates under
-them. The fleet-autonomy bundle carries the requirements; this document is
-the doctrine statement those requirements cite into force.
+them. The fleet-autonomy and concurrent-orchestrator-coordination bundles
+carry the requirements; this document is the doctrine statement those
+requirements cite into force.
 
-Citations: fleet-autonomy REQ-G1.1, fleet-autonomy REQ-G1.2 ·
-fleet-autonomy D-17, fleet-autonomy D-18.
+Citations: fleet-autonomy REQ-G1.1, REQ-G1.2 · fleet-autonomy D-17, D-18 ·
+concurrent-orchestrator-coordination REQ-A1.1, REQ-D1.3, REQ-D1.6 ·
+concurrent-orchestrator-coordination D-1, D-6.
 
 ## The tower non-authoring boundary
 
@@ -74,3 +76,73 @@ machinery that watches, cleans, throttles, and audits them is plain script,
 auditable line by line (`scripts/fleet-daemon-gate.sh`,
 `scripts/fleet-audit.sh`), pausable by one operator switch
 (`fleet_daemon_pause`), and incapable of quietly spending model budget.
+
+## The assume-multiplicity floor
+
+**A tower assumes multiplicity, not solitude: it keeps tabs on the other
+live towers operating on the same repository and coordinates a disjoint
+division of work, rather than behaving as the sole orchestrator**
+(concurrent-orchestrator-coordination REQ-A1.1; the altitude call is
+recorded as concurrent-orchestrator-coordination D-1).
+
+This floor too was mined from a real gap, not invented: concurrently-started
+towers advanced work against one checkout with no awareness of each other —
+in the operator's framing, "orchestrators don't seem to keep tabs … in case
+there are other orchs running or just other work the towers are not aware
+of." Nothing in doctrine said a tower should look, so none did — the same
+unstated-floor failure shape as the non-authoring boundary above.
+
+What the floor means in practice:
+
+- **Awareness is discovered, never assumed.** A tower discovers live peers
+  from a deterministic presence signal at startup and on a heartbeat
+  thereafter. An empty, broken, or unreadable awareness surface degrades
+  awareness and is surfaced; it never licenses the solitude assumption.
+- **Division has one authoritative floor.** No unit is dispatched by more
+  than one tower; the guarantee is authoritative in the per-unit `origin`
+  fence (concurrent-orchestrator-coordination REQ-C1.1), with the presence
+  surface used for attribution only, never on the correctness path.
+- **Residue is surfaced, never silent.** A dead owner's unfinished work is
+  surfaced to the operator for a reserved reclaim decision, not
+  auto-recovered on a guess and never silently dropped.
+- **The existing floors carry unchanged** (concurrent-orchestrator-coordination
+  REQ-D1.3). Every discovery, attribution, or reclaim-surfacing decision is
+  deterministic script logic on structured signals, bound by the
+  no-LLM-daemon-mechanics invariant above and by positive evidence of death
+  (`scripts/fleet-death-evidence.sh`) — and nothing about assuming
+  multiplicity re-opens auto-merge, autonomous PR-ready marking, or the
+  tower non-authoring boundary.
+
+## The deterministic-attention floor
+
+**A reserved-human moment — a merge-ready PR — reaches the operator by a
+deterministic push; an LLM tower polling GitHub is the fallback, never the
+sole path** (concurrent-orchestrator-coordination REQ-D1.6, D-1).
+
+The companion of assume-multiplicity on the tower→human axis: the same
+"don't rely on a single fragile actor" discipline, applied to attention
+rather than coordination. It is likewise incident-mined — merge-ready PRs
+sat un-surfaced because the tower that could have noticed did not poll in
+time, the live proof that model-side polling as the sole attention path
+fails exactly when attention matters.
+
+This is a doctrine line only. The mechanism that realizes it — the hook
+mapping a worker's ready-flip to a record on the attention surface, and the
+reclassification of that surface's `pr-ready` state from non-actionable to
+actionable — is owned by the planned `merge-currency-guard` spec and is
+cross-referenced, not implemented, by the bundle that records this floor
+(concurrent-orchestrator-coordination D-6, REQ-D1.6).
+
+## Scope boundary: adjacent mechanisms keep their own owners
+
+The floors above constrain every fleet mechanism; they deliberately absorb
+none of the adjacent mechanisms. Each stays in its own bundle with a single
+owner (concurrent-orchestrator-coordination D-6):
+
+- **Usage and quota governance** — `fleet-autonomy`, which owns the
+  reactive rate-limit throttle and the proactive shared-usage governance.
+- **The inter-tower relay** — `orchestration-fleet`, whose attributed,
+  non-impersonating relay is consumed as a contract, never forked.
+- **The deterministic PR-ready-push mechanism** — the planned
+  `merge-currency-guard` spec, which owns the ready-surface interception
+  that mechanism shares with its stale-flip guard.
