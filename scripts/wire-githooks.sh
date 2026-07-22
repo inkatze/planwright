@@ -48,7 +48,7 @@ if [ -n "$current" ]; then
   printf 'wire-githooks: note: replacing existing core.hooksPath %s.\n' "'$current'"
 fi
 
-if ! git config core.hooksPath githooks; then
+if ! git config --local core.hooksPath githooks; then
   # Two concurrent wire runs can race git's config.lock; if the other run
   # already wrote the value, this invocation's job is done.
   if [ "$(git config --local --get core.hooksPath 2>/dev/null || true)" = "githooks" ]; then
