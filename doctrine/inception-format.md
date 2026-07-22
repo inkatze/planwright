@@ -12,8 +12,8 @@ without its files. A reader should be able to author a compliant bundle from
 this document alone.
 
 Citations: inception REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5,
-REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-C1.9, REQ-C1.10, REQ-C1.11, REQ-E1.2,
-REQ-E1.5, REQ-I1.1, REQ-I1.4 · inception D-1, D-18.
+REQ-C1.6, REQ-C1.7, REQ-C1.8, REQ-C1.9, REQ-C1.10, REQ-C1.11, REQ-E1.1,
+REQ-E1.2, REQ-E1.5, REQ-I1.1, REQ-I1.4 · inception D-1, D-13, D-14, D-18.
 
 ## Overview
 
@@ -74,18 +74,24 @@ entries of a type may share a number, live or superseded; gaps in a sequence
 are legal (numbers are never reassigned). IDs are stable forever (REQ-C1.7):
 a changed-meaning entry mints a new ID and marks the old one superseded — for
 an H3 entry, a final `- **Superseded-by:** <ID> (<date>)` bullet; for a
-`KC-<n>` bullet, the same marker appended to the bullet text. The old entry's
+`KC-<n>` bullet, the marker `— **Superseded-by:** <ID> (<date>)`
+em-dash-appended to the bullet text. The old entry's
 body is never edited. Citations to a superseded ID stay valid as lineage.
 
-**Field conventions (all H3 entry templates below).** Field bullets appear in
-template order; every field is required unless marked optional. A required
-field with nothing to record carries the literal `none`, never an omission
-(status-gated exceptions are stated per file).
+**Field conventions.** In the H3 entry templates below, field bullets appear
+in template order; every field is required unless marked optional or
+conditional (presence governed by a stated condition). A required field — or
+a gate-record line — with nothing to record carries the literal `none`, never
+an omission (status-gated rules are stated per file). An entry may end with
+the optional `- **Superseded-by:**` annotation bullet. Every coverage or
+derivation rule in this document quantifies over live entries only;
+superseded entries are lineage.
 
 **Track labels** (REQ-C1.11) are optional. A label matches
 `^[a-z0-9][a-z0-9-]*$`, maximum length 32. A venture that uses tracks declares
-them in `brief.md` under `## Tracks`, one bullet per label with a one-line
-description; assumptions, decisions, and plan tasks may then carry a
+them in `brief.md` under `## Tracks`, one `- **<label>** — <one-line
+description>` bullet per label; assumptions, decisions, and plan tasks may
+then carry a
 `- **Track:** <label>` field (only in a tracked venture) referencing a
 declared label. A single-track venture declares no tracks and writes no
 `Track:` fields. A track that ends gets its declaration bullet annotated
@@ -101,15 +107,18 @@ annotations:
 | --- | --- |
 | `Exploring` | Live venture: elicitation, validation, or gate cycles in progress. The initial status. |
 | `On-hold` | Parked by a gate Hold outcome or operator act; kill criteria keep their dates. |
-| `Graduated` | Closed by graduation: every declared track graduated or explicitly ended (annotated as above). Partial graduation does not close the venture; it stays `Exploring` until closed explicitly. |
+| `Graduated` | Closed by graduation: an untracked venture graduates whole; a tracked one closes when every declared track is graduated or explicitly ended (annotated as above). Partial graduation does not close the venture; it stays `Exploring` until closed explicitly. |
 | `Killed` | Closed by a gate Kill outcome, recorded in the gate log. |
 | `Abandoned` | Closed by operator declaration without a gate run. |
 
-Gate outcomes map to status as follows: `Graduate` closes the venture (or
-only its track) as above; `Hold` moves it to `On-hold`; `Recycle` keeps it
-`Exploring` (the registers and plan are re-scoped); `Kill` moves it to
-`Killed`. Only the record's top-level `Outcome:` moves the venture status;
-per-track outcomes annotate tracks and never change `Status:`. An `On-hold`
+Gate outcomes map to status as follows: `Graduate` closes the venture — the
+explicit close REQ-F1.3 requires; `Hold` moves it to `On-hold`; `Recycle`
+keeps it `Exploring` (the registers and plan are re-scoped); `Kill` moves it
+to `Killed`. Only the record's top-level `Outcome:` moves the venture status;
+per-track outcomes annotate tracks and never change `Status:`. A partial
+graduation therefore records a continuing top-level outcome (`Recycle` or
+`Hold`) with `<label>=Graduate` in `Tracks:`, and the graduated track's
+declaration bullet gains its `— graduated <date>` annotation. An `On-hold`
 venture resumes to `Exploring` by operator act, or closes via a gate run or
 operator declaration. Killed and Abandoned ventures are archived with a brief
 post-mortem note appended to the changelog. Every status change is a
@@ -152,18 +161,20 @@ is a convenience render the validator ignores.
 - `**No-gos & sketch:**` the no-gos and a rough solution sketch.
 - `**Chain:**` the actor → behavior change → goal chain.
 
-The three landscape/viability/fit sections and the non-core `## Opportunity`
-fields are **prompt** content: they guide elicitation and may be skipped.
-Only the minimum core (below) is mandatory. A skipped prompt section keeps
-its heading and replaces its body with an explicit one-line reason, never
+The **prompt** content — `## Appetite`, the three landscape/viability/fit
+sections, and the four `## Opportunity` fields — guides elicitation and may
+be skipped; nothing else in the bundle is a prompt, and only the minimum
+core (below) is substantively mandatory. A skipped prompt section keeps its
+heading and replaces its body with an explicit one-line reason, never
 silently and never by omitting the heading:
 
 ```markdown
 _Skipped: <one-line reason>._
 ```
 
-The skip form applies to prompt sections only; register entry fields are
-never skipped (they carry `none` per the field conventions instead).
+A skipped prompt *field* writes the same `_Skipped: …_` form as its value.
+The skip forms apply to prompt content only; register entry fields are never
+skipped (they carry `none` per the field conventions instead).
 
 **Sources register** (REQ-C1.9). `## Sources` lists the seed and evidence
 material the venture rests on, one bullet per source:
@@ -207,12 +218,14 @@ is `agent-persona | named-human | unstaffed`):
 At staffing time the skill auto-files every unstaffed senior discipline
 (senior: one whose calls carry stake for this venture — a staffing-table
 judgment) as a coverage-risk entry in the assumption register; a deliberate
-zero-seat run collapses those into a single register entry, "personas waived
-(zero-seat); N disciplines unstaffed".
+zero-seat run collapses those into a single register entry whose short name
+is "personas waived (zero-seat); N disciplines unstaffed" (its `Statement:`
+casts the coverage claim in the standard skeleton).
 
 **`## Stakeholder map`** (REQ-C1.10). One row per decision area: who
 **decides** (a named person), who must be **aligned**, who is **informed**.
-Multiple names in a cell are comma-separated. The venture's gate decider and
+A Decides cell holds exactly one name; multiple names in an Aligned or
+Informed cell are comma-separated. The venture's gate decider and
 every `Deciders:` name must appear in a Decides cell; alignment-task targets
 name a row.
 
@@ -245,14 +258,14 @@ After the header block, one H3 block per assumption (REQ-C1.3). The
 
 `Blocking: yes` means the venture cannot responsibly graduate while this
 assumption is unresolved; gate readiness keys on it. `Threshold:` and
-`Evidence:` may carry the literal `none` only while `Status:` is `open`
-(nothing tested yet); `validated` and `invalidated` require a real threshold
-and a cited, graded evidence field. `waived` records its one-line reason in
-the `Status:` field body: `waived — <reason>`. A coverage-risk entry (the
-auto-filed unstaffed-discipline case) uses this same form, its `Statement:`
-carrying the coverage claim and its `Threshold:`/`Evidence:` at `none` while
-open. A task's findings document is committed in the venture repo and cited
-as `T-<n> findings`.
+`Evidence:` may carry the literal `none` while `Status:` is `open`,
+`testing`, or `waived`; `validated` and `invalidated` require a real
+threshold and a cited, graded evidence field. `waived` records its one-line
+reason in the `Status:` field body: `waived — <reason>`. A coverage-risk
+entry (the auto-filed unstaffed-discipline case) uses this same form, its
+`Statement:` carrying the coverage claim and its `Threshold:`/`Evidence:` at
+`none` under the status-gated rule. A task's findings document is committed
+in the venture repo and cited as `T-<n> findings`.
 
 The **evidence grade** is one token from the commitment-weighted ladder,
 ordered weakest to strongest:
@@ -318,8 +331,10 @@ The cap is the budget only; the threshold it buys evidence against lives on
 the linked assumption, and the pair is read together at gate time. Tasks are
 ordered lowest-confidence, highest-blocking assumptions first, derived from
 the registers: tasks testing a `Blocking: yes` assumption precede the rest,
-ascending by the tested assumption's evidence grade (`none` below
-`synthetic` — no evidence is the lowest confidence). The tie-breaker is the
+ascending by the lowest evidence grade among the task's tested blocking
+assumptions (all tested assumptions when none is blocking; `none` below
+`synthetic` — no evidence is the lowest confidence), and a task testing only
+DEC-IDs ordering after assumption-testing tasks. The tie-breaker is the
 single limiting constraint (the one assumption gating the others): a plan
 may name it in an optional `**Limiting constraint:** A-<n>` intro line, and
 that assumption's tasks order first among ties.
@@ -335,9 +350,9 @@ registers (this file-level sense — findings copied into the registers — is
 distinct from the `Graduate` gate outcome and the `Graduated` status);
 prototype code never graduates. `exports/` holds derived render output only:
 the HTML export (`exports/venture.html`) and the materialized frame,
-regenerated by the renderer via the pre-commit regeneration step the venture
-scaffold installs at repo creation, never hand-edited, never cited as
-evidence.
+regenerated by the renderer via the pre-commit regeneration step installed
+at repo creation (part of the hygiene guard set `/inception` scaffolds),
+never hand-edited, never cited as evidence.
 
 ## The frame
 
@@ -353,8 +368,8 @@ edited by hand. Template, in order:
 1. **Problem statement** — from the brief's opportunity framing.
 2. **Evidence pointers** — the sources-register entries in play.
 3. **Constraints** — appetite, no-gos, inherited constraints.
-4. **Door-classified decisions** — the open `DEC-<n>` entries with their
-   `Door:` class.
+4. **Door-classified decisions** — the un-taken `DEC-<n>` entries
+   (`Status:` `open` or `deferred`) with their `Door:` class.
 5. **Discipline staffing table** — from `disciplines.md`, as staffed for this
    run.
 6. **Current success-metric and kill-criteria state** — the metric, each
@@ -373,8 +388,9 @@ The gate-enforced floor (REQ-C1.8). A bundle meets the minimum core when:
 The validator checks the structural shadow of 1–2 (registers present and
 parseable, required fields carried) plus 3–4 as entry presence; whether the
 *enumeration* is complete is the gate decider's substantive judgment, aided
-by the gate's completeness check. Everything else is a prompt: skippable with
-an explicit one-line reason (`_Skipped: …_`), never silently.
+by the gate's completeness check. The brief's prompt content (defined in
+`## brief.md`) is skippable with an explicit one-line reason, never silently;
+structural sections and the registers are not prompts and are never skipped.
 
 ## Gate records
 
@@ -389,21 +405,24 @@ Outcome: <Graduate | Hold | Recycle | Kill>
 Date: <YYYY-MM-DD>
 Decider: <the venture's gate decider, from the stakeholder map>
 Evidence: <comma-separated `A-<n> (<grade>)` items>
-Thresholds: <comma-separated `A-<n> pass | fail | waived` items>
+Thresholds: <comma-separated `A-<n> pass | fail | waived | open` items>
 Kill-criteria: <comma-separated `KC-<n> clear | approaching | tripped` items>
 Tracks: <comma-separated `<label>=<Outcome token>` items>
 Rationale: <free text, one or more lines, always last>
 ```
 
 The heading date and `Date:` must match; `Date:` is authoritative for
-parsers. `Thresholds:` covers every `Blocking: yes` assumption plus any
-other assumption cited in `Evidence:`; `Kill-criteria:` covers every
-`KC-<n>`. `Tracks:` is optional and appears only in a tracked venture
-(REQ-C1.11); its outcome tokens are the four `Outcome:` tokens.
-`Rationale:` runs to the end of the block. `<n>` is a positive integer,
-sequential, append-only. Gate records and register IDs are untouchable by
-stakeholder-surface edits and harvested external feedback (the adapter
-seam); the validator guards them.
+parsers. `Thresholds:` covers every live `Blocking: yes` assumption plus any
+other assumption cited in `Evidence:`; `open` marks one not evaluated at
+this run, and a `Graduate` outcome admits no `open` item on a blocking
+assumption (REQ-E1.1). `Kill-criteria:` covers every live `KC-<n>`.
+`Tracks:` is optional and appears only in a tracked venture (REQ-C1.11); its
+outcome tokens are the four `Outcome:` tokens. `Rationale:` runs to the end
+of the block. A line with nothing to record carries the literal `none`.
+`<n>` is a positive integer, sequential, append-only. Gate records and
+register IDs are untouchable by stakeholder-channel changes (edits arriving
+from published exports or review channels, which land only as
+operator-triaged commits); the validator guards them.
 
 ## Format-version rules
 
