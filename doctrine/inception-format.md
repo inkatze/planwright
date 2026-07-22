@@ -316,8 +316,13 @@ After the header block, one H3 block per validation task (REQ-C1.5):
 
 The cap is the budget only; the threshold it buys evidence against lives on
 the linked assumption, and the pair is read together at gate time. Tasks are
-ordered lowest-confidence, highest-blocking assumptions first, the single
-limiting constraint (the one assumption gating the others) as tie-breaker.
+ordered lowest-confidence, highest-blocking assumptions first, derived from
+the registers: tasks testing a `Blocking: yes` assumption precede the rest,
+ascending by the tested assumption's evidence grade (`none` below
+`synthetic` — no evidence is the lowest confidence). The tie-breaker is the
+single limiting constraint (the one assumption gating the others): a plan
+may name it in an optional `**Limiting constraint:** A-<n>` intro line, and
+that assumption's tasks order first among ties.
 `delivered` means findings are written and awaiting human acceptance;
 register updates land only on `accepted`. A task that exhausts its cap
 without resolution stops and surfaces, making "Hold because tests got
