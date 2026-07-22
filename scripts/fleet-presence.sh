@@ -508,7 +508,7 @@ origin_url=${origin_url%.git}
 # identity: hashing the empty string would converge every such repo on one
 # shared sub-surface. Treat it as the no-usable-origin solo posture (REQ-A1.2).
 if [ -z "$origin_url" ]; then
-  err "empty origin URL on $(sanitize_printable "$checkout" "(unprintable)") — genuine solo posture; the presence surface is not used (REQ-A1.2)"
+  err "origin URL on $(sanitize_printable "$checkout" "(unprintable)") is (or normalizes to) empty — genuine solo posture; the presence surface is not used (REQ-A1.2)"
   exit 5
 fi
 repo_id=$(printf '%s' "$origin_url" | git hash-object --stdin 2>/dev/null | cut -c1-16) || repo_id=""
