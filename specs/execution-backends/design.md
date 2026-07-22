@@ -1,7 +1,7 @@
 # Execution Backends — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-07-21
+**Status:** Ready
+**Last reviewed:** 2026-07-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -22,8 +22,9 @@ altitude D-ID for the pinned seed claims (autopilot-reflex trigger fired: the se
 substrate coupling as a first-class concern and states the selection rules as axioms).
 
 **Alternatives considered:**
-- Axioms as `/offload` skill prose only. Rejected because: doctrine buried in a skill is
-  invisible (autopilot-reflex step 5), the skill instruction budgets are chronically saturated,
+- Axioms as `/offload` skill prose only. Rejected because: doctrine buried in a script is
+  invisible (autopilot-reflex; the skill-prose case is this bundle's extension of the same
+  principle), the skill instruction budgets are chronically saturated,
   and the axioms have two consumers (the offload skill and the tower's own inline-vs-offload
   behavior).
 - Axioms as a section of the backend capability contract. Rejected because: the contract
@@ -85,12 +86,15 @@ authenticated, and the research proved it delivers full harness parity.
 ### D-5: The stream-json harness contract  (N)
 
 **Decision:** A supervisor process owns the worker's stdio channel. Every `can_use_tool`
-control_request receipt writes a decision-queue item and arms a pending-age alarm — never
+control_request receipt writes a decision-queue item (an attention-store entry — the existing
+store is the queue; no new surface) and arms a pending-age alarm — never
 auto-answered, never left pending unobserved (the verified indefinite-pend gotcha:
 `--permission-prompt-tool stdio` pends forever if unanswered). AskUserQuestion control_requests
 map 1:1 onto decision-queue items. Crash recovery is `--resume` against the persisted
 `session_id`; session-grade for this backend therefore means *recoverable* — the session
-survives supervisor death via `--resume` — and the contract row records that nuance explicitly.
+survives supervisor death via `--resume` — and Task 2 records that nuance in both the contract
+row and the session-grade evaluable definition itself (the definition gains the recoverable
+arm, not only the row).
 
 **Alternatives considered:**
 - Auto-answering permission control_requests from an allowlist inside the supervisor. Rejected
@@ -102,11 +106,15 @@ survives supervisor death via `--resume` — and the contract row records that n
 
 **Chosen because:** it converts the one verified deadlock (indefinite pend) into the existing
 attention-store discipline, and makes the recovery story explicit instead of implied.
+*(Amended at kickoff walkthrough 2026-07-22: decision-queue identified as the attention store.)*
 
 ### D-6: `overhead` is a qualitative cost class  (N)
 
 **Decision:** The `overhead` advertised property is a small qualitative enum (a fixed
-per-dispatch cost class), not a latency measurement.
+per-dispatch cost class), not a latency measurement. Pinned classes (REQ-A1.8): `none` |
+`light` (in-harness) | `full-session` (a new top-level CLI session) |
+`full-session+supervisor`; "most conservative" (the D-13 legacy default) is the highest class.
+*(Amended at kickoff lens pass 2026-07-22: enum values pinned.)*
 
 **Alternatives considered:**
 - Milliseconds/benchmark numbers. Rejected because: not evaluable as a stable yes/no contract
@@ -130,8 +138,22 @@ reads the contract instead of special-casing backend names.
 
 **Decision:** `dispatch_backend` gains the semantic value `full-session`. Unattended resolution
 prefers the richest **non-interactive** session-grade backend (stream-json-persistent), never
-silently resolving to tmux; attended runs may present tmux; an explicit configured value always
-wins. The shipped default flips `subagent`→`full-session` — a declared departure from the
+silently resolving to tmux. A configured semantic value is the operator's standing answer:
+attended runs do not re-present the backend choice (a declared narrowing of
+orchestration-fleet REQ-B1.4's attended present-and-ask). The one attended ask is the
+tmux-context ask: when the tower detects it is itself running inside a tmux session (for
+example `$TMUX` set), it asks whether tmux joins the candidate set — once per tower session (a
+`--watch` loop is one run), non-blocking (an unanswered ask resolves unattended immediately; a
+later answer applies from the next dispatch onward), the answer persisted in the spec-local
+runtime dir (the orchestration-fleet REQ-B1.6 precedent) so stateless steps re-read it instead
+of re-asking; outside tmux context attended resolution behaves exactly as unattended. An
+explicit configured value always wins; an explicitly configured backend not advertised on the
+host fails closed at dispatch time — the dispatch halts to Awaiting input naming the missing
+backend, never a silent substitute (degradation ladders apply to semantic values, not explicit
+literals; mid-run runtime failover keeps orchestration-fleet REQ-B1.5's logged one-rung
+descent). Ladder ordering with the new rows, richest to safest: `tmux` >
+`stream-json-persistent` > `headless-oneshot` > `subagent` > `print`/`in-session`
+(REQ-A1.8). The shipped default flips `subagent`→`full-session` — a declared departure from the
 default-preserving rule (customization-boundary criterion 5), operator-scoped in the primary
 seed, softened by the ladder: hosts without a session-grade rung degrade to today's behavior.
 
@@ -148,6 +170,11 @@ seed, softened by the ladder: hosts without a session-grade rung degrade to toda
 **Chosen because:** tasks are beefy enough to always warrant a full session (the seed's
 operator decision); this shape delivers that while preserving the interactive-backend safety
 invariant verbatim.
+*(Amended at kickoff walkthrough 2026-07-22: attended-resolution ask pinned to tmux-context
+detection; explicit-but-unavailable fail-closed rule added. Amended at kickoff lens pass
+2026-07-22: run boundary defined as the tower session, ask made non-blocking with spec-local
+ask-state, configured-standing-answer and dispatch-time-only narrowings declared against
+orchestration-fleet REQ-B1.4/B1.5, ladder ordering pinned.)*
 
 ### D-9: Per-spec override rides the config overlays  (N)
 
@@ -212,6 +239,9 @@ explicitly rather than relying on the current CLI default.
 
 **Chosen because:** one flag per launch site is the cheapest insurance against a
 platform-default change (the same version-sensitivity class Research Rigor exists for).
+At CLI v2.1.217 there is no explicit inverse flag: pinning means never passing `--bare`, the
+launch-pin guard enforcing that at every site, and per-task re-verification against the
+running CLI (D-4). *(Amended at kickoff lens pass 2026-07-22: pin mechanism stated.)*
 
 ### D-13: Adapter grammar grows back-compatibly, 6→8 fields  (N)
 
