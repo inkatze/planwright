@@ -1,0 +1,1 @@
+- 2026-07-22 [planwright] inception Task 1 resolved the REQ-P1.8/REQ-C1.3 interface minimally: auto-filed unstaffed-discipline coverage risks reuse the standard A-entry form with Threshold/Evidence at none while open. Task 9 (persona fan-out) should confirm the ergonomics or propose a dedicated risk-entry variant additively.
