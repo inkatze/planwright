@@ -138,6 +138,34 @@
 #    (the risk row 6/8 read-modify-write discipline); backoff and disable
 #    actions log through the audit trail (REQ-F1.4).
 #
+# 4. AGENTS-JSON IDLE ORACLE (`oracle`, and the classify integration below;
+#    execution-backends D-11 / REQ-F1.1). `claude agents --json` lists every
+#    live session (interactive and background) with its cwd, sessionId, and a
+#    status (`busy` / `waiting` / `idle`) — the authoritative busy/blocked
+#    evidence, verified against CLI v2.1.217. The oracle is CAPABILITY-PROBED
+#    AT CALL TIME: the binary looked up when invoked (PLANWRIGHT_ORACLE_CLAUDE
+#    overrides the default `claude` on PATH), the probe bounded by a wall-clock
+#    timeout (PLANWRIGHT_ORACLE_TIMEOUT seconds, default 10), the output
+#    required to parse as a JSON array (escape-aware scan, no jq — REQ-K1.5;
+#    input capped at 256 KiB). A probe that exits non-zero, hangs past the
+#    timeout, or returns unparseable output is ORACLE-UNAVAILABLE — the caller
+#    falls back to the backend's own liveness mechanism (pane-scrape for
+#    pane-hosted workers, demoted to fallback-only) — never an empty-fleet
+#    read. A tracked worker ABSENT from oracle output is no evidence at all:
+#    absence is never death (death stays with the positive-evidence liveness
+#    baseline, fleet-death-evidence.sh). Rows are joined by cwd (the worktree
+#    the dispatch controls) or sessionId; a session name is data inside a JSON
+#    string and can never spoof a field (the scanner honors string boundaries
+#    and escapes). `classify` prefers oracle evidence whenever the probe
+#    succeeds — see the classification notes at the classify arm.
+#
+#    MANUAL PROBE PATH (version-sensitive surface, D-4: re-verify against the
+#    running CLI when this integration changes):
+#      scripts/fleet-liveness.sh oracle --cwd "$PWD"
+#    run from a live worker's worktree answers busy for that session while a
+#    turn runs; `claude agents --json` directly shows the raw rows this script
+#    consumes.
+#
 # Usage:
 #   fleet-liveness.sh hook <stop|permission-request|post-tool-use|session-end|stop-failure|notification>
 #       The registered hook handler (identity from the env contract; the
@@ -155,10 +183,20 @@
 #       human-run and contract-exempt from liveness) remains the mechanism
 #       — the REQ-A1.1 graceful fallback, kickoff risk row 16. Unknown
 #       backend: exit 2.
+#   fleet-liveness.sh oracle (--cwd <abs-path> | --session <id>)
+#       Probe the agents-json idle oracle for the session(s) matching the join
+#       key. Prints busy|waiting|idle (exit 0, evidence; busy outranks waiting
+#       outranks idle across rows sharing a key) or absent (exit 3, no
+#       evidence — never death). Exit 1: oracle unavailable (missing binary,
+#       non-zero probe, timeout, or unparseable output) — fall back to the
+#       backend's liveness mechanism. Exit 2: usage / refused input.
 #   fleet-liveness.sh classify <worker> <scope> [--now <epoch>]
 #       [--heartbeat <epoch>] [--progress <token>]
 #       [--evidence <class> <args...>]
-#       Print exactly one of working|idle|hung|awaiting-human|flailing.
+#       [--oracle-cwd <abs-path>] [--oracle-session <id>]
+#       Print exactly one of working|idle|hung|awaiting-human|flailing. With
+#       an --oracle-* join key, the agents-json oracle is probed at call time
+#       and its evidence preferred whenever the probe succeeds (D-11).
 #       Exit 4/5: propagated config/install hard-fails from the knob
 #       resolver.
 #   fleet-liveness.sh crash-record <worker> <scope> [--now <epoch>]
@@ -463,8 +501,177 @@ extract_notification_type() {
     }'
 }
 
+# --- the agents-json idle oracle (execution-backends D-11 / REQ-F1.1) --------
+
+# The CLI binary the probe runs. Overridable for tests (a shim) and bespoke
+# installs; a single binary name or path, resolved at call time (the
+# capability probe), never at install time.
+ORACLE_BIN="${PLANWRIGHT_ORACLE_CLAUDE:-claude}"
+
+# oracle_timeout — the probe's wall-clock bound in seconds.
+# PLANWRIGHT_ORACLE_TIMEOUT overrides the default 10; a malformed or zero
+# value falls back to the default (a zero bound would kill every probe and
+# read as a permanently unavailable oracle).
+oracle_timeout() {
+  ot_v="${PLANWRIGHT_ORACLE_TIMEOUT:-10}"
+  case $ot_v in
+    "" | *[!0-9]* | 0 | 0?*) ot_v=10 ;;
+  esac
+  [ "${#ot_v}" -le 4 ] || ot_v=10
+  printf '%s' "$ot_v"
+}
+
+# valid_oracle_cwd <path> — the cwd join key: absolute, printable (a tab /
+# newline / control char would break the TSV compare), bounded to 512 chars.
+valid_oracle_cwd() {
+  case $1 in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $1 in
+    *[![:print:]]*) return 1 ;;
+  esac
+  [ "${#1}" -le 512 ]
+}
+
+# oracle_fetch <out-file> — run `<bin> agents --json` bounded by the
+# wall-clock timeout (a background watchdog kills a hung probe; the classic
+# portable pattern — no GNU timeout on the macOS floor). 0 = output captured;
+# 1 = unavailable (missing binary, non-zero exit, or timeout).
+oracle_fetch() {
+  of_out=$1
+  command -v "$ORACLE_BIN" >/dev/null 2>&1 || return 1
+  of_t=$(oracle_timeout)
+  "$ORACLE_BIN" agents --json >"$of_out" 2>/dev/null &
+  of_pid=$!
+  ( sleep "$of_t" && kill "$of_pid" ) >/dev/null 2>&1 &
+  of_wd=$!
+  of_rc=0
+  wait "$of_pid" || of_rc=$?
+  kill "$of_wd" >/dev/null 2>&1 || true
+  wait "$of_wd" 2>/dev/null || true
+  [ "$of_rc" -eq 0 ]
+}
+
+# oracle_rows — read the agents-json array on stdin; emit one TSV row per
+# top-level object: cwd, sessionId, status. Exit 1 on malformed input (not an
+# array, unbalanced, or truncated) — the caller treats that as
+# oracle-unavailable, NEVER as an empty fleet.
+#
+# The scanner is escape-aware (no jq, REQ-K1.5): a character-level walk that
+# tracks string state, so a `\"` inside a session name never terminates the
+# string and a name carrying spoofed `"cwd": ...` text stays data — only real
+# keys at object depth assign fields. The char after a backslash is consumed
+# literally (an approximate unescape: exact for \" and \\, harmless for the
+# rest — join keys are plain paths / ids that never need escapes). Values are
+# stripped of any tab/newline before emission so the TSV cannot tear.
+oracle_rows() {
+  awk '
+    { buf = buf $0 "\n" }
+    END {
+      n = length(buf)
+      started = 0; ok = 1; depth = 0; instr = 0; esc = 0
+      expect = ""; pk = ""; lk = ""; str = ""
+      cwd = ""; sid = ""; st = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(buf, i, 1)
+        if (instr) {
+          if (esc) { esc = 0; str = str c; continue }
+          if (c == "\\") { esc = 1; continue }
+          if (c == "\"") {
+            instr = 0
+            if (depth == 2) {
+              if (expect == "value") {
+                if (lk == "cwd") cwd = str
+                else if (lk == "sessionId") sid = str
+                else if (lk == "status") st = str
+                expect = ""
+              } else pk = str
+            }
+            continue
+          }
+          str = str c
+          continue
+        }
+        if (c == "\"") { instr = 1; str = ""; continue }
+        if (c == " " || c == "\t" || c == "\n" || c == "\r") continue
+        if (!started) {
+          if (c == "[") { started = 1; depth = 1; continue }
+          ok = 0; break
+        }
+        if (c == "{") {
+          depth++
+          if (depth == 2) { cwd = ""; sid = ""; st = ""; expect = ""; pk = ""; lk = "" }
+          else if (expect == "value") expect = ""
+          continue
+        }
+        if (c == "}") {
+          if (depth == 2) {
+            gsub(/[\t\n\r]/, "", cwd); gsub(/[\t\n\r]/, "", sid); gsub(/[\t\n\r]/, "", st)
+            printf "%s\t%s\t%s\n", cwd, sid, st
+          }
+          depth--
+          if (depth < 1) { ok = 0; break }
+          continue
+        }
+        if (c == "[") {
+          depth++
+          if (depth > 2 && expect == "value") expect = ""
+          continue
+        }
+        if (c == "]") { depth--; if (depth < 0) { ok = 0; break }; continue }
+        if (c == ":") { if (depth == 2) { lk = pk; expect = "value" }; continue }
+        if (c == ",") continue
+        # a bare scalar (number / true / false / null): consumes a pending value
+        if (depth == 2 && expect == "value") expect = ""
+      }
+      if (!started || !ok || instr || depth != 0) exit 1
+      exit 0
+    }'
+}
+
+# oracle_probe <kind:cwd|session> <value> — the capability probe plus query.
+# stdout: busy|waiting|idle (exit 0, evidence — busy outranks waiting outranks
+# idle across matching rows; a row with no recognized status contributes
+# nothing, forward-compatibly). Exit 3: no matching evidence (absent — never
+# death). Exit 1: oracle unavailable (fallback engages).
+oracle_probe() {
+  op_kind=$1
+  op_val=$2
+  op_out=$(mktemp "${TMPDIR:-/tmp}/planwright-oracle.XXXXXX") || return 1
+  if ! oracle_fetch "$op_out"; then
+    rm -f "$op_out"
+    return 1
+  fi
+  # Bound the parse input (a pathological payload cannot wedge the scanner);
+  # a capped-off tail parses unbalanced and correctly reads as unavailable.
+  op_tsv=$(head -c 262144 "$op_out" | oracle_rows) || {
+    rm -f "$op_out"
+    return 1
+  }
+  rm -f "$op_out"
+  op_best=$(printf '%s\n' "$op_tsv" | awk -F "$TAB" -v kind="$op_kind" -v val="$op_val" '
+    {
+      if (kind == "cwd") m = (($1 "") == (val ""))
+      else m = (($2 "") == (val ""))
+      if (!m) next
+      if ($3 == "busy") r = 3
+      else if ($3 == "waiting") r = 2
+      else if ($3 == "idle") r = 1
+      else r = 0
+      if (r > best) best = r
+    }
+    END {
+      if (best == 3) print "busy"
+      else if (best == 2) print "waiting"
+      else if (best == 1) print "idle"
+    }')
+  [ -n "$op_best" ] || return 3
+  printf '%s\n' "$op_best"
+}
+
 if [ "$#" -lt 1 ]; then
-  echo "usage: fleet-liveness.sh hook|push-capable|classify|crash-record|crash-check|crash-reset [args]" >&2
+  echo "usage: fleet-liveness.sh hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset [args]" >&2
   exit 2
 fi
 cmd=$1
@@ -759,9 +966,65 @@ case "$cmd" in
     esac
     ;;
 
+  oracle)
+    # The agents-json idle oracle, standalone (D-11 / REQ-F1.1): the primary
+    # busy/blocked evidence a tower (or fleet-pane-detect.sh's demotion gate)
+    # consults before any pane-scrape heuristic.
+    o_kind=""
+    o_val=""
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --cwd)
+          if [ "$#" -lt 2 ] || ! valid_oracle_cwd "$2"; then
+            echo "fleet-liveness: --cwd needs an absolute, printable path (<=512 chars)" >&2
+            exit 2
+          fi
+          o_kind=cwd
+          o_val=$2
+          shift 2
+          ;;
+        --session)
+          if [ "$#" -lt 2 ] || ! valid_field "$2"; then
+            echo "fleet-liveness: --session needs a token matching the fleet field grammar" >&2
+            exit 2
+          fi
+          o_kind=session
+          o_val=$2
+          shift 2
+          ;;
+        *)
+          echo "fleet-liveness: unknown oracle option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
+          exit 2
+          ;;
+      esac
+    done
+    if [ -z "$o_kind" ]; then
+      echo "usage: fleet-liveness.sh oracle (--cwd <abs-path> | --session <id>)" >&2
+      exit 2
+    fi
+    o_rc=0
+    o_v=$(oracle_probe "$o_kind" "$o_val") || o_rc=$?
+    case $o_rc in
+      0)
+        printf '%s\n' "$o_v"
+        exit 0
+        ;;
+      3)
+        # No matching session evidence. NOT death (REQ-F1.1): the caller falls
+        # back to the backend's positive-evidence liveness check.
+        printf 'absent\n'
+        exit 3
+        ;;
+      *)
+        echo "fleet-liveness: agents-json oracle unavailable (probe failed, timed out, or returned unparseable output) — fall back to the backend's liveness mechanism (REQ-F1.1)" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
   classify)
     if [ "$#" -lt 2 ]; then
-      echo "usage: fleet-liveness.sh classify <worker> <scope> [--now <epoch>] [--heartbeat <epoch>] [--progress <token>] [--evidence <class> <args...>]" >&2
+      echo "usage: fleet-liveness.sh classify <worker> <scope> [--now <epoch>] [--heartbeat <epoch>] [--progress <token>] [--evidence <class> <args...>] [--oracle-cwd <abs-path>] [--oracle-session <id>]" >&2
       exit 2
     fi
     worker=$1
@@ -781,8 +1044,28 @@ case "$cmd" in
     ev_class=""
     ev_a1=""
     ev_a2=""
+    o_kind=""
+    o_val=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
+        --oracle-cwd)
+          if [ "$#" -lt 2 ] || ! valid_oracle_cwd "$2"; then
+            echo "fleet-liveness: --oracle-cwd needs an absolute, printable path (<=512 chars)" >&2
+            exit 2
+          fi
+          o_kind=cwd
+          o_val=$2
+          shift 2
+          ;;
+        --oracle-session)
+          if [ "$#" -lt 2 ] || ! valid_field "$2"; then
+            echo "fleet-liveness: --oracle-session needs a token matching the fleet field grammar" >&2
+            exit 2
+          fi
+          o_kind=session
+          o_val=$2
+          shift 2
+          ;;
         --now)
           if [ "$#" -lt 2 ] || ! valid_epoch "$2"; then
             echo "fleet-liveness: --now needs a non-negative epoch (no leading zero, <=15 digits)" >&2
@@ -903,17 +1186,62 @@ case "$cmd" in
       exit 2
     fi
 
+    # The agents-json idle oracle (D-11 / REQ-F1.1): with a join key, probe at
+    # call time and PREFER oracle evidence whenever the probe succeeds. An
+    # absent worker (exit 3) contributes no evidence — absence is never death;
+    # an unavailable oracle (exit 1) warns and the store/heuristic path below
+    # runs unchanged (the graceful fallback).
+    o_verdict=""
+    o_alive=0
+    if [ -n "$o_kind" ]; then
+      o_prc=0
+      o_verdict=$(oracle_probe "$o_kind" "$o_val") || o_prc=$?
+      case $o_prc in
+        0) ;;
+        3) o_verdict="" ;;
+        *)
+          o_verdict=""
+          echo "fleet-liveness: agents-json oracle unavailable — falling back to store/heuristic evidence (REQ-F1.1)" >&2
+          ;;
+      esac
+    fi
+
     cls=""
     case "$row_state" in
       awaiting-input) cls=awaiting-human ;;
       idle | pr-ready | merged | done | ended) cls=idle ;;
       hung) cls=hung ;;
     esac
+    # Oracle preference, bounded by two guards (D-11):
+    #   - an awaiting-input row is NEVER overridden: a queued human decision
+    #     (a flailing / crash-disable escalation, a pending permission) must
+    #     never be auto-resolved by evidence (REQ-A1.3) — and oracle busy on a
+    #     flailing escalation is exactly the busy-yet-stuck case;
+    #   - oracle idle never masks a hung row: the StopFailure push means the
+    #     turn died on an API error, and a session sitting at its prompt is
+    #     consistent with that — the human-attention claim stands until a
+    #     later push or the reconcile clears it.
+    # Everything else yields: waiting corrects a missed permission push, idle
+    # corrects a missed Stop push, and busy corrects the recorded false-idle
+    # class (a stale idle/ended row, or a stale heartbeat about to read hung)
+    # by falling through to the evidence logic as positive proof of life —
+    # still subject to the flailing streak, which oracle busy must not mask.
+    if [ "$row_state" != awaiting-input ] && [ -n "$o_verdict" ]; then
+      case "$o_verdict" in
+        waiting) cls=awaiting-human ;;
+        idle) [ "$cls" = hung ] || cls=idle ;;
+        busy)
+          cls=""
+          o_alive=1
+          ;;
+      esac
+    fi
     if [ -z "$cls" ]; then
-      # working row, or no row yet (the startup default, risk 33).
-      if [ -z "$hb" ]; then
+      # working row, or no row yet (the startup default, risk 33) — or oracle
+      # busy overriding an idle/ended/hung row (alive and mid-turn, D-11).
+      if [ -z "$hb" ] && [ "$o_alive" != 1 ]; then
         cls=working
-      elif [ $((now - hb)) -ge "$hung_s" ]; then
+      elif [ "$o_alive" != 1 ] && [ $((now - hb)) -ge "$hung_s" ]; then
         if [ -n "$ev_class" ]; then
           ev_rc=0
           if [ "$ev_class" = process ]; then

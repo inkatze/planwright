@@ -474,6 +474,25 @@ audited: the trail records actions, not status noise. The classifier consumes
 only grammar-validated tokens, never raw pane text — a capture-pane consumer
 sanitizes before anything reaches it.
 
+**The agents-json idle oracle** (`fleet-liveness.sh oracle`, execution-backends
+D-11, REQ-F1.1): `claude agents --json` is the authoritative busy/blocked
+oracle, capability-probed at call time and consulted ahead of every
+pane-scrape heuristic. Standalone, `oracle (--cwd <worktree> | --session
+<id>)` prints `busy` / `waiting` / `idle` (evidence), or `absent` (exit 3 — no
+session row, which is *no evidence*, never death: death stays with the
+positive-evidence baseline above); a probe that exits non-zero, hangs past its
+bounded timeout, or returns unparseable output is oracle-*unavailable* (exit
+1), never an empty-fleet read. `classify` takes the same join key via
+`--oracle-cwd` / `--oracle-session` and prefers oracle evidence whenever the
+probe succeeds — correcting the recorded pane false-idle class and missed
+pushes — bounded by two guards: a queued awaiting-input decision is never
+auto-resolved (REQ-A1.3), and oracle `idle` never masks a `hung` row. Oracle
+`busy` defeats the elapsed-time hung boundary (positive proof of life) but
+never masks the flailing streak. `fleet-pane-detect.sh classify --cwd
+<worktree>` runs the same gate and prints `defer-to-oracle` when the oracle
+answers, demoting pane-scrape to fallback-only for pane-hosted workers;
+workers on other backends fall back to their backend's own liveness mechanism.
+
 **Crash-loop backoff** (`crash-record` / `crash-check` / `crash-reset`, D-3,
 REQ-A1.4): each consecutive crash doubles the relaunch delay from
 `fleet_crash_backoff_base_seconds` (capped at 3600s); at

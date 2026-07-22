@@ -236,6 +236,28 @@ decision (§2, §3), a spec edit (E1–E3, E5), or a risk row above.
 
 Signed off: 2026-07-22
 
+**Research notes — Task 1 execution (appended 2026-07-22, /execute-task).** The risk-row-2
+re-verification against the running CLI (v2.1.217, the pinned research version), performed
+while building the idle oracle:
+
+- `claude agents --json` re-verified live: rows carry `cwd`, `sessionId`, `kind`
+  (`interactive` | `background`), `startedAt`, `name`, optional `pid`, and `status`; all
+  three status values (`busy`, `idle`, `waiting` — the latter with a `waitingFor` detail,
+  e.g. a permission prompt) observed in the live fleet. Defunct background rows carry no
+  `status` (and no `pid`); the oracle treats a status-less row as contributing no evidence.
+- Unknown/future status values contribute no evidence either (forward-compatible: never
+  guessed into busy or idle), and a worker absent from the output is `absent` — no evidence,
+  never death (REQ-F1.1's positive-evidence baseline preserved).
+- The CLI's own `--cwd` flag filters *background* sessions only, so it is not used; the
+  oracle filters client-side over the full row set (tmux workers appear as `interactive`).
+- Probe cost on a loaded host: 2–10 s wall (node CLI cold start under load); the probe is
+  bounded at 10 s by default (`PLANWRIGHT_ORACLE_TIMEOUT` overrides), and a timeout reads as
+  oracle-unavailable → fallback, never a wrong verdict. Oracle probe caching stays declined
+  (re-anchor 3); a per-call probe at reconcile cadence is acceptable at this cost.
+- Session `name` values are free text; the oracle's scanner is string-boundary- and
+  escape-aware, so a name carrying spoofed JSON text can never assign fields
+  (fixture-covered).
+
 ## 8. Sign-off
 
 **Lens review pass** (first activation — full bundle; fan-out: one read-only sub-agent per

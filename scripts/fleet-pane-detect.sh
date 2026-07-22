@@ -34,7 +34,7 @@
 # Usage:
 #   fleet-pane-detect.sh classify --pane <file> --backend <b> --worker <w> \
 #       [--scope <s>] [--root <dir>] [--reconcile-ttl <sec>] [--now <epoch>] \
-#       [--state-dir <dir>] [--footer-lines <n>]
+#       [--state-dir <dir>] [--footer-lines <n>] [--cwd <abs-path>]
 #
 #     --pane <file>          captured pane text to classify (required)
 #     --backend <b>          dispatch backend: tmux | subagent | print |
@@ -60,10 +60,26 @@
 #                            8) — large enough to reach the running-turn spinner
 #                            line that sits just above the input box (~5 lines
 #                            up), small enough to exclude the scrollback above.
+#     --cwd <abs-path>       the worker session's cwd (its worktree): the join
+#                            key for the agents-json idle oracle
+#                            (execution-backends D-11 / REQ-F1.1). When given,
+#                            the oracle is consulted through the liveness
+#                            helper AFTER the push gate and BEFORE any pane
+#                            heuristic; an oracle answer defers the detector
+#                            (`defer-to-oracle`), so pane-scrape runs only as
+#                            the fallback — an unavailable oracle or an absent
+#                            worker (no session row; not death evidence) falls
+#                            through to the heuristics below. Omitted: the
+#                            oracle is never consulted (the pre-oracle
+#                            behavior, unchanged).
 #
 #   Prints exactly one token to stdout and exits 0 on a normal classification:
 #     defer-to-push  a fresh hook push exists; the detector yields (D-3 backstop
 #                    boundary — never the primary path where a push exists).
+#     defer-to-oracle  the agents-json oracle answered for --cwd; the caller
+#                    reads the verdict via `fleet-liveness.sh oracle` — pane
+#                    heuristics are fallback-only while the oracle is
+#                    available (D-11).
 #     pending        the debounce floor is not yet met (the first frame, or a
 #                    flap that has not repeated) — no confirmed verdict yet.
 #     idle           positive at-prompt anchor present AND no busy marker.
@@ -271,9 +287,15 @@ reconcile_ttl=""
 now=""
 state_dir=""
 footer_lines=8
+oracle_cwd=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --cwd)
+      [ "$#" -ge 2 ] || usage
+      oracle_cwd="$2"
+      shift 2
+      ;;
     --pane)
       [ "$#" -ge 2 ] || usage
       pane="$2"
@@ -341,6 +363,25 @@ valid_field "$scope" || {
   echo "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
   exit 2
 }
+# The oracle join key: absolute and printable (a tab / newline / control char
+# would break the downstream compare), bounded — the fleet-liveness.sh
+# valid_oracle_cwd discipline, restated here so a hostile value is refused
+# before any helper invocation.
+if [ -n "$oracle_cwd" ]; then
+  oc_ok=1
+  case $oracle_cwd in
+    /*) ;;
+    *) oc_ok=0 ;;
+  esac
+  case $oracle_cwd in
+    *[![:print:]]*) oc_ok=0 ;;
+  esac
+  [ "${#oracle_cwd}" -le 512 ] || oc_ok=0
+  if [ "$oc_ok" != 1 ]; then
+    echo "fleet-pane-detect: refusing malformed --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' (absolute, printable, <=512 chars)" >&2
+    exit 2
+  fi
+fi
 
 [ -f "$pane" ] && [ -r "$pane" ] || {
   echo "fleet-pane-detect: pane file not readable: $(sanitize_printable "$pane" "(unprintable path)")" >&2
@@ -390,6 +431,24 @@ if [ "$push_capable" -eq 0 ]; then
   fi
   if [ -n "$root" ] && [ -n "$now" ] && fresh_push_exists "$root" "$worker" "$now" "$reconcile_ttl"; then
     echo defer-to-push
+    exit 0
+  fi
+fi
+
+# --- Oracle gate: pane-scrape demoted to fallback-only (D-11, REQ-F1.1) -----
+# With a --cwd join key, consult the agents-json idle oracle through the
+# liveness helper before any pane heuristic (the push gate above stays first:
+# a fresh deterministic push is the primary, the oracle backs it up, the pane
+# is last). An oracle ANSWER (exit 0: busy / waiting / idle) outranks anything
+# a pane could say — the recorded pane false-idle classes are exactly what it
+# corrects — so the detector defers and the caller reads the verdict from the
+# oracle itself. Exit 3 (worker absent — no session row, which is NOT death
+# evidence) and exit 1 (oracle unavailable) both fall through: the heuristics
+# below are the fallback. A missing liveness helper falls through too (fail
+# toward running the detector, the house posture).
+if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
+  if "$FL" oracle --cwd "$oracle_cwd" >/dev/null 2>&1; then
+    echo defer-to-oracle
     exit 0
   fi
 fi

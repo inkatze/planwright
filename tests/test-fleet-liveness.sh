@@ -41,7 +41,20 @@
 #     and `crash-check` refuses relaunch while backing off, when disabled,
 #     and when the operator kill-switch (fleet-daemon-gate.sh) is set;
 #   - knobs resolve through the shared resolver (an overlay value changes the
-#     flailing threshold), usage/hostile input is refused (exit 2).
+#     flailing threshold), usage/hostile input is refused (exit 2);
+#   - the agents-json idle oracle (execution-backends D-11 / REQ-F1.1): the
+#     `oracle` subcommand maps session rows to busy / waiting / idle by cwd or
+#     sessionId, reports `absent` (exit 3) for an untracked worker (never
+#     death), and fails to `unavailable` (exit 1) on a missing binary, a
+#     non-zero probe, unparseable output, or a hang past the bounded timeout —
+#     never an empty-fleet read; `classify` prefers oracle evidence whenever
+#     the probe succeeds (a stale-idle store row is corrected to working, a
+#     missed permission push to awaiting-human), never auto-resolves a queued
+#     awaiting-input decision, never masks a hung row with oracle idle, keeps
+#     the flailing streak fireable under oracle busy, and falls back to the
+#     store/heuristic path unchanged when the oracle is unavailable or the
+#     worker is absent; a spoofed session name carrying escaped JSON text is
+#     parsed as data, never honored as fields.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-liveness.sh
@@ -1053,5 +1066,280 @@ st=$(awk -F "$tab" -v want="$wl" '($1 "") == (want "") { print $3 }' "$home40/at
 [ "$st" = awaiting-input ] \
   || fail "leaked marker let stop clobber an escalation (state=$st, want awaiting-input)"
 echo "ok: a leaked pending-permission marker never clobbers an unrelated escalation (REQ-A1.3)"
+
+# ---------------------------------------------------------------------------
+# 41. execution-backends D-11 / REQ-F1.1 — the `oracle` subcommand maps the
+#     agents-json session rows to a busy/waiting/idle verdict by cwd or
+#     sessionId; an untracked worker is `absent` (exit 3, no evidence — never
+#     death); busy outranks waiting outranks idle across rows sharing a cwd;
+#     a row with no recognized status contributes no evidence.
+# ---------------------------------------------------------------------------
+odir="$tmp/oracle"
+mkdir -p "$odir"
+ofix="$odir/fixture.json"
+oshim="$odir/agents-shim"
+{
+  echo '#!/bin/sh'
+  # Refuse unexpected invocations so wiring drift fails loudly, then emit the
+  # fixture (the shim stands in for the real CLI's `agents --json`).
+  # shellcheck disable=SC2016 # $1/$2 are literal shim-script source, expanded at shim runtime, not here
+  echo '[ "$1" = agents ] && [ "$2" = --json ] || exit 9'
+  echo "cat \"$ofix\""
+} >"$oshim"
+chmod +x "$oshim"
+# Pre-warm the fresh shim once so first-exec latency (macOS) cannot skew the
+# timed probes below.
+printf '[]\n' >"$ofix"
+"$oshim" agents --json >/dev/null 2>&1 || true
+
+# orun <fleet-home> <oracle-bin> <args...> — run with the oracle binary pinned.
+orun() {
+  or_home=$1
+  or_bin=$2
+  shift 2
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    PLANWRIGHT_FLEET_STATE_DIR="$or_home" \
+    PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
+    PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+    PLANWRIGHT_REPO_ROOT="$repo" \
+    PLANWRIGHT_LOCAL_CONFIG="" \
+    PLANWRIGHT_ORACLE_CLAUDE="$or_bin" \
+    /bin/sh "$FL" "$@" </dev/null
+}
+
+cat >"$ofix" <<'EOF'
+[
+  {"pid": 100, "id": "a1", "cwd": "/wt/alpha", "kind": "interactive", "startedAt": 1, "sessionId": "aaaa-1111", "name": "alpha-1", "status": "busy"},
+  {"pid": 101, "id": "b1", "cwd": "/wt/beta", "kind": "interactive", "startedAt": 2, "sessionId": "bbbb-2222", "name": "beta-1", "status": "waiting", "waitingFor": "permission prompt"},
+  {"pid": 102, "id": "c1", "cwd": "/wt/gamma", "kind": "interactive", "startedAt": 3, "sessionId": "cccc-3333", "name": "gamma-1", "status": "idle"},
+  {"id": "d1", "cwd": "/wt/delta", "kind": "background", "startedAt": 4, "sessionId": "dddd-4444", "name": "defunct", "state": "blocked"}
+]
+EOF
+home41="$tmp/h41"
+out=$(orun "$home41" "$oshim" oracle --cwd /wt/alpha) || fail "oracle busy: non-zero exit"
+[ "$out" = busy ] || fail "oracle busy: got '$out'"
+out=$(orun "$home41" "$oshim" oracle --cwd /wt/beta) || fail "oracle waiting: non-zero exit"
+[ "$out" = waiting ] || fail "oracle waiting: got '$out'"
+out=$(orun "$home41" "$oshim" oracle --cwd /wt/gamma) || fail "oracle idle: non-zero exit"
+[ "$out" = idle ] || fail "oracle idle: got '$out'"
+# sessionId is an equally valid join key
+out=$(orun "$home41" "$oshim" oracle --session bbbb-2222) || fail "oracle session-key: non-zero exit"
+[ "$out" = waiting ] || fail "oracle session-key: got '$out'"
+# a row with no recognized status contributes no evidence -> absent
+rc=0
+out=$(orun "$home41" "$oshim" oracle --cwd /wt/delta) || rc=$?
+[ "$rc" = 3 ] || fail "oracle no-status row: exit $rc, expected 3 (absent)"
+[ "$out" = absent ] || fail "oracle no-status row: got '$out', expected absent"
+# an untracked worker is absent (exit 3), never a death read
+rc=0
+out=$(orun "$home41" "$oshim" oracle --cwd /wt/nope) || rc=$?
+[ "$rc" = 3 ] || fail "oracle untracked: exit $rc, expected 3 (absent)"
+[ "$out" = absent ] || fail "oracle untracked: got '$out', expected absent"
+# busy outranks idle across rows sharing a cwd
+cat >"$ofix" <<'EOF'
+[
+  {"pid": 110, "cwd": "/wt/shared", "kind": "interactive", "sessionId": "ee-1", "name": "s1", "status": "idle"},
+  {"pid": 111, "cwd": "/wt/shared", "kind": "interactive", "sessionId": "ee-2", "name": "s2", "status": "busy"}
+]
+EOF
+out=$(orun "$home41" "$oshim" oracle --cwd /wt/shared) || fail "oracle precedence: non-zero exit"
+[ "$out" = busy ] || fail "oracle precedence: got '$out', expected busy (busy outranks idle)"
+# usage floor: a join key is required; hostile values are refused
+rc=0
+orun "$home41" "$oshim" oracle >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "oracle no-join-key: exit $rc, expected 2 (usage)"
+rc=0
+orun "$home41" "$oshim" oracle --cwd "$(printf '/wt/bad\tpath')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "oracle hostile cwd: exit $rc, expected 2 (refused)"
+rc=0
+orun "$home41" "$oshim" oracle --cwd relative/path >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "oracle relative cwd: exit $rc, expected 2 (refused)"
+rc=0
+orun "$home41" "$oshim" oracle --session "$(printf 'bad\nsession')" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "oracle hostile session: exit $rc, expected 2 (refused)"
+echo "ok: oracle verdicts map by cwd/sessionId; untracked is absent, never death; hostile input refused"
+
+# ---------------------------------------------------------------------------
+# 42. REQ-F1.1 — a probe that exits non-zero, hangs past the bounded timeout,
+#     or returns unparseable output is oracle-UNAVAILABLE (exit 1, fallback
+#     engages), never an empty-fleet read; a missing binary likewise. An empty
+#     array is a genuinely empty session list: absent (exit 3), not
+#     unavailable.
+# ---------------------------------------------------------------------------
+home42="$tmp/h42"
+failshim="$odir/fail-shim"
+printf '#!/bin/sh\nexit 1\n' >"$failshim"
+chmod +x "$failshim"
+"$failshim" agents --json >/dev/null 2>&1 || true # pre-warm
+rc=0
+out=$(orun "$home42" "$failshim" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "oracle failing probe: exit $rc, expected 1 (unavailable)"
+[ -z "$out" ] || fail "oracle failing probe: stdout '$out', expected empty"
+# a missing binary is unavailable, not a crash
+rc=0
+out=$(orun "$home42" "$odir/does-not-exist" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "oracle missing binary: exit $rc, expected 1 (unavailable)"
+# unparseable output (not a JSON array) is unavailable — never an empty fleet
+printf 'error: something broke\n' >"$ofix"
+rc=0
+out=$(orun "$home42" "$oshim" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "oracle garbage output: exit $rc, expected 1 (unavailable)"
+# truncated JSON (unbalanced) is unavailable
+printf '[ {"cwd": "/wt/alpha", "status": "busy"\n' >"$ofix"
+rc=0
+out=$(orun "$home42" "$oshim" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "oracle truncated output: exit $rc, expected 1 (unavailable)"
+# empty output (zero bytes) is unavailable, not an empty fleet
+: >"$ofix"
+rc=0
+out=$(orun "$home42" "$oshim" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "oracle empty output: exit $rc, expected 1 (unavailable)"
+# an empty ARRAY parses: a genuinely empty session list -> absent, not unavailable
+printf '[]\n' >"$ofix"
+rc=0
+out=$(orun "$home42" "$oshim" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+[ "$rc" = 3 ] || fail "oracle empty array: exit $rc, expected 3 (absent)"
+# a hang past the bounded timeout is unavailable, within bounded wall-clock
+slowshim="$odir/slow-shim"
+printf '#!/bin/sh\nsleep 8\nprintf "[]"\n' >"$slowshim"
+chmod +x "$slowshim"
+t0=$(date +%s)
+rc=0
+out=$(env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
+  /bin/sh "$FL" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
+t1=$(date +%s)
+[ "$rc" = 1 ] || fail "oracle hang: exit $rc, expected 1 (unavailable)"
+[ $((t1 - t0)) -lt 6 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 1s timeout to bound it"
+echo "ok: probe failure, hang, and unparseable output are unavailable (fallback), never an empty fleet"
+
+# ---------------------------------------------------------------------------
+# 43. REQ-F1.1 — classify prefers oracle evidence whenever the probe succeeds:
+#     a stale-idle store row is corrected to working (the recorded false-idle
+#     class), a missed Stop push is corrected to idle, a missed permission
+#     push to awaiting-human.
+# ---------------------------------------------------------------------------
+cat >"$ofix" <<'EOF'
+[
+  {"pid": 100, "cwd": "/wt/alpha", "kind": "interactive", "sessionId": "aaaa-1111", "name": "a", "status": "busy"},
+  {"pid": 101, "cwd": "/wt/beta", "kind": "interactive", "sessionId": "bbbb-2222", "name": "b", "status": "waiting"},
+  {"pid": 102, "cwd": "/wt/gamma", "kind": "interactive", "sessionId": "cccc-3333", "name": "c", "status": "idle"}
+]
+EOF
+home43="$tmp/h43"
+# stale-idle store row + oracle busy -> working
+attn "$home43" heartbeat "$w" "$s" idle >/dev/null || fail "43 setup: idle row"
+out=$(orun "$home43" "$oshim" classify "$w" "$s" --now 2000000000 --oracle-cwd /wt/alpha) \
+  || fail "43 stale-idle: non-zero exit"
+[ "$out" = working ] || fail "43 stale-idle: got '$out', expected working (oracle busy corrects a stale idle row)"
+# working store row + oracle idle -> idle (a missed Stop push corrected)
+home43b="$tmp/h43b"
+attn "$home43b" heartbeat "$w" "$s" working >/dev/null || fail "43b setup: working row"
+out=$(orun "$home43b" "$oshim" classify "$w" "$s" --now 2000000000 --oracle-cwd /wt/gamma) \
+  || fail "43b missed-stop: non-zero exit"
+[ "$out" = idle ] || fail "43b missed-stop: got '$out', expected idle (oracle idle corrects a stale working row)"
+# working store row + oracle waiting -> awaiting-human (a missed permission push)
+home43c="$tmp/h43c"
+attn "$home43c" heartbeat "$w" "$s" working >/dev/null || fail "43c setup: working row"
+out=$(orun "$home43c" "$oshim" classify "$w" "$s" --now 2000000000 --oracle-cwd /wt/beta) \
+  || fail "43c missed-permission: non-zero exit"
+[ "$out" = awaiting-human ] \
+  || fail "43c missed-permission: got '$out', expected awaiting-human (oracle waiting corrects a missed push)"
+echo "ok: classify prefers oracle evidence whenever the probe succeeds"
+
+# ---------------------------------------------------------------------------
+# 44. REQ-A1.3 x REQ-F1.1 — oracle evidence never auto-resolves a queued
+#     awaiting-input decision, and oracle idle never masks a hung row (the
+#     StopFailure push keeps its human-attention claim).
+# ---------------------------------------------------------------------------
+home44="$tmp/h44"
+attn "$home44" decide "$w" "$s" "stuck?" "park" "park|relaunch" high >/dev/null \
+  || fail "44 setup: decide"
+out=$(orun "$home44" "$oshim" classify "$w" "$s" --now 2000000000 --oracle-cwd /wt/alpha) \
+  || fail "44 escalation: non-zero exit"
+[ "$out" = awaiting-human ] \
+  || fail "44 escalation: got '$out', expected awaiting-human (oracle busy must not auto-resolve a queued decision)"
+home44b="$tmp/h44b"
+attn "$home44b" heartbeat "$w" "$s" hung >/dev/null || fail "44b setup: hung row"
+out=$(orun "$home44b" "$oshim" classify "$w" "$s" --now 2000000000 --oracle-cwd /wt/gamma) \
+  || fail "44b hung row: non-zero exit"
+[ "$out" = hung ] || fail "44b hung row: got '$out', expected hung (oracle idle must not mask a StopFailure push)"
+echo "ok: oracle evidence never auto-resolves a queued decision and never masks a hung row"
+
+# ---------------------------------------------------------------------------
+# 45. REQ-F1.1 x REQ-A1.2 — oracle busy is positive evidence of life (a stale
+#     heartbeat no longer classifies hung) but never masks the flailing
+#     streak: busy-yet-stuck still escalates.
+# ---------------------------------------------------------------------------
+home45="$tmp/h45"
+attn "$home45" heartbeat "$w" "$s" working >/dev/null || fail "45 setup: working row"
+# control: without the oracle, the stale heartbeat classifies hung
+out=$(run "$home45" classify "$w" "$s" --now 100000 --heartbeat 90000) || fail "45 control: non-zero exit"
+[ "$out" = hung ] || fail "45 control: got '$out', expected hung (stale heartbeat, no oracle)"
+# with oracle busy, the same stale heartbeat stays working (alive by evidence)
+out=$(orun "$home45" "$oshim" classify "$w" "$s" --now 100000 --heartbeat 90000 --oracle-cwd /wt/alpha) \
+  || fail "45 oracle-alive: non-zero exit"
+[ "$out" = working ] || fail "45 oracle-alive: got '$out', expected working (oracle busy defeats the elapsed-time hung)"
+# oracle busy never masks flailing: an unchanged progress token across the
+# threshold still escalates
+home45b="$tmp/h45b"
+attn "$home45b" heartbeat "$w" "$s" working >/dev/null || fail "45b setup: working row"
+orun "$home45b" "$oshim" classify "$w" "$s" --now 1000 --heartbeat 990 --progress sha-o --oracle-cwd /wt/alpha >/dev/null \
+  || fail "45b obs 1"
+orun "$home45b" "$oshim" classify "$w" "$s" --now 1060 --heartbeat 1050 --progress sha-o --oracle-cwd /wt/alpha >/dev/null \
+  || fail "45b obs 2"
+out=$(orun "$home45b" "$oshim" classify "$w" "$s" --now 1120 --heartbeat 1110 --progress sha-o --oracle-cwd /wt/alpha) \
+  || fail "45b obs 3"
+[ "$out" = flailing ] || fail "45b flailing: got '$out', expected flailing (oracle busy must not mask a stuck worker)"
+echo "ok: oracle busy defeats elapsed-time hung but never masks the flailing streak"
+
+# ---------------------------------------------------------------------------
+# 46. REQ-F1.1 — the fallback path: an unavailable oracle warns and leaves the
+#     store/heuristic classification unchanged; an absent worker (valid JSON,
+#     no matching row) contributes no evidence — the existing logic runs and
+#     absence alone never reads as death (the elapsed-time boundary and the
+#     fresh-heartbeat working path are both unchanged).
+# ---------------------------------------------------------------------------
+home46="$tmp/h46"
+attn "$home46" heartbeat "$w" "$s" idle >/dev/null || fail "46 setup: idle row"
+out=$(orun "$home46" "$failshim" classify "$w" "$s" --now 2000000000 --oracle-cwd /wt/alpha 2>"$tmp/err46") \
+  || fail "46 unavailable: non-zero exit"
+[ "$out" = idle ] || fail "46 unavailable: got '$out', expected idle (fallback to the store row)"
+grep -qi oracle "$tmp/err46" || fail "46 unavailable: no oracle warning on stderr"
+# absent worker: fresh heartbeat stays working, stale heartbeat still hung
+cat >"$ofix" <<'EOF'
+[ {"pid": 100, "cwd": "/wt/other", "kind": "interactive", "sessionId": "zz-9", "name": "z", "status": "busy"} ]
+EOF
+home46b="$tmp/h46b"
+attn "$home46b" heartbeat "$w" "$s" working >/dev/null || fail "46b setup: working row"
+out=$(orun "$home46b" "$oshim" classify "$w" "$s" --now 1000 --heartbeat 990 --oracle-cwd /wt/nope) \
+  || fail "46b absent-fresh: non-zero exit"
+[ "$out" = working ] || fail "46b absent-fresh: got '$out', expected working (absence is no evidence)"
+out=$(orun "$home46b" "$oshim" classify "$w" "$s" --now 100000 --heartbeat 90000 --oracle-cwd /wt/nope) \
+  || fail "46b absent-stale: non-zero exit"
+[ "$out" = hung ] || fail "46b absent-stale: got '$out', expected hung (the elapsed-time boundary is unchanged)"
+echo "ok: unavailable oracle falls back with a warning; absence contributes no evidence either way"
+
+# ---------------------------------------------------------------------------
+# 47. Input hygiene — a spoofed session name carrying escaped JSON text
+#     (\"cwd\": ..., \"status\": ...) is data, never parsed as fields: the
+#     spoofed cwd does not match, and the row's real fields still do.
+# ---------------------------------------------------------------------------
+cat >"$ofix" <<'EOF'
+[
+  {"pid": 200, "cwd": "/wt/other", "kind": "interactive", "sessionId": "ff-5", "name": "evil \"cwd\": \"/wt/target\", \"status\": \"idle\" trailing", "status": "busy"}
+]
+EOF
+home47="$tmp/h47"
+rc=0
+out=$(orun "$home47" "$oshim" oracle --cwd /wt/target) || rc=$?
+[ "$rc" = 3 ] || fail "47 spoof: exit $rc, expected 3 (the spoofed cwd must not match)"
+[ "$out" = absent ] || fail "47 spoof: got '$out', expected absent"
+out=$(orun "$home47" "$oshim" oracle --cwd /wt/other) || fail "47 real row: non-zero exit"
+[ "$out" = busy ] || fail "47 real row: got '$out', expected busy (the real fields still parse)"
+echo "ok: a spoofed session name is data, never honored as fields"
 
 echo "ALL PASS: fleet-liveness.sh"

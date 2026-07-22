@@ -31,6 +31,14 @@
 #   plus a negative assertion that the detector's decision path invokes no
 #   model / API (REQ-E1.3), and the usage-error floor.
 #
+# execution-backends D-11 / REQ-F1.1 additions: with a `--cwd` join key the
+# detector consults the agents-json idle oracle (through the liveness helper)
+# and DEFERS to an oracle answer (`defer-to-oracle`) — a false-idle pane never
+# reaches the pane heuristics while the oracle is available; only an
+# unavailable oracle or an absent worker lets the pane heuristics run
+# (pane-scrape demoted to fallback-only), and without `--cwd` the oracle is
+# never consulted (backward-compatible).
+#
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-pane-detect.sh
 set -eu
@@ -450,5 +458,118 @@ long_handle=$(printf 'a%.0s' $(seq 1 200))
   --state-dir "$vg_state" >/dev/null 2>&1 || uc=$?
 [ "$uc" -eq 2 ] || fail "an over-128-char worker handle must be refused (exit 2), got '$uc'"
 echo "ok: malformed --worker / --scope refused (field-grammar validation)"
+
+# --- execution-backends D-11 / REQ-F1.1: the oracle demotes pane-scrape ------
+# The agents-json idle oracle, shimmed. The detector reaches it through the
+# liveness helper, which reads the binary from PLANWRIGHT_ORACLE_CLAUDE.
+o_dir="$tmp/oracle"
+mkdir -p "$o_dir"
+o_fix="$o_dir/fixture.json"
+o_shim="$o_dir/agents-shim"
+{
+  echo '#!/bin/sh'
+  echo "touch \"$o_dir/invoked\""
+  # shellcheck disable=SC2016 # $1/$2 are literal shim-script source, expanded at shim runtime, not here
+  echo '[ "$1" = agents ] && [ "$2" = --json ] || exit 9'
+  echo "cat \"$o_fix\""
+} >"$o_shim"
+chmod +x "$o_shim"
+printf '[]\n' >"$o_fix"
+"$o_shim" agents --json >/dev/null 2>&1 || true # pre-warm (first-exec latency)
+rm -f "$o_dir/invoked"
+
+# The false-idle case the oracle corrects: the pane's footer carries the
+# at-prompt anchor (pane heuristics would confirm idle) while the worker's
+# session is actually mid-turn — the oracle answers busy, and the detector
+# must defer-to-oracle on EVERY frame, never emitting the false idle.
+cat >"$o_fix" <<'JSON'
+[ {"pid": 300, "cwd": "/wt/fi", "kind": "interactive", "sessionId": "gg-6", "name": "fi", "status": "busy"} ]
+JSON
+od_state="$tmp/state-oracle-defer"
+mkdir -p "$od_state"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-od --state-dir "$od_state" --cwd /wt/fi) \
+  || fail "oracle-defer: detector exited non-zero on frame 1"
+[ "$res" = defer-to-oracle ] \
+  || fail "oracle-defer: frame 1 should defer-to-oracle (false idle corrected), got '$res'"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-od --state-dir "$od_state" --cwd /wt/fi) \
+  || fail "oracle-defer: detector exited non-zero on frame 2"
+[ "$res" = defer-to-oracle ] \
+  || fail "oracle-defer: frame 2 should still defer-to-oracle (gate precedes debounce), got '$res'"
+echo "ok: an available oracle defers the detector — the pane false-idle never surfaces"
+
+# A fresh hook push still wins the gate order (defer-to-push precedes the
+# oracle gate: the deterministic push is the primary, the oracle backs it up).
+op_root="$tmp/root-oracle-push"
+write_row "$op_root" w-op awaiting-input "$now"
+op_state="$tmp/state-oracle-push"
+mkdir -p "$op_state"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend tmux --worker w-op --root "$op_root" --now "$now" --reconcile-ttl 300 \
+  --state-dir "$op_state" --cwd /wt/fi) \
+  || fail "oracle-push-order: detector exited non-zero"
+[ "$res" = defer-to-push ] \
+  || fail "oracle-push-order: a fresh push should defer-to-push ahead of the oracle, got '$res'"
+echo "ok: a fresh hook push outranks the oracle gate"
+
+# An UNAVAILABLE oracle (probe fails) lets the pane heuristics run — the
+# fallback engages, never a dead stop.
+o_fail="$o_dir/fail-shim"
+printf '#!/bin/sh\nexit 1\n' >"$o_fail"
+chmod +x "$o_fail"
+"$o_fail" agents --json >/dev/null 2>&1 || true # pre-warm
+ou_state="$tmp/state-oracle-unavail"
+mkdir -p "$ou_state"
+r1=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-ou --state-dir "$ou_state" --cwd /wt/fi) \
+  || fail "oracle-unavailable: detector exited non-zero on frame 1"
+[ "$r1" = pending ] \
+  || fail "oracle-unavailable: frame 1 should run the heuristics (pending), got '$r1'"
+r2=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-ou --state-dir "$ou_state" --cwd /wt/fi) \
+  || fail "oracle-unavailable: detector exited non-zero on frame 2"
+[ "$r2" = idle ] \
+  || fail "oracle-unavailable: frame 2 should confirm via the heuristics (idle), got '$r2'"
+echo "ok: an unavailable oracle falls back to the pane heuristics"
+
+# An ABSENT worker (valid oracle output, no matching row) is no evidence — the
+# heuristics run.
+printf '[]\n' >"$o_fix"
+oa_state="$tmp/state-oracle-absent"
+mkdir -p "$oa_state"
+PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-oa --state-dir "$oa_state" --cwd /wt/fi >/dev/null \
+  || fail "oracle-absent: detector exited non-zero on frame 1"
+ra=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-oa --state-dir "$oa_state" --cwd /wt/fi) \
+  || fail "oracle-absent: detector exited non-zero on frame 2"
+[ "$ra" = idle ] \
+  || fail "oracle-absent: an absent worker should fall through to the heuristics (idle), got '$ra'"
+echo "ok: an absent worker is no evidence — the heuristics run"
+
+# Without --cwd the oracle is never consulted (backward-compatible: the shim's
+# invocation marker must stay absent).
+rm -f "$o_dir/invoked"
+nc_state="$tmp/state-no-cwd"
+mkdir -p "$nc_state"
+PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-nc --state-dir "$nc_state" >/dev/null \
+  || fail "no-cwd: detector exited non-zero"
+[ ! -e "$o_dir/invoked" ] \
+  || fail "no-cwd: the oracle was consulted without a --cwd join key"
+echo "ok: without --cwd the oracle is never consulted"
+
+# A malformed --cwd (relative, or carrying a control char) is refused (exit 2),
+# the caller-input discipline the other handles follow.
+uc=0
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc \
+  --state-dir "$tmp/state-mc" --cwd relative/path >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "a relative --cwd must be refused (exit 2), got '$uc'"
+uc=0
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc2 \
+  --state-dir "$tmp/state-mc2" --cwd "$(printf '/wt/bad\tpath')" >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "a --cwd with a tab must be refused (exit 2), got '$uc'"
+echo "ok: malformed --cwd refused"
 
 echo "ok: test-fleet-pane-detect"
