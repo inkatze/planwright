@@ -221,10 +221,10 @@ boundary (D-9). Undecided touches became rows 2 and 4 below.
 | --- | --- | --- |
 | 1 | Shared ready-flip surface: three specs converge on it (this gate; `concurrent-orchestrator-coordination`'s tower relay; the deterministic-pr-ready-push notification observation) — duplicate or conflicting hooks | Ownership decided at §2 (grounded in D-7 global wiring): MCG owns the single gating hook, recorded in Out of scope; siblings compose. Early signal: a sibling bundle drafting a second gating hook or restating the predicate — fold-detection at that spec's draft should trip. |
 | 2 | TOCTOU residual (gap check, concurrency): `main` can advance, or `mergeStateStatus` change, between the guard's evaluation and the flip executing; no client-side gate can close this window | Accepted risk: the window is seconds (versus hours today), and GitHub's DIRTY-merge block remains the merge floor beneath it. Early signal: a ready PR observed `BEHIND` immediately after a guarded flip. |
-| 3 | GitHub async-compute lag: right after the convergence head moves, `mergeStateStatus`/`mergeable` sit at `UNKNOWN` → deny of the (legitimate) modal post-sync flip | Guard re-queries once within its bounded runtime before denying, and the `UNKNOWN` deny names a wait-and-retry remedy, not a fetch (REQ-C1.3, REQ-K1.1); the flipper retries once GitHub settles. Early signal: recurring `UNKNOWN` denials of conforming flips. |
+| 3 | GitHub async-compute lag: right after the convergence head moves, `mergeable` sits at `UNKNOWN` → deny of the (legitimate) modal post-sync flip | Guard re-queries once within its bounded runtime before denying, and the `UNKNOWN` deny names a wait-and-retry remedy, not a fetch (REQ-C1.3, REQ-K1.1); the flipper retries once GitHub settles. Early signal: recurring `UNKNOWN` denials of conforming flips. |
 | 4 | No adopter opt-out knob for a globally-wired deny (gap check, configuration) | Deliberate: the gated transition is universally wrong and the guard grants nothing (D-7); an adopter escape hatch, if friction ever demands one, is overlay hook-shadowing, not a core knob. Early signal: adopter reports of legitimate flips denied. |
 | 5 | Platform-contract drift: whether a PreToolUse deny actually blocks each surface is Claude-Code-version-sensitive | `[manual]` sweep ownership decided at §5 (worker confirms live at landing, documented in the task PR; operator re-sweeps on material version changes). Early signal: a deny that fails to block after an upgrade. |
-| 6 | Sole reliance on GitHub's server-computed `mergeStateStatus`/`mergeable` (the server-authoritative predicate has no local backstop): if GitHub's status API is degraded or slow, the guard fail-closes and denies all flips until it recovers | Deliberate fail-closed posture (a denied flip is safe; the flipper retries); no local ref/OID means no stale-local-ref false-*allow*, the worse failure the earlier `is-ancestor` draft carried. Early signal: a burst of `gh`-error/timeout denials tracking a GitHub incident. |
+| 6 | Sole reliance on GitHub's server APIs (compare `behind_by` + `mergeable`; the predicate has no local backstop): if GitHub is degraded or slow, the guard fail-closes and denies all flips until it recovers | Deliberate fail-closed posture (a denied flip is safe; the flipper retries); the compare-based currency signal is branch-protection-independent (avoids the `mergeStateStatus`-reads-`CLEAN`-for-a-behind-PR false-allow the panel caught, G1) and needs no local ref/OID (no stale-local-ref false-allow). Early signal: a burst of `gh`-error/timeout denials tracking a GitHub incident. |
 | 7 | The seed citation `obs:921b93c9` lives on the unmerged `planwright/chore/observations` branch; if that branch never lands, the Sources cite dangles | Cite carries the full path and date so it stays resolvable from history; land the observations branch. Early signal: a broken obs lookup at the next drain. |
 | 8 | Convergence churn under a hot `main`: each top-of-iteration merge re-dirties the head and re-runs the full CI + review sequence, so a heavy unit whose CI outlasts the fleet's merge cadence can loop without converging | Accepted cost of keeping the head current (D-4); bounded in practice by per-spec `max_parallel_units` throttling merge rate. Early signal: a unit exceeding N convergence iterations with each iteration ingesting new `main` commits — worth an `/execute-task` iteration cap if observed. *(Added at kickoff §7 lens pass 2026-07-22.)* |
 
@@ -286,6 +286,46 @@ Lens-pass: the §8 lens review pass recorded in this section (full-bundle
 Discovery-Rigor fan-out + adversarial re-check; table above; all findings
 dispositioned)
 Anchor: `cb3b1dac20f7f4c4380b47ff1e8affbdfb11f0be` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`
+
+Signed off: 2026-07-22
+
+## 9. Amendment log
+
+### Amendment 1 — panel-pass currency-signal fix (2026-07-22)
+
+Pre-merge re-sign-off of the Ready bundle (REQ-D1.4 delta re-walkthrough; the
+spec PR stays as it was, no reopen). Triggered by the operator-directed
+`/panel-review --nested` pass over the signed bundle.
+
+**Delta:** the independent-model panel (gemini) found the §8 predicate's currency
+signal critically broken (G1): `mergeStateStatus` reports `BEHIND` only under the
+base branch's "require branches up to date" protection, which planwright's `main`
+lacks — so a behind PR reads `CLEAN` (confirmed live: PR #276, 22 commits behind,
+`mergeStateStatus CLEAN`/`mergeable MERGEABLE`) and the guard would **false-allow
+the stale flip** the bundle exists to prevent. Currency moved to GitHub's compare
+endpoint (`behind_by == 0`), which is branch-protection-independent and
+server-side (PR #276 → `behind_by 23`; a current PR → `behind_by 0`).
+`mergeStateStatus` dropped entirely (dissolving `DRAFT`/`HAS_HOOKS` handling and
+REQ-A1.2's guard-covers-`BLOCKED` clause — the guard reads no check state).
+Also: the `gh api graphql` ready-mutation surface demoted to a documented
+residual (G3, opaque node-ID selector unresolvable under REQ-C1.9); the Bash
+`isDraft` gate made symmetric with the MCP matcher (G4, no spurious deny of an
+already-ready no-op). G2 (missing `DRAFT`/`HAS_HOOKS` test cells) dissolved with
+`mergeStateStatus`.
+
+**Lens pass:** the `/panel-review --nested` gemini discovery pass over the signed
+diff (4 findings), each validated locally with the three-pass rigor — G1 by
+direct reproduction against live PRs #276/#298/#300–#302 and the branch-protection
+API; all four applied. Bundle re-validated `spec-validate` 0/0 as Ready;
+markdownlint clean; post-edit stale-reference sweep run (residual
+`mergeStateStatus` references confined to the D-3 rationale, rejected-alternatives,
+a deliberate test-regression pin, and the changelog).
+
+Class: meaning
+Lens-pass: the `/panel-review --nested` gemini pass recorded in this amendment
+(4 findings, three-pass-validated, all applied)
+Anchor: `fe28fb81a1ac6c66c3fb163e4a8bca5b8739ce7a` — computed as
 `scripts/spec-anchor.sh specs/merge-currency-guard`
 
 Signed off: 2026-07-22

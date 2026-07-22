@@ -38,28 +38,29 @@ test suite) gates both mechanisms and dispatches last.
 ### Task 2 — `ready-guard.sh` deny-emitting PreToolUse hook and wiring
 
 - **Deliverables:** `scripts/ready-guard.sh`, a deterministic, deny-emitting
-  PreToolUse hook implementing the D-3 predicate (server-authoritative:
-  defer only when `mergeStateStatus ∈ {CLEAN, UNSTABLE}` AND
-  `mergeable == MERGEABLE`, both read from one `gh pr view` of the target PR
-  [target resolved from the intercepted call's validated selector, REQ-C1.9];
-  no local ref/OID/`is-ancestor`/fetch; a bounded re-query on `UNKNOWN` before
-  denying), fail-closed on any doubt
-  (D-5), treating the payload as inert data (REQ-C1.5), with no LLM in the
-  decision path; coverage of the in-session ready surfaces (D-8) — a Bash
-  matcher for `gh pr ready` (excluding `--undo`), an MCP matcher for
-  `mcp__github__update_pull_request` draft→ready transitions, and a Bash matcher
-  for the `gh api graphql markPullRequestReadyForReview` mutation (REQ-C1.10;
-  compound/indirect forms an accepted D-7-class residual); the
-  `hooks/hooks.json` PreToolUse wiring (Bash + MCP matchers, REQ-C1.7); a clear,
-  actionable, echo-safe denial message naming what could not be confirmed
-  (REQ-K1.1, REQ-K1.3).
-- **Done when:** the guard emits `deny` for `mergeStateStatus`
-  `BEHIND`/`DIRTY`/`BLOCKED`, `mergeable` `CONFLICTING`, `UNKNOWN` (after the
-  bounded re-query), an invalid/ambiguous target selector, and
+  PreToolUse hook implementing the D-3 predicate (server-side: defer only when
+  the compare of `<baseRefName>...<headRefOid>` reports `behind_by == 0` AND
+  `mergeable == MERGEABLE`, with `baseRefName`/`headRefOid`/`mergeable`/`isDraft`
+  from one `gh pr view` of the target PR and `behind_by` from the compare
+  endpoint [target resolved from the intercepted call's validated selector,
+  REQ-C1.9]; no `mergeStateStatus`/branch-protection dependence, no local
+  ref/OID/`is-ancestor`/fetch; a bounded re-query on `UNKNOWN` before denying),
+  fail-closed on any doubt (D-5), treating the payload as inert data (REQ-C1.5),
+  with no LLM in the decision path; coverage of the two in-session ready surfaces
+  (D-8) — a Bash matcher for `gh pr ready` (excluding `--undo`, recognizing a
+  leading `cd <path> &&` prefix, gating only when `isDraft == true`) and an MCP matcher
+  for `mcp__github__update_pull_request` draft→ready transitions (likewise
+  `isDraft`-gated); the `gh api graphql` mutation and compound/indirect forms an
+  accepted D-7-class residual (REQ-C1.10); the `hooks/hooks.json` PreToolUse
+  wiring (Bash + MCP matchers, REQ-C1.7); a clear, actionable, echo-safe denial
+  message naming what could not be confirmed (REQ-K1.1, REQ-K1.3).
+- **Done when:** the guard emits `deny` for `behind_by > 0`, `mergeable`
+  `CONFLICTING`, `mergeable` `UNKNOWN` / a compare failure (after the bounded
+  re-query), an invalid/ambiguous target selector, and
   missing-`gh`/missing-`jq`/malformed payloads, and emits nothing (defer) for
-  `mergeStateStatus` `CLEAN`/`UNSTABLE` + `mergeable` `MERGEABLE`, for
-  `gh pr ready --undo`, and for a non-transitioning `update_pull_request` call;
-  both surfaces are wired in
+  `behind_by == 0` + `mergeable` `MERGEABLE`, for `gh pr ready --undo`, for an
+  already-ready PR (`isDraft == false`) on either surface, and for a
+  non-transitioning `update_pull_request` call; both surfaces are wired in
   `hooks/hooks.json`; a negative assertion confirms no model/API call in the
   decision path (REQ-D1.4); `mise run check` passes.
 - **Dependencies:** 1
@@ -107,10 +108,10 @@ test suite) gates both mechanisms and dispatches last.
   negative assertions (REQ-D1.3); the negative
   no-LLM assertions for both scripts (REQ-D1.4).
 - **Done when:** the suite is green in the project CI; every matrix branch
-  (`CLEAN`/`UNSTABLE`+`MERGEABLE`→defer, `BEHIND`/`DIRTY`/`BLOCKED`/`CONFLICTING`/
-  `UNKNOWN`→deny, `--undo`+non-transition→defer, invalid-selector/
-  missing-`gh`/`jq`/malformed→deny) is asserted across the Bash, MCP, and
-  `gh api graphql` surfaces and its completeness is mechanically enforced
+  (`behind_by==0`+`MERGEABLE`→defer, `behind_by>0`/`CONFLICTING`/`UNKNOWN`/
+  compare-failure→deny, `--undo`+already-ready(`isDraft==false`)+non-transition→
+  defer, invalid-selector/missing-`gh`/`jq`/malformed→deny) is asserted across
+  the Bash and MCP surfaces and its completeness is mechanically enforced
   (REQ-D1.1 expected-cell manifest); the
   precedence-outcome test passes with the allow entry present; the sync tests
   pass; `mise run check` passes.

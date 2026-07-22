@@ -51,14 +51,14 @@ ready PR means what the fleet and the human both assume it means.
   halts to `Awaiting input` (the existing convergence stop condition; no new
   halt mechanism).
 - A deterministic, deny-emitting `ready-guard` PreToolUse hook that intercepts
-  a draft→ready transition and DENIES it unless the PR's server-computed
-  `mergeStateStatus` is in `{CLEAN, UNSTABLE}` (current, not `BEHIND`/`DIRTY`/
-  `BLOCKED`) and its `mergeable` field is `MERGEABLE` (non-conflicting) — both
-  read from one `gh pr view` query of the target PR (no local ref, OID, or
-  fetch), the target resolved from the intercepted call's own validated
-  selector — covering both the
-  `gh pr ready` Bash surface and the `mcp__github__update_pull_request` MCP
-  surface, since a Bash-string guard does not intercept MCP calls.
+  a draft→ready transition and DENIES it unless the PR is current with its base
+  (GitHub's compare `behind_by == 0`) and its `mergeable` field is `MERGEABLE`
+  (non-conflicting) — both server-computed against the PR's real base (no local
+  ref, OID, fetch, or `mergeStateStatus` / branch-protection dependence), the
+  target resolved from the intercepted call's own validated selector — covering
+  the `gh pr ready` Bash surface and the `mcp__github__update_pull_request` MCP
+  surface (a Bash-string guard does not intercept MCP calls), each gated only
+  when the PR is currently a draft.
 - The guard's fail-closed contract (no LLM in the decision path, the
   intercepted command treated as inert data, any inability to positively
   confirm both conditions resolves to DENY) and an adversarial suite that pins
@@ -105,21 +105,20 @@ ready PR means what the fleet and the human both assume it means.
 ## REQ-A — The ready-currency invariant
 
 - **REQ-A1.1** A PR SHALL be transitioned from draft to ready only when it has
-  been CI-and-review-verified on a head that is current with its base branch and
-  mergeable — GitHub reports it neither `BEHIND` nor conflicting nor blocked on a
-  required check/review (`mergeStateStatus ∈ {CLEAN, UNSTABLE}` and `mergeable ==
-  MERGEABLE`). This requirement is the single stated home of the invariant (this
-  bullet); it joins bootstrap's never-merge/force-push/amend hard-invariant
-  family by citation, not by duplication.
+  been CI-and-review-verified on a head that is current with its base branch (the
+  base has no commit the head lacks — GitHub's compare `behind_by == 0`) and
+  mergeable (`mergeable == MERGEABLE`, not `CONFLICTING`). This requirement is
+  the single stated home of the invariant (this bullet); it joins bootstrap's
+  never-merge/force-push/amend hard-invariant family by citation, not by
+  duplication.
   *(Cites: obs:921b93c9 · `bootstrap` REQ-J1.4 invariant family · kickoff §4 lens (2026-07-22).)*
 - **REQ-A1.2** The invariant's currency and mergeability clauses SHALL be
   enforced by construction — a deterministic guard that refuses a
   non-conforming flip — not by skill prose, a checklist, or reviewer
   vigilance. The CI-and-review-verified clause remains attested by the
-  flipping party's convergence discipline (CI additionally guard-covered
-  where checks are GitHub-required, via `BLOCKED`); the guard is never read
-  as certifying review state.
-  *(Cites: obs:921b93c9 · `guard-coverage` guard philosophy · kickoff §3 (2026-07-21).)*
+  flipping party's convergence discipline; the guard reads no check or review
+  state (only currency and conflict) and is never read as certifying it.
+  *(Cites: obs:921b93c9 · `guard-coverage` guard philosophy · kickoff §3 (2026-07-21) · kickoff §4 panel (2026-07-22).)*
 - **REQ-A1.3** Enforcement SHALL be agnostic to which party issues the flip
   (a `/execute-task` worker, the gauntlet, a tower under an adopter overlay, or
   a human acting inside a Claude Code session): the guard fires wherever a
@@ -147,9 +146,9 @@ ready PR means what the fleet and the human both assume it means.
   SHALL NOT use `git pull` (which a global `branch.autosetuprebase=always`
   silently turns into a forbidden rebase) and SHALL NOT rebase, amend, squash,
   or force-push (the `bootstrap` REQ-J1.4 hard invariant). The sync keeps the
-  worker branch head current so the eventual ready-flip's server-side
-  `mergeStateStatus` is not `BEHIND`; the guard reads no local ref, so the sync
-  carries no obligation to advance any remote-tracking ref for the guard's sake.
+  worker branch head current so the eventual ready-flip's compare `behind_by` is
+  `0`; the guard reads no local ref, so the sync carries no obligation to advance
+  any remote-tracking ref for the guard's sake.
   *(Cites: `bootstrap` REQ-J1.4 · drafting-session decision (2026-07-20) · kickoff §4 lens (2026-07-22).)*
 - **REQ-B1.3** An `origin/main` merge that cannot be resolved cleanly SHALL be
   aborted (`git merge --abort`, leaving the working tree clean, not
@@ -180,30 +179,33 @@ ready PR means what the fleet and the human both assume it means.
 
 - **REQ-C1.1** A deterministic PreToolUse guard SHALL intercept a draft→ready
   transition and emit a DENY decision unless BOTH server-computed conditions
-  hold: the PR's `mergeStateStatus` is in `{CLEAN, UNSTABLE}` (current with base,
-  not `BEHIND`/`DIRTY`/`BLOCKED`), and its `mergeable` field is `MERGEABLE` (not
-  `CONFLICTING`); both read from a single `gh pr view` query of the target PR.
-  The guard SHALL read no local git ref, object, or `is-ancestor` result and
-  SHALL run no `git fetch`, so the decision is identical for every flipper and
-  every base branch. `mergeStateStatus`/`mergeable` reported `UNKNOWN` (or
-  otherwise unavailable) SHALL resolve to DENY naming a wait-and-retry remedy.
-  *(Cites: obs:921b93c9 · kickoff §4 (2026-07-21) · kickoff §4 lens (2026-07-22).)*
+  hold: the PR is current with its base branch — GitHub's compare of
+  `<baseRefName>...<headRefOid>` reports `behind_by == 0` — and its `mergeable`
+  field is `MERGEABLE` (not `CONFLICTING`); `baseRefName`/`headRefOid`/`mergeable`
+  from one `gh pr view`, `behind_by` from the compare endpoint. The guard SHALL
+  NOT key currency on `mergeStateStatus` (which reports `BEHIND` only under the
+  base's "require up to date" branch protection, so a behind PR on an unprotected
+  base reads `CLEAN`). The guard SHALL read no local git ref, object, or
+  `is-ancestor` result and SHALL run no `git fetch`, so the decision is identical
+  for every flipper and every base branch. `mergeable` reported `UNKNOWN`, or a
+  compare/query failure, SHALL resolve to DENY naming a wait-and-retry remedy.
+  *(Cites: obs:921b93c9 · kickoff §4 (2026-07-21) · kickoff §4 panel (2026-07-22).)*
 - **REQ-C1.2** The guard SHALL be deny-emitting — a new modality relative to the
   allow-only `worker-command-guard.sh` / `tower-command-guard.sh` — with no LLM
   in the decision path and purely deterministic shell logic.
   *(Cites: obs:921b93c9 · `worker-permission-ergonomics` D-1 · `fleet-hardening` D-8.)*
 - **REQ-C1.3** The guard SHALL fail closed: any inability to positively confirm
-  both REQ-C1.1 conditions — `gh` absent or erroring, `mergeStateStatus` or
-  `mergeable` reported as `UNKNOWN` (GitHub computes them asynchronously), `jq`
-  absent, a malformed or empty payload, or any internal error — SHALL resolve to
-  DENY with a clear, actionable reason, never a silent allow. Because `UNKNOWN`
-  is the expected transient state immediately after the head or base moves (a
-  just-pushed convergence head), the guard SHALL re-query at least once within
-  its bounded runtime before denying on `UNKNOWN`, and the `UNKNOWN` denial's
-  remedy SHALL be **wait-and-retry** (GitHub is still computing), never a
-  `git fetch` (which cannot advance a server-side computation). The guard SHALL
-  bound its `gh pr view` call(s) with a timeout and treat a timeout as a
-  confirm-failure → DENY (a hung `gh` must not stall the PreToolUse hook into a
+  both REQ-C1.1 conditions — `gh` absent or erroring, `mergeable` reported as
+  `UNKNOWN` (GitHub computes it asynchronously), the compare call failing or
+  unavailable, `jq` absent, a malformed or empty payload, or any internal error
+  — SHALL resolve to DENY with a clear, actionable reason, never a silent allow.
+  Because `UNKNOWN` is the expected transient state immediately after the head or
+  base moves (a just-pushed convergence head), the guard SHALL re-query at least
+  once within its bounded runtime before denying on `UNKNOWN`, and the `UNKNOWN`
+  denial's remedy SHALL be **wait-and-retry** (GitHub is still computing), never
+  a `git fetch` (which cannot advance a server-side computation). The guard SHALL
+  bound its server call(s) with a timeout and treat a timeout as a
+  confirm-failure → DENY (a hung call must not stall the PreToolUse hook into a
   no-output fail-open); it SHALL positively identify a gated ready-flip before
   issuing any network call, so a non-matching Bash command returns with zero
   network cost.
@@ -228,10 +230,12 @@ ready PR means what the fleet and the human both assume it means.
   planwright session that attempts a ready-flip regardless of the settings
   profile in force.
   *(Cites: drafting-session decision (2026-07-20) · `tower-command-guard.sh` profile-scoping contrast.)*
-- **REQ-C1.8** The guard SHALL NOT block `gh pr ready --undo` (re-drafting a PR
-  is always safe) nor any non-transitioning `update_pull_request` call; only a
-  draft→ready transition is gated.
-  *(Cites: `worker-settings.json` `--undo` handling · drafting-session decision (2026-07-20).)*
+- **REQ-C1.8** Only a genuine draft→ready transition SHALL be gated. On BOTH
+  surfaces the guard SHALL read the PR's current `isDraft` and gate only when it
+  is `true`, so a `gh pr ready` on an already-ready PR (a no-op) is never denied,
+  symmetric with the MCP matcher's handling of a non-transitioning
+  `update_pull_request`; `gh pr ready --undo` (re-drafting) is never gated.
+  *(Cites: `worker-settings.json` `--undo` handling · drafting-session decision (2026-07-20) · kickoff §4 panel (2026-07-22).)*
 - **REQ-C1.9** The guard SHALL derive the target PR only from the intercepted
   call's own selector — the Bash positional PR argument (or, for a bare
   command, the current branch's PR), and the MCP `owner`/`repo`/`pullNumber`
@@ -242,30 +246,31 @@ ready PR means what the fleet and the human both assume it means.
   `gh` option or shell metacharacter. A selector that is invalid or resolves the
   target ambiguously SHALL resolve to DENY.
   *(Cites: `security-posture` never-execute-untrusted-input · kickoff §4 lens (2026-07-22).)*
-- **REQ-C1.10** The guard SHALL additionally cover the `gh api graphql`
-  `markPullRequestReadyForReview` mutation (the programmatic ready surface
-  beyond `gh pr ready` and the `update_pull_request` MCP tool), applying the
-  same REQ-C1.1 predicate. The matcher SHALL recognize a gated invocation behind
-  a simple leading `cd <path> &&` / `;` prefix (the common worktree form a worker
-  emits), not only a bare command. Genuinely indirect invocations a deterministic
-  matcher cannot robustly parse (`sh -c '…'`, `eval`, `env gh …`, custom
-  wrappers, raw `curl` to the API) are an accepted residual of the same class as
-  the out-of-session residual (D-7): the autonomous flippers do not use them, and
-  deterministic shell cannot reliably parse arbitrary nesting without becoming
-  bypassable in other ways.
-  *(Cites: `fleet-hardening` tower-guard surface enumeration · kickoff §4 lens (2026-07-22).)*
+- **REQ-C1.10** The Bash matcher SHALL recognize a gated `gh pr ready`
+  invocation behind a simple leading `cd <path> &&` / `;` prefix (the common
+  worktree form a worker emits), not only a bare command. The `gh api graphql`
+  `markPullRequestReadyForReview` mutation and other indirect invocations a
+  deterministic matcher cannot robustly parse (`sh -c '…'`, `eval`, `env gh …`,
+  custom wrappers, raw `curl`) are an accepted residual of the same class as the
+  out-of-session residual (D-7): the `markPullRequestReadyForReview` mutation
+  carries an opaque GraphQL node ID (`pullRequestId`) rather than a
+  number/branch selector, so it is not resolvable under the REQ-C1.9 selector
+  model without a separate node-ID resolution path; and the autonomous flippers
+  use `gh pr ready` and the MCP tool, not the raw mutation. Closing the mutation
+  surface is a documented follow-up, not a first-cut requirement.
+  *(Cites: `fleet-hardening` tower-guard surface enumeration · kickoff §4 lens (2026-07-22) · kickoff §4 panel (2026-07-22).)*
 
 ## REQ-D — Verification
 
 - **REQ-D1.1** A fixture-driven adversarial suite SHALL exercise the guard over
-  the full decision matrix: `mergeStateStatus` `CLEAN`/`UNSTABLE` + `mergeable`
-  `MERGEABLE` → not denied; `BEHIND` → denied; `DIRTY` → denied; `BLOCKED` →
-  denied; `mergeable` `CONFLICTING` → denied; `mergeStateStatus`/`mergeable`
-  `UNKNOWN` → denied (after the bounded re-query); `gh pr ready --undo` and
-  non-transitioning calls → not denied; missing `gh`/`jq`, malformed payload, or
-  an invalid/ambiguous target selector → denied (fail-closed); across the Bash,
-  MCP, and `gh api graphql` surfaces.
-  *(Cites: `worker-permission-ergonomics` adversarial-suite precedent · kickoff §4 lens (2026-07-22).)*
+  the full decision matrix: `behind_by == 0` + `mergeable MERGEABLE` → not
+  denied; `behind_by > 0` (stale, on a base **without** "require up to date"
+  protection, the false-allow case) → denied; `mergeable CONFLICTING` → denied;
+  `mergeable UNKNOWN` or a compare failure → denied (after the bounded re-query);
+  an already-ready PR (`isDraft == false`) and `gh pr ready --undo` → not denied;
+  missing `gh`/`jq`, malformed payload, or an invalid/ambiguous target selector
+  → denied (fail-closed); across the Bash and MCP surfaces.
+  *(Cites: `worker-permission-ergonomics` adversarial-suite precedent · kickoff §4 lens (2026-07-22) · kickoff §4 panel (2026-07-22).)*
 - **REQ-D1.2** A test SHALL assert the deny-over-allow OUTCOME against a payload
   that the `config/worker-settings.json` `gh pr ready` allow entry would
   otherwise pass.
@@ -349,6 +354,20 @@ ready PR means what the fleet and the human both assume it means.
   re-query and a wait-and-retry (not fetch) remedy; REQ-B1.2's guard-ref
   freshness clause is dropped as moot; REQ-C1.10 covers a `cd && gh pr ready`
   prefix; risk rows 3 and 6 re-cast to the server-authoritative residuals.
+- 2026-07-22 — Kickoff §4 panel-pass edits, batch 4 (Ready re-sign-off, in
+  place). An independent-model panel pass (gemini) found the batch-3 currency
+  signal broken (G1, critical): GitHub's `mergeStateStatus` reports `BEHIND` only
+  under the base's "require branches up to date" protection, absent on
+  planwright's `main`, so a behind PR reads `CLEAN` (confirmed: PR #276, 22
+  behind, `CLEAN`/`MERGEABLE`) and the predicate would false-allow the stale
+  flip. Currency moved to the compare endpoint's `behind_by == 0` (D-3, D-5,
+  REQ-A1.1, REQ-C1.1, REQ-C1.3, REQ-D1.1, Task 2/4, test-spec, Scope) —
+  branch-protection-independent, server-side, no local state; `mergeStateStatus`
+  dropped entirely (dissolving the `DRAFT`/`HAS_HOOKS` handling). REQ-A1.2's
+  guard-covers-`BLOCKED` clause removed (the guard reads no check state). The
+  `gh api graphql markPullRequestReadyForReview` surface demoted to a documented
+  residual (G3: opaque node-ID selector, unresolvable under REQ-C1.9). The Bash
+  `isDraft` gate made symmetric with the MCP matcher (G4; REQ-C1.8, D-8).
 
 ## Sources
 

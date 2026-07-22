@@ -102,19 +102,21 @@ the sync is a single-line script call rather than inline prose.
 
 ## REQ-C — The ready-guard
 
-### REQ-C1.1 — Predicate: `mergeStateStatus ∈ {CLEAN, UNSTABLE}` AND `mergeable == MERGEABLE` [test]
+### REQ-C1.1 — Predicate: compare `behind_by == 0` AND `mergeable == MERGEABLE` [test]
 
 A fixture matrix over `ready-guard.sh`, each stubbing a `gh pr view` JSON
-response: `CLEAN` + `MERGEABLE` → defer (empty output, exit 0); `UNSTABLE` +
-`MERGEABLE` → defer (a current, conflict-free PR with only a non-required check
-pending is allowed); `BEHIND` → deny; `DIRTY` → deny; `BLOCKED` → deny;
-`mergeable` `CONFLICTING` → deny; `mergeStateStatus`/`mergeable` `UNKNOWN` → deny
+response and a compare response: `behind_by 0` + `mergeable MERGEABLE` → defer
+(empty output, exit 0); `behind_by > 0` + `mergeable MERGEABLE` → deny (the
+stale-on-unprotected-base case — **a fixture pins that the stub `gh pr view`
+reports `mergeStateStatus CLEAN` for this behind PR, so the test fails if an
+implementation regresses to keying currency on `mergeStateStatus`**); `mergeable
+CONFLICTING` → deny; `mergeable UNKNOWN` or a compare-endpoint failure → deny
 (after a bounded re-query) with a wait-and-retry reason, never a fetch remedy. A
 negative assertion confirms the guard reads no local git ref/object and runs no
-`git fetch` (grep-level and behavioral: the decision is identical when the local
-checkout's refs are stale or the PR's base branch is a non-`main` branch and
-when the head OID is a cross-fork commit absent locally). Each asserts the exact
-decision and, for denies, a non-empty reason.
+`git fetch` (the decision is identical when the local checkout's refs are stale,
+the base is a non-`main` branch, or the head is a cross-fork commit absent
+locally — all resolved server-side). Each asserts the exact decision and, for
+denies, a non-empty reason.
 
 ### REQ-C1.2 — Deny-emitting, deterministic, no LLM [test]
 
@@ -128,15 +130,15 @@ site, so the "no outbound call" assertion cannot pass vacuously (per the
 
 ### REQ-C1.3 — Fail closed on any doubt [test]
 
-Fixtures: `gh` absent → deny; `gh` errors (non-zero) → deny;
-`mergeStateStatus`/`mergeable` `UNKNOWN` → deny (and a fixture asserts the guard
-re-queries at least once before denying, and that the reason is wait-and-retry,
-not a fetch); `jq` absent → deny; empty/malformed payload → deny. Each asserts a
-deny with an actionable reason (REQ-K1.1), never a silent allow/defer. A fixture
-stubbing a slow/hung `gh pr view` asserts the guard's bounded timeout fires and
-resolves to deny (a hang never becomes a no-output fail-open); a fixture asserts
-a non-`gh pr ready` Bash command returns with no network call attempted (the
-fast path precedes any query).
+Fixtures: `gh` absent → deny; `gh` errors (non-zero) → deny; `mergeable`
+`UNKNOWN` → deny; the compare endpoint failing/unavailable → deny (and a fixture
+asserts the guard re-queries at least once before denying on `UNKNOWN`, and that
+the reason is wait-and-retry, not a fetch); `jq` absent → deny; empty/malformed
+payload → deny. Each asserts a deny with an actionable reason (REQ-K1.1), never a
+silent allow/defer. A fixture stubbing a slow/hung server call asserts the
+guard's bounded timeout fires and resolves to deny (a hang never becomes a
+no-output fail-open); a fixture asserts a non-`gh pr ready` Bash command returns
+with no network call attempted (the fast path precedes any query).
 
 ### REQ-C1.4 — Deny precedence over the worker allow, pinned by outcome [test]
 
@@ -155,23 +157,26 @@ command against server-supplied fields (the predicate is entirely
 asserts a `gh pr view` response carrying a metacharacter-laden field value is
 compared as inert JSON data (via `jq`), never executed — the sentinel is absent.
 
-### REQ-C1.10 — `gh api graphql` ready mutation covered; indirect forms residual [test]
+### REQ-C1.10 — Bash `cd &&` prefix matched; graphql mutation + indirect forms residual [test]
 
-`[test]`: a fixture asserts the Bash matcher denies a non-conforming
-`gh api graphql -f query='mutation{markPullRequestReadyForReview(...)}'`
-invocation, applying the same predicate as `gh pr ready`. A documentation-level
-assertion records that compound/indirect forms (`sh -c '…'`, `env gh …`, raw
-`curl`) are the accepted D-7-class residual (asserted present as a stated
-residual, not silently uncovered).
+`[test]`: a fixture asserts the Bash matcher recognizes and gates a
+non-conforming `cd <path> && gh pr ready <n>` (the leading `cd &&` prefix does
+not slip the gate). A documentation-level assertion records that the
+`gh api graphql markPullRequestReadyForReview` mutation (opaque node-ID selector,
+not resolvable under REQ-C1.9) and compound/indirect forms (`sh -c '…'`,
+`env gh …`, raw `curl`) are the accepted D-7-class residual — asserted present as
+a stated residual, not silently uncovered.
 
 ### REQ-C1.6 — Both surfaces covered (Bash + MCP) [test + manual]
 
-`[test]`: the Bash matcher denies a non-conforming `gh pr ready`; the MCP
-matcher denies a non-conforming `mcp__github__update_pull_request` draft→ready
-transition and defers a non-transitioning `update_pull_request` call.
-**Manual:** against the running Claude Code version, confirm a PreToolUse `deny`
-on each surface actually blocks the respective tool call (the version-sensitive
-platform-contract confirmation).
+`[test]`: the Bash matcher denies a non-conforming *currently-draft* `gh pr
+ready` and defers it once the PR is already ready (`isDraft == false`); the MCP
+matcher denies a non-conforming currently-draft
+`mcp__github__update_pull_request` draft→ready transition and defers a
+non-transitioning `update_pull_request` call — the two surfaces handle the
+already-ready no-op symmetrically. **Manual:** against the running Claude Code
+version, confirm a PreToolUse `deny` on each surface actually blocks the
+respective tool call (the version-sensitive platform-contract confirmation).
 
 ### REQ-C1.7 — Global wiring in `hooks/hooks.json` [test]
 
@@ -180,9 +185,11 @@ A structural assertion confirms the PreToolUse Bash and MCP matchers for
 `${CLAUDE_PLUGIN_ROOT}` (marketplace-install-safe), and that the guard is not
 gated behind a specific settings profile.
 
-### REQ-C1.8 — `--undo` and non-transitions never blocked [test]
+### REQ-C1.8 — `--undo`, already-ready no-ops, and non-transitions never blocked [test]
 
-Fixtures: `gh pr ready --undo`, `gh pr ready <pr> --undo`, and a non-draft-flip
+Fixtures: `gh pr ready --undo`, `gh pr ready <pr> --undo`, a `gh pr ready <pr>`
+against an already-ready PR (`isDraft == false`, a no-op — asserted on BOTH
+surfaces so the Bash gate matches the MCP gate), and a non-draft-flip
 `update_pull_request` each → defer (empty output, exit 0), regardless of
 currency/mergeability state.
 
