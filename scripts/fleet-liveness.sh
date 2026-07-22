@@ -544,7 +544,7 @@ oracle_fetch() {
   of_t=$(oracle_timeout)
   "$ORACLE_BIN" agents --json >"$of_out" 2>/dev/null &
   of_pid=$!
-  ( sleep "$of_t" && kill "$of_pid" ) >/dev/null 2>&1 &
+  (sleep "$of_t" && kill "$of_pid") >/dev/null 2>&1 &
   of_wd=$!
   of_rc=0
   wait "$of_pid" || of_rc=$?
