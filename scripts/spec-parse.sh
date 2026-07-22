@@ -113,6 +113,10 @@ spec_parse_extract_tasks() {
     printf '%s\n' "spec-parse: NUL byte in $(spec_parse__printable "$1") (malformed input; fail closed)" >&2
     return 1
   fi
+  # awk reads via redirection, not a file operand: a path with a valid
+  # identifier before `=` would otherwise parse as an awk variable
+  # assignment (and `-` as stdin), silently extracting from the wrong
+  # stream — an empty-but-successful parse is the named fail-open.
   LC_ALL=C awk '
     function sortkey(id,    parts, n, major, minor) {
       # "\\." (ERE literal dot) rather than ".": a single-char separator is
@@ -168,5 +172,5 @@ spec_parse_extract_tasks() {
       }
       for (i = 1; i <= nkeys; i++) printf "%s", buf[keys[i]]
     }
-  ' "$1"
+  ' <"$1"
 }

@@ -161,6 +161,22 @@ spec_parse_extract_tasks "$tmp/tasks.md" >"$tmp/out2"
 cmp -s "$tmp/out" "$tmp/out2" || fail "extraction is non-deterministic"
 echo "ok: extraction is deterministic"
 
+# A relative path with a valid identifier before an `=` must be read as a
+# file, not swallowed by awk's operand-as-variable-assignment parsing —
+# that misparse made awk read stdin and emit an empty stream with exit 0,
+# the named fail-open (REQ-B1.6f). The lib feeds awk via redirection, so
+# the extraction must succeed with the file's actual content.
+mkdir "$tmp/eq"
+printf '### Task 1 — Equals-bearing name\n\n- **Done when:** parsed as a file.\n' >"$tmp/eq/x=1.md"
+eq_out=$(cd "$tmp/eq" && spec_parse_extract_tasks "x=1.md" </dev/null) \
+  || fail "extraction failed on an =-bearing filename"
+[ -n "$eq_out" ] || fail "=-bearing filename emitted an empty stream (awk assignment misparse fail-open)"
+case $eq_out in
+  *"Equals-bearing name"*) ;;
+  *) fail "=-bearing filename extraction lost the task content: $eq_out" ;;
+esac
+echo "ok: an =-bearing filename is read as a file, not an awk assignment"
+
 # ---------------------------------------------------------------------------
 # Property 3: zero task blocks emit an empty stream, exit 0.
 # ---------------------------------------------------------------------------
@@ -309,6 +325,10 @@ if spec_parse_extract_tasks "$tmp/dup-esc.md" >/dev/null 2>"$tmp/dup-esc.err"; t
 fi
 grep -q "duplicate task id" "$tmp/dup-esc.err" \
   || fail "escape-byte duplicate lacks the duplicate-id message: $(cat "$tmp/dup-esc.err")"
+# The sanitizer must strip ONLY the hostile byte: the id's printable bytes
+# survive, so an over-stripping regression (deleting the whole id) fails.
+grep -q "duplicate task id 2x" "$tmp/dup-esc.err" \
+  || fail "sanitized duplicate id lost its printable bytes: $(cat "$tmp/dup-esc.err")"
 if LC_ALL=C grep -q "$(printf '\033')" "$tmp/dup-esc.err"; then
   fail "raw ESC byte reached stderr through the duplicate-id echo (REQ-B1.6c)"
 fi
