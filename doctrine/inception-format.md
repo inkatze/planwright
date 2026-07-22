@@ -96,8 +96,8 @@ then carry a
 declared label. A single-track venture declares no tracks and writes no
 `Track:` fields. A track that ends gets its declaration bullet annotated
 `— graduated <date>` or `— ended <date> (<reason>)`; gate records carry
-per-track outcomes (coverage defined under *Gate records*), and partial
-graduation keys on these labels.
+per-track outcomes (coverage and semantics defined under *Gate records*),
+and partial graduation keys on these labels.
 
 ## Venture lifecycle
 
@@ -116,9 +116,10 @@ Gate outcomes map to status as follows: `Graduate` closes the venture — the
 explicit close REQ-F1.3 requires; `Hold` moves it to `On-hold`; `Recycle`
 keeps it `Exploring` (the registers and plan are re-scoped); `Kill` moves it
 to `Killed`. Only the record's top-level `Outcome:` moves the venture status;
-per-track outcomes annotate tracks and never change `Status:`. A partial
-graduation therefore records a continuing top-level outcome (`Recycle` or
-`Hold`) with `<label>=Graduate` in `Tracks:`, and the graduated track's
+per-track outcomes at most annotate tracks and never change `Status:`. A
+partial graduation therefore records a continuing top-level outcome
+(`Recycle` or `Hold`) with `<label>=Graduate` in `Tracks:`, and the
+graduated track's
 declaration bullet gains its `— graduated <date>` annotation. In a tracked
 venture a top-level `Graduate` is recorded only when every declared track is
 already graduated or ended; a `Graduate` record that leaves a live track
@@ -338,7 +339,7 @@ the registers: tasks testing a `Blocking: yes` assumption precede the rest,
 ascending by the lowest evidence grade among the task's tested blocking
 assumptions (all tested assumptions when none is blocking; `none` below
 `synthetic` — no evidence is the lowest confidence), and a task testing only
-DEC-IDs ordering after assumption-testing tasks. The tie-breaker is the
+DEC-IDs orders after assumption-testing tasks. The tie-breaker is the
 single limiting constraint (the one assumption gating the others): a plan
 may name it in an optional `**Limiting constraint:** A-<n>` intro line, and
 that assumption's tasks order first among ties.
@@ -392,9 +393,10 @@ The gate-enforced floor (REQ-C1.8). A bundle meets the minimum core when:
 The validator checks the structural shadow of 1–2 (registers present and
 parseable, required fields carried) plus 3–4 as entry presence; whether the
 *enumeration* is complete is the gate decider's substantive judgment, aided
-by the gate's completeness check. The brief's prompt content (defined in
-`## brief.md`) is skippable with an explicit one-line reason, never silently;
-structural sections and the registers are not prompts and are never skipped.
+by the gate's completeness check. The brief's prompt content (defined in the
+`brief.md` section) is skippable with an explicit one-line reason, never
+silently; structural sections and the registers are not prompts and are never
+skipped.
 
 ## Gate records
 
@@ -423,8 +425,12 @@ assumption (REQ-E1.1). `Kill-criteria:` covers every live `KC-<n>`.
 `Tracks:` appears only in a tracked venture and is omitted otherwise
 (REQ-C1.11); it covers every declared track not yet graduated or ended, one
 `<label>=<Outcome token>` item per track, the outcome tokens being the four
-`Outcome:` tokens. `Rationale:` runs to the end
-of the block. A line with nothing to record carries the literal `none`.
+`Outcome:` tokens read at track scope: `Graduate` graduates the track and
+`Kill` ends it, the declaration bullet gaining its `— graduated <date>` or
+`— ended <date> (<reason>)` annotation in the same change; `Hold` and
+`Recycle` record a parked or re-scoped track and leave it live,
+unannotated. `Rationale:` runs to the end of the block. A line with nothing
+to record carries the literal `none`.
 `<n>` is a positive integer, sequential, append-only. Gate records and
 register IDs are untouchable by stakeholder-channel changes (edits arriving
 from published exports or review channels, which land only as
