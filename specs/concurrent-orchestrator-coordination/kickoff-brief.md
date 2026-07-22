@@ -874,7 +874,16 @@ verbatim. No gemini diff-corruption hallucination this run (the table parsed cle
 Declined: none. Re-validated **0/0**, `lint:md` 0 errors.
 
 Class: meaning-class (G1/G2/G3/G4/G5 specify previously-underspecified mechanisms).
-Lens-pass: external gemini panel (10-lens table) + local three-pass Validation Rigor on every
-finding; all applied, none deferred, none a safety bug. Fresh anchor supersedes df12da9 as the
-freshness-gate authority.
-Anchor: e82866abc35ee21675c58bf78f3644411c5e83c8 (`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`)
+Lens-pass: external gemini panel run to **convergence over 3 iterations** (`--nested`
+review-apply-re-review), each finding taken through local three-pass Validation Rigor.
+**Iteration 1** — 8 findings (above), applied. **Iteration 2** — the convergence re-review caught
+that two iteration-1 fixes **over-reached**: the G5 presence-GC "stateless re-stat-and-compare"
+claimed a POSIX-impossible airtight guarantee (there is no atomic unlink-iff-content-unchanged),
+and the G1 tentative sink entry lacked a timestamp to hold the grace window cross-tower. Both
+corrected — G5 reframed to **best-effort + self-heal** (a racing delete of a fresh record
+self-heals on the next heartbeat re-publish; presence is off the correctness path, D-11, so it is
+awareness-only, never a double-dispatch), G1's tentative entry now carries a **first-seen
+timestamp** and promotes only after ≥ one heartbeat interval. **Iteration 3** — clean: all ten
+lenses `none`, converged. All applied, none deferred, none a safety bug; the origin-fence
+correctness floor was untouched throughout. Fresh anchor supersedes df12da9 as the freshness-gate authority.
+Anchor: 2b74f2628324d895a0726bcb14b6aa0a47bf6374 (`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`)
