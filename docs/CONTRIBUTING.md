@@ -87,11 +87,15 @@ scripts/wire-githooks.sh   # sets core.hooksPath=githooks for the whole clone
 clone, and the hooks no-op cleanly on a checkout whose branch predates them.
 `mise run check` includes `check:githooks`, which fails loudly on an unwired
 or half-wired clone but never wires anything itself; CI wires explicitly and
-then verifies. The hooks bind humans too, not just agent sessions.
-`--no-verify` is the deliberate, human-only escape hatch for the commit and
-push hooks; git offers no `--no-verify` for `pre-rebase`, so a deliberate
-local rebase (rare, and never on planwright branches) requires temporarily
-unsetting `core.hooksPath`. One caution inherited from tracked hooks: on an
+then verifies. The hooks bind humans too, not just agent sessions, and are
+accident-catchers with an honestly stated boundary, not tamper-proofing:
+`--amend` combined with `-m`/`-F` carries no client-hook signal and is
+covered by the worker deny globs instead. The deliberate, human-only
+bypasses, per `githooks(5)`: `--no-verify` skips the `pre-push` and
+`commit-msg` hooks but does not suppress `prepare-commit-msg` (a deliberate
+amend — rare, and never on planwright branches — means `--amend -m`/`-F` or
+temporarily unsetting `core.hooksPath`), and `git rebase --no-verify`
+bypasses `pre-rebase`. One caution inherited from tracked hooks: on an
 untrusted fork checkout, unset `core.hooksPath` before running covered git
 commands, since the checkout's own hook files would execute locally.
 

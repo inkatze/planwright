@@ -6,7 +6,9 @@
 # a clean signal: git gives client hooks no reliable amend flag, and
 # `--amend -m`/`-F` arrives as source `message` and slips past — that family
 # is covered at the deny-glob layer (REQ-A1.1), a boundary D-2 states
-# honestly. Bypass: --no-verify (the human's deliberate escape hatch).
+# honestly. NOT suppressed by --no-verify (githooks(5)); the deliberate
+# bypasses are that same --amend -m/-F family, or temporarily unsetting
+# core.hooksPath.
 #
 # args: $1 = commit-message file, $2 = source, $3 = commit SHA (source-dependent).
 set -u
