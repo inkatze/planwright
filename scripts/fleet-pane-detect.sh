@@ -37,10 +37,13 @@
 #       [--state-dir <dir>] [--footer-lines <n>]
 #
 #     --pane <file>          captured pane text to classify (required)
-#     --backend <b>          dispatch backend: tmux | subagent | print |
-#                            in-session (required). Only a push-capable backend
-#                            (tmux) is gated on the store; the others cannot
-#                            register a hook, so the detector always runs.
+#     --backend <b>          dispatch backend (required), resolved through the
+#                            capability contract. Only a push-capable backend
+#                            (hook_registration=true: tmux, and the
+#                            stream-json-persistent / headless-oneshot contract
+#                            rows) is gated on the store; a hook-less backend
+#                            cannot register a hook, so the detector always
+#                            runs.
 #     --worker <w>           worker handle (required) — keys the store row and
 #                            the debounce state.
 #     --scope <s>            worker scope (default `-`) — part of the debounce

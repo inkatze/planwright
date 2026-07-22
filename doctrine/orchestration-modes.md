@@ -17,12 +17,14 @@ D-12, D-13.
 The shipped backends are rungs of one **graceful-degradation ladder**,
 ordered by their advertised capability set (not their name), richest to
 safest: rung 1 interactive multiplexer **with** steer (`tmux`); rung 2
-interactive **without** steer, or a headless `claude -p` pool (session-grade
-and parallel but no live steer — its ambiguity routes to the decision queue,
-so it is **not** a quality-equivalent middle rung and sits near the
-fallback; the contract's `stream-json-persistent` and `headless-oneshot`
-rows both classify here, with the finer pinned ordering between them the
-capability contract's); rung 3 the in-harness `subagent`; rung 4 the
+interactive **without** steer, or a non-interactive session-grade pool — the
+rung where a headless `claude -p` pool's unsteered ambiguity routes to the
+decision queue, so it is **not** a quality-equivalent middle rung and sits
+near the fallback. The contract's `stream-json-persistent` (which does
+advertise structured observe/steer surfaces) and `headless-oneshot` rows
+both classify rung 2 — the classifier keys on non-interactivity, and steer
+does not move the rung; the finer pinned ordering between them is the
+capability contract's. Rung 3 is the in-harness `subagent`; rung 4 the
 synchronous
 **in-session** terminal rung (no external substrate, so it **always works**).
 The manual `print` backend is off the autonomous ladder — a human runs the

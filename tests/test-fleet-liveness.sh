@@ -334,6 +334,21 @@ out=$(env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness
 [ "$rc" = 2 ] || fail "push-capable with a missing caps accessor: exit $rc, expected 2"
 grep -q "broken install" "$tmp/pc-err" \
   || fail "a missing caps accessor must be diagnosed as a broken install, not an unknown backend"
+# A version-skewed accessor (answers the pre-extension six fields) is
+# self-identified as skew, never misreported as an unknown backend: stub the
+# accessor beside the copied script.
+cat >"$brokedir/orchestrate-backends.sh" <<'EOF'
+#!/bin/sh
+[ "$1" = caps ] || exit 2
+printf 'true true true false true yes\n'
+EOF
+chmod +x "$brokedir/orchestrate-backends.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
+  push-capable tmux >/dev/null 2>"$tmp/pc-err" || rc=$?
+[ "$rc" = 2 ] || fail "push-capable with a six-field caps answer: exit $rc, expected 2"
+grep -q "version-skewed install" "$tmp/pc-err" \
+  || fail "a wrong-arity caps answer must be diagnosed as version skew, not an unknown backend"
 echo "ok: push-capable reads hook_registration from the contract, never backend names"
 
 # ---------------------------------------------------------------------------

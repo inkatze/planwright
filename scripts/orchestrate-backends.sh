@@ -378,8 +378,11 @@ cmd_select_unattended() {
   #    Deliberately NOT the full pinned five-way ladder: walking the
   #    stream-json-persistent / headless-oneshot rungs here is the
   #    degradation-ladder wiring that lands with the `full-session` resolver
-  #    (execution-backends Task 5), so a forced-present new rung is picked only
-  #    when explicitly configured, never as a degrade target yet.
+  #    (execution-backends Task 5), so in THIS selection chain a forced-present
+  #    new rung is picked only when explicitly configured — never as a
+  #    selection-time degrade target. (Runtime failover is a separate
+  #    mechanism: orchestrate-degrade.sh's presence probe may still descend to
+  #    a forced-present rung mid-run.)
   for rung in subagent in-session; do
     if caps=$(resolve_caps "$rung") && eligible "$caps"; then
       echo "NOTE: unattended backend '$configured' is unavailable or not autonomously selectable; degraded to '$rung' (never an interactive backend)." >&2

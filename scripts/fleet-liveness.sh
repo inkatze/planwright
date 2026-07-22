@@ -770,6 +770,7 @@ case "$cmd" in
     # diagnostic stays visible on this path too (REQ-A1.7's never-a-silent-
     # absence), instead of collapsing into the generic unknown-backend line.
     hook_reg=''
+    caps_rc=0
     if caps_line=$("$caps_helper" caps "$backend"); then
       # Field 8 of the eight-field advertised set. Word-split a trusted
       # accessor answer; hook_registration is grammar-validated at the source.
@@ -782,6 +783,8 @@ case "$cmd" in
         exit 2
       fi
       hook_reg=${8-}
+    else
+      caps_rc=$?
     fi
     case "$hook_reg" in
       true)
@@ -793,7 +796,11 @@ case "$cmd" in
         exit 1
         ;;
       *)
-        echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract)" >&2
+        # The accessor's exit code self-identifies the arm: 1 = fail-safe
+        # absent (unknown/adapterless name), 2 = invalid name/usage, anything
+        # else = the accessor itself failed (e.g. a corrupted script), which
+        # is an install problem rather than a bad backend name.
+        echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract; accessor exit $caps_rc)" >&2
         exit 2
         ;;
     esac
