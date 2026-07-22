@@ -169,7 +169,8 @@ layer (no second source-reading implementation) and covers the same source-avail
 as the CLI view, missing sources marked visibly; an output-encoding fixture asserts
 script-tag/markup content in worker-authored strings renders inert; the surface exposes no
 state-mutating endpoint (read-only assertion). Manual: a phone/browser glance check of the
-rendered surface, documented in the task's PR.
+rendered surface, documented in the task's PR, recording the exposure mechanism and confirming
+no unauthenticated network surface.
 
 ## REQ-E — Stream-json harness contract
 

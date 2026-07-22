@@ -92,7 +92,8 @@ and gives non-tmux operators a backend-agnostic worker status view.
   richest to safest — `tmux` > `stream-json-persistent` > `headless-oneshot` > `subagent` >
   `print`/`in-session` — and SHALL pin the `overhead` enum to the classes `none` | `light` |
   `full-session` | `full-session+supervisor`, with "most conservative" (the D-13 legacy
-  default) defined as the highest class.
+  default) defined as the highest class. Existing rows pin: `tmux` `full-session`, `subagent`
+  `light`, `print` and `in-session` `none`.
   *(Cites: D-6, D-8, kickoff lens pass (2026-07-22).)*
 - **REQ-A1.9** Worker launch construction SHALL pass petitions, task prose, and any other
   untrusted text to workers as data (argv elements or stdin), never interpolated into a shell
@@ -107,7 +108,8 @@ and gives non-tmux operators a backend-agnostic worker status view.
   ladder (unattended: the richest *non-interactive* session-grade backend, per D-8 and
   REQ-B1.4; attended: a configured semantic value is the operator's standing answer — no
   re-ask except D-8's tmux-context ask, once per tower session, non-blocking — a declared
-  narrowing of orchestration-fleet REQ-B1.4's attended present-and-ask), and the shipped
+  narrowing of orchestration-fleet REQ-B1.4's attended present-and-ask; a host advertising no
+  session-grade rung degrades down the ladder to today's behavior, per D-8), and the shipped
   default SHALL flip from `subagent` to `full-session` (a declared departure from the
   default-preserving rule, the departure operator-approved in the primary seed).
   *(Cites: D-8, obs:3414579b, kickoff lens pass (2026-07-22).)*
@@ -246,6 +248,11 @@ and gives non-tmux operators a backend-agnostic worker status view.
   death determination named as the backend's positive-evidence liveness baseline ("advertised"
   corrected — liveness is a contract baseline); test-spec REQ-A1.2 fails-visibly fixture;
   Task 4 completion/liveness parity line (supervisor + event stream).
+- 2026-07-22 — Panel iteration 4 (final; convergence declared under the operator's exit rule):
+  REQ-B1.1 gains the no-session-grade-host degradation parenthetical (restating D-8's
+  softener); REQ-A1.8 pins the existing rows' `overhead` classes (the operator-confirmed
+  ladder table); test-spec REQ-D1.2's manual check records the exposure mechanism and confirms
+  no unauthenticated surface. All expression-only.
 
 ## Sources
 

@@ -357,3 +357,20 @@ Changelog entry "Panel iteration 3 clarifications". Re-declined: oracle probe ca
 Class: expression-only
 Anchor: `955f204cc5a5cc40f4344bd635becd82726b0e97` — computed as
 `scripts/spec-anchor.sh specs/execution-backends`
+
+### Re-anchor 4 — panel iteration 4, convergence declared (2026-07-22)
+
+Final gemini pass, dispositioned under the operator's exit rule (iter-3 approval). Applied
+(expression-only, all restating operator-approved content): REQ-B1.1 no-session-grade-host
+degradation parenthetical; REQ-A1.8 existing rows' overhead classes pinned; test-spec
+REQ-D1.2 manual check extended to confirm the exposure constraint. Declined: --bare-omission
+re-raise (mitigation already three-part: guard + re-verification + forward-flag clause; residual
+in risk row 2); duplicate-ask race (cosmetic, every arm safe under the declared benign-race
+semantics). Task-4 backlog additions (mechanics, no spec change): alarm-firing outcome =
+operator escalation on the attention surface, never auto-answer or worker kill; ask-state
+duplicate-suppression across concurrent dispatches. Panel converged: no High+ finding survived
+validation as a new decision. Cites the requirements.md Changelog entry "Panel iteration 4".
+
+Class: expression-only
+Anchor: `845b132198b19a424f05ae31cad1261da375c026` — computed as
+`scripts/spec-anchor.sh specs/execution-backends`
