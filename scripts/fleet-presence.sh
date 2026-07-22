@@ -593,16 +593,24 @@ check_private() {
   fi
 }
 
-# write_sentinel <file> — fail closed on a write failure: proceeding without
-# the sentinel would let a later vanished surface read as a healthy first
-# run. A symlink (including dangling — the redirect would create a file at
-# an attacker-chosen target) or any non-regular object at the sentinel path
-# is refused, never written through.
-write_sentinel() {
+# check_sentinel_untampered <file> — a symlink (including dangling — the
+# redirect would create a file at an attacker-chosen target) or any
+# non-regular object at the sentinel path is never a sentinel this script
+# wrote: refuse it outright in EVERY state (REQ-A1.4), before it can read
+# as mere vanished evidence downstream.
+check_sentinel_untampered() {
   if [ -L "$1" ] || { [ -e "$1" ] && [ ! -f "$1" ]; }; then
-    err "security: sentinel path $1 is a symlink or non-regular object — refusing to write through it (REQ-A1.4/REQ-A1.5); investigate and remove it yourself"
+    err "security: sentinel path $1 is a symlink or non-regular object — refusing to trust or write through it (REQ-A1.4/REQ-A1.5); investigate and remove it yourself"
     exit 4
   fi
+}
+
+# write_sentinel <file> — fail closed on a write failure: proceeding without
+# the sentinel would let a later vanished surface read as a healthy first
+# run. Tampered paths are refused via check_sentinel_untampered, never
+# written through.
+write_sentinel() {
+  check_sentinel_untampered "$1"
   if [ ! -f "$1" ]; then
     if ! date +%s >"$1" 2>/dev/null; then
       err "could not write the persistence sentinel $1 — failing closed (REQ-A1.5); fix the fleet home's writability and retry"
@@ -635,6 +643,11 @@ ensure_infra_dir() {
 ensure_surface_dir() {
   esd_dir=$1
   esd_sentinel=$2
+  # Tamper check FIRST, in every state: a symlinked or non-regular sentinel
+  # must exit 4 (security refusal) even when the surface dir is missing —
+  # never fall through to the vanished check below and read as exit-3
+  # evidence (docs promise exit 4 for symlink-tampered; REQ-A1.4).
+  check_sentinel_untampered "$esd_sentinel"
   if [ -d "$esd_dir" ]; then
     check_private "$esd_dir"
     write_sentinel "$esd_sentinel"
@@ -644,8 +657,10 @@ ensure_surface_dir() {
     err "unknown peer status: $esd_dir exists but is not a directory — failing closed (REQ-A1.5); investigate and remove the obstruction"
     exit 3
   fi
-  # -e, not -f: ANY object at the sentinel path means the surface once
-  # existed (a corrupted sentinel still reads as present — fail closed).
+  # -e, not -f: any surviving object at the sentinel path means the surface
+  # once existed (a content-corrupted sentinel still reads as present — fail
+  # closed). Symlinks and non-regular objects never reach here: the tamper
+  # check at the top of this function already refused them (exit 4).
   # Transient corner, accepted: a peer mid-bootstrap between its
   # sentinel-write and mkdir reads here as vanished for one pass; the next
   # invocation sees the directory (awareness-only, self-correcting).

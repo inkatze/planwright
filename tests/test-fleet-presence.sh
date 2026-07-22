@@ -816,7 +816,22 @@ run "$h17c" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
   >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "symlinked sentinel not refused (exit $rc, expected 4)"
 [ ! -e "$tmp/sentinel-target" ] || fail "sentinel written through a symlink"
-echo "ok: field-level malformed, obstructed surface exit 3, sentinel symlink refused"
+
+# Sentinel symlink with an EXISTING target, surface dir missing: still the
+# security refusal (exit 4), never "vanished" (exit 3) — a symlink is never
+# a sentinel this script wrote, so it is not proof the surface once existed
+# (REQ-A1.4); the target must stay untouched.
+h17sym="$tmp/h17sym"
+mkdir -p "$h17sym"
+printf 'target-content\n' >"$tmp/sentinel-target-live"
+ln -s "$tmp/sentinel-target-live" "$h17sym/presence.sentinel"
+rc=0
+run "$h17sym" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "live-target symlinked sentinel not refused (exit $rc, expected 4)"
+[ "$(cat "$tmp/sentinel-target-live")" = "target-content" ] \
+  || fail "sentinel symlink target modified"
+echo "ok: field-level malformed, obstructed surface exit 3, sentinel symlink refused (dangling and live-target)"
 
 # Start epoch across heartbeats: a valid preserved start survives a
 # re-publish; a garbage own record resets start to the fresh beat.
