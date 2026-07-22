@@ -66,20 +66,26 @@
 #                            the oracle is consulted through the liveness
 #                            helper AFTER the push gate and BEFORE any pane
 #                            heuristic; an oracle answer defers the detector
-#                            (`defer-to-oracle`), so pane-scrape runs only as
-#                            the fallback — an unavailable oracle or an absent
-#                            worker (no session row; not death evidence) falls
-#                            through to the heuristics below. Omitted: the
-#                            oracle is never consulted (the pre-oracle
-#                            behavior, unchanged).
+#                            (`defer-to-oracle <verdict>`), so pane-scrape
+#                            runs only as the fallback — an unavailable oracle
+#                            or an absent worker (no session row; not death
+#                            evidence) falls through to the heuristics below,
+#                            with the helper's stderr diagnostics passing
+#                            through. Omitted: the oracle is never consulted
+#                            (the pre-oracle behavior, unchanged). An empty or
+#                            malformed value is refused (exit 2).
 #
-#   Prints exactly one token to stdout and exits 0 on a normal classification:
+#   Prints exactly one line to stdout and exits 0 on a normal classification
+#   (a single token, except defer-to-oracle, which carries the verdict):
 #     defer-to-push  a fresh hook push exists; the detector yields (D-3 backstop
 #                    boundary — never the primary path where a push exists).
-#     defer-to-oracle  the agents-json oracle answered for --cwd; the caller
-#                    reads the verdict via `fleet-liveness.sh oracle` — pane
+#     defer-to-oracle <busy|waiting|idle>  the agents-json oracle answered for
+#                    --cwd, and the verdict rides the same line (one probe
+#                    instant serves the gate and the consumer) — pane
 #                    heuristics are fallback-only while the oracle is
-#                    available (D-11).
+#                    available (D-11). Deferring resets the two-frame debounce
+#                    state, so the first post-defer fallback frame starts the
+#                    floor afresh.
 #     pending        the debounce floor is not yet met (the first frame, or a
 #                    flap that has not repeated) — no confirmed verdict yet.
 #     idle           positive at-prompt anchor present AND no busy marker.
@@ -108,7 +114,7 @@ RCK="$here/resolve-config-knob.sh"
 . "$here/echo-safety.sh"
 
 usage() {
-  echo "usage: fleet-pane-detect.sh classify --pane <file> --backend <b> --worker <w> [--scope <s>] [--root <dir>] [--reconcile-ttl <sec>] [--now <epoch>] [--state-dir <dir>] [--footer-lines <n>]" >&2
+  echo "usage: fleet-pane-detect.sh classify --pane <file> --backend <b> --worker <w> [--scope <s>] [--root <dir>] [--reconcile-ttl <sec>] [--now <epoch>] [--state-dir <dir>] [--footer-lines <n>] [--cwd <abs-path>]" >&2
   exit 2
 }
 
@@ -122,6 +128,23 @@ valid_field() {
     "" | . | .. | *[!A-Za-z0-9._=@:-]*) return 1 ;;
   esac
   [ "${#vf_v}" -le 128 ]
+}
+
+# valid_oracle_cwd <path> — the oracle join key's grammar (byte-identical to
+# fleet-liveness.sh valid_oracle_cwd): absolute, printable, no backslash,
+# bounded to 512 chars. Validated here before the helper invocation so a
+# hostile value is refused up front, and a drift between the two copies is
+# caught side by side.
+valid_oracle_cwd() {
+  voc_v=$1
+  case $voc_v in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case $voc_v in
+    *[![:print:]]* | *\\*) return 1 ;;
+  esac
+  [ "${#voc_v}" -le 512 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -288,12 +311,14 @@ now=""
 state_dir=""
 footer_lines=8
 oracle_cwd=""
+oracle_cwd_given=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --cwd)
       [ "$#" -ge 2 ] || usage
       oracle_cwd="$2"
+      oracle_cwd_given=1
       shift 2
       ;;
     --pane)
@@ -363,24 +388,13 @@ valid_field "$scope" || {
   echo "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
   exit 2
 }
-# The oracle join key: absolute and printable (a tab / newline / control char
-# would break the downstream compare), bounded — the fleet-liveness.sh
-# valid_oracle_cwd discipline, restated here so a hostile value is refused
-# before any helper invocation.
-if [ -n "$oracle_cwd" ]; then
-  oc_ok=1
-  case $oracle_cwd in
-    /*) ;;
-    *) oc_ok=0 ;;
-  esac
-  case $oracle_cwd in
-    *[![:print:]]*) oc_ok=0 ;;
-  esac
-  [ "${#oracle_cwd}" -le 512 ] || oc_ok=0
-  if [ "$oc_ok" != 1 ]; then
-    echo "fleet-pane-detect: refusing malformed --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' (absolute, printable, <=512 chars)" >&2
-    exit 2
-  fi
+# The oracle join key, validated whenever the flag was SEEN — an explicitly
+# empty value is refused like any other malformed shape, never silently
+# treated as "flag not given" (a caller expanding an unset variable must hear
+# about it, not lose oracle coverage without a trace).
+if [ "$oracle_cwd_given" = 1 ] && ! valid_oracle_cwd "$oracle_cwd"; then
+  echo "fleet-pane-detect: refusing malformed --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' (absolute, printable, backslash-free, <=512 chars)" >&2
+  exit 2
 fi
 
 [ -f "$pane" ] && [ -r "$pane" ] || {
@@ -435,38 +449,7 @@ if [ "$push_capable" -eq 0 ]; then
   fi
 fi
 
-# --- Oracle gate: pane-scrape demoted to fallback-only (D-11, REQ-F1.1) -----
-# With a --cwd join key, consult the agents-json idle oracle through the
-# liveness helper before any pane heuristic (the push gate above stays first:
-# a fresh deterministic push is the primary, the oracle backs it up, the pane
-# is last). An oracle ANSWER (exit 0: busy / waiting / idle) outranks anything
-# a pane could say — the recorded pane false-idle classes are exactly what it
-# corrects — so the detector defers and the caller reads the verdict from the
-# oracle itself. Exit 3 (worker absent — no session row, which is NOT death
-# evidence) and exit 1 (oracle unavailable) both fall through: the heuristics
-# below are the fallback. A missing liveness helper falls through too (fail
-# toward running the detector, the house posture).
-if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
-  if "$FL" oracle --cwd "$oracle_cwd" >/dev/null 2>&1; then
-    echo defer-to-oracle
-    exit 0
-  fi
-fi
-
-# --- Footer-region extraction (bounded; scrollback excluded) ----------------
-# stdin redirection (not `tail … -- "$pane"`) reads the bounded footer without
-# relying on `--` end-of-options support and with no option-injection surface;
-# $pane was already confirmed readable above.
-footer=$(tail -n "$footer_lines" <"$pane" 2>/dev/null) || footer=""
-
-raw=$(raw_classify "$footer")
-
-# --- Two-frame debounce -----------------------------------------------------
-# State persists the previous frame's raw class and the last CONFIRMED class.
-# A class becomes confirmed only when it equals the immediately previous frame's
-# raw class (two consecutive agreeing frames). A frame that disagrees with the
-# previous frame keeps the last confirmed class (flap suppressed) and prints it;
-# with no confirmed class yet the output is `pending`.
+# --- Debounce state key (computed here so the oracle gate can reset it) -----
 if [ -z "$state_dir" ]; then
   if [ -n "$root" ]; then
     state_dir="$root/liveness/pane-detect"
@@ -489,6 +472,62 @@ key_hash=$(printf '%s\n%s\n' "$scope" "$worker" | cksum | cut -d' ' -f1)
 key="$key_prefix-$key_hash"
 state_file="$state_dir/$key"
 
+# --- Oracle gate: pane-scrape demoted to fallback-only (D-11, REQ-F1.1) -----
+# With a --cwd join key, consult the agents-json idle oracle through the
+# liveness helper before any pane heuristic (the push gate above stays first:
+# a fresh deterministic push is the primary, the oracle backs it up, the pane
+# is last). An oracle ANSWER (exit 0: busy / waiting / idle) outranks anything
+# a pane could say — the recorded pane false-idle classes are exactly what it
+# corrects — so the detector defers, CARRYING the verdict on the output line
+# (`defer-to-oracle <verdict>`): one probe instant serves both the gate and
+# the consumer, instead of a discard-then-re-probe whose second answer could
+# differ (and whose second 2-10s CLI spawn doubles the per-frame cost).
+# Deferring also RESETS the debounce state: frames spent deferring record no
+# history, so a stale pre-defer frame pair must not instantly confirm (or
+# resurface) a classification the moment the oracle later becomes
+# unavailable — the first fallback frame starts the two-frame floor afresh.
+# Exit 3 (worker absent — no session row, which is NOT death evidence) and
+# exit 1 (oracle unavailable) both fall through: the heuristics below are the
+# fallback, and the helper's own stderr diagnostics pass through untouched so
+# a persistently broken oracle is visible, never a silent degradation. Exit 2
+# (the helper refused the invocation) is a real error and fails closed; any
+# other exit falls through with a warning. A missing liveness helper falls
+# through too (fail toward running the detector, the house posture).
+if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
+  o_rc=0
+  o_v=$("$FL" oracle --cwd "$oracle_cwd") || o_rc=$?
+  case $o_rc in
+    0)
+      rm -f "$state_file" 2>/dev/null
+      printf 'defer-to-oracle %s\n' "$o_v"
+      exit 0
+      ;;
+    1 | 3) ;; # unavailable / absent: the pane heuristics are the fallback
+    2)
+      echo "fleet-pane-detect: the liveness helper refused the oracle invocation (exit 2)" >&2
+      exit 2
+      ;;
+    *)
+      echo "fleet-pane-detect: unexpected oracle helper exit $o_rc; falling back to the pane heuristics" >&2
+      ;;
+  esac
+fi
+
+# --- Footer-region extraction (bounded; scrollback excluded) ----------------
+# stdin redirection (not `tail … -- "$pane"`) reads the bounded footer without
+# relying on `--` end-of-options support and with no option-injection surface;
+# $pane was already confirmed readable above.
+footer=$(tail -n "$footer_lines" <"$pane" 2>/dev/null) || footer=""
+
+raw=$(raw_classify "$footer")
+
+# --- Two-frame debounce -----------------------------------------------------
+# State persists the previous frame's raw class and the last CONFIRMED class
+# (the state file was keyed above, before the oracle gate). A class becomes
+# confirmed only when it equals the immediately previous frame's raw class
+# (two consecutive agreeing frames). A frame that disagrees with the previous
+# frame keeps the last confirmed class (flap suppressed) and prints it; with
+# no confirmed class yet the output is `pending`.
 prev_raw=""
 confirmed=""
 if [ -f "$state_file" ] && [ -r "$state_file" ]; then

@@ -33,11 +33,15 @@
 #
 # execution-backends D-11 / REQ-F1.1 additions: with a `--cwd` join key the
 # detector consults the agents-json idle oracle (through the liveness helper)
-# and DEFERS to an oracle answer (`defer-to-oracle`) — a false-idle pane never
-# reaches the pane heuristics while the oracle is available; only an
-# unavailable oracle or an absent worker lets the pane heuristics run
-# (pane-scrape demoted to fallback-only), and without `--cwd` the oracle is
-# never consulted (backward-compatible).
+# and DEFERS to an oracle answer (`defer-to-oracle <verdict>`, one probe
+# instant serving the gate and the consumer) — a false-idle pane never
+# reaches the pane heuristics while the oracle is available; a defer frame
+# resets the two-frame debounce state so nothing confirms instantly across a
+# defer era; only an unavailable oracle or an absent worker lets the pane
+# heuristics run (pane-scrape demoted to fallback-only); the gate order is
+# push, then oracle, then heuristics; and without `--cwd` the oracle is never
+# consulted (backward-compatible). An empty, relative, hostile, or
+# over-length `--cwd` is refused (exit 2).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-pane-detect.sh
@@ -490,14 +494,38 @@ mkdir -p "$od_state"
 res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
   --backend subagent --worker w-od --state-dir "$od_state" --cwd /wt/fi) \
   || fail "oracle-defer: detector exited non-zero on frame 1"
-[ "$res" = defer-to-oracle ] \
-  || fail "oracle-defer: frame 1 should defer-to-oracle (false idle corrected), got '$res'"
+[ "$res" = "defer-to-oracle busy" ] \
+  || fail "oracle-defer: frame 1 should defer carrying the verdict (false idle corrected), got '$res'"
 res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
   --backend subagent --worker w-od --state-dir "$od_state" --cwd /wt/fi) \
   || fail "oracle-defer: detector exited non-zero on frame 2"
-[ "$res" = defer-to-oracle ] \
-  || fail "oracle-defer: frame 2 should still defer-to-oracle (gate precedes debounce), got '$res'"
-echo "ok: an available oracle defers the detector — the pane false-idle never surfaces"
+[ "$res" = "defer-to-oracle busy" ] \
+  || fail "oracle-defer: frame 2 should still defer with the verdict (gate precedes debounce), got '$res'"
+echo "ok: an available oracle defers the detector with its verdict — the pane false-idle never surfaces"
+
+# Deferring resets the debounce state: heuristic frames recorded BEFORE a
+# defer era must not instantly confirm once the oracle drops away — the first
+# post-defer fallback frame restarts the two-frame floor (pending).
+o_fail_early="$o_dir/fail-early"
+printf '#!/bin/sh\nexit 1\n' >"$o_fail_early"
+chmod +x "$o_fail_early"
+"$o_fail_early" agents --json >/dev/null 2>&1 || true # pre-warm
+rs_state="$tmp/state-oracle-reset"
+mkdir -p "$rs_state"
+r0=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail_early" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-rs --state-dir "$rs_state" --cwd /wt/fi) \
+  || fail "oracle-reset: frame 1 (fallback) exited non-zero"
+[ "$r0" = pending ] || fail "oracle-reset: frame 1 should be pending, got '$r0'"
+r1=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-rs --state-dir "$rs_state" --cwd /wt/fi) \
+  || fail "oracle-reset: defer frame exited non-zero"
+[ "$r1" = "defer-to-oracle busy" ] || fail "oracle-reset: expected a defer frame, got '$r1'"
+r2=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail_early" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-rs --state-dir "$rs_state" --cwd /wt/fi) \
+  || fail "oracle-reset: post-defer fallback frame exited non-zero"
+[ "$r2" = pending ] \
+  || fail "oracle-reset: the first post-defer fallback frame must restart the floor (pending), got '$r2'"
+echo "ok: a defer frame resets the debounce state — no instant confirmation across a defer era"
 
 # A fresh hook push still wins the gate order (defer-to-push precedes the
 # oracle gate: the deterministic push is the primary, the oracle backs it up).
@@ -511,7 +539,19 @@ res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
   || fail "oracle-push-order: detector exited non-zero"
 [ "$res" = defer-to-push ] \
   || fail "oracle-push-order: a fresh push should defer-to-push ahead of the oracle, got '$res'"
-echo "ok: a fresh hook push outranks the oracle gate"
+# and a STALE push falls through the push gate INTO the oracle gate (the full
+# ordering: push, then oracle, then heuristics)
+sp_root="$tmp/root-oracle-stale"
+write_row "$sp_root" w-sp awaiting-input "$((now - 5000))"
+sp_state="$tmp/state-oracle-stale"
+mkdir -p "$sp_state"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend tmux --worker w-sp --root "$sp_root" --now "$now" --reconcile-ttl 300 \
+  --state-dir "$sp_state" --cwd /wt/fi) \
+  || fail "oracle-stale-push: detector exited non-zero"
+[ "$res" = "defer-to-oracle busy" ] \
+  || fail "oracle-stale-push: a stale push should fall through to the oracle gate, got '$res'"
+echo "ok: a fresh hook push outranks the oracle gate; a stale push falls through to it"
 
 # An UNAVAILABLE oracle (probe fails) lets the pane heuristics run — the
 # fallback engages, never a dead stop.
@@ -570,6 +610,15 @@ uc=0
 "$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc2 \
   --state-dir "$tmp/state-mc2" --cwd "$(printf '/wt/bad\tpath')" >/dev/null 2>&1 || uc=$?
 [ "$uc" -eq 2 ] || fail "a --cwd with a tab must be refused (exit 2), got '$uc'"
-echo "ok: malformed --cwd refused"
+uc=0
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc3 \
+  --state-dir "$tmp/state-mc3" --cwd "" >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "an EMPTY --cwd must be refused (exit 2), never silently drop oracle coverage, got '$uc'"
+uc=0
+long_cwd="/$(printf 'a%.0s' $(seq 1 520))"
+"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc4 \
+  --state-dir "$tmp/state-mc4" --cwd "$long_cwd" >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "an over-512-char --cwd must be refused (exit 2), got '$uc'"
+echo "ok: malformed --cwd refused (relative, tab, empty, over-length)"
 
 echo "ok: test-fleet-pane-detect"

@@ -154,10 +154,18 @@
 #    read. A tracked worker ABSENT from oracle output is no evidence at all:
 #    absence is never death (death stays with the positive-evidence liveness
 #    baseline, fleet-death-evidence.sh). Rows are joined by cwd (the worktree
-#    the dispatch controls) or sessionId; a session name is data inside a JSON
-#    string and can never spoof a field (the scanner honors string boundaries
-#    and escapes). `classify` prefers oracle evidence whenever the probe
-#    succeeds — see the classification notes at the classify arm.
+#    the dispatch controls; the query key is resolved to its physical path so
+#    a symlinked prefix like macOS /tmp still matches) or sessionId, exactly
+#    one key per invocation; a session name is data inside a JSON string and
+#    can never spoof a field (the scanner honors string boundaries and
+#    escapes), and a row whose fields carry raw control characters or exotic
+#    escapes is dropped whole rather than normalized into a potential key
+#    collision — such a worker degrades to absent -> fallback. The join is a
+#    same-user namespace: any local session sharing the cwd contributes
+#    evidence (the store itself is same-user-writable, so this adds no new
+#    trust exposure); prefer the sessionId key where the id is known.
+#    `classify` prefers oracle evidence whenever the probe succeeds — see the
+#    classification notes at the classify arm.
 #
 #    MANUAL PROBE PATH (version-sensitive surface, D-4: re-verify against the
 #    running CLI when this integration changes):
@@ -185,20 +193,31 @@
 #       backend: exit 2.
 #   fleet-liveness.sh oracle (--cwd <abs-path> | --session <id>)
 #       Probe the agents-json idle oracle for the session(s) matching the join
-#       key. Prints busy|waiting|idle (exit 0, evidence; busy outranks waiting
-#       outranks idle across rows sharing a key) or absent (exit 3, no
-#       evidence — never death). Exit 1: oracle unavailable (missing binary,
-#       non-zero probe, timeout, or unparseable output) — fall back to the
-#       backend's liveness mechanism. Exit 2: usage / refused input.
+#       key (exactly one key, given once; a cwd key is resolved to its
+#       physical path first). Prints busy|waiting|idle (exit 0, evidence; busy
+#       outranks waiting outranks idle across rows sharing a key) or absent
+#       (exit 3, no evidence — never death). Exit 1: oracle unavailable
+#       (missing binary, non-zero probe, timeout, or unparseable output — the
+#       probe's last stderr line is surfaced sanitized for diagnosis) — fall
+#       back to the backend's liveness mechanism. Exit 2: usage / refused
+#       input.
 #   fleet-liveness.sh classify <worker> <scope> [--now <epoch>]
 #       [--heartbeat <epoch>] [--progress <token>]
 #       [--evidence <class> <args...>]
 #       [--oracle-cwd <abs-path>] [--oracle-session <id>]
 #       Print exactly one of working|idle|hung|awaiting-human|flailing. With
-#       an --oracle-* join key, the agents-json oracle is probed at call time
-#       and its evidence preferred whenever the probe succeeds (D-11).
-#       Exit 4/5: propagated config/install hard-fails from the knob
-#       resolver.
+#       an --oracle-* join key (exactly one, given once), the agents-json
+#       oracle is probed at call time — before the store snapshot, so the
+#       REQ-A1.3 guards read a near-classification-instant row — and its
+#       evidence preferred whenever the probe succeeds (D-11): waiting ->
+#       awaiting-human (also over a hung row: a session observed blocked at a
+#       prompt is the more actionable state), idle -> idle (never over a hung
+#       row, and only when a store row exists — the risk-33 startup default
+#       keeps precedence during the launch window), busy -> proof of life
+#       (never idle, never hung; still subject to the flailing streak, whose
+#       observation rows record the oracle-effective state so a stale idle
+#       row cannot silently reset the streak). Exit 4/5: propagated
+#       config/install hard-fails from the knob resolver.
 #   fleet-liveness.sh crash-record <worker> <scope> [--now <epoch>]
 #       Record one crash; prints `<count> <delay>` or `disabled <count>`
 #       BEFORE the escalation/audit side effects — the counter is durable
@@ -299,7 +318,9 @@ knob() {
 #     a counter update is never dropped under contention and a signal never
 #     leaves the shared lock held.
 HOLD_LOCK=0
-trap 'release_lock' EXIT
+# ORACLE_TMP is set only after the oracle helpers below have been defined, so
+# the guard also protects an early exit that fires this trap before they exist.
+trap 'release_lock; [ -z "${ORACLE_TMP:-}" ] || oracle_cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 acquire_lock() {
@@ -508,6 +529,18 @@ extract_notification_type() {
 # capability probe), never at install time.
 ORACLE_BIN="${PLANWRIGHT_ORACLE_CLAUDE:-claude}"
 
+# The in-flight probe temp-file base, cleaned by the EXIT trap (with the lock
+# release): a signal landing mid-probe must not leak the session dump — every
+# live session's cwd, name, and pid — into TMPDIR.
+ORACLE_TMP=""
+oracle_cleanup() {
+  if [ -n "$ORACLE_TMP" ]; then
+    rm -f "$ORACLE_TMP" "$ORACLE_TMP.err" "$ORACLE_TMP.pid" \
+      "$ORACLE_TMP.done" "$ORACLE_TMP.done.tmp" 2>/dev/null
+    ORACLE_TMP=""
+  fi
+}
+
 # oracle_timeout — the probe's wall-clock bound in seconds.
 # PLANWRIGHT_ORACLE_TIMEOUT overrides the default 10; a malformed or zero
 # value falls back to the default (a zero bound would kill every probe and
@@ -522,62 +555,165 @@ oracle_timeout() {
 }
 
 # valid_oracle_cwd <path> — the cwd join key: absolute, printable (a tab /
-# newline / control char would break the TSV compare), bounded to 512 chars.
+# newline / control char would break the downstream compare), no backslash
+# (a backslash can only appear JSON-escaped in a row, which taints the row —
+# see oracle_scan — so such a key could never match; refusing it makes the
+# no-match explicit), bounded to 512 chars. Mirrored byte-identical in
+# fleet-pane-detect.sh.
 valid_oracle_cwd() {
-  case $1 in
+  voc_v=$1
+  case $voc_v in
     /*) ;;
     *) return 1 ;;
   esac
-  case $1 in
-    *[![:print:]]*) return 1 ;;
+  case $voc_v in
+    *[![:print:]]* | *\\*) return 1 ;;
   esac
-  [ "${#1}" -le 512 ]
+  [ "${#voc_v}" -le 512 ]
 }
 
-# oracle_fetch <out-file> — run `<bin> agents --json` bounded by the
-# wall-clock timeout (a background watchdog kills a hung probe; the classic
-# portable pattern — no GNU timeout on the macOS floor). 0 = output captured;
-# 1 = unavailable (missing binary, non-zero exit, or timeout).
+# normalize_oracle_cwd <path> — resolve the query-side join key to its
+# physical path (cd + pwd -P) so a symlinked prefix (macOS /tmp ->
+# /private/tmp) or a trailing slash still matches the CLI's getcwd-derived
+# row. A path that cannot be entered (a deleted worktree) passes through as
+# given: it can then only produce `absent`, the safe no-evidence answer.
+normalize_oracle_cwd() {
+  noc_p=$(cd "$1" 2>/dev/null && pwd -P) || noc_p=""
+  if [ -n "$noc_p" ]; then
+    printf '%s' "$noc_p"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+# oracle_fetch <out-base> — run `<bin> agents --json` bounded by the
+# wall-clock timeout. Files beside <out-base> (stdout): `.err` (stderr, the
+# unavailable diagnostic), `.pid` (the CLI's pid, written by the supervising
+# subshell), `.done` (completion flag carrying the exit status, written
+# atomically). The supervising subshell OWNS the CLI child and does not exit
+# until the child is reaped, so the recorded pid cannot be recycled while a
+# timeout kill targets it (the pid-reuse hazard of the classic detached
+# watchdog); the parent polls the done flag (kill -0 would read a zombie
+# child as alive) and on timeout escalates TERM -> grace -> KILL, so a
+# TERM-resistant probe cannot wedge the caller past the bound. If even KILL
+# does not release the child (a process stuck in uninterruptible IO), the
+# supervisor is abandoned rather than waited on — an orphan is the lesser
+# evil than an unbounded caller. 0 = output captured; 1 = unavailable
+# (missing binary, non-zero exit, or timeout).
 oracle_fetch() {
   of_out=$1
   command -v "$ORACLE_BIN" >/dev/null 2>&1 || return 1
   of_t=$(oracle_timeout)
-  "$ORACLE_BIN" agents --json >"$of_out" 2>/dev/null &
-  of_pid=$!
-  (sleep "$of_t" && kill "$of_pid") >/dev/null 2>&1 &
-  of_wd=$!
-  of_rc=0
-  wait "$of_pid" || of_rc=$?
-  kill "$of_wd" >/dev/null 2>&1 || true
-  wait "$of_wd" 2>/dev/null || true
-  [ "$of_rc" -eq 0 ]
+  (
+    "$ORACLE_BIN" agents --json >"$of_out" 2>"$of_out.err" &
+    of_c=$!
+    printf '%s' "$of_c" >"$of_out.pid"
+    of_crc=0
+    wait "$of_c" || of_crc=$?
+    printf '%s' "$of_crc" >"$of_out.done.tmp" && mv -f "$of_out.done.tmp" "$of_out.done"
+  ) >/dev/null 2>&1 &
+  of_sub=$!
+  of_waited=0
+  of_limit=$((of_t * 10))
+  while [ ! -e "$of_out.done" ] && [ "$of_waited" -lt "$of_limit" ]; do
+    sleep 0.1
+    of_waited=$((of_waited + 1))
+  done
+  if [ ! -e "$of_out.done" ]; then
+    of_cpid=$(cat "$of_out.pid" 2>/dev/null)
+    case $of_cpid in
+      "" | *[!0-9]*) of_cpid="" ;;
+    esac
+    if [ -n "$of_cpid" ]; then
+      kill "$of_cpid" 2>/dev/null || true
+      of_grace=0
+      while [ ! -e "$of_out.done" ] && [ "$of_grace" -lt 20 ]; do
+        sleep 0.1
+        of_grace=$((of_grace + 1))
+      done
+      if [ ! -e "$of_out.done" ]; then
+        kill -9 "$of_cpid" 2>/dev/null || true
+        of_grace=0
+        while [ ! -e "$of_out.done" ] && [ "$of_grace" -lt 20 ]; do
+          sleep 0.1
+          of_grace=$((of_grace + 1))
+        done
+      fi
+    fi
+    if [ -e "$of_out.done" ]; then
+      wait "$of_sub" 2>/dev/null || true
+    fi
+    # Timed out (killed, or unkillable and abandoned): unavailable either way.
+    return 1
+  fi
+  wait "$of_sub" 2>/dev/null || true
+  of_rc=$(cat "$of_out.done" 2>/dev/null)
+  [ "$of_rc" = 0 ]
 }
 
-# oracle_rows — read the agents-json array on stdin; emit one TSV row per
-# top-level object: cwd, sessionId, status. Exit 1 on malformed input (not an
-# array, unbalanced, or truncated) — the caller treats that as
-# oracle-unavailable, NEVER as an empty fleet.
+# oracle_scan <json-file> — single-pass parse of the agents-json array plus
+# verdict ranking. The join key arrives via ENVIRON (PW_ORACLE_KIND /
+# PW_ORACLE_VAL, exported by oracle_probe) — never `awk -v`, whose escape
+# processing would mangle a value containing a backslash. Prints the ranked
+# verdict (busy outranks waiting outranks idle) across matching untainted
+# rows, or nothing when no matching row carries evidence. Exit 1 on
+# malformed input: not an array, unbalanced or type-mismatched brackets, a
+# raw newline inside a string, trailing content after the top-level `]`
+# (a concatenated second document or a diagnostic suffix must read as
+# unavailable, never contribute rows), or input past the 256 KiB cap.
 #
-# The scanner is escape-aware (no jq, REQ-K1.5): a character-level walk that
-# tracks string state, so a `\"` inside a session name never terminates the
-# string and a name carrying spoofed `"cwd": ...` text stays data — only real
-# keys at object depth assign fields. The char after a backslash is consumed
-# literally (an approximate unescape: exact for \" and \\, harmless for the
-# rest — join keys are plain paths / ids that never need escapes). Values are
-# stripped of any tab/newline before emission so the TSV cannot tear.
-oracle_rows() {
+# The scanner is escape-aware and character-exact (no jq, REQ-K1.5): string
+# state is tracked so a `\"` inside a session name never terminates the
+# string, and a name carrying spoofed `"cwd": ...` text stays data. Strings
+# are accumulated only at object depth (BSD awk concatenation is quadratic;
+# skipping nested-depth strings keeps the pass linear in practice). A row
+# whose depth-2 strings carry a raw control character or any escape other
+# than \" \\ \/ is TAINTED and dropped whole: normalizing such content
+# (stripping, or approximate unescape) would let a crafted session key
+# collide with a legitimate worktree path, so the row contributes nothing
+# instead — a worker in such a path (or a non-ASCII \u-escaped one) degrades
+# to absent -> fallback, the safe no-evidence answer.
+oracle_scan() {
   awk '
-    { buf = buf $0 "\n" }
-    END {
-      n = length(buf)
-      started = 0; ok = 1; depth = 0; instr = 0; esc = 0
-      expect = ""; pk = ""; lk = ""; str = ""
-      cwd = ""; sid = ""; st = ""
-      for (i = 1; i <= n; i++) {
-        c = substr(buf, i, 1)
+    BEGIN {
+      cap = 262144
+      bytes = 0
+      started = 0
+      done = 0
+      ok = 1
+      depth = 0
+      instr = 0
+      cap_str = 0
+      expect = ""
+      pk = ""
+      lk = ""
+      str = ""
+      cwd = ""
+      sid = ""
+      st = ""
+      taint = 0
+      best = 0
+      kind = ENVIRON["PW_ORACLE_KIND"]
+      val = ENVIRON["PW_ORACLE_VAL"]
+    }
+    {
+      if (!ok) next
+      bytes += length($0) + 1
+      if (bytes > cap) { ok = 0; next }
+      if (instr) { ok = 0; next } # a raw newline inside a JSON string
+      n = length($0)
+      i = 1
+      while (ok && i <= n) {
+        c = substr($0, i, 1)
         if (instr) {
-          if (esc) { esc = 0; str = str c; continue }
-          if (c == "\\") { esc = 1; continue }
+          if (c == "\\") {
+            e = substr($0, i + 1, 1)
+            if (e == "\"" || e == "\\" || e == "/") {
+              if (cap_str) str = str e
+            } else if (depth == 2) taint = 1
+            i += 2
+            continue
+          }
           if (c == "\"") {
             instr = 0
             if (depth == 2) {
@@ -588,84 +724,114 @@ oracle_rows() {
                 expect = ""
               } else pk = str
             }
+            i++
             continue
           }
-          str = str c
+          if (c < " ") { if (depth == 2) taint = 1 }
+          else if (cap_str) str = str c
+          i++
           continue
         }
-        if (c == "\"") { instr = 1; str = ""; continue }
-        if (c == " " || c == "\t" || c == "\n" || c == "\r") continue
+        if (c == " " || c == "\t" || c == "\r") { i++; continue }
+        if (done) { ok = 0; break } # trailing content after the top-level ]
+        if (c == "\"") {
+          instr = 1
+          str = ""
+          cap_str = (depth == 2)
+          i++
+          continue
+        }
         if (!started) {
-          if (c == "[") { started = 1; depth = 1; continue }
-          ok = 0; break
+          if (c == "[") { started = 1; depth = 1; types[1] = "a" } else ok = 0
+          i++
+          continue
         }
         if (c == "{") {
           depth++
-          if (depth == 2) { cwd = ""; sid = ""; st = ""; expect = ""; pk = ""; lk = "" }
-          else if (expect == "value") expect = ""
+          types[depth] = "o"
+          if (depth == 2) {
+            cwd = ""; sid = ""; st = ""; taint = 0
+            expect = ""; pk = ""; lk = ""
+          } else if (expect == "value") expect = ""
+          i++
           continue
         }
         if (c == "}") {
-          if (depth == 2) {
-            gsub(/[\t\n\r]/, "", cwd); gsub(/[\t\n\r]/, "", sid); gsub(/[\t\n\r]/, "", st)
-            printf "%s\t%s\t%s\n", cwd, sid, st
+          if (depth < 1 || types[depth] != "o") { ok = 0; break }
+          if (depth == 2 && !taint) {
+            if (kind == "cwd") m = ((cwd "") == (val ""))
+            else m = ((sid "") == (val ""))
+            if (m) {
+              if (st == "busy" && best < 3) best = 3
+              else if (st == "waiting" && best < 2) best = 2
+              else if (st == "idle" && best < 1) best = 1
+            }
           }
           depth--
-          if (depth < 1) { ok = 0; break }
+          i++
           continue
         }
         if (c == "[") {
           depth++
+          types[depth] = "a"
           if (depth > 2 && expect == "value") expect = ""
+          i++
           continue
         }
-        if (c == "]") { depth--; if (depth < 0) { ok = 0; break }; continue }
-        if (c == ":") { if (depth == 2) { lk = pk; expect = "value" }; continue }
-        if (c == ",") continue
-        # a bare scalar (number / true / false / null): consumes a pending value
+        if (c == "]") {
+          if (depth < 1 || types[depth] != "a") { ok = 0; break }
+          depth--
+          if (depth == 0) done = 1
+          i++
+          continue
+        }
+        if (c == ":") {
+          if (depth == 2) { lk = pk; expect = "value" }
+          i++
+          continue
+        }
+        if (c == ",") { i++; continue }
+        # a bare scalar (number / true / false / null)
         if (depth == 2 && expect == "value") expect = ""
+        i++
       }
+    }
+    END {
       if (!started || !ok || instr || depth != 0) exit 1
-      exit 0
-    }'
+      if (best == 3) print "busy"
+      else if (best == 2) print "waiting"
+      else if (best == 1) print "idle"
+    }' "$1"
 }
 
 # oracle_probe <kind:cwd|session> <value> — the capability probe plus query.
-# stdout: busy|waiting|idle (exit 0, evidence — busy outranks waiting outranks
-# idle across matching rows; a row with no recognized status contributes
-# nothing, forward-compatibly). Exit 3: no matching evidence (absent — never
-# death). Exit 1: oracle unavailable (fallback engages).
+# stdout: busy|waiting|idle (exit 0, evidence — busy outranks waiting
+# outranks idle across matching rows; a row with an unrecognized or absent
+# status contributes nothing, forward-compatibly). Exit 3: no matching
+# evidence (absent — never death). Exit 1: oracle unavailable (fallback
+# engages), with the probe's last stderr line surfaced sanitized so a
+# persistent misconfiguration (auth failure, an old CLI without `agents`)
+# is diagnosable.
 oracle_probe() {
   op_kind=$1
   op_val=$2
   op_out=$(mktemp "${TMPDIR:-/tmp}/planwright-oracle.XXXXXX") || return 1
+  ORACLE_TMP="$op_out"
   if ! oracle_fetch "$op_out"; then
-    rm -f "$op_out"
+    op_diag=$(tail -n 1 "$op_out.err" 2>/dev/null)
+    [ -z "$op_diag" ] \
+      || echo "fleet-liveness: oracle probe diagnostic: $(sanitize_printable "$op_diag" "(unprintable diagnostic)")" >&2
+    oracle_cleanup
     return 1
   fi
-  # Bound the parse input (a pathological payload cannot wedge the scanner);
-  # a capped-off tail parses unbalanced and correctly reads as unavailable.
-  op_tsv=$(head -c 262144 "$op_out" | oracle_rows) || {
-    rm -f "$op_out"
+  PW_ORACLE_KIND=$op_kind
+  PW_ORACLE_VAL=$op_val
+  export PW_ORACLE_KIND PW_ORACLE_VAL
+  op_best=$(oracle_scan "$op_out") || {
+    oracle_cleanup
     return 1
   }
-  rm -f "$op_out"
-  op_best=$(printf '%s\n' "$op_tsv" | awk -F "$TAB" -v kind="$op_kind" -v val="$op_val" '
-    {
-      if (kind == "cwd") m = (($1 "") == (val ""))
-      else m = (($2 "") == (val ""))
-      if (!m) next
-      if ($3 == "busy") r = 3
-      else if ($3 == "waiting") r = 2
-      else if ($3 == "idle") r = 1
-      else r = 0
-      if (r > best) best = r
-    }
-    END {
-      if (best == 3) print "busy"
-      else if (best == 2) print "waiting"
-      else if (best == 1) print "idle"
-    }')
+  oracle_cleanup
   [ -n "$op_best" ] || return 3
   printf '%s\n' "$op_best"
 }
@@ -975,15 +1141,23 @@ case "$cmd" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --cwd)
+          if [ -n "$o_kind" ]; then
+            echo "fleet-liveness: exactly one join key (--cwd | --session), given once" >&2
+            exit 2
+          fi
           if [ "$#" -lt 2 ] || ! valid_oracle_cwd "$2"; then
-            echo "fleet-liveness: --cwd needs an absolute, printable path (<=512 chars)" >&2
+            echo "fleet-liveness: --cwd needs an absolute, printable, backslash-free path (<=512 chars)" >&2
             exit 2
           fi
           o_kind=cwd
-          o_val=$2
+          o_val=$(normalize_oracle_cwd "$2")
           shift 2
           ;;
         --session)
+          if [ -n "$o_kind" ]; then
+            echo "fleet-liveness: exactly one join key (--cwd | --session), given once" >&2
+            exit 2
+          fi
           if [ "$#" -lt 2 ] || ! valid_field "$2"; then
             echo "fleet-liveness: --session needs a token matching the fleet field grammar" >&2
             exit 2
@@ -1049,15 +1223,23 @@ case "$cmd" in
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --oracle-cwd)
+          if [ -n "$o_kind" ]; then
+            echo "fleet-liveness: exactly one join key (--oracle-cwd | --oracle-session), given once" >&2
+            exit 2
+          fi
           if [ "$#" -lt 2 ] || ! valid_oracle_cwd "$2"; then
-            echo "fleet-liveness: --oracle-cwd needs an absolute, printable path (<=512 chars)" >&2
+            echo "fleet-liveness: --oracle-cwd needs an absolute, printable, backslash-free path (<=512 chars)" >&2
             exit 2
           fi
           o_kind=cwd
-          o_val=$2
+          o_val=$(normalize_oracle_cwd "$2")
           shift 2
           ;;
         --oracle-session)
+          if [ -n "$o_kind" ]; then
+            echo "fleet-liveness: exactly one join key (--oracle-cwd | --oracle-session), given once" >&2
+            exit 2
+          fi
           if [ "$#" -lt 2 ] || ! valid_field "$2"; then
             echo "fleet-liveness: --oracle-session needs a token matching the fleet field grammar" >&2
             exit 2
@@ -1147,50 +1329,16 @@ case "$cmd" in
       echo "fleet-liveness: attention store exists but is unreadable — refusing to classify blind" >&2
       exit 2
     fi
-    row_state=$(store_row_field "$root" "$worker" "$FIELD_STATE")
-    hb="$hb_arg"
-    [ -n "$hb" ] || hb=$(store_row_field "$root" "$worker" "$FIELD_HEARTBEAT")
-    case $hb in *[!0-9]* | 0?*) hb="" ;; esac
-
-    # Record the observation (bounded history, copy-append-rename so a
-    # concurrent reader never sees a torn file).
-    obs_dir="$root/liveness/observations"
-    obs="$obs_dir/$worker.tsv"
-    if ! mkdir -p "$obs_dir" 2>/dev/null; then
-      echo "fleet-liveness: cannot create the observations dir $obs_dir" >&2
-      exit 2
-    fi
-    obs_tmp=$(mktemp "$obs_dir/.obs.XXXXXX") || {
-      echo "fleet-liveness: cannot create a temp file under $obs_dir" >&2
-      exit 2
-    }
-    # The history window must hold at least fleet_flailing_threshold rows or
-    # a threshold above the window silently caps the streak and flailing can
-    # never fire; 50 is the floor (the risk-18 windowing spirit), a larger
-    # threshold widens the window to match.
-    keep_n=49
-    [ "$flail_n" -le 50 ] || keep_n=$((flail_n - 1))
-    ob_rc=0
-    if [ -f "$obs" ]; then
-      tail -n "$keep_n" "$obs" >"$obs_tmp" 2>/dev/null || ob_rc=2
-    fi
-    if [ "$ob_rc" = 0 ]; then
-      printf '%s\t%s\t%s\t%s\n' "$now" "${hb:--}" "$progress" "$row_state" >>"$obs_tmp" || ob_rc=2
-    fi
-    if [ "$ob_rc" = 0 ]; then
-      mv -f "$obs_tmp" "$obs" || ob_rc=2
-    fi
-    if [ "$ob_rc" != 0 ]; then
-      rm -f "$obs_tmp" 2>/dev/null
-      echo "fleet-liveness: failed to record the observation" >&2
-      exit 2
-    fi
-
     # The agents-json idle oracle (D-11 / REQ-F1.1): with a join key, probe at
     # call time and PREFER oracle evidence whenever the probe succeeds. An
     # absent worker (exit 3) contributes no evidence — absence is never death;
     # an unavailable oracle (exit 1) warns and the store/heuristic path below
-    # runs unchanged (the graceful fallback).
+    # runs unchanged (the graceful fallback). The probe runs BEFORE the store
+    # snapshot: it is the long pole (seconds of wall clock), and reading the
+    # row afterwards keeps the REQ-A1.3 guards below anchored to a
+    # near-classification-instant store state instead of one up to a probe
+    # timeout stale — a decide or StopFailure push landing during the probe is
+    # honored, not masked.
     o_verdict=""
     o_alive=0
     if [ -n "$o_kind" ]; then
@@ -1204,6 +1352,65 @@ case "$cmd" in
           echo "fleet-liveness: agents-json oracle unavailable — falling back to store/heuristic evidence (REQ-F1.1)" >&2
           ;;
       esac
+    fi
+
+    row_state=$(store_row_field "$root" "$worker" "$FIELD_STATE")
+    hb="$hb_arg"
+    [ -n "$hb" ] || hb=$(store_row_field "$root" "$worker" "$FIELD_HEARTBEAT")
+    case $hb in *[!0-9]* | 0?*) hb="" ;; esac
+
+    # The observation's row-state field records the EFFECTIVE state: with
+    # oracle busy on a non-awaiting row, the worker is observed mid-turn, so
+    # progress is expected and the row must count toward the flailing streak
+    # — recording a stale idle/ended row-state there would silently reset the
+    # streak on every observation and oracle busy could mask a stuck worker
+    # forever (the streak filter counts only working/startup rows).
+    obs_state="$row_state"
+    if [ "$o_verdict" = busy ] && [ "$row_state" != awaiting-input ]; then
+      obs_state=working
+    fi
+
+    # Record the observation (bounded history, copy-append-rename so a
+    # concurrent reader never sees a torn file). A same-second duplicate
+    # (identical `now` to the last recorded row — a caller retrying a
+    # transiently failed classify) is not re-appended: rapid retries must not
+    # inflate the flailing streak.
+    obs_dir="$root/liveness/observations"
+    obs="$obs_dir/$worker.tsv"
+    if ! mkdir -p "$obs_dir" 2>/dev/null; then
+      echo "fleet-liveness: cannot create the observations dir $obs_dir" >&2
+      exit 2
+    fi
+    obs_last_ts=""
+    if [ -f "$obs" ]; then
+      obs_last_ts=$(awk -F "$TAB" 'END { print $1 }' "$obs" 2>/dev/null) || obs_last_ts=""
+    fi
+    if [ "$obs_last_ts" != "$now" ]; then
+      obs_tmp=$(mktemp "$obs_dir/.obs.XXXXXX") || {
+        echo "fleet-liveness: cannot create a temp file under $obs_dir" >&2
+        exit 2
+      }
+      # The history window must hold at least fleet_flailing_threshold rows or
+      # a threshold above the window silently caps the streak and flailing can
+      # never fire; 50 is the floor (the risk-18 windowing spirit), a larger
+      # threshold widens the window to match.
+      keep_n=49
+      [ "$flail_n" -le 50 ] || keep_n=$((flail_n - 1))
+      ob_rc=0
+      if [ -f "$obs" ]; then
+        tail -n "$keep_n" "$obs" >"$obs_tmp" 2>/dev/null || ob_rc=2
+      fi
+      if [ "$ob_rc" = 0 ]; then
+        printf '%s\t%s\t%s\t%s\n' "$now" "${hb:--}" "$progress" "$obs_state" >>"$obs_tmp" || ob_rc=2
+      fi
+      if [ "$ob_rc" = 0 ]; then
+        mv -f "$obs_tmp" "$obs" || ob_rc=2
+      fi
+      if [ "$ob_rc" != 0 ]; then
+        rm -f "$obs_tmp" 2>/dev/null
+        echo "fleet-liveness: failed to record the observation" >&2
+        exit 2
+      fi
     fi
 
     cls=""
@@ -1221,15 +1428,26 @@ case "$cmd" in
     #     turn died on an API error, and a session sitting at its prompt is
     #     consistent with that — the human-attention claim stands until a
     #     later push or the reconcile clears it.
-    # Everything else yields: waiting corrects a missed permission push, idle
-    # corrects a missed Stop push, and busy corrects the recorded false-idle
-    # class (a stale idle/ended row, or a stale heartbeat about to read hung)
-    # by falling through to the evidence logic as positive proof of life —
+    # Everything else yields: waiting corrects a missed permission push (and
+    # outranks a hung row — a session observed blocked at a prompt is a
+    # queued human decision, the more actionable state), idle corrects a
+    # missed Stop push, and busy corrects the recorded false-idle class (a
+    # stale idle/ended/hung row, or a stale heartbeat about to read hung) by
+    # falling through to the evidence logic as positive proof of life —
     # still subject to the flailing streak, which oracle busy must not mask.
+    # Oracle idle additionally requires a store row to exist: a
+    # just-dispatched worker's session sits at its prompt for a moment before
+    # the brief is submitted, and reading that instant as idle would invite a
+    # premature reap during the launch window (the risk-33 startup default
+    # keeps precedence until the first push lands).
     if [ "$row_state" != awaiting-input ] && [ -n "$o_verdict" ]; then
       case "$o_verdict" in
         waiting) cls=awaiting-human ;;
-        idle) [ "$cls" = hung ] || cls=idle ;;
+        idle)
+          if [ "$cls" != hung ] && [ -n "$row_state" ]; then
+            cls=idle
+          fi
+          ;;
         busy)
           cls=""
           o_alive=1
@@ -1551,7 +1769,7 @@ case "$cmd" in
     ;;
 
   *)
-    echo "fleet-liveness: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (hook|push-capable|classify|crash-record|crash-check|crash-reset)" >&2
+    echo "fleet-liveness: unknown command '$(sanitize_printable "$cmd" "(unprintable command)")' (hook|push-capable|oracle|classify|crash-record|crash-check|crash-reset)" >&2
     exit 2
     ;;
 esac
