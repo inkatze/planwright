@@ -624,10 +624,13 @@ oracle_fetch() {
   (
     "$ORACLE_BIN" agents --json >"$of_out" 2>"$of_out.err" &
     of_c=$!
-    # On TERM: forward to the child, reap it, and exit WITHOUT publishing
-    # done — the parent only TERMs us on the timeout path, where the result
-    # is discarded as unavailable anyway.
-    trap 'kill "$of_c" 2>/dev/null; wait "$of_c" 2>/dev/null; exit 143' TERM
+    # On TERM: forward to the child, reap it, and PUBLISH the done flag (a
+    # non-zero status, behind the same .pid cleanup gate as the normal
+    # publish). The flag is not only the result carrier — it is the parent
+    # ladder's child-is-dead stop signal: without it, a TERM-compliant
+    # timeout would burn the full grace ladder and fire the KILL escalation
+    # at a pid this reap already freed.
+    trap 'kill "$of_c" 2>/dev/null; wait "$of_c" 2>/dev/null; if [ -e "$of_out.pid" ]; then printf 143 >"$of_out.done.tmp" && mv -f "$of_out.done.tmp" "$of_out.done"; fi; exit 143' TERM
     printf '%s' "$of_c" >"$of_out.pid.tmp" && mv -f "$of_out.pid.tmp" "$of_out.pid"
     of_crc=0
     wait "$of_c" || of_crc=$?
@@ -669,9 +672,13 @@ oracle_fetch() {
         of_grace=$((of_grace + 1))
       done
     fi
-    # Timed out. Do NOT wait for the supervisor here: with an unkillable
-    # child it would block unboundedly (the abandon case above); when it did
-    # exit, it stays a zombie only until this short-lived script exits.
+    # Timed out. Reap the supervisor only when the done flag proves it
+    # finished (a TERM-compliant path publishes it from the trap); with an
+    # unkillable child the supervisor may block unboundedly, so it is
+    # abandoned — a zombie only until this short-lived script exits.
+    if [ -e "$of_out.done" ]; then
+      wait "$of_sub" 2>/dev/null || true
+    fi
     return 1
   fi
   wait "$of_sub" 2>/dev/null || true

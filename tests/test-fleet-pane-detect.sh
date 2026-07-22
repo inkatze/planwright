@@ -555,6 +555,33 @@ pf=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
   || fail "push-reset: the first post-defer fallback frame must restart the floor (pending), got '$pf'"
 echo "ok: a defer frame (oracle or push) resets the debounce state — no instant confirmation across a defer era"
 
+# An uncreatable debounce-state dir blocks only the heuristic path: a frame
+# whose correct answer is defer-to-push (state-free) still answers, while a
+# heuristic frame fails closed as before. Skipped under root (chmod 000 is
+# not enforced for root, the repo convention).
+if [ "$(id -u)" -ne 0 ]; then
+  ro_root="$tmp/root-ro-state"
+  write_row "$ro_root" w-ro awaiting-input "$now"
+  ro_state_parent="$tmp/ro-parent"
+  mkdir -p "$ro_state_parent"
+  chmod 555 "$ro_state_parent"
+  res=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-ro \
+    --root "$ro_root" --now "$now" --reconcile-ttl 300 \
+    --state-dir "$ro_state_parent/state" 2>/dev/null) \
+    || fail "ro-state: a fresh push must still defer with an uncreatable state dir"
+  [ "$res" = defer-to-push ] \
+    || fail "ro-state: expected defer-to-push despite the uncreatable state dir, got '$res'"
+  uc=0
+  "$FPD" classify --pane "$idle_pane" --backend subagent --worker w-ro2 \
+    --state-dir "$ro_state_parent/state" >/dev/null 2>&1 || uc=$?
+  [ "$uc" -eq 2 ] \
+    || fail "ro-state: the heuristic path must still fail closed (exit 2) with no state dir, got '$uc'"
+  chmod 755 "$ro_state_parent"
+  echo "ok: an uncreatable state dir costs only the heuristic path — defer answers still land"
+else
+  echo "skip: uncreatable-state-dir test (running as root bypasses chmod)"
+fi
+
 # A fresh hook push still wins the gate order (defer-to-push precedes the
 # oracle gate: the deterministic push is the primary, the oracle backs it up).
 op_root="$tmp/root-oracle-push"

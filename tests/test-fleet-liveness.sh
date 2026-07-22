@@ -1255,6 +1255,22 @@ env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
 t1=$(date +%s)
 [ "$rc" = 1 ] || fail "oracle TERM-resistant: exit $rc, expected 1 (unavailable)"
 [ $((t1 - t0)) -lt 15 ] || fail "oracle TERM-resistant: took $((t1 - t0))s, expected KILL escalation to bound it"
+# the TERM-COMPLIANT timeout path resolves promptly: the supervisor's trap
+# publishes the done flag after reaping, so the parent skips the KILL grace
+# ladder entirely (the broken shape burned ~timeout+4s and fired a stale
+# kill -9 at a freed pid; with a 2s timeout the ladder floor is >=6s, so the
+# <6s bound discriminates while leaving ~3.5s of load margin)
+t0=$(date +%s)
+rc=0
+env PLANWRIGHT_ORACLE_TIMEOUT=2 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
+  PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
+  PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
+  PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
+  /bin/sh "$FL" oracle --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
+t1=$(date +%s)
+[ "$rc" = 1 ] || fail "oracle TERM-compliant timeout: exit $rc, expected 1 (unavailable)"
+[ $((t1 - t0)) -lt 6 ] \
+  || fail "oracle TERM-compliant timeout: took $((t1 - t0))s, expected the done-flag publish to skip the KILL grace ladder"
 # a malformed / zero timeout override falls back to the default, never a
 # kill-everything zero bound
 printf '[\n {"pid": 100, "cwd": "/wt/alpha", "kind": "interactive", "sessionId": "aaaa-1111", "name": "a", "status": "busy"}\n]\n' >"$ofix"

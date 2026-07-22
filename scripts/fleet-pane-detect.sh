@@ -469,10 +469,15 @@ if [ -z "$state_dir" ]; then
     state_dir="${TMPDIR:-/tmp}/fleet-pane-detect"
   fi
 fi
-mkdir -p "$state_dir" 2>/dev/null || {
-  echo "fleet-pane-detect: cannot create the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
-  exit 2
-}
+# An uncreatable state dir blocks only the pane-heuristic path (which needs
+# the debounce file): the defer gates are state-free answers and must still
+# be reachable — turning a frame whose correct answer is defer-to-push into
+# a hard failure would be classification loss for nothing. The heuristic
+# path fails closed on it further below.
+state_ok=1
+if ! mkdir -p "$state_dir" 2>/dev/null; then
+  state_ok=0
+fi
 # Key the state file by scope+worker. A readable sanitized prefix aids
 # debugging, but sanitizing alone collides (slash-style handles like
 # `spec/task-3` fold `/` to `_`, and a literal `__` in either component is
@@ -488,8 +493,10 @@ state_file="$state_dir/$key"
 # so a stale pre-defer frame pair must not instantly confirm (or resurface)
 # a classification the moment the defer era ends: drop the state so the
 # first fallback frame starts the two-frame floor afresh. A failed removal
-# is warned — the stale pair the reset exists to purge would survive.
+# is warned — the stale pair the reset exists to purge would survive. With
+# no state dir at all there is nothing to reset.
 reset_debounce_state() {
+  [ "$state_ok" = 1 ] || return 0
   if [ -e "$state_file" ] && ! rm -f "$state_file" 2>/dev/null; then
     echo "fleet-pane-detect: could not reset the debounce state $(sanitize_printable "$state_file" "(unprintable path)") — a stale frame pair may confirm early" >&2
   fi
@@ -551,6 +558,14 @@ if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
       echo "fleet-pane-detect: unexpected oracle helper exit $o_rc; falling back to the pane heuristics" >&2
       ;;
   esac
+fi
+
+# The pane-heuristic path from here on needs the debounce state dir; only
+# now does its absence fail closed (the defer gates above answered without
+# it whenever they could).
+if [ "$state_ok" != 1 ]; then
+  echo "fleet-pane-detect: cannot create the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  exit 2
 fi
 
 # --- Footer-region extraction (bounded; scrollback excluded) ----------------
