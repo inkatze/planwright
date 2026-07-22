@@ -311,3 +311,20 @@ Lens-pass: §8 lens review pass above (canonical table, fan-out, dispositions 1�
 log, Task 4 backlog)
 Anchor: `5a8ab7fef8c1961490c4bfc19a86d84312c678b4` — computed as
 `scripts/spec-anchor.sh specs/execution-backends`
+
+## Amendment log
+
+### Re-anchor 1 — panel-review clarifications (2026-07-22)
+
+Four expression-only wording clarifications from the `/panel-review --nested` gemini pass,
+operator-approved as a cluster (apply all): REQ-E1.5 failed-resume halt scoped to the affected
+unit; D-8 late-answer race stated benign; test-spec REQ-E1.4 visible-failure pinned to an
+attention-store item; REQ-F1.1 pane-scrape fallback scoped to pane-hosted workers. Cites the
+requirements.md Changelog entry dated 2026-07-22 ("Post-sign-off panel-review
+clarifications"). Two panel findings declined: the unattended Awaiting-input halt is the
+designed attention surface, not a deadlock; the dashboard exposure constraint already exists
+in REQ-D1.2/Task 8.
+
+Class: expression-only
+Anchor: `2ec5d07b8269ea9dfa8741f15d23e4e0d8211cce` — computed as
+`scripts/spec-anchor.sh specs/execution-backends`

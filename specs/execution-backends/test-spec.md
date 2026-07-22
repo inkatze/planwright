@@ -196,7 +196,8 @@ end-to-end resume probe against the running CLI version, documented in the task'
 
 Supervisor shim fixture: an operator answer recorded on a queue item is delivered as the
 control_response to the pending request; an undeliverable answer (dead channel, request gone
-after recovery) surfaces a visible failure, never a silent drop or a silent re-application.
+after recovery) surfaces a visible failure (an attention-store item naming the undeliverable
+answer, asserted by the fixture), never a silent drop or a silent re-application.
 
 ### REQ-E1.5 — crash-window invariants [test]
 

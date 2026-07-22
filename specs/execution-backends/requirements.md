@@ -184,7 +184,8 @@ and gives non-tmux operators a backend-agnostic worker status view.
   windows: receipt state SHALL be durable, pending-age alarms SHALL be re-armed on recovery,
   duplicate delivery SHALL be deduplicated on request identity for both control_request types,
   recovery SHALL have a single initiator that checks the orphaned worker's liveness before
-  `--resume`, and a failed `--resume` SHALL surface as a halt, never a silent loss.
+  `--resume`, and a failed `--resume` SHALL surface as a halt of the affected unit (Awaiting
+  input naming the failure — the tower and other workers continue), never a silent loss.
   *(Cites: D-5, kickoff lens pass (2026-07-22).)*
 
 ## REQ-F — Idle oracle
@@ -193,7 +194,9 @@ and gives non-tmux operators a backend-agnostic worker status view.
   busy/blocked oracle when available, demoting pane-scrape heuristics to fallback-only. A probe
   that exits non-zero, hangs past its bounded timeout, or returns unparseable output SHALL be
   treated as oracle-unavailable (fallback engages), never as an empty fleet; absence of a
-  tracked worker from oracle output is not positive evidence of death.
+  tracked worker from oracle output is not positive evidence of death. Pane-scrape fallback
+  applies only to pane-hosted (tmux) workers; workers on other backends fall back to their
+  backend's advertised liveness mechanism.
   *(Cites: D-11, obs:3414579b, kickoff lens pass (2026-07-22).)*
 
 ## Changelog
@@ -225,6 +228,10 @@ and gives non-tmux operators a backend-agnostic worker status view.
   (REQ-F1.1); citation and wording corrections (D-1 quote scope, knob provenance,
   orchestration-fleet REQ-B1.5 attribution, Task 2 citations gain D-5, test-spec guard-wording
   honesty, REQ-A1.4 tag, GATE-token defused in the promotion note, worktree-gap obs UIDs).
+- 2026-07-22 — Post-sign-off panel-review clarifications (expression-only, gemini panel pass,
+  operator-approved): REQ-E1.5 failed-resume halt scoped to the affected unit; D-8 late-answer
+  race stated benign; test-spec REQ-E1.4 visible-failure pinned to an attention-store item;
+  REQ-F1.1 pane-scrape fallback scoped to pane-hosted workers.
 
 ## Sources
 

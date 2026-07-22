@@ -144,7 +144,9 @@ orchestration-fleet REQ-B1.4's attended present-and-ask). The one attended ask i
 tmux-context ask: when the tower detects it is itself running inside a tmux session (for
 example `$TMUX` set), it asks whether tmux joins the candidate set — once per tower session (a
 `--watch` loop is one run), non-blocking (an unanswered ask resolves unattended immediately; a
-later answer applies from the next dispatch onward), the answer persisted in the spec-local
+later answer applies from the next dispatch onward — the ask surfaces as a standard attention
+item, and the race between a late answer-write and a concurrent dispatch-read is benign, since
+either arm resolves safely), the answer persisted in the spec-local
 runtime dir (the orchestration-fleet REQ-B1.6 precedent) so stateless steps re-read it instead
 of re-asking; outside tmux context attended resolution behaves exactly as unattended. An
 explicit configured value always wins; an explicitly configured backend not advertised on the
