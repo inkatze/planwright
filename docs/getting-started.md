@@ -166,6 +166,15 @@ force-push, amend, squash, or rebase (new commits only); all framework-created
 PRs are drafts.
 These are constraints, not future capabilities.
 
+In the planwright repo itself the history invariants are additionally
+enforced repo-side by tracked git hooks (`githooks/`, wired once per clone
+via `scripts/wire-githooks.sh`; `mise run check` fails loudly on an unwired
+clone). The hooks bind humans too — `--no-verify` is the deliberate,
+human-only escape hatch for the commit and push hooks (`pre-rebase` has no
+`--no-verify`; a deliberate rebase means temporarily unsetting
+`core.hooksPath`). See
+[CONTRIBUTING](CONTRIBUTING.md#the-git-hook-backstop) for the details.
+
 ## 4. Supplying your own tooling and rigor (without editing core)
 
 planwright core ships **general** doctrine and skills. Your project carries its

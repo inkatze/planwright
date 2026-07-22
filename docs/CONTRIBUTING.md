@@ -67,10 +67,33 @@ mise run check      # the full local equivalent of the CI gate
 markdownlint, yamllint, the plugin-manifest validation, the doctrine
 link-check, conventional-commit lint, the options-reference drift check, the
 ledger structural-corruption + duplicate-Status guard over `tasks.md`
-snapshots, the spec validator over `specs/`, and a secret scan. GitHub Actions
+snapshots, the spec validator over `specs/`, the hook-backstop wiring check,
+and a secret scan. GitHub Actions
 runs the same
 gate on every pull request. This is dev tooling only — planwright's **runtime**
 scripts stay plain portable bash with no mise dependency.
+
+### The git hook backstop
+
+The hard history invariants (never push `main`, never amend, squash, fixup,
+or rebase) are enforced repo-side by the tracked hooks in
+[`githooks/`](../githooks/). Wire them once per clone:
+
+```bash
+scripts/wire-githooks.sh   # sets core.hooksPath=githooks for the whole clone
+```
+
+`core.hooksPath` is clone-global: one wiring covers every worktree of the
+clone, and the hooks no-op cleanly on a checkout whose branch predates them.
+`mise run check` includes `check:githooks`, which fails loudly on an unwired
+or half-wired clone but never wires anything itself; CI wires explicitly and
+then verifies. The hooks bind humans too, not just agent sessions.
+`--no-verify` is the deliberate, human-only escape hatch for the commit and
+push hooks; git offers no `--no-verify` for `pre-rebase`, so a deliberate
+local rebase (rare, and never on planwright branches) requires temporarily
+unsetting `core.hooksPath`. One caution inherited from tracked hooks: on an
+untrusted fork checkout, unset `core.hooksPath` before running covered git
+commands, since the checkout's own hook files would execute locally.
 
 ### Commit and PR conventions
 

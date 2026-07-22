@@ -1,0 +1,28 @@
+#!/bin/sh
+# planwright prepare-commit-msg backstop (guard-coverage Task 2; D-2;
+# REQ-A1.2): abort the detectable amend signature — source argument `commit`
+# with a HEAD-equal SHA (`git commit --amend`, and the rare, benign-to-block
+# `-c HEAD`/`-C HEAD` message-reuse forms). This is an accident-catcher, not
+# a clean signal: git gives client hooks no reliable amend flag, and
+# `--amend -m`/`-F` arrives as source `message` and slips past — that family
+# is covered at the deny-glob layer (REQ-A1.1), a boundary D-2 states
+# honestly. Bypass: --no-verify (the human's deliberate escape hatch).
+#
+# args: $1 = commit-message file, $2 = source, $3 = commit SHA (source-dependent).
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+[ "${2:-}" = "commit" ] || exit 0
+[ -n "${3:-}" ] || exit 0
+# Both SHAs come from git itself; an unresolvable one (or an unborn HEAD,
+# where no amend is possible) simply means no amend signature.
+target=$(git rev-parse --verify --quiet "${3}^{commit}") || exit 0
+head=$(git rev-parse --verify --quiet "HEAD^{commit}") || exit 0
+if [ "$target" = "$head" ]; then
+  echo "planwright githooks: prepare-commit-msg: refusing amend/HEAD-message-reuse" \
+    "commit (append-only history, never-amend invariant; make a new commit instead)" >&2
+  exit 1
+fi
+exit 0

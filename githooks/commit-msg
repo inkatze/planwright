@@ -1,0 +1,28 @@
+#!/bin/sh
+# planwright commit-msg backstop (guard-coverage Task 2; D-2; REQ-A1.2):
+# reject squash!/fixup!/amend! subjects — the autosquash markers
+# `git commit --squash/--fixup[=amend:]` generate, in any flag position
+# (the subject prefix is the invariant carrier, so flag order cannot evade
+# it). A missing or unreadable message file fails closed. Task 3 extends
+# this hook with the hashed purged-identifier screen (D-5). Bypass:
+# --no-verify (the human's deliberate escape hatch).
+#
+# args: $1 = commit-message file.
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+if [ $# -lt 1 ] || [ ! -r "${1}" ]; then
+  echo "planwright githooks: commit-msg: no readable message file argument; failing closed" >&2
+  exit 1
+fi
+subject=$(sed -n 1p "$1")
+case $subject in
+  "squash!"* | "fixup!"* | "amend!"*)
+    echo "planwright githooks: commit-msg: refusing '${subject%%!*}!' subject" \
+      "(append-only history, never-squash/fixup/amend invariant)" >&2
+    exit 1
+    ;;
+esac
+exit 0

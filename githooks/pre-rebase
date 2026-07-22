@@ -1,0 +1,14 @@
+#!/bin/sh
+# planwright pre-rebase backstop (guard-coverage Task 2; D-2; REQ-A1.2):
+# rebase is forbidden outright — planwright history is append-only (new
+# commits only; bootstrap REQ-J1.4). Fires for `git rebase` and
+# `git pull --rebase` alike.
+#
+# git offers no --no-verify for pre-rebase: a deliberate local rebase is
+# unblocked by temporarily unsetting core.hooksPath
+# (`git config --unset core.hooksPath`), not by --no-verify.
+set -u
+echo "planwright githooks: pre-rebase: rebase is forbidden (append-only history," \
+  "never-rebase invariant). Deliberate bypass: temporarily unset core.hooksPath;" \
+  "--no-verify does not apply to pre-rebase." >&2
+exit 1
