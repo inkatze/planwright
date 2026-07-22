@@ -45,15 +45,39 @@
 # stdout) on: a missing or unreadable file, NUL-bearing input (REQ-B1.6d,
 # generalizing the drain-gates.sh screen — awk truncates records at NUL,
 # which would silently hide definition lines), or a duplicate task id.
+# spec_parse__printable <value> — internal: strip C0 + DEL + C1 bytes
+# (echo-safety.sh's canonical range) for the lib's own stderr diagnostics.
+# The lib cannot source echo-safety.sh itself (a sourced POSIX-sh file
+# cannot portably locate its siblings), so this is a deliberate inline copy
+# of the sanitize_printable byte range, spawned only on error paths.
+spec_parse__printable() {
+  sp_p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
+  [ -n "$sp_p" ] || sp_p='(unprintable path)'
+  printf '%s' "$sp_p"
+}
+
 spec_parse_extract_tasks() {
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then
-    echo "spec-parse: missing or unreadable: $1" >&2
+    printf '%s\n' "spec-parse: missing or unreadable: $(spec_parse__printable "$1")" >&2
     return 1
   fi
   # NUL screen before the parse: a byte-count mismatch after tr -d '\000'
-  # means at least one NUL is present.
-  if [ "$(wc -c <"$1")" -ne "$(LC_ALL=C tr -d '\000' <"$1" | wc -c)" ]; then
-    echo "spec-parse: NUL byte in $1 (malformed input; fail closed)" >&2
+  # means at least one NUL is present. Both counts are captured through
+  # checked assignments and verified non-empty so a failing wc/tr fails the
+  # screen CLOSED — an errored `[ "" -ne "" ]` comparison would otherwise
+  # skip the screen and let awk parse a NUL-truncated stream (REQ-B1.6d).
+  # Known bound: the file is read separately by the screen and by awk, so a
+  # concurrent rewrite between the reads can produce a spurious (fail-closed)
+  # refusal or a screen/parse divergence; no in-repo writer emits NULs, and
+  # locked callers (migrate-format-version.sh) close the window entirely.
+  sp_total=$(wc -c <"$1") || sp_total=
+  sp_kept=$(LC_ALL=C tr -d '\000' <"$1" | wc -c) || sp_kept=
+  if [ -z "$sp_total" ] || [ -z "$sp_kept" ]; then
+    printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse__printable "$1") (fail closed)" >&2
+    return 1
+  fi
+  if [ "$sp_total" -ne "$sp_kept" ]; then
+    printf '%s\n' "spec-parse: NUL byte in $(spec_parse__printable "$1") (malformed input; fail closed)" >&2
     return 1
   fi
   LC_ALL=C awk '

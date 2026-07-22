@@ -93,7 +93,8 @@ Intro prose that is not task-definition content.
 
 ### Task 2 — Second thing
 
-- **Deliverables:** A gadget.
+- **Deliverables:** A gadget, described further on a tab-indented
+	continuation line that must be kept byte-for-byte.
 - **Done when:** The gadget exists.
 - **Dependencies:** 1
 - **Citations:** D-2 · REQ-X1.2
@@ -129,7 +130,8 @@ cat >"$tmp/golden" <<'EOF'
 - **Citations:** D-1 · REQ-X1.1
 - **Estimated effort:** half day
 ### Task 2 — Second thing
-- **Deliverables:** A gadget.
+- **Deliverables:** A gadget, described further on a tab-indented
+	continuation line that must be kept byte-for-byte.
 - **Done when:** The gadget exists.
 - **Dependencies:** 1
 - **Citations:** D-2 · REQ-X1.2
@@ -222,6 +224,60 @@ esac
 echo "ok: NUL-bearing input fails closed (REQ-B1.6d)"
 
 # ---------------------------------------------------------------------------
+# Property 4b2: the NUL screen fails CLOSED when its own tooling fails
+# (REQ-B1.6d). A failing `wc` must not silently skip the screen and let awk
+# parse a NUL-truncated stream with exit 0 — verified by stubbing wc as a
+# shell function (function lookup precedes PATH in the lib's command
+# substitutions, same shell).
+# ---------------------------------------------------------------------------
+if out=$(
+  wc() { return 1; }
+  spec_parse_extract_tasks "$tmp/nul.md" 2>/dev/null
+); then
+  fail "NUL screen fell open when wc failed (REQ-B1.6d fail-closed)"
+fi
+[ -z "$out" ] || fail "NUL-screen tool failure emitted a stream: $out"
+echo "ok: NUL screen fails closed when its tooling fails (REQ-B1.6d)"
+
+# ---------------------------------------------------------------------------
+# Property 4b3: lib stderr diagnostics sanitize the echoed path (REQ-B1.6c).
+# A hostile directory name carrying ESC/BEL bytes must not reach stderr raw
+# (spec-anchor does not capture lib stderr; raw bytes would drive the
+# operator's terminal).
+# ---------------------------------------------------------------------------
+evil_dir="$tmp/$(printf 'evil\033]0;owned\007dir')"
+mkdir "$evil_dir"
+cp "$tmp/nul.md" "$evil_dir/tasks.md"
+if spec_parse_extract_tasks "$evil_dir/tasks.md" >/dev/null 2>"$tmp/esc.err"; then
+  fail "NUL-bearing file in hostile dir did not fail"
+fi
+if LC_ALL=C grep -q "$(printf '\033')" "$tmp/esc.err" \
+  || LC_ALL=C grep -q "$(printf '\007')" "$tmp/esc.err"; then
+  fail "raw ESC/BEL bytes reached stderr through the path echo (REQ-B1.6c): $(od -c "$tmp/esc.err" | head -2)"
+fi
+grep -q "NUL byte" "$tmp/esc.err" || fail "hostile-path NUL failure lacks the NUL message"
+echo "ok: lib stderr sanitizes hostile path bytes (REQ-B1.6c)"
+
+# ---------------------------------------------------------------------------
+# Property 4a2: the duplicate-id diagnostic sanitizes the echoed id
+# (REQ-B1.6c). Two headings whose ids collide numerically, the second
+# carrying an ESC byte inside the id token.
+# ---------------------------------------------------------------------------
+{
+  printf '### Task 2 — First\n\n- **Done when:** a\n\n'
+  printf '### Task 2\033x — Hostile duplicate\n\n- **Done when:** b\n'
+} >"$tmp/dup-esc.md"
+if spec_parse_extract_tasks "$tmp/dup-esc.md" >/dev/null 2>"$tmp/dup-esc.err"; then
+  fail "escape-byte duplicate id did not fail"
+fi
+grep -q "duplicate task id" "$tmp/dup-esc.err" \
+  || fail "escape-byte duplicate lacks the duplicate-id message: $(cat "$tmp/dup-esc.err")"
+if LC_ALL=C grep -q "$(printf '\033')" "$tmp/dup-esc.err"; then
+  fail "raw ESC byte reached stderr through the duplicate-id echo (REQ-B1.6c)"
+fi
+echo "ok: duplicate-id diagnostic sanitizes hostile id bytes (REQ-B1.6c)"
+
+# ---------------------------------------------------------------------------
 # Property 4c: a missing file fails closed with a clear message.
 # ---------------------------------------------------------------------------
 if err=$(spec_parse_extract_tasks "$tmp/no-such-file.md" 2>&1 >/dev/null); then
@@ -290,14 +346,47 @@ grep -q "spec-parse.sh" "$tmp/migrate.err" \
 echo "ok: migrate-format-version.sh fails closed when the lib is missing (REQ-B1.6a)"
 
 # A syntax-erroring lib copy must also refuse (either the guard fires or
-# the sourcing shell aborts — both are fail-closed, non-zero, no anchor).
+# the sourcing shell aborts — both are fail-closed, non-zero, no anchor)
+# and must say *something* on stderr (a silent refusal is undiagnosable).
 mkdir "$tmp/scripts-badlib"
-cp "$scripts_dir/spec-anchor.sh" "$tmp/scripts-badlib/"
+cp "$scripts_dir/spec-anchor.sh" "$scripts_dir/migrate-format-version.sh" \
+  "$scripts_dir/echo-safety.sh" "$scripts_dir/orchestrate-lock.sh" \
+  "$tmp/scripts-badlib/"
 printf '%s\n' 'if then fi (((' >"$tmp/scripts-badlib/spec-parse.sh"
-if out=$(sh "$tmp/scripts-badlib/spec-anchor.sh" "$tmp/spec" 2>/dev/null); then
+if out=$(sh "$tmp/scripts-badlib/spec-anchor.sh" "$tmp/spec" 2>"$tmp/badlib.err"); then
   fail "spec-anchor.sh succeeded with a syntax-erroring lib (fail-open, REQ-B1.6a)"
 fi
 [ -z "$out" ] || fail "spec-anchor.sh emitted output with a syntax-erroring lib: $out"
+[ -s "$tmp/badlib.err" ] || fail "spec-anchor.sh refused the syntax-erroring lib silently"
 echo "ok: spec-anchor.sh fails closed on a syntax-erroring lib (REQ-B1.6a)"
+
+if sh "$tmp/scripts-badlib/migrate-format-version.sh" "$tmp/spec" >/dev/null 2>"$tmp/badlib-m.err"; then
+  fail "migrate-format-version.sh succeeded with a syntax-erroring lib (fail-open, REQ-B1.6a)"
+fi
+[ -s "$tmp/badlib-m.err" ] || fail "migrate-format-version.sh refused the syntax-erroring lib silently"
+echo "ok: migrate-format-version.sh fails closed on a syntax-erroring lib (REQ-B1.6a)"
+
+# An unreadable lib must trip the guards' [ -r ] branch in both consumers
+# (skipped under uid 0: root reads mode-000 files).
+if [ "$(id -u)" -ne 0 ]; then
+  mkdir "$tmp/scripts-noread"
+  cp "$scripts_dir/spec-anchor.sh" "$scripts_dir/migrate-format-version.sh" \
+    "$scripts_dir/echo-safety.sh" "$scripts_dir/orchestrate-lock.sh" \
+    "$scripts_dir/spec-parse.sh" "$tmp/scripts-noread/"
+  chmod 000 "$tmp/scripts-noread/spec-parse.sh"
+  if out=$(sh "$tmp/scripts-noread/spec-anchor.sh" "$tmp/spec" 2>"$tmp/noread.err"); then
+    fail "spec-anchor.sh succeeded with an unreadable lib (fail-open, REQ-B1.6a)"
+  fi
+  [ -z "$out" ] || fail "spec-anchor.sh emitted output with an unreadable lib: $out"
+  grep -q "spec-parse.sh" "$tmp/noread.err" \
+    || fail "spec-anchor.sh unreadable-lib refusal does not name the lib: $(cat "$tmp/noread.err")"
+  if sh "$tmp/scripts-noread/migrate-format-version.sh" "$tmp/spec" >/dev/null 2>"$tmp/noread-m.err"; then
+    fail "migrate-format-version.sh succeeded with an unreadable lib (fail-open, REQ-B1.6a)"
+  fi
+  grep -q "spec-parse.sh" "$tmp/noread-m.err" \
+    || fail "migrate-format-version.sh unreadable-lib refusal does not name the lib: $(cat "$tmp/noread-m.err")"
+  chmod 644 "$tmp/scripts-noread/spec-parse.sh"
+  echo "ok: both consumers fail closed on an unreadable lib (REQ-B1.6a)"
+fi
 
 echo "PASS: test-spec-parse.sh"

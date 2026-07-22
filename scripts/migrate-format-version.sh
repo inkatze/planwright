@@ -99,11 +99,15 @@ lock_sh="$here/orchestrate-lock.sh"
 # spec-parse grammar lib (format-grammar D-3, REQ-B1.2): the migration's
 # self-check hashes this stream before and after the transform and refuses
 # on any difference (REQ-A1.4, REQ-D1.2). Guarded source (REQ-B1.6a): fail
-# closed when the lib is missing, unreadable, or syntax-erroring — a bare
-# `.` continuing fail-open would run the self-check over an empty stream.
+# closed when the lib is missing, unreadable, or syntax-erroring — without
+# the guard a missing lib would surface only mid-sweep, as one confusing
+# command-not-found refusal per bundle instead of a single clear startup
+# failure.
 spec_parse_sh="$here/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  echo "migrate-format-version: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  # printf, not echo: an echo that interprets backslash escapes could turn
+  # printable path bytes into control bytes at output time.
+  printf '%s\n' "migrate-format-version: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh

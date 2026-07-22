@@ -48,6 +48,11 @@ trap 'rm -rf "$tmp"' EXIT
 # independently by tests/test-spec-parse.sh (unit tests) and
 # tests/test-spec-anchor.sh (a hand-written golden manifest), so a lib bug
 # cannot pass both this suite and those silently.
+# Guarded source per the lib's consumer contract (REQ-B1.6a): existence and
+# readability checked before the `.` so a missing lib names itself instead
+# of aborting with the shell's own diagnostic.
+[ -f "$here/../scripts/spec-parse.sh" ] && [ -r "$here/../scripts/spec-parse.sh" ] \
+  || fail "scripts/spec-parse.sh missing or unreadable (the extraction oracle)"
 # shellcheck source=scripts/spec-parse.sh
 . "$here/../scripts/spec-parse.sh" || fail "sourcing scripts/spec-parse.sh failed"
 
@@ -831,6 +836,23 @@ refusal_case non-task-h3 "a non-task H3 heading"
 mkrefusal bad-id
 printf '%s\n' '' '### Task x9 — Bad id' '' '- **Deliverables:** d' >>"$tmp/refuse-bad-id/specs/poisoned/tasks.md"
 refusal_case bad-id "a malformed task id"
+
+# NUL-bearing definition content: restructure_tasks has no NUL screen, so
+# this must be caught by the lib's screen inside the extraction self-check —
+# pinning the `if ! spec_parse_extract_tasks` refuse branch (REQ-B1.6f: an
+# unchecked lib exit would consume a NUL-truncated stream as complete).
+mkrefusal nul-bullet
+nb_f="$tmp/refuse-nul-bullet/specs/poisoned/tasks.md"
+nb_line=$(grep -n -- '- \*\*Deliverables:\*\* Beta output' "$nb_f" | head -1 | cut -d: -f1)
+[ -n "$nb_line" ] || fail "nul-bullet fixture: seeded Deliverables line not found"
+{
+  head -n $((nb_line - 1)) "$nb_f"
+  printf -- '- **Deliverables:** Beta \000 output, NUL-bearing.\n'
+  tail -n +$((nb_line + 1)) "$nb_f"
+} >"$tmp/nb" && mv "$tmp/nb" "$nb_f"
+refusal_case nul-bullet "a NUL byte in tasks.md (lib screen via the self-check)"
+grep -q "canonical extraction failed" "$tmp/refuse-nul-bullet.err" \
+  || fail "NUL refusal did not come from the extraction self-check branch: $(cat "$tmp/refuse-nul-bullet.err")"
 
 mkrefusal placement-prose
 awk '/^## Forward plan$/ { print; print ""; print "Remember the spike work first."; next } { print }' \

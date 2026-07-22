@@ -40,7 +40,9 @@ unset CDPATH 2>/dev/null || true
 here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 spec_parse_sh="$here/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  echo "spec-anchor: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  # printf, not echo: an echo that interprets backslash escapes could turn
+  # printable path bytes into control bytes at output time.
+  printf '%s\n' "spec-anchor: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh
