@@ -120,8 +120,10 @@ render_section() {
   esac
 }
 
-# text_len <s> — portable character count (the length metric the persona-pilot
-# divergence + fade assertions read from the sign-off).
+# text_len <s> — byte length of the rendered text (a stable length proxy for the
+# persona-pilot divergence + fade metrics recorded in the sign-off). Under the
+# pinned C locale bytes == characters, and the text is ASCII, so `wc -c` is exact
+# here; only the ratio between sections matters to the assertions regardless.
 text_len() { printf '%s' "$1" | wc -c | tr -d ' '; }
 
 # ---- calibration: a lightweight running per-run uptake estimate (REQ-B1.4). It
@@ -189,26 +191,42 @@ present_fork() {
   printf 'Kickoff: reply with option-alpha or option-beta.\n'
 }
 
-decision=""
-attempts=0
 max_attempts=3 # the initial ask plus two re-prompts
-while [ "$attempts" -lt "$max_attempts" ]; do
-  next_turn
-  present_fork
-  emit_ready
-  IFS= read -r dec_raw || exit 0
-  attempts=$((attempts + 1))
-  decision="$(parse_decision "$dec_raw")"
-  if [ -n "$decision" ]; then
-    calibration=$((calibration + 1))
-    log_entry "$(jq -cn --argjson turn "$t" --arg a "$dec_raw" --arg d "$decision" --argjson cal "$calibration" \
-      '{turn:$turn, kind:"question", concept:"decision", answer:$a, decision:$d, calibration:$cal}')"
-    break
-  fi
-  # Unparseable: re-prompt, restating what is needed; calibration is UNCHANGED.
-  log_entry "$(jq -cn --argjson turn "$t" --arg a "$dec_raw" --argjson cal "$calibration" \
-    '{turn:$turn, kind:"reprompt", concept:"decision", reason:"unparseable", answer:$a, calibration:$cal}')"
-done
+
+# ask_decision <concept> — run the bounded reprompt loop for the design decision,
+# used by BOTH the initial ask and the reopened re-ask so input robustness is
+# symmetric (REQ-C1.5): unparseable input re-prompts (bounded) without touching
+# calibration, and only a parsed answer advances. On success, logs the question
+# under <concept> and returns the answer in $ASK_DECISION; on budget exhaustion,
+# leaves $ASK_DECISION empty (the caller then records a blocked sign-off).
+ASK_DECISION=""
+ask_decision() {
+  _ad_concept="$1"
+  ASK_DECISION=""
+  _ad_attempts=0
+  while [ "$_ad_attempts" -lt "$max_attempts" ]; do
+    next_turn
+    present_fork
+    emit_ready
+    IFS= read -r _ad_raw || exit 0
+    _ad_attempts=$((_ad_attempts + 1))
+    _ad_parsed="$(parse_decision "$_ad_raw")"
+    if [ -n "$_ad_parsed" ]; then
+      calibration=$((calibration + 1))
+      log_entry "$(jq -cn --argjson turn "$t" --arg a "$_ad_raw" --arg d "$_ad_parsed" --arg concept "$_ad_concept" --argjson cal "$calibration" \
+        '{turn:$turn, kind:"question", concept:$concept, answer:$a, decision:$d, calibration:$cal}')"
+      ASK_DECISION="$_ad_parsed"
+      return 0
+    fi
+    # Unparseable: re-prompt, restating what is needed; calibration is UNCHANGED.
+    log_entry "$(jq -cn --argjson turn "$t" --arg a "$_ad_raw" --arg concept "$_ad_concept" --argjson cal "$calibration" \
+      '{turn:$turn, kind:"reprompt", concept:$concept, reason:"unparseable", answer:$a, calibration:$cal}')"
+  done
+  return 0
+}
+
+ask_decision decision
+decision="$ASK_DECISION"
 
 if [ -z "$decision" ]; then
   # The required decision stayed undefined through the re-prompt budget: the run
@@ -246,13 +264,11 @@ if [ "$level2" != "$level" ]; then
     '{turn:$turn, kind:"reopen", concept:"decision", reason:"upstream-level-changed", from:$from, to:$to, calibration:$cal}')"
   level="$level2"
   depth="$(depth_for "$level")"
-  # Re-ask the dependent decision; the stale answer is discarded.
-  decision=""
-  next_turn
-  present_fork
-  emit_ready
-  IFS= read -r dec2_raw || exit 0
-  decision="$(parse_decision "$dec2_raw")"
+  # Re-ask the dependent decision through the SAME bounded reprompt loop as the
+  # initial ask (symmetric input robustness, REQ-C1.5); the stale answer is
+  # discarded.
+  ask_decision decision-reopened
+  decision="$ASK_DECISION"
   if [ -z "$decision" ]; then
     # Fail-closed on the artifact write, exactly as the initial-blocked and
     # completed paths do: a failed durable write must never surface as a clean
@@ -272,9 +288,6 @@ if [ "$level2" != "$level" ]; then
     printf 'Kickoff: the reopened decision is undefined — holding; not ready to sign off.\n'
     exit 0
   fi
-  calibration=$((calibration + 1))
-  log_entry "$(jq -cn --argjson turn "$t" --arg a "$dec2_raw" --arg d "$decision" --argjson cal "$calibration" \
-    '{turn:$turn, kind:"question", concept:"decision-reopened", answer:$a, decision:$d, calibration:$cal}')"
 else
   log_entry "$(jq -cn --argjson turn "$t" --arg a "$level2_raw" --argjson cal "$calibration" \
     '{turn:$turn, kind:"question", concept:"level-confirm", answer:$a, calibration:$cal}')"

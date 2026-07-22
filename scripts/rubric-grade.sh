@@ -78,7 +78,7 @@ verdict="$(jq -r '
       (($ready | not) or (([.decision_log[]? | select(.kind == "summary")] | length) > 0)),
       (($ready | not) or ($lc | contains("downstream"))),
       (($c | test("[0-9]+ *%")) | not),
-      (($conf | length) == 0) or (([$conf[] | .options[]? | select(.reject == true)] | length) > 0),
+      ($conf | all(([.options[]? | select(.reject == true)] | length) > 0)),
       (([$conf[] | .options[]? | select((.default == true) or (.preselected == true) or (.selected == true))] | length) == 0),
       (verdicts | all(. as $v | ($lc | contains($v)) | not))
     ]

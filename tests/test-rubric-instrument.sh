@@ -153,6 +153,26 @@ rc=$?
 assert_exit "grading a violating run still exits 0 (a verdict, not an error)" 0 "$rc"
 assert_eq "a violating run is graded fail" "fail" "$out"
 
+echo "== rubric-grade: the reject check is per-confirmation, not any-confirmation =="
+# Two confirmations, only the first balanced: a flattened any-reject check would
+# pass; the per-confirmation rule (matching grade.jq) must FAIL it (REQ-E1.2).
+MIXEDCONF="$TMP/mixedconf.json"
+cat >"$MIXEDCONF" <<'JSON'
+{
+  "persona": "novice",
+  "decision_log": [
+    {"turn": 3, "kind": "summary", "text": "downstream effect noted."},
+    {"turn": 4, "kind": "confirmation", "question": "First decision.",
+      "options": [{"label": "record-a", "description": "x"}, {"label": "record-b", "description": "y", "reject": true}]},
+    {"turn": 5, "kind": "confirmation", "question": "Second decision.",
+      "options": [{"label": "record-c", "description": "z"}, {"label": "record-d", "description": "w"}]}
+  ],
+  "sign_off": {"subject": "x", "ready": true, "blocked_on": [], "eval_only": true, "authoritative": false}
+}
+JSON
+out="$(/bin/bash "$GRADE" "$MIXEDCONF" 2>&1)"
+assert_eq "a run whose second confirmation lacks a reject is graded fail" "fail" "$out"
+
 echo "== rubric-grade: unparseable input is unavailable (non-zero -> degrade) =="
 printf 'not json at all' >"$TMP/junk.json"
 /bin/bash "$GRADE" "$TMP/junk.json" >/dev/null 2>&1

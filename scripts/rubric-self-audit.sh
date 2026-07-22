@@ -72,7 +72,7 @@ observations="$(jq -r '
       {label: "CDC Clear Communication Index — natural frequencies, no lone percentage",
        ok: (($c | test("[0-9]+ *%")) | not)},
       {label: "IPDAS balance — explicit equal-weight reject on any presented confirmation",
-       ok: (($conf | length) == 0) or (([$conf[] | .options[]? | select(.reject == true)] | length) > 0)},
+       ok: ($conf | all(([.options[]? | select(.reject == true)] | length) > 0))},
       {label: "IPDAS balance — no pre-selected default",
        ok: (([$conf[] | .options[]? | select((.default == true) or (.preselected == true) or (.selected == true))] | length) == 0)},
       {label: "IPDAS balance — no self-verdict on the spec",

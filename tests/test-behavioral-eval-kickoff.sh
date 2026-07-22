@@ -228,6 +228,16 @@ assert_eq "the sign-off carries the changed upstream level" "expert" "$(jq -r .l
 assert_eq "the sign-off carries the reopened decision, not the stale one" "option-beta" "$(jq -r .decision "$A_REO/sign-off.json")"
 assert_eq "the reopened flag is set" "true" "$(jq -r .reopened "$A_REO/sign-off.json")"
 
+echo "== REQ-C1.5 on the reopened decision: malformed input there ALSO re-prompts =="
+# Input robustness must be symmetric: the reopened decision re-ask uses the same
+# bounded reprompt loop as the initial ask, so garbage during the reopened
+# decision re-prompts and recovers rather than blocking on the first failure.
+A_ROM="$TMP/rom"
+run_skill reopen-malformed "$A_ROM" >/dev/null 2>&1
+assert_gt "a re-prompt fires during the REOPENED decision, not just the initial one" "$(jq -s '[.[] | select(.kind == "reprompt" and .concept == "decision-reopened")] | length' "$A_ROM/decision-log.jsonl")" 0
+assert_eq "the reopened decision recovers to readiness after a valid retry" "true" "$(jq -r .ready "$A_ROM/sign-off.json")"
+assert_eq "the recovered reopened decision carries the valid retry answer" "option-beta" "$(jq -r .decision "$A_ROM/sign-off.json")"
+
 echo "== REQ-C1.5: malformed input re-prompts and does not corrupt calibration =="
 A_MAL="$TMP/mal"
 run_skill malformed "$A_MAL" >/dev/null 2>&1
