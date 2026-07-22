@@ -291,7 +291,7 @@ surface).
 
 The decision *backlog*: open forks are first-class entries, not only decisions
 already taken. After the header block, one H3 block per decision, shaped after
-MADR (Markdown Any Decision Records) (REQ-C1.4):
+MADR (Markdown Architectural Decision Records) (REQ-C1.4):
 
 ```markdown
 ### DEC-<n> — <decision title>
