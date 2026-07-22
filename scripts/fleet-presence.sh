@@ -52,10 +52,14 @@
 #                       from the orthogonal recovery-mode marker store)
 #
 # REPO IDENTITY (REQ-A1.2). Derived from the normalized `origin` remote URL
-# (trailing `/` and `.git` stripped) hashed via `git hash-object`, truncated
-# to 16 hex — identical across separate clones of one repository and never
-# the checkout path (which would split genuine peers). No `origin` remote is
-# the genuine solo posture: exit 5, no surface use.
+# (trailing slashes and one `.git` stripped) hashed via `git hash-object`,
+# truncated to 16 hex — identical across separate clones of one repository
+# and never the checkout path (which would split genuine peers). Documented
+# constraint: clones are assumed to share one origin URL FORM; mixed
+# ssh/https forms of one repo derive different ids and split the peer set
+# (awareness-only, never a safety effect). No `origin` remote is the genuine
+# solo posture: exit 5, no surface use; a non-repository checkout is a
+# refused misconfiguration (exit 2), never solo.
 #
 # TOWER IDENTITY (REQ-A1.7). The session id (UUID) where present, validated
 # against the UUID grammar; else the composite p<pid>.t<start-time-hash>.
@@ -84,31 +88,47 @@
 # and no parking sub-surface for unparseable records here — the only
 # correctness object is the fence ref, which has no schema to skew.
 #
-# Usage:
-#   fleet-presence.sh publish  --checkout <dir> [--pid <pid>]
-#       [--session-id <uuid>] [--specs <csv>] [--fenced <csv>]
-#       [--tmux-session <name> --tmux-window <name>] [--meta]
-#   fleet-presence.sh discover --checkout <dir> [--pid <pid>]
-#       [--session-id <uuid>] [--min-interval <sec>]   (default 30)
-#   fleet-presence.sh owner    --checkout <dir> [identity flags] <spec>/<id>
-#   fleet-presence.sh identity --checkout <dir> [--pid <pid>] [--session-id <uuid>]
+# Usage (every command except `surface` needs an identity: --session-id, or
+# --pid for the composite; publish additionally needs a death handle — the
+# tmux pair, or --pid as the degraded fallback. Publish and discover must be
+# invoked with the SAME identity flags, or the discover identity will not
+# match the published record and self-exclusion fails — the tower would
+# count itself as a peer):
+#   fleet-presence.sh publish  --checkout <dir> (--tmux-session <name>
+#       --tmux-window <name> | --pid <pid>) [--session-id <uuid>]
+#       [--specs <csv>] [--fenced <csv>] [--meta]
+#   fleet-presence.sh discover --checkout <dir> (--session-id <uuid> |
+#       --pid <pid>) [--min-interval <sec>]   (default 30; 0 disables the cap)
+#   fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> |
+#       --pid <pid>) <spec>/<unit-id>
+#   fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
 #   fleet-presence.sh surface  --checkout <dir>
 #
 # discover output (tab-separated):
 #   peer <tower-id> <live|unknown> <checkout> <specs> <fenced> <meta>
-#   peer-unreadable <name> <malformed|schema-skew>
-#   gc <tower-id> | gc-skip <tower-id> | cadence-capped
+#   peer-unreadable <name> <malformed|schema-skew|unreadable>
+#   foreign-record <name> <repo-id>    (wrong-repo record: surfaced, excluded)
+#   gc <tower-id> | gc-skip <tower-id> | gc-fail <tower-id> | cadence-capped
 #   summary peers=<n> sole-tower=<yes|no>     (n counts live + unknown +
 #       unreadable + gc-skip: anything not positively dead argues against
-#       solitude)
+#       solitude; foreign records and gc/gc-fail outcomes do not)
+#
+# owner output: `owner <tower-id>` from LIVE records only, else
+# `unknown-owner` (REQ-C1.3; an unknown-liveness holder surfaces through the
+# Task 4 strand path, and the durable-sink wiring for unclassifiable
+# awareness anomalies (REQ-C1.7) lands with Task 4 — surfaced on stderr
+# here). The querying tower's own record is identity-excluded from the scan,
+# so a tower asking about a fence it itself holds gets `unknown-owner`.
 #
 # Exit codes:
 #   0  success (incl. healthy-empty and cadence-capped)
-#   2  usage / refused hostile input / write failure (fail closed)
-#   3  unknown peer status: vanished or unreadable surface — awareness and
-#      strand-attribution degrade for the step while dispatch proceeds
-#      (D-10; the origin fence, not this surface, is the exclusion floor)
-#   4  security refusal: over-broad surface (verify-or-refuse, REQ-A1.4)
+#   2  usage / refused hostile input / not-a-repository / write failure
+#      (fail closed)
+#   3  unknown peer status: vanished, unreadable, or obstructed surface —
+#      awareness and strand-attribution degrade for the step while dispatch
+#      proceeds (D-10; the origin fence, not this surface, is the floor)
+#   4  security refusal: over-broad, ACL-bearing, mis-owned, or
+#      symlink-tampered surface (verify-or-refuse, REQ-A1.4)
 #   5  no origin remote — the genuine solo posture
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling). All
@@ -125,7 +145,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 . "$script_dir/echo-safety.sh"
 
 usage() {
-  echo "usage: fleet-presence.sh publish|discover|owner|identity|surface --checkout <dir> [--pid <pid>] [--session-id <uuid>] [--specs <csv>] [--fenced <csv>] [--tmux-session <name> --tmux-window <name>] [--meta] [--min-interval <sec>] [<spec>/<unit-id>]" >&2
+  echo "usage: fleet-presence.sh publish|discover|owner|identity|surface --checkout <dir> (--session-id <uuid> | --pid <pid>) [--specs <csv>] [--fenced <csv>] [--tmux-session <name> --tmux-window <name>] [--meta] [--min-interval <sec>] [<spec>/<unit-id>]  (publish needs a death handle: the tmux pair, or --pid)" >&2
 }
 
 err() {
@@ -134,16 +154,22 @@ err() {
 
 # --- grammars (validated BEFORE any path or command use, REQ-D1.5) ---------
 
+# The session-id UUID shape (8-4-4-4-12 hex). The glob pins length 36 and the
+# four dash positions, but `?` also admits `-`; the residue check requires
+# exactly 32 hex characters, so a dash-heavy non-UUID (the documented hole in
+# the sibling marker store's glob-only grammar) is refused.
 is_uuid() {
   [ "${#1}" -eq 36 ] || return 1
   case "$1" in
     ????????-????-????-????-????????????) ;;
     *) return 1 ;;
   esac
-  case "$(printf '%s' "$1" | tr -d '0-9a-fA-F-')" in
-    "") return 0 ;;
-    *) return 1 ;;
+  iu_hex=$(printf '%s' "$1" | tr -d -- '-')
+  [ "${#iu_hex}" -eq 32 ] || return 1
+  case "$iu_hex" in
+    *[!0-9a-fA-F]*) return 1 ;;
   esac
+  return 0
 }
 
 is_pid() {
@@ -397,11 +423,27 @@ fi
 
 # --- repo identity (origin-anchored, REQ-A1.2) -----------------------------
 
+# A non-repository checkout is a misconfiguration (exit 2), never the genuine
+# solo posture: exit 5 is reserved for a real repository with no origin remote
+# (REQ-A1.2), so a typo'd path can never silently authorize solo behavior.
+if ! git -C "$checkout" rev-parse --git-dir >/dev/null 2>&1; then
+  err "refusing checkout: $checkout is not a git repository"
+  exit 2
+fi
 origin_url=$(git -C "$checkout" config --get remote.origin.url 2>/dev/null) || {
   err "no origin remote on $checkout — genuine solo posture; the presence surface is not used (REQ-A1.2)"
   exit 5
 }
-origin_url=${origin_url%/}
+# Minimal, deterministic normalization: strip trailing slashes and one `.git`.
+# Clones of one repository are assumed to share one origin URL FORM (the
+# same-operator norm); mixed ssh/https forms of one repo split the peer set —
+# an awareness-only degradation, documented, never a safety effect.
+while :; do
+  case "$origin_url" in
+    */) origin_url=${origin_url%/} ;;
+    *) break ;;
+  esac
+done
 origin_url=${origin_url%.git}
 repo_id=$(printf '%s' "$origin_url" | git hash-object --stdin 2>/dev/null | cut -c1-16) || repo_id=""
 if ! is_repo_id "$repo_id"; then
@@ -415,6 +457,18 @@ home=$("$script_dir/fleet-state.sh" root) || {
   err "cannot resolve the fleet home (fleet-state.sh root failed)"
   exit 2
 }
+# `fleet-state.sh root` only resolves the path; on a genuinely fresh host no
+# fleet command has materialized it yet, and first-run bootstrap must succeed
+# there (REQ-A1.5). Created 0700 when we create it; an existing home's own
+# mode is fleet-state.sh's concern, not re-litigated here.
+if [ ! -d "$home" ]; then
+  mkdir -p "$home" 2>/dev/null || true
+  chmod 0700 "$home" 2>/dev/null || true
+fi
+if [ ! -d "$home" ]; then
+  err "cannot create the fleet home $home — failing closed; fix its parent's writability and retry"
+  exit 2
+fi
 surface_root="$home/presence"
 host_sentinel="$home/presence.sentinel"
 sentinel_dir="$home/presence.sentinels"
@@ -427,26 +481,51 @@ if [ "$cmd" = surface ]; then
   exit 0
 fi
 
-# check_private <dir> — the 0700 verify-or-refuse gate (REQ-A1.4): any
-# group/other access bit on a coordination directory is a trust-boundary
-# breach — refuse loudly, never chmod-narrow and reuse on a guess.
+# check_private <dir> — the verify-or-refuse gate (REQ-A1.4). Refused, never
+# chmod-narrowed or reused on a guess: any group/other access bit; a `+`
+# mode suffix (an ACL is present — on macOS NFSv4 ACLs do NOT surface in the
+# mode bits, so an ACL-bearing dir is unverifiable and therefore refused;
+# `@` xattrs and `.` SELinux-context suffixes stay accepted); a non-directory
+# (a symlinked surface lists as `l…` and is refused); and a directory owned
+# by a different uid (an attacker-planted 0700 dir must be refused
+# explicitly, not fail incidentally later). A dir that vanished between
+# create and check is the unknown-peer-status posture (exit 3), not a
+# security refusal.
 check_private() {
-  # ls -ld is the portable mode read (stat's flags differ across BSD/GNU);
-  # only the type+mode column is parsed, never a filename (SC2012 n/a).
+  # ls -ld[n] is the portable mode/owner read (stat's flags differ across
+  # BSD/GNU); only the mode and numeric-uid columns are parsed, never a
+  # filename (SC2012 n/a).
   # shellcheck disable=SC2012
-  cp_perms=$(ls -ld "$1" 2>/dev/null | awk '{print $1}')
+  cp_line=$(ls -ldn "$1" 2>/dev/null) || cp_line=""
+  if [ -z "$cp_line" ]; then
+    err "unknown peer status: coordination surface $1 disappeared while being verified — failing closed (REQ-A1.5)"
+    exit 3
+  fi
+  cp_perms=$(printf '%s\n' "$cp_line" | awk '{print $1}')
+  cp_uid=$(printf '%s\n' "$cp_line" | awk '{print $3}')
   case "$cp_perms" in
-    d???------ | d???------[@+.]*) ;;
+    d???------ | d???------[@.]*) ;;
     *)
-      err "security: coordination surface $1 is over-broad (group/other-accessible: $cp_perms) — refusing to use it (verify-or-refuse, REQ-A1.4); halt coordination-surface use, investigate how the mode widened, then chmod 700 it yourself"
+      err "security: coordination surface $1 is not verifiably user-private (mode $cp_perms; group/other access and ACL-bearing modes are refused) — verify-or-refuse, REQ-A1.4: halt coordination-surface use, investigate how it widened, then chmod 700 (and strip any ACL) yourself"
       exit 4
       ;;
   esac
+  if [ "$cp_uid" != "$(id -u)" ]; then
+    err "security: coordination surface $1 is owned by uid $cp_uid, not this user — refusing an attacker-planted or mis-owned surface (verify-or-refuse, REQ-A1.4); investigate and remove it yourself"
+    exit 4
+  fi
 }
 
 # write_sentinel <file> — fail closed on a write failure: proceeding without
-# the sentinel would let a later vanished surface read as a healthy first run.
+# the sentinel would let a later vanished surface read as a healthy first
+# run. A symlink (including dangling — the redirect would create a file at
+# an attacker-chosen target) or any non-regular object at the sentinel path
+# is refused, never written through.
 write_sentinel() {
+  if [ -L "$1" ] || { [ -e "$1" ] && [ ! -f "$1" ]; }; then
+    err "security: sentinel path $1 is a symlink or non-regular object — refusing to write through it (REQ-A1.4/REQ-A1.5); investigate and remove it yourself"
+    exit 4
+  fi
   if [ ! -f "$1" ]; then
     if ! date +%s >"$1" 2>/dev/null; then
       err "could not write the persistence sentinel $1 — failing closed (REQ-A1.5); fix the fleet home's writability and retry"
@@ -488,7 +567,12 @@ ensure_surface_dir() {
     err "unknown peer status: $esd_dir exists but is not a directory — failing closed (REQ-A1.5); investigate and remove the obstruction"
     exit 3
   fi
-  if [ -f "$esd_sentinel" ]; then
+  # -e, not -f: ANY object at the sentinel path means the surface once
+  # existed (a corrupted sentinel still reads as present — fail closed).
+  # Transient corner, accepted: a peer mid-bootstrap between its
+  # sentinel-write and mkdir reads here as vanished for one pass; the next
+  # invocation sees the directory (awareness-only, self-correcting).
+  if [ -e "$esd_sentinel" ]; then
     err "unknown peer status: presence surface $esd_dir vanished (its persistence sentinel survives) — failing closed, never read as solitude (REQ-A1.5); awareness degrades for this step while dispatch proceeds (D-10); investigate, then remove $esd_sentinel to re-bootstrap"
     exit 3
   fi
@@ -548,6 +632,10 @@ if [ "$cmd" = publish ]; then
     exit 2
   fi
   now=$(date +%s)
+  if ! is_epoch "$now"; then
+    err "cannot stamp the heartbeat epoch (date +%s failed) — failing closed"
+    exit 2
+  fi
   start=$now
   own="$sub/$identity"
   if [ -f "$own" ]; then
@@ -561,13 +649,22 @@ if [ "$cmd" = publish ]; then
         ;;
     esac
   fi
+  # Publish-side mirror of the reader's 8192-byte record cap: an oversize
+  # record would publish "successfully" yet read as malformed by every peer,
+  # silently degrading this tower's strand attribution — refuse it HERE, at
+  # the writer, where the operator gets the signal.
+  record=$(printf 'pw-presence-v1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$repo_id" "$identity" "$checkout" "$specs" "$fenced" \
+    "$start" "$now" "$handle" "$meta")
+  if [ "${#record}" -gt 8191 ]; then
+    err "refusing to publish an oversize presence record (${#record} bytes > the 8191-byte record cap peers enforce); trim --specs/--fenced"
+    exit 2
+  fi
   pub_tmp=$(mktemp "$sub/.pub.XXXXXX") || {
     err "cannot create a temp record in $sub — failing closed"
     exit 2
   }
-  if ! printf 'pw-presence-v1\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$repo_id" "$identity" "$checkout" "$specs" "$fenced" \
-    "$start" "$now" "$handle" "$meta" >"$pub_tmp" 2>/dev/null; then
+  if ! printf '%s\n' "$record" >"$pub_tmp" 2>/dev/null; then
     rm -f "$pub_tmp"
     err "cannot write the presence record — failing closed"
     exit 2
@@ -583,29 +680,35 @@ fi
 
 # --- discover / owner ------------------------------------------------------
 
-# Cadence cap (REQ-A1.1): a discover inside --min-interval is a no-op that
-# prints only `cadence-capped` (deliberately no summary line, so a capped
-# pass can never be misread as an empty peer set). The stamp is written only
-# after a successful scan, so a fail-closed pass is never masked by the cap.
-# owner is a targeted query and is never capped.
-ensure_infra_dir "$cadence_dir"
-stamp="$cadence_dir/$repo_id.$identity"
-if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
-  now=$(date +%s)
-  last=$(cat "$stamp" 2>/dev/null) || last=""
-  if is_epoch "$last" && [ $((now - last)) -lt "$min_interval" ]; then
-    printf 'cadence-capped\n'
-    exit 0
-  fi
-fi
-
+# Surface readability is proven BEFORE the cadence cap, so a surface that
+# broke inside the cap window fails closed on the very next call instead of
+# hiding behind `cadence-capped` (the ls is cheap; the cap exists to bound
+# the per-record death-predicate fan-out, which stays capped).
 listing=$(ls "$sub" 2>/dev/null) || {
   err "unknown peer status: presence sub-surface $sub is unreadable — failing closed, never read as solitude (REQ-A1.5); awareness degrades for this step while dispatch proceeds (D-10); investigate the surface's permissions"
   exit 3
 }
 
+# Cadence cap (REQ-A1.1): a discover inside --min-interval is a no-op that
+# prints only `cadence-capped` (deliberately no summary line, so a capped
+# pass can never be misread as an empty peer set). The stamp is written only
+# after a completed scan; a future-dated stamp (clock step) is ignored so
+# skew can never lock discovery out. owner is a targeted query, never capped.
+ensure_infra_dir "$cadence_dir"
+stamp="$cadence_dir/$repo_id.$identity"
+if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
+  now=$(date +%s)
+  last=$(cat "$stamp" 2>/dev/null) || last=""
+  if is_epoch "$last" && [ "$last" -le "$now" ] && [ $((now - last)) -lt "$min_interval" ]; then
+    printf 'cadence-capped\n'
+    exit 0
+  fi
+fi
+
 fde="$script_dir/fleet-death-evidence.sh"
-memo=$(mktemp) || exit 2
+# The per-pass memo lives in the private cadence dir, not shared $TMPDIR
+# (sibling convention: surface-local temp templates).
+memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || exit 2
 trap 'rm -f "$memo"' EXIT
 
 # classify_handle <handle> — tri-state verdict, memoized per pass so the
@@ -618,10 +721,11 @@ classify_handle() {
     return 0
   fi
   # The handle grammar was validated above; word-split it back into the
-  # predicate's argv form.
+  # predicate's argv form. The predicate's stderr flows through: an unknown
+  # or refused verdict keeps its lost-observability reason visible.
   # shellcheck disable=SC2086
   set -- $ch_handle
-  ch_verdict=$("$fde" "$@" 2>/dev/null)
+  ch_verdict=$("$fde" "$@")
   case "$ch_verdict" in
     dead | alive) ;;
     *) ch_verdict=unknown ;; # incl. a refused handle: lost observability, fail closed
@@ -633,7 +737,7 @@ classify_handle() {
 peers=0
 found_owner=""
 
-surface_unreadable() {
+emit_unreadable_peer() {
   su_name=$(sanitize_printable "$1" "(unprintable name)")
   err "skipping unreadable presence record '$su_name' ($2) — a peer exists but its details are unreadable: assume-live, surfaced, never GC'd (REQ-A1.6)"
   if [ "$cmd" = discover ]; then
@@ -642,25 +746,51 @@ surface_unreadable() {
   peers=$((peers + 1))
 }
 
+# owner_match <tower-id> <fenced-csv> — attribute from LIVE records only
+# (REQ-A1.2, REQ-C1.3: a fence no live record lists is unknown-owner; an
+# unknown-liveness holder surfaces through the strand path, Task 4). A
+# second live claimant is surfaced, first match kept (deterministic).
+owner_match() {
+  case ",$2," in
+    *",$unit_ref,"*)
+      if [ -z "$found_owner" ]; then
+        found_owner=$1
+      else
+        err "unit $unit_ref is listed by a second live record ('$1' after '$found_owner') — duplicate fence claim surfaced, first match kept"
+      fi
+      ;;
+  esac
+}
+
 while IFS= read -r name; do
   [ -z "$name" ] && continue
   [ "$name" = "$identity" ] && continue
   file="$sub/$name"
-  content=$(cat "$file" 2>/dev/null) || {
-    # Vanished mid-scan (a peer GC'd it, or a rename raced): not a parse
-    # failure — nothing to classify.
+  # Bounded read: one byte past the record cap is enough to classify
+  # oversize as malformed without slurping an arbitrarily large file.
+  content=$(head -c 8192 "$file" 2>/dev/null) || {
+    # cat/head failure conflates ENOENT with EACCES/EISDIR: only a genuinely
+    # ABSENT file is the benign mid-scan vanish; anything still present is a
+    # peer whose details are unreadable (REQ-A1.6) — surfaced, assume-live.
+    if [ -e "$file" ]; then
+      emit_unreadable_peer "$name" unreadable
+    fi
     continue
   }
-  size=$(printf '%s' "$content" | wc -c | tr -d ' ')
-  nlines=$(printf '%s\n' "$content" | wc -l | tr -d ' ')
-  tag=$(printf '%s' "$content" | awk -F'\t' 'NR==1{print $1}')
+  # One awk parses the whole record: exact field count enforced, the ten
+  # fields emitted one per line (fields never contain newlines — the record
+  # is single-line by construction, and a multi-line file fails NR==1/END).
+  parsed=$(printf '%s\n' "$content" | awk -F'\t' '
+    NR == 1 { if (NF != 10) bad = 1; else for (i = 1; i <= 10; i++) print $i }
+    NR > 1 { bad = 1 }
+    END { exit bad }') || parsed=""
   ok=1
   kind=malformed
-  if [ "$size" -gt 8192 ] || [ "$nlines" != 1 ]; then
+  if [ "${#content}" -ge 8192 ] || [ -z "$parsed" ]; then
     ok=0
-  elif [ "$tag" != "pw-presence-v1" ]; then
-    ok=0
+    tag=$(printf '%s\n' "$content" | awk -F'\t' 'NR==1{print $1}')
     case "$tag" in
+      pw-presence-v1) ;;
       pw-presence-v*)
         if printf '%s' "$tag" | grep -Eq '^pw-presence-v[0-9]+$'; then
           kind=schema-skew
@@ -668,18 +798,26 @@ while IFS= read -r name; do
         ;;
     esac
   else
-    nf=$(printf '%s\n' "$content" | awk -F'\t' 'NR==1{print NF}')
-    r_repo=$(printf '%s' "$content" | awk -F'\t' '{print $2}')
-    r_id=$(printf '%s' "$content" | awk -F'\t' '{print $3}')
-    r_checkout=$(printf '%s' "$content" | awk -F'\t' '{print $4}')
-    r_specs=$(printf '%s' "$content" | awk -F'\t' '{print $5}')
-    r_fenced=$(printf '%s' "$content" | awk -F'\t' '{print $6}')
-    r_start=$(printf '%s' "$content" | awk -F'\t' '{print $7}')
-    r_beat=$(printf '%s' "$content" | awk -F'\t' '{print $8}')
-    r_handle=$(printf '%s' "$content" | awk -F'\t' '{print $9}')
-    r_meta=$(printf '%s' "$content" | awk -F'\t' '{print $10}')
-    if [ "$nf" != 10 ] \
-      || ! is_repo_id "$r_repo" \
+    {
+      IFS= read -r tag
+      IFS= read -r r_repo
+      IFS= read -r r_id
+      IFS= read -r r_checkout
+      IFS= read -r r_specs
+      IFS= read -r r_fenced
+      IFS= read -r r_start
+      IFS= read -r r_beat
+      IFS= read -r r_handle
+      IFS= read -r r_meta
+    } <<PARSED_EOF
+$parsed
+PARSED_EOF
+    if [ "$tag" != "pw-presence-v1" ]; then
+      ok=0
+      if printf '%s' "$tag" | grep -Eq '^pw-presence-v[0-9]+$'; then
+        kind=schema-skew
+      fi
+    elif ! is_repo_id "$r_repo" \
       || ! is_tower_id "$r_id" \
       || [ "$r_id" != "$name" ]; then
       ok=0
@@ -701,40 +839,41 @@ while IFS= read -r name; do
     fi
   fi
   if [ "$ok" != 1 ]; then
-    surface_unreadable "$name" "$kind"
+    emit_unreadable_peer "$name" "$kind"
     continue
   fi
   if [ "$r_repo" != "$repo_id" ]; then
     # Defensive cross-check (REQ-A1.1): a record inside this sub-surface
     # claiming another repository is an anomaly, not a peer of this repo —
-    # surfaced, excluded, never GC'd on a guess.
+    # surfaced (stderr + a machine-readable line), excluded from the peer
+    # count, never GC'd on a guess.
     err "presence record '$(sanitize_printable "$name" "(unprintable name)")' carries repo id $r_repo inside the $repo_id sub-surface — anomaly surfaced, excluded from the peer set, left in place"
+    if [ "$cmd" = discover ]; then
+      printf 'foreign-record\t%s\t%s\n' "$(sanitize_printable "$name" "(unprintable name)")" "$r_repo"
+    fi
     continue
   fi
   verdict=$(classify_handle "$r_handle")
+  # The checkout field is the one loose-charset record value; it is
+  # sanitized (echo discipline: C0+DEL+C1 stripped) before reaching stdout.
   case "$verdict" in
     alive)
       peers=$((peers + 1))
       if [ "$cmd" = discover ]; then
         printf 'peer\t%s\tlive\t%s\t%s\t%s\t%s\n' \
-          "$r_id" "$r_checkout" "$r_specs" "$r_fenced" "$r_meta"
-      elif [ "$cmd" = owner ] && [ -z "$found_owner" ]; then
-        case ",$r_fenced," in
-          *",$unit_ref,"*) found_owner=$r_id ;;
-        esac
+          "$r_id" "$(sanitize_printable "$r_checkout" "-")" "$r_specs" "$r_fenced" "$r_meta"
+      elif [ "$cmd" = owner ]; then
+        owner_match "$r_id" "$r_fenced"
       fi
       ;;
     unknown)
       # Not-dead (fail closed): lost observability never authorizes reclaim,
-      # and an unclassifiable peer still argues against solitude.
+      # and an unclassifiable peer still argues against solitude — but it is
+      # NOT an attribution source: owner resolves from live records only.
       peers=$((peers + 1))
       if [ "$cmd" = discover ]; then
         printf 'peer\t%s\tunknown\t%s\t%s\t%s\t%s\n' \
-          "$r_id" "$r_checkout" "$r_specs" "$r_fenced" "$r_meta"
-      elif [ "$cmd" = owner ] && [ -z "$found_owner" ]; then
-        case ",$r_fenced," in
-          *",$unit_ref,"*) found_owner=$r_id ;;
-        esac
+          "$r_id" "$(sanitize_printable "$r_checkout" "-")" "$r_specs" "$r_fenced" "$r_meta"
       fi
       ;;
     dead)
@@ -746,10 +885,21 @@ while IFS= read -r name; do
       # still byte-identical to the classified dead record. No lock — the
       # residual TOCTOU is benign: a racing fresh record self-heals on the
       # tower's next heartbeat re-publish (awareness-only, D-13).
-      reread=$(cat "$file" 2>/dev/null) || reread=""
-      if [ "$reread" = "$content" ]; then
-        rm -f "$file" 2>/dev/null || true
+      reread=$(head -c 8192 "$file" 2>/dev/null) || reread=""
+      if [ ! -e "$file" ]; then
+        # A peer's sweep unlinked it first: the dead record is gone — the
+        # GC outcome holds, nothing argues against solitude.
         printf 'gc\t%s\n' "$r_id"
+      elif [ "$reread" = "$content" ]; then
+        if rm -f "$file" 2>/dev/null; then
+          printf 'gc\t%s\n' "$r_id"
+        else
+          # Never claim a delete that did not happen: surface the failure;
+          # the record's owner is positively dead, so it still does not
+          # count as a peer.
+          err "could not GC positively-dead record '$(sanitize_printable "$name" "(unprintable name)")' (unlink failed) — left in place, surfaced"
+          printf 'gc-fail\t%s\n' "$r_id"
+        fi
       else
         printf 'gc-skip\t%s\n' "$r_id"
         peers=$((peers + 1))
@@ -760,9 +910,17 @@ done <<LISTING_EOF
 $listing
 LISTING_EOF
 
-# Scan completed: stamp the cadence window (see the cap above).
+# Scan completed: stamp the cadence window (see the cap above), atomically
+# (temp + rename), matching the surface's write discipline.
 if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
-  date +%s >"$stamp" 2>/dev/null || true
+  stamp_tmp=$(mktemp "$cadence_dir/.stamp.XXXXXX" 2>/dev/null) || stamp_tmp=""
+  if [ -n "$stamp_tmp" ]; then
+    if date +%s >"$stamp_tmp" 2>/dev/null; then
+      mv -f "$stamp_tmp" "$stamp" 2>/dev/null || rm -f "$stamp_tmp"
+    else
+      rm -f "$stamp_tmp"
+    fi
+  fi
 fi
 
 if [ "$cmd" = owner ]; then

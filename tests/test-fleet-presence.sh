@@ -121,11 +121,12 @@ record_count() {
 #    root and repo sub-surface are created 0700 with persistence sentinels,
 #    and the record lands as one file per tower carrying every field.
 # ---------------------------------------------------------------------------
+# h1 is deliberately NOT pre-created: a genuinely fresh host (no fleet
+# command has ever run) must bootstrap the fleet home + surface itself.
 h1="$tmp/h1"
-mkdir -p "$h1"
 run "$h1" publish --checkout "$co_a" --session-id "$uuid_a" \
   --specs demo-spec --fenced demo-spec/3 --pid 4242 \
-  || fail "first publish failed"
+  || fail "first publish failed (pristine-home bootstrap, REQ-A1.5)"
 sub=$(run "$h1" surface --checkout "$co_a") || fail "surface resolution failed"
 [ -d "$sub" ] || fail "sub-surface not created"
 case "$sub" in
@@ -170,9 +171,11 @@ echo "ok: first-run bootstrap creates 0700 surface + sentinels; record carries a
 start1=$(awk -F'	' '{print $7}' "$rec")
 beat1=$(awk -F'	' '{print $8}' "$rec")
 sleep 1
+# --pid AND the tmux pair together: the reuse-resistant tmux-window handle
+# must win (the "preferred under tmux" precedence).
 run "$h1" publish --checkout "$co_a" --session-id "$uuid_a" \
   --specs demo-spec --fenced demo-spec/3,demo-spec/4 \
-  --tmux-session tower0 --tmux-window w1 --meta \
+  --pid 4242 --tmux-session tower0 --tmux-window w1 --meta \
   || fail "heartbeat re-publish failed"
 [ "$(record_count "$sub")" = 1 ] || fail "re-publish landed a second file"
 line=$(cat "$rec")
@@ -220,6 +223,10 @@ id_otherco=$(run "$h1" identity --checkout "$co_b" --pid $$)
 rc=0
 run "$h1" identity --checkout "$co_a" --session-id "not-a-uuid" 2>/dev/null || rc=$?
 [ "$rc" = 2 ] || fail "malformed session uuid not refused (exit $rc)"
+rc=0
+run "$h1" identity --checkout "$co_a" \
+  --session-id "------------------------------------" 2>/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "all-dashes 36-char pseudo-uuid not refused (exit $rc)"
 echo "ok: identity = session uuid, else pid+start-time+checkout composite; hostile uuid refused"
 
 # ---------------------------------------------------------------------------
@@ -244,6 +251,11 @@ printf '%s\n' "$out" | grep -q "$uuid_b" \
 rc=0
 run "$h1" publish --checkout "$co_noremote" --pid $$ 2>/dev/null || rc=$?
 [ "$rc" = 5 ] || fail "no-origin checkout not classified solo posture (exit $rc)"
+notrepo="$tmp/not-a-repo"
+mkdir -p "$notrepo"
+rc=0
+run "$h1" publish --checkout "$notrepo" --pid $$ 2>/dev/null || rc=$?
+[ "$rc" = 2 ] || fail "non-repository checkout misread as solo/other (exit $rc, expected refusal 2)"
 echo "ok: repo id is origin-anchored (clones converge, repos split); no-origin = solo (exit 5)"
 
 # ---------------------------------------------------------------------------
@@ -295,7 +307,12 @@ printf '%s\n' "$out" | grep -q "cadence-capped" || fail "second pass not cadence
 printf '%s\n' "$out" | grep -q "sole-tower" && fail "cadence-capped pass emitted a summary"
 calls2=$(wc -l <"$tmp/evidence-calls" | tr -d ' ')
 [ "$calls1" = "$calls2" ] || fail "cadence-capped pass still invoked the death predicate"
-echo "ok: discovery is cadence-capped (no fan-out inside the interval)"
+# owner is a targeted query: never capped, even inside the interval.
+printf 'alive\n' >"$tmp/evidence-verdict"
+out=$(run "$h7" owner --checkout "$co_a" --session-id "$uuid_a" demo-spec/99 2>/dev/null) \
+  || fail "owner inside the cadence window failed"
+[ "$out" = "unknown-owner" ] || fail "owner was cadence-capped (got: $out)"
+echo "ok: discovery is cadence-capped (no fan-out inside the interval); owner never capped"
 
 # ---------------------------------------------------------------------------
 # 9. REQ-A1.3 — tri-state reclaim: alive → live (file untouched, bytes
@@ -324,7 +341,25 @@ printf 'dead\n' >"$tmp/evidence-verdict"
 out=$(run "$h9" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null)
 printf '%s\n' "$out" | grep -q "gc	$uuid_a" || fail "positively-dead record not GC'd"
 [ ! -f "$sub9/$uuid_a" ] || fail "positively-dead record still present after GC"
-echo "ok: alive/unknown never reclaim (bytes untouched); only positively-dead GCs"
+# A failed unlink is never reported as a successful gc: 0500 sub-surface
+# (owner-only, passes the group/other privacy gate) makes rm fail.
+run "$h9" publish --checkout "$co_a" --session-id "$uuid_a" --pid 22222 >/dev/null
+chmod 0500 "$sub9"
+err9="$tmp/h9-err"
+out=$(run "$h9" discover --checkout "$co_a" --pid $$ --min-interval 0 2>"$err9") \
+  || {
+    chmod 0700 "$sub9"
+    fail "discover over a read-only sub-surface failed"
+  }
+chmod 0700 "$sub9"
+printf '%s\n' "$out" | grep -q "gc-fail	$uuid_a" \
+  || fail "failed unlink not reported as gc-fail (got: $out)"
+printf '%s\n' "$out" | grep -q "gc	$uuid_a$" \
+  && fail "failed unlink falsely reported as gc"
+[ -f "$sub9/$uuid_a" ] || fail "gc-fail fixture: record unexpectedly gone"
+grep -qi "could not GC" "$err9" || fail "gc failure not surfaced on stderr"
+rm -f "$sub9/$uuid_a"
+echo "ok: alive/unknown never reclaim (bytes untouched); only positively-dead GCs; failed unlink surfaced"
 
 # ---------------------------------------------------------------------------
 # 10. REQ-A1.3 (d') — guarded GC: when the record no longer matches the
@@ -358,8 +393,8 @@ echo "ok: GC re-reads and skips a changed record; heartbeat re-publish self-heal
 # ---------------------------------------------------------------------------
 h11="$tmp/h11"
 mkdir -p "$h11"
-run "$h11" publish --checkout "$co_a" --session-id "$uuid_a" >/dev/null 2>&1 \
-  || run "$h11" publish --checkout "$co_a" --session-id "$uuid_a" --pid 44444 >/dev/null
+run "$h11" publish --checkout "$co_a" --session-id "$uuid_a" --pid 44444 >/dev/null \
+  || fail "h11 seed publish failed"
 sub11=$(run "$h11" surface --checkout "$co_a")
 rm -f "$sub11/$uuid_a"
 printf 'garbage not a record\n' >"$sub11/one-malformed"
@@ -378,7 +413,30 @@ n_unreadable=$(printf '%s\n' "$out" | grep -c "peer-unreadable") || true
 grep -qi "unreadable\|malformed\|skew" "$err" || fail "unreadable records not surfaced on stderr"
 printf '%s\n' "$out" | grep -q "sole-tower=no" \
   || fail "unreadable peers must count against solitude (assume-live)"
-echo "ok: malformed/truncated/skewed records surfaced, assume-live, never GC'd"
+# A present-but-unreadable (mode 000) record is a peer whose details are
+# unreadable — surfaced assume-live, never the benign mid-scan vanish.
+printf 'pw-presence-v1	x\n' >"$sub11/four-perms"
+chmod 000 "$sub11/four-perms"
+out=$(run "$h11" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null) \
+  || fail "discover over a mode-000 record failed"
+chmod 600 "$sub11/four-perms"
+printf '%s\n' "$out" | grep -q "peer-unreadable	four-perms	unreadable" \
+  || fail "mode-000 record read as absent, not as an unreadable peer (REQ-A1.6)"
+# A well-formed record carrying ANOTHER repo's id inside this sub-surface is
+# a surfaced anomaly: excluded from the peer set, never GC'd.
+other_repo_id=$(basename "$(run "$h11" surface --checkout "$co_other")")
+printf 'pw-presence-v1	%s	%s	/x	-	-	1	2	process 1	false\n' \
+  "$other_repo_id" "$uuid_b" >"$sub11/$uuid_b"
+printf 'dead\n' >"$tmp/evidence-verdict"
+out=$(run "$h11" discover --checkout "$co_a" --pid $$ --min-interval 0 2>"$err") \
+  || fail "discover over a foreign-repo record failed"
+[ -f "$sub11/$uuid_b" ] || fail "foreign-repo record was GC'd (never reclaim on a guess)"
+printf '%s\n' "$out" | grep -q "foreign-record	$uuid_b" \
+  || fail "foreign-repo record not surfaced as a machine-readable anomaly line"
+printf '%s\n' "$out" | grep -q "peer	$uuid_b" \
+  && fail "foreign-repo record leaked into the peer set"
+rm -f "$sub11/$uuid_b"
+echo "ok: malformed/truncated/skewed/unreadable/foreign records surfaced, never GC'd"
 
 # ---------------------------------------------------------------------------
 # 12. REQ-A1.5 — surface-level fail-closed: (a) present-but-empty is healthy;
@@ -419,7 +477,25 @@ run "$h12b" discover --checkout "$co_a" --pid $$ --min-interval 0 >/dev/null 2>"
 chmod 700 "$sub12b"
 [ "$rc" = 3 ] || fail "unreadable surface read as exit $rc, expected unknown-peer-status 3"
 grep -qi "unknown peer status" "$errb" || fail "unreadable surface did not surface unknown-peer-status"
-echo "ok: vanished/unreadable surfaces fail closed (exit 3), empty surface is healthy"
+# (c) Concurrent-bootstrap contract: a surface a PEER already bootstrapped
+# (sentinels + 0700 dirs pre-existing, our tower's mkdir would EEXIST) is
+# success, not an error.
+h12c="$tmp/h12c"
+sub12c_repo=$(basename "$sub12b")
+mkdir -p "$h12c"
+date +%s >"$h12c/presence.sentinel"
+mkdir -m 0700 "$h12c/presence"
+mkdir -m 0700 "$h12c/presence.sentinels"
+date +%s >"$h12c/presence.sentinels/$sub12c_repo"
+mkdir -m 0700 "$h12c/presence/$sub12c_repo"
+run "$h12c" publish --checkout "$co_a" --session-id "$uuid_a" --pid 55556 >/dev/null \
+  || fail "peer-bootstrapped surface not treated as success (EEXIST contract)"
+printf 'alive\n' >"$tmp/evidence-verdict"
+out=$(run "$h12c" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null) \
+  || fail "discover on a peer-bootstrapped surface failed"
+printf '%s\n' "$out" | grep -q "peer	$uuid_a	live" \
+  || fail "peer-bootstrapped surface scan missed the published record"
+echo "ok: vanished/unreadable surfaces fail closed (exit 3), empty surface is healthy, peer bootstrap is success"
 
 # ---------------------------------------------------------------------------
 # 13. REQ-A1.4 — verify-or-refuse: a pre-existing over-broad surface (group/
@@ -446,6 +522,14 @@ chmod 750 "$sub13"
 rc=0
 run "$h13" publish --checkout "$co_a" --session-id "$uuid_a" --pid 66666 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 4 ] || fail "over-broad repo sub-surface not refused on publish (exit $rc)"
+# ACL-bearing (`+`-suffixed) and mis-owned surfaces are refused structurally:
+# the mode pattern admits only `@`/`.` suffixes, and the owner uid is
+# compared against id -u (an actual chown/ACL cannot be staged in a test).
+src_check="$here/../scripts/fleet-presence.sh"
+grep -q 'd???------\[@\.\]\*' "$src_check" \
+  || fail "check_private accepts mode suffixes beyond @/. (ACL '+' must refuse, structural)"
+grep -q 'id -u' "$src_check" \
+  || fail "check_private lacks the owner-uid comparison (structural)"
 echo "ok: over-broad surface refused (exit 4), never silently narrowed or reused"
 
 # ---------------------------------------------------------------------------
@@ -464,10 +548,17 @@ out=$(run "$h14" owner --checkout "$co_b" --pid $$ demo-spec/3 2>/dev/null) \
 out=$(run "$h14" owner --checkout "$co_b" --pid $$ demo-spec/9 2>/dev/null) \
   || fail "unknown-owner probe failed"
 [ "$out" = "unknown-owner" ] || fail "unlisted unit not classified unknown-owner: $out"
+# Attribution is from LIVE records only (REQ-A1.2/REQ-C1.3): a fence listed
+# only by an unknown-liveness record is unknown-owner.
+printf 'unknown\n' >"$tmp/evidence-verdict"
+out=$(run "$h14" owner --checkout "$co_b" --pid $$ demo-spec/3 2>/dev/null) \
+  || fail "unknown-verdict owner probe failed"
+[ "$out" = "unknown-owner" ] || fail "unknown-liveness record used as an attribution source: $out"
+printf 'alive\n' >"$tmp/evidence-verdict"
 rc=0
 run "$h14" owner --checkout "$co_b" --pid $$ '../etc/passwd' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "hostile unit ref not refused (exit $rc)"
-echo "ok: fence owner resolved from live records; unlisted → unknown-owner; hostile ref refused"
+echo "ok: fence owner resolved from live records only; unlisted/unknown → unknown-owner; hostile ref refused"
 
 # ---------------------------------------------------------------------------
 # 15. Hostile publish input is refused before any write (REQ-D1.5 posture):
@@ -504,8 +595,22 @@ echo "ok: hostile publish input refused before any write"
 #     dead-letter sub-surface exists.
 # ---------------------------------------------------------------------------
 src="$here/../scripts/fleet-presence.sh"
-grep -q 'mktemp' "$src" || fail "publish path lacks a temp-file write (structural)"
-grep -Eq 'mv (-f )?"?\$' "$src" || fail "publish path lacks the rename step (structural)"
+# Call-level: the PUBLISH primitive is a temp file created inside the
+# sub-surface, renamed onto the per-tower target — a mkdir-then-populate or
+# direct-write publish would fail these exact-line asserts. The patterns are
+# literal source text: `$` must NOT expand here.
+# shellcheck disable=SC2016
+grep -q 'mktemp "\$sub/\.pub\.' "$src" \
+  || fail "publish path lacks the in-surface temp-file write (structural)"
+# shellcheck disable=SC2016
+grep -q 'mv -f "\$pub_tmp" "\$own"' "$src" \
+  || fail "publish path lacks the temp→record rename (structural)"
+# No shared-registry write: the publish rename target is the per-tower file
+# keyed by identity, and no fixed shared filename is ever written on the
+# publish path.
+# shellcheck disable=SC2016
+grep -q 'own="\$sub/\$identity"' "$src" \
+  || fail "publish target is not the per-tower identity-keyed file (structural)"
 grep -q 'fleet-tower-marker' "$src" \
   && fail "meta marker must be the record's own field, not fleet-tower-marker.sh"
 grep -Ewq 'claude|anthropic' "$src" && fail "discovery path invokes an LLM"
