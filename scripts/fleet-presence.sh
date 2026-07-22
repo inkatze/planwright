@@ -30,9 +30,10 @@
 # pre-existing over-broad surface is REFUSED, never chmod-narrowed and
 # reused (verify-or-refuse).
 #
-# THE RECORD. A single line, ten tab-separated fields, written atomically
-# (mktemp in the sub-surface, then rename) so a reader never sees a torn
-# record:
+# THE RECORD. A single line, ten tab-separated fields, at most 8191 bytes
+# plus the newline (the writer refuses an over-cap record; readers classify
+# an over-cap file malformed), written atomically (mktemp in the
+# sub-surface, then rename) so a reader never sees a torn record:
 #   1 schema tag        pw-presence-v1
 #   2 repo id           16 lowercase hex — origin-anchored (below)
 #   3 tower identity    the record's key and filename (REQ-A1.7)
@@ -78,13 +79,17 @@
 # the scan runs on a capped cadence (--min-interval; a capped pass prints
 # `cadence-capped` and nothing else). A positively-dead record is GC'd under
 # a best-effort re-read-and-skip guard: the file is re-read immediately
-# before the unlink and the delete is skipped unless it is byte-identical to
-# the classified dead record. No lock is taken — a benign TOCTOU remains,
-# and a rare racing delete of a dead-then-restarted tower's fresh record
-# self-heals on its next heartbeat re-publish (awareness-only, D-13).
-# Malformed, truncated, or schema-skewed records are peers that exist but
-# whose details are unreadable: surfaced with an error, assume-live, never
-# GC'd on a guess, never read as "no such peer". There is no claim record
+# before the unlink and the delete is skipped unless the re-read matches the
+# classified dead record byte-for-byte within the bounded 8 KiB read window
+# (both reads share the record-cap bound). No lock is taken — a benign
+# TOCTOU remains, and a rare racing delete of a dead-then-restarted tower's
+# fresh record self-heals on its next heartbeat re-publish (awareness-only,
+# D-13). Malformed, truncated, or schema-skewed records are peers that exist
+# but whose details are unreadable: surfaced with an error, assume-live,
+# never GC'd on a guess, never read as "no such peer" (scoped to entries the
+# scan can list — names a conforming publisher can create; the 0700 surface
+# is same-operator trust, so a dotfile or newline-bearing name planted there
+# by hand sits outside this guarantee). There is no claim record
 # and no parking sub-surface for unparseable records here — the only
 # correctness object is the fence ref, which has no schema to skew.
 #
@@ -123,7 +128,8 @@
 #
 # Exit codes:
 #   0  success (incl. healthy-empty and cadence-capped)
-#   2  usage / refused hostile input / not-a-repository / write failure
+#   2  usage / refused hostile input / not-a-repository / write failure /
+#      unresolvable identity (e.g. --pid with no queryable start time)
 #      (fail closed)
 #   3  unknown peer status: vanished, unreadable, or obstructed surface —
 #      awareness and strand-attribution degrade for the step while dispatch
@@ -145,8 +151,27 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
+# Temp hygiene on ANY exit, signals included (the fleet-attention.sh trap
+# discipline the sibling fleet scripts share): a SIGINT/SIGTERM between a
+# mktemp and its rename must not leak `.pub.*` / `.memo.*` / `.stamp.*`
+# files — a leaked publish temp is a dotfile the discovery scan never
+# lists, so it would otherwise accumulate invisibly, forever.
+pub_tmp=""
+memo=""
+stamp_tmp=""
+trap '[ -z "$pub_tmp" ] || rm -f "$pub_tmp"; [ -z "$memo" ] || rm -f "$memo"; [ -z "$stamp_tmp" ] || rm -f "$stamp_tmp"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 usage() {
-  echo "usage: fleet-presence.sh publish|discover|owner|identity|surface --checkout <dir> (--session-id <uuid> | --pid <pid>) [--specs <csv>] [--fenced <csv>] [--tmux-session <name> --tmux-window <name>] [--meta] [--min-interval <sec>] [<spec>/<unit-id>]  (publish needs a death handle: the tmux pair, or --pid)" >&2
+  cat >&2 <<'USAGE'
+usage: fleet-presence.sh publish  --checkout <dir> (--session-id <uuid> | --pid <pid>) [--tmux-session <name> --tmux-window <name>] [--specs <csv>] [--fenced <csv>] [--meta]
+       fleet-presence.sh discover --checkout <dir> (--session-id <uuid> | --pid <pid>) [--min-interval <sec>]
+       fleet-presence.sh owner    --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
+       fleet-presence.sh identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
+       fleet-presence.sh surface  --checkout <dir>
+(publish needs a death handle: the tmux pair, or --pid; flags irrelevant to a subcommand are refused)
+USAGE
 }
 
 err() {
@@ -157,8 +182,9 @@ err() {
 
 # The session-id UUID shape (8-4-4-4-12 hex). The glob pins length 36 and the
 # four dash positions, but `?` also admits `-`; the residue check requires
-# exactly 32 hex characters, so a dash-heavy non-UUID (the documented hole in
-# the sibling marker store's glob-only grammar) is refused.
+# exactly 32 hex characters, so a dash-heavy non-UUID is refused — the same
+# charset + 32-non-dash residue discipline the sibling marker and signpost
+# grammars enforce.
 is_uuid() {
   [ "${#1}" -eq 36 ] || return 1
   case "$1" in
@@ -296,6 +322,20 @@ meta=false
 min_interval=30
 unit_ref=""
 
+# Strict per-command grammar: a flag irrelevant to the subcommand is a usage
+# error, never a silent no-op (a `publish --min-interval` or `discover
+# --fenced` that validated-then-ignored its value would mask operator error;
+# the sibling marker script's per-command surplus-arg refusal is the model).
+refuse_for() {
+  case " $1 " in
+    *" $cmd "*) ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --checkout)
@@ -306,6 +346,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --pid)
+      refuse_for "publish discover owner identity"
       pid="${2:-}"
       shift 2 || {
         usage
@@ -313,6 +354,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --session-id)
+      refuse_for "publish discover owner identity"
       session_id="${2:-}"
       shift 2 || {
         usage
@@ -320,6 +362,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --specs)
+      refuse_for "publish"
       specs="${2:-}"
       shift 2 || {
         usage
@@ -327,6 +370,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --fenced)
+      refuse_for "publish"
       fenced="${2:-}"
       shift 2 || {
         usage
@@ -334,6 +378,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --tmux-session)
+      refuse_for "publish"
       tmux_session="${2:-}"
       shift 2 || {
         usage
@@ -341,6 +386,7 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --tmux-window)
+      refuse_for "publish"
       tmux_window="${2:-}"
       shift 2 || {
         usage
@@ -348,10 +394,12 @@ while [ "$#" -gt 0 ]; do
       }
       ;;
     --meta)
+      refuse_for "publish"
       meta=true
       shift
       ;;
     --min-interval)
+      refuse_for "discover"
       min_interval="${2:-}"
       shift 2 || {
         usage
@@ -387,7 +435,17 @@ if ! is_control_free "$checkout" || [ ! -d "$checkout" ]; then
   err "refusing checkout: an existing absolute directory is required"
   exit 2
 fi
-checkout=$(cd "$checkout" && pwd -P) || exit 2
+checkout=$(cd "$checkout" && pwd -P) || {
+  err "refusing checkout: cannot canonicalize $(sanitize_printable "$checkout" "(unprintable)")"
+  exit 2
+}
+# Re-validate after canonicalization: a symlinked component can resolve to a
+# physical path carrying a control byte, and a tab in record field 4 would
+# skew every peer's field count (the writer-side mirror of the reader guard).
+if ! is_control_free "$checkout"; then
+  err "refusing checkout: the canonical path carries control bytes"
+  exit 2
+fi
 
 if [ -n "$session_id" ] && ! is_uuid "$session_id"; then
   err "refusing malformed session id (a UUID, or omit the flag)"
@@ -428,11 +486,11 @@ fi
 # solo posture: exit 5 is reserved for a real repository with no origin remote
 # (REQ-A1.2), so a typo'd path can never silently authorize solo behavior.
 if ! git -C "$checkout" rev-parse --git-dir >/dev/null 2>&1; then
-  err "refusing checkout: $checkout is not a git repository"
+  err "refusing checkout: $(sanitize_printable "$checkout" "(unprintable)") is not a git repository"
   exit 2
 fi
 origin_url=$(git -C "$checkout" config --get remote.origin.url 2>/dev/null) || {
-  err "no origin remote on $checkout — genuine solo posture; the presence surface is not used (REQ-A1.2)"
+  err "no origin remote on $(sanitize_printable "$checkout" "(unprintable)") — genuine solo posture; the presence surface is not used (REQ-A1.2)"
   exit 5
 }
 # Minimal, deterministic normalization: strip trailing slashes and one `.git`.
@@ -446,6 +504,13 @@ while :; do
   esac
 done
 origin_url=${origin_url%.git}
+# An origin URL that is (or normalizes to) empty cannot anchor a repository
+# identity: hashing the empty string would converge every such repo on one
+# shared sub-surface. Treat it as the no-usable-origin solo posture (REQ-A1.2).
+if [ -z "$origin_url" ]; then
+  err "empty origin URL on $(sanitize_printable "$checkout" "(unprintable)") — genuine solo posture; the presence surface is not used (REQ-A1.2)"
+  exit 5
+fi
 repo_id=$(printf '%s' "$origin_url" | git hash-object --stdin 2>/dev/null | cut -c1-16) || repo_id=""
 if ! is_repo_id "$repo_id"; then
   err "could not derive a repository id from the origin URL (git hash-object failed)"
@@ -626,6 +691,13 @@ derive_identity() {
 }
 
 identity=$(derive_identity) || exit 2
+# Defensive self-check: a cksum/awk failure inside the composite derivation
+# would otherwise silently publish a malformed identity (p<pid>.t.c) that
+# every peer then classifies unreadable — refuse it here, at the writer.
+if ! is_tower_id "$identity"; then
+  err "derived tower identity is malformed ('$(sanitize_printable "$identity" "(unprintable)")') — failing closed (cksum/ps failure?)"
+  exit 2
+fi
 
 if [ "$cmd" = identity ]; then
   printf '%s\n' "$identity"
@@ -687,6 +759,7 @@ if [ "$cmd" = publish ]; then
     err "cannot publish the presence record (rename failed) — failing closed"
     exit 2
   fi
+  pub_tmp="" # renamed away; nothing for the exit trap to collect
   exit 0
 fi
 
@@ -721,10 +794,10 @@ fde="$script_dir/fleet-death-evidence.sh"
 # The per-pass memo lives in the private cadence dir, not shared $TMPDIR
 # (sibling convention: surface-local temp templates).
 memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || {
+  memo=""
   err "cannot create the per-pass liveness memo in $cadence_dir — failing closed"
   exit 2
 }
-trap 'rm -f "$memo"' EXIT
 
 # classify_handle <handle> — tri-state verdict, memoized per pass so the
 # per-record subprocess fan-out is bounded (≤1 per distinct handle per pass).
@@ -903,7 +976,8 @@ PARSED_EOF
         continue
       fi
       # Best-effort re-read-and-skip guard (REQ-A1.3): delete only a file
-      # still byte-identical to the classified dead record. No lock — the
+      # whose bounded re-read (the same 8 KiB record-cap window) is still
+      # byte-identical to the classified dead record. No lock — the
       # residual TOCTOU is benign: a racing fresh record self-heals on the
       # tower's next heartbeat re-publish (awareness-only, D-13).
       reread=$(head -c 8192 "$file" 2>/dev/null) || reread=""
@@ -941,6 +1015,7 @@ if [ "$cmd" = discover ] && [ "$min_interval" -gt 0 ]; then
     else
       rm -f "$stamp_tmp"
     fi
+    stamp_tmp="" # renamed or removed; nothing for the exit trap to collect
   fi
 fi
 

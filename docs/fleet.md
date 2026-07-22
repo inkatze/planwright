@@ -349,8 +349,9 @@ scripts/fleet-presence.sh discover --checkout <repo-root> \
   (--session-id <uuid> | --pid <pid>) [--min-interval <sec>]
 ```
 
-Every command needs an identity (`--session-id`, else `--pid` for the
-composite). Publish additionally needs a death handle: a tower under tmux
+Every command except `surface` (pure path resolution, no verification)
+needs an identity (`--session-id`, else `--pid` for the composite).
+Publish additionally needs a death handle: a tower under tmux
 passes the reuse-resistant `tmux-window` pair (preferred even when `--pid`
 is also given); bare `--pid` doubles as the degraded fallback handle.
 Discover must use **the same identity flags publish used**, or the tower

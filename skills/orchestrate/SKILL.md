@@ -297,8 +297,8 @@ with the reason surfaced).
 `interactive`; see `docs/fleet.md`), clearing on graceful exit.
 
 **Presence (coordination D-2).** At loop start and each iteration
-`scripts/fleet-presence.sh publish` then `discover` (`docs/fleet.md`): never
-assume solitude; a broken surface degrades awareness.
+`scripts/fleet-presence.sh publish` then `discover`: never assume solitude;
+failure postures (exits 3–5) per `docs/fleet.md`.
 
 **Context-budget auto-heal (`continue-as-new`, D-4, REQ-C1.1, REQ-C1.2,
 REQ-C1.4).** A `--watch` tower can silently fill its context window. Each

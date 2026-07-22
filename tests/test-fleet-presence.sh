@@ -151,12 +151,12 @@ repo_id=$(basename "$sub")
 [ -f "$h1/presence.sentinels/$repo_id" ] || fail "per-repo sentinel missing (REQ-A1.5)"
 perms=$(perms_of "$h1/presence")
 case "$perms" in
-  d???------ | d???------[@+.]) : ;;
+  d???------ | d???------[@.]*) : ;;
   *) fail "surface root not 0700: $perms" ;;
 esac
 perms=$(perms_of "$sub")
 case "$perms" in
-  d???------ | d???------[@+.]) : ;;
+  d???------ | d???------[@.]*) : ;;
   *) fail "repo sub-surface not 0700: $perms" ;;
 esac
 rec="$sub/$uuid_a"
@@ -673,5 +673,209 @@ grep -Eiq 'quarantine|dead-letter' "$src" \
 grep -q 'fleet-death-evidence.sh' "$src" \
   || fail "liveness must route through fleet-death-evidence.sh"
 echo "ok: structural asserts (temp+rename, no registry/LLM/scrape/quarantine, predicate reuse)"
+
+# ---------------------------------------------------------------------------
+# 17. Panel-review coverage additions: identity/handle refusals, strict
+#     per-command flags, hostile --min-interval, lone tmux flag, checkout
+#     refusals, missing flag value, empty-origin solo posture, owner
+#     contract lines (range refs, self-exclusion, dead-record skip),
+#     field-level record validation, obstructed sub-surface, sentinel
+#     symlink refusal, start-epoch preserve/reset, cadence edges, and
+#     gc-skip's contribution to the peer count.
+# ---------------------------------------------------------------------------
+h17="$tmp/h17"
+
+# Identity refusals: no identity flags at all, and publish with an identity
+# but no death handle (session-id only: no tmux pair, no pid).
+rc=0
+run "$h17" publish --checkout "$co_a" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "publish without identity not refused (exit $rc)"
+rc=0
+run "$h17" discover --checkout "$co_a" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "discover without identity not refused (exit $rc)"
+rc=0
+run "$h17" publish --checkout "$co_a" --session-id "$uuid_a" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "publish without a death handle not refused (exit $rc)"
+
+# Strict per-command grammar: a flag irrelevant to the subcommand is a usage
+# error, never a silent no-op.
+rc=0
+run "$h17" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  --min-interval 5 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "publish --min-interval not refused (exit $rc)"
+rc=0
+run "$h17" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --fenced demo-spec/1 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "discover --fenced not refused (exit $rc)"
+rc=0
+run "$h17" discover --checkout "$co_a" --session-id "$uuid_a" --meta \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "discover --meta not refused (exit $rc)"
+rc=0
+run "$h17" owner --checkout "$co_a" --session-id "$uuid_a" --tmux-session s \
+  --tmux-window w demo-spec/1 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "owner with tmux flags not refused (exit $rc)"
+rc=0
+run "$h17" surface --checkout "$co_a" --session-id "$uuid_a" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "surface --session-id not refused (exit $rc)"
+
+# Hostile --min-interval, a lone tmux flag (both-required), checkout
+# refusals, and a flag missing its value.
+rc=0
+run "$h17" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval abc >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "malformed --min-interval not refused (exit $rc)"
+rc=0
+run "$h17" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval -5 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "negative --min-interval not refused (exit $rc)"
+rc=0
+run "$h17" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  --tmux-session sess >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "lone --tmux-session not refused (exit $rc)"
+rc=0
+run "$h17" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  --tmux-window win >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "lone --tmux-window not refused (exit $rc)"
+rc=0
+run "$h17" identity --checkout relative/path --pid $$ >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "relative checkout not refused (exit $rc)"
+rc=0
+run "$h17" identity --checkout "$tmp/does-not-exist" --pid $$ >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "nonexistent checkout not refused (exit $rc)"
+rc=0
+run "$h17" identity --checkout "$(printf '%s/ctl\001dir' "$tmp")" --pid $$ \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "control-byte checkout not refused (exit $rc)"
+rc=0
+run "$h17" identity --pid $$ --checkout >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "missing --checkout value not refused (exit $rc)"
+
+# Empty origin URL: hashing "" would converge every such repo on one shared
+# sub-surface — must be the no-usable-origin solo posture instead (exit 5).
+co_emptyorigin="$tmp/empty-origin"
+mkdir -p "$co_emptyorigin"
+git -C "$co_emptyorigin" init -q
+git -C "$co_emptyorigin" config remote.origin.url ""
+rc=0
+run "$h17" identity --checkout "$co_emptyorigin" --pid $$ >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "empty origin URL not the solo posture (exit $rc, expected 5)"
+echo "ok: refusals — identity/handle, per-command flags, hostile values, empty origin"
+
+# Owner contract lines: a range/dotted unit ref resolves; the querying
+# tower's own record is identity-excluded; a positively-dead record is
+# never an attribution source and owner (read-only) never GCs it.
+printf 'alive\n' >"$tmp/evidence-verdict"
+run "$h17" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  --fenced demo-spec/3,demo-spec/4.5-5 >/dev/null || fail "owner fixture publish failed"
+sub17=$(run "$h17" surface --checkout "$co_a")
+out=$(run "$h17" owner --checkout "$co_b" --pid $$ demo-spec/4.5-5 2>/dev/null) \
+  || fail "range-ref owner query failed"
+[ "$out" = "owner	$uuid_a" ] || fail "range unit ref not resolved from the fenced field: $out"
+out=$(run "$h17" owner --checkout "$co_a" --session-id "$uuid_a" demo-spec/3 2>/dev/null) \
+  || fail "self owner query failed"
+[ "$out" = "unknown-owner" ] || fail "own record not identity-excluded from owner (got: $out)"
+printf 'dead\n' >"$tmp/evidence-verdict"
+out=$(run "$h17" owner --checkout "$co_b" --pid $$ demo-spec/3 2>/dev/null) \
+  || fail "dead-record owner query failed"
+[ "$out" = "unknown-owner" ] || fail "dead record used for owner attribution (got: $out)"
+[ -f "$sub17/$uuid_a" ] || fail "owner (read-only) GC'd a record"
+printf 'alive\n' >"$tmp/evidence-verdict"
+echo "ok: owner — range refs resolve, self-excluded, dead records never attribute or GC"
+
+# Field-level record validation: a well-tagged, 10-field record with one
+# off-grammar field (a bad death handle) classifies malformed.
+badrec_id="99999999-8888-7777-6666-555555555555"
+printf 'pw-presence-v1\t%s\t%s\t%s\t-\t-\t100\t100\tprocess nope\tfalse\n' \
+  "$(basename "$sub17")" "$badrec_id" "$co_a" >"$sub17/$badrec_id"
+out=$(run "$h17" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null)
+printf '%s\n' "$out" | grep -q "peer-unreadable	$badrec_id	malformed" \
+  || fail "field-level invalid record not classified malformed: $out"
+rm -f "$sub17/$badrec_id"
+
+# Obstructed sub-surface: a FILE where the directory should be is exit 3
+# (unknown peer status), never solitude and never a bootstrap.
+h17b="$tmp/h17b"
+run "$h17b" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null || fail "obstruction fixture publish failed"
+sub17b=$(run "$h17b" surface --checkout "$co_a")
+rm -rf "$sub17b"
+: >"$sub17b"
+rc=0
+run "$h17b" discover --checkout "$co_a" --pid $$ --min-interval 0 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 3 ] || fail "obstructed sub-surface not exit 3 (got $rc)"
+
+# Sentinel symlink refusal: a (dangling) symlink at the sentinel path is
+# refused (exit 4) and never written through.
+h17c="$tmp/h17c"
+mkdir -p "$h17c"
+ln -s "$tmp/sentinel-target" "$h17c/presence.sentinel"
+rc=0
+run "$h17c" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 4 ] || fail "symlinked sentinel not refused (exit $rc, expected 4)"
+[ ! -e "$tmp/sentinel-target" ] || fail "sentinel written through a symlink"
+echo "ok: field-level malformed, obstructed surface exit 3, sentinel symlink refused"
+
+# Start epoch across heartbeats: a valid preserved start survives a
+# re-publish; a garbage own record resets start to the fresh beat.
+h17d="$tmp/h17d"
+run "$h17d" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null || fail "start-epoch fixture publish failed"
+sub17d=$(run "$h17d" surface --checkout "$co_a")
+awk -F'	' 'BEGIN{OFS="\t"} {$7=100; print}' "$sub17d/$uuid_a" \
+  >"$sub17d/.tmp-start" && mv "$sub17d/.tmp-start" "$sub17d/$uuid_a"
+run "$h17d" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null || fail "heartbeat re-publish failed"
+start_f=$(awk -F'	' '{print $7}' "$sub17d/$uuid_a")
+[ "$start_f" = "100" ] || fail "valid start epoch not preserved across heartbeat ($start_f)"
+printf 'garbage no tabs\n' >"$sub17d/$uuid_a"
+run "$h17d" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null || fail "re-publish over garbage failed"
+start_f=$(awk -F'	' '{print $7}' "$sub17d/$uuid_a")
+beat_f=$(awk -F'	' '{print $8}' "$sub17d/$uuid_a")
+[ "$start_f" = "$beat_f" ] || fail "start epoch not reset over an unreadable own record ($start_f vs $beat_f)"
+
+# Cadence edges: --min-interval 0 never writes a stamp; a future-dated
+# stamp (clock step) and garbage stamp content never lock discovery out.
+h17e="$tmp/h17e"
+run "$h17e" publish --checkout "$co_a" --session-id "$uuid_b" --pid 4242 \
+  >/dev/null || fail "cadence fixture publish failed"
+sub17e=$(run "$h17e" surface --checkout "$co_a")
+run "$h17e" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval 0 >/dev/null 2>&1 || fail "cap-disabled discover failed"
+stamp17="$h17e/presence.cadence/$(basename "$sub17e").$uuid_a"
+[ ! -e "$stamp17" ] || fail "--min-interval 0 wrote a cadence stamp"
+printf '%s\n' "$(($(date +%s) + 99999))" >"$stamp17"
+out=$(run "$h17e" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval 9999 2>/dev/null) || fail "future-stamp discover failed"
+case "$out" in
+  cadence-capped*) fail "future-dated stamp capped discovery (clock-skew lockout)" ;;
+esac
+printf '%s\n' "$out" | grep -q '^summary	' || fail "future-stamp discover produced no summary"
+printf 'not-a-number\n' >"$stamp17"
+out=$(run "$h17e" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval 9999 2>/dev/null) || fail "garbage-stamp discover failed"
+case "$out" in
+  cadence-capped*) fail "garbage stamp capped discovery" ;;
+esac
+
+# gc-skip argues against solitude: a re-published-during-GC record is
+# spared AND counted (sole-tower=no on that pass).
+h17f="$tmp/h17f"
+run "$h17f" publish --checkout "$co_a" --session-id "$uuid_b" --pid 4242 \
+  >/dev/null || fail "gc-skip fixture publish failed"
+sub17f=$(run "$h17f" surface --checkout "$co_a")
+awk -F'	' 'BEGIN{OFS="\t"} {$8=$8+100; print}' "$sub17f/$uuid_b" >"$tmp/fresh-record"
+printf '%s\n' "$sub17f/$uuid_b" >"$tmp/swap-on-call"
+printf 'dead\n' >"$tmp/evidence-verdict"
+out=$(run "$h17f" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null)
+rm -f "$tmp/swap-on-call"
+printf 'alive\n' >"$tmp/evidence-verdict"
+printf '%s\n' "$out" | grep -q "gc-skip	$uuid_b" || fail "gc-skip fixture did not gc-skip: $out"
+printf '%s\n' "$out" | grep -q "sole-tower=no" \
+  || fail "gc-skip did not count toward the peer set (summary: $out)"
+echo "ok: start-epoch preserve/reset, cadence edges never lock out, gc-skip counts as a peer"
 
 echo "PASS: all fleet-presence tests"
