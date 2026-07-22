@@ -51,6 +51,17 @@
 # supported awk (one-true-awk, gawk, mawk, busybox) though not literally
 # POSIX. Matches and emitted bytes do not vary by the caller's host locale.
 
+# spec_parse__printable <value> — internal: strip C0 + DEL + C1 bytes
+# (echo-safety.sh's canonical range) for the lib's own stderr diagnostics.
+# The lib cannot source echo-safety.sh itself (a sourced POSIX-sh file
+# cannot portably locate its siblings), so this is a deliberate inline copy
+# of the sanitize_printable byte range, spawned only on error paths.
+spec_parse__printable() {
+  sp_p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
+  [ -n "$sp_p" ] || sp_p='(unprintable path)'
+  printf '%s' "$sp_p"
+}
+
 # spec_parse_extract_tasks <tasks.md> — the canonical `tasks.md`
 # definition-content extraction (doctrine/spec-format.md). Emits, for each
 # task block sorted numerically by task id (component-wise: 2 < 2.5 < 10):
@@ -75,17 +86,6 @@
 # drain-gates.sh screen — awk truncates records at NUL, which would
 # silently hide definition lines), a NUL screen whose own tooling failed,
 # or a duplicate task id.
-# spec_parse__printable <value> — internal: strip C0 + DEL + C1 bytes
-# (echo-safety.sh's canonical range) for the lib's own stderr diagnostics.
-# The lib cannot source echo-safety.sh itself (a sourced POSIX-sh file
-# cannot portably locate its siblings), so this is a deliberate inline copy
-# of the sanitize_printable byte range, spawned only on error paths.
-spec_parse__printable() {
-  sp_p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
-  [ -n "$sp_p" ] || sp_p='(unprintable path)'
-  printf '%s' "$sp_p"
-}
-
 spec_parse_extract_tasks() {
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then
     printf '%s\n' "spec-parse: missing or unreadable: $(spec_parse__printable "$1")" >&2
