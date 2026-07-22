@@ -9,9 +9,12 @@
 #   - not inside a git work tree — a check that cannot see the repo FAILS,
 #     never silently skips (the CI-decidability pin: CI wires explicitly,
 #     then this check inside `mise run check` verifies);
-#   - core.hooksPath is unset, or is anything other than the literal
-#     `githooks` the wire step writes (an absolute or re-spelled path fails
-#     so drift stays loud);
+#   - the repo-LOCAL core.hooksPath is unset, or is anything other than the
+#     literal `githooks` the wire step writes (an absolute or re-spelled path
+#     fails so drift stays loud). Read at --local level, mirroring the wire
+#     step's local-only read: a global core.hooksPath=githooks must not mask
+#     an unwired clone, or the clone silently unwires the day the global
+#     value changes;
 #   - any of the four hook files is missing from this checkout, or present
 #     but non-executable (git silently skips non-executable hooks, so a
 #     half-wired clone must not pass).
@@ -37,9 +40,9 @@ if ! top=$(git rev-parse --show-toplevel 2>/dev/null); then
 fi
 
 status=0
-hookspath=$(git config --get core.hooksPath 2>/dev/null || true)
+hookspath=$(git config --local --get core.hooksPath 2>/dev/null || true)
 if [ -z "$hookspath" ]; then
-  echo "check-githooks: core.hooksPath is unset or empty — the hook backstop is not wired." \
+  echo "check-githooks: repo-local core.hooksPath is unset or empty — the hook backstop is not wired." \
     "Remedy: scripts/wire-githooks.sh" >&2
   status=1
 elif [ "$hookspath" != "githooks" ]; then

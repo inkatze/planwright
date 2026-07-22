@@ -18,10 +18,12 @@
 #     --no-verify skips commit-msg and pre-push but NOT prepare-commit-msg,
 #     and `git rebase --no-verify` skips pre-rebase (c10);
 #   - the wire step is idempotent, and the detection check DETECTS ONLY: it
-#     fails on a clone with `core.hooksPath` unset, pointing elsewhere, or
-#     with missing/non-executable hook files; passes only on a fully wired
+#     fails on a clone with the repo-local `core.hooksPath` unset (a global
+#     value must not mask an unwired clone), pointing elsewhere, or with
+#     missing/non-executable hook files; passes only on a fully wired
 #     clone; and fails (never silently skips) outside a git work tree
-#     (REQ-A1.3);
+#     (REQ-A1.3); both scripts reject extra arguments (usage, exit 2) and
+#     commit-msg fails closed on a missing message-file argument (c7b);
 #   - the CI wiring is pinned decidable: ci.yml runs the wire step before
 #     `mise run check`, and check:githooks is a member of the `check`
 #     aggregate (wire-then-verify, never a silent skip; D-3);
@@ -274,8 +276,8 @@ echo "ok: c6 pre-push stdin fail-closed behavior"
 
 # ---------------------------------------------------------------------------
 # c7. Detection check: passes only on the fully wired clone; fails on unset,
-#     elsewhere-pointing, missing-file, and non-executable half-wired states;
-#     fails (never skips) outside a git work tree.
+#     elsewhere-pointing, global-only-wired, missing-file, and non-executable
+#     half-wired states; fails (never skips) outside a git work tree.
 # ---------------------------------------------------------------------------
 (cd "$r" && /bin/sh "$CHECK" >/dev/null) || fail "c7: check failed on a fully wired clone"
 
@@ -304,10 +306,47 @@ chmod -x "$d/githooks/commit-msg"
 (cd "$d" && /bin/sh "$CHECK" >/dev/null 2>&1) \
   && fail "c7: check passed with a non-executable hook (git silently skips those)"
 chmod +x "$d/githooks/commit-msg"
+# Global-only wiring must NOT pass: the check reads the repo-LOCAL config
+# (mirroring the wire step's local-only read), so a global
+# core.hooksPath=githooks covering a clone whose local value is unset still
+# fails until the wire step runs — otherwise the clone silently unwires the
+# day the global value changes.
+gitc "$d" config --unset core.hooksPath
+printf '[core]\n\thooksPath = githooks\n' >"$tmp/fakeglobal"
+if (cd "$d" && GIT_CONFIG_GLOBAL="$tmp/fakeglobal" /bin/sh "$CHECK" >/dev/null 2>&1); then
+  fail "c7: check passed on global-only wiring (local core.hooksPath unset)"
+fi
+gitc "$d" config core.hooksPath githooks
 if (cd "$tmp/notrepo" && GIT_CEILING_DIRECTORIES="$tmp" /bin/sh "$CHECK" >/dev/null 2>&1); then
   fail "c7: check outside a git work tree must fail, not silently skip"
 fi
 echo "ok: c7 detection check fail/pass matrix"
+
+# ---------------------------------------------------------------------------
+# c7b. Usage and missing-message-file fail-closed arms: the check and wire
+#      steps reject extra arguments (usage, exit 2), and commit-msg fails
+#      closed (exit 1, its own stderr marker) when the message-file argument
+#      is missing or unreadable — the direct-invocation siblings of c6's
+#      pre-push stdin fail-closed matrix.
+# ---------------------------------------------------------------------------
+st=0
+(cd "$r" && /bin/sh "$CHECK" extra >/dev/null 2>&1) || st=$?
+[ "$st" -eq 2 ] || fail "c7b: check with an extra argument must exit 2 (usage), got $st"
+st=0
+(cd "$r" && /bin/sh "$WIRE" extra >/dev/null 2>&1) || st=$?
+[ "$st" -eq 2 ] || fail "c7b: wire with an extra argument must exit 2 (usage), got $st"
+cm="$r/githooks/commit-msg"
+st=0
+(cd "$r" && "$cm" >/dev/null 2>"$tmp/stderr.capture") || st=$?
+[ "$st" -eq 1 ] || fail "c7b: commit-msg with no argument must exit 1 (fail closed), got $st"
+grep -q "planwright githooks" "$tmp/stderr.capture" \
+  || fail "c7b: commit-msg no-argument rejection lacks the hook's stderr marker"
+st=0
+(cd "$r" && "$cm" "$tmp/does-not-exist.msg" >/dev/null 2>"$tmp/stderr.capture") || st=$?
+[ "$st" -eq 1 ] || fail "c7b: commit-msg with a missing file must exit 1 (fail closed), got $st"
+grep -q "planwright githooks" "$tmp/stderr.capture" \
+  || fail "c7b: commit-msg missing-file rejection lacks the hook's stderr marker"
+echo "ok: c7b usage and missing-file fail-closed arms"
 
 # ---------------------------------------------------------------------------
 # c8. CI wiring is pinned decidable: ci.yml wires before `mise run check`,
