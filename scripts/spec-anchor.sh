@@ -28,6 +28,24 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
+# A CDPATH-resolved cd would echo the destination into the command
+# substitution below, corrupting the derived lib path (house pattern).
+unset CDPATH 2>/dev/null || true
+
+# The canonical tasks.md definition-content extraction comes from the shared
+# spec-parse grammar lib (format-grammar D-3, REQ-B1.2). Guarded source
+# (REQ-B1.6a): fail closed when the lib is missing, unreadable, or
+# syntax-erroring — a bare `.` continuing fail-open would let a private-copy
+# fallback or an empty extraction hash a wrong anchor.
+here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
+spec_parse_sh="$here/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  echo "spec-anchor: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
+
 if [ $# -ne 1 ]; then
   echo "usage: spec-anchor.sh <spec-dir>" >&2
   exit 2
@@ -41,72 +59,14 @@ for f in requirements.md design.md tasks.md test-spec.md; do
   fi
 done
 
-# Canonical tasks.md definition-content extraction (doctrine/spec-format.md).
-# Emits, for each task block sorted by id: the heading line and the five
-# definition field bullets with their continuation lines, each terminated by
-# a newline. Everything else (section headings, intro prose, state
-# annotations, Deferred/Out-of-scope bullets) is excluded.
-extract_tasks() {
-  awk '
-    function sortkey(id,    parts, n, major, minor) {
-      # "\\." (ERE literal dot) rather than ".": a single-char separator is
-      # already literal in POSIX awk, but the escape says so explicitly.
-      n = split(id, parts, "\\.")
-      major = parts[1] + 0
-      minor = (n > 1) ? parts[2] + 0 : 0
-      return sprintf("%08d.%08d", major, minor)
-    }
-    /^## /  { in_task = 0; keep = 0; next }
-    /^### Task [0-9]/ {
-      in_task = 1
-      keep = 0
-      key = sortkey($3)
-      if (key in buf) {
-        # Two blocks with the same id would silently overwrite each other;
-        # fail closed rather than hash an incomplete stream (REQ-F1.9).
-        print "spec-anchor: duplicate task id " $3 > "/dev/stderr"
-        dup = 1
-        exit 1
-      }
-      nkeys++
-      keys[nkeys] = key
-      buf[key] = $0 "\n"
-      cur = key
-      next
-    }
-    /^### / { in_task = 0; keep = 0; next }   # non-task H3 ends the block too
-    !in_task { next }
-    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
-      keep = 1
-      buf[cur] = buf[cur] $0 "\n"
-      next
-    }
-    /^- /      { keep = 0; next }   # any other top-level bullet (Status, Last activity, Dispatch, unknown)
-    /^[ \t]+[^ \t]/ {                # continuation line of the current bullet
-      if (keep) buf[cur] = buf[cur] $0 "\n"
-      next
-    }
-    { keep = 0 }                     # blank line or non-bullet prose ends the bullet
-    END {
-      if (dup) exit 1
-      # insertion sort of keys (POSIX awk has no asort)
-      for (i = 2; i <= nkeys; i++) {
-        v = keys[i]
-        j = i - 1
-        while (j >= 1 && keys[j] > v) { keys[j + 1] = keys[j]; j-- }
-        keys[j + 1] = v
-      }
-      for (i = 1; i <= nkeys; i++) printf "%s", buf[keys[i]]
-    }
-  ' "$1"
-}
-
 req_hash=$(git hash-object "$dir/requirements.md")
 des_hash=$(git hash-object "$dir/design.md")
-# Capture the extraction first so an awk failure aborts under set -e (a
-# failure inside `extract | git hash-object` would otherwise be masked by
-# the pipeline's last command and hash an empty stream — fail-open).
-extracted=$(extract_tasks "$dir/tasks.md")
+# Capture the extraction (the lib's canonical definition-content stream)
+# first so a parse failure aborts under set -e (a failure inside
+# `extract | git hash-object` would otherwise be masked by the pipeline's
+# last command and hash an empty stream — fail-open). The captured-assignment
+# form is the REQ-B1.6f exit-status check.
+extracted=$(spec_parse_extract_tasks "$dir/tasks.md")
 if [ -n "$extracted" ]; then
   # printf restores the single trailing newline command substitution strips,
   # keeping the hashed bytes identical to the raw extraction stream.

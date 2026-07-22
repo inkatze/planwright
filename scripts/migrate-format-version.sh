@@ -95,6 +95,20 @@ lock_sh="$here/orchestrate-lock.sh"
 # shellcheck source=scripts/echo-safety.sh
 . "$here/echo-safety.sh"
 
+# The canonical tasks.md definition-content extraction comes from the shared
+# spec-parse grammar lib (format-grammar D-3, REQ-B1.2): the migration's
+# self-check hashes this stream before and after the transform and refuses
+# on any difference (REQ-A1.4, REQ-D1.2). Guarded source (REQ-B1.6a): fail
+# closed when the lib is missing, unreadable, or syntax-erroring — a bare
+# `.` continuing fail-open would run the self-check over an empty stream.
+spec_parse_sh="$here/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  echo "migrate-format-version: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
+
 if [ ! -x "$anchor_sh" ]; then
   echo "migrate-format-version: spec-anchor.sh missing or not executable: $anchor_sh" >&2
   exit 2
@@ -184,61 +198,6 @@ header_value() {
       sub(/[ \t]+$/, "")
       print
       exit
-    }
-  ' "$1"
-}
-
-# extract_tasks <tasks.md> — the canonical definition-content extraction
-# (doctrine/spec-format.md), byte-identical in behavior to
-# scripts/spec-anchor.sh's: the migration's self-check hashes this stream
-# before and after the transform and refuses on any difference (REQ-A1.4,
-# REQ-D1.2).
-extract_tasks() {
-  awk '
-    function sortkey(id,    parts, n, major, minor) {
-      n = split(id, parts, "\\.")
-      major = parts[1] + 0
-      minor = (n > 1) ? parts[2] + 0 : 0
-      return sprintf("%08d.%08d", major, minor)
-    }
-    /^## /  { in_task = 0; keep = 0; next }
-    /^### Task [0-9]/ {
-      in_task = 1
-      keep = 0
-      key = sortkey($3)
-      if (key in buf) {
-        print "duplicate task id " $3 > "/dev/stderr"
-        dup = 1
-        exit 1
-      }
-      nkeys++
-      keys[nkeys] = key
-      buf[key] = $0 "\n"
-      cur = key
-      next
-    }
-    /^### / { in_task = 0; keep = 0; next }
-    !in_task { next }
-    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
-      keep = 1
-      buf[cur] = buf[cur] $0 "\n"
-      next
-    }
-    /^- /      { keep = 0; next }
-    /^[ \t]+[^ \t]/ {
-      if (keep) buf[cur] = buf[cur] $0 "\n"
-      next
-    }
-    { keep = 0 }
-    END {
-      if (dup) exit 1
-      for (i = 2; i <= nkeys; i++) {
-        v = keys[i]
-        j = i - 1
-        while (j >= 1 && keys[j] > v) { keys[j + 1] = keys[j]; j-- }
-        keys[j + 1] = v
-      }
-      for (i = 1; i <= nkeys; i++) printf "%s", buf[keys[i]]
     }
   ' "$1"
 }
@@ -771,11 +730,11 @@ EOF
   # across the transform. A difference means the transform is not the
   # mechanical one it claims to be — refuse, write nothing. Diagnostics are
   # kept (sanitized) so a duplicate-id refusal names the id.
-  if ! extract_tasks "$bdir/tasks.md" >"$gtmp/extract.old" 2>"$gtmp/extract.err"; then
+  if ! spec_parse_extract_tasks "$bdir/tasks.md" >"$gtmp/extract.old" 2>"$gtmp/extract.err"; then
     refuse "$bname" "canonical extraction failed on the v1 tasks.md: $(sanitize_printable "$(cat "$gtmp/extract.err")" "(no diagnostic)")"
     return 0
   fi
-  if ! extract_tasks "$gtmp/tasks.new" >"$gtmp/extract.new" 2>"$gtmp/extract.err"; then
+  if ! spec_parse_extract_tasks "$gtmp/tasks.new" >"$gtmp/extract.new" 2>"$gtmp/extract.err"; then
     refuse "$bname" "canonical extraction failed on the migrated tasks.md: $(sanitize_printable "$(cat "$gtmp/extract.err")" "(no diagnostic)")"
     return 0
   fi
