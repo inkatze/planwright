@@ -14,6 +14,9 @@
 #   - `pre-push` fails closed on an unparseable stdin refspec, including the
 #     missing-trailing-newline last line (the A1.2 arm of REQ-H1.3's
 #     vacuous-input coverage);
+#   - the documented deliberate-bypass semantics hold (githooks(5)):
+#     --no-verify skips commit-msg and pre-push but NOT prepare-commit-msg,
+#     and `git rebase --no-verify` skips pre-rebase (c10);
 #   - the wire step is idempotent, and the detection check DETECTS ONLY: it
 #     fails on a clone with `core.hooksPath` unset, pointing elsewhere, or
 #     with missing/non-executable hook files; passes only on a fully wired
@@ -36,10 +39,13 @@ export LC_ALL
 unset CDPATH
 
 # Isolate fixtures from the host's global/system git config (autosetuprebase,
-# commit signing, a global core.hooksPath would all corrupt the fixtures).
+# commit signing, a global core.hooksPath would all corrupt the fixtures),
+# and pin a no-op editor so editor-opening spellings (-c, --squash,
+# --fixup=amend:) run headless.
 GIT_CONFIG_GLOBAL=/dev/null
 GIT_CONFIG_SYSTEM=/dev/null
-export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
+GIT_EDITOR=true
+export GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM GIT_EDITOR
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$here/.." && pwd)
@@ -113,9 +119,13 @@ gitc "$r" push -q origin main
 # suite does not stall once per copy. cp is the cross-volume fallback.
 mkdir "$r/githooks"
 for h in $HOOK_NAMES; do
-  ln "$HOOKS_SRC/$h" "$r/githooks/$h" 2>/dev/null || cp "$HOOKS_SRC/$h" "$r/githooks/$h"
+  # chmod only the cp fallback: a chmod on a hard link would mutate the
+  # repo's own hook file modes (shared inode).
+  if ! ln "$HOOKS_SRC/$h" "$r/githooks/$h" 2>/dev/null; then
+    cp "$HOOKS_SRC/$h" "$r/githooks/$h"
+    chmod +x "$r/githooks/$h"
+  fi
 done
-chmod +x "$r"/githooks/*
 # Absorb any remaining first-exec assessment in one bounded place, so a
 # Gatekeeper stall reads as slow setup, never as a hung git command.
 (cd "$r" && printf '' | ./githooks/pre-push origin "file://$origin" >/dev/null 2>&1) || :
@@ -134,9 +144,10 @@ gitc "$r" commit -qm "chore: track hooks"
   || fail "wire step second run changed core.hooksPath"
 echo "ok: wire step wires and is idempotent"
 
-# Wire step outside any git repo fails.
+# Wire step outside any git repo fails. GIT_CEILING_DIRECTORIES pins the
+# not-a-repo premise even when TMPDIR itself sits inside some git work tree.
 mkdir "$tmp/notrepo"
-if (cd "$tmp/notrepo" && /bin/sh "$WIRE" >/dev/null 2>&1); then
+if (cd "$tmp/notrepo" && GIT_CEILING_DIRECTORIES="$tmp" /bin/sh "$WIRE" >/dev/null 2>&1); then
   fail "wire step outside a git repo: expected failure, got success"
 fi
 echo "ok: wire step fails outside a git repo"
@@ -172,6 +183,7 @@ expect_hook_reject "c2 --amend (flag last)" gitc "$r" commit --no-edit --amend
 echo staged >>"$r/feat-file"
 gitc "$r" add feat-file
 expect_hook_reject "c2 -C HEAD message reuse" gitc "$r" commit -C HEAD
+expect_hook_reject "c2 -c HEAD message reuse (editor form)" gitc "$r" commit -c HEAD
 [ "$(gitc "$r" rev-parse HEAD)" = "$head_before" ] || fail "c2: an amend attempt moved HEAD"
 echo "ok: c2 amend spellings rejected"
 
@@ -180,13 +192,16 @@ echo "ok: c2 amend spellings rejected"
 #     both via the generating flags and via a literal -m subject.
 # ---------------------------------------------------------------------------
 expect_hook_reject "c3 --fixup=HEAD" gitc "$r" commit --fixup=HEAD
-expect_hook_reject "c3 --squash=HEAD" env GIT_EDITOR=true git -C "$r" \
-  -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false \
-  commit --squash=HEAD
+expect_hook_reject "c3 --squash=HEAD" gitc "$r" commit --squash=HEAD
+expect_hook_reject "c3 --fixup=amend:HEAD" gitc "$r" commit --fixup=amend:HEAD
 expect_hook_reject "c3 -a --fixup=HEAD (flag position)" gitc "$r" commit -a --fixup=HEAD
 expect_hook_reject "c3 -m squash!" gitc "$r" commit -m "squash! anything"
 expect_hook_reject "c3 -m fixup!" gitc "$r" commit -m "fixup! anything"
 expect_hook_reject "c3 -m amend!" gitc "$r" commit -m "amend! anything"
+# git strips comment lines AFTER commit-msg runs: a comment-first file must
+# not shadow the real subject.
+printf '# a comment line\nfixup! smuggled subject\n' >"$tmp/comment-first.msg"
+expect_hook_reject "c3 comment-first -F file" gitc "$r" commit --cleanup=strip -F "$tmp/comment-first.msg"
 echo "ok: c3 squash!/fixup!/amend! subjects rejected"
 
 # ---------------------------------------------------------------------------
@@ -251,6 +266,8 @@ printf 'refs/heads/x %s refs/heads/main %s' "$zeros" "$zeros" | run_pre_push >/d
   && fail "c6: main refspec without trailing newline accepted (must reject)"
 printf 'refs/heads/x %s refs/heads/feature-x %s\n' "$zeros" "$zeros" | run_pre_push >/dev/null 2>&1 \
   || fail "c6: well-formed feature refspec line rejected"
+printf 'refs/heads/x %s refs/heads/feature-x %s' "$zeros" "$zeros" | run_pre_push >/dev/null 2>&1 \
+  || fail "c6: well-formed feature refspec without trailing newline rejected (must accept)"
 printf '' | run_pre_push >/dev/null 2>&1 \
   || fail "c6: empty stdin (nothing to push) rejected"
 echo "ok: c6 pre-push stdin fail-closed behavior"
@@ -287,7 +304,7 @@ chmod -x "$d/githooks/commit-msg"
 (cd "$d" && /bin/sh "$CHECK" >/dev/null 2>&1) \
   && fail "c7: check passed with a non-executable hook (git silently skips those)"
 chmod +x "$d/githooks/commit-msg"
-if (cd "$tmp/notrepo" && /bin/sh "$CHECK" >/dev/null 2>&1); then
+if (cd "$tmp/notrepo" && GIT_CEILING_DIRECTORIES="$tmp" /bin/sh "$CHECK" >/dev/null 2>&1); then
   fail "c7: check outside a git work tree must fail, not silently skip"
 fi
 echo "ok: c7 detection check fail/pass matrix"
@@ -302,8 +319,11 @@ check_line=$(grep -n "mise run check" "$ci" | grep -v "^ *[0-9]*: *#" | head -n 
 [ -n "$wire_line" ] || fail "c8: ci.yml has no wire-githooks.sh step"
 [ -n "$check_line" ] || fail "c8: ci.yml has no 'mise run check' step"
 [ "$wire_line" -lt "$check_line" ] || fail "c8: ci.yml wire step does not precede 'mise run check'"
-grep -q '"check:githooks"' "$repo_root/mise.toml" \
-  || fail "c8: check:githooks is not wired into mise.toml"
+# Scope the membership assertion to the [tasks.check] depends block: a bare
+# whole-file grep would match the task's own definition header and pass
+# vacuously with the aggregate entry deleted.
+sed -n '/^\[tasks\.check\]$/,/^\[tasks/p' "$repo_root/mise.toml" | grep -q '"check:githooks"' \
+  || fail "c8: check:githooks is not in the check aggregate's depends list"
 echo "ok: c8 CI wire-then-verify pinned"
 
 # ---------------------------------------------------------------------------
@@ -322,5 +342,32 @@ gitc "$b" remote add origin "$origin"
 gitc "$b" push -q origin HEAD:refs/heads/no-hooks-branch \
   || fail "c9: feature push failed on a wired clone without githooks/ files"
 echo "ok: c9 hooks no-op when the files are absent"
+
+# ---------------------------------------------------------------------------
+# c10. The documented bypass semantics are pinned empirically (githooks(5)):
+#      --no-verify skips commit-msg and pre-push, does NOT suppress
+#      prepare-commit-msg, and `git rebase --no-verify` skips pre-rebase.
+#      The doc claims corrected by the polish pass live or die by these.
+# ---------------------------------------------------------------------------
+# Rebase bypass first, on a throwaway branch cut before any fixup!-subject
+# commit exists (so a replayed subject can never fail the rebase for an
+# unrelated reason).
+gitc "$r" checkout -q -b nv-rebase feat
+gitc "$r" rebase --no-verify main >/dev/null 2>&1 \
+  || fail "c10: git rebase --no-verify did not bypass pre-rebase"
+gitc "$r" checkout -q feat
+echo nv >>"$r/feat-file"
+gitc "$r" add feat-file
+gitc "$r" commit -q --no-verify -m "fixup! deliberate human bypass" \
+  || fail "c10: --no-verify did not bypass commit-msg"
+expect_hook_reject "c10 --amend --no-verify still rejected" \
+  gitc "$r" commit --amend --no-edit --no-verify
+origin_main_save=$(git -C "$origin" rev-parse main)
+gitc "$r" checkout -q main
+gitc "$r" push -q --no-verify origin +refs/heads/main \
+  || fail "c10: push --no-verify did not bypass pre-push"
+git -C "$origin" update-ref refs/heads/main "$origin_main_save" \
+  || fail "c10: could not restore fixture origin/main"
+echo "ok: c10 no-verify bypass semantics pinned"
 
 echo "PASS: test-githooks.sh"

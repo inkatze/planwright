@@ -39,12 +39,11 @@ fi
 status=0
 hookspath=$(git config --get core.hooksPath 2>/dev/null || true)
 if [ -z "$hookspath" ]; then
-  echo "check-githooks: core.hooksPath is unset — the hook backstop is not wired." \
+  echo "check-githooks: core.hooksPath is unset or empty — the hook backstop is not wired." \
     "Remedy: scripts/wire-githooks.sh" >&2
   status=1
 elif [ "$hookspath" != "githooks" ]; then
-  echo "check-githooks: core.hooksPath is '$hookspath', not the tracked 'githooks'." \
-    "Remedy: scripts/wire-githooks.sh" >&2
+  printf "check-githooks: core.hooksPath is %s, not the tracked 'githooks'. Remedy: scripts/wire-githooks.sh\n" "'$hookspath'" >&2
   status=1
 fi
 

@@ -28,11 +28,11 @@ description = "Render a spec bundle's derived execution status (the canonical re
 run = "scripts/spec-status.sh"
 
 [tasks."lint:shell"]
-description = "shellcheck on scripts, tests, and the extensionless githooks/ hooks (shell classified by shebang)"
+description = "shellcheck on scripts, tests, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
 run = "shellcheck scripts/*.sh tests/*.sh githooks/*"
 
 [tasks."lint:fmt"]
-description = "shfmt diff check on scripts, tests, and the extensionless githooks/ hooks (style comes from .editorconfig; shfmt -w to fix)"
+description = "shfmt diff check on scripts, tests, and the extensionless githooks/ hooks (whole-directory glob; style comes from .editorconfig; shfmt -w to fix)"
 run = "shfmt -d scripts/*.sh tests/*.sh githooks/*"
 
 [tasks."lint:md"]

@@ -13,11 +13,26 @@ LC_ALL=C
 export LC_ALL
 unset CDPATH
 
-if [ $# -lt 1 ] || [ ! -r "${1}" ]; then
+if [ $# -lt 1 ] || [ ! -f "${1}" ] || [ ! -r "${1}" ]; then
   echo "planwright githooks: commit-msg: no readable message file argument; failing closed" >&2
   exit 1
 fi
-subject=$(sed -n 1p "$1")
+# The subject is the first non-blank, non-comment line: git applies message
+# cleanup (comment stripping) AFTER this hook runs, so scanning past
+# '#'-comment lines keeps a comment-first file from shadowing the real
+# subject. Assumes the default core.commentChar '#'; with a custom comment
+# char a '#'-first subject is skipped and a later line is screened instead —
+# acceptable for an accident-catcher. Zero forks: pure read builtins (this
+# runs on every commit). The `|| [ -n ... ]` arm keeps a final line without
+# a trailing newline in scope.
+subject=
+while IFS= read -r line || [ -n "$line" ]; do
+  case $line in
+    "#"* | "") continue ;;
+  esac
+  subject=$line
+  break
+done <"$1"
 case $subject in
   "squash!"* | "fixup!"* | "amend!"*)
     echo "planwright githooks: commit-msg: refusing '${subject%%!*}!' subject" \

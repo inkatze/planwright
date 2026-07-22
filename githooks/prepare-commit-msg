@@ -18,6 +18,12 @@ unset CDPATH
 
 [ "${2:-}" = "commit" ] || exit 0
 [ -n "${3:-}" ] || exit 0
+# Never let a dash-leading value reach rev-parse as an option (git always
+# passes a rev here, but the guard is free and version-proof, unlike
+# --end-of-options which older rev-parse would choke on).
+case ${3} in
+  -*) exit 0 ;;
+esac
 # Both SHAs come from git itself; an unresolvable one (or an unborn HEAD,
 # where no amend is possible) simply means no amend signature.
 target=$(git rev-parse --verify --quiet "${3}^{commit}") || exit 0

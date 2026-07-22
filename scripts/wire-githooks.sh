@@ -16,9 +16,9 @@
 # The relative value `githooks` resolves against each worktree's top level at
 # hook-run time, which is exactly the tracked dir on branches that carry it.
 #
-# Usage: wire-githooks.sh   (from anywhere inside the clone)
-# Exit: 0 wired (or already wired); 2 usage error / not a git repo / config
-#   write failure.
+# Usage: wire-githooks.sh   (from anywhere inside a work tree of the clone)
+# Exit: 0 wired (or already wired); 2 usage error / not a git work tree
+#   (a bare repo has nothing to wire) / config write failure.
 #
 # Portable POSIX sh; bash 3.2 / BSD tooling floor.
 set -u
@@ -31,27 +31,35 @@ if [ $# -ne 0 ]; then
   exit 2
 fi
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  echo "wire-githooks: not inside a git repository" >&2
+if ! top=$(git rev-parse --show-toplevel 2>/dev/null); then
+  echo "wire-githooks: not inside a git work tree (a bare repo has no checkout for the relative hooksPath to resolve against; nothing to wire)" >&2
   exit 2
 fi
 
-current=$(git config --get core.hooksPath 2>/dev/null || true)
+# Read the LOCAL config only: a global core.hooksPath=githooks must not
+# short-circuit the repo-local write, or the clone silently unwires the day
+# the global value changes.
+current=$(git config --local --get core.hooksPath 2>/dev/null || true)
 if [ "$current" = "githooks" ]; then
   echo "wire-githooks: already wired (core.hooksPath=githooks); nothing to do."
   exit 0
 fi
 if [ -n "$current" ]; then
-  echo "wire-githooks: note: replacing existing core.hooksPath '$current'."
+  printf 'wire-githooks: note: replacing existing core.hooksPath %s.\n' "'$current'"
 fi
 
 if ! git config core.hooksPath githooks; then
+  # Two concurrent wire runs can race git's config.lock; if the other run
+  # already wrote the value, this invocation's job is done.
+  if [ "$(git config --local --get core.hooksPath 2>/dev/null || true)" = "githooks" ]; then
+    echo "wire-githooks: already wired concurrently (core.hooksPath=githooks); nothing to do."
+    exit 0
+  fi
   echo "wire-githooks: writing core.hooksPath failed" >&2
   exit 2
 fi
 
-top=$(git rev-parse --show-toplevel 2>/dev/null || true)
-if [ -n "$top" ] && [ ! -d "$top/githooks" ]; then
+if [ ! -d "$top/githooks" ]; then
   echo "wire-githooks: note: this checkout has no githooks/ directory yet;" \
     "the hooks no-op until a branch carrying them is checked out."
 fi

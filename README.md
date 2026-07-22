@@ -192,10 +192,13 @@ tests/            shell tests for the scripts
 ## Development
 
 planwright pins its toolchain with [mise](https://mise.jdx.dev): run
-`mise install` once, then `mise run check` runs the full gate — shell tests,
+`mise install` once and `scripts/wire-githooks.sh` once per clone (the
+tracked git-hook backstop; the gate fails loudly on an unwired clone), then
+`mise run check` runs the full gate — shell tests,
 shellcheck, shfmt, markdownlint, yamllint, conventional-commit lint, manifest +
 link + options-reference checks, the ledger structural-corruption +
-duplicate-Status guard, the spec validator, and a gitleaks scan. It is the
+duplicate-Status guard, the spec validator, the hook-wiring check, and a
+gitleaks scan. It is the
 same gate CI runs on every pull request. This is dev tooling only;
 planwright's runtime scripts stay plain portable bash. See
 [Contributing](docs/CONTRIBUTING.md) for the workflow.
