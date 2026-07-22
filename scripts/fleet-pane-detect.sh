@@ -73,7 +73,10 @@
 #                            with the helper's stderr diagnostics passing
 #                            through. Omitted: the oracle is never consulted
 #                            (the pre-oracle behavior, unchanged). An empty or
-#                            malformed value is refused (exit 2).
+#                            otherwise unusable value costs oracle coverage
+#                            only: a loud warning, then the pane heuristics
+#                            run (fail toward the detector, never toward
+#                            classification loss).
 #
 #   Prints exactly one line to stdout and exits 0 on a normal classification
 #   (a single token, except defer-to-oracle, which carries the verdict):
@@ -83,9 +86,11 @@
 #                    --cwd, and the verdict rides the same line (one probe
 #                    instant serves the gate and the consumer) — pane
 #                    heuristics are fallback-only while the oracle is
-#                    available (D-11). Deferring resets the two-frame debounce
-#                    state, so the first post-defer fallback frame starts the
-#                    floor afresh.
+#                    available (D-11).
+#   EITHER defer resets the two-frame debounce state: frames spent deferring
+#   record no history, so a stale pre-defer frame pair must not instantly
+#   confirm once the defer era ends — the first post-defer fallback frame
+#   starts the floor afresh.
 #     pending        the debounce floor is not yet met (the first frame, or a
 #                    flap that has not repeated) — no confirmed verdict yet.
 #     idle           positive at-prompt anchor present AND no busy marker.
@@ -388,13 +393,18 @@ valid_field "$scope" || {
   echo "fleet-pane-detect: refusing malformed scope '$(sanitize_printable "$scope" "(unprintable scope)")'" >&2
   exit 2
 }
-# The oracle join key, validated whenever the flag was SEEN — an explicitly
-# empty value is refused like any other malformed shape, never silently
-# treated as "flag not given" (a caller expanding an unset variable must hear
-# about it, not lose oracle coverage without a trace).
+# The oracle join key, validated whenever the flag was SEEN. A rejected value
+# — empty (a caller expanding an unset variable), relative, control-bearing,
+# or simply unrepresentable in the key grammar (a non-ASCII worktree path
+# under the LC_ALL=C printable class) — costs ORACLE COVERAGE, not the
+# detector: warn loudly and fall through to the pane heuristics. This file's
+# posture is fail toward running the detector, never toward blindness; a
+# hard exit here would turn a merely-unjoinable path into total
+# classification loss for that worker. (The liveness helper's own arms stay
+# strict exit-2 refusals; this relaxation is the detector's alone.)
 if [ "$oracle_cwd_given" = 1 ] && ! valid_oracle_cwd "$oracle_cwd"; then
-  echo "fleet-pane-detect: refusing malformed --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' (absolute, printable, backslash-free, <=512 chars)" >&2
-  exit 2
+  echo "fleet-pane-detect: --cwd '$(sanitize_printable "$oracle_cwd" "(unprintable cwd)")' is not a usable oracle join key (absolute, printable, backslash-free, <=512 chars); skipping the oracle, pane heuristics only" >&2
+  oracle_cwd=""
 fi
 
 [ -f "$pane" ] && [ -r "$pane" ] || {
@@ -406,6 +416,9 @@ fi
 # Only a push-capable backend can register a hook, so only it is gated. The
 # capability is single-sourced from fleet-liveness.sh push-capable (exit 0 =>
 # push-capable/tmux; exit 1 => observe-only/hook-less; exit 2 => unknown).
+# The defer itself is emitted after the debounce state key is computed below,
+# so a defer frame can reset the state (same rule as the oracle gate).
+push_fresh=0
 push_capable=1
 if [ -x "$FL" ]; then
   "$FL" push-capable "$backend" >/dev/null 2>&1
@@ -444,12 +457,11 @@ if [ "$push_capable" -eq 0 ]; then
     root=$("$FS" root 2>/dev/null) || root=""
   fi
   if [ -n "$root" ] && [ -n "$now" ] && fresh_push_exists "$root" "$worker" "$now" "$reconcile_ttl"; then
-    echo defer-to-push
-    exit 0
+    push_fresh=1
   fi
 fi
 
-# --- Debounce state key (computed here so the oracle gate can reset it) -----
+# --- Debounce state key (computed here so BOTH defer gates can reset it) ----
 if [ -z "$state_dir" ]; then
   if [ -n "$root" ]; then
     state_dir="$root/liveness/pane-detect"
@@ -471,6 +483,23 @@ key_prefix=$(printf '%s' "$worker" | tr -c 'A-Za-z0-9._-' '_')
 key_hash=$(printf '%s\n%s\n' "$scope" "$worker" | cksum | cut -d' ' -f1)
 key="$key_prefix-$key_hash"
 state_file="$state_dir/$key"
+
+# reset_debounce_state — a defer frame (push or oracle) records no history,
+# so a stale pre-defer frame pair must not instantly confirm (or resurface)
+# a classification the moment the defer era ends: drop the state so the
+# first fallback frame starts the two-frame floor afresh. A failed removal
+# is warned — the stale pair the reset exists to purge would survive.
+reset_debounce_state() {
+  if [ -e "$state_file" ] && ! rm -f "$state_file" 2>/dev/null; then
+    echo "fleet-pane-detect: could not reset the debounce state $(sanitize_printable "$state_file" "(unprintable path)") — a stale frame pair may confirm early" >&2
+  fi
+}
+
+if [ "$push_fresh" = 1 ]; then
+  reset_debounce_state
+  echo defer-to-push
+  exit 0
+fi
 
 # --- Oracle gate: pane-scrape demoted to fallback-only (D-11, REQ-F1.1) -----
 # With a --cwd join key, consult the agents-json idle oracle through the
@@ -498,9 +527,20 @@ if [ -n "$oracle_cwd" ] && [ -x "$FL" ]; then
   o_v=$("$FL" oracle --cwd "$oracle_cwd") || o_rc=$?
   case $o_rc in
     0)
-      rm -f "$state_file" 2>/dev/null
-      printf 'defer-to-oracle %s\n' "$o_v"
-      exit 0
+      # Shape-guard the verdict before it reaches stdout (the same discipline
+      # the debounce state reader applies): a mismatched or older helper
+      # emitting exit 0 with unexpected content must not leak an arbitrary
+      # string into the one-line output contract.
+      case $o_v in
+        busy | waiting | idle)
+          reset_debounce_state
+          printf 'defer-to-oracle %s\n' "$o_v"
+          exit 0
+          ;;
+        *)
+          echo "fleet-pane-detect: the liveness helper answered with an unrecognized verdict '$(sanitize_printable "$o_v" "(unprintable verdict)")'; falling back to the pane heuristics" >&2
+          ;;
+      esac
       ;;
     1 | 3) ;; # unavailable / absent: the pane heuristics are the fallback
     2)

@@ -39,9 +39,11 @@
 # resets the two-frame debounce state so nothing confirms instantly across a
 # defer era; only an unavailable oracle or an absent worker lets the pane
 # heuristics run (pane-scrape demoted to fallback-only); the gate order is
-# push, then oracle, then heuristics; and without `--cwd` the oracle is never
-# consulted (backward-compatible). An empty, relative, hostile, or
-# over-length `--cwd` is refused (exit 2).
+# push, then oracle, then heuristics; defer-to-push resets the debounce state
+# the same way; and without `--cwd` the oracle is never consulted
+# (backward-compatible). An empty, relative, hostile, or over-length `--cwd`
+# warns and falls back to the heuristics (oracle coverage lost, never the
+# detector).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-pane-detect.sh
@@ -525,7 +527,33 @@ r2=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail_early" "$FPD" classify --pane "$idle_pane
   || fail "oracle-reset: post-defer fallback frame exited non-zero"
 [ "$r2" = pending ] \
   || fail "oracle-reset: the first post-defer fallback frame must restart the floor (pending), got '$r2'"
-echo "ok: a defer frame resets the debounce state — no instant confirmation across a defer era"
+# defer-to-push resets the state the same way: two confirmed frames, then a
+# fresh-push defer era, then a stale push — the first fallback frame must be
+# pending, never an instant re-confirmation of the pre-defer pair
+pr_root="$tmp/root-push-reset"
+mkdir -p "$pr_root/attention"
+: >"$pr_root/attention/state"
+pr_state="$tmp/state-push-reset"
+mkdir -p "$pr_state"
+"$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state" >/dev/null \
+  || fail "push-reset: frame 1 exited non-zero"
+pc=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state") \
+  || fail "push-reset: frame 2 exited non-zero"
+[ "$pc" = idle ] || fail "push-reset: expected confirmed idle before the defer era, got '$pc'"
+write_row "$pr_root" w-pr awaiting-input "$now"
+pd=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state") \
+  || fail "push-reset: defer frame exited non-zero"
+[ "$pd" = defer-to-push ] || fail "push-reset: expected defer-to-push, got '$pd'"
+write_row "$pr_root" w-pr awaiting-input "$((now - 5000))"
+pf=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state") \
+  || fail "push-reset: post-defer fallback frame exited non-zero"
+[ "$pf" = pending ] \
+  || fail "push-reset: the first post-defer fallback frame must restart the floor (pending), got '$pf'"
+echo "ok: a defer frame (oracle or push) resets the debounce state — no instant confirmation across a defer era"
 
 # A fresh hook push still wins the gate order (defer-to-push precedes the
 # oracle gate: the deterministic push is the primary, the oracle backs it up).
@@ -600,25 +628,30 @@ PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
   || fail "no-cwd: the oracle was consulted without a --cwd join key"
 echo "ok: without --cwd the oracle is never consulted"
 
-# A malformed --cwd (relative, or carrying a control char) is refused (exit 2),
-# the caller-input discipline the other handles follow.
-uc=0
-"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc \
-  --state-dir "$tmp/state-mc" --cwd relative/path >/dev/null 2>&1 || uc=$?
-[ "$uc" -eq 2 ] || fail "a relative --cwd must be refused (exit 2), got '$uc'"
-uc=0
-"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc2 \
-  --state-dir "$tmp/state-mc2" --cwd "$(printf '/wt/bad\tpath')" >/dev/null 2>&1 || uc=$?
-[ "$uc" -eq 2 ] || fail "a --cwd with a tab must be refused (exit 2), got '$uc'"
-uc=0
-"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc3 \
-  --state-dir "$tmp/state-mc3" --cwd "" >/dev/null 2>&1 || uc=$?
-[ "$uc" -eq 2 ] || fail "an EMPTY --cwd must be refused (exit 2), never silently drop oracle coverage, got '$uc'"
-uc=0
+# An unusable --cwd (relative, control-bearing, empty, over-length) costs
+# ORACLE COVERAGE only: a loud stderr warning, then the pane heuristics run —
+# never a hard exit (which would turn a merely-unjoinable path into total
+# classification loss), and never a silent skip (the warning is asserted).
+# mc_fallback <label> <cwd-value>
+mc_fallback() {
+  mcf_label="$1"
+  mcf_cwd="$2"
+  mcf_state="$tmp/state-$mcf_label"
+  mkdir -p "$mcf_state"
+  mcf_out=$("$FPD" classify --pane "$idle_pane" --backend subagent \
+    --worker "w-$mcf_label" --state-dir "$mcf_state" --cwd "$mcf_cwd" \
+    2>"$tmp/err-$mcf_label") \
+    || fail "$mcf_label: an unusable --cwd must not fail the detector"
+  [ "$mcf_out" = pending ] \
+    || fail "$mcf_label: heuristics should run (pending), got '$mcf_out'"
+  grep -q "not a usable oracle join key" "$tmp/err-$mcf_label" \
+    || fail "$mcf_label: the skipped oracle must be warned about, not silent"
+  echo "ok: unusable --cwd ($mcf_label) warns and falls back to the heuristics"
+}
+mc_fallback cwd-relative relative/path
+mc_fallback cwd-tab "$(printf '/wt/bad\tpath')"
+mc_fallback cwd-empty ""
 long_cwd="/$(printf 'a%.0s' $(seq 1 520))"
-"$FPD" classify --pane "$idle_pane" --backend subagent --worker w-mc4 \
-  --state-dir "$tmp/state-mc4" --cwd "$long_cwd" >/dev/null 2>&1 || uc=$?
-[ "$uc" -eq 2 ] || fail "an over-512-char --cwd must be refused (exit 2), got '$uc'"
-echo "ok: malformed --cwd refused (relative, tab, empty, over-length)"
+mc_fallback cwd-overlength "$long_cwd"
 
 echo "ok: test-fleet-pane-detect"

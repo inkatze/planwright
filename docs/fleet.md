@@ -501,10 +501,12 @@ of life) but never masks the flailing streak — observations record the
 oracle-effective state, so a stale idle row cannot silently reset the streak.
 `fleet-pane-detect.sh classify --cwd <worktree>` runs the same gate after the
 fresh-push gate and prints `defer-to-oracle <verdict>` when the oracle
-answers (one probe instant serves the gate and the consumer, and the defer
-resets the two-frame debounce), demoting pane-scrape to fallback-only for
-pane-hosted workers; workers on other backends fall back to their backend's
-own liveness mechanism.
+answers (one probe instant serves the gate and the consumer; either defer —
+push or oracle — resets the two-frame debounce so a stale pre-defer frame
+pair never confirms instantly after a defer era), demoting pane-scrape to
+fallback-only for pane-hosted workers; an unusable `--cwd` costs oracle
+coverage with a warning, never the detector; workers on other backends fall
+back to their backend's own liveness mechanism.
 
 **Crash-loop backoff** (`crash-record` / `crash-check` / `crash-reset`, D-3,
 REQ-A1.4): each consecutive crash doubles the relaunch delay from
