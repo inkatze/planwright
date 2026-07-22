@@ -81,8 +81,9 @@ body is never edited. Citations to a superseded ID stay valid as lineage.
 **Field conventions.** In the H3 entry templates below, field bullets appear
 in template order; every field is required unless marked optional or
 conditional (presence governed by a stated condition). A required field — or
-a gate-record line — with nothing to record carries the literal `none`, never
-an omission (status-gated rules are stated per file). An entry may end with
+a gate-record line, when present per its own rule — with nothing to record
+carries the literal `none`, never an omission (status-gated rules are stated
+per file). An entry may end with
 the optional `- **Superseded-by:**` annotation bullet. Every coverage or
 derivation rule in this document quantifies over live entries only;
 superseded entries are lineage.
@@ -143,7 +144,8 @@ sources register.
 ```
 
 A criterion whose date passes with the state unmet is *tripped*; one whose
-date is within 30 days is *approaching*. Tripped and approaching criteria
+date is within the next 30 days is *approaching*; any other criterion is
+*clear*. Tripped and approaching criteria
 surface at every gate run and status view; a tripped criterion prompts
 kill-or-re-scope and never auto-kills.
 
@@ -425,7 +427,8 @@ other assumption cited in `Evidence:`; `open` marks one not evaluated at
 this run, and a `Graduate` outcome admits no `open` item on a blocking
 assumption (REQ-E1.1). `Kill-criteria:` covers every live `KC-<n>`.
 `Tracks:` appears only in a tracked venture and is omitted otherwise
-(REQ-C1.11); it covers every declared track not yet graduated or ended, one
+(REQ-C1.11); it covers every declared track not graduated or ended by a
+prior record (including any this record graduates or ends), one
 `<label>=<Outcome token>` item per track, the outcome tokens being the four
 `Outcome:` tokens read at track scope: `Graduate` graduates the track and
 `Kill` ends it, the declaration bullet gaining its `— graduated <date>` or
