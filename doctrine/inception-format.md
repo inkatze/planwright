@@ -231,8 +231,8 @@ casts the coverage claim in the standard skeleton).
 **decides** (a named person), who must be **aligned**, who is **informed**.
 A Decides cell holds exactly one name; multiple names in an Aligned or
 Informed cell are comma-separated. The venture's gate decider and
-every `Deciders:` name must appear in a Decides cell; alignment-task targets
-name a row.
+every `Deciders:` name must appear in a Decides cell; alignment-task
+`Target:` fields name a row by its decision area.
 
 ```markdown
 | Decision area | Decides | Aligned | Informed |
@@ -324,8 +324,8 @@ After the header block, one H3 block per validation task (REQ-C1.5):
 
 - **Kind:** <spike | research | analysis | demand-signal | alignment>
 - **Tests:** <A-IDs and/or DEC-IDs; every task traces to at least one>
-- **Target:** <a stakeholder-map row>   (required when Kind is alignment;
-  omitted otherwise)
+- **Target:** <a stakeholder-map decision area>   (required when Kind is
+  alignment; omitted otherwise)
 - **Done when:** <conditions an agent can evaluate>
 - **Cap:** <pre-committed time or cost budget>
 - **Status:** <planned | running | delivered | accepted | dropped>
@@ -341,8 +341,9 @@ assumptions (all tested assumptions when none is blocking; `none` below
 `synthetic` — no evidence is the lowest confidence), and a task testing only
 DEC-IDs orders after assumption-testing tasks. The tie-breaker is the
 single limiting constraint (the one assumption gating the others): a plan
-may name it in an optional `**Limiting constraint:** A-<n>` intro line, and
-that assumption's tasks order first among ties.
+may name it in an optional `**Limiting constraint:** A-<n>` line between
+the header block and the first task block, and that assumption's tasks
+order first among ties.
 `delivered` means findings are written and awaiting human acceptance;
 register updates land only on `accepted`. A task that exhausts its cap
 without resolution stops and surfaces, making "Hold because tests got
