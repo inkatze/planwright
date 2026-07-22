@@ -1,0 +1,10 @@
+# malformed.persona — input robustness (REQ-C1.5). answer.2 is unparseable, so
+# the skill re-prompts (turn advances) and answer.3 supplies a valid choice;
+# calibration must be unchanged by the garbage. Turn map: 1 level, 2 garbage,
+# 3 valid decision, 4 level-restate, 5 sign-off.
+expertise=novice
+answer.1=novice
+answer.2=@@nonsense@@
+answer.3=option-alpha
+answer.4=novice
+answer.5=record-approval

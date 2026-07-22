@@ -1,0 +1,7 @@
+# novice.persona — a domain-novice operator (REQ-G1.2). Turn map: 1 level,
+# 2 design decision, 3 level-restate (confirm, no change), 4 sign-off.
+expertise=novice
+answer.1=novice, please walk me through it
+answer.2=option-alpha
+answer.3=novice
+answer.4=record-approval
