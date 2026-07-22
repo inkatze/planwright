@@ -1,13 +1,15 @@
 # Merge Currency Guard — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-07-20
+**Status:** Ready
+**Last reviewed:** 2026-07-22
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Origin-tag legend: **N** — new to this bundle. **C, `<spec> D-<n>`** — carried:
 this bundle reuses an existing decision from the named sibling spec rather than
-inventing a parallel one.
+inventing a parallel one. A tag may append a governing doctrine name after the
+kind (as D-9's `customization-boundary` does), naming the doctrine the decision
+instantiates.
 
 The design leads with the invariant it exists to protect: **a PR flipped ready
 must have been CI-and-review-verified on a head that includes current `main`,
@@ -16,7 +18,9 @@ current (D-4), and one that refuses a flip that violates the invariant (D-2,
 D-3). The guard is the enforcement floor; the in-loop sync is what keeps that
 floor from ever being hit in normal operation.
 
-## D-1: Deliverable altitude — mechanism-primary with one carried invariant statement (N)
+## Decision log
+
+### D-1: Deliverable altitude — mechanism-primary with one carried invariant statement (N)
 
 **Decision:** This bundle is two concrete mechanisms — an `/execute-task`
 convergence-loop `main`-sync (D-4) and a deny-emitting `ready-guard` PreToolUse
@@ -48,7 +52,7 @@ recorded rather than retrofitted; and the honest weight is one invariant
 statement carried on two mechanisms, scoped per proportionality to the risk
 this bundle actually exhibited.
 
-## D-2: Enforce at the flip point with a deny-emitting PreToolUse guard (N)
+### D-2: Enforce at the flip point with a deny-emitting PreToolUse guard (N)
 
 **Decision:** The invariant is enforced by a deterministic `ready-guard`
 PreToolUse hook that intercepts a draft→ready transition and emits a DENY
@@ -82,43 +86,101 @@ the invariant unbypassable by construction at the flip point, deterministically,
 with no LLM, matching the guard philosophy the seed invokes. It is a scoped,
 auditable inversion of a pattern the codebase already trusts.
 
-## D-3: Guard predicate — server-authoritative `mergeStateStatus` plus an offline `is-ancestor` backstop (N)
+### D-3: Guard predicate — server-authoritative `mergeStateStatus` + `mergeable`; no local ref, OID, or fetch (N)
 
-**Decision:** The guard denies unless BOTH hold: (a) the PR's GitHub
-`mergeStateStatus` is `CLEAN`, and (b) `git merge-base --is-ancestor
-origin/main HEAD` succeeds. `mergeStateStatus == CLEAN` is the authoritative
-signal: GitHub computes it server-side against the real base, and `CLEAN`
-already encodes both currency (a `BEHIND` PR is not `CLEAN`) and mergeability (a
-`DIRTY`/`BLOCKED` PR is not `CLEAN`). The `is-ancestor` check is a fast, offline,
-deterministic backstop against GitHub's *asynchronous* `mergeStateStatus`
-computation: immediately after a push, GitHub may still report the pre-push
-status, so the local ancestor check catches a stale-`CLEAN` window the server
-signal alone would miss.
+**Decision:** The guard resolves the target PR from the intercepted call's own
+validated selector (REQ-C1.9: the Bash positional PR argument, or the current
+branch's PR when the command is bare; the MCP `owner`/`repo`/`pullNumber`
+fields), each validated against its grammar — a PR number is digits, an
+owner/repo matches GitHub's charset — before use and passed to `gh pr view` as
+separate argv arguments, never interpolated into a command string (a hostile
+selector can neither redirect the query to another PR/repo nor inject a `gh`
+option or shell; the response is data, never code — `security-posture`). From
+that single query it reads GitHub's server-computed `mergeStateStatus` and
+`mergeable`. It **defers only** when `mergeStateStatus ∈ {CLEAN, UNSTABLE}`
+**and** `mergeable == MERGEABLE`; every other value **denies**:
+`BEHIND` (stale — not current with base), `DIRTY` (conflict), `BLOCKED`
+(a required check failing or a required review outstanding), `mergeable ==
+CONFLICTING`, and `UNKNOWN`/`DRAFT`/absent/unavailable (fail-closed). The signal
+is entirely server-side: no local ref, no local OID, no `is-ancestor`, and no
+in-hook fetch (D-5) — so the check is identical for every flipper (a worker, the
+gauntlet, a tower on the shared checkout, a human in-session) and for any base
+branch, because GitHub computes the status against the PR's real base. A
+`mergeStateStatus`/`mergeable` of `UNKNOWN` (GitHub recomputes asynchronously
+whenever the head or base moves) denies with a **wait-and-retry** remedy, not a
+fetch remedy.
+
+Why `{CLEAN, UNSTABLE}` and not `CLEAN` alone: `CLEAN` additionally requires
+*every* check green, so a current, conflict-free PR whose only failing/pending
+check is **non-required** reports `UNSTABLE` and would be falsely denied
+(observed: PR #298 `UNSTABLE`/`MERGEABLE`) — that PR is exactly
+current-and-mergeable, the non-required check being the flipping party's concern
+under the REQ-A1.2 split. Denying `BLOCKED` keeps the guard covering
+*required* checks and required reviews (the REQ-A1.2 clause that CI is
+guard-covered where GitHub-required), while allowing `UNSTABLE` lets
+non-required checks stay the flipper's business.
+
+Why server-authoritative and not a local `is-ancestor` backstop: a local
+`origin/<base>` ref is only as fresh as the last fetch, which no mechanism
+guarantees for a gauntlet/tower/human flipper or for a non-`main` base — a
+stale-but-present ref would false-*allow* a behind PR (the exact stale-flip this
+bundle kills), and a cross-fork head OID absent from the local object DB would
+false-*deny*. The server status has neither failure mode: it needs no local
+state and is computed against the real base for any PR.
+
+Soundness of allowing `UNSTABLE`: this rests on GitHub's `mergeStateStatus`
+being a single value with a fixed precedence — `DIRTY` / `BLOCKED` / `BEHIND`
+outrank `UNSTABLE`, so a PR that is behind *or* blocked *or* conflicting never
+reports `UNSTABLE`. An allowed `UNSTABLE` therefore genuinely means
+current-and-mergeable with only a non-required check outstanding; it cannot mask
+a `BEHIND`. If that precedence ever changed, the guard would only ever
+false-*deny* (a safe, retryable direction), never false-allow, because the
+conjoined `mergeable == MERGEABLE` leg independently blocks a conflict.
+`HAS_HOOKS` (mergeable, checks passing, repo has pre-receive hooks) is
+conservatively **excluded** from the defer set: it is rare in planwright repos,
+and denying it is a safe, retryable false-deny rather than a risk — the defer
+set stays exactly `{CLEAN, UNSTABLE}`.
+*(Amended at kickoff §4 lens pass 2026-07-22: predicate settled on
+server-authoritative `mergeStateStatus ∈ {CLEAN, UNSTABLE}` + `mergeable ==
+MERGEABLE` after an adversarial re-check showed a local `is-ancestor` currency
+leg false-allows a stale flip for any non-just-fetched flipper and any non-main
+base [F1/F2] and false-denies cross-fork heads [F5]; an earlier draft's
+`mergeStateStatus == CLEAN` over-denied non-required-check `UNSTABLE` state.
+Both fields sit at `UNKNOWN` in GitHub's async recompute window — the
+fail-closed deny + wait-retry of REQ-C1.3 and risk row 3.)*
 
 **Alternatives considered:**
 
-- The `mergeable` field (`MERGEABLE`/`CONFLICTING`/`UNKNOWN`) instead of
-  `mergeStateStatus`. Rejected because: `mergeable` reports conflict state only,
-  not out-of-date-with-base (`BEHIND`) — a PR can be `MERGEABLE` yet behind
-  `main`, which is precisely the stale-but-conflict-free head the seed reports
-  (#268, 7 behind, no conflict). `mergeStateStatus`'s richer state space
-  (`CLEAN`/`BEHIND`/`DIRTY`/`BLOCKED`/`UNKNOWN`) distinguishes them.
-- `is-ancestor` against *local* `main`. Rejected because: local `main` is stale
-  in a worktree that never advances it (and must not — the shared-checkout
-  read-only-local-`main` invariant, `orchestration-fleet`); the check must use
-  `origin/main` as the baseline, left current by `/execute-task`'s in-loop fetch
-  (D-4) and by any recent fetch.
-- `is-ancestor` alone (no server check). Rejected because: a local ancestor
-  check cannot see a `BLOCKED` state (failing required checks, unresolved
-  reviews) — mergeability is genuinely a server fact.
+- `mergeStateStatus == CLEAN` as the single server signal (the original draft).
+  Rejected because: `CLEAN` requires all checks green and so over-denies a
+  current, conflict-free PR whose only failing/pending check is **non-required**
+  (`UNSTABLE`, observed on PR #298) — re-enforcing the CI state the REQ-A1.2
+  scope-split attests to the flipper's convergence, not this guard.
+- A local `git merge-base --is-ancestor origin/<base> <headOID>` currency leg
+  (an interim draft of this decision). Rejected because: the local
+  `origin/<base>` ref is only as fresh as the last fetch, guaranteed for no
+  flipper but the just-fetched `/execute-task` worker and for no non-`main`
+  base — a stale-but-present ref false-*allows* a behind PR (the very stale-flip
+  this bundle exists to prevent), and a cross-fork head OID absent locally
+  false-*denies* with an unachievable fetch remedy. An in-hook `git fetch` to
+  refresh the ref would fix the freshness but reintroduce the bounded-runtime
+  hazard D-5 forbids. The server status has neither failure mode and needs no
+  local state.
+- `mergeable` alone (no currency signal). Rejected because: `mergeable` reports
+  conflict state only, not out-of-date-with-base — a PR can be `MERGEABLE` yet
+  behind its base (#268, 7 behind, no conflict). `mergeStateStatus == BEHIND` is
+  what covers currency.
 
-**Chosen because:** the server `mergeStateStatus` is the authoritative
-currency-and-mergeability truth and needs no local fetch; the local
-`is-ancestor` closes the async-lag window deterministically and offline. Both
-required, either failing → deny — the conjunction is the fail-closed posture
-REQ-C1.3 demands.
+**Chosen because:** the server `mergeStateStatus` + `mergeable` conjunction (a)
+is satisfiable for a still-draft PR (current drafts report `CLEAN`/`MERGEABLE`),
+(b) enforces exactly the currency + mergeability + required-checks REQ-A1.2
+assigns to the guard while letting non-required checks (`UNSTABLE`) through, and
+(c) needs no local ref, OID, or fetch, so it is genuinely flipper- and
+base-agnostic (REQ-A1.3) with no stale-local-ref false-allow. Any value outside
+`{CLEAN, UNSTABLE}`×`MERGEABLE`, or any inability to positively confirm both,
+→ deny — the fail-closed posture REQ-C1.3 demands.
 
-## D-4: In-loop `main`-sync via fetch + merge, offloaded to a script (N)
+### D-4: In-loop `main`-sync via fetch + merge, offloaded to a script (N)
 
 **Decision:** `/execute-task` merges `origin/main` into the worker branch at the
 top of each `review_sequence` convergence iteration. The mechanism lives in a
@@ -126,9 +188,16 @@ dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
 main` then `git merge FETCH_HEAD`; `/execute-task` invokes it in a single line.
 It never runs `git pull` (a global `branch.autosetuprebase=always` silently
 rewrites `pull` into a forbidden rebase) and never rebases, amends, squashes, or
-force-pushes (bootstrap REQ-J1.4). A merge that cannot resolve cleanly exits
-non-zero, and `/execute-task` halts the unit to `Awaiting input` via its
-existing convergence stop-condition protocol (REQ-B1.3) — no new halt mechanism.
+force-pushes (bootstrap REQ-J1.4). A merge that cannot resolve cleanly runs
+`git merge --abort` (leaving a clean tree, so the next iteration's sync is
+idempotent rather than wedged on a lingering `MERGE_HEAD`) and exits non-zero
+with a reason distinct from a fetch failure, and `/execute-task` halts the unit
+to `Awaiting input` via its existing convergence stop-condition protocol
+(REQ-B1.3) — no new halt mechanism; drift is re-closed by a human or the tower
+merge-`main` relay before resume. (The sync targets `origin/main` specifically —
+the worker-convergence base by planwright convention; the guard needs no
+counterpart per-base handling because its D-3 signal is server-computed against
+each PR's real base, not a local ref.)
 
 **Alternatives considered:**
 
@@ -153,42 +222,52 @@ property the ready-guard later checks; scripting it respects the invariant set
 (no `pull`, no rebase) deterministically and stays within the instruction
 budget.
 
-## D-5: Guard degradation — no in-hook fetch; fail closed on any doubt (N)
+### D-5: Guard degradation — no in-hook fetch; fail closed on any doubt (N)
 
-**Decision:** The guard does NOT itself run `git fetch` in the hook. It relies
-on `mergeStateStatus` (server truth, no local fetch needed) as the authoritative
-signal, and evaluates `is-ancestor` against whatever `origin/main` the last
-fetch left (kept fresh by D-4's in-loop fetch and any recent orchestration
-fetch). On any inability to positively confirm both D-3 conditions — `gh` absent
-or erroring, `mergeStateStatus` `UNKNOWN`, `jq` absent, malformed/empty payload,
-internal error — the guard DENIES with a clear reason (REQ-C1.3, REQ-K1.1).
+**Decision:** The guard reads no local git state at all — no ref, no object, no
+`git fetch` in the hook. Both predicate signals (`mergeStateStatus`,
+`mergeable`) come from the one server `gh pr view` query (D-3), so there is no
+local freshness dependency to keep current and no stale-local-ref hazard. On any
+inability to positively confirm both D-3 conditions — `gh` absent or erroring,
+the query timing out, `mergeStateStatus`/`mergeable` `UNKNOWN` (the async
+recompute window), `jq` absent, malformed/empty payload, internal error — the
+guard DENIES with a clear reason (REQ-C1.3, REQ-K1.1); an `UNKNOWN` names a
+wait-and-retry remedy rather than a fetch.
 
 **Alternatives considered:**
 
-- Have the guard `git fetch origin main` itself before the ancestor check.
-  Rejected because: a network fetch inside a PreToolUse hook can hang or stall
-  the tool call (bounded-runtime violation, the concern the sibling guards
-  encode with `MAX_CMD_LEN`); the authoritative currency signal
-  (`mergeStateStatus`) is already server-computed and fetch-free, so an in-hook
-  fetch buys only the async-lag backstop at the cost of latency and flakiness.
-- Trust the local `origin/main` ref unconditionally (treat a passing
-  `is-ancestor` as sufficient). Rejected because: a stale local ref could
-  false-pass; the server `mergeStateStatus` conjunction is what prevents that.
+- Have the guard `git fetch` (a base ref, or `origin/main`) itself before a
+  local currency check. Rejected because: a network fetch inside a PreToolUse
+  hook can hang or stall the tool call (bounded-runtime violation, the concern
+  the sibling guards encode with `MAX_CMD_LEN`); the authoritative currency +
+  mergeability signal (`mergeStateStatus`/`mergeable`) is already server-computed
+  and needs no local ref at all, so an in-hook fetch buys nothing.
+- Keep a local `is-ancestor` check as an offline backstop alongside the server
+  signal. Rejected because: a local `origin/<base>` ref is only as fresh as the
+  last fetch — unguaranteed for a gauntlet/tower/human flipper or a non-`main`
+  base — so the backstop would either false-*allow* against a stale ref or add a
+  cross-fork false-*deny*; the server signal is strictly safer with no local
+  state to go stale.
 
-**Chosen because:** deny-on-doubt is the only posture consistent with
-"unbypassable by construction"; leaning on the fetch-free server signal keeps
-the hook bounded, and the offline ancestor check adds determinism without
-network cost.
+**Chosen because:** deny-on-doubt over a purely server-computed signal is the
+only posture that is both bounded (no in-hook fetch) and genuinely
+flipper/base-agnostic (no local ref or OID that can be stale or missing);
+determinism comes from the deterministic mapping of the server enum to
+defer/deny, not from any local git computation.
 
-## D-6: Deny precedence over the worker allow, pinned by outcome (C, `fleet-hardening` D-8 · obs:4dda9fe1)
+### D-6: Deny precedence over the worker allow, pinned by outcome (C, `fleet-hardening` D-8 · obs:4dda9fe1)
 
 **Decision:** `config/worker-settings.json` currently ALLOWS `Bash(gh pr ready:*)`
 (so the gauntlet / a worker can flip a spec PR ready). The ready-guard's DENY
-must override that allow when the invariant is unmet. Claude Code evaluates deny
-before allow, but that precedence is undocumented (`obs:4dda9fe1`), so the
-adversarial suite asserts the OUTCOME — a non-conforming flip stays denied even
-with the allow entry present — rather than leaning on the precedence as an
-assumption (REQ-C1.4, REQ-D1.2).
+must override that allow when the invariant is unmet. Note the two mechanisms
+are distinct subsystems: the ready-guard's DENY is a **PreToolUse hook
+decision**, which blocks a tool call independent of any permission *rule*, while
+`obs:4dda9fe1` concerns permission-*rule* allow-vs-deny ordering — an analogous
+but separate precedence. Because the hook layer's authority over an allow rule
+is itself not something to assume, the adversarial suite asserts the OUTCOME — a
+non-conforming flip stays denied even with the `gh pr ready` allow entry present
+— rather than leaning on either precedence as an assumption (REQ-C1.4,
+REQ-D1.2).
 
 **Alternatives considered:**
 
@@ -204,7 +283,7 @@ preserves ergonomics while making the invariant unbypassable, and pinning the
 outcome (not the precedence) matches how `fleet-hardening` handled the same
 undocumented-precedence risk.
 
-## D-7: Global wiring in `hooks/hooks.json`; the out-of-session residual (N)
+### D-7: Global wiring in `hooks/hooks.json`; the out-of-session residual (N)
 
 **Decision:** The guard is wired in the plugin-global `hooks/hooks.json` as a
 PreToolUse Bash matcher and a PreToolUse MCP matcher, so it governs every
@@ -234,17 +313,26 @@ in-session, and a human at a raw shell is exercising a reserved control.
 and global wiring is the only placement that governs every in-session flipper;
 the bare-shell residual is stated honestly rather than papered over.
 
-## D-8: Cover both ready surfaces — Bash and MCP (N)
+### D-8: Cover the in-session ready surfaces — Bash `gh pr ready`, the MCP tool, and the `gh api graphql` mutation (N)
 
-**Decision:** The guard applies the D-3 predicate to BOTH draft→ready surfaces:
-the `gh pr ready` Bash command and the `mcp__github__update_pull_request` MCP
-tool call carrying a draft→ready field transition. A PreToolUse Bash-string
+**Decision:** The guard applies the D-3 predicate to the draft→ready surfaces an
+in-session flipper actually uses: the `gh pr ready` Bash command, the
+`mcp__github__update_pull_request` MCP tool call carrying a draft→ready field
+transition, and the `gh api graphql` `markPullRequestReadyForReview` mutation
+(REQ-C1.10). Compound/indirect shell forms (`sh -c`, `env`, wrappers, raw
+`curl`) are an accepted residual in the D-7 out-of-session class — a
+deterministic matcher cannot robustly parse arbitrary nesting, and the
+autonomous flippers do not use those forms. A PreToolUse Bash-string
 guard does not intercept MCP tool calls (the exact gap `fleet-hardening`'s tower
 guard closes by denying the GitHub MCP tools by name), so the MCP surface needs
-its own matcher. The MCP matcher inspects the tool input for the draft→ready
-transition (`isDraft`/`draft` going false) and applies the same predicate;
+its own matcher. The MCP matcher gates a call whose input requests
+`draft: false` only when the PR is *currently* a draft — `isDraft` read from
+the same `gh pr view` query that supplies the D-3 predicate fields, a failed
+query already resolving to DENY (REQ-C1.3) — and applies the same predicate;
 non-transitioning `update_pull_request` calls and `gh pr ready --undo` are never
-gated (REQ-C1.8).
+gated (REQ-C1.8). *(Amended at kickoff §4 2026-07-21: transition
+discrimination pinned to current `isDraft` from the guard's existing PR
+query.)*
 
 **Alternatives considered:**
 
@@ -260,7 +348,7 @@ gated (REQ-C1.8).
 enforcement; discriminating the transition (rather than wholesale-denying)
 preserves conforming MCP readies, matching the Bash surface's behavior.
 
-## D-9: The guard is core and flipper-agnostic; who-flips stays a preference (N, `customization-boundary`)
+### D-9: The guard is core and flipper-agnostic; who-flips stays a preference (N, `customization-boundary`)
 
 **Decision:** The currency-at-ready *capability* — enforce that any ready-flip
 lands on a current, mergeable head — is core and flipper-agnostic. The *policy*
