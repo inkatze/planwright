@@ -72,8 +72,9 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   treated as not-dead — **caching each verdict for the pass** and running on a **capped heartbeat
   cadence** (bounded per-record subprocess fan-out), with a per-record parse that fails closed (a
   malformed record is skipped with an error, never read as "no such peer"). A positively-dead tower's
-  file is GC'd on discovery **under an under-lock re-read** that re-confirms it is still that dead
-  tower's record before unlinking (so a dead-then-restarted tower's fresh live record is never deleted).
+  file is GC'd on discovery under a **stateless re-stat-and-compare** (delete only if byte-identical to the
+  dead record classified; no machine-local lock) that re-confirms it is still that dead tower's record
+  before unlinking (so a dead-then-restarted tower's fresh live record is never deleted).
   First-run bootstrap (no surface ever existed, per the sentinel) creates the user-private surface
   directory and proceeds empty (healthy); an existing-but-unreadable surface, or a vanished surface
   (sentinel present, directory gone), fails closed; a concurrent-bootstrap `mkdir` `EEXIST` is success;
@@ -96,7 +97,7 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   Task 4); a malformed record fails closed (skipped with a surfaced error, never read as absent); the
   surface directory is created `0700` and a
   **pre-existing over-broad surface is refused, not reused**; a positively-dead tower's file GC racing a
-  re-publish of that tower's **fresh live** record does not delete the fresh record (under-lock re-read);
+  re-publish of that tower's **fresh live** record does not delete the fresh record (stateless re-stat-and-compare, no lock);
   discovery **caches liveness per pass** (≤1 death-predicate subprocess per record per pass) on a capped
   cadence; the discovery scan invokes no LLM and issues no backend-specific pane/process scrape; a tower
   that finds ≥1 live peer does not behave as sole tower (asserted via the selection path in Task 4, or a
@@ -155,10 +156,12 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   quarantine** (all removed with Architecture A). **The fence (REQ-C1.1, REQ-C1.2, D-5, D-8, D-11):** at
   dispatch, before any worker runs, the tower fences the unit by an **atomic expect-absent
   compare-and-swap** creating `refs/planwright-fence/<spec>/<unit-id>` on `origin` (`git push
-  --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:$ZERO_OID`, where **`$ZERO_OID` is the
-  object-format's all-zeros object id** (40 hex zeros under SHA-1, 64 under SHA-256) as the must-be-absent
-  expectation — **never the bare-empty nothing-after-colon form** — targeting the current `origin/main` tip
-  so no history is added to `main`). The
+  --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:$ZERO_OID origin
+  <origin/main-tip>:refs/planwright-fence/<spec>/<unit-id>`, where the `--force-with-lease` names the fence
+  ref and its must-be-absent expectation `$ZERO_OID` (**the object-format's all-zeros object id**, 40 hex
+  zeros under SHA-1 / 64 under SHA-256, **never the bare-empty nothing-after-colon form**) and the trailing
+  `origin <origin/main-tip>:refs/planwright-fence/<spec>/<unit-id>` is the refspec actually pushed — creating
+  the fence ref at the current `origin/main` tip so no history is added to `main`). The
   push **is** the serializer: `origin` serializes ref updates, so exactly one tower wins the fence per unit
   and a rejected push means the unit is taken → select another. The fence is keyed by **unit id** and
   created by the **tower before the worker forks** (no worker death handle, no pre-fork-pid problem); it is

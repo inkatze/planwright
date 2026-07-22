@@ -173,7 +173,7 @@ sound after the run-5 fixes. Key resolutions applied this run:
 relay or usage governance; carry auto-merge / autonomous-ready / non-authoring
 floors unchanged; framework-script security bars (D-9); same-operator single-host
 attribution (grammar-validate + refuse-malformed, no adversarial spoof-proofing);
-companion doctrine line (D1.6, mechanism cross-referenced out). Outcome: sound.
+companion doctrine line (REQ-D1.6, mechanism cross-referenced out). Outcome: sound.
 Run-5 hardening: the **unit-id/spec-id now carry a declared grammar** and the
 fence-ref name is contained via **`git check-ref-format` + literal-prefix** (not
 filesystem "canonicalization"), since those two fields reach an `origin` ref
@@ -833,3 +833,48 @@ Lens-pass: full-bundle 6-agent fan-out (nine lenses + three kickoff checks) reco
 validated and dispositioned; the applied-in-place fixes re-verified CLEAN by an independent delta-lens over
 the edited STRICT death-state model. No inconsistency remains open; no finding is undispositioned (REQ-F1.10 satisfied).
 Anchor: df12da9a9a803264e8fc1a06cbd587deac133509 (`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`)
+
+## 8. Sign-off (run 5 — panel-review delta, 2026-07-21) — RE-SIGNED (Ready, no status flip)
+
+**Independent-model panel pass, operator-requested "for good measure."** An external
+`/panel-review --nested` (gemini backend, personal-profile default) read the full bundle
+diff for a non-Anthropic angle over a spec that had halted four times. It surfaced **8
+findings — all validated real, all bounded to awareness/availability, none a
+double-dispatch or safety bug** (the `origin` fence correctness floor and the STRICT
+death-state were confirmed untouched). Because they were unambiguous refinements — several
+on mechanisms edited in run 5 — they were applied in place and the bundle **re-signed via a
+delta re-sign-off** (Ready-bundle pre-merge change, REQ-D1.4): no status flip, fresh anchor.
+
+Validation: each finding taken through the three-pass rigor locally (direct text
+reproduction + orthogonal read + cross-file grep); the load-bearing ones (G5, G7) reproduced
+verbatim. No gemini diff-corruption hallucination this run (the table parsed clean).
+
+**Applied (all `Needs sign-off`, operator standing intent "make sure the spec is valid"):**
+- **G5 (cross-file inconsistency):** the presence-file GC cited "an under-lock re-read guard"
+  but Architecture B removed all machine-local locks and D-2 defined none → replaced with a
+  **stateless re-stat-and-compare** (delete only if byte-identical to the classified dead
+  record; no lock), across REQ-A1.3, tasks.md, test-spec.md. Removes the phrase collision with
+  the removed reclaim apparatus.
+- **G7 (incomplete literal):** the CAS command had the `--force-with-lease` lease but no remote
+  and no `src:dst` refspec → completed to `… :$ZERO_OID origin <origin/main-tip>:refs/planwright-fence/<spec>/<unit-id>`
+  in design.md + tasks.md (same "don't ship a misleading literal" reason as the run-5 all-zeros fix).
+- **G1 (stateless-mechanism gap):** the run-5 grace re-check implied cross-pass state a
+  stateless tower lacks → grounded its "seen-unattributed-once" memory in the durable dedup'd
+  sink (tentative entry → promote/sweep), so the tower stays stateless.
+- **G2/G3 (bootstrap completeness):** the first-run-vs-vanished sentinel logic now covers the
+  per-`<repo-id>` sub-surface too, and the sentinel is written **before** the surface dir
+  (closing the crash-between-mkdir-and-sentinel window).
+- **G4 (unbounded fan-out):** the dead-owner terminal-state check (`ls-remote`/`gh`) is bounded
+  to the discovery cadence and skips already-surfaced (dedup'd) strands, so accumulated
+  unresolved strands don't drive an unbounded per-pass `origin`-read fan-out.
+- **G8 (defensive completeness):** the untrusted currently-fenced-unit-ids list added to the
+  REQ-D1.5 / Task 5 / test-spec grammar-validated field set (each entry against the unit-id grammar).
+- **G6 (doc nit):** brief `D1.6` → `REQ-D1.6`.
+
+Declined: none. Re-validated **0/0**, `lint:md` 0 errors.
+
+Class: meaning-class (G1/G2/G3/G4/G5 specify previously-underspecified mechanisms).
+Lens-pass: external gemini panel (10-lens table) + local three-pass Validation Rigor on every
+finding; all applied, none deferred, none a safety bug. Fresh anchor supersedes df12da9 as the
+freshness-gate authority.
+Anchor: e82866abc35ee21675c58bf78f3644411c5e83c8 (`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`)

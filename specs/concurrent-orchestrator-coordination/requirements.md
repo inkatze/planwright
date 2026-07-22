@@ -172,11 +172,13 @@ marking, or the tower non-authoring boundary.
   closed). Presence discovery and reclaim SHALL be deterministic script logic that invokes no LLM.
   Reclaim MAY include deleting the positively-dead tower's entire presence file (garbage collection on
   discovery); deleting a whole dead file is distinct from, and does not violate, the prohibition on
-  editing a *live* peer's file content. The GC delete SHALL take an **under-lock
-  re-read guard** (D-2): the sweep re-confirms, immediately before the unlink, that the file is still
-  that same positively-dead tower's record, so a **dead-then-restarted** tower's *fresh live* record
-  (same tower identity, new session) is never deleted out from under it — an unguarded `rm` would be that
-  bug. Where a tower's death handle is the degraded bare-`process <pid>` form (REQ-A1.2), a **reused pid**
+  editing a *live* peer's file content. The GC delete SHALL be guarded by a **stateless
+  re-stat-and-compare** — **no machine-local lock** (Architecture B keeps none; this is a presence-surface
+  awareness guard, *not* a resurrection of the removed correctness-path reclaim lock): immediately before the
+  unlink the sweep re-reads the file and deletes it **only if it is byte-identical to the positively-dead
+  record it classified** (equivalently, an atomic `rename`-aside of that exact content then unlink), so a
+  **dead-then-restarted** tower's *fresh live* record (same tower identity, new session, different content) is
+  never deleted out from under it — an unguarded `rm` would be that bug. Where a tower's death handle is the degraded bare-`process <pid>` form (REQ-A1.2), a **reused pid**
   can read as alive and cause the dead tower's record to be honored rather than reclaimed; this is an
   **availability-only** effect (a stale presence record merely over-counts peers, and for a fence's owner
   the same handle ambiguity makes the owner's liveness *unclassifiable* → surfaced as a strand anomaly
@@ -221,9 +223,15 @@ marking, or the tower non-authoring boundary.
   surface once existed, so a missing directory alongside a surviving sentinel fails closed. The sentinel
   SHALL live at a fixed machine-local path **outside the surface directory** (a sibling under the host-wide
   root, not inside `<surface>/<repo-id>/`), so that deleting the surface directory cannot also delete the
-  sentinel that proves it once existed; a sentinel **write failure at bootstrap SHALL itself fail closed**
-  (surface the error; do not proceed as if bootstrapped), never leaving a later vanished surface to be
-  misread as a healthy first run. Because the sentinel is a stat'd leaf, a **corrupt-but-present** sentinel
+  sentinel that proves it once existed, and SHALL be **written before the surface directory is created** at
+  bootstrap, so a crash *between* the two never leaves a sentinel-less directory that a later deletion would
+  render indistinguishable from a healthy first run; a sentinel **write failure at bootstrap SHALL itself
+  fail closed** (surface the error; do not proceed as if bootstrapped), never leaving a later vanished
+  surface to be misread as a healthy first run. This first-run-vs-vanished distinction applies at **both
+  levels** — the host-wide surface root **and each per-`<repo-id>` sub-surface**: a per-repo sentinel
+  distinguishes a genuine first discovery of a repo id (healthy empty, create the sub-surface) from a
+  **vanished `<repo-id>/` sub-surface** (sentinel present, sub-dir gone → fail closed), so a disappeared
+  per-repo sub-surface is never read as solitude. Because the sentinel is a stat'd leaf, a **corrupt-but-present** sentinel
   still reads as "present" (fail closed), and there is no meta-sentinel regress. A
   **concurrent first-run `mkdir` that returns `EEXIST`** because a peer bootstrapped the surface a moment
   earlier SHALL be treated as **success, not an error** (the create is idempotent and order-independent,
@@ -357,13 +365,23 @@ marking, or the tower non-authoring boundary.
   owner's presence record lists its fenced unit-ids only as of its last **heartbeat** (REQ-A1.2) — so in the
   brief window between a live tower's fence push and its next heartbeat refresh the fence is momentarily
   attributable to no live record, and surfacing it immediately would raise a **false** strand on a legitimately
-  in-flight unit; the grace re-check collapses that window without weakening the dead-owner case (a genuinely
-  orphaned fence stays unattributed across passes and still surfaces, bounded-delay). The one residue the sweep resolves **without** the
+  in-flight unit. The tower itself stays **stateless** — the cross-pass "seen-unattributed-once" memory lives
+  in the durable dedup'd sink (REQ-C1.7), not the tower (which keeps no local store): the first observation
+  records a **tentative** sink entry keyed by the fence-ref name, a subsequent pass that still finds it
+  unattributed **promotes** it to a surfaced strand, and a pass that attributes it (the owner's heartbeat
+  having caught up, or the unit turning terminal) **sweeps** the tentative entry. The grace re-check thus
+  collapses the heartbeat-lag window without weakening the dead-owner case (a genuinely orphaned fence stays
+  unattributed across passes and still surfaces, bounded-delay). The one residue the sweep resolves **without** the
   operator is a fence whose **unit is already terminal** (PR merged / ledger-done): that is not a strand but
   completed work, and its fence is **garbage-collected** (REQ-C1.5). The honest guarantee, stated to what
   the mechanism delivers (D-13): **a dead-owner unit that is not terminal is always surfaced (bounded delay,
   dedup'd sink) — including one carrying only commits or an open, unmerged PR; a terminal (merged /
-  ledger-done) unit's fence is always swept; and no strand is ever silently honored forever.** Because reclaim is the operator's, there is **no per-unit reclaim lock, no under-lock re-read,
+  ledger-done) unit's fence is always swept; and no strand is ever silently honored forever.** To bound
+  network cost, the terminal-state check (`ls-remote` / `gh`) that classifies a dead-owner fence SHALL run on
+  the **same capped cadence** as discovery (REQ-A1.1), and a fence **already surfaced in the dedup'd sink**
+  (REQ-C1.7) SHALL NOT be re-checked every sweep — it is re-evaluated only once its cadence window elapses —
+  so operator-unresolved strands accumulating in the sink never drive an unbounded per-pass fan-out of
+  `origin` reads. Because reclaim is the operator's, there is **no per-unit reclaim lock, no under-lock re-read,
   and no worker-liveness probe on the correctness path** — the machinery Architecture A needed for
   auto-reclaim is **absent by design** (D-7, D-11).
   *(Cites: D-7, D-11, D-13; the positive-evidence-of-death floor (Sources).)*
@@ -464,7 +482,9 @@ marking, or the tower non-authoring boundary.
   whose **declared grammar is exactly the two `fleet-death-evidence.sh` forms** — `process <pid>` (a
   positive integer, no leading zero, ≤10 digits) or `tmux-window <session> <window>` (that predicate's tmux
   charset, ≤128, no leading dash) — since the handle is read from an untrusted peer presence record and
-  passed straight to `fleet-death-evidence.sh`; a field that fails its grammar is refused, not coerced;
+  passed straight to `fleet-death-evidence.sh`, **and the currently-fenced-unit-ids list** (each entry
+  validated against the unit-id grammar above, since the list is parsed from an untrusted peer record and
+  consumed for orphan-fence attribution — REQ-A1.2, REQ-C1.3); a field that fails its grammar is refused, not coerced;
   (b) **path and ref access SHALL be canonicalized and containment-checked** before any read, write,
   `mkdir`, unlink, or ref push/delete — the presence surface directory itself (so a **surface-root symlink**
   cannot redirect containment outside it), each presence record path, the strand-sink path, and the

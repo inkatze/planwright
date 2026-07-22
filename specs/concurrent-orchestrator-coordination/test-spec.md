@@ -71,8 +71,9 @@ never reclaim on a guess); (d) on discovery, a positively-dead tower's whole pre
 (GC) while a **live** peer's file is neither deleted nor edited (its bytes are unchanged after a
 discovery pass); (d′) a **guarded-GC** fixture: a positively-dead tower's file GC racing that same
 tower's **re-publish of a fresh live record** (dead-then-restarted, same identity, new session) does
-**not** delete the fresh record — the sweep re-reads under the lock, sees the record is no longer the
-dead one, and leaves it (an unguarded `rm` would be the bug); and an assertion that the discovery /
+**not** delete the fresh record — the sweep **re-stats and compares** immediately before the unlink, sees
+the file is no longer byte-identical to the dead record it classified, and leaves it (an unguarded `rm`
+would be the bug; **no lock is used** — a stateless compare-and-delete); and an assertion that the discovery /
 reclaim path invokes no LLM (no model-call in the code path).
 
 ### REQ-A1.4 — Presence is derived on demand, user-private, no new shared-write accumulator [test]
@@ -316,7 +317,9 @@ out of scope (a co-tenant threat), so no cryptographic spoof-proofing is require
 ### REQ-D1.5 — Framework-script security bars on the coordination scripts [test]
 
 `[test]`: **every** parsed field consumed by the coordination logic — tower id, repository id, **unit id
-and spec id (validated before any `origin` fence-ref push or delete)**, the timestamps (start time,
+and spec id (validated before any `origin` fence-ref push or delete)**, **each entry of the
+currently-fenced-unit-ids list** (validated against the unit-id grammar, since it is consumed from an
+untrusted peer record for orphan-fence attribution), the timestamps (start time,
 heartbeat, validated as well-formed timestamps), the **meta-tower marker** (a validated boolean; it drives
 the defer-to-authority decision), the **checkout path**, **and the death handle**, whose **declared grammar
 is exactly the two `fleet-death-evidence.sh` forms** — `process <pid>` (positive integer, no leading zero,

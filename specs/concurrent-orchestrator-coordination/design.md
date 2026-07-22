@@ -312,10 +312,12 @@ layer, not a parallel coordination stack.
 **Decision:** The exclusion primitive **is** the authoritative no-duplicate-dispatch guarantee (D-11), and
 it is a **per-unit fence ref on `origin`**, not a machine-local object. At dispatch, before any worker
 runs, a tower creates `refs/planwright-fence/<spec>/<unit-id>` by an **atomic expect-absent
-compare-and-swap** (`git push --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:$ZERO_OID`, where
-**`$ZERO_OID` is the object-format's all-zeros object id** — 40 hex zeros under SHA-1, 64 under SHA-256 — as
-the must-be-absent expectation, **never the bare-empty `<ref>:` (nothing-after-the-colon) form** some git
-builds treat as unchecked; the ref targets the current `origin/main` tip, an existing commit, so no
+compare-and-swap** (`git push --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:$ZERO_OID origin
+<origin/main-tip>:refs/planwright-fence/<spec>/<unit-id>` — the `--force-with-lease` names the fence ref and
+its must-be-absent expectation `$ZERO_OID` (**the object-format's all-zeros object id**, 40 hex zeros under
+SHA-1 / 64 under SHA-256, **never the bare-empty `<ref>:` nothing-after-the-colon form** some git builds
+treat as unchecked), while the trailing `origin <origin/main-tip>:refs/planwright-fence/<spec>/<unit-id>` is
+the refspec actually pushed — creating the fence ref at the current `origin/main` tip, an existing commit, so no
 history is added to `main`). The push **is** the serializer: `origin` serializes ref updates, so the first
 tower's create-ref succeeds and it owns the unit, while a losing tower's push is **rejected**, whereupon it
 selects another unit. This is authoritative because `origin` is **natively both cross-clone** (every
