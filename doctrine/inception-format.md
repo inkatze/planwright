@@ -95,8 +95,9 @@ then carry a
 `- **Track:** <label>` field (only in a tracked venture) referencing a
 declared label. A single-track venture declares no tracks and writes no
 `Track:` fields. A track that ends gets its declaration bullet annotated
-`— graduated <date>` or `— ended <date> (<reason>)`; gate records may carry
-per-track outcomes, and partial graduation keys on these labels.
+`— graduated <date>` or `— ended <date> (<reason>)`; gate records carry
+per-track outcomes (coverage defined under *Gate records*), and partial
+graduation keys on these labels.
 
 ## Venture lifecycle
 
@@ -118,7 +119,10 @@ to `Killed`. Only the record's top-level `Outcome:` moves the venture status;
 per-track outcomes annotate tracks and never change `Status:`. A partial
 graduation therefore records a continuing top-level outcome (`Recycle` or
 `Hold`) with `<label>=Graduate` in `Tracks:`, and the graduated track's
-declaration bullet gains its `— graduated <date>` annotation. An `On-hold`
+declaration bullet gains its `— graduated <date>` annotation. In a tracked
+venture a top-level `Graduate` is recorded only when every declared track is
+already graduated or ended; a `Graduate` record that leaves a live track
+unannotated is a validation finding. An `On-hold`
 venture resumes to `Exploring` by operator act, or closes via a gate run or
 operator declaration. Killed and Abandoned ventures are archived with a brief
 post-mortem note appended to the changelog. Every status change is a
@@ -416,8 +420,10 @@ parsers. `Thresholds:` covers every live `Blocking: yes` assumption plus any
 other assumption cited in `Evidence:`; `open` marks one not evaluated at
 this run, and a `Graduate` outcome admits no `open` item on a blocking
 assumption (REQ-E1.1). `Kill-criteria:` covers every live `KC-<n>`.
-`Tracks:` is optional and appears only in a tracked venture (REQ-C1.11); its
-outcome tokens are the four `Outcome:` tokens. `Rationale:` runs to the end
+`Tracks:` appears only in a tracked venture and is omitted otherwise
+(REQ-C1.11); it covers every declared track not yet graduated or ended, one
+`<label>=<Outcome token>` item per track, the outcome tokens being the four
+`Outcome:` tokens. `Rationale:` runs to the end
 of the block. A line with nothing to record carries the literal `none`.
 `<n>` is a positive integer, sequential, append-only. Gate records and
 register IDs are untouchable by stakeholder-channel changes (edits arriving
