@@ -135,7 +135,7 @@
 #      awareness and strand-attribution degrade for the step while dispatch
 #      proceeds (D-10; the origin fence, not this surface, is the floor)
 #   4  security refusal: over-broad, ACL-bearing, mis-owned, or
-#      symlink-tampered surface (verify-or-refuse, REQ-A1.4)
+#      symlink-tampered surface or sentinel (verify-or-refuse, REQ-A1.4)
 #   5  no origin remote — the genuine solo posture
 #
 # POSIX sh on the macOS + Linux support bar (bash 3.2 / BSD tooling). All

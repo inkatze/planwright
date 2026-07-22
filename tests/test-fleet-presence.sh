@@ -32,7 +32,7 @@
 #       refused input / non-repository checkout / write failure; 3
 #       unknown-peer-status (vanished, unreadable, or obstructed surface —
 #       fail closed, never solitude); 4 security refusal (over-broad,
-#       ACL-bearing, mis-owned, or symlink-tampered surface,
+#       ACL-bearing, mis-owned, or symlink-tampered surface or sentinel,
 #       verify-or-refuse); 5 no origin remote (genuine solo posture).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
