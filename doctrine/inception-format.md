@@ -113,7 +113,8 @@ annotations:
 | `Abandoned` | Closed by operator declaration without a gate run. |
 
 Gate outcomes map to status as follows: `Graduate` closes the venture — the
-explicit close REQ-F1.3 requires; `Hold` moves it to `On-hold`; `Recycle`
+explicit close that REQ-F1.3 requires; `Hold` moves it to `On-hold`;
+`Recycle`
 keeps it `Exploring` (the registers and plan are re-scoped); `Kill` moves it
 to `Killed`. Only the record's top-level `Outcome:` moves the venture status;
 per-track outcomes at most annotate tracks and never change `Status:`. A
