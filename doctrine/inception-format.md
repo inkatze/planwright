@@ -107,7 +107,7 @@ annotations:
 | --- | --- |
 | `Exploring` | Live venture: elicitation, validation, or gate cycles in progress. The initial status. |
 | `On-hold` | Parked by a gate Hold outcome or operator act; kill criteria keep their dates. |
-| `Graduated` | Closed by graduation: an untracked venture graduates whole; a tracked one closes when every declared track is graduated or explicitly ended (annotated as above). Partial graduation does not close the venture; it stays `Exploring` until closed explicitly. |
+| `Graduated` | Closed by graduation: an untracked venture graduates whole; a tracked one closes when every declared track is graduated or explicitly ended (annotated as above). Partial graduation does not close the venture; it continues under the recorded top-level outcome until closed explicitly. |
 | `Killed` | Closed by a gate Kill outcome, recorded in the gate log. |
 | `Abandoned` | Closed by operator declaration without a gate run. |
 
