@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.29.0](https://github.com/inkatze/planwright/compare/v0.28.0...v0.29.0) (2026-07-22)
+
+
+### Features
+
+* **operator-dialogue:** kickoff acceptance invariants, persona pilots, rubric audit (task 6) ([#296](https://github.com/inkatze/planwright/issues/296)) ([d4a6604](https://github.com/inkatze/planwright/commit/d4a66042b7199ff697dd03a3beceec5d03cc1bef))
+* **spec:** concurrent-orchestrator-coordination kickoff sign-off ([#295](https://github.com/inkatze/planwright/issues/295)) ([5140d2a](https://github.com/inkatze/planwright/commit/5140d2ae04fe7a08c54ca5be181017aaad6760b6))
+
 ## [0.28.0](https://github.com/inkatze/planwright/compare/v0.27.0...v0.28.0) (2026-07-21)
 
 
