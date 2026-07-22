@@ -325,6 +325,48 @@ marker** the tower records at watch-loop start
 An ambiguous or unparseable marker fails closed: neither path acts, and the
 watchdog queues a repair decision instead of guessing.
 
+## Cross-tower presence: never assume solitude
+
+Concurrent towers on one host — even from **separate clones** of the same
+repository — see each other through the presence surface
+(concurrent-orchestrator-coordination D-2: one heartbeat file per tower under
+the fleet home, partitioned per repository by an origin-anchored repo id;
+never a shared registry, never a daemon). It is **awareness only**: the
+dispatch-exclusion floor is the per-unit `origin` fence ref, so nothing here
+is on the correctness path.
+
+A tower publishes its record at watch-loop start and re-publishes on each
+iteration (the heartbeat), refreshing the unit-ids it currently holds a fence
+for — the field a peer uses to attribute an orphan fence to its owner — then
+discovers peers:
+
+```sh
+scripts/fleet-presence.sh publish --checkout <repo-root> \
+  [--session-id <uuid> | --pid <pid>] [--specs <csv>] [--fenced <csv>] \
+  [--tmux-session <name> --tmux-window <name>] [--meta]
+scripts/fleet-presence.sh discover --checkout <repo-root> \
+  [--session-id <uuid> | --pid <pid>]
+```
+
+A tower under tmux passes the reuse-resistant `tmux-window` handle; bare
+`--pid` is the degraded fallback. Discovery classifies each peer through
+`fleet-death-evidence.sh` (tri-state; a stale heartbeat is never death),
+garbage-collects only positively-dead records (guarded by a re-read-and-skip;
+a racing fresh record self-heals on the next heartbeat), and prints a
+`sole-tower=yes|no` summary — a tower that finds **any** live, unknown, or
+unreadable peer must not behave as the only tower. Single-step (non-watch)
+runs may invoke the same pair ad hoc before dispatching.
+
+Failure postures, all deterministic script logic: a first run bootstraps the
+user-private (`0700`) surface (a persistence sentinel distinguishes it from a
+**vanished** surface, which fails closed); an unreadable or vanished surface
+exits 3 (**unknown peer status** — awareness degrades for the step while
+dispatch proceeds on the fence floor; never read as solitude); an over-broad
+surface is refused outright (exit 4, verify-or-refuse — investigate, then
+`chmod 700` it yourself); no `origin` remote exits 5 (the genuine solo
+posture). `fleet-presence.sh owner <spec>/<unit-id>` resolves a fence ref's
+owner from live records (`unknown-owner` when none lists it).
+
 ## Scaling out: the meta-tower
 
 `/orchestrate --fleet` supervises **all** Ready/Active specs by launching a
