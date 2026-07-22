@@ -1216,15 +1216,21 @@ chmod +x "$slowshim"
 rm -f "$odir/slow-pid"
 t0=$(date +%s)
 rc=0
-out=$(env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
+# A 5s timeout (not 1s) for THIS case: the kill assertion needs the shim to
+# have started and recorded its pid before the bound fires, and process
+# startup under a heavily parallel test runner can exceed a second. The
+# 30s shim sleep keeps the discrimination unambiguous.
+out=$(env PLANWRIGHT_ORACLE_TIMEOUT=5 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
   PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" PLANWRIGHT_ADOPTER_OVERLAY="$adopter_root" \
   PLANWRIGHT_REPO_ROOT="$repo" PLANWRIGHT_LOCAL_CONFIG="" \
   PLANWRIGHT_ORACLE_CLAUDE="$slowshim" \
   /bin/sh "$FL" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
 t1=$(date +%s)
 [ "$rc" = 1 ] || fail "oracle hang: exit $rc, expected 1 (unavailable)"
-[ $((t1 - t0)) -lt 15 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 1s timeout to bound it"
-slow_pid=$(cat "$odir/slow-pid" 2>/dev/null)
+[ $((t1 - t0)) -lt 25 ] || fail "oracle hang: probe took $((t1 - t0))s, expected the 5s timeout to bound it"
+# Guard the read: a missing pid file must reach the named assertion below,
+# never a silent set -e abort mid-suite.
+slow_pid=$(cat "$odir/slow-pid" 2>/dev/null || true)
 [ -n "$slow_pid" ] || fail "oracle hang: the shim never recorded its pid"
 kill_ok=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
