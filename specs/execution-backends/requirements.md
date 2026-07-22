@@ -196,9 +196,10 @@ and gives non-tmux operators a backend-agnostic worker status view.
   busy/blocked oracle when available, demoting pane-scrape heuristics to fallback-only. A probe
   that exits non-zero, hangs past its bounded timeout, or returns unparseable output SHALL be
   treated as oracle-unavailable (fallback engages), never as an empty fleet; absence of a
-  tracked worker from oracle output is not positive evidence of death. Pane-scrape fallback
-  applies only to pane-hosted (tmux) workers; workers on other backends fall back to their
-  backend's advertised liveness mechanism.
+  tracked worker from oracle output is not positive evidence of death — death remains decided
+  by the backend's positive-evidence liveness check (a contract baseline, not an advertised
+  property). Pane-scrape fallback applies only to pane-hosted (tmux) workers; workers on other
+  backends fall back to their backend's liveness mechanism.
   *(Cites: D-11, obs:3414579b, kickoff lens pass (2026-07-22).)*
 
 ## Changelog
@@ -239,6 +240,12 @@ and gives non-tmux operators a backend-agnostic worker status view.
   resolution (mid-run failover named a distinct act); REQ-E1.2/D-5/test-spec gain the
   pending-age alarm coupling for AskUserQuestion (sibling parity with REQ-E1.1); D-12 gains
   the forward non-bare-flag adoption clause.
+- 2026-07-22 — Panel iteration 3 clarifications (expression-only, gemini pass,
+  operator-approved): Task 3's no-pend mechanism grounded (no stdio prompt tool on one-shots;
+  `-p` non-interactive default, failure visible in the result/completion signal); REQ-F1.1
+  death determination named as the backend's positive-evidence liveness baseline ("advertised"
+  corrected — liveness is a contract baseline); test-spec REQ-A1.2 fails-visibly fixture;
+  Task 4 completion/liveness parity line (supervisor + event stream).
 
 ## Sources
 

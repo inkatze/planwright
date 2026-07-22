@@ -54,8 +54,10 @@ critical path is 2 → 4 → 7 → 8 (derived from the `Dependencies:` lines; re
 - **Deliverables:** dispatch support for `headless-oneshot`: detached `claude -p` launch with
   non-`--bare` pinned, launch construction passing prompt and task text as data (REQ-A1.9), a
   completion signal the tower can consume, the one-shot permission posture defined (no pend
-  path: a permission ask in a one-shot fails visibly, never pends), and liveness wiring per the
-  advertised set; launch-pin guard coverage extended; fixture tests.
+  path: one-shots never attach a stdio permission-prompt tool, so an unauthorized ask fails
+  under `-p`'s non-interactive default — visible in the worker's result and completion signal,
+  never a pend), and liveness wiring per the advertised set; launch-pin guard coverage
+  extended; fixture tests.
 - **Done when:** a dispatched unit launches detached with the pinned flags, its completion is
   observable by the tower, its liveness answers positive-evidence-of-death, and the launch-pin
   guard rejects an unpinned launch site; the full check suite is green.
@@ -71,6 +73,8 @@ critical path is 2 → 4 → 7 → 8 (derived from the `Dependencies:` lines; re
   `can_use_tool` receipt coupled to a decision-queue item plus a pending-age alarm,
   AskUserQuestion↔decision-queue 1:1 mapping, answer delivery per REQ-E1.4, the crash-window
   invariants per REQ-E1.5, and `--resume` recovery against the persisted `session_id`;
+  completion and liveness for this backend surfaced from the supervisor and event stream (its
+  completion/liveness source, the sibling of Task 3's completion signal);
   shim-fixture tests for each contract clause and a documented manual end-to-end resume probe.
 - **Done when:** fixtures demonstrate a `can_use_tool` receipt producing a queue item and the
   alarm firing past the pending threshold; an AskUserQuestion control_request maps to exactly one

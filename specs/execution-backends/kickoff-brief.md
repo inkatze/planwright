@@ -343,3 +343,17 @@ the reconciliation (§3 is append-only post-sign-off).
 Class: expression-only
 Anchor: `fa6f35ad4a4d88eeafe2933c023beefb2ada9398` — computed as
 `scripts/spec-anchor.sh specs/execution-backends`
+
+### Re-anchor 3 — panel iteration 3 clarifications (2026-07-22)
+
+Five expression-only clarifications from the third gemini pass, operator-approved as a cluster
+(with the exit rule: a final pass returning only new minor wording nits declares convergence):
+Task 3 no-pend mechanism grounded; REQ-F1.1 death determination = the backend's
+positive-evidence liveness baseline ("advertised" corrected); test-spec REQ-A1.2
+fails-visibly fixture; Task 4 completion/liveness parity line. Cites the requirements.md
+Changelog entry "Panel iteration 3 clarifications". Re-declined: oracle probe caching
+(task-level mechanism, consistent with the §8 declined log).
+
+Class: expression-only
+Anchor: `955f204cc5a5cc40f4344bd635becd82726b0e97` — computed as
+`scripts/spec-anchor.sh specs/execution-backends`

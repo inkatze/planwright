@@ -27,7 +27,9 @@ row.
 
 `tests/test-orchestrate-backends.sh` asserts the advertised set answered for `headless-oneshot`
 equals the values REQ-A1.2 pins (not merely doc↔script parity); Task 3's dispatch fixtures
-verify detached launch, completion signal, and liveness behavior match the advertised set.
+verify detached launch, completion signal, and liveness behavior match the advertised set, and
+a fixture asserts a permission ask in a one-shot fails visibly (no stdio prompt tool attached;
+the failure lands in the result/completion signal) rather than pending.
 
 ### REQ-A1.3 — stream-json-persistent backend value [test]
 
