@@ -122,11 +122,12 @@ and gives non-tmux operators a backend-agnostic worker status view.
   REQ-B1.4 (Sources).)*
 - **REQ-B1.5** An explicitly configured `dispatch_backend` value (global or per-spec) that is
   not advertised on the host SHALL fail closed: the dispatch halts to Awaiting input naming the
-  missing backend, never silently substituting another backend. Degradation ladders apply only
-  to semantic values (`full-session`), never to explicit literals. This rule is
-  **dispatch-time only** — a declared narrowing of orchestration-fleet REQ-B1.4's
-  degrade-on-absence clause for explicit literals; mid-run runtime failover keeps
-  orchestration-fleet REQ-B1.5's descend-one-rung-with-logged-note semantics.
+  missing backend, never silently substituting another backend. At **dispatch-time
+  resolution**, degradation ladders apply only to semantic values (`full-session`), never to
+  explicit literals — a declared narrowing of orchestration-fleet REQ-B1.4's
+  degrade-on-absence clause; mid-run runtime failover is a distinct act and keeps
+  orchestration-fleet REQ-B1.5's descend-one-rung-with-logged-note semantics for every
+  configured value.
   *(Cites: D-8, kickoff §3 (2026-07-22), kickoff lens pass (2026-07-22).)*
 
 ## REQ-C — The offload command
@@ -171,8 +172,9 @@ and gives non-tmux operators a backend-agnostic worker status view.
 - **REQ-E1.1** The stream-json supervisor SHALL couple every `can_use_tool` control_request
   receipt to a decision-queue item plus a pending-age alarm; no permission request may pend
   unobserved (the verified indefinite-pend gotcha). *(Cites: D-5, obs:3414579b.)*
-- **REQ-E1.2** AskUserQuestion control_requests SHALL map 1:1 onto decision-queue items.
-  *(Cites: D-5, obs:3414579b.)*
+- **REQ-E1.2** AskUserQuestion control_requests SHALL map 1:1 onto decision-queue items, with
+  the same pending-age alarm coupling as REQ-E1.1 — the indefinite-pend gotcha applies to both
+  control_request types. *(Cites: D-5, obs:3414579b.)*
 - **REQ-E1.3** Worker recovery SHALL use `--resume` against the persisted `session_id`.
   *(Cites: D-5, obs:3414579b.)*
 - **REQ-E1.4** The supervisor SHALL deliver the operator's recorded answer for a queue item as
@@ -232,6 +234,11 @@ and gives non-tmux operators a backend-agnostic worker status view.
   operator-approved): REQ-E1.5 failed-resume halt scoped to the affected unit; D-8 late-answer
   race stated benign; test-spec REQ-E1.4 visible-failure pinned to an attention-store item;
   REQ-F1.1 pane-scrape fallback scoped to pane-hosted workers.
+- 2026-07-22 — Panel iteration 2 clarifications (expression-only, gemini pass,
+  operator-approved): REQ-B1.5's ladder-exclusion scoped explicitly to dispatch-time
+  resolution (mid-run failover named a distinct act); REQ-E1.2/D-5/test-spec gain the
+  pending-age alarm coupling for AskUserQuestion (sibling parity with REQ-E1.1); D-12 gains
+  the forward non-bare-flag adoption clause.
 
 ## Sources
 

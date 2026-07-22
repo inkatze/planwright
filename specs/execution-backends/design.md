@@ -90,7 +90,8 @@ control_request receipt writes a decision-queue item (an attention-store entry �
 store is the queue; no new surface) and arms a pending-age alarm — never
 auto-answered, never left pending unobserved (the verified indefinite-pend gotcha:
 `--permission-prompt-tool stdio` pends forever if unanswered). AskUserQuestion control_requests
-map 1:1 onto decision-queue items. Crash recovery is `--resume` against the persisted
+map 1:1 onto decision-queue items, with the same pending-age alarm coupling (the gotcha
+applies to both request types). Crash recovery is `--resume` against the persisted
 `session_id`; session-grade for this backend therefore means *recoverable* — the session
 survives supervisor death via `--resume` — and Task 2 records that nuance in both the contract
 row and the session-grade evaluable definition itself (the definition gains the recoverable
@@ -243,7 +244,10 @@ explicitly rather than relying on the current CLI default.
 platform-default change (the same version-sensitivity class Research Rigor exists for).
 At CLI v2.1.217 there is no explicit inverse flag: pinning means never passing `--bare`, the
 launch-pin guard enforcing that at every site, and per-task re-verification against the
-running CLI (D-4). *(Amended at kickoff lens pass 2026-07-22: pin mechanism stated.)*
+running CLI (D-4). A future CLI that ships an explicit non-bare flag flips the pin to passing
+that flag at every launch site (the re-verification is what detects its availability).
+*(Amended at kickoff lens pass 2026-07-22: pin mechanism stated; panel iter 2: forward-flag
+clause.)*
 
 ### D-13: Adapter grammar grows back-compatibly, 6→8 fields  (N)
 

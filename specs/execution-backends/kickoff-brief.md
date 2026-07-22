@@ -328,3 +328,18 @@ in REQ-D1.2/Task 8.
 Class: expression-only
 Anchor: `2ec5d07b8269ea9dfa8741f15d23e4e0d8211cce` — computed as
 `scripts/spec-anchor.sh specs/execution-backends`
+
+### Re-anchor 2 — panel iteration 2 clarifications (2026-07-22)
+
+Three expression-only clarifications from the second gemini panel pass, operator-approved as a
+cluster: REQ-B1.5 ladder-exclusion explicitly scoped to dispatch-time resolution; the
+pending-age alarm coupling extended to AskUserQuestion items (REQ-E1.2, D-5, test-spec —
+sibling parity with REQ-E1.1); D-12 forward non-bare-flag adoption clause. Cites the
+requirements.md Changelog entry "Panel iteration 2 clarifications". Re-declined (consistent
+with the §8 declined log): unbounded event-stream render cost (task-level mechanism). Noted:
+§3's E3 label ("test-spec REQ-B1.1") predates REQ-B1.5's minting; §4's application record is
+the reconciliation (§3 is append-only post-sign-off).
+
+Class: expression-only
+Anchor: `fa6f35ad4a4d88eeafe2933c023beefb2ada9398` — computed as
+`scripts/spec-anchor.sh specs/execution-backends`

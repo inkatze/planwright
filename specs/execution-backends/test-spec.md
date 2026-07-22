@@ -181,8 +181,9 @@ second fixture asserts no code path auto-answers the request.
 ### REQ-E1.2 — AskUserQuestion 1:1 mapping [test]
 
 Supervisor shim fixture: an injected AskUserQuestion control_request produces exactly one
-decision-queue item carrying the question payload; duplicate delivery, deduplicated on request
-identity, does not produce a second item.
+decision-queue item carrying the question payload; advancing past the pending threshold fires
+the alarm for an unanswered question item (same coupling as REQ-E1.1); duplicate delivery,
+deduplicated on request identity, does not produce a second item.
 
 ### REQ-E1.3 — resume recovery [test + manual]
 
