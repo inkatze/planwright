@@ -90,12 +90,13 @@
 #
 # Usage (every command except `surface` needs an identity: --session-id, or
 # --pid for the composite; publish additionally needs a death handle — the
-# tmux pair, or --pid as the degraded fallback. Publish and discover must be
-# invoked with the SAME identity flags, or the discover identity will not
-# match the published record and self-exclusion fails — the tower would
-# count itself as a peer):
-#   fleet-presence.sh publish  --checkout <dir> (--tmux-session <name>
-#       --tmux-window <name> | --pid <pid>) [--session-id <uuid>]
+# tmux pair when under tmux (preferred), else --pid doubles as the handle,
+# so a tmux-only publish still needs --session-id or --pid for identity.
+# Publish and discover must be invoked with the SAME identity flags, or the
+# discover identity will not match the published record and self-exclusion
+# fails — the tower would count itself as a peer):
+#   fleet-presence.sh publish  --checkout <dir> (--session-id <uuid> |
+#       --pid <pid>) [--tmux-session <name> --tmux-window <name>]
 #       [--specs <csv>] [--fenced <csv>] [--meta]
 #   fleet-presence.sh discover --checkout <dir> (--session-id <uuid> |
 #       --pid <pid>) [--min-interval <sec>]   (default 30; 0 disables the cap)
@@ -469,6 +470,12 @@ if [ ! -d "$home" ]; then
   err "cannot create the fleet home $home — failing closed; fix its parent's writability and retry"
   exit 2
 fi
+# Hoisted once: the ownership discriminant every check_private call compares
+# against. An unresolvable uid fails closed (the trust gate needs it).
+my_uid=$(id -u) || {
+  err "cannot resolve the current uid (id -u failed) — failing closed"
+  exit 2
+}
 surface_root="$home/presence"
 host_sentinel="$home/presence.sentinel"
 sentinel_dir="$home/presence.sentinels"
@@ -492,26 +499,31 @@ fi
 # create and check is the unknown-peer-status posture (exit 3), not a
 # security refusal.
 check_private() {
+  cp_dir=$1
   # ls -ld[n] is the portable mode/owner read (stat's flags differ across
   # BSD/GNU); only the mode and numeric-uid columns are parsed, never a
   # filename (SC2012 n/a).
   # shellcheck disable=SC2012
-  cp_line=$(ls -ldn "$1" 2>/dev/null) || cp_line=""
+  cp_line=$(ls -ldn "$cp_dir" 2>/dev/null) || cp_line=""
   if [ -z "$cp_line" ]; then
-    err "unknown peer status: coordination surface $1 disappeared while being verified — failing closed (REQ-A1.5)"
+    err "unknown peer status: coordination surface $cp_dir disappeared while being verified — failing closed (REQ-A1.5)"
     exit 3
   fi
-  cp_perms=$(printf '%s\n' "$cp_line" | awk '{print $1}')
-  cp_uid=$(printf '%s\n' "$cp_line" | awk '{print $3}')
+  # Word-split the listing line (set -f is on; the mode and uid columns
+  # precede the filename, so a path with spaces cannot shift them).
+  # shellcheck disable=SC2086
+  set -- $cp_line
+  cp_perms=${1:-}
+  cp_uid=${3:-}
   case "$cp_perms" in
     d???------ | d???------[@.]*) ;;
     *)
-      err "security: coordination surface $1 is not verifiably user-private (mode $cp_perms; group/other access and ACL-bearing modes are refused) — verify-or-refuse, REQ-A1.4: halt coordination-surface use, investigate how it widened, then chmod 700 (and strip any ACL) yourself"
+      err "security: coordination surface $cp_dir is not verifiably user-private (mode $cp_perms; group/other access and ACL-bearing modes are refused) — verify-or-refuse, REQ-A1.4: halt coordination-surface use, investigate how it widened, then chmod 700 (and strip any ACL) yourself"
       exit 4
       ;;
   esac
-  if [ "$cp_uid" != "$(id -u)" ]; then
-    err "security: coordination surface $1 is owned by uid $cp_uid, not this user — refusing an attacker-planted or mis-owned surface (verify-or-refuse, REQ-A1.4); investigate and remove it yourself"
+  if [ "$cp_uid" != "$my_uid" ]; then
+    err "security: coordination surface $cp_dir is owned by uid $cp_uid, not this user — refusing an attacker-planted or mis-owned surface (verify-or-refuse, REQ-A1.4); investigate and remove it yourself"
     exit 4
   fi
 }
@@ -708,7 +720,10 @@ fi
 fde="$script_dir/fleet-death-evidence.sh"
 # The per-pass memo lives in the private cadence dir, not shared $TMPDIR
 # (sibling convention: surface-local temp templates).
-memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || exit 2
+memo=$(mktemp "$cadence_dir/.memo.XXXXXX") || {
+  err "cannot create the per-pass liveness memo in $cadence_dir — failing closed"
+  exit 2
+}
 trap 'rm -f "$memo"' EXIT
 
 # classify_handle <handle> — tri-state verdict, memoized per pass so the
@@ -738,10 +753,10 @@ peers=0
 found_owner=""
 
 emit_unreadable_peer() {
-  su_name=$(sanitize_printable "$1" "(unprintable name)")
-  err "skipping unreadable presence record '$su_name' ($2) — a peer exists but its details are unreadable: assume-live, surfaced, never GC'd (REQ-A1.6)"
+  eup_name=$(sanitize_printable "$1" "(unprintable name)")
+  err "skipping unreadable presence record '$eup_name' ($2) — a peer exists but its details are unreadable: assume-live, surfaced, never GC'd (REQ-A1.6)"
   if [ "$cmd" = discover ]; then
-    printf 'peer-unreadable\t%s\t%s\n' "$su_name" "$2"
+    printf 'peer-unreadable\t%s\t%s\n' "$eup_name" "$2"
   fi
   peers=$((peers + 1))
 }
@@ -779,14 +794,20 @@ while IFS= read -r name; do
   }
   # One awk parses the whole record: exact field count enforced, the ten
   # fields emitted one per line (fields never contain newlines — the record
-  # is single-line by construction, and a multi-line file fails NR==1/END).
+  # is single-line by construction; interior extra lines fail NR>1, while
+  # trailing blank lines are stripped by the command substitution above and
+  # tolerated).
   parsed=$(printf '%s\n' "$content" | awk -F'\t' '
     NR == 1 { if (NF != 10) bad = 1; else for (i = 1; i <= 10; i++) print $i }
     NR > 1 { bad = 1 }
     END { exit bad }') || parsed=""
   ok=1
   kind=malformed
-  if [ "${#content}" -ge 8192 ] || [ -z "$parsed" ]; then
+  if [ "${#content}" -ge 8192 ]; then
+    # Oversize is malformed regardless of its tag: a version sniff on a
+    # truncated read would mislabel it schema-skew.
+    ok=0
+  elif [ -z "$parsed" ]; then
     ok=0
     tag=$(printf '%s\n' "$content" | awk -F'\t' 'NR==1{print $1}')
     case "$tag" in

@@ -4,29 +4,36 @@
 # (concurrent-orchestrator-coordination Task 2: D-2 · REQ-A1.1–REQ-A1.7).
 #
 # Contract under test:
-#   publish  --checkout <dir> [--pid <pid>] [--session-id <uuid>]
-#            [--specs <csv>] [--fenced <csv>]
-#            [--tmux-session <name> --tmux-window <name>] [--meta]
+#   publish  --checkout <dir> (--session-id <uuid> | --pid <pid>)
+#            [--tmux-session <name> --tmux-window <name>]
+#            [--specs <csv>] [--fenced <csv>] [--meta]
 #       Write/refresh this tower's own presence record atomically
 #       (write-temp-then-rename) under <surface>/<repo-id>/<tower-id>.
-#   discover --checkout <dir> [--pid <pid>] [--session-id <uuid>]
-#            [--min-interval <sec>]
+#       Needs an identity AND a death handle: the tmux pair when given
+#       (preferred), else --pid doubles as the handle. Records over the
+#       8191-byte cap are refused at the writer.
+#   discover --checkout <dir> (--session-id <uuid> | --pid <pid>)
+#            [--min-interval <sec>]     (default 30; 0 disables the cap)
 #       Scan the current repo-id sub-surface, exclude own record by tower
 #       identity, classify each peer via fleet-death-evidence.sh (tri-state,
 #       memoized per pass), GC positively-dead records under a re-read-and-
-#       skip guard, and print peer/summary lines.
-#   owner    --checkout <dir> [identity flags] <spec>/<unit-id>
-#       Resolve a fenced unit's owner from live records' fenced field;
-#       `unknown-owner` when no live record lists it.
-#   identity --checkout <dir> [--pid <pid>] [--session-id <uuid>]
+#       skip guard (gc | gc-skip | gc-fail — a failed unlink is never
+#       claimed as done), and print peer / peer-unreadable (malformed |
+#       schema-skew | unreadable) / foreign-record / summary lines. A pass
+#       inside --min-interval prints only `cadence-capped`.
+#   owner    --checkout <dir> (--session-id <uuid> | --pid <pid>) <spec>/<unit-id>
+#       Resolve a fenced unit's owner from LIVE records' fenced field;
+#       `unknown-owner` when no live record lists it. Never cadence-capped.
+#   identity --checkout <dir> (--session-id <uuid> | --pid <pid>)
 #       Print the derived tower identity (REQ-A1.7).
 #   surface  --checkout <dir>
 #       Print the per-repo sub-surface path.
 #   Exit codes: 0 ok (incl. healthy-empty & cadence-capped); 2 usage /
-#       refused input / write failure; 3 unknown-peer-status (vanished or
-#       unreadable surface — fail closed, never solitude); 4 security
-#       refusal (over-broad surface, verify-or-refuse); 5 no origin remote
-#       (genuine solo posture).
+#       refused input / non-repository checkout / write failure; 3
+#       unknown-peer-status (vanished, unreadable, or obstructed surface —
+#       fail closed, never solitude); 4 security refusal (over-broad,
+#       ACL-bearing, mis-owned, or symlink-tampered surface,
+#       verify-or-refuse); 5 no origin remote (genuine solo posture).
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -62,6 +69,9 @@ printf '%s\n' "\$*" >>"$tmp/evidence-calls"
 if [ -f "$tmp/swap-on-call" ]; then
   target=\$(cat "$tmp/swap-on-call")
   cp "$tmp/fresh-record" "\$target"
+fi
+if [ -f "$tmp/delete-on-call" ]; then
+  rm -f "\$(cat "$tmp/delete-on-call")"
 fi
 verdict=\$(cat "$tmp/evidence-verdict")
 printf '%s\n' "\$verdict"
@@ -384,7 +394,18 @@ printf '%s\n' "$out" | grep -q "gc-skip	$uuid_a" \
 rm -f "$sub10/$uuid_a"
 run "$h10" publish --checkout "$co_a" --session-id "$uuid_a" --pid 33333 >/dev/null
 [ -f "$sub10/$uuid_a" ] || fail "heartbeat re-publish did not self-heal the record"
-echo "ok: GC re-reads and skips a changed record; heartbeat re-publish self-heals"
+# A peer's sweep unlinking the dead record between classification and our
+# re-read: the GC outcome holds (gc, not gc-skip) and nothing argues
+# against solitude.
+printf '%s\n' "$sub10/$uuid_a" >"$tmp/delete-on-call"
+printf 'dead\n' >"$tmp/evidence-verdict"
+out=$(run "$h10" discover --checkout "$co_a" --pid $$ --min-interval 0 2>/dev/null)
+rm -f "$tmp/delete-on-call"
+printf '%s\n' "$out" | grep -q "gc	$uuid_a" \
+  || fail "peer-raced unlink not reported as gc (got: $out)"
+printf '%s\n' "$out" | grep -q "sole-tower=yes" \
+  || fail "a peer-raced-away dead record argued against solitude"
+echo "ok: GC re-reads and skips a changed record; heartbeat re-publish self-heals; raced unlink is gc"
 
 # ---------------------------------------------------------------------------
 # 11. REQ-A1.6 — defensive parsing: malformed, truncated, and schema-skewed
@@ -401,6 +422,7 @@ printf 'garbage not a record\n' >"$sub11/one-malformed"
 printf 'pw-presence-v1	short\n' >"$sub11/two-truncated"
 printf 'pw-presence-v9	%s	%s	/x	-	-	1	2	process 1	false\n' \
   "$(basename "$sub11")" "$uuid_b" >"$sub11/three-skewed"
+printf 'pw-presence-v3	only	three\n' >"$sub11/five-skewshort"
 printf 'dead\n' >"$tmp/evidence-verdict"
 err="$tmp/h11-err"
 out=$(run "$h11" discover --checkout "$co_a" --pid $$ --min-interval 0 2>"$err") \
@@ -408,8 +430,17 @@ out=$(run "$h11" discover --checkout "$co_a" --pid $$ --min-interval 0 2>"$err")
 [ -f "$sub11/one-malformed" ] || fail "malformed record was GC'd (never reclaim on a guess)"
 [ -f "$sub11/two-truncated" ] || fail "truncated record was GC'd"
 [ -f "$sub11/three-skewed" ] || fail "schema-skewed record was GC'd"
+[ -f "$sub11/five-skewshort" ] || fail "short schema-skewed record was GC'd"
 n_unreadable=$(printf '%s\n' "$out" | grep -c "peer-unreadable") || true
-[ "$n_unreadable" = 3 ] || fail "expected 3 unreadable-peer lines, got $n_unreadable"
+[ "$n_unreadable" = 4 ] || fail "expected 4 unreadable-peer lines, got $n_unreadable"
+# Kind labels are part of the contract: full-width skew and short skew both
+# classify schema-skew; plain garbage classifies malformed.
+printf '%s\n' "$out" | grep -q "peer-unreadable	one-malformed	malformed" \
+  || fail "garbage record kind not 'malformed'"
+printf '%s\n' "$out" | grep -q "peer-unreadable	three-skewed	schema-skew" \
+  || fail "10-field vN record kind not 'schema-skew'"
+printf '%s\n' "$out" | grep -q "peer-unreadable	five-skewshort	schema-skew" \
+  || fail "short vN record kind not 'schema-skew' (empty-parsed branch)"
 grep -qi "unreadable\|malformed\|skew" "$err" || fail "unreadable records not surfaced on stderr"
 printf '%s\n' "$out" | grep -q "sole-tower=no" \
   || fail "unreadable peers must count against solitude (assume-live)"
@@ -555,10 +586,19 @@ out=$(run "$h14" owner --checkout "$co_b" --pid $$ demo-spec/3 2>/dev/null) \
   || fail "unknown-verdict owner probe failed"
 [ "$out" = "unknown-owner" ] || fail "unknown-liveness record used as an attribution source: $out"
 printf 'alive\n' >"$tmp/evidence-verdict"
+# A second live record claiming the same unit: first match kept
+# (deterministic by tower-id sort order), the duplicate surfaced on stderr.
+run "$h14" publish --checkout "$co_b" --session-id "$uuid_b" --pid 77778 \
+  --fenced demo-spec/3 >/dev/null
+err14="$tmp/h14-err"
+out=$(run "$h14" owner --checkout "$co_b" --pid $$ demo-spec/3 2>"$err14") \
+  || fail "duplicate-claim owner probe failed"
+[ "$out" = "owner	$uuid_a" ] || fail "duplicate claim changed the first-match owner: $out"
+grep -q "second live record" "$err14" || fail "duplicate live fence claim not surfaced"
 rc=0
 run "$h14" owner --checkout "$co_b" --pid $$ '../etc/passwd' >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "hostile unit ref not refused (exit $rc)"
-echo "ok: fence owner resolved from live records only; unlisted/unknown → unknown-owner; hostile ref refused"
+echo "ok: fence owner resolved from live records only; unlisted/unknown → unknown-owner; duplicates surfaced; hostile ref refused"
 
 # ---------------------------------------------------------------------------
 # 15. Hostile publish input is refused before any write (REQ-D1.5 posture):
@@ -585,7 +625,17 @@ done
   n=$(find "$h15/presence" -type f | wc -l | tr -d ' ')
   [ "$n" = 0 ] || fail "a refused publish still wrote a record"
 }
-echo "ok: hostile publish input refused before any write"
+# An oversize record (> the 8191-byte cap peers enforce) is refused at the
+# WRITER, so the publisher gets the signal instead of every peer silently
+# classifying it malformed.
+big_fenced=$(awk 'BEGIN{s="demo-spec/1";for(i=2;i<=800;i++)s=s ",demo-spec/" i; print s}')
+rc=0
+run "$h15" publish --checkout "$co_a" --session-id "$uuid_a" --pid 88888 \
+  --fenced "$big_fenced" >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "oversize publish not refused (exit $rc)"
+sub15=$(run "$h15" surface --checkout "$co_a")
+[ ! -f "$sub15/$uuid_a" ] || fail "an oversize refused publish still wrote a record"
+echo "ok: hostile publish input refused before any write; oversize record refused at the writer"
 
 # ---------------------------------------------------------------------------
 # 16. Structural assertions over the source (REQ-A1.2 / REQ-A1.3 / REQ-A1.6):

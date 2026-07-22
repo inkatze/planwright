@@ -342,18 +342,19 @@ discovers peers:
 
 ```sh
 scripts/fleet-presence.sh publish --checkout <repo-root> \
-  (--tmux-session <name> --tmux-window <name> | --pid <pid>) \
-  [--session-id <uuid>] [--specs <csv>] [--fenced <csv>] [--meta]
+  (--session-id <uuid> | --pid <pid>) \
+  [--tmux-session <name> --tmux-window <name>] \
+  [--specs <csv>] [--fenced <csv>] [--meta]
 scripts/fleet-presence.sh discover --checkout <repo-root> \
   (--session-id <uuid> | --pid <pid>) [--min-interval <sec>]
 ```
 
-Publish always needs a death handle: a tower under tmux passes the
-reuse-resistant `tmux-window` pair (preferred even when `--pid` is also
-given); bare `--pid` is the degraded fallback. Discover needs an identity
-(`--session-id`, else `--pid` for the composite) — **the same identity flags
-publish used**, or the tower will not recognize its own record and counts
-itself as a peer. Discovery classifies each peer through
+Every command needs an identity (`--session-id`, else `--pid` for the
+composite). Publish additionally needs a death handle: a tower under tmux
+passes the reuse-resistant `tmux-window` pair (preferred even when `--pid`
+is also given); bare `--pid` doubles as the degraded fallback handle.
+Discover must use **the same identity flags publish used**, or the tower
+will not recognize its own record and counts itself as a peer. Discovery classifies each peer through
 `fleet-death-evidence.sh` (tri-state; a stale heartbeat is never death),
 garbage-collects only positively-dead records (guarded by a re-read-and-skip;
 a racing fresh record self-heals on the next heartbeat; a failed unlink is
