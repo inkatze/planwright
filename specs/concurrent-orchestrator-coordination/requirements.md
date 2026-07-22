@@ -172,13 +172,17 @@ marking, or the tower non-authoring boundary.
   closed). Presence discovery and reclaim SHALL be deterministic script logic that invokes no LLM.
   Reclaim MAY include deleting the positively-dead tower's entire presence file (garbage collection on
   discovery); deleting a whole dead file is distinct from, and does not violate, the prohibition on
-  editing a *live* peer's file content. The GC delete SHALL be guarded by a **stateless
-  re-stat-and-compare** — **no machine-local lock** (Architecture B keeps none; this is a presence-surface
-  awareness guard, *not* a resurrection of the removed correctness-path reclaim lock): immediately before the
-  unlink the sweep re-reads the file and deletes it **only if it is byte-identical to the positively-dead
-  record it classified** (equivalently, an atomic `rename`-aside of that exact content then unlink), so a
-  **dead-then-restarted** tower's *fresh live* record (same tower identity, new session, different content) is
-  never deleted out from under it — an unguarded `rm` would be that bug. Where a tower's death handle is the degraded bare-`process <pid>` form (REQ-A1.2), a **reused pid**
+  editing a *live* peer's file content. The GC delete SHALL be **best-effort with no machine-local lock**
+  (Architecture B keeps none; this is a presence-surface awareness guard, *not* a resurrection of the removed
+  correctness-path reclaim lock): immediately before the unlink the sweep **re-reads the file and skips the
+  delete if it no longer looks like the positively-dead record it classified** — a best-effort narrowing of
+  the window, **not** an airtight guarantee (POSIX offers no atomic unlink-iff-content-unchanged, and no lock
+  is taken, so a re-read→unlink retains a benign TOCTOU). It does **not need to be airtight**: presence is
+  **off the correctness path** (D-11), and every live tower **re-publishes its record each heartbeat**
+  (REQ-A1.2), so a GC that races the atomic re-write of a **dead-then-restarted** tower's *fresh live* record
+  and deletes it is **self-healed within one heartbeat** — an awareness-only, self-correcting glitch that can
+  never free a fenced unit. The re-read-and-skip avoids the blind-`rm` common case; the residual race is
+  benign by construction, consistent with the bounded-or-surfaced residue model (D-13). Where a tower's death handle is the degraded bare-`process <pid>` form (REQ-A1.2), a **reused pid**
   can read as alive and cause the dead tower's record to be honored rather than reclaimed; this is an
   **availability-only** effect (a stale presence record merely over-counts peers, and for a fence's owner
   the same handle ambiguity makes the owner's liveness *unclassifiable* → surfaced as a strand anomaly
@@ -367,9 +371,12 @@ marking, or the tower non-authoring boundary.
   attributable to no live record, and surfacing it immediately would raise a **false** strand on a legitimately
   in-flight unit. The tower itself stays **stateless** — the cross-pass "seen-unattributed-once" memory lives
   in the durable dedup'd sink (REQ-C1.7), not the tower (which keeps no local store): the first observation
-  records a **tentative** sink entry keyed by the fence-ref name, a subsequent pass that still finds it
-  unattributed **promotes** it to a surfaced strand, and a pass that attributes it (the owner's heartbeat
-  having caught up, or the unit turning terminal) **sweeps** the tentative entry. The grace re-check thus
+  records a **tentative** sink entry keyed by the fence-ref name **and stamped with a first-seen time**; a
+  later pass that still finds it unattributed **promotes** it to a surfaced strand **only once at least one
+  heartbeat interval has elapsed since that first-seen time** — so the grace delay holds **cross-tower** (any
+  tower re-observing consults the tentative entry's timestamp rather than promoting on sight, and a second
+  tower running immediately after the first cannot short-circuit the window), and a pass that attributes it
+  (the owner's heartbeat having caught up, or the unit turning terminal) **sweeps** the tentative entry. The grace re-check thus
   collapses the heartbeat-lag window without weakening the dead-owner case (a genuinely orphaned fence stays
   unattributed across passes and still surfaces, bounded-delay). The one residue the sweep resolves **without** the
   operator is a fence whose **unit is already terminal** (PR merged / ledger-done): that is not a strand but

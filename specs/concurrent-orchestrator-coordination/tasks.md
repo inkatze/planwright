@@ -72,9 +72,11 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   treated as not-dead — **caching each verdict for the pass** and running on a **capped heartbeat
   cadence** (bounded per-record subprocess fan-out), with a per-record parse that fails closed (a
   malformed record is skipped with an error, never read as "no such peer"). A positively-dead tower's
-  file is GC'd on discovery under a **stateless re-stat-and-compare** (delete only if byte-identical to the
-  dead record classified; no machine-local lock) that re-confirms it is still that dead tower's record
-  before unlinking (so a dead-then-restarted tower's fresh live record is never deleted).
+  file is GC'd on discovery under a **best-effort re-read-and-skip** (skip the delete if the file no longer
+  looks like the classified dead record; **no lock** — a benign TOCTOU remains) before unlinking; because
+  presence is off the correctness path and every live tower re-publishes each heartbeat, a rare racing delete
+  of a dead-then-restarted tower's fresh record **self-heals within one heartbeat** (awareness-only, never a
+  correctness effect).
   First-run bootstrap (no surface ever existed, per the sentinel) creates the user-private surface
   directory and proceeds empty (healthy); an existing-but-unreadable surface, or a vanished surface
   (sentinel present, directory gone), fails closed; a concurrent-bootstrap `mkdir` `EEXIST` is success;
@@ -97,7 +99,7 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   Task 4); a malformed record fails closed (skipped with a surfaced error, never read as absent); the
   surface directory is created `0700` and a
   **pre-existing over-broad surface is refused, not reused**; a positively-dead tower's file GC racing a
-  re-publish of that tower's **fresh live** record does not delete the fresh record (stateless re-stat-and-compare, no lock);
+  re-publish of that tower's **fresh live** record is best-effort-skipped by the re-read (no lock), and any rare racing delete self-heals on the next heartbeat re-publish (awareness-only);
   discovery **caches liveness per pass** (≤1 death-predicate subprocess per record per pass) on a capped
   cadence; the discovery scan invokes no LLM and issues no backend-specific pane/process scrape; a tower
   that finds ≥1 live peer does not behave as sole tower (asserted via the selection path in Task 4, or a

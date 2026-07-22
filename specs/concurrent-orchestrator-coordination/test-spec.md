@@ -70,11 +70,13 @@ predicate returns **unknown/errored** does **not** classify reclaimable (unknown
 never reclaim on a guess); (d) on discovery, a positively-dead tower's whole presence file is deleted
 (GC) while a **live** peer's file is neither deleted nor edited (its bytes are unchanged after a
 discovery pass); (d′) a **guarded-GC** fixture: a positively-dead tower's file GC racing that same
-tower's **re-publish of a fresh live record** (dead-then-restarted, same identity, new session) does
-**not** delete the fresh record — the sweep **re-stats and compares** immediately before the unlink, sees
-the file is no longer byte-identical to the dead record it classified, and leaves it (an unguarded `rm`
-would be the bug; **no lock is used** — a stateless compare-and-delete); and an assertion that the discovery /
-reclaim path invokes no LLM (no model-call in the code path).
+tower's **re-publish of a fresh live record** (dead-then-restarted, same identity, new session): in the
+common ordering the sweep's **re-read sees the file is no longer the dead record and skips the delete** (no
+blind `rm`; **no lock**); and a **self-heal** assertion — even if the delete races the atomic re-write and
+removes a fresh record, the tower's **next heartbeat re-publish restores it**, so the effect is
+awareness-only (presence is off the correctness path, a benign TOCTOU, never a double-dispatch); this
+replaces the unobservable "never deletes the fresh record" airtight claim, which POSIX cannot guarantee
+without a lock. Plus an assertion that the discovery / reclaim path invokes no LLM (no model-call in the code path).
 
 ### REQ-A1.4 — Presence is derived on demand, user-private, no new shared-write accumulator [test]
 
