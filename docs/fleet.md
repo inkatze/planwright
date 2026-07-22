@@ -374,7 +374,8 @@ obstructed surface exits 3 (**unknown peer status** — awareness degrades for
 the step while dispatch proceeds on the fence floor; never read as solitude);
 a surface that is over-broad, ACL-bearing, owned by another user, or
 symlink-tampered (surface or persistence sentinel, in any state) is refused
-outright (exit 4, verify-or-refuse — investigate, then repair it yourself); refused input and misconfiguration (including a
+outright (exit 4, verify-or-refuse — investigate, then repair it yourself);
+refused input and misconfiguration (including a
 `--checkout` that is not a git repository) exit 2; no `origin` remote exits 5
 (the genuine solo posture).
 `fleet-presence.sh owner --checkout <repo-root> (--session-id <uuid> |
