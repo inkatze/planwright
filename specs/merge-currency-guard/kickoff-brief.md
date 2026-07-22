@@ -32,11 +32,12 @@ commit (stated as `HEAD` when this section signed; retargeted to the PR's
 fail-closed on any doubt, covering both the `gh pr ready` Bash surface and the
 `mcp__github__update_pull_request` MCP surface.
 
-*(Forward note: the predicate stated in this §2/§4 record was further settled
-during the sign-off lens pass — see §8 and the 2026-07-22 changelog entries.
-The final, authoritative predicate is server-authoritative `mergeStateStatus ∈
-{CLEAN, UNSTABLE}` + `mergeable == MERGEABLE`, no local `is-ancestor`. The
-restatement below is preserved as the walk's historical record.)*
+*(Forward note: the predicate stated in this §2/§4 record was superseded twice
+during the sign-off lens and panel passes — see §8, §9 Amendment 1, and the
+2026-07-22 changelog entries. The final, authoritative predicate is the compare
+endpoint's `behind_by == 0` + `mergeable == MERGEABLE` (server-side,
+branch-protection-independent, no `mergeStateStatus`, no local `is-ancestor`).
+The §2/§4/§8 records below are preserved as the walk's historical trail.)*
 
 **Rules out:** who-flips policy and autonomous flipping (D-9: capability in
 core, policy in overlay); auto-merge or any merge-gate change; the bare-shell
@@ -92,7 +93,7 @@ asked; edit #4 adds the fixture to REQ-D1.3 and the test-spec).
 **REQ-C (guard).** Intent confirmed, including the deny-emitting modality
 inversion and the outcome-pinned deny-over-allow. Decision: the MCP matcher
 discriminates a true draft→ready transition by reading `isDraft` from the same
-PR query the guard already issues for `mergeStateStatus`; only a
+PR query the guard already issues for its predicate fields; only a
 currently-draft PR is gated, preserving REQ-C1.8's letter at zero extra
 network cost, with a failed query already DENY per REQ-C1.3. Lands as a D-8
 wording refinement in §4 — no REQ edit. The `HEAD`-vs-PR-branch question on
@@ -220,7 +221,7 @@ boundary (D-9). Undecided touches became rows 2 and 4 below.
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
 | 1 | Shared ready-flip surface: three specs converge on it (this gate; `concurrent-orchestrator-coordination`'s tower relay; the deterministic-pr-ready-push notification observation) — duplicate or conflicting hooks | Ownership decided at §2 (grounded in D-7 global wiring): MCG owns the single gating hook, recorded in Out of scope; siblings compose. Early signal: a sibling bundle drafting a second gating hook or restating the predicate — fold-detection at that spec's draft should trip. |
-| 2 | TOCTOU residual (gap check, concurrency): `main` can advance, or `mergeStateStatus` change, between the guard's evaluation and the flip executing; no client-side gate can close this window | Accepted risk: the window is seconds (versus hours today), and GitHub's DIRTY-merge block remains the merge floor beneath it. Early signal: a ready PR observed `BEHIND` immediately after a guarded flip. |
+| 2 | TOCTOU residual (gap check, concurrency): `main` can advance (raising the PR's `behind_by`), or `mergeable` change, between the guard's evaluation and the flip executing; no client-side gate can close this window | Accepted risk: the window is seconds (versus hours today), and GitHub's DIRTY-merge block remains the merge floor beneath it. Early signal: a ready PR observed behind `main` immediately after a guarded flip. |
 | 3 | GitHub async-compute lag: right after the convergence head moves, `mergeable` sits at `UNKNOWN` → deny of the (legitimate) modal post-sync flip | Guard re-queries once within its bounded runtime before denying, and the `UNKNOWN` deny names a wait-and-retry remedy, not a fetch (REQ-C1.3, REQ-K1.1); the flipper retries once GitHub settles. Early signal: recurring `UNKNOWN` denials of conforming flips. |
 | 4 | No adopter opt-out knob for a globally-wired deny (gap check, configuration) | Deliberate: the gated transition is universally wrong and the guard grants nothing (D-7); an adopter escape hatch, if friction ever demands one, is overlay hook-shadowing, not a core knob. Early signal: adopter reports of legitimate flips denied. |
 | 5 | Platform-contract drift: whether a PreToolUse deny actually blocks each surface is Claude-Code-version-sensitive | `[manual]` sweep ownership decided at §5 (worker confirms live at landing, documented in the task PR; operator re-sweeps on material version changes). Early signal: a deny that fails to block after an upgrade. |
@@ -319,8 +320,11 @@ diff (4 findings), each validated locally with the three-pass rigor — G1 by
 direct reproduction against live PRs #276/#298/#300–#302 and the branch-protection
 API; all four applied. Bundle re-validated `spec-validate` 0/0 as Ready;
 markdownlint clean; post-edit stale-reference sweep run (residual
-`mergeStateStatus` references confined to the D-3 rationale, rejected-alternatives,
-a deliberate test-regression pin, and the changelog).
+`mergeStateStatus` references in the four spec files confined to the D-3
+rationale, rejected-alternatives, a deliberate test-regression pin, and the
+changelog; the brief's own §2/§4/§8 historical records retain their
+as-signed wording, with this §2 forward note redirecting to the final
+predicate).
 
 Class: meaning
 Lens-pass: the `/panel-review --nested` gemini pass recorded in this amendment
