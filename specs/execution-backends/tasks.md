@@ -8,7 +8,7 @@
 Task 1 carries no dependencies by design (drafting-session decision, 2026-07-21): the idle
 oracle is the highest-value, lowest-risk unit and protects the existing tmux fleet, so it
 dispatches ahead of the contract work. Task 2 is the hub the backend work fans out from; the
-critical path is 2 → 4 → {5, 7}.
+critical path is 2 → 4 → 7 → 8.
 
 ## Tasks
 
@@ -115,18 +115,31 @@ critical path is 2 → 4 → {5, 7}.
 - **Citations:** D-10 · REQ-D1.1
 - **Estimated effort:** 1 day
 
+### Task 8 — rendered status dashboard
+
+- **Deliverables:** a rendered dashboard (browser/phone-glanceable) presenting the merged
+  worker state for non-terminal operators, reusing Task 7's source-merging layer
+  (`claude agents --json` + the stream-json event stream + the attention store) rather than a
+  second source-reading implementation; render fixtures covering the source-availability
+  matrix; docs.
+- **Done when:** the dashboard renders the same source-availability matrix as the CLI view from
+  the shared merge layer; a missing source shows a visible marker rather than a silent
+  omission; render output is verified by fixture; a manual phone/browser glance check is
+  documented in the task's PR; the full check suite is green.
+- **Dependencies:** 7
+- **Citations:** D-10 · REQ-D1.2
+- **Estimated effort:** 2 days
+
 ## Awaiting input
 
 (none yet)
 
 ## Deferred
 
-- **Rendered status dashboard.** The CLI table (Task 7) is the phase-1 surface; a rendered
-  dashboard for non-terminal operators is deliberately gated on evidence that the CLI view is
-  insufficient. Confidence: medium.
-  **Gate:** GATE(when: recurring operator observations that the CLI status view is insufficient
-  for non-terminal operators).
-  Citations: D-10, drafting-session decision (2026-07-21).
+- **Rendered status dashboard — promoted.** The original Draft carried this as a gated deferral
+  (GATE(when: the CLI view proves insufficient)); promoted to Task 8 as planned work by
+  operator decision (2026-07-21): the operator's away-workflow is phone/browser-based, so the
+  dashboard is not a contingency. Recorded here so the promotion is visible; no gate remains.
 
 ## Out of scope
 

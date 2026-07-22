@@ -35,8 +35,9 @@ and gives non-tmux operators a backend-agnostic worker status view.
   overridable globally and per-spec; no per-task auto-selection, no per-task prompts.
 - A standalone on-demand `/offload` skill for ad-hoc petitions; adaptive backend selection lives
   only there, governed by the two work-placement axioms recorded as doctrine.
-- A backend-agnostic CLI worker status view sourced from `claude agents --json`, the stream-json
-  event stream, and the attention store (a rendered dashboard is deferred behind a gate).
+- A backend-agnostic worker status view sourced from `claude agents --json`, the stream-json
+  event stream, and the attention store — phased: the CLI table first, then a rendered
+  dashboard for non-terminal operators as planned follow-on work (Task 8).
 - The stream-json harness contract: `can_use_tool` receipt coupled to a decision-queue item plus a
   pending-age alarm; AskUserQuestion↔decision-queue 1:1 mapping; `--resume` recovery.
 - The `claude agents --json` idle-oracle quick win for the existing tmux fleet, dispatched first.
@@ -118,6 +119,10 @@ and gives non-tmux operators a backend-agnostic worker status view.
 - **REQ-D1.1** A backend-agnostic CLI status view SHALL render every in-flight worker regardless
   of backend, sourced from `claude agents --json`, the stream-json event stream, and the attention
   store, degrading gracefully when any source is absent. *(Cites: D-10, obs:3414579b.)*
+- **REQ-D1.2** A rendered dashboard SHALL present the same merged worker state as the CLI view
+  as a glanceable browser/phone surface for non-terminal operators, reusing the CLI renderer's
+  source-merging layer rather than a second source-reading implementation.
+  *(Cites: D-10, drafting-session decision (2026-07-21).)*
 
 ## REQ-E — Stream-json harness contract
 
@@ -141,6 +146,11 @@ and gives non-tmux operators a backend-agnostic worker status view.
   `doctrine/backend-capability-contract.md`, citing orchestration-fleet as the extended base;
   supersedes the empty `planwright/background-agent-backend/spec` branch stub. Seeds consumed:
   obs:3414579b, obs:4dc16740.
+- 2026-07-21 — Pre-kickoff Draft amendment (operator decision, relayed from the tower): the
+  rendered dashboard promoted from a Deferred gate to planned Task 8 (dependency on Task 7,
+  reusing its source-merging layer), because the operator's away-workflow is phone/browser-based
+  and the dashboard is planned work, not a contingency. Adds REQ-D1.2; D-10 amended in place;
+  the Deferred gate entry converted to a promotion note.
 
 ## Sources
 
@@ -168,5 +178,7 @@ and gives non-tmux operators a backend-agnostic worker status view.
   `dispatch_backend` value may not reach workers. Cited as a risk for the kickoff risk register;
   the fix is config territory, out of scope here.
 - **Drafting-session decisions (2026-07-21)** — the four elicitation forks: standalone `/offload`
-  skill; phased CLI-first status view; idle oracle as Task 1 with no dependencies; `full-session`
-  as a semantic value on the existing `dispatch_backend` knob with the default flipped.
+  skill; phased CLI-first status view (the dashboard phase subsequently promoted from a Deferred
+  gate to planned Task 8 by operator decision the same day — see Changelog); idle oracle as
+  Task 1 with no dependencies; `full-session` as a semantic value on the existing
+  `dispatch_backend` knob with the default flipped.

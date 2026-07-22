@@ -121,6 +121,13 @@ Renderer fixtures cover the source present/absent matrix for all three sources
 (`claude agents --json` shim, event-stream capture, attention store): each cell renders workers
 from the available sources and marks a missing source visibly rather than omitting it silently.
 
+### REQ-D1.2 — rendered dashboard [test + manual]
+
+Test: dashboard render fixtures assert the output is produced from the shared source-merging
+layer (no second source-reading implementation) and covers the same source-availability matrix
+as the CLI view, missing sources marked visibly. Manual: a phone/browser glance check of the
+rendered surface, documented in the task's PR.
+
 ## REQ-E — Stream-json harness contract
 
 ### REQ-E1.1 — can_use_tool coupling and pending-age alarm [test]

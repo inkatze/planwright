@@ -163,20 +163,28 @@ layers), not a field in the spec bundle.
 **Chosen because:** execution policy stays in config, resolved by the machinery that already
 exists, and machine-local per-spec preferences become possible for free.
 
-### D-10: Status view is a CLI table first; dashboard deferred  (N)
+### D-10: Status view is phased — CLI first, dashboard planned (Task 8)  (N)
 
-**Decision:** The backend-agnostic status view ships as a CLI table renderer over three sources
-(`claude agents --json`, the stream-json event stream, the attention store) with per-source
-graceful degrade. A rendered dashboard is a Deferred gate entry, not a task.
+**Decision:** The backend-agnostic status view ships in two planned phases: first a CLI table
+renderer over three sources (`claude agents --json`, the stream-json event stream, the
+attention store) with per-source graceful degrade (Task 7), then a rendered browser/phone
+dashboard for non-terminal operators (Task 8, dependent on Task 7) that reuses the CLI
+renderer's source-merging layer rather than a second source-reading implementation.
 
 **Alternatives considered:**
 - Dashboard only. Rejected because: heavier and less portable as the sole surface; fails the
   adopter-from-docs-alone criterion.
-- Both in parallel. Rejected because: spends a task on an unproven surface before the CLI view
-  demonstrates the gap.
+- Both in parallel. Rejected because: the dashboard reuses the CLI renderer's merge layer, so
+  sequencing it after Task 7 avoids building the source-merging twice.
+- Dashboard gated on evidence the CLI view is insufficient (the original draft shape). Rejected
+  because: the operator's away-workflow is phone/browser-based, so the dashboard is planned
+  work, not a contingency.
 
-**Chosen because:** matches orchestration-fleet's portable-status-renderer precedent; smallest
-sufficient mechanism first, evidence gates the rest.
+**Chosen because:** matches orchestration-fleet's portable-status-renderer precedent — smallest
+sufficient mechanism first — while treating the glanceable browser/phone surface as committed
+scope for the operator's away-workflow rather than a maybe.
+*(Amended at operator decision 2026-07-21: dashboard promoted from a Deferred gate to planned
+Task 8.)*
 
 ### D-11: `claude agents --json` is the primary idle oracle  (N)
 
