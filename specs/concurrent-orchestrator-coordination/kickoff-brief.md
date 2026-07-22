@@ -1,30 +1,31 @@
 # Concurrent Orchestrator Coordination — Kickoff Brief
 
 **Spec path:** specs/concurrent-orchestrator-coordination
-**Spec commit at walkthrough start:** 18e0088
-**Walkthrough date:** 2026-07-20
+**Walkthrough date (run 5, this sign-off):** 2026-07-21
+**Spec commit at run-5 walkthrough start:** c81259d (the `/spec-draft` origin-fence-only rework closing the run-4 multi-axis backlog)
 **Validator outcome (pre-flight):** 0 errors, 0 warnings (clean)
-**Mode:** First activation (Draft, no prior brief)
+**Mode:** First activation, run 5 — sign-off of the reworked bundle (Draft→Ready).
 
-**Re-kickoff run 2 (2026-07-21).** Spec commit at re-walkthrough start: `e69556e`
-(the `/spec-draft` rework + 3 `/panel-review` iterations that followed run 1's
-halt). Focused re-walk (operator-selected): framing confirmed, reworked
-coordination mechanics walked, full-bundle Discovery-Rigor lens pass re-run.
-**Outcome: HALTED AGAIN (fail closed) — see §8 (run 2).** Sections 2–7 below
-describe the *pre-rework* spec (commit `18e0088`) and are **stale**; they are
-regenerated at the next kickoff after the run-2 rework, not re-signed here.
+**Run history.** Runs 1–4 each **halted** on a genuine inconsistency on the
+**work-division correctness axis** (see §8, preserved): run 1 the checkout-local
+advisory lock; run 2 the local task-branch ref (reaches `origin` only at PR-open);
+run 3 the passive origin ref with no cross-clone reaper; run 4 the machine-local
+worker-liveness claim (Architecture A), which fixed *locality* but failed on the
+worker-lifecycle / keying / version-skew / case-completeness axes it never checked.
+Run 4's structural diagnosis (D-12): correctness here is **multi-axis** — stop
+hunting the next interleaving, enumerate the axes once and answer every cell.
 
-**Re-kickoff run 3 (2026-07-21).** Spec commit at re-walkthrough start: `381c8d8`
-(the `/spec-draft` fence-at-dispatch rework closing the run-2 backlog). Operator-selected
-**focused delta walk** on the fence/reclaim/dispatch correctness axis (the run-3 change).
-**Outcome: HALTED AGAIN (fail closed) — see §8 (run 3).** A **third** genuine inconsistency
-on the same work-division correctness axis (a death-surviving origin fence ref with no
-cross-clone reaper), plus a validated ~18-finding backlog including **new breaks of the
-*authoritative* guarantee** (cohesion-bundle units unfenced; lost-CAS-ACK live-tower strand;
-no-remote multi-tower fail-open) and a **spec-vs-shipped-code contradiction** (the mandated
-"rename before fence push" step does not exist on the subagent dispatch primitive). Routed
-to a `/spec-draft` rework (operator Option a, 2026-07-21). The bundle stays Draft; no anchor,
-no Ready flip, not pushed (as with runs 1–2).
+**Run 5 (this brief).** The bundle was reworked to **origin-fence-only
+(Architecture B)** — one correctness floor (a per-unit `origin` fence ref, the one
+substrate natively both cross-clone and death-surviving) plus a bounded-or-surfaced
+residue model (D-13), with the failure-axis matrix (D-12) as a checkable coverage
+contract. Sections 2–7 below are **refreshed to this reworked bundle** (the run-1–4
+signed sections described superseded designs). The run-5 sign-off lens pass (§8,
+run 5) ran a full-bundle 6-agent fan-out; it surfaced fixable defects (no
+architecture inconsistency), which were **applied in place** (operator-approved,
+2026-07-21) — most importantly the **STRICT** resolution of the dead-owner
+downstream-artifact death-state cell — then re-verified CLEAN by a delta-lens pass.
+**Outcome: SIGNED OFF, Draft→Ready.**
 
 <!-- Sections 8 (sign-off) and 9 (amendment log) are written by the sign-off flow. -->
 
@@ -35,249 +36,278 @@ layer directly above `orchestration-concurrency`'s (Done) ledger state-safety
 floor. State-safety guarantees no tower corrupts the shared `tasks.md` ledger or
 drags foreign dispatch commits onto worker branches; it does not make a tower
 *aware* of peers or stop two towers colliding. This bundle adds three mechanisms
-and one doctrine line to close that gap. (Full goal text: `requirements.md` §Goal;
-mechanism detail cited there and in `design.md` D-1–D-6, not transcribed here.)
+and two doctrine statements to close that gap. (Full goal: `requirements.md` §Goal;
+decisions in `design.md` D-1–D-13.)
 
 - **Mechanism 1 — cross-tower awareness (D-2):** per-tower heartbeat files in a
-  shared directory; discover peers by scanning + the `fleet-death-evidence.sh`
-  liveness predicate. No shared registry, no daemon, no LLM.
+  shared, user-private machine-local directory; discover peers by scanning + the
+  tri-state `fleet-death-evidence.sh` predicate. No shared registry, no daemon, no
+  LLM. **Off the correctness path** — used only to *attribute* an orphan fence to a
+  dead owner.
 - **Mechanism 2 — shared-`main` isolation (D-3):** separate per-tower checkouts
   (separate clones, each a private mutable local `main`) as the root fix, **not**
   git worktrees; single-checkout reconcile-via-quick-PR demoted to sanctioned
-  degraded fallback; currency by `git fetch origin main && git merge FETCH_HEAD`,
-  never rebase (accounts for the `autosetuprebase=always` pitfall).
-- **Mechanism 3 — work division (D-4, D-5):** claim-before-dispatch on a shared
-  blackboard; live claims honored, dead-tower claims reclaimable only on positive
-  death evidence; reuses `orchestration-fleet`'s meta-tower selection + relay.
-- **Doctrine (D-1):** a tower **assumes multiplicity, not solitude** — the
-  altitude record, extending `fleet-coordination-floor.md`, cited from the Goal.
+  degraded fallback; currency by `git fetch origin main && git merge --ff-only
+  FETCH_HEAD`, never rebase (accounts for the `autosetuprebase=always` pitfall).
+- **Mechanism 3 — work division (D-4, D-5, D-8, D-11): the authoritative floor.**
+  A per-unit **`origin` fence ref** `refs/planwright-fence/<spec>/<unit-id>` created
+  at dispatch **before the worker forks** by an atomic **expect-absent CAS** (the
+  object-format all-zeros OID). `origin` serializes ref updates → exactly one tower
+  fences a unit; it is natively **both cross-clone and death-surviving**, so no
+  machine-local surface has to *fake* that locality (the failure class of runs 1–4).
+  Cohesion bundles fenced together with `git push --atomic`. Strands are
+  **surfaced to the operator, not auto-reclaimed** (D-7).
+- **Doctrine (D-1, two statements):** primary — a tower **assumes multiplicity,
+  not solitude**; companion (tower→human axis) — a **merge-ready PR reaches the
+  operator by deterministic push, LLM-poll the fallback** (mechanism owned by the
+  planned `merge-currency-guard`, cross-referenced, REQ-D1.6). Both extend
+  `fleet-coordination-floor.md`; the altitude call is D-1, cited from the Goal.
+
+**The guarantee is downgraded, deliberately (D-13).** Not the absolute "always
+reclaimed / never double-dispatched" that runs 1–4 each asserted and each found an
+interleaving under, but **best-effort exclusion (authoritative while `origin` is
+reachable) + every residue bounded-and-swept OR durably surfaced, never silent.**
+The **failure-axis matrix (D-12)** makes that checkable: {locality, worker-lifecycle,
+keying/granularity, death-state machine, version/schema skew, recovery-per-fail-closed-
+path, durable-sink-per-residue} — every cell answered; worker-lifecycle and
+version-skew **dissolve** because the correctness floor is a git ref, not a parsed
+record.
 
 **Rules out (owned elsewhere, cross-referenced not implemented):** proactive
 `/usage` quota governance (→ `fleet-autonomy`); the inter-orchestrator relay (→
-`orchestration-fleet`); ledger state-safety mechanics (→ `orchestration-concurrency`).
+`orchestration-fleet`); the deterministic PR-ready-push *mechanism* (→ planned
+`merge-currency-guard`); ledger state-safety mechanics (→ `orchestration-concurrency`).
 Re-opens nothing: auto-merge, autonomous PR-ready, tower non-authoring boundary all
-carry in unchanged.
+carry in unchanged. **Not** in this bundle (removed with Architecture A): any
+machine-local work-claim, reclaim lock, four-residue GC, or quarantine.
 
 **Assumes:** `orchestration-concurrency`'s state-safety as an authoritative
-contract; `fleet-death-evidence.sh` as the only sanctioned death signal; every
-awareness/reclaim/division decision is deterministic script logic, never model
-judgment.
+contract; a reachable `origin` as the fence precondition for separate-clone
+multi-tower (no-remote = the genuine single-checkout **solo** posture);
+single-host co-location (now bounds only **strand attribution**, not correctness);
+`fleet-death-evidence.sh` as the only sanctioned death signal; every
+awareness/reclaim/division decision deterministic script logic, never model judgment.
 
 **Glossary / implicit terms surfaced.**
 
-- **Checkout (D-3 sense) = a separate clone**, not a git worktree. Load-bearing
-  and non-obvious: planwright is worktree-heavy, but D-3 rejects worktrees (git
-  forbids `main` in two worktrees; worktrees share one object store + `main` ref).
-- **Presence / claim surface = a fixed machine-local path outside every checkout.**
-  See the resolution below.
-- **Tower, unit, meta-tower, positive-evidence-of-death** — used per `spec-format`
+- **Checkout (D-3 sense) = a separate clone**, not a git worktree. Load-bearing:
+  planwright is worktree-heavy, but D-3 rejects worktrees (git forbids `main` in two
+  worktrees; worktrees share one object store + `main` ref).
+- **Fence ref = a dedicated-namespace `origin` ref** (`refs/planwright-fence/…`),
+  keyed by unit id, **never** the worker's task-branch ref — so it exists before
+  the worker branch does and carries no backend rename in the fencing path.
+- **Presence surface / strand sink = a fixed machine-local path outside every
+  checkout** (single-host), user-private (`0700`). There is **no `claims/`
+  sub-surface** under Architecture B.
+- **Terminal (STRICT) = a *merged* PR or ledger-done.** An **open, unmerged PR is
+  NOT terminal** — see §3 REQ-C.
+- **Tower, unit, meta-tower, positive-evidence-of-death** — per `spec-format`
   glossary and the `fleet-death-evidence` predicate; no local redefinition.
 
-**Resolved ambiguities.**
+**Resolved ambiguities (run 5).**
 
-- *Where the shared surface physically lives (spec was silent).* **Resolved
-  (operator, 2026-07-20):** a fixed machine-local path outside every checkout, so
-  all peer clones on one host read the same directory. This bakes in a
-  **single-host co-location** assumption; cross-machine / distributed peer towers
-  are **out of scope**. Rationale: matches D-2's local-first / no-remote-required
-  posture, and `fleet-death-evidence` (PIDs/tmux) is host-local and cannot classify
-  a remote peer. → **Spec-edit candidate S1** (make machine-local location + single-host
-  assumption explicit in D-2; add cross-machine exclusion to Scope §Out of scope).
+- *How a dead owner's downstream artifact is treated (the run-5 crux, `origin`
+  fence lifecycle).* **Resolved (operator, 2026-07-21): STRICT.** A positively-dead
+  owner whose unit is **not terminal** — including one carrying only task-branch
+  commits or an **open, unmerged PR** — is a **strand → surfaced** (no live tower
+  will carry it to merge). Only a **merged** PR or ledger-done is terminal → GC.
+  This closes the run-4 "commits-no-PR strand neither surfaced nor GC'd" cell and
+  makes D-13's "never silent" hold. (The alternative, LENIENT — treat any artifact
+  as hands-off — was declined: it leans on the operator noticing a stale branch, the
+  poll-only weakness D-1's companion doctrine argues against.)
+- *Machine-local surface location + single-host scope* — carried from run 1 (a
+  fixed path outside every checkout; cross-machine peers out of scope), now bounding
+  only attribution, not correctness (D-11).
 
-Signed off: 2026-07-20
+Signed off: 2026-07-21
 
 ## 3. Requirements walkthrough
 
-Group intents restated and probed; per-group outcomes below. REQ groups, count, and
-text: see `requirements.md` (4 groups A–D; count derived there, not transcribed —
-REQ-A1.5 was added during this walkthrough), not copied here to avoid drift.
+Group intents restated and probed against the reworked (origin-fence-only) bundle.
+REQ text: `requirements.md` (4 groups A–D). Outcomes below.
 
 **REQ-A — Cross-tower awareness.** Intent: a tower discovers live peers from a
 derived, on-demand presence signal and never assumes solitude; publish is
-distinct-per-writer; reclaim is death-evidence-only, deterministic, no LLM.
-Outcome: intent sound. One gap closed:
-- *Presence GC vs never-edit (resolved, operator 2026-07-20):* deletion of a
-  **positively-dead** peer's *whole* presence file is permitted and is distinct
-  from the forbidden content-edit of a *live* peer's file; the discovering peer
-  unlinks the stale file once death evidence is positive. Self-heals during
-  discovery, no new sweep. → **Edit S2.**
+distinct-per-writer + atomic; reclaim/attribution is death-evidence-only (tri-state,
+unknown≠dead), deterministic, no LLM; discovery fails closed on a broken surface
+(never read as solitude), first-run bootstraps via a persistence sentinel.
+Outcome: intent sound. Under Architecture B, **presence is off the correctness
+path** — a broken surface degrades *awareness/attribution* but **dispatch proceeds**
+(the fence, not the surface, excludes). Tower identity is deterministic (session
+UUID, else pid+start-time+checkout-hash composite; never bare pid or checkout-path
+alone, REQ-A1.7). Run-5 hardening applied: the **persistence sentinel lives outside
+the surface dir** and its write-failure fails closed; an **unknown-owner orphan is
+surfaced only after a one-pass grace re-check** (the heartbeat-lag window between a
+live owner's fence push and its next record refresh must not raise a false strand).
 
-**REQ-B — Shared-`main` isolation.** Intent: separate per-tower checkouts as
-root fix, invariants preserved, migration path + sanctioned fallback,
-fetch-then-merge currency past the `autosetuprebase` pitfall. Outcome: intent
-sound. Agent readings (correct at summary):
-- *Fetch-merge is always a fast-forward:* a tower's private `main` is never
-  directly committed to (commits ride task branches; merges land on `origin` via
-  PR), so `git merge FETCH_HEAD` fast-forwards. `--ff-only` is a low-stakes
-  hardening Task 3 may adopt to surface unexpected divergence as a refusal rather
-  than a silent merge commit. Not blocking.
-- *Per-clone machine-local env layer (migration detail):* separate clones each
-  need their own repo-root machine-local env file and a **stable** `auth_sock`
-  symlink indirection (never a captured ephemeral forwarded socket) — the origin
-  of the 2026-06-12 signing-break lesson. Task 3's migration path should cover
-  it. → **Edit S5** (Task 3 deliverable + risk-register row).
+**REQ-B — Shared-`main` isolation.** Intent: separate per-tower checkouts as root
+fix, invariants preserved, migration path + sanctioned single-checkout fallback,
+`--ff-only` fetch-then-merge currency past the `autosetuprebase` pitfall, fetch
+failure **classified** (no-`origin` → solo flow vs transient → fail closed).
+Outcome: sound. The per-clone machine-local env layer + **stable `auth_sock`
+symlink** (the 2026-06-12 signing-break lesson) is a Task 3 migration deliverable
+with a manual-sweep Done-when anchor.
 
-**REQ-C — Work division.** Intent: claim-before-dispatch, honor live claims,
-reclaim dead-tower claims on death evidence, compose with meta-tower selection.
-Outcome: one gap closed, one reading:
-- *Claim TOCTOU (resolved, operator 2026-07-20):* the claim read-check-write
-  occurs **within the existing per-spec advisory lock window** /orchestrate
-  already takes; two towers targeting one unit serialize on that spec's lock, so
-  the second sees the first's claim and skips. No new lock. → **Edit S3** (make
-  in-lock ordering normative).
-- *Meta-tower detection (reading):* a meta-tower is distinguishable on the
-  presence surface via the existing tower-marker mechanism
-  (`fleet-tower-marker.sh`); REQ-C1.4's "where a meta-tower is present" resolves
-  through presence discovery, not a new signal.
+**REQ-C — Work division (the correctness core).** Intent: no unit dispatched by
+more than one tower, authoritative in the `origin` fence CAS; cohesion bundles
+fenced atomically; strands **surfaced not auto-reclaimed**; GC-on-terminal;
+origin-reachability classified (never fail open); durable dedup'd sink. Outcome:
+sound after the run-5 fixes. Key resolutions applied this run:
+- *Dead-owner death-state — **STRICT** (operator, 2026-07-21):* terminal-first,
+  then liveness. **Terminal = merged PR / ledger-done → GC** regardless of owner
+  liveness; else live owner → honor; else dead + not-terminal (no artifact,
+  commits-no-PR, **or open-unmerged PR**) → **surface**; unclassifiable /
+  unknown-owner → surface. Full 20-cell cross-product verified non-silent.
+- *Fence-push failure classification (EH-F1):* a rejected expect-absent CAS vs a
+  transient push failure — **both non-zero `git push`** — are distinguished by the
+  **per-ref rejection status** (`--porcelain`/stderr), not exit code alone; a
+  misclassification costs one wasted pass, never a double dispatch.
+- *CAS literal (SpecVsCode-F1/F6):* the push uses the **object-format all-zeros OID**
+  (`:$ZERO_OID`, 40/64 hex), never the bare-empty `:` form (the run-4 defect,
+  finally fixed in the literals, not only the prose).
+- *Meta-tower detection:* via the presence record's **own validated meta-marker
+  field** (not `fleet-tower-marker.sh`, whose field is the orthogonal
+  `unattended|interactive` mode).
 
 **REQ-D — Carried floors, boundaries & hygiene.** Intent: don't re-implement the
 relay or usage governance; carry auto-merge / autonomous-ready / non-authoring
-floors unchanged; attribution validated, peer output is data, artifacts secret-clean.
-Outcome: one gap closed:
-- *Trust model (resolved, operator 2026-07-20):* peer towers are the **same
-  operator's sessions on one host, mutually trusting**. Attribution validation
-  guards against accidental collision and malformed identity tokens (grammar
-  validation + refuse-malformed), **not** an adversarial peer forging identity;
-  no crypto spoof-proofing. Scopes Task 5's identity validation. → **Edit S4.**
+floors unchanged; framework-script security bars (D-9); same-operator single-host
+attribution (grammar-validate + refuse-malformed, no adversarial spoof-proofing);
+companion doctrine line (D1.6, mechanism cross-referenced out). Outcome: sound.
+Run-5 hardening: the **unit-id/spec-id now carry a declared grammar** and the
+fence-ref name is contained via **`git check-ref-format` + literal-prefix** (not
+filesystem "canonicalization"), since those two fields reach an `origin` ref
+push *and delete* (the delete path enumerates orphan refs — untrusted surface data).
 
-### Consolidated spec-edit list (applied as a batch pre-sign-off, then re-validated)
+### Consolidated spec-edit list (run 5 — applied in place, Draft bundle, then re-validated)
 
-- **S1** — `design.md` D-2 (+ Scope §Out of scope): make explicit that the
-  presence/claim surface is a fixed machine-local path outside every checkout,
-  with a single-host co-location assumption; cross-machine / distributed peer
-  towers out of scope.
-- **S2** — `requirements.md` REQ-A group + `design.md` D-2: a positively-dead
-  peer's whole presence file MAY be deleted by the discovering peer (distinct
-  from the forbidden edit of a live peer's file content); this is the GC path.
-- **S3** — `requirements.md` REQ-C1.1 + `design.md` D-5: the claim
-  read-check-write is performed within the per-spec advisory lock window (closes
-  the claim TOCTOU); stated normatively.
-- **S4** — `requirements.md` REQ-D1.4 + `design.md` cross-cutting §Security:
-  scope attribution to the same-operator single-host anti-accident trust model
-  (grammar-validate + refuse-malformed; no adversarial spoof-proofing).
-- **S5** — `tasks.md` Task 3 deliverable + a risk-register row: the migration
-  path covers each clone's own repo-root machine-local env file and a stable
-  `auth_sock` symlink indirection (no captured ephemeral forwarded socket).
-- **S6** — `tasks.md` Task 5 (Deliverables + Done-when) + `test-spec.md`
-  REQ-D1.4: refocus the hygiene guard on the commit-independent core —
-  attribution/grammar validation + data-not-code (no-`eval`) on peer records read
-  from the machine-local surface — plus a *conditional* hygiene scan that fires
-  only if a deployment commits a coordination record. Drops the false premise
-  (from S1) that presence/claim records are normally committed.
+Genuine inconsistencies (unambiguous fixes): **F0** matrix recovery-cell said "halt
+dispatch" (contradicted D-10 "proceed"); **F1/F2/F4** the STRICT death-state
+resolution above (REQ-C1.3/C1.5, D-7, matrix, Sources note, tasks, test-spec);
+**CrossFile-B1/B2** stale `claims/`-layout and `claim GC` cross-refs repointed;
+**SpecVsCode-F1** all-zeros literal written; **SpecVsCode-F2** the phantom
+two-backend fence fixture rewritten backend-independent. Must-fix: **Tests-F1**
+added the two missing `[manual]` Done-when anchors (Task 3 / Task 4); **Security-F1**
+unit-id/spec-id grammar + check-ref-format; **EH-F1** the CAS-vs-transient
+discriminator. Robustness (could resurface): **F3** grace re-check; **EH-F4**
+sentinel location + write-failure; **EH-F5** over-broad-surface halt action.
+Hygiene: obs `entries/`→`archive/` paths, vestigial "claim" vocabulary,
+`merge-currency-guard` note. Deferred non-blocking backlog → `obs:c898c154`
+(EH-F2/F3, F5, F7, F8, Tests-F2/F3, a clarity cross-ref).
 
-Signed off: 2026-07-20
+Signed off: 2026-07-21
 
 ## 4. Design walkthrough
 
-Every D-ID accounted for; no design decision contradicts a walked requirement
-(no inconsistency halt). Reconciled ledger:
+Every D-ID (D-1…D-13) accounted for against the reworked bundle. After the run-5
+fixes, no design decision contradicts a walked requirement (the F0/F1/F2 contradictions
+were *resolved in place*, not carried). Reconciled ledger:
 
 | D-ID | Disposition | Note |
 | --- | --- | --- |
-| D-1 | Confirmed | Altitude record (mechanism-primary + one doctrine line); cited from Goal. |
-| D-2 | Amended (Draft, in place) | S1 pins surface = machine-local path; S2 adds delete-dead-file GC path. |
-| D-3 | Confirmed | Separate clones as root fix; worktree rejection sound (git forbids `main` in two worktrees; shared ref/object store). |
-| D-4 | Confirmed | Reuse meta-tower selection + relay; peer claim additive; no second relay. |
-| D-5 | Amended (Draft, in place) | S3 makes in-lock claim ordering normative. |
-| D-6 | Confirmed | Single-owner scope boundary (usage → fleet-autonomy; relay → orchestration-fleet). |
+| D-1 | Confirmed | Altitude record — mechanism-primary + **two** doctrine statements (assume-multiplicity; deterministic-push companion); cited from Goal. |
+| D-2 | Confirmed (run-5 hardening) | Presence = per-tower heartbeat files, off the correctness path; sentinel-outside-surface + grace-re-check added. |
+| D-3 | Confirmed | Separate clones as root fix; worktree rejection sound; `--ff-only` currency; `origin` reachability now the fence precondition. |
+| D-4 | Confirmed | Reuse meta-tower selection + relay; the peer **fence** is additive; no second relay. |
+| D-5 | Confirmed | The exclusion primitive = expect-absent CAS creating the per-unit `origin` fence ref (all-zeros OID literal corrected). |
+| D-6 | Confirmed | Single-owner scope boundary (usage→fleet-autonomy; relay→orchestration-fleet; ready-push→merge-currency-guard). |
+| D-7 | Confirmed (STRICT applied) | Fence lifecycle: GC-on-**merged**/ledger-done, dead-owner non-terminal (incl. open-unmerged-PR) surfaced, durable dedup'd sink; no reclaim apparatus. |
+| D-8 | Confirmed | The `origin` fence ref is the authoritative cross-clone exclusion floor. |
+| D-9 | Confirmed (run-5 hardening) | Numbered home for the framework-script security bars + same-operator attribution; unit-id/spec-id grammar + check-ref-format added. |
+| D-10 | Confirmed (F0 + EH-F1 applied) | Recovery action per fail-closed path; matrix cell corrected to "proceed"; CAS-vs-transient discriminator pinned. |
+| D-11 | Confirmed | Authoritative in-flight signal = `origin` fence ref; **no** machine-local claim (the run-4→5 inversion). |
+| D-12 | Confirmed | Failure-axis matrix as a coverage contract; the kickoff lens verified cell-completeness (20-cell cross-product, none silent). |
+| D-13 | Confirmed | Guarantee downgraded to bounded-or-surfaced, never silent — what makes the STRICT death-state a coverage item, not a contradiction. |
 
-Reconciliation recorded: D-2 rejects peer *discovery* by tmux/process scraping
-(backend-specific), while `fleet-death-evidence.sh` uses PIDs/tmux only to
-*confirm death of an already-identified* tower (whose handle its own presence
-record recorded). Discovery = file scan; death-confirmation = process state. No
-contradiction. The D-2/D-5 amendments are clarifications consistent with the
-accepted decisions, not reversals.
+**Inconsistency handling (run 5).** The lens pass surfaced genuine inconsistencies
+(F0, F1, F2) — but with **unambiguous resolutions inside Architecture B**, not the
+architecture forks that halted runs 1–4. Per the Draft-bundle edit rule they were
+applied in place (F1 via the operator's STRICT choice), re-validated (0/0), and
+re-verified CLEAN by a delta-lens. No design decision was reversed; D-11's
+architecture inversion (run 4→5) is recorded once and stands.
 
-Signed off: 2026-07-20
+Signed off: 2026-07-21
 
 ## 5. Verification approach
 
-Coverage mix and per-REQ tags: `test-spec.md` (predominantly `[test]`;
-`[design-level]` for the doctrine + cross-reference REQs; one `[manual]`), not
-transcribed.
+Coverage mix (`test-spec.md`): predominantly **`[test]`** — every mechanism is
+deterministic script logic over structured signals (per-tower record files, the
+`fleet-death-evidence` predicate, git ref state), all fixture-testable. The
+authoritative fence is tested against a **local bare-repo `origin` fixture** (two
+clones race the expect-absent CAS → one winner; the loser rejected — order-independent,
+not timing-flaky). Atomicity asserted **structurally** (the write primitive *is*
+temp-then-rename; the fence *is* an expect-absent CAS), never the flaky "reader
+never sees a torn record." Negative assertions verify Architecture A's *absence*
+(no `claims/` sub-surface, no reclaim lock, no four-residue GC, no quarantine).
 
 **Ownership.**
 - `[test]` → repo CI (`mise run check`).
-- `[manual]` → **REQ-B1.1 only** (two real towers on two real checkouts): correct
-  as manual; **operator-swept once** against the running setup. Should be tracked
-  at execution (a manual-sweep / Awaiting-input note when Task 3 lands) so it is
-  not silently dropped.
-- `[design-level]` → artifact existence + citation + grep-for-absence checks.
+- `[manual]` → the genuinely multi-checkout / multi-tower E2E confirmations a fixture
+  cannot stand in for: REQ-B1.1 (two towers on two checkouts, no shared-`main` mutation),
+  REQ-B1.3 (fresh clone signs+fetches via its own env/`auth_sock`), REQ-C1.6 (two clones
+  one `origin` → single worker/PR). Each now carries an explicit **Done-when dated-entry
+  anchor** in Task 3 / Task 4 verification notes (Tests-F1 fix) so none is silently droppable.
+- `[design-level]` → doctrine + matrix cell-completeness + cross-reference REQs, with
+  *positive* "the relay is consumed" assertions (not only grep-for-absence).
 
-**Dead-path / soft-spot check (no unrunnable verification found).**
-- REQ-A1.1's `[test]` selection-path assertion is **Task 4's** path (per Task 2's
-  Done-when); REQ-A1.1 is fully verified only once Task 4 exists — a standalone
-  flag stands in until then. Recorded so it is not read as complete at Task 2.
-- REQ-C1.4's `[test]` is "where scriptable" with a `[design-level]` fallback:
-  acceptable as written, but the fallback must be a **conscious** call at
-  execution if a meta-tower fixture proves hard, not a silent degrade.
+**Dead-path / soft-spot check.** No REQ lacks a runnable verification. Run-5 test-spec
+fixes: REQ-C1.3/C1.5 fixtures rewritten to the **STRICT** reading (dead-owner+commits-no-PR
+→ surface, dead-owner+open-unmerged-PR → surface, only merged/ledger-done → GC); the
+phantom two-backend fence fixture (REQ-C1.2) rewritten backend-independent. Deferred
+test-breadth backlog (non-blocking, `obs:c898c154`): an adversarial stale-tracking-ref
+fixture (Tests-F2) and converting vacuous absence-greps to positive assertions (Tests-F3).
 
-**Edit ripple into test-spec.** S2/S3/S4/S5 are applied as amendments to existing
-REQ bodies + their test-spec entries (REQ IDs stay stable; coverage intact):
-delete/no-edit fixture → REQ-A1.3; serialize-under-lock fixture → REQ-C1.1;
-adversarial-out-of-scope design note → REQ-D1.4; env-migration design line →
-REQ-B1.3.
-
-Signed off: 2026-07-20
+Signed off: 2026-07-21
 
 ## 6. Task graph
 
 Reconstructed from `tasks.md` `Dependencies:` lines (authoritative; rendered via
-`spec-graph.sh`). Counts/effort cited from `tasks.md`, not transcribed.
+`spec-graph.sh`). Counts/effort cited from `tasks.md`. **The graph changed under
+Architecture B** (the run-3/4→5 inversion): because the fence lives on `origin`,
+Task 4's *correctness* now depends on Task 3's `origin` topology, and its
+*attribution/surfacing* on Task 2's presence surface — so **Task 4 depends on both
+Task 2 and Task 3**, and the correctness critical path runs through **Task 3**, not
+Task 2.
 
-- **Edges:** Task 1 → {2, 3, 5}; Task 2 → 4.
-- **Critical path (effort-weighted):** 1 → 2 → 4 = 5 days (Task 3 chain 3d, Task 5
-  chain 2d).
-- **Parallelism after Task 1:** Task 2 ∥ Task 3 ∥ Task 5.
-- **Dispatch order:** Task 1 first; then **Task 5 guard-first** (hygiene/infra
-  guard outranks the critical path once Task 1 lands, per the guard-tasks-first
-  rule); Task 2 ∥ Task 3; Task 4 after Task 2.
-- **Deliberate non-edges (do not "fix"):** Task 3 ⊥ Task 2 (checkout topology
-  needs no presence signal); Task 4 ⊥ Task 3 (the claim reuses Task 2's presence
-  surface, not the checkout model — a claim works within one checkout); Task 5 ⊥
-  Task 2/4 (the guard depends only on Task 1's floors).
+- **Edges:** Task 1 → {2, 3, 4, 5}; {Task 2, Task 3} → Task 4.
+- **Critical path (effort-weighted):** 1 → 3 → 4 = **5 days** (Task 1 1d + Task 3
+  2d + Task 4 2d); Task 2 (2d) runs parallel to Task 3.
+- **Parallelism after Task 1:** Task 2 ∥ Task 3 ∥ Task 5; Task 4 joins after both
+  Task 2 and Task 3.
+- **Dispatch order:** Task 1 first; then **Task 5 guard-first** (hygiene/infra guard
+  outranks the critical path once Task 1 lands, per the guard-tasks-first rule);
+  Task 2 ∥ Task 3; Task 4 after **both** 2 and 3.
+- **Deliberate non-edges (do not "fix"):** **Task 3 ⊥ Task 2** (checkout topology
+  needs no presence signal — the load-bearing non-edge; Task 3 is on the correctness
+  path, Task 2 is not); Task 5 ⊥ Task 2/4 (the guard depends only on Task 1's floors).
 
-### Additional edits from sections 6–7
-
-- **S7** — `requirements.md` **new REQ-A1.5** (fail-closed discovery) +
-  `test-spec.md` REQ-A1.5 + risk row R1: discovery MUST distinguish a
-  healthy-but-empty surface from an absent/unreadable/misconfigured one and fail
-  closed on the latter (surface an error / "peer status unknown"), never reading a
-  broken surface as solitude. Cites D-2 + the fail-closed floor.
-- **S8** — `design.md` decision-domains walk paragraph: name **concurrency** (the
-  central, decided domain) and **observability** (the S7 gap) explicitly, instead
-  of folding them under "integration surface."
-
-**Cross-file issue surfaced (resolved, operator 2026-07-20):** Task 5's scope
-("presence/claim records that land in a committed log") is largely vacuous under
-S1 (those surfaces are machine-local, derived, uncommitted). Refocus Task 5 on
-the commit-independent core (attribution + data-not-code validation) plus a
-*conditional* hygiene scan for any coordination record a deployment does commit.
-→ **Edit S6.**
-
-Signed off: 2026-07-20
+Signed off: 2026-07-21
 
 ## 7. Risk register
 
-Inputs: risks surfaced during the walk + the decision-domains gap check (11-domain
-seed catalog walked; no overlay layers present; concurrency and auth/attribution
-touched-and-decided, observability touched-and-undecided → R1, secrets/config
-conditional → R8).
+Inputs: risks surfaced during the walk + the **decision-domains gap check**
+(`design.md` §Decision-domains walk, via `resolve-catalog.sh decision-domains`).
+Catalogued domains the feature touches — **concurrency** (the central domain),
+**integration-surface** (the `origin`/checkout topology), **authentication/attribution**
+(tower identity, same-operator single-host model), **observability** (broken-surface
++ durable-sink) — are **all decided in-spec**; secrets/config is **conditional**
+(only if the surface path becomes configurable → R6); no catalogued domain is
+touched-but-undecided.
 
 | # | Risk | Mitigation / early signal |
 | --- | --- | --- |
-| R1 | **Solitude-by-misconfiguration** — an absent/unreadable/misconfigured presence surface reads as "no peers," silently defeating the whole feature. | Fail-closed discovery (REQ-A1.5, S7): distinguish empty-healthy from broken, error on broken. Early signal: discovery emits an explicit "surface unreadable" rather than empty. |
-| R2 | **Signing/fetch break across clones** — a captured ephemeral forwarded `auth_sock` or a missing per-clone env file breaks signing/fetch on a separate checkout (the 2026-06-12 lesson). | Stable `auth_sock` symlink indirection + per-clone repo-root machine-local env file (S5). Early signal: publickey-denied or signing failure on a fresh clone. |
-| R3 | **Claim TOCTOU double-dispatch** — two towers claim one unit, two workers/PRs result. | In-lock claim ordering (S3). Early signal: two branches/PRs for one task id. |
-| R4 | **Presence-dir growth** — dead-tower files accumulate unbounded. | Delete-dead-file GC on discovery (S2). Early signal: unbounded file count in the surface dir. |
-| R5 | **Meta-tower test silent degrade** — REQ-C1.4's "where scriptable" quietly becomes design-level-only. | Conscious execution-time call; ensure Task 4's PR states whether a scripted meta-tower fixture exists. |
-| R6 | **Manual verification dropped** — REQ-B1.1's two-real-tower confirmation lost. | Track as a manual sweep / Awaiting-input note when Task 3 lands. |
-| R7 | **REQ-A1.1 partial verification** — only fully verified once Task 4's selection path exists. | Standalone flag interim; Task 4 must close the sole-tower-branch assertion. |
-| R8 | **Undocumented config option** — if the surface path becomes configurable, it must reach the canonical options reference. | Existing options-reference guard (`check-options-reference.sh`) at Task 2. |
-| R9 | **Trust-model breach** — the single-host same-operator anti-accident model is insufficient if the host gains untrusted co-tenants. | Documented single-host assumption (S1, S4); revisit attribution if co-tenancy ever appears. |
+| R1 | **The five-halt recurrence** — a further un-enumerated correctness axis surfaces on a later pass, as in runs 1–5. | The D-12 coverage matrix converts "find the next interleaving" into "answer every cell"; the kickoff lens now checks **cell-completeness** (20-cell cross-product verified non-silent this run). Early signal: any execution-time death-state a fixture cannot classify to {honor, surface, GC}. |
+| R2 | **`origin` unreachable → no fence** — the authoritative floor requires a reachable `origin`; a misclassified transient failure could fail open. | Origin-reachability **classified** (REQ-C1.6/D-10): no-`origin` = genuine solo posture, transient = fail closed, rejected-CAS vs transient split by per-ref status (EH-F1). No-remote multi-tower is out of scope. Early signal: a dispatch with no fence on a configured `origin`. |
+| R3 | **Silent strand** — a dead owner's unfinished work sits invisible (the run-4 case). | STRICT death-state: dead-owner + not-terminal (incl. commits-no-PR, open-unmerged-PR) → **surfaced** to the durable dedup'd sink; D-13 "never silent." Early signal: a fence with no owner and no operator sink entry. |
+| R4 | **Signing/fetch break across clones** — a captured ephemeral `auth_sock` or missing per-clone env file (the 2026-06-12 lesson). | Stable `auth_sock` symlink + per-clone repo-root machine-local env (Task 3 migration, manual-sweep anchor). Early signal: publickey-denied on a fresh clone. |
+| R5 | **Crafted unit/spec id drives a ref op outside the fence namespace** — the delete path enumerates orphan `origin` refs (untrusted). | Declared unit-id/spec-id grammar + `git check-ref-format` + literal-prefix containment before any push/delete (REQ-D1.5/D-9, Security-F1). Early signal: a ref op targeting outside `refs/planwright-fence/<spec>/`. |
+| R6 | **Undocumented config option** — if the surface path becomes configurable it must reach the options reference. | Existing options-reference guard (`check-options-reference.sh`) at Task 2. |
+| R7 | **Trust-model breach** — the single-host same-operator model is insufficient under untrusted co-tenancy. | Documented single-host assumption (D-9); `0700` verify-or-refuse; revisit attribution if co-tenancy appears. |
+| R8 | **Fence-namespace / server precondition** — an `origin` ruleset restricting `refs/planwright-fence/*` or not advertising `atomic` rejects every fence push (availability, fails closed). | Deferred precondition note (`obs:c898c154`, F8); fails closed + surfaced, never fail-open. Early signal: every fence push rejected on a configured `origin`. |
 
-Every walkthrough-surfaced ambiguity resolved to a decision (S1–S8) or an accepted
-risk (R1–R9). The sign-off lens pass then reopened the coordination mechanics — see §8.
+Every run-5 ambiguity resolved to a decision (the applied fixes) or an accepted /
+deferred risk (R1–R8; backlog `obs:c898c154`). The sign-off lens pass and its
+disposition are recorded in §8 (run 5).
 
 Signed off: 2026-07-20
 
@@ -743,3 +773,63 @@ Anchor: (none — fail closed)
 Next step: `/spec-draft specs/concurrent-orchestrator-coordination` with the axis-matrix +
 guarantee-downgrade framing above (consuming `obs:a45c20d6`); let the model fall out of the filled
 table rather than patching the run-4 HIGHs instance-by-instance. Then re-run `/spec-kickoff`.
+
+## 8. Sign-off (run 5, 2026-07-21) — SIGNED OFF (Draft→Ready)
+
+**The four-halt pattern is broken.** Runs 1–4 each halted on an *architecture* inconsistency
+(the authoritative signal was assumed cross-clone-and-death-surviving but was not natively so),
+each needing a new correctness model. The run-4→5 `/spec-draft` rework to **origin-fence-only
+(Architecture B)** put authority on the one substrate that is natively both (a per-unit `origin`
+fence ref), downgraded the guarantee (D-13), and made the failure-axis matrix (D-12) a checkable
+coverage contract. Run 5's full-bundle lens pass confirmed the core dissolutions are **real, not
+asserted**, and the remaining defects were **definition-level fixes inside Architecture B**, not a
+fifth architecture fork — so they were applied in place (operator-approved) and the run signed off.
+
+### Lens pass — path and coverage
+
+Path: full-bundle parallel read-only sub-agent fan-out — **6 agents** covering the nine canonical
+lenses plus the three kickoff-specific checks (altitude, spec-vs-shipped-code, coverage-matrix
+cell-completeness), per `discovery-rigor` (first-activation-equivalent of a wholesale rework).
+Findings validated per `validation-rigor` (three-pass; the decisive F0/F1/F2 reproduced against the
+text, corroborated by the spec's own dissolution claim, and cross-checked against the run-4 halt
+record). Shipped code ground-checked: `fleet-death-evidence.sh` (two death-handle forms + tri-state,
+grammar bounds), `orchestrate-relay.sh` (buffer-paste, not send-keys), `echo-safety.sh`
+(`sanitize_printable`), `fleet-dispatch-worktree.sh` (one backend, direct canonical-branch create),
+and real git CAS semantics (all-zeros expect-absent). After the fixes, an independent **delta-lens
+re-check** enumerated the full 20-cell death-state cross-product and returned **CLEAN**.
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Correctness / concurrency | F0, F1, F2 genuine + F3–F8 | F0/F1/F2/F4 applied (STRICT + matrix); F3 applied (grace re-check); F5/F7/F8 deferred |
+| Error handling / failure modes | EH-F1 + EH-F2–F5 | EH-F1/F4/F5 applied; EH-F2/F3 deferred; all safety-clean (no fail-open) |
+| Security / attribution | Security-F1 | applied (unit-id/spec-id grammar + `git check-ref-format`); rest verified clean vs shipped scripts |
+| Performance | none (1 clarity nit) | cadence-cap + per-pass cache specified everywhere; clarity cross-ref deferred |
+| Concurrency / state | (under correctness) | F3 applied; F5 GC-vs-refence closed by never-un-terminal invariant (noted, deferred) |
+| Naming / structure | vestigial "claim" vocab | applied (D-3, Task 5) |
+| Documentation / citations | CrossFile-B1, B2 genuine + backlog | B1/B2 applied (stale claims-layout / claim-GC cross-refs); obs `entries/`→`archive/`, mcg note applied |
+| Tests / verification | Tests-F1 integrity + F2/F3 | Tests-F1 applied (two `[manual]` Done-when anchors); F2/F3 deferred |
+| Cross-file consistency | SpecVsCode-F2 + B1/B2 | applied (phantom two-backend fixture rewritten backend-independent) |
+| *Kickoff: altitude (D-1)* | **CLEAN** | present, cited from Goal, two-doctrine decomposition, companion trigger pinned — no finding |
+| *Kickoff: spec-vs-shipped-code* | SpecVsCode-F1, F2 | applied (all-zeros OID literal written w/ SHA-256-safe width; phantom fixture) |
+| *Kickoff: matrix cell-completeness* | F0, F1 | applied (recovery cell corrected; missing death-state cell added; 20-cell set verified) |
+
+**Altitude check (REQ-H1.3):** triggered bundle; D-1 altitude record present, cited from the Goal,
+decomposition = mechanism-primary + two doctrine statements (assume-multiplicity + deterministic-push
+companion, trigger pinned to a Sources seed). **OK — not a finding.**
+
+### Disposition summary
+
+- **Applied in place (genuine inconsistencies + must-fix + robustness):** F0, F1/F2/F4 (STRICT
+  dead-owner death-state, operator-chosen), CrossFile-B1/B2, SpecVsCode-F1/F2, Tests-F1, Security-F1,
+  EH-F1, F3, EH-F4, EH-F5, F6, plus hygiene (obs paths, vocab, mcg note). Re-validated 0/0; delta-lens CLEAN.
+- **Deferred to a named backlog** (`obs:c898c154`, all non-blocking availability/noise/test-breadth):
+  EH-F2 (durable channel for non-strand git-op surfaces), EH-F3 (GC idempotent discriminator), F5
+  (GC-vs-refence lease note), F7 (strand dedup key), F8 (fence-namespace/atomic deployment precondition),
+  Tests-F2 (stale-tracking-ref fixture), Tests-F3 (positive absence assertions), a clarity cross-ref.
+- **Declined:** none.
+
+Class: meaning-class (a full-bundle rework of the correctness model; the STRICT resolution changes behavior).
+Lens-pass: full-bundle 6-agent fan-out (nine lenses + three kickoff checks) recorded above; every finding
+validated and dispositioned; the applied-in-place fixes re-verified CLEAN by an independent delta-lens over
+the edited STRICT death-state model. No inconsistency remains open; no finding is undispositioned (REQ-F1.10 satisfied).
+Anchor: df12da9a9a803264e8fc1a06cbd587deac133509 (`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`)

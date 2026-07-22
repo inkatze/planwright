@@ -1,6 +1,6 @@
 # Concurrent Orchestrator Coordination — Requirements
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-21
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -82,9 +82,10 @@ marking, or the tower non-authoring boundary.
   fences a given unit, cross-clone and death-surviving by construction, with cohesion-bundle members fenced
   together by `git push --atomic` (REQ-C1.1, REQ-C1.2, D-8, D-11).
 - **Operator-surfaced strand handling, not auto-reclaim**: a fence whose owning tower is positively dead
-  with no completion artifact — or any unclassifiable owner / unknown-owner orphan — is surfaced to a
-  durable, dedup'd operator sink for a reclaim decision; the fence of a **terminal** unit (PR merged /
-  ledger-done) is garbage-collected; neither the fence namespace nor the sink grows unbounded (REQ-C1.3,
+  and whose unit is **not terminal** (no merged PR, not ledger-done — including one carrying only commits or
+  an open, unmerged PR, since no live tower will carry it to merge) — or any unclassifiable owner /
+  unknown-owner orphan — is surfaced to a durable, dedup'd operator sink for a reclaim decision; the fence of
+  a **terminal** unit (PR **merged** / ledger-done) is garbage-collected; neither the fence namespace nor the sink grows unbounded (REQ-C1.3,
   REQ-C1.5, REQ-C1.7).
 - **`origin`-reachability classification**: no-`origin` is the genuine solo posture (dispatch without a
   fence, no peers to collide with); a transient `origin` failure or a rejected CAS fails closed / backs off,
@@ -131,8 +132,8 @@ marking, or the tower non-authoring boundary.
   towers operating on the **same repository**, from a deterministic presence signal, and SHALL NOT
   assume it is the only tower running. The surface is a single host-wide machine-local path shared by
   every repository's clones on the host (REQ-A1.4), partitioned into **one sub-surface per repository
-  identity** (`<surface>/<repo-id>/`, matching the claims layout `<surface>/<repo-id>/claims/<unit-id>`,
-  D-2); discovery SHALL scope to the current repository by **scanning only the current repo id's
+  identity** (`<surface>/<repo-id>/`, holding the per-tower presence records and the durable strand sink —
+  there is no `claims/` sub-surface under Architecture B, D-2); discovery SHALL scope to the current repository by **scanning only the current repo id's
   sub-surface**, with the repository identity carried in each record (REQ-A1.2) verified as a defensive
   cross-check rather than by filtering the entire host surface — the two descriptions are reconciled to
   the per-`<repo-id>` sub-surface as canonical. Discovery SHALL exclude the tower's own record (by tower
@@ -171,8 +172,8 @@ marking, or the tower non-authoring boundary.
   closed). Presence discovery and reclaim SHALL be deterministic script logic that invokes no LLM.
   Reclaim MAY include deleting the positively-dead tower's entire presence file (garbage collection on
   discovery); deleting a whole dead file is distinct from, and does not violate, the prohibition on
-  editing a *live* peer's file content. The GC delete SHALL take the **same under-lock re-read guard as
-  the claim GC** (REQ-C1.5): the sweep re-confirms, immediately before the unlink, that the file is still
+  editing a *live* peer's file content. The GC delete SHALL take an **under-lock
+  re-read guard** (D-2): the sweep re-confirms, immediately before the unlink, that the file is still
   that same positively-dead tower's record, so a **dead-then-restarted** tower's *fresh live* record
   (same tower identity, new session) is never deleted out from under it — an unguarded `rm` would be that
   bug. Where a tower's death handle is the degraded bare-`process <pid>` form (REQ-A1.2), a **reused pid**
@@ -195,7 +196,10 @@ marking, or the tower non-authoring boundary.
   permission bit *is* the trust enforcement, the surface SHALL be created with an **atomic, mode-explicit
   `mkdir`**, and a **pre-existing surface directory whose mode is over-broad** (group- or
   other-accessible) SHALL be **refused, not silently reused** — verify-or-refuse, so a mis-permissioned or
-  attacker-planted surface can never quietly widen the trust boundary.
+  attacker-planted surface can never quietly widen the trust boundary. On that refusal the tower SHALL
+  **halt its coordination-surface use and surface a security error for the operator** (a louder stop than
+  REQ-A1.5's awareness-degradation, since an over-broad surface is a trust-boundary breach, not a mere
+  read failure); it SHALL NOT chmod-narrow and reuse the surface on a guess.
   *(Cites: D-2; orchestration-concurrency, fleet-autonomy (Sources).)*
 - **REQ-A1.5** Presence discovery SHALL distinguish a healthy-but-empty presence surface (no peers
   currently live) from an absent, unreadable, or misconfigured one, and SHALL fail closed on the
@@ -214,7 +218,13 @@ marking, or the tower non-authoring boundary.
   proceeds with an empty peer set. Because a bare `ENOENT` cannot distinguish "never existed" (healthy
   first run) from "existed and then vanished" (a surface that must fail closed, not read as solitude), a
   **persistence sentinel** dropped at bootstrap SHALL make that distinction — its presence means the
-  surface once existed, so a missing directory alongside a surviving sentinel fails closed. A
+  surface once existed, so a missing directory alongside a surviving sentinel fails closed. The sentinel
+  SHALL live at a fixed machine-local path **outside the surface directory** (a sibling under the host-wide
+  root, not inside `<surface>/<repo-id>/`), so that deleting the surface directory cannot also delete the
+  sentinel that proves it once existed; a sentinel **write failure at bootstrap SHALL itself fail closed**
+  (surface the error; do not proceed as if bootstrapped), never leaving a later vanished surface to be
+  misread as a healthy first run. Because the sentinel is a stat'd leaf, a **corrupt-but-present** sentinel
+  still reads as "present" (fail closed), and there is no meta-sentinel regress. A
   **concurrent first-run `mkdir` that returns `EEXIST`** because a peer bootstrapped the surface a moment
   earlier SHALL be treated as **success, not an error** (the create is idempotent and order-independent,
   D-10). Publishing the tower's own record and discovering peers SHALL be ordered so a tower does not read
@@ -322,24 +332,38 @@ marking, or the tower non-authoring boundary.
   and deleting fence refs** and reading the presence surface; it SHALL never directly mutate a peer tower's
   or a worker's branch state.
   *(Cites: D-5, D-8, D-12; the division-of-labor "directly" boundary (Sources).)*
-- **REQ-C1.3** A fence whose owning tower is **live** SHALL be honored (the unit is in flight). A fence
-  becomes a **strand candidate** only when its owning tower is **positively dead** (the presence surface's
-  `fleet-death-evidence` verdict on the owner's recorded death handle, REQ-A1.2 / REQ-A1.3) **and** the unit
-  shows **no live completion artifact** — an open PR or commits on the unit's task branch, read **live** via
-  `ls-remote` (never a possibly-stale checkout-local remote-tracking ref), a transient `origin` read
-  **failing closed** (do not act, retry next pass). On a strand candidate the tower SHALL **surface it to
+- **REQ-C1.3** Classification is ordered **terminal first, then liveness**: a **terminal** unit (merged PR /
+  ledger-done) is GC'd regardless of owner liveness (REQ-C1.5); otherwise a fence whose owning tower is
+  **live** SHALL be honored (the unit is in flight), **regardless of any *non-merged* downstream artifact**
+  (commits or an open, unmerged PR never make a live owner's fence reclaimable). A fence becomes a **strand
+  candidate** when its owning tower is **positively
+  dead** (the presence surface's `fleet-death-evidence` verdict on the owner's recorded death handle,
+  REQ-A1.2 / REQ-A1.3) **and** the unit is **not terminal** — it has **no merged PR and is not ledger-done**,
+  read **live** (refs via `ls-remote`, PR merge state via `gh`/GitHub; never a possibly-stale checkout-local
+  remote-tracking ref), a transient `origin` read **failing closed** (do not act, retry next pass). A dead
+  owner's **non-merged downstream artifact** — commits on the unit's task branch, **or an open, unmerged
+  PR** — does **not** suppress the strand: no live tower will carry that work to merge (a dead tower cannot
+  open or merge a PR, and this bundle never auto-authors), so under the "never silent" guarantee (D-13) it is
+  **surfaced**, not silently honored. Only a **merged** PR or a ledger-done unit is terminal (→ GC, REQ-C1.5),
+  which keeps this strand check and REQ-C1.5's terminal definition identical. On a strand candidate the tower SHALL **surface it to
   the durable operator sink (REQ-C1.7), never auto-reclaim it**: reclaiming a dead tower's in-flight unit is
   a **reserved operator decision** under the downgraded guarantee (D-13), because the common tower-turnover
   case is graceful self-refresh that never strands, so the rarer hard-crash strand is surfaced rather than
   probed-and-reclaimed on a guess. Cases the tower **cannot classify** — an **unknown/errored** owner
   liveness probe, a fence ref **owned by no discoverable presence record** (an unknown-owner orphan), or a
   **reused-pid ambiguity** on a degraded bare-`process <pid>` owner handle — SHALL **also be surfaced, never
-  silently honored forever and never auto-reclaimed**. The one residue the sweep resolves **without** the
+  silently honored forever and never auto-reclaimed**. An **unknown-owner orphan SHALL be surfaced only after
+  a one-pass grace re-check** confirms it is still unattributed on the *next* discovery pass, because a live
+  owner's presence record lists its fenced unit-ids only as of its last **heartbeat** (REQ-A1.2) — so in the
+  brief window between a live tower's fence push and its next heartbeat refresh the fence is momentarily
+  attributable to no live record, and surfacing it immediately would raise a **false** strand on a legitimately
+  in-flight unit; the grace re-check collapses that window without weakening the dead-owner case (a genuinely
+  orphaned fence stays unattributed across passes and still surfaces, bounded-delay). The one residue the sweep resolves **without** the
   operator is a fence whose **unit is already terminal** (PR merged / ledger-done): that is not a strand but
   completed work, and its fence is **garbage-collected** (REQ-C1.5). The honest guarantee, stated to what
-  the mechanism delivers (D-13): **a dead-owner unit with no completion artifact is always surfaced (bounded
-  delay, dedup'd sink); a terminal unit's fence is always swept; and no strand is ever silently honored
-  forever.** Because reclaim is the operator's, there is **no per-unit reclaim lock, no under-lock re-read,
+  the mechanism delivers (D-13): **a dead-owner unit that is not terminal is always surfaced (bounded delay,
+  dedup'd sink) — including one carrying only commits or an open, unmerged PR; a terminal (merged /
+  ledger-done) unit's fence is always swept; and no strand is ever silently honored forever.** Because reclaim is the operator's, there is **no per-unit reclaim lock, no under-lock re-read,
   and no worker-liveness probe on the correctness path** — the machinery Architecture A needed for
   auto-reclaim is **absent by design** (D-7, D-11).
   *(Cites: D-7, D-11, D-13; the positive-evidence-of-death floor (Sources).)*
@@ -351,9 +375,13 @@ marking, or the tower non-authoring boundary.
   the peer fence is the mechanism for the independently-started, no-meta-tower case.
   *(Cites: D-4; orchestration-fleet (Sources).)*
 - **REQ-C1.5** A fence ref SHALL persist from dispatch until its unit reaches a **terminal state**, and
-  SHALL be **garbage-collected** (the fence ref deleted from `origin`) when the unit is terminal — its PR
-  merged/present or the ledger marks it done — so the fence namespace does not grow unbounded across the
-  unit's whole history (the run-4 no-origin-ref-GC gap). GC SHALL run both on the **discovery sweep** and on
+  SHALL be **garbage-collected** (the fence ref deleted from `origin`) when the unit is terminal — its **PR
+  merged** or the ledger marks it done — so the fence namespace does not grow unbounded across the unit's
+  whole history (the run-4 no-origin-ref-GC gap). An **open, unmerged PR is *not* terminal**: it does not
+  trigger GC, and the fence persists across the whole open-PR window — for a *live* owner the fence is simply
+  honored until merge, and for a *dead* owner the unit is a surfaced strand (REQ-C1.3), never silently
+  GC'd out from under an unfinished unit. Because the fence lives until merge, the dispatch selection guard's
+  fence-ref existence check (Task 4) is sufficient with no fence→branch-as-fence handoff gap. GC SHALL run both on the **discovery sweep** and on
   the **owning tower's own completion path**, and SHALL be **idempotent** (deleting an already-absent ref is
   success, so two towers GC'ing the same terminal fence never error). A fence GC that fails on a transient
   `origin` error SHALL be surfaced and retried next pass, never left to silently accumulate. Because reclaim
@@ -370,7 +398,13 @@ marking, or the tower non-authoring boundary.
   to arbitrate), never failing open into a multi-tower collision; a **rejected expect-absent CAS** (a peer
   already fenced the unit) means **back off this unit and select another**; and a **transient push failure
   against a configured `origin`** **fails closed** (do not dispatch this unit this pass, surface, retry
-  next pass), never dispatching blind against a possibly-fenced unit. The tower SHALL NOT treat a transient
+  next pass), never dispatching blind against a possibly-fenced unit. Because a rejected CAS and a transient
+  push failure are **both a non-zero `git push`**, the tower SHALL distinguish them by the push's **per-ref
+  status** (`--porcelain` / `--push-option` reporting, or the stale-info/non-fast-forward rejection reason in
+  stderr), **not by exit code alone**: a per-ref "rejected (stale info / already exists)" is the taken-unit
+  back-off, while a connection/transport/permission error with no per-ref rejection is the transient
+  fail-closed-and-retry path. Misclassifying either way costs at most one wasted pass (the authoritative CAS
+  re-adjudicates next pass), never a double dispatch. The tower SHALL NOT treat a transient
   `origin` failure as the solo posture, and SHALL NOT `--force` or overwrite a fence ref it did not create
   (only the expect-absent lease is ever used). This is the bounded arm of the downgraded guarantee (D-13):
   correctness holds while `origin` is reachable; unreachability is surfaced or safely solo, never a silent
@@ -420,9 +454,11 @@ marking, or the tower non-authoring boundary.
   meet planwright's framework-script security bars, since they parse records other sessions write to a
   shared surface and construct git ref operations from unit ids: (a) **every parsed field consumed by the
   coordination logic SHALL be validated against its declared grammar before any use** — not only the tower
-  identity, but the repository identity, the **unit id and spec id (validated before any `origin` fence-ref
-  push or delete, so a crafted id can never drive a ref operation outside `refs/planwright-fence/<spec>/`)**,
-  the timestamps (start time and heartbeat, validated as well-formed timestamps), the **meta-tower marker**
+  identity, but the repository identity, the **unit id and spec id** — each validated against a **declared
+  identifier grammar** (the unit/spec-id charset `[A-Za-z0-9._-]`, no `..` component, no leading dash, bounded
+  length) **before any `origin` fence-ref push or delete**, so a crafted id can never drive a ref operation
+  outside `refs/planwright-fence/<spec>/` — the timestamps (start time and heartbeat, validated as well-formed
+  timestamps), the **meta-tower marker**
   (a validated boolean; it drives the defer-to-authority decision, so an unvalidated value could mis-route
   division — REQ-A1.2, REQ-C1.4), the **checkout path**, and the **positive-evidence-of-death handle**,
   whose **declared grammar is exactly the two `fleet-death-evidence.sh` forms** — `process <pid>` (a
@@ -432,8 +468,10 @@ marking, or the tower non-authoring boundary.
   (b) **path and ref access SHALL be canonicalized and containment-checked** before any read, write,
   `mkdir`, unlink, or ref push/delete — the presence surface directory itself (so a **surface-root symlink**
   cannot redirect containment outside it), each presence record path, the strand-sink path, and the
-  **fence-ref name** (confirmed to resolve inside the `refs/planwright-fence/<spec>/` namespace before any
-  push or delete), so a crafted unit/tower id can never drive a write, delete, or ref operation outside its
+  **fence-ref name** (validated with **`git check-ref-format`** *and* a literal `refs/planwright-fence/<spec>/`
+  prefix check — the containment primitive for a git *ref* name, distinct from the filesystem path
+  canonicalization that applies to the surface directory and record paths — before any push or delete), so a
+  crafted unit/tower id can never drive a write, delete, or ref operation outside its
   bounds; (c) untrusted record fields echoed to a terminal or log SHALL pass the echo-discipline sanitizer
   (`scripts/echo-safety.sh`, `sanitize_printable`), so an embedded escape sequence in a peer record cannot
   drive the terminal. These are the enforcement of the same-operator trust model at the script boundary,
@@ -638,7 +676,7 @@ marking, or the tower non-authoring boundary.
   no-conflicting-dispatch, with ties to proactive shared-usage-governance and the inter-orchestrator
   relay. Framed this bundle.
 - **The run-2 kickoff-halt rework seed** — `obs:7dd7eb45`
-  (`specs/_observations/entries/2026-07-21-coc-fence-at-dispatch-halt2-7dd7eb45.md`), recorded 2026-07-21
+  (`specs/_observations/archive/2026-07-21-coc-fence-at-dispatch-halt2-7dd7eb45.md`), recorded 2026-07-21
   by the halted `/spec-kickoff` run 2, the backlog this rework closes: the dispatch-time no-authoritative-
   cross-clone-fence inconsistency resolved by Option A (fence at dispatch, D-8), plus the ~39-finding
   design/hygiene backlog. Full detail in `kickoff-brief.md` §8 (run 2). Consumed by this rework. (The
@@ -646,7 +684,7 @@ marking, or the tower non-authoring boundary.
   backlog was closed by the prior rework and its detail lives in the changelog and `kickoff-brief.md` §8
   run 1, so it is noted here as prose, not a dangling citation.)
 - **The run-3 kickoff-halt rework seed** — `obs:c2270479`
-  (`specs/_observations/entries/2026-07-21-coc-fence-reaper-halt3-c2270479.md`), recorded 2026-07-21 by the
+  (`specs/_observations/archive/2026-07-21-coc-fence-reaper-halt3-c2270479.md`), recorded 2026-07-21 by the
   halted `/spec-kickoff` run 3, the ~18-finding backlog this rework closes: the death-surviving origin fence
   with no cross-clone reaper inconsistency (H1–H3), the new authoritative-guarantee breaks (A1–A3), the
   spec-vs-shipped-dispatch-code contradictions (S1–S5), and the quarantine/residue gaps (Q1, Q2). Resolved
@@ -654,7 +692,7 @@ marking, or the tower non-authoring boundary.
   superseded by the run-4 rework below**, which inverts back to the origin fence. Full detail in
   `kickoff-brief.md` §8 (run 3). Consumed by the prior rework.
 - **The run-4 kickoff-halt rework seed** — `obs:a45c20d6`
-  (`specs/_observations/entries/2026-07-21-coc-multiaxis-halt4-a45c20d6.md`), recorded 2026-07-21 by the
+  (`specs/_observations/archive/2026-07-21-coc-multiaxis-halt4-a45c20d6.md`), recorded 2026-07-21 by the
   halted `/spec-kickoff` run 4, the ~31-finding / 6-HIGH backlog this rework closes. Run 4 walked the
   Architecture-A (worker-liveness claim) design and the full-bundle lens found new-axis holes A never
   checked: worker-lifecycle (a claim needs a pre-fork pid), keying/granularity (cohesion-bundle
@@ -665,7 +703,7 @@ marking, or the tower non-authoring boundary.
   moves (enumerate the axis matrix, downgrade the guarantee, re-open Architecture A vs B) are the framing
   this rework consumes. The operator chose **Architecture B — origin-fence-only** (drafting-session
   decision, 2026-07-21). Full detail in `kickoff-brief.md` §8 (run 4). Consumed by this rework.
-- **`merge-currency-guard`** (planned, not yet drafted) — the owner of the deterministic PR-ready-push
+- **`merge-currency-guard`** (drafted on its own branch, not yet merged to `main`) — the owner of the deterministic PR-ready-push
   mechanism this bundle cross-references but does not implement (REQ-D1.6, D-6): a PreToolUse guard
   intercepting the two ready surfaces (`gh pr ready` and the GitHub MCP draft→ready path) that both blocks a
   stale/DIRTY ready-flip and records a `pr-ready` heartbeat, plus the attention-surface reclassification of
@@ -685,9 +723,11 @@ marking, or the tower non-authoring boundary.
   selection), the **no-dispatch-commit-on-`main`** floor (which the per-unit fence honors by pushing a ref
   at an existing commit, never new history — REQ-C1.2, REQ-C1.6), and the **branch-as-fence** dispatch
   discipline (a task-branch ref / open PR for a unit is durable evidence the unit is already in flight),
-  which this bundle **consumes as a *completion*-artifact signal** in the strand check (an open PR /
-  task-branch commits, read live via `ls-remote`, mean the worker's work is in review or merged, so the
-  fence is a terminal-GC case, not a strand — REQ-C1.3, REQ-C1.5). Consumed here as an authoritative
+  which this bundle **consumes as an in-flight signal** in the strand check: for a **live** owner a
+  task-branch ref / open PR corroborates that the unit is in flight (honored); for a **positively-dead**
+  owner it is **not** treated as completion — only a **merged** PR or a ledger-done unit is terminal (→ GC),
+  while commits or an **open, unmerged PR** from a dead owner is an **abandoned strand surfaced to the
+  operator** (no live tower will carry it to merge), read live via `ls-remote` / `gh` — REQ-C1.3, REQ-C1.5. Consumed here as an authoritative
   contract; this bundle is the awareness/coordination layer strictly above it. The authoritative dispatch
   fence itself is **not** a machine-local primitive but the per-unit ref on `origin` (D-8, D-11), whose
   expect-absent compare-and-swap git serializes cross-clone by construction — the run-4 inversion of the

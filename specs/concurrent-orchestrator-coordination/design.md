@@ -1,6 +1,6 @@
 # Concurrent Orchestrator Coordination — Design
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-21
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -93,9 +93,9 @@ is a git ref rather than a parsed machine-local record.
 | **Locality** | The floor is a per-unit ref on `origin`; git serializes its expect-absent CAS cross-clone, and the ref survives the creating tower's death — no machine-local surface fakes locality. | REQ-C1.1 · D-8 · D-11 |
 | **Worker-lifecycle** | *Dissolved.* The fence is keyed by unit id and created by the tower **before** the worker forks; it carries no worker identity or death handle, so there is no pre-fork-pid problem. | REQ-C1.1 · REQ-C1.2 · D-5 |
 | **Keying / granularity** | One fence ref per member unit-id; a cohesion bundle is fenced with `git push --atomic` over all members, so any member a peer selects collides and no non-lead member is left unfenced. | REQ-C1.2 |
-| **Death-state machine** | Small and enumerable: died-before-push → no residue; owner-live → honor; owner-dead + no artifact → surface; owner-unclassifiable / unknown-owner orphan → surface; unit-terminal → GC the fence. No auto-reclaim. | REQ-C1.3 · REQ-C1.5 |
+| **Death-state machine** | Small and enumerable (classified **terminal-first, then liveness**): died-before-push → no residue; unit-**terminal** (**merged** PR / ledger-done) → GC the fence regardless of owner liveness; else owner-live → honor (regardless of any *non-merged* downstream artifact); owner-dead + **not-terminal** (no artifact, commits-no-PR, **or** an open-unmerged PR — none of which a live tower will carry to merge) → surface; owner-unclassifiable / unknown-owner orphan → surface (after a one-pass grace re-check for the orphan case). No auto-reclaim. | REQ-C1.3 · REQ-C1.5 |
 | **Version / schema skew** | *Dissolved.* The correctness floor is git-ref existence (no schema). A version-skewed presence record is awareness-only (assume-live, surface), never on the correctness path, so it can never free a fenced unit. | REQ-A1.6 · REQ-C1.1 |
-| **Recovery action per fail-closed path** | Pinned per path in D-10: no-`origin` → solo dispatch; rejected CAS → back off unit; transient `origin` → fail closed + retry; orphan fence → surface; terminal fence → GC; broken presence surface → halt dispatch. | REQ-C1.6 · D-10 |
+| **Recovery action per fail-closed path** | Pinned per path in D-10: no-`origin` → solo dispatch; rejected CAS → back off unit; transient `origin` → fail closed + retry; orphan fence → surface; terminal fence → GC; broken presence surface → **surface unknown-peer-status, degrade awareness, dispatch proceeds** (the fence, not the surface, is the floor). | REQ-C1.6 · D-10 |
 | **Durable sink per residue** | Every strand and unclassifiable anomaly lands in a durable, dedup'd, operator-facing sink delivered by push (attention path), keyed for dedup and named with a defined operator action. | REQ-C1.7 |
 
 ## Decision-domains walk
@@ -245,7 +245,7 @@ liveness keeps reclaim on positive evidence, never a bare timeout.
 
 **Decision:** The root fix for the shared-`main` clobbering race is **one checkout per tower** — separate
 working copies, each with its own private mutable local `main`, coordinating through `origin` (fetch,
-PRs) and the presence/claim surfaces rather than through a shared local `main`. Today's mitigation
+PRs) and the presence surface (and durable strand sink) rather than through a shared local `main`. Today's mitigation
 (local `main` kept read-only, reconcile via a quick PR, never `reset --hard` or direct-push) is
 superseded as the *primary* model and retained only as the sanctioned **degraded fallback** for
 environments where separate checkouts are unavailable. The per-tower-checkout model changes nothing
@@ -312,9 +312,10 @@ layer, not a parallel coordination stack.
 **Decision:** The exclusion primitive **is** the authoritative no-duplicate-dispatch guarantee (D-11), and
 it is a **per-unit fence ref on `origin`**, not a machine-local object. At dispatch, before any worker
 runs, a tower creates `refs/planwright-fence/<spec>/<unit-id>` by an **atomic expect-absent
-compare-and-swap** (`git push --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:` with the
-**explicit all-zeros OID** as the must-be-absent expectation, hardened against any git build that treats
-the bare-empty form as unchecked; the ref targets the current `origin/main` tip, an existing commit, so no
+compare-and-swap** (`git push --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:$ZERO_OID`, where
+**`$ZERO_OID` is the object-format's all-zeros object id** — 40 hex zeros under SHA-1, 64 under SHA-256 — as
+the must-be-absent expectation, **never the bare-empty `<ref>:` (nothing-after-the-colon) form** some git
+builds treat as unchecked; the ref targets the current `origin/main` tip, an existing commit, so no
 history is added to `main`). The push **is** the serializer: `origin` serializes ref updates, so the first
 tower's create-ref succeeds and it owns the unit, while a losing tower's push is **rejected**, whereupon it
 selects another unit. This is authoritative because `origin` is **natively both cross-clone** (every
@@ -417,7 +418,8 @@ lifecycle, and — the load-bearing shift from Architecture A — **reclaim of a
 operator's, not the tower's**, so the standing reclaim apparatus is absent:
 
 - **Persist until terminal; GC on terminal.** A fence persists from dispatch until its unit reaches a
-  terminal state (its PR merged / present, or the ledger marks it done), then the fence ref is deleted from
+  terminal state (its **PR merged**, or the ledger marks it done — an **open, unmerged PR is not terminal**,
+  so the fence persists across the whole open-PR window), then the fence ref is deleted from
   `origin`. GC runs both on the owning tower's own completion path (the normal cleanup) and on the discovery
   sweep (the backstop for a tower that exited before its unit finished), and is **idempotent** — deleting an
   already-absent ref is success, so two towers GC'ing the same terminal fence never error and never race
@@ -425,11 +427,15 @@ operator's, not the tower's**, so the standing reclaim apparatus is absent:
   transient `origin` error is surfaced and retried next pass. This is the only sweep the design needs: the
   fence namespace on `origin` is bounded because every fence is deleted when its unit turns terminal
   (REQ-C1.5) — closing the run-4 no-origin-ref-GC gap with **no** machine-local residue GC at all.
-- **Strand detection is attribution, not a correctness read.** A fence whose owning tower is still **live**
-  is honored (the unit is in flight). A fence becomes a **strand candidate** only when its owner is
+- **Strand detection is attribution, not a correctness read.** Classification is **terminal-first**: a
+  terminal unit (merged PR / ledger-done) is GC'd regardless of owner liveness (bullet above); otherwise a
+  fence whose owning tower is still **live** is honored (the unit is in flight, while non-terminal). A fence
+  becomes a **strand candidate** only when its owner is
   **positively dead** — the presence surface's `fleet-death-evidence` verdict on the owner's recorded death
-  handle (REQ-A1.2, REQ-A1.3) — **and** the unit shows **no live completion artifact** (an open PR or commits
-  on the unit's task branch, read live via `ls-remote`; a transient `origin` read fails closed). The presence
+  handle (REQ-A1.2, REQ-A1.3) — **and** the unit is **not terminal** (no merged PR, not ledger-done; read
+  live — refs via `ls-remote`, PR merge state via `gh`; a transient `origin` read fails closed). A dead
+  owner's **non-merged** downstream artifact — commits, or an **open, unmerged PR** — does **not** suppress
+  the strand (no live tower will carry it to merge), so it is surfaced, not silently honored (D-13). The presence
   read here is **attribution only**: it maps an orphan fence to a (dead) owner so the strand can be named. If
   presence is missing, unreadable, or version-skewed, the fence is surfaced as an **unknown-owner orphan** —
   the fallback is safe because presence is never on the correctness path (D-5, D-11); no presence failure can
@@ -440,9 +446,10 @@ operator's, not the tower's**, so the standing reclaim apparatus is absent:
   not act**. Reclaiming a dead owner's in-flight unit is a **reserved operator decision** (Scope; REQ-C1.3),
   because the common tower-turnover case is graceful self-refresh that never strands, so the rarer hard-crash
   strand does not justify an automatic probe-and-reclaim that would risk double-dispatch on a
-  misclassification. The honest guarantee is therefore **surfaced, not reclaimed**: a dead-owner unit with no
-  completion artifact is always surfaced (bounded delay), a terminal unit's fence is always swept, and no
-  strand is ever silently honored forever (D-13, REQ-C1.3). Because reclaim is the operator's, there is **no
+  misclassification. The honest guarantee is therefore **surfaced, not reclaimed**: a dead-owner unit that is
+  **not terminal** is always surfaced (bounded delay) — including one carrying only commits or an open,
+  unmerged PR — a terminal (merged / ledger-done) unit's fence is always swept, and no strand is ever silently
+  honored forever (D-13, REQ-C1.3). Because reclaim is the operator's, there is **no
   per-unit reclaim lock, no under-lock re-read, no completion-artifact-guarded auto-swap, no four-residue
   machine-local GC, and no version-quarantine** — the entire Architecture-A safety apparatus is unneeded, and
   with it goes the seam surface run 4 found holes in.
@@ -567,14 +574,19 @@ tower takes next**, so "fail closed" is never a dead end. The per-path map:
   genuine no-remote single-host solo posture, dispatch without a fence (no peers to collide with); a
   **rejected expect-absent CAS** (a peer already fenced the unit) → back off this unit and select another;
   a **transient push failure against a configured `origin`** → fail closed (do not dispatch this unit this
-  pass, surface, retry), never dispatch blind against a possibly-fenced unit.
+  pass, surface, retry), never dispatch blind against a possibly-fenced unit. The rejected-CAS and transient
+  arms are **both a non-zero `git push`**, so the tower routes by the push's **per-ref rejection status**
+  (`--porcelain` / stderr rejection reason), **not exit code alone** — a per-ref "rejected (stale info /
+  already exists)" is the back-off, a transport/permission error with no per-ref rejection is the
+  fail-closed-retry; a misclassification costs one wasted pass, never a double dispatch (the CAS re-adjudicates
+  next pass).
 - **A fence-ref GC failure (REQ-C1.5).** A transient `origin` error deleting a terminal unit's fence →
   surface and retry next pass; the delete is **idempotent**, so a fence a peer already GC'd is success,
   never an error.
 - **A strand candidate the tower cannot resolve (REQ-C1.3).** A positively-dead owner with no completion
   artifact, an unknown/errored owner probe, or an unknown-owner orphan → **surface to the durable dedup'd
   sink** (REQ-C1.7) with a defined operator action; the tower never auto-reclaims. A transient `origin` read
-  during the completion-artifact check fails closed (do not act, retry next pass).
+  during the terminal/artifact check (merged-PR / ledger-done, read live) fails closed (do not act, retry next pass).
 
 **Alternatives considered:**
 - **Leave "fail closed" as the terminal statement (the pre-rework shape).** Rejected: the run-2

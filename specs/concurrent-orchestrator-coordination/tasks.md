@@ -1,6 +1,6 @@
 # Concurrent Orchestrator Coordination — Tasks
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-21
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -141,7 +141,9 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   degraded single-checkout fallback is explicitly documented as sanctioned; a fresh
   per-tower clone is confirmed (manual sweep) to sign and fetch through its own repo-root machine-local
   env file and the stable `auth_sock` symlink indirection, without inheriting a dead session's plumbing;
-  the validator and CI pass.
+  **and (REQ-B1.1 manual anchor, so it is not silently droppable) a dated entry in this task's verification
+  notes records a two-checkout run — the two tower identities and that no shared-`main` mutation was
+  observed — the task is not complete until that note exists**; the validator and CI pass.
 - **Dependencies:** 1
 - **Citations:** D-3, D-8, D-10 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4, REQ-C1.6
 - **Estimated effort:** 2 days
@@ -153,8 +155,10 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   quarantine** (all removed with Architecture A). **The fence (REQ-C1.1, REQ-C1.2, D-5, D-8, D-11):** at
   dispatch, before any worker runs, the tower fences the unit by an **atomic expect-absent
   compare-and-swap** creating `refs/planwright-fence/<spec>/<unit-id>` on `origin` (`git push
-  --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:` with the **explicit all-zeros OID** as the
-  must-be-absent expectation, targeting the current `origin/main` tip so no history is added to `main`). The
+  --force-with-lease=refs/planwright-fence/<spec>/<unit-id>:$ZERO_OID`, where **`$ZERO_OID` is the
+  object-format's all-zeros object id** (40 hex zeros under SHA-1, 64 under SHA-256) as the must-be-absent
+  expectation — **never the bare-empty nothing-after-colon form** — targeting the current `origin/main` tip
+  so no history is added to `main`). The
   push **is** the serializer: `origin` serializes ref updates, so exactly one tower wins the fence per unit
   and a rejected push means the unit is taken → select another. The fence is keyed by **unit id** and
   created by the **tower before the worker forks** (no worker death handle, no pre-fork-pid problem); it is
@@ -167,12 +171,16 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   transient push failure fails closed (do not dispatch this unit, surface, retry); a rejected CAS backs off
   the unit; the tower never `--force`s a fence it did not create. **Strand handling (REQ-C1.3, D-7) —
   surface, never auto-reclaim:** the discovery sweep attributes each `origin` fence ref to its owner via the
-  presence surface's currently-fenced-unit field (Task 2); a fence whose owner is **live** is honored; a
-  fence whose owner is **positively dead** with **no live completion artifact** (open PR or task-branch
-  commits, read live via `ls-remote`; transient `origin` read fails closed), or that is unclassifiable
-  (unknown/errored owner probe, unknown-owner orphan, or reused-pid ambiguity), is **surfaced to the durable
-  operator sink (REQ-C1.7), never auto-reclaimed** — reclaim is the operator's decision. **Fence GC
-  (REQ-C1.5):** a fence whose unit is **terminal** (PR merged/present or ledger-done) is deleted from
+  presence surface's currently-fenced-unit field (Task 2); classification is **terminal-first, then
+  liveness** — a **terminal** unit (merged PR / ledger-done) is GC'd regardless of owner liveness; else a
+  fence whose owner is **live** is honored; a fence whose owner is **positively dead** and whose unit is
+  **not terminal** (no merged PR, not ledger-done; a dead owner's **non-merged** artifact — task-branch
+  commits or an **open, unmerged PR** — does **not** suppress the strand, since no live tower will carry it
+  to merge; refs read live via `ls-remote`, PR merge state via `gh`; transient `origin` read fails closed),
+  or that is unclassifiable (unknown/errored owner probe, unknown-owner orphan after a one-pass grace
+  re-check, or reused-pid ambiguity), is **surfaced to the durable operator sink (REQ-C1.7), never
+  auto-reclaimed** — reclaim is the operator's decision. **Fence GC (REQ-C1.5):** a fence whose unit is
+  **terminal** (PR **merged** or ledger-done; an open, unmerged PR is **not** terminal) is deleted from
   `origin` on both the owning tower's completion path and the discovery sweep; the delete is **idempotent**
   (an already-absent ref is success), and a transient failure is surfaced and retried — so the fence
   namespace stays bounded with no machine-local residue GC. **The durable sink (REQ-C1.7):** surfaced
@@ -193,15 +201,18 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   selecting **any** member (lead or non-lead) collides and backs off the whole bundle (no unfenced member);
   the fence targets an existing commit and adds **no history to `main`** (asserted); the fence ref lives in
   the dedicated `refs/planwright-fence/<spec>/` namespace, pushed by canonical name with **no worker branch
-  and no backend rename** in the fencing path (a fixture shows both `fleet-dispatch-worktree.sh` and the
-  `claude --worktree`/tmux dispatch producing the identical canonical fence ref); **`origin`-reachability is
+  and no backend rename** in the fencing path (a fixture asserts the tower's fence push produces the canonical
+  fence ref **independent of the dispatch backend** — the fence never passes through
+  `fleet-dispatch-worktree.sh` or the `claude --worktree`/tmux path); **`origin`-reachability is
   classified** — no-`origin` dispatches solo without a fence, a rejected CAS backs off the unit, and a
   transient push failure fails closed (surface + retry, never dispatch blind, never `--force`); a fence
-  whose **owner is live** is honored, a fence whose **owner is positively dead with no completion artifact**
-  is **surfaced (not reclaimed)** to the durable sink, and a fence whose unit shows a **live completion
-  artifact** (open PR / task-branch commits via `ls-remote`) is treated as in-review — GC-on-terminal, not a
-  strand (fixtures for dead-owner+no-artifact → surface, dead-owner+open-PR → no surface/await-GC,
-  unknown-owner orphan → surface); unclassifiable cases (unknown/errored owner probe, reused-pid ambiguity,
+  whose **owner is live** is honored (while non-terminal), a fence whose **owner is positively dead and whose
+  unit is not terminal** (no merged PR, not ledger-done — **including** one carrying only task-branch commits
+  or an **open, unmerged PR**, since no live tower will carry it to merge) is **surfaced (not reclaimed)** to
+  the durable sink, and a fence whose unit is **terminal** (a **merged** PR, read via `gh`, or ledger-done) is
+  **GC'd**, not surfaced (fixtures for dead-owner+no-artifact → surface, dead-owner+commits-no-PR → surface,
+  dead-owner+open-unmerged-PR → surface, dead-owner+merged-PR → GC/no-surface, unknown-owner orphan → surface
+  after grace re-check); unclassifiable cases (unknown/errored owner probe, reused-pid ambiguity,
   unknown-owner orphan) are **surfaced, never silently honored and never auto-reclaimed** (REQ-C1.3);
   strand attribution resolves a fence's owner from the presence currently-fenced-unit field and falls back
   to unknown-owner when no live record lists the unit; the durable sink is **dedup'd** (the same strand on
@@ -212,7 +223,10 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   crafted unit/tower id cannot drive a ref push or delete outside `refs/planwright-fence/<spec>/`
   (containment asserted); the mechanism invokes **no LLM**, creates/reads/deletes only fence refs and reads
   presence, and never mutates a peer's or worker's branch state; the meta-tower-present path defers to
-  meta-tower selection **via a fixture**; the validator and CI pass. There is **no** machine-local claim,
+  meta-tower selection **via a fixture**; **and (REQ-C1.6 manual anchor, so it is not silently droppable) a
+  dated entry in this task's verification notes records a two-clone run sharing one `origin` — the two tower
+  identities, the single winning fence ref, and that only one worker/PR resulted — the task is not complete
+  until that note exists**; the validator and CI pass. There is **no** machine-local claim,
   reclaim lock, under-lock re-read, four-residue GC, or quarantine to test — their absence is asserted
   (a grep/source check that no `claims/` sub-surface or reclaim-lock path is constructed).
 - **Dependencies:** 2, 3
@@ -239,10 +253,10 @@ on Task 1. The critical path is Task 1 → {Task 2, Task 3} → Task 4; Task 5 r
   tower's machine-local **checkout path** *and* its **death handle** (pid, or tmux session+window name)
   are prevented from leaking from the surfaces into any committed artifact (a PR body, an audit log —
   REQ-D1.4). Plus a *conditional* hygiene guard that scans any coordination record a
-  deployment does commit (a committed audit / handover log, or a summary of presence/claims that lands in
+  deployment does commit (a committed audit / handover log, or a summary of presence records that lands in
   git) for secrets, credentials, internal hostnames, checkout paths, and sensitive operational detail,
   wired into `mise run check` alongside the existing secret-scan of fleet artifacts — noting that
-  presence/claim records are normally machine-local and uncommitted, so the scan targets only what
+  presence records and the strand sink are normally machine-local and uncommitted, so the scan targets only what
   actually lands in git; and the cross-reference wiring into `orchestration-concurrency` (state-safety
   floor), `orchestration-fleet` (relay + meta-tower), and `fleet-autonomy` (usage-governance boundary) so
   the seams are legible.

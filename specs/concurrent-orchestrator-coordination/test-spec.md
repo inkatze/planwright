@@ -1,6 +1,6 @@
 # Concurrent Orchestrator Coordination — Test Spec
 
-**Status:** Draft
+**Status:** Ready
 **Last reviewed:** 2026-07-21
 **Format-version:** 2
 **Execution:** derived — see the status render
@@ -190,8 +190,11 @@ an existing commit (`origin/main` tip) so it adds **no history to `main`**.
 A fixture asserts the fence is a ref under the **dedicated `refs/planwright-fence/<spec>/<unit-id>`
 namespace**, **not** the unit's task-branch ref (asserted structurally), pushed by the tower under the
 canonical name **directly** — so **no worker branch and no dispatch-backend rename** is in the fencing path
-(a fixture shows both `fleet-dispatch-worktree.sh` and the `claude --worktree`/tmux dispatch producing the
-identical canonical fence ref). A **cohesion-bundle** dispatch fences **every member unit-id** in a single
+(a fixture asserts the fence ref is created by the tower's own push under the canonical
+`refs/planwright-fence/<spec>/<unit-id>` name, structurally **independent of the dispatch backend** — the
+fence never passes through `fleet-dispatch-worktree.sh` or the `claude --worktree`/tmux path, so no backend
+naming behavior can affect it; the two-backend "identical fence ref" framing was a run-4 phantom, since
+neither backend produces the fence ref). A **cohesion-bundle** dispatch fences **every member unit-id** in a single
 **`git push --atomic`**: a fixture where one member is already fenced by a peer shows the whole atomic push
 **rejected** and the tower backing off the entire bundle, so a peer selecting **any** member — lead or
 non-lead — collides (no unfenced member). Asserts the tower only creates / reads / deletes fence refs and
@@ -200,20 +203,23 @@ reads the presence surface, never writing into a peer tower's or a worker's bran
 ### REQ-C1.3 — Live-owner fence honored; dead-owner/unclassifiable strand surfaced, never auto-reclaimed [test]
 
 Fixtures (owner attribution via the presence currently-fenced-unit field, REQ-A1.2): a fence whose owner
-is **live** is honored (a peer leaves the unit alone); a fence whose owner is **positively dead** per
-`fleet-death-evidence.sh` **and** whose unit has **no live completion artifact** is a **strand → surfaced to
-the durable sink (REQ-C1.7), never auto-reclaimed** (a fixture asserts no ref delete and no re-dispatch — the
-tower raises an operator item instead). The **completion-artifact guard** is asserted both ways against a
-**local bare-repo `origin` fixture**: a dead owner whose unit has an **open PR or task-branch commits** (read
-live via `ls-remote`) is **not** surfaced as a strand — the work is in review, so its fence is a GC-on-terminal
-case (REQ-C1.5), not a strand; a **transient `origin` read** during the artifact check **fails closed** (do
-not act, retry). Unclassifiable cases are each surfaced, never silently honored and never auto-reclaimed: an
+is **live** is honored (a peer leaves the unit alone) as long as the unit is **not terminal**; a fence whose
+owner is **positively dead** per `fleet-death-evidence.sh` **and** whose unit is **not terminal** (no merged
+PR, not ledger-done) is a **strand → surfaced to the durable sink (REQ-C1.7), never auto-reclaimed** (a
+fixture asserts no ref delete and no re-dispatch — the tower raises an operator item instead). The
+**terminal-vs-strand guard** is asserted three ways against a **local bare-repo `origin` fixture** under the
+STRICT reading: a dead owner whose unit carries only **task-branch commits, or an open *unmerged* PR** (read
+live — refs via `ls-remote`, PR merge state via `gh`) **IS surfaced as a strand** — a non-merged downstream
+artifact does **not** suppress it (no live tower will carry it to merge, and a dead tower never opens/merges a
+PR); a dead owner whose unit has a **merged PR (or is ledger-done)** is **not** a strand but **terminal → GC**
+(REQ-C1.5); and a **transient `origin` read** during the check **fails closed** (do not act, retry). Unclassifiable cases are each surfaced, never silently honored and never auto-reclaimed: an
 **unknown/errored** owner-liveness probe; a fence **owned by no live presence record** (an unknown-owner
 orphan); and a **reused-pid ambiguity** on a degraded bare-`process <pid>` owner handle. A structural
 assertion confirms there is **no per-unit reclaim lock, no under-lock re-read, and no worker-liveness probe
-on the dispatch/correctness path** (Architecture A's reclaim apparatus is absent). So a dead-owner unit with
-no artifact is always **surfaced** (bounded delay), a live-owner fence is never disturbed, and no strand is
-silently honored forever.
+on the dispatch/correctness path** (Architecture A's reclaim apparatus is absent). So a dead-owner
+**non-terminal** unit — including one carrying only commits or an open, unmerged PR — is always **surfaced**
+(bounded delay), a live-owner non-terminal fence is never disturbed, a terminal (merged / ledger-done) unit's
+fence is GC'd, and no strand is silently honored forever.
 
 ### REQ-C1.4 — Composes with meta-tower selection [test + design-level]
 
@@ -229,7 +235,8 @@ recovery mode.
 
 Fixtures: a fence ref **persists from dispatch until its unit is terminal** and is then **deleted from
 `origin`** — on both the owning tower's completion path and the discovery sweep — when the unit's PR is
-merged/present or the ledger marks it done; a fixture asserts the delete is **idempotent** (two towers
+**merged** or the ledger marks it done (a fixture asserts an **open, unmerged PR does *not* trigger GC** — the
+fence persists across the open-PR window, honored for a live owner and a surfaced strand for a dead one); a fixture asserts the delete is **idempotent** (two towers
 GC'ing the same terminal fence, or a delete of an already-absent ref, both succeed with no error and no
 destructive race — a ref delete has no torn-read window); a **transient `origin` GC failure** is surfaced
 and retried next pass, never silently dropped; and the fence namespace is shown **bounded** (every fence is
