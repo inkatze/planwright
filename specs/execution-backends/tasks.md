@@ -1,0 +1,142 @@
+# Execution Backends — Tasks
+
+**Status:** Draft
+**Last reviewed:** 2026-07-21
+**Format-version:** 2
+**Execution:** derived — see the status render
+
+Task 1 carries no dependencies by design (drafting-session decision, 2026-07-21): the idle
+oracle is the highest-value, lowest-risk unit and protects the existing tmux fleet, so it
+dispatches ahead of the contract work. Task 2 is the hub the backend work fans out from; the
+critical path is 2 → 4 → {5, 7}.
+
+## Tasks
+
+### Task 1 — agents-json idle oracle
+
+- **Deliverables:** `fleet-liveness.sh` consults `claude agents --json` as the primary
+  busy/blocked evidence, capability-probed at call time, with pane-scrape heuristics demoted to
+  fallback when the oracle is unavailable; shim-fixture tests extending
+  `tests/test-fleet-liveness.sh`; a documented manual probe path against the running CLI.
+- **Done when:** the liveness classify path prefers oracle evidence whenever the probe
+  succeeds; a shim fixture demonstrates a pane-scrape false-idle case that the oracle corrects;
+  the fallback path is exercised by a fixture with the oracle absent; the full check suite is
+  green.
+- **Dependencies:** none
+- **Citations:** D-11 · REQ-F1.1
+- **Estimated effort:** 1 day
+
+### Task 2 — capability contract & registry extension
+
+- **Deliverables:** `doctrine/backend-capability-contract.md` amended in place: `overhead` and
+  `hook_registration` advertised properties with evaluable definitions; `headless-oneshot` and
+  `stream-json-persistent` rows with advertised sets; the `subagent` row corrected
+  (steer-via-resume-with-context, not session-grade); the session-grade-as-recoverable nuance
+  recorded on the stream-json row; the non-`--bare` pinning rule; the 6→8-field back-compatible
+  adapter grammar. `scripts/orchestrate-backends.sh` extended in lockstep;
+  `docs/options-reference.md` and `docs/fleet.md` backend rows updated; drift-guard and
+  adapter-grammar tests (legacy six-field acceptance, malformed fail-closed).
+- **Done when:** the contract doc and `orchestrate-backends.sh` agree under the drift guard for
+  all rows and fields; adapter-grammar fixtures pass for eight-field, legacy six-field, and
+  malformed lines; `fleet-liveness.sh` push-capable reads `hook_registration` from the contract
+  instead of backend names; the full check suite is green.
+- **Dependencies:** none
+- **Citations:** D-2, D-3, D-6, D-7, D-12, D-13 · REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4,
+  REQ-A1.5, REQ-A1.6, REQ-A1.7
+- **Estimated effort:** 2 days
+
+### Task 3 — headless-oneshot dispatch support
+
+- **Deliverables:** dispatch support for `headless-oneshot`: detached `claude -p` launch with
+  non-`--bare` pinned, a completion signal the tower can consume, and liveness wiring per the
+  advertised set; launch-pin guard coverage extended; fixture tests.
+- **Done when:** a dispatched unit launches detached with the pinned flags, its completion is
+  observable by the tower, its liveness answers positive-evidence-of-death, and the launch-pin
+  guard rejects an unpinned launch site; the full check suite is green.
+- **Dependencies:** 2
+- **Citations:** D-3, D-12 · REQ-A1.2, REQ-A1.5
+- **Estimated effort:** 1 day
+
+### Task 4 — stream-json-persistent backend
+
+- **Deliverables:** the stream-json supervisor primitive: worker launch (non-`--bare` pinned),
+  stdio ownership, event-stream capture, `can_use_tool` receipt coupled to a decision-queue item
+  plus a pending-age alarm, AskUserQuestion↔decision-queue 1:1 mapping, and `--resume` recovery
+  against the persisted `session_id`; shim-fixture tests for each contract clause and a
+  documented manual end-to-end resume probe.
+- **Done when:** fixtures demonstrate a `can_use_tool` receipt producing a queue item and the
+  alarm firing past the pending threshold; an AskUserQuestion control_request maps to exactly one
+  queue item; a killed-supervisor fixture recovers the session via `--resume`; no code path
+  auto-answers a permission control_request; the full check suite is green.
+- **Dependencies:** 2
+- **Citations:** D-4, D-5 · REQ-A1.3, REQ-E1.1, REQ-E1.2, REQ-E1.3
+- **Estimated effort:** 3 days
+
+### Task 5 — full-session knob and default flip
+
+- **Deliverables:** the `full-session` semantic value on `dispatch_backend` with
+  non-interactive-first unattended resolution; the shipped default flipped
+  `subagent`→`full-session` with a migration note; the per-spec override map resolved through
+  the config overlay layers; degradation-ladder wiring; docs (options-reference, fleet) and
+  resolver fixtures.
+- **Done when:** resolution fixtures cover the unattended matrix (never an interactive backend
+  without explicit config), the per-spec map wins over the global value in every layer
+  combination, the default flip is documented with its declared-departure rationale, and the
+  full check suite (including the options-reference guard) is green.
+- **Dependencies:** 2, 4
+- **Citations:** D-8, D-9 · REQ-B1.1, REQ-B1.2, REQ-B1.3, REQ-B1.4
+- **Estimated effort:** 1 day
+
+### Task 6 — work-placement doctrine and /offload skill
+
+- **Deliverables:** `doctrine/work-placement.md` recording the tower-frugality and
+  smallest-sufficient-rung axioms; the standalone `/offload` skill (free-form petition → rung
+  selection per the axioms, ask-when-unsure, dispatch through the backend seam, report the
+  handle plus an observe/attach hint); structural guard coverage and instruction-budget
+  compliance for the new skill; a Gherkin scenario for the under-determined-petition ask.
+- **Done when:** the doctrine doc exists and the skill cites it; the skill passes the structural
+  skill guards and `check:instructions`; the offload dispatch primitive's report carries handle
+  and attach hint under a fixture; the ask-when-unsure scenario is recorded in the bundle's
+  test-spec form; the full check suite is green.
+- **Dependencies:** 2
+- **Citations:** D-1 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4, REQ-C1.5
+- **Estimated effort:** 2 days
+
+### Task 7 — backend-agnostic CLI status view
+
+- **Deliverables:** a CLI status renderer listing every in-flight worker across backends,
+  sourced from `claude agents --json`, the stream-json event stream, and the attention store,
+  with per-source graceful degrade; fixture tests covering the source present/absent matrix;
+  docs.
+- **Done when:** the renderer produces a correct table under fixtures for each cell of the
+  source-availability matrix, a missing source degrades with a visible marker rather than a
+  silent omission, and the full check suite is green.
+- **Dependencies:** 1, 4
+- **Citations:** D-10 · REQ-D1.1
+- **Estimated effort:** 1 day
+
+## Awaiting input
+
+(none yet)
+
+## Deferred
+
+- **Rendered status dashboard.** The CLI table (Task 7) is the phase-1 surface; a rendered
+  dashboard for non-terminal operators is deliberately gated on evidence that the CLI view is
+  insufficient. Confidence: medium.
+  **Gate:** GATE(when: recurring operator observations that the CLI status view is insufficient
+  for non-terminal operators).
+  Citations: D-10, drafting-session decision (2026-07-21).
+
+## Out of scope
+
+- Model/effort allocation and budget-aware model degradation — fleet-autonomy's axis.
+- Cross-tower coordination — concurrent-orchestrator-coordination owns it; this bundle shares
+  only the dispatch layer.
+- Agent Teams adoption — experimental (one team per session, no resumption); watch, do not
+  adopt.
+- SDK-as-library drivers — subscription-auth terms unsettled; drive the installed CLI (D-4).
+- Per-task automatic backend selection for spec tasks — operator-rejected in the primary seed.
+- Replacing or deprecating the tmux rung — it stays first-class.
+- The machine-local-config-in-worktrees resolution gap — recorded as a risk; owned by config
+  territory.

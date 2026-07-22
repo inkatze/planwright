@@ -1,1 +1,2 @@
 - 2026-07-17 [planwright] fleet-liveness.sh push-capable keys hook-push support by backend NAME (tmux push; subagent/print/in-session observe); the backend capability contract (doctrine/backend-capability-contract.md) has no hook_registration capability field, so a pluggable backend cannot advertise hook-push support and inherits no arm of the risk-16 fallback boundary. Candidate contract extension: a hook_registration boolean in the advertised set, letting push-capable read the contract instead of special-casing names.
+Consumed-by: specs/execution-backends (2026-07-21)
