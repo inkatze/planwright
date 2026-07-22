@@ -15,18 +15,28 @@
 #   detect [pluggable-name...]
 #       Print one TSV row per PRESENT backend, richest rung first:
 #         backend<TAB>interactive<TAB>can_observe<TAB>can_steer_inflight<TAB>\
-#         provides_attention_surface<TAB>supports_parallel<TAB>session_grade
+#         provides_attention_surface<TAB>supports_parallel<TAB>session_grade<TAB>\
+#         overhead<TAB>hook_registration
 #       The five advertised booleans are true|false|na (na = a capability that
 #       is structurally inapplicable, distinct from an absent one); session_grade
-#       is yes|no|deferred. `in-session` and `print` are always present;
-#       `subagent` is present by default (the harness-native runtime); `tmux` is
-#       present iff it resolves on PATH. subagent/tmux presence is overridable
-#       with PLANWRIGHT_BACKEND_{SUBAGENT,TMUX} (1/0) so a host or test can force
-#       it. Each pluggable-name arg is present iff a `planwright-backend-<name>`
-#       adapter on PATH answers `advertise` with a well-formed capability set;
-#       an absent or malformed adapter is reported absent (fail-safe — a backend
-#       whose capabilities are unknown is never advertised). A pluggable arg
-#       naming a shipped backend, or a hostile/invalid name, is skipped.
+#       is yes|no|deferred; overhead is the pinned cost-class enum
+#       none|light|full-session|full-session+supervisor and hook_registration is
+#       true|false (execution-backends REQ-A1.1, REQ-A1.8). `in-session` and
+#       `print` are always present; `subagent` is present by default (the
+#       harness-native runtime); `tmux` is present iff it resolves on PATH. The
+#       contract-defined `stream-json-persistent` and `headless-oneshot` rows
+#       (execution-backends REQ-A1.2, REQ-A1.3) default ABSENT until their
+#       dispatch support lands (execution-backends Tasks 3-4) — a rung the tower
+#       cannot drive is never advertised as present. All four probes are
+#       overridable with PLANWRIGHT_BACKEND_{SUBAGENT,TMUX,
+#       STREAM_JSON_PERSISTENT,HEADLESS_ONESHOT} (1/0) so a host or test can
+#       force presence. Each pluggable-name arg is present iff a
+#       `planwright-backend-<name>` adapter on PATH answers `advertise` with a
+#       well-formed capability set; an absent or malformed adapter is reported
+#       absent (fail-safe — a backend whose capabilities are unknown is never
+#       advertised), a malformed advertise line additionally carrying a visible
+#       diagnostic (REQ-A1.7, never a silent absence). A pluggable arg naming a
+#       shipped backend, or a hostile/invalid name, is skipped.
 #
 #   select-unattended <configured>
 #       Print the backend the tower should use with NO human to ask: the
@@ -87,24 +97,29 @@ unset CDPATH
 
 # ---------------------------------------------------------------------------
 # The advertised capability set of each shipped backend, verbatim from the
-# Task 1 contract table (doctrine/backend-capability-contract.md). Fields, in
-# order: interactive can_observe can_steer_inflight provides_attention_surface
-# supports_parallel session_grade. Keep in lockstep with that table.
+# contract table (doctrine/backend-capability-contract.md). Fields, in order:
+# interactive can_observe can_steer_inflight provides_attention_surface
+# supports_parallel session_grade overhead hook_registration
+# (the 6->8 extension: execution-backends D-13, REQ-A1.1-A1.4, REQ-A1.8).
+# Keep in lockstep with that table — the drift guard in
+# tests/test-orchestrate-backends.sh fails CI on any divergence (REQ-A1.6).
 # ---------------------------------------------------------------------------
 caps_for() {
   case "$1" in
-    tmux) echo "true true true false true yes" ;;
-    subagent) echo "false false false false true no" ;;
-    print) echo "false false false false na deferred" ;;
-    in-session) echo "false na na false false no" ;;
+    tmux) echo "true true true false true yes full-session true" ;;
+    stream-json-persistent) echo "false true true false true yes full-session+supervisor true" ;;
+    headless-oneshot) echo "false false false false true yes full-session true" ;;
+    subagent) echo "false false false false true no light false" ;;
+    print) echo "false false false false na deferred none false" ;;
+    in-session) echo "false na na false false no none false" ;;
     *) return 1 ;;
   esac
 }
 
-# A backend name that names one of the shipped four.
+# A backend name that names one of the shipped six.
 is_known() {
   case "$1" in
-    tmux | subagent | print | in-session) return 0 ;;
+    tmux | stream-json-persistent | headless-oneshot | subagent | print | in-session) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -137,43 +152,112 @@ env_present() {
   esac
 }
 
-# Is a shipped backend present on this host?
+# Is a shipped backend present on this host? The two execution-backends
+# contract rows ship ahead of their dispatch support (Tasks 3-4): they default
+# ABSENT — a rung the tower cannot drive yet must never be selectable — until
+# the dispatch task flips the default to the installed-CLI probe. The env
+# overrides let tests (and an early-adopting host) force presence.
 is_present() {
   case "$1" in
     in-session | print) return 0 ;;
     subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
     tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
+    stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" no ;;
+    headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" no ;;
     *) return 1 ;;
   esac
 }
 
+# A malformed advertise line fails closed WITH a visible diagnostic
+# (execution-backends REQ-A1.7: never a silent absence). $1 = validated backend
+# name (charset-checked by every caller before adapter_caps runs), $2 = reason.
+# Only the name and the fixed reason text are echoed — never line content.
+advertise_malformed() {
+  printf '%s\n' "orchestrate-backends: planwright-backend-$1: malformed advertise line ($2); backend not selectable" >&2
+  return 1
+}
+
 # The advertised set of a pluggable backend, obtained from its adapter. Echoes
-# the six validated fields, or returns 1 when there is no adapter on PATH or its
-# output is not a well-formed capability set (the fail-safe absent case).
+# the eight validated fields — a legacy six-field line is accepted with the
+# fail-safe defaults (hook_registration=false, overhead=full-session+supervisor,
+# the most conservative class; execution-backends D-13) — or returns 1 when
+# there is no adapter on PATH or its output is not a well-formed six- or
+# eight-field capability set (the fail-safe absent case; a malformed line is
+# additionally diagnosed via advertise_malformed). The advertise line is
+# untrusted input (REQ-A1.9): first line only, length-bounded, and stripped of
+# non-printable bytes BEFORE any parse, use, or echo.
 adapter_caps() {
   ac_cmd="planwright-backend-$1"
   command -v "$ac_cmd" >/dev/null 2>&1 || return 1
   ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
-  # First line only; default IFS splits on space/tab. A well-formed set is
-  # exactly six known tokens (rest must be empty). The read targets are
-  # `f_`-prefixed so this helper never clobbers a caller's loop variable
-  # (`p`, `rung`) — sh has no lexical scope.
-  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_rest=''
-  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+  # First line only.
+  ac_line=''
+  IFS= read -r ac_line <<EOF
 $ac_raw
 EOF
-  [ -z "$f_rest" ] || return 1
+  # Length bound BEFORE any further handling: an overlong line is refused, not
+  # truncated-then-parsed.
+  if [ "${#ac_line}" -gt 512 ]; then
+    advertise_malformed "$1" "line exceeds 512 bytes"
+    return 1
+  fi
+  # Strip non-printable bytes before use or echo (REQ-A1.9). Tabs are folded to
+  # spaces first so a tab-separated line still tokenizes; the C0/DEL/C1 strip
+  # then mirrors echo-safety's sanitize_printable range.
+  ac_line=$(printf '%s' "$ac_line" | tr '\t' ' ' | tr -d '\000-\037\177\200-\237')
+  # Tokenize: a well-formed set is six or eight known tokens (6->8
+  # back-compatible grammar; seven or nine-plus is malformed). The read targets
+  # are `f_`-prefixed so this helper never clobbers a caller's loop variable
+  # (`p`, `rung`) — sh has no lexical scope.
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
+$ac_line
+EOF
+  if [ -n "$f_rest" ]; then
+    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 9 or more"
+    return 1
+  fi
+  if [ -n "$f_ov" ] && [ -z "$f_hr" ]; then
+    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 7"
+    return 1
+  fi
   for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
     case "$f" in
       true | false | na) ;;
-      *) return 1 ;;
+      *)
+        advertise_malformed "$1" "invalid capability token"
+        return 1
+        ;;
     esac
   done
   case "$f_g" in
     yes | no | deferred) ;;
-    *) return 1 ;;
+    *)
+      advertise_malformed "$1" "invalid session_grade token"
+      return 1
+      ;;
   esac
-  echo "$f_i $f_o $f_s $f_a $f_p $f_g"
+  if [ -z "$f_ov" ]; then
+    # Legacy six-field line: fail-safe defaults (D-13).
+    f_ov='full-session+supervisor'
+    f_hr='false'
+  else
+    case "$f_ov" in
+      none | light | full-session | full-session+supervisor) ;;
+      *)
+        advertise_malformed "$1" "invalid overhead class"
+        return 1
+        ;;
+    esac
+    case "$f_hr" in
+      true | false) ;;
+      *)
+        advertise_malformed "$1" "invalid hook_registration token"
+        return 1
+        ;;
+    esac
+  fi
+  echo "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr"
 }
 
 # Echo the advertised set of a backend IF it is present, else return 1. Handles
@@ -192,7 +276,8 @@ resolve_caps() {
 # Unattended-eligible: an autonomous tower may silently pick it. True iff the
 # advertised set has interactive=false (never strand a run waiting on a human)
 # AND session_grade!=deferred (excludes the manual `print` rung, whose spawn is
-# deferred to a human). Reads the six-field caps string on $1.
+# deferred to a human). Reads the eight-field caps string on $1 (fields 1 and
+# 6; the trailing fields land in f_rest and are not consulted).
 eligible() {
   f_i='' f_g='' f_rest=''
   read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
@@ -201,20 +286,26 @@ EOF
   [ "$f_i" = false ] && [ "$f_g" != deferred ]
 }
 
-# Print one detect TSV row: $1 backend, $2 six-field caps string. Read targets
+# Print one detect TSV row: $1 backend, $2 eight-field caps string. Read targets
 # are `f_`-prefixed so this helper never clobbers a caller's loop variable.
 emit_row() {
   er_b=$1
-  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
 $2
 EOF
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$er_b" "$f_i" "$f_o" "$f_s" "$f_a" "$f_p" "$f_g"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$er_b" "$f_i" "$f_o" "$f_s" "$f_a" "$f_p" "$f_g" "$f_ov" "$f_hr"
 }
 
 cmd_detect() {
-  # Richest rung first: tmux, then advertised pluggables (arg order), then the
-  # shipped autonomous rung, the terminal rung, and the manual rung.
+  # Richest rung first, per the contract's pinned ladder ordering (REQ-A1.8):
+  # tmux, the two execution-backends session-grade rungs, then advertised
+  # pluggables (arg order), the shipped autonomous rung, the terminal rung, and
+  # the manual rung.
   is_present tmux && emit_row tmux "$(caps_for tmux)"
+  is_present stream-json-persistent \
+    && emit_row stream-json-persistent "$(caps_for stream-json-persistent)"
+  is_present headless-oneshot && emit_row headless-oneshot "$(caps_for headless-oneshot)"
   seen=' '
   for p in "$@"; do
     is_known "$p" && continue
@@ -281,10 +372,14 @@ cmd_select_unattended() {
   return 1
 }
 
-# Render one backend's presentation block from its validated seven fields.
-# $1..$7 = backend interactive can_observe can_steer_inflight
-# provides_attention_surface supports_parallel session_grade. The summary is
-# derived from the advertised set only (adapt-to-advertised, never name-keyed).
+# Render one backend's presentation block from its validated nine fields.
+# $1..$9 = backend interactive can_observe can_steer_inflight
+# provides_attention_surface supports_parallel session_grade overhead
+# hook_registration. The summary is derived from the advertised set only
+# (adapt-to-advertised, never name-keyed). The overhead class renders on every
+# block (the smallest-sufficient-rung input an operator weighs);
+# hook_registration is liveness plumbing, consumed by fleet-liveness, and is
+# deliberately not rendered.
 emit_block() {
   pb_feats=''
   pb_add() {
@@ -301,6 +396,7 @@ emit_block() {
   [ -n "$pb_feats" ] \
     || pb_feats="synchronous, in the tower's own session (no parallel, no in-flight observe/steer)"
   printf '* %s: %s\n' "$1" "$pb_feats"
+  printf '    overhead: %s\n' "$8"
   if [ "$5" = true ]; then
     printf '    attention: provides its own attention surface; planwright defers its decision queue to it (--surface-provided)\n'
   else
@@ -331,12 +427,12 @@ cmd_present() {
   #
   # Strict field-count guard first: TAB is IFS whitespace, so the token split
   # below collapses consecutive tabs (an empty field) and could re-align a
-  # hand-corrupted row into seven valid-looking tokens. A well-formed detect
-  # row has exactly six tabs; anything else fails closed here.
+  # hand-corrupted row into nine valid-looking tokens. A well-formed detect
+  # row has exactly eight tabs; anything else fails closed here.
   pr_tab=$(printf '\t')
   while IFS= read -r pr_line; do
     pr_tabs=$(printf '%s' "$pr_line" | tr -cd "$pr_tab")
-    if [ "${#pr_tabs}" -ne 6 ]; then
+    if [ "${#pr_tabs}" -ne 8 ]; then
       # Show at most the first field, capped: a zero-tab line has no field
       # boundary to strip at, and an uncapped echo would reproduce an
       # arbitrarily long corrupted line in the diagnostic.
@@ -347,7 +443,7 @@ cmd_present() {
   done <<EOF
 $pr_input
 EOF
-  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_ov p_hr p_rest; do
     if ! valid_name "$p_b" || [ -n "$p_rest" ]; then
       printf '%s\n' "orchestrate-backends: present: malformed detect row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
       return 2
@@ -368,6 +464,20 @@ EOF
         return 2
         ;;
     esac
+    case "$p_ov" in
+      none | light | full-session | full-session+supervisor) ;;
+      *)
+        printf '%s\n' "orchestrate-backends: present: malformed overhead in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+        return 2
+        ;;
+    esac
+    case "$p_hr" in
+      true | false) ;;
+      *)
+        printf '%s\n' "orchestrate-backends: present: malformed hook_registration in row: $(sanitize_printable "$p_b" "(unprintable name)")" >&2
+        return 2
+        ;;
+    esac
   done <<EOF
 $pr_input
 EOF
@@ -379,17 +489,18 @@ EOF
   printf 'is independent: the decision queue is the default attention surface for\n'
   printf 'every pick; a backend that provides its own surface is marked below and\n'
   printf 'deferred to.\n\n'
-  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_rest; do
-    emit_block "$p_b" "$p_i" "$p_o" "$p_s" "$p_a" "$p_p" "$p_g"
+  while IFS="$pr_tab" read -r p_b p_i p_o p_s p_a p_p p_g p_ov p_hr p_rest; do
+    emit_block "$p_b" "$p_i" "$p_o" "$p_s" "$p_a" "$p_p" "$p_g" "$p_ov" "$p_hr"
   done <<EOF
 $pr_input
 EOF
   return 0
 }
 
-# caps <backend>: print the six-field advertised capability set for one backend
-# (interactive can_observe can_steer_inflight provides_attention_surface
-# supports_parallel session_grade) — the read accessor a capability-gated
+# caps <backend>: print the eight-field advertised capability set for one
+# backend (interactive can_observe can_steer_inflight provides_attention_surface
+# supports_parallel session_grade overhead hook_registration) — the read
+# accessor a capability-gated
 # consumer (Task 5's peer-pane /context corroboration reads can_observe) asks
 # instead of re-deriving the contract table (avoids the duplication the
 # knob-resolver-dedup observation warns against). Presence-AGNOSTIC for a

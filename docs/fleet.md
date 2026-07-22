@@ -173,9 +173,12 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death. Backend selection and the degradation ladder below key on this
-advertised set, not on the backend's name; the per-backend dispatch wiring
-itself is still name-keyed today, pending later wiring (see the
+tower's death — and two cost/plumbing properties: `overhead` (the fixed
+per-dispatch cost class) and `hook_registration` (whether the worker's process
+fires planwright's hooks, which selects its liveness mechanism). Backend
+selection and the degradation ladder below key on this advertised set, not on
+the backend's name; the per-backend dispatch wiring itself is still name-keyed
+today, pending later wiring (see the
 [options reference](options-reference.md)).
 
 The shipped `dispatch_backend` values, by what they give you:
@@ -183,9 +186,15 @@ The shipped `dispatch_backend` values, by what they give you:
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
-| `subagent` (default) | In-harness background workers with isolated context | no / no | no |
+| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer); dispatch support landing | yes / yes | yes (recoverable via `--resume`) |
+| `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
+| `subagent` (default) | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
+
+The two headless rows are contract-defined ahead of their dispatch support:
+until it lands, autodetection reports them absent, so they cannot be selected
+on a host that cannot drive them.
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
 on the host and collects each one's advertised set. Attended, it presents the
@@ -258,7 +267,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one six-field capability line;
+`PATH` that answers `advertise` with one capability line (eight fields; a
+legacy six-field line still parses with fail-safe defaults);
 `/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter

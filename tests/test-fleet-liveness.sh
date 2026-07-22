@@ -17,10 +17,12 @@
 #     pending-permission marker (REQ-A1.3's never-auto-resolved floor), while
 #     the deny path (permission-request then stop, no tool use between)
 #     clears cleanly (kickoff risk row 28);
-#   - REQ-A1.1 fallback: `push-capable` names hook-push for the tmux backend
-#     (the only backend that launches a hook-registering session) and falls
-#     back to the existing capture-pane observation for subagent, print, and
-#     in-session rather than failing (kickoff risk row 16);
+#   - REQ-A1.1 fallback: `push-capable` reads the capability contract's
+#     hook_registration field (execution-backends D-7) — push for the
+#     hook-registering backends (tmux, headless-oneshot,
+#     stream-json-persistent), the existing capture-pane observation fallback
+#     for subagent, print, and in-session rather than failing (kickoff risk
+#     row 16);
 #   - REQ-A1.2: synthetic heartbeat/progress sequences resolve exactly one of
 #     working / idle / hung / awaiting-human / flailing, including the
 #     hung-vs-flailing boundary (heartbeat stopped vs heartbeat fresh with no
@@ -267,17 +269,22 @@ qc=$(attn "$home7" queue --count) || fail "queue --count failed"
 echo "ok: downgrade pushes never auto-resolve a queued escalation"
 
 # ---------------------------------------------------------------------------
-# 8. REQ-A1.1 fallback (risk 16) — push-capable: only tmux launches a
-#    dispatch-controlled process (identity env inherited, plugin hooks fire),
-#    so only tmux pushes; subagent (in-process), in-session (the tower's own
-#    session), and print (no process spawned at all — the capability contract
-#    exempts print units from the liveness predicate) fall back to the
-#    existing observation path (named on stdout) rather than failing.
+# 8. REQ-A1.1 fallback (risk 16) — push-capable: which liveness mechanism a
+#    backend gets is read from the capability contract's hook_registration
+#    field (execution-backends D-7, Task 2 Done-when: never keyed on backend
+#    names). tmux and the two new session-grade rows advertise
+#    hook_registration=true → push; subagent (in-process), in-session (the
+#    tower's own session), and print (no process spawned at all — the contract
+#    exempts print units from the liveness predicate) advertise false and fall
+#    back to the existing observation path (named on stdout) rather than
+#    failing.
 # ---------------------------------------------------------------------------
-rc=0
-out=$(run "$tmp/h8" push-capable tmux) || rc=$?
-[ "$rc" = 0 ] || fail "push-capable tmux: exit $rc, expected 0"
-[ "$out" = push ] || fail "push-capable tmux: '$out', expected 'push'"
+for b in tmux headless-oneshot stream-json-persistent; do
+  rc=0
+  out=$(run "$tmp/h8" push-capable "$b") || rc=$?
+  [ "$rc" = 0 ] || fail "push-capable $b: exit $rc, expected 0"
+  [ "$out" = push ] || fail "push-capable $b: '$out', expected 'push' (hook_registration=true)"
+done
 for b in subagent print in-session; do
   rc=0
   out=$(run "$tmp/h8" push-capable "$b") || rc=$?
@@ -287,7 +294,7 @@ done
 rc=0
 run "$tmp/h8" push-capable no-such-backend >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "push-capable unknown backend: exit $rc, expected 2"
-echo "ok: push-capable names hook-push for tmux and the observe fallback for subagent/print/in-session"
+echo "ok: push-capable reads hook_registration from the contract, never backend names"
 
 # ---------------------------------------------------------------------------
 # 9. REQ-A1.2 — the five-state classifier over synthetic sequences: startup

@@ -147,14 +147,16 @@
 #       and signals; exit 2 only on a malformed invocation (wrong arg count or
 #       an unknown event token — a hooks.json wiring bug).
 #   fleet-liveness.sh push-capable <backend>
-#       Which liveness mechanism the backend gets: prints `push` (exit 0)
-#       for tmux (the one backend whose dispatched process inherits the
-#       identity env and fires plugin hooks), `observe` (exit 1) for
-#       subagent / print / in-session, where the existing observation path
-#       (orchestrate-relay.sh observe-command / tower-inline; print is
-#       human-run and contract-exempt from liveness) remains the mechanism
-#       — the REQ-A1.1 graceful fallback, kickoff risk row 16. Unknown
-#       backend: exit 2.
+#       Which liveness mechanism the backend gets, read from the capability
+#       contract's hook_registration field (execution-backends D-7 — never
+#       keyed on backend names): prints `push` (exit 0) for a backend whose
+#       dispatched process inherits the identity env and fires plugin hooks
+#       (tmux, headless-oneshot, stream-json-persistent), `observe` (exit 1)
+#       for hook_registration=false backends (subagent / print / in-session),
+#       where the existing observation path (orchestrate-relay.sh
+#       observe-command / tower-inline; print is human-run and contract-exempt
+#       from liveness) remains the mechanism — the REQ-A1.1 graceful fallback,
+#       kickoff risk row 16. A backend the contract cannot resolve: exit 2.
 #   fleet-liveness.sh classify <worker> <scope> [--now <epoch>]
 #       [--heartbeat <epoch>] [--progress <token>]
 #       [--evidence <class> <args...>]
@@ -733,27 +735,41 @@ case "$cmd" in
       exit 2
     fi
     backend=$1
-    # The risk-16 boundary, keyed to the backend capability contract
-    # (doctrine/backend-capability-contract.md): only tmux launches a
+    # The risk-16 boundary, read from the backend capability contract
+    # (doctrine/backend-capability-contract.md) via its machine-readable
+    # mirror's `caps` accessor — the hook_registration field (field 8) decides
+    # the mechanism, never a backend-name case (execution-backends D-7,
+    # REQ-A1.1's contract closure): a hook-registering backend launches a
     # dispatch-controlled Claude Code process that inherits the identity env
-    # and fires plugin hooks, so only tmux pushes. subagent runs in-process
-    # (per-worker session hooks do not exist), in-session shares the tower's
-    # own session, and print spawns NO process at all — the human runs the
-    # printed command by hand, so the dispatch env is never injected and
-    # print-backend units are contract-exempt from the liveness predicate.
-    # All three keep the EXISTING observation path — the fleet degrades to
-    # pre-spec observation for that slice, never to a broken mechanism.
-    case "$backend" in
-      tmux)
+    # and fires plugin hooks, so it pushes. A hook_registration=false backend
+    # (subagent runs in-process — per-worker session hooks do not exist;
+    # in-session shares the tower's own session; print spawns NO process at
+    # all — the human runs the printed command by hand, so the dispatch env is
+    # never injected and print-backend units are contract-exempt from the
+    # liveness predicate) keeps the EXISTING observation path — the fleet
+    # degrades to pre-spec observation for that slice, never to a broken
+    # mechanism. A backend the contract cannot resolve (unknown name, absent
+    # adapter, broken accessor) fails closed (exit 2).
+    caps_helper="$(dirname "$0")/orchestrate-backends.sh"
+    hook_reg=''
+    if [ -x "$caps_helper" ] && caps_line=$("$caps_helper" caps "$backend" 2>/dev/null); then
+      # Field 8 of the eight-field advertised set. Word-split a trusted
+      # accessor answer; hook_registration is grammar-validated at the source.
+      # shellcheck disable=SC2086
+      set -- $caps_line
+      hook_reg=${8-}
+    fi
+    case "$hook_reg" in
+      true)
         printf 'push\n'
         exit 0
         ;;
-      subagent | print | in-session)
+      false)
         printf 'observe\n'
         exit 1
         ;;
       *)
-        echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
+        echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract)" >&2
         exit 2
         ;;
     esac

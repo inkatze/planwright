@@ -21,6 +21,11 @@ emergent fleet good, so the contract makes them first-class capabilities a
 backend either has or lacks, never folded together.
 
 Citations: REQ-B1.1, REQ-B1.2, REQ-B1.3 · D-2 (extends bootstrap D-38).
+Extended in place by execution-backends (its D-2): the `overhead` and
+`hook_registration` properties, the `stream-json-persistent` and
+`headless-oneshot` rows, the pinned ladder ordering, the non-`--bare` pinning
+rule, and the 6→8 adapter grammar (execution-backends D-3, D-5, D-6, D-7,
+D-12, D-13 · REQ-A1.1–A1.9).
 
 ## The capabilities
 
@@ -52,7 +57,11 @@ provide capability X" is decidable, not a matter of taste.
   session**: full context window and harness surface, commits as a principal, and
   **survives the tower's death**. Its antithesis is a context-sharing in-harness
   subagent that dies with the tower. *Evaluable:* if the tower process dies, does
-  the worker keep running and can it still produce signed commits on its branch?
+  the worker keep running and can it still produce signed commits on its branch —
+  **or**, for a supervised session, is the session *recoverable*: it persists a
+  `session_id` and survives supervisor death via `--resume`, losing no
+  session-grade property (execution-backends D-5)? Session-grade-as-recoverable
+  is the same yes: the session outlives the process that watches it.
 
 Named-addressable-units and liveness are the baseline expectations any real
 execution backend must meet. Observe-in-flight, steer-in-flight, and
@@ -61,14 +70,40 @@ observe and steer are foregrounded as advertised booleans below, while
 session-grade is a distinct quality property tracked per backend (the
 degradation ladder and the backend table order backends partly by it).
 
+The contract also names two advertised **properties** (execution-backends
+REQ-A1.1), each with an evaluable definition like the capabilities above:
+
+- **`overhead`** — the backend's fixed per-dispatch cost class
+  (execution-backends D-6): a small qualitative enum, not a latency
+  measurement. The pinned classes (execution-backends REQ-A1.8), cheapest to
+  most expensive:
+  `none` | `light` | `full-session` | `full-session+supervisor`.
+  *Evaluable:* what does one dispatch cost before the worker does any work —
+  `none` (no new process: the printed command or the tower's own session),
+  `light` (an in-harness worker inside an existing session), `full-session` (a
+  new top-level CLI session), or `full-session+supervisor` (a new session plus
+  a supervisor process planwright runs alongside it)? "Most conservative" — the
+  legacy-adapter default below (execution-backends D-13) — is the **highest**
+  class, `full-session+supervisor`.
+- **`hook_registration`** — whether the backend's dispatched worker process
+  registers planwright's plugin hooks and can push liveness/attention events
+  (execution-backends D-7). *Evaluable:* does dispatching a worker on this
+  backend launch a process that loads the harness surface (SessionStart and
+  the session-lifecycle hooks) under planwright's dispatch env, so hook pushes
+  fire and reach the fleet state? Consumers read this field —
+  `fleet-liveness.sh push-capable` selects the push mechanism from it — and
+  never key on backend names.
+
 ## The advertisement set
 
-A backend self-describes with an advertised capability set — at minimum these
-five booleans:
+A backend self-describes with an advertised capability set — the five booleans:
 
 ```yaml
 { interactive, can_observe, can_steer_inflight, provides_attention_surface, supports_parallel }
 ```
+
+plus the three per-backend quality/cost properties recorded in the table below:
+session-grade, `overhead`, and `hook_registration`.
 
 - **`interactive`** — the backend hosts a session a human could attach to and
   drive directly (tmux). This governs unattended selection: an unattended tower
@@ -92,7 +127,8 @@ capabilities. Named units and liveness are contract baselines rather than
 per-backend toggles: a backend that cannot meet *those two* is the
 manual/synchronous escape hatch, described in its row below. Session-grade spawn
 is the third varying property; it is not one of the advertised booleans but is
-recorded per backend in the table below and orders the degradation ladder.
+recorded per backend in the table below and orders the degradation ladder,
+alongside the `overhead` and `hook_registration` properties defined above.
 
 ## Orchestrator adaptation
 
@@ -113,20 +149,31 @@ branch on the backend's name:
   on completion signals and the positive-evidence-of-death liveness check only.
 - **`supports_parallel: false`** → the tower runs ready units sequentially (one
   worker at a time), the synchronous-terminal-rung behavior.
+- **`hook_registration: false`** → the worker's process fires no planwright
+  hooks, so liveness uses the observation path; `true` → hook-push liveness.
+  `fleet-liveness.sh push-capable` reads this field from the contract — never
+  a backend-name case — so a new backend gets the right liveness mechanism
+  with no fleet-liveness edit (execution-backends D-7).
+- **`overhead`** → an input to smallest-sufficient-rung placement: work that
+  does not need a full session should not pay for one. The class informs the
+  choice; it never overrides a safety property.
 
-## Existing backends, by advertised set
+## The backends, by advertised set
 
-The four shipped `dispatch_backend` values (bootstrap D-38) re-described by their
-advertised capability sets. `n/a` marks a capability that is structurally
+The shipped `dispatch_backend` values (bootstrap D-38, extended by
+execution-backends D-3) described by their advertised capability sets, in the
+pinned ladder order below. `n/a` marks a capability that is structurally
 inapplicable (there is no separate worker to observe or steer), distinct from
 `false` (a separate worker exists but the capability is absent).
 
-| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade |
-| --- | --- | --- | --- | --- | --- | --- |
-| `tmux` | true | true | true | false | true | yes |
-| `subagent` (default) | false | false | false | false | true | no |
-| `print` | false | false | false | false | n/a | deferred |
-| `in-session` | false | n/a | n/a | false | false | no |
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `tmux` | true | true | true | false | true | yes | `full-session` | true |
+| `stream-json-persistent` | false | true | true | false | true | yes | `full-session+supervisor` | true |
+| `headless-oneshot` | false | false | false | false | true | yes | `full-session` | true |
+| `subagent` | false | false | false | false | true | no | `light` | false |
+| `print` | false | false | false | false | n/a | deferred | `none` | false |
+| `in-session` | false | n/a | n/a | false | false | no | `none` | false |
 
 The `Session-grade` column appears because session-grade genuinely varies across
 backends. The two baseline capabilities — named-addressable units and
@@ -142,12 +189,34 @@ rows below.
   and survives the tower. Its cost is tmux fluency and installation — an
   *approachability* gap the attention-surface facet addresses, not a capability
   gap.
-- **`subagent` (default).** A background worker with isolated context and a
+- **`stream-json-persistent`.** A supervisor-owned persistent `claude -p`
+  worker driving the same binary and harness as an interactive session
+  (SessionStart hooks fire under `-p`; execution-backends REQ-A1.3): the
+  supervisor owns the worker's stdio, the event stream provides a structured
+  observe-in-flight surface, and message-in provides steer-in-flight. Its
+  session-grade is the *recoverable* arm of the evaluable definition
+  (execution-backends D-5): the worker persists a `session_id` and survives
+  supervisor death via `--resume`. Ambiguity and permission asks route to the
+  decision queue, never auto-answered. Overhead is
+  `full-session+supervisor` — the full session plus the supervisor process.
+- **`headless-oneshot`.** A detached one-shot `claude -p` worker
+  (execution-backends REQ-A1.2): its own full context window and harness
+  surface (non-`--bare`, per the pinning rule below), commits as a principal,
+  survives the tower, and its session persists and is resumable — session-grade
+  **yes**. No mid-flight observe or steer: the tower acts on the completion
+  signal plus positive-evidence-of-death liveness, and ambiguity routes to the
+  queue.
+- **`subagent`** (the shipped `dispatch_backend` default). A background worker
+  with isolated context and a
   native worktree, whose completion notifies the tower. It is parallel and
   addressable, but **in-harness**: it shares the tower's lifecycle and does not
-  survive the tower's death, so it is **not session-grade**, and it exposes no
-  live mid-task read (no observe) and no live message-in (no steer). Its gaps are
-  session-grade spawn, observe, and steer.
+  survive the tower's death, so it is **not session-grade** (execution-backends
+  REQ-A1.4), and it exposes no live mid-task read (no observe) and no live
+  message-in of a *busy* worker. It **is steerable via resume-with-context** —
+  the tower can continue a completed-turn subagent with its context intact and
+  a course-correcting message — which is a between-turns steer, not
+  steer-in-flight, so `can_steer_inflight` stays false. Its gaps are
+  session-grade spawn, observe, and in-flight steer.
 - **`print`.** Prepares the unit, prints the exact launch command, and exits —
   zero-dependency manual dispatch. The tower spawns no process, so observe,
   steer, and liveness are all absent (`print`-backend units are exempt from the
@@ -159,11 +228,37 @@ rows below.
   all. This is the substrate of the ladder's synchronous terminal rung: it needs
   no external tool and therefore always works.
 
-The degradation ladder (D-3, `/orchestrate`) orders these richest-to-safest by
-their advertised sets and anticipates further backends — for example a headless
-`claude -p` pool advertising `{ interactive: false, can_observe: false,
-can_steer_inflight: false, supports_parallel: true }` that is session-grade but
-cannot be steered, so its ambiguity routes to the queue.
+The two execution-backends rows ship in the contract and registry ahead of
+their dispatch support (execution-backends Tasks 3–4): until the dispatch rung
+lands, host autodetection reports them absent, so the unattended pick can never
+select a rung the tower cannot yet drive.
+
+## The pinned degradation ladder
+
+The degradation ladder (D-3, `/orchestrate`) orders backends richest-to-safest
+by their advertised sets. With the execution-backends rows the ordering is
+**pinned** (execution-backends REQ-A1.8, D-8):
+
+`tmux` > `stream-json-persistent` > `headless-oneshot` > `subagent` > `print`/`in-session`
+
+and the `overhead` enum is pinned to exactly the classes
+`none` | `light` | `full-session` | `full-session+supervisor`, with "most
+conservative" (the legacy-adapter default, execution-backends D-13) defined as
+the highest class. Ladder position never overrides a safety property: an
+unattended tower still never silently selects an interactive backend, and the
+manual `print` rung is never an autonomous descent target.
+
+## The non-`--bare` launch pin
+
+Every headless and stream-json launch invocation planwright emits — every
+`-p`-family launch site — **pins non-`--bare` behavior explicitly**
+(execution-backends REQ-A1.5, D-12), so a future CLI default flip cannot
+silently strip SessionStart hooks and harness surface from every headless
+worker at once. At the verified CLI version there is no explicit inverse flag:
+pinning means **never passing `--bare`**, with the launch-pin guard enforcing
+that at every site and per-task re-verification against the running CLI
+(execution-backends D-4). A future CLI that ships an explicit non-bare flag
+flips the pin to passing that flag at every launch site.
 
 ## Adding a backend
 
@@ -179,16 +274,28 @@ satisfy.
 
 A backend adapter is an executable named `planwright-backend-<name>` on `PATH`
 that answers `advertise` by printing its capability set as one
-whitespace-separated line of **six fields**, in contract order:
+whitespace-separated line of **eight fields**, in contract order
+(execution-backends D-13, REQ-A1.7):
 
 ```text
-interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade
+interactive can_observe can_steer_inflight provides_attention_surface supports_parallel session_grade overhead hook_registration
 ```
 
 The first five are the advertised booleans (each `true`, `false`, or `na` for a
 structurally-inapplicable capability); the sixth carries session-grade (`yes`,
-`no`, or `deferred`). A pluggable backend advertises session-grade in this line
-because — unlike the four shipped backends — it has no row in the table above for
-planwright to read it from. `/orchestrate` reports an adapter absent (the
-fail-safe: a backend whose capabilities are unknown is never selected) when
-`advertise` is missing or its output is not a well-formed six-field set.
+`no`, or `deferred`); the seventh is the `overhead` class (one of the pinned
+enum above); the eighth is the `hook_registration` boolean (`true` or `false`).
+A pluggable backend advertises these in the line because — unlike the shipped
+backends — it has no row in the table above for planwright to read them from.
+
+The grammar is **6→8 back-compatible**: a legacy **six-field** line remains
+valid, taken with fail-safe defaults — `hook_registration=false` and `overhead`
+treated as the most conservative class, `full-session+supervisor`. Any other
+arity (seven, nine or more) is **malformed**, and a malformed line fails closed
+with a **visible diagnostic** on stderr — the backend is never selected, and
+the refusal is never a silent absence. Advertise lines are treated as untrusted
+input (execution-backends REQ-A1.9): the first line is length-bounded (512
+bytes) and stripped of non-printable bytes **before** any parse, use, or echo.
+`/orchestrate` reports an adapter absent (the fail-safe: a backend whose
+capabilities are unknown is never selected) when `advertise` is missing or its
+output is not a well-formed six- or eight-field set.

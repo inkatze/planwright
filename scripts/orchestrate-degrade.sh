@@ -23,11 +23,16 @@
 # and cannot enforce its guards) — never an autonomous descent target.
 #
 # Subcommands:
-#   rung <backend|caps6>
-#       Print the ladder rung of a shipped backend name, or of a six-field
-#       advertised caps string `interactive can_observe can_steer_inflight
-#       provides_attention_surface supports_parallel session_grade`. Output is
-#       one of 1|2|3|4|manual. An unknown backend or unclassifiable caps exits 2.
+#   rung <backend|caps>
+#       Print the ladder rung of a shipped backend name, or of a six- or
+#       eight-field advertised caps string `interactive can_observe
+#       can_steer_inflight provides_attention_surface supports_parallel
+#       session_grade [overhead hook_registration]` (the 6->8 grammar,
+#       execution-backends D-13 — classification reads the first six fields).
+#       Output is one of 1|2|3|4|manual. An unknown backend or unclassifiable
+#       caps exits 2. The execution-backends rows classify as rung 2
+#       (non-interactive session-grade pools); the finer five-way ordering of
+#       REQ-A1.8 is the resolver's concern, not the four-rung classifier's.
 #
 #   terminal-plan <id> [<id>...]
 #       Emit the synchronous terminal rung's run plan: one `run <id>` line per
@@ -99,25 +104,30 @@ unset CDPATH
 . "$(dirname "$0")/echo-safety.sh"
 
 # ---------------------------------------------------------------------------
-# The advertised capability set of each shipped backend, verbatim from the Task
-# 1 contract table (doctrine/backend-capability-contract.md). Fields, in order:
+# The advertised capability set of each shipped backend, verbatim from the
+# contract table (doctrine/backend-capability-contract.md). Fields, in order:
 # interactive can_observe can_steer_inflight provides_attention_surface
-# supports_parallel session_grade. Keep in lockstep with that table (and with
-# orchestrate-backends.sh's identical table).
+# supports_parallel session_grade overhead hook_registration (the 6->8
+# extension, execution-backends D-13). Keep in lockstep with that table (and
+# with orchestrate-backends.sh's identical table, which the CI drift guard
+# checks against the doc). The classifier below reads only the first six
+# fields; the appended two are validated, never classified on.
 # ---------------------------------------------------------------------------
 caps_for() {
   case "$1" in
-    tmux) echo "true true true false true yes" ;;
-    subagent) echo "false false false false true no" ;;
-    print) echo "false false false false na deferred" ;;
-    in-session) echo "false na na false false no" ;;
+    tmux) echo "true true true false true yes full-session true" ;;
+    stream-json-persistent) echo "false true true false true yes full-session+supervisor true" ;;
+    headless-oneshot) echo "false false false false true yes full-session true" ;;
+    subagent) echo "false false false false true no light false" ;;
+    print) echo "false false false false na deferred none false" ;;
+    in-session) echo "false na na false false no none false" ;;
     *) return 1 ;;
   esac
 }
 
 is_known() {
   case "$1" in
-    tmux | subagent | print | in-session) return 0 ;;
+    tmux | stream-json-persistent | headless-oneshot | subagent | print | in-session) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -153,6 +163,10 @@ is_present() {
     in-session | print) return 0 ;;
     subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
     tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
+    # The execution-backends rows default absent until their dispatch support
+    # lands (Tasks 3-4) — parity with orchestrate-backends.sh is_present.
+    stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" no ;;
+    headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" no ;;
     *) return 1 ;;
   esac
 }
@@ -160,29 +174,79 @@ is_present() {
 # The advertised set of a PLUGGABLE backend, obtained from its adapter (mirrors
 # orchestrate-backends.sh's adapter_caps — same fail-safe contract: an absent or
 # malformed adapter is reported absent, so a backend whose capabilities are
-# unknown is never a failover target). Echoes the six validated fields or
-# returns 1. The name is charset-validated by the caller before it reaches the
+# unknown is never a failover target; a malformed line carries a visible
+# diagnostic per execution-backends REQ-A1.7). Echoes the eight validated
+# fields — a legacy six-field line takes the fail-safe defaults
+# (hook_registration=false, overhead=full-session+supervisor; D-13) — or
+# returns 1. The advertise line is untrusted input (REQ-A1.9): first line only,
+# length-bounded, stripped of non-printable bytes before any parse, use, or
+# echo. The name is charset-validated by the caller before it reaches the
 # `planwright-backend-<name>` command.
+advertise_malformed() {
+  printf '%s\n' "orchestrate-degrade: planwright-backend-$1: malformed advertise line ($2); backend not selectable" >&2
+  return 1
+}
 adapter_caps() {
   ac_cmd="planwright-backend-$1"
   command -v "$ac_cmd" >/dev/null 2>&1 || return 1
   ac_raw=$("$ac_cmd" advertise 2>/dev/null) || return 1
-  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_rest=''
-  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+  ac_line=''
+  IFS= read -r ac_line <<EOF
 $ac_raw
 EOF
-  [ -z "$f_rest" ] || return 1
+  if [ "${#ac_line}" -gt 512 ]; then
+    advertise_malformed "$1" "line exceeds 512 bytes"
+    return 1
+  fi
+  ac_line=$(printf '%s' "$ac_line" | tr '\t' ' ' | tr -d '\000-\037\177\200-\237')
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
+$ac_line
+EOF
+  if [ -n "$f_rest" ]; then
+    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 9 or more"
+    return 1
+  fi
+  if [ -n "$f_ov" ] && [ -z "$f_hr" ]; then
+    advertise_malformed "$1" "expected 6 or 8 whitespace-separated fields, got 7"
+    return 1
+  fi
   for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
     case "$f" in
       true | false | na) ;;
-      *) return 1 ;;
+      *)
+        advertise_malformed "$1" "invalid capability token"
+        return 1
+        ;;
     esac
   done
   case "$f_g" in
     yes | no | deferred) ;;
-    *) return 1 ;;
+    *)
+      advertise_malformed "$1" "invalid session_grade token"
+      return 1
+      ;;
   esac
-  echo "$f_i $f_o $f_s $f_a $f_p $f_g"
+  if [ -z "$f_ov" ]; then
+    f_ov='full-session+supervisor'
+    f_hr='false'
+  else
+    case "$f_ov" in
+      none | light | full-session | full-session+supervisor) ;;
+      *)
+        advertise_malformed "$1" "invalid overhead class"
+        return 1
+        ;;
+    esac
+    case "$f_hr" in
+      true | false) ;;
+      *)
+        advertise_malformed "$1" "invalid hook_registration token"
+        return 1
+        ;;
+    esac
+  fi
+  echo "$f_i $f_o $f_s $f_a $f_p $f_g $f_ov $f_hr"
 }
 
 # The advertised caps of a backend by name: a shipped name via the contract
@@ -197,16 +261,22 @@ caps_of_backend() {
   fi
 }
 
-# Classify a six-field caps string onto the ladder. Reads into `f_`-prefixed
-# targets so it never clobbers a caller's loop variable (sh has no lexical
-# scope). Echoes 1|2|3|4|manual, or returns 1 when the set is not well-formed or
-# does not classify.
+# Classify a six- or eight-field caps string onto the ladder (the 6->8
+# grammar, execution-backends D-13: classification reads the first six fields;
+# when the appended overhead/hook_registration fields are present they are
+# validated, never classified on — a seven-field string is malformed). Reads
+# into `f_`-prefixed targets so it never clobbers a caller's loop variable (sh
+# has no lexical scope). Echoes 1|2|3|4|manual, or returns 1 when the set is
+# not well-formed or does not classify.
 rung_of_caps() {
-  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_rest=''
-  read -r f_i f_o f_s f_a f_p f_g f_rest <<EOF
+  f_i='' f_o='' f_s='' f_a='' f_p='' f_g='' f_ov='' f_hr='' f_rest=''
+  read -r f_i f_o f_s f_a f_p f_g f_ov f_hr f_rest <<EOF
 $1
 EOF
   [ -z "$f_rest" ] || return 1
+  if [ -n "$f_ov" ] && [ -z "$f_hr" ]; then
+    return 1
+  fi
   for f in "$f_i" "$f_o" "$f_s" "$f_a" "$f_p"; do
     case "$f" in
       true | false | na) ;;
@@ -217,6 +287,16 @@ EOF
     yes | no | deferred) ;;
     *) return 1 ;;
   esac
+  if [ -n "$f_ov" ]; then
+    case "$f_ov" in
+      none | light | full-session | full-session+supervisor) ;;
+      *) return 1 ;;
+    esac
+    case "$f_hr" in
+      true | false) ;;
+      *) return 1 ;;
+    esac
+  fi
   # Classification is TOTAL over well-formed caps (every parsing-valid set maps
   # to a rung), so an unusual-but-valid advertisement never falls through to
   # "unclassifiable" — only a malformed set (rejected above) does.
@@ -303,7 +383,7 @@ record_path() {
 
 cmd_rung() {
   if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
-    echo "usage: orchestrate-degrade.sh rung <backend|caps6>" >&2
+    echo "usage: orchestrate-degrade.sh rung <backend|caps>" >&2
     return 2
   fi
   if ! r=$(rung_of "$1"); then
@@ -560,7 +640,7 @@ case "$sub" in
   read) cmd_read "$@" ;;
   failover) cmd_failover "$@" ;;
   '' | help | -h | --help)
-    echo "usage: orchestrate-degrade.sh {rung <backend|caps6> | terminal-plan <id>... | record <spec-dir> <backend> | read <spec-dir> | failover <spec-dir> <current> [candidate...]}" >&2
+    echo "usage: orchestrate-degrade.sh {rung <backend|caps> | terminal-plan <id>... | record <spec-dir> <backend> | read <spec-dir> | failover <spec-dir> <current> [candidate...]}" >&2
     exit 2
     ;;
   *)

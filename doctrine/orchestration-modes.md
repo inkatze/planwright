@@ -24,7 +24,7 @@ fallback); rung 3 the in-harness `subagent`; rung 4 the synchronous
 **in-session** terminal rung (no external substrate, so it **always works**).
 The manual `print` backend is off the autonomous ladder — a human runs the
 printed command, so planwright is not driving the worker.
-`scripts/orchestrate-degrade.sh rung <backend|caps6>` reports a backend's
+`scripts/orchestrate-degrade.sh rung <backend|caps>` reports a backend's
 rung from its advertised set.
 
 **The synchronous terminal rung.** With no rich backend present or selected,
