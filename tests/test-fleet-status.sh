@@ -539,4 +539,33 @@ case $rout in
 esac
 echo "ok: registry fields pass the echo-safety sanitizer before rendering"
 
+# ---------------------------------------------------------------------------
+# 21. A missing fleet-state.sh (the home RESOLVER) is its own degrade cause,
+#     not the 'no-fleet-home' of case 18: the taxonomy names a missing sibling
+#     script separately, and conflating the two hides a broken install behind
+#     what reads as a configuration gap. The oracle is still probed.
+# ---------------------------------------------------------------------------
+nofs="$tmp/scripts-nofs"
+cp -R "$here/../scripts" "$nofs"
+rm -f "$nofs/fleet-state.sh"
+h21="$tmp/h21"
+mkdir -p "$h21"
+printf '[]\n' >"$ofix"
+out21=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+  PLANWRIGHT_FLEET_STATE_DIR="$h21" PLANWRIGHT_ORACLE_CLAUDE="$oshim" \
+  /bin/sh "$nofs/fleet-status.sh" merge </dev/null) \
+  || fail "21 merge: non-zero exit"
+for src in attention streamjson registry; do
+  case $(merge_line "$out21" source "$src") in
+    "source$tab$src${tab}unavailable${tab}missing-state-script") ;;
+    *) fail "21: source $src not unavailable/missing-state-script: '$(merge_line "$out21" source "$src")'" ;;
+  esac
+done
+case $(merge_line "$out21" source oracle) in
+  "source${tab}oracle${tab}"*) ;;
+  *) fail "21: oracle source line missing under a missing state script" ;;
+esac
+echo "ok: a missing fleet-state.sh reports 'missing-state-script', not 'no-fleet-home'"
+
 echo "ALL PASS: fleet-status.sh"

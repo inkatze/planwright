@@ -31,7 +31,11 @@
 # cells it would have filled render `-` (or `?` for a joinable worker under
 # an unavailable oracle — degraded evidence, never an invented verdict). An
 # unresolvable fleet home degrades the three home-backed sources to
-# unavailable and still probes the oracle.
+# unavailable and still probes the oracle: as `no-fleet-home` when the
+# resolver ran and resolved nothing (a configuration gap), and as
+# `missing-state-script` when fleet-state.sh, the resolver itself, is gone (a
+# broken install). Both are unavailable, but the detail is the diagnostic, so
+# the two causes the taxonomy names separately stay distinguishable.
 #
 # MERGE STREAM (tab-separated; the Task 8 contract):
 #   source <name> <ok|absent|unavailable> <detail>
@@ -118,11 +122,12 @@ now_epoch() {
 # ingest (tabs and control bytes are C0, so stripping also preserves the
 # stream's tab-separated field integrity).
 
-# read_attention <root|""> — attn.tsv: worker scope state age
+# read_attention <root|""> <no-root-detail> — attn.tsv: worker scope state age
 read_attention() {
   ra_root=$1
+  ra_why=$2
   if [ -z "$ra_root" ]; then
-    printf 'source\tattention\tunavailable\tno-fleet-home\n' >>"$WS/sources"
+    printf 'source\tattention\tunavailable\t%s\n' "$ra_why" >>"$WS/sources"
     return 0
   fi
   ra_store="$ra_root/attention/state"
@@ -171,11 +176,12 @@ read_attention() {
   fi
 }
 
-# read_streamjson <root|""> — sj.tsv: worker status pending sid
+# read_streamjson <root|""> <no-root-detail> — sj.tsv: worker status pending sid
 read_streamjson() {
   rs_root=$1
+  rs_why=$2
   if [ -z "$rs_root" ]; then
-    printf 'source\tstreamjson\tunavailable\tno-fleet-home\n' >>"$WS/sources"
+    printf 'source\tstreamjson\tunavailable\t%s\n' "$rs_why" >>"$WS/sources"
     return 0
   fi
   if [ ! -r "$SJ" ]; then
@@ -272,15 +278,20 @@ read_oracle() {
   fi
 }
 
-# read_registry <root|""> — reg.tsv: worker scope (last record wins)
+# read_registry <root|""> <no-root-detail> — reg.tsv: worker scope (last record
+# wins)
 read_registry() {
   rr_root=$1
+  rr_why=$2
   if [ -z "$rr_root" ]; then
-    printf 'source\tregistry\tunavailable\tno-fleet-home\n' >>"$WS/sources"
+    printf 'source\tregistry\tunavailable\t%s\n' "$rr_why" >>"$WS/sources"
     return 0
   fi
+  # Reached only if $FS disappeared after emit_merge resolved the home through
+  # it (a mid-run race); the ordinary missing-$FS case arrives as the
+  # `missing-state-script` detail above. Same cause, so the same token.
   if [ ! -r "$FS" ]; then
-    printf 'source\tregistry\tunavailable\tmissing-script\n' >>"$WS/sources"
+    printf 'source\tregistry\tunavailable\tmissing-state-script\n' >>"$WS/sources"
     return 0
   fi
   rr_n=0
@@ -317,10 +328,19 @@ emit_merge() {
   : >"$WS/oracle.tsv"
   : >"$WS/reg.tsv"
   em_root=$(/bin/sh "$FS" root 2>/dev/null) || em_root=""
-  read_attention "$em_root"
-  read_streamjson "$em_root"
+  # Why the home-backed sources lost their home: a resolver that ran and
+  # resolved nothing is a configuration gap; a resolver that is not there at
+  # all is a broken install. Both degrade to unavailable, but conflating them
+  # hides the second behind the first.
+  if [ -r "$FS" ]; then
+    em_why=no-fleet-home
+  else
+    em_why=missing-state-script
+  fi
+  read_attention "$em_root" "$em_why"
+  read_streamjson "$em_root" "$em_why"
   read_oracle
-  read_registry "$em_root"
+  read_registry "$em_root" "$em_why"
   cat "$WS/sources" || return 2
   # Worker rows: the union of attention, streamjson, and registry, oracle
   # evidence joined by the persisted session id. Origins keep a fixed order
