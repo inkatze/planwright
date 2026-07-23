@@ -186,17 +186,46 @@ The shipped `dispatch_backend` values, by what they give you:
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
-| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer); dispatch support landing | yes / yes | yes (recoverable via `--resume`) |
+| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer) via `scripts/fleet-streamjson.sh` | yes / yes | yes (recoverable via `--resume`) |
 | `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
 | `subagent` (default) | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
 
-The two headless rows are contract-defined ahead of their dispatch support:
-until it lands, autodetection reports them absent by default, so unattended
-selection does not pick a rung the tower cannot drive (the presence env
-overrides remain a deliberate test/early-adopter escape hatch that bypasses
-this default).
+`stream-json-persistent` has its dispatch support: autodetection probes for
+the installed `claude` CLI and reports the rung present exactly when the CLI
+is on PATH. `headless-oneshot` is still contract-defined ahead of its
+dispatch support: until it lands, autodetection reports it absent by
+default, so unattended selection does not pick a rung the tower cannot drive
+(the presence env overrides remain a deliberate test/early-adopter escape
+hatch that bypasses these defaults).
+
+### The stream-json supervisor runtime and its capture
+
+`scripts/fleet-streamjson.sh` (the Task 4 supervisor primitive) owns each
+stream-json worker's stdio: `launch` starts a worker with the pinned
+non-`--bare` stream-json shape and passes the prompt as data on stdin
+(never interpolated into a shell command line); every `can_use_tool` or
+AskUserQuestion control_request becomes a decision-queue item in the
+attention store plus a durable journal receipt, with a scan-based
+pending-age alarm (`alarm-scan`) that escalates overdue items — it never
+auto-answers and never kills a worker. `answer` delivers the operator's
+recorded answer as the control_response; `recover` resumes a crashed
+worker's session via `--resume`; `status` surfaces completion and liveness
+from the supervisor and the captured event stream.
+
+**Where the capture lives, and the secret-scan surface.** Each worker's
+event-stream capture (`events.jsonl`, plus its stderr log, session id,
+receipt journal, and request envelopes) is written under the cross-spec
+fleet home at `<fleet-home>/streamjson/<worker>/` — outside every checkout,
+so it can never be committed, force-added, or pushed. The capture holds
+worker-authored conversation content and tool traffic: treat it as
+sensitive. The repository's secret scan (`mise run scan:secrets`, gitleaks
+over committed files) therefore does **not** cover this location — that
+exclusion is by construction, not oversight. Do not copy capture content
+into committed files; anything quoted from a capture into a spec, brief, PR
+body, or observation must pass the artifact data-hygiene rule
+(doctrine/security-posture.md) first.
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
 on the host and collects each one's advertised set. Attended, it presents the
@@ -516,8 +545,8 @@ cannot overwrite it with stale state.
 **Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
 liveness mechanism a backend gets is read from the capability contract's
 `hook_registration` field, never a backend-name case. A hook-registering
-backend (`tmux`, and the `stream-json-persistent` / `headless-oneshot`
-contract rows once their dispatch support lands) launches a
+backend (`tmux` and `stream-json-persistent`, and the `headless-oneshot`
+contract row once its dispatch support lands) launches a
 dispatch-controlled Claude Code process that inherits the identity env and
 fires plugin hooks, so it pushes. `subagent` runs workers in-process,
 `in-session` shares the tower's own session, and `print` spawns no process at

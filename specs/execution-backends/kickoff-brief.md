@@ -231,6 +231,15 @@ dependency-adoption → folded into risk 4). **No undecided catalogued domain re
 | 4 | Task 8 under-builds the dashboard: "smallest sufficient mechanism" pragmatism picks the simplest serving shape and under-delivers the phone/browser away-workflow (operator direction, 2026-07-22). | The brief carries the selection criterion: **best and most useful surface, not simplest** — simplicity acceptable only when it costs no usefulness. Serving/refresh mechanism decided at Task 8 pickup on Task 7's merge-layer shape, recorded in Task 8's PR; a serving choice implying a new runtime dependency escalates per the dependency-adoption domain. Early signal: a Task 8 design note choosing "simplest" without a usefulness argument. |
 | 5 | The verified indefinite-pend deadlock: `--permission-prompt-tool stdio` pends forever if unanswered. | D-5 couples every receipt to an attention-store item plus a pending-age alarm; fixture-covered (REQ-E1.1, including the no-auto-answer assertion). Early signal: the alarm firing. |
 
+**Research appendix — Task 4 execution (2026-07-22, per D-4/risk 2).** Running CLI re-verified
+at v2.1.218 (one patch past the pinned v2.1.217; sources: `claude --help`, live probes):
+SessionStart hooks fire under `-p` (three `system:hook_started` events observed); `system:init`
+carries `session_id`; stream-json in/out works (`--output-format stream-json` requires
+`--verbose` under `--print`); `--resume <session_id>` recovers the session with prior context
+confirmed end-to-end; `--permission-prompt-tool` is no longer listed in `--help` but is still
+parsed (probe error named `--verbose`, not an unknown option) — a documentation regression to
+watch, not a behavior change. Pinned findings hold; no new risk row warranted.
+
 **Open questions:** none carried — every question raised in the walk was resolved into a
 decision (§2, §3), a spec edit (E1–E3, E5), or a risk row above.
 

@@ -410,7 +410,10 @@ echo "ok: detect rejects an adapter with an invalid session_grade token"
 #     multiplexer row carries the detached-background-plumbing note so the
 #     approachable path is the default presentation, not a fallback behind tmux.
 # ---------------------------------------------------------------------------
-out=$(PLANWRIGHT_BACKEND_TMUX=1 "$BACKENDS" detect \
+# stream-json-persistent pinned absent: its default is now the installed-CLI
+# probe (Task 4), and this fixture's expected block set must not vary by host.
+out=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  "$BACKENDS" detect \
   | "$BACKENDS" present) || fail "present exited non-zero on detect output"
 printf '%s\n' "$out" | grep -qi "decision queue" \
   || fail "present: header must name the decision queue as the attention surface"
@@ -737,17 +740,32 @@ out=$("$BACKENDS" caps stream-json-persistent) \
 echo "ok: caps answers the REQ-A1.2/REQ-A1.3 pinned sets for the new rows"
 
 # ---------------------------------------------------------------------------
-# 31. New-row presence: the contract rows ship ahead of their dispatch support
-#     (execution-backends Tasks 3–4), so both default ABSENT from detect and
-#     from the unattended pick — never a selectable rung the tower cannot
-#     drive — while the env overrides force presence for tests and the
-#     richest-first order slots them between tmux and the pluggables.
+# 31. New-row presence: stream-json-persistent gained dispatch support
+#     (fleet-streamjson.sh, execution-backends Task 4), so its default is the
+#     installed-CLI probe — present exactly when `claude` is on PATH, both
+#     arms pinned below so the fixture is machine-independent.
+#     headless-oneshot still ships ahead of its dispatch support (Task 3) and
+#     defaults ABSENT — never a selectable rung the tower cannot drive — while
+#     the env overrides force presence for tests and the richest-first order
+#     slots them between tmux and the pluggables.
 # ---------------------------------------------------------------------------
-out=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) || fail "detect exited non-zero"
+# Installed-CLI probe, absent arm: no `claude` on the pinned PATH.
+out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) \
+  || fail "detect exited non-zero"
 row_present "$out" stream-json-persistent \
-  && fail "detect: stream-json-persistent must default absent until dispatch support lands"
+  && fail "detect: stream-json-persistent must be absent when no claude CLI is installed"
 row_present "$out" headless-oneshot \
   && fail "detect: headless-oneshot must default absent until dispatch support lands"
+# Installed-CLI probe, present arm: a claude stub on the pinned PATH.
+printf '#!/bin/sh\nexit 0\n' >"$BIN/claude"
+chmod +x "$BIN/claude"
+out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) \
+  || fail "detect exited non-zero (claude stub present)"
+row_present "$out" stream-json-persistent \
+  || fail "detect: stream-json-persistent must probe present when the claude CLI is installed"
+row_present "$out" headless-oneshot \
+  && fail "detect: an installed CLI must not flip headless-oneshot (Task 3 pending)"
+rm -f "$BIN/claude"
 out=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
   PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 "$BACKENDS" detect) \
   || fail "detect(new rows forced) non-zero"
@@ -767,9 +785,11 @@ order=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PER
   | awk -F"$TAB" '{printf "%s ", $1}')
 [ "$order" = "tmux stream-json-persistent headless-oneshot ordq subagent in-session print " ] \
   || fail "detect: forced-present new rows must slot per the pinned ladder, got '$order'"
-# Unattended selection: default-absent degrades with a NOTE; forced-present is
-# an eligible autonomous pick (interactive=false, session-grade yes).
-sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended stream-json-persistent 2>"$err") \
+# Unattended selection: an absent rung (forced absent — the default is now
+# the installed-CLI probe) degrades with a NOTE; forced-present is an
+# eligible autonomous pick (interactive=false, session-grade yes).
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  "$BACKENDS" select-unattended stream-json-persistent 2>"$err") \
   || fail "select-unattended(stream-json-persistent, absent) non-zero"
 [ "$sel" = subagent ] \
   || fail "select-unattended: a default-absent new row should degrade to subagent, got '$sel'"
