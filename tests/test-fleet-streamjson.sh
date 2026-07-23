@@ -766,4 +766,64 @@ aenv "$home" queue | grep -q 'could not re-open' \
   || fail "c16: a failed re-open must surface a visible failure item"
 echo "ok: c16 a failed terminal->pending re-open fails closed and surfaces visibly (REQ-E1.5)"
 
+# ---------------------------------------------------------------------------
+# c17 (REQ-E1.4): a `--deny --message` whose text carries control characters
+#     (TAB, CR) must still deliver a WELL-FORMED control_response. Raw C0
+#     bytes inside a JSON string are invalid JSON, so the worker's parser
+#     would reject the frame and the answer would be silently lost. The deny
+#     body must escape exactly what json_escape_file escapes.
+# ---------------------------------------------------------------------------
+home="$tmp/h17"
+rec="$tmp/r17"
+mkdir -p "$rec"
+ev="$tmp/ev17"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'deny me\n' >"$tmp/prompt17"
+# TAB + CR + the escapes the deny path already handled (backslash, quote), so
+# a regression in either half of the escaping surfaces here.
+deny_msg=$(printf 'no:\tuse the \\API\r"policy" says no')
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw17 execution-backends:4 --prompt-file "$tmp/prompt17" --foreground &
+launch17=$!
+wdir17="$home/streamjson/sjw17"
+wait_until 100 grep -q "^$req_perm$tab" "$wdir17/journal" \
+  || fail "c17: the pending journal row never appeared"
+senv "$home" "$rec" -- answer sjw17 "$req_perm" --deny --message "$deny_msg" >/dev/null \
+  || fail "c17: deny answer exited non-zero"
+wait "$launch17" || fail "c17: the worker run did not end cleanly after the deny"
+grep control_response "$rec/stdin" | head -1 >"$tmp/c17line"
+[ -s "$tmp/c17line" ] || fail "c17: the control_response never reached the worker stdin"
+grep -q "\"request_id\":\"$req_perm\"" "$tmp/c17line" \
+  || fail "c17: the response must target the pending request id"
+grep -q '"behavior":"deny"' "$tmp/c17line" || fail "c17: the deny behavior was not delivered"
+# The defect: raw C0 bytes (a TAB here) emitted inside the JSON string body.
+# Detected with `tr -d` over the byte ranges rather than an awk character
+# class: BSD awk (macOS) does not honour `[\000-\037\177]` as a byte range, so
+# an awk-based detector silently mis-reports on the bash-3.2 floor platform.
+# The delimiting newline (\012) is excluded from the ranges below.
+LC_ALL=C tr -d '\000-\011\013-\037\177' <"$tmp/c17line" >"$tmp/c17stripped"
+cmp -s "$tmp/c17line" "$tmp/c17stripped" \
+  || fail "c17: the deny body carries a RAW control character - invalid JSON: $(od -c "$tmp/c17line")"
+grep -qF '\t' "$tmp/c17line" || fail "c17: the TAB should be delivered as a \\t escape"
+grep -qF '\r' "$tmp/c17line" || fail "c17: the CR should be delivered as a \\r escape"
+grep -qF '\\API' "$tmp/c17line" || fail "c17: the backslash escape regressed"
+grep -qF '\"policy\"' "$tmp/c17line" || fail "c17: the double-quote escape regressed"
+# End-to-end proof with a real JSON parser where one is available (the suite
+# does not otherwise require python3; the byte assertions above stand alone).
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$tmp/c17line" <<'PY' || fail "c17: the delivered control_response is not valid JSON"
+import json
+import sys
+
+line = open(sys.argv[1], "rb").read().decode("utf-8")
+obj = json.loads(line)
+msg = obj["response"]["response"]["message"]
+assert msg == 'no:\tuse the \\API\r"policy" says no', repr(msg)
+PY
+  echo "ok: c17 (python3 json.loads confirms the frame parses and round-trips)"
+else
+  echo "skip: c17 json.loads round-trip (python3 unavailable)"
+fi
+echo "ok: c17 a deny message with control characters delivers well-formed JSON (REQ-E1.4)"
+
 echo "all fleet-streamjson tests passed"

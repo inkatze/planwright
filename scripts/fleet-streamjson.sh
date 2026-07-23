@@ -296,15 +296,18 @@ journal_oldest_pending() {
 
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
 
-# json_escape_file <file> — print the file's content as a JSON string body
-# (no surrounding quotes): backslash, quote, tab, and CR escaped; newlines
-# between lines become \n; remaining C0 control bytes and DEL are stripped
-# (prompt text is data — a stray control byte is dropped, never smuggled).
+# json_escape — print stdin as a JSON string body (no surrounding quotes):
+# backslash, quote, tab, and CR escaped; newlines between lines become \n;
+# remaining C0 control bytes and DEL are stripped (this text is data — a stray
+# control byte is dropped, never smuggled, and never emitted raw, which would
+# make the frame invalid JSON the worker's parser rejects).
 # Bytes >= 0x80 are kept, so raw UTF-8 (accents, em-dash, CJK, emoji) reaches
 # the worker intact — JSON strings carry UTF-8 verbatim. Under the pinned
 # LC_ALL=C the class below is a byte-range strip, so it removes only C0/DEL,
 # not the UTF-8 continuation/lead bytes a `[^[:print:]]` strip would delete.
-json_escape_file() {
+# Every string body the supervisor emits goes through this one escaper, so the
+# prompt path and the deny-message path cannot drift apart.
+json_escape() {
   awk '
     NR > 1 { printf "\\n" }
     {
@@ -316,7 +319,12 @@ json_escape_file() {
       gsub(/[\000-\037\177]/, "", s)
       printf "%s", s
     }
-  ' "$1"
+  '
+}
+
+# json_escape_file <file> — json_escape over a file's content.
+json_escape_file() {
+  json_escape <"$1"
 }
 
 # json_field <line> <key> — print the string value of the FIRST
@@ -887,8 +895,7 @@ cmd_answer() {
       fi
       ;;
     deny)
-      deny_esc=$(printf '%s' "$deny_msg" | head -c 512 \
-        | awk 'NR > 1 { printf "\\n" } { s = $0; gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); printf "%s", s }')
+      deny_esc=$(printf '%s' "$deny_msg" | head -c 512 | json_escape)
       body=$(printf '{"behavior":"deny","message":"%s"}' "$deny_esc")
       ;;
   esac
