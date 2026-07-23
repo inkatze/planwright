@@ -402,6 +402,36 @@ grep -qi "warn" "$err" || fail "a machine-local map degrade must warn on stderr"
 echo "ok: malformed values follow the by-layer policy (repo-tracked hard-fails)"
 
 # ---------------------------------------------------------------------------
+# 8b. The degrade target itself is malformed: when an adopter/machine-local
+#     layer AND the core default are both unparseable, the resolver must
+#     surface a broken install (exit 5) rather than resolve on. Asserted for
+#     BOTH keys so the per-spec map and the global knob stay symmetric — a
+#     silently-swallowed core map would let a corrupt install resolve as if no
+#     per-spec entry existed.
+# ---------------------------------------------------------------------------
+reset_layers
+printf 'dispatch_backend_per_spec: not-a-map\n' >>"$core_cfg"
+printf 'dispatch_backend_per_spec: [also-bad\n' >"$mlocal_cfg"
+rc=0
+run_rdb >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 5 ] || fail "a malformed core per-spec map behind a malformed overlay should exit 5, got $rc"
+grep -q "broken install" "$err" \
+  || fail "the malformed-core-map halt must name the broken install"
+reset_layers
+# `>` (not `>>`) on purpose: config-get takes the FIRST matching line, so
+# appending here would leave reset_layers' valid `dispatch_backend` in front
+# and never exercise the malformed-core arm. The map case above appends
+# precisely because it needs that valid global value to survive.
+printf 'dispatch_backend: not a backend!\n' >"$core_cfg"
+printf 'dispatch_backend: also bad!\n' >"$mlocal_cfg"
+rc=0
+run_rdb >/dev/null 2>"$err" || rc=$?
+[ "$rc" = 5 ] || fail "a malformed core global value behind a malformed overlay should exit 5, got $rc"
+grep -q "broken install" "$err" \
+  || fail "the malformed-core-value halt must name the broken install"
+echo "ok: a malformed core degrade target halts as a broken install (map and global alike)"
+
+# ---------------------------------------------------------------------------
 # 9. The shipped default flip (REQ-B1.1): the real config/defaults.yml carries
 #    full-session as the dispatch_backend default and ships the per-spec map
 #    key, asserted directly (not only doc parity).
@@ -446,5 +476,31 @@ rc=0
 [ "$(cat "$target")" = innocent ] \
   || fail "answer must never write through a symlinked ask-state path"
 echo "ok: hostile names are refused and symlinked ask-state is never written through"
+
+# ---------------------------------------------------------------------------
+# 11. Ask-state parse hardening: an unusable record (empty, overlong, an
+#     unknown status, a missing or invalid token) is IGNORED with a warning
+#     and treated as no state at all — the ask re-surfaces, the resolve stays
+#     unattended, and the unusable record is replaced by a well-formed one. A
+#     corrupt local record must never strand the ask or the dispatch.
+# ---------------------------------------------------------------------------
+reset_layers
+overlong=$(awk 'BEGIN{s="asked ";while(length(s)<300)s=s "a";print s}')
+for badstate in 'bogus s1' 'asked' 'asked bad token' "$overlong" ''; do
+  reset_ask
+  mkdir -p "$specdir/.orchestrate"
+  printf '%s' "$badstate" >"$specdir/.orchestrate/tmux-ask"
+  [ -z "$badstate" ] || printf '\n' >>"$specdir/.orchestrate/tmux-ask"
+  out=$(att s11 2>"$err") || fail "an unusable ask-state must not fail the resolve"
+  grep -qi "warning" "$err" \
+    || fail "an unusable ask-state must warn on stderr (record: '$badstate')"
+  has_row "$out" ask \
+    || fail "an unusable ask-state must be treated as no state and re-ask (record: '$badstate')"
+  [ "$(row_of "$out" backend)" = stream-json-persistent ] \
+    || fail "an unusable ask-state must still resolve unattended (record: '$badstate')"
+  [ "$(cat "$specdir/.orchestrate/tmux-ask")" = "asked s11" ] \
+    || fail "an unusable ask-state must be replaced by a well-formed record (record: '$badstate')"
+done
+echo "ok: an unusable ask-state warns, re-asks, and never strands the resolve"
 
 echo "PASS: resolve-dispatch-backend tests"

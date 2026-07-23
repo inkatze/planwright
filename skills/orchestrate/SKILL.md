@@ -230,27 +230,25 @@ a stop condition, never bypassed.
 ## Dispatch (REQ-F1.8, D-38)
 
 Dispatch the unit's `/execute-task <ids>` into its worktree via the selected
-backend. Each backend advertises a capability set; the [backend capability
+backend. The [backend capability
 contract](../../doctrine/backend-capability-contract.md) (D-2) defines how the
-tower adapts to what's advertised, not the backend name (per-backend guidance
-below is still name-keyed).
+tower adapts to what each backend advertises (per-backend guidance below is
+still name-keyed).
 
-**Backend selection** (REQ-B1.4, D-3; execution-backends D-8, D-9,
+**Backend selection** (REQ-B1.4, D-3; execution-backends D-8/D-9,
 REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
 
-- **Explicit `--backend <b>`** — use it as given.
+- **Explicit `--backend <b>`** — as given, once put through
+  `scripts/orchestrate-backends.sh select-unattended <b>` (a semantic value
+  ladders, a literal is honored-or-halted).
 - **Otherwise** — `scripts/resolve-dispatch-backend.sh resolve specs/<spec>`
-  (attended: add `--attended --session <token>`, a stable tower-session id);
-  use its `backend` row. Per-spec `dispatch_backend_per_spec` entry, else
-  global `dispatch_backend`: `full-session` ladders to the richest present
-  non-interactive session-grade rung; an explicit literal is
-  honored-or-halted. Exit 6 (REQ-B1.5): park to Awaiting input naming the
-  missing backend, never substitute. An `ask<TAB>tmux` row is D-8's
-  once-per-tower-session tmux-context ask: surface it, record via the
-  `answer` subcommand — non-blocking; the answer applies next dispatch.
-  With `full-session` shipped as the default a standing answer exists
-  (D-8), so attended runs do **not** re-present the choice — the tmux ask is
-  the only attended prompt.
+  (attended: add `--attended --session <token>`, a stable session id); use its
+  `backend` row, resolved from the per-spec `dispatch_backend_per_spec` entry
+  else global `dispatch_backend`. Exit 6 (REQ-B1.5): park to Awaiting input
+  naming the missing backend, never substitute. An `ask<TAB>tmux` row is D-8's
+  once-per-session tmux-context ask: surface it, record via `answer` —
+  non-blocking, applying next dispatch. Attended runs do **not** re-present
+  the choice; this ask is their only prompt.
 - **Runtime failover** (a chosen backend dying mid-run) is the ladder's other
   end (read `orchestration-modes`): it descends only to a guard-preserving
   rung (degrade capability, never safety), else **escalates**.
@@ -265,6 +263,11 @@ commits and conflict resolution. No tower edits another tower's or a worker's
 branch state; coordination goes through sanctioned indirect channels (a `tasks.md`
 reconcile, or an attributed relay).
 
+- **stream-json-persistent** (the shipped default's usual rung: what
+  `full-session` resolves to wherever `claude` is installed). A
+  supervisor-owned persistent worker driven through
+  `scripts/fleet-streamjson.sh`; dispatch, receipts, recovery in
+  `orchestration-modes`.
 - **subagent**. A background worker with isolated context and a native
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`

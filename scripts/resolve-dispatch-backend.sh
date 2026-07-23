@@ -477,10 +477,22 @@ case "$rc" in
         crc=0
         cval=$(core_value dispatch_backend_per_spec) || crc=$?
         if [ "$crc" -eq 0 ]; then
-          if centry=$(map_entry "$cval" "$spec"); then
-            configured=$centry
-            source=per-spec
-          fi
+          cerc=0
+          centry=$(map_entry "$cval" "$spec") || cerc=$?
+          case "$cerc" in
+            0)
+              configured=$centry
+              source=per-spec
+              ;;
+            1) ;; # well-formed core map, no entry: the global value governs
+            *)
+              # The degrade TARGET is itself unparseable. Surface it exactly as
+              # the global-knob degrade path below does, rather than resolving
+              # on as if the core map simply carried no entry.
+              echo "resolve-dispatch-backend: the core default for 'dispatch_backend_per_spec' is itself malformed — broken install" >&2
+              exit 5
+              ;;
+          esac
         elif [ "$crc" -ne 3 ]; then
           # crc 3 (core omits the map key) is benign — no per-spec entry, the
           # global value governs. Any other non-zero is a broken install and
