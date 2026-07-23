@@ -258,6 +258,27 @@ while building the idle oracle:
   escape-aware, so a name carrying spoofed JSON text can never assign fields
   (fixture-covered).
 
+**Research notes — Task 3 execution (appended 2026-07-23, /execute-task).** The risk-row-2
+re-verification against the running CLI (v2.1.218; the pinned research version was v2.1.217),
+performed while building the headless-oneshot dispatch:
+
+- `--bare` still ships and still has no explicit inverse flag, so the D-12 pin remains
+  "never pass `--bare`"; the launch-pin guard's `-p`-family site scan discovers launch
+  sites by the long `--print` form (the short `-p` is ungreppable beside `mkdir -p`).
+- `--print` (the documented long form of `-p`) verified live: stdin prompt accepted,
+  `--output-format json` returns `is_error`, `result`, and `session_id` (the session
+  persists and is resumable), exit 0.
+- `--permission-prompt-tool` no longer appears in `--help` at v2.1.218 (it was the
+  verified indefinite-pend gotcha at v2.1.217). The one-shot posture is unchanged and
+  verified live: with no prompt tool attached, an unauthorized Bash ask under `--print`
+  TERMINATES the run with the refusal visible in the result text (the tool call is denied
+  at the harness; no file was created; no pend) — the no-pend posture holds at the running
+  version.
+- New at this version: `--bg/--background` (background agent, managed via
+  `claude agents`). Not adopted — Task 3 uses shell-level detachment for a deterministic
+  exit-code completion signal; recorded as observation
+  `obs:b48fa0a1` for future research.
+
 ## 8. Sign-off
 
 **Lens review pass** (first activation — full bundle; fan-out: one read-only sub-agent per
