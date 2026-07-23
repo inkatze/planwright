@@ -482,8 +482,16 @@ handle_line() {
           # remedy this tool prints). The alarm re-arms on the new pending
           # row by construction.
           hl_now=$(now_epoch) || hl_now=0
-          journal_set_state "$hl_dir" "$hl_id" pending "$hl_now" \
-            || echo "$me: could not re-open request $(printf '%s' "$hl_id" | cut -c1-8) on resume" >&2
+          if ! journal_set_state "$hl_dir" "$hl_id" pending "$hl_now"; then
+            # Fail closed: with the journal still terminal, an answerable
+            # queue item would be a dead end (`answer` refuses on the
+            # already-answered/undeliverable row). Surface the failed
+            # re-open visibly instead (never silent, never misleading).
+            journal_unlock "$hl_dir"
+            attention_failure "$hl_worker" "$hl_dir" \
+              "could not re-open request $(printf '%s' "$hl_id" | cut -c1-8) on resume for worker $hl_worker - the journal still reads terminal, investigate disk/store"
+            return 0
+          fi
           printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
           journal_unlock "$hl_dir"
           attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"

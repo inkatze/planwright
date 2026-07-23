@@ -714,4 +714,56 @@ bad_rc=$?
   || fail "c15: a detached supervisor that cannot start must surface non-zero, got rc=$bad_rc"
 echo "ok: c15 detached launch confirms startup and surfaces a failed supervisor (detached-path visibility)"
 
+# ---------------------------------------------------------------------------
+# c16 (REQ-E1.5): if the terminal->pending re-open flip FAILS, the request
+#     must fail closed — no answerable queue item over a journal that still
+#     reads terminal (a subsequent `answer` would refuse on it as already
+#     answered); a visible failure item surfaces instead. Fault injection: a
+#     poisoned `awk` on PATH that fails only on journal_set_state's re-open
+#     signature (the exact arg `st=pending`), passing every other awk call
+#     through untouched.
+# ---------------------------------------------------------------------------
+home="$tmp/h16"
+rec="$tmp/r16"
+mkdir -p "$rec"
+ev="$tmp/ev16"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'reopen fail me\n' >"$tmp/prompt16"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw16 execution-backends:4 --prompt-file "$tmp/prompt16" --foreground &
+launch16=$!
+wdir16="$home/streamjson/sjw16"
+wait_until 100 grep -q "^$req_perm$tab" "$wdir16/journal" \
+  || fail "c16: the pending journal row never appeared"
+senv "$home" "$rec" -- answer sjw16 "$req_perm" --allow >/dev/null \
+  || fail "c16: answer exited non-zero"
+wait "$launch16" || fail "c16: the worker run did not end cleanly"
+grep -q "^$req_perm$tab.*${tab}answered" "$wdir16/journal" \
+  || fail "c16: the request should be answered after the first run"
+real_awk=$(command -v awk) || fail "c16: no awk on PATH"
+mkdir -p "$tmp/poison"
+cat >"$tmp/poison/awk" <<POISON
+#!/bin/sh
+for a in "\$@"; do
+  [ "\$a" = 'st=pending' ] && exit 1
+done
+exec $real_awk "\$@"
+POISON
+chmod +x "$tmp/poison/awk"
+ev_re="$tmp/ev16re"
+printf '%s\n%s\n' "$line_perm" "$line_result" >"$ev_re"
+senv "$home" "$rec" SHIM_EVENTS="$ev_re" SHIM_READ_FIRST=0 PATH="$tmp/poison:$PATH" -- \
+  launch sjw16 execution-backends:4 --resume-session "$sid" --foreground \
+  || fail "c16: resume relaunch exited non-zero"
+# Fail closed: the journal still reads terminal (the flip failed) ...
+grep -q "^$req_perm$tab.*${tab}answered" "$wdir16/journal" \
+  || fail "c16: the journal must still read answered after a failed re-open"
+# ... so no answerable queue item may advertise it ...
+aenv "$home" queue | grep -q 'answer via fleet-streamjson.sh answer' \
+  && fail "c16: a failed re-open must not advertise an answerable queue item"
+# ... and the failed re-open surfaces visibly instead (never silent).
+aenv "$home" queue | grep -q 'could not re-open' \
+  || fail "c16: a failed re-open must surface a visible failure item"
+echo "ok: c16 a failed terminal->pending re-open fails closed and surfaces visibly (REQ-E1.5)"
+
 echo "all fleet-streamjson tests passed"
