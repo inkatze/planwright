@@ -97,7 +97,9 @@ By the selected rung:
   refuses the handle (its grammar is deliberately strict), compose the same
   report yourself — handle, no-observe-surface fact, not-attachable fact —
   rather than dead-ending or dropping the report.
-- **tmux** or **print** — write the petition to a temp file and run
+- **tmux** or **print** — write the petition to a `mktemp`-created temp file
+  (never a predictable path like `/tmp/petition.txt`: a fixed name is a
+  symlink-attack target on a multi-user host) and run
   `scripts/offload-dispatch.sh dispatch <backend> <file>`. The primitive
   spawns the worker (tmux; a detached window, no impersonation path) or
   prints the exact launch command (print; spawn deferred to the human) and
