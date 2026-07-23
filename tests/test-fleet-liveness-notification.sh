@@ -371,8 +371,22 @@ code_only "$FL" | grep -qE '(^|[^A-Za-z_.])jq([^A-Za-z_]|$)' \
   && fail "fleet-liveness.sh invokes jq (REQ-K1.5)"
 code_only "$FL" | grep -qE 'capture-pane' \
   && fail "fleet-liveness.sh references capture-pane"
-code_only "$FL" | grep -qiE '(^|[^A-Za-z_.])(claude|anthropic|curl|wget)([^A-Za-z_]|$)' \
+# One sanctioned carve-out (execution-backends D-11 / REQ-F1.1): the
+# agents-json idle oracle's binary default, `ORACLE_BIN` from
+# PLANWRIGHT_ORACLE_CLAUDE, names the CLI in executable code. That probe is a
+# local session-registry listing — no model inference, no network — and the
+# hook/notification decision path never invokes it, so REQ-E1.3's intent
+# stands. The carve-out is the single ORACLE_BIN assignment line; any OTHER
+# executable model/network reference (including a new bare CLI invocation)
+# still fails here.
+oracle_carveout='^ORACLE_BIN="\$\{PLANWRIGHT_ORACLE_CLAUDE:-claude\}"$'
+code_only "$FL" | grep -vE "$oracle_carveout" \
+  | grep -qiE '(^|[^A-Za-z_.])(claude|anthropic|curl|wget)([^A-Za-z_]|$)' \
   && fail "fleet-liveness.sh references a model / network call (REQ-E1.3)"
+# The carve-out must stay anchored to the real line: if the assignment moves
+# or is reworded, this positive control fails instead of silently widening.
+code_only "$FL" | grep -qE "$oracle_carveout" \
+  || fail "REQ-E1.3 carve-out is stale: the ORACLE_BIN assignment line no longer matches"
 ok "no jq, no capture-pane, no model / network call in fleet-liveness.sh executable code (REQ-E1.3, REQ-K1.5)"
 
 echo "PASS: fleet-liveness notification"
