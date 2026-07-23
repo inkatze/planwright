@@ -127,6 +127,10 @@ unset CDPATH
 me=fleet-streamjson
 
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+# Absolute path to this script, so the detached-supervisor re-exec survives a
+# relative invocation followed by a `--cwd` chdir (a bare `$0` would resolve
+# against the new cwd and silently fail to launch).
+self="$script_dir/$(basename "$0")"
 
 # The canonical echo-discipline sanitizer (doctrine/security-posture.md),
 # required readable and fail-closed when absent: worker-authored strings
@@ -261,7 +265,9 @@ journal_state() {
 }
 
 # journal_append <dir> <id> <kind> <epoch> — append a pending row (caller
-# holds the lock and has established the id is absent).
+# holds the lock and has established the id is absent). Returns non-zero on a
+# write failure so the caller never proceeds to queue a request whose durable
+# receipt did not land (REQ-E1.5).
 journal_append() {
   printf '%s\t%s\t%s\tpending\n' "$2" "$3" "$4" >>"$1/journal"
 }
@@ -290,8 +296,12 @@ journal_oldest_pending() {
 
 # json_escape_file <file> — print the file's content as a JSON string body
 # (no surrounding quotes): backslash, quote, tab, and CR escaped; newlines
-# between lines become \n; other control bytes are stripped (prompt text is
-# data — a stray control byte is dropped, never smuggled).
+# between lines become \n; remaining C0 control bytes and DEL are stripped
+# (prompt text is data — a stray control byte is dropped, never smuggled).
+# Bytes >= 0x80 are kept, so raw UTF-8 (accents, em-dash, CJK, emoji) reaches
+# the worker intact — JSON strings carry UTF-8 verbatim. Under the pinned
+# LC_ALL=C the class below is a byte-range strip, so it removes only C0/DEL,
+# not the UTF-8 continuation/lead bytes a `[^[:print:]]` strip would delete.
 json_escape_file() {
   awk '
     NR > 1 { printf "\\n" }
@@ -301,7 +311,7 @@ json_escape_file() {
       gsub(/"/, "\\\"", s)
       gsub(/\t/, "\\t", s)
       gsub(/\r/, "\\r", s)
-      gsub(/[^[:print:]]/, "", s)
+      gsub(/[\000-\037\177]/, "", s)
       printf "%s", s
     }
   ' "$1"
@@ -450,17 +460,45 @@ handle_line() {
         return 0
       fi
       hl_state=$(journal_state "$hl_dir" "$hl_id")
-      if [ -n "$hl_state" ]; then
-        # Duplicate delivery of a journaled id (same run, or re-issued across
-        # the resume boundary): dedup on request identity — no second journal
-        # row, no second queue item (REQ-E1.1, REQ-E1.2, REQ-E1.5).
-        journal_unlock "$hl_dir"
-        return 0
-      fi
+      case $hl_state in
+        pending)
+          # A still-open request re-delivered: dedup on request identity — no
+          # second journal row, no second queue item. This is the within-run
+          # duplicate the CLI can emit and the resume-boundary re-delivery of
+          # an unanswered request (REQ-E1.1, REQ-E1.2, REQ-E1.5).
+          journal_unlock "$hl_dir"
+          return 0
+          ;;
+        answered | undeliverable)
+          # The same id re-surfaces in a terminal state. That legitimately
+          # happens only across a `--resume`: the worker is asking AGAIN, so
+          # the prior answer never took (a control_response written into a
+          # buffer the killed worker never read, or an undeliverable verdict).
+          # Re-OPEN the receipt to pending and re-queue it, so the resumed
+          # ask is answerable — never silently swallowed (the no-pend-
+          # unobserved invariant, and the "recover the worker and re-ask"
+          # remedy this tool prints). The alarm re-arms on the new pending
+          # row by construction.
+          hl_now=$(now_epoch) || hl_now=0
+          journal_set_state "$hl_dir" "$hl_id" pending "$hl_now" \
+            || echo "$me: could not re-open request $(printf '%s' "$hl_id" | cut -c1-8) on resume" >&2
+          printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
+          journal_unlock "$hl_dir"
+          attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"
+          return 0
+          ;;
+      esac
       hl_now=$(now_epoch) || hl_now=0
       # Durable receipt FIRST (a kill after this write loses nothing), then
-      # the envelope (answer composition), then the queue item.
-      journal_append "$hl_dir" "$hl_id" "$hl_kind" "$hl_now"
+      # the envelope (answer composition), then the queue item. A failed
+      # journal append is surfaced rather than proceeding to queue a request
+      # with no durable receipt (REQ-E1.5's receipt-first guarantee).
+      if ! journal_append "$hl_dir" "$hl_id" "$hl_kind" "$hl_now"; then
+        journal_unlock "$hl_dir"
+        attention_failure "$hl_worker" "$hl_dir" \
+          "receipt append failed for worker $hl_worker request $(printf '%s' "$hl_id" | cut -c1-8) - the receipt journal is not durable, investigate disk/store"
+        return 0
+      fi
       printf '%s\n' "$hl_line" >"$hl_dir/req-$hl_id.json"
       journal_unlock "$hl_dir"
       attention_upsert "$hl_worker" "$hl_dir" "$hl_id" "$hl_kind"
@@ -505,17 +543,32 @@ supervise() {
   # control_responses into the same fifo; EOF reaches the worker only when
   # the supervisor ends.
   exec 3>"$sv_dir/in.fifo"
-  cat "$sv_init" >&3 2>/dev/null || :
-  rm -f "$sv_init"
+  # Write the initial message in the BACKGROUND, then start the read loop.
+  # The worker cannot finish opening its stdout fifo for write (and therefore
+  # cannot drain its stdin) until this supervisor opens the read end below;
+  # a synchronous init write larger than the pipe buffer would deadlock the
+  # two opens against each other. Backgrounding the write lets the read loop
+  # open the stdout end immediately, unblocking the worker so it drains the
+  # init. The background writer holds its own dup of fd 3; the parent keeps
+  # fd 3 open for the whole run, so the worker's stdin never sees a premature
+  # EOF. sv_init is removed only after the writer has read it.
+  cat "$sv_init" >&3 2>/dev/null &
+  sv_init_writer=$!
   while IFS= read -r sv_line; do
     printf '%s\n' "$sv_line" >>"$sv_dir/events.jsonl"
     handle_line "$sv_worker" "$sv_dir" "$sv_line"
   done <"$sv_dir/out.fifo"
+  wait "$sv_init_writer" 2>/dev/null || :
+  rm -f "$sv_init"
   exec 3>&-
   wait "$sv_pid"
   sv_ec=$?
   rm -f "$sv_dir/worker.pid" "$sv_dir/supervisor.pid"
   if [ ! -f "$sv_dir/result" ]; then
+    # The read loop ended with no `result` event: the worker exited without
+    # completing the protocol. This is an END record, not a completion —
+    # `cmd_status` renders a nonzero exit as `ended`, never `completed`, so a
+    # crash or non-zero exit is not conflated with success.
     sv_now=$(now_epoch) || sv_now=0
     printf 'exit\t%s\t%s\n' "$sv_ec" "$sv_now" >"$sv_dir/result"
   fi
@@ -650,9 +703,37 @@ cmd_launch() {
     return $?
   fi
   # Detached: re-exec so the supervisor process records its OWN pid ($$ in a
-  # backgrounded subshell would report this parent instead).
-  (sh "$0" _supervise "$worker" "$dir" "$init_msg" "$@" >/dev/null 2>&1 </dev/null &)
-  printf 'launched %s dir %s\n' "$worker" "$dir"
+  # backgrounded subshell would report this parent instead). Two visibility
+  # guarantees the naive `>/dev/null 2>&1 &` form broke:
+  #   1. The supervisor's stderr goes to a per-worker log, not /dev/null, so a
+  #      startup failure (mkfifo, worker exec) is inspectable.
+  #   2. `$self` (absolute) is used, not `$0`, so a relative invocation plus
+  #      --cwd cannot silently fail to find the script.
+  # Then confirm the supervisor actually came up before reporting success:
+  # supervise writes supervisor.pid right after mkfifo, so its (re)appearance
+  # is the "did the supervisor start" signal. A launch that never produces it
+  # is surfaced as a failure with a non-zero exit, never an optimistic
+  # `launched` over a dead supervisor.
+  rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/result"
+  (sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
+    >/dev/null 2>>"$dir/supervisor.log" </dev/null &)
+  # Confirm startup by a signal that survives a fast run: supervisor.pid
+  # appears while the supervisor is live, and it removes that pid plus writes a
+  # `result` on exit — so a run that already finished shows `result` even
+  # though supervisor.pid is gone again. Either proves the supervisor came up;
+  # a launch that produces neither within the window failed before mkfifo and
+  # is surfaced, never reported as an optimistic `launched`.
+  li=0
+  while [ "$li" -lt 50 ]; do
+    if [ -f "$dir/supervisor.pid" ] || [ -f "$dir/result" ]; then
+      printf 'launched %s dir %s\n' "$worker" "$dir"
+      return 0
+    fi
+    sleep 0.1
+    li=$((li + 1))
+  done
+  echo "$me: detached supervisor for $worker did not start within 5s; see $dir/supervisor.log" >&2
+  return 2
 }
 
 cmd_answer() {
@@ -787,7 +868,16 @@ cmd_answer() {
   trap '' PIPE
   if printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":%s}}\n' \
     "$req" "$body" >>"$dir/in.fifo" 2>/dev/null; then
-    journal_set_state "$dir" "$req" answered "$now"
+    # The answer reached the worker's stdin. If the state flip fails (disk
+    # full, journal replaced), the row stays `pending` — which would let
+    # alarm-scan fire a spurious escalation and a second `answer` re-deliver a
+    # duplicate frame. Surface it rather than reporting a clean `answered`.
+    if ! journal_set_state "$dir" "$req" answered "$now"; then
+      journal_unlock "$dir"
+      attention_failure "$worker" "$dir" \
+        "answer for worker $worker request $short was delivered but the receipt could not be marked answered - the journal is stale, do not re-answer, investigate disk/store"
+      exit 2
+    fi
     journal_unlock "$dir"
     attention_settled "$worker" "$dir"
     printf 'answered %s %s\n' "$worker" "$req"
@@ -860,7 +950,13 @@ cmd_recover() {
   if [ $# -gt 0 ]; then
     set -- -- "$@"
   fi
-  if sh "$0" launch "$worker" --resume-session "$sid" ${foreground:+"$foreground"} "$@"; then
+  # `$self` (absolute), not `$0`. In detached mode `launch` now blocks until
+  # the resumed supervisor writes supervisor.pid (or reports failure), so this
+  # recover holds recover.lock until the new supervisor is actually up: a
+  # second recover cannot slip into the old release-before-startup window and
+  # fork the session, and a silently-failed detached resume now returns
+  # non-zero here instead of a false `recovered`.
+  if sh "$self" launch "$worker" --resume-session "$sid" ${foreground:+"$foreground"} "$@"; then
     printf 'recovered %s session %s\n' "$worker" "$sid"
   else
     ec=$?
@@ -942,9 +1038,19 @@ cmd_status() {
     return 0
   fi
   if [ -f "$dir/result" ]; then
+    st_kind=$(awk -F'\t' 'NR == 1 { print $1 }' "$dir/result")
     detail=$(awk -F'\t' 'NR == 1 { print $1 "=" $2 }' "$dir/result")
     detail=$(sanitize_printable "$detail" unknown | cut -c1-64)
-    printf 'status %s completed %s\n' "$worker" "$detail"
+    # A `result` event is a completion; an `exit` fallback record with a
+    # non-zero code is a worker that ended without completing the protocol —
+    # rendered `ended`, never conflated with `completed` (a `result` event or
+    # an exit=0 fallback is completion).
+    st_ec=$(awk -F'\t' 'NR == 1 { print $2 }' "$dir/result")
+    if [ "$st_kind" = exit ] && [ "$st_ec" != 0 ]; then
+      printf 'status %s ended %s\n' "$worker" "$detail"
+    else
+      printf 'status %s completed %s\n' "$worker" "$detail"
+    fi
     return 0
   fi
   sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''

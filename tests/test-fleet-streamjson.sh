@@ -185,6 +185,11 @@ wdir="$home/streamjson/sjw1"
 grep -q "^$req_perm$tab.*${tab}pending" "$wdir/journal" \
   || fail "c1: journal row should be pending"
 [ -f "$wdir/req-$req_perm.json" ] || fail "c1: request envelope not stored"
+# REQ-A1.3 steer (message-in) surface: the worker's stdin fifo is the steer
+# channel (the answer path in c5 exercises it end-to-end). Assert the surface
+# exists as a fifo, so the observe+steer pair REQ-A1.3 names is both covered.
+[ -p "$wdir/in.fifo" ] || fail "c1: the steer (message-in) fifo surface must exist (REQ-A1.3)"
+[ -p "$wdir/out.fifo" ] || fail "c1: the observe (event-stream) fifo surface must exist (REQ-A1.3)"
 q=$(aenv "$home" queue) || fail "c1: attention queue read failed"
 printf '%s\n' "$q" | grep -q "sjw1" || fail "c1: no queue item for the worker"
 printf '%s\n' "$q" | grep -q "permission request tool Write" \
@@ -240,6 +245,13 @@ grep -q "^$req_q${tab}question$tab" "$wdir3/journal" \
 [ "$(aenv "$home" queue --count)" = 1 ] || fail "c3: exactly one queue item expected"
 aenv "$home" queue | grep -q "worker question (AskUserQuestion)" \
   || fail "c3: queue item should name the question kind"
+# REQ-E1.2 "carrying the question payload": the stored envelope must retain
+# the question body, so an operator/renderer can reconstruct the choice.
+[ -f "$wdir3/req-$req_q.json" ] || fail "c3: the question envelope was not stored"
+grep -q 'Which way?' "$wdir3/req-$req_q.json" \
+  || fail "c3: the stored envelope must carry the question payload (REQ-E1.2)"
+grep -q '"label":"a"' "$wdir3/req-$req_q.json" \
+  || fail "c3: the stored envelope must carry the question options (REQ-E1.2)"
 received=$(awk -F'\t' -v id="$req_q" '$1 == id { print $3 }' "$wdir3/journal")
 out=$(senv "$home" "$rec" -- alarm-scan --now $((received + 1000)) --threshold 900) \
   || fail "c3: alarm-scan exited non-zero"
@@ -492,5 +504,193 @@ senv "$home5" "$rec5" -- answer sjw5 "$req_perm" --response-file "$tmp/multiline
   >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c10: a multi-line --response-file must be refused (exit 2)"
 echo "ok: c10 hostile handles, ids, and multi-line response bodies are refused (REQ-A1.9 discipline)"
+
+# ---------------------------------------------------------------------------
+# c11 (REQ-A1.9 launch): a prompt larger than the pipe buffer must not
+#     deadlock. Regression for the synchronous init-write-before-read-loop
+#     deadlock: the worker cannot drain its stdin until the supervisor opens
+#     the stdout fifo for reading, so a >buffer init write must be backgrounded.
+# ---------------------------------------------------------------------------
+home="$tmp/h11"
+rec="$tmp/r11"
+mkdir -p "$rec"
+ev="$tmp/ev11"
+printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
+# ~300 KB prompt, far past any pipe buffer (16-64 KB). The shim drains all of
+# stdin so we can prove the full init message was delivered, not truncated.
+awk 'BEGIN { for (i = 0; i < 8000; i++) printf "prompt filler line %d aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", i }' >"$tmp/bigprompt"
+# Realistic shim: reads ONE stdin line (the whole init message — newlines are
+# escaped, so it is a single line however large) then emits, WITHOUT waiting
+# for stdin EOF (the supervisor holds stdin open all run, as the real CLI's
+# driver does; a `cat`-to-EOF shim would itself deadlock).
+cat >"$tmp/bin/claude-drain" <<'SHIM'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SHIM_RECORD_DIR/argv"
+IFS= read -r line
+printf '%s' "$line" >"$SHIM_RECORD_DIR/stdin_full"
+[ -n "${SHIM_EVENTS:-}" ] && cat "$SHIM_EVENTS"
+exit 0
+SHIM
+chmod +x "$tmp/bin/claude-drain"
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
+  -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
+  PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude-drain" \
+  SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
+  /bin/sh "$SJ" launch bigw execution-backends:4 --prompt-file "$tmp/bigprompt" --foreground &
+big_pid=$!
+if wait_until 300 sh -c "! kill -0 $big_pid 2>/dev/null"; then
+  wait "$big_pid" || fail "c11: large-prompt launch exited non-zero"
+else
+  kill -9 "$big_pid" 2>/dev/null
+  fail "c11: DEADLOCK - large-prompt launch did not finish (the init write blocked the read loop)"
+fi
+[ -s "$rec/stdin_full" ] || fail "c11: the worker never received its stdin"
+# The full init message reached the worker (not truncated at the buffer).
+[ "$(wc -c <"$rec/stdin_full" | tr -d ' ')" -gt 200000 ] \
+  || fail "c11: the large init message was truncated, not fully delivered"
+echo "ok: c11 a prompt larger than the pipe buffer does not deadlock (REQ-A1.9)"
+
+# ---------------------------------------------------------------------------
+# c12 (REQ-E1.5): a request re-surfacing in a terminal journal state (the
+#     resume re-issue after a prior answer did not take) is RE-OPENED to
+#     pending and re-queued, not swallowed by dedup — the "recover and re-ask"
+#     remedy must be reachable, and no request may pend permanently
+#     unanswerable.
+# ---------------------------------------------------------------------------
+home="$tmp/h12"
+rec="$tmp/r12"
+mkdir -p "$rec"
+ev="$tmp/ev12"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'reopen me\n' >"$tmp/prompt12"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw12 execution-backends:4 --prompt-file "$tmp/prompt12" --foreground &
+launch12=$!
+wdir12="$home/streamjson/sjw12"
+wait_until 100 grep -q "^$req_perm$tab" "$wdir12/journal" \
+  || fail "c12: the pending journal row never appeared"
+senv "$home" "$rec" -- answer sjw12 "$req_perm" --allow >/dev/null \
+  || fail "c12: answer exited non-zero"
+wait "$launch12" || fail "c12: the worker run did not end cleanly"
+grep -q "^$req_perm$tab.*${tab}answered" "$wdir12/journal" \
+  || fail "c12: the request should be answered after the first run"
+[ "$(aenv "$home" queue --count)" = 0 ] || fail "c12: queue should be clear after the answer"
+# Now simulate the resume: the same request id re-surfaces on the event
+# stream (the CLI re-issues the unprocessed ask). handle_line must re-open it.
+ev_re="$tmp/ev12re"
+printf '%s\n%s\n' "$line_perm" "$line_result" >"$ev_re"
+senv "$home" "$rec" SHIM_EVENTS="$ev_re" SHIM_READ_FIRST=0 -- \
+  launch sjw12 execution-backends:4 --resume-session "$sid" --foreground \
+  || fail "c12: resume relaunch exited non-zero"
+# Before the fix the journal would still read `answered` (dedup swallowed the
+# re-issue) and the queue would be empty — permanently unanswerable. The fix
+# re-opens the receipt: a fresh pending row and a re-queued item, so the resume
+# ask is answerable again rather than lost.
+grep -q "^$req_perm$tab.*${tab}pending" "$wdir12/journal" \
+  || fail "c12: the re-issued request must be RE-OPENED to pending, not swallowed"
+[ "$(aenv "$home" queue --count)" = 1 ] \
+  || fail "c12: the re-opened request must be re-queued (answerable again)"
+# The re-opened request is no longer a terminal exit-3 refusal on identity: an
+# answer against it now fails only on the (legitimately dead) resumed channel,
+# not on an `already answered`/`undeliverable` terminal-state refusal. Prove
+# the journal state is the answerable `pending`, which is what makes it so.
+grep -q "^$req_perm$tab.*${tab}\(answered\|undeliverable\)" "$wdir12/journal" \
+  && fail "c12: the re-issued request must not stay in a terminal state"
+echo "ok: c12 a terminal request re-surfacing on resume is re-opened and re-queued (REQ-E1.5)"
+
+# ---------------------------------------------------------------------------
+# c13 (REQ-A1.9): a prompt with UTF-8 content reaches the worker intact
+#     (regression for the LC_ALL=C [^[:print:]] strip that deleted all
+#     non-ASCII bytes).
+# ---------------------------------------------------------------------------
+home="$tmp/h13"
+rec="$tmp/r13"
+mkdir -p "$rec"
+ev="$tmp/ev13"
+printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
+printf 'caf\xc3\xa9 \xe2\x80\x94 \xe6\x97\xa5\xe6\x9c\xac end\n' >"$tmp/prompt13"
+cat >"$tmp/bin/claude-drain13" <<'SHIM'
+#!/bin/sh
+IFS= read -r line
+printf '%s' "$line" >"$SHIM_RECORD_DIR/stdin_full"
+[ -n "${SHIM_EVENTS:-}" ] && cat "$SHIM_EVENTS"
+exit 0
+SHIM
+chmod +x "$tmp/bin/claude-drain13"
+env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_ADOPTER_OVERLAY -u PLANWRIGHT_REPO_ROOT \
+  -u PLANWRIGHT_LOCAL_CONFIG -u PLANWRIGHT_CONFIG_DEFAULTS \
+  PLANWRIGHT_FLEET_STATE_DIR="$home" PLANWRIGHT_STREAMJSON_CLI="$tmp/bin/claude-drain13" \
+  SHIM_RECORD_DIR="$rec" SHIM_EVENTS="$ev" \
+  /bin/sh "$SJ" launch u13 execution-backends:4 --prompt-file "$tmp/prompt13" --foreground \
+  || fail "c13: launch exited non-zero"
+# The UTF-8 bytes survive into the worker's stdin (é = c3 a9, — = e2 80 94).
+grep -q "$(printf 'caf\xc3\xa9')" "$rec/stdin_full" \
+  || fail "c13: UTF-8 content was stripped from the prompt on the way to the worker"
+grep -q "$(printf '\xe6\x97\xa5\xe6\x9c\xac')" "$rec/stdin_full" \
+  || fail "c13: multibyte CJK content was stripped from the prompt"
+echo "ok: c13 UTF-8 prompt content reaches the worker intact (REQ-A1.9)"
+
+# ---------------------------------------------------------------------------
+# c14: a worker that ends with a non-zero exit and no result event is
+#     reported `ended`, never `completed` (positive-evidence completion).
+# ---------------------------------------------------------------------------
+home="$tmp/h14"
+rec="$tmp/r14"
+mkdir -p "$rec"
+ev="$tmp/ev14"
+printf '%s\n' "$line_init" >"$ev"
+printf 'fail me\n' >"$tmp/prompt14"
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_EXIT=1 -- \
+  launch sjw14 execution-backends:4 --prompt-file "$tmp/prompt14" --foreground \
+  >/dev/null 2>&1
+out=$(senv "$home" "$rec" -- status sjw14) || fail "c14: status exited non-zero"
+case $out in
+  "status sjw14 ended exit=1") : ;;
+  *) fail "c14: a non-zero exit with no result event must render 'ended', got: $out" ;;
+esac
+echo "ok: c14 a non-zero worker exit is reported ended, not completed"
+
+# ---------------------------------------------------------------------------
+# c15: the detached launch confirms the supervisor started and does not report
+#     a false success when it cannot. A launch whose CLI dir is missing (the
+#     supervisor cannot spawn the worker but mkfifo still runs) still comes up;
+#     the real failure surface is a bad --cwd, which fails BEFORE the detached
+#     spawn. Here we assert the happy path returns `launched` only after
+#     supervisor.pid exists, and that a broken re-exec surfaces non-zero.
+# ---------------------------------------------------------------------------
+home="$tmp/h15"
+rec="$tmp/r15"
+mkdir -p "$rec"
+ev="$tmp/ev15"
+printf '%s\n%s\n' "$line_init" "$line_result" >"$ev"
+printf 'detach me\n' >"$tmp/prompt15"
+out=$(senv "$home" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw15 execution-backends:4 --prompt-file "$tmp/prompt15") \
+  || fail "c15: detached launch exited non-zero"
+case $out in
+  "launched sjw15 dir "*) : ;;
+  *) fail "c15: detached launch should report launched, got: $out" ;;
+esac
+# `launched` was printed only after supervisor.pid appeared: it exists now.
+wdir15="$home/streamjson/sjw15"
+wait_until 100 sh -c "[ -f '$wdir15/result' ]" \
+  || fail "c15: the detached supervisor never ran to a result"
+# A failed detached launch surfaces non-zero. Force the supervisor's mkfifo to
+# fail by pre-planting `in.fifo` as a NON-EMPTY directory: supervise's `rm -f`
+# cannot clear a non-empty dir, so `mkfifo` fails and supervise returns 2
+# before writing supervisor.pid or a result — exactly the "supervisor cannot
+# start" signal the launch confirmation must catch. (cmd_launch's own
+# `chmod 700 "$dir"` would undo a mere permission trap, so the block must be
+# structural.)
+home_bad="$tmp/h15b"
+mkdir -p "$home_bad/streamjson/sjw15b/in.fifo/block"
+senv "$home_bad" "$rec" SHIM_EVENTS="$ev" -- \
+  launch sjw15b execution-backends:4 --prompt-file "$tmp/prompt15" >/dev/null 2>&1
+bad_rc=$?
+[ "$bad_rc" = 2 ] \
+  || fail "c15: a detached supervisor that cannot start must surface non-zero, got rc=$bad_rc"
+echo "ok: c15 detached launch confirms startup and surfaces a failed supervisor (detached-path visibility)"
 
 echo "all fleet-streamjson tests passed"
