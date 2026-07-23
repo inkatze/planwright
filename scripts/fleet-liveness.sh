@@ -765,13 +765,13 @@ oracle_scan() {
       nam = ""
       taint = 0
       best = 0
-      kind = ENVIRON["PW_ORACLE_KIND"]
+      mode = ENVIRON["PW_ORACLE_KIND"]
       val = ENVIRON["PW_ORACLE_VAL"]
       # list mode (execution-backends Task 7, D-10): print every untainted
       # row instead of ranking a join-key verdict, so the status view reads
       # the fleet through this one hardened scanner rather than growing a
       # second agents-json parser.
-      listing = (kind == "list")
+      listing = (mode == "list")
     }
     {
       if (!ok) next
@@ -802,15 +802,24 @@ oracle_scan() {
                 if (lk == "cwd") cwd = str
                 else if (lk == "sessionId") sid = str
                 else if (lk == "status") st = str
-                else if (lk == "kind") knd = str
-                else if (lk == "name") nam = str
+                else if (lk == "kind") kind = str
+                else if (lk == "name") name = str
                 expect = ""
               } else pk = str
             }
             i++
             continue
           }
-          if (c < " " && depth == 2) taint = 1
+          # Taint a depth-2 string carrying any terminal-driving byte: C0
+          # (< 0x20), DEL (0x7F), or a raw C1 byte (0x80-0x9F, notably CSI
+          # 0x9B). List mode PRINTS captured strings, so a byte the taint
+          # rule misses would reach the operator terminal raw (keyed mode
+          # never echoed captures, so this widening closes an exposure list
+          # mode opened). Under LC_ALL=C these are byte comparisons; the
+          # 0x80-0x9F range also catches UTF-8 bytes of some multibyte
+          # punctuation, so an exotic-named session degrades to no-evidence —
+          # the same security-over-fidelity trade echo-safety.sh documents.
+          if (depth == 2 && (c < " " || c == "\177" || (c >= "\200" && c <= "\237"))) taint = 1
           i++
           continue
         }
@@ -836,7 +845,7 @@ oracle_scan() {
           depth++
           types[depth] = "o"
           if (depth == 2) {
-            cwd = ""; sid = ""; st = ""; knd = ""; nam = ""; taint = 0
+            cwd = ""; sid = ""; st = ""; kind = ""; name = ""; taint = 0
             expect = ""; pk = ""; lk = ""
           } else if (expect == "value") expect = ""
           i++
@@ -846,16 +855,22 @@ oracle_scan() {
           if (depth < 1 || types[depth] != "o") { ok = 0; break }
           if (depth == 2 && !taint) {
             if (listing) {
-              # Untainted captures carry no tab or control byte (the taint
-              # rule drops those rows whole), so tab-separated fields cannot
-              # be forged from row content. Empty fields dash so consumers
-              # keep a fixed column count.
-              printf "row\t%s\t%s\t%s\t%s\t%s\n", \
-                (sid == "" ? "-" : sid), (st == "" ? "-" : st), \
-                (knd == "" ? "-" : knd), (nam == "" ? "-" : nam), \
-                (cwd == "" ? "-" : cwd)
+              # A row with no sessionId is not an identifiable session — it
+              # cannot join or be named — so it contributes nothing to the
+              # status view; skip it rather than emit a degenerate all-dash
+              # `row - - - - -` (which would inflate the row count a caller
+              # sees, and render a junk unjoined-session line). Untainted captures
+              # carry no tab or control byte (the taint rule drops those rows
+              # whole), so tab-separated fields cannot be forged from row
+              # content. Empty non-sid fields dash to keep a fixed column
+              # count.
+              if (sid != "")
+                printf "row\t%s\t%s\t%s\t%s\t%s\n", \
+                  sid, (st == "" ? "-" : st), \
+                  (kind == "" ? "-" : kind), (name == "" ? "-" : name), \
+                  (cwd == "" ? "-" : cwd)
             } else {
-              if (kind == "cwd") m = ((cwd "") == (val ""))
+              if (mode == "cwd") m = ((cwd "") == (val ""))
               else m = ((sid "") == (val ""))
               if (m) {
                 if (st == "busy" && best < 3) best = 3

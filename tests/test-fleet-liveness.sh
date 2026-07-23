@@ -1746,4 +1746,34 @@ orun "$home48" "$oshim" oracle --list --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "48 --list + join key: exit $rc, expected 2"
 echo "ok: oracle --list rows through the hardened scanner (taint drops, unavailable arms)"
 
+# ---------------------------------------------------------------------------
+# 48b. execution-backends Task 7 — list mode PRINTS captured strings, so the
+#      taint rule must drop a row whose depth-2 string carries a
+#      terminal-driving byte the C0 check alone misses: DEL (0x7F) and a raw
+#      C1 byte (0x9B = CSI). A field-less object (no sessionId) is also not a
+#      renderable session and must emit no row.
+# ---------------------------------------------------------------------------
+del=$(printf '\177')
+csi=$(printf '\233')
+cat >"$ofix" <<EOF
+[
+  {"sessionId": "clean-1", "name": "good", "status": "busy", "cwd": "/wt/ok"},
+  {"sessionId": "del-2", "name": "bad${del}del", "status": "idle", "cwd": "/wt/d"},
+  {"sessionId": "csi-3", "name": "bad${csi}csi", "status": "idle", "cwd": "/wt/c"},
+  {"pid": 7, "status": "idle"}
+]
+EOF
+home48b="$tmp/h48b"
+out=$(orun "$home48b" "$oshim" oracle --list) || fail "48b list: non-zero exit"
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
+  || fail "48b: expected only the clean row (DEL/C1 rows taint-drop, field-less skips), got: $out"
+case $out in
+  "row${tab}clean-1${tab}"*) ;;
+  *) fail "48b: the clean row is missing or malformed: '$out'" ;;
+esac
+case $out in
+  *"$del"* | *"$csi"*) fail "48b: a raw DEL/C1 byte reached list output" ;;
+esac
+echo "ok: oracle --list taints DEL/C1 rows and skips sessionId-less objects"
+
 echo "ALL PASS: fleet-liveness.sh"
