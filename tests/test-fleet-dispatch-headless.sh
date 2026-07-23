@@ -385,6 +385,221 @@ h8() {
   pass "h8: absent and garbled records answer absent/unknown — never guessed death"
 }
 
+# --- h9: launch-arg allowlist (S1) — sanctioned pass, escalation refused ------
+h9() {
+  local rec wt code
+  rec="$tmp/rec-h9"
+  STATE="$tmp/state-h9"
+  wt="$tmp/wt-h9"
+  mkdir -p "$wt"
+  make_fake "$rec"
+  # A sanctioned flag (--model) is forwarded to the worker argv.
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --model opus >/dev/null || {
+    fail "h9: an allowlisted --model launch should succeed"
+    return
+  }
+  wait_for "$STATE/$ID/exit" 300 || fail "h9: allowlisted launch never completed"
+  if ! { grep -qx -- '--model' "$rec/argv" && grep -qx -- 'opus' "$rec/argv"; }; then
+    fail "h9: the sanctioned --model flag was not forwarded to the worker argv"
+  fi
+  # An escalation flag off the allowlist is refused before any side effect.
+  rm -rf "$STATE"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --dangerously-skip-permissions \
+    >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h9: --dangerously-skip-permissions must be refused (exit 2), got $code"
+  [ -e "$STATE/$ID/pid" ] && fail "h9: a refused escalation launch must launch nothing"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" -- --add-dir / >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h9: --add-dir off the allowlist must be refused (exit 2), got $code"
+  pass "h9: launch args are a strict allowlist — sanctioned pass, escalation refused (S1)"
+}
+
+# --- h10: destructive-path containment (S2) — symlinked base refused ----------
+h10() {
+  local realbase wt code victim
+  wt="$tmp/wt-h10"
+  mkdir -p "$wt"
+  make_fake "$tmp/rec-h10"
+  # A hostile state base whose leaf is a symlink pointing outside: the rm -rf /
+  # mkdir reclaim must refuse rather than follow it.
+  victim="$tmp/victim-h10"
+  mkdir -p "$victim"
+  printf 'precious\n' >"$victim/keep.txt"
+  realbase="$tmp/statebase-h10"
+  ln -s "$victim" "$realbase" # the base itself is a symlink
+  code=0
+  printf 'p' | env PLANWRIGHT_HEADLESS_STATE_DIR="$realbase" \
+    PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    /bin/sh "$FDH" launch "$SPEC" "$ID" --worktree "$wt" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h10: a symlinked state base must be refused (exit 2), got $code"
+  [ -f "$victim/keep.txt" ] || fail "h10: the symlink target was destroyed (path-escape not guarded)"
+  pass "h10: the destructive reclaim refuses a symlinked state base (S2)"
+}
+
+# --- h11: state files are owner-only (S3) -------------------------------------
+h11() {
+  local rec wt perms f
+  rec="$tmp/rec-h11"
+  STATE="$tmp/state-h11"
+  wt="$tmp/wt-h11"
+  mkdir -p "$wt"
+  make_fake "$rec"
+  printf 'secret task text' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" >/dev/null || {
+    fail "h11: launch exited non-zero"
+    return
+  }
+  wait_for "$STATE/$ID/exit" 300 || {
+    fail "h11: worker never completed"
+    return
+  }
+  for f in "$STATE/$ID/prompt" "$STATE/$ID/result.json"; do
+    [ -f "$f" ] || {
+      fail "h11: expected state file missing: $f"
+      continue
+    }
+    # ls -l mode string: positions 5-10 are group+other rwx; owner-only => all '-'.
+    # Fixture filenames are fixed (prompt/result.json), so ls is safe here.
+    # shellcheck disable=SC2012
+    perms=$(ls -l "$f" | cut -c1-10)
+    if [ "$(printf '%s' "$perms" | cut -c5-10)" != "------" ]; then
+      fail "h11: $f is group/other-readable ($perms); state files must be owner-only (S3)"
+    fi
+  done
+  pass "h11: prompt and result.json are created owner-only (S3)"
+}
+
+# --- h12: --worktree symlink refusal (S4) -------------------------------------
+h12() {
+  local realwt code
+  make_fake "$tmp/rec-h12"
+  STATE="$tmp/state-h12"
+  realwt="$tmp/realwt-h12"
+  mkdir -p "$realwt"
+  ln -s "$realwt" "$tmp/wtlink-h12"
+  code=0
+  printf 'p' | run_fdh launch "$SPEC" "$ID" --worktree "$tmp/wtlink-h12" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h12: a symlinked --worktree must be refused (exit 2), got $code"
+  [ -e "$STATE/$ID/pid" ] && fail "h12: a refused symlinked worktree must launch nothing"
+  pass "h12: a symlinked --worktree is refused (S4)"
+}
+
+# --- h13: torn-launch collision window (C1) -----------------------------------
+h13() {
+  local wt code
+  STATE="$tmp/state-h13"
+  wt="$tmp/wt-h13"
+  mkdir -p "$wt"
+  make_fake "$tmp/rec-h13"
+  # A torn launch: state dir with a RECENT launched marker, a prompt, no pid,
+  # no exit — a concurrent/retry launch must refuse (fail safe toward live).
+  mkdir -p "$STATE/$ID"
+  printf 'prior task' >"$STATE/$ID/prompt"
+  date +%s >"$STATE/$ID/launched"
+  code=0
+  printf 'p' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" launch "$SPEC" "$ID" \
+    --worktree "$wt" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 3 ] || fail "h13: a recent torn launch must be refused (exit 3), got $code"
+  [ "$(cat "$STATE/$ID/prompt")" = "prior task" ] \
+    || fail "h13: the refused retry must not clobber the in-flight state dir"
+  # An OLD launched marker (older than the TTL) is stale and reclaimable.
+  printf '%s\n' "$(($(date +%s) - 10))" >"$STATE/$ID/launched"
+  printf 'fresh task' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" launch "$SPEC" "$ID" \
+    --worktree "$wt" >/dev/null 2>&1 || {
+    fail "h13: a stale (aged-out) torn launch should be reclaimed, not refused"
+    return
+  }
+  wait_for "$STATE/$ID/exit" 300 || fail "h13: the reclaimed launch never completed"
+  pass "h13: the torn-launch window fails safe (refuse recent, reclaim stale) (C1)"
+}
+
+# --- h14: trap-forward supervision (C2) — TERM the runner, worker dies, no orphan
+h14() {
+  local rec wt rpid cpid st
+  rec="$tmp/rec-h14"
+  STATE="$tmp/state-h14"
+  wt="$tmp/wt-h14"
+  mkdir -p "$wt"
+  make_fake "$rec"
+  touch "$rec/hold"
+  printf 'work' | run_fdh launch "$SPEC" "$ID" --worktree "$wt" >/dev/null || {
+    fail "h14: launch exited non-zero"
+    return
+  }
+  wait_for "$rec/claude-pid" 300 || {
+    fail "h14: worker never started"
+    rm -f "$rec/hold"
+    return
+  }
+  rpid=$(cat "$STATE/$ID/pid")
+  cpid=$(cat "$rec/claude-pid")
+  # A GRACEFUL kill of the runner: the trap must forward it to the worker and
+  # record a terminal completion (143), never orphan the worker.
+  kill -TERM "$rpid" 2>/dev/null
+  rm -f "$rec/hold"
+  if ! wait_for "$STATE/$ID/exit" 300; then
+    fail "h14: TERM of the runner did not produce a terminal completion record (orphan risk)"
+    kill -9 "$cpid" 2>/dev/null
+    return
+  fi
+  grep -Eq '^143 ' "$STATE/$ID/exit" \
+    || fail "h14: a forwarded TERM should record exit 143, got: $(cat "$STATE/$ID/exit")"
+  # The worker must be gone (no orphan). Give it a beat to be reaped.
+  wf_n=0
+  while kill -0 "$cpid" 2>/dev/null && [ "$wf_n" -lt 100 ]; do
+    sleep 0.1
+    wf_n=$((wf_n + 1))
+  done
+  kill -0 "$cpid" 2>/dev/null && {
+    fail "h14: the worker survived the runner's TERM (orphaned)"
+    kill -9 "$cpid" 2>/dev/null
+  }
+  st=$(run_fdh status "$SPEC" "$ID") || true
+  [ "$st" = "completed 143" ] || fail "h14: status after a forwarded TERM should be 'completed 143', got '$st'"
+  pass "h14: a graceful kill of the runner forwards to the worker and records completion — no orphan (C2)"
+}
+
+# --- h15: fail-fast infra pre-check (C9/C10) ----------------------------------
+h15() {
+  local wt code
+  STATE="$tmp/state-h15"
+  wt="$tmp/wt-h15"
+  mkdir -p "$wt"
+  make_fake "$tmp/rec-h15"
+  # A missing launch wrapper is a broken install: refuse at launch, not later.
+  code=0
+  printf 'p' | env PLANWRIGHT_HEADLESS_ENVWRAP="$tmp/no-such-wrapper" \
+    PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
+    /bin/sh "$FDH" launch "$SPEC" "$ID" --worktree "$wt" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h15: a missing launch wrapper must fail fast (exit 2), got $code"
+  [ -e "$STATE/$ID/pid" ] && fail "h15: a broken-wrapper launch must dispatch nothing"
+  # A missing worker CLI likewise fails fast rather than becoming completed 127.
+  code=0
+  printf 'p' | env PLANWRIGHT_HEADLESS_CLAUDE="$tmp/no-such-claude" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" \
+    /bin/sh "$FDH" launch "$SPEC" "$ID" --worktree "$wt" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] || fail "h15: a missing worker CLI must fail fast (exit 2), got $code"
+  pass "h15: a broken install (missing wrapper or CLI) fails at launch, not as a phantom completion (C9/C10)"
+}
+
+# --- h16: a finish-error marker reads unknown, never died (C7) -----------------
+h16() {
+  local st code
+  STATE="$tmp/state-h16"
+  mkdir -p "$STATE/$ID"
+  # Simulate a worker that finished but could not record its exit: a dead pid
+  # plus a finish-error marker. status must refuse to guess (unknown), not died.
+  printf '999999999\n' >"$STATE/$ID/pid" # a pid that is not alive
+  : >"$STATE/$ID/finish-error"
+  code=0
+  st=$(run_fdh status "$SPEC" "$ID") || code=$?
+  [ "$code" -eq 4 ] || fail "h16: a finish-error marker should read unknown (exit 4), got $code"
+  [ "$st" = "unknown" ] || fail "h16: a completed-but-unrecorded worker must be 'unknown', not 'died', got '$st'"
+  pass "h16: a swallowed completion write surfaces as unknown, never a false death (C7)"
+}
+
 h1
 h2
 h3
@@ -393,6 +608,14 @@ h5
 h6
 h7
 h8
+h9
+h10
+h11
+h12
+h13
+h14
+h15
+h16
 
 if [ "$failures" -ne 0 ]; then
   echo "test-fleet-dispatch-headless: $failures failure(s)" >&2
