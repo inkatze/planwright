@@ -253,16 +253,21 @@ manual `print` rung is never an autonomous descent target.
 
 ## The non-`--bare` launch pin
 
-Every headless and stream-json launch invocation planwright emits — every
-`-p`-family launch site — **pins non-`--bare` behavior explicitly**
-(execution-backends REQ-A1.5, D-12), so a future CLI default flip cannot
-silently strip SessionStart hooks and harness surface from every headless
-worker at once. At the verified CLI version there is no explicit inverse flag:
-pinning means **never passing `--bare`** at any worker launch site, enforced by
-the launch-pin guard (whose `-p`-family site coverage lands with the dispatch
-tasks that introduce those launch sites) and per-task re-verification against
-the running CLI (execution-backends D-4). A future CLI that ships an explicit
-non-bare flag flips the pin to passing that flag at every launch site.
+Every headless and stream-json **worker dispatch** launch invocation
+planwright emits — every `-p`-family worker launch site — **pins non-`--bare`
+behavior explicitly** (execution-backends REQ-A1.5, D-12), so a future CLI
+default flip cannot silently strip SessionStart hooks and harness surface from
+every headless worker at once. At the verified CLI version there is no
+explicit inverse flag: pinning means **never passing `--bare`** at any worker
+launch site, enforced by the launch-pin guard (whose `-p`-family site coverage
+lands with the dispatch tasks that introduce those launch sites) and per-task
+re-verification against the running CLI (execution-backends D-4). A future CLI
+that ships an explicit non-bare flag flips the pin to passing that flag at
+every worker launch site. The pin scopes to worker dispatch only: a
+non-dispatch `-p` harness that deliberately excludes the operator's surface is
+exempt, not a violation — the prompt-eval harness
+(`scripts/prompt-eval.sh`) passes `--bare --plugin-dir` precisely because a
+hermetic eval must not load the operator's settings, hooks, or CLAUDE.md.
 
 ## Adding a backend
 

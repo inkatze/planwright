@@ -349,6 +349,22 @@ env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
 [ "$rc" = 2 ] || fail "push-capable with a six-field caps answer: exit $rc, expected 2"
 grep -q "version-skewed install" "$tmp/pc-err" \
   || fail "a wrong-arity caps answer must be diagnosed as version skew, not an unknown backend"
+# An accessor that itself fails (exit code outside the contract's 1/2 name
+# arms — e.g. a corrupted script) is self-identified as an accessor failure,
+# never misreported as an unknown backend: stub an accessor that crashes.
+cat >"$brokedir/orchestrate-backends.sh" <<'EOF'
+#!/bin/sh
+exit 7
+EOF
+chmod +x "$brokedir/orchestrate-backends.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
+  push-capable tmux >/dev/null 2>"$tmp/pc-err" || rc=$?
+[ "$rc" = 2 ] || fail "push-capable with a crashing caps accessor: exit $rc, expected 2"
+grep -q "capability accessor failed" "$tmp/pc-err" \
+  || fail "a crashing caps accessor must be diagnosed as an accessor failure, not an unknown backend"
+grep -q "unknown backend" "$tmp/pc-err" \
+  && fail "a crashing caps accessor must not carry the unknown-backend wording"
 echo "ok: push-capable reads hook_registration from the contract, never backend names"
 
 # ---------------------------------------------------------------------------

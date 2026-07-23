@@ -799,8 +799,24 @@ case "$cmd" in
         # The accessor's exit code self-identifies the arm: 1 = fail-safe
         # absent (unknown/adapterless name), 2 = invalid name/usage, anything
         # else = the accessor itself failed (e.g. a corrupted script), which
-        # is an install problem rather than a bad backend name.
-        echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract; accessor exit $caps_rc)" >&2
+        # is an install problem rather than a bad backend name — so the
+        # message branches on the code instead of lumping accessor crashes
+        # under the unknown-backend wording (the sibling broken-install and
+        # version-skew arms above self-identify the same way).
+        case "$caps_rc" in
+          1 | 2)
+            echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract; accessor exit $caps_rc)" >&2
+            ;;
+          0)
+            # Unreachable through a grammar-validated caps answer (field 8 is
+            # true/false at the source); kept distinct so a future validation
+            # gap self-identifies instead of reading as a crash.
+            echo "fleet-liveness: capability accessor answered an invalid hook_registration value for backend '$(sanitize_printable "$backend" "(unprintable backend)")' — version-skewed or corrupted install at $caps_helper" >&2
+            ;;
+          *)
+            echo "fleet-liveness: capability accessor failed (exit $caps_rc) resolving backend '$(sanitize_printable "$backend" "(unprintable backend)")' — broken install at $caps_helper, not a backend-name problem" >&2
+            ;;
+        esac
         exit 2
         ;;
     esac
