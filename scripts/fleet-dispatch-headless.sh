@@ -186,10 +186,16 @@ valid_id() {
 
 # --- State-dir resolution ----------------------------------------------------
 # $1 spec, $2 id, $3 repo-root (may be empty: resolved from the cwd's git
-# toplevel unless the env override names the base directly). Sets unit_dir.
+# toplevel unless the env override names the base directly). Sets unit_dir,
+# unit_base, and the containment anchors the guard below checks against:
+# unit_root (the PHYSICAL repo root) and unit_spec_dir. Both are empty under the
+# env override — an operator-declared base is its own anchor, with no repo to
+# contain it within.
 resolve_unit_dir() {
   if [ -n "${PLANWRIGHT_HEADLESS_STATE_DIR:-}" ]; then
     rud_base=$PLANWRIGHT_HEADLESS_STATE_DIR
+    rud_root=''
+    rud_spec_dir=''
   else
     rud_root=$3
     if [ -z "$rud_root" ]; then
@@ -199,14 +205,27 @@ resolve_unit_dir() {
       warn "cannot resolve repo root (pass --repo-root)"
       exit 2
     fi
+    # Normalize to the PHYSICAL root (`pwd -P`, as the sibling
+    # fleet-dispatch-worktree.sh does): the containment check in
+    # guard_unit_containment compares physical paths, so a legitimate LOGICAL
+    # root (macOS $TMPDIR /var -> /private/var, a symlink-reached checkout)
+    # would otherwise fail the comparison and be refused.
+    rud_phys=$(cd "$rud_root" 2>/dev/null && pwd -P) || {
+      warn "repo root does not resolve: $rud_root"
+      exit 2
+    }
+    rud_root=$rud_phys
     if [ ! -d "$rud_root/specs/$1" ]; then
       warn "spec bundle not found: $rud_root/specs/$1"
       exit 2
     fi
-    rud_base="$rud_root/specs/$1/.orchestrate/headless"
+    rud_spec_dir="$rud_root/specs/$1"
+    rud_base="$rud_spec_dir/.orchestrate/headless"
   fi
   unit_base=$rud_base
   unit_dir="$rud_base/$2"
+  unit_root=$rud_root
+  unit_spec_dir=$rud_spec_dir
 }
 
 # --- Launch-arg allowlist (REQ-A1.9, mirrors fleet-dispatch-worktree.sh) ------
@@ -269,14 +288,33 @@ validate_launch_extra() {
 
 # --- Destructive-path containment guard (REQ-A1.9, mirrors the sibling) -------
 # `rm -rf`/`mkdir -p` on the unit dir FOLLOW a symlinked path component, so a
-# compromised checkout carrying a symlinked `.orchestrate` / `headless` (or a
-# hostile PLANWRIGHT_HEADLESS_STATE_DIR) could make the reclaim delete or create
-# OUTSIDE the intended base. Refuse a symlinked base or leaf, materialize the
-# base as a REAL directory, and confirm the unit dir physically resolves UNDER
-# it — fail closed. $1 = base dir, $2 = unit dir. Runs before any rm/mkdir.
+# compromised checkout carrying a symlinked `specs/<spec>`, `.orchestrate`, or
+# `headless` (or a hostile PLANWRIGHT_HEADLESS_STATE_DIR) could make the reclaim
+# delete or create OUTSIDE the intended base. Refuse a symlinked component or
+# leaf, materialize the base as a REAL directory, and confirm the base
+# physically resolves UNDER the repo root — fail closed. $1 = base dir,
+# $2 = unit dir, $3 = physical repo root (empty under the env override, which
+# has no repo anchor), $4 = spec dir (same). Runs before any rm/mkdir.
 guard_unit_containment() {
   guc_base=$1
   guc_unit=$2
+  guc_root=$3
+  guc_spec_dir=$4
+  # Default (git-derived) base only: refuse a symlinked INTERMEDIATE component
+  # BEFORE the mkdir below, so a redirected path never gets materialized at the
+  # target. The physical containment check further down is the catch-all for any
+  # deeper escape; these are the cheap, precise refusals that fire first, and
+  # they mirror the sibling's stepwise `.claude` / `.claude/worktrees` checks.
+  if [ -n "$guc_spec_dir" ]; then
+    if [ -L "$guc_spec_dir" ]; then
+      warn "refusing: $guc_spec_dir is a symlink (path-escape guard)"
+      exit 2
+    fi
+    if [ -L "$guc_spec_dir/.orchestrate" ]; then
+      warn "refusing: $guc_spec_dir/.orchestrate is a symlink (path-escape guard)"
+      exit 2
+    fi
+  fi
   if [ -L "$guc_base" ]; then
     warn "refusing: state base $guc_base is a symlink (path-escape guard)"
     exit 2
@@ -293,8 +331,10 @@ guard_unit_containment() {
     warn "refusing: unit state dir $guc_unit is a symlink (path-escape guard)"
     exit 2
   fi
-  # The unit dir must sit directly under the physical base (its basename is the
-  # validated task id, so string-join then physical-parent check is sound).
+  # The reclaim target is "$guc_base_phys/<validated task id>": the id grammar
+  # admits no separator and no dot-dot, and a symlinked leaf is refused just
+  # above, so containing the BASE contains the `rm -rf`. Absolute is asserted
+  # first (a relative base would make the comparison below meaningless).
   case "$guc_base_phys/" in
     /*) ;;
     *)
@@ -302,6 +342,19 @@ guard_unit_containment() {
       exit 2
       ;;
   esac
+  # The containment check itself, on PHYSICAL paths (both sides normalized with
+  # `pwd -P`): this is what catches a symlink anywhere in the path redirecting
+  # the base out of the repo. Skipped under the env override, where the operator
+  # names the base directly and no repo root bounds it.
+  if [ -n "$guc_root" ]; then
+    case "$guc_base_phys/" in
+      "$guc_root"/*) ;; # contained under the physical repo root
+      *)
+        warn "refusing: state base $guc_base_phys does not resolve under the repo root $guc_root (path-escape guard)"
+        exit 2
+        ;;
+    esac
+  fi
 }
 
 # --- launch ------------------------------------------------------------------
@@ -464,8 +517,9 @@ do_launch() {
   fi
 
   # Containment guard BEFORE the destructive reclaim (S2): the rm -rf / mkdir
-  # below follow symlinked path components, so refuse a symlinked base or leaf.
-  guard_unit_containment "$unit_base" "$unit_dir"
+  # below follow symlinked path components, so refuse a symlinked component or
+  # leaf and require the base to physically resolve under the repo root.
+  guard_unit_containment "$unit_base" "$unit_dir" "$unit_root" "$unit_spec_dir"
 
   # State files carry the worker's brief (prompt) and the model's output
   # (result.json, session_id) — restrict them to the owner (S3): a subprocess

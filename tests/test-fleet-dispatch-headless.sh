@@ -65,7 +65,8 @@ fail() {
 tmp=$(cd "$(mktemp -d)" && pwd -P)
 cleanup() {
   # Reap any worker the fixtures left running before removing the tree.
-  for pf in "$tmp"/rec-*/claude-pid "$tmp"/state*/*/pid; do
+  for pf in "$tmp"/rec-*/claude-pid "$tmp"/state*/*/pid \
+    "$tmp"/repo-*/specs/*/.orchestrate/headless/*/pid; do
     [ -f "$pf" ] || continue
     p=$(cat "$pf" 2>/dev/null) || continue
     case $p in *[!0-9]* | '') continue ;; esac
@@ -595,6 +596,79 @@ h15() {
   pass "h15: a broken install (missing wrapper or CLI) fails at launch, not as a phantom completion (C9/C10)"
 }
 
+# --- h17: containment on the DEFAULT (git-derived) state base (S2) ------------
+# The default base is <repo-root>/specs/<spec>/.orchestrate/headless. h10 covers
+# a symlinked base LEAF; a compromised checkout can instead point an
+# INTERMEDIATE component outside the repo and leave the leaf a real dir, which
+# the leaf-only refusal cannot see. The reclaim must fail closed either way.
+h17() {
+  local root wt code victim
+  wt="$tmp/wt-h17"
+  mkdir -p "$wt"
+  make_fake "$tmp/rec-h17"
+
+  # (a) `.orchestrate` redirects the base outside the repo.
+  root="$tmp/repo-h17a"
+  mkdir -p "$root/specs/$SPEC"
+  victim="$tmp/victim-h17a"
+  mkdir -p "$victim/headless/$ID"
+  printf 'precious\n' >"$victim/headless/$ID/keep.txt"
+  # A finished unit record, so an escaped launch reaches the DESTRUCTIVE reclaim
+  # (rm -rf) instead of stopping at the in-flight double-dispatch refusal.
+  printf '0 1700000000\n' >"$victim/headless/$ID/exit"
+  ln -s "$victim" "$root/specs/$SPEC/.orchestrate"
+  code=0
+  printf 'p' | env -u PLANWRIGHT_HEADLESS_STATE_DIR PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    /bin/sh "$FDH" launch "$SPEC" "$ID" --worktree "$wt" --repo-root "$root" \
+    >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] \
+    || fail "h17: a base redirected outside the repo by a symlinked .orchestrate must be refused (exit 2), got $code"
+  [ -f "$victim/headless/$ID/keep.txt" ] \
+    || fail "h17: the redirected target was destroyed (path-escape not contained)"
+
+  # (b) the same escape one level up: `specs/<spec>` itself is the symlink.
+  root="$tmp/repo-h17b"
+  mkdir -p "$root/specs"
+  victim="$tmp/victim-h17b"
+  mkdir -p "$victim/.orchestrate/headless/$ID"
+  printf 'precious\n' >"$victim/.orchestrate/headless/$ID/keep.txt"
+  printf '0 1700000000\n' >"$victim/.orchestrate/headless/$ID/exit"
+  ln -s "$victim" "$root/specs/$SPEC"
+  code=0
+  printf 'p' | env -u PLANWRIGHT_HEADLESS_STATE_DIR PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    /bin/sh "$FDH" launch "$SPEC" "$ID" --worktree "$wt" --repo-root "$root" \
+    >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 2 ] \
+    || fail "h17: a base redirected outside the repo by a symlinked specs/<spec> must be refused (exit 2), got $code"
+  [ -f "$victim/.orchestrate/headless/$ID/keep.txt" ] \
+    || fail "h17: the redirected target was destroyed via specs/<spec> (path-escape not contained)"
+  pass "h17: the default state base must physically resolve under the repo root (S2)"
+}
+
+# --- h18: containment does not false-refuse a logical repo root (S2) ----------
+# The containment check compares physical paths, so the repo root must be
+# normalized (`pwd -P`) before the comparison: a caller-supplied --repo-root
+# reached through a symlink (macOS $TMPDIR /var -> /private/var, a symlinked
+# checkout) is legitimate and must still launch, not trip the guard.
+h18() {
+  local root wt code
+  wt="$tmp/wt-h18"
+  mkdir -p "$wt"
+  make_fake "$tmp/rec-h18"
+  root="$tmp/repo-h18"
+  mkdir -p "$root/specs/$SPEC"
+  ln -s "$root" "$tmp/repolink-h18"
+  code=0
+  printf 'p' | env -u PLANWRIGHT_HEADLESS_STATE_DIR PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    /bin/sh "$FDH" launch "$SPEC" "$ID" --worktree "$wt" \
+    --repo-root "$tmp/repolink-h18" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 0 ] \
+    || fail "h18: a launch through a symlinked --repo-root must not be refused, got $code"
+  [ -f "$root/specs/$SPEC/.orchestrate/headless/$ID/prompt" ] \
+    || fail "h18: the launch did not create the state dir under the physical repo root"
+  pass "h18: a symlink-reached repo root is normalized, not refused (S2)"
+}
+
 # --- h16: a finish-error marker reads unknown, never died (C7) -----------------
 h16() {
   local st code
@@ -627,6 +701,8 @@ h13
 h14
 h15
 h16
+h17
+h18
 
 if [ "$failures" -ne 0 ]; then
   echo "test-fleet-dispatch-headless: $failures failure(s)" >&2
