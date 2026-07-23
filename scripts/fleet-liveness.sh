@@ -555,6 +555,17 @@ ORACLE_BIN="${PLANWRIGHT_ORACLE_CLAUDE:-claude}"
 # residual class the file layout had). ORACLE_TMP itself is initialized up at
 # the file-level trap install (init-before-trap, the sibling discipline).
 oracle_cleanup() {
+  # Reap an oracle supervisor abandoned by an interrupt: the top-level INT/TERM
+  # traps exit straight into this EXIT handler, so a probe cut short mid-fetch
+  # would otherwise orphan `of_sub` (and its CLI child) until their own timeout.
+  # Kill only when still live AND not already reaped — oracle_fetch clears
+  # of_sub after each normal-path wait, so a recycled PID is never targeted.
+  # No wait here: an abandoned supervisor may block on an unkillable child, and
+  # this cleanup must never reintroduce the unbounded wait the abandon path
+  # deliberately avoids.
+  if [ -n "${of_sub:-}" ] && kill -0 "$of_sub" 2>/dev/null; then
+    kill "$of_sub" 2>/dev/null || true
+  fi
   if [ -n "$ORACLE_TMP" ]; then
     rm -f "$ORACLE_TMP/probe.pid" "$ORACLE_TMP/probe.pid.tmp" \
       "$ORACLE_TMP/probe.done" "$ORACLE_TMP/probe.done.tmp" \
@@ -694,10 +705,12 @@ oracle_fetch() {
     # abandoned — a zombie only until this short-lived script exits.
     if [ -e "$of_out.done" ]; then
       wait "$of_sub" 2>/dev/null || true
+      of_sub='' # reaped: keep oracle_cleanup off a recyclable PID
     fi
     return 1
   fi
   wait "$of_sub" 2>/dev/null || true
+  of_sub='' # reaped: keep oracle_cleanup off a recyclable PID
   of_rc=$(cat "$of_out.done" 2>/dev/null)
   [ "$of_rc" = 0 ]
 }
