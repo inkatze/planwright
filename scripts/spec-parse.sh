@@ -16,7 +16,10 @@
 # Naming: exported entry points are namespaced `spec_parse_*` (a
 # multi-family lib sourced alongside echo-safety.sh needs namespace
 # hygiene; echo-safety predates the convention and keeps its unprefixed
-# name). Internal helpers are `spec_parse__*` (double underscore).
+# name). Internal helpers AND working variables are `spec_parse__*`
+# (double underscore): POSIX sh has no locals, so a sourced lib's
+# assignments land in the consumer's global scope, where a generic name
+# would clobber consumer state.
 #
 # Consumer contract (REQ-B1.6):
 #   (a) fail closed when this file cannot be sourced — guard the source with
@@ -57,9 +60,9 @@
 # cannot portably locate its siblings), so this is a deliberate inline copy
 # of the sanitize_printable byte range, spawned only on error paths.
 spec_parse__printable() {
-  sp_p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
-  [ -n "$sp_p" ] || sp_p='(unprintable path)'
-  printf '%s' "$sp_p"
+  spec_parse__p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
+  [ -n "$spec_parse__p" ] || spec_parse__p='(unprintable path)'
+  printf '%s' "$spec_parse__p"
 }
 
 # spec_parse_extract_tasks <tasks.md> — the canonical `tasks.md`
@@ -103,13 +106,13 @@ spec_parse_extract_tasks() {
   # concurrent rewrite between the reads can produce a spurious (fail-closed)
   # refusal or a screen/parse divergence; no in-repo writer emits NULs, and
   # locked callers (migrate-format-version.sh) close the window entirely.
-  sp_total=$(wc -c <"$1") || sp_total=
-  sp_kept=$(LC_ALL=C tr -d '\000' <"$1" | wc -c) || sp_kept=
-  if [ -z "$sp_total" ] || [ -z "$sp_kept" ]; then
+  spec_parse__total=$(wc -c <"$1") || spec_parse__total=
+  spec_parse__kept=$(LC_ALL=C tr -d '\000' <"$1" | wc -c) || spec_parse__kept=
+  if [ -z "$spec_parse__total" ] || [ -z "$spec_parse__kept" ]; then
     printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse__printable "$1") (fail closed)" >&2
     return 1
   fi
-  if [ "$sp_total" -ne "$sp_kept" ]; then
+  if [ "$spec_parse__total" -ne "$spec_parse__kept" ]; then
     printf '%s\n' "spec-parse: NUL byte in $(spec_parse__printable "$1") (malformed input; fail closed)" >&2
     return 1
   fi

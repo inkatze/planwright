@@ -178,6 +178,29 @@ esac
 echo "ok: an =-bearing filename is read as a file, not an awk assignment"
 
 # ---------------------------------------------------------------------------
+# Property 2b: the lib's working variables stay in the spec_parse__
+# namespace. POSIX sh has no locals, so a sourced lib's assignments land in
+# the sourcing consumer's global scope: generic names would silently
+# clobber consumer state on every call. Sentinels are checked after both a
+# success path and an error path (the error path is what exercises
+# spec_parse__printable), called directly — not inside a command
+# substitution, whose subshell would hide the clobber.
+# ---------------------------------------------------------------------------
+sp_total='caller-total'
+sp_kept='caller-kept'
+sp_p='caller-p'
+spec_parse_extract_tasks "$tmp/tasks.md" >/dev/null \
+  || fail "extraction failed during the namespace check"
+if spec_parse_extract_tasks "$tmp/no-such-file.md" >/dev/null 2>&1; then
+  fail "missing file unexpectedly succeeded during the namespace check"
+fi
+[ "$sp_total" = 'caller-total' ] || fail "lib clobbered the caller variable sp_total"
+[ "$sp_kept" = 'caller-kept' ] || fail "lib clobbered the caller variable sp_kept"
+[ "$sp_p" = 'caller-p' ] || fail "lib clobbered the caller variable sp_p"
+unset sp_total sp_kept sp_p
+echo "ok: lib working variables stay in the spec_parse__ namespace"
+
+# ---------------------------------------------------------------------------
 # Property 3: zero task blocks emit an empty stream, exit 0.
 # ---------------------------------------------------------------------------
 cat >"$tmp/zero.md" <<'EOF'
@@ -401,6 +424,36 @@ fi
 grep -q "spec-parse.sh" "$tmp/migrate.err" \
   || fail "migrate-format-version.sh missing-lib refusal does not name the lib: $(cat "$tmp/migrate.err")"
 echo "ok: migrate-format-version.sh fails closed when the lib is missing (REQ-B1.6a)"
+
+# The guard diagnostic sanitizes the echoed lib path (the REQ-B1.6c posture
+# extended to the consumers' own guards): a checkout directory name carrying
+# ESC/BEL bytes must not reach stderr raw, while the refusal still names
+# spec-parse.sh.
+evil_scripts="$tmp/$(printf 'esc\033]0;owned\007')-scripts"
+mkdir "$evil_scripts"
+for s in spec-anchor.sh migrate-format-version.sh echo-safety.sh orchestrate-lock.sh; do
+  cp "$scripts_dir/$s" "$evil_scripts/"
+done
+if out=$(sh "$evil_scripts/spec-anchor.sh" "$tmp/spec" 2>"$tmp/evil-anchor.err"); then
+  fail "spec-anchor.sh succeeded without the lib (hostile-dir guard)"
+fi
+[ -z "$out" ] || fail "spec-anchor.sh emitted output without the lib (hostile dir): $out"
+if LC_ALL=C grep -q "$(printf '\033')" "$tmp/evil-anchor.err" \
+  || LC_ALL=C grep -q "$(printf '\007')" "$tmp/evil-anchor.err"; then
+  fail "raw ESC/BEL reached stderr through spec-anchor.sh's guard path echo: $(od -c "$tmp/evil-anchor.err" | head -2)"
+fi
+grep -q "spec-parse.sh" "$tmp/evil-anchor.err" \
+  || fail "spec-anchor.sh sanitized guard refusal no longer names the lib: $(cat "$tmp/evil-anchor.err")"
+if sh "$evil_scripts/migrate-format-version.sh" "$tmp/spec" >/dev/null 2>"$tmp/evil-migrate.err"; then
+  fail "migrate-format-version.sh succeeded without the lib (hostile-dir guard)"
+fi
+if LC_ALL=C grep -q "$(printf '\033')" "$tmp/evil-migrate.err" \
+  || LC_ALL=C grep -q "$(printf '\007')" "$tmp/evil-migrate.err"; then
+  fail "raw ESC/BEL reached stderr through migrate-format-version.sh's guard path echo: $(od -c "$tmp/evil-migrate.err" | head -2)"
+fi
+grep -q "spec-parse.sh" "$tmp/evil-migrate.err" \
+  || fail "migrate-format-version.sh sanitized guard refusal no longer names the lib: $(cat "$tmp/evil-migrate.err")"
+echo "ok: both consumers sanitize the guard's echoed lib path"
 
 # A syntax-erroring lib copy must also refuse (either the guard fires or
 # the sourcing shell aborts — both are fail-closed, non-zero, no anchor)

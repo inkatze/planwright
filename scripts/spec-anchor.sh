@@ -46,9 +46,15 @@ unset CDPATH 2>/dev/null || true
 here=$(cd "$(dirname "$0")" && pwd -P) || exit 2
 spec_parse_sh="$here/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  # printf, not echo: an echo that interprets backslash escapes could turn
-  # printable path bytes into control bytes at output time.
-  printf '%s\n' "spec-anchor: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  # Sanitize the echoed path inline (echo-safety.sh's canonical C0+DEL+C1
+  # byte range): this guard runs before any lib is sourced, so no sanitizer
+  # function is available, and a checkout path carrying ESC/BEL bytes would
+  # otherwise drive the operator's terminal. printf, not echo: an echo that
+  # interprets backslash escapes could turn printable path bytes into
+  # control bytes at output time.
+  lib_disp=$(printf '%s' "$spec_parse_sh" | tr -d '\000-\037\177\200-\237')
+  [ -n "$lib_disp" ] || lib_disp='(unprintable path)'
+  printf '%s\n' "spec-anchor: spec-parse.sh missing or unreadable: $lib_disp" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh

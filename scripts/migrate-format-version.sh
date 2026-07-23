@@ -107,9 +107,12 @@ lock_sh="$here/orchestrate-lock.sh"
 # failure.
 spec_parse_sh="$here/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
-  # printf, not echo: an echo that interprets backslash escapes could turn
-  # printable path bytes into control bytes at output time.
-  printf '%s\n' "migrate-format-version: spec-parse.sh missing or unreadable: $spec_parse_sh" >&2
+  # Sanitize the echoed path (echo-safety.sh is already sourced above): a
+  # checkout path carrying ESC/BEL bytes would otherwise drive the
+  # operator's terminal. printf, not echo: an echo that interprets
+  # backslash escapes could turn printable path bytes into control bytes
+  # at output time.
+  printf '%s\n' "migrate-format-version: spec-parse.sh missing or unreadable: $(sanitize_printable "$spec_parse_sh" "(unprintable path)")" >&2
   exit 2
 fi
 # shellcheck source=scripts/spec-parse.sh
