@@ -826,4 +826,115 @@ else
 fi
 echo "ok: c17 a deny message with control characters delivers well-formed JSON (REQ-E1.4)"
 
+# ---------------------------------------------------------------------------
+# c18 (REQ-E1.5): the mtime probe behind the journal-lock stale-break must
+#     yield a real epoch under BOTH stat flavors. On GNU/busybox stat `-f`
+#     means --file-system, so a BSD-first `stat -f %m … || stat -c %Y …` chain
+#     has its format string consumed as a FILE operand: the call dumps
+#     filesystem info on STDOUT and exits non-zero, and the chain CONCATENATES
+#     that dump with the fallback's epoch. The result is not merely a wrong
+#     mtime — `$((now - mtime))` over it is a fatal arithmetic error that kills
+#     the shell (confirmed on Debian/dash and Alpine/busybox).
+#
+#     The lock is driven through `answer`, whose only pre-lock work is the
+#     worker-dir check: a stale-broken lock lets it reach the not-journaled
+#     refusal (exit 3), a lock judged fresh reports busy (exit 2). Those two
+#     outcomes are what the probe's value decides between, so each flavor is
+#     asserted in BOTH directions — a probe returning a constant would pass
+#     the stale legs alone.
+# ---------------------------------------------------------------------------
+# Flavor shims. Each answers only its own flavor's form and reproduces the
+# other flavor's real failure mode, so the probe cannot pass by accident of
+# ordering: whichever form the script tries first, the value must still be a
+# plain epoch. The mtime they report is canned (STAT_SHIM_MTIME) — the legs
+# below with no shim on PATH cover the host's real stat against a real file.
+mkdir -p "$tmp/statgnu" "$tmp/statbsd"
+cat >"$tmp/statgnu/stat" <<'GNUSTAT'
+#!/bin/sh
+# GNU/busybox stat: -c <fmt> formats; -f is --file-system (fmt becomes a file
+# operand), which dumps to stdout and exits non-zero.
+case ${1:-} in
+  -c)
+    [ "${2:-}" = '%Y' ] || exit 1
+    printf '%s\n' "$STAT_SHIM_MTIME"
+    exit 0
+    ;;
+  -f)
+    echo "stat: cannot read file system information for '${2:-}': No such file or directory" >&2
+    printf '  File: "%s"\n    ID: 94674a6d81261f15 Namelen: 255 Type: overlayfs\nBlock size: 4096\n' "${3:-}"
+    exit 1
+    ;;
+esac
+exit 1
+GNUSTAT
+cat >"$tmp/statbsd/stat" <<'BSDSTAT'
+#!/bin/sh
+# BSD stat: -f <fmt> formats; -c is not an option at all.
+case ${1:-} in
+  -f)
+    [ "${2:-}" = '%m' ] || exit 1
+    printf '%s\n' "$STAT_SHIM_MTIME"
+    exit 0
+    ;;
+  -c)
+    echo "stat: illegal option -- c" >&2
+    echo "usage: stat [-FLnq] [-f format | -l | -r | -s | -x] [-t timefmt] [file ...]" >&2
+    exit 1
+    ;;
+esac
+exit 1
+BSDSTAT
+chmod +x "$tmp/statgnu/stat" "$tmp/statbsd/stat"
+
+home="$tmp/h18"
+rec="$tmp/r18"
+mkdir -p "$rec"
+unknown_req='cccc2222-dddd-eeee-ffff-000011112222'
+
+# lock_leg <name> <path-override|-> <shim-age-secs|-> <touch-stamp|-> <want-rc>
+# Plants a worker dir holding a locked journal, runs one `answer` against it,
+# and asserts the outcome the stale-break decision produces. The shim's mtime
+# is derived from the clock AT CALL TIME (age 0 = fresh, 3600 = well past the
+# 60s threshold): each leg spends ~5s in the lock spin, so a timestamp stamped
+# once at case start would drift across the threshold on a loaded machine and
+# flip the fresh legs.
+lock_leg() {
+  ll_name=$1
+  ll_path=$2
+  ll_age=$3
+  ll_stamp=$4
+  ll_want=$5
+  ll_dir="$home/streamjson/$ll_name"
+  mkdir -p "$ll_dir/journal.lock" || fail "c18/$ll_name: cannot plant the lock"
+  [ "$ll_stamp" = '-' ] || touch -t "$ll_stamp" "$ll_dir/journal.lock" \
+    || fail "c18/$ll_name: cannot age the lock"
+  ll_pre=()
+  [ "$ll_path" = '-' ] || ll_pre+=("PATH=$ll_path:$PATH")
+  [ "$ll_age" = '-' ] || ll_pre+=("STAT_SHIM_MTIME=$(($(date +%s) - ll_age))")
+  senv "$home" "$rec" ${ll_pre[@]+"${ll_pre[@]}"} -- \
+    answer "$ll_name" "$unknown_req" --allow >/dev/null 2>&1
+  ll_rc=$?
+  [ "$ll_rc" = "$ll_want" ] \
+    || fail "c18/$ll_name: expected rc=$ll_want from the stale-break decision, got rc=$ll_rc"
+}
+
+# (a) GNU flavor, lock aged well past the 60s threshold -> broken, `answer`
+#     reaches the not-journaled refusal. THIS is the regression leg: pre-fix
+#     the BSD-first chain concatenates the filesystem dump here.
+lock_leg sjw18a "$tmp/statgnu" 3600 - 3
+# (b) GNU flavor, lock mtime fresh -> NOT broken, reported busy. Proves the
+#     probe's value is actually consumed (a constant would fail this).
+lock_leg sjw18b "$tmp/statgnu" 0 - 2
+# (c) BSD flavor, aged -> broken. The macOS path must not regress when the
+#     probe order flips.
+lock_leg sjw18c "$tmp/statbsd" 3600 - 3
+# (d) BSD flavor, fresh -> busy.
+lock_leg sjw18d "$tmp/statbsd" 0 - 2
+# (e)+(f) NO shim: the host's real stat against a real directory mtime, so
+#     whichever flavor this platform ships is exercised end to end (GNU on the
+#     Linux CI runner, BSD on the macOS floor).
+lock_leg sjw18e - - 202001010000.00 3
+lock_leg sjw18f - - - 2
+echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
+
 echo "all fleet-streamjson tests passed"

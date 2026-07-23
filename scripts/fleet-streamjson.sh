@@ -224,9 +224,31 @@ worker_dir() {
   printf '%s/streamjson/%s' "$wd_root" "$1"
 }
 
-# Portable mtime-in-epoch (BSD stat, then GNU stat).
+# stat_mtime <path> — mtime in epoch seconds, portable across GNU/busybox and
+# BSD stat. BOTH flavors are tried and each result is validated to be a plain
+# integer, because exit status alone does not discriminate between them: on
+# GNU/busybox stat `-f` means --file-system, so the BSD form's format string is
+# consumed as a FILE operand and the call prints a whole filesystem dump on
+# stdout while exiting non-zero. A bare `stat -f … || stat -c …` chain
+# therefore CONCATENATES that dump with the fallback's epoch, and the
+# `$(now - mtime)` below it is then a FATAL error that kills the shell
+# mid-decision (`Illegal number` on Debian/dash, `arithmetic syntax error` on
+# Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
+# failure the BSD-green floor platform never showed. Shape-validating each
+# candidate rather than trusting its exit status makes the probe
+# order-independent and immune to that class. Mirrors fleet-pane-detect.sh's
+# stat_uid, which fixed the same defect on the same reasoning.
+# Returns non-zero when neither flavor yields an integer, so callers fail safe
+# rather than computing an age from garbage.
 stat_mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+  sm_v=$(stat -c '%Y' "$1" 2>/dev/null) || sm_v=''
+  case $sm_v in
+    '' | *[!0-9]*) sm_v=$(stat -f '%m' "$1" 2>/dev/null) || sm_v='' ;;
+  esac
+  case $sm_v in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$sm_v"
 }
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
