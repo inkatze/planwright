@@ -205,7 +205,16 @@ rows below.
   survives the tower, and its session persists and is resumable — session-grade
   **yes**. No mid-flight observe or steer: the tower acts on the completion
   signal plus positive-evidence-of-death liveness, and ambiguity routes to the
-  queue.
+  queue. To dispatch: create the unit's worktree with
+  `scripts/fleet-dispatch-worktree.sh dispatch <spec> <id> --no-attach`, then
+  `scripts/fleet-dispatch-headless.sh launch <spec> <id> --worktree <dir>`
+  with the worker's brief on stdin (passed as data, REQ-A1.9); consume
+  `fleet-dispatch-headless.sh status <spec> <id>` (`completed <rc>` /
+  `running` / `died` / `unknown` / `absent` — death only on the
+  death-evidence predicate's positive verdict) and the unit's captured
+  `result.json`. The one-shot never attaches a permission prompt tool: an
+  unauthorized ask fails under `--print`'s non-interactive default and lands
+  visibly in the result and completion signal — there is no pend path.
 - **`subagent`** (the shipped `dispatch_backend` default). A background worker
   with isolated context and a
   native worktree, whose completion notifies the tower. It is parallel and
@@ -228,13 +237,17 @@ rows below.
   all. This is the substrate of the ladder's synchronous terminal rung: it needs
   no external tool and therefore always works.
 
-The two execution-backends rows ship in the contract and registry ahead of
-their dispatch support (execution-backends Tasks 3–4): until the dispatch rung
-lands, host autodetection reports them absent by default, so the unattended
-pick does not select a rung the tower cannot yet drive. (The
-`PLANWRIGHT_BACKEND_*` presence overrides are a deliberate test/early-adopter
-escape hatch that bypasses this default; forcing one present makes it
-selectable before its dispatch wiring exists.)
+A contract row ships in the contract and registry ahead of its dispatch
+support: until the dispatch rung lands, host autodetection reports it absent
+by default, so the unattended pick does not select a rung the tower cannot
+yet drive. `headless-oneshot`'s dispatch support landed with
+execution-backends Task 3 (`scripts/fleet-dispatch-headless.sh`: detached
+launch, completion signal, positive-evidence-of-death liveness), so its
+presence default is the installed-CLI probe; `stream-json-persistent` still
+defaults absent until its dispatch support lands (execution-backends
+Task 4). (The `PLANWRIGHT_BACKEND_*` presence overrides are a deliberate
+test/early-adopter escape hatch that bypasses these defaults; forcing a row
+present makes it selectable before its dispatch wiring exists.)
 
 ## The pinned degradation ladder
 
@@ -259,8 +272,9 @@ behavior explicitly** (execution-backends REQ-A1.5, D-12), so a future CLI
 default flip cannot silently strip SessionStart hooks and harness surface from
 every headless worker at once. At the verified CLI version there is no
 explicit inverse flag: pinning means **never passing `--bare`** at any worker
-launch site, enforced by the launch-pin guard (whose `-p`-family site coverage
-lands with the dispatch tasks that introduce those launch sites) and per-task
+launch site, enforced by the launch-pin guard (the `-p`-family site scan in
+`tests/test-dispatch-launch-pin.sh`; worker launch sites use the statically
+greppable long `--print` form) and per-task
 re-verification against the running CLI (execution-backends D-4). A future CLI
 that ships an explicit non-bare flag flips the pin to passing that flag at
 every worker launch site. The pin scopes to worker dispatch only: a

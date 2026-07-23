@@ -71,7 +71,7 @@ Selected from `$ARGUMENTS` at pre-flight:
   REQ-E1.2): `--meta --watch` with the attention surface wired in as the default —
   no multiplexer knowledge required.
 
-Flags: `--backend <subagent|tmux|print|in-session>` overrides `dispatch_backend`
+Flags: `--backend <subagent|tmux|headless-oneshot|print|in-session>` overrides `dispatch_backend`
 for this run; `--unattended` selects headless mode (skip confirms, route every
 would-be prompt to Awaiting input), implied for non-interactive sessions.
 
