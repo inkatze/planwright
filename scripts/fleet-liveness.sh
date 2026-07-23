@@ -761,8 +761,8 @@ oracle_scan() {
       cwd = ""
       sid = ""
       st = ""
-      knd = ""
-      nam = ""
+      kind = ""
+      name = ""
       taint = 0
       best = 0
       mode = ENVIRON["PW_ORACLE_KIND"]
