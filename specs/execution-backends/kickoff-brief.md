@@ -231,10 +231,41 @@ dependency-adoption → folded into risk 4). **No undecided catalogued domain re
 | 4 | Task 8 under-builds the dashboard: "smallest sufficient mechanism" pragmatism picks the simplest serving shape and under-delivers the phone/browser away-workflow (operator direction, 2026-07-22). | The brief carries the selection criterion: **best and most useful surface, not simplest** — simplicity acceptable only when it costs no usefulness. Serving/refresh mechanism decided at Task 8 pickup on Task 7's merge-layer shape, recorded in Task 8's PR; a serving choice implying a new runtime dependency escalates per the dependency-adoption domain. Early signal: a Task 8 design note choosing "simplest" without a usefulness argument. |
 | 5 | The verified indefinite-pend deadlock: `--permission-prompt-tool stdio` pends forever if unanswered. | D-5 couples every receipt to an attention-store item plus a pending-age alarm; fixture-covered (REQ-E1.1, including the no-auto-answer assertion). Early signal: the alarm firing. |
 
+**Research appendix — Task 4 execution (2026-07-22, per D-4/risk 2).** Running CLI re-verified
+at v2.1.218 (one patch past the pinned v2.1.217; sources: `claude --help`, live probes):
+SessionStart hooks fire under `-p` (three `system:hook_started` events observed); `system:init`
+carries `session_id`; stream-json in/out works (`--output-format stream-json` requires
+`--verbose` under `--print`); `--resume <session_id>` recovers the session with prior context
+confirmed end-to-end; `--permission-prompt-tool` is no longer listed in `--help` but is still
+parsed (probe error named `--verbose`, not an unknown option) — a documentation regression to
+watch, not a behavior change. Pinned findings hold; no new risk row warranted.
+
 **Open questions:** none carried — every question raised in the walk was resolved into a
 decision (§2, §3), a spec edit (E1–E3, E5), or a risk row above.
 
 Signed off: 2026-07-22
+
+**Research notes — Task 1 execution (appended 2026-07-22, /execute-task).** The risk-row-2
+re-verification against the running CLI (v2.1.217, the pinned research version), performed
+while building the idle oracle:
+
+- `claude agents --json` re-verified live: rows carry `cwd`, `sessionId`, `kind`
+  (`interactive` | `background`), `startedAt`, `name`, optional `pid`, and `status`; all
+  three status values (`busy`, `idle`, `waiting` — the latter with a `waitingFor` detail,
+  e.g. a permission prompt) observed in the live fleet. Defunct background rows carry no
+  `status` (and no `pid`); the oracle treats a status-less row as contributing no evidence.
+- Unknown/future status values contribute no evidence either (forward-compatible: never
+  guessed into busy or idle), and a worker absent from the output is `absent` — no evidence,
+  never death (REQ-F1.1's positive-evidence baseline preserved).
+- The CLI's own `--cwd` flag filters *background* sessions only, so it is not used; the
+  oracle filters client-side over the full row set (tmux workers appear as `interactive`).
+- Probe cost on a loaded host: 2–10 s wall (node CLI cold start under load); the probe is
+  bounded at 10 s by default (`PLANWRIGHT_ORACLE_TIMEOUT` overrides), and a timeout reads as
+  oracle-unavailable → fallback, never a wrong verdict. Oracle probe caching stays declined
+  (re-anchor 3); a per-call probe at reconcile cadence is acceptable at this cost.
+- Session `name` values are free text; the oracle's scanner is string-boundary- and
+  escape-aware, so a name carrying spoofed JSON text can never assign fields
+  (fixture-covered).
 
 ## 8. Sign-off
 
@@ -373,4 +404,17 @@ validation as a new decision. Cites the requirements.md Changelog entry "Panel i
 
 Class: expression-only
 Anchor: `845b132198b19a424f05ae31cad1261da375c026` — computed as
+`scripts/spec-anchor.sh specs/execution-backends`
+
+### Re-anchor 5 — Task 1 execution, test-spec fixture pinning (2026-07-22)
+
+Expression-only self-re-anchor by `/execute-task` (the one anchor entry an execution skill may
+write): test-spec REQ-F1.1 now names `tests/test-fleet-pane-detect.sh` as the home of the
+pane-scrape false-idle fixture (the pane-side half; the liveness suite covers the store-side
+correction and every other REQ-F1.1 clause). Gap-fill consistent with the accepted decisions —
+D-11's demotion puts the pane fixture beside the pane heuristics it gates. Cites the
+requirements.md Changelog entry "Task 1 execution, expression-only: test-spec REQ-F1.1".
+
+Class: expression-only
+Anchor: `d332fc7da182d53e145b9524a72643713f27ab42` — computed as
 `scripts/spec-anchor.sh specs/execution-backends`

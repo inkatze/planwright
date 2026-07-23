@@ -127,7 +127,7 @@ The format is specified in full in
 
 ## Commands
 
-planwright ships ten skills; each is a slash command in Claude Code.
+planwright ships eleven skills; each is a slash command in Claude Code.
 
 | Stage | Command | What it does |
 | --- | --- | --- |
@@ -137,6 +137,7 @@ planwright ships ten skills; each is a slash command in Claude Code.
 | **Execute** | `/orchestrate` | Pick the next ready task, create its worktree, dispatch execution. |
 | | `/execute-task` | Test-first build of one task → full CI → draft PR. |
 | | `/resume` | Load context for a fresh session in an in-flight worktree. |
+| | `/offload` | Place one free-form petition on the smallest sufficient execution rung. |
 | **Converge** | `/self-review` | Discovery + validation review of the branch; opens or updates a draft PR. |
 | | `/polish` | Autonomous review loop that drains every fixable finding, locally. |
 | **Maintain** | `/drain` | Evaluate deferred gate conditions across spec bundles. |
@@ -180,7 +181,7 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
 
 ```text
 .claude-plugin/   plugin + marketplace manifests (the install path)
-skills/           the ten planwright skills (one directory each)
+skills/           the eleven planwright skills (one directory each)
 doctrine/         the framework rule docs
 scripts/          portable-shell entry points (installer, resolver, checks)
 config/           tracked default config

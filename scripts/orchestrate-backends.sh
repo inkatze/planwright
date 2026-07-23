@@ -149,20 +149,23 @@ env_present() {
     yes) return 0 ;;
     no) return 1 ;;
     tmux) command -v tmux >/dev/null 2>&1 ;;
+    claude) command -v claude >/dev/null 2>&1 ;;
   esac
 }
 
-# Is a shipped backend present on this host? The two execution-backends
-# contract rows ship ahead of their dispatch support (Tasks 3-4): they default
-# ABSENT — a rung the tower cannot drive yet must never be selectable — until
-# the dispatch task flips the default to the installed-CLI probe. The env
-# overrides let tests (and an early-adopting host) force presence.
+# Is a shipped backend present on this host? `stream-json-persistent` gained
+# dispatch support (the fleet-streamjson.sh supervisor, execution-backends
+# Task 4), so its default is the installed-CLI probe. `headless-oneshot`
+# still ships ahead of its dispatch support (Task 3): it defaults ABSENT — a
+# rung the tower cannot drive yet must never be selectable — until that task
+# flips its default to the installed-CLI probe. The env overrides let tests
+# (and an early-adopting host) force presence either way.
 is_present() {
   case "$1" in
     in-session | print) return 0 ;;
     subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
     tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
-    stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" no ;;
+    stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" claude ;;
     headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" no ;;
     *) return 1 ;;
   esac
