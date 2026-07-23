@@ -264,11 +264,11 @@ case $w in
   *) fail "7 pw7 row shape: '$w'" ;;
 esac
 rout=$(run "$h7" "$oshim" render) || fail "7 render: non-zero exit"
-case $rout in
-  *pw7*) ;; *) fail "7: render omitted the print worker" ;;
-esac
-case $rout in
-  *"n/a"*) ;; *) fail "7: render shows no visible not-applicable marker" ;;
+# Bind the n/a marker to pw7's own render line (a loose *"n/a"* anywhere would
+# pass on an unrelated scope or detail string).
+pw7line=$(printf '%s\n' "$rout" | grep pw7) || fail "7: render omitted the print worker"
+case $pw7line in
+  *"n/a"*) ;; *) fail "7: pw7's render line shows no not-applicable marker: '$pw7line'" ;;
 esac
 echo "ok: a print-backend unit renders from its dispatch record with an n/a marker"
 
@@ -342,5 +342,201 @@ rc=0
 run "$tmp/h11" "$oshim" merge --bogus >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "11: unknown flag exit $rc, expected 2"
 echo "ok: unknown subcommands and flags are refused"
+
+# ---------------------------------------------------------------------------
+# 12. Registry last-record-wins: a re-registered worker renders its CURRENT
+#     (last) dispatch scope, not the stale first one. An attention scope, when
+#     present, still takes precedence over any registry scope.
+# ---------------------------------------------------------------------------
+h12="$tmp/h12"
+mkdir -p "$h12"
+env PLANWRIGHT_FLEET_STATE_DIR="$h12" /bin/sh "$FS" register w12 spec=old:task-1 >/dev/null \
+  || fail "12: first register failed"
+env PLANWRIGHT_FLEET_STATE_DIR="$h12" /bin/sh "$FS" register w12 spec=new:task-2 >/dev/null \
+  || fail "12: second register failed"
+printf '[]\n' >"$ofix"
+out=$(run "$h12" "$oshim" merge) || fail "12 merge: non-zero exit"
+w=$(merge_line "$out" worker w12)
+case $w in
+  *"${tab}spec=new:task-2${tab}"*) ;;
+  *) fail "12: re-registered worker shows stale/wrong scope: '$w'" ;;
+esac
+# Attention scope wins over registry when both exist.
+mk_attention "$h12" w12 spec=live:task-3 working
+out=$(run "$h12" "$oshim" merge) || fail "12b merge: non-zero exit"
+w=$(merge_line "$out" worker w12)
+case $w in
+  *"${tab}spec=live:task-3${tab}"*) ;;
+  *) fail "12: attention scope did not win over registry: '$w'" ;;
+esac
+case $w in
+  *"${tab}attention,registry${tab}"*) ;;
+  *) fail "12: origins not the fixed attention,registry order: '$w'" ;;
+esac
+echo "ok: registry is last-record-wins; attention scope outranks it"
+
+# ---------------------------------------------------------------------------
+# 13. Degenerate oracle rows: an agents-json object with no sessionId is not a
+#     renderable session — it must not emit a `session - …` line nor inflate
+#     the oracle row count.
+# ---------------------------------------------------------------------------
+h13="$tmp/h13"
+mkdir -p "$h13"
+cat >"$ofix" <<'EOF'
+[
+  {"pid": 1},
+  {"cwd": "/wt/z", "kind": "interactive", "sessionId": "zzzz-9", "name": "zeta", "status": "busy"}
+]
+EOF
+out=$(run "$h13" "$oshim" merge) || fail "13 merge: non-zero exit"
+case $(merge_line "$out" source oracle) in
+  "source${tab}oracle${tab}ok${tab}1-rows") ;;
+  *) fail "13: degenerate object counted in oracle rows: '$(merge_line "$out" source oracle)'" ;;
+esac
+s=$(printf '%s\n' "$out" | awk -F'\t' '$1 == "session" && $2 == "-"')
+[ -z "$s" ] || fail "13: a degenerate all-dash session line was emitted: '$s'"
+s=$(merge_line "$out" session zzzz-9)
+[ -n "$s" ] || fail "13: the real oracle session was dropped"
+echo "ok: a sessionId-less oracle object emits no session line"
+
+# ---------------------------------------------------------------------------
+# 14. Dot-prefixed streamjson runtime dir (`.w` is a grammar-valid handle) is
+#     not silently omitted, and the source is not falsely 'no-runtime-dirs'.
+# ---------------------------------------------------------------------------
+h14="$tmp/h14"
+mk_sj "$h14" .hidden-w
+printf '[]\n' >"$ofix"
+out=$(run "$h14" "$oshim" merge) || fail "14 merge: non-zero exit"
+case $(merge_line "$out" source streamjson) in
+  "source${tab}streamjson${tab}ok${tab}1-workers") ;;
+  *) fail "14: dot-dir worker not counted as a streamjson source: '$(merge_line "$out" source streamjson)'" ;;
+esac
+w=$(merge_line "$out" worker .hidden-w)
+[ -n "$w" ] || fail "14: dot-prefixed runtime dir silently omitted"
+echo "ok: a dot-prefixed runtime dir renders, source not falsely empty"
+
+# ---------------------------------------------------------------------------
+# 15. Matrix cell 110 (attention+streamjson present, oracle ABSENT, distinct
+#     from unavailable): a worker with a persisted sid gets `-` (no evidence),
+#     never `?` (which is reserved for an UNAVAILABLE oracle).
+# ---------------------------------------------------------------------------
+h15="$tmp/h15"
+mk_attention "$h15" w15 spec=th:task-1 working
+mk_sj "$h15" w15 sss-15
+printf '[]\n' >"$ofix"
+out=$(run "$h15" "$oshim" merge) || fail "15 merge: non-zero exit"
+case $(merge_line "$out" source oracle) in
+  "source${tab}oracle${tab}absent$tab"*) ;;
+  *) fail "15: oracle not marked absent" ;;
+esac
+w=$(merge_line "$out" worker w15)
+case $w in
+  *"$tab-") ;; *) fail "15: joinable worker under an ABSENT oracle must be '-', got: '$w'" ;;
+esac
+echo "ok: an absent (vs unavailable) oracle yields '-' not '?' on a joinable worker"
+
+# ---------------------------------------------------------------------------
+# 16. Matrix cell 011 (streamjson+oracle present, attention absent): the sid
+#     join fires with a dashed attention state/age plus the oracle verdict.
+# ---------------------------------------------------------------------------
+h16="$tmp/h16"
+mk_sj "$h16" w16 join-16
+cat >"$ofix" <<'EOF'
+[
+  {"cwd": "/wt/x", "kind": "background", "sessionId": "join-16", "name": "w16", "status": "waiting"}
+]
+EOF
+out=$(run "$h16" "$oshim" merge) || fail "16 merge: non-zero exit"
+w=$(merge_line "$out" worker w16)
+case $w in
+  worker"${tab}w16${tab}-${tab}streamjson${tab}-${tab}-${tab}running${tab}0${tab}waiting") ;;
+  *) fail "16: streamjson+oracle join shape wrong: '$w'" ;;
+esac
+# The joined oracle session must not also appear as an unjoined session line.
+[ -z "$(merge_line "$out" session join-16)" ] || fail "16: joined session leaked as unjoined"
+echo "ok: streamjson+oracle join fires with dashed attention cells"
+
+# ---------------------------------------------------------------------------
+# 17. Unreadable attention store degrades to 'unavailable', distinct from an
+#     absent (missing) store. (Skipped as root, where the mode is ignored.)
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  h17="$tmp/h17"
+  mkdir -p "$h17/attention"
+  printf 'w17\tspec=i:task-1\tworking\t100\t\t\t\t\n' >"$h17/attention/state"
+  chmod 000 "$h17/attention/state"
+  printf '[]\n' >"$ofix"
+  out=$(run "$h17" "$oshim" merge) || fail "17 merge: non-zero exit"
+  chmod 644 "$h17/attention/state" # restore so the trap cleanup can remove it
+  case $(merge_line "$out" source attention) in
+    "source${tab}attention${tab}unavailable$tab"*) ;;
+    *) fail "17: unreadable store not marked unavailable: '$(merge_line "$out" source attention)'" ;;
+  esac
+  echo "ok: an unreadable store is 'unavailable', not 'absent'"
+else
+  echo "ok: (skipped as root) unreadable-store unavailable arm"
+fi
+
+# ---------------------------------------------------------------------------
+# 18. No fleet home ($FS root unresolvable): the three home-backed sources
+#     degrade to 'unavailable no-fleet-home', and the oracle is STILL probed.
+# ---------------------------------------------------------------------------
+# An empty PLANWRIGHT_FLEET_STATE_DIR plus a bare env makes fleet-state.sh root
+# unresolvable (no override, no plugin data, no manifest).
+nohome=$(env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+  -u PLANWRIGHT_ROOT -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+  PLANWRIGHT_FLEET_STATE_DIR="" PLANWRIGHT_ORACLE_CLAUDE="$oshim" \
+  /bin/sh "$ST" merge 2>/dev/null) || fail "18 merge: non-zero exit"
+for src in attention streamjson registry; do
+  case $(merge_line "$nohome" source "$src") in
+    "source$tab$src${tab}unavailable${tab}no-fleet-home") ;;
+    *) fail "18: source $src not unavailable/no-fleet-home: '$(merge_line "$nohome" source "$src")'" ;;
+  esac
+done
+case $(merge_line "$nohome" source oracle) in
+  "source${tab}oracle${tab}"*) ;;
+  *) fail "18: oracle source line missing under no-fleet-home" ;;
+esac
+echo "ok: no fleet home degrades the home-backed sources but still probes the oracle"
+
+# ---------------------------------------------------------------------------
+# 19. render with sources ok but zero workers prints the 'workers: (none)'
+#     line, and an unjoined oracle session renders under the sessions block.
+# ---------------------------------------------------------------------------
+h19="$tmp/h19"
+mkdir -p "$h19"
+cat >"$ofix" <<'EOF'
+[
+  {"cwd": "/wt/s", "kind": "interactive", "sessionId": "solo-19", "name": "solo", "status": "idle"}
+]
+EOF
+rout=$(run "$h19" "$oshim" render) || fail "19 render: non-zero exit"
+case $rout in
+  *"workers: (none)"*) ;; *) fail "19: no 'workers: (none)' line: '$rout'" ;;
+esac
+case $rout in
+  *"sessions (oracle, unjoined):"*solo-19*) ;;
+  *) fail "19: unjoined session block missing solo-19" ;;
+esac
+echo "ok: render shows 'workers: (none)' and the unjoined-session block"
+
+# ---------------------------------------------------------------------------
+# 20. Registry field escapes are sanitized before rendering (the header claims
+#     sanitization for registry fields; only the attention path was covered).
+# ---------------------------------------------------------------------------
+h20="$tmp/h20"
+mkdir -p "$h20"
+# Bypass fleet-state's write-time validation by hand-writing the registry file
+# (a corrupted-on-disk record): the reader must still sanitize on the way out.
+printf '100\tr20\tspec=%s[31mzz\n' "$esc" >"$h20/registry"
+printf '[]\n' >"$ofix"
+rout=$(run "$h20" "$oshim" render) || fail "20 render: non-zero exit"
+case $rout in
+  *"$esc"*) fail "20: raw ESC from a registry field reached render output" ;;
+esac
+case $rout in
+  *r20*) ;; *) fail "20: sanitized registry worker missing from render" ;;
+esac
+echo "ok: registry fields pass the echo-safety sanitizer before rendering"
 
 echo "ALL PASS: fleet-status.sh"

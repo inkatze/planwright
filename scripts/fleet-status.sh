@@ -23,14 +23,15 @@
 # is the human table over that same stream. Nothing else reads the sources.
 #
 # GRACEFUL PER-SOURCE DEGRADE (REQ-D1.1). Every merge emission starts with
-# one `source` line per source — ok, absent (the surface does not exist:
-# no store, no runtime dirs, zero oracle rows, no records), or unavailable
-# (the surface cannot be read: unreadable store, missing sibling script,
-# failed/timed-out/unparseable oracle probe). A missing source is marked,
-# never silently omitted; worker cells it would have filled render `-`
-# (or `?` for a joinable worker under an unavailable oracle — degraded
-# evidence, never an invented verdict). An unresolvable fleet home degrades
-# the three home-backed sources to unavailable and still probes the oracle.
+# one `source` line per source — ok, absent (the surface has nothing to
+# show: no store or an empty one, no runtime dirs, zero oracle rows, no
+# records), or unavailable (the surface cannot be read: unreadable store, a
+# read that failed, a missing sibling script, a failed/timed-out/unparseable
+# oracle probe). A missing source is marked, never silently omitted; worker
+# cells it would have filled render `-` (or `?` for a joinable worker under
+# an unavailable oracle — degraded evidence, never an invented verdict). An
+# unresolvable fleet home degrades the three home-backed sources to
+# unavailable and still probes the oracle.
 #
 # MERGE STREAM (tab-separated; the Task 8 contract):
 #   source <name> <ok|absent|unavailable> <detail>
@@ -146,7 +147,17 @@ read_attention() {
     ra_age="?"
     case $ra_ts in
       "" | *[!0-9]* | 0?*) ;; # leading-zero ts would read as octal; degrade
-      *) [ -n "$ra_now" ] && ra_age=$((ra_now - ra_ts)) ;;
+      ???????????*) ;;        # >10 digits: an epoch second never needs 11 — a
+      # corrupted oversized ts would overflow the arithmetic to a garbage
+      # (often negative) age; degrade to "?" instead.
+      *)
+        if [ -n "$ra_now" ]; then
+          ra_age=$((ra_now - ra_ts))
+          # A future ts (clock skew, corruption) yields a negative age that
+          # reads as a real number; degrade rather than print `working(-5s)`.
+          [ "$ra_age" -ge 0 ] || ra_age="?"
+        fi
+        ;;
     esac
     printf '%s\t%s\t%s\t%s\n' "$ra_w" \
       "$(sanitize_printable "$ra_scope" "-")" \
@@ -176,12 +187,23 @@ read_streamjson() {
     return 0
   fi
   rs_n=0
+  rs_seen=0
   # The one intentional glob in this script: enumerate worker runtime dirs
-  # (pathname expansion is otherwise disabled by set -f).
+  # (pathname expansion is otherwise disabled by set -f). Both globs run so a
+  # dot-prefixed handle (`.w1` is grammar-valid — valid_field refuses only
+  # `.`/`..`) is not silently omitted; a non-matching glob stays literal and
+  # the `[ -d ]` guard drops it.
   set +f
-  for rs_dir in "$rs_root/streamjson"/*; do
+  for rs_dir in "$rs_root/streamjson"/* "$rs_root/streamjson"/.*; do
     [ -d "$rs_dir" ] || continue
     rs_w=${rs_dir##*/}
+    # `.` and `.*` both match the dir's own `.`/`..` entries; valid_field
+    # refuses them (and any out-of-grammar name — a runtime-dir name is used
+    # as a path segment for the `$SJ status` probe, so it must be validated).
+    case $rs_w in
+      . | ..) continue ;;
+    esac
+    rs_seen=$((rs_seen + 1))
     valid_field "$rs_w" || continue
     # Consume the sibling's status surface, never re-derive it (the Task 9
     # discipline). Line shape: `status <worker> <verdict> <detail>`.
@@ -204,10 +226,15 @@ read_streamjson() {
     rs_n=$((rs_n + 1))
   done
   set -f
-  if [ "$rs_n" -eq 0 ]; then
-    printf 'source\tstreamjson\tabsent\tno-runtime-dirs\n' >>"$WS/sources"
-  else
+  if [ "$rs_n" -gt 0 ]; then
     printf 'source\tstreamjson\tok\t%s-workers\n' "$rs_n" >>"$WS/sources"
+  elif [ "$rs_seen" -gt 0 ]; then
+    # Dirs exist but none yielded a renderable worker (all out-of-grammar
+    # names): mark the surface present-but-degraded, never the false
+    # "no-runtime-dirs" that reads as an empty surface.
+    printf 'source\tstreamjson\tabsent\t%s-unusable-dirs\n' "$rs_seen" >>"$WS/sources"
+  else
+    printf 'source\tstreamjson\tabsent\tno-runtime-dirs\n' >>"$WS/sources"
   fi
 }
 
@@ -258,8 +285,13 @@ read_registry() {
   fi
   rr_n=0
   # Registry rows: ts worker scope (an append log; the last record for a
-  # worker is its current dispatch record).
-  /bin/sh "$FS" registry 2>/dev/null >"$WS/reg.raw" || : >"$WS/reg.raw"
+  # worker is its current dispatch record). A read FAILURE (nonzero exit) is
+  # distinct from an empty registry: mark it unavailable rather than
+  # conflating "cannot read" with "no records" (the degrade taxonomy).
+  if ! /bin/sh "$FS" registry >"$WS/reg.raw" 2>/dev/null; then
+    printf 'source\tregistry\tunavailable\tread-failed\n' >>"$WS/sources"
+    return 0
+  fi
   while IFS="$TAB" read -r _ rr_w rr_scope || [ -n "$rr_w" ]; do
     [ -n "$rr_w" ] || continue
     # Sanitize-and-render (validated at write by fleet-state.sh; a corrupted
@@ -289,14 +321,24 @@ emit_merge() {
   read_streamjson "$em_root"
   read_oracle
   read_registry "$em_root"
-  cat "$WS/sources"
+  cat "$WS/sources" || return 2
   # Worker rows: the union of attention, streamjson, and registry, oracle
   # evidence joined by the persisted session id. Origins keep a fixed order
-  # so the column is comparable across rows.
+  # so the column is comparable across rows. Each awk writes to a temp first
+  # so its exit status is checked (a bare `awk | sort` reports only sort's
+  # status, silently emitting a truncated stream on an awk failure — the
+  # fail-closed contract, and it matters most for the machine `merge` stream
+  # a consumer cannot tell truncated from small-fleet).
   awk -F'\t' -v ostate="$ORACLE_STATE" '
+    # busy outranks waiting outranks idle (unknown/absent = 0), matching the
+    # keyed `oracle` probe, so a duplicate sid resolves to the same verdict
+    # both consumers report.
+    function orank(v) {
+      return (v == "busy") ? 3 : (v == "waiting") ? 2 : (v == "idle") ? 1 : 0
+    }
     FILENAME ~ /attn\.tsv$/ {
       seen[$1] = 1; a[$1] = 1
-      scope[$1] = $2; astate[$1] = $3; aage[$1] = $4
+      ascope[$1] = $2; astate[$1] = $3; aage[$1] = $4
       next
     }
     FILENAME ~ /sj\.tsv$/ {
@@ -307,11 +349,14 @@ emit_merge() {
     }
     FILENAME ~ /reg\.tsv$/ {
       seen[$1] = 1; r[$1] = 1
-      if (!($1 in scope) || scope[$1] == "-") scope[$1] = $2
+      # Registry is an append log in commit order; the LAST record for a
+      # worker is its current dispatch, so overwrite unconditionally. The
+      # END resolution lets an attention scope take precedence over it.
+      rscope[$1] = $2
       next
     }
     FILENAME ~ /oracle\.tsv$/ {
-      if ($1 != "-") ost[$1] = $2
+      if ($1 != "-" && (!($1 in ost) || orank($2) > orank(ost[$1]))) ost[$1] = $2
       next
     }
     END {
@@ -320,20 +365,26 @@ emit_merge() {
         if (a[w]) o = "attention"
         if (s[w]) o = o (o == "" ? "" : ",") "streamjson"
         if (r[w]) o = o (o == "" ? "" : ",") "registry"
+        # Scope: the live attention scope wins when usable; else the last
+        # registry (dispatch-record) scope; else unknown.
+        sc = "-"
+        if ((w in ascope) && ascope[w] != "-" && ascope[w] != "") sc = ascope[w]
+        else if ((w in rscope) && rscope[w] != "-" && rscope[w] != "") sc = rscope[w]
         oc = "-"
         if (w in sid) {
           if (sid[w] in ost) oc = ost[sid[w]]
           else if (ostate == "unavailable") oc = "?"
         }
         printf "worker\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", w, \
-          (scope[w] == "" ? "-" : scope[w]), o, \
+          sc, o, \
           (astate[w] == "" ? "-" : astate[w]), \
           (aage[w] == "" ? "-" : aage[w]), \
           (sjst[w] == "" ? "-" : sjst[w]), \
           (s[w] ? sjp[w] : "-"), oc
       }
     }
-  ' "$WS/attn.tsv" "$WS/sj.tsv" "$WS/reg.tsv" "$WS/oracle.tsv" | sort
+  ' "$WS/attn.tsv" "$WS/sj.tsv" "$WS/reg.tsv" "$WS/oracle.tsv" >"$WS/workers.raw" || return 2
+  sort "$WS/workers.raw" || return 2
   # Session rows: oracle sessions no worker claims — visible, never dropped,
   # never invented into workers.
   awk -F'\t' '
@@ -346,7 +397,8 @@ emit_merge() {
         printf "session\t%s\t%s\t%s\t%s\t%s\n", $1, $2, $3, $4, $5
       }
     }
-  ' "$WS/sj.tsv" "$WS/oracle.tsv" | sort
+  ' "$WS/sj.tsv" "$WS/oracle.tsv" >"$WS/sessions.raw" || return 2
+  sort "$WS/sessions.raw" || return 2
 }
 
 # --- the human table --------------------------------------------------------
@@ -422,7 +474,7 @@ trap 'rm -rf "$WS"; exit 130' INT
 trap 'rm -rf "$WS"; exit 143' TERM
 
 case $cmd in
-  merge) emit_merge ;;
-  render) render ;;
+  merge) emit_merge || exit 2 ;;
+  render) render || exit 2 ;;
   *) usage ;;
 esac

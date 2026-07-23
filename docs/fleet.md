@@ -37,7 +37,7 @@ command does three things, and asks before the one choice that is yours:
    launching a subordinate tower per spec, each dispatching workers into
    isolated worktrees, all under the fleet concurrency bound.
 3. **Renders the attention surface**: the decision queue plus a per-worker
-   status view, re-rendered as the fleet advances.
+   heartbeat view, re-rendered as the fleet advances.
 
 ## The two seams
 
@@ -77,8 +77,8 @@ scripts/fleet-attention.sh render   # per-worker scope + state
 
 Per-worker scope stays legible without any multiplexer: each worker owns
 exactly one spec/unit in its own worktree with isolated context, and the
-status view names each worker's scope and state — the same clear-scopes model
-a tmux power user gets from named windows, with no attaching.
+attention render names each worker's scope and state — the same clear-scopes
+model a tmux power user gets from named windows, with no attaching.
 
 ## The backend-agnostic status view
 
