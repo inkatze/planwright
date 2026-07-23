@@ -1697,4 +1697,53 @@ out=$(orun "$home47" "$oshim" oracle --cwd /wt/other) || fail "47 real row: non-
 [ "$out" = busy ] || fail "47 real row: got '$out', expected busy (the real fields still parse)"
 echo "ok: a spoofed session name is data, never honored as fields"
 
+# ---------------------------------------------------------------------------
+# 48. execution-backends Task 7 (D-10, REQ-D1.1) — `oracle --list` prints one
+#     row per untainted session (sessionId, status, kind, name, cwd; empty
+#     fields dashed) through the same hardened scanner, so the status view
+#     never grows a second agents-json parser. Tainted rows drop whole;
+#     malformed input and a failed probe read unavailable (exit 1); a join
+#     key combined with --list is a usage error.
+# ---------------------------------------------------------------------------
+cat >"$ofix" <<'EOF'
+[
+  {"pid": 100, "id": "a1", "cwd": "/wt/alpha", "kind": "interactive", "startedAt": 1, "sessionId": "aaaa-1111", "name": "alpha-1", "status": "busy"},
+  {"id": "d1", "cwd": "/wt/delta", "kind": "background", "startedAt": 4, "sessionId": "dddd-4444", "name": "defunct"},
+  {"pid": 102, "cwd": "/wt/evil", "kind": "interactive", "sessionId": "ee-5", "name": "bad\tname", "status": "idle"},
+  {"pid": 103, "cwd": "/wt/omega", "kind": "background", "sessionId": "ffff-6666", "name": "omega-1", "status": "idle"}
+]
+EOF
+home48="$tmp/h48"
+out=$(orun "$home48" "$oshim" oracle --list) || fail "48 list: non-zero exit"
+[ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 3 ] \
+  || fail "48 list: expected 3 rows (the tainted row must drop whole), got: $out"
+row1=$(printf '%s\n' "$out" | sed -n 1p)
+[ "$row1" = "row${tab}aaaa-1111${tab}busy${tab}interactive${tab}alpha-1${tab}/wt/alpha" ] \
+  || fail "48 row 1 shape: '$row1'"
+row2=$(printf '%s\n' "$out" | sed -n 2p)
+[ "$row2" = "row${tab}dddd-4444${tab}-${tab}background${tab}defunct${tab}/wt/delta" ] \
+  || fail "48 row 2 (status-less defunct) shape: '$row2'"
+case $out in
+  *ee-5*) fail "48: tainted row (non-sanctioned escape in name) leaked: $out" ;;
+esac
+# Empty array: exit 0, zero rows (the caller's absent arm).
+printf '[]\n' >"$ofix"
+out=$(orun "$home48" "$oshim" oracle --list) || fail "48 empty: non-zero exit"
+[ -z "$out" ] || fail "48 empty: expected no rows, got '$out'"
+# Malformed input reads unavailable, never partial rows.
+printf '[{"sessionId": "x"\n' >"$ofix"
+rc=0
+out=$(orun "$home48" "$oshim" oracle --list 2>/dev/null) || rc=$?
+[ "$rc" = 1 ] || fail "48 malformed: exit $rc, expected 1"
+[ -z "$out" ] || fail "48 malformed: rows leaked: '$out'"
+# A failed probe reads unavailable.
+rc=0
+orun "$home48" "$failshim" oracle --list >/dev/null 2>&1 || rc=$?
+[ "$rc" = 1 ] || fail "48 failed probe: exit $rc, expected 1"
+# --list is exclusive with the join keys.
+rc=0
+orun "$home48" "$oshim" oracle --list --cwd /wt/alpha >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "48 --list + join key: exit $rc, expected 2"
+echo "ok: oracle --list rows through the hardened scanner (taint drops, unavailable arms)"
+
 echo "ALL PASS: fleet-liveness.sh"

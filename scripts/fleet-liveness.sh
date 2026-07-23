@@ -193,7 +193,7 @@
 #       observe-command / tower-inline; print is human-run and contract-exempt
 #       from liveness) remains the mechanism — the REQ-A1.1 graceful fallback,
 #       kickoff risk row 16. A backend the contract cannot resolve: exit 2.
-#   fleet-liveness.sh oracle (--cwd <abs-path> | --session <id>)
+#   fleet-liveness.sh oracle (--cwd <abs-path> | --session <id> | --list)
 #       Probe the agents-json idle oracle for the session(s) matching the join
 #       key (exactly one key, given once; a cwd key is resolved to its
 #       physical path first). Prints busy|waiting|idle (exit 0, evidence; busy
@@ -202,7 +202,12 @@
 #       (missing binary, non-zero probe, timeout, or unparseable output — the
 #       probe's last stderr line is surfaced sanitized for diagnosis) — fall
 #       back to the backend's liveness mechanism. Exit 2: usage / refused
-#       input.
+#       input. `--list` (execution-backends Task 7, D-10; exclusive with the
+#       join keys) prints every untainted session row instead of a keyed
+#       verdict — `row<TAB>sessionId<TAB>status<TAB>kind<TAB>name<TAB>cwd`,
+#       empty fields dashed, zero rows on an empty fleet (exit 0) — so the
+#       backend-agnostic status view reads the fleet through this one
+#       hardened scanner rather than growing a second agents-json parser.
 #   fleet-liveness.sh classify <worker> <scope> [--now <epoch>]
 #       [--heartbeat <epoch>] [--progress <token>]
 #       [--evidence <class> <args...>]
@@ -756,10 +761,17 @@ oracle_scan() {
       cwd = ""
       sid = ""
       st = ""
+      knd = ""
+      nam = ""
       taint = 0
       best = 0
       kind = ENVIRON["PW_ORACLE_KIND"]
       val = ENVIRON["PW_ORACLE_VAL"]
+      # list mode (execution-backends Task 7, D-10): print every untainted
+      # row instead of ranking a join-key verdict, so the status view reads
+      # the fleet through this one hardened scanner rather than growing a
+      # second agents-json parser.
+      listing = (kind == "list")
     }
     {
       if (!ok) next
@@ -790,6 +802,8 @@ oracle_scan() {
                 if (lk == "cwd") cwd = str
                 else if (lk == "sessionId") sid = str
                 else if (lk == "status") st = str
+                else if (lk == "kind") knd = str
+                else if (lk == "name") nam = str
                 expect = ""
               } else pk = str
             }
@@ -822,7 +836,7 @@ oracle_scan() {
           depth++
           types[depth] = "o"
           if (depth == 2) {
-            cwd = ""; sid = ""; st = ""; taint = 0
+            cwd = ""; sid = ""; st = ""; knd = ""; nam = ""; taint = 0
             expect = ""; pk = ""; lk = ""
           } else if (expect == "value") expect = ""
           i++
@@ -831,12 +845,23 @@ oracle_scan() {
         if (c == "}") {
           if (depth < 1 || types[depth] != "o") { ok = 0; break }
           if (depth == 2 && !taint) {
-            if (kind == "cwd") m = ((cwd "") == (val ""))
-            else m = ((sid "") == (val ""))
-            if (m) {
-              if (st == "busy" && best < 3) best = 3
-              else if (st == "waiting" && best < 2) best = 2
-              else if (st == "idle" && best < 1) best = 1
+            if (listing) {
+              # Untainted captures carry no tab or control byte (the taint
+              # rule drops those rows whole), so tab-separated fields cannot
+              # be forged from row content. Empty fields dash so consumers
+              # keep a fixed column count.
+              printf "row\t%s\t%s\t%s\t%s\t%s\n", \
+                (sid == "" ? "-" : sid), (st == "" ? "-" : st), \
+                (knd == "" ? "-" : knd), (nam == "" ? "-" : nam), \
+                (cwd == "" ? "-" : cwd)
+            } else {
+              if (kind == "cwd") m = ((cwd "") == (val ""))
+              else m = ((sid "") == (val ""))
+              if (m) {
+                if (st == "busy" && best < 3) best = 3
+                else if (st == "waiting" && best < 2) best = 2
+                else if (st == "idle" && best < 1) best = 1
+              }
             }
           }
           depth--
@@ -925,6 +950,12 @@ oracle_probe() {
     return 1
   }
   oracle_cleanup
+  if [ "$op_kind" = list ]; then
+    # List mode: zero rows is a successful empty fleet (the caller's absent
+    # arm), never the keyed probe's no-evidence exit 3.
+    [ -z "$op_best" ] || printf '%s\n' "$op_best"
+    return 0
+  fi
   [ -n "$op_best" ] || return 3
   printf '%s\n' "$op_best"
 }
@@ -1320,6 +1351,16 @@ case "$cmd" in
           o_val=$2
           shift 2
           ;;
+        --list)
+          # The status view's full-row read (execution-backends Task 7, D-10):
+          # exclusive with the join keys — a list is not a keyed probe.
+          if [ -n "$o_kind" ]; then
+            echo "fleet-liveness: --list is exclusive with the join keys (--cwd | --session)" >&2
+            exit 2
+          fi
+          o_kind=list
+          shift
+          ;;
         *)
           echo "fleet-liveness: unknown oracle option '$(sanitize_printable "$1" "(unprintable option)")'" >&2
           exit 2
@@ -1327,13 +1368,19 @@ case "$cmd" in
       esac
     done
     if [ -z "$o_kind" ]; then
-      echo "usage: fleet-liveness.sh oracle (--cwd <abs-path> | --session <id>)" >&2
+      echo "usage: fleet-liveness.sh oracle (--cwd <abs-path> | --session <id> | --list)" >&2
       exit 2
     fi
     o_rc=0
     o_v=$(oracle_probe "$o_kind" "$o_val") || o_rc=$?
     case $o_rc in
       0)
+        # In list mode an empty fleet is a successful zero-row listing; do
+        # not emit a blank line for it.
+        if [ "$o_kind" = list ]; then
+          [ -z "$o_v" ] || printf '%s\n' "$o_v"
+          exit 0
+        fi
         printf '%s\n' "$o_v"
         exit 0
         ;;

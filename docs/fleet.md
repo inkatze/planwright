@@ -80,6 +80,40 @@ exactly one spec/unit in its own worktree with isolated context, and the
 status view names each worker's scope and state — the same clear-scopes model
 a tmux power user gets from named windows, with no attaching.
 
+## The backend-agnostic status view
+
+`fleet-attention.sh render` shows what workers have *pushed*. The wider view —
+every in-flight worker regardless of backend, including ones that never
+heartbeat — is `fleet-status.sh`:
+
+```sh
+scripts/fleet-status.sh render   # the merged per-worker table
+scripts/fleet-status.sh merge    # the same data, machine-readable (TSV)
+```
+
+It merges three runtime sources plus the dispatch record, each consumed
+through the surface that already owns it, never re-read a second way:
+
+| Source | Read through | Contributes |
+| --- | --- | --- |
+| Attention store | the store fleet-attention.sh maintains | scope, pushed state, age |
+| Stream-json capture | `fleet-streamjson.sh status` + the per-worker runtime dir | supervisor liveness, pending-request count, the session-id join key |
+| `claude agents --json` | `fleet-liveness.sh oracle --list` (the hardened scanner) | busy / waiting / idle per session |
+| Dispatch records | `fleet-state.sh registry` | workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
+
+Every render starts with a per-source availability line
+(`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and
+the cells it would have filled read `-` (or `?` for a joinable worker when the
+oracle probe failed) — degraded visibly, never an invented verdict. Oracle
+sessions no worker claims are listed separately as unjoined sessions: visible,
+but never invented into workers (an interactive session is usually an
+operator, not a worker). Worker-authored strings (session names, store
+fields) pass the echo-safety sanitizer before they reach your terminal.
+
+The `merge` stream is the seam the planned rendered dashboard (Task 8 of the
+execution-backends spec) builds on: one source-reading implementation, two
+renderers.
+
 ## The multiplexer as background plumbing
 
 If a multiplexer (tmux) is the selected execution backend, it does **not**
