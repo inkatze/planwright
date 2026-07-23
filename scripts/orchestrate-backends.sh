@@ -38,16 +38,22 @@
 #       diagnostic (REQ-A1.7, never a silent absence). A pluggable arg naming a
 #       shipped backend, or a hostile/invalid name, is skipped.
 #
-#   select-unattended <configured>
-#       Print the backend the tower should use with NO human to ask: the
-#       configured backend when it is present AND unattended-eligible
-#       (advertised interactive=false AND session_grade!=deferred), else DEGRADE
-#       down the shipped autonomous chain (subagent -> in-session, the
-#       always-present terminal rung). It NEVER selects an interactive backend
-#       (REQ-B1.4) and never the manual `print` rung. A degrade prints a NOTE to
-#       stderr and still exits 0 with the selection on stdout. Runtime failover,
-#       the full richest-to-safest ladder, and the degrade-capability-never-
-#       safety abort are Task 3; this is the selection-time autonomous pick only.
+#   select-unattended [--tmux-candidate] <configured>
+#       Print the dispatch-time backend pick (execution-backends Task 5; D-8,
+#       REQ-B1.1, REQ-B1.4, REQ-B1.5). The SEMANTIC value `full-session`
+#       resolves to the richest PRESENT non-interactive session-grade rung via
+#       the pinned ladder (REQ-A1.8: stream-json-persistent >
+#       headless-oneshot), degrading past the session-grade rungs to subagent
+#       then the always-present in-session terminal rung (a NOTE on stderr,
+#       exit 0); tmux joins the candidate set only under --tmux-candidate (the
+#       operator's tmux-context answer, passed by the config resolver), and the
+#       manual `print` rung is never a candidate. An EXPLICIT LITERAL is
+#       honored-or-halted: present, it is printed verbatim (interactive and
+#       manual included — explicit config is the operator's standing answer,
+#       never a silent pick); not advertised on the host, exit 6 with the
+#       missing backend named on stderr and nothing on stdout (dispatch-time
+#       ladders apply to semantic values only). Runtime failover stays
+#       orchestrate-degrade.sh's logged one-rung descent.
 #
 #   present
 #       Read detect-format TSV rows on stdin and render the TWO-SEAM
@@ -72,11 +78,12 @@
 # the anchored identifier charset before it is ever spliced into the
 # `planwright-backend-<name>` command, so a hostile name is refused, never run.
 #
-# Exit codes: 0 success (including every degrade — an absent, malformed, or
-# ineligible configured backend degrades to a shipped rung and still exits 0);
-# 2 usage error (no/unknown subcommand, or a select-unattended configured
-# argument that is empty or fails the identifier charset). No subcommand
-# mutates any file.
+# Exit codes: 0 success (including a full-session degrade past the
+# session-grade rungs); 2 usage error (no/unknown subcommand, or a
+# select-unattended configured argument that is empty or fails the identifier
+# charset); 6 fail-closed halt (an explicitly configured literal not
+# advertised on the host, REQ-B1.5 — the caller parks the dispatch to
+# Awaiting input). No subcommand mutates any file.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, no gawk
 # extensions, input treated as data only (REQ-K1.5).
@@ -350,54 +357,80 @@ cmd_detect() {
 }
 
 cmd_select_unattended() {
-  # Exactly one positional: the configured backend name. Reject missing OR extra
-  # args fail-closed (exit 2) rather than silently ignoring trailing args, so a
-  # caller's mistake surfaces instead of being masked. `${1-}` keeps set -u happy
-  # for the single-empty-arg case below.
+  # Usage: select-unattended [--tmux-candidate] <configured>. The flag is the
+  # operator's tmux-context answer (execution-backends D-8): it adds tmux to
+  # the FULL-SESSION candidate set only — it never rescues an explicit literal
+  # and never widens anything else. Exactly one positional after the flag;
+  # missing OR extra args fail closed (exit 2) rather than being silently
+  # ignored, so a caller's mistake surfaces instead of being masked.
+  su_tmux_candidate=0
+  if [ "${1-}" = "--tmux-candidate" ]; then
+    su_tmux_candidate=1
+    shift
+  fi
   if [ "$#" -ne 1 ]; then
-    echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2
+    echo "usage: orchestrate-backends.sh select-unattended [--tmux-candidate] <configured>" >&2
     return 2
   fi
   configured=${1-}
   if [ -z "$configured" ]; then
-    echo "usage: orchestrate-backends.sh select-unattended <configured>" >&2
+    echo "usage: orchestrate-backends.sh select-unattended [--tmux-candidate] <configured>" >&2
     return 2
   fi
-  # A pluggable configured name must be a valid identifier before it reaches the
-  # adapter command; a hostile name is a usage error, not a silent degrade.
+
+  # The `full-session` SEMANTIC value (execution-backends D-8, REQ-B1.1,
+  # REQ-B1.4): resolve to the richest PRESENT non-interactive session-grade
+  # rung via the pinned ladder ordering (REQ-A1.8) — tmux only when the
+  # operator's tmux-context answer admitted it as a candidate — degrading past
+  # the session-grade rungs to today's behavior (subagent, then the
+  # always-present in-session terminal rung). Never the manual `print` rung,
+  # and never a silently-chosen interactive backend: without the flag the
+  # interactive rung is simply not a candidate. Runtime failover stays a
+  # separate mechanism (orchestrate-degrade.sh's logged one-rung descent).
+  if [ "$configured" = full-session ]; then
+    if [ "$su_tmux_candidate" -eq 1 ] && is_present tmux; then
+      printf '%s\n' tmux
+      return 0
+    fi
+    for rung in stream-json-persistent headless-oneshot; do
+      if is_present "$rung"; then
+        printf '%s\n' "$rung"
+        return 0
+      fi
+    done
+    for rung in subagent in-session; do
+      if is_present "$rung"; then
+        echo "NOTE: no session-grade backend is advertised on this host; 'full-session' degraded to '$rung' (capability, never safety)." >&2
+        printf '%s\n' "$rung"
+        return 0
+      fi
+    done
+    # in-session is always present, so this is an unreachable fail-closed guard.
+    echo "orchestrate-backends: no eligible backend (the in-session terminal rung was unavailable)" >&2
+    return 1
+  fi
+
+  # An EXPLICIT LITERAL (shipped or pluggable). A pluggable configured name
+  # must be a valid identifier before it reaches the adapter command; a hostile
+  # name is a usage error, not a silent degrade.
   if ! is_known "$configured" && ! valid_name "$configured"; then
     printf '%s\n' "orchestrate-backends: invalid backend name: $(sanitize_printable "$configured" "(unprintable name)")" >&2
     return 2
   fi
 
-  # 1. The configured backend, when present and autonomously selectable, wins.
-  if caps=$(resolve_caps "$configured") && eligible "$caps"; then
+  # Honored-or-halted (REQ-B1.5): an explicit literal is the operator's
+  # standing answer — present, it is honored verbatim (interactive and manual
+  # rungs included; an explicit pick is never a *silent* one); not advertised
+  # on the host, it FAILS CLOSED with the missing backend named, never a
+  # substitute. Dispatch-time degradation ladders apply to semantic values
+  # only, a declared narrowing of orchestration-fleet REQ-B1.4's
+  # degrade-on-absence clause.
+  if resolve_caps "$configured" >/dev/null; then
     printf '%s\n' "$configured"
     return 0
   fi
-
-  # 2. Degrade down the shipped autonomous chain: subagent, then the always-
-  #    present in-session terminal rung. Never interactive, never manual `print`.
-  #    Deliberately NOT the full pinned five-way ladder: walking the
-  #    stream-json-persistent / headless-oneshot rungs here is the
-  #    degradation-ladder wiring that lands with the `full-session` resolver
-  #    (execution-backends Task 5), so in THIS selection chain a forced-present
-  #    new rung is picked only when explicitly configured — never as a
-  #    selection-time degrade target. (Runtime failover is a separate
-  #    mechanism: orchestrate-degrade.sh's presence probe may still descend to
-  #    a forced-present rung mid-run.)
-  for rung in subagent in-session; do
-    if caps=$(resolve_caps "$rung") && eligible "$caps"; then
-      echo "NOTE: unattended backend '$configured' is unavailable or not autonomously selectable; degraded to '$rung' (never an interactive backend)." >&2
-      printf '%s\n' "$rung"
-      return 0
-    fi
-  done
-
-  # in-session is always present and eligible, so the loop always returns; this
-  # is an unreachable fail-closed guard.
-  echo "orchestrate-backends: no eligible backend (the in-session terminal rung was unavailable)" >&2
-  return 1
+  printf '%s\n' "orchestrate-backends: configured backend '$configured' is not advertised on this host; halting fail-closed (REQ-B1.5) — never a silent substitute. Remedy: install/enable the backend or change dispatch_backend." >&2
+  return 6
 }
 
 # Render one backend's presentation block from its validated nine fields.
@@ -565,7 +598,7 @@ case "$sub" in
   present) cmd_present "$@" ;;
   caps) cmd_caps "$@" ;;
   '' | help | -h | --help)
-    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended <configured> | present | caps <backend>}" >&2
+    echo "usage: orchestrate-backends.sh {detect [pluggable-name...] | select-unattended [--tmux-candidate] <configured> | present | caps <backend>}" >&2
     exit 2
     ;;
   *)

@@ -71,8 +71,8 @@ Selected from `$ARGUMENTS` at pre-flight:
   REQ-E1.2): `--meta --watch` with the attention surface wired in as the default —
   no multiplexer knowledge required.
 
-Flags: `--backend <subagent|tmux|print|in-session>` overrides `dispatch_backend`
-for this run; `--unattended` selects headless mode (skip confirms, route every
+Flags: `--backend <name|full-session>` overrides `dispatch_backend` for this
+run; `--unattended` selects headless mode (skip confirms, route every
 would-be prompt to Awaiting input), implied for non-interactive sessions.
 
 ## Pre-flight (per step)
@@ -235,22 +235,25 @@ contract](../../doctrine/backend-capability-contract.md) (D-2) defines how the
 tower adapts to what's advertised, not the backend name (per-backend guidance
 below is still name-keyed).
 
-**Backend selection** (REQ-B1.4, D-3). Never silently pick one. Resolve in order:
+**Backend selection** (REQ-B1.4, D-3; execution-backends D-8, D-9,
+REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
 
-- **Explicit `--backend <b>`** — use it as given, not a silent pick.
-- **Attended, no flag** — autodetect what is present and advertised, then
-  **present and ask**, never auto-select (REQ-B1.4):
-  `scripts/orchestrate-backends.sh detect | scripts/orchestrate-backends.sh
-  present` (D-9, D-12). A pluggable backend joins the presented set as a trailing
-  `planwright-backend-<name>` argument to `detect`.
-- **Unattended (`--unattended` / headless)** — no one to ask: run
-  `scripts/orchestrate-backends.sh select-unattended "$(scripts/config-get.sh
-  dispatch_backend)"` and use what it prints. It picks the configured backend when
-  present and autonomously selectable, else **degrades** down the ladder (to
-  `subagent`, then the always-present `in-session` rung), **never** to an
-  interactive backend or the manual `print` rung — a `NOTE:` on stderr, log it, not
-  a halt. **Runtime failover** (a chosen backend dying mid-run) is the ladder's
-  other end (read `orchestration-modes`): it descends only to a guard-preserving
+- **Explicit `--backend <b>`** — use it as given.
+- **Otherwise** — `scripts/resolve-dispatch-backend.sh resolve specs/<spec>`
+  (attended: add `--attended --session <token>`, a stable tower-session id);
+  use its `backend` row. Per-spec `dispatch_backend_per_spec` entry, else
+  global `dispatch_backend`: `full-session` ladders to the richest present
+  non-interactive session-grade rung; an explicit literal is
+  honored-or-halted. Exit 6 (REQ-B1.5): park to Awaiting input naming the
+  missing backend, never substitute. An `ask<TAB>tmux` row is D-8's
+  once-per-tower-session tmux-context ask: surface it, record via the
+  `answer` subcommand — non-blocking; the answer applies next dispatch.
+- **Attended, nothing configured** — autodetect, **present and
+  ask**, never auto-select: `scripts/orchestrate-backends.sh detect |
+  scripts/orchestrate-backends.sh present` (D-9, D-12; pluggables as trailing
+  `planwright-backend-<name>` args to `detect`).
+- **Runtime failover** (a chosen backend dying mid-run) is the ladder's other
+  end (read `orchestration-modes`): it descends only to a guard-preserving
   rung (degrade capability, never safety), else **escalates**.
 
 Concurrency is capped by `max_parallel_units` (default 3, via config-get): if that
@@ -263,7 +266,7 @@ commits and conflict resolution. No tower edits another tower's or a worker's
 branch state; coordination goes through sanctioned indirect channels (a `tasks.md`
 reconcile, or an attributed relay).
 
-- **subagent** (default). A background worker with isolated context and a native
+- **subagent**. A background worker with isolated context and a native
   worktree per unit; completion notifies the tower, and its questions funnel to
   the tower's single prompt queue. The shipped `config/worker-settings.json`
   profile pre-approves the routine `/execute-task` toolset and denies the

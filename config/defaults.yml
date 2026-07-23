@@ -46,7 +46,40 @@ kickoff_ready_ci_wait: 10m
 # specifies how the orchestrator is to adapt to what is advertised rather than
 # special-casing backends by name (contract defined there; the dispatch layer is
 # still backend-keyed pending that wiring).
-dispatch_backend: subagent
+#
+# The shipped default is the SEMANTIC value `full-session` (execution-backends
+# D-8, REQ-B1.1): at dispatch time it resolves, via the contract's pinned
+# degradation ladder, to the richest session-grade backend advertised on the
+# host — unattended, the richest NON-interactive one (never a silently-chosen
+# interactive backend, REQ-B1.4); a host advertising no session-grade rung
+# degrades to the previous behavior (subagent, then in-session). MIGRATION
+# NOTE — this default flipped from `subagent` in execution-backends Task 5, a
+# declared departure from the default-preserving rule (customization-boundary
+# criterion 5), operator-approved in that spec's primary seed: tasks are beefy
+# enough to always warrant a full session, and the ladder softens the flip
+# (hosts without a session-grade rung keep today's behavior). To restore the
+# old default, set `dispatch_backend: subagent` in an overlay layer. An
+# explicitly configured literal (this key or the per-spec map) that is NOT
+# advertised on the host fails closed at dispatch time — the unit parks to
+# Awaiting input naming the missing backend, never a silent substitute
+# (REQ-B1.5; dispatch-time ladders apply to semantic values only). Resolved
+# through scripts/resolve-dispatch-backend.sh (config half) and
+# scripts/orchestrate-backends.sh select-unattended (selection half).
+dispatch_backend: full-session
+
+# Per-spec dispatch_backend overrides (execution-backends D-9, REQ-B1.3): a
+# flat inline map of `{<spec>: <backend>}` entries riding the config overlay
+# layers like any other key (the highest-precedence layer that sets the key
+# supplies the WHOLE map, D-5 last-layer-wins). A per-spec entry wins over the
+# global `dispatch_backend` value in every layer combination — specificity
+# beats layer precedence across the two keys; a spec with no entry falls
+# through to the global value. Values take the same forms as
+# `dispatch_backend` (`full-session` included); an entry naming an
+# unadvertised backend fails closed the same way. Kept in config, not in the
+# spec bundle: a backend preference is execution policy, not signed spec
+# content (D-9).
+dispatch_backend_per_spec: {}
+
 max_parallel_units: 3
 
 # Fleet-level concurrency bound for the meta-tower ("tower of towers",

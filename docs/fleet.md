@@ -185,12 +185,27 @@ The shipped `dispatch_backend` values, by what they give you:
 
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
+| `full-session` (default) | Not a backend but a **semantic value**: resolves at dispatch time to the richest present session-grade rung below (unattended: the richest non-interactive one) | per resolution | yes, when the host has a session-grade rung |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
 | `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer) via `scripts/fleet-streamjson.sh` | yes / yes | yes (recoverable via `--resume`) |
 | `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
-| `subagent` (default) | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
+| `subagent` | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
+
+The default is `full-session` (flipped from `subagent` in execution-backends
+Task 5 — a declared departure from the default-preserving rule,
+operator-approved in that spec's primary seed): tasks are beefy enough to
+always warrant a full session, and the ladder softens the flip — a host with
+no session-grade rung degrades to the previous behavior (`subagent`, then
+`in-session`), never to a silently-chosen interactive backend. Set
+`dispatch_backend: subagent` in an overlay to restore the old default, or a
+per-spec entry in `dispatch_backend_per_spec` (a `{<spec>: <backend>}` inline
+map; the entry wins over the global value) to pin one spec's backend. An
+explicitly configured literal that is not advertised on the host **fails
+closed** — the dispatch parks to Awaiting input naming the missing backend,
+never a silent substitute (see the
+[options reference](options-reference.md)).
 
 `stream-json-persistent` has its dispatch support: autodetection probes for
 the installed `claude` CLI and reports the rung present exactly when the CLI
@@ -228,11 +243,19 @@ body, or observation must pass the artifact data-hygiene rule
 (doctrine/security-posture.md) first.
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
-on the host and collects each one's advertised set. Attended, it presents the
-detected set and asks — there is no silent pick. Unattended, it reads
-`dispatch_backend` from config; if that backend is absent, it degrades down the
-ladder below, and it never silently selects an interactive backend (an
-unattended tower has no one at the keyboard to drive one).
+on the host and collects each one's advertised set. It then resolves
+`dispatch_backend` through the config overlay (the per-spec map entry first,
+then the global value). The semantic `full-session` walks the ladder below to
+the richest present non-interactive session-grade rung — it never silently
+selects an interactive backend (an unattended tower has no one at the keyboard
+to drive one); the one attended wrinkle is the **tmux-context ask**: a tower
+that is itself running inside tmux asks once per tower session whether tmux
+joins the candidate set (non-blocking — unanswered resolves unattended, the
+answer persists spec-locally so later steps re-read it). An explicit literal is
+honored when present — a configured value is your standing answer, interactive
+included — and fails closed to Awaiting input when the host does not advertise
+it; with no configured preference at all, attended runs still get the
+present-and-ask flow.
 
 ## The degradation ladder: quality degrades, safety never
 
@@ -882,7 +905,7 @@ are in the [options reference](options-reference.md).
 
 | Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
 | --- | --- | --- | --- |
-| `dispatch_backend` | Backend seam: contract, advertisement, autodetect-and-ask | Which backend this host runs | `subagent` — works on any host, no external substrate, parallel with isolated context |
+| `dispatch_backend` | Backend seam: contract, advertisement, autodetect-and-ask | Which backend this host runs (`dispatch_backend_per_spec` pins one spec's) | `full-session` — resolves to the richest session-grade rung the host advertises; a host with none degrades to the pre-flip `subagent` behavior |
 | `dispatch_isolation` | Per-step session isolation in `/execute-task` | Isolation mode for this machine | `per-step` — bounded context and uncontaminated reviews by construction |
 | `context_budget_threshold` | Step-count monitor + continue-as-new handover | How long your towers run before handing over | `50` — hands over early; the handover is cheap and lossless, so early is the safe direction |
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |
