@@ -31,6 +31,20 @@
 #   plus a negative assertion that the detector's decision path invokes no
 #   model / API (REQ-E1.3), and the usage-error floor.
 #
+# execution-backends D-11 / REQ-F1.1 additions: with a `--cwd` join key the
+# detector consults the agents-json idle oracle (through the liveness helper)
+# and DEFERS to an oracle answer (`defer-to-oracle <verdict>`, one probe
+# instant serving the gate and the consumer) — a false-idle pane never
+# reaches the pane heuristics while the oracle is available; a defer frame
+# resets the two-frame debounce state so nothing confirms instantly across a
+# defer era; only an unavailable oracle or an absent worker lets the pane
+# heuristics run (pane-scrape demoted to fallback-only); the gate order is
+# push, then oracle, then heuristics; defer-to-push resets the debounce state
+# the same way; and without `--cwd` the oracle is never consulted
+# (backward-compatible). An empty, relative, hostile, or over-length `--cwd`
+# warns and falls back to the heuristics (oracle coverage lost, never the
+# detector).
+#
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-fleet-pane-detect.sh
 set -eu
@@ -450,6 +464,222 @@ long_handle=$(printf 'a%.0s' $(seq 1 200))
   --state-dir "$vg_state" >/dev/null 2>&1 || uc=$?
 [ "$uc" -eq 2 ] || fail "an over-128-char worker handle must be refused (exit 2), got '$uc'"
 echo "ok: malformed --worker / --scope refused (field-grammar validation)"
+
+# --- execution-backends D-11 / REQ-F1.1: the oracle demotes pane-scrape ------
+# The agents-json idle oracle, shimmed. The detector reaches it through the
+# liveness helper, which reads the binary from PLANWRIGHT_ORACLE_CLAUDE.
+o_dir="$tmp/oracle"
+mkdir -p "$o_dir"
+o_fix="$o_dir/fixture.json"
+o_shim="$o_dir/agents-shim"
+{
+  echo '#!/bin/sh'
+  echo "touch \"$o_dir/invoked\""
+  # shellcheck disable=SC2016 # $1/$2 are literal shim-script source, expanded at shim runtime, not here
+  echo '[ "$1" = agents ] && [ "$2" = --json ] || exit 9'
+  echo "cat \"$o_fix\""
+} >"$o_shim"
+chmod +x "$o_shim"
+printf '[]\n' >"$o_fix"
+"$o_shim" agents --json >/dev/null 2>&1 || true # pre-warm (first-exec latency)
+rm -f "$o_dir/invoked"
+
+# The false-idle case the oracle corrects: the pane's footer carries the
+# at-prompt anchor (pane heuristics would confirm idle) while the worker's
+# session is actually mid-turn — the oracle answers busy, and the detector
+# must defer-to-oracle on EVERY frame, never emitting the false idle.
+cat >"$o_fix" <<'JSON'
+[ {"pid": 300, "cwd": "/wt/fi", "kind": "interactive", "sessionId": "gg-6", "name": "fi", "status": "busy"} ]
+JSON
+od_state="$tmp/state-oracle-defer"
+mkdir -p "$od_state"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-od --state-dir "$od_state" --cwd /wt/fi) \
+  || fail "oracle-defer: detector exited non-zero on frame 1"
+[ "$res" = "defer-to-oracle busy" ] \
+  || fail "oracle-defer: frame 1 should defer carrying the verdict (false idle corrected), got '$res'"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-od --state-dir "$od_state" --cwd /wt/fi) \
+  || fail "oracle-defer: detector exited non-zero on frame 2"
+[ "$res" = "defer-to-oracle busy" ] \
+  || fail "oracle-defer: frame 2 should still defer with the verdict (gate precedes debounce), got '$res'"
+echo "ok: an available oracle defers the detector with its verdict — the pane false-idle never surfaces"
+
+# Deferring resets the debounce state: heuristic frames recorded BEFORE a
+# defer era must not instantly confirm once the oracle drops away — the first
+# post-defer fallback frame restarts the two-frame floor (pending).
+o_fail_early="$o_dir/fail-early"
+printf '#!/bin/sh\nexit 1\n' >"$o_fail_early"
+chmod +x "$o_fail_early"
+"$o_fail_early" agents --json >/dev/null 2>&1 || true # pre-warm
+rs_state="$tmp/state-oracle-reset"
+mkdir -p "$rs_state"
+r0=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail_early" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-rs --state-dir "$rs_state" --cwd /wt/fi) \
+  || fail "oracle-reset: frame 1 (fallback) exited non-zero"
+[ "$r0" = pending ] || fail "oracle-reset: frame 1 should be pending, got '$r0'"
+r1=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-rs --state-dir "$rs_state" --cwd /wt/fi) \
+  || fail "oracle-reset: defer frame exited non-zero"
+[ "$r1" = "defer-to-oracle busy" ] || fail "oracle-reset: expected a defer frame, got '$r1'"
+r2=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail_early" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-rs --state-dir "$rs_state" --cwd /wt/fi) \
+  || fail "oracle-reset: post-defer fallback frame exited non-zero"
+[ "$r2" = pending ] \
+  || fail "oracle-reset: the first post-defer fallback frame must restart the floor (pending), got '$r2'"
+# defer-to-push resets the state the same way: two confirmed frames, then a
+# fresh-push defer era, then a stale push — the first fallback frame must be
+# pending, never an instant re-confirmation of the pre-defer pair
+pr_root="$tmp/root-push-reset"
+mkdir -p "$pr_root/attention"
+: >"$pr_root/attention/state"
+pr_state="$tmp/state-push-reset"
+mkdir -p "$pr_state"
+"$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state" >/dev/null \
+  || fail "push-reset: frame 1 exited non-zero"
+pc=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state") \
+  || fail "push-reset: frame 2 exited non-zero"
+[ "$pc" = idle ] || fail "push-reset: expected confirmed idle before the defer era, got '$pc'"
+write_row "$pr_root" w-pr awaiting-input "$now"
+pd=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state") \
+  || fail "push-reset: defer frame exited non-zero"
+[ "$pd" = defer-to-push ] || fail "push-reset: expected defer-to-push, got '$pd'"
+write_row "$pr_root" w-pr awaiting-input "$((now - 5000))"
+pf=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-pr \
+  --root "$pr_root" --now "$now" --reconcile-ttl 300 --state-dir "$pr_state") \
+  || fail "push-reset: post-defer fallback frame exited non-zero"
+[ "$pf" = pending ] \
+  || fail "push-reset: the first post-defer fallback frame must restart the floor (pending), got '$pf'"
+echo "ok: a defer frame (oracle or push) resets the debounce state — no instant confirmation across a defer era"
+
+# An uncreatable debounce-state dir blocks only the heuristic path: a frame
+# whose correct answer is defer-to-push (state-free) still answers, while a
+# heuristic frame fails closed as before. Skipped under root (chmod 000 is
+# not enforced for root, the repo convention).
+if [ "$(id -u)" -ne 0 ]; then
+  ro_root="$tmp/root-ro-state"
+  write_row "$ro_root" w-ro awaiting-input "$now"
+  ro_state_parent="$tmp/ro-parent"
+  mkdir -p "$ro_state_parent"
+  chmod 555 "$ro_state_parent"
+  res=$("$FPD" classify --pane "$idle_pane" --backend tmux --worker w-ro \
+    --root "$ro_root" --now "$now" --reconcile-ttl 300 \
+    --state-dir "$ro_state_parent/state" 2>/dev/null) \
+    || fail "ro-state: a fresh push must still defer with an uncreatable state dir"
+  [ "$res" = defer-to-push ] \
+    || fail "ro-state: expected defer-to-push despite the uncreatable state dir, got '$res'"
+  uc=0
+  "$FPD" classify --pane "$idle_pane" --backend subagent --worker w-ro2 \
+    --state-dir "$ro_state_parent/state" >/dev/null 2>&1 || uc=$?
+  [ "$uc" -eq 2 ] \
+    || fail "ro-state: the heuristic path must still fail closed (exit 2) with no state dir, got '$uc'"
+  chmod 755 "$ro_state_parent"
+  echo "ok: an uncreatable state dir costs only the heuristic path — defer answers still land"
+else
+  echo "skip: uncreatable-state-dir test (running as root bypasses chmod)"
+fi
+
+# A fresh hook push still wins the gate order (defer-to-push precedes the
+# oracle gate: the deterministic push is the primary, the oracle backs it up).
+op_root="$tmp/root-oracle-push"
+write_row "$op_root" w-op awaiting-input "$now"
+op_state="$tmp/state-oracle-push"
+mkdir -p "$op_state"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend tmux --worker w-op --root "$op_root" --now "$now" --reconcile-ttl 300 \
+  --state-dir "$op_state" --cwd /wt/fi) \
+  || fail "oracle-push-order: detector exited non-zero"
+[ "$res" = defer-to-push ] \
+  || fail "oracle-push-order: a fresh push should defer-to-push ahead of the oracle, got '$res'"
+# and a STALE push falls through the push gate INTO the oracle gate (the full
+# ordering: push, then oracle, then heuristics)
+sp_root="$tmp/root-oracle-stale"
+write_row "$sp_root" w-sp awaiting-input "$((now - 5000))"
+sp_state="$tmp/state-oracle-stale"
+mkdir -p "$sp_state"
+res=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend tmux --worker w-sp --root "$sp_root" --now "$now" --reconcile-ttl 300 \
+  --state-dir "$sp_state" --cwd /wt/fi) \
+  || fail "oracle-stale-push: detector exited non-zero"
+[ "$res" = "defer-to-oracle busy" ] \
+  || fail "oracle-stale-push: a stale push should fall through to the oracle gate, got '$res'"
+echo "ok: a fresh hook push outranks the oracle gate; a stale push falls through to it"
+
+# An UNAVAILABLE oracle (probe fails) lets the pane heuristics run — the
+# fallback engages, never a dead stop.
+o_fail="$o_dir/fail-shim"
+printf '#!/bin/sh\nexit 1\n' >"$o_fail"
+chmod +x "$o_fail"
+"$o_fail" agents --json >/dev/null 2>&1 || true # pre-warm
+ou_state="$tmp/state-oracle-unavail"
+mkdir -p "$ou_state"
+r1=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-ou --state-dir "$ou_state" --cwd /wt/fi) \
+  || fail "oracle-unavailable: detector exited non-zero on frame 1"
+[ "$r1" = pending ] \
+  || fail "oracle-unavailable: frame 1 should run the heuristics (pending), got '$r1'"
+r2=$(PLANWRIGHT_ORACLE_CLAUDE="$o_fail" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-ou --state-dir "$ou_state" --cwd /wt/fi) \
+  || fail "oracle-unavailable: detector exited non-zero on frame 2"
+[ "$r2" = idle ] \
+  || fail "oracle-unavailable: frame 2 should confirm via the heuristics (idle), got '$r2'"
+echo "ok: an unavailable oracle falls back to the pane heuristics"
+
+# An ABSENT worker (valid oracle output, no matching row) is no evidence — the
+# heuristics run.
+printf '[]\n' >"$o_fix"
+oa_state="$tmp/state-oracle-absent"
+mkdir -p "$oa_state"
+PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-oa --state-dir "$oa_state" --cwd /wt/fi >/dev/null \
+  || fail "oracle-absent: detector exited non-zero on frame 1"
+ra=$(PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-oa --state-dir "$oa_state" --cwd /wt/fi) \
+  || fail "oracle-absent: detector exited non-zero on frame 2"
+[ "$ra" = idle ] \
+  || fail "oracle-absent: an absent worker should fall through to the heuristics (idle), got '$ra'"
+echo "ok: an absent worker is no evidence — the heuristics run"
+
+# Without --cwd the oracle is never consulted (backward-compatible: the shim's
+# invocation marker must stay absent).
+rm -f "$o_dir/invoked"
+nc_state="$tmp/state-no-cwd"
+mkdir -p "$nc_state"
+PLANWRIGHT_ORACLE_CLAUDE="$o_shim" "$FPD" classify --pane "$idle_pane" \
+  --backend subagent --worker w-nc --state-dir "$nc_state" >/dev/null \
+  || fail "no-cwd: detector exited non-zero"
+[ ! -e "$o_dir/invoked" ] \
+  || fail "no-cwd: the oracle was consulted without a --cwd join key"
+echo "ok: without --cwd the oracle is never consulted"
+
+# An unusable --cwd (relative, control-bearing, empty, over-length) costs
+# ORACLE COVERAGE only: a loud stderr warning, then the pane heuristics run —
+# never a hard exit (which would turn a merely-unjoinable path into total
+# classification loss), and never a silent skip (the warning is asserted).
+# mc_fallback <label> <cwd-value>
+mc_fallback() {
+  mcf_label="$1"
+  mcf_cwd="$2"
+  mcf_state="$tmp/state-$mcf_label"
+  mkdir -p "$mcf_state"
+  mcf_out=$("$FPD" classify --pane "$idle_pane" --backend subagent \
+    --worker "w-$mcf_label" --state-dir "$mcf_state" --cwd "$mcf_cwd" \
+    2>"$tmp/err-$mcf_label") \
+    || fail "$mcf_label: an unusable --cwd must not fail the detector"
+  [ "$mcf_out" = pending ] \
+    || fail "$mcf_label: heuristics should run (pending), got '$mcf_out'"
+  grep -q "not a usable oracle join key" "$tmp/err-$mcf_label" \
+    || fail "$mcf_label: the skipped oracle must be warned about, not silent"
+  echo "ok: unusable --cwd ($mcf_label) warns and falls back to the heuristics"
+}
+mc_fallback cwd-relative relative/path
+mc_fallback cwd-tab "$(printf '/wt/bad\tpath')"
+mc_fallback cwd-empty ""
+long_cwd="/$(printf 'a%.0s' $(seq 1 520))"
+mc_fallback cwd-overlength "$long_cwd"
 
 # --- Backstop-gate backend resolution (capability contract, D-7) ----------
 # With the liveness helper present, a hook-registering contract row
