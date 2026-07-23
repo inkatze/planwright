@@ -254,8 +254,9 @@ joins the candidate set (non-blocking — unanswered resolves unattended, the
 answer persists spec-locally so later steps re-read it). An explicit literal is
 honored when present — a configured value is your standing answer, interactive
 included — and fails closed to Awaiting input when the host does not advertise
-it; with no configured preference at all, attended runs still get the
-present-and-ask flow.
+it. Because `full-session` is the shipped default, that standing answer always
+exists, so attended runs do not re-present the backend choice; `detect |
+present` stays available to inspect the advertised set on demand.
 
 ## The degradation ladder: quality degrades, safety never
 

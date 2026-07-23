@@ -62,11 +62,16 @@
 # Operator-default only (REQ-B1.2): the interface admits NO per-task
 # parameter — an extra positional is a usage error.
 #
-# Exit codes: 0 resolved (rows on stdout); 2 usage / hostile input; 4
-# malformed repo-tracked overlay (hard-fail, propagated or raised); 5 broken
-# install; 6 fail-closed halt — the explicitly configured backend is not
-# advertised on the host (REQ-B1.5; the dispatching skill parks the unit to
-# Awaiting input naming it).
+# Exit codes: 0 resolved (rows on stdout); 1 a state-write failure on the
+# `answer` path (the ask-state dir is unwritable or occupied by a symlink);
+# 2 usage / hostile input; 4 malformed repo-tracked overlay (hard-fail,
+# propagated or raised); 5 broken install; 6 fail-closed halt — the explicitly
+# configured backend is not advertised on the host (REQ-B1.5; the dispatching
+# skill parks the unit to Awaiting input naming it). The `resolve` path
+# additionally re-emits the selection sibling's exit status verbatim
+# (`orchestrate-backends.sh select-unattended`), whose contract is the subset
+# {0, 2, 6} for the values this resolver passes it; a nonzero from it always
+# means the dispatch cannot proceed, and 6 is its fail-closed halt above.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, input
 # treated as data only (REQ-K1.5). set -f: nothing here intends pathname
@@ -137,20 +142,27 @@ ask_path() {
 write_ask() {
   wa_file=$(ask_path "$1")
   wa_dir=$(dirname "$wa_file")
+  # The path prefix is trusted (parent dir + PLANWRIGHT_ORCH_STATE_DIR) and the
+  # basename is the constant literal `tmux-ask`, but the diagnostics pass it
+  # through the sanitizer anyway, uniformly with every other echo in this file
+  # (echo discipline; the caller-supplied $specdir basename is charset-checked
+  # before we reach here, so no escape byte can arrive, but consistency beats a
+  # case-by-case exemption).
+  wa_show=$(sanitize_printable "$wa_file" "(unprintable path)")
   if ! mkdir -p "$wa_dir" 2>/dev/null; then
-    echo "resolve-dispatch-backend: cannot create state dir $wa_dir" >&2
+    printf '%s\n' "resolve-dispatch-backend: cannot create state dir $(sanitize_printable "$wa_dir" "(unprintable path)")" >&2
     return 1
   fi
   if [ -L "$wa_file" ]; then
-    echo "resolve-dispatch-backend: refusing symlink at ask-state path $wa_file" >&2
+    printf '%s\n' "resolve-dispatch-backend: refusing symlink at ask-state path $wa_show" >&2
     return 1
   fi
   if [ -e "$wa_file" ] && [ ! -f "$wa_file" ]; then
-    echo "resolve-dispatch-backend: refusing non-regular file at ask-state path $wa_file" >&2
+    printf '%s\n' "resolve-dispatch-backend: refusing non-regular file at ask-state path $wa_show" >&2
     return 1
   fi
   wa_tmp=$(mktemp "$wa_dir/.tmux-ask.XXXXXX") || {
-    echo "resolve-dispatch-backend: cannot create a temp ask-state in $wa_dir" >&2
+    printf '%s\n' "resolve-dispatch-backend: cannot create a temp ask-state in $(sanitize_printable "$wa_dir" "(unprintable path)")" >&2
     return 1
   }
   if ! printf '%s %s\n' "$2" "$3" >"$wa_tmp"; then
@@ -173,20 +185,21 @@ ASK_STATUS=''
 ASK_TOKEN=''
 read_ask() {
   ra_file=$(ask_path "$1")
+  ra_show=$(sanitize_printable "$ra_file" "(unprintable path)")
   [ -e "$ra_file" ] || [ -L "$ra_file" ] || return 1
   if [ -L "$ra_file" ] || [ ! -f "$ra_file" ]; then
-    echo "resolve-dispatch-backend: warning: ignoring non-regular ask-state at $ra_file" >&2
+    printf '%s\n' "resolve-dispatch-backend: warning: ignoring non-regular ask-state at $ra_show" >&2
     return 1
   fi
   ra_line=''
   IFS= read -r ra_line <"$ra_file" || [ -n "$ra_line" ] || {
-    echo "resolve-dispatch-backend: warning: ignoring empty ask-state at $ra_file" >&2
+    printf '%s\n' "resolve-dispatch-backend: warning: ignoring empty ask-state at $ra_show" >&2
     return 1
   }
   # Bound and sanitize before parse (the record is local state, but the parse
   # is defensive all the same).
   if [ "${#ra_line}" -gt 256 ]; then
-    echo "resolve-dispatch-backend: warning: ignoring overlong ask-state at $ra_file" >&2
+    printf '%s\n' "resolve-dispatch-backend: warning: ignoring overlong ask-state at $ra_show" >&2
     return 1
   fi
   ra_status=${ra_line%% *}
@@ -266,6 +279,7 @@ map_entry() {
   esac
   me_body=${me_raw#\{}
   me_body=${me_body%\}}
+  me_body=$(printf '%s' "$me_body" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   # An empty (or whitespace-only) body is the empty map.
   case "$me_body" in
     *[![:space:]]*) ;;
@@ -276,7 +290,14 @@ map_entry() {
   case "$me_body" in
     *"{"* | *"}"* | *"["* | *"]"*) return 2 ;;
   esac
+  # A leading or trailing comma (an empty entry) is malformed — rejected
+  # consistently whether or not whitespace pads it (me_body is trimmed above,
+  # so `{a: x,}` and `{a: x, }` both reduce to a `,`-terminated body here).
+  case "$me_body" in
+    ,* | *,) return 2 ;;
+  esac
   me_found=''
+  me_seen=' '
   me_rest="$me_body"
   while :; do
     case "$me_rest" in
@@ -300,6 +321,13 @@ map_entry() {
     me_v=$(printf '%s' "$me_v" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")
     valid_spec "$me_k" || return 2
     valid_value "$me_v" || return 2
+    # A duplicate key makes the whole map ambiguous — reject it rather than
+    # silently last-wins (the key charset excludes spaces, so a space-delimited
+    # seen-set is collision-free).
+    case "$me_seen" in
+      *" $me_k "*) return 2 ;;
+    esac
+    me_seen="$me_seen$me_k "
     [ "$me_k" = "$me_spec" ] && me_found=$me_v
     [ -n "$me_rest" ] || break
   done
@@ -448,9 +476,18 @@ case "$rc" in
         malformed_by_layer dispatch_backend_per_spec "$KEY_LAYER" "per-spec map (not a flat inline '{spec: backend}' map)"
         crc=0
         cval=$(core_value dispatch_backend_per_spec) || crc=$?
-        if [ "$crc" -eq 0 ] && centry=$(map_entry "$cval" "$spec"); then
-          configured=$centry
-          source=per-spec
+        if [ "$crc" -eq 0 ]; then
+          if centry=$(map_entry "$cval" "$spec"); then
+            configured=$centry
+            source=per-spec
+          fi
+        elif [ "$crc" -ne 3 ]; then
+          # crc 3 (core omits the map key) is benign — no per-spec entry, the
+          # global value governs. Any other non-zero is a broken install and
+          # must surface, exactly as the global-knob degrade path does below
+          # (never silently swallowed).
+          echo "resolve-dispatch-backend: the core default for 'dispatch_backend_per_spec' is unresolvable (exit $crc) — broken install" >&2
+          exit 5
         fi
         ;;
     esac

@@ -247,6 +247,7 @@ grep -q "tmux" "$err" || fail "select-unattended: the halt diagnostic must name 
 rc=0
 sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended headless-oneshot 2>"$err") || rc=$?
 [ "$rc" = 6 ] || fail "select-unattended: absent headless-oneshot should exit 6, got $rc"
+[ -z "$sel" ] || fail "select-unattended: the headless-oneshot halt must not print a substitute, got '$sel'"
 grep -q "headless-oneshot" "$err" \
   || fail "select-unattended: the halt diagnostic must name headless-oneshot"
 echo "ok: select-unattended fails closed on an explicit unadvertised literal (exit 6)"

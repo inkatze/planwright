@@ -157,10 +157,16 @@ for tmx in 0 1; do
       sel=$(row_of "$out" backend)
       [ "$sel" != tmux ] || fail "unattended matrix picked interactive tmux (tmux=$tmx sjp=$sjp ho=$ho)"
       [ "$sel" != print ] || fail "unattended matrix picked manual print"
-      has_row "$out" ask && fail "unattended resolve must never surface the tmux ask"
     done
   done
 done
+# The ask row is gated on --attended; the matrix above runs unattended, so a
+# `has_row ask` check there is vacuously true and proves nothing. Assert the
+# gate directly instead: an UNATTENDED resolve in tmux context (TMUX set, no
+# --attended) still never surfaces the ask.
+out=$(run_rdb PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 TMUX=/tmp/tmux-sock,1,0) \
+  || fail "unattended-in-tmux-context resolve exited non-zero"
+has_row "$out" ask && fail "an unattended resolve must never surface the tmux ask even inside tmux context"
 echo "ok: unattended full-session never resolves interactive or manual, regardless of \$TMUX"
 
 # ---------------------------------------------------------------------------
@@ -220,7 +226,43 @@ rc=0
 out=$(run_rdb 2>"$err") || rc=$?
 [ "$rc" = 6 ] || fail "explicit absent per-spec backend should exit 6, got $rc"
 grep -q "tmux" "$err" || fail "the per-spec halt diagnostic must name the missing backend"
+if [ -n "$out" ] && has_row "$out" backend; then
+  fail "a per-spec fail-closed halt must not print a substitute backend row"
+fi
 echo "ok: an explicitly configured, unadvertised backend halts fail-closed (exit 6)"
+
+# ---------------------------------------------------------------------------
+# 3b. Per-spec map strictness: the inline map rejects a trailing comma
+#     consistently (whitespace-insensitive), rejects a duplicate key rather
+#     than silently last-wins, and — on a repo-tracked layer — a malformed map
+#     hard-fails (exit 4). An empty map `{}` and a well-formed multi-entry map
+#     both resolve normally.
+# ---------------------------------------------------------------------------
+for badmap in \
+  'dispatch_backend_per_spec: {myspec: subagent,}' \
+  'dispatch_backend_per_spec: {myspec: subagent, }' \
+  'dispatch_backend_per_spec: {,myspec: subagent}' \
+  'dispatch_backend_per_spec: {myspec: subagent, myspec: in-session}'; do
+  reset_layers
+  printf '%s\n' "$badmap" >"$tracked_cfg"
+  rc=0
+  run_rdb >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] || fail "a malformed repo-tracked per-spec map ('$badmap') should hard-fail exit 4, got $rc"
+done
+# The empty map is well-formed (no entry) — global governs.
+reset_layers
+printf 'dispatch_backend_per_spec: {}\n' >"$tracked_cfg"
+printf 'dispatch_backend: subagent\n' >"$mlocal_cfg"
+out=$(run_rdb) || fail "empty per-spec map resolve exited non-zero"
+[ "$(row_of "$out" backend)" = subagent ] \
+  || fail "an empty per-spec map must fall through to the global value, got '$(row_of "$out" backend)'"
+# A well-formed multi-entry map still resolves the matching spec.
+reset_layers
+printf 'dispatch_backend_per_spec: {other: tmux, myspec: subagent, third: in-session}\n' >"$tracked_cfg"
+out=$(run_rdb) || fail "multi-entry per-spec map resolve exited non-zero"
+[ "$(row_of "$out" backend)" = subagent ] \
+  || fail "a multi-entry map must resolve the matching spec's entry, got '$(row_of "$out" backend)'"
+echo "ok: the per-spec map rejects trailing commas and duplicate keys, accepts empty and multi-entry"
 
 # ---------------------------------------------------------------------------
 # 5. Explicit literal honored when present — including an interactive backend

@@ -248,10 +248,9 @@ REQ-B1.1–B1.5). Never silently pick one. Resolve in order:
   missing backend, never substitute. An `ask<TAB>tmux` row is D-8's
   once-per-tower-session tmux-context ask: surface it, record via the
   `answer` subcommand — non-blocking; the answer applies next dispatch.
-- **Attended, nothing configured** — autodetect, **present and
-  ask**, never auto-select: `scripts/orchestrate-backends.sh detect |
-  scripts/orchestrate-backends.sh present` (D-9, D-12; pluggables as trailing
-  `planwright-backend-<name>` args to `detect`).
+  With `full-session` shipped as the default a standing answer exists
+  (D-8), so attended runs do **not** re-present the choice — the tmux ask is
+  the only attended prompt.
 - **Runtime failover** (a chosen backend dying mid-run) is the ladder's other
   end (read `orchestration-modes`): it descends only to a guard-preserving
   rung (degrade capability, never safety), else **escalates**.

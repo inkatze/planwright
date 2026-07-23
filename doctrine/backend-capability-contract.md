@@ -206,7 +206,10 @@ rows below.
   **yes**. No mid-flight observe or steer: the tower acts on the completion
   signal plus positive-evidence-of-death liveness, and ambiguity routes to the
   queue.
-- **`subagent`** (the shipped `dispatch_backend` default). A background worker
+- **`subagent`** (the `full-session` degradation floor on a host with no
+  session-grade rung; the shipped `dispatch_backend` default is the semantic
+  `full-session`, which resolves to this rung when nothing richer is advertised
+  — execution-backends D-8). A background worker
   with isolated context and a
   native worktree, whose completion notifies the tower. It is parallel and
   addressable, but **in-harness**: it shares the tower's lifecycle and does not
