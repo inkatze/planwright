@@ -320,8 +320,13 @@ knob() {
 #     a counter update is never dropped under contention and a signal never
 #     leaves the shared lock held.
 HOLD_LOCK=0
-# ORACLE_TMP is set only after the oracle helpers below have been defined, so
-# the guard also protects an early exit that fires this trap before they exist.
+# ORACLE_TMP (the oracle probe's private temp dir; helpers and full docs sit
+# with the oracle section below) is initialized HERE, before the trap
+# installs, matching the sibling scripts' init-before-trap discipline
+# (fleet-usage-gate.sh CUR_TMP, fleet-tower-marker.sh PENDING_TMP): an
+# environment-set ORACLE_TMP can then never satisfy the guard and fire
+# oracle_cleanup on an exit that lands before the helpers are defined.
+ORACLE_TMP=""
 trap 'release_lock; [ -z "${ORACLE_TMP:-}" ] || oracle_cleanup' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -547,8 +552,8 @@ ORACLE_BIN="${PLANWRIGHT_ORACLE_CLAUDE:-claude}"
 # cleanup-then-publish can never recreate files after this ran (the
 # abandoned-supervisor case; a publish racing that gate can at worst leave
 # the directory behind un-rmdir-able — a leaked empty-ish 0700 dir, the same
-# residual class the file layout had).
-ORACLE_TMP=""
+# residual class the file layout had). ORACLE_TMP itself is initialized up at
+# the file-level trap install (init-before-trap, the sibling discipline).
 oracle_cleanup() {
   if [ -n "$ORACLE_TMP" ]; then
     rm -f "$ORACLE_TMP/probe.pid" "$ORACLE_TMP/probe.pid.tmp" \
