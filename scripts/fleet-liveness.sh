@@ -815,10 +815,17 @@ oracle_scan() {
           # 0x9B). List mode PRINTS captured strings, so a byte the taint
           # rule misses would reach the operator terminal raw (keyed mode
           # never echoed captures, so this widening closes an exposure list
-          # mode opened). Under LC_ALL=C these are byte comparisons; the
-          # 0x80-0x9F range also catches UTF-8 bytes of some multibyte
-          # punctuation, so an exotic-named session degrades to no-evidence —
-          # the same security-over-fidelity trade echo-safety.sh documents.
+          # mode opened). Under LC_ALL=C these are byte comparisons, and
+          # 0x80-0x9F is half the UTF-8 continuation-byte space (0x80-0xBF),
+          # so the fidelity cost is far wider than punctuation: every char in
+          # U+00C0-U+00DF (uppercase accented Latin, plus sharp s) encodes as
+          # C3 80..C3 9F and drops its row whole, as does any CJK, Hangul, or
+          # symbol whose 3-byte form carries an in-range continuation byte.
+          # U+00E0-U+00FF (lowercase accented Latin) encodes as C3 A0..C3 BF
+          # and passes untouched, which is why a name can survive in lower
+          # case and vanish in upper. A session named in the dropped set
+          # reads as no-evidence — the same security-over-fidelity trade
+          # echo-safety.sh documents.
           if (depth == 2 && (c < " " || c == "\177" || (c >= "\200" && c <= "\237"))) taint = 1
           i++
           continue
