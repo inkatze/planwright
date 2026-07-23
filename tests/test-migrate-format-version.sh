@@ -38,62 +38,23 @@ fail() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# The canonical tasks.md definition-content extraction (doctrine/
-# spec-format.md), byte-identical in behavior to scripts/spec-anchor.sh's —
-# including the duplicate-id fail-closed guard, so a migration bug that the
-# real anchor extraction would refuse cannot pass here silently. The
-# invariant under test is that this stream — heading plus the five
-# definition field bullets with continuations, records sorted by task id —
-# survives migration byte-for-byte (REQ-A1.4, REQ-D1.2).
-extract_tasks() {
-  awk '
-    function sortkey(id,    parts, n, major, minor) {
-      n = split(id, parts, "\\.")
-      major = parts[1] + 0
-      minor = (n > 1) ? parts[2] + 0 : 0
-      return sprintf("%08d.%08d", major, minor)
-    }
-    /^## /  { in_task = 0; keep = 0; next }
-    /^### Task [0-9]/ {
-      in_task = 1
-      keep = 0
-      key = sortkey($3)
-      if (key in buf) {
-        print "duplicate task id " $3 > "/dev/stderr"
-        dup = 1
-        exit 1
-      }
-      nkeys++
-      keys[nkeys] = key
-      buf[key] = $0 "\n"
-      cur = key
-      next
-    }
-    /^### / { in_task = 0; keep = 0; next }
-    !in_task { next }
-    /^- \*\*(Deliverables|Done when|Dependencies|Citations|Estimated effort):\*\*/ {
-      keep = 1
-      buf[cur] = buf[cur] $0 "\n"
-      next
-    }
-    /^- /      { keep = 0; next }
-    /^[ \t]+[^ \t]/ {
-      if (keep) buf[cur] = buf[cur] $0 "\n"
-      next
-    }
-    { keep = 0 }
-    END {
-      if (dup) exit 1
-      for (i = 2; i <= nkeys; i++) {
-        v = keys[i]
-        j = i - 1
-        while (j >= 1 && keys[j] > v) { keys[j + 1] = keys[j]; j-- }
-        keys[j + 1] = v
-      }
-      for (i = 1; i <= nkeys; i++) printf "%s", buf[keys[i]]
-    }
-  ' "$1"
-}
+# The canonical tasks.md definition-content extraction oracle comes from the
+# shared spec-parse grammar lib (format-grammar D-3, REQ-B1.2) — the same
+# stream the migration's own self-check and scripts/spec-anchor.sh consume,
+# including the duplicate-id fail-closed guard. The invariant under test is
+# that this stream — heading plus the five definition field bullets with
+# continuations, records sorted by task id — survives migration
+# byte-for-byte (REQ-A1.4, REQ-D1.2). The lib's own behavior is pinned
+# independently by tests/test-spec-parse.sh (unit tests) and
+# tests/test-spec-anchor.sh (a hand-written golden manifest), so a lib bug
+# cannot pass both this suite and those silently.
+# Guarded source per the lib's consumer contract (REQ-B1.6a): existence and
+# readability checked before the `.` so a missing lib names itself instead
+# of aborting with the shell's own diagnostic.
+[ -f "$here/../scripts/spec-parse.sh" ] && [ -r "$here/../scripts/spec-parse.sh" ] \
+  || fail "scripts/spec-parse.sh missing or unreadable (the extraction oracle)"
+# shellcheck source=scripts/spec-parse.sh
+. "$here/../scripts/spec-parse.sh" || fail "sourcing scripts/spec-parse.sh failed"
 
 # section_content <file> <section> — the lines of one H2 section's body.
 section_content() {
@@ -481,10 +442,10 @@ git -C "$repo" add -A
 git -C "$repo" commit -qm fixture
 
 before_extract=$tmp/seeded.extract.before
-extract_tasks "$repo/specs/seeded/tasks.md" >"$before_extract"
+spec_parse_extract_tasks "$repo/specs/seeded/tasks.md" >"$before_extract"
 [ -s "$before_extract" ] || fail "precondition: seeded fixture extraction is empty"
 draft_extract_before=$tmp/draft.extract.before
-extract_tasks "$repo/specs/draft-spec/tasks.md" >"$draft_extract_before"
+spec_parse_extract_tasks "$repo/specs/draft-spec/tasks.md" >"$draft_extract_before"
 cp "$repo/specs/seeded/tasks.md" "$tmp/seeded.tasks.v1"
 
 done_snap=$tmp/done.snap
@@ -504,7 +465,7 @@ out=$(cd "$repo" && "$MIGRATE" specs 2>"$tmp/run1.err") \
 # The extraction digest is unchanged: definition lines survive byte-for-byte
 # (REQ-A1.4, REQ-D1.2).
 after_extract=$tmp/seeded.extract.after
-extract_tasks "$repo/specs/seeded/tasks.md" >"$after_extract"
+spec_parse_extract_tasks "$repo/specs/seeded/tasks.md" >"$after_extract"
 cmp -s "$before_extract" "$after_extract" \
   || fail "REQ-A1.4: seeded extraction changed across migration ($(diff "$before_extract" "$after_extract" | head -5))"
 d_before=$(git hash-object --stdin <"$before_extract")
@@ -656,7 +617,7 @@ echo "ok: empty human-payload sections keep their (none yet) placeholders (D-2)"
 
 # Draft bundle: same byte-stable transform, no changelog entry, no brief.
 draft_extract_after=$tmp/draft.extract.after
-extract_tasks "$repo/specs/draft-spec/tasks.md" >"$draft_extract_after"
+spec_parse_extract_tasks "$repo/specs/draft-spec/tasks.md" >"$draft_extract_after"
 cmp -s "$draft_extract_before" "$draft_extract_after" || fail "draft extraction changed"
 headers_ok "$repo/specs/draft-spec" Draft "draft-spec"
 grep -q 'Migrated to format-version 2' "$repo/specs/draft-spec/requirements.md" \
@@ -875,6 +836,23 @@ refusal_case non-task-h3 "a non-task H3 heading"
 mkrefusal bad-id
 printf '%s\n' '' '### Task x9 — Bad id' '' '- **Deliverables:** d' >>"$tmp/refuse-bad-id/specs/poisoned/tasks.md"
 refusal_case bad-id "a malformed task id"
+
+# NUL-bearing definition content: restructure_tasks has no NUL screen, so
+# this must be caught by the lib's screen inside the extraction self-check —
+# pinning the `if ! spec_parse_extract_tasks` refuse branch (REQ-B1.6f: an
+# unchecked lib exit would consume a NUL-truncated stream as complete).
+mkrefusal nul-bullet
+nb_f="$tmp/refuse-nul-bullet/specs/poisoned/tasks.md"
+nb_line=$(grep -n -- '- \*\*Deliverables:\*\* Beta output' "$nb_f" | head -1 | cut -d: -f1)
+[ -n "$nb_line" ] || fail "nul-bullet fixture: seeded Deliverables line not found"
+{
+  head -n $((nb_line - 1)) "$nb_f"
+  printf -- '- **Deliverables:** Beta \000 output, NUL-bearing.\n'
+  tail -n +$((nb_line + 1)) "$nb_f"
+} >"$tmp/nb" && mv "$tmp/nb" "$nb_f"
+refusal_case nul-bullet "a NUL byte in tasks.md (lib screen via the self-check)"
+grep -q "canonical extraction failed" "$tmp/refuse-nul-bullet.err" \
+  || fail "NUL refusal did not come from the extraction self-check branch: $(cat "$tmp/refuse-nul-bullet.err")"
 
 mkrefusal placement-prose
 awk '/^## Forward plan$/ { print; print ""; print "Remember the spike work first."; next } { print }' \
