@@ -833,6 +833,41 @@ run "$h17sym" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
   || fail "sentinel symlink target modified"
 echo "ok: field-level malformed, obstructed surface exit 3, sentinel symlink refused (dangling and live-target)"
 
+# Reader-side over-cap boundary (REQ-A1.6): a file whose first line is
+# exactly the 8191-byte record cap + newline, with junk bytes AFTER that
+# newline, is still an over-cap file and must classify malformed — the
+# command substitution around `head -c 8192` strips the trailing newline,
+# so a length check on the captured content alone cannot see the junk.
+# The same record at exactly the cap with no trailing bytes stays a live
+# peer (the legal-max control).
+h17cap="$tmp/h17cap"
+printf 'alive\n' >"$tmp/evidence-verdict"
+run "$h17cap" publish --checkout "$co_a" --session-id "$uuid_a" --pid 4242 \
+  >/dev/null || fail "over-cap fixture publish failed"
+sub17cap=$(run "$h17cap" surface --checkout "$co_a")
+cap_repo=$(basename "$sub17cap")
+cap_now=$(date +%s)
+cap_prefix="pw-presence-v1	${cap_repo}	${uuid_b}	${co_a}	"
+cap_suffix="	-	${cap_now}	${cap_now}	process 4242	false"
+cap_pad=$((8191 - ${#cap_prefix} - ${#cap_suffix}))
+cap_csv="aaaaaaaaaa"
+while [ $((cap_pad - ${#cap_csv})) -gt 65 ]; do cap_csv="${cap_csv},aaaaaaaaaa"; done
+cap_csv="${cap_csv},$(printf '%*s' $((cap_pad - ${#cap_csv} - 1)) '' | tr ' ' 'a')"
+cap_line="${cap_prefix}${cap_csv}${cap_suffix}"
+[ "${#cap_line}" = 8191 ] || fail "over-cap fixture line is ${#cap_line} bytes, wanted 8191"
+printf '%s\n' "$cap_line" >"$sub17cap/$uuid_b"
+printf 'JUNKDATA' >>"$sub17cap/$uuid_b"
+out=$(run "$h17cap" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval 0 2>/dev/null)
+printf '%s\n' "$out" | grep -q "peer-unreadable	$uuid_b	malformed" \
+  || fail "boundary over-cap record not classified malformed: $out"
+printf '%s\n' "$cap_line" >"$sub17cap/$uuid_b"
+out=$(run "$h17cap" discover --checkout "$co_a" --session-id "$uuid_a" \
+  --min-interval 0 2>/dev/null)
+printf '%s\n' "$out" | grep -q "peer	$uuid_b	live" \
+  || fail "legal max-length record not classified live: $out"
+echo "ok: over-cap boundary file classifies malformed; legal max-length record stays live"
+
 # Start epoch across heartbeats: a valid preserved start survives a
 # re-publish; a garbage own record resets start to the fresh beat.
 h17d="$tmp/h17d"

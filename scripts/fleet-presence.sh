@@ -880,18 +880,26 @@ while IFS= read -r name; do
     fi
     continue
   }
+  # Byte-true over-cap probe: the command substitution above strips
+  # trailing newlines, so ${#content} alone cannot see bytes hiding behind
+  # a newline at exactly byte 8192 (a max-length line + newline + junk
+  # would read as a legal record). Counting the first 8193 bytes through a
+  # pipe (nothing is stripped) makes any byte past the 8192-byte file cap
+  # classify malformed (REQ-A1.6), still without slurping an arbitrarily
+  # large file.
+  over_cap=$(head -c 8193 "$file" 2>/dev/null | wc -c | tr -d ' ')
   # One awk parses the whole record: exact field count enforced, the ten
   # fields emitted one per line (fields never contain newlines — the record
   # is single-line by construction; interior extra lines fail NR>1, while
   # trailing blank lines are stripped by the command substitution above and
-  # tolerated).
+  # tolerated within the file cap the probe above enforces).
   parsed=$(printf '%s\n' "$content" | awk -F'\t' '
     NR == 1 { if (NF != 10) bad = 1; else for (i = 1; i <= 10; i++) print $i }
     NR > 1 { bad = 1 }
     END { exit bad }') || parsed=""
   ok=1
   kind=malformed
-  if [ "${#content}" -ge 8192 ]; then
+  if [ "${#content}" -ge 8192 ] || [ "$over_cap" -gt 8192 ]; then
     # Oversize is malformed regardless of its tag: a version sniff on a
     # truncated read would mislabel it schema-skew.
     ok=0
