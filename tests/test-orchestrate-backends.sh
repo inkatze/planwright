@@ -15,8 +15,9 @@
 #     runtime) and `tmux` is present iff it resolves on PATH — both overridable
 #     via PLANWRIGHT_BACKEND_{SUBAGENT,TMUX} so a host/test can force presence.
 #     The contract-defined `stream-json-persistent` and `headless-oneshot` rows
-#     (execution-backends REQ-A1.2, REQ-A1.3) default ABSENT until their
-#     dispatch support lands (execution-backends Tasks 3–4), overridable via
+#     (execution-backends REQ-A1.2, REQ-A1.3) now have their dispatch support
+#     (Tasks 4 and 3), so each probes the installed CLI — present iff `claude`
+#     resolves on PATH — overridable via
 #     PLANWRIGHT_BACKEND_{STREAM_JSON_PERSISTENT,HEADLESS_ONESHOT}. A pluggable
 #     name is present iff a `planwright-backend-<name>` adapter on PATH answers
 #     `advertise` with a well-formed capability set; a malformed/absent adapter
@@ -838,7 +839,7 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
   || fail "select-unattended(tmux absent, sjp forced) non-zero"
 [ "$sel" = subagent ] \
   || fail "select-unattended: the degrade chain must stay subagent-first pre-Task-5, got '$sel'"
-echo "ok: the new contract rows default absent and honor the env presence overrides"
+echo "ok: the new contract rows probe the installed CLI and honor the env presence overrides"
 
 # ---------------------------------------------------------------------------
 # 32. Adapter grammar, 6→8 back-compatible (D-13, REQ-A1.7): an eight-field
@@ -1070,6 +1071,31 @@ dg_table=$(extract_caps_table "$here/../scripts/orchestrate-degrade.sh")
   || fail "drift guard: orchestrate-backends.sh caps_for should have six rows"
 [ "$bk_table" = "$dg_table" ] \
   || fail "drift guard: orchestrate-degrade.sh caps_for diverged from orchestrate-backends.sh"
-echo "ok: the contract doc and the script agree under the drift guard"
+
+# The presence probes (env_present + is_present) are ALSO duplicated across the
+# two scripts — both must probe the same backend→default mapping (both new rows
+# gained the installed-CLI `claude` probe in lockstep, Tasks 3 and 4). Neither
+# is exposed as a subcommand, so guard them textually the same way, comparing
+# the non-comment function bodies byte-for-byte. A divergence (e.g. one script
+# flipping a row's default while the other lags) would make degrade's
+# no-candidate failover disagree with the tower's detect about drivability.
+extract_fn_body() {
+  # $1 file, $2 function name — the function block minus comment and blank lines.
+  awk -v fn="^$2\\\\(\\\\) \\\\{" '$0 ~ fn,/^\}/' "$1" \
+    | grep -vE '^[[:space:]]*#' | grep -vE '^[[:space:]]*$'
+}
+for fn in env_present is_present; do
+  bk_fn=$(extract_fn_body "$here/../scripts/orchestrate-backends.sh" "$fn")
+  dg_fn=$(extract_fn_body "$here/../scripts/orchestrate-degrade.sh" "$fn")
+  [ -n "$bk_fn" ] || fail "presence-parity guard: could not extract orchestrate-backends.sh $fn"
+  [ -n "$dg_fn" ] || fail "presence-parity guard: could not extract orchestrate-degrade.sh $fn"
+  # Both new rows must actually carry the claude probe (guards against a vacuous
+  # match if a future edit drops the arm from both at once).
+  printf '%s\n' "$bk_fn" | grep -q 'HEADLESS_ONESHOT-}" claude' \
+    || { [ "$fn" = is_present ] && fail "presence-parity guard: headless-oneshot lost its claude probe in $fn"; }
+  [ "$bk_fn" = "$dg_fn" ] \
+    || fail "presence-parity guard: orchestrate-degrade.sh $fn diverged from orchestrate-backends.sh"
+done
+echo "ok: the contract doc and the script agree under the drift guard, and the two presence probes stay in lockstep"
 
 echo "PASS: test-orchestrate-backends.sh"

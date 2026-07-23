@@ -1219,8 +1219,8 @@ case "$cmd" in
     # executable, the adapter trust model), where the old name-case ran no
     # external code; and the answer describes the backend TYPE's mechanism —
     # presence is a separate axis (the two headless contract rows advertise
-    # push while their host presence defaults absent until dispatch support
-    # lands).
+    # push independent of host presence; both now probe the installed CLI for
+    # presence, their dispatch support having landed).
     caps_helper="$script_dir/orchestrate-backends.sh"
     if [ ! -x "$caps_helper" ]; then
       # Distinct from an unknown backend: the sibling accessor is missing or
