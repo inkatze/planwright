@@ -1,0 +1,1 @@
+- 2026-07-22 [planwright] inception Task 1 pinned the assumption evidence ladder as five tokens (synthetic < opinion < stated-intent < costly-signal < behavior) with pure reasoning not citable (Evidence: none); the Task 3 evidence-quality doctrine must adopt exactly these tokens and the none convention or amend inception-format additively.

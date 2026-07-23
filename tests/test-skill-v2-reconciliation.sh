@@ -32,6 +32,12 @@
 #     `commit_on_state_move` to v1;
 #   - /spec-kickoff documents Ready as the v2 header's resting state and reads
 #     derived execution state for delta/amendment mode selection;
+#   - /self-review's no-arg fallback rung resolves candidate specs through the
+#     derived-status render (scripts/spec-status.sh) and accepts Ready or
+#     Active — so a v2 bundle with work in flight (stored Ready, derived
+#     Active) resolves — with the legacy stored `Status: Active` requirements
+#     grep gone and no fall-through to another spec's brief (skill-rigor
+#     Task 3, REQ-A1.1, REQ-A1.2);
 #   - polish-pass guards: the reopen-cycle flip source is version-keyed
 #     (spec-draft), every state-writing skill states D-7's fail-closed rule
 #     for an unparseable Format-version:, the orphan park checks the
@@ -64,7 +70,7 @@ flat() {
   tr '\n' ' ' <"$1" | tr -s ' '
 }
 
-for s in spec-draft execute-task resume orchestrate drain spec-kickoff; do
+for s in spec-draft execute-task resume orchestrate drain spec-kickoff self-review; do
   if [ ! -f "$REPO_ROOT/skills/$s/SKILL.md" ]; then
     echo "FAIL: skills/$s/SKILL.md missing" >&2
     exit 1
@@ -345,6 +351,70 @@ else
   fail "orchestrate: --bookkeeping placement reconcile not scoped to v1 ('no placement to reconcile' on v2 missing)"
 fi
 
+# --- /orchestrate: selection-contract reconciliation (skill-rigor Task 4, ---
+# --- REQ-A1.3, REQ-A1.4, D-10). The selector ships exit 3 (the
+# --- format-version-2 transient evidence hold) and refuses selection when
+# --- Format-version: is unparseable; the skill prose must fold both in.
+# --- Cross read: scripts/orchestrate-select.sh's exit-3 site.
+
+# REQ-A1.3: the selection prose documents exit 3 as the transient evidence hold.
+if printf '%s' "$oc" | grep -qE 'Exit 3 \(format-version 2 transient evidence hold\)'; then
+  ok "orchestrate: selection prose documents exit 3 as the v2 transient evidence hold (REQ-A1.3)"
+else
+  fail "orchestrate: selection prose does not document selector exit 3 (REQ-A1.3; matches scripts/orchestrate-select.sh's exit-3 contract)"
+fi
+
+# REQ-A1.3: the hold is a clean report-and-end, the lock-contention shape (D-10).
+if printf '%s' "$oc" | grep -qE '[Rr]eport the hold and end the step cleanly'; then
+  ok "orchestrate: exit-3 hold described as a clean report-and-end (REQ-A1.3, D-10)"
+else
+  fail "orchestrate: exit-3 hold not described as 'report the hold and end the step cleanly' (REQ-A1.3, D-10: not a halt)"
+fi
+
+# REQ-A1.3: the stop-conditions table carries the exit-3 row.
+if printf '%s' "$oc" | grep -qE 'Selection transient-evidence hold'; then
+  ok "orchestrate: stop-conditions table carries the selection exit-3 row (REQ-A1.3)"
+else
+  fail "orchestrate: stop-conditions table has no selection exit-3 row ('Selection transient-evidence hold' missing, REQ-A1.3)"
+fi
+
+# REQ-A1.4: the ready-task candidacy prose is version-keyed, stating v1 and
+# format-version-2 candidacy each. Three separate fixed-shape greps (no nested
+# bounded quantifiers, which backtrack catastrophically on the flattened body):
+# the version-keyed lead, then each version's candidacy clause.
+if printf '%s' "$oc" | grep -qE 'Candidacy is version-keyed'; then
+  ok "orchestrate: ready-task candidacy prose is version-keyed (REQ-A1.4)"
+else
+  fail "orchestrate: ready-task candidacy prose is not version-keyed ('Candidacy is version-keyed' missing, REQ-A1.4)"
+fi
+
+if printf '%s' "$oc" | grep -qE '\*\*version 1\*\* bundle a task is a candidate'; then
+  ok "orchestrate: version-keyed candidacy states the version 1 condition (REQ-A1.4)"
+else
+  fail "orchestrate: version-keyed candidacy does not state the version 1 condition explicitly (REQ-A1.4)"
+fi
+
+if printf '%s' "$oc" | grep -qE '\*\*format-version 2\*\* bundle no placement section exists, so candidacy'; then
+  ok "orchestrate: version-keyed candidacy states the format-version-2 condition (REQ-A1.4)"
+else
+  fail "orchestrate: version-keyed candidacy does not state the format-version-2 condition explicitly (REQ-A1.4)"
+fi
+
+# REQ-E1.1 compensating trim: the heavy selection mechanics were relocated into
+# doctrine/selection-contract.md (kept resolvable), declared point-of-use in the
+# manifest so the skill still names the contract at its point of use.
+if [ -f "$REPO_ROOT/doctrine/selection-contract.md" ]; then
+  ok "orchestrate: the relocated selection-contract doctrine doc exists (REQ-E1.1)"
+else
+  fail "orchestrate: doctrine/selection-contract.md missing (REQ-E1.1 compensating-trim relocation)"
+fi
+
+if printf '%s' "$oc" | grep -qE 'Doctrine: point-of-use selection-contract'; then
+  ok "orchestrate: manifest declares selection-contract point-of-use (REQ-E1.1)"
+else
+  fail "orchestrate: manifest does not declare selection-contract point-of-use (REQ-E1.1)"
+fi
+
 # --- /drain: gate atoms via the derivation engine (REQ-E1.2, D-8) ---
 
 dr="$(flat "$REPO_ROOT/skills/drain/SKILL.md")"
@@ -408,6 +478,57 @@ if printf '%s' "$sk" | grep -qE 'rests at Ready[^.]{0,240}(derivation|render)'; 
   ok "spec-kickoff: delta/amendment mode selection reads derived execution state on v2"
 else
   fail "spec-kickoff: mode selection does not read derived execution state on a v2 bundle whose stored header rests at Ready (D-6)"
+fi
+
+# --- /self-review: no-arg fallback resolves via the render (skill-rigor ---
+# --- Task 3; REQ-A1.1, REQ-A1.2, D-2, D-9). The no-arg fallback rung must  ---
+# --- resolve candidate specs through the derived-status render and accept  ---
+# --- Ready or Active — so a format-version-2 bundle with work in flight    ---
+# --- (stored Ready, derived Active) resolves — with the legacy stored      ---
+# --- `Status: Active` requirements grep gone, and must never fall through  ---
+# --- to another spec's brief when the branch-named spec has none.          ---
+
+sr="$(flat "$REPO_ROOT/skills/self-review/SKILL.md")"
+
+if printf '%s' "$sr" | grep -qE 'scripts/spec-status\.sh|mise run status'; then
+  ok "self-review: no-arg fallback resolves through the status render (D-9, REQ-A1.1)"
+else
+  fail "self-review: fallback rung does not name the status render (scripts/spec-status.sh / mise run status) (REQ-A1.1)"
+fi
+
+if printf '%s' "$sr" | grep -qE 'Ready or Active'; then
+  ok "self-review: fallback rung accepts Ready or Active (REQ-A1.1)"
+else
+  fail "self-review: fallback rung does not state Ready-or-Active acceptance (REQ-A1.1)"
+fi
+
+if printf '%s' "$sr" | grep -qE 'Status: Active'; then
+  fail "self-review: fallback rung still greps stored 'Status: Active' (REQ-A1.1: the stored-status grep must be removed)"
+else
+  ok "self-review: no stored 'Status: Active' grep remains in the rung (REQ-A1.1)"
+fi
+
+if printf '%s' "$sr" | grep -qE 'never a fall-through to another spec'; then
+  ok "self-review: named-spec-without-brief yields brief-absent, no foreign-brief fall-through (REQ-A1.2)"
+else
+  fail "self-review: named-spec-without-brief rule (no fall-through to another spec's brief) missing (REQ-A1.2)"
+fi
+
+# A render error, zero, or multiple Ready-or-Active candidates must degrade to
+# the existing ask-when-attended / proceed-brief-less arm (D-2), never a guess.
+if printf '%s' "$sr" | grep -qE 'render error[^.]{0,120}degrade to the existing arm'; then
+  ok "self-review: render error / zero / multiple candidates degrade to the existing arm (D-2)"
+else
+  fail "self-review: fallback rung does not degrade a render error / zero / multiple candidates to the existing arm (D-2)"
+fi
+
+# Acceptance gates on candidate uniqueness (exactly one Ready-or-Active
+# candidate), not on how many carry a brief — keeping it consistent with the
+# multiple-candidates degradation rule above (Copilot #292 thread).
+if printf '%s' "$sr" | grep -qE 'exactly one such candidate exists'; then
+  ok "self-review: brief taken only when exactly one Ready-or-Active candidate exists (D-2)"
+else
+  fail "self-review: acceptance not gated on a single Ready-or-Active candidate (contradicts the multiple-candidates degradation rule)"
 fi
 
 if [ "$failures" -gt 0 ]; then

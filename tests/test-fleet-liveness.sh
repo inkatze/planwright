@@ -17,10 +17,12 @@
 #     pending-permission marker (REQ-A1.3's never-auto-resolved floor), while
 #     the deny path (permission-request then stop, no tool use between)
 #     clears cleanly (kickoff risk row 28);
-#   - REQ-A1.1 fallback: `push-capable` names hook-push for the tmux backend
-#     (the only backend that launches a hook-registering session) and falls
-#     back to the existing capture-pane observation for subagent, print, and
-#     in-session rather than failing (kickoff risk row 16);
+#   - REQ-A1.1 fallback: `push-capable` reads the capability contract's
+#     hook_registration field (execution-backends D-7) — push for the
+#     hook-registering backends (tmux, headless-oneshot,
+#     stream-json-persistent), the existing capture-pane observation fallback
+#     for subagent, print, and in-session rather than failing (kickoff risk
+#     row 16);
 #   - REQ-A1.2: synthetic heartbeat/progress sequences resolve exactly one of
 #     working / idle / hung / awaiting-human / flailing, including the
 #     hung-vs-flailing boundary (heartbeat stopped vs heartbeat fresh with no
@@ -267,17 +269,22 @@ qc=$(attn "$home7" queue --count) || fail "queue --count failed"
 echo "ok: downgrade pushes never auto-resolve a queued escalation"
 
 # ---------------------------------------------------------------------------
-# 8. REQ-A1.1 fallback (risk 16) — push-capable: only tmux launches a
-#    dispatch-controlled process (identity env inherited, plugin hooks fire),
-#    so only tmux pushes; subagent (in-process), in-session (the tower's own
-#    session), and print (no process spawned at all — the capability contract
-#    exempts print units from the liveness predicate) fall back to the
-#    existing observation path (named on stdout) rather than failing.
+# 8. REQ-A1.1 fallback (risk 16) — push-capable: which liveness mechanism a
+#    backend gets is read from the capability contract's hook_registration
+#    field (execution-backends D-7, Task 2 Done-when: never keyed on backend
+#    names). tmux and the two new session-grade rows advertise
+#    hook_registration=true → push; subagent (in-process), in-session (the
+#    tower's own session), and print (no process spawned at all — the contract
+#    exempts print units from the liveness predicate) advertise false and fall
+#    back to the existing observation path (named on stdout) rather than
+#    failing.
 # ---------------------------------------------------------------------------
-rc=0
-out=$(run "$tmp/h8" push-capable tmux) || rc=$?
-[ "$rc" = 0 ] || fail "push-capable tmux: exit $rc, expected 0"
-[ "$out" = push ] || fail "push-capable tmux: '$out', expected 'push'"
+for b in tmux headless-oneshot stream-json-persistent; do
+  rc=0
+  out=$(run "$tmp/h8" push-capable "$b") || rc=$?
+  [ "$rc" = 0 ] || fail "push-capable $b: exit $rc, expected 0"
+  [ "$out" = push ] || fail "push-capable $b: '$out', expected 'push' (hook_registration=true)"
+done
 for b in subagent print in-session; do
   rc=0
   out=$(run "$tmp/h8" push-capable "$b") || rc=$?
@@ -287,7 +294,78 @@ done
 rc=0
 run "$tmp/h8" push-capable no-such-backend >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "push-capable unknown backend: exit $rc, expected 2"
-echo "ok: push-capable names hook-push for tmux and the observe fallback for subagent/print/in-session"
+# The contract-read closure's motivating case: a PLUGGABLE backend advertising
+# hook_registration=true gets `push` with no fleet-liveness edit — resolved
+# through its adapter via the caps accessor.
+hookbin="$tmp/hookbin"
+mkdir -p "$hookbin"
+cat >"$hookbin/planwright-backend-hooky" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+printf 'false false false false true yes light true\n'
+EOF
+chmod +x "$hookbin/planwright-backend-hooky"
+rc=0
+out=$(PATH="$hookbin:$PATH" run "$tmp/h8" push-capable hooky) || rc=$?
+[ "$rc" = 0 ] || fail "push-capable pluggable hooky: exit $rc, expected 0"
+[ "$out" = push ] || fail "push-capable pluggable hooky: '$out', expected 'push'"
+# A malformed adapter fails closed AND its advertise diagnostic stays visible
+# through the push-capable path (REQ-A1.7: never a silent absence).
+cat >"$hookbin/planwright-backend-badline" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] || exit 2
+printf 'false false false false true yes light\n'
+EOF
+chmod +x "$hookbin/planwright-backend-badline"
+rc=0
+PATH="$hookbin:$PATH" run "$tmp/h8" push-capable badline >/dev/null 2>"$tmp/pc-err" || rc=$?
+[ "$rc" = 2 ] || fail "push-capable malformed-adapter backend: exit $rc, expected 2"
+grep -q "malformed advertise line" "$tmp/pc-err" \
+  || fail "push-capable must forward the malformed-advertise diagnostic, not swallow it"
+# A missing capability accessor is a self-identified broken install (exit 2
+# with the broken-install message), never misreported as an unknown backend:
+# run a copied fleet-liveness.sh whose scripts dir lacks orchestrate-backends.sh.
+brokedir="$tmp/broken-install"
+mkdir -p "$brokedir"
+cp "$FL" "$here/../scripts/echo-safety.sh" "$brokedir/"
+rc=0
+out=$(env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
+  push-capable tmux 2>"$tmp/pc-err") || rc=$?
+[ "$rc" = 2 ] || fail "push-capable with a missing caps accessor: exit $rc, expected 2"
+grep -q "broken install" "$tmp/pc-err" \
+  || fail "a missing caps accessor must be diagnosed as a broken install, not an unknown backend"
+# A version-skewed accessor (answers the pre-extension six fields) is
+# self-identified as skew, never misreported as an unknown backend: stub the
+# accessor beside the copied script.
+cat >"$brokedir/orchestrate-backends.sh" <<'EOF'
+#!/bin/sh
+[ "$1" = caps ] || exit 2
+printf 'true true true false true yes\n'
+EOF
+chmod +x "$brokedir/orchestrate-backends.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
+  push-capable tmux >/dev/null 2>"$tmp/pc-err" || rc=$?
+[ "$rc" = 2 ] || fail "push-capable with a six-field caps answer: exit $rc, expected 2"
+grep -q "version-skewed install" "$tmp/pc-err" \
+  || fail "a wrong-arity caps answer must be diagnosed as version skew, not an unknown backend"
+# An accessor that itself fails (exit code outside the contract's 1/2 name
+# arms — e.g. a corrupted script) is self-identified as an accessor failure,
+# never misreported as an unknown backend: stub an accessor that crashes.
+cat >"$brokedir/orchestrate-backends.sh" <<'EOF'
+#!/bin/sh
+exit 7
+EOF
+chmod +x "$brokedir/orchestrate-backends.sh"
+rc=0
+env PLANWRIGHT_FLEET_STATE_DIR="$tmp/h8" /bin/sh "$brokedir/fleet-liveness.sh" \
+  push-capable tmux >/dev/null 2>"$tmp/pc-err" || rc=$?
+[ "$rc" = 2 ] || fail "push-capable with a crashing caps accessor: exit $rc, expected 2"
+grep -q "capability accessor failed" "$tmp/pc-err" \
+  || fail "a crashing caps accessor must be diagnosed as an accessor failure, not an unknown backend"
+grep -q "unknown backend" "$tmp/pc-err" \
+  && fail "a crashing caps accessor must not carry the unknown-backend wording"
+echo "ok: push-capable reads hook_registration from the contract, never backend names"
 
 # ---------------------------------------------------------------------------
 # 9. REQ-A1.2 — the five-state classifier over synthetic sequences: startup

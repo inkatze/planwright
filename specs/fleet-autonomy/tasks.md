@@ -1,17 +1,22 @@
 # Fleet Autonomy — Tasks
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
-Eight tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
+Eleven tasks. Task 1 is foundational and is dispatched first per the guard-infrastructure-first
 selection rule; every task except Task 6 depends on it (Task 6's ghost-text prevention is a static
 env-var set unconditionally at dispatch, never a runtime kill/cleanup/restart/throttle decision, so
 it needs none of Task 1's kill-switch or audit-trail infrastructure — a deliberate non-edge, not an
 oversight). Tasks 2, 3, 4, 5, and 7 are otherwise independent of one another; Task 8
 (observability/rendering) depends on Tasks 2, 3, 4, and 7's real daemon activity existing to
-render.
+render. Tasks 9, 10, and 11 are the 2026-07-20 resource-governance extension: Task 9 (proactive
+usage gate) depends on Task 1's daemon/audit infrastructure and Task 7's throttle mechanism; Task 10
+(configurable budget-aware allocation) depends on Task 1, on Task 7's selection table, and on Task
+9 — the degrade ladder cannot downshift without Task 9's usage signal; Task 11 (credit-continuation
+recovery) depends on Task 1 and Task 7 (it reacts to the wall prompt, not the proactive read, so it
+is independent of Task 9 and can run in parallel with it).
 
 ## Tasks
 
@@ -163,6 +168,99 @@ render.
 - **Citations:** D-13, D-14, D-16 · REQ-F1.1, REQ-F1.2, REQ-F1.4
 - **Estimated effort:** 1.5 days
 
+### Task 9 — Proactive shared-aware usage gate
+
+- **Deliverables:** A helper that captures Claude Code's own `/usage` output (via a throwaway-pane
+  scrape of the live TUI — the mechanism a fleet tower has already used in operation) and parses
+  **both** rendered windows — the session (~5-hour) and the weekly — each identified explicitly (by
+  label, not position) with its percentage and reset time where shown, applying a plausibility check
+  (0–100, expected render shape) and degrading to an explicit per-window "unavailable" on any
+  capture, parse, or plausibility failure; the proactive gate that maps each window's percentage to
+  a target rung on the restriction ladder (`normal` → `downshift` → `reduce-concurrency` →
+  `defer-heavy` → `defer-all`), taking the more restrictive of the two windows, with the session
+  window capped at `defer-heavy` and only the weekly window able to reach `defer-all`, evaluated by
+  deterministic comparison, thresholds resolved through the four-layer overlay mechanism (the
+  `downshift`/`reduce-concurrency` rung *values* are Task 10's); wiring so each rung transition is a
+  first-class daemon action (kill-switch-pausable, audited); the Task 7 reactive throttle retained
+  unchanged as the authoritative full-stop backstop the gate degrades to; rung engagement surfaces
+  through the existing throttle-engaged stat channel Task 8 already renders (the gate is
+  throttle-family, so it reuses that state rather than minting a new stat type).
+- **Done when:** a fixture feeding a representative `/usage` render asserts the parser extracts
+  **both** window percentages deterministically, each by label, with no LLM/API call in the path; a
+  fixture asserts rising usage selects progressively heavier rungs and that the more restrictive
+  window governs (session below / weekly above, and the reverse); a session-cap fixture asserts the
+  session window never selects above `defer-heavy` while weekly can reach `defer-all`; a `defer-heavy`
+  fixture asserts heavy/opus units are withheld while cheaper units still dispatch; a fixture asserts
+  non-monotonic per-window rung thresholds are rejected; a fixture with unparseable or absent
+  `/usage` asserts the signal reports unavailable and governance falls back to the reactive backstop
+  (REQ-E1.7) — no block, no guessed number; a fixture with an out-of-range or otherwise implausible
+  parsed value asserts it is treated as unavailable (never acted on); a fixture with a cached signal
+  older than its configured TTL asserts it is treated as unavailable; a fixture holding the signal
+  unavailable across the configured consecutive-cadence count asserts the required sustained-loss
+  operator surface fires (warning → Awaiting-input hold); the read cadence/TTL and the
+  per-window rung-threshold knobs resolve through the overlay (a machine-local override wins, verified
+  via `config-get.sh`); rung-transition events log through Task 1's audit-trail helper and honor the
+  kill-switch, and an audit-row assertion confirms rows carry only the extracted percentages and the
+  rung decision, never the raw `/usage` render; a fixture asserts the current rung and last-transition
+  timestamp are **derived from the audit trail** (a fresh process with no in-memory state recovers the
+  rung) and that transitions are **edge-triggered** (no row on an unchanged rung); a two-tower fixture
+  asserts rung transitions serialize under the advisory lock (REQ-G1.3) with no interleaved or
+  duplicate rows; tests/CI pass.
+- **Dependencies:** 1, 7
+- **Citations:** D-23, D-28, D-12 · REQ-E1.5, REQ-E1.6, REQ-E1.7, REQ-F1.3, REQ-F1.4, REQ-G1.2, REQ-G1.3, REQ-G1.5
+- **Estimated effort:** 2.5 days
+
+### Task 10 — Configurable, budget-aware model allocation & degrade ladder
+
+- **Deliverables:** The Task 7 model/effort/command selection table made operator-configurable
+  through the four-layer overlay mechanism, with shipped defaults that preserve current selection
+  behavior; per-model budget caps/shares of the shared account limit, enforced by deterministic
+  comparison against Task 9's usage signal; the `downshift` and `reduce-concurrency` rung *values*
+  of the restriction ladder (which tier each downshift step selects, the concurrency limit per rung),
+  keyed off Task 9's rung signal, with descend/restore when budget recovers and hysteresis on rung
+  transitions; the per-model-reservation exemption (a pinned unit skips `downshift`/`defer-heavy` but
+  not `defer-all`); a guard proving every degrade step degrades capability only — never below a full
+  session-grade worker session, never relaxing the autonomous-safe-decision determinism floor, never
+  engaging `auto` permission mode.
+- **Done when:** a fixture asserts an operator overlay retunes the per-task-type model/effort
+  mapping while the shipped defaults reproduce today's selection when nothing is configured; a
+  fixture asserts per-tier caps (opus's global-usage threshold below sonnet's) withdraw expensive
+  tiers from routine units sooner, by deterministic comparison against a stubbed signal with no LLM
+  call and no per-model accounting state; a fixture asserts the signal-unavailable behavior — the
+  ladder holds its last-known rung (recovered from the audit trail) within the grace window, then
+  decays to `normal` — and that caps are inactive while unavailable; a fixture driving the rung
+  signal up asserts allocation climbs one rung (`downshift`, then `reduce-concurrency`) and descends
+  when budget recovers; a fixture driving the signal oscillating across a rung threshold asserts
+  allocation does not flap (the configured hysteresis band / minimum dwell holds the rung); a
+  reservation fixture asserts a pinned unit is exempt from `downshift`/`defer-heavy` but yields at
+  `defer-all`, and that the shipped default reserves nothing; a guard fixture asserts every degrade
+  step stays session-grade, never relaxes the determinism floor (REQ-G1.2), and never selects
+  `--permission-mode auto` (REQ-E1.4); a stubbed-client assertion confirms the rung-transition logic
+  is LLM-free; each rung transition logs through Task 1's audit trail and the kill-switch reverts to
+  the `normal` policy; the knobs resolve through the overlay (machine-local wins); tests/CI pass.
+- **Dependencies:** 1, 7, 9
+- **Citations:** D-24, D-25, D-26, D-28 · REQ-E1.8, REQ-E1.9, REQ-E1.10, REQ-E1.5, REQ-E1.4, REQ-F1.3, REQ-F1.4, REQ-G1.2, REQ-G1.3, REQ-G1.5
+- **Estimated effort:** 2.5 days
+
+### Task 11 — Credit-continuation recovery
+
+- **Deliverables:** Detection of Claude Code's credit-continuation prompt at the rate-limit wall
+  (the "spend credits / extra usage to continue" offer) as a deterministic recognizer over the wall
+  surface, riding Task 7's reactive-wall detection; a default response that declines and waits for
+  the window to reset (the reactive-backstop behavior), never auto-spending; an overlay opt-in knob
+  that, only when explicitly set, permits spending credits to continue; wiring so the decision is an
+  audited, kill-switchable daemon action, and never engages Claude Code's `auto` permission mode.
+- **Done when:** a fixture feeding a representative credit-continuation prompt asserts the default
+  response is decline-and-wait with no credits spent and no LLM/API call in the decision path; a
+  fixture with the overlay opt-in set asserts credits are permitted (and a machine-local override
+  wins, verified via `config-get.sh`); a fixture asserts the shipped default (nothing configured)
+  never spends; the decline/opt-in decision logs through Task 1's audit-trail helper and honors the
+  kill-switch; an adversarial/garbled prompt fixture asserts a non-recognized wall variant falls
+  through to the plain reactive backstop (no accidental spend); tests/CI pass.
+- **Dependencies:** 1, 7
+- **Citations:** D-27 · REQ-E1.11, REQ-E1.7, REQ-F1.3, REQ-F1.4, REQ-G1.2, REQ-G1.5
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)
@@ -174,12 +272,17 @@ render.
   but unimplemented until prevention proves insufficient. Confidence: high.
   **Gate:** a concrete case where `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false` fails to prevent
   ghost-text ambiguity is observed in the drain loop. Citations: D-10 · REQ-D1.2.
-- **Local-transcript (`ccusage`-style) usage estimation as a throttle corroborating signal.** Task
-  7 ships reactive throttling off Claude Code's native rate-limit signal alone; a supplementary
-  local-transcript-based estimate of past consumption is not built until the reactive-only signal
-  proves insufficient. Confidence: medium.
-  **Gate:** a concrete case where the reactive signal fires too late relative to actual quota
-  exhaustion is observed in the drain loop. Citations: D-12 · REQ-E1.3.
+- **Local-transcript (`ccusage`-style) usage estimation as a corroborating signal.** Task 7 ships
+  reactive throttling off Claude Code's native rate-limit signal, and the 2026-07-20 extension adds
+  the proactive `/usage` gate (Task 9) as the ahead-of-the-wall mechanism — so the original "reactive
+  fires too late" gap is now covered by the proactive gate, not by ccusage. A supplementary
+  local-transcript estimate of past consumption stays deferred as a *corroborating* cross-check on
+  the `/usage` read (never the gate input: it reconstructs past consumption, not remaining
+  server-side quota), not built until the `/usage` read plus reactive backstop prove insufficient.
+  Confidence: medium.
+  **Gate:** a concrete case where the `/usage` read is unavailable or wrong often enough that a
+  corroborating estimate would materially help is observed in the drain loop. Citations: D-12, D-23
+  · REQ-E1.5, REQ-E1.7.
 - **A turnkey scheduler-registration helper for the tower-liveness watchdog.** Task 3 ships the
   watchdog as a deterministic script the operator schedules from their own cron/launchd (the
   no-LLM-daemon floor, D-4/REQ-G1.2, is why it is never a Claude Code scheduled-agent); the operator

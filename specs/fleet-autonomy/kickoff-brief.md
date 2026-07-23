@@ -739,3 +739,86 @@ status flip (the bundle is stored-Ready / derived-Active).
 Class: expression-only
 Anchor: `79ffced3a6e23268584353304a1dd17fbb557ee4` — computed as
 `scripts/spec-anchor.sh specs/fleet-autonomy`
+
+### 2026-07-20 — Extension-delta kickoff (reopened bundle: resource governance)
+
+Recorded by `/spec-kickoff`'s reopened-bundle delta kickoff on the spec branch
+`planwright/fleet-autonomy/spec`. The original eight tasks are merged (the bundle was
+derived-Done); `/spec-draft --extend` reopened it to Draft with the resource-governance
+extension, tracked by spec PR #278. Human-classified **meaning-class** at sign-off
+(new REQs and D-IDs added). Walk scope: the extension delta only — REQ-E1.5–E1.11,
+D-23–D-28, Tasks 9–11, and their test-spec entries.
+
+**Walked (delta-scoped):** the Goal's two coupled gaps (reactive-only usage governance;
+non-configurable allocation); the REQ-E group extension; design D-23–D-28; verification
+(E1.5–E1.11 coverage, and the CI-vs-operational split for the live `/usage` capture);
+the task graph (9←{1,7}, 10←{1,7,9}, 11←{1,7}; remaining work is 9→10 sequential plus 11
+in parallel, all dependencies already merged); the risk register (below).
+
+**Decision-domains gap check:** walked the 11 seed domains (`resolve-catalog` returned no
+overlay-added domains). Two touched-but-undecided domains were folded in: caching (read
+cadence/TTL) and secrets/config (audit-hygiene of the raw render).
+
+**Altitude check (REQ-H1.3):** PASS — D-26 exists, is cited from the Goal, and the claimed
+altitude ("configurable mechanism, not new doctrine") matches the decomposition (Tasks
+9–11 are all mechanism).
+
+**Lens review pass (Discovery Rigor, delta-scoped; read-only sub-agent fan-out, one per
+canonical lens):**
+
+| Lens | Findings | Disposition |
+| --- | --- | --- |
+| Correctness, logic, edge cases | window ambiguity; pause-vs-downshift; cap computability; threshold ordering | resolved via Forks 1–3 + batch |
+| Security | sanitize untrusted render; intermediate-artifact hygiene; hygiene scope; adversarial fixture | applied (E1.5, test-spec) |
+| Error handling & failure modes | allocation unavailable-floor; hung-capture; sustained-loss surface; multi-window parse | resolved via Forks 1/3 |
+| Performance | scrape quota-draw; refresh placement; cross-tower redundancy; cache SHALL+default | applied (E1.5) + risk rows |
+| Concurrency / state | hysteresis state vs memoryless towers; advisory lock; cache write-safety; audit idempotency | resolved via Fork 4 (D-28) |
+| Naming, readability, structure | "per wave" undefined | applied (removed) |
+| Documentation | new knobs rely on REQ-K1.8 + `check-options-reference` CI | covered (existing gate) |
+| Tests / verification | kill-switch-reverts-ladder untested; no `[manual]` drift check; stale "Tasks 2–7" | applied (test-spec) |
+| Cross-file consistency | Task 10 missing F1.3 cite; stale enumerations; D-26 foreign refs | applied |
+
+All findings dispositioned (applied as a spec edit, folded into a fork resolution, or
+routed to a risk row); none declined or left undispositioned.
+
+**Four forks resolved with the human:**
+
+1. **Window** — parse both `/usage` windows (session ~5h + weekly), consequence-aware
+   default (weekly the sensitive metric), more-restrictive-wins, point-in-time (never
+   models reset timing).
+2. **Gate vs ladder** — unified into one restriction ladder
+   (`normal`→`downshift`→`reduce-concurrency`→`defer-heavy`→`defer-all`); "pause" is the
+   `defer-heavy` rung; session capped at `defer-heavy`, only weekly reaching `defer-all`;
+   pinned unit exempt from `downshift`/`defer-heavy` but not `defer-all`; the common
+   proactive range can only mis-throttle, never halt (reactive backstop owns full-stop).
+3. **Unavailable signal + caps** — hold-last-rung then decay-to-`normal` within a grace
+   window, plus a required sustained-loss operator surface; caps reframed as per-tier
+   global-usage thresholds (not per-model accounting; the reservation is the E1.10
+   exemption).
+4. **Ladder state** — derived from the shared audit trail (D-28), fleet-coherent, taken
+   under the advisory lock, edge-triggered; survives the memoryless-tower relaunch.
+
+**Operator-raised addition:** credit-continuation at the wall defaults to decline-and-wait,
+never auto-spend (REQ-E1.11, D-27, Task 11) — spend-avoidance, distinct from the parked
+dollar-ceiling.
+
+**Risk-register additions (§7 sequence continued):**
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 40 | `/usage` capture is proven in fleet operation (a tower scraped it via a throwaway pane) but finicky and version-fragile (D-23). | Plausibility check + degrade-to-reactive-backstop + required sustained-loss surface + the `[manual]` `/usage` drift check. Early signal: the drift check or a spike in "unavailable" reads. |
+| 41 | Live `/usage` capture correctness is verified operationally (`[manual]`), not in CI (fixtures feed a captured render). | The automatable core (parser + plausibility + hygiene) is in CI; the manual drift check owns the live-format half, mirroring `/context` REQ-C1.1. |
+| 42 | Concurrent towers reading the same account-global `/usage` may both dispatch between reads (no reservation). | Accepted; the reactive backstop (REQ-E1.7) catches overshoot, and the ladder state is fleet-coherent (D-28). |
+| 43 | The `/usage` scrape may itself draw account quota (a bootstrapping cost that compounds near the wall). | Accepted for now; bounded by the cache cadence (off the hot path). Early signal: measurable quota attributable to the read; revisit in the drain loop. |
+| 44 | Cross-tower `/usage` reads are redundant (each tower scrapes independently) with no single-flight/debounce. | Accepted; cost scales with tower count. A single-flight/debounce is a deferred optimization. |
+| 45 | obs:5d6d206c and obs:9af1f82f live on unmerged PR #275. | Consume via `scripts/obs-consume.sh --uid <uid> --spec fleet-autonomy` once #275 lands; the `obs:` citations are stable across the archive move. |
+
+**This run's edits:** flipped `Status:` Draft→Ready on all four files (the reopened-bundle
+sign-off flip); applied the fork resolutions and batch tightenings across all four files;
+added the comprehensive `## Changelog` entries. The render derives Active from the
+already-merged tasks 1–8; the stored header rests at Ready.
+
+Class: meaning
+Lens-pass: recorded above (this entry), findings dispositioned 2026-07-20.
+Anchor: `1e84f66ca9dde6a5105a5abdade51d53ee676cf7` — computed as
+`scripts/spec-anchor.sh specs/fleet-autonomy`

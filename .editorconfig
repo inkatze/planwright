@@ -18,3 +18,11 @@ indent_style = space
 indent_size = 2
 switch_case_indent = true
 binary_next_line = true
+
+# The extensionless githooks/ hooks are shell too (classified by shebang);
+# shfmt needs this section because [*.sh] cannot match them by name.
+[githooks/*]
+indent_style = space
+indent_size = 2
+switch_case_indent = true
+binary_next_line = true

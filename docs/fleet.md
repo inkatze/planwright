@@ -173,9 +173,12 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death. Backend selection and the degradation ladder below key on this
-advertised set, not on the backend's name; the per-backend dispatch wiring
-itself is still name-keyed today, pending later wiring (see the
+tower's death — and two cost/plumbing properties: `overhead` (the fixed
+per-dispatch cost class) and `hook_registration` (whether the worker's process
+fires planwright's hooks, which selects its liveness mechanism). Backend
+selection and the degradation ladder below key on this advertised set, not on
+the backend's name; the per-backend dispatch wiring itself is still name-keyed
+today, pending later wiring (see the
 [options reference](options-reference.md)).
 
 The shipped `dispatch_backend` values, by what they give you:
@@ -183,9 +186,17 @@ The shipped `dispatch_backend` values, by what they give you:
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
-| `subagent` (default) | In-harness background workers with isolated context | no / no | no |
+| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer); dispatch support landing | yes / yes | yes (recoverable via `--resume`) |
+| `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
+| `subagent` (default) | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
+
+The two headless rows are contract-defined ahead of their dispatch support:
+until it lands, autodetection reports them absent by default, so unattended
+selection does not pick a rung the tower cannot drive (the presence env
+overrides remain a deliberate test/early-adopter escape hatch that bypasses
+this default).
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
 on the host and collects each one's advertised set. Attended, it presents the
@@ -258,7 +269,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one six-field capability line;
+`PATH` that answers `advertise` with one capability line (eight fields; a
+legacy six-field line still parses with fail-safe defaults);
 `/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter
@@ -324,6 +336,69 @@ marker** the tower records at watch-loop start
 
 An ambiguous or unparseable marker fails closed: neither path acts, and the
 watchdog queues a repair decision instead of guessing.
+
+## Cross-tower presence: never assume solitude
+
+Concurrent towers on one host — even from **separate clones** of the same
+repository — see each other through the presence surface
+(concurrent-orchestrator-coordination D-2: one heartbeat file per tower under
+the fleet home, partitioned per repository by an origin-anchored repo id;
+never a shared registry, never a daemon). It is **awareness only**: the
+dispatch-exclusion floor is the per-unit `origin` fence ref, so nothing here
+is on the correctness path.
+
+A tower publishes its record at watch-loop start and re-publishes on each
+iteration (the heartbeat), refreshing the unit-ids it currently holds a fence
+for — the field a peer uses to attribute an orphan fence to its owner — then
+discovers peers:
+
+```sh
+scripts/fleet-presence.sh publish --checkout <repo-root> \
+  (--session-id <uuid> | --pid <pid>) \
+  [--tmux-session <name> --tmux-window <name>] \
+  [--specs <csv>] [--fenced <csv>] [--meta]
+scripts/fleet-presence.sh discover --checkout <repo-root> \
+  (--session-id <uuid> | --pid <pid>) [--min-interval <sec>]
+```
+
+Every command except `surface` needs an identity (`--session-id`, else
+`--pid` for the composite); `surface` resolves the sub-surface path without
+verifying or bootstrapping the presence surface itself, though it still
+validates the checkout and derives the repo id from `origin`, so it shares
+the exit-2 (misconfiguration) and exit-5 (no `origin` remote) postures.
+Publish additionally needs a death handle: a tower under tmux
+passes the reuse-resistant `tmux-window` pair (preferred even when `--pid`
+is also given); bare `--pid` doubles as the degraded fallback handle.
+Discover must use **the same identity flags publish used**, or the tower
+will not recognize its own record and counts itself as a peer. Discovery classifies each peer through
+`fleet-death-evidence.sh` (tri-state; a stale heartbeat is never death),
+garbage-collects only positively-dead records (guarded by a re-read-and-skip;
+a racing fresh record self-heals on the next heartbeat; a failed unlink is
+surfaced as `gc-fail`, never claimed as done), and prints a
+`sole-tower=yes|no` summary — a tower that finds **any** live, unknown,
+unreadable, or gc-skipped peer must not behave as the only tower. Scans run
+on a capped cadence (`--min-interval`, default 30 s, `0` disables): a pass
+inside the window prints only `cadence-capped` — no summary line, so a capped
+pass is never misread as an empty peer set. Single-step (non-watch) runs may
+invoke the same pair ad hoc before dispatching.
+
+Failure postures, all deterministic script logic: a first run bootstraps the
+user-private (`0700`) surface (a persistence sentinel distinguishes it from a
+**vanished** surface, which fails closed); an unreadable, vanished, or
+obstructed surface exits 3 (**unknown peer status** — awareness degrades for
+the step while dispatch proceeds on the fence floor; never read as solitude);
+a surface that is over-broad, ACL-bearing, owned by another user, or
+symlink-tampered (surface or persistence sentinel, in any state) is refused
+outright (exit 4, verify-or-refuse — investigate, then repair it yourself);
+refused input and misconfiguration (including a
+`--checkout` that is not a git repository) exit 2; no `origin` remote exits 5
+(the genuine solo posture).
+`fleet-presence.sh owner --checkout <repo-root> (--session-id <uuid> |
+--pid <pid>) <spec>/<unit-id>` resolves a fence ref's owner from **live**
+records only (`unknown-owner` when no live record lists it — including a
+fence held by an unknown-liveness peer, which surfaces through the strand
+path instead). The querying tower's own record is excluded, so asking about
+a fence you yourself hold returns `unknown-owner`.
 
 ## Scaling out: the meta-tower
 
@@ -438,16 +513,19 @@ writes is last-write-wins by commit-time timestamp (the store stamps
 heartbeats under the lock), so a reconcile that started before a fresher push
 cannot overwrite it with stale state.
 
-**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): only
-`tmux` launches a dispatch-controlled Claude Code process that inherits the
-identity env and fires plugin hooks, so only `tmux` pushes. `subagent` runs
-workers in-process, `in-session` shares the tower's own session, and `print`
-spawns no process at all (the human runs the printed command, so the
-dispatch env is never injected; the capability contract exempts
-print-backend units from the liveness predicate) — all three keep the
-existing observation path, and a fleet composed mostly of those backends
-keeps pre-spec observation latency for that slice, degrading capability,
-never safety.
+**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
+liveness mechanism a backend gets is read from the capability contract's
+`hook_registration` field, never a backend-name case. A hook-registering
+backend (`tmux`, and the `stream-json-persistent` / `headless-oneshot`
+contract rows once their dispatch support lands) launches a
+dispatch-controlled Claude Code process that inherits the identity env and
+fires plugin hooks, so it pushes. `subagent` runs workers in-process,
+`in-session` shares the tower's own session, and `print` spawns no process at
+all (the human runs the printed command, so the dispatch env is never
+injected; the capability contract exempts print-backend units from the
+liveness predicate) — those keep the existing observation path, and a fleet
+composed mostly of them keeps pre-spec observation latency for that slice,
+degrading capability, never safety.
 
 **The five-state classifier** (`fleet-liveness.sh classify`, D-2, REQ-A1.2)
 resolves exactly one of `working` / `idle` / `hung` / `awaiting-human` /
@@ -500,13 +578,18 @@ cascade (D-11).
 `scripts/fleet-resource-select.sh select <task-type>` resolves one
 model/effort/command row per task type — `execution` (the `/execute-task`
 workhorse: strong model, high effort), `bookkeeping` (the reconcile/drain
-sweep: mid tier), `drain` (the read-only gate pass: light tier). The model
-column is overlay-tunable per type (`fleet_model_execution`,
-`fleet_model_bookkeeping`, `fleet_model_drain` — the stable Claude Code
-aliases `fable | opus | sonnet | haiku`); effort and command are fixed table
-cells. The selectable command set is disjoint from `review_sequence`'s
-nestable-review-skill set by cross-checked construction (REQ-E1.2), so the
-dispatch table and the convergence knob can never both claim the same skill.
+sweep: mid tier), `drain` (the read-only gate pass: light tier). All three
+columns are overlay-tunable per type (Task 10, REQ-E1.8): the model column
+(`fleet_model_*` — the stable Claude Code aliases `fable | opus | sonnet |
+haiku`), the effort column (`fleet_effort_*` — `low | medium | high`), and the
+command column (`fleet_command_*` — the dispatch-entry set `execute-task |
+orchestrate | drain`). The shipped defaults preserve today's table, so an
+operator who configures nothing gets today's mapping. The selectable command
+set is disjoint from `review_sequence`'s nestable-review-skill set by
+construction — the `fleet_command_*` enum is exactly the non-nestable
+dispatch-entry set, so an out-of-enum command is refused at every overlay layer
+(REQ-E1.2), and the dispatch table and the convergence knob can never both claim
+the same skill.
 
 **Throttling is reactive, off Claude Code's own signal.** There is no
 supported way to query account-level usage, so the fleet reacts to the one
@@ -533,6 +616,129 @@ throttle-engaged state from the trail. An operator ends a hold early with
 `scripts/fleet-throttle.sh clear` — the manual-resume lever: audit-logged
 like every state change, but not gate-checked, because the kill-switch
 pauses autonomous actions, never the operator's own lever.
+
+**Gating is proactive, off Claude Code's own `/usage`.** The reactive
+throttle only fires at the wall; `scripts/fleet-usage-gate.sh` reads real
+account-level usage *ahead* of it (D-23). `fleet-usage-gate.sh capture` takes
+a captured `/usage` render on stdin (a throwaway-pane scrape, off the hot
+path), strips control bytes, parses **both** windows Claude Code renders — the
+session (~5-hour) and the weekly — **by label**, plausibility-checks each
+(0–100 and the expected shape), and caches the extracted signal per-tower with
+a read timestamp. `fleet-usage-gate.sh evaluate` maps each window's percentage
+to a rung on one monotone restriction ladder —
+`normal → downshift → reduce-concurrency → defer-heavy → defer-all` — by
+deterministic `≥` comparison against the overlay-resolved per-window thresholds
+(`fleet_usage_session_*`, `fleet_usage_weekly_*`; strictly ascending and in
+1–100, validated). The **more restrictive** window governs; the session window
+is **capped at `defer-heavy`** (a session spike never proactively halts the
+fleet), while only the weekly window can reach `defer-all` (the weekly wall can
+halt work for days). `fleet-usage-gate.sh admit <model>` answers the
+dispatch-time question: at `defer-heavy` heavy tiers (`opus`, `fable`) wait
+while cheaper ones dispatch; at `defer-all` everything waits. The ladder's live
+state (current rung, last transition) is **derived from the shared audit
+trail**, not stored (D-28), so a memoryless, cron-relaunched tower recovers the
+fleet rung; each transition is taken under the same advisory lock, logged
+**edge-triggered** (only on an actual rung change), and carries only the
+extracted percentages and the rung decision — never the raw `/usage` render,
+which can carry account or plan identifiers. Every rung transition is a
+throttle-family daemon action: kill-switch-gated (`fleet_daemon_pause`) and
+audit-logged (mechanism `usage-gate`), and the current rung folds into the
+existing throttle line Task 8's stats already render (no new stat type). When
+`/usage` cannot be captured, parsed, is implausible, or is stale beyond
+`fleet_usage_signal_ttl_seconds`, the signal is reported **unavailable**:
+governance falls back to the reactive throttle (the deterministic floor) with
+no block and no guessed number, and unavailability sustained across
+`fleet_usage_sustained_loss_count` consecutive read cadences raises the
+required operator surface (a warning escalating to an Awaiting-input hold), so
+a permanently broken parse is never silent. The proactive read is
+**shared-aware by construction**: `/usage` is account-global, already
+reflecting every concurrent tower, all workers, and unrelated same-account
+work, so no per-orchestrator usage reservation is kept. Because the `/usage`
+render is an undocumented, version-fragile surface (D-23), the parser carries a
+`[manual]` drift check — the automatable core (parse, plausibility, hygiene,
+ladder) is in CI; confirming the parser still matches a live `/usage` format is
+the operator's periodic manual check.
+
+Schedule the read + evaluation on the `fleet_usage_read_cadence_seconds`
+cadence, off the dispatch hot path — the gate never scrapes `/usage`
+synchronously per dispatch. The scrape mechanism (a throwaway-pane capture of
+the live `/usage` TUI) is environment-specific; wire it as, e.g.:
+
+```cron
+*/5 * * * * cd /path/to/repo && <scrape-/usage> | scripts/fleet-usage-gate.sh capture && scripts/fleet-usage-gate.sh evaluate
+```
+
+Then at dispatch time a tower consults `scripts/fleet-usage-gate.sh admit
+<model>` (a fast, audit-derived read — no scrape) to decide whether a unit of a
+given tier may launch under the current rung.
+
+**Transitions do not flap; a lost signal decays, it does not pin.** The rung
+ladder applies **hysteresis** (Task 10, REQ-E1.10): a *climb* (more restrictive)
+is immediate — restriction degrades capability only, so engaging it promptly is
+always safe — but a *descend* (relaxing) is held until the rung has dwelt at
+least `fleet_usage_rung_min_dwell_seconds` since its last transition, so a read
+oscillating across a threshold cannot flap the ladder down-and-up
+(fast-attack/slow-release). While the signal is **unavailable** the ladder
+*holds* its last-known rung (a transient scrape failure must not relax
+restriction), then **decays** to `normal` once `fleet_usage_unavailable_grace_seconds`
+have elapsed since the last transition, so a persistently broken parse never
+pins the fleet at a restrictive rung against a signal it can no longer read (the
+reactive backstop remains the floor). Both windows measure from the
+audit-derived last-transition timestamp (D-28), so a memoryless relaunch is
+consistent, and the decay is edge-triggered and lock-serialized like any
+transition.
+
+**The rung VALUES and per-tier budget caps: `scripts/fleet-allocate.sh`.** The
+gate above decides the *rung*; `fleet-allocate.sh resolve <task-type>
+[--reserved]` decides what that rung *means* for a dispatch (Task 10, REQ-E1.9,
+REQ-E1.10), reading the derived rung and the raw signal and emitting the
+effective `admit / model / effort / command / concurrency / rung / reserved`.
+At `downshift` and heavier it clamps a routine unit's model no more capable than
+`fleet_downshift_model` and effort no higher than `fleet_downshift_effort`; at
+`reduce-concurrency` and heavier it drops the worker limit from
+`fleet_concurrency_normal` to `fleet_concurrency_reduced`. Independently,
+**per-tier budget caps** (`fleet_cap_fable | fleet_cap_opus | fleet_cap_sonnet |
+fleet_cap_haiku`) withdraw expensive tiers from **routine** units sooner: each
+is a global-usage threshold (the more expensive a tier, the lower its threshold,
+`opus < sonnet`), a stateless `≥` read against the more-restrictive available
+window — never per-model accounting or a reservation ledger — and **inactive
+when the signal is unavailable**. A unit dispatched **`--reserved`** (the
+operator's "keep the most capable tier for the genuinely-hardest unit") is
+exempt from `downshift`, `defer-heavy`, and the caps, but still yields at
+`defer-all` and the reactive wall — a preference honored up to the
+fleet-critical rung, not an inviolable floor; the shipped default reserves
+nothing. Every degrade step degrades **capability only** — never below a full
+session-grade worker, never relaxing the determinism floor (REQ-G1.2), never
+engaging `--permission-mode auto` (REQ-E1.4); `fleet-allocate.sh guard <model>
+[<permission-mode>]` is the explicit assertion of those invariants. When the
+operator kill-switch (`fleet_daemon_pause`) is engaged, allocation reverts to the
+un-degraded `normal` policy — the operator has assumed manual control, so the
+ladder stops degrading rather than blocking dispatch. The whole path is
+deterministic script logic with no LLM call.
+
+**Credit-continuation defaults to decline-and-wait, never auto-spend.** The
+rate-limit wall sometimes offers a *credit-continuation* prompt — "spend
+credits / extra usage to continue past the limit".
+`scripts/fleet-credit-continuation.sh decide`, invoked on the same captured wall
+text the throttle reads, rides that reactive detection: it recognizes the
+spend-to-continue offer (demanding both a spend-offer token and a continuation
+token, so a plain wall or a garbled variant is never mistaken for one) and makes
+a single deterministic
+fleet policy decision. The shipped default is **decline and wait** for the
+window to reset — the reactive backstop already gives "wait for reset" a
+well-defined behavior to fall into, so declining costs no new mechanism, and
+an unattended, unbounded money spend is exactly the irreversible act
+planwright reserves for the operator (like merge). Spending credits to
+continue requires explicit opt-in: set `fleet_credit_continuation_spend: true`.
+The decision is a daemon action — kill-switch-gated (`fleet_daemon_pause`) and
+audit-logged (`fleet-audit.sh`, mechanism `credit-continuation`, with only the
+sanitized excerpt and the decline/spend decision recorded) — and, being a pure
+recognizer-plus-config-read, it makes no session-launch decision and so can
+never engage `auto` permission mode. An unrecognized wall variant is a clean
+no-op that falls through to the plain reactive backstop above, so no accidental
+spend is ever possible. This is a spend-*avoidance* default, distinct from a
+dollar-spend accounting ceiling (out of scope): it neither meters nor caps
+spend, it only refuses to incur it without opt-in.
 
 **Workers never run in `auto` permission mode.** The
 `config/worker-settings.json` allowlist — human-reviewed, human-installed,

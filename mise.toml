@@ -28,12 +28,12 @@ description = "Render a spec bundle's derived execution status (the canonical re
 run = "scripts/spec-status.sh"
 
 [tasks."lint:shell"]
-description = "shellcheck on scripts and tests"
-run = "shellcheck scripts/*.sh tests/*.sh"
+description = "shellcheck on scripts, tests, and the extensionless githooks/ hooks (whole-directory glob: everything in githooks/ must be shell; the tools read the shebang)"
+run = "shellcheck scripts/*.sh tests/*.sh githooks/*"
 
 [tasks."lint:fmt"]
-description = "shfmt diff check (style comes from .editorconfig; shfmt -w to fix)"
-run = "shfmt -d scripts/*.sh tests/*.sh"
+description = "shfmt diff check on scripts, tests, and the extensionless githooks/ hooks (whole-directory glob; style comes from .editorconfig; shfmt -w to fix)"
+run = "shfmt -d scripts/*.sh tests/*.sh githooks/*"
 
 [tasks."lint:md"]
 description = "markdownlint on prose (specs get the scoped specs/.markdownlint.jsonc relaxation; the _observations accumulator is data, excluded)"
@@ -117,9 +117,21 @@ run = "/bin/bash scripts/check-instructions.sh --closeout"
 description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
+[tasks."check:githooks"]
+description = "hook-backstop wiring detection: fail on an unwired or half-wired clone (core.hooksPath not 'githooks', or a hook file missing/non-executable); detects only, never wires — remedy is scripts/wire-githooks.sh (guard-coverage Task 2, REQ-A1.3, D-2, D-3)"
+run = "/bin/sh scripts/check-githooks.sh"
+
+[tasks."check:doctrine-manifest"]
+description = "REQ-A1.3 manifest-citation guard: each attended surface this spec has instantiated (spec-kickoff, spec-draft) must cite interaction-style on a Doctrine: manifest line, not merely in prose (operator-dialogue Task 6, REQ-A1.3, REQ-H1.2, D-11)"
+run = "/bin/bash scripts/check-doctrine-manifest.sh"
+
 [tasks."eval:skill"]
 description = "kept prompt-eval suite (on demand only, never in CI or `check`): pass^3 behavioral evals over instruction files via `claude -p --bare`; needs a Claude CLI + ANTHROPIC_API_KEY (prompt-hygiene Task 4, REQ-C1.4, D-6/D-7/D-8)"
 run = "/bin/sh scripts/prompt-eval.sh --suite tests/prompt-evals/fixtures"
+
+[tasks."eval:behavioral"]
+description = "on-demand behavioral eval harness (never in CI or `check`): drives a skill through a real interactive tmux TTY session, answered by simulated-operator personas, grading the durable artifacts a run writes; needs tmux + jq (operator-dialogue Task 5, REQ-G, D-8)"
+run = "/bin/sh scripts/behavioral-eval.sh --suite tests/behavioral-evals/fixtures"
 
 [tasks."obs:log"]
 description = "render the observations chronological view on demand (derived, never committed; --archived to include consumed history; REQ-C1.4, D-4)"
@@ -148,6 +160,8 @@ depends = [
   "check:obs",
   "check:instructions",
   "check:no-ci-evals",
+  "check:githooks",
+  "check:doctrine-manifest",
   "check:specs",
   "scan:secrets",
 ]

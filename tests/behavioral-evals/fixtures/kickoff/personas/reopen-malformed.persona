@@ -1,0 +1,13 @@
+# reopen-malformed.persona — input robustness ON THE REOPENED decision (REQ-C1.5,
+# REQ-C1.2). The level is changed (reopening the dependent decision), then the
+# reopened decision gets a garbage answer first (which must re-prompt, symmetric
+# with the initial ask) and a valid answer next. Turn map: 1 level(novice),
+# 2 decision(alpha), 3 level-restate(expert -> changed), 4 garbage(reopen re-ask),
+# 5 valid option-beta(reopen re-ask), 6 sign-off.
+expertise=novice
+answer.1=novice
+answer.2=option-alpha
+answer.3=expert
+answer.4=@@garbage-reopen@@
+answer.5=option-beta
+answer.6=record-approval

@@ -1,7 +1,7 @@
 # Fleet Autonomy — Test Spec
 
 **Status:** Ready
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-07-20
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -139,16 +139,107 @@ no outbound LLM/API call occurs during resolution (a stubbed client asserts zero
 A cross-check test asserts the heuristic's selectable command set and `resolve-review-sequence.sh`'s
 nestable-skill set are disjoint, so the two mechanisms can never both claim the same skill.
 
-### REQ-E1.3 — Reactive fleet-wide throttling [test]
+### REQ-E1.3 — Reactive fleet-wide throttling [test] (superseded by REQ-E1.7)
 
 A fixture simulating Claude Code's native rate-limit prompt/retry event asserts fleet-wide dispatch
 pauses and asserts it resumes at the signaled reset time, with no dispatch attempted in between.
+The mechanism is unchanged; verification now pins to REQ-E1.7 (reactive throttle as the hard
+backstop), below.
 
 ### REQ-E1.4 — Auto-mode guard [test]
 
 A fixture attempting to launch a worker with `--permission-mode auto` asserts the guard refuses
 the launch; a fixture launching with the standard worker-settings-profile allowlist asserts it
 succeeds.
+
+### REQ-E1.5 — Proactive `/usage` read, shared-aware, graceful degradation [test + manual]
+
+`[test]`: A fixture feeding a representative captured `/usage` render asserts the parser extracts
+**both** window percentages (session and weekly) deterministically and by label (same input, same
+output), with a stubbed client asserting zero LLM/API invocations. A fixture with only one window
+rendered asserts the missing window is reported unavailable while the present one parses. A second
+fixture feeding malformed/empty `/usage` output, a third feeding a parse that succeeds but yields an
+out-of-range/implausible value, and a fourth with a cached signal older than its configured TTL, all
+assert the affected window's signal is reported unavailable (not a fabricated number) and that no
+per-orchestrator reservation state is written. An adversarial fixture feeding a render laced with
+terminal control/escape sequences asserts they are stripped before parsing and cannot smuggle a
+value past the plausibility/shape check. A fixture holding the signal unavailable across the
+configured consecutive-cadence count asserts the required sustained-loss operator surface fires
+(warning → Awaiting-input hold), distinct from the optional per-incidence escalation. An audit/log
+assertion confirms only the extracted percentages and rung decision are recorded, never the raw
+`/usage` render (which can carry account/plan identifiers). `[manual]`: because `/usage` is an
+undocumented, version-fragile render (D-23), a manual check confirms the parser still matches Claude
+Code's current `/usage` output format — the drift check the analogous `/context` parser (REQ-C1.1)
+carries, since a frozen CI fixture cannot catch a live format change. The account-global /
+shared-aware and point-in-time no-reset-modeling properties are design-level; the two-window parser,
+plausibility, hygiene, and sustained-loss tests are the automatable core.
+
+### REQ-E1.6 — Configurable proactive dispatch gate [test]
+
+Fixtures assert the window→rung mapping across the ladder (`normal` → `downshift` →
+`reduce-concurrency` → `defer-heavy` → `defer-all`): rising usage selects progressively heavier
+rungs, and a cross-window fixture (session below, weekly above — and the reverse) asserts the **more
+restrictive** window's rung governs. A session-cap fixture asserts the session window never selects
+above `defer-heavy` however high it climbs, while the weekly window can select `defer-all`. A
+`defer-heavy` fixture asserts heavy/opus units are withheld while cheaper units still dispatch. A
+config fixture asserts the per-window rung thresholds resolve through the four-layer overlay (a
+machine-local override wins via `config-get.sh`) and that non-monotonic thresholds are rejected. A
+stubbed-client assertion confirms each rung decision is a deterministic comparison with no LLM call;
+an audit-trail assertion confirms rung-transition rows are queryable and that the kill-switch pauses
+the ladder.
+
+### REQ-E1.7 — Reactive throttle retained as the hard backstop [test]
+
+Reuses the REQ-E1.3 reactive-throttle fixture (native rate-limit prompt → fleet-wide pause →
+resume at reset), plus a composition fixture asserting that when the proactive `/usage` signal is
+unavailable (REQ-E1.5 degradation path), dispatch still proceeds under the reactive backstop rather
+than blocking — proving the two mechanisms compose and the backstop is load-bearing.
+
+### REQ-E1.8 — Overlay-configurable, default-preserving selection policy [test]
+
+A fixture asserts an operator overlay retunes the per-task-type model/effort/command mapping and
+that the resolver reads the tuned values; a companion fixture asserts that with no operator
+configuration the shipped defaults reproduce today's REQ-E1.1/REQ-E1.2 selection exactly
+(default-preserving). A stubbed-client assertion confirms resolution stays a deterministic rule
+table with no LLM call and no cascade.
+
+### REQ-E1.9 — Per-tier budget caps as global-usage thresholds [test]
+
+A fixture configures per-tier caps (opus's global-usage threshold below sonnet's) and asserts that
+as the stubbed account-global signal rises, opus is withdrawn from routine units at its lower
+threshold while cheaper tiers still serve — enforced by deterministic comparison, stubbed-client
+asserting zero LLM calls, and asserting no per-model accounting state is written. A fixture asserts a
+pinned unit still receives its reserved tier past a cap that withdrew it from routine units (the
+reservation is the REQ-E1.10 exemption, not a ledger). A fixture with the signal unavailable asserts
+caps are inactive (allocation follows the REQ-E1.10 unavailable-signal behavior). A config fixture
+asserts the caps resolve through the overlay (machine-local wins).
+
+### REQ-E1.10 — Degrade ladder degrades capability, never safety [test]
+
+A fixture driving usage tight asserts allocation climbs one rung (`downshift`, then
+`reduce-concurrency`) and descends when budget recovers. A fixture driving the signal oscillating
+across a rung threshold asserts allocation does not flap (the configured hysteresis band / minimum
+dwell holds the rung). An unavailable-signal fixture asserts the ladder holds its last-known rung
+(read back from the audit trail, so a fresh/relaunched process recovers it) within the grace window,
+then decays to `normal` once the grace window elapses with the signal still unavailable. A
+reservation fixture asserts a pinned unit (e.g. opus) is exempt from `downshift` and `defer-heavy` —
+running at its reserved tier through those rungs — but is NOT exempt at `defer-all` (weekly-critical)
+where even it yields; a companion asserts the shipped default reserves nothing. A guard fixture
+asserts the degraded selection is still a full session-grade worker (never a lighter-weight script),
+never relaxes the autonomous-safe-decision determinism floor (REQ-G1.2), and never selects
+`--permission-mode auto` (REQ-E1.4); a stubbed-client assertion confirms the rung-transition logic is
+deterministic with no LLM call; an audit assertion confirms each rung transition is logged and the
+kill-switch reverts to the `normal` policy.
+
+### REQ-E1.11 — Credit-continuation defaults to decline-and-wait [test]
+
+A fixture feeding a representative credit-continuation prompt asserts the default (nothing
+configured) response is decline-and-wait — no credits spent — with a stubbed client asserting zero
+LLM/API calls in the decision path. A config fixture with the credit-spend opt-in set asserts
+credits are permitted, and that a machine-local override resolves via `config-get.sh`. An
+adversarial/garbled wall variant asserts the recognizer does not match and the fleet falls through
+to the plain reactive backstop (no accidental spend). An audit assertion confirms the decision is
+logged and the kill-switch is honored.
 
 ## REQ-F — Operator control & observability
 
@@ -167,8 +258,10 @@ rendered line actually appears correctly at the bottom of a real Claude Code ter
 
 ### REQ-F1.3 — Operator kill-switch [test]
 
-A fixture sets the kill-switch knob and asserts every daemon mechanism from Tasks 2–7 short-circuits
-without acting; a fixture with the knob unset asserts normal operation.
+A fixture sets the kill-switch knob and asserts every daemon mechanism this bundle introduces
+(Tasks 2–7, plus the proactive gate / degrade ladder / credit-continuation of Tasks 9, 10, 11)
+short-circuits without acting — the ladder reverting to the `normal` policy; a fixture with the knob
+unset asserts normal operation.
 
 ### REQ-F1.4 — Audit trail for autonomous daemon actions [test]
 
@@ -188,9 +281,10 @@ reproducing and closing the `2026-07-10` incident this requirement was mined fro
 
 ### REQ-G1.2 — No-LLM-daemon-mechanics invariant [test + design-level]
 
-`[test]`: for each daemon mechanism in Tasks 2–7, a fixture stubs the Anthropic client and asserts
-zero invocations during the mechanism's execution. `[design-level]`: verified by the existence of
-the doctrine statement (Task 1).
+`[test]`: for each daemon mechanism this bundle introduces (Tasks 2–7, plus the proactive
+gate/ladder and credit-continuation of Tasks 9, 10, 11), a fixture stubs the Anthropic client and
+asserts zero invocations during the mechanism's execution. `[design-level]`: verified by the
+existence of the doctrine statement (Task 1).
 
 ### REQ-G1.3 — Multi-tower coordination via the existing lock [test]
 
@@ -213,3 +307,15 @@ A parametrized test over every config knob this bundle introduces asserts each r
 
 - 2026-07-14 — Initial draft.
 - 2026-07-14 — Kickoff walkthrough: added the REQ-A1.9 entry (tower crash-loop backoff/disable).
+- 2026-07-20 — Resource-governance extension: added verification entries for REQ-E1.5–REQ-E1.10
+  (proactive `/usage` parse + degradation, configurable dispatch gate, reactive backstop
+  composition, overlay-configurable/default-preserving selection policy, per-model caps/shares,
+  capability-not-safety degrade ladder); marked the REQ-E1.3 entry superseded by REQ-E1.7 (same
+  fixture, unchanged mechanism).
+- 2026-07-20 — Extension-delta kickoff walkthrough: E1.5 now `[test + manual]` (two-window parse,
+  adversarial control-byte fixture, sustained-loss surface, plus a manual `/usage` format-drift
+  check like REQ-C1.1); E1.6 pins the window→rung ladder with the session cap; E1.9 reframed to
+  per-tier global-usage thresholds; E1.10 pins hysteresis, the unavailable-hold→decay, the
+  reservation exemption, and kill-switch revert; added a REQ-E1.11 entry (credit-continuation
+  decline-by-default). Extended the REQ-F1.3 (kill-switch) and REQ-G1.2 (no-LLM) enumerations from
+  "Tasks 2–7" to include Tasks 9, 10, 11.

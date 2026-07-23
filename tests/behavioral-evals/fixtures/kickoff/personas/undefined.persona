@@ -1,0 +1,9 @@
+# undefined.persona — completeness (REQ-C1.1). The required design decision is
+# left undefined (garbage through the whole re-prompt budget), so the run must
+# NOT declare readiness: the skill records a blocked, ready:false sign-off.
+# Turn map: 1 level, 2/3/4 garbage decision (budget exhausted).
+expertise=novice
+answer.1=novice
+answer.2=@@nope@@
+answer.3=still-not-an-option
+answer.4=neither

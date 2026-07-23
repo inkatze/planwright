@@ -1,0 +1,1 @@
+- 2026-07-21 [planwright] orchestrate-state.sh emits malformed-deps warnings on release-hardening tasks 2,3,4,6,8 (dep refs like "Task 1" fail the dependency grammar). All tasks are completed so derivation is unaffected, but the bundle predates the current dep grammar; candidate for a format-grammar or hygiene sweep to normalize legacy dep syntax.

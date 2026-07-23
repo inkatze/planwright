@@ -1,0 +1,8 @@
+# expert.persona — a domain-expert operator (REQ-G1.2). Same question sequence,
+# an expertise signal, so the skill pitches BRIEF and the divergence is
+# observable in the graded artifacts (REQ-B1.3, REQ-H1.4).
+expertise=expert
+answer.1=expert, skip the primer
+answer.2=option-beta
+answer.3=expert
+answer.4=record-approval

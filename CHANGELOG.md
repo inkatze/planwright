@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.30.0](https://github.com/inkatze/planwright/compare/v0.29.0...v0.30.0) (2026-07-23)
+
+
+### Features
+
+* **backends:** extend capability contract and registry to the 8-field advertisement ([#307](https://github.com/inkatze/planwright/issues/307)) ([46482da](https://github.com/inkatze/planwright/commit/46482da08193ed818ce144d98dcb62f56b0e07b7))
+* **doctrine:** add assume-multiplicity and deterministic-attention fleet coordination floors ([#299](https://github.com/inkatze/planwright/issues/299)) ([9ddc764](https://github.com/inkatze/planwright/commit/9ddc76428045e39ede183a33e7239766d6b48b20))
+* **fleet:** cross-tower presence publish, discover, and liveness ([#305](https://github.com/inkatze/planwright/issues/305)) ([9151419](https://github.com/inkatze/planwright/commit/9151419eb19518f32147cd59c37975cbdba744d2))
+* **guards:** git hook backstop with wire step and detection check (guard-coverage task 2) ([#302](https://github.com/inkatze/planwright/issues/302)) ([5953cd2](https://github.com/inkatze/planwright/commit/5953cd27befd192dd732660a4fe973e4bdc38830))
+* **inception:** inception-format doctrine (task 1) ([#300](https://github.com/inkatze/planwright/issues/300)) ([5f87432](https://github.com/inkatze/planwright/commit/5f874324a19c645345b6e9dd955f7cc17a12404c))
+* **spec-parse:** found shared spec-parse lib and re-point extract_tasks ([#301](https://github.com/inkatze/planwright/issues/301)) ([f4db79f](https://github.com/inkatze/planwright/commit/f4db79f4901caf7419404417a41714685297120b))
+* **spec:** execution-backends kickoff sign-off ([#304](https://github.com/inkatze/planwright/issues/304)) ([b569b1b](https://github.com/inkatze/planwright/commit/b569b1b652f456267fcc0c16d6e6a51b746b7288))
+* **spec:** merge-currency-guard kickoff sign-off ([#276](https://github.com/inkatze/planwright/issues/276)) ([7ed0f28](https://github.com/inkatze/planwright/commit/7ed0f288a323bf17b8d67f48c55beee195eb5ce5))
+
+## [0.29.0](https://github.com/inkatze/planwright/compare/v0.28.0...v0.29.0) (2026-07-22)
+
+
+### Features
+
+* **operator-dialogue:** kickoff acceptance invariants, persona pilots, rubric audit (task 6) ([#296](https://github.com/inkatze/planwright/issues/296)) ([d4a6604](https://github.com/inkatze/planwright/commit/d4a66042b7199ff697dd03a3beceec5d03cc1bef))
+* **spec:** concurrent-orchestrator-coordination kickoff sign-off ([#295](https://github.com/inkatze/planwright/issues/295)) ([5140d2a](https://github.com/inkatze/planwright/commit/5140d2ae04fe7a08c54ca5be181017aaad6760b6))
+
+## [0.28.0](https://github.com/inkatze/planwright/compare/v0.27.0...v0.28.0) (2026-07-21)
+
+
+### Features
+
+* **fleet:** configurable budget-aware model allocation & degrade ladder (task 10) ([#287](https://github.com/inkatze/planwright/issues/287)) ([641de7d](https://github.com/inkatze/planwright/commit/641de7d09d6a74dddb883c78b5f1808a28463a30))
+* **self-review:** render-based no-arg spec resolution (skill-rigor task 3) ([#292](https://github.com/inkatze/planwright/issues/292)) ([8648de0](https://github.com/inkatze/planwright/commit/8648de011a5aa31e8d4eef0d678031f196e8cb70))
+* **spec-draft:** inline self-critique lens in review-and-validate (task 2) ([#288](https://github.com/inkatze/planwright/issues/288)) ([1249553](https://github.com/inkatze/planwright/commit/124955380cf1de86fdfc94600e751e87d1714566))
+* **spec-kickoff:** adaptive-level calibration in the kickoff dialogue (task 4) ([#294](https://github.com/inkatze/planwright/issues/294)) ([8e32f6e](https://github.com/inkatze/planwright/commit/8e32f6e3eabf2012016a872590560613ec0e344a))
+* **spec-kickoff:** instantiate interaction disciplines in-band (task 3) ([#290](https://github.com/inkatze/planwright/issues/290)) ([15c6f06](https://github.com/inkatze/planwright/commit/15c6f0659f0547319fac03c958095512595f349a))
+
+## [0.27.0](https://github.com/inkatze/planwright/compare/v0.26.0...v0.27.0) (2026-07-21)
+
+
+### Features
+
+* **fleet-autonomy:** credit-continuation recovery (task 11) ([#282](https://github.com/inkatze/planwright/issues/282)) ([4b046da](https://github.com/inkatze/planwright/commit/4b046da674d97e2971166d6f4c4bc2240066cf5d))
+* **fleet:** proactive shared-aware /usage budget gate + restriction ladder (task 9) ([#284](https://github.com/inkatze/planwright/issues/284)) ([9e4c724](https://github.com/inkatze/planwright/commit/9e4c7248c303334ab7eee1a491b2bf7ad4bf8c66))
+* **operator-dialogue:** behavioral eval harness scaffold (task 5) ([#279](https://github.com/inkatze/planwright/issues/279)) ([3cec425](https://github.com/inkatze/planwright/commit/3cec42598c4636c86009971591e5a273d7604f05))
+* **operator-dialogue:** self-contained-confirmation rule and structural check (task 2) ([#281](https://github.com/inkatze/planwright/issues/281)) ([7e74539](https://github.com/inkatze/planwright/commit/7e74539be1b403da56368690e7c9da7bf30d3e9f))
+* **operator-dialogue:** widen interaction-style to every attended surface (task 1) ([#277](https://github.com/inkatze/planwright/issues/277)) ([2830cb1](https://github.com/inkatze/planwright/commit/2830cb1ecc8acb02c6cd1a347121cdd86f2df9ef))
+* **spec-kickoff:** mid-walk lens + post-lens stale-reference sweep (task 7) ([#286](https://github.com/inkatze/planwright/issues/286)) ([f2ec9d0](https://github.com/inkatze/planwright/commit/f2ec9d07b53a2f640cede0e9c386d20613d373d2))
+* **spec-kickoff:** pre-flip lint + recorded-claim re-derivation (task 5) ([#283](https://github.com/inkatze/planwright/issues/283)) ([381d87f](https://github.com/inkatze/planwright/commit/381d87f429729ecc0b89791824f485054fd9a09a))
+* **spec-kickoff:** ready-flip CI gate + wait-bound config (task 6) ([#285](https://github.com/inkatze/planwright/issues/285)) ([0b237b6](https://github.com/inkatze/planwright/commit/0b237b6fd81de9624ede811a720e9d3dff410a91))
+
 ## [0.26.0](https://github.com/inkatze/planwright/compare/v0.25.0...v0.26.0) (2026-07-21)
 
 

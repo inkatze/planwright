@@ -146,7 +146,7 @@ esac
 
 # ---------------------------------------------------------------------------
 # Floor 1 — capability gate. Resolve the backend's advertised can_observe
-# (field 2 of the six-field caps string) through the shared accessor. Any
+# (field 2 of the eight-field caps string) through the shared accessor. Any
 # outcome other than a clean can_observe=true — an incapable shipped backend,
 # an unknown/adapterless pluggable (caps exits non-zero), or a caps helper that
 # cannot be run — reports the mechanism ABSENT and hands the decision to the
@@ -157,7 +157,7 @@ caps_helper="$script_dir/orchestrate-backends.sh"
 can_observe=""
 if [ -x "$caps_helper" ]; then
   caps_line=$("$caps_helper" caps "$backend" 2>/dev/null) || caps_line=""
-  # Field 2 of "interactive can_observe can_steer ... session_grade".
+  # Field 2 of "interactive can_observe can_steer ... hook_registration".
   # shellcheck disable=SC2086
   set -- $caps_line
   can_observe=${2-}
