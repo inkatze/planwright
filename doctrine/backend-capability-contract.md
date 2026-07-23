@@ -228,13 +228,16 @@ rows below.
   all. This is the substrate of the ladder's synchronous terminal rung: it needs
   no external tool and therefore always works.
 
-The two execution-backends rows ship in the contract and registry ahead of
-their dispatch support (execution-backends Tasks 3–4): until the dispatch rung
-lands, host autodetection reports them absent by default, so the unattended
-pick does not select a rung the tower cannot yet drive. (The
-`PLANWRIGHT_BACKEND_*` presence overrides are a deliberate test/early-adopter
-escape hatch that bypasses this default; forcing one present makes it
-selectable before its dispatch wiring exists.)
+`stream-json-persistent` has its dispatch support (the
+`scripts/fleet-streamjson.sh` supervisor, execution-backends Task 4), so host
+autodetection probes for the installed `claude` CLI and reports the rung
+present exactly when the CLI is on PATH. `headless-oneshot` still ships in
+the contract and registry ahead of its dispatch support (execution-backends
+Task 3): until that dispatch rung lands, host autodetection reports it absent
+by default, so the unattended pick does not select a rung the tower cannot
+yet drive. (The `PLANWRIGHT_BACKEND_*` presence overrides are a deliberate
+test/early-adopter escape hatch that bypasses these defaults; forcing a rung
+present makes it selectable regardless of its dispatch wiring.)
 
 ## The pinned degradation ladder
 
