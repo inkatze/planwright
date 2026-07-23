@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.30.0](https://github.com/inkatze/planwright/compare/v0.29.0...v0.30.0) (2026-07-23)
+
+
+### Features
+
+* **backends:** extend capability contract and registry to the 8-field advertisement ([#307](https://github.com/inkatze/planwright/issues/307)) ([46482da](https://github.com/inkatze/planwright/commit/46482da08193ed818ce144d98dcb62f56b0e07b7))
+* **doctrine:** add assume-multiplicity and deterministic-attention fleet coordination floors ([#299](https://github.com/inkatze/planwright/issues/299)) ([9ddc764](https://github.com/inkatze/planwright/commit/9ddc76428045e39ede183a33e7239766d6b48b20))
+* **fleet:** cross-tower presence publish, discover, and liveness ([#305](https://github.com/inkatze/planwright/issues/305)) ([9151419](https://github.com/inkatze/planwright/commit/9151419eb19518f32147cd59c37975cbdba744d2))
+* **guards:** git hook backstop with wire step and detection check (guard-coverage task 2) ([#302](https://github.com/inkatze/planwright/issues/302)) ([5953cd2](https://github.com/inkatze/planwright/commit/5953cd27befd192dd732660a4fe973e4bdc38830))
+* **inception:** inception-format doctrine (task 1) ([#300](https://github.com/inkatze/planwright/issues/300)) ([5f87432](https://github.com/inkatze/planwright/commit/5f874324a19c645345b6e9dd955f7cc17a12404c))
+* **spec-parse:** found shared spec-parse lib and re-point extract_tasks ([#301](https://github.com/inkatze/planwright/issues/301)) ([f4db79f](https://github.com/inkatze/planwright/commit/f4db79f4901caf7419404417a41714685297120b))
+* **spec:** execution-backends kickoff sign-off ([#304](https://github.com/inkatze/planwright/issues/304)) ([b569b1b](https://github.com/inkatze/planwright/commit/b569b1b652f456267fcc0c16d6e6a51b746b7288))
+* **spec:** merge-currency-guard kickoff sign-off ([#276](https://github.com/inkatze/planwright/issues/276)) ([7ed0f28](https://github.com/inkatze/planwright/commit/7ed0f288a323bf17b8d67f48c55beee195eb5ce5))
+
 ## [0.29.0](https://github.com/inkatze/planwright/compare/v0.28.0...v0.29.0) (2026-07-22)
 
 
