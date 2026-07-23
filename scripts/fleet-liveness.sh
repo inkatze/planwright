@@ -715,6 +715,15 @@ oracle_fetch() {
 # depth, a raw control character in a structural position, a raw newline
 # inside a string, or input past the byte cap (a backstop above the caller's
 # head -c bound, so a truncated stream reads unbalanced -> unavailable).
+# Comma PLACEMENT is deliberately not validated (a comma between tokens is
+# skipped like whitespace): commas play no role in string capture, key/value
+# binding, bracket balance, taint, or matching, so leniency cannot fabricate,
+# misattribute, or suppress evidence — a trailing/doubled comma extracts
+# exactly the rows the stream carries, and a comma-sloppy no-match stream
+# reads absent, which the consumers treat identically to unavailable
+# (fallback engages; REQ-F1.1's "never an empty fleet" holds on both arms).
+# Strict separator tracking would grow this state machine's bug surface for
+# an input class no real JSON emitter produces.
 #
 # The scanner is escape-aware and character-exact (no jq, REQ-K1.5): string
 # state is tracked so a `\"` inside a session name never terminates the

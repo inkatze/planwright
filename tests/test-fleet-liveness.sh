@@ -1345,11 +1345,18 @@ out=$(orun "$home42" "$oshim" oracle --cwd /wt/alpha 2>/dev/null) || rc=$?
 slowshim="$odir/slow-shim"
 {
   echo '#!/bin/sh'
+  # The arg guard doubles as the warm-run fast path (below): a no-arg warm
+  # exec absorbs macOS first-exec latency without the 30s sleep, the same
+  # discipline as the agents-shim pre-warm above — an unwarmed fresh shim
+  # can stall past the probe bound and be killed before recording its pid.
+  # shellcheck disable=SC2016 # $1 is literal shim-script source, expanded at shim runtime, not here
+  echo '[ "$1" = agents ] || exit 9'
   echo "echo \$\$ >\"$odir/slow-pid\""
   echo 'sleep 30'
   echo 'printf "[]"'
 } >"$slowshim"
 chmod +x "$slowshim"
+"$slowshim" >/dev/null 2>&1 || true
 rm -f "$odir/slow-pid"
 t0=$(date +%s)
 rc=0
@@ -1380,8 +1387,13 @@ done
 [ "$kill_ok" = 1 ] || fail "oracle hang: the timed-out probe process (pid $slow_pid) survived the watchdog"
 # a TERM-resistant probe is KILL-escalated within the grace, never a wedge
 stubborn="$odir/stubborn-shim"
-printf '#!/bin/sh\ntrap "" TERM\nsleep 30\nprintf "[]"\n' >"$stubborn"
+# Same arg-guard + warm-run pattern as the slow shim: unwarmed, a first-exec
+# stall would let plain TERM kill the not-yet-started shim and this fixture
+# would pass without ever exercising the KILL escalation it exists to prove.
+# shellcheck disable=SC2016 # $1 is literal shim-script source, expanded at shim runtime, not here
+printf '#!/bin/sh\n[ "$1" = agents ] || exit 9\ntrap "" TERM\nsleep 30\nprintf "[]"\n' >"$stubborn"
 chmod +x "$stubborn"
+"$stubborn" >/dev/null 2>&1 || true
 t0=$(date +%s)
 rc=0
 env PLANWRIGHT_ORACLE_TIMEOUT=1 PLANWRIGHT_FLEET_STATE_DIR="$home42" \
