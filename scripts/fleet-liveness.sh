@@ -147,14 +147,16 @@
 #       and signals; exit 2 only on a malformed invocation (wrong arg count or
 #       an unknown event token — a hooks.json wiring bug).
 #   fleet-liveness.sh push-capable <backend>
-#       Which liveness mechanism the backend gets: prints `push` (exit 0)
-#       for tmux (the one backend whose dispatched process inherits the
-#       identity env and fires plugin hooks), `observe` (exit 1) for
-#       subagent / print / in-session, where the existing observation path
-#       (orchestrate-relay.sh observe-command / tower-inline; print is
-#       human-run and contract-exempt from liveness) remains the mechanism
-#       — the REQ-A1.1 graceful fallback, kickoff risk row 16. Unknown
-#       backend: exit 2.
+#       Which liveness mechanism the backend gets, read from the capability
+#       contract's hook_registration field (execution-backends D-7 — never
+#       keyed on backend names): prints `push` (exit 0) for a backend whose
+#       dispatched process inherits the identity env and fires plugin hooks
+#       (tmux, headless-oneshot, stream-json-persistent), `observe` (exit 1)
+#       for hook_registration=false backends (subagent / print / in-session),
+#       where the existing observation path (orchestrate-relay.sh
+#       observe-command / tower-inline; print is human-run and contract-exempt
+#       from liveness) remains the mechanism — the REQ-A1.1 graceful fallback,
+#       kickoff risk row 16. A backend the contract cannot resolve: exit 2.
 #   fleet-liveness.sh classify <worker> <scope> [--now <epoch>]
 #       [--heartbeat <epoch>] [--progress <token>]
 #       [--evidence <class> <args...>]
@@ -733,27 +735,88 @@ case "$cmd" in
       exit 2
     fi
     backend=$1
-    # The risk-16 boundary, keyed to the backend capability contract
-    # (doctrine/backend-capability-contract.md): only tmux launches a
+    # The risk-16 boundary, read from the backend capability contract
+    # (doctrine/backend-capability-contract.md) via its machine-readable
+    # mirror's `caps` accessor — the hook_registration field (field 8) decides
+    # the mechanism, never a backend-name case (execution-backends D-7,
+    # REQ-A1.1's contract closure): a hook-registering backend launches a
     # dispatch-controlled Claude Code process that inherits the identity env
-    # and fires plugin hooks, so only tmux pushes. subagent runs in-process
-    # (per-worker session hooks do not exist), in-session shares the tower's
-    # own session, and print spawns NO process at all — the human runs the
-    # printed command by hand, so the dispatch env is never injected and
-    # print-backend units are contract-exempt from the liveness predicate.
-    # All three keep the EXISTING observation path — the fleet degrades to
-    # pre-spec observation for that slice, never to a broken mechanism.
-    case "$backend" in
-      tmux)
+    # and fires plugin hooks, so it pushes. A hook_registration=false backend
+    # (subagent runs in-process — per-worker session hooks do not exist;
+    # in-session shares the tower's own session; print spawns NO process at
+    # all — the human runs the printed command by hand, so the dispatch env is
+    # never injected and print-backend units are contract-exempt from the
+    # liveness predicate) keeps the EXISTING observation path — the fleet
+    # degrades to pre-spec observation for that slice, never to a broken
+    # mechanism. A backend the contract cannot resolve (unknown name, absent
+    # adapter, broken accessor) fails closed (exit 2). Two boundary notes:
+    # answering for a PLUGGABLE name runs its `planwright-backend-<name>`
+    # adapter (the caps accessor's resolution path — an operator-installed
+    # executable, the adapter trust model), where the old name-case ran no
+    # external code; and the answer describes the backend TYPE's mechanism —
+    # presence is a separate axis (the two headless contract rows advertise
+    # push while their host presence defaults absent until dispatch support
+    # lands).
+    caps_helper="$script_dir/orchestrate-backends.sh"
+    if [ ! -x "$caps_helper" ]; then
+      # Distinct from an unknown backend: the sibling accessor is missing or
+      # lost its exec bit — a broken install, self-identified so a packaging
+      # error is not misread as a bad backend name. Fail-closed exit 2 (the
+      # callers' unknown-mechanism arm; pane-detect maps it to a hard stop).
+      echo "fleet-liveness: broken install — capability accessor missing or not executable: $caps_helper" >&2
+      exit 2
+    fi
+    # The accessor's stderr flows through: a malformed adapter's advertise
+    # diagnostic stays visible on this path too (REQ-A1.7's never-a-silent-
+    # absence), instead of collapsing into the generic unknown-backend line.
+    hook_reg=''
+    caps_rc=0
+    if caps_line=$("$caps_helper" caps "$backend"); then
+      # Field 8 of the eight-field advertised set. Word-split a trusted
+      # accessor answer; hook_registration is grammar-validated at the source.
+      # shellcheck disable=SC2086
+      set -- $caps_line
+      if [ "$#" -ne 8 ]; then
+        # A caps answer with the wrong arity means a version-skewed accessor
+        # (e.g. a stale pre-extension sibling), not an unknown backend.
+        echo "fleet-liveness: capability accessor answered $# field(s), expected 8 — version-skewed install at $caps_helper" >&2
+        exit 2
+      fi
+      hook_reg=${8-}
+    else
+      caps_rc=$?
+    fi
+    case "$hook_reg" in
+      true)
         printf 'push\n'
         exit 0
         ;;
-      subagent | print | in-session)
+      false)
         printf 'observe\n'
         exit 1
         ;;
       *)
-        echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
+        # The accessor's exit code self-identifies the arm: 1 = fail-safe
+        # absent (unknown/adapterless name), 2 = invalid name/usage, anything
+        # else = the accessor itself failed (e.g. a corrupted script), which
+        # is an install problem rather than a bad backend name — so the
+        # message branches on the code instead of lumping accessor crashes
+        # under the unknown-backend wording (the sibling broken-install and
+        # version-skew arms above self-identify the same way).
+        case "$caps_rc" in
+          1 | 2)
+            echo "fleet-liveness: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via the capability contract; accessor exit $caps_rc)" >&2
+            ;;
+          0)
+            # Unreachable through a grammar-validated caps answer (field 8 is
+            # true/false at the source); kept distinct so a future validation
+            # gap self-identifies instead of reading as a crash.
+            echo "fleet-liveness: capability accessor answered an invalid hook_registration value for backend '$(sanitize_printable "$backend" "(unprintable backend)")' — version-skewed or corrupted install at $caps_helper" >&2
+            ;;
+          *)
+            echo "fleet-liveness: capability accessor failed (exit $caps_rc) resolving backend '$(sanitize_printable "$backend" "(unprintable backend)")' — broken install at $caps_helper, not a backend-name problem" >&2
+            ;;
+        esac
         exit 2
         ;;
     esac

@@ -173,9 +173,12 @@ backend self-describes against the
 `can_steer_inflight` (deliver an attributed message into a busy worker),
 `provides_attention_surface`, `supports_parallel`, plus whether its workers are
 **session-grade** — launched as full top-level sessions that survive the
-tower's death. Backend selection and the degradation ladder below key on this
-advertised set, not on the backend's name; the per-backend dispatch wiring
-itself is still name-keyed today, pending later wiring (see the
+tower's death — and two cost/plumbing properties: `overhead` (the fixed
+per-dispatch cost class) and `hook_registration` (whether the worker's process
+fires planwright's hooks, which selects its liveness mechanism). Backend
+selection and the degradation ladder below key on this advertised set, not on
+the backend's name; the per-backend dispatch wiring itself is still name-keyed
+today, pending later wiring (see the
 [options reference](options-reference.md)).
 
 The shipped `dispatch_backend` values, by what they give you:
@@ -183,9 +186,17 @@ The shipped `dispatch_backend` values, by what they give you:
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
-| `subagent` (default) | In-harness background workers with isolated context | no / no | no |
+| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer); dispatch support landing | yes / yes | yes (recoverable via `--resume`) |
+| `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
+| `subagent` (default) | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
+
+The two headless rows are contract-defined ahead of their dispatch support:
+until it lands, autodetection reports them absent by default, so unattended
+selection does not pick a rung the tower cannot drive (the presence env
+overrides remain a deliberate test/early-adopter escape hatch that bypasses
+this default).
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
 on the host and collects each one's advertised set. Attended, it presents the
@@ -258,7 +269,8 @@ nothing installed beyond Claude Code still operates the whole pipeline.
 
 A new terminal or multiplexer plugs in by advertising the contract — no edit
 to planwright's skills. You ship an executable `planwright-backend-<name>` on
-`PATH` that answers `advertise` with one six-field capability line;
+`PATH` that answers `advertise` with one capability line (eight fields; a
+legacy six-field line still parses with fail-safe defaults);
 `/orchestrate` autodetects it, reads the set, places it on the ladder, and offers
 it like any shipped backend. A backend whose advertisement is missing or
 malformed is never selected (unknown capabilities fail safe). The exact adapter
@@ -501,16 +513,19 @@ writes is last-write-wins by commit-time timestamp (the store stamps
 heartbeats under the lock), so a reconcile that started before a fresher push
 cannot overwrite it with stale state.
 
-**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): only
-`tmux` launches a dispatch-controlled Claude Code process that inherits the
-identity env and fires plugin hooks, so only `tmux` pushes. `subagent` runs
-workers in-process, `in-session` shares the tower's own session, and `print`
-spawns no process at all (the human runs the printed command, so the
-dispatch env is never injected; the capability contract exempts
-print-backend units from the liveness predicate) — all three keep the
-existing observation path, and a fleet composed mostly of those backends
-keeps pre-spec observation latency for that slice, degrading capability,
-never safety.
+**Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
+liveness mechanism a backend gets is read from the capability contract's
+`hook_registration` field, never a backend-name case. A hook-registering
+backend (`tmux`, and the `stream-json-persistent` / `headless-oneshot`
+contract rows once their dispatch support lands) launches a
+dispatch-controlled Claude Code process that inherits the identity env and
+fires plugin hooks, so it pushes. `subagent` runs workers in-process,
+`in-session` shares the tower's own session, and `print` spawns no process at
+all (the human runs the printed command, so the dispatch env is never
+injected; the capability contract exempts print-backend units from the
+liveness predicate) — those keep the existing observation path, and a fleet
+composed mostly of them keeps pre-spec observation latency for that slice,
+degrading capability, never safety.
 
 **The five-state classifier** (`fleet-liveness.sh classify`, D-2, REQ-A1.2)
 resolves exactly one of `working` / `idle` / `hung` / `awaiting-human` /
