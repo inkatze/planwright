@@ -568,4 +568,49 @@ case $(merge_line "$out21" source oracle) in
 esac
 echo "ok: a missing fleet-state.sh reports 'missing-state-script', not 'no-fleet-home'"
 
+# ---------------------------------------------------------------------------
+# 22. render's row scans are fail-closed: an awk that fails mid-render must
+#     exit 2, never print a fabricated line and exit 0. emit_merge already
+#     writes each awk to a temp so its status is checked; render's scans owe
+#     the same discipline, or an internal failure reads as a rendered fleet.
+# ---------------------------------------------------------------------------
+realawk=$(command -v awk) || fail "22: no awk on PATH"
+stub22="$tmp/stub22"
+mkdir -p "$stub22"
+# Fail only the scan named by $SCAN_FAIL; delegate every other awk untouched
+# (emit_merge's awks must still work, or we would be testing the wrong arm).
+# The quoted heredoc keeps the stub source literal: the `$1` below must reach
+# the stub as the two characters awk's program text carries, not as the stub's
+# own first argument.
+{
+  echo '#!/bin/sh'
+  cat <<'STUB22'
+want='$1 == "'"$SCAN_FAIL"'"'
+for a in "$@"; do
+  [ "$a" = "$want" ] && exit 1
+done
+STUB22
+  printf 'exec %s "$@"\n' "$realawk"
+} >"$stub22/awk"
+chmod +x "$stub22/awk"
+"$stub22/awk" 'BEGIN { exit 0 }' </dev/null # pre-warm (macOS first-exec latency)
+h22="$tmp/h22"
+mkdir -p "$h22/attention"
+printf 'w22\tspec=i:task-1\tworking\t%s\t\t\t\t\n' "$(date +%s)" >"$h22/attention/state"
+printf '[]\n' >"$ofix"
+for scan in source worker session; do
+  rc=0
+  out22=$(PATH="$stub22:$PATH" SCAN_FAIL="$scan" \
+    env -u CLAUDE_PLUGIN_DATA -u CLAUDE_PLUGIN_ROOT -u CLAUDE_DIR -u HOME \
+    -u PLANWRIGHT_ROOT -u PLANWRIGHT_WORKER_HANDLE -u PLANWRIGHT_WORKER_SCOPE \
+    PLANWRIGHT_FLEET_STATE_DIR="$h22" PLANWRIGHT_ORACLE_CLAUDE="$oshim" \
+    /bin/sh "$ST" render 2>/dev/null) || rc=$?
+  [ "$rc" = 2 ] \
+    || fail "22 ($scan scan): render exited $rc, expected 2 (fail closed on an internal awk failure)"
+  case $out22 in
+    *'?=?(?)'*) fail "22 ($scan scan): render printed a fabricated source line: '$out22'" ;;
+  esac
+done
+echo "ok: render fails closed (exit 2) when a row scan fails, never a fabricated line"
+
 echo "ALL PASS: fleet-status.sh"

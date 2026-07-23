@@ -425,16 +425,28 @@ emit_merge() {
 
 render() {
   emit_merge >"$WS/merged" || return 2
+  # Each row scan writes to a temp first so its exit status is checked, the
+  # same discipline emit_merge's awks follow: a scan embedded in a here-doc
+  # (`done <<EOF $(awk ...) EOF`) discards its status, so a failed scan would
+  # render as an empty section — or, for the sources line, as a fabricated
+  # `?=?(?)` from one empty read — and still exit 0. That is the opposite of
+  # the fail-closed contract, and worst exactly where it matters most: the
+  # per-source availability line REQ-D1.1 requires to be trustworthy.
+  awk -F'\t' '$1 == "source"' "$WS/merged" >"$WS/src.rows" || return 2
+  awk -F'\t' '$1 == "worker"' "$WS/merged" >"$WS/wrk.rows" || return 2
+  awk -F'\t' '$1 == "session"' "$WS/merged" >"$WS/ses.rows" || return 2
   # The sources line: every source named with its state — a missing source is
   # marked visibly, never silently omitted (REQ-D1.1).
   rd_line="sources:"
-  while IFS="$TAB" read -r _ rd_name rd_state rd_detail; do
+  while IFS="$TAB" read -r _ rd_name rd_state rd_detail || [ -n "$rd_name" ]; do
+    [ -n "$rd_name" ] || continue
     rd_line="$rd_line $(sanitize_printable "$rd_name" "?")=$(sanitize_printable "$rd_state" "?")($(sanitize_printable "$rd_detail" "?"))"
-  done <<EOF
-$(awk -F'\t' '$1 == "source"' "$WS/merged")
-EOF
+  done <"$WS/src.rows" || return 2
   printf '%s\n' "$rd_line"
-  if awk -F'\t' '$1 == "worker" { exit 1 }' "$WS/merged"; then
+  # Emptiness is read off the scanned file, not from an awk exit status: a
+  # `$1 == "worker" { exit 1 }` probe cannot distinguish "a worker exists"
+  # (exit 1) from "awk itself failed" (also non-zero).
+  if [ ! -s "$WS/wrk.rows" ]; then
     printf 'workers: (none)\n'
   else
     printf '%-20s %-26s %-16s %-11s %-5s %-8s %s\n' \
@@ -457,11 +469,9 @@ EOF
         "$(sanitize_printable "$rd_pend" "?")" \
         "$(sanitize_printable "$rd_oracle" "?")" \
         "$(sanitize_printable "$rd_via" "?")"
-    done <<EOF
-$(awk -F'\t' '$1 == "worker"' "$WS/merged")
-EOF
+    done <"$WS/wrk.rows" || return 2
   fi
-  if ! awk -F'\t' '$1 == "session" { exit 1 }' "$WS/merged"; then
+  if [ -s "$WS/ses.rows" ]; then
     printf 'sessions (oracle, unjoined):\n'
     while IFS="$TAB" read -r _ rd_sid rd_st rd_kind rd_name rd_cwd; do
       printf '  %s  %s  %s  %s  %s\n' \
@@ -470,9 +480,7 @@ EOF
         "$(sanitize_printable "$rd_kind" "?")" \
         "$(sanitize_printable "$rd_name" "?")" \
         "$(sanitize_printable "$rd_cwd" "?")"
-    done <<EOF
-$(awk -F'\t' '$1 == "session"' "$WS/merged")
-EOF
+    done <"$WS/ses.rows" || return 2
   fi
 }
 
