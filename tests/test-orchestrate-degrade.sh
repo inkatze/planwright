@@ -367,9 +367,12 @@ grep -q "malformed advertise line" "$tmp/fo-err" \
   || fail "failover: a malformed candidate's advertise line must be diagnosed, not silently skipped"
 
 # Empty candidate list: the shipped presence probe fills it in (F4). With
-# subagent forced present, tmux fails over to subagent.
+# subagent forced present — and stream-json-persistent pinned absent, since
+# its default is now the installed-CLI probe (Task 4) and this fixture's
+# expected pick must not vary by host — tmux fails over to subagent.
 sd=$(new_spec_dir)
-PLANWRIGHT_BACKEND_SUBAGENT=1 "$DEGRADE" failover "$sd" tmux >/dev/null 2>&1 \
+PLANWRIGHT_BACKEND_SUBAGENT=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  "$DEGRADE" failover "$sd" tmux >/dev/null 2>&1 \
   || fail "failover with an empty candidate list exited nonzero"
 [ "$("$DEGRADE" read "$sd")" = subagent ] || fail "empty-candidate probe recorded wrong backend"
 

@@ -23,16 +23,14 @@
 #       none|light|full-session|full-session+supervisor and hook_registration is
 #       true|false (execution-backends REQ-A1.1, REQ-A1.8). `in-session` and
 #       `print` are always present; `subagent` is present by default (the
-#       harness-native runtime); `tmux` is present iff it resolves on PATH;
-#       `headless-oneshot` (execution-backends REQ-A1.2) is present iff the
-#       installed CLI resolves on PATH — its dispatch support is
-#       fleet-dispatch-headless.sh (execution-backends Task 3). The
-#       contract-defined `stream-json-persistent` row (REQ-A1.3) defaults
-#       ABSENT until its dispatch support lands (execution-backends Task 4) —
-#       a rung the tower cannot drive is never advertised as present. All four
-#       probes are overridable with PLANWRIGHT_BACKEND_{SUBAGENT,TMUX,
-#       STREAM_JSON_PERSISTENT,HEADLESS_ONESHOT} (1/0) so a host or test can
-#       force presence. Each pluggable-name arg is present iff a
+#       harness-native runtime); `tmux` is present iff it resolves on PATH. Both
+#       execution-backends rows now have dispatch support and are present iff
+#       the installed CLI resolves on PATH: `headless-oneshot` (REQ-A1.2, its
+#       dispatch support fleet-dispatch-headless.sh, execution-backends Task 3)
+#       and `stream-json-persistent` (REQ-A1.3, the fleet-streamjson.sh
+#       supervisor, Task 4). All four probes are overridable with
+#       PLANWRIGHT_BACKEND_{SUBAGENT,TMUX,STREAM_JSON_PERSISTENT,HEADLESS_ONESHOT}
+#       (1/0) so a host or test can force presence. Each pluggable-name arg is present iff a
 #       `planwright-backend-<name>` adapter on PATH answers `advertise` with a
 #       well-formed capability set; an absent or malformed adapter is reported
 #       absent (fail-safe — a backend whose capabilities are unknown is never
@@ -156,19 +154,18 @@ env_present() {
   esac
 }
 
-# Is a shipped backend present on this host? headless-oneshot's dispatch
-# support landed (execution-backends Task 3: fleet-dispatch-headless.sh), so
-# its default is the installed-CLI probe. stream-json-persistent still ships
-# ahead of its dispatch support (Task 4) and defaults ABSENT — a rung the
-# tower cannot drive yet must never be selectable — until that task flips its
-# default too. The env overrides let tests (and an early-adopting host) force
-# presence either way.
+# Is a shipped backend present on this host? Both execution-backends contract
+# rows now have dispatch support, so both default to the installed-CLI probe:
+# `headless-oneshot` (execution-backends Task 3: fleet-dispatch-headless.sh)
+# and `stream-json-persistent` (Task 4: the fleet-streamjson.sh supervisor).
+# The env overrides let tests (and an early-adopting host) force presence
+# either way.
 is_present() {
   case "$1" in
     in-session | print) return 0 ;;
     subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
     tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
-    stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" no ;;
+    stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" claude ;;
     headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" claude ;;
     *) return 1 ;;
   esac

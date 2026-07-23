@@ -186,26 +186,53 @@ The shipped `dispatch_backend` values, by what they give you:
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
-| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer); dispatch support landing | yes / yes | yes (recoverable via `--resume`) |
+| `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer) via `scripts/fleet-streamjson.sh` | yes / yes | yes (recoverable via `--resume`) |
 | `headless-oneshot` | Detached one-shot `claude -p` workers via `scripts/fleet-dispatch-headless.sh` (completion signal + positive-evidence-of-death liveness) | no / no | yes |
 | `subagent` (default) | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
 
-`headless-oneshot` is drivable today: the tower creates the unit's worktree
-with `fleet-dispatch-worktree.sh dispatch <spec> <id> --no-attach`, then
-launches the detached worker with `fleet-dispatch-headless.sh launch <spec>
-<id> --worktree <dir>` (task text on stdin, as data). The one-shot pins
+Both headless rows are drivable today, and autodetection probes the installed
+`claude` CLI for each, reporting the rung present exactly when the CLI is on
+PATH. `headless-oneshot`: the tower creates the unit's worktree with
+`fleet-dispatch-worktree.sh dispatch <spec> <id> --no-attach`, then launches
+the detached worker with `fleet-dispatch-headless.sh launch <spec> <id>
+--worktree <dir>` (task text on stdin, as data). The one-shot pins
 non-`--bare`, never attaches a permission prompt tool (an unauthorized ask
 fails visibly in the captured result — there is no pend path), and leaves a
 consumable completion signal; `fleet-dispatch-headless.sh status <spec> <id>`
 answers `completed <rc>` / `running` / `died` (positive evidence only) /
-`unknown` / `absent`. Autodetection probes the installed CLI for this row.
-`stream-json-persistent` stays contract-defined ahead of its dispatch
-support: until that lands, autodetection reports it absent by default, so
-unattended selection does not pick a rung the tower cannot drive (the
-presence env overrides remain a deliberate test/early-adopter escape hatch
-that bypasses these defaults).
+`unknown` / `absent`. `stream-json-persistent` is driven by the
+`scripts/fleet-streamjson.sh` supervisor (below). (The presence env overrides
+remain a deliberate test/early-adopter escape hatch that bypasses these
+defaults.)
+
+### The stream-json supervisor runtime and its capture
+
+`scripts/fleet-streamjson.sh` (the Task 4 supervisor primitive) owns each
+stream-json worker's stdio: `launch` starts a worker with the pinned
+non-`--bare` stream-json shape and passes the prompt as data on stdin
+(never interpolated into a shell command line); every `can_use_tool` or
+AskUserQuestion control_request becomes a decision-queue item in the
+attention store plus a durable journal receipt, with a scan-based
+pending-age alarm (`alarm-scan`) that escalates overdue items — it never
+auto-answers and never kills a worker. `answer` delivers the operator's
+recorded answer as the control_response; `recover` resumes a crashed
+worker's session via `--resume`; `status` surfaces completion and liveness
+from the supervisor and the captured event stream.
+
+**Where the capture lives, and the secret-scan surface.** Each worker's
+event-stream capture (`events.jsonl`, plus its stderr log, session id,
+receipt journal, and request envelopes) is written under the cross-spec
+fleet home at `<fleet-home>/streamjson/<worker>/` — outside every checkout,
+so it can never be committed, force-added, or pushed. The capture holds
+worker-authored conversation content and tool traffic: treat it as
+sensitive. The repository's secret scan (`mise run scan:secrets`, gitleaks
+over committed files) therefore does **not** cover this location — that
+exclusion is by construction, not oversight. Do not copy capture content
+into committed files; anything quoted from a capture into a spec, brief, PR
+body, or observation must pass the artifact data-hygiene rule
+(doctrine/security-posture.md) first.
 
 At dispatch, `/orchestrate` **autodetects** which backends are actually present
 on the host and collects each one's advertised set. Attended, it presents the
@@ -528,8 +555,7 @@ cannot overwrite it with stale state.
 **Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
 liveness mechanism a backend gets is read from the capability contract's
 `hook_registration` field, never a backend-name case. A hook-registering
-backend (`tmux`, `headless-oneshot`, and the `stream-json-persistent`
-contract row once its dispatch support lands) launches a
+backend (`tmux`, `headless-oneshot`, and `stream-json-persistent`) launches a
 dispatch-controlled Claude Code process that inherits the identity env and
 fires plugin hooks, so it pushes. `subagent` runs workers in-process,
 `in-session` shares the tower's own session, and `print` spawns no process at
