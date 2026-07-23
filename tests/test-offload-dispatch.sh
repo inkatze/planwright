@@ -168,6 +168,16 @@ tmp_norm=$(cd "$tmp" && pwd)
 grep -qF "$tmp_norm/rel-petition.txt" "$tmp/tmux-argv" || fail "relative prompt path was not absolutized in the worker argv"
 ok "a relative prompt-file path is absolutized before dispatch"
 
+# 4b2. REGRESSION: a dash-leading RELATIVE prompt path must absolutize against
+#      the cwd, not be swallowed as a `cd` option (cd -- discipline): without
+#      `--`, `cd "-P"` resolves against $HOME and the dispatch misresolves.
+: >"$tmp/tmux-argv"
+mkdir -p "$tmp/-P" || exit 1
+printf 'dash-dir petition\n' >"$tmp/-P/pet.txt"
+(cd "$tmp" && PATH="$stubbin:$PATH" /bin/sh "$script" dispatch tmux "-P/pet.txt" >/dev/null 2>&1) || fail "dash-leading relative prompt path: dispatch exited nonzero"
+grep -qF "$tmp_norm/-P/pet.txt" "$tmp/tmux-argv" || fail "dash-leading relative prompt path was not absolutized against the cwd"
+ok "a dash-leading relative prompt path absolutizes against the cwd (cd -- discipline)"
+
 # 4c. REGRESSION: stderr chatter on a SUCCESSFUL spawn must not corrupt the
 #     handle into a false failure (streams captured separately).
 : >"$tmp/tmux-argv"

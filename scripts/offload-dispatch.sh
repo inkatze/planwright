@@ -92,6 +92,14 @@ fi
 nl='
 '
 
+# The tmux stderr-capture file (cmd_dispatch), cleaned on any exit — including
+# a signal landing inside the tmux call — via the sibling trap idiom
+# (obs-record.sh): EXIT does the cleanup, INT/TERM route through it.
+tmux_err=
+trap '[ -z "$tmux_err" ] || rm -f "$tmux_err"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 usage() {
   echo "$me: usage: $me <dispatch <backend> <prompt-file> | report <backend> <handle>>" >&2
 }
@@ -217,7 +225,7 @@ cmd_dispatch() {
   case "$promptfile" in
     /*) : ;;
     *)
-      pf_dir=$(cd "$(dirname -- "$promptfile")" 2>/dev/null && pwd) || {
+      pf_dir=$(cd -- "$(dirname -- "$promptfile")" 2>/dev/null && pwd) || {
         echo "$me: dispatch: cannot resolve the prompt file's directory: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
         exit 2
       }
