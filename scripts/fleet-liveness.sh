@@ -1342,7 +1342,7 @@ case "$cmd" in
       case "$1" in
         --cwd)
           if [ -n "$o_kind" ]; then
-            echo "fleet-liveness: exactly one join key (--cwd | --session), given once" >&2
+            echo "fleet-liveness: exactly one of --cwd | --session | --list, given once" >&2
             exit 2
           fi
           if [ "$#" -lt 2 ] || ! valid_oracle_cwd "$2"; then
@@ -1355,7 +1355,7 @@ case "$cmd" in
           ;;
         --session)
           if [ -n "$o_kind" ]; then
-            echo "fleet-liveness: exactly one join key (--cwd | --session), given once" >&2
+            echo "fleet-liveness: exactly one of --cwd | --session | --list, given once" >&2
             exit 2
           fi
           if [ "$#" -lt 2 ] || ! valid_field "$2"; then
@@ -1370,7 +1370,7 @@ case "$cmd" in
           # The status view's full-row read (execution-backends Task 7, D-10):
           # exclusive with the join keys — a list is not a keyed probe.
           if [ -n "$o_kind" ]; then
-            echo "fleet-liveness: --list is exclusive with the join keys (--cwd | --session)" >&2
+            echo "fleet-liveness: exactly one of --cwd | --session | --list, given once" >&2
             exit 2
           fi
           o_kind=list
