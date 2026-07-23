@@ -503,6 +503,17 @@ h13() {
   [ "$code" -eq 3 ] || fail "h13: a recent torn launch must be refused (exit 3), got $code"
   [ "$(cat "$STATE/$ID/prompt")" = "prior task" ] \
     || fail "h13: the refused retry must not clobber the in-flight state dir"
+  # An ABSENT launched marker (prompt present, no launched/pid/exit) is
+  # ambiguous, NOT reclaimable: the empty read joins the non-numeric arm and
+  # fails safe toward live (refuse), and must not clobber the state dir.
+  rm -f "$STATE/$ID/launched"
+  code=0
+  printf 'p' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
+    PLANWRIGHT_HEADLESS_STATE_DIR="$STATE" /bin/sh "$FDH" launch "$SPEC" "$ID" \
+    --worktree "$wt" >/dev/null 2>&1 || code=$?
+  [ "$code" -eq 3 ] || fail "h13: an absent launch marker must be refused (exit 3), got $code"
+  [ "$(cat "$STATE/$ID/prompt")" = "prior task" ] \
+    || fail "h13: the refused absent-marker retry must not clobber the state dir"
   # An OLD launched marker (older than the TTL) is stale and reclaimable.
   printf '%s\n' "$(($(date +%s) - 10))" >"$STATE/$ID/launched"
   printf 'fresh task' | env PLANWRIGHT_HEADLESS_LIVENESS_TTL=2 PLANWRIGHT_HEADLESS_CLAUDE="$FAKE" \
@@ -512,7 +523,7 @@ h13() {
     return
   }
   wait_for "$STATE/$ID/exit" 300 || fail "h13: the reclaimed launch never completed"
-  pass "h13: the torn-launch window fails safe (refuse recent, reclaim stale) (C1)"
+  pass "h13: the torn-launch window fails safe (refuse recent, refuse absent, reclaim stale) (C1)"
 }
 
 # --- h14: trap-forward supervision (C2) — TERM the runner, worker dies, no orphan

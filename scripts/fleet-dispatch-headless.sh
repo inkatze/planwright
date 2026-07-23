@@ -441,7 +441,9 @@ do_launch() {
       # No pid yet, no exit: either a torn launch mid-flight or a crashed
       # launch that never got going. Disambiguate by the `launched` marker's
       # age — younger than the TTL is treated as possibly-live (refuse), older
-      # (or absent) is stale and reclaimable.
+      # is stale and reclaimable. An absent or unreadable marker is ambiguous,
+      # NOT reclaimable: an empty read joins the non-numeric/clock-failure arm
+      # below and fails safe toward live (refuse).
       l_born=$(cat "$unit_dir/launched" 2>/dev/null || true)
       l_now=$(date +%s 2>/dev/null || echo '')
       case ${l_born:-x}${l_now:-x} in
@@ -498,7 +500,14 @@ do_launch() {
   # window before the pid is recorded leaves a marker that reads as in-flight
   # (fail safe) rather than as a reclaimable stale dir a concurrent launch
   # would rm -rf out from under a live runner.
-  date +%s >"$unit_dir/launched"
+  if ! date +%s >"$unit_dir/launched"; then
+    # Nothing is backgrounded yet, so a failed marker write is a clean abort:
+    # a state store that cannot take the marker (disk full, gone read-only)
+    # would otherwise leave a dir the collision guard can neither age nor trust.
+    warn "cannot write launch marker: $unit_dir/launched (broken state store)"
+    rm -rf "$unit_dir"
+    exit 2
+  fi
 
   # Detach: re-invoke self as the runner under nohup so the worker survives
   # the tower's death (session-grade: the one-shot is its own top-level
@@ -512,7 +521,17 @@ do_launch() {
     "$l_bin" --print --output-format json "$@" \
     >/dev/null 2>&1 </dev/null &
   l_pid=$!
-  printf '%s\n' "$l_pid" >"$unit_dir/pid"
+  if ! printf '%s\n' "$l_pid" >"$unit_dir/pid"; then
+    # The runner is already live but its pid could not be recorded, so status
+    # would read `unknown` forever (lost observability) and the collision guard
+    # could rm -rf a live runner's dir. Kill the just-launched runner and abort
+    # rather than report a phantom dispatch; wait reaps it before the cleanup.
+    warn "cannot record runner pid for $l_spec/$l_id; killing the just-launched runner and aborting"
+    kill "$l_pid" 2>/dev/null || true
+    wait "$l_pid" 2>/dev/null || true
+    rm -rf "$unit_dir"
+    exit 2
+  fi
 
   # Runner-start handshake (C9): confirm the runner actually got going before
   # reporting a successful dispatch. The runner writes a `started` marker as its
