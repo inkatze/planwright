@@ -180,11 +180,13 @@ valid_reqid() {
   [ "${#1}" -le 64 ]
 }
 
-# A positive-integer token (epochs, thresholds, pids): digits only, no
-# leading zero (octal hazard), <=15 digits (the sibling overflow guard).
+# A positive-integer token (epochs, thresholds, pids): digits only, bare
+# zero refused (kill -0 0 probes the whole process group — a false-alive
+# hazard), no leading zero (octal hazard), <=15 digits (the sibling
+# overflow guard).
 valid_posnum() {
   case "$1" in
-    '' | *[!0-9]* | 0?*) return 1 ;;
+    '' | *[!0-9]* | 0*) return 1 ;;
   esac
   [ "${#1}" -le 15 ]
 }
@@ -791,7 +793,21 @@ cmd_answer() {
       echo "$me: --response-file missing or unreadable" >&2
       exit 2
     fi
-    body=$(head -c 65536 "$resp_file")
+    # Read one byte past the 64 KiB cap so an oversize body is REFUSED whole,
+    # never silently truncated into a partial (invalid) JSON frame. (The
+    # command substitution strips a trailing newline, so a cap-sized payload
+    # plus its final newline still fits.)
+    body=$(head -c 65537 "$resp_file")
+    if [ "$(printf '%s' "$body" | wc -c | tr -d ' ')" -gt 65536 ]; then
+      echo "$me: --response-file exceeds the 64 KiB cap (refused, not truncated)" >&2
+      exit 2
+    fi
+    # An empty body would emit '"response":' with no value — an invalid
+    # frame on the worker's stdin. Refused fail-closed.
+    if [ -z "$body" ]; then
+      echo "$me: --response-file is empty" >&2
+      exit 2
+    fi
     # The response rides ONE line of the worker's stdin stream: an embedded
     # newline would inject extra frames into the protocol, so it is refused
     # (fail closed), never silently collapsed. (The command substitution

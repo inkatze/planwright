@@ -505,7 +505,26 @@ rec5="$tmp/r5"
 senv "$home5" "$rec5" -- answer sjw5 "$req_perm" --response-file "$tmp/multiline-resp" \
   >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c10: a multi-line --response-file must be refused (exit 2)"
-echo "ok: c10 hostile handles, ids, and multi-line response bodies are refused (REQ-A1.9 discipline)"
+# A bare-zero numeric would turn `kill -0 "$pid"` into a process-group probe
+# (false-alive liveness): valid_posnum refuses 0 at every numeric ingress.
+senv "$home" "$rec" -- alarm-scan --now 0 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c10: a zero --now must be refused (exit 2)"
+senv "$home" "$rec" -- alarm-scan --threshold 0 >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c10: a zero --threshold must be refused (exit 2)"
+# An empty response file would emit '"response":' with no value (an invalid
+# frame on the worker's stdin): refused before any delivery attempt.
+: >"$tmp/empty-resp"
+senv "$home5" "$rec5" -- answer sjw5 "$req_perm" --response-file "$tmp/empty-resp" \
+  >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c10: an empty --response-file must be refused (exit 2)"
+# An oversize response body must be refused whole, never silently truncated
+# into a partial (invalid) JSON frame.
+awk 'BEGIN { printf "{\"k\":\""; for (i = 0; i < 70000; i++) printf "x"; printf "\"}" }' \
+  >"$tmp/big-resp"
+senv "$home5" "$rec5" -- answer sjw5 "$req_perm" --response-file "$tmp/big-resp" \
+  >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c10: an oversize --response-file must be refused (exit 2)"
+echo "ok: c10 hostile handles, ids, zero numerics, and malformed response bodies are refused (REQ-A1.9 discipline)"
 
 # ---------------------------------------------------------------------------
 # c11 (REQ-A1.9 launch): a prompt larger than the pipe buffer must not
