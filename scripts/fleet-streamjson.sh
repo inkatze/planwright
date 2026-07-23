@@ -650,6 +650,13 @@ cmd_launch() {
     echo "$me: invalid worker handle" >&2
     exit 2
   }
+  # The internal --resume-session seam gets the same ingress grammar as every
+  # other input: cmd_recover validates the persisted sid before passing it,
+  # but a direct invocation must not ride an out-of-grammar id into the argv.
+  if [ -n "$resume_sid" ] && ! valid_reqid "$resume_sid"; then
+    echo "$me: invalid --resume-session id" >&2
+    exit 2
+  fi
   if [ -z "$resume_sid" ]; then
     valid_field "${scope:-}" || {
       echo "$me: invalid scope" >&2

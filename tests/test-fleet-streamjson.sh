@@ -495,6 +495,8 @@ senv "$home" "$rec" -- answer sjw1 '../../etc/passwd' --allow >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c10: a traversal request id must be refused"
 senv "$home" "$rec" -- alarm-scan --now 'evil' >/dev/null 2>&1
 [ $? -eq 2 ] || fail "c10: a non-numeric --now must be refused"
+senv "$home" "$rec" -- launch sjw10 --resume-session '../../etc' >/dev/null 2>&1
+[ $? -eq 2 ] || fail "c10: an out-of-grammar --resume-session id must be refused"
 # A multi-line response file would inject extra frames into the worker's
 # stdin protocol: refused fail-closed before any delivery attempt.
 printf '{"behavior":"allow"}\ninjected-frame\n' >"$tmp/multiline-resp"
