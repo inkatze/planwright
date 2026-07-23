@@ -469,11 +469,33 @@ if [ "$push_capable" -eq 0 ]; then
 fi
 
 # --- Debounce state key (computed here so BOTH defer gates can reset it) ----
+# state_dir_trusted <dir> — the shared-temp fallback is safe only if it is a real
+# directory WE own and is not a symlink: a predictable name under a world-writable
+# /tmp can be pre-created by another user (fails -O) or planted as a symlink to
+# redirect the debounce writes (fails ! -L). Because we own it, force 0700 — an
+# attacker-owned dir never reaches the chmod. The dir is deliberately REUSED
+# across invocations (it accumulates the two-frame floor), so this validates a
+# stable per-uid path rather than minting a throwaway mktemp dir.
+state_dir_trusted() {
+  [ -d "$1" ] || return 1
+  [ -L "$1" ] && return 1
+  # Numeric owner via BSD then GNU stat (`test -O` is not POSIX, SC3067).
+  sdt_owner=$(stat -f '%u' "$1" 2>/dev/null || stat -c '%u' "$1" 2>/dev/null)
+  [ -n "$sdt_owner" ] || return 1
+  [ "$sdt_owner" = "$(id -u 2>/dev/null)" ] || return 1
+  chmod 0700 "$1" 2>/dev/null || return 1
+  return 0
+}
+
+state_shared_tmp=0
 if [ -z "$state_dir" ]; then
   if [ -n "$root" ]; then
     state_dir="$root/liveness/pane-detect"
   else
-    state_dir="${TMPDIR:-/tmp}/fleet-pane-detect"
+    # No --root/--state-dir: fall back to a PER-UID name under the temp dir so
+    # distinct users never share one, and validate it is private before use.
+    state_dir="${TMPDIR:-/tmp}/fleet-pane-detect-$(id -u 2>/dev/null || echo n)"
+    state_shared_tmp=1
   fi
 fi
 # An uncreatable state dir blocks only the pane-heuristic path (which needs
@@ -482,7 +504,17 @@ fi
 # a hard failure would be classification loss for nothing. The heuristic
 # path fails closed on it further below.
 state_ok=1
-if ! mkdir -p "$state_dir" 2>/dev/null; then
+if [ "$state_shared_tmp" = 1 ]; then
+  # Create the per-uid dir PRIVATE on first use (plain mkdir -m: the temp parent
+  # already exists, so -p is unnecessary and its -m caveat does not apply), then
+  # validate on EVERY use — the dir persists across invocations, so a later run
+  # must re-prove it is still ours and not a redirect planted since.
+  [ -d "$state_dir" ] || mkdir -m 0700 "$state_dir" 2>/dev/null || true
+  if ! state_dir_trusted "$state_dir"; then
+    echo "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2
+    state_ok=0
+  fi
+elif ! mkdir -p "$state_dir" 2>/dev/null; then
   state_ok=0
 fi
 # Key the state file by scope+worker. A readable sanitized prefix aids
@@ -571,7 +603,7 @@ fi
 # now does its absence fail closed (the defer gates above answered without
 # it whenever they could).
 if [ "$state_ok" != 1 ]; then
-  echo "fleet-pane-detect: cannot create the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  echo "fleet-pane-detect: cannot use the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 fi
 
