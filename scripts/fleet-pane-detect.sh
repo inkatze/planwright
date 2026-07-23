@@ -37,10 +37,13 @@
 #       [--state-dir <dir>] [--footer-lines <n>] [--cwd <abs-path>]
 #
 #     --pane <file>          captured pane text to classify (required)
-#     --backend <b>          dispatch backend: tmux | subagent | print |
-#                            in-session (required). Only a push-capable backend
-#                            (tmux) is gated on the store; the others cannot
-#                            register a hook, so the detector always runs.
+#     --backend <b>          dispatch backend (required), resolved through the
+#                            capability contract. Only a push-capable backend
+#                            (hook_registration=true: tmux, and the
+#                            stream-json-persistent / headless-oneshot contract
+#                            rows) is gated on the store; a hook-less backend
+#                            cannot register a hook, so the detector always
+#                            runs.
 #     --worker <w>           worker handle (required) — keys the store row and
 #                            the debounce state.
 #     --scope <s>            worker scope (default `-`) — part of the debounce
@@ -414,8 +417,9 @@ fi
 
 # --- Backstop gate: defer where a fresh hook push exists (D-3 boundary) -----
 # Only a push-capable backend can register a hook, so only it is gated. The
-# capability is single-sourced from fleet-liveness.sh push-capable (exit 0 =>
-# push-capable/tmux; exit 1 => observe-only/hook-less; exit 2 => unknown).
+# capability is single-sourced from fleet-liveness.sh push-capable, which reads
+# the capability contract's hook_registration field (exit 0 => push-capable;
+# exit 1 => observe-only/hook-less; exit 2 => unresolvable or broken install).
 # The defer itself is emitted after the debounce state key is computed below,
 # so a defer frame can reset the state (same rule as the oracle gate).
 push_fresh=0
@@ -424,13 +428,16 @@ if [ -x "$FL" ]; then
   "$FL" push-capable "$backend" >/dev/null 2>&1
   push_capable=$?
 else
-  # No liveness helper to consult — assume hook-capable only for the known
-  # push backend, so the freshness gate still applies to a real tmux worker.
+  # No liveness helper to consult — degrade to a static mirror of the contract
+  # table's hook_registration column for the shipped names (name-keying is
+  # acceptable only on this no-helper path, where the contract accessor is
+  # unreachable), so the freshness gate still applies to a real push-capable
+  # worker.
   case "$backend" in
-    tmux) push_capable=0 ;;
+    tmux | stream-json-persistent | headless-oneshot) push_capable=0 ;;
     subagent | print | in-session) push_capable=1 ;;
     *)
-      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
+      echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (no liveness helper to resolve it)" >&2
       exit 2
       ;;
   esac
@@ -439,7 +446,7 @@ case $push_capable in
   0) ;; # push-capable — apply the freshness gate below
   1) ;; # hook-less — the detector is the primary path; skip the gate
   *)
-    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (tmux|subagent|print|in-session)" >&2
+    echo "fleet-pane-detect: unknown backend '$(sanitize_printable "$backend" "(unprintable backend)")' (not resolvable via fleet-liveness push-capable)" >&2
     exit 2
     ;;
 esac

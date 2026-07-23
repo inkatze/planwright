@@ -10,7 +10,7 @@
 # contract (doctrine/backend-capability-contract.md, D-2).
 #
 # Contract under test:
-#   - `rung <backend|caps6>` reports a backend's ladder rung by its ADVERTISED
+#   - `rung <backend|caps>` reports a backend's ladder rung by its ADVERTISED
 #     set (D-3, ordered richest->safest): 1 interactive+steer (tmux); 2 headless
 #     pool (session-grade parallel) OR interactive-without-steer; 3 in-harness
 #     parallel not-session-grade (subagent); 4 synchronous single-stream
@@ -42,7 +42,8 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
-unset PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT
+unset PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT \
+  PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
 
 here=$(cd "$(dirname "$0")" && pwd)
 DEGRADE="$here/../scripts/orchestrate-degrade.sh"
@@ -126,8 +127,26 @@ check_rung "false false true false true yes" 2
 # session-grade.
 check_rung "false na na false false no" 4
 
-# Hostile / malformed args are refused, not classified.
-for bad in "../../etc/passwd" "not-a-real-backend" "true false" "true true true false true bogus"; do
+# The two execution-backends contract rows (REQ-A1.2, REQ-A1.3) classify from
+# the shared table: both are non-interactive session-grade parallel pools →
+# rung 2 (the finer five-way ladder ordering of REQ-A1.8 is Task 5's wiring;
+# the four-rung classifier places both on the headless-pool rung).
+check_rung stream-json-persistent 2
+check_rung headless-oneshot 2
+# An eight-field caps string (the 6→8 grammar, execution-backends D-13)
+# classifies on its first six fields; the appended fields are validated, not
+# classified on.
+check_rung "false true true false true yes full-session+supervisor true" 2
+check_rung "false false false false true no light false" 3
+
+# Hostile / malformed args are refused, not classified: the historical set,
+# plus a SEVEN-field caps string (malformed under the 6-or-8 grammar) and
+# eight-field strings whose appended tokens are invalid.
+for bad in "../../etc/passwd" "not-a-real-backend" "true false" \
+  "true true true false true bogus" \
+  "false false false false true no extra" \
+  "false false false false true no enormous false" \
+  "false false false false true no light maybe"; do
   if "$DEGRADE" rung "$bad" >/dev/null 2>&1; then
     fail "rung accepted a bad arg '$bad'"
   fi
@@ -287,6 +306,57 @@ sd=$(new_spec_dir)
 PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux tmux pool in-session >/dev/null 2>&1 \
   || fail "failover tmux→pool (rung 2) exited nonzero"
 [ "$("$DEGRADE" read "$sd")" = pool ] || fail "failover did not descend to the rung-2 pool"
+
+# The same descent via an EIGHT-field adapter (the 6→8 grammar, D-13): the
+# appended overhead/hook_registration fields must not change classification or
+# eligibility.
+cat >"$BIN/planwright-backend-pool8" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true yes full-session true"
+EOF
+chmod +x "$BIN/planwright-backend-pool8"
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux tmux pool8 in-session >/dev/null 2>&1 \
+  || fail "failover tmux→pool8 (eight-field adapter) exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = pool8 ] \
+  || fail "failover did not accept an eight-field adapter as a rung-2 candidate"
+
+# The no-candidate shipped presence probe honors the new rows' env overrides
+# (parity with orchestrate-backends.sh is_present, in pinned ladder order):
+# with stream-json-persistent forced present and tmux dying, the empty-candidate
+# path descends to the rung-2 row, not past it to subagent — and with BOTH new
+# rows forced, the intra-rung-2 tie resolves to the pinned richer rung.
+sd=$(new_spec_dir)
+PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 "$DEGRADE" failover "$sd" tmux >/dev/null 2>&1 \
+  || fail "failover(empty candidates, sjp forced) exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = stream-json-persistent ] \
+  || fail "the shipped presence probe must honor a forced-present new row, got $("$DEGRADE" read "$sd")"
+sd=$(new_spec_dir)
+PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 \
+  "$DEGRADE" failover "$sd" tmux >/dev/null 2>&1 \
+  || fail "failover(empty candidates, both rows forced) exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = stream-json-persistent ] \
+  || fail "the rung-2 tie must resolve to the pinned richer rung (stream-json-persistent)"
+
+# Degrade's own adapter_caps copy enforces the 6-or-8 grammar: a nine-field and
+# a bad-overhead adapter are fail-safe SKIPPED as failover candidates (the
+# descent lands on the next safe rung), with the visible malformed diagnostic.
+cat >"$BIN/planwright-backend-nine" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true yes light true EXTRA"
+EOF
+cat >"$BIN/planwright-backend-badov" <<'EOF'
+#!/bin/sh
+[ "$1" = advertise ] && echo "false false false false true yes enormous true"
+EOF
+chmod +x "$BIN/planwright-backend-nine" "$BIN/planwright-backend-badov"
+sd=$(new_spec_dir)
+PATH="$BIN:$PATH" "$DEGRADE" failover "$sd" tmux nine badov in-session >/dev/null 2>"$tmp/fo-err" \
+  || fail "failover with malformed-adapter candidates exited nonzero"
+[ "$("$DEGRADE" read "$sd")" = in-session ] \
+  || fail "malformed-adapter candidates must be skipped fail-safe (expected in-session)"
+grep -q "malformed advertise line" "$tmp/fo-err" \
+  || fail "failover: a malformed candidate's advertise line must be diagnosed, not silently skipped"
 
 # Empty candidate list: the shipped presence probe fills it in (F4). With
 # subagent forced present, tmux fails over to subagent.

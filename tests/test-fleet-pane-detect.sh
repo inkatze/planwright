@@ -681,4 +681,43 @@ mc_fallback cwd-empty ""
 long_cwd="/$(printf 'a%.0s' $(seq 1 520))"
 mc_fallback cwd-overlength "$long_cwd"
 
+# --- Backstop-gate backend resolution (capability contract, D-7) ----------
+# With the liveness helper present, a hook-registering contract row
+# (stream-json-persistent) is accepted end-to-end: push-capable answers push,
+# the freshness gate finds no fresh push in an empty root, and the detector
+# runs (frame 1 of the debounce prints `pending`) — never an unknown-backend
+# exit 2.
+gate_root="$tmp/gate-root"
+gate_state="$tmp/gate-state"
+mkdir -p "$gate_root" "$gate_state"
+out=$("$FPD" classify --pane "$idle_pane" --backend stream-json-persistent \
+  --worker w-gate --root "$gate_root" --reconcile-ttl 120 --now 1234567 \
+  --state-dir "$gate_state") \
+  || fail "classify with a hook-registering contract row exited non-zero"
+[ "$out" = pending ] \
+  || fail "gated new-row classify frame 1 should be 'pending', got '$out'"
+echo "ok: a hook-registering contract row resolves through the helper-backed gate"
+
+# With NO liveness helper (a scratch copy whose dir lacks fleet-liveness.sh),
+# the no-helper fallback mirrors the contract's hook_registration column for
+# shipped names — a new contract row is gated (not exit 2), and an unknown
+# name still fails closed. Explicit --root/--now/--reconcile-ttl/--state-dir
+# keep the scratch copy free of the other sibling scripts.
+nofl="$tmp/nofl"
+mkdir -p "$nofl"
+cp "$FPD" "$here/../scripts/echo-safety.sh" "$nofl/"
+out=$(/bin/sh "$nofl/fleet-pane-detect.sh" classify --pane "$idle_pane" \
+  --backend stream-json-persistent --worker w-nofl --root "$gate_root" \
+  --reconcile-ttl 120 --now 1234567 --state-dir "$tmp/nofl-state") \
+  || fail "no-helper fallback: a shipped contract row must not exit non-zero"
+[ "$out" = pending ] \
+  || fail "no-helper new-row classify frame 1 should be 'pending', got '$out'"
+uc=0
+/bin/sh "$nofl/fleet-pane-detect.sh" classify --pane "$idle_pane" \
+  --backend bogus-backend --worker w-nofl2 --root "$gate_root" \
+  --reconcile-ttl 120 --now 1234567 --state-dir "$tmp/nofl-state" \
+  >/dev/null 2>&1 || uc=$?
+[ "$uc" -eq 2 ] || fail "no-helper fallback: an unknown backend must exit 2, got '$uc'"
+echo "ok: the no-helper fallback mirrors the contract's push column and fails closed"
+
 echo "ok: test-fleet-pane-detect"

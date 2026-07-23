@@ -55,6 +55,17 @@ jobs:
           npm install -g @anthropic-ai/claude-code@2.1.179
           claude --version
 
+      # Wire the tracked hook backstop before the aggregate gate verifies it:
+      # the pinned wire-then-verify contract (guard-coverage REQ-A1.3, D-3).
+      # check:githooks inside `mise run check` then proves the wiring
+      # decidably — an unwired runner fails loud, never a silent skip.
+      # NOTE: from this step on, every git operation in the job runs under
+      # the PR's githooks/ (amends and main-pushes get rejected; and
+      # prepare-commit-msg is not suppressed by --no-verify). Any future
+      # step that writes commits belongs before this one, or must bypass
+      # deliberately.
+      - run: /bin/sh scripts/wire-githooks.sh
+
       # The aggregate gate: shell tests, shellcheck, shfmt, markdownlint,
       # yamllint, plugin-manifest JSON lint, plugin/marketplace schema
       # validation (claude plugin validate; enforced here because the step

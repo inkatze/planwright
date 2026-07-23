@@ -1,0 +1,1 @@
+- 2026-07-22 [planwright] sanitize_printable strips control bytes but has no length cap, so refused over-64-char names echo at full length into diagnostics repo-wide (pre-existing pattern; cmd_present caps at %.64s locally). Candidate: add an optional length cap to echo-safety.sh and adopt it at diagnostic call sites.
