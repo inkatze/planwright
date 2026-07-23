@@ -1161,6 +1161,65 @@ orun "$home41" "$oshim" oracle --session "$(printf 'bad\nsession')" >/dev/null 2
 echo "ok: oracle verdicts map by cwd/sessionId; untracked is absent, never death; hostile input refused"
 
 # ---------------------------------------------------------------------------
+# 41b. Probe temp hygiene — every probe temp file (the stdout capture and its
+#      .err / .pid / .done siblings) lives inside a private 0700 mktemp -d
+#      directory: the sibling names are derived, not mktemp-secured, so in a
+#      shared world-writable TMPDIR a neighbor could otherwise pre-create one
+#      (the CWE-377 class; worst case, plant `.pid` and steer the KILL
+#      escalation's pid read). Asserted from inside the probe via a
+#      snapshotting shim, plus cleanup removing the directory afterward.
+# ---------------------------------------------------------------------------
+osnap="$odir/snap"
+mkdir -p "$osnap"
+osnaptmp="$odir/snaptmp"
+mkdir -p "$osnaptmp"
+osnapfix="$odir/snap-fixture.json"
+cat >"$osnapfix" <<'EOF'
+[ {"cwd": "/wt/alpha", "sessionId": "zz-1", "name": "z", "status": "busy"} ]
+EOF
+snapshim="$odir/snap-shim"
+{
+  echo '#!/bin/sh'
+  # shellcheck disable=SC2016 # $1/$2 are literal shim-script source, expanded at shim runtime, not here
+  echo '[ "$1" = agents ] && [ "$2" = --json ] || exit 9'
+  # Snapshot the probe's TMPDIR layout as seen mid-probe (the stdout capture
+  # and .err redirections are already open when the shim runs).
+  echo "ls \"\$TMPDIR\" >\"$osnap/top\" 2>/dev/null"
+  echo "for d in \"\$TMPDIR\"/planwright-oracle.*; do"
+  # shellcheck disable=SC2016 # literal shim-script source, expanded at shim runtime
+  echo '  [ -d "$d" ] || continue'
+  echo "  ls -ld \"\$d\" | cut -c1-10 >\"$osnap/perm\""
+  echo "  ls \"\$d\" >\"$osnap/inner\""
+  echo 'done'
+  echo "cat \"$osnapfix\""
+} >"$snapshim"
+chmod +x "$snapshim"
+# Pre-warm the fresh shim once (macOS first-exec latency must not eat into
+# the probe bound).
+"$snapshim" agents --json >/dev/null 2>&1 || true
+out=$( (TMPDIR="$osnaptmp" && export TMPDIR && orun "$home41" "$snapshim" oracle --cwd /wt/alpha)) \
+  || fail "temp-hygiene probe: non-zero exit"
+[ "$out" = busy ] || fail "temp-hygiene probe: got '$out', expected busy"
+[ -s "$osnap/top" ] || fail "temp-hygiene: the shim never snapshotted TMPDIR"
+while IFS= read -r entry; do
+  case $entry in
+    planwright-oracle.*) ;;
+    *) fail "temp-hygiene: unexpected TMPDIR entry '$entry' (probe files must live inside the private dir)" ;;
+  esac
+done <"$osnap/top"
+[ "$(wc -l <"$osnap/top" | tr -d ' ')" = 1 ] \
+  || fail "temp-hygiene: expected exactly one planwright-oracle.* dir in TMPDIR, got: $(tr '\n' ' ' <"$osnap/top")"
+[ "$(cat "$osnap/perm" 2>/dev/null)" = "drwx------" ] \
+  || fail "temp-hygiene: probe dir perms '$(cat "$osnap/perm" 2>/dev/null)', expected drwx------"
+grep -q '^probe$' "$osnap/inner" 2>/dev/null \
+  || fail "temp-hygiene: the stdout capture is not inside the private dir"
+grep -q '^probe\.err$' "$osnap/inner" 2>/dev/null \
+  || fail "temp-hygiene: probe.err is not inside the private dir"
+set -- "$osnaptmp"/planwright-oracle.*
+[ ! -e "$1" ] || fail "temp-hygiene: probe dir leaked after cleanup: $1"
+echo "ok: probe temp files live inside a private 0700 dir and cleanup removes it"
+
+# ---------------------------------------------------------------------------
 # 42. REQ-F1.1 — a probe that exits non-zero, hangs past the bounded timeout,
 #     or returns unparseable output is oracle-UNAVAILABLE (exit 1, fallback
 #     engages), never an empty-fleet read; a missing binary likewise. An empty

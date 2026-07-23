@@ -529,21 +529,30 @@ extract_notification_type() {
 # capability probe), never at install time.
 ORACLE_BIN="${PLANWRIGHT_ORACLE_CLAUDE:-claude}"
 
-# The in-flight probe temp-file base, cleaned by the trap oracle_probe
-# installs in its own (command-substitution) subshell: a signal landing
-# mid-probe must not leak the session dump — every live session's cwd, name,
-# and pid — into TMPDIR. The file-level EXIT trap carries the same guarded
-# call purely as belt-and-suspenders for any future non-subshell caller; in
-# the command-substitution path the subshell-local trap is the one that runs.
-# `.pid` is removed FIRST: the supervisor gates its late done-publish on the
-# pid file still existing, so cleanup-then-publish can never recreate files
-# after this ran (the abandoned-supervisor case).
+# The in-flight probe's private temp DIRECTORY (mktemp -d, 0700), cleaned by
+# the trap oracle_probe installs in its own (command-substitution) subshell: a
+# signal landing mid-probe must not leak the session dump — every live
+# session's cwd, name, and pid — into TMPDIR. Every probe file (the stdout
+# capture and its .err / .pid / .done siblings) lives INSIDE the directory:
+# the sibling names are derived, not mktemp-secured, and in a shared
+# world-writable TMPDIR a neighbor could otherwise pre-create one (worst
+# case, plant `.pid` and steer the KILL escalation's numeric pid read) —
+# the 0700 directory closes that whole class (CWE-377). The file-level EXIT
+# trap carries the same guarded call purely as belt-and-suspenders for any
+# future non-subshell caller; in the command-substitution path the
+# subshell-local trap is the one that runs. `probe.pid` is removed FIRST: the
+# supervisor gates its late done-publish on the pid file still existing, so
+# cleanup-then-publish can never recreate files after this ran (the
+# abandoned-supervisor case; a publish racing that gate can at worst leave
+# the directory behind un-rmdir-able — a leaked empty-ish 0700 dir, the same
+# residual class the file layout had).
 ORACLE_TMP=""
 oracle_cleanup() {
   if [ -n "$ORACLE_TMP" ]; then
-    rm -f "$ORACLE_TMP.pid" "$ORACLE_TMP.pid.tmp" \
-      "$ORACLE_TMP.done" "$ORACLE_TMP.done.tmp" \
-      "$ORACLE_TMP.err" "$ORACLE_TMP" 2>/dev/null
+    rm -f "$ORACLE_TMP/probe.pid" "$ORACLE_TMP/probe.pid.tmp" \
+      "$ORACLE_TMP/probe.done" "$ORACLE_TMP/probe.done.tmp" \
+      "$ORACLE_TMP/probe.err" "$ORACLE_TMP/probe" 2>/dev/null
+    rmdir "$ORACLE_TMP" 2>/dev/null
     ORACLE_TMP=""
   fi
 }
@@ -874,8 +883,9 @@ oracle_scan() {
 oracle_probe() {
   op_kind=$1
   op_val=$2
-  op_out=$(mktemp "${TMPDIR:-/tmp}/planwright-oracle.XXXXXX") || return 1
-  ORACLE_TMP="$op_out"
+  op_dir=$(mktemp -d "${TMPDIR:-/tmp}/planwright-oracle.XXXXXX") || return 1
+  ORACLE_TMP="$op_dir"
+  op_out="$op_dir/probe"
   trap 'oracle_cleanup' EXIT
   trap 'oracle_cleanup; exit 130' INT
   trap 'oracle_cleanup; exit 143' TERM
@@ -1516,7 +1526,8 @@ case "$cmd" in
       idle | pr-ready | merged | done | ended) cls=idle ;;
       hung) cls=hung ;;
     esac
-    # Oracle preference, bounded by two guards (D-11):
+    # Oracle preference, bounded by three guards (D-11; docs/fleet.md keeps
+    # the same three-guard list):
     #   - an awaiting-input row is NEVER overridden: a queued human decision
     #     (a flailing / crash-disable escalation, a pending permission) must
     #     never be auto-resolved by evidence (REQ-A1.3) — and oracle busy on a
@@ -1524,7 +1535,12 @@ case "$cmd" in
     #   - oracle idle never masks a hung row: the StopFailure push means the
     #     turn died on an API error, and a session sitting at its prompt is
     #     consistent with that — the human-attention claim stands until a
-    #     later push or the reconcile clears it.
+    #     later push or the reconcile clears it;
+    #   - oracle idle requires a store row to exist: a just-dispatched
+    #     worker's session sits at its prompt for a moment before the brief
+    #     is submitted, and reading that instant as idle would invite a
+    #     premature reap during the launch window (the risk-33 startup
+    #     default keeps precedence until the first push lands).
     # Everything else yields: waiting corrects a missed permission push (and
     # outranks a hung row — a session observed blocked at a prompt is a
     # queued human decision, the more actionable state), idle corrects a
@@ -1532,11 +1548,6 @@ case "$cmd" in
     # stale idle/ended/hung row, or a stale heartbeat about to read hung) by
     # falling through to the evidence logic as positive proof of life —
     # still subject to the flailing streak, which oracle busy must not mask.
-    # Oracle idle additionally requires a store row to exist: a
-    # just-dispatched worker's session sits at its prompt for a moment before
-    # the brief is submitted, and reading that instant as idle would invite a
-    # premature reap during the launch window (the risk-33 startup default
-    # keeps precedence until the first push lands).
     if [ "$row_state" != awaiting-input ] && [ -n "$o_verdict" ]; then
       case "$o_verdict" in
         waiting) cls=awaiting-human ;;
