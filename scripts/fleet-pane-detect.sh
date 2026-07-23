@@ -476,13 +476,39 @@ fi
 # attacker-owned dir never reaches the chmod. The dir is deliberately REUSED
 # across invocations (it accumulates the two-frame floor), so this validates a
 # stable per-uid path rather than minting a throwaway mktemp dir.
+# stat_uid <path> — the numeric owner uid, portable across GNU/busybox and BSD
+# stat (`test -O` is not POSIX, SC3067). BOTH flavors are tried and each result
+# is validated to be a plain integer, because exit status alone does not
+# discriminate between them: on GNU/busybox stat `-f` means --file-system, so
+# the BSD form's format string is consumed as a FILE operand and the call prints
+# a whole filesystem dump on stdout while exiting non-zero. A bare
+# `stat -f … || stat -c …` chain therefore CONCATENATES that dump with the
+# fallback's value, and every comparison against the result fails — which is how
+# the first cut of this predicate refused a directory it had itself just created
+# (macOS-green, Linux-red). Shape-validating each candidate rather than trusting
+# its exit status makes the probe order-independent and immune to that class.
+stat_uid() {
+  su_v=$(stat -c '%u' "$1" 2>/dev/null) || su_v=''
+  case $su_v in
+    '' | *[!0-9]*) su_v=$(stat -f '%u' "$1" 2>/dev/null) || su_v='' ;;
+  esac
+  case $su_v in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$su_v"
+}
+
 state_dir_trusted() {
   [ -d "$1" ] || return 1
   [ -L "$1" ] && return 1
-  # Numeric owner via BSD then GNU stat (`test -O` is not POSIX, SC3067).
-  sdt_owner=$(stat -f '%u' "$1" 2>/dev/null || stat -c '%u' "$1" 2>/dev/null)
-  [ -n "$sdt_owner" ] || return 1
-  [ "$sdt_owner" = "$(id -u 2>/dev/null)" ] || return 1
+  sdt_owner=$(stat_uid "$1") || return 1
+  # Our own uid must be readable and numeric too, or there is nothing to
+  # compare against and the dir cannot be proven ours: fail closed.
+  sdt_self=$(id -u 2>/dev/null) || sdt_self=''
+  case $sdt_self in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "$sdt_owner" = "$sdt_self" ] || return 1
   chmod 0700 "$1" 2>/dev/null || return 1
   return 0
 }

@@ -742,7 +742,15 @@ sf2=$(TMPDIR="$sf_home" "$FPD" classify --pane "$idle_pane" --backend subagent \
   || fail "shared-temp fallback: frame 2 should confirm 'idle', got '$sf2'"
 [ -d "$sf_dir" ] \
   || fail "shared-temp fallback: per-uid state dir $sf_dir was not created"
-sf_mode=$(stat -f '%Lp' "$sf_dir" 2>/dev/null || stat -c '%a' "$sf_dir" 2>/dev/null)
+# Mode via GNU/busybox then BSD stat, validating the SHAPE of each candidate
+# rather than its exit status: `stat -f` means --file-system on GNU/busybox, so
+# the BSD form there prints a filesystem dump on stdout while exiting non-zero
+# and a bare `||` chain would concatenate it with the fallback's value (the same
+# portability trap the detector's own stat_uid documents).
+sf_mode=$(stat -c '%a' "$sf_dir" 2>/dev/null) || sf_mode=''
+case $sf_mode in
+  '' | *[!0-7]*) sf_mode=$(stat -f '%Lp' "$sf_dir" 2>/dev/null) || sf_mode='' ;;
+esac
 [ "$sf_mode" = 700 ] \
   || fail "shared-temp fallback: state dir must be 0700, got '$sf_mode'"
 echo "ok: the shared-temp fallback uses a private per-uid state dir and debounces across calls"
