@@ -732,7 +732,7 @@ cmd_launch() {
   # is surfaced as a failure with a non-zero exit, never an optimistic
   # `launched` over a dead supervisor.
   rm -f "$dir/supervisor.pid" "$dir/worker.pid" "$dir/result"
-  (sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
+  (/bin/sh "$self" _supervise "$worker" "$dir" "$init_msg" "$@" \
     >/dev/null 2>>"$dir/supervisor.log" </dev/null &)
   # Confirm startup by a signal that survives a fast run: supervisor.pid
   # appears while the supervisor is live, and it removes that pid plus writes a
@@ -987,7 +987,7 @@ cmd_recover() {
   # second recover cannot slip into the old release-before-startup window and
   # fork the session, and a silently-failed detached resume now returns
   # non-zero here instead of a false `recovered`.
-  if sh "$self" launch "$worker" --resume-session "$sid" ${foreground:+"$foreground"} "$@"; then
+  if /bin/sh "$self" launch "$worker" --resume-session "$sid" ${foreground:+"$foreground"} "$@"; then
     printf 'recovered %s session %s\n' "$worker" "$sid"
   else
     ec=$?
