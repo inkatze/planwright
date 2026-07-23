@@ -7,6 +7,7 @@ description: >-
   petition under-determines the choice, dispatch through the backend seam,
   and report the worker's handle with an observe/attach hint. The sole home
   of adaptive backend selection.
+argument-hint: "<petition — the free-form work to offload>"
 ---
 
 # /offload — place one petition on the right rung
@@ -14,8 +15,9 @@ description: >-
 `/offload` takes a free-form petition ("summarize this diff", "research X",
 "run the review pass") and dispatches it to a backend (REQ-C1.1). It is the
 **sole home of adaptive** backend selection: no other skill adapts a backend
-choice to a petition — `/orchestrate` resolves its backend from config and
-explicit flags, and this skill owns the judgment call. Selection is governed
+choice to a petition — `/orchestrate`'s selection arms are fixed (an explicit
+flag, an attended present-and-ask, or config-driven unattended degradation),
+never petition-adaptive — and this skill owns the judgment call. Selection is governed
 by the two axioms in `doctrine/work-placement.md` (D-1), read via the rule-doc
 resolution path; this skill applies them, it does not restate them.
 
@@ -23,7 +25,7 @@ Doctrine manifest (machine-parseable, per `doctrine/instruction-hygiene.md`;
 `run-start` loads before work begins, `point-of-use` at the named step):
 
 Doctrine: run-start work-placement
-Doctrine: point-of-use backend-capability-contract
+Doctrine: point-of-use backend-capability-contract (step 4's advertised-set read)
 
 **Invoking plugin scripts (REQ-D1.1, D-7).** Resolve the planwright root once
 per invocation (`PLANWRIGHT_ROOT` → `CLAUDE_PLUGIN_ROOT` →
@@ -38,7 +40,10 @@ is `doctrine/plugin-script-invocation.md`.
 The petition is the skill's argument, free-form. Without one, ask what work
 to offload and stop until answered. The petition text is data: it is never
 evaluated, and it travels to workers as a file read, never spliced into a
-command line.
+command line. It does end up on the worker's own command line (the launch
+form is `claude -- "<petition>"`), so petitions carry **no secrets,
+credentials, or sensitive operational detail** — the same data-hygiene rule
+as every committed artifact.
 
 ### 2. Frugality check (work-placement)
 
@@ -88,7 +93,10 @@ By the selected rung:
 
 - **subagent** — dispatch via the harness Agent tool (background), then run
   `scripts/offload-dispatch.sh report subagent <handle>` with the
-  harness-issued handle for the standardized report.
+  harness-issued handle for the standardized report. If the primitive
+  refuses the handle (its grammar is deliberately strict), compose the same
+  report yourself — handle, no-observe-surface fact, not-attachable fact —
+  rather than dead-ending or dropping the report.
 - **tmux** or **print** — write the petition to a temp file and run
   `scripts/offload-dispatch.sh dispatch <backend> <file>`. The primitive
   spawns the worker (tmux; a detached window, no impersonation path) or
@@ -104,7 +112,8 @@ Relay the primitive's report: the worker's **handle** plus the **observe /
 attach** hint the selected backend advertises. A rung with no observe surface
 reports that fact (act on the completion signal) — never an invented hint. A
 **failed dispatch is reported with its failure** — the primitive's failure
-report plus its stderr, surfaced verbatim — and is never silently dropped; a
+report plus its already-sanitized stderr, surfaced verbatim — and is
+never silently dropped; a
 nonzero primitive exit with no report is itself reported as the failure.
 Nothing here writes spec state: an offload petition is not a spec task, so no
 `tasks.md` entry, PR, or dispatch marker is produced.

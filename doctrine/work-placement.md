@@ -8,8 +8,8 @@ they have two consumers: the `/offload` skill — the sole home of adaptive
 backend selection — and the tower's own inline-vs-offload judgment during
 orchestration.
 
-Citations: execution-backends D-1 · REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4,
-REQ-C1.5 · obs:3414579b.
+Citations: execution-backends REQ-C1.1, REQ-C1.2, REQ-C1.3, REQ-C1.4,
+REQ-C1.5 · execution-backends D-1; obs:3414579b.
 
 ## The tower-frugality axiom
 
@@ -40,8 +40,10 @@ Offloaded work picks the cheapest rung that is *sufficient*, never the richest
 available: **subagent unless the work must survive the tower, be
 human-attachable, or run beyond the session.**
 
-The three escalation predicates are exactly the properties the in-harness
-subagent rung lacks (its advertised set in the contract):
+The three escalation predicates name the load-bearing properties the
+in-harness subagent rung lacks (per its advertised set in the contract; a
+petition needing a capability outside the three — say observe-in-flight — is
+an under-determined case for the ask, not a fourth predicate):
 
 - **Survive the tower.** A subagent shares the tower's lifecycle. Work that
   must keep running if the tower dies or retires needs a session-grade rung.

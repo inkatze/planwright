@@ -89,7 +89,8 @@ else
     fail "smallest-sufficient-rung predicates incomplete: needs 'survive the tower', 'human-attachable', 'beyond the session' (REQ-C1.3)"
   fi
 
-  if grep -q 'D-1' "$doc"; then
+  # Boundary-anchored so D-10..D-19 cannot satisfy a D-1 citation.
+  if grep -qE 'D-1($|[^0-9])' "$doc"; then
     ok "work-placement cites its altitude decision (D-1)"
   else
     fail "work-placement does not cite D-1"
@@ -109,6 +110,14 @@ else
     ok "skill carries the machine-parseable manifest line for work-placement"
   else
     fail "skill missing 'Doctrine: run-start work-placement' manifest line"
+  fi
+
+  # The contract read is load-bearing for the REQ-C1.4 unadvertised-rung arm:
+  # selection reads advertised sets, so the manifest must load the contract.
+  if grep -qE '^Doctrine: point-of-use backend-capability-contract' "$skill"; then
+    ok "skill manifests the backend-capability-contract point-of-use read"
+  else
+    fail "skill missing the backend-capability-contract manifest line"
   fi
 
   if [ "$(grep -c 'work-placement' "$skill")" -ge 2 ]; then
@@ -138,8 +147,10 @@ else
     fail "skill missing the unadvertised-rung ask arm (REQ-C1.4)"
   fi
 
-  # REQ-C1.5: report handle + observe/attach hint; failure never dropped.
-  if grep -qi 'handle' "$skill" && grep -qiE 'observe.*attach|attach.*observe' "$skill"; then
+  # REQ-C1.5: report handle + observe/attach hint; a rung with no observe
+  # surface reports that fact. Distinctive single-line phrases, not the
+  # near-vacuous bare word 'handle'.
+  if grep -qiF "worker's **handle**" "$skill" && grep -qi 'no observe surface' "$skill"; then
     ok "skill states the handle + observe/attach report contract (REQ-C1.5)"
   else
     fail "skill missing the handle + observe/attach report contract (REQ-C1.5)"
