@@ -253,6 +253,10 @@ and gives non-tmux operators a backend-agnostic worker status view.
   softener); REQ-A1.8 pins the existing rows' `overhead` classes (the operator-confirmed
   ladder table); test-spec REQ-D1.2's manual check records the exposure mechanism and confirms
   no unauthenticated surface. All expression-only.
+- 2026-07-22 — Task 1 execution, expression-only: test-spec REQ-F1.1 names where the
+  pane-scrape false-idle fixture actually lives (`tests/test-fleet-pane-detect.sh`, beside the
+  pane heuristics it gates; the liveness-suite fixtures cover the store-side correction) — a
+  file-pinning gap-fill, no verification-path change.
 
 ## Sources
 

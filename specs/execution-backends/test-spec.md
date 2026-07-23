@@ -216,7 +216,9 @@ the resume boundary; a second concurrent recovery attempt is refused (single ini
 
 Test: `tests/test-fleet-liveness.sh` fixtures with an `agents --json` shim assert oracle
 evidence is preferred when the probe succeeds, a recorded pane-scrape false-idle case is
-corrected by the oracle, and the fallback engages when the oracle is absent; a malformed-output
+corrected by the oracle (the pane-side half of that fixture — an at-prompt footer deferred to
+an oracle `busy` answer — lives in `tests/test-fleet-pane-detect.sh`, beside the pane
+heuristics it gates), and the fallback engages when the oracle is absent; a malformed-output
 fixture asserts fallback engages (never an empty-fleet read); a tracked worker absent from
 oracle output is not classified dead on that absence alone (positive-evidence-of-death
 preserved). Manual: one live probe against the running CLI, documented in the task's PR
