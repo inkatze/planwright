@@ -349,8 +349,11 @@ scripts/fleet-presence.sh discover --checkout <repo-root> \
   (--session-id <uuid> | --pid <pid>) [--min-interval <sec>]
 ```
 
-Every command except `surface` (pure path resolution, no verification)
-needs an identity (`--session-id`, else `--pid` for the composite).
+Every command except `surface` needs an identity (`--session-id`, else
+`--pid` for the composite); `surface` resolves the sub-surface path without
+verifying or bootstrapping the presence surface itself, though it still
+validates the checkout and derives the repo id from `origin`, so it shares
+the exit-2 (misconfiguration) and exit-5 (no `origin` remote) postures.
 Publish additionally needs a death handle: a tower under tmux
 passes the reuse-resistant `tmux-window` pair (preferred even when `--pid`
 is also given); bare `--pid` doubles as the degraded fallback handle.
