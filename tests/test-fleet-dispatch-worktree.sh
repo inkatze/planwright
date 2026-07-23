@@ -713,7 +713,41 @@ c18() {
     || fail "c18: the standalone repo was destroyed (data loss)"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18; do
+# ---------------------------------------------------------------------------
+# c19 — --no-attach: the create-only arm (execution-backends Task 3). A
+# backend that launches its own worker into the created worktree (the
+# headless-oneshot rung) needs the full create machinery — grammar, fetch,
+# collision reconcile, marker — with NO tmux attach and NO attach plan. The
+# dispatch record lines still print, so the caller learns the worktree path.
+# ---------------------------------------------------------------------------
+c19() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c19.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 40 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || {
+    fail "c19: dispatch --no-attach exited $RC (expected 0)"
+    return
+  }
+  [ "$(dfield "$OUT" branch)" = "planwright/demo/task-40" ] \
+    || fail "c19: branch '$(dfield "$OUT" branch)' != planwright/demo/task-40"
+  # The primitive reports PHYSICAL paths (pwd -P); compare in kind.
+  _phys=$(cd "$tmp/primary" && pwd -P)
+  [ "$(dfield "$OUT" worktree)" = "$_phys/.claude/worktrees/task-40" ] \
+    || fail "c19: worktree line missing or wrong: '$(dfield "$OUT" worktree)'"
+  [ -d "$tmp/primary/.claude/worktrees/task-40" ] \
+    || fail "c19: --no-attach did not create the worktree"
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-40 \
+    || fail "c19: --no-attach did not create the D-36 branch"
+  # No attach plan and no launch: the output carries no attach/exec lines.
+  if printf '%s\n' "$OUT" | grep -qv '^dispatch	'; then
+    fail "c19: --no-attach printed non-dispatch-record output (an attach plan?): $OUT"
+  fi
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

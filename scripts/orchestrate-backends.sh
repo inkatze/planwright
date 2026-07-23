@@ -23,12 +23,14 @@
 #       none|light|full-session|full-session+supervisor and hook_registration is
 #       true|false (execution-backends REQ-A1.1, REQ-A1.8). `in-session` and
 #       `print` are always present; `subagent` is present by default (the
-#       harness-native runtime); `tmux` is present iff it resolves on PATH. The
-#       contract-defined `stream-json-persistent` and `headless-oneshot` rows
-#       (execution-backends REQ-A1.2, REQ-A1.3) default ABSENT until their
-#       dispatch support lands (execution-backends Tasks 3-4) — a rung the tower
-#       cannot drive is never advertised as present. All four probes are
-#       overridable with PLANWRIGHT_BACKEND_{SUBAGENT,TMUX,
+#       harness-native runtime); `tmux` is present iff it resolves on PATH;
+#       `headless-oneshot` (execution-backends REQ-A1.2) is present iff the
+#       installed CLI resolves on PATH — its dispatch support is
+#       fleet-dispatch-headless.sh (execution-backends Task 3). The
+#       contract-defined `stream-json-persistent` row (REQ-A1.3) defaults
+#       ABSENT until its dispatch support lands (execution-backends Task 4) —
+#       a rung the tower cannot drive is never advertised as present. All four
+#       probes are overridable with PLANWRIGHT_BACKEND_{SUBAGENT,TMUX,
 #       STREAM_JSON_PERSISTENT,HEADLESS_ONESHOT} (1/0) so a host or test can
 #       force presence. Each pluggable-name arg is present iff a
 #       `planwright-backend-<name>` adapter on PATH answers `advertise` with a
@@ -139,7 +141,8 @@ valid_name() {
 
 # Resolve an env override to presence. $1 = raw env value (possibly empty);
 # $2 = default action when the value is empty/unrecognized:
-#   yes -> present, no -> absent, tmux -> `command -v tmux`.
+#   yes -> present, no -> absent, tmux -> `command -v tmux`,
+#   claude -> `command -v claude` (the installed-CLI probe).
 env_present() {
   case "$1" in
     1 | true | TRUE | on | yes | YES) return 0 ;;
@@ -149,21 +152,24 @@ env_present() {
     yes) return 0 ;;
     no) return 1 ;;
     tmux) command -v tmux >/dev/null 2>&1 ;;
+    claude) command -v claude >/dev/null 2>&1 ;;
   esac
 }
 
-# Is a shipped backend present on this host? The two execution-backends
-# contract rows ship ahead of their dispatch support (Tasks 3-4): they default
-# ABSENT — a rung the tower cannot drive yet must never be selectable — until
-# the dispatch task flips the default to the installed-CLI probe. The env
-# overrides let tests (and an early-adopting host) force presence.
+# Is a shipped backend present on this host? headless-oneshot's dispatch
+# support landed (execution-backends Task 3: fleet-dispatch-headless.sh), so
+# its default is the installed-CLI probe. stream-json-persistent still ships
+# ahead of its dispatch support (Task 4) and defaults ABSENT — a rung the
+# tower cannot drive yet must never be selectable — until that task flips its
+# default too. The env overrides let tests (and an early-adopting host) force
+# presence either way.
 is_present() {
   case "$1" in
     in-session | print) return 0 ;;
     subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
     tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
     stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" no ;;
-    headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" no ;;
+    headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" claude ;;
     *) return 1 ;;
   esac
 }
