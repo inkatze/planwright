@@ -72,10 +72,9 @@ Selected from `$ARGUMENTS` at pre-flight:
   no multiplexer knowledge required.
 
 Flags: `--backend <subagent|tmux|headless-oneshot|stream-json-persistent|print|in-session>`
-overrides `dispatch_backend` for this run (both session-grade rows are listed;
-their per-backend dispatch adaptation is name-keyed pending a later task);
-`--unattended` selects headless mode (skip confirms, route every
-would-be prompt to Awaiting input), implied for non-interactive sessions.
+overrides `dispatch_backend` for this run; `--unattended` selects headless mode
+(skip confirms, route every would-be prompt to Awaiting input), implied for
+non-interactive sessions.
 
 ## Pre-flight (per step)
 
