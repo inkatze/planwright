@@ -545,8 +545,8 @@ cannot overwrite it with stale state.
 **Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
 liveness mechanism a backend gets is read from the capability contract's
 `hook_registration` field, never a backend-name case. A hook-registering
-backend (`tmux`, and the `stream-json-persistent` / `headless-oneshot`
-contract rows once their dispatch support lands) launches a
+backend (`tmux` and `stream-json-persistent`, and the `headless-oneshot`
+contract row once its dispatch support lands) launches a
 dispatch-controlled Claude Code process that inherits the identity env and
 fires plugin hooks, so it pushes. `subagent` runs workers in-process,
 `in-session` shares the tower's own session, and `print` spawns no process at
