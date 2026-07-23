@@ -107,6 +107,9 @@ By the selected rung:
 - **in-session** — there is no worker: the petition runs inline in this
   session, which step 2 should normally have caught. Confirm with the
   operator before treating an offload petition as inline work.
+- **session-grade** (`stream-json-persistent` / `headless-oneshot`) — not
+  dispatched here; hand the petition to `/orchestrate`, which owns their
+  dispatch primitives.
 
 ### 6. Report (REQ-C1.5)
 
