@@ -80,7 +80,8 @@
 #                        plan, printing the dispatch record only — for a
 #                        backend that launches its own worker into the created
 #                        worktree (the headless-oneshot rung,
-#                        fleet-dispatch-headless.sh).
+#                        fleet-dispatch-headless.sh). Launches no worker, so it
+#                        takes no post-`--` launch args (refused, not dropped).
 #       Everything after `--` is passed through to the `claude` launch argv.
 #   fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra>...]
 #       The attach step alone: capture the prior tmux client session, launch
@@ -448,6 +449,14 @@ do_dispatch() {
   done
   # Remaining "$@" (only meaningful when _have_extra=1) are the extra launch args.
   [ "$_have_extra" -eq 1 ] || set --
+
+  # --no-attach launches no worker, so it cannot honor passthrough launch args;
+  # accepting them silently would drop them (the attach/dry-run arms forward
+  # them, this arm cannot). Refuse rather than silently discard.
+  if [ "$_no_attach" -eq 1 ] && [ "$_have_extra" -eq 1 ] && [ "$#" -gt 0 ]; then
+    warn "--no-attach launches no worker; it takes no post-\`--\` launch args"
+    usage
+  fi
 
   [ -n "$_spec" ] && [ -n "$_id" ] || usage
 

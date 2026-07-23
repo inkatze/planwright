@@ -747,7 +747,27 @@ c19() {
   fi
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19; do
+# ---------------------------------------------------------------------------
+# c20 — --no-attach launches no worker, so it cannot honor post-`--` launch
+# args; passing them is a usage error (exit 2), never a silent drop (C8).
+# ---------------------------------------------------------------------------
+c20() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c20.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 50 --repo-root "$tmp/primary" --no-attach -- --model opus
+  [ "$RC" -eq 2 ] || fail "c20: --no-attach with post---- args should be a usage error (exit 2), got $RC"
+  # The refusal is pre-side-effect: no branch/worktree was created.
+  if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-50; then
+    fail "c20: a refused --no-attach launch must not create the branch"
+  fi
+  [ -d "$tmp/primary/.claude/worktrees/task-50" ] \
+    && fail "c20: a refused --no-attach launch must not create the worktree"
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
