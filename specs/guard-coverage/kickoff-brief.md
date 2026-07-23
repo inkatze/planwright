@@ -268,3 +268,19 @@ Class: meaning
 Lens-pass: §8 lens review pass (fan-out) + independent gemini panel pass (5 iterations) — tables and dispositions above
 Anchor: `46712b6b3927570f210ade7c60b6c0ee0a157b42` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
+
+## Amendment log
+
+### 2026-07-22 — no-verify bypass mechanics correction (Task 2 execution)
+
+Expression-only correction of D-2's bypass-mechanics side-note,
+verified against githooks(5) and git-rebase(1) for the installed git
+2.55: `--no-verify` does not suppress `prepare-commit-msg`, and
+`git rebase --no-verify` exists and bypasses `pre-rebase`. Recorded in
+the design.md `## Changelog` (2026-07-22 entry); hook headers and
+docs/CONTRIBUTING.md + docs/getting-started.md corrected in the same
+commit. No accepted decision changed.
+
+Class: expression-only
+Anchor: `261f6f5cdb091b3c2622ac1159a49ea62b0be441` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`

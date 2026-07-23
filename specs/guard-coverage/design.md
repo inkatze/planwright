@@ -60,10 +60,11 @@ D-5's hashed seed list (screening delivered
 as Task 3's extension). Hook files are extensionless portable shell and
 join `lint:shell`/`lint:fmt`/the D-12 check by shebang enumeration.
 Hooks are the enforcement layer against accidental invocation and bind
-humans too (with the accuracy note that `--no-verify` skips the
-commit/push hooks but not `pre-rebase`, which git offers no
-`--no-verify` for — a deliberate local rebase is unblocked by
-temporarily unsetting `core.hooksPath`, not by `--no-verify`);
+humans too (with the accuracy note, per `githooks(5)`: `--no-verify`
+skips `pre-push` and `commit-msg` but does **not** suppress
+`prepare-commit-msg`, so a deliberate amend is unblocked by the
+`--amend -m`/`-F` family or by temporarily unsetting `core.hooksPath`;
+`git rebase --no-verify` bypasses `pre-rebase`);
 per-commit hook latency across fleet commit volume is an accepted cost.
 **Untrusted-checkout caveat (accepted residual, surfaced at kickoff):**
 because `core.hooksPath` points at the tracked `githooks/`, checking out
@@ -447,3 +448,15 @@ posture, and the doc/dogfooding registration surfaces added.)*
 
 **Chosen because:** capability-vs-style: the mechanisms generalize (core
 catalog), the values are local (this repo's config).
+
+## Changelog
+
+- 2026-07-22 (Task 2 execution, expression-only): corrected D-2's
+  factual side-note on bypass mechanics against `githooks(5)` for the
+  installed git (2.55): `--no-verify` does not suppress
+  `prepare-commit-msg` (the amend accident-catcher's deliberate bypass
+  is the `--amend -m`/`-F` family or temporarily unsetting
+  `core.hooksPath`), and `git rebase --no-verify` does exist and
+  bypasses `pre-rebase`. No decision changed: the hooks remain the
+  accident-catching enforcement layer with deliberate human bypasses;
+  only the description of which flag bypasses which hook was wrong.

@@ -1,0 +1,41 @@
+#!/bin/sh
+# planwright pre-push backstop (guard-coverage Task 2; D-2; REQ-A1.2): reject
+# any push updating refs/heads/main, spelling-independently — git resolves
+# every refspec spelling (HEAD:main, +refs/heads/main, an upstream-is-main
+# bare push, HEAD while on main, a delete) to the fully qualified remote ref
+# on stdin, so inspecting that column covers them all. Lines that do not
+# parse as exactly four fields fail closed (REQ-H1.3's vacuous-input arm).
+#
+# stdin: "<local ref> SP <local sha> SP <remote ref> SP <remote sha>" per line.
+# Bypass: --no-verify is the human's deliberate escape hatch (D-2); main
+# history still lands via PR merges only.
+set -u
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+# The `|| [ -n ... ]` arm keeps a final line without a trailing newline in
+# scope: read returns nonzero at EOF but has populated the fields, and
+# skipping it would fail open on exactly the ref being smuggled last.
+while IFS=' ' read -r local_ref local_sha remote_ref remote_sha \
+  || [ -n "${local_ref}${local_sha}${remote_ref}${remote_sha}" ]; do
+  if [ -z "$local_ref" ] || [ -z "$local_sha" ] \
+    || [ -z "$remote_ref" ] || [ -z "$remote_sha" ]; then
+    echo "planwright githooks: pre-push: unparseable refspec line on stdin; failing closed" >&2
+    exit 1
+  fi
+  case $remote_sha in
+    *" "*)
+      echo "planwright githooks: pre-push: more than four refspec fields on stdin; failing closed" >&2
+      exit 1
+      ;;
+  esac
+  case $remote_ref in
+    refs/heads/main)
+      echo "planwright githooks: pre-push: refusing to update refs/heads/main" \
+        "(never-push-main invariant; main advances via PR merges only)" >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0
