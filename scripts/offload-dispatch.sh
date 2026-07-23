@@ -38,19 +38,29 @@
 #       tmux, subagent.
 #
 # Report shape: TAB-separated `key<TAB>value` lines —
-#   status    dispatched | prepared | failed
+#   status    dispatched | prepared | reported | failed
 #   backend   <name>
 #   handle    <handle>  (or the no-process fact for `print`)
 #   observe   <read command, or the no-observe-surface fact>
 #   attach    <attach hint, or the not-attachable fact>
 #   launch    <exact command>            (print only)
 #   reason    <failure reason>           (failed only)
+# `report` emits `status reported`, never `dispatched`: it validates the
+# handle's grammar but verifies no dispatch and no liveness, so its status
+# asserts only that a report was produced for a caller-owned handle.
 #
-# The interactive `claude` launches here are not `-p`-family sites, so the
-# non-`--bare` launch pin (REQ-A1.5, D-12) does not apply to this script.
+# Both launch forms pass `--` before the prompt (end-of-options, verified
+# against the running CLI), so petition CONTENT beginning with a dash can
+# never be parsed as a `claude` option. The prompt-file path is absolutized
+# before dispatch so the later read (the spawned shell's, or the human's for
+# `print`) is cwd-independent, and the spawned shell refuses to launch on a
+# failed read rather than starting an empty-petition worker. The interactive
+# `claude` launches here are not `-p`-family sites, so the non-`--bare`
+# launch pin (REQ-A1.5, D-12) does not apply to this script.
 #
 # Exit codes: 0 success; 1 dispatch failed (failure report emitted); 2 usage /
-# hostile input / refused backend / unsafe prompt file.
+# hostile input / refused backend / missing, empty, unreadable, or unsafe
+# prompt file / missing echo-safety helper / internal resolution failure.
 #
 # Portable POSIX sh + coreutils (bash 3.2 / BSD compatible): no eval, input
 # treated as data only (REQ-K1.5). Pathname expansion is disabled (set -f) so
@@ -66,7 +76,10 @@ me=offload-dispatch
 
 # Resolve this script's directory so the sibling echo-safety helper is found
 # regardless of the caller's working directory.
-script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+script_dir=$(cd "$(dirname "$0")" && pwd) || {
+  echo "$me: cannot resolve the script's own directory" >&2
+  exit 2
+}
 echo_safety="$script_dir/echo-safety.sh"
 if [ ! -r "$echo_safety" ]; then
   echo "$me: required helper $echo_safety missing or not readable" >&2
@@ -139,12 +152,19 @@ reject_handle() {
 emit_hints() {
   case "$1" in
     tmux)
-      printf 'observe\ttmux capture-pane -p -t %s\n' "$2"
-      printf 'attach\ttmux select-window -t %s  (from outside tmux: tmux attach)\n' "$2"
+      printf "observe\ttmux capture-pane -p -t '%s'\n" "$2"
+      printf "attach\ttmux select-window -t '%s'  (from outside tmux: tmux attach)\n" "$2"
       ;;
     subagent)
       printf 'observe\tnone: no observe surface on this rung; act on the completion signal\n'
       printf 'attach\tnone: in-harness worker, not human-attachable\n'
+      ;;
+    *)
+      # Defensive: both callers whitelist first, so this arm is unreachable
+      # today — it exists so a future backend addition fails loudly rather
+      # than silently emitting a report missing its observe/attach lines.
+      echo "$me: internal error: no hint arm for backend '$1'" >&2
+      exit 2
       ;;
   esac
 }
@@ -160,7 +180,9 @@ cmd_report() {
       ;;
   esac
   valid_handle "$backend" "$handle" || reject_handle "$backend"
-  printf 'status\tdispatched\n'
+  # `reported`, never `dispatched`: this subcommand verified no dispatch and
+  # no liveness — only the handle's grammar (see the header contract).
+  printf 'status\treported\n'
   printf 'backend\t%s\n' "$backend"
   printf 'handle\t%s\n' "$handle"
   emit_hints "$backend" "$handle"
@@ -188,6 +210,20 @@ cmd_dispatch() {
       exit 2
       ;;
   esac
+  # Absolutize the prompt-file path BEFORE validation so (a) the emission-
+  # boundary charset check covers the exact string that is emitted or passed,
+  # and (b) the later read — the spawned shell's, or the human's for `print`,
+  # both of which happen in an arbitrary cwd — is cwd-independent.
+  case "$promptfile" in
+    /*) : ;;
+    *)
+      pf_dir=$(cd "$(dirname -- "$promptfile")" 2>/dev/null && pwd) || {
+        echo "$me: dispatch: cannot resolve the prompt file's directory: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
+        exit 2
+      }
+      promptfile="$pf_dir/$(basename -- "$promptfile")"
+      ;;
+  esac
   if ! valid_promptfile "$promptfile"; then
     echo "$me: dispatch: prompt file missing, empty, unreadable, or unsafe: '$(sanitize_printable "$promptfile" "(unprintable)")'" >&2
     exit 2
@@ -198,7 +234,7 @@ cmd_dispatch() {
       printf 'status\tprepared\n'
       printf 'backend\tprint\n'
       printf 'handle\tnone: no process exists until the human runs the launch command\n'
-      printf "launch\tclaude \"\$(cat -- '%s')\"\n" "$promptfile"
+      printf "launch\tclaude -- \"\$(cat -- '%s')\"\n" "$promptfile"
       printf 'observe\tnone: spawn deferred to the human\n'
       printf 'attach\trun the launch command in your own terminal\n'
       return 0
@@ -208,16 +244,33 @@ cmd_dispatch() {
   # tmux: spawn a detached window running an interactive claude worker in the
   # caller's cwd. The petition is read from the prompt file INSIDE the spawned
   # shell via a fixed argv path — the content never appears on this command
-  # line — and the printed window id is the stable handle.
+  # line — with `--` pinning it as the prompt (never an option), and a failed
+  # read refuses to launch rather than starting an empty-petition worker. The
+  # printed window id is the stable handle. tmux's stderr is captured
+  # SEPARATELY from the id: folding the streams together would turn a
+  # successful spawn with stderr chatter into a false failure report over a
+  # live, unreported worker.
+  cwd=$(pwd) || {
+    echo "$me: dispatch: cannot resolve the current directory" >&2
+    exit 2
+  }
+  tmux_err=$(mktemp "${TMPDIR:-/tmp}/offload-dispatch-err.XXXXXX") || {
+    echo "$me: dispatch: cannot create the stderr capture file" >&2
+    exit 2
+  }
   # shellcheck disable=SC2016 # single quotes are deliberate: $1 expands in the
   # SPAWNED shell (argv-passed prompt path), never here — no content splicing.
-  handle=$(tmux new-window -d -P -F '#{window_id}' -n offload -c "$PWD" \
-    /bin/sh -c 'exec claude "$(cat -- "$1")"' offload-worker "$promptfile" 2>&1)
+  handle=$(tmux new-window -d -P -F '#{window_id}' -n "offload-$$" -c "$cwd" \
+    /bin/sh -c 'p=$(cat -- "$1") || exit 1; exec claude -- "$p"' \
+    offload-worker "$promptfile" 2>"$tmux_err")
   rc=$?
+  err_text=$(cat "$tmux_err" 2>/dev/null)
+  rm -f "$tmux_err"
   if [ "$rc" -ne 0 ]; then
+    [ -n "$err_text" ] || err_text="(no output)"
     printf 'status\tfailed\n'
     printf 'backend\ttmux\n'
-    printf 'reason\ttmux new-window exited %s: %s\n' "$rc" "$(sanitize_printable "$handle" "(unprintable)")"
+    printf 'reason\ttmux new-window exited %s: %s\n' "$rc" "$(sanitize_printable "$err_text" "(unprintable)")"
     echo "$me: dispatch failed: tmux new-window exited $rc" >&2
     exit 1
   fi
