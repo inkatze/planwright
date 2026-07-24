@@ -219,7 +219,7 @@ The shipped `dispatch_backend` values, by what they give you:
 
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
-| `full-session` (default) | Not a backend but a **semantic value**: resolves at dispatch time to the richest present session-grade rung below (unattended: the richest non-interactive one) | per resolution | yes, when the host has a session-grade rung |
+| `full-session` (default) | Not a backend but a **semantic value**: resolves at dispatch time to the richest present session-grade rung below (unattended: the richest non-interactive one) | per resolution | yes, when the host advertises an *eligible* rung — a non-interactive one, or tmux once the tmux-context ask admits it |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
 | `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer) via `scripts/fleet-streamjson.sh` | yes / yes | yes (recoverable via `--resume`) |
 | `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
@@ -231,8 +231,11 @@ The default is `full-session` (flipped from `subagent` in execution-backends
 Task 5 — a declared departure from the default-preserving rule,
 operator-approved in that spec's primary seed): tasks are beefy enough to
 always warrant a full session, and the ladder softens the flip — a host with
-no session-grade rung degrades to the previous behavior (`subagent`, then
-`in-session`), never to a silently-chosen interactive backend. Set
+no *non-interactive* session-grade rung degrades to the previous behavior
+(`subagent`, then `in-session`), never to a silently-chosen interactive
+backend. (tmux is session-grade, but it is a candidate only once the
+tmux-context ask admits it, so an advertised tmux alone does not stop the
+degrade.) Set
 `dispatch_backend: subagent` in an overlay to restore the old default, or a
 per-spec entry in `dispatch_backend_per_spec` (a `{<spec>: <backend>}` inline
 map; the entry wins over the global value) to pin one spec's backend. An
@@ -940,7 +943,7 @@ are in the [options reference](options-reference.md).
 
 | Knob | The capability (core) | The value (yours) | Default, and why it is the safe one |
 | --- | --- | --- | --- |
-| `dispatch_backend` | Backend seam: contract, advertisement, autodetect-and-ask | Which backend this host runs (`dispatch_backend_per_spec` pins one spec's) | `full-session` — resolves to the richest session-grade rung the host advertises; a host with none degrades to the pre-flip `subagent` behavior |
+| `dispatch_backend` | Backend seam: contract, advertisement, autodetect-and-ask | Which backend this host runs (`dispatch_backend_per_spec` pins one spec's) | `full-session` — resolves to the richest session-grade rung the host advertises (unattended, the richest non-interactive one); a host advertising no *eligible* rung degrades to the pre-flip `subagent` behavior |
 | `dispatch_isolation` | Per-step session isolation in `/execute-task` | Isolation mode for this machine | `per-step` — bounded context and uncontaminated reviews by construction |
 | `context_budget_threshold` | Step-count monitor + continue-as-new handover | How long your towers run before handing over | `50` — hands over early; the handover is cheap and lossless, so early is the safe direction |
 | `max_parallel_units` | Per-spec concurrency cap | Your per-spec load | `3` — bounded parallelism out of the box |

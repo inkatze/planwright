@@ -51,14 +51,16 @@ kickoff_ready_ci_wait: 10m
 # D-8, REQ-B1.1): at dispatch time it resolves, via the contract's pinned
 # degradation ladder, to the richest session-grade backend advertised on the
 # host — unattended, the richest NON-interactive one (never a silently-chosen
-# interactive backend, REQ-B1.4); a host advertising no session-grade rung
+# interactive backend, REQ-B1.4); a host advertising no ELIGIBLE session-grade
+# rung — a non-interactive one, or tmux once the tmux-context ask admits it —
 # degrades to the previous behavior (subagent, then in-session). MIGRATION
 # NOTE — this default flipped from `subagent` in execution-backends Task 5, a
 # declared departure from the default-preserving rule (customization-boundary
 # criterion 5), operator-approved in that spec's primary seed: tasks are beefy
 # enough to always warrant a full session, and the ladder softens the flip
-# (hosts without a session-grade rung keep today's behavior). To restore the
-# old default, set `dispatch_backend: subagent` in an overlay layer. An
+# (hosts without an eligible session-grade rung keep today's behavior). To
+# restore the old default, set `dispatch_backend: subagent` in an overlay
+# layer. An
 # explicitly configured literal (this key or the per-spec map) that is NOT
 # advertised on the host fails closed at dispatch time — the unit parks to
 # Awaiting input naming the missing backend, never a silent substitute

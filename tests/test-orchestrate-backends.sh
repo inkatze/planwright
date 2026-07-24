@@ -289,6 +289,13 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
 [ "$sel" = subagent ] \
   || fail "full-session with no non-interactive session-grade rung should degrade to subagent, got '$sel'"
 grep -q NOTE "$err" || fail "full-session degrading past the session-grade rungs must NOTE on stderr"
+# The NOTE must not claim the host advertises NO session-grade backend: tmux is
+# session-grade and IS advertised in this very case (PLANWRIGHT_BACKEND_TMUX=1
+# above) — it is merely not a candidate without the tmux-context ask. An
+# unqualified "no session-grade backend" reads as a host-capability claim and
+# misleads the operator into thinking tmux is unavailable.
+grep -q "non-interactive session-grade" "$err" \
+  || fail "full-session degrade NOTE must scope the absence to NON-interactive session-grade rungs (tmux may be advertised)"
 sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
   PLANWRIGHT_BACKEND_SUBAGENT=0 "$BACKENDS" select-unattended full-session 2>"$err") \
   || fail "select-unattended(full-session, no subagent) non-zero"
