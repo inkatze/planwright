@@ -288,6 +288,20 @@ performed while building the headless-oneshot dispatch:
   exit-code completion signal; recorded as observation
   `obs:b48fa0a1` for future research.
 
+**Research notes — Task 7 execution (appended 2026-07-23, /execute-task).** The risk-row-2
+re-verification against the running CLI (v2.1.218) for the status view's oracle read:
+
+- `claude agents --json` re-verified live through the new `oracle --list` mode: the full
+  row set (10 sessions, interactive + background) parses through the Task 1 scanner
+  unchanged; field shapes match the Task 1 notes.
+- The default 10 s probe bound trips on a loaded host (observed: first live probe timed
+  out, `PLANWRIGHT_ORACLE_TIMEOUT=30` succeeded); the timeout reads as
+  oracle-unavailable and the status view degrades visibly (`source oracle unavailable`,
+  `?` cells) — the designed arm, no new risk row warranted.
+- In a dev checkout (no plugin data dir) the fleet home does not resolve; the view
+  degrades the three home-backed sources to `unavailable no-fleet-home` and still
+  renders the oracle sessions — confirming the per-source degrade composes.
+
 ## 8. Sign-off
 
 **Lens review pass** (first activation — full bundle; fan-out: one read-only sub-agent per
