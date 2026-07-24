@@ -110,9 +110,80 @@ but never invented into workers (an interactive session is usually an
 operator, not a worker). Worker-authored strings (session names, store
 fields) pass the echo-safety sanitizer before they reach your terminal.
 
-The `merge` stream is the seam the planned rendered dashboard (Task 8 of the
-execution-backends spec) builds on: one source-reading implementation, two
-renderers.
+The `merge` stream is the seam the rendered dashboard below builds on: one
+source-reading implementation, two renderers.
+
+## The rendered dashboard
+
+When you are away from the terminal, `fleet-dashboard.sh` renders the same
+merged state as a self-contained HTML page, shaped for a phone or browser
+glance:
+
+```sh
+scripts/fleet-dashboard.sh render                  # the page on stdout
+scripts/fleet-dashboard.sh write --out ~/fleet.html
+scripts/fleet-dashboard.sh watch --out ~/fleet.html --interval 30
+```
+
+It reads exactly one thing — `fleet-status.sh merge` — so there is no second
+source-reading implementation to drift from the CLI table. Everything the
+table shows, the page shows: the same per-source `ok` / `absent` /
+`unavailable` line (a missing source is named with its state and its
+diagnostic detail, never dropped), the same `n/a` for a worker with no runtime
+presence, and the same degraded-evidence markers — `—` where an absent source
+would have filled the cell, *unknown* where the oracle probe failed on a
+worker it could otherwise have judged.
+
+What the page adds over the table is glance ergonomics:
+
+- **Attention first.** Workers are grouped **Needs you** / **Active** /
+  **Finished**, in that order. A worker lands in *Needs you* when it is
+  `awaiting-input` or `hung`, when the oracle reports it `waiting`, or when it
+  has a pending stream-json request. A banner at the top states the count, so
+  the answer to "does anything want me?" is the first thing on screen.
+- **A freshness stamp.** Every page carries the UTC instant it was generated
+  and refreshes itself on the same interval `watch` uses. A page whose writer
+  loop died reads as stale instead of quietly showing old state.
+- **Phone-shaped.** One column on a narrow screen, multi-column past 40rem;
+  light and dark palettes follow the device.
+
+### Exposure: there is no listener
+
+The dashboard **serves nothing and opens no socket**. `render` writes to
+stdout; `write` and `watch` write an owner-only (`0600`) file. That is the
+whole surface — which is how it satisfies the read-only,
+no-unauthenticated-network constraint by construction rather than by
+configuration: there is no port to leave open and no endpoint to call.
+
+Reaching the page from a phone therefore goes through a channel **you already
+authenticate**. In rough order of convenience:
+
+| Channel | Shape |
+| --- | --- |
+| `file://` in a local browser | zero setup, same machine, no network at all |
+| Tailscale (`tailscale serve` over the written file) | tailnet identity + TLS, works from a phone anywhere |
+| `ssh -L` to a local static server | your existing SSH credentials |
+| A synced path (iCloud, Dropbox, Syncthing) | the sync provider's account |
+
+A built-in HTTP server was considered and rejected: one written in POSIX sh
+would be plaintext and unauthenticated by construction, which is exactly what
+the constraint forbids, and every credible remedy (TLS, an auth layer) means a
+new runtime dependency planwright does not otherwise need. Delegating to a
+channel that already solves authentication is both safer and less code.
+
+Whatever channel you pick, keep it authenticated: the page carries worker
+handles, spec scopes, and working-directory paths.
+
+### Rendering discipline
+
+Worker-authored strings are entity-encoded for HTML, so markup a worker
+authored shows up as text. The page contains no JavaScript at all and declares
+a `default-src 'none'` CSP, so even a hypothetical encoding escape has nothing
+to execute. Control bytes are already stripped upstream, by the merge layer at
+ingest — the terminal-escape posture belongs to the source reader, not to each
+renderer, which means the dashboard inherits the same
+[echo-safety](../doctrine/security-posture.md) trade the CLI table does:
+security over display fidelity for exotic multibyte names.
 
 ## The multiplexer as background plumbing
 
