@@ -12,11 +12,13 @@ kind (as D-9's `customization-boundary` does), naming the doctrine the decision
 instantiates.
 
 The design leads with the invariant it exists to protect: **a PR flipped ready
-must have been CI-and-review-verified on a head that includes current `main`,
-and be mergeable.** Two mechanisms carry it — one that keeps the verified head
-current (D-4), and one that refuses a flip that violates the invariant (D-2,
-D-3). The guard is the enforcement floor; the in-loop sync is what keeps that
-floor from ever being hit in normal operation.
+must have been CI-and-review-verified on a head that is current with its base
+branch, and be mergeable.** That invariant is stated once, in `requirements.md`
+as **REQ-A1.1** (its single home); every decision below cites it rather than
+restating it normatively. Two mechanisms carry it — one that keeps the verified
+head current (D-4), and one that refuses a flip that violates the invariant
+(D-2, D-3). The guard is the enforcement floor; the in-loop sync is what keeps
+that floor from ever being hit in normal operation.
 
 ## Decision log
 
@@ -24,10 +26,17 @@ floor from ever being hit in normal operation.
 
 **Decision:** This bundle is two concrete mechanisms — an `/execute-task`
 convergence-loop `main`-sync (D-4) and a deny-emitting `ready-guard` PreToolUse
-hook (D-2, D-3) — plus exactly one carried hard-invariant statement (REQ-A1.1):
-a PR is flipped ready only on a `main`-current, mergeable head, enforced by
-construction (REQ-A1.2). The invariant statement is the altitude decision this
-bundle records per the autopilot-reflex altitude gate, cited from the Goal.
+hook (D-2, D-3) — plus exactly one carried hard-invariant statement, whose
+single home is **REQ-A1.1**: a PR is flipped ready only on a head current with
+its base branch (`origin/main` in the fleet's normal case) and mergeable,
+enforced by construction (REQ-A1.2). The invariant statement is the altitude
+decision this bundle records per the autopilot-reflex altitude gate, cited from
+the Goal. Every deliverable that carries the invariant — the guard (D-2, D-3,
+REQ-C) and the loop-sync (D-4, REQ-B) — cross-references REQ-A1.1; none
+restates it. *(Amended at Task 1 execution 2026-07-24: the `main`-current
+shorthand aligned to REQ-A1.1's base-general wording, since D-3's predicate is
+computed against each PR's real base, not `main`; cross-reference discipline
+made explicit.)*
 
 **Alternatives considered:**
 
@@ -54,9 +63,9 @@ this bundle actually exhibited.
 
 ### D-2: Enforce at the flip point with a deny-emitting PreToolUse guard (N)
 
-**Decision:** The invariant is enforced by a deterministic `ready-guard`
-PreToolUse hook that intercepts a draft→ready transition and emits a DENY
-decision when the invariant is unmet. This is a new guard *modality* for
+**Decision:** The invariant (REQ-A1.1) is enforced by a deterministic
+`ready-guard` PreToolUse hook that intercepts a draft→ready transition and emits
+a DENY decision when the invariant is unmet. This is a new guard *modality* for
 planwright: the shipped `worker-command-guard.sh` and `tower-command-guard.sh`
 are allow-only (they emit `allow` or nothing, never deny), because their job is
 to un-block routine commands, not to block dangerous ones. The ready-guard
@@ -171,7 +180,9 @@ the `DRAFT`/`HAS_HOOKS`-state handling entirely.)*
 ### D-4: In-loop `main`-sync via fetch + merge, offloaded to a script (N)
 
 **Decision:** `/execute-task` merges `origin/main` into the worker branch at the
-top of each `review_sequence` convergence iteration. The mechanism lives in a
+top of each `review_sequence` convergence iteration, so the verified head stays
+current and the REQ-A1.1 invariant's currency clause is satisfied by ordinary
+operation rather than by the guard having to refuse a flip. The mechanism lives in a
 dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
 main` then `git merge FETCH_HEAD`; `/execute-task` invokes it in a single line.
 It never runs `git pull` (a global `branch.autosetuprebase=always` silently
