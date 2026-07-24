@@ -233,8 +233,13 @@ first_header() {
 header_or_refuse() {
   hor_rc=0
   hor_v=$(first_header "$1" "$2") || hor_rc=$?
-  if [ "$hor_rc" -ne 0 ]; then
+  if [ "$hor_rc" -eq 3 ]; then
     printf 'hard\t%s: unparseable %s: declaration (more than one in-header declaration has no honest positional winner; fail closed)\n' \
+      "$3" "$2" >>"$fnd"
+    return 0
+  fi
+  if [ "$hor_rc" -ne 0 ]; then
+    printf 'hard\t%s: could not read the %s: declaration (unreadable or NUL-bearing file; fail closed)\n' \
       "$3" "$2" >>"$fnd"
     return 0
   fi

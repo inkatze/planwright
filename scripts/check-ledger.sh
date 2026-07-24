@@ -121,7 +121,7 @@ for f in "${files[@]}"; do
   # alike (the sanitize_printable posture, scripts/echo-safety.sh: a raw C1
   # byte such as CSI 0x9B drives the terminal exactly like ESC-[).
   if ! fver=$(spec_parse_header_value "$f" Format-version 2>/dev/null); then
-    fver='(unparseable declaration)'
+    fver='duplicate or unreadable declaration'
   fi
   case "$fver" in
     1 | 2) ;;
