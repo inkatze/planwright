@@ -846,8 +846,19 @@ for f in hdr-ok.md hdr-body-only.md hdr-body-dup.md hdr-crlf.md hdr-hardbreak.md
   hdr-after-prose.md hdr-fenced.md hdr-noh1.md hdr-dup-other.md; do
   for key in Status Format-version Execution; do
     single=$(hv "$tmp/$f" "$key") || continue # exit 3 has no single-key value
+    # The value is everything after the SECOND tab, computed positionally: an
+    # index($0, $3) search would misfire on an empty value (index returns 0) or
+    # on one whose bytes also appear in the key.
     batched=$(spec_parse_header_block "$tmp/$f" \
-      | awk -F'\t' -v k="$key" '$1 == "hdr" && $2 == k { print substr($0, index($0, $3)); exit }')
+      | awk -v k="$key" '
+          {
+            p = index($0, "\t")
+            q = index(substr($0, p + 1), "\t")
+            if (substr($0, 1, p - 1) != "hdr") next
+            if (substr($0, p + 1, q - 1) != k) next
+            print substr($0, p + q + 1)
+            exit
+          }')
     [ "$single" = "$batched" ] \
       || fail "batched and single-key forms disagree on $key in $f: single [$single] vs batched [$batched]"
   done

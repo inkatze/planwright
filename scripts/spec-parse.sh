@@ -253,6 +253,14 @@ spec_parse_extract_tasks() {
 # forge one; the value is raw bytes and sits LAST in the record, so an embedded
 # tab cannot split it (REQ-B1.6b) and the batched form stays byte-faithful to
 # the single-key form.
+#
+# Known bound: that grammar admits no SPACE, so `**Last reviewed:**` — a key the
+# meta-spec header block does define — is not lookupable through either entry
+# point and emits no batched record. No in-repo consumer reads it, and the two
+# load-bearing keys plus `Execution:` and `Superseded-by:` all conform; a future
+# consumer that needs a space-bearing key widens the grammar here (and in
+# spec_parse_header_value's argument screen) rather than working around it, so
+# the screen stays the single definition.
 # shellcheck disable=SC2016 # $0 is an awk field, not a shell expansion
 spec_parse__header_awk='
   function loadbearing(k) { return (k == "Format-version" || k == "Status") }
