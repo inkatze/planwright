@@ -219,7 +219,7 @@ The shipped `dispatch_backend` values, by what they give you:
 
 | Backend | What it is | Observe / steer | Session-grade |
 | --- | --- | --- | --- |
-| `full-session` (default) | Not a backend but a **semantic value**: resolves at dispatch time to the richest present session-grade rung below (unattended: the richest non-interactive one) | per resolution | yes, when the host advertises an *eligible* rung — a non-interactive one, or tmux once the tmux-context ask admits it |
+| `full-session` (default) | Not a backend but a **semantic value**: resolves at dispatch time to the richest present session-grade rung below (unattended: the richest non-interactive one) | per resolution | yes, when an *eligible* rung is present — the candidate set is the pinned shipped ladder; tmux joins only once the tmux-context ask admits it, and a pluggable session-grade adapter is explicit-literal only |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
 | `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer) via `scripts/fleet-streamjson.sh` | yes / yes | yes (recoverable via `--resume`) |
 | `headless-oneshot` | Detached one-shot `claude -p` workers via `scripts/fleet-dispatch-headless.sh` (completion signal + positive-evidence-of-death liveness) | no / no | yes |
@@ -231,14 +231,16 @@ The default is `full-session` (flipped from `subagent` in execution-backends
 Task 5 — a declared departure from the default-preserving rule,
 operator-approved in that spec's primary seed): tasks are beefy enough to
 always warrant a full session, and the ladder softens the flip — a host with
-no *non-interactive* session-grade rung degrades to the previous behavior
+no *eligible* session-grade rung degrades to the previous behavior
 (`subagent`, then `in-session`), never to a silently-chosen interactive
-backend. (tmux is session-grade, but it is a candidate only once the
-tmux-context ask admits it, so an advertised tmux alone does not stop the
-degrade.) Set `dispatch_backend: subagent` in an overlay to restore the old
-default, or a per-spec entry in `dispatch_backend_per_spec` (a `{<spec>:
-<backend>}` inline map; the entry wins over the global value) to pin one
-spec's backend. An
+backend. Eligibility is about the semantic value's **candidate set**, not the
+host's capabilities: the candidates are the pinned shipped ladder, so an
+advertised tmux (a candidate only once the tmux-context ask admits it) or an
+advertised pluggable session-grade adapter (explicit-literal only) does not
+by itself stop the degrade. Set `dispatch_backend: subagent` in an overlay to
+restore the old default, or a per-spec entry in `dispatch_backend_per_spec`
+(a `{<spec>: <backend>}` inline map; the entry wins over the global value) to
+pin one spec's backend. An
 explicitly configured literal that is not advertised on the host **fails
 closed** — the dispatch parks to Awaiting input naming the missing backend,
 never a silent substitute (see the

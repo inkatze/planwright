@@ -400,7 +400,7 @@ cmd_select_unattended() {
     done
     for rung in subagent in-session; do
       if is_present "$rung"; then
-        echo "NOTE: no non-interactive session-grade backend is advertised on this host (tmux is session-grade but joins the candidate set only when the tmux-context ask admits it); 'full-session' degraded to '$rung' (capability, never safety)." >&2
+        echo "NOTE: 'full-session' found no eligible session-grade rung (its candidates are the pinned shipped ladder; tmux only when the tmux-context ask admits it, pluggables only as an explicit literal); degraded to '$rung' (capability, never safety)." >&2
         printf '%s\n' "$rung"
         return 0
       fi

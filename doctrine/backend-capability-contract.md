@@ -221,10 +221,12 @@ rows below.
   `result.json`. The one-shot never attaches a permission prompt tool: an
   unauthorized ask fails under `--print`'s non-interactive default and lands
   visibly in the result and completion signal — there is no pend path.
-- **`subagent`** (the `full-session` degradation floor on a host with no
-  *eligible* session-grade rung; the shipped `dispatch_backend` default is the
-  semantic `full-session`, which resolves to this rung when nothing richer is
-  advertised — execution-backends D-8). A background worker
+- **`subagent`** (the `full-session` degradation floor: the shipped
+  `dispatch_backend` default is the semantic `full-session`, which resolves to
+  this rung when no *eligible* session-grade rung is present — eligibility is
+  its candidate set, the pinned shipped ladder, not the host's advertised set:
+  tmux needs the tmux-context ask, pluggables are explicit-literal only —
+  execution-backends D-8). A background worker
   with isolated context and a
   native worktree, whose completion notifies the tower. It is parallel and
   addressable, but **in-harness**: it shares the tower's lifecycle and does not

@@ -51,9 +51,12 @@ kickoff_ready_ci_wait: 10m
 # D-8, REQ-B1.1): at dispatch time it resolves, via the contract's pinned
 # degradation ladder, to the richest session-grade backend advertised on the
 # host — unattended, the richest NON-interactive one (never a silently-chosen
-# interactive backend, REQ-B1.4); a host advertising no ELIGIBLE session-grade
-# rung — a non-interactive one, or tmux once the tmux-context ask admits it —
-# degrades to the previous behavior (subagent, then in-session). MIGRATION
+# interactive backend, REQ-B1.4); a host with no ELIGIBLE session-grade rung
+# degrades to the previous behavior (subagent, then in-session). Eligibility
+# is about the semantic value's candidate set (the pinned shipped ladder), not
+# the host's capabilities: an advertised tmux (a candidate only once the
+# tmux-context ask admits it) or an advertised pluggable session-grade adapter
+# (explicit-literal only) does not by itself stop the degrade. MIGRATION
 # NOTE — this default flipped from `subagent` in execution-backends Task 5, a
 # declared departure from the default-preserving rule (customization-boundary
 # criterion 5), operator-approved in that spec's primary seed: tasks are beefy
