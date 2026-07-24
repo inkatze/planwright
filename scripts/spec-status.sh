@@ -214,7 +214,8 @@ fi
 # --- Parked-state map (REQ-B1.4, D-3). ---------------------------------------
 # v2: the shared lib's parked-map parse (REQ-B1.4, REQ-C1.1) — reference
 # bullets under the three human-payload sections, bolded lead exactly
-# `**Task <token>**`, column-0 fences treated as illustration (D-5) and section
+# `**Task <token>**`, column-0 fences treated as illustration (format-grammar
+# D-5, the interim provenance Task 5's amendment flips to the meta-spec) and section
 # headings matched CRLF-tolerantly, so a fenced mock bullet parks nothing and a
 # CRLF checkout can no longer hide a live Awaiting-input park (REQ-C1.3, the
 # defect this re-point fixes). A grammar-violating token is rejected (surfaced,
