@@ -206,8 +206,10 @@ printf '%s\n' "$st_out" | grep -q '^task 3 deferred ' \
   || fail "spec-status.sh lost the Deferred park: $st_out"
 printf '%s\n' "$st_out" | grep -q '^task 1 ' \
   || fail "spec-status.sh dropped task 1 entirely: $st_out"
+# shellcheck disable=SC2016 # $1..$3 are awk fields, not shell expansions
 refute_line "$st_out" '$1 == "task" && $2 == 1 && $3 == "awaiting-input"' \
   "spec-status.sh parked task 1 from a FENCED mock bullet: $st_out"
+# shellcheck disable=SC2016 # $1..$3 are awk fields, not shell expansions
 refute_line "$st_out" '$1 == "task" && $2 == 4 && $3 == "out-of-scope"' \
   "spec-status.sh parked task 4 from a near-miss lead: $st_out"
 st_rejects=$(printf '%s\n' "$st_out" | sed -n "s/^warning: reference bullet rejected — task id '\(.*\)' violates.*/\1/p")
@@ -244,13 +246,51 @@ echo "ok: drain-gates.sh matches the lib's corpus classification (REQ-B1.4, REQ-
 # nothing for the tolerated prose bullet or the fenced mock park.
 val_out=$("$VALIDATE" "$corpus_repo/specs/corpus" 2>&1) || :
 va_rejects=$(printf '%s\n' "$val_out" | sed -n 's/.*fails the task-id grammar and is rejected: \(.*\)$/\1/p')
-[ "$va_rejects" = "nine
-4" ] || fail "spec-validate.sh rejected set differs from the lib (trailing whitespace is trimmed by the finding's echo): got [$va_rejects]"
+[ "$va_rejects" = "$lib_rejects" ] \
+  || fail "spec-validate.sh rejected set differs from the lib: got [$va_rejects], want [$lib_rejects]"
 refute "$val_out" 'force assembled' \
   "spec-validate.sh treated a plain prose bullet as a reference: $val_out"
 refute "$val_out" 'names unknown task id' \
   "spec-validate.sh resolved a fenced or prose bullet into an unknown-id finding: $val_out"
 echo "ok: spec-validate.sh matches the lib's corpus classification (REQ-B1.4, REQ-C1.1)"
+
+# spec-validate.sh's reference-bullet integrity checks still fire over the
+# lib's records: a bullet naming a non-existent task, and a task named twice.
+# The zero-task variant is the regression fence for the empty-first-file gotcha
+# — with no `### Task` block at all, the id side of the cross-check is empty and
+# a naive FNR == NR discriminator would silently eat the first bullet.
+mkdir -p "$tmp/refint/specs/refint" "$tmp/refzero/specs/refzero"
+write_corpus "$tmp/refint/specs/refint"
+{
+  printf '# Refint — Tasks\n\n'
+  header_block Ready
+  printf '\n## Tasks\n\n'
+  task_block 1 none
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 1** Parked here.\n\n'
+  printf '## Deferred\n\n'
+  printf -- '- **Task 1** And parked here too.\n'
+  printf -- '- **Task 7** Names a task that does not exist.\n'
+} >"$tmp/refint/specs/refint/tasks.md"
+refint_out=$("$VALIDATE" "$tmp/refint/specs/refint" 2>&1) || :
+printf '%s\n' "$refint_out" | grep -q 'names unknown task id 7' \
+  || fail "spec-validate.sh lost the unknown-task-id reference check: $refint_out"
+printf '%s\n' "$refint_out" | grep -q 'Task 1 is named by more than one reference bullet (Awaiting input and Deferred' \
+  || fail "spec-validate.sh lost the twice-parked check or its section names: $refint_out"
+echo "ok: spec-validate.sh reference-bullet integrity checks survive the re-point"
+
+write_corpus "$tmp/refzero/specs/refzero"
+{
+  printf '# Refzero — Tasks\n\n'
+  header_block Ready
+  printf '\n## Tasks\n\n'
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 1** Names a task in a bundle that defines none.\n'
+} >"$tmp/refzero/specs/refzero/tasks.md"
+refzero_out=$("$VALIDATE" "$tmp/refzero/specs/refzero" 2>&1) || :
+printf '%s\n' "$refzero_out" | grep -q 'names unknown task id 1' \
+  || fail "a zero-task bundle ate its first reference bullet (empty-first-file gotcha): $refzero_out"
+echo "ok: a zero-task v2 bundle still cross-checks its first reference bullet"
 
 # ---------------------------------------------------------------------------
 # Property 3: a CRLF checkout keeps the Awaiting-input park blocking derived
@@ -416,46 +456,72 @@ echo "ok: a duplicate in-header Status: fails closed in every status-keyed consu
 # ---------------------------------------------------------------------------
 # Property 6: no consumer retains a private copy of a landed grammar.
 #
-# The sweep is deliberately literal about the two shapes the private copies
-# took: an awk arm matching the bolded header declaration, and an awk arm
-# matching a `- **Task ` reference bullet. The lib is the one file allowed to
-# carry either. Writers are exempt by name: migrate-format-version.sh's
-# transform_header REWRITES the declaration (it is not a reader), and
-# tasks-pr-sync.sh emits the `- **Status:**` v1 annotation bullet, a different
-# grammar from the header declaration.
+# The sweep is deliberately blunt about the two shapes the private copies took —
+# an awk arm that EXTRACTS a value from the bolded header declaration, and an awk
+# arm anchored on a `- **Task ` reference bullet — because a narrow signature is
+# exactly what a future private copy would slip past. Bluntness costs an
+# exemption table, which is the point: adding a name to it is a visible,
+# reviewable act with a stated reason, whereas a silently-narrowed pattern is
+# not. The lib is the one file allowed to carry either shape.
+#
+# Exempt, by name and reason:
+#   migrate-format-version.sh  transform_header REWRITES the declaration (a
+#                              writer, not a reader), and restructure_tasks
+#                              probes the reference-bullet SHAPE to carry
+#                              part-converted payload content verbatim through
+#                              the v1 to v2 transform — it extracts no task id
+#                              and classifies no section.
 # ---------------------------------------------------------------------------
+HDR_EXEMPT=" migrate-format-version.sh "
+REF_EXEMPT=" migrate-format-version.sh "
+
 sweep_files=$(find "$scripts_dir" -name '*.sh' -type f | sort)
 [ -n "$sweep_files" ] || fail "the grep sweep found no scripts to sweep"
 
+exempt() {
+  case "$1" in
+    *" $2 "*) return 0 ;;
+  esac
+  return 1
+}
+
 private_hdr=""
 private_ref=""
+swept=0
 for f in $sweep_files; do
   base=$(basename "$f")
   if [ "$base" = spec-parse.sh ]; then
     continue
   fi
-  # A private header-declaration parse: an awk arm anchored on the bolded
-  # `**Format-version:**` / `**Status:**` header literal that EXTRACTS a value
-  # (a sub()/substr() of the same line), rather than rewriting or emitting it.
-  if awk '
-    /\*\*(Format-version|Status):\*\*/ && /sub\(\/\^\\\*\\\*(Format-version|Status)/ { found = 1 }
-    /awk .\/\^\\\*\\\*(Format-version|Status):\\\*\\\*\// { found = 1 }
-    END { exit !found }
-  ' "$f"; then
-    private_hdr="$private_hdr $base"
+  swept=$((swept + 1))
+  # A private header-declaration parse: an awk sub() that strips the bolded
+  # `**Format-version:**` / `**Status:**` prefix off the line to extract its
+  # value.
+  if grep -q 'sub(/\^\\\*\\\*\(Format-version\|Status\):' "$f"; then
+    exempt "$HDR_EXEMPT" "$base" || private_hdr="$private_hdr $base"
   fi
   # A private reference-bullet parse: an awk arm anchored on `^- \*\*Task `.
   if grep -q '\^- \\\*\\\*Task ' "$f"; then
-    private_ref="$private_ref $base"
+    exempt "$REF_EXEMPT" "$base" || private_ref="$private_ref $base"
   fi
 done
 
-case $private_hdr in
-  '' | ' migrate-format-version.sh') ;;
-  *) fail "private header-declaration parse(s) remain outside the lib:$private_hdr" ;;
-esac
+[ "$swept" -gt 20 ] || fail "the grep sweep only swept $swept scripts; the glob looks broken"
+[ -z "$private_hdr" ] \
+  || fail "private header-declaration parse(s) remain outside the lib:$private_hdr"
 [ -z "$private_ref" ] \
   || fail "private reference-bullet parse(s) remain outside the lib:$private_ref"
 echo "ok: no consumer retains a private header-declaration or reference-bullet parse (REQ-B1.1)"
+
+# The exemptions are asserted to still MATCH, so a name whose reason has gone
+# away (the writer was removed or re-pointed) surfaces as a stale exemption
+# instead of quietly weakening the sweep.
+if ! grep -q 'sub(/\^\\\*\\\*Status:' "$scripts_dir/migrate-format-version.sh"; then
+  fail "stale HDR exemption: migrate-format-version.sh no longer carries the header rewrite it is exempted for"
+fi
+if ! grep -q '\^- \\\*\\\*Task ' "$scripts_dir/migrate-format-version.sh"; then
+  fail "stale REF exemption: migrate-format-version.sh no longer carries the bullet-shape probe it is exempted for"
+fi
+echo "ok: every sweep exemption still matches the shape it was granted for"
 
 echo "PASS: test-spec-parse-corpus.sh"

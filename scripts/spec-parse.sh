@@ -240,6 +240,7 @@ spec_parse_extract_tasks() {
 #
 # The awk program is held in a variable rather than inlined twice: the file and
 # stdin forms differ only in the redirection.
+# shellcheck disable=SC2016 # $0 is an awk field, not a shell expansion
 spec_parse__header_awk='
   { sub(/\r$/, "") }
   !past {
@@ -362,6 +363,7 @@ spec_parse_header_value() {
 #
 # Records are buffered and emitted in END, so a fail-closed refusal never
 # leaves a partial stream on stdout (the extract_tasks property, REQ-B1.6f).
+# shellcheck disable=SC2016 # $0 is an awk field, not a shell expansion
 spec_parse__parked_awk='
   function classof(s) {
     if (s == "Awaiting input") return "awaiting-input"

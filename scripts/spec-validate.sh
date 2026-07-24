@@ -430,14 +430,18 @@ parse_tasks_v2() {
 # The lib emits class atoms; the section NAMES are restored here so the finding
 # text is unchanged.
 reference_bullet_findings() {
-  awk -F"$tab" '
+  # The id file is discriminated by FILENAME, not the FNR == NR idiom: a v2
+  # bundle can legitimately define zero task blocks, and with an EMPTY first
+  # file FNR == NR is true for the second file's first record, silently eating
+  # the first reference bullet (the classic empty-first-file gotcha).
+  awk -F"$tab" -v idsfile="$1" '
     function label(c) {
       if (c == "awaiting-input") return "Awaiting input"
       if (c == "deferred") return "Deferred"
       if (c == "out-of-scope") return "Out of scope"
       return c
     }
-    FNR == NR { if ($1 == "TID") ids[$2] = 1; next }
+    FILENAME == idsfile { if ($1 == "TID") ids[$2] = 1; next }
     $1 == "refbad" { printf "RB\t%s\t%s\n", $4, $2; next }
     $1 == "ref" {
       rid = $2
