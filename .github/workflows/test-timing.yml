@@ -1,0 +1,84 @@
+---
+# Dedicated per-file test-timing measurement run (guard-coverage Task 6,
+# REQ-E1.2, D-9). Deliberately OUTSIDE ci.yml's 15-minute `check` job: the
+# measurement is serial and best-of-N, so folding it into the gated job would
+# both blow that timeout and perturb the very numbers being measured (the gated
+# runner saturates every core). guard-coverage Task 7 derives its committed
+# `check:test-time` budgets from this run's report.
+#
+# Opt-in only, so a routine test-touching PR pays nothing:
+#   - add the `measure-test-time` label to a PR to measure that branch;
+#   - or run it from the Actions tab (workflow_dispatch) once it is on main.
+# For a same-repo PR the workflow definition comes from the head ref, so a
+# branch that introduces or edits this file can label its own PR to measure.
+#
+# "on" is quoted so yamllint's truthy rule (which this repo runs on
+# .github/) does not flag the key.
+name: test-timing
+
+"on":
+  workflow_dispatch:
+    inputs:
+      repeats:
+        description: "Runs per file; the minimum is reported (noise bound)"
+        required: false
+        default: "3"
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-timing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    # The labeled path fires only for the one opt-in label, so every other
+    # label event on a PR is a no-op.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.label.name == 'measure-test-time'
+    runs-on: ubuntu-latest
+    # Serial x best-of-N over the whole suite is inherently long; the bound is
+    # generous because this job gates nothing.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      # Same pinned toolchain the gated job uses, so a measured file runs in
+      # the same environment it is budgeted for. Pin rationale: see ci.yml.
+      - uses: jdx/mise-action@dba19683ed58901619b14f395a24841710cb4925  # v4.1.0
+        with:
+          version: 2026.6.1
+
+      # Inputs are absent on the labeled path, hence the fallback. Passed via
+      # env, never interpolated into the shell, per script-injection hardening
+      # practice; the script itself rejects a non-numeric value.
+      - name: Measure per-file wall-clock (serial, best-of-N)
+        env:
+          REPEATS: ${{ github.event.inputs.repeats || '3' }}
+        run: |
+          /bin/bash scripts/measure-test-time.sh --repeats "$REPEATS" \
+            | tee test-timing-report.txt
+
+      # The report is what Task 6's PR records and Task 7 budgets against, so
+      # surface it in the run summary rather than burying it in step logs.
+      - name: Publish the report to the run summary
+        if: always()
+        run: |
+          {
+            echo '## Per-file test timing (serial, best-of-N)'
+            echo
+            echo '```'
+            cat test-timing-report.txt 2>/dev/null || echo '(no report produced)'
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        if: always()
+        with:
+          name: test-timing-report
+          path: test-timing-report.txt
+          if-no-files-found: warn
