@@ -26,7 +26,10 @@
 #      it can no longer mask a MISSING declaration), CRLF and hard-break
 #      whitespace are trimmed, and a DUPLICATE in-header `Format-version:`
 #      or `Status:` declaration fails closed (REQ-A1.2, REQ-D1.9, D-6) while
-#      a non-load-bearing key keeps first-match-wins.
+#      a non-load-bearing key keeps first-match-wins. Its batched sibling
+#      spec_parse_header_block (D-3) agrees with it byte for byte on every
+#      fixture, and a duplicated load-bearing key emits ONLY the `hdrdup`
+#      record — never a positional-winner value a consumer could read.
 #   7. spec_parse_parked_map implements the parked-map/reference-bullet parse
 #      in the single v2 posture (REQ-B1.4, REQ-C1.1, D-8): column-0 fences
 #      are illustration (D-5), section headings are matched CRLF-tolerantly,
@@ -515,6 +518,82 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Property 5b: the SIX consumers the header-declaration and parked-map
+# re-points added also fail closed when the lib is absent (REQ-B1.6a). Without
+# this, a broken install would leave each of them calling an undefined function
+# — under `set -u` without `set -e` that is the named fail-open, since an
+# unchecked capture reads "command not found" as an absent declaration.
+#
+# tasks-pr-sync.sh is asserted separately below: it is a PostToolUse hook whose
+# contract is fail-SOFT (exit 0, no write, a diagnostic), so "fail closed" there
+# means no write rather than a non-zero exit.
+# ---------------------------------------------------------------------------
+mkdir "$tmp/scripts-nolib2"
+for s in spec-status.sh orchestrate-select.sh drain-gates.sh spec-validate.sh \
+  check-ledger.sh tasks-pr-sync.sh echo-safety.sh orchestrate-lock.sh \
+  orchestrate-state.sh; do
+  cp "$scripts_dir/$s" "$tmp/scripts-nolib2/"
+done
+
+mkdir -p "$tmp/nolib-root/corpus"
+{
+  printf '# C — Requirements\n\n**Status:** Ready\n**Format-version:** 2\n'
+} >"$tmp/nolib-root/corpus/requirements.md"
+printf '# C — Design\n\n**Status:** Ready\n**Format-version:** 2\n' >"$tmp/nolib-root/corpus/design.md"
+printf '# C — Test spec\n\n**Status:** Ready\n**Format-version:** 2\n' >"$tmp/nolib-root/corpus/test-spec.md"
+{
+  printf '# C — Tasks\n\n**Status:** Ready\n**Format-version:** 2\n\n## Tasks\n\n'
+  printf '### Task 1 — Thing\n\n'
+  printf -- '- **Done when:** done.\n'
+} >"$tmp/nolib-root/corpus/tasks.md"
+
+# nolib_refuses <label> <script> [args...] — the script must exit non-zero and
+# name the missing lib on stderr, with nothing usable on stdout.
+nolib_refuses() {
+  nr_label=$1
+  shift
+  if nr_out=$(sh "$@" 2>"$tmp/nolib.err"); then
+    fail "$nr_label succeeded without the lib (fail-open, REQ-B1.6a)"
+  fi
+  grep -q "spec-parse.sh" "$tmp/nolib.err" \
+    || fail "$nr_label missing-lib refusal does not name the lib: $(cat "$tmp/nolib.err")"
+  echo "ok: $nr_label fails closed when the lib is missing (REQ-B1.6a)"
+}
+
+nolib_refuses "spec-status.sh" "$tmp/scripts-nolib2/spec-status.sh" "$tmp/nolib-root/corpus"
+nolib_refuses "orchestrate-select.sh" "$tmp/scripts-nolib2/orchestrate-select.sh" "$tmp/nolib-root/corpus"
+nolib_refuses "drain-gates.sh" "$tmp/scripts-nolib2/drain-gates.sh" "$tmp/nolib-root"
+nolib_refuses "spec-validate.sh" "$tmp/scripts-nolib2/spec-validate.sh" "$tmp/nolib-root/corpus"
+nolib_refuses "check-ledger.sh" "$tmp/scripts-nolib2/check-ledger.sh" "$tmp/nolib-root/corpus/tasks.md"
+
+# tasks-pr-sync.sh, CLI arm: fail-closed exit 2 (the closed policy).
+if sh "$tmp/scripts-nolib2/tasks-pr-sync.sh" reconcile-status "$tmp/nolib-root/corpus" \
+  >/dev/null 2>"$tmp/nolib-sync.err"; then
+  fail "tasks-pr-sync.sh reconcile-status succeeded without the lib (fail-open, REQ-B1.6a)"
+fi
+grep -q "spec-parse.sh" "$tmp/nolib-sync.err" \
+  || fail "tasks-pr-sync.sh CLI missing-lib refusal does not name the lib: $(cat "$tmp/nolib-sync.err")"
+echo "ok: tasks-pr-sync.sh CLI fails closed when the lib is missing (REQ-B1.6a)"
+
+# tasks-pr-sync.sh, HOOK arm: fail-SOFT (exit 0) but writes nothing — the
+# PostToolUse contract. The diagnostic still names the lib.
+cp "$tmp/nolib-root/corpus/tasks.md" "$tmp/nolib-pristine.md"
+if ! printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr create --draft"},"tool_response":{"stdout":"https://github.com/o/r/pull/1","stderr":""}}' \
+  | sh "$tmp/scripts-nolib2/tasks-pr-sync.sh" >/dev/null 2>"$tmp/nolib-hook.err"; then
+  fail "tasks-pr-sync.sh hook arm exited non-zero without the lib (the hook contract is fail-soft)"
+fi
+cmp -s "$tmp/nolib-pristine.md" "$tmp/nolib-root/corpus/tasks.md" \
+  || fail "tasks-pr-sync.sh hook arm wrote without the lib (fail-open, REQ-B1.6a)"
+# The diagnostic must name the LIB, not a downstream symptom. Without the
+# explicit require_spec_parse gate the write is still refused (the version gate
+# catches the undefined function further in), so the no-write assertion alone
+# passes either way; this assertion is what pins the gate itself, so a broken
+# install reports the real cause instead of a bogus "unparseable Format-version".
+grep -q "spec-parse.sh" "$tmp/nolib-hook.err" \
+  || fail "tasks-pr-sync.sh hook missing-lib diagnostic does not name the lib: $(cat "$tmp/nolib-hook.err")"
+echo "ok: tasks-pr-sync.sh hook arm degrades fail-soft, writes nothing, and names the lib (REQ-B1.6a)"
+
+# ---------------------------------------------------------------------------
 # Property 6: spec_parse_header_value — the header-block-scoped declaration
 # parse (REQ-B1.3; REQ-A1.2, REQ-A1.3 · D-6, D-7).
 # ---------------------------------------------------------------------------
@@ -734,6 +813,78 @@ hv "$tmp/no-such-file.md" Status >/dev/null 2>&1 || :
 [ "$sp_hv_strict" = 'caller-strict' ] || fail "lib clobbered the caller variable sp_hv_strict"
 unset sp_hv_key sp_hv_strict
 echo "ok: header-parse working variables stay in the spec_parse__ namespace"
+
+# 6k. spec_parse_header_block — the same parse, batched (D-3 batchability).
+# Its records must AGREE with the single-key form byte for byte, since one awk
+# program serves both; and the fail-closed duplicate posture must survive
+# batching by construction (a duplicated load-bearing key emits no value at all,
+# only `hdrdup`, so a forgetful consumer finds nothing to read).
+command -v spec_parse_header_block >/dev/null 2>&1 \
+  || fail "spec_parse_header_block entry point missing after sourcing (D-3)"
+
+spec_parse_header_block "$tmp/hdr-ok.md" >"$tmp/hb.out" \
+  || fail "batched header parse failed on the canonical block"
+# Built with printf rather than a heredoc so the tab-separated expectations are
+# unambiguous: one record per declaration, in file order, values raw.
+{
+  printf 'hdr\tStatus\tReady\n'
+  printf 'hdr\tFormat-version\t2\n'
+  printf 'hdr\tExecution\tderived — see the status render\n'
+} >"$tmp/hb.golden"
+# `Last reviewed` carries a space, so it fails the header-key grammar and emits
+# no record — a malformed key cannot forge one.
+grep -q 'Last reviewed' "$tmp/hb.out" \
+  && fail "a space-bearing key emitted a record (header-key grammar not screened)"
+cmp -s "$tmp/hb.golden" "$tmp/hb.out" \
+  || fail "batched header stream deviates from the golden: $(diff "$tmp/hb.golden" "$tmp/hb.out" | head -6)"
+echo "ok: the batched header parse emits one raw record per conforming declaration (D-3)"
+
+# Agreement with the single-key form over every fixture written above.
+for f in hdr-ok.md hdr-body-only.md hdr-body-dup.md hdr-crlf.md hdr-hardbreak.md \
+  hdr-after-prose.md hdr-fenced.md hdr-noh1.md hdr-dup-other.md; do
+  for key in Status Format-version Execution; do
+    single=$(hv "$tmp/$f" "$key") || continue # exit 3 has no single-key value
+    batched=$(spec_parse_header_block "$tmp/$f" \
+      | awk -F'\t' -v k="$key" '$1 == "hdr" && $2 == k { print substr($0, index($0, $3)); exit }')
+    [ "$single" = "$batched" ] \
+      || fail "batched and single-key forms disagree on $key in $f: single [$single] vs batched [$batched]"
+  done
+done
+echo "ok: the batched and single-key header forms agree on every fixture"
+
+# A duplicated load-bearing key emits ONLY hdrdup — no value to fall open on.
+spec_parse_header_block "$tmp/hdr-dup-fv.md" >"$tmp/hb-dup.out" \
+  || fail "batched header parse failed on the duplicate-version fixture"
+grep -q '^hdrdup	Format-version	2$' "$tmp/hb-dup.out" \
+  || fail "a duplicated Format-version: emitted no hdrdup record: $(cat "$tmp/hb-dup.out")"
+awk -F'\t' '$1 == "hdr" && $2 == "Format-version" { found = 1 } END { exit !found }' "$tmp/hb-dup.out" \
+  && fail "a duplicated Format-version: still emitted a positional-winner value (fail-open)"
+grep -q '^hdr	Status	Ready$' "$tmp/hb-dup.out" \
+  || fail "the duplicate refusal swallowed the sibling Status: declaration"
+echo "ok: a duplicated load-bearing key emits only hdrdup, never a positional winner"
+
+# A duplicated NON-load-bearing key keeps first-match-wins (D-6 scope).
+spec_parse_header_block "$tmp/hdr-dup-other.md" >"$tmp/hb-other.out" \
+  || fail "batched header parse failed on the duplicate-Execution fixture"
+refute_hdrdup=$(awk -F'\t' '$1 == "hdrdup" { print $2 }' "$tmp/hb-other.out")
+[ -z "$refute_hdrdup" ] \
+  || fail "a duplicated non-load-bearing key emitted hdrdup: $refute_hdrdup (D-6 scopes the rule)"
+echo "ok: the batched form scopes the duplicate rule to the load-bearing keys (D-6)"
+
+# Failure modes and the stdin form.
+if err=$(spec_parse_header_block "$tmp/hdr-nul.md" 2>&1 >"$tmp/hb-nul.out"); then
+  fail "NUL-bearing batched input did not fail closed (REQ-B1.6d)"
+fi
+case $err in
+  *NUL*) ;;
+  *) fail "batched NUL failure lacks a clear message: $err" ;;
+esac
+[ ! -s "$tmp/hb-nul.out" ] || fail "batched NUL failure emitted records"
+spec_parse_header_block - <"$tmp/hdr-ok.md" >"$tmp/hb-stdin.out" \
+  || fail "batched header parse failed on stdin"
+cmp -s "$tmp/hb.golden" "$tmp/hb-stdin.out" \
+  || fail "batched stdin stream differs from the file parse"
+echo "ok: the batched header parse fails closed on NUL input and reads stdin"
 
 # ---------------------------------------------------------------------------
 # Property 7: spec_parse_parked_map — the parked-map/reference-bullet parse

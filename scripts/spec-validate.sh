@@ -99,7 +99,7 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 . "$script_dir/echo-safety.sh"
 
 # The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3,
-# REQ-B1.4): the header-declaration parse behind first_header and the v2
+# REQ-B1.4): the header-block declaration parse behind hb_load/hb_get and the v2
 # parked-map parse below come from it, so this validator cannot re-diverge from
 # its three sibling v2 parsers. Sourced, never executed; fail closed when it is
 # missing or unreadable (REQ-B1.6a).
@@ -199,51 +199,63 @@ emit_error() {
   err=$((err + 1))
 }
 
-# first_header <file> <key> — the header-block `**<key>:** value` declaration's
-# value, from the shared lib's header-block-scoped parse (REQ-B1.3, REQ-A1.3):
-# only the leading header block counts, so a column-0 body line carrying the
-# same literal is inert content and cannot mask a MISSING declaration, and a
-# DUPLICATE in-header `Format-version:`/`Status:` declaration is unparseable
-# (REQ-A1.2, D-6) — the lib returns non-zero and this function propagates it, so
-# every caller must check (REQ-B1.6f; the checked callers below turn it into a
-# `hard` finding, an error at every status).
-#
-# Non-printable characters are stripped HERE, not in the lib: the lib emits raw
-# bytes because anchor stability forbids lib-side mutation (REQ-B1.6c), and echo
-# discipline belongs at the caller's output sites. Extracted values are echoed
-# in findings, so hostile file content must not reach the terminal raw (same
-# echo discipline as the REQ-H1.3 gate parser). The canonical statement of this
-# posture lives in scripts/echo-safety.sh; the awk `gsub(/[^[:print:]]/, "")`
-# below is its in-awk form (a strict superset — it strips high/UTF-8 bytes too).
-# The trailing-whitespace trim is repeated after the strip so a value whose
-# trailing bytes were non-printable still trims, exactly as the pre-lib parse did.
-first_header() {
-  fh_raw=$(spec_parse_header_value "$1" "$2") || return $?
-  printf '%s' "$fh_raw" | awk '{ gsub(/[^[:print:]]/, ""); sub(/[ \t]+$/, ""); print }'
+# hb_load <file> <label> — capture <file>'s whole header block into $hb_stream
+# with ONE lib invocation, so the three-to-four declarations this validator reads
+# per file cost one call rather than one each (the lib's batched entry point,
+# D-3's batchability clause). An unreadable or NUL-bearing file lands a `hard`
+# finding — an error at EVERY status per D-9's fail-closed exception to the D-25
+# severity model — and leaves an empty stream, so the bundle then follows the
+# existing missing-declaration path instead of a guessed one.
+hb_load() {
+  if hb_stream=$(spec_parse_header_block "$1"); then
+    return 0
+  fi
+  printf 'hard\t%s: could not read the header block (unreadable or NUL-bearing file; fail closed)\n' \
+    "$2" >>"$fnd"
+  hb_stream=
+  return 0
 }
 
-# header_or_refuse <file> <key> <label> — first_header plus the fail-closed
-# handling every call site owes the lib (REQ-B1.6f). An unparseable declaration
-# — today, a duplicate in-header `Format-version:`/`Status:` (REQ-A1.2, REQ-D1.9,
-# D-6) — lands a `hard` finding, an error at EVERY status per D-9's fail-closed
-# exception to the D-25 severity model, and resolves to the empty value so the
-# bundle then follows the existing missing-declaration path instead of a guessed
-# one. Callable inside a command substitution: the finding is appended to the
-# $fnd file, which survives the subshell.
-header_or_refuse() {
-  hor_rc=0
-  hor_v=$(first_header "$1" "$2") || hor_rc=$?
-  if [ "$hor_rc" -eq 3 ]; then
+# hb_get <key> <label> — the value of <key> from the $hb_stream hb_load
+# captured. A `hdrdup` record means the declaration is unparseable (more than
+# one in-header `Format-version:`/`Status:`, REQ-A1.2, REQ-D1.9, D-6): it lands a
+# `hard` finding and resolves to empty, never to a positional winner. Callable
+# inside a command substitution — the finding is appended to the $fnd file,
+# which survives the subshell.
+#
+# The lookup and the echo-discipline strip are done WITHOUT spawning a process on
+# the common path: the lib emits raw bytes (REQ-B1.6c) and this is the caller's
+# output-site boundary, but a value whose every byte is printable ASCII is
+# already what the strip would produce, and the lib already trimmed its trailing
+# whitespace. Only a value carrying a byte outside 0x20-0x7E (a control byte, or
+# the UTF-8 lead bytes of the em-dash in the `Execution:` pointer) pays the awk
+# call — which strips high bytes exactly as the pre-lib in-awk form did.
+hb_get() {
+  hbg_key=$1
+  hbg_label=$2
+  hbg_val=
+  hbg_dup=0
+  while IFS="$tab" read -r hbg_tag hbg_k hbg_v; do
+    [ "$hbg_k" = "$hbg_key" ] || continue
+    case $hbg_tag in
+      hdrdup) hbg_dup=1 ;;
+      hdr) hbg_val=$hbg_v ;;
+    esac
+  done <<EOF
+$hb_stream
+EOF
+  if [ "$hbg_dup" -eq 1 ]; then
     printf 'hard\t%s: unparseable %s: declaration (more than one in-header declaration has no honest positional winner; fail closed)\n' \
-      "$3" "$2" >>"$fnd"
+      "$hbg_label" "$hbg_key" >>"$fnd"
     return 0
   fi
-  if [ "$hor_rc" -ne 0 ]; then
-    printf 'hard\t%s: could not read the %s: declaration (unreadable or NUL-bearing file; fail closed)\n' \
-      "$3" "$2" >>"$fnd"
-    return 0
-  fi
-  printf '%s' "$hor_v"
+  case $hbg_val in
+    *[!\ -~]*)
+      hbg_val=$(printf '%s' "$hbg_val" \
+        | awk '{ gsub(/[^[:print:]]/, ""); sub(/[ \t]+$/, ""); print }')
+      ;;
+  esac
+  printf '%s' "$hbg_val"
 }
 
 # Parse requirements.md REQ blocks. Tagged tab-separated output:
@@ -640,7 +652,8 @@ validate_bundle() {
     # warnings (same evasion class as an implicit-Draft mirror).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      declared_status=$(header_or_refuse "$bdir/$bf" Status "$bf")
+      hb_load "$bdir/$bf" "$bf"
+      declared_status=$(hb_get Status "$bf")
       [ -n "$declared_status" ] && break
     done
     # The format-version follows the same fallback (REQ-C1.8): deleting
@@ -651,7 +664,8 @@ validate_bundle() {
     # drifted lower value would skip the v2 invariants silently).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      sfv=$(header_or_refuse "$bdir/$bf" Format-version "$bf")
+      hb_load "$bdir/$bf" "$bf"
+      sfv=$(hb_get Format-version "$bf")
       [ -n "$sfv" ] || continue
       if [ -z "$fver" ]; then
         fver=$sfv
@@ -665,7 +679,8 @@ validate_bundle() {
   fi
 
   if [ -f "$bdir/requirements.md" ]; then
-    declared_status=$(header_or_refuse "$bdir/requirements.md" Status requirements.md)
+    hb_load "$bdir/requirements.md" requirements.md
+    declared_status=$(hb_get Status requirements.md)
     if [ -z "$declared_status" ]; then
       printf 'gap\tmissing Status: header (defaulting to Draft)\n' >>"$fnd"
       # The default participates in everything downstream (mirrors, severity,
@@ -674,7 +689,7 @@ validate_bundle() {
       declared_status=Draft
     fi
 
-    fver=$(header_or_refuse "$bdir/requirements.md" Format-version requirements.md)
+    fver=$(hb_get Format-version requirements.md)
 
     if [ "$declared_status" = "Superseded" ]; then
       grep -q '^\*\*Superseded-by:\*\*' "$bdir/requirements.md" \
@@ -692,7 +707,8 @@ validate_bundle() {
     # unlike Status it has no specified default to mirror against.
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      mst=$(header_or_refuse "$bdir/$bf" Status "$bf")
+      hb_load "$bdir/$bf" "$bf"
+      mst=$(hb_get Status "$bf")
       if [ -z "$mst" ]; then
         printf 'gap\t%s: missing Status: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
       elif [ "$mst" != "$declared_status" ]; then
@@ -700,7 +716,7 @@ validate_bundle() {
           "$bf" "$mst" "$declared_status" >>"$fnd"
       fi
       if [ -n "$fver" ]; then
-        mfv=$(header_or_refuse "$bdir/$bf" Format-version "$bf")
+        mfv=$(hb_get Format-version "$bf")
         if [ -z "$mfv" ]; then
           printf 'gap\t%s: missing Format-version: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
         elif [ "$mfv" != "$fver" ]; then
@@ -766,8 +782,8 @@ validate_bundle() {
   # v2 pointer line (D-5 via REQ-C1.5): the constant
   # `**Execution:** derived — see the status render` line in every file's
   # header, in its fixed vocabulary. Matched as an exact full line
-  # (grep -xF); the non-canonical echo goes through first_header's
-  # non-printable strip plus sanitize_printable (REQ-C1.9).
+  # (grep -xF); the non-canonical echo goes through hb_get's non-printable
+  # strip plus sanitize_printable (REQ-C1.9).
   if [ "$bundle_ver" = "2" ]; then
     exec_canon='**Execution:** derived — see the status render'
     for bf in requirements.md design.md tasks.md test-spec.md; do
@@ -775,7 +791,8 @@ validate_bundle() {
       if grep -qxF "$exec_canon" "$bdir/$bf"; then
         :
       elif grep -q '^\*\*Execution:\*\*' "$bdir/$bf"; then
-        pv=$(header_or_refuse "$bdir/$bf" Execution "$bf")
+        hb_load "$bdir/$bf" "$bf"
+        pv=$(hb_get Execution "$bf")
         printf 'gap\t%s: non-canonical **Execution:** pointer line: %s (fixed vocabulary: derived — see the status render)\n' \
           "$bf" "$(sanitize_printable "$pv" "(unprintable)")" >>"$fnd"
       else

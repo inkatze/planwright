@@ -51,10 +51,11 @@ fail() {
   exit 1
 }
 
-# refute <haystack> <needle> <label> — fail when the needle IS present. Written
-# as a `case`, not `grep -q … && fail`: under `set -e` an AND-list whose first
-# command fails takes the whole list's non-zero status down with it, so the
-# PASSING case of a negative assertion would silently abort the run.
+# refute <haystack> <needle> <label> — fail when the needle IS present. A `case`
+# rather than `grep -q … && fail`: same semantics (POSIX exempts a non-final
+# AND-OR list command from `set -e`, so both forms are safe), but this one names
+# the assertion, spawns no process, and reads as an assertion rather than as
+# control flow.
 refute() {
   case "$1" in
     *"$2"*) fail "$3" ;;

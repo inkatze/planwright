@@ -11,6 +11,8 @@
 #   spec_parse_header_value     the header-block-scoped header-declaration
 #                               parse for `Format-version:` and `Status:`
 #                               (Task 2; REQ-B1.3, REQ-A1.2, REQ-A1.3)
+#   spec_parse_header_block     the same parse, batched: every declaration in
+#                               one pass, for multi-key consumers (Task 2; D-3)
 #   spec_parse_parked_map       the parked-map/reference-bullet parse in the
 #                               single v2 posture (Task 2; REQ-B1.4,
 #                               REQ-C1.1, REQ-C1.3)
@@ -238,19 +240,39 @@ spec_parse_extract_tasks() {
 # or below the real one. A CR-only line on a CRLF checkout is normalized to
 # blank first, so line endings alone cannot close the block early.
 #
-# The awk program is held in a variable rather than inlined twice: the file and
-# stdin forms differ only in the redirection.
+# One awk program serves both entry points, in two modes: with `key` set it
+# prints that one declaration's value (spec_parse_header_value); with `key`
+# EMPTY it emits the whole block as a record stream (spec_parse_header_block).
+# One implementation, so the batched and single-key forms cannot disagree about
+# the grammar — which is the whole point of the lib. It is held in a variable
+# rather than inlined because the file and stdin forms differ only in the
+# redirection.
+#
+# Keys are extracted at the first `:**` and screened against the header-key
+# grammar `^[A-Za-z][A-Za-z-]*$`, so a malformed key emits no record and cannot
+# forge one; the value is raw bytes and sits LAST in the record, so an embedded
+# tab cannot split it (REQ-B1.6b) and the batched form stays byte-faithful to
+# the single-key form.
 # shellcheck disable=SC2016 # $0 is an awk field, not a shell expansion
 spec_parse__header_awk='
+  function loadbearing(k) { return (k == "Format-version" || k == "Status") }
   { sub(/\r$/, "") }
   !past {
     if (/^[ \t]*$/ || /^# / || /^\*\*[^*]+:\*\*/) {
-      if (index($0, "**" key ":**") == 1) {
-        n++
-        if (n == 1) {
-          v = $0
-          sub(/^\*\*[^*]*:\*\*[ \t]*/, "", v)
-          sub(/[ \t\r]+$/, "", v)
+      if (/^\*\*[^*]+:\*\*/) {
+        p = index($0, ":**")
+        if (p > 3) {
+          k = substr($0, 3, p - 3)
+          if (k ~ /^[A-Za-z][A-Za-z-]*$/) {
+            n[k]++
+            if (n[k] == 1) {
+              v = substr($0, p + 3)
+              sub(/^[ \t]*/, "", v)
+              sub(/[ \t\r]+$/, "", v)
+              val[k] = v
+              ord[++nk] = k
+            }
+          }
         }
       }
       next
@@ -258,11 +280,19 @@ spec_parse__header_awk='
     past = 1
   }
   END {
-    if (strict && n > 1) {
-      printf "spec-parse: %d in-header %s: declarations (a contradictory duplicate has no honest positional winner; fail closed)\n", n, key > "/dev/stderr"
-      exit 3
+    if (key != "") {
+      if (strict && n[key] > 1) {
+        printf "spec-parse: %d in-header %s: declarations (a contradictory duplicate has no honest positional winner; fail closed)\n", n[key], key > "/dev/stderr"
+        exit 3
+      }
+      if (n[key] > 0) print val[key]
+      exit 0
     }
-    if (n > 0) print v
+    for (i = 1; i <= nk; i++) {
+      k = ord[i]
+      if (loadbearing(k) && n[k] > 1) printf "hdrdup\t%s\t%d\n", k, n[k]
+      else printf "hdr\t%s\t%s\n", k, val[k]
+    }
   }
 '
 
@@ -313,6 +343,42 @@ spec_parse_header_value() {
   spec_parse__nul_screen "$1" || return 1
   LC_ALL=C awk -v key="$spec_parse__hk" -v strict="$spec_parse__hstrict" \
     "$spec_parse__header_awk" <"$1"
+}
+
+# spec_parse_header_block <file|-> — emit EVERY header-block declaration in one
+# pass, for consumers that need more than one key from the same file. This is
+# D-3's batchability clause made operational: a caller that needs Status and
+# Format-version (and the Execution pointer) pays ONE lib invocation for the
+# file instead of one per key, so a whole-corpus sweep does not multiply file
+# reads or process spawns.
+#
+# Records, in file order (values raw, last field, tabs inside a value therefore
+# harmless):
+#   hdr<TAB><key><TAB><value>
+#   hdrdup<TAB><key><TAB><count>
+#
+# The fail-closed duplicate posture survives batching BY CONSTRUCTION: a
+# LOAD-BEARING key (`Format-version:`, `Status:`) declared more than once emits
+# no `hdr` record at all, only `hdrdup`, so a consumer looking the key up finds
+# it ABSENT and the `hdrdup` record says why — there is no positional winner
+# sitting in the stream for a forgetful consumer to read (REQ-A1.2, REQ-D1.9,
+# D-6). A non-load-bearing key keeps first-match-wins and emits its first
+# value, matching the single-key form.
+#
+# Exit status: 0 the stream on stdout (empty when the block declares nothing);
+# 1 the source could not be read or is NUL-bearing (REQ-B1.6d); 2 usage.
+spec_parse_header_block() {
+  if [ "$#" -ne 1 ]; then
+    printf '%s\n' "spec-parse: usage: spec_parse_header_block <file|->" >&2
+    return 2
+  fi
+  if [ "$1" = - ]; then
+    LC_ALL=C awk -v key="" -v strict=0 "$spec_parse__header_awk"
+    return $?
+  fi
+  spec_parse__readable "$1" || return 1
+  spec_parse__nul_screen "$1" || return 1
+  LC_ALL=C awk -v key="" -v strict=0 "$spec_parse__header_awk" <"$1"
 }
 
 # --- Parked-map / reference-bullet parse (Task 2; REQ-B1.4, REQ-C1.1,
