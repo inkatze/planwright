@@ -35,6 +35,29 @@
 #   c9 (REQ-B1.2): a relative PATH element still yields the absolute wrapper verb
 #      (a relative `command -v` result is absolutized, not emitted bare).
 #
+# The `-p`-family launch-pin guard (execution-backends Task 3; D-12,
+# REQ-A1.5): every worker-dispatch launch site planwright ships pins
+# non-`--bare` behavior — at the verified CLI there is no inverse flag, so
+# the pin means the launch line NEVER passes `--bare` (and, one-shot
+# posture, never `--permission-prompt-tool`). Discovery convention: worker
+# launch sites construct the launch with the LONG `--print` form plus
+# `--output-format` on one line, which makes them statically greppable
+# (`-p` alone collides with `mkdir -p`); `scripts/prompt-eval.sh` is the
+# documented exemption (a hermetic non-dispatch `--bare` harness, per the
+# capability contract's launch-pin section). The guard scans line-wise, so
+# an argv assembled across lines is out of its reach — the primitive's own
+# runtime screen (refusing `--bare` / `--permission-prompt-tool` in
+# passthrough args, exit 2) covers the dynamic path.
+#   p1 (REQ-A1.5): site inventory — discovery over scripts/ finds at least
+#      the known launch sites (fleet-dispatch-headless.sh among them), so
+#      the scan can never pass vacuously when discovery drifts.
+#   p2 (REQ-A1.5): every discovered launch site is pinned — no launch line
+#      carries `--bare` or `--permission-prompt-tool`.
+#   p3 (REQ-A1.5): the deliberately-unpinned negative case — a fixture site
+#      whose launch line passes `--bare` is flagged by the same scan.
+#   p4 (REQ-A1.5): the exemption is scoped — a `--bare` launch line inside a
+#      fixture prompt-eval.sh is not flagged and not inventoried.
+#
 # Runs standalone under /bin/bash (the bash 3.2 floor):
 #   ./tests/test-dispatch-launch-pin.sh
 set -u
@@ -361,6 +384,103 @@ c9() {
   esac
 }
 
+# --- The `-p`-family launch-pin scan (execution-backends Task 3, REQ-A1.5) ---
+# scan_p_family <scripts-dir>: discover every `-p`-family worker launch site
+# (a non-comment line carrying both `--print` and `--output-format`) and fail
+# on an unpinned invocation (the same line also carrying `--bare` or
+# `--permission-prompt-tool`). prompt-eval.sh is the documented exemption.
+# Prints one `site: <file>` line per discovered site and one
+# `UNPINNED: <file>` line per violation; returns non-zero iff any violation.
+scan_p_family() {
+  local dir="$1" f code lines bad
+  code=0
+  for f in "$dir"/*.sh; do
+    [ -f "$f" ] || continue
+    case $(basename "$f") in
+      prompt-eval.sh) continue ;; # hermetic --bare harness, contract-exempt
+    esac
+    lines=$(grep -vE '^[[:space:]]*#' "$f" | grep -E -- '--print' | grep -E -- '--output-format' || true)
+    [ -n "$lines" ] || continue
+    echo "site: $f"
+    bad=$(printf '%s\n' "$lines" | grep -E -- '--bare|--permission-prompt-tool' || true)
+    if [ -n "$bad" ]; then
+      echo "UNPINNED: $f"
+      code=1
+    fi
+  done
+  return "$code"
+}
+
+# --- p1: site inventory floor (no vacuous pass) -------------------------------
+p1() {
+  local out
+  out=$(scan_p_family "$REPO_ROOT/scripts") || {
+    fail "p1: the shipped launch sites failed the pin scan: $out"
+    return
+  }
+  if ! printf '%s\n' "$out" | grep -q "site: .*fleet-dispatch-headless.sh"; then
+    fail "p1: discovery did not find the headless-oneshot launch site (inventory drift)"
+    return
+  fi
+  if [ "$(printf '%s\n' "$out" | grep -c '^site: ')" -lt 1 ]; then
+    fail "p1: launch-site inventory below the expected minimum"
+    return
+  fi
+  pass "p1: launch-site discovery finds the shipped -p-family sites (REQ-A1.5)"
+}
+
+# --- p2: every discovered site is pinned --------------------------------------
+p2() {
+  local out
+  if out=$(scan_p_family "$REPO_ROOT/scripts"); then
+    pass "p2: every shipped -p-family launch site pins non---bare (REQ-A1.5)"
+  else
+    fail "p2: an unpinned launch site shipped: $(printf '%s\n' "$out" | grep '^UNPINNED')"
+  fi
+}
+
+# --- p3: the deliberately-unpinned negative case is flagged -------------------
+p3() {
+  local tmp out code
+  tmp=$(mktemp -d) || {
+    fail "p3: mktemp failed"
+    return
+  }
+  sed 's/--print --output-format json/--print --output-format json --bare/' \
+    "$REPO_ROOT/scripts/fleet-dispatch-headless.sh" >"$tmp/unpinned-site.sh"
+  if ! grep -q -- '--output-format json --bare' "$tmp/unpinned-site.sh"; then
+    fail "p3: fixture construction failed (launch line not found to unpin)"
+    rm -rf "$tmp"
+    return
+  fi
+  code=0
+  out=$(scan_p_family "$tmp") || code=$?
+  if [ "$code" -ne 0 ] && printf '%s\n' "$out" | grep -q "UNPINNED: $tmp/unpinned-site.sh"; then
+    pass "p3: a deliberately-unpinned launch site is flagged by the scan (REQ-A1.5)"
+  else
+    fail "p3: the unpinned fixture site was not flagged (scan exit $code): $out"
+  fi
+  rm -rf "$tmp"
+}
+
+# --- p4: the prompt-eval exemption is scoped to that one file -----------------
+p4() {
+  local tmp out code
+  tmp=$(mktemp -d) || {
+    fail "p4: mktemp failed"
+    return
+  }
+  printf '%s\n' '#!/bin/sh' 'x --print --output-format json --bare' >"$tmp/prompt-eval.sh"
+  code=0
+  out=$(scan_p_family "$tmp") || code=$?
+  if [ "$code" -eq 0 ] && ! printf '%s\n' "$out" | grep -q '^site: '; then
+    pass "p4: the documented prompt-eval exemption is honored and not inventoried (REQ-A1.5)"
+  else
+    fail "p4: prompt-eval.sh exemption mishandled (scan exit $code): $out"
+  fi
+  rm -rf "$tmp"
+}
+
 c1
 c2
 c3
@@ -370,6 +490,10 @@ c6
 c7
 c8
 c9
+p1
+p2
+p3
+p4
 
 if [ "$failures" -ne 0 ]; then
   echo "test-dispatch-launch-pin: $failures failure(s)" >&2

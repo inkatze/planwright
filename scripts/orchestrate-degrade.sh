@@ -164,12 +164,12 @@ is_present() {
     in-session | print) return 0 ;;
     subagent) env_present "${PLANWRIGHT_BACKEND_SUBAGENT-}" yes ;;
     tmux) env_present "${PLANWRIGHT_BACKEND_TMUX-}" tmux ;;
-    # stream-json-persistent gained dispatch support (fleet-streamjson.sh,
-    # Task 4): installed-CLI probe. headless-oneshot still defaults absent
-    # until its dispatch support lands (Task 3) — parity with
-    # orchestrate-backends.sh is_present.
+    # Parity with orchestrate-backends.sh is_present: both execution-backends
+    # rows now have dispatch support and probe the installed CLI —
+    # headless-oneshot (Task 3, fleet-dispatch-headless.sh) and
+    # stream-json-persistent (Task 4, fleet-streamjson.sh).
     stream-json-persistent) env_present "${PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT-}" claude ;;
-    headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" no ;;
+    headless-oneshot) env_present "${PLANWRIGHT_BACKEND_HEADLESS_ONESHOT-}" claude ;;
     *) return 1 ;;
   esac
 }

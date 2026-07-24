@@ -69,12 +69,19 @@
 #
 # Usage:
 #   fleet-dispatch-worktree.sh dispatch <spec> <id> \
-#       [--repo-root <dir>] [--attach-dry-run] [-- <extra launch args>...]
+#       [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
 #       Validate, fetch `<base>`, reconcile, `git worktree add -b`, then attach.
 #       --repo-root      the primary checkout (default: the cwd's git toplevel).
 #       --attach-dry-run create for real, but PRINT the attach plan instead of
 #                        launching (the create-gates-attach + mitigation fixture
 #                        path; no `claude` exec, no model/API call).
+#       --no-attach      create-only (execution-backends Task 3): the full
+#                        create machinery with no tmux attach and no attach
+#                        plan, printing the dispatch record only — for a
+#                        backend that launches its own worker into the created
+#                        worktree (the headless-oneshot rung,
+#                        fleet-dispatch-headless.sh). Launches no worker, so it
+#                        takes no post-`--` launch args (refused, not dropped).
 #       Everything after `--` is passed through to the `claude` launch argv.
 #   fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra>...]
 #       The attach step alone: capture the prior tmux client session, launch
@@ -140,7 +147,7 @@ warn() {
 
 usage() {
   cat >&2 <<'EOF'
-usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--attach-dry-run] [-- <extra launch args>...]
+usage: fleet-dispatch-worktree.sh dispatch <spec> <id> [--repo-root <dir>] [--attach-dry-run | --no-attach] [-- <extra launch args>...]
        fleet-dispatch-worktree.sh attach <suffix> [--dry-run] [-- <extra launch args>...]
 EOF
   exit 2
@@ -398,6 +405,7 @@ do_dispatch() {
   _id=''
   _repo_root=''
   _attach_dry=0
+  _no_attach=0
   # Collect extra launch args (after `--`) verbatim.
   _have_extra=0
 
@@ -416,6 +424,10 @@ do_dispatch() {
         ;;
       --attach-dry-run)
         _attach_dry=1
+        shift
+        ;;
+      --no-attach)
+        _no_attach=1
         shift
         ;;
       --*)
@@ -437,6 +449,25 @@ do_dispatch() {
   done
   # Remaining "$@" (only meaningful when _have_extra=1) are the extra launch args.
   [ "$_have_extra" -eq 1 ] || set --
+
+  # --attach-dry-run and --no-attach are documented as alternatives
+  # (`[--attach-dry-run | --no-attach]`), and the arms below are checked in a
+  # fixed order, so passing both silently discards one of them — the caller
+  # cannot even pick which by reordering argv. Refuse the combination, same
+  # refuse-rather-than-silently-drop discipline as the passthrough-args check
+  # below. Post-parse, so the refusal is order-independent and pre-side-effect.
+  if [ "$_attach_dry" -eq 1 ] && [ "$_no_attach" -eq 1 ]; then
+    warn "--attach-dry-run and --no-attach are alternatives; pass at most one"
+    usage
+  fi
+
+  # --no-attach launches no worker, so it cannot honor passthrough launch args;
+  # accepting them silently would drop them (the attach/dry-run arms forward
+  # them, this arm cannot). Refuse rather than silently discard.
+  if [ "$_no_attach" -eq 1 ] && [ "$_have_extra" -eq 1 ] && [ "$#" -gt 0 ]; then
+    warn "--no-attach launches no worker; it takes no post-\`--\` launch args"
+    usage
+  fi
 
   [ -n "$_spec" ] && [ -n "$_id" ] || usage
 
@@ -667,6 +698,16 @@ do_dispatch() {
   # --- Attach (gated on create success) ------------------------------------
   # We only reach here with the worktree created on the exact D-36 branch, so
   # the attach never targets a missing or wrong worktree.
+  if [ "$_no_attach" -eq 1 ]; then
+    # The create-only arm (execution-backends Task 3): a backend that launches
+    # its own worker into the created worktree — the headless-oneshot rung via
+    # fleet-dispatch-headless.sh — needs the create machinery above with no
+    # tmux attach. Print the dispatch record only; the caller owns the launch.
+    printf 'dispatch\tbranch\t%s\n' "$(sanitize_printable "$_branch")"
+    printf 'dispatch\tworktree\t%s\n' "$(sanitize_printable "$_worktree")"
+    printf 'dispatch\tbase\t%s\n' "$(sanitize_printable "$_base")"
+    return 0
+  fi
   if [ "$_attach_dry" -eq 1 ]; then
     # Sanitize the header fields too (consistent with the attach-plan tokens): a
     # repo checkout path carrying control bytes would otherwise inject terminal

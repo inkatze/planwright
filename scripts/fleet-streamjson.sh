@@ -859,7 +859,13 @@ cmd_answer() {
 
   # Channel liveness BEFORE the fifo open: a fifo with no reader blocks its
   # opener forever, so a dead supervisor/worker must become an undeliverable
-  # verdict, never a hang (REQ-E1.4's dead-channel arm).
+  # verdict, never a hang (REQ-E1.4's dead-channel arm). A residual TOCTOU is
+  # ACCEPTED here: a worker that dies in the few-syscall window between this
+  # kill -0 check and the blocking open below can still wedge the open (no
+  # reader). The window is not closable in portable POSIX sh — a non-blocking /
+  # timed open is not expressible without a helper process — and it is far
+  # narrower than the already-dead case this check catches, so the common
+  # dead-channel arm is guarded and the race is left documented, not fixed.
   sup_pid=$(cat "$dir/supervisor.pid" 2>/dev/null) || sup_pid=''
   wrk_pid=$(cat "$dir/worker.pid" 2>/dev/null) || wrk_pid=''
   channel_ok=1

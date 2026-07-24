@@ -28,9 +28,11 @@
 #     spawn-deferred observe fact.
 #   - harness-native rungs (`subagent`) and inline work (`in-session`) are
 #     visibly refused by `dispatch` (the harness dispatches those; `report`
-#     covers the post-dispatch subagent report), and the not-yet-drivable
+#     covers the post-dispatch subagent report), and the session-grade
 #     contract rows (`stream-json-persistent`, `headless-oneshot`) are
-#     visibly refused until their dispatch support lands (Tasks 3-4).
+#     visibly refused because `/offload` drives only the tmux and print
+#     rungs; the session-grade backends dispatch through `/orchestrate`'s
+#     own primitives, not this skill.
 #   - hostile handles (charset, leading dash, over-length, empty), unsafe
 #     prompt-file paths (single quote, control bytes, unreadable), unknown
 #     backends, and usage errors are refused before use, never interpolated,
@@ -247,7 +249,7 @@ printf '%s\n' "$out" | grep -qi 'spawn deferred' || fail "dispatch print: spawn-
 printf '%s\n' "$out" | grep -q "attach	" || fail "dispatch print: attach line missing"
 ok "dispatch print emits the exact -- pinned launch command and the spawn-deferred facts"
 
-# 7. harness-native / inline / not-yet-drivable rungs visibly refused.
+# 7. harness-native / inline / session-grade rungs visibly refused.
 for b in subagent in-session stream-json-persistent headless-oneshot; do
   rc=0
   run dispatch "$b" "$promptfile" >/dev/null 2>"$tmp/err7" || rc=$?
