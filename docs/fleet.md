@@ -222,7 +222,7 @@ The shipped `dispatch_backend` values, by what they give you:
 | `full-session` (default) | Not a backend but a **semantic value**: resolves at dispatch time to the richest present session-grade rung below (unattended: the richest non-interactive one) | per resolution | yes, when the host advertises an *eligible* rung — a non-interactive one, or tmux once the tmux-context ask admits it |
 | `tmux` | Interactive workers in multiplexer windows (attach optional, never required) | yes / yes | yes |
 | `stream-json-persistent` | Supervisor-owned persistent headless workers (event-stream observe, message-in steer) via `scripts/fleet-streamjson.sh` | yes / yes | yes (recoverable via `--resume`) |
-| `headless-oneshot` | Detached one-shot `claude -p` workers; dispatch support landing | no / no | yes |
+| `headless-oneshot` | Detached one-shot `claude -p` workers via `scripts/fleet-dispatch-headless.sh` (completion signal + positive-evidence-of-death liveness) | no / no | yes |
 | `subagent` | In-harness background workers with isolated context (steerable between turns via resume-with-context, not in-flight) | no / no | no |
 | `print` | Prints the launch command; you run the worker yourself | no / no | deferred to you |
 | `in-session` | Runs the unit in the tower's own session, one at a time | n/a | no |
@@ -235,22 +235,29 @@ no *non-interactive* session-grade rung degrades to the previous behavior
 (`subagent`, then `in-session`), never to a silently-chosen interactive
 backend. (tmux is session-grade, but it is a candidate only once the
 tmux-context ask admits it, so an advertised tmux alone does not stop the
-degrade.) Set
-`dispatch_backend: subagent` in an overlay to restore the old default, or a
-per-spec entry in `dispatch_backend_per_spec` (a `{<spec>: <backend>}` inline
-map; the entry wins over the global value) to pin one spec's backend. An
+degrade.) Set `dispatch_backend: subagent` in an overlay to restore the old
+default, or a per-spec entry in `dispatch_backend_per_spec` (a `{<spec>:
+<backend>}` inline map; the entry wins over the global value) to pin one
+spec's backend. An
 explicitly configured literal that is not advertised on the host **fails
 closed** — the dispatch parks to Awaiting input naming the missing backend,
 never a silent substitute (see the
 [options reference](options-reference.md)).
 
-`stream-json-persistent` has its dispatch support: autodetection probes for
-the installed `claude` CLI and reports the rung present exactly when the CLI
-is on PATH. `headless-oneshot` is still contract-defined ahead of its
-dispatch support: until it lands, autodetection reports it absent by
-default, so unattended selection does not pick a rung the tower cannot drive
-(the presence env overrides remain a deliberate test/early-adopter escape
-hatch that bypasses these defaults).
+Both headless rows are drivable today, and autodetection probes the installed
+`claude` CLI for each, reporting the rung present exactly when the CLI is on
+PATH. `headless-oneshot`: the tower creates the unit's worktree with
+`fleet-dispatch-worktree.sh dispatch <spec> <id> --no-attach`, then launches
+the detached worker with `fleet-dispatch-headless.sh launch <spec> <id>
+--worktree <dir>` (task text on stdin, as data). The one-shot pins
+non-`--bare`, never attaches a permission prompt tool (an unauthorized ask
+fails visibly in the captured result — there is no pend path), and leaves a
+consumable completion signal; `fleet-dispatch-headless.sh status <spec> <id>`
+answers `completed <rc>` / `running` / `died` (positive evidence only) /
+`unknown` / `absent`. `stream-json-persistent` is driven by the
+`scripts/fleet-streamjson.sh` supervisor (below). (The presence env overrides
+remain a deliberate test/early-adopter escape hatch that bypasses these
+defaults.)
 
 ### The stream-json supervisor runtime and its capture
 
@@ -570,11 +577,14 @@ launched process env) is the one whose transitions the handler records. With
 identity (one var present, the other missing, or a value failing the field
 grammar) is refused with a one-line stderr warning — still exit 0 and no write,
 so a misconfigured dispatch is visible rather than silently dropped. **The
-dispatch-side wiring that
-exports these vars is not in place yet** — the per-backend dispatch adaptation
-that sets them is a later task, so until it lands every session no-ops this
-handler and the fleet stays on the existing observation path (a graceful
-REQ-A1.1 degradation, no breakage). The hook payload is drained, never parsed,
+dispatch-side wiring is in place for the `headless-oneshot` backend**
+(`fleet-dispatch-headless.sh` exports
+`PLANWRIGHT_WORKER_HANDLE=headless-<spec>-task-<id>` and
+`PLANWRIGHT_WORKER_SCOPE=<spec>:<id>` into the detached worker, so its
+session's hooks push); the remaining backends' dispatch adaptation is a
+later task, so their sessions still no-op this handler and stay on the
+existing observation path (a graceful REQ-A1.1 degradation, no breakage).
+The hook payload is drained, never parsed,
 for every event **except `Notification`**: identity comes from the env contract,
 so no payload field is interpolated anywhere. The one exception is the
 `Notification` arm (fleet-hardening Task 2), which reads a bounded payload prefix,
@@ -606,8 +616,7 @@ cannot overwrite it with stale state.
 **Backend fallback** (`fleet-liveness.sh push-capable <backend>`): which
 liveness mechanism a backend gets is read from the capability contract's
 `hook_registration` field, never a backend-name case. A hook-registering
-backend (`tmux` and `stream-json-persistent`, and the `headless-oneshot`
-contract row once its dispatch support lands) launches a
+backend (`tmux`, `headless-oneshot`, and `stream-json-persistent`) launches a
 dispatch-controlled Claude Code process that inherits the identity env and
 fires plugin hooks, so it pushes. `subagent` runs workers in-process,
 `in-session` shares the tower's own session, and `print` spawns no process at

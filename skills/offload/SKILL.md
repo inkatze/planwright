@@ -97,7 +97,9 @@ By the selected rung:
   refuses the handle (its grammar is deliberately strict), compose the same
   report yourself — handle, no-observe-surface fact, not-attachable fact —
   rather than dead-ending or dropping the report.
-- **tmux** or **print** — write the petition to a temp file and run
+- **tmux** or **print** — write the petition to a `mktemp`-created temp file
+  (never a predictable path like `/tmp/petition.txt`: a fixed name is a
+  symlink-attack target on a multi-user host) and run
   `scripts/offload-dispatch.sh dispatch <backend> <file>`. The primitive
   spawns the worker (tmux; a detached window, no impersonation path) or
   prints the exact launch command (print; spawn deferred to the human) and
@@ -105,6 +107,9 @@ By the selected rung:
 - **in-session** — there is no worker: the petition runs inline in this
   session, which step 2 should normally have caught. Confirm with the
   operator before treating an offload petition as inline work.
+- **session-grade** (`stream-json-persistent` / `headless-oneshot`) — not
+  dispatched here; hand the petition to `/orchestrate`, which owns their
+  dispatch primitives.
 
 ### 6. Report (REQ-C1.5)
 
