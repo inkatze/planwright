@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.31.0](https://github.com/inkatze/planwright/compare/v0.30.0...v0.31.0) (2026-07-24)
+
+
+### Features
+
+* **backends:** full-session knob and default flip (execution-backends task 5) ([#316](https://github.com/inkatze/planwright/issues/316)) ([a1bde3c](https://github.com/inkatze/planwright/commit/a1bde3c367cf4b4888ce99411633d902cecb2e56))
+* **backends:** headless-oneshot dispatch support (execution-backends task 3) ([#314](https://github.com/inkatze/planwright/issues/314)) ([38a6edc](https://github.com/inkatze/planwright/commit/38a6edcba7d04052cb6b2647229274a4b84b1aca))
+* **backends:** stream-json-persistent supervisor backend (execution-backends task 4) ([#312](https://github.com/inkatze/planwright/issues/312)) ([7d8d337](https://github.com/inkatze/planwright/commit/7d8d337e06b8ea3318a9ee67c0461565e73c581d))
+* **fleet:** agents-json idle oracle for worker liveness (execution-backends task 1) ([#308](https://github.com/inkatze/planwright/issues/308)) ([70f7d4a](https://github.com/inkatze/planwright/commit/70f7d4a8f988bad74605894fd7c9c4d88ca0b3bf))
+* **fleet:** backend-agnostic CLI status view (execution-backends task 7) ([#315](https://github.com/inkatze/planwright/issues/315)) ([afe68ea](https://github.com/inkatze/planwright/commit/afe68eabe09e25f44104e30ff5b460b051b61c9c))
+* **offload:** work-placement doctrine and /offload skill (execution-backends task 6) ([#311](https://github.com/inkatze/planwright/issues/311)) ([fc33b6c](https://github.com/inkatze/planwright/commit/fc33b6c521b31b1fa1b5c58bb178f047e5c33794))
+
 ## [0.30.0](https://github.com/inkatze/planwright/compare/v0.29.0...v0.30.0) (2026-07-23)
 
 
