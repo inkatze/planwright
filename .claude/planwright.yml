@@ -21,3 +21,26 @@
 # incidental. See doctrine/release-tagging.md and docs/getting-started.md
 # ("Releasing planwright").
 require_signed_tags: require
+
+# The Claude-side convergence pass for every unit.
+#
+# NOTE on what is deliberately NOT here: the intended sequence is
+# [self-review, panel-review] — a Claude pass followed by a non-Anthropic panel
+# pass, so convergence variance does not come exclusively from the active Claude
+# session. That value is NOT expressible today. scripts/resolve-review-sequence.sh
+# admits a name only when <planwright-skills-root>/<name>/SKILL.md exists and its
+# `argument-hint:` declares --nested, so the nestable set is {polish,
+# self-review} — planwright's own skills. /panel-review is a dotfiles-local slash
+# command, not a planwright skill, so it can never satisfy that predicate, and a
+# malformed value in this repo-tracked layer HARD-FAILS (exit 4) rather than
+# degrading. Until planwright can admit an external nestable review skill, the
+# panel pass runs as a separate tower-level step per unit, not through this knob.
+review_sequence: [self-review]
+
+# Pinned, not inherited: the review sequence above depends on it. `per-step` runs
+# implementation and EACH review_sequence skill in its own fresh /resume-seeded
+# session, so each review's perspective is uncontaminated by the prior step's
+# context (the "clears in between" the sequence assumes). This currently matches
+# the core default, but config/defaults.yml tracks flipping that default as risk
+# row R3, so this repo states it explicitly rather than inheriting it.
+dispatch_isolation: per-step
