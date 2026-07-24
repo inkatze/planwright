@@ -110,9 +110,46 @@ but never invented into workers (an interactive session is usually an
 operator, not a worker). Worker-authored strings (session names, store
 fields) pass the echo-safety sanitizer before they reach your terminal.
 
-The `merge` stream is the seam the planned rendered dashboard (Task 8 of the
-execution-backends spec) builds on: one source-reading implementation, two
-renderers.
+The `merge` stream is the seam the rendered dashboard builds on: one
+source-reading implementation, two renderers.
+
+## The rendered dashboard
+
+Not every operator is at a terminal. `fleet-dashboard.sh` renders the same
+merged state as a self-contained HTML page you can read on a phone:
+
+```sh
+scripts/fleet-dashboard.sh render                  # the document on stdout
+scripts/fleet-dashboard.sh write ~/fleet.html      # atomic write to a path
+scripts/fleet-dashboard.sh write ~/fleet.html --refresh 10
+```
+
+It reads **exactly one thing**: `fleet-status.sh merge`. It never opens the
+attention store, a runtime dir, the oracle, or the registry itself, so the two
+views cannot drift apart and a source added to the merge layer appears in both
+for free. Everything the CLI table marks, the page marks: each source is named
+with its state and the detail behind it, and degraded cells carry a visible
+marker (`-`, `?`, `n/a`) explained in a legend. Workers needing attention — a
+pending permission request, an oracle `waiting` verdict, a pushed
+waiting/blocked/parked state — are counted at the top and highlighted in the
+table, so the glance answers "does anything need me?" before you read a row.
+
+The page is **inert and self-contained**: no script, no form, no button, no
+external stylesheet, font, or image, and no network fetch of any kind. There
+is no endpoint on it to mutate anything. Worker-authored strings arrive
+already stripped of control bytes by the merge layer and are HTML-encoded
+before they reach the document, so markup in a scope or session name renders
+as text. (It inherits the shared sanitizer's trade: non-ASCII in a
+worker-authored string may be mangled before it ever reaches this renderer.)
+`--refresh <seconds>` adds a browser-level reload hint; it works the same on a
+`file://` page as behind any server.
+
+**How the page reaches your phone is deliberately not decided here.** The
+script binds no socket, opens no port, and takes no network dependency: it
+emits a document, and nothing more. The serving mechanism (a local server, a
+synced file, something else) is an open operator decision tracked on Task 8 of
+the execution-backends spec, and whichever shape lands consumes `render` or
+`write` without changing this renderer.
 
 ## The multiplexer as background plumbing
 
