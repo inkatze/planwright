@@ -108,7 +108,8 @@ session-grade, `overhead`, and `hook_registration`.
 - **`interactive`** — the backend hosts a session a human could attach to and
   drive directly (tmux). This governs unattended selection: an unattended tower
   must **never silently pick an interactive backend** (it would strand the run
-  waiting on a human); it degrades down the ladder instead.
+  waiting on a human); a semantic value ladders past it instead, and only an
+  explicit configuration ever selects it.
 - **`can_observe`** — the backend provides **observe-in-flight** (above). When
   false, the tower has no live mid-task read and relies on completion signals
   plus positive-evidence-of-death liveness.
@@ -142,9 +143,14 @@ branch on the backend's name:
 - **`provides_attention_surface: true`** → planwright **does not render its own**
   decision queue; it defers to the backend's surface, so the operator sees one
   attention surface, not two.
-- **`interactive: true`** in unattended mode → never selected silently; unattended
-  selection reads config and degrades a missing rich backend down the ladder,
-  never to a silently-chosen interactive backend.
+- **`interactive: true`** in unattended mode → never selected silently;
+  unattended selection reads config and, for a **semantic** value, ladders past
+  a missing rung — never to a silently-chosen interactive backend. An explicit
+  literal is never laddered at dispatch time: advertised, it is honored
+  verbatim (interactive included — explicit config is the operator's standing
+  answer); unadvertised, the dispatch fails closed rather than substituting
+  (execution-backends REQ-B1.5). Mid-run runtime failover keeps its logged
+  one-rung descent for every configured value.
 - **`can_observe: false`** → the tower does not attempt a live state read; it acts
   on completion signals and the positive-evidence-of-death liveness check only.
 - **`supports_parallel: false`** → the tower runs ready units sequentially (one
@@ -215,7 +221,12 @@ rows below.
   `result.json`. The one-shot never attaches a permission prompt tool: an
   unauthorized ask fails under `--print`'s non-interactive default and lands
   visibly in the result and completion signal — there is no pend path.
-- **`subagent`** (the shipped `dispatch_backend` default). A background worker
+- **`subagent`** (the `full-session` degradation floor: the shipped
+  `dispatch_backend` default is the semantic `full-session`, which resolves to
+  this rung when no *eligible* session-grade rung is present — eligibility is
+  its candidate set, the pinned shipped ladder, not the host's advertised set:
+  tmux needs the tmux-context ask, pluggables are explicit-literal only —
+  execution-backends D-8). A background worker
   with isolated context and a
   native worktree, whose completion notifies the tower. It is parallel and
   addressable, but **in-harness**: it shares the tower's lifecycle and does not

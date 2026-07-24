@@ -34,13 +34,18 @@
 #     and this script agree for every row and field under the drift guard below
 #     (execution-backends REQ-A1.6), and the doc records the pinned
 #     degradation-ladder ordering and pinned overhead enum (REQ-A1.8).
-#   - `select-unattended <configured>` makes the autonomous
-#     (no-human-to-ask) pick: the configured backend when it is present AND
-#     unattended-eligible (interactive=false AND session_grade!=deferred); else
-#     it DEGRADES down the shipped autonomous chain (subagent → in-session, the
-#     always-present terminal rung), NEVER selecting an interactive backend and
-#     NEVER the manual `print` rung. A degrade prints a NOTE to stderr and still
-#     exits 0 with the selection on stdout.
+#   - `select-unattended [--tmux-candidate] <configured>` makes the
+#     dispatch-time pick (execution-backends Task 5; D-8, REQ-B1.1, REQ-B1.4,
+#     REQ-B1.5). The semantic value `full-session` walks the pinned ladder over
+#     the PRESENT rungs — tmux only under --tmux-candidate (the operator's
+#     tmux-context answer), then stream-json-persistent > headless-oneshot >
+#     subagent > in-session — never silently interactive, never the manual
+#     `print` rung; degrading past the session-grade rungs prints a NOTE to
+#     stderr and still exits 0. An explicit LITERAL is honored when present
+#     (interactive and manual included: explicit config is the operator's
+#     standing answer) and FAILS CLOSED when not advertised on the host —
+#     exit 6, the missing backend named on stderr, no substitute on stdout
+#     (dispatch-time ladders apply to semantic values only, REQ-B1.5).
 #   - Every task/backend token is treated as DATA: a hostile pluggable name
 #     (traversal, glob, bad charset) is refused before it is used to build the
 #     `planwright-backend-<name>` command, never interpolated.
@@ -226,34 +231,41 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=1 "$BACKENDS" select-unattended subagent 2>"$err")
 echo "ok: select-unattended picks an eligible configured backend without degrading"
 
 # ---------------------------------------------------------------------------
-# 7. select-unattended: configured is INTERACTIVE (tmux) → degrades to the
-#    richest eligible autonomous rung (subagent), never tmux, with a NOTE.
+# 7. select-unattended: an explicitly configured LITERAL present on the host is
+#    honored — the interactive tmux and manual print rungs included (explicit
+#    config is the operator's standing answer, never a silent pick; REQ-B1.5's
+#    honored-or-halted rule for literals).
 # ---------------------------------------------------------------------------
 sel=$(PLANWRIGHT_BACKEND_TMUX=1 "$BACKENDS" select-unattended tmux 2>"$err") \
   || fail "select-unattended tmux non-zero"
-[ "$sel" = subagent ] || fail "select-unattended: interactive tmux should degrade to subagent, got '$sel'"
-[ "$sel" != tmux ] || fail "select-unattended: MUST NOT silently pick the interactive backend"
-grep -q NOTE "$err" || fail "select-unattended: a degrade must emit a NOTE on stderr"
-echo "ok: select-unattended never silently picks an interactive backend (degrades with a note)"
+[ "$sel" = tmux ] || fail "select-unattended: an explicit present tmux literal must be honored, got '$sel'"
+[ ! -s "$err" ] || fail "select-unattended: honoring an explicit literal must not warn"
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended print 2>"$err") \
+  || fail "select-unattended print non-zero"
+[ "$sel" = print ] || fail "select-unattended: an explicit print literal must be honored, got '$sel'"
+echo "ok: select-unattended honors an explicit present literal (interactive/manual included)"
 
 # ---------------------------------------------------------------------------
-# 8. select-unattended: a missing/rich configured backend degrades down the
-#    ladder; with subagent also unavailable it reaches the in-session terminal
-#    rung (always present), still never interactive.
+# 8. select-unattended: an explicitly configured backend NOT advertised on the
+#    host fails closed (REQ-B1.5): exit 6, the missing backend named on
+#    stderr, and NO substitute selection on stdout — never a silent degrade.
 # ---------------------------------------------------------------------------
-sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended tmux 2>"$err") \
-  || fail "select-unattended(missing tmux) non-zero"
-[ "$sel" = subagent ] || fail "select-unattended: missing rich backend should degrade to subagent, got '$sel'"
-sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_SUBAGENT=0 \
-  "$BACKENDS" select-unattended tmux 2>"$err") \
-  || fail "select-unattended(no rich, no subagent) non-zero"
-[ "$sel" = in-session ] \
-  || fail "select-unattended: with no rich rung and no subagent it must reach in-session, got '$sel'"
-echo "ok: select-unattended degrades down the ladder to the in-session terminal rung"
+rc=0
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended tmux 2>"$err") || rc=$?
+[ "$rc" = 6 ] || fail "select-unattended: an absent explicit literal should exit 6, got $rc"
+[ -z "$sel" ] || fail "select-unattended: a fail-closed halt must not print a substitute, got '$sel'"
+grep -q "tmux" "$err" || fail "select-unattended: the halt diagnostic must name the missing backend"
+rc=0
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended headless-oneshot 2>"$err") || rc=$?
+[ "$rc" = 6 ] || fail "select-unattended: absent headless-oneshot should exit 6, got $rc"
+[ -z "$sel" ] || fail "select-unattended: the headless-oneshot halt must not print a substitute, got '$sel'"
+grep -q "headless-oneshot" "$err" \
+  || fail "select-unattended: the halt diagnostic must name headless-oneshot"
+echo "ok: select-unattended fails closed on an explicit unadvertised literal (exit 6)"
 
 # ---------------------------------------------------------------------------
-# 9. select-unattended: a configured PLUGGABLE that is present & eligible is
-#    picked; an interactive pluggable is refused (degrades), never picked.
+# 9. select-unattended: a configured PLUGGABLE present via its adapter is
+#    honored — the interactive pluggable included (same standing-answer rule).
 # ---------------------------------------------------------------------------
 sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended foo 2>"$err") \
   || fail "select-unattended(pluggable foo) non-zero"
@@ -261,19 +273,69 @@ sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended foo 2>
 make_adapter bar true true true false true yes
 sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended bar 2>"$err") \
   || fail "select-unattended(interactive pluggable) non-zero"
-[ "$sel" = subagent ] || fail "select-unattended: interactive pluggable bar must degrade to subagent, got '$sel'"
-[ "$sel" != bar ] || fail "select-unattended: MUST NOT pick an interactive pluggable"
-echo "ok: select-unattended honors pluggable eligibility (picks eligible, degrades interactive)"
+[ "$sel" = bar ] || fail "select-unattended: an explicit present interactive pluggable must be honored, got '$sel'"
+echo "ok: select-unattended honors an explicit present pluggable literal"
 
 # ---------------------------------------------------------------------------
-# 10. select-unattended: print (manual, session_grade=deferred) is never the
-#     autonomous pick even when configured.
+# 10. select-unattended: the `full-session` SEMANTIC value walks the pinned
+#     ladder over the present non-interactive rungs (REQ-B1.1, REQ-A1.8):
+#     stream-json-persistent > headless-oneshot > subagent > in-session; never
+#     tmux without --tmux-candidate, never print; degrading past the
+#     session-grade rungs emits a NOTE and still exits 0.
 # ---------------------------------------------------------------------------
-sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended print 2>"$err") \
-  || fail "select-unattended print non-zero"
-[ "$sel" != print ] || fail "select-unattended: the manual print rung must not be auto-picked"
-[ "$sel" = subagent ] || fail "select-unattended: configured print should degrade to subagent, got '$sel'"
-echo "ok: select-unattended never auto-picks the manual print rung"
+sel=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
+  PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 "$BACKENDS" select-unattended full-session 2>"$err") \
+  || fail "select-unattended(full-session) non-zero"
+[ "$sel" = stream-json-persistent ] \
+  || fail "full-session should pick the richest non-interactive session-grade rung, got '$sel'"
+[ ! -s "$err" ] || fail "full-session resolving to a session-grade rung must not warn"
+sel=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 "$BACKENDS" select-unattended full-session 2>"$err") \
+  || fail "select-unattended(full-session, ho) non-zero"
+[ "$sel" = headless-oneshot ] \
+  || fail "full-session should walk the ladder to headless-oneshot, got '$sel'"
+sel=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  "$BACKENDS" select-unattended full-session 2>"$err") \
+  || fail "select-unattended(full-session, no session rung) non-zero"
+[ "$sel" = subagent ] \
+  || fail "full-session with no non-interactive session-grade rung should degrade to subagent, got '$sel'"
+grep -q NOTE "$err" || fail "full-session degrading past the session-grade rungs must NOTE on stderr"
+# The NOTE must describe full-session's CANDIDATE SET, never the host's
+# capabilities. Two kinds of session-grade backend can be advertised here and
+# still be ineligible: tmux (session-grade, advertised in this very case via
+# PLANWRIGHT_BACKEND_TMUX=1 above, but a candidate only once the tmux-context
+# ask admits it) and a pluggable adapter advertising interactive=false
+# session_grade=yes (never walked by the semantic value; explicit-literal
+# only). So ANY "no ... is advertised on this host" phrasing is false.
+grep -q "candidates" "$err" \
+  || fail "full-session degrade NOTE must name its candidate set, not a host-capability claim"
+if grep -q "advertised on this host" "$err"; then
+  fail "full-session degrade NOTE must not claim a host capability: advertised-but-ineligible session-grade rungs (tmux, pluggables) make that claim false"
+fi
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  PLANWRIGHT_BACKEND_SUBAGENT=0 "$BACKENDS" select-unattended full-session 2>"$err") \
+  || fail "select-unattended(full-session, no subagent) non-zero"
+[ "$sel" = in-session ] \
+  || fail "full-session must reach the in-session terminal rung, got '$sel'"
+# --tmux-candidate: the operator's tmux-context answer adds tmux to the top of
+# the candidate set; with tmux absent the flag falls through, never a halt
+# (the flag joins a candidate — it is not an explicit literal).
+sel=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
+  "$BACKENDS" select-unattended --tmux-candidate full-session 2>"$err") \
+  || fail "select-unattended(--tmux-candidate) non-zero"
+[ "$sel" = tmux ] \
+  || fail "--tmux-candidate with tmux present must pick tmux for full-session, got '$sel'"
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
+  "$BACKENDS" select-unattended --tmux-candidate full-session 2>"$err") \
+  || fail "select-unattended(--tmux-candidate, tmux absent) non-zero"
+[ "$sel" = stream-json-persistent ] \
+  || fail "--tmux-candidate with tmux absent must fall through the ladder, got '$sel'"
+# The flag only widens the full-session candidate set; an explicit literal is
+# unaffected by it (still honored-or-halted).
+rc=0
+sel=$(PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended --tmux-candidate tmux 2>"$err") || rc=$?
+[ "$rc" = 6 ] || fail "--tmux-candidate must not rescue an absent explicit literal, got exit $rc"
+echo "ok: full-session walks the pinned ladder; --tmux-candidate admits tmux as a candidate"
 
 # ---------------------------------------------------------------------------
 # 11. input-as-data: a hostile pluggable name is refused, never interpolated
@@ -290,19 +352,27 @@ PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended "foo/../bar" >/dev/null 
 echo "ok: hostile backend names are treated as data (refused, never executed)"
 
 # ---------------------------------------------------------------------------
-# 12. never-interactive invariant across the whole matrix: for every configured
-#     value, select-unattended's stdout is never an interactive backend.
+# 12. the semantic-resolution matrix (REQ-B1.4): without --tmux-candidate,
+#     full-session NEVER yields an interactive or manual backend across every
+#     presence combination — only explicit config can select one. A valid-name
+#     but unadvertised literal (bogus) halts fail-closed rather than degrading.
 # ---------------------------------------------------------------------------
-for cfg in tmux subagent print in-session bogus; do
-  for tm in 0 1; do
-    sel=$(PLANWRIGHT_BACKEND_TMUX=$tm "$BACKENDS" select-unattended "$cfg" 2>/dev/null) \
-      || fail "select-unattended($cfg,tmux=$tm) non-zero"
-    [ "$sel" != tmux ] || fail "select-unattended($cfg,tmux=$tm): picked interactive tmux"
-    [ "$sel" != print ] || fail "select-unattended($cfg,tmux=$tm): picked manual print"
-    [ -n "$sel" ] || fail "select-unattended($cfg,tmux=$tm): empty selection"
+for tm in 0 1; do
+  for sjp in 0 1; do
+    for ho in 0 1; do
+      sel=$(PLANWRIGHT_BACKEND_TMUX=$tm PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=$sjp \
+        PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=$ho "$BACKENDS" select-unattended full-session 2>/dev/null) \
+        || fail "select-unattended(full-session,tmux=$tm,sjp=$sjp,ho=$ho) non-zero"
+      [ "$sel" != tmux ] || fail "full-session matrix picked interactive tmux (tmux=$tm)"
+      [ "$sel" != print ] || fail "full-session matrix picked manual print"
+      [ -n "$sel" ] || fail "full-session matrix: empty selection"
+    done
   done
 done
-echo "ok: select-unattended never yields an interactive or manual backend for any input"
+rc=0
+PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended bogus >/dev/null 2>&1 || rc=$?
+[ "$rc" = 6 ] || fail "an unadvertised valid-name literal must halt (exit 6), got $rc"
+echo "ok: full-session never yields an interactive or manual backend without explicit config"
 
 # ---------------------------------------------------------------------------
 # 13. usage / fail-closed.
@@ -348,16 +418,16 @@ echo "ok: detect emits rows richest rung first"
 
 # ---------------------------------------------------------------------------
 # 15. select-unattended: a configured PLUGGABLE with no adapter (absent, not
-#     malformed) degrades down the ladder to subagent with a NOTE, the same
-#     fail-safe path a missing shipped backend takes (case 8) — the pluggable
-#     branch of that path was only covered indirectly before.
+#     malformed) is an explicit-but-unavailable literal — it halts fail-closed
+#     (exit 6) naming the backend, the same REQ-B1.5 path a missing shipped
+#     backend takes (case 8), never a silent degrade.
 # ---------------------------------------------------------------------------
-sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended ghost 2>"$err") \
-  || fail "select-unattended(absent pluggable) non-zero"
-[ "$sel" = subagent ] \
-  || fail "select-unattended: an absent configured pluggable should degrade to subagent, got '$sel'"
-grep -q NOTE "$err" || fail "select-unattended: an absent-pluggable degrade must emit a NOTE"
-echo "ok: select-unattended degrades an absent configured pluggable down the ladder"
+rc=0
+sel=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" select-unattended ghost 2>"$err") || rc=$?
+[ "$rc" = 6 ] || fail "select-unattended: an absent configured pluggable should exit 6, got $rc"
+[ -z "$sel" ] || fail "select-unattended: an absent-pluggable halt must not print a substitute"
+grep -q "ghost" "$err" || fail "select-unattended: the halt diagnostic must name the pluggable"
+echo "ok: select-unattended halts fail-closed on an absent configured pluggable"
 
 # ---------------------------------------------------------------------------
 # 16. echo discipline (doctrine/security-posture.md): an invalid backend name
@@ -812,14 +882,15 @@ order=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PER
 [ "$order" = "tmux stream-json-persistent headless-oneshot ordq subagent in-session print " ] \
   || fail "detect: forced-present new rows must slot per the pinned ladder, got '$order'"
 # Unattended selection: an absent rung (forced absent — the default is now
-# the installed-CLI probe) degrades with a NOTE; forced-present is an
-# eligible autonomous pick (interactive=false, session-grade yes).
+# the installed-CLI probe) is an explicit-but-unavailable literal and halts
+# fail-closed (REQ-B1.5); forced-present is honored.
+rc=0
 sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
-  "$BACKENDS" select-unattended stream-json-persistent 2>"$err") \
-  || fail "select-unattended(stream-json-persistent, absent) non-zero"
-[ "$sel" = subagent ] \
-  || fail "select-unattended: a default-absent new row should degrade to subagent, got '$sel'"
-grep -q NOTE "$err" || fail "select-unattended: the default-absent degrade must emit a NOTE"
+  "$BACKENDS" select-unattended stream-json-persistent 2>"$err") || rc=$?
+[ "$rc" = 6 ] \
+  || fail "select-unattended: a default-absent new row should halt (exit 6), got $rc"
+grep -q "stream-json-persistent" "$err" \
+  || fail "select-unattended: the default-absent halt must name the backend"
 sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
   "$BACKENDS" select-unattended stream-json-persistent 2>"$err") \
   || fail "select-unattended(stream-json-persistent, forced) non-zero"
@@ -831,14 +902,15 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 \
   || fail "select-unattended(headless-oneshot, forced) non-zero"
 [ "$sel" = headless-oneshot ] \
   || fail "select-unattended: forced-present headless-oneshot should be picked, got '$sel'"
-# The degrade chain deliberately stays subagent -> in-session until the Task 5
-# ladder wiring: a forced-present new rung is never a degrade TARGET, only an
-# explicit configured pick (pins the deliberate deferral).
+# The Task 5 ladder wiring: the new rows ARE full-session ladder targets now —
+# a forced-present stream-json-persistent is the semantic value's first
+# non-interactive pick, while an absent explicit literal still halts (never a
+# cross-literal substitution).
 sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
-  "$BACKENDS" select-unattended tmux 2>"$err") \
-  || fail "select-unattended(tmux absent, sjp forced) non-zero"
-[ "$sel" = subagent ] \
-  || fail "select-unattended: the degrade chain must stay subagent-first pre-Task-5, got '$sel'"
+  "$BACKENDS" select-unattended full-session 2>"$err") \
+  || fail "select-unattended(full-session, sjp forced) non-zero"
+[ "$sel" = stream-json-persistent ] \
+  || fail "select-unattended: full-session must ladder onto the forced-present new rung, got '$sel'"
 echo "ok: the new contract rows probe the installed CLI and honor the env presence overrides"
 
 # ---------------------------------------------------------------------------
