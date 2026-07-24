@@ -108,14 +108,20 @@ emit_head() {
   eh_stamp=$1
   eh_interval=$2
   # No untrusted value reaches the head: the stamp is this host's clock and
-  # the interval is a validated integer.
-  cat <<EOF
+  # the interval is a validated integer. Only the two lines that need them
+  # are interpolated; the stylesheet and the static markup around it come
+  # out of QUOTED here-docs, so a future `$`, backtick, or backslash in the
+  # CSS (`content:"\201C"` and friends) is emitted verbatim instead of being
+  # eaten by the shell.
+  cat <<'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="$eh_interval">
+EOF
+  printf '<meta http-equiv="refresh" content="%s">\n' "$eh_interval"
+  cat <<'EOF'
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>planwright fleet</title>
 <style>
@@ -181,9 +187,10 @@ footer p{margin:.2rem 0}
 <body>
 <header>
 <h1>planwright fleet</h1>
-<p class="stamp">generated $eh_stamp &middot; refreshes every ${eh_interval}s</p>
-</header>
 EOF
+  printf '<p class="stamp">generated %s &middot; refreshes every %ss</p>\n' \
+    "$eh_stamp" "$eh_interval"
+  printf '</header>\n'
 }
 
 emit_foot() {
