@@ -150,7 +150,18 @@ critical path is 2 → 4 → 7 → 8 (derived from the `Dependencies:` lines; re
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** — blocked on the serving/exposure decision (design.md risk row 4,
+  the kickoff brief's §3 note). The option-neutral core is done and pushed
+  (`scripts/fleet-dashboard.sh` `render` + `write`, fixture-covered including the
+  mutation-tested HTML encoding; docs in `docs/fleet.md`), and the serving seam
+  is deliberately isolated — the script binds no socket and reads only
+  `fleet-status.sh merge`. Resuming needs only the serving subcommand once the
+  operator picks a shape: loopback bind + SSH/Tailscale tunnel, file-render-only
+  (no bind at all), or a declared runtime dependency. The block stays in
+  `## Tasks`; this is orchestration placement only, so the spec anchor is
+  unchanged (verified: `scripts/spec-anchor.sh` extracts task-definition content,
+  not section placement) and the freshness gate stays intact against the brief's
+  existing anchor.
 
 ## Deferred
 
