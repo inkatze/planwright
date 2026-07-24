@@ -29,6 +29,8 @@ enforces the invariant at the flip point with a deterministic, deny-emitting
 provably current-with-`main` and mergeable. The guard is unbypassable by
 construction, matching planwright's existing guard philosophy (the sibling
 `worker-command-guard.sh` / `tower-command-guard.sh` deny surface). The
+hard invariant both mechanisms carry is stated once as **REQ-A1.1** — its
+single home — and cited from every record that depends on it. The
 deliverable's altitude split — one carried hard-invariant statement on top of
 two mechanisms — is recorded in D-1 (cites the pinned seed claim in Sources).
 
