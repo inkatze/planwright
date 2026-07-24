@@ -117,15 +117,21 @@ emit_head() {
   # out of QUOTED here-docs, so a future `$`, backtick, or backslash in the
   # CSS (`content:"\201C"` and friends) is emitted verbatim instead of being
   # eaten by the shell.
-  cat <<'EOF'
+  #
+  # Every emit is status-checked. Splitting one `cat` into four commands put
+  # the function's exit status on the LAST of them, so a first-chunk failure
+  # (a full disk under `write`, a closed stdout) would have been masked by a
+  # later success and reported as a good page — the exact fail-closed hole
+  # the merge layer's own comments warn about.
+  cat <<'EOF' || return 2
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 EOF
-  printf '<meta http-equiv="refresh" content="%s">\n' "$eh_interval"
-  cat <<'EOF'
+  printf '<meta http-equiv="refresh" content="%s">\n' "$eh_interval" || return 2
+  cat <<'EOF' || return 2
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>planwright fleet</title>
 <style>
@@ -193,8 +199,8 @@ footer p{margin:.2rem 0}
 <h1>planwright fleet</h1>
 EOF
   printf '<p class="stamp">generated %s &middot; refreshes every %ss</p>\n' \
-    "$eh_stamp" "$eh_interval"
-  printf '</header>\n'
+    "$eh_stamp" "$eh_interval" || return 2
+  printf '</header>\n' || return 2
 }
 
 emit_foot() {
