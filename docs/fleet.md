@@ -143,7 +143,10 @@ What the page adds over the table is glance ergonomics:
   the answer to "does anything want me?" is the first thing on screen.
 - **A freshness stamp.** Every page carries the UTC instant it was generated
   and refreshes itself on the same interval `watch` uses. A page whose writer
-  loop died reads as stale instead of quietly showing old state.
+  loop died reads as stale instead of quietly showing old state. (`--interval`
+  always sets that self-refresh; under `watch` it paces the writer loop too.
+  With `render` or `write`, which produce one page and stop, match it to
+  whatever re-renders the file.)
 - **Phone-shaped.** One column on a narrow screen, multi-column past 40rem;
   light and dark palettes follow the device.
 

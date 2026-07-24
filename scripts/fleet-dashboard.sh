@@ -49,7 +49,11 @@
 #   fleet-dashboard.sh watch --out <path> [--interval <sec>]
 #       re-render to <path> every <sec> until interrupted
 #
-# --interval defaults to 30 seconds (1..86400).
+# --interval defaults to 30 seconds (1..86400). It always sets the page's own
+# self-refresh; under `watch` it additionally paces the writer loop. Under
+# `render` and `write`, which produce one page and stop, it is the refresh
+# cadence alone — set it to match whatever re-renders the file, or the page
+# will keep reloading state nothing is updating.
 #
 # Exit codes: 0 success; 2 usage error, a merge failure, or a filesystem
 #   failure (fail closed — a failed render never emits a partial page and
