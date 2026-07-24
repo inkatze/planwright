@@ -41,9 +41,14 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || github.event.label.name == 'measure-test-time'
     runs-on: ubuntu-latest
-    # Serial x best-of-N over the whole suite is inherently long; the bound is
-    # generous because this job gates nothing.
-    timeout-minutes: 90
+    # Serial x best-of-N over the whole suite is inherently long: it is
+    # deliberately ~N times a serial suite pass, which on a 2-core runner puts
+    # best-of-3 over ~140 files well past an hour. The bound is generous because
+    # this job gates nothing — a timeout here would throw away the whole
+    # measurement rather than fail anything. The step streams per-file progress
+    # to stderr, so a run that IS stuck is visible in the log long before this
+    # bound fires.
+    timeout-minutes: 330
     steps:
       # Full history, matching ci.yml: nothing in the suite walks the repo's own
       # log today (only a `rev-parse HEAD`), but the measurement is only worth

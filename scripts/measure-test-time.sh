@@ -160,7 +160,13 @@ trap 'rm -rf "$work"' EXIT
 rows="$work/rows"
 : >"$rows"
 
+# Progress goes to STDERR, one line per file as it completes, so stdout stays
+# the clean report the caller tees to an artifact. A serial best-of-N pass over
+# a large suite runs for a long time and the report only prints at the end;
+# without this a watcher cannot tell a slow run from a hung one, or estimate
+# whether it will finish inside the job's timeout.
 any_failed=0
+done_n=0
 for t in "${files[@]}"; do
   name="${t##*/}"
   best_ms=""
@@ -194,6 +200,11 @@ for t in "${files[@]}"; do
   else
     printf '%s %s verdicts=%s\n' "$best_ms" "$name" "$verdicts" >>"$rows"
   fi
+  done_n=$((done_n + 1))
+  printf 'measure-test-time: [%s/%s] %s best=%s.%03ss verdicts=%s%s\n' \
+    "$done_n" "${#files[@]}" "$name" "$((best_ms / 1000))" \
+    "$(printf '%03d' "$((best_ms % 1000))")" "$verdicts" \
+    "$([ "$failed" -ne 0 ] && printf ' FAILED')" >&2
 done
 
 # Render: milliseconds become seconds at 3dp, ranked slowest-first, with the

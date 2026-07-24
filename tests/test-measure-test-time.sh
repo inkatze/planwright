@@ -107,6 +107,19 @@ case "$out" in
   *) ok "discovery is <suite-dir>/*.sh only" ;;
 esac
 
+# Progress lines go to STDERR only, one per file as it completes, so a long run
+# is observable while stdout stays the clean report a caller tees to an
+# artifact. Split the streams to prove the separation rather than assuming it.
+prog_err=$("$MEASURE" --repeats 1 "$suite" 2>&1 >/dev/null)
+prog_out=$("$MEASURE" --repeats 1 "$suite" 2>/dev/null)
+assert_contains "progress counts files as they complete, on stderr" "[1/3]" "$prog_err"
+assert_contains "progress reaches the final file" "[3/3]" "$prog_err"
+assert_contains "a progress line names its file" "a-quick.sh" "$prog_err"
+case "$prog_out" in
+  *"[1/3]"*) bad "progress must not pollute stdout (the report is tee'd to an artifact)" ;;
+  *) ok "stdout carries no progress lines" ;;
+esac
+
 # Sub-second resolution: the slow file's time must carry a fractional part and
 # be at least the 1s sleep. Parse its row.
 slow_secs=$(printf '%s\n' "$out" | awk '$2 == "b-slow.sh" { print $1; exit }')
@@ -173,6 +186,14 @@ rc=$?
 assert_exit "a failing test file fails the measurement run" 1 "$rc"
 assert_contains "the failing file is named" "broken.sh" "$out"
 assert_contains "the failure is called out, not just timed" "FAILED" "$out"
+# A failure is visible in the progress stream too, so a watcher sees it when it
+# happens rather than only in the end-of-run report.
+brk_err=$("$MEASURE" --repeats 1 "$brk" 2>&1 >/dev/null)
+assert_contains "progress marks a failing file as it completes" "broken.sh best=" "$brk_err"
+case "$brk_err" in
+  *"broken.sh"*FAILED*) ok "the progress line for a failing file carries FAILED" ;;
+  *) bad "progress line for broken.sh lacks FAILED (got: $brk_err)" ;;
+esac
 
 # Usage contract.
 rc=0
