@@ -766,4 +766,175 @@ aenv "$home" queue | grep -q 'could not re-open' \
   || fail "c16: a failed re-open must surface a visible failure item"
 echo "ok: c16 a failed terminal->pending re-open fails closed and surfaces visibly (REQ-E1.5)"
 
+# ---------------------------------------------------------------------------
+# c17 (REQ-E1.4): a `--deny --message` whose text carries control characters
+#     (TAB, CR) must still deliver a WELL-FORMED control_response. Raw C0
+#     bytes inside a JSON string are invalid JSON, so the worker's parser
+#     would reject the frame and the answer would be silently lost. The deny
+#     body must escape exactly what json_escape_file escapes.
+# ---------------------------------------------------------------------------
+home="$tmp/h17"
+rec="$tmp/r17"
+mkdir -p "$rec"
+ev="$tmp/ev17"
+printf '%s\n%s\n' "$line_init" "$line_perm" >"$ev"
+printf 'deny me\n' >"$tmp/prompt17"
+# TAB + CR + the escapes the deny path already handled (backslash, quote), so
+# a regression in either half of the escaping surfaces here.
+deny_msg=$(printf 'no:\tuse the \\API\r"policy" says no')
+senv "$home" "$rec" SHIM_EVENTS="$ev" SHIM_WAIT_RESPONSE=1 SHIM_RESULT_LINE="$line_result" -- \
+  launch sjw17 execution-backends:4 --prompt-file "$tmp/prompt17" --foreground &
+launch17=$!
+wdir17="$home/streamjson/sjw17"
+wait_until 100 grep -q "^$req_perm$tab" "$wdir17/journal" \
+  || fail "c17: the pending journal row never appeared"
+senv "$home" "$rec" -- answer sjw17 "$req_perm" --deny --message "$deny_msg" >/dev/null \
+  || fail "c17: deny answer exited non-zero"
+wait "$launch17" || fail "c17: the worker run did not end cleanly after the deny"
+grep control_response "$rec/stdin" | head -1 >"$tmp/c17line"
+[ -s "$tmp/c17line" ] || fail "c17: the control_response never reached the worker stdin"
+grep -q "\"request_id\":\"$req_perm\"" "$tmp/c17line" \
+  || fail "c17: the response must target the pending request id"
+grep -q '"behavior":"deny"' "$tmp/c17line" || fail "c17: the deny behavior was not delivered"
+# The defect: raw C0 bytes (a TAB here) emitted inside the JSON string body.
+# Detected with `tr -d` over the byte ranges rather than an awk character
+# class: BSD awk (macOS) does not honour `[\000-\037\177]` as a byte range, so
+# an awk-based detector silently mis-reports on the bash-3.2 floor platform.
+# The delimiting newline (\012) is excluded from the ranges below.
+LC_ALL=C tr -d '\000-\011\013-\037\177' <"$tmp/c17line" >"$tmp/c17stripped"
+cmp -s "$tmp/c17line" "$tmp/c17stripped" \
+  || fail "c17: the deny body carries a RAW control character - invalid JSON: $(od -c "$tmp/c17line")"
+grep -qF '\t' "$tmp/c17line" || fail "c17: the TAB should be delivered as a \\t escape"
+grep -qF '\r' "$tmp/c17line" || fail "c17: the CR should be delivered as a \\r escape"
+grep -qF '\\API' "$tmp/c17line" || fail "c17: the backslash escape regressed"
+grep -qF '\"policy\"' "$tmp/c17line" || fail "c17: the double-quote escape regressed"
+# End-to-end proof with a real JSON parser where one is available (the suite
+# does not otherwise require python3; the byte assertions above stand alone).
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$tmp/c17line" <<'PY' || fail "c17: the delivered control_response is not valid JSON"
+import json
+import sys
+
+line = open(sys.argv[1], "rb").read().decode("utf-8")
+obj = json.loads(line)
+msg = obj["response"]["response"]["message"]
+assert msg == 'no:\tuse the \\API\r"policy" says no', repr(msg)
+PY
+  echo "ok: c17 (python3 json.loads confirms the frame parses and round-trips)"
+else
+  echo "skip: c17 json.loads round-trip (python3 unavailable)"
+fi
+echo "ok: c17 a deny message with control characters delivers well-formed JSON (REQ-E1.4)"
+
+# ---------------------------------------------------------------------------
+# c18 (REQ-E1.5): the mtime probe behind the journal-lock stale-break must
+#     yield a real epoch under BOTH stat flavors. On GNU/busybox stat `-f`
+#     means --file-system, so a BSD-first `stat -f %m … || stat -c %Y …` chain
+#     has its format string consumed as a FILE operand: the call dumps
+#     filesystem info on STDOUT and exits non-zero, and the chain CONCATENATES
+#     that dump with the fallback's epoch. The result is not merely a wrong
+#     mtime — `$((now - mtime))` over it is a fatal arithmetic error that kills
+#     the shell (confirmed on Debian/dash and Alpine/busybox).
+#
+#     The lock is driven through `answer`, whose only pre-lock work is the
+#     worker-dir check: a stale-broken lock lets it reach the not-journaled
+#     refusal (exit 3), a lock judged fresh reports busy (exit 2). Those two
+#     outcomes are what the probe's value decides between, so each flavor is
+#     asserted in BOTH directions — a probe returning a constant would pass
+#     the stale legs alone.
+# ---------------------------------------------------------------------------
+# Flavor shims. Each answers only its own flavor's form and reproduces the
+# other flavor's real failure mode, so the probe cannot pass by accident of
+# ordering: whichever form the script tries first, the value must still be a
+# plain epoch. The mtime they report is canned (STAT_SHIM_MTIME) — the legs
+# below with no shim on PATH cover the host's real stat against a real file.
+mkdir -p "$tmp/statgnu" "$tmp/statbsd"
+cat >"$tmp/statgnu/stat" <<'GNUSTAT'
+#!/bin/sh
+# GNU/busybox stat: -c <fmt> formats; -f is --file-system (fmt becomes a file
+# operand), which dumps to stdout and exits non-zero.
+case ${1:-} in
+  -c)
+    [ "${2:-}" = '%Y' ] || exit 1
+    printf '%s\n' "$STAT_SHIM_MTIME"
+    exit 0
+    ;;
+  -f)
+    echo "stat: cannot read file system information for '${2:-}': No such file or directory" >&2
+    printf '  File: "%s"\n    ID: 94674a6d81261f15 Namelen: 255 Type: overlayfs\nBlock size: 4096\n' "${3:-}"
+    exit 1
+    ;;
+esac
+exit 1
+GNUSTAT
+cat >"$tmp/statbsd/stat" <<'BSDSTAT'
+#!/bin/sh
+# BSD stat: -f <fmt> formats; -c is not an option at all.
+case ${1:-} in
+  -f)
+    [ "${2:-}" = '%m' ] || exit 1
+    printf '%s\n' "$STAT_SHIM_MTIME"
+    exit 0
+    ;;
+  -c)
+    echo "stat: illegal option -- c" >&2
+    echo "usage: stat [-FLnq] [-f format | -l | -r | -s | -x] [-t timefmt] [file ...]" >&2
+    exit 1
+    ;;
+esac
+exit 1
+BSDSTAT
+chmod +x "$tmp/statgnu/stat" "$tmp/statbsd/stat"
+
+home="$tmp/h18"
+rec="$tmp/r18"
+mkdir -p "$rec"
+unknown_req='cccc2222-dddd-eeee-ffff-000011112222'
+
+# lock_leg <name> <path-override|-> <shim-age-secs|-> <touch-stamp|-> <want-rc>
+# Plants a worker dir holding a locked journal, runs one `answer` against it,
+# and asserts the outcome the stale-break decision produces. The shim's mtime
+# is derived from the clock AT CALL TIME (age 0 = fresh, 3600 = well past the
+# 60s threshold): each leg spends ~5s in the lock spin, so a timestamp stamped
+# once at case start would drift across the threshold on a loaded machine and
+# flip the fresh legs.
+lock_leg() {
+  ll_name=$1
+  ll_path=$2
+  ll_age=$3
+  ll_stamp=$4
+  ll_want=$5
+  ll_dir="$home/streamjson/$ll_name"
+  mkdir -p "$ll_dir/journal.lock" || fail "c18/$ll_name: cannot plant the lock"
+  [ "$ll_stamp" = '-' ] || touch -t "$ll_stamp" "$ll_dir/journal.lock" \
+    || fail "c18/$ll_name: cannot age the lock"
+  ll_pre=()
+  [ "$ll_path" = '-' ] || ll_pre+=("PATH=$ll_path:$PATH")
+  [ "$ll_age" = '-' ] || ll_pre+=("STAT_SHIM_MTIME=$(($(date +%s) - ll_age))")
+  senv "$home" "$rec" ${ll_pre[@]+"${ll_pre[@]}"} -- \
+    answer "$ll_name" "$unknown_req" --allow >/dev/null 2>&1
+  ll_rc=$?
+  [ "$ll_rc" = "$ll_want" ] \
+    || fail "c18/$ll_name: expected rc=$ll_want from the stale-break decision, got rc=$ll_rc"
+}
+
+# (a) GNU flavor, lock aged well past the 60s threshold -> broken, `answer`
+#     reaches the not-journaled refusal. THIS is the regression leg: pre-fix
+#     the BSD-first chain concatenates the filesystem dump here.
+lock_leg sjw18a "$tmp/statgnu" 3600 - 3
+# (b) GNU flavor, lock mtime fresh -> NOT broken, reported busy. Proves the
+#     probe's value is actually consumed (a constant would fail this).
+lock_leg sjw18b "$tmp/statgnu" 0 - 2
+# (c) BSD flavor, aged -> broken. The macOS path must not regress when the
+#     probe order flips.
+lock_leg sjw18c "$tmp/statbsd" 3600 - 3
+# (d) BSD flavor, fresh -> busy.
+lock_leg sjw18d "$tmp/statbsd" 0 - 2
+# (e)+(f) NO shim: the host's real stat against a real directory mtime, so
+#     whichever flavor this platform ships is exercised end to end (GNU on the
+#     Linux CI runner, BSD on the macOS floor).
+lock_leg sjw18e - - 202001010000.00 3
+lock_leg sjw18f - - - 2
+echo "ok: c18 the mtime probe yields a real epoch under both stat flavors, in both directions (REQ-E1.5)"
+
 echo "all fleet-streamjson tests passed"
