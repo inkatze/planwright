@@ -231,7 +231,7 @@ worker_dir() {
 # consumed as a FILE operand and the call prints a whole filesystem dump on
 # stdout while exiting non-zero. A bare `stat -f … || stat -c …` chain
 # therefore CONCATENATES that dump with the fallback's epoch, and the
-# `$(now - mtime)` below it is then a FATAL error that kills the shell
+# `$((now - mtime))` below it is then a FATAL error that kills the shell
 # mid-decision (`Illegal number` on Debian/dash, `arithmetic syntax error` on
 # Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
 # failure the BSD-green floor platform never showed. Shape-validating each
