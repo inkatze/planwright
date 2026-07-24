@@ -224,9 +224,32 @@ worker_dir() {
   printf '%s/streamjson/%s' "$wd_root" "$1"
 }
 
-# Portable mtime-in-epoch (BSD stat, then GNU stat).
+# stat_mtime <path> — mtime in epoch seconds, portable across GNU/busybox and
+# BSD stat. BOTH flavors are tried and each result is validated to be a plain
+# integer, because exit status alone does not discriminate between them: on
+# GNU/busybox stat `-f` means --file-system, so the BSD form's format string is
+# consumed as a FILE operand and the call prints a whole filesystem dump on
+# stdout while exiting non-zero. A bare `stat -f … || stat -c …` chain
+# therefore CONCATENATES that dump with the fallback's epoch, and the
+# `$((now - mtime))` below it is then a FATAL error that kills the shell
+# mid-decision (`Illegal number` on Debian/dash, `arithmetic syntax error` on
+# Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
+# failure the BSD-green floor platform never showed. Shape-validating each
+# candidate rather than trusting its exit status makes the probe
+# order-independent and immune to that class. Mirrors fleet-pane-detect.sh's
+# stat_uid (execution-backends task 3), which fixed the same defect on the
+# same reasoning.
+# Returns non-zero when neither flavor yields an integer, so callers fail safe
+# rather than computing an age from garbage.
 stat_mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+  sm_v=$(stat -c '%Y' "$1" 2>/dev/null) || sm_v=''
+  case $sm_v in
+    '' | *[!0-9]*) sm_v=$(stat -f '%m' "$1" 2>/dev/null) || sm_v='' ;;
+  esac
+  case $sm_v in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$sm_v"
 }
 
 # --- journal (the REQ-E1.5 durable receipt state) ---------------------------
@@ -296,15 +319,22 @@ journal_oldest_pending() {
 
 # --- JSON helpers (awk, no jq per REQ-K1.5) ---------------------------------
 
-# json_escape_file <file> — print the file's content as a JSON string body
-# (no surrounding quotes): backslash, quote, tab, and CR escaped; newlines
-# between lines become \n; remaining C0 control bytes and DEL are stripped
-# (prompt text is data — a stray control byte is dropped, never smuggled).
+# json_escape — print stdin as a JSON string body (no surrounding quotes):
+# backslash, quote, tab, and CR escaped; newlines between lines become \n;
+# remaining C0 control bytes and DEL are stripped (this text is data — a stray
+# control byte is dropped, never smuggled, and never emitted raw, which would
+# make the frame invalid JSON the worker's parser rejects).
 # Bytes >= 0x80 are kept, so raw UTF-8 (accents, em-dash, CJK, emoji) reaches
-# the worker intact — JSON strings carry UTF-8 verbatim. Under the pinned
-# LC_ALL=C the class below is a byte-range strip, so it removes only C0/DEL,
-# not the UTF-8 continuation/lead bytes a `[^[:print:]]` strip would delete.
-json_escape_file() {
+# the worker intact — JSON strings carry UTF-8 verbatim; the class below is
+# chosen over `[^[:print:]]`, which would delete UTF-8 lead/continuation
+# bytes. NOTE the strip is GNU-only in practice: BSD awk (macOS) does not
+# honour `[\000-\037\177]` as a byte range and strips nothing, so on the
+# bash-3.2 floor C0/DEL survive this escaper (tests/test-fleet-streamjson.sh
+# c17 documents the same asymmetry). TAB and CR use explicit gsub above and
+# are portable everywhere.
+# Every string body the supervisor emits goes through this one escaper, so the
+# prompt path and the deny-message path cannot drift apart.
+json_escape() {
   awk '
     NR > 1 { printf "\\n" }
     {
@@ -316,7 +346,12 @@ json_escape_file() {
       gsub(/[\000-\037\177]/, "", s)
       printf "%s", s
     }
-  ' "$1"
+  '
+}
+
+# json_escape_file <file> — json_escape over a file's content.
+json_escape_file() {
+  json_escape <"$1"
 }
 
 # json_field <line> <key> — print the string value of the FIRST
@@ -893,8 +928,7 @@ cmd_answer() {
       fi
       ;;
     deny)
-      deny_esc=$(printf '%s' "$deny_msg" | head -c 512 \
-        | awk 'NR > 1 { printf "\\n" } { s = $0; gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); printf "%s", s }')
+      deny_esc=$(printf '%s' "$deny_msg" | head -c 512 | json_escape)
       body=$(printf '{"behavior":"deny","message":"%s"}' "$deny_esc")
       ;;
   esac
