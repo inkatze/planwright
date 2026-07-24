@@ -293,6 +293,51 @@ printf '%s\n' "$refzero_out" | grep -q 'names unknown task id 1' \
   || fail "a zero-task bundle ate its first reference bullet (empty-first-file gotcha): $refzero_out"
 echo "ok: a zero-task v2 bundle still cross-checks its first reference bullet"
 
+# An UNBALANCED column-0 fence is the newest fail-closed path the re-point
+# introduces: the lib treats end-of-file inside an open fence as malformed
+# (REQ-A1.1's lib half) rather than swallowing the rest of the file as
+# illustration, and each consumer must surface that refusal instead of
+# validating, rendering, or selecting against an empty parked map (REQ-B1.6f).
+# The header block closes before the fence, so the version still parses — this
+# isolates the parked-map path.
+fence_repo="$tmp/fence-repo"
+mkdir -p "$fence_repo/specs"
+write_corpus "$fence_repo/specs/corpus"
+{
+  printf '# Corpus — Tasks\n\n'
+  header_block Ready
+  printf '\n## Tasks\n\n'
+  task_block 1 none
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 1** A real park before the fence.\n\n'
+  printf '## Notes\n\n'
+  printf '```\n'
+  printf 'An unterminated fence swallows everything below it.\n'
+} >"$fence_repo/specs/corpus/tasks.md"
+git -C "$fence_repo" -c init.defaultBranch=main init -q
+gitc "$fence_repo" add -A
+gitc "$fence_repo" commit -q -m "base: unbalanced-fence bundle"
+
+if "$STATUS" "$fence_repo/specs/corpus" >/dev/null 2>&1; then
+  fail "unbalanced fence: spec-status.sh did not fail closed"
+fi
+if "$SELECT" "$fence_repo/specs/corpus" >/dev/null 2>&1; then
+  fail "unbalanced fence: orchestrate-select.sh did not fail closed"
+fi
+if fence_val=$("$VALIDATE" "$fence_repo/specs/corpus" 2>&1); then
+  fail "unbalanced fence: spec-validate.sh reported no error: $fence_val"
+fi
+printf '%s\n' "$fence_val" | grep -q 'spec-validate: ERROR' \
+  || fail "unbalanced fence: spec-validate.sh finding is not ERROR severity: $fence_val"
+printf '%s\n' "$fence_val" | grep -qi 'reference-bullet parse failed' \
+  || fail "unbalanced fence: spec-validate.sh does not name the failed parse: $fence_val"
+# drain-gates completes the sweep by contract; the refusal is a report error.
+fence_drain=$("$DRAIN" --today 2026-07-24 "$fence_repo/specs" 2>/dev/null) \
+  || fail "unbalanced fence: drain-gates.sh aborted instead of reporting"
+printf '%s\n' "$fence_drain" | grep -q 'could not read the v2 parked map' \
+  || fail "unbalanced fence: drain-gates.sh evaluated gates against an empty parked map: $fence_drain"
+echo "ok: an unbalanced column-0 fence fails closed in every v2 parser (REQ-A1.1, REQ-B1.6f)"
+
 # ---------------------------------------------------------------------------
 # Property 3: a CRLF checkout keeps the Awaiting-input park blocking derived
 # Done (REQ-C1.3 — the spec-status.sh defect this task fixes).
