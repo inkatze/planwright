@@ -236,9 +236,9 @@ worker_dir() {
 # Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
 # failure the BSD-green floor platform never showed. Shape-validating each
 # candidate rather than trusting its exit status makes the probe
-# order-independent and immune to that class. Mirrors the owner probe landing
-# in execution-backends task 3, which fixes the same defect on the same
-# reasoning.
+# order-independent and immune to that class. Mirrors fleet-pane-detect.sh's
+# stat_uid (execution-backends task 3), which fixed the same defect on the
+# same reasoning.
 # Returns non-zero when neither flavor yields an integer, so callers fail safe
 # rather than computing an age from garbage.
 stat_mtime() {
