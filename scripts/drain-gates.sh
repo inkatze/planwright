@@ -43,7 +43,9 @@
 # grammar-validated before use and a violating id is rejected with a note
 # (REQ-C1.9). A missing or unparseable `Format-version:` fails closed as a
 # per-spec report error — the spec's gates are not evaluated under guessed
-# rules (REQ-C1.8). On a transient evidence failure (the engine's `degraded`
+# rules (REQ-C1.8); unparseable includes a DUPLICATE in-header declaration
+# (REQ-A1.2), and so does a parked map the grammar lib refused (a NUL byte, or
+# end-of-file inside an open column-0 fence). On a transient evidence failure (the engine's `degraded`
 # record: remote configured but the fetch failed) or an engine failure, v2
 # task atoms resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial
 # evidence, surfaced and counted as a report error, the sweep still completes.
@@ -63,7 +65,9 @@
 # or mid-sweep-changed swept files are report content, not failures),
 # 1 unusable specs root (missing, unreadable, or non-searchable), 2 usage
 # error or a broken install (the script's own directory unresolvable, so the
-# sibling derivation engine cannot be located); any other status means the
+# sibling derivation engine cannot be located; or a missing/unreadable
+# scripts/spec-parse.sh, the shared grammar lib the version, status, and
+# parked-map parses read through); any other status means the
 # sweep aborted mid-run (internal failure) without emitting a report.
 #
 # Security (REQ-H1.3): gate content is data only. The parse is pattern

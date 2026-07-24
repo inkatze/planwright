@@ -46,7 +46,10 @@
 # Version keying is fail-closed (REQ-C1.8): a missing or unparseable
 # `Format-version:` is an error at every status — the rules to apply cannot
 # be known without a parsed version — and neither version's extra rules are
-# applied. The declaration is read from requirements.md; when that file is
+# applied. Unparseable includes a DUPLICATE in-header `Format-version:` or
+# `Status:` declaration (REQ-A1.2, REQ-D1.9), which has no honest positional
+# winner; so does a header block or reference-bullet parse the shared grammar
+# lib refused (a NUL byte, or end-of-file inside an open column-0 fence). The declaration is read from requirements.md; when that file is
 # absent it falls back to the sibling mirrors (agreeing siblings resolve,
 # disagreeing siblings are a hard error). v1 bundles keep the v1 rules
 # unchanged (REQ-D1.1).

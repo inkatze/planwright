@@ -54,8 +54,11 @@
 # unit this step; 2 the tasks.md is missing, unreadable, NUL-laden, holds no
 # task records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
 # candidacy rules cannot be known without a parsed version; both modes refuse
-# rather than guess), or the sourced echo-safety.sh helper is missing (broken
-# install, both modes), or (selection only) the derivation engine is missing /
+# rather than guess; unparseable includes a DUPLICATE in-header declaration,
+# REQ-A1.2), or the parked map the shared grammar lib refused (end-of-file
+# inside an open column-0 fence), or a sourced helper is missing —
+# echo-safety.sh or spec-parse.sh (broken install, both modes) —, or
+# (selection only) the derivation engine is missing /
 # not executable or its derivation fails (no git work tree, invalid spec id) —
 # fail closed: a malformed file or unavailable live truth must not silently
 # report "nothing"; 3 (selection only, v2) transient evidence failure — the

@@ -44,7 +44,9 @@
 #   specs/ directory (skipping `_`-prefixed accumulator dirs, which are not task
 #   bundles). The no-arg form is the CI / local-check entry point (REQ-E1.3).
 #
-# Exit codes: 0 clean, 1 corruption found, 2 usage error.
+# Exit codes: 0 clean, 1 corruption found, 2 usage error or a broken install
+# (a missing or unreadable scripts/spec-parse.sh, the shared grammar lib the
+# version keying reads the declaration through).
 #
 # Portable bash 3.2 / BSD tooling; POSIX awk, no gawk-only constructs, no eval;
 # all input treated as data (REQ-K1.5, framework-script safety).

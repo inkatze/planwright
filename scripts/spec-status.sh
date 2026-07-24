@@ -40,7 +40,10 @@
 # Reference-bullet authority (REQ-B1.4, D-3): on a v2 bundle a live bullet
 # whose bolded lead is `**Task <id>**` under ## Awaiting input / ## Deferred /
 # ## Out of scope parks its task — the task renders awaiting-input / deferred /
-# out-of-scope regardless of git evidence. A bullet on a task whose evidence
+# out-of-scope regardless of git evidence. The parse is the shared grammar lib's
+# (scripts/spec-parse.sh, REQ-B1.4, REQ-C1.1), so column-0 fences are
+# illustration and section headings are matched CRLF-tolerantly: a fenced mock
+# bullet parks nothing, and a CRLF checkout cannot hide a live park (REQ-C1.3). A bullet on a task whose evidence
 # derives completed is flagged as a stale-bullet anomaly. Awaiting-input-parked
 # tasks block derived Done; Deferred / Out-of-scope-parked tasks are excluded
 # from the Done universe rather than blocking it (D-4). Bullet task ids are
@@ -50,9 +53,13 @@
 # Failure modes (REQ-B1.5, REQ-C1.8 — fail closed, distinct exits):
 #   exit 0   rendered (including the stored-state-only and no-tasks reports)
 #   exit 2   fail-closed input error: usage, missing/unreadable spec files, a
-#            missing or unparseable Format-version: line (never falling open
-#            to a version's rules), an unrecognized stored status, or an
-#            engine failure
+#            missing or unparseable Format-version: or Status: declaration
+#            (never falling open to a version's rules; unparseable includes a
+#            DUPLICATE in-header declaration of either load-bearing key,
+#            REQ-A1.2), an unrecognized stored status, a parked map the shared
+#            grammar lib refused (a NUL byte, or end-of-file inside an open
+#            column-0 fence), a missing or unreadable scripts/spec-parse.sh
+#            (broken install), or an engine failure
 #   exit 3   transient evidence failure: the remote is configured but the gh
 #            query failed (the engine's `degraded` record — its documented
 #            failure signal). Partial evidence is NOT presented as status; the

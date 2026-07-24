@@ -555,6 +555,8 @@ nolib_refuses() {
   if nr_out=$(sh "$@" 2>"$tmp/nolib.err"); then
     fail "$nr_label succeeded without the lib (fail-open, REQ-B1.6a)"
   fi
+  [ -z "$nr_out" ] \
+    || fail "$nr_label emitted output without the lib (a partial answer is the fail-open): $nr_out"
   grep -q "spec-parse.sh" "$tmp/nolib.err" \
     || fail "$nr_label missing-lib refusal does not name the lib: $(cat "$tmp/nolib.err")"
   echo "ok: $nr_label fails closed when the lib is missing (REQ-B1.6a)"
