@@ -17,8 +17,8 @@ branch, and be mergeable.** That invariant is stated once, in `requirements.md`
 as **REQ-A1.1** (its single home); the decisions that carry it (D-1 through
 D-4) cite it rather than restating it normatively. Two mechanisms carry it —
 one that keeps the verified head current (D-4), and one that refuses a flip
-that violates the invariant (D-2, D-3). The guard is the enforcement floor; the in-loop sync is what keeps
-that floor from ever being hit in normal operation.
+that violates the invariant (D-2, D-3). The guard is the enforcement floor; the
+in-loop sync is what keeps that floor from ever being hit in normal operation.
 
 ## Decision log
 
