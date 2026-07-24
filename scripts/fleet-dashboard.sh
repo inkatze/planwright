@@ -365,22 +365,33 @@ render() {
 # write_page <path> — atomic, owner-only. The temp lands in the target's own
 # directory so the rename is same-filesystem; a failed render removes it and
 # leaves any previously written page untouched.
+# PENDING_TMP publishes the in-flight temp to the signal traps. `watch` is
+# stopped with a signal by design, and a signal that lands mid-render would
+# otherwise abandon the temp beside the operator's target — one more file per
+# stop, forever.
+PENDING_TMP=""
+
 write_page() {
   wp_out=$1
   wp_dir=$(dirname "$wp_out")
   wp_tmp=$(mktemp "$wp_dir/.planwright-dash.XXXXXX") || return 2
+  PENDING_TMP=$wp_tmp
   chmod 600 "$wp_tmp" || {
     rm -f "$wp_tmp"
+    PENDING_TMP=""
     return 2
   }
   if ! render >"$wp_tmp"; then
     rm -f "$wp_tmp"
+    PENDING_TMP=""
     return 2
   fi
   mv "$wp_tmp" "$wp_out" || {
     rm -f "$wp_tmp"
+    PENDING_TMP=""
     return 2
   }
+  PENDING_TMP=""
 }
 
 # --- argument handling ------------------------------------------------------
@@ -444,9 +455,15 @@ if [ "$CMD" != render ]; then
 fi
 
 WS=$(mktemp -d "${TMPDIR:-/tmp}/planwright-dash.XXXXXX") || exit 2
-trap 'rm -rf "$WS"' EXIT
-trap 'rm -rf "$WS"; exit 130' INT
-trap 'rm -rf "$WS"; exit 143' TERM
+
+cleanup() {
+  rm -rf "$WS"
+  [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"
+}
+
+trap 'cleanup' EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 case $CMD in
   render) render || exit 2 ;;

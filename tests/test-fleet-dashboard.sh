@@ -51,15 +51,21 @@ chmod +x "$bin/fleet-dashboard.sh"
 fixture="$tmp/merge.tsv"
 shimlog="$tmp/shim.log"
 shim_rc="$tmp/shim.rc"
+shim_delay="$tmp/shim.delay"
 echo 0 >"$shim_rc"
+echo 0 >"$shim_delay"
 # Every line below is literal shim source: the `$*`/`$rc` expansions and the
-# `\n` belong to the shim at ITS runtime, not to this test.
+# `\n` belong to the shim at ITS runtime, not to this test. The log line is
+# written BEFORE the optional delay, so a test can tell when a render is
+# in flight and signal it there.
 # shellcheck disable=SC2016,SC2028
 {
   echo '#!/bin/sh'
   echo 'printf "%s\n" "$*" >>'"'$shimlog'"
   echo 'rc=$(cat '"'$shim_rc'"')'
   echo '[ "$rc" -eq 0 ] || exit "$rc"'
+  echo 'delay=$(cat '"'$shim_delay'"')'
+  echo '[ "$delay" -eq 0 ] || sleep "$delay"'
   echo "cat '$fixture'"
 } >"$bin/fleet-status.sh"
 chmod +x "$bin/fleet-status.sh"
@@ -69,6 +75,7 @@ DASHC="$bin/fleet-dashboard.sh"
 reset_shim() {
   : >"$shimlog"
   echo 0 >"$shim_rc"
+  echo 0 >"$shim_delay"
 }
 
 # write_fixture <lines...> — each argument is one merge line with fields
@@ -393,6 +400,30 @@ kill -TERM "$wpid" 2>/dev/null || true
 wait "$wpid" 2>/dev/null || true
 [ "$n" -ge 2 ] || fail "watch: expected repeated renders, saw $n"
 [ -f "$wtarget" ] || fail "watch: no file produced"
+
+# A signal that lands MID-RENDER cleans up after itself. `watch` is stopped
+# with a signal by design, so a temp left beside the target on every stop
+# would accumulate in the operator's output directory run after run.
+reset_shim
+full_fixture
+echo 3 >"$shim_delay"
+mkdir -p "$tmp/sig"
+sigtarget="$tmp/sig/page.html"
+"$DASHC" watch --out "$sigtarget" --interval 1 >/dev/null 2>&1 &
+spid=$!
+waited=0
+while [ "$waited" -lt 100 ]; do
+  [ -s "$shimlog" ] && break
+  sleep 0.1 2>/dev/null || sleep 1
+  waited=$((waited + 1))
+done
+[ -s "$shimlog" ] || fail "signal-cleanup: the render never started"
+kill -TERM "$spid" 2>/dev/null || true
+wait "$spid" 2>/dev/null || true
+residue=$(find "$tmp/sig" -name '.planwright-dash*' | wc -l | tr -d ' ')
+[ "$residue" = 0 ] \
+  || fail "signal-cleanup: TERM mid-render left $residue temp file(s) beside the target"
+reset_shim
 
 # ===========================================================================
 # 13. Usage errors fail closed with exit 2.
