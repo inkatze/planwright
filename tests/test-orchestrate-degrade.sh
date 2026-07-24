@@ -45,6 +45,14 @@ unset CDPATH
 unset PLANWRIGHT_ORCH_STATE_DIR PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT \
   PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
 
+# headless-oneshot's presence default is now the installed-CLI probe
+# (execution-backends Task 3), so a claude-installed dev host and a bare CI
+# host would otherwise disagree in the unpinned failover cases below. Pin it
+# ABSENT suite-wide; the forced-present cases override inline, and the probe
+# default itself is covered in test-orchestrate-backends.sh test 31.
+PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=0
+export PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
+
 here=$(cd "$(dirname "$0")" && pwd)
 DEGRADE="$here/../scripts/orchestrate-degrade.sh"
 

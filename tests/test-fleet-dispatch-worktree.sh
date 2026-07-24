@@ -713,7 +713,91 @@ c18() {
     || fail "c18: the standalone repo was destroyed (data loss)"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18; do
+# ---------------------------------------------------------------------------
+# c19 — --no-attach: the create-only arm (execution-backends Task 3). A
+# backend that launches its own worker into the created worktree (the
+# headless-oneshot rung) needs the full create machinery — grammar, fetch,
+# collision reconcile, marker — with NO tmux attach and NO attach plan. The
+# dispatch record lines still print, so the caller learns the worktree path.
+# ---------------------------------------------------------------------------
+c19() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c19.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 40 --repo-root "$tmp/primary" --no-attach
+  [ "$RC" -eq 0 ] || {
+    fail "c19: dispatch --no-attach exited $RC (expected 0)"
+    return
+  }
+  [ "$(dfield "$OUT" branch)" = "planwright/demo/task-40" ] \
+    || fail "c19: branch '$(dfield "$OUT" branch)' != planwright/demo/task-40"
+  # The primitive reports PHYSICAL paths (pwd -P); compare in kind.
+  _phys=$(cd "$tmp/primary" && pwd -P)
+  [ "$(dfield "$OUT" worktree)" = "$_phys/.claude/worktrees/task-40" ] \
+    || fail "c19: worktree line missing or wrong: '$(dfield "$OUT" worktree)'"
+  [ -d "$tmp/primary/.claude/worktrees/task-40" ] \
+    || fail "c19: --no-attach did not create the worktree"
+  gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-40 \
+    || fail "c19: --no-attach did not create the D-36 branch"
+  # No attach plan and no launch: the output carries no attach/exec lines.
+  if printf '%s\n' "$OUT" | grep -qv '^dispatch	'; then
+    fail "c19: --no-attach printed non-dispatch-record output (an attach plan?): $OUT"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# c20 — --no-attach launches no worker, so it cannot honor post-`--` launch
+# args; passing them is a usage error (exit 2), never a silent drop (C8).
+# ---------------------------------------------------------------------------
+c20() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c20.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 50 --repo-root "$tmp/primary" --no-attach -- --model opus
+  [ "$RC" -eq 2 ] || fail "c20: --no-attach with post---- args should be a usage error (exit 2), got $RC"
+  # The refusal is pre-side-effect: no branch/worktree was created.
+  if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-50; then
+    fail "c20: a refused --no-attach launch must not create the branch"
+  fi
+  [ -d "$tmp/primary/.claude/worktrees/task-50" ] \
+    && fail "c20: a refused --no-attach launch must not create the worktree"
+}
+
+# c21 — --attach-dry-run and --no-attach are documented alternatives; passing
+# both is a usage error (exit 2), never a silent pick of one. Order-independent:
+# the refusal is post-parse, so neither argv order sneaks through.
+# ---------------------------------------------------------------------------
+c21() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c21.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 60 --repo-root "$tmp/primary" --attach-dry-run --no-attach
+  [ "$RC" -eq 2 ] \
+    || fail "c21: --attach-dry-run with --no-attach should be a usage error (exit 2), got $RC"
+  # The refusal is pre-side-effect: no branch/worktree was created.
+  if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-60; then
+    fail "c21: a refused flag combination must not create the branch"
+  fi
+  [ -d "$tmp/primary/.claude/worktrees/task-60" ] \
+    && fail "c21: a refused flag combination must not create the worktree"
+
+  # The reverse order must be refused identically (the precedence today is fixed
+  # in the code, not in argv, so a caller cannot pick a winner by ordering).
+  run_prim dispatch demo 61 --repo-root "$tmp/primary" --no-attach --attach-dry-run
+  [ "$RC" -eq 2 ] \
+    || fail "c21: --no-attach with --attach-dry-run should be a usage error (exit 2), got $RC"
+  if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-61; then
+    fail "c21: a refused flag combination must not create the branch (reverse order)"
+  fi
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true

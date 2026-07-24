@@ -469,11 +469,59 @@ if [ "$push_capable" -eq 0 ]; then
 fi
 
 # --- Debounce state key (computed here so BOTH defer gates can reset it) ----
+# state_dir_trusted <dir> — the shared-temp fallback is safe only if it is a real
+# directory WE own and is not a symlink: a predictable name under a world-writable
+# /tmp can be pre-created by another user (fails -O) or planted as a symlink to
+# redirect the debounce writes (fails ! -L). Because we own it, force 0700 — an
+# attacker-owned dir never reaches the chmod. The dir is deliberately REUSED
+# across invocations (it accumulates the two-frame floor), so this validates a
+# stable per-uid path rather than minting a throwaway mktemp dir.
+# stat_uid <path> — the numeric owner uid, portable across GNU/busybox and BSD
+# stat (`test -O` is not POSIX, SC3067). BOTH flavors are tried and each result
+# is validated to be a plain integer, because exit status alone does not
+# discriminate between them: on GNU/busybox stat `-f` means --file-system, so
+# the BSD form's format string is consumed as a FILE operand and the call prints
+# a whole filesystem dump on stdout while exiting non-zero. A bare
+# `stat -f … || stat -c …` chain therefore CONCATENATES that dump with the
+# fallback's value, and every comparison against the result fails — which is how
+# the first cut of this predicate refused a directory it had itself just created
+# (macOS-green, Linux-red). Shape-validating each candidate rather than trusting
+# its exit status makes the probe order-independent and immune to that class.
+stat_uid() {
+  su_v=$(stat -c '%u' "$1" 2>/dev/null) || su_v=''
+  case $su_v in
+    '' | *[!0-9]*) su_v=$(stat -f '%u' "$1" 2>/dev/null) || su_v='' ;;
+  esac
+  case $su_v in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$su_v"
+}
+
+state_dir_trusted() {
+  [ -d "$1" ] || return 1
+  [ -L "$1" ] && return 1
+  sdt_owner=$(stat_uid "$1") || return 1
+  # Our own uid must be readable and numeric too, or there is nothing to
+  # compare against and the dir cannot be proven ours: fail closed.
+  sdt_self=$(id -u 2>/dev/null) || sdt_self=''
+  case $sdt_self in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  [ "$sdt_owner" = "$sdt_self" ] || return 1
+  chmod 0700 "$1" 2>/dev/null || return 1
+  return 0
+}
+
+state_shared_tmp=0
 if [ -z "$state_dir" ]; then
   if [ -n "$root" ]; then
     state_dir="$root/liveness/pane-detect"
   else
-    state_dir="${TMPDIR:-/tmp}/fleet-pane-detect"
+    # No --root/--state-dir: fall back to a PER-UID name under the temp dir so
+    # distinct users never share one, and validate it is private before use.
+    state_dir="${TMPDIR:-/tmp}/fleet-pane-detect-$(id -u 2>/dev/null || echo n)"
+    state_shared_tmp=1
   fi
 fi
 # An uncreatable state dir blocks only the pane-heuristic path (which needs
@@ -482,7 +530,17 @@ fi
 # a hard failure would be classification loss for nothing. The heuristic
 # path fails closed on it further below.
 state_ok=1
-if ! mkdir -p "$state_dir" 2>/dev/null; then
+if [ "$state_shared_tmp" = 1 ]; then
+  # Create the per-uid dir PRIVATE on first use (plain mkdir -m: the temp parent
+  # already exists, so -p is unnecessary and its -m caveat does not apply), then
+  # validate on EVERY use — the dir persists across invocations, so a later run
+  # must re-prove it is still ours and not a redirect planted since.
+  [ -d "$state_dir" ] || mkdir -m 0700 "$state_dir" 2>/dev/null || true
+  if ! state_dir_trusted "$state_dir"; then
+    echo "fleet-pane-detect: refusing the shared fallback state dir $(sanitize_printable "$state_dir" "(unprintable path)") — not a private per-user directory (foreign owner or symlink redirect); pane heuristics unavailable, the defer gates still answer" >&2
+    state_ok=0
+  fi
+elif ! mkdir -p "$state_dir" 2>/dev/null; then
   state_ok=0
 fi
 # Key the state file by scope+worker. A readable sanitized prefix aids
@@ -571,7 +629,7 @@ fi
 # now does its absence fail closed (the defer gates above answered without
 # it whenever they could).
 if [ "$state_ok" != 1 ]; then
-  echo "fleet-pane-detect: cannot create the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
+  echo "fleet-pane-detect: cannot use the debounce state dir $(sanitize_printable "$state_dir" "(unprintable dir)")" >&2
   exit 2
 fi
 

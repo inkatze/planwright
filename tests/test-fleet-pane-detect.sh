@@ -720,4 +720,55 @@ uc=0
 [ "$uc" -eq 2 ] || fail "no-helper fallback: an unknown backend must exit 2, got '$uc'"
 echo "ok: the no-helper fallback mirrors the contract's push column and fails closed"
 
+# --- shared-temp fallback state dir is per-uid and validated private ---------
+# With no --root and no --state-dir the debounce state falls back to a temp-dir
+# path. That name is predictable, so on a multi-user host it must be per-uid AND
+# proven ours before use: the state file has to PERSIST across invocations (it
+# accumulates the two-frame floor), so a throwaway mktemp dir is not the fix.
+# TMPDIR is redirected into the fixture tree so the assertions never touch the
+# real /tmp path a concurrent run would share.
+
+# (a) fresh fallback: a per-uid dir created 0700, debouncing across two calls.
+sf_home="$tmp/sharedtmp"
+mkdir -p "$sf_home"
+sf_dir="$sf_home/fleet-pane-detect-$(id -u)"
+sf1=$(TMPDIR="$sf_home" "$FPD" classify --pane "$idle_pane" --backend subagent \
+  --worker w-sharedtmp) || fail "shared-temp fallback: frame 1 exited non-zero"
+[ "$sf1" = pending ] \
+  || fail "shared-temp fallback: frame 1 should be 'pending', got '$sf1'"
+sf2=$(TMPDIR="$sf_home" "$FPD" classify --pane "$idle_pane" --backend subagent \
+  --worker w-sharedtmp) || fail "shared-temp fallback: frame 2 exited non-zero"
+[ "$sf2" = idle ] \
+  || fail "shared-temp fallback: frame 2 should confirm 'idle', got '$sf2'"
+[ -d "$sf_dir" ] \
+  || fail "shared-temp fallback: per-uid state dir $sf_dir was not created"
+# Mode via GNU/busybox then BSD stat, validating the SHAPE of each candidate
+# rather than its exit status: `stat -f` means --file-system on GNU/busybox, so
+# the BSD form there prints a filesystem dump on stdout while exiting non-zero
+# and a bare `||` chain would concatenate it with the fallback's value (the same
+# portability trap the detector's own stat_uid documents).
+sf_mode=$(stat -c '%a' "$sf_dir" 2>/dev/null) || sf_mode=''
+case $sf_mode in
+  '' | *[!0-7]*) sf_mode=$(stat -f '%Lp' "$sf_dir" 2>/dev/null) || sf_mode='' ;;
+esac
+[ "$sf_mode" = 700 ] \
+  || fail "shared-temp fallback: state dir must be 0700, got '$sf_mode'"
+echo "ok: the shared-temp fallback uses a private per-uid state dir and debounces across calls"
+
+# (b) a planted SYMLINK at the fallback path is refused, never written through.
+sf_evil="$tmp/sharedtmp-evil"
+sf_target="$tmp/sf-target"
+mkdir -p "$sf_evil" "$sf_target"
+ln -s "$sf_target" "$sf_evil/fleet-pane-detect-$(id -u)"
+sf_rc=0
+TMPDIR="$sf_evil" "$FPD" classify --pane "$idle_pane" --backend subagent \
+  --worker w-sfevil >/dev/null 2>"$tmp/sf-err.txt" || sf_rc=$?
+[ "$sf_rc" -eq 2 ] \
+  || fail "planted symlink: the untrusted fallback must exit 2, got '$sf_rc'"
+grep -q 'refusing the shared fallback state dir' "$tmp/sf-err.txt" \
+  || fail "planted symlink: expected the refusal diagnostic, got: $(cat "$tmp/sf-err.txt")"
+[ -z "$(ls -A "$sf_target" 2>/dev/null)" ] \
+  || fail "planted symlink: debounce state was written through the redirect"
+echo "ok: a planted symlink at the shared-temp fallback is refused, never written through"
+
 echo "ok: test-fleet-pane-detect"

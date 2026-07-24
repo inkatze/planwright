@@ -15,8 +15,9 @@
 #     runtime) and `tmux` is present iff it resolves on PATH — both overridable
 #     via PLANWRIGHT_BACKEND_{SUBAGENT,TMUX} so a host/test can force presence.
 #     The contract-defined `stream-json-persistent` and `headless-oneshot` rows
-#     (execution-backends REQ-A1.2, REQ-A1.3) default ABSENT until their
-#     dispatch support lands (execution-backends Tasks 3–4), overridable via
+#     (execution-backends REQ-A1.2, REQ-A1.3) now have their dispatch support
+#     (Tasks 4 and 3), so each probes the installed CLI — present iff `claude`
+#     resolves on PATH — overridable via
 #     PLANWRIGHT_BACKEND_{STREAM_JSON_PERSISTENT,HEADLESS_ONESHOT}. A pluggable
 #     name is present iff a `planwright-backend-<name>` adapter on PATH answers
 #     `advertise` with a well-formed capability set; a malformed/absent adapter
@@ -58,6 +59,16 @@ unset CDPATH
 # ambient presence would flip the default-absent assertions in test 31.
 unset PLANWRIGHT_BACKEND_TMUX PLANWRIGHT_BACKEND_SUBAGENT \
   PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT PLANWRIGHT_BACKEND_HEADLESS_ONESHOT
+
+# Both execution-backends rows now default to the installed-CLI probe (their
+# dispatch support landed: headless-oneshot Task 3, stream-json-persistent
+# Task 4), so a claude-installed dev host and a bare CI host would otherwise
+# disagree in every unpinned detect / select-unattended case below. Pin BOTH
+# ABSENT suite-wide; test 31 exercises the probe default explicitly (both
+# directions) with the pins lifted.
+PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=0
+PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0
+export PLANWRIGHT_BACKEND_HEADLESS_ONESHOT PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT
 
 here=$(cd "$(dirname "$0")" && pwd)
 BACKENDS="$here/../scripts/orchestrate-backends.sh"
@@ -740,32 +751,47 @@ out=$("$BACKENDS" caps stream-json-persistent) \
 echo "ok: caps answers the REQ-A1.2/REQ-A1.3 pinned sets for the new rows"
 
 # ---------------------------------------------------------------------------
-# 31. New-row presence: stream-json-persistent gained dispatch support
-#     (fleet-streamjson.sh, execution-backends Task 4), so its default is the
-#     installed-CLI probe — present exactly when `claude` is on PATH, both
-#     arms pinned below so the fixture is machine-independent.
-#     headless-oneshot still ships ahead of its dispatch support (Task 3) and
-#     defaults ABSENT — never a selectable rung the tower cannot drive — while
-#     the env overrides force presence for tests and the richest-first order
-#     slots them between tmux and the pluggables.
+# 31. New-row presence. Both execution-backends rows now have dispatch support
+#     (headless-oneshot Task 3: fleet-dispatch-headless.sh; stream-json-
+#     persistent Task 4: the fleet-streamjson.sh supervisor), so each defaults
+#     to the INSTALLED-CLI PROBE (`command -v claude`): present iff the CLI is
+#     on PATH, with the env override still winning in both directions. The
+#     richest-first order slots both between tmux and the pluggables.
 # ---------------------------------------------------------------------------
-# Installed-CLI probe, absent arm: no `claude` on the pinned PATH.
-out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) \
-  || fail "detect exited non-zero"
+# Probe absent arm: no `claude` on the pinned PATH (BIN carries only detect's
+# own tools), both suite pins lifted so the probe itself decides.
+out=$(env -u PLANWRIGHT_BACKEND_HEADLESS_ONESHOT -u PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT \
+  PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) \
+  || fail "detect(no claude on PATH) non-zero"
 row_present "$out" stream-json-persistent \
-  && fail "detect: stream-json-persistent must be absent when no claude CLI is installed"
+  && fail "detect: stream-json-persistent should be absent when no claude is on PATH"
 row_present "$out" headless-oneshot \
-  && fail "detect: headless-oneshot must default absent until dispatch support lands"
-# Installed-CLI probe, present arm: a claude stub on the pinned PATH.
-printf '#!/bin/sh\nexit 0\n' >"$BIN/claude"
-chmod +x "$BIN/claude"
-out=$(PATH="$BIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) \
-  || fail "detect exited non-zero (claude stub present)"
+  && fail "detect: headless-oneshot should be absent when no claude is on PATH"
+# Probe present arm: a fake `claude` (never executed — presence is a `command -v`
+# lookup) beside the tools detect needs; both suite pins lifted.
+CLBIN="$tmp/clbin"
+mkdir -p "$CLBIN"
+for t in sh env cat awk sed tr grep printf command dirname basename; do
+  p=$(command -v "$t" 2>/dev/null) || true
+  [ -n "$p" ] && ln -sf "$p" "$CLBIN/$t" 2>/dev/null || true
+done
+printf '#!/bin/sh\nexit 0\n' >"$CLBIN/claude"
+chmod +x "$CLBIN/claude"
+out=$(env -u PLANWRIGHT_BACKEND_HEADLESS_ONESHOT -u PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT \
+  PATH="$CLBIN" PLANWRIGHT_BACKEND_TMUX=0 "$BACKENDS" detect) \
+  || fail "detect(claude on PATH) non-zero"
 row_present "$out" stream-json-persistent \
-  || fail "detect: stream-json-persistent must probe present when the claude CLI is installed"
+  || fail "detect: stream-json-persistent should be present when the CLI probe finds claude"
 row_present "$out" headless-oneshot \
-  && fail "detect: an installed CLI must not flip headless-oneshot (Task 3 pending)"
-rm -f "$BIN/claude"
+  || fail "detect: headless-oneshot should be present when the CLI probe finds claude"
+# The =0 env override beats a successful CLI probe, for both rows.
+out=$(PATH="$CLBIN" PLANWRIGHT_BACKEND_TMUX=0 \
+  PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=0 \
+  "$BACKENDS" detect) || fail "detect(probe overridden off) non-zero"
+row_present "$out" headless-oneshot \
+  && fail "detect: the =0 env override must beat a successful CLI probe (headless)"
+row_present "$out" stream-json-persistent \
+  && fail "detect: the =0 env override must beat a successful CLI probe (stream-json)"
 out=$(PLANWRIGHT_BACKEND_TMUX=1 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
   PLANWRIGHT_BACKEND_HEADLESS_ONESHOT=1 "$BACKENDS" detect) \
   || fail "detect(new rows forced) non-zero"
@@ -813,7 +839,7 @@ sel=$(PLANWRIGHT_BACKEND_TMUX=0 PLANWRIGHT_BACKEND_STREAM_JSON_PERSISTENT=1 \
   || fail "select-unattended(tmux absent, sjp forced) non-zero"
 [ "$sel" = subagent ] \
   || fail "select-unattended: the degrade chain must stay subagent-first pre-Task-5, got '$sel'"
-echo "ok: the new contract rows default absent and honor the env presence overrides"
+echo "ok: the new contract rows probe the installed CLI and honor the env presence overrides"
 
 # ---------------------------------------------------------------------------
 # 32. Adapter grammar, 6→8 back-compatible (D-13, REQ-A1.7): an eight-field
@@ -1045,6 +1071,31 @@ dg_table=$(extract_caps_table "$here/../scripts/orchestrate-degrade.sh")
   || fail "drift guard: orchestrate-backends.sh caps_for should have six rows"
 [ "$bk_table" = "$dg_table" ] \
   || fail "drift guard: orchestrate-degrade.sh caps_for diverged from orchestrate-backends.sh"
-echo "ok: the contract doc and the script agree under the drift guard"
+
+# The presence probes (env_present + is_present) are ALSO duplicated across the
+# two scripts — both must probe the same backend→default mapping (both new rows
+# gained the installed-CLI `claude` probe in lockstep, Tasks 3 and 4). Neither
+# is exposed as a subcommand, so guard them textually the same way, comparing
+# the non-comment function bodies byte-for-byte. A divergence (e.g. one script
+# flipping a row's default while the other lags) would make degrade's
+# no-candidate failover disagree with the tower's detect about drivability.
+extract_fn_body() {
+  # $1 file, $2 function name — the function block minus comment and blank lines.
+  awk -v fn="^$2\\\\(\\\\) \\\\{" '$0 ~ fn,/^\}/' "$1" \
+    | grep -vE '^[[:space:]]*#' | grep -vE '^[[:space:]]*$'
+}
+for fn in env_present is_present; do
+  bk_fn=$(extract_fn_body "$here/../scripts/orchestrate-backends.sh" "$fn")
+  dg_fn=$(extract_fn_body "$here/../scripts/orchestrate-degrade.sh" "$fn")
+  [ -n "$bk_fn" ] || fail "presence-parity guard: could not extract orchestrate-backends.sh $fn"
+  [ -n "$dg_fn" ] || fail "presence-parity guard: could not extract orchestrate-degrade.sh $fn"
+  # Both new rows must actually carry the claude probe (guards against a vacuous
+  # match if a future edit drops the arm from both at once).
+  printf '%s\n' "$bk_fn" | grep -q 'HEADLESS_ONESHOT-}" claude' \
+    || { [ "$fn" = is_present ] && fail "presence-parity guard: headless-oneshot lost its claude probe in $fn"; }
+  [ "$bk_fn" = "$dg_fn" ] \
+    || fail "presence-parity guard: orchestrate-degrade.sh $fn diverged from orchestrate-backends.sh"
+done
+echo "ok: the contract doc and the script agree under the drift guard, and the two presence probes stay in lockstep"
 
 echo "PASS: test-orchestrate-backends.sh"

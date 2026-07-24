@@ -28,9 +28,10 @@
 #       Visibly refused (exit 2, diagnostic on stderr): `subagent` (harness-
 #       native — the skill dispatches via its harness Agent tool, then calls
 #       `report`), `in-session` (inline work, nothing to dispatch), and the
-#       not-yet-drivable contract rows `stream-json-persistent` /
-#       `headless-oneshot` (their dispatch support lands with execution-
-#       backends Tasks 3-4).
+#       session-grade rows `stream-json-persistent` / `headless-oneshot` —
+#       `/offload` drives the tmux and print rungs; the session-grade backends
+#       have their own dispatch primitives, driven through `/orchestrate`
+#       (fleet-dispatch-headless.sh, fleet-streamjson.sh), not this skill.
 #
 #   report <backend> <handle>
 #       Emit the standardized report for an already-dispatched worker (the
@@ -210,7 +211,7 @@ cmd_dispatch() {
       exit 2
       ;;
     stream-json-persistent | headless-oneshot)
-      echo "$me: dispatch: '$backend' is not yet drivable — its dispatch support lands with execution-backends Tasks 3-4" >&2
+      echo "$me: dispatch: '$backend' is a session-grade rung /offload does not drive (it dispatches the tmux and print rungs); the session-grade backends are dispatched through /orchestrate's own primitives" >&2
       exit 2
       ;;
     *)
