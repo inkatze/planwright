@@ -451,6 +451,12 @@ usage_case render --interval
 usage_case render --interval abc
 usage_case render --interval 0
 usage_case render --interval -5
+# `render` writes stdout, so --out is meaningless there and is refused
+# rather than silently ignored (which would look like a file was written).
+usage_case render --out "$tmp/out/never.html"
+if [ -e "$tmp/out/never.html" ]; then
+  fail "usage(render --out): wrote a file anyway"
+fi
 usage_case write
 usage_case write --out ''
 usage_case write --out "$tmp/out"
