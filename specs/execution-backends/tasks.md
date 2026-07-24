@@ -150,7 +150,26 @@ critical path is 2 → 4 → 7 → 8 (derived from the `Dependencies:` lines; re
 
 ## Awaiting input
 
-(none yet)
+- **Task 8** — the work is complete, converged, and green on the full check
+  suite, but it **cannot be pushed**: `origin/planwright/execution-backends/task-8`
+  already carries an earlier, diverged run of this same task (`58d06e0` core,
+  `5ce0c47` observation, `eca3f04` park) that stopped and escalated the
+  serving/exposure fork instead of deciding it. My commits branch from
+  `afe68ea` independently, so the push is a non-fast-forward and the only
+  remedies (force-push, reset, rebase) are all forbidden invariants. No PR
+  exists for either line of work. Two decisions are needed. **(1) The serving
+  decision.** The brief's §3 records it as Task 8 design freedom ("the
+  selection criterion is the best and most useful surface, not the simplest"),
+  which is how this run read it: the dashboard binds no socket at all, writes
+  an owner-only file, and delegates phone access to a channel the operator
+  already authenticates (`file://`, tailnet, `ssh -L`, synced path). The
+  earlier run read the same fork as operator-reserved. Confirm this shape or
+  name another. **(2) Branch reconciliation.** Recommended: merge
+  `origin/planwright/execution-backends/task-8` into this branch (a new
+  commit, so no invariant is broken) resolving in favour of this run's
+  superset — it also carries `watch`, the freshness stamp, and the signal-safe
+  atomic write — then push and open the draft PR. Alternatives are a
+  force-push or landing this run on a fresh branch, both human calls.
 
 ## Deferred
 
