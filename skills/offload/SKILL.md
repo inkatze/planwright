@@ -16,7 +16,7 @@ argument-hint: "<petition — the free-form work to offload>"
 "run the review pass") and dispatches it to a backend (REQ-C1.1). It is the
 **sole home of adaptive** backend selection: no other skill adapts a backend
 choice to a petition — `/orchestrate`'s selection arms are fixed (an explicit
-flag, an attended present-and-ask, or config-driven unattended degradation),
+flag, or the configured `dispatch_backend` value resolved through the ladder),
 never petition-adaptive — and this skill owns the judgment call. Selection is governed
 by the two axioms in `doctrine/work-placement.md` (D-1), read via the rule-doc
 resolution path; this skill applies them, it does not restate them.
