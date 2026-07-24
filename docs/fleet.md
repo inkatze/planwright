@@ -99,7 +99,7 @@ through the surface that already owns it, never re-read a second way:
 | Attention store | the store `fleet-attention.sh` maintains | scope, pushed state, age |
 | Stream-json capture | `fleet-streamjson.sh status` + the per-worker runtime dir | supervisor liveness, pending-request count, the session-id join key |
 | `claude agents --json` | `fleet-liveness.sh oracle --list` (the hardened scanner) | busy / waiting / idle per session |
-| Dispatch records | `fleet-state.sh registry` | workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
+| Dispatch records | `fleet-state.sh registry` | the dispatched scope (the fallback when the attention store has none, and the only scope a registry-only worker has); workers on backends with **no runtime presence** (`print`), rendered with a visible `n/a` state — never silently omitted |
 
 Every render starts with a per-source availability line
 (`ok` / `absent` / `unavailable`): a source that is missing is **marked**, and
