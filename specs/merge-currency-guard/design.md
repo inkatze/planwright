@@ -184,8 +184,8 @@ the `DRAFT`/`HAS_HOOKS`-state handling entirely.)*
 **Decision:** `/execute-task` merges `origin/main` into the worker branch at the
 top of each `review_sequence` convergence iteration, so the verified head stays
 current and the REQ-A1.1 invariant's currency clause is satisfied by ordinary
-operation rather than by the guard having to refuse a flip. The mechanism lives in a
-dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
+operation rather than by the guard having to refuse a flip. The mechanism lives
+in a dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
 main` then `git merge FETCH_HEAD`; `/execute-task` invokes it in a single line.
 It never runs `git pull` (a global `branch.autosetuprebase=always` silently
 rewrites `pull` into a forbidden rebase) and never rebases, amends, squashes, or

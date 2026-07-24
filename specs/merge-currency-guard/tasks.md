@@ -64,8 +64,8 @@ test suite) gates both mechanisms and dispatches last.
   `hooks/hooks.json`; a negative assertion confirms no model/API call in the
   decision path (REQ-D1.4); `mise run check` passes.
 - **Dependencies:** 1
-- **Citations:** REQ-A1.1 (the invariant this guard enforces; single home) ·
-  REQ-C1.1 · REQ-C1.2 · REQ-C1.3 · REQ-C1.5 · REQ-C1.6 ·
+- **Citations:** REQ-A1.1 (single home) · REQ-C1.1 · REQ-C1.2 · REQ-C1.3 ·
+  REQ-C1.5 · REQ-C1.6 ·
   REQ-C1.7 · REQ-C1.8 · REQ-C1.9 · REQ-C1.10 · REQ-K1.1 · REQ-K1.3 · D-2 · D-3 ·
   D-5 · D-7 · D-8
 - **Estimated effort:** 2.5 days
@@ -94,8 +94,8 @@ test suite) gates both mechanisms and dispatches last.
   negative assertions confirm no `git pull` and no rebase in the script
   (REQ-D1.4); `mise run check` passes.
 - **Dependencies:** 1
-- **Citations:** REQ-A1.1 (the invariant this sync keeps satisfiable; single
-  home) · REQ-B1.1 · REQ-B1.2 · REQ-B1.3 · REQ-B1.4 · REQ-B1.5 ·
+- **Citations:** REQ-A1.1 (single home) · REQ-B1.1 · REQ-B1.2 · REQ-B1.3 ·
+  REQ-B1.4 · REQ-B1.5 ·
   REQ-B1.6 · REQ-D1.3 · REQ-K1.1 · D-4
 - **Estimated effort:** 1 day
 
