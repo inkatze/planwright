@@ -14,10 +14,10 @@ instantiates.
 The design leads with the invariant it exists to protect: **a PR flipped ready
 must have been CI-and-review-verified on a head that is current with its base
 branch, and be mergeable.** That invariant is stated once, in `requirements.md`
-as **REQ-A1.1** (its single home); every decision below cites it rather than
-restating it normatively. Two mechanisms carry it — one that keeps the verified
-head current (D-4), and one that refuses a flip that violates the invariant
-(D-2, D-3). The guard is the enforcement floor; the in-loop sync is what keeps
+as **REQ-A1.1** (its single home); the decisions that carry it (D-1 through
+D-4) cite it rather than restating it normatively. Two mechanisms carry it —
+one that keeps the verified head current (D-4), and one that refuses a flip
+that violates the invariant (D-2, D-3). The guard is the enforcement floor; the in-loop sync is what keeps
 that floor from ever being hit in normal operation.
 
 ## Decision log
@@ -97,7 +97,9 @@ auditable inversion of a pattern the codebase already trusts.
 
 ### D-3: Guard predicate — server-side currency (`compare.behind_by`) + `mergeable`; no `mergeStateStatus`, no branch-protection dependence (N)
 
-**Decision:** The guard resolves the target PR from the intercepted call's own
+**Decision:** This predicate is the machine-checkable form of the REQ-A1.1
+invariant's currency and mergeability clauses (REQ-C1.1 states it normatively).
+The guard resolves the target PR from the intercepted call's own
 validated selector (REQ-C1.9: the Bash positional PR argument, or the current
 branch's PR when the command is bare; the MCP `owner`/`repo`/`pullNumber`
 fields), each validated against its grammar — a PR number is digits, an

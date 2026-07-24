@@ -47,7 +47,7 @@ ready PR means what the fleet and the human both assume it means.
   enforced by a deterministic guard rather than by skill prose or reviewer
   vigilance. Every other record in this bundle — the guard deliverable (REQ-C),
   the loop-sync deliverable (REQ-B), and the design decisions that carry them
-  (D-1 through D-4, D-9) — cites REQ-A1.1 rather than restating it.
+  (D-1 through D-4) — cites REQ-A1.1 rather than restating it.
 - `/execute-task` syncing `origin/main` into the worker branch at the top of
   each `review_sequence` convergence iteration, via an explicit fetch + merge
   (never `pull`, never rebase), so the final CI + review verification runs on a
