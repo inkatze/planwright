@@ -450,6 +450,17 @@ do_dispatch() {
   # Remaining "$@" (only meaningful when _have_extra=1) are the extra launch args.
   [ "$_have_extra" -eq 1 ] || set --
 
+  # --attach-dry-run and --no-attach are documented as alternatives
+  # (`[--attach-dry-run | --no-attach]`), and the arms below are checked in a
+  # fixed order, so passing both silently discards one of them — the caller
+  # cannot even pick which by reordering argv. Refuse the combination, same
+  # refuse-rather-than-silently-drop discipline as the passthrough-args check
+  # below. Post-parse, so the refusal is order-independent and pre-side-effect.
+  if [ "$_attach_dry" -eq 1 ] && [ "$_no_attach" -eq 1 ]; then
+    warn "--attach-dry-run and --no-attach are alternatives; pass at most one"
+    usage
+  fi
+
   # --no-attach launches no worker, so it cannot honor passthrough launch args;
   # accepting them silently would drop them (the attach/dry-run arms forward
   # them, this arm cannot). Refuse rather than silently discard.

@@ -767,7 +767,37 @@ c20() {
     && fail "c20: a refused --no-attach launch must not create the worktree"
 }
 
-for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20; do
+# c21 — --attach-dry-run and --no-attach are documented alternatives; passing
+# both is a usage error (exit 2), never a silent pick of one. Order-independent:
+# the refusal is post-parse, so neither argv order sneaks through.
+# ---------------------------------------------------------------------------
+c21() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/dw.c21.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  iso_env "$tmp"
+  seed_repo "$tmp"
+
+  run_prim dispatch demo 60 --repo-root "$tmp/primary" --attach-dry-run --no-attach
+  [ "$RC" -eq 2 ] \
+    || fail "c21: --attach-dry-run with --no-attach should be a usage error (exit 2), got $RC"
+  # The refusal is pre-side-effect: no branch/worktree was created.
+  if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-60; then
+    fail "c21: a refused flag combination must not create the branch"
+  fi
+  [ -d "$tmp/primary/.claude/worktrees/task-60" ] \
+    && fail "c21: a refused flag combination must not create the worktree"
+
+  # The reverse order must be refused identically (the precedence today is fixed
+  # in the code, not in argv, so a caller cannot pick a winner by ordering).
+  run_prim dispatch demo 61 --repo-root "$tmp/primary" --no-attach --attach-dry-run
+  [ "$RC" -eq 2 ] \
+    || fail "c21: --no-attach with --attach-dry-run should be a usage error (exit 2), got $RC"
+  if gitc "$tmp/primary" show-ref --verify --quiet refs/heads/planwright/demo/task-61; then
+    fail "c21: a refused flag combination must not create the branch (reverse order)"
+  fi
+}
+
+for c in c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21; do
   _before=$fails
   "$c"
   [ "$fails" -eq "$_before" ] && echo "ok $c" || true
