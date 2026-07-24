@@ -90,10 +90,26 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
+unset CDPATH
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+
 # Canonical echo-discipline sanitizer (doctrine/security-posture.md): strip
 # non-printables off repo-controlled input before it reaches the terminal.
 # shellcheck source=scripts/echo-safety.sh
-. "$(dirname "$0")/echo-safety.sh"
+. "$script_dir/echo-safety.sh"
+
+# The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3,
+# REQ-B1.4): the header-declaration parse behind first_header and the v2
+# parked-map parse below come from it, so this validator cannot re-diverge from
+# its three sibling v2 parsers. Sourced, never executed; fail closed when it is
+# missing or unreadable (REQ-B1.6a).
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "spec-validate: required helper $(sanitize_printable "$spec_parse_sh") missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
 
 usage() {
   echo "usage: spec-validate.sh [--baseline <ref>] <specs-root-or-spec-dir>" >&2
@@ -183,22 +199,46 @@ emit_error() {
   err=$((err + 1))
 }
 
-# first_header <file> <key> — first "**<key>:** value" header line's value.
-# Non-printable characters are stripped: extracted values are echoed in
-# findings, and hostile file content must not reach the terminal raw (same
-# echo discipline as the REQ-H1.3 gate parser). The canonical statement of
-# this posture lives in scripts/echo-safety.sh; the awk `gsub(/[^[:print:]]/,
-# "")` below is its in-awk form (a strict superset — it strips high/UTF-8
-# bytes too, and cannot call the sourced shell sanitizer).
+# first_header <file> <key> — the header-block `**<key>:** value` declaration's
+# value, from the shared lib's header-block-scoped parse (REQ-B1.3, REQ-A1.3):
+# only the leading header block counts, so a column-0 body line carrying the
+# same literal is inert content and cannot mask a MISSING declaration, and a
+# DUPLICATE in-header `Format-version:`/`Status:` declaration is unparseable
+# (REQ-A1.2, D-6) — the lib returns non-zero and this function propagates it, so
+# every caller must check (REQ-B1.6f; the checked callers below turn it into a
+# `hard` finding, an error at every status).
+#
+# Non-printable characters are stripped HERE, not in the lib: the lib emits raw
+# bytes because anchor stability forbids lib-side mutation (REQ-B1.6c), and echo
+# discipline belongs at the caller's output sites. Extracted values are echoed
+# in findings, so hostile file content must not reach the terminal raw (same
+# echo discipline as the REQ-H1.3 gate parser). The canonical statement of this
+# posture lives in scripts/echo-safety.sh; the awk `gsub(/[^[:print:]]/, "")`
+# below is its in-awk form (a strict superset — it strips high/UTF-8 bytes too).
+# The trailing-whitespace trim is repeated after the strip so a value whose
+# trailing bytes were non-printable still trims, exactly as the pre-lib parse did.
 first_header() {
-  awk -v key="$2" '
-    index($0, "**" key ":**") == 1 {
-      sub(/^\*\*[^*]*:\*\*[ \t]*/, "")
-      gsub(/[^[:print:]]/, "")
-      print
-      exit
-    }
-  ' "$1"
+  fh_raw=$(spec_parse_header_value "$1" "$2") || return $?
+  printf '%s' "$fh_raw" | awk '{ gsub(/[^[:print:]]/, ""); sub(/[ \t]+$/, ""); print }'
+}
+
+# header_or_refuse <file> <key> <label> — first_header plus the fail-closed
+# handling every call site owes the lib (REQ-B1.6f). An unparseable declaration
+# — today, a duplicate in-header `Format-version:`/`Status:` (REQ-A1.2, REQ-D1.9,
+# D-6) — lands a `hard` finding, an error at EVERY status per D-9's fail-closed
+# exception to the D-25 severity model, and resolves to the empty value so the
+# bundle then follows the existing missing-declaration path instead of a guessed
+# one. Callable inside a command substitution: the finding is appended to the
+# $fnd file, which survives the subshell.
+header_or_refuse() {
+  hor_rc=0
+  hor_v=$(first_header "$1" "$2") || hor_rc=$?
+  if [ "$hor_rc" -ne 0 ]; then
+    printf 'hard\t%s: unparseable %s: declaration (more than one in-header declaration has no honest positional winner; fail closed)\n' \
+      "$3" "$2" >>"$fnd"
+    return 0
+  fi
+  printf '%s' "$hor_v"
 }
 
 # Parse requirements.md REQ blocks. Tagged tab-separated output:
@@ -327,13 +367,14 @@ parse_tasks() {
 # Tagged tab-separated output:
 #   F <tab> gap <tab> message   — a finding (embedded values are either
 #                                 fixed vocabulary or grammar-validated ids)
-#   RB <tab> line <tab> raw-id  — a grammar-violating reference-bullet id,
-#                                 raw (whitespace-free by construction: a
-#                                 lead with inner whitespace is prose, and
-#                                 an awk record cannot hold a newline); the
-#                                 caller routes it through
-#                                 sanitize_printable before echoing
-#                                 (REQ-C1.9)
+#   TID <tab> id                — every well-formed task id defined in the file,
+#                                 for the reference-bullet cross-check below
+#
+# Reference-bullet classification is NOT here: it comes from the shared lib's
+# parked-map parse (scripts/spec-parse.sh, REQ-B1.4), so this validator applies
+# the same single v2 posture as its three sibling parsers — fences as
+# illustration, CRLF-tolerant section headings, prose tolerance, near-miss
+# rejection. reference_bullet_findings() below consumes those records.
 parse_tasks_v2() {
   awk '
     # Normalize a trailing CR first: the heading arms below are
@@ -359,7 +400,7 @@ parse_tasks_v2() {
       in_task = 1
       curid = ""
       if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) {
-        ids[$3] = 1
+        printf "TID\t%s\n", $3
         curid = $3
       }
       next
@@ -372,42 +413,47 @@ parse_tasks_v2() {
       printf "F\tgap\tstate annotation bullet \"%s\" on %s does not exist in format-version 2 (the Status, Last activity, and Dispatch state annotations are derived state, never stored)\n", tok, loc
       next
     }
-    # A reference bullet is a complete bold lead `**Task <token>**` whose
-    # token has no inner whitespace (task ids never do). A lead with inner
-    # whitespace ("**Task force assembled.**") is a plain prose bullet —
-    # the format allows those in Deferred / Out of scope — and an
-    # unterminated bold lead is malformed markdown, which markdown lint
-    # owns; neither is treated as (or rejected as) a reference.
-    section != "" && /^- \*\*Task [^*]*\*\*/ {
-      rest = substr($0, 10)
-      match(rest, /^[^*]*\*\*/)
-      rid = substr(rest, 1, RLENGTH - 2)
-      if (rid ~ /[ \t]/) next
-      if (rid !~ /^[0-9]+(\.[0-9]+)?$/) {
-        printf "RB\t%d\t%s\n", NR, rid
-      } else {
-        nref++
-        refid[nref] = rid
-        refsec[nref] = section
-        refnr[nref] = NR
-      }
-      next
-    }
-    END {
-      for (i = 1; i <= nref; i++) {
-        rid = refid[i]
-        if (!(rid in ids))
-          printf "F\tgap\treference bullet at tasks.md:%d names unknown task id %s (%s)\n", refnr[i], rid, refsec[i]
-        if (rid in seensec) {
-          if (seensec[rid] == refsec[i])
-            printf "F\tgap\tTask %s is named by more than one reference bullet (twice in %s; a task is parked in one section at a time)\n", rid, refsec[i]
-          else
-            printf "F\tgap\tTask %s is named by more than one reference bullet (%s and %s; a task is parked in one section at a time)\n", rid, seensec[rid], refsec[i]
-        } else
-          seensec[rid] = refsec[i]
-      }
-    }
   ' "$1"
+}
+
+# reference_bullet_findings <TID-stream> <parked-map-stream> — the v2
+# reference-bullet integrity checks, over the shared lib's parked-map records
+# (REQ-B1.4): every reference names an existing task id, and a task is parked by
+# at most one bullet across all three sections. Tagged output, same shapes the
+# callers already consume:
+#   F  <tab> gap <tab> message   — a finding
+#   RB <tab> line <tab> raw-id   — a grammar-violating reference-bullet token,
+#                                  raw (whitespace-free of tabs and newlines by
+#                                  the lib's framing); the caller routes it
+#                                  through sanitize_printable before echoing
+#                                  (REQ-C1.9)
+# The lib emits class atoms; the section NAMES are restored here so the finding
+# text is unchanged.
+reference_bullet_findings() {
+  awk -F"$tab" '
+    function label(c) {
+      if (c == "awaiting-input") return "Awaiting input"
+      if (c == "deferred") return "Deferred"
+      if (c == "out-of-scope") return "Out of scope"
+      return c
+    }
+    FNR == NR { if ($1 == "TID") ids[$2] = 1; next }
+    $1 == "refbad" { printf "RB\t%s\t%s\n", $4, $2; next }
+    $1 == "ref" {
+      rid = $2
+      sec = label($3)
+      nr = $4
+      if (!(rid in ids))
+        printf "F\tgap\treference bullet at tasks.md:%s names unknown task id %s (%s)\n", nr, rid, sec
+      if (rid in seensec) {
+        if (seensec[rid] == sec)
+          printf "F\tgap\tTask %s is named by more than one reference bullet (twice in %s; a task is parked in one section at a time)\n", rid, sec
+        else
+          printf "F\tgap\tTask %s is named by more than one reference bullet (%s and %s; a task is parked in one section at a time)\n", rid, seensec[rid], sec
+      } else
+        seensec[rid] = sec
+    }
+  ' "$1" "$2"
 }
 
 # set_in <needle> <newline-list> — exact-membership test.
@@ -445,8 +491,20 @@ baseline_checks() {
   old_tsk=$(git -C "$bdir" show "$baseline:./tasks.md" 2>/dev/null) || old_tsk=
 
   if [ -n "$old_req" ]; then
-    old_status=$(printf '%s\n' "$old_req" \
-      | awk 'index($0, "**Status:**") == 1 { sub(/^\*\*Status:\*\*[ \t]*/, ""); gsub(/[^[:print:]]/, ""); print; exit }')
+    # The baseline blob's stored status, through the shared lib's
+    # header-block-scoped parse (REQ-B1.3) fed from stdin — the blob has no path
+    # to hand it. An unparseable baseline declaration (a duplicate in-header
+    # `Status:`, REQ-A1.2) leaves the terminal-transition check with nothing
+    # trustworthy to compare against, so it is surfaced rather than silently
+    # skipped; the CURRENT file's own duplicate carries its own hard finding.
+    if old_status=$(printf '%s\n' "$old_req" | spec_parse_header_value - Status); then
+      old_status=$(printf '%s' "$old_status" \
+        | awk '{ gsub(/[^[:print:]]/, ""); sub(/[ \t]+$/, ""); print }')
+    else
+      printf 'gap\tunparseable Status: declaration in requirements.md at %s; the terminal-state transition check could not run\n' \
+        "$baseline" >>"$fnd"
+      old_status=
+    fi
     case $old_status in
       Retired | Superseded)
         if [ "$declared_status" != "$old_status" ]; then
@@ -573,7 +631,7 @@ validate_bundle() {
     # warnings (same evasion class as an implicit-Draft mirror).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      declared_status=$(first_header "$bdir/$bf" Status)
+      declared_status=$(header_or_refuse "$bdir/$bf" Status "$bf")
       [ -n "$declared_status" ] && break
     done
     # The format-version follows the same fallback (REQ-C1.8): deleting
@@ -584,7 +642,7 @@ validate_bundle() {
     # drifted lower value would skip the v2 invariants silently).
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      sfv=$(first_header "$bdir/$bf" Format-version)
+      sfv=$(header_or_refuse "$bdir/$bf" Format-version "$bf")
       [ -n "$sfv" ] || continue
       if [ -z "$fver" ]; then
         fver=$sfv
@@ -598,7 +656,7 @@ validate_bundle() {
   fi
 
   if [ -f "$bdir/requirements.md" ]; then
-    declared_status=$(first_header "$bdir/requirements.md" Status)
+    declared_status=$(header_or_refuse "$bdir/requirements.md" Status requirements.md)
     if [ -z "$declared_status" ]; then
       printf 'gap\tmissing Status: header (defaulting to Draft)\n' >>"$fnd"
       # The default participates in everything downstream (mirrors, severity,
@@ -607,7 +665,7 @@ validate_bundle() {
       declared_status=Draft
     fi
 
-    fver=$(first_header "$bdir/requirements.md" Format-version)
+    fver=$(header_or_refuse "$bdir/requirements.md" Format-version requirements.md)
 
     if [ "$declared_status" = "Superseded" ]; then
       grep -q '^\*\*Superseded-by:\*\*' "$bdir/requirements.md" \
@@ -625,7 +683,7 @@ validate_bundle() {
     # unlike Status it has no specified default to mirror against.
     for bf in design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      mst=$(first_header "$bdir/$bf" Status)
+      mst=$(header_or_refuse "$bdir/$bf" Status "$bf")
       if [ -z "$mst" ]; then
         printf 'gap\t%s: missing Status: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
       elif [ "$mst" != "$declared_status" ]; then
@@ -633,7 +691,7 @@ validate_bundle() {
           "$bf" "$mst" "$declared_status" >>"$fnd"
       fi
       if [ -n "$fver" ]; then
-        mfv=$(first_header "$bdir/$bf" Format-version)
+        mfv=$(header_or_refuse "$bdir/$bf" Format-version "$bf")
         if [ -z "$mfv" ]; then
           printf 'gap\t%s: missing Format-version: header (mirror of requirements.md)\n' "$bf" >>"$fnd"
         elif [ "$mfv" != "$fver" ]; then
@@ -708,7 +766,7 @@ validate_bundle() {
       if grep -qxF "$exec_canon" "$bdir/$bf"; then
         :
       elif grep -q '^\*\*Execution:\*\*' "$bdir/$bf"; then
-        pv=$(first_header "$bdir/$bf" Execution)
+        pv=$(header_or_refuse "$bdir/$bf" Execution "$bf")
         printf 'gap\t%s: non-canonical **Execution:** pointer line: %s (fixed vocabulary: derived — see the status render)\n' \
           "$bf" "$(sanitize_printable "$pv" "(unprintable)")" >>"$fnd"
       else
@@ -736,11 +794,22 @@ validate_bundle() {
     if [ "$bundle_ver" = "2" ]; then
       parse_tasks_v2 "$bdir/tasks.md" >"$gtmp/tagged2"
       awk -F'\t' '$1 == "F" { print $2 "\t" $3 }' "$gtmp/tagged2" >>"$fnd"
-      while IFS="$tab" read -r rtag rline rid; do
-        [ "$rtag" = "RB" ] || continue
-        printf 'gap\treference bullet task id at tasks.md:%s fails the task-id grammar and is rejected: %s\n' \
-          "$rline" "$(sanitize_printable "$rid" "(empty or unprintable)")" >>"$fnd"
-      done <"$gtmp/tagged2"
+      # The parked map comes from the shared lib (REQ-B1.4). Its exit status is
+      # checked (REQ-B1.6f): an unreadable, NUL-bearing, or unbalanced-fence
+      # tasks.md must become a fail-closed hard finding, never a validated
+      # empty parked map.
+      if spec_parse_parked_map "$bdir/tasks.md" >"$gtmp/parked2" 2>"$gtmp/parked2.err"; then
+        reference_bullet_findings "$gtmp/tagged2" "$gtmp/parked2" >"$gtmp/refs2"
+        awk -F'\t' '$1 == "F" { print $2 "\t" $3 }' "$gtmp/refs2" >>"$fnd"
+        while IFS="$tab" read -r rtag rline rid; do
+          [ "$rtag" = "RB" ] || continue
+          printf 'gap\treference bullet task id at tasks.md:%s fails the task-id grammar and is rejected: %s\n' \
+            "$rline" "$(sanitize_printable "$rid" "(empty or unprintable)")" >>"$fnd"
+        done <"$gtmp/refs2"
+      else
+        printf 'hard\ttasks.md: the reference-bullet parse failed, so parked state cannot be validated (fail closed): %s\n' \
+          "$(sanitize_printable "$(cat "$gtmp/parked2.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
+      fi
     fi
   fi
 

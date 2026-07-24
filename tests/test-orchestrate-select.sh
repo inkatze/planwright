@@ -1398,18 +1398,26 @@ got=$(/bin/bash "$SEL" "$dv7spec") || fail "v2-fence fixture: non-zero exit ($?)
 echo "ok: v2 parked-map parse treats fenced content as illustration"
 
 # V8. A fenced Format-version example must not shadow the real header line: the
-#     bundle below is v2 (real header) with a fenced v1 example above the real
-#     line's consumers; v2 semantics (bullet parking) must apply.
+#     bundle below is v2 (real header) with a fenced v1 example BELOW the header
+#     block; v2 semantics (bullet parking) must apply.
+#
+#     The declaration sits in the header block and the fenced example below it,
+#     because the parse is header-block-scoped since format-grammar Task 2
+#     (REQ-A1.3, D-7): the block ends at the first line that is neither blank,
+#     the H1, nor a bolded header line — a column-0 fence is one such line, so a
+#     declaration BELOW a fence is body content and inert. Both readings agree
+#     that the fenced example is not the declaration; the scoped one additionally
+#     requires the real declaration to be where the format says it lives.
 dv8="$tmp/v2fvfence"
 dv8spec=$(new_spec "$dv8" vtwofvfence)
 cat >"$dv8spec/tasks.md" <<'EOF'
 # tasks
 
+**Format-version:** 2
+
 ```markdown
 **Format-version:** 1
 ```
-
-**Format-version:** 2
 
 ## Tasks
 

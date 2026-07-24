@@ -141,7 +141,7 @@ log() { printf 'tasks-pr-sync: %s\n' "$*" >&2; }
 # untrusted file content and is deliberately NOT echoed in diagnostics (echo
 # discipline without needing a sanitizer here).
 tasks_format_version() {
-  tfv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$1" 2>/dev/null) || tfv=""
+  tfv=$(spec_parse_header_value "$1" Format-version 2>/dev/null) || tfv=""
   case $tfv in
     1 | 2)
       printf '%s\n' "$tfv"
@@ -176,7 +176,7 @@ bundle_write_version() {
     return 1
   fi
   if [ -e "$bwv_dir/requirements.md" ] || [ -L "$bwv_dir/requirements.md" ]; then
-    if ! bwv_rv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$bwv_dir/requirements.md" 2>/dev/null); then
+    if ! bwv_rv=$(spec_parse_header_value "$bwv_dir/requirements.md" Format-version 2>/dev/null); then
       log "requirements.md in $bwv_dir exists but is unreadable, so the Format-version cross-check is impossible; failing closed, no write (REQ-C1.8)"
       return 1
     fi
@@ -197,6 +197,39 @@ bundle_write_version() {
 script_dir=$(cd "$(dirname "$0")" 2>/dev/null && pwd) || script_dir=""
 lock_sh="$script_dir/orchestrate-lock.sh"
 state_sh="$script_dir/orchestrate-state.sh"
+
+# The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3): the
+# `Format-version:` and bundle `Status:` header declarations below are read
+# through it, so this writer's version keying cannot re-diverge from its sibling
+# consumers'. Sourced, never executed.
+#
+# A missing or unreadable lib is a broken install, handled exactly like the
+# missing lock primitive and derivation engine below: the availability is
+# recorded here and CHECKED at each entry point (require_spec_parse), so the
+# hook stays fail-soft (no write, a diagnostic, exit 0) while the CLI fails
+# closed (exit 2). Either way no version- or status-keyed write happens without
+# a parsed declaration, which is what REQ-B1.6a's fail-closed rule protects.
+spec_parse_sh="$script_dir/spec-parse.sh"
+spec_parse_ok=0
+if [ -n "$script_dir" ] && [ -f "$spec_parse_sh" ] && [ -r "$spec_parse_sh" ]; then
+  # A syntax-erroring lib aborts the sourcing shell outright — also fail-closed,
+  # and not catchable here.
+  # shellcheck source=scripts/spec-parse.sh
+  if . "$spec_parse_sh"; then
+    spec_parse_ok=1
+  fi
+fi
+
+# require_spec_parse — 0 when the shared grammar lib is available, else 1 with a
+# broken-install diagnostic. The caller decides the exit posture: fail-soft skip
+# for the hook, fail-closed exit for the CLI.
+require_spec_parse() {
+  if [ "$spec_parse_ok" -eq 1 ]; then
+    return 0
+  fi
+  log "grammar lib '$spec_parse_sh' missing or not readable; skipping (bookkeeping reconciles)"
+  return 1
+}
 
 # The placement program. Reads the derivation state map (id<TAB>state) as the
 # first file, then tasks.md. Emits the canonical layout on stdout. Fully static
@@ -559,7 +592,14 @@ write_status_header() {
     return 1
   fi
   [ -f "$wsh_file" ] || return 0
-  wsh_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$wsh_file") || wsh_cur=""
+  # The current value comes from the shared lib's header-block-scoped parse
+  # (REQ-B1.3): a DUPLICATE in-header `Status:` declaration is unparseable
+  # (REQ-A1.2, D-6), so the mirror write is refused rather than performed
+  # against a positional guess.
+  if ! wsh_cur=$(spec_parse_header_value "$wsh_file" Status 2>/dev/null); then
+    log "unparseable Status: declaration in $wsh_file; refusing the mirror write"
+    return 1
+  fi
   [ -n "$wsh_cur" ] || return 0           # no bundle Status header in this file
   [ "$wsh_cur" = "$wsh_val" ] && return 0 # already correct: idempotent no-op
   wsh_tmp=$(mktemp "$(dirname "$wsh_file")/.tasks-pr-sync-st.XXXXXX") || return 1
@@ -620,7 +660,13 @@ do_status() {
     return 1
   fi
   [ -f "$dst_req" ] || return 0
-  dst_cur=$(awk '/^\*\*Status:\*\* / { print $2; exit }' "$dst_req") || dst_cur=""
+  # Same lib parse, same fail-closed posture: a duplicate in-header `Status:`
+  # means the reconcile cannot know whether it owns this bundle, so it bows out
+  # rather than guessing by position (REQ-A1.2, REQ-B1.6f, D-6).
+  if ! dst_cur=$(spec_parse_header_value "$dst_req" Status 2>/dev/null); then
+    log "unparseable Status: declaration in $dst_req; refusing the status reconcile"
+    return 1
+  fi
   case $dst_cur in
     Ready | Active | Done) ;; # Done is owned only to finish its own mirror (guarded below)
     *) return 0 ;;            # Draft / Retired / Superseded / absent: not reconcile-owned
@@ -852,6 +898,10 @@ run_reconcile() {
   rr_dir=$1
   rr_policy=$2
   rr_op=${3:-placement}
+  if ! require_spec_parse; then
+    [ "$rr_policy" = closed ] && return 2
+    return 0
+  fi
   if [ ! -x "$lock_sh" ]; then
     log "lock primitive '$lock_sh' missing or not executable; skipping (bookkeeping reconciles)"
     [ "$rr_policy" = closed ] && return 2
@@ -943,6 +993,7 @@ if [ "${1:-}" = reconcile-status ]; then
   # resolver logs the reason; the in-writer gate refuses too, but its failure
   # is not an exit-2); a v2 bundle stores no derived Status, so the
   # status-only arm has nothing to reconcile.
+  require_spec_parse || exit 2
   if ! cli_ver=$(bundle_write_version "$cli_dir"); then
     exit 2
   fi
@@ -988,6 +1039,7 @@ if [ "${1:-}" = reconcile ]; then
   # reason), clean no-op exit 0 on a v2 bundle
   # (no placement, annotation, or derived-header writes; the in-writer gate
   # re-checks under the lock).
+  require_spec_parse || exit 2
   if ! cli_ver=$(bundle_write_version "$cli_dir"); then
     exit 2
   fi

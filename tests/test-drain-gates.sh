@@ -1108,6 +1108,10 @@ echo "ok: v1 and v2 specs coexist in one sweep with isolated version keying (REQ
 lonedir="$tmp/lonedrain"
 mkdir -p "$lonedir"
 cp "$drain" "$lonedir/drain-gates.sh"
+# The sourced grammar lib travels with the copy: this fixture isolates the
+# derivation ENGINE, not scripts/spec-parse.sh, whose absence is its own
+# fail-closed broken-install case (REQ-B1.6a, covered in test-spec-parse.sh).
+cp "$(dirname "$drain")/spec-parse.sh" "$lonedir/spec-parse.sh"
 chmod +x "$lonedir/drain-gates.sh"
 out41=$("$lonedir/drain-gates.sh" --today 2026-07-15 "$v2r/specs") \
   || fail "missing-engine sweep must still exit 0"
@@ -1171,9 +1175,12 @@ printf '%s\n' "$out43" | grep '^SATISFIED' | grep -F 'Landed anyway' >/dev/null 
 echo "ok: prose bullets with inner whitespace are tolerated silently (validator parity)"
 
 # 44. Drain-side fenced Format-version (mirror of selector V8): a fenced
-#     example `**Format-version:** 1` above the real v2 line must not select
-#     v1 rules — the gate resolves via the derivation engine (trailer), not
-#     `## Completed` membership.
+#     example `**Format-version:** 1` below the real v2 header line must not
+#     select v1 rules — the gate resolves via the derivation engine (trailer),
+#     not `## Completed` membership. The real declaration sits IN the header
+#     block and the fenced example below it: the parse is header-block-scoped
+#     since format-grammar Task 2 (REQ-A1.3, D-7), so a column-0 fence closes
+#     the block and any declaration below it is inert body content.
 v2f="$tmp/v2fvfence"
 mkdir -p "$v2f/specs/phi"
 git -C "$v2f" -c init.defaultBranch=main init -q
@@ -1181,11 +1188,11 @@ printf '%s\n' '# Phi' '' '**Status:** Ready' >"$v2f/specs/phi/requirements.md"
 cat >"$v2f/specs/phi/tasks.md" <<'EOF'
 # Phi — Tasks
 
+**Format-version:** 2
+
 ```markdown
 **Format-version:** 1
 ```
-
-**Format-version:** 2
 
 ## Tasks
 

@@ -94,6 +94,18 @@ fi
 # shellcheck source=scripts/echo-safety.sh
 . "$echo_safety"
 
+# The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3,
+# REQ-B1.4): the Format-version and parked-map parses below come from it, so
+# this selector cannot re-diverge from its three sibling v2 parsers. Sourced,
+# never executed; fail closed when it is missing or unreadable (REQ-B1.6a).
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "orchestrate-select: required helper $spec_parse_sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
+
 # Mode: the optional leading --critical-path flag selects the path-emitting mode
 # (D-6); without it the script is the unchanged ready-unit selector.
 mode=select
@@ -142,16 +154,21 @@ fi
 # parking, D-8), so the version must parse before either rule is applied; no
 # fallback to either version's rules on a bad value. --critical-path is
 # structurally identical at both versions but refuses too rather than guessing.
-# Trailing trim: a Markdown hard-break or CRLF checkout must not make a valid
-# value unrecognizable. Column-0 fences are illustration: a fenced example
-# header line must not shadow the real declaration into the wrong version's
-# rules (the parse otherwise mirrors spec-status.sh, whose fence-awareness
-# alignment is tracked as an observation).
-fv=$(printf '%s\n' "$tasks_content" | awk '
-  /^```/ { fence = !fence; next }
-  fence { next }
-  /^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }
-')
+#
+# The parse is the shared lib's header-block-scoped one (REQ-B1.3, REQ-A1.3),
+# fed the single snapshot through `-` so the version and the parked map below
+# cannot come from two different file versions (contract clause (g): this
+# caller NUL-screened the file before snapshotting it, which is tighter than
+# the path form — screen and parse see the same bytes). Only the header block
+# counts, so a fenced or body-line example declaration cannot shadow the real
+# one into the wrong version's rules, and a DUPLICATE in-header declaration is
+# unparseable rather than won by position (REQ-A1.2, D-6). The lib's exit
+# status is checked (REQ-B1.6f): an unchecked capture would read a refusal as
+# an absent declaration.
+if ! fv=$(printf '%s\n' "$tasks_content" | spec_parse_header_value - Format-version); then
+  printf '%s\n' "orchestrate-select: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
+  exit 2
+fi
 case "$fv" in
   1 | 2) ;;
   '')
@@ -185,65 +202,34 @@ inprogress=" "
 # non-existent task parks nothing (the validator owns that error). The sets are
 # space-padded id lists, same shape as completed/inprogress below.
 #
-# A sibling of the spec-status.sh (Task 3) parked-map parse and the
-# drain-gates.sh copy, with the deliberate differences: column-0 fences are
-# skipped (illustration, matching drain-gates; spec-status alignment is tracked
-# as an observation); a lead with inner whitespace ("**Task force
-# assembled.**") is a plain prose bullet the format allows in Deferred / Out of
-# scope and is silently skipped, matching the validator's rule; no payload
-# extraction (selection needs only ids and classes).
+# The parse is the shared lib's (REQ-B1.4, REQ-C1.1) — the single v2 posture
+# all four v2 parsers now consume, so it cannot re-diverge: column-0 fences are
+# illustration (D-5), section headings are matched CRLF-tolerantly, a lead with
+# inner whitespace ("**Task force assembled.**") is a plain prose bullet the
+# format allows in Deferred / Out of scope and is tolerated, and a near-miss
+# lead is rejected loudly rather than silently skipped. Fed the same snapshot
+# as the version parse above, and its exit status checked (REQ-B1.6f): an
+# unchecked capture would silently un-park every task.
 parked_any=" "
 parked_oos=" "
 if [ "$mode" = select ] && [ "$fv" = 2 ]; then
-  parked_map=$(printf '%s\n' "$tasks_content" | awk '
-    function classof(sec) {
-      if (sec == "Awaiting input") return "awaiting-input"
-      if (sec == "Deferred") return "deferred"
-      if (sec == "Out of scope") return "out-of-scope"
-      return ""
-    }
-    { sub(/\r$/, "") }
-    /^```/ { fence = !fence; next }
-    fence { next }
-    /^## / { sec = substr($0, 4); sub(/[ \t]+$/, "", sec); next }
-    /^- \*\*Task / && classof(sec) != "" {
-      line = $0
-      sub(/^- \*\*Task /, "", line)
-      i = index(line, "**")
-      if (i == 0) next # no closing bold: not a reference bullet
-      id = substr(line, 1, i - 1)
-      if (id ~ /[ \t]/) {
-        # Inner whitespace is usually a plain prose bullet the format allows
-        # in Deferred / Out of scope (validator parity) — but a NEAR-MISS
-        # reference (whitespace-trimmed remainder is a valid id, or the lead
-        # is only digits, dots, and whitespace: "1 ", "1 2") is a failed park
-        # a human meant, rejected loudly below, never silently skipped.
-        probe = id
-        sub(/^[ \t]+/, "", probe)
-        sub(/[ \t]+$/, "", probe)
-        if (probe !~ /^[0-9]+(\.[0-9]+)?$/ && id !~ /^[0-9. \t]+$/) next
-      }
-      if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
-        # tabs would corrupt the record split; fold before emitting
-        gsub(/\t/, " ", id)
-        print "rejected\t" id
-        next
-      }
-      if (id in seen) next
-      seen[id] = 1
-      print id "\t" classof(sec)
-      next
-    }
-  ')
-  while IFS="$TAB" read -r pm_id pm_rest; do
-    [ -n "$pm_id" ] || continue
-    if [ "$pm_id" = rejected ]; then
-      # pm_rest carries the raw, grammar-violating id
-      printf '%s\n' "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_rest" '(unprintable)')' violates the task-id grammar" >&2
+  if ! parked_map=$(printf '%s\n' "$tasks_content" | spec_parse_parked_map -); then
+    printf '%s\n' "orchestrate-select: could not derive the parked map from $tasks_md (fail closed)" >&2
+    exit 2
+  fi
+  while IFS="$TAB" read -r pm_tag pm_id pm_class _; do
+    [ -n "$pm_tag" ] || continue
+    if [ "$pm_tag" = refbad ]; then
+      # pm_id carries the raw, grammar-violating token: the lib emits it raw,
+      # so sanitizing is this caller's output-site job (REQ-B1.6c).
+      printf '%s\n' "orchestrate-select: reference bullet rejected - task id '$(sanitize_printable "$pm_id" '(unprintable)')' violates the task-id grammar" >&2
       continue
     fi
+    [ "$pm_tag" = ref ] || continue
     parked_any="$parked_any$pm_id "
-    [ "$pm_rest" = out-of-scope ] && parked_oos="$parked_oos$pm_id "
+    if [ "$pm_class" = out-of-scope ]; then
+      parked_oos="$parked_oos$pm_id "
+    fi
   done <<EOF
 $parked_map
 EOF

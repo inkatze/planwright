@@ -837,10 +837,15 @@ mkrefusal bad-id
 printf '%s\n' '' '### Task x9 — Bad id' '' '- **Deliverables:** d' >>"$tmp/refuse-bad-id/specs/poisoned/tasks.md"
 refusal_case bad-id "a malformed task id"
 
-# NUL-bearing definition content: restructure_tasks has no NUL screen, so
-# this must be caught by the lib's screen inside the extraction self-check —
-# pinning the `if ! spec_parse_extract_tasks` refuse branch (REQ-B1.6f: an
-# unchecked lib exit would consume a NUL-truncated stream as complete).
+# NUL-bearing definition content: restructure_tasks has no NUL screen of its
+# own, so the refusal must come from the lib's screen through a CHECKED lib
+# call (REQ-B1.6f: an unchecked lib exit would consume a NUL-truncated stream
+# as complete). Since format-grammar Task 2 the earliest such call is the
+# `Status:` mirror header parse (header_value → spec_parse_header_value, which
+# screens the same file); the extraction self-check keeps the same screen as
+# defence in depth behind it. What this case pins is that a NUL in tasks.md
+# refuses the bundle with no write, and that the diagnostic names a checked
+# lib refusal rather than a silent truncation.
 mkrefusal nul-bullet
 nb_f="$tmp/refuse-nul-bullet/specs/poisoned/tasks.md"
 nb_line=$(grep -n -- '- \*\*Deliverables:\*\* Beta output' "$nb_f" | head -1 | cut -d: -f1)
@@ -850,9 +855,13 @@ nb_line=$(grep -n -- '- \*\*Deliverables:\*\* Beta output' "$nb_f" | head -1 | c
   printf -- '- **Deliverables:** Beta \000 output, NUL-bearing.\n'
   tail -n +$((nb_line + 1)) "$nb_f"
 } >"$tmp/nb" && mv "$tmp/nb" "$nb_f"
-refusal_case nul-bullet "a NUL byte in tasks.md (lib screen via the self-check)"
-grep -q "canonical extraction failed" "$tmp/refuse-nul-bullet.err" \
-  || fail "NUL refusal did not come from the extraction self-check branch: $(cat "$tmp/refuse-nul-bullet.err")"
+refusal_case nul-bullet "a NUL byte in tasks.md (lib screen via a checked lib call)"
+if ! grep -qE "canonical extraction failed|header parse failed on tasks.md" \
+  "$tmp/refuse-nul-bullet.err"; then
+  fail "NUL refusal did not come from a checked lib call: $(cat "$tmp/refuse-nul-bullet.err")"
+fi
+grep -q "NUL" "$tmp/refuse-nul-bullet.err" \
+  || fail "NUL refusal does not name the NUL screen: $(cat "$tmp/refuse-nul-bullet.err")"
 
 mkrefusal placement-prose
 awk '/^## Forward plan$/ { print; print ""; print "Remember the spike work first."; next } { print }' \

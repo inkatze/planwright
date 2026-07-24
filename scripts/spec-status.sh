@@ -85,6 +85,19 @@ script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 # shellcheck source=scripts/echo-safety.sh
 . "$script_dir/echo-safety.sh"
 
+# The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3,
+# REQ-B1.4): the header-declaration and parked-map parses below come from it,
+# so this render cannot re-diverge from its three sibling v2 parsers. Fail
+# closed when it cannot be sourced (REQ-B1.6a) — a bare POSIX `.` of a missing
+# file would continue fail-open into a private-copy-less parse.
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "spec-status: spec-parse.sh missing or unreadable: $(sanitize_printable "$spec_parse_sh")" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
+
 spec_dir="${1:-}"
 if [ -z "$spec_dir" ]; then
   echo "usage: spec-status.sh <spec-dir>" >&2
@@ -114,12 +127,17 @@ case "$spec_id" in
 esac
 
 # --- Format-version (REQ-C1.8): missing or unparseable fails closed. -------
-# The first header-block line wins; the value must be a known version. No
-# fallback to either version's rules on a bad value.
-# Trailing trim matters: a Markdown hard-break (two trailing spaces) or a CRLF
-# checkout would otherwise make a valid value unrecognizable — and the
-# sanitized diagnostic would misleadingly show the bare value as refused.
-fv=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$tasks_md")
+# The declaration comes from the shared lib's header-block-scoped parse
+# (REQ-B1.3, REQ-A1.3): only the header block counts, so a column-0 body
+# literal is inert and can no longer mask a MISSING declaration, and a
+# DUPLICATE in-header declaration is unparseable rather than won by position
+# (REQ-A1.2, D-6). The lib's non-zero exit is checked (REQ-B1.6f) — an
+# unchecked capture would read the refusal as an absent declaration. The value
+# must be a known version; no fallback to either version's rules on a bad one.
+if ! fv=$(spec_parse_header_value "$tasks_md" Format-version); then
+  echo "spec-status: unparseable Format-version: declaration in $tasks_md (fail closed)" >&2
+  exit 2
+fi
 case "$fv" in
   1 | 2) ;;
   '')
@@ -133,7 +151,13 @@ case "$fv" in
 esac
 
 # --- Stored status (requirements.md, the authoritative home). --------------
-stored=$(awk '/^\*\*Status:\*\*/ { sub(/^\*\*Status:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$req_md")
+# Same lib parse, same fail-closed posture on a duplicate in-header
+# declaration: the stored status drives the whole render's mode selection, so a
+# contradictory duplicate has no honest winner to pick (REQ-A1.2, D-6).
+if ! stored=$(spec_parse_header_value "$req_md" Status); then
+  echo "spec-status: unparseable Status: declaration in $req_md (fail closed)" >&2
+  exit 2
+fi
 case "$stored" in
   Draft | Ready | Active | Done | Retired | Superseded) ;;
   '')
@@ -181,64 +205,70 @@ if [ "$task_count" -eq 0 ]; then
 fi
 
 # --- Parked-state map (REQ-B1.4, D-3). ---------------------------------------
-# v2: reference bullets under the three human-payload sections, bolded lead
-# exactly `**Task <id>**`; the id is grammar-validated before use, a violating
-# id is rejected (surfaced, never used), and the first bullet per task wins
-# (cross-section exclusivity is the validator's error to raise). v1: a task
-# BLOCK sitting in a human-payload section is classified by that section,
-# matching the sync writer's STATUS_AWK. The map lines are
-#   <id><TAB><class><TAB><payload>        class: awaiting-input|deferred|out-of-scope
-#   rejected<TAB><raw>                    a bullet lead whose id fails the grammar
-parked_map=$(awk -v fv="$fv" '
-  function classof(sec) {
-    if (sec == "Awaiting input") return "awaiting-input"
-    if (sec == "Deferred") return "deferred"
-    if (sec == "Out of scope") return "out-of-scope"
-    return ""
+# v2: the shared lib's parked-map parse (REQ-B1.4, REQ-C1.1) — reference
+# bullets under the three human-payload sections, bolded lead exactly
+# `**Task <token>**`, column-0 fences treated as illustration (D-5) and section
+# headings matched CRLF-tolerantly, so a fenced mock bullet parks nothing and a
+# CRLF checkout can no longer hide a live Awaiting-input park (REQ-C1.3, the
+# defect this re-point fixes). A grammar-violating token is rejected (surfaced,
+# never used) and the first record per task wins here (cross-section
+# exclusivity is the validator's error to raise).
+#
+# v1 parking is a different grammar — a task BLOCK sitting in a human-payload
+# section, matching the sync writer's STATUS_AWK — so it stays local, emitted
+# in the lib's record shape so every reader below is version-agnostic:
+#   ref<TAB><id><TAB><class><TAB><line><TAB><payload>
+#   refbad<TAB><raw-token><TAB><class><TAB><line>
+if [ "$fv" = 2 ]; then
+  parked_map=$(spec_parse_parked_map "$tasks_md") || {
+    # Fail closed: an unreadable or malformed parked map would silently drop
+    # an Awaiting-input park and let the bundle derive Done (REQ-B1.6's
+    # inverse). The lib has already named the reason on stderr.
+    echo "spec-status: could not derive the parked-state map from $tasks_md" >&2
+    exit 2
   }
-  /^## / { sec = substr($0, 4); next }
-  fv == 2 && /^- \*\*Task / && classof(sec) != "" {
-    line = $0
-    sub(/^- \*\*Task /, "", line)
-    i = index(line, "**")
-    if (i == 0) next # no closing bold: not a reference bullet
-    id = substr(line, 1, i - 1)
-    payload = substr(line, i + 2)
-    sub(/^[ \t]+/, "", payload)
-    if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
-      # tabs would corrupt the record split; fold before emitting
-      gsub(/\t/, " ", id)
-      print "rejected\t" id
-      next
+else
+  parked_map=$(awk '
+    function classof(sec) {
+      if (sec == "Awaiting input") return "awaiting-input"
+      if (sec == "Deferred") return "deferred"
+      if (sec == "Out of scope") return "out-of-scope"
+      return ""
     }
-    if (id in seen) next
-    seen[id] = 1
-    gsub(/\t/, " ", payload)
-    print id "\t" classof(sec) "\t" payload
-    next
+    { sub(/\r$/, "") }
+    /^## / { sec = substr($0, 4); sub(/[ \t]+$/, "", sec); next }
+    /^### Task [0-9]/ && $3 ~ /^[0-9]+(\.[0-9]+)?$/ && classof(sec) != "" {
+      printf "ref\t%s\t%s\t%d\t\n", $3, classof(sec), NR
+    }
+  ' "$tasks_md") || {
+    echo "spec-status: could not derive the parked-state map from $tasks_md" >&2
+    exit 2
   }
-  fv == 1 && /^### Task [0-9]/ && $3 ~ /^[0-9]+(\.[0-9]+)?$/ && classof(sec) != "" {
-    if ($3 in seen) next
-    seen[$3] = 1
-    print $3 "\t" classof(sec) "\t"
-  }
-' "$tasks_md") || {
-  # Fail closed: an unreadable parked map would silently drop an
-  # Awaiting-input park and let the bundle derive Done (REQ-B1.6's inverse).
-  echo "spec-status: could not derive the parked-state map from $tasks_md" >&2
-  exit 2
+fi
+
+# parked_refs — the map's `ref` records, first record per task id. The lib
+# emits every reference bullet in file order without de-duplicating (the
+# validator needs both bullets of a twice-parked task); this render wants one
+# row per task, and first-wins is the rule it already applied.
+parked_refs() {
+  printf '%s\n' "$parked_map" \
+    | awk -F"$TAB" '$1 == "ref" && !($2 in seen) { seen[$2] = 1; print }'
 }
 
 parked_class_of() {
-  printf '%s\n' "$parked_map" | awk -F"$TAB" -v i="$1" '$1 == i { print $2; exit }'
+  printf '%s\n' "$parked_map" \
+    | awk -F"$TAB" -v i="$1" '$1 == "ref" && $2 == i { print $3; exit }'
 }
 parked_payload_of() {
-  printf '%s\n' "$parked_map" | awk -F"$TAB" -v i="$1" '$1 == i { print $3; exit }'
+  printf '%s\n' "$parked_map" \
+    | awk -F"$TAB" -v i="$1" '$1 == "ref" && $2 == i { print $5; exit }'
 }
 
-# Surface rejected bullet ids before any derivation output (REQ-C1.9).
+# Surface rejected bullet tokens before any derivation output (REQ-C1.9): the
+# lib emits them raw, so sanitizing here is this caller's output-site job
+# (REQ-B1.6c).
 printf '%s\n' "$parked_map" | while IFS="$TAB" read -r tag raw _; do
-  [ "$tag" = rejected ] || continue
+  [ "$tag" = refbad ] || continue
   printf 'warning: reference bullet rejected — task id %s violates the task-id grammar\n' \
     "'$(sanitize_printable "$raw")'"
 done
@@ -279,10 +309,8 @@ if [ "$degraded" -eq 1 ]; then
   printf 'spec-status: transient evidence failure — %s\n' \
     "$(sanitize_printable "$degraded_msg" '(no diagnostic from the engine)')"
   echo 'evidence-derived status is unavailable; the facts below are locally determinable and are the only facts available:'
-  printf '%s\n' "$parked_map" | while IFS="$TAB" read -r id class payload; do
-    case "$id" in
-      '' | rejected) continue ;;
-    esac
+  parked_refs | while IFS="$TAB" read -r _ id class _ payload; do
+    [ -n "$id" ] || continue
     printf 'parked: task %s %s — %s\n' "$id" "$class" \
       "$(sanitize_printable "$payload" '(no payload)')"
   done
@@ -355,10 +383,8 @@ EOF
 
 # A reference bullet naming no existing task parks nothing (the validator
 # raises the error, REQ-C1.5); surface it so the bullet is not silently inert.
-printf '%s\n' "$parked_map" | while IFS="$TAB" read -r id class _; do
-  case "$id" in
-    '' | rejected) continue ;;
-  esac
+parked_refs | while IFS="$TAB" read -r _ id class _ _; do
+  [ -n "$id" ] || continue
   if ! printf '%s\n' "$engine_out" \
     | awk -F"$TAB" -v i="$id" '$1 == "task" && $2 == i { found = 1 } END { exit !found }'; then
     printf 'warning: a %s reference bullet names task %s, which does not exist\n' \

@@ -1,0 +1,461 @@
+#!/bin/bash
+# test-spec-parse-corpus.sh — the cross-consumer equivalence suite for the
+# shared spec-parse grammar lib (format-grammar Task 2; REQ-B1.3, REQ-B1.4,
+# REQ-B1.6, REQ-C1.1, REQ-C1.3, REQ-D1.9 · D-6, D-7, D-8).
+#
+# tests/test-spec-parse.sh pins what the LIB does. This file pins that the
+# consumers actually consume it, over ONE shared fixture corpus, so the four v2
+# parked-map parsers and the eight version-parse consumers cannot re-diverge
+# (obs:5782486b, obs:22878c2c — the divergence this task exists to end).
+#
+# Properties verified:
+#   1. All four v2 parked-map parsers (spec-status.sh, orchestrate-select.sh,
+#      drain-gates.sh, spec-validate.sh) classify the SAME corpus identically
+#      on the contested boundary each of them exposes: which reference-bullet
+#      tokens are rejected, which prose bullets are tolerated, and that no
+#      fenced line parses as a park (REQ-B1.4, REQ-C1.1).
+#   2. The parked SET is observed where each consumer exposes it:
+#      spec-status.sh renders the full map, orchestrate-select.sh refuses to
+#      pick a parked task.
+#   3. A CRLF checkout keeps a live Awaiting-input bullet blocking derived
+#      Done — the spec-status.sh defect this task fixes (REQ-C1.3).
+#   4. A column-0 BODY `**Format-version:**` literal no longer masks a MISSING
+#      header declaration: every version-keyed consumer fails closed instead of
+#      silently applying the body literal's rules (REQ-A1.3, REQ-B1.3).
+#   5. A DUPLICATE in-header `Format-version:` or `Status:` declaration fails
+#      closed in every consumer keyed on it (REQ-A1.2, REQ-D1.9, D-6).
+#   6. No consumer retains a private copy of a grammar the lib implements: a
+#      grep sweep finds no remaining private `Format-version:`/`Status:`
+#      header-declaration parse and no private reference-bullet parse
+#      (REQ-B1.1's no-private-copy rule for the families landed so far).
+#
+# Runs standalone under /bin/bash (the bash 3.2 floor).
+set -eu
+LC_ALL=C
+export LC_ALL
+unset CDPATH
+
+here=$(cd "$(dirname "$0")" && pwd)
+scripts_dir="$here/../scripts"
+STATUS="$scripts_dir/spec-status.sh"
+SELECT="$scripts_dir/orchestrate-select.sh"
+DRAIN="$scripts_dir/drain-gates.sh"
+VALIDATE="$scripts_dir/spec-validate.sh"
+LEDGER="$scripts_dir/check-ledger.sh"
+MIGRATE="$scripts_dir/migrate-format-version.sh"
+SYNC="$scripts_dir/tasks-pr-sync.sh"
+LIB="$scripts_dir/spec-parse.sh"
+
+fail() {
+  echo "FAIL: $1" >&2
+  exit 1
+}
+
+# refute <haystack> <needle> <label> — fail when the needle IS present. Written
+# as a `case`, not `grep -q … && fail`: under `set -e` an AND-list whose first
+# command fails takes the whole list's non-zero status down with it, so the
+# PASSING case of a negative assertion would silently abort the run.
+refute() {
+  case "$1" in
+    *"$2"*) fail "$3" ;;
+  esac
+}
+
+# refute_line <haystack> <awk-condition> <label> — fail when any line of the
+# haystack satisfies the awk condition (for negatives that need field or
+# anchored matching rather than a substring).
+refute_line() {
+  if printf '%s\n' "$1" | awk "$2 { found = 1 } END { exit !found }"; then
+    fail "$3"
+  fi
+}
+
+for s in "$STATUS" "$SELECT" "$DRAIN" "$VALIDATE" "$LEDGER" "$MIGRATE" "$SYNC"; do
+  [ -x "$s" ] || fail "$(basename "$s") missing or not executable"
+done
+[ -r "$LIB" ] || fail "scripts/spec-parse.sh missing or unreadable"
+
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+
+gitc() {
+  gc_repo="$1"
+  shift
+  git -C "$gc_repo" -c user.name=test -c user.email=test@example.invalid \
+    -c commit.gpgsign=false -c init.defaultBranch=main "$@"
+}
+
+# header_block <status> — the canonical v2 header block for a bundle file.
+header_block() {
+  printf '**Status:** %s\n' "$1"
+  printf '**Last reviewed:** 2026-07-24\n'
+  printf '**Format-version:** 2\n'
+  printf '**Execution:** derived — see the status render\n'
+}
+
+# task_block <id> <deps> — one canonical v2 task definition block.
+task_block() {
+  printf '### Task %s — Thing %s\n\n' "$1" "$1"
+  printf -- '- **Deliverables:** A thing.\n'
+  printf -- '- **Done when:** The thing exists.\n'
+  printf -- '- **Dependencies:** %s\n' "$2"
+  printf -- '- **Citations:** D-1 · REQ-X1.1\n'
+  printf -- '- **Estimated effort:** 1 day\n\n'
+}
+
+# write_corpus <spec-dir> — THE shared fixture corpus. Every case the four v2
+# parsers used to disagree about sits in this one file:
+#   * two live reference bullets (Task 2 awaiting-input, Task 3 deferred);
+#   * a plain prose bullet with a `**Task ...**` lead whose token carries inner
+#     whitespace ("**Task force assembled.**") — tolerated, never a park and
+#     never a rejection;
+#   * a bullet with no bold lead at all;
+#   * a token violating the task-id grammar ("nine") — rejected;
+#   * a NEAR-MISS lead ("**Task 4 **") whose trimmed remainder IS a valid id —
+#     a park a human meant and failed to write, rejected loudly rather than
+#     silently swallowed as prose;
+#   * an unterminated bold lead — markdown lint's finding, not a park;
+#   * a fenced mock payload section and reference bullet — illustration.
+write_corpus() {
+  wc_dir="$1"
+  mkdir -p "$wc_dir"
+  {
+    printf '# Corpus — Requirements\n\n'
+    header_block Ready
+    printf '\n## Goal\n\nFixture.\n\n## REQ-X — Group\n\n'
+    printf -- '- **REQ-X1.1** A requirement.\n'
+  } >"$wc_dir/requirements.md"
+  {
+    printf '# Corpus — Design\n\n'
+    header_block Ready
+    printf '\n## Decision log\n\n### D-1: A decision\n\n'
+    printf '**Decision:** Yes.\n\n**Alternatives considered:**\n\n- No.\n\n'
+    printf '**Chosen because:** it is a fixture.\n'
+  } >"$wc_dir/design.md"
+  {
+    printf '# Corpus — Test spec\n\n'
+    header_block Ready
+    printf '\n## REQ-X — Group\n\n### REQ-X1.1 — A requirement [test]\n\nFixture.\n'
+  } >"$wc_dir/test-spec.md"
+  {
+    printf '# Corpus — Tasks\n\n'
+    header_block Ready
+    printf '\n## Tasks\n\n'
+    task_block 1 none
+    task_block 2 none
+    task_block 3 none
+    task_block 4 none
+    printf '## Awaiting input\n\n'
+    printf -- '- **Task 2** Blocked on a human decision.\n\n'
+    printf '## Deferred\n\n'
+    printf -- '- **Task force assembled.** Plain prose the format allows here.\n'
+    printf -- '- A plain bullet with no bold lead at all.\n'
+    printf -- '- **Task 3** Deferred with a reason.\n\n'
+    printf '## Out of scope\n\n'
+    printf -- '- **Task nine** A token violating the task-id grammar.\n'
+    printf -- '- **Task 4 ** A near-miss lead: the trimmed remainder is a valid id.\n'
+    printf -- '- **Task 5 An unterminated bold lead.\n\n'
+    printf '## Notes\n\n'
+    printf '```\n'
+    printf '## Awaiting input\n\n'
+    printf -- '- **Task 1** A fenced mock park that must parse as illustration.\n'
+    printf '```\n'
+  } >"$wc_dir/tasks.md"
+}
+
+# ---------------------------------------------------------------------------
+# The corpus's expected classification, straight from the lib (the single
+# implementation the consumers are asserted to agree with).
+# ---------------------------------------------------------------------------
+# shellcheck source=scripts/spec-parse.sh
+. "$LIB" || fail "sourcing scripts/spec-parse.sh failed"
+
+corpus_repo="$tmp/corpus-repo"
+mkdir -p "$corpus_repo/specs"
+write_corpus "$corpus_repo/specs/corpus"
+gitc_dir="$corpus_repo"
+git -C "$gitc_dir" -c init.defaultBranch=main init -q
+gitc "$gitc_dir" add -A
+gitc "$gitc_dir" commit -q -m "base: corpus bundle"
+
+corpus_tasks="$corpus_repo/specs/corpus/tasks.md"
+spec_parse_parked_map "$corpus_tasks" >"$tmp/lib.map" \
+  || fail "the lib refused the shared corpus"
+
+lib_refs=$(awk -F'\t' '$1 == "ref" { print $2 " " $3 }' "$tmp/lib.map")
+lib_rejects=$(awk -F'\t' '$1 == "refbad" { print $2 }' "$tmp/lib.map")
+
+[ "$lib_refs" = "2 awaiting-input
+3 deferred" ] || fail "the lib's corpus parked map changed shape: $lib_refs"
+[ "$lib_rejects" = "nine
+4 " ] || fail "the lib's corpus rejected set changed shape: $(printf '%s' "$lib_rejects" | od -c | head -3)"
+echo "ok: the shared corpus classifies as 2 parks, 2 rejected tokens, 1 tolerated prose bullet"
+
+# ---------------------------------------------------------------------------
+# Property 1 + 2: every v2 parser agrees on the corpus.
+# ---------------------------------------------------------------------------
+
+# spec-status.sh renders the full map: per-task class lines plus one rejection
+# warning per rejected token. No remote is configured, so the engine takes its
+# first-class evidence-fallback path and the render exits 0.
+st_out=$("$STATUS" "$corpus_repo/specs/corpus" 2>"$tmp/status.err") \
+  || fail "spec-status.sh failed on the corpus: $(cat "$tmp/status.err")"
+printf '%s\n' "$st_out" | grep -q '^task 2 awaiting-input ' \
+  || fail "spec-status.sh lost the Awaiting-input park: $st_out"
+printf '%s\n' "$st_out" | grep -q '^task 3 deferred ' \
+  || fail "spec-status.sh lost the Deferred park: $st_out"
+printf '%s\n' "$st_out" | grep -q '^task 1 ' \
+  || fail "spec-status.sh dropped task 1 entirely: $st_out"
+refute_line "$st_out" '$1 == "task" && $2 == 1 && $3 == "awaiting-input"' \
+  "spec-status.sh parked task 1 from a FENCED mock bullet: $st_out"
+refute_line "$st_out" '$1 == "task" && $2 == 4 && $3 == "out-of-scope"' \
+  "spec-status.sh parked task 4 from a near-miss lead: $st_out"
+st_rejects=$(printf '%s\n' "$st_out" | sed -n "s/^warning: reference bullet rejected — task id '\(.*\)' violates.*/\1/p")
+[ "$st_rejects" = "$lib_rejects" ] \
+  || fail "spec-status.sh rejected set differs from the lib: got [$st_rejects], want [$lib_rejects]"
+refute "$st_out" 'force assembled' \
+  "spec-status.sh treated a plain prose bullet as a reference: $st_out"
+echo "ok: spec-status.sh matches the lib's corpus classification (REQ-B1.4, REQ-C1.1)"
+
+# orchestrate-select.sh exposes the parked set by refusing to pick a parked
+# task, and echoes the same rejected tokens on stderr. Tasks 2 and 3 are
+# parked, so the lowest-id unparked ready task (1) is picked.
+sel_out=$("$SELECT" "$corpus_repo/specs/corpus" 2>"$tmp/select.err") \
+  || fail "orchestrate-select.sh failed on the corpus: $(cat "$tmp/select.err")"
+[ "$sel_out" = 1 ] || fail "orchestrate-select.sh picked '$sel_out', want '1' (2 and 3 are parked)"
+sel_rejects=$(sed -n "s/^orchestrate-select: reference bullet rejected - task id '\(.*\)' violates.*/\1/p" "$tmp/select.err")
+[ "$sel_rejects" = "$lib_rejects" ] \
+  || fail "orchestrate-select.sh rejected set differs from the lib: got [$sel_rejects], want [$lib_rejects]"
+refute "$(cat "$tmp/select.err")" 'force assembled' \
+  "orchestrate-select.sh treated a plain prose bullet as a reference"
+echo "ok: orchestrate-select.sh matches the lib's corpus classification (REQ-B1.4, REQ-C1.1)"
+
+# drain-gates.sh echoes the same rejected tokens as report notes.
+drain_out=$("$DRAIN" --today 2026-07-24 "$corpus_repo/specs" 2>"$tmp/drain.err") \
+  || fail "drain-gates.sh failed on the corpus: $(cat "$tmp/drain.err")"
+dr_rejects=$(printf '%s\n' "$drain_out" | sed -n "s/^note: reference bullet rejected - task id '\(.*\)' violates.*/\1/p")
+[ "$dr_rejects" = "$lib_rejects" ] \
+  || fail "drain-gates.sh rejected set differs from the lib: got [$dr_rejects], want [$lib_rejects]"
+refute "$drain_out" 'force assembled' \
+  "drain-gates.sh treated a plain prose bullet as a reference"
+echo "ok: drain-gates.sh matches the lib's corpus classification (REQ-B1.4, REQ-C1.1)"
+
+# spec-validate.sh reports one rejected-id finding per rejected token, and
+# nothing for the tolerated prose bullet or the fenced mock park.
+val_out=$("$VALIDATE" "$corpus_repo/specs/corpus" 2>&1) || :
+va_rejects=$(printf '%s\n' "$val_out" | sed -n 's/.*fails the task-id grammar and is rejected: \(.*\)$/\1/p')
+[ "$va_rejects" = "nine
+4" ] || fail "spec-validate.sh rejected set differs from the lib (trailing whitespace is trimmed by the finding's echo): got [$va_rejects]"
+refute "$val_out" 'force assembled' \
+  "spec-validate.sh treated a plain prose bullet as a reference: $val_out"
+refute "$val_out" 'names unknown task id' \
+  "spec-validate.sh resolved a fenced or prose bullet into an unknown-id finding: $val_out"
+echo "ok: spec-validate.sh matches the lib's corpus classification (REQ-B1.4, REQ-C1.1)"
+
+# ---------------------------------------------------------------------------
+# Property 3: a CRLF checkout keeps the Awaiting-input park blocking derived
+# Done (REQ-C1.3 — the spec-status.sh defect this task fixes).
+# ---------------------------------------------------------------------------
+crlf_repo="$tmp/crlf-repo"
+mkdir -p "$crlf_repo/specs"
+write_corpus "$crlf_repo/specs/corpus"
+# Only the two live parks and the definition blocks matter here; drop the
+# rejected/prose/fenced cases so the bundle derives cleanly, then convert the
+# whole file to CRLF.
+{
+  printf '# Corpus — Tasks\n\n'
+  header_block Ready
+  printf '\n## Tasks\n\n'
+  task_block 1 none
+  printf '## Awaiting input\n\n'
+  printf -- '- **Task 1** Blocked on a human decision.\n'
+} | awk '{ printf "%s\r\n", $0 }' >"$crlf_repo/specs/corpus/tasks.md"
+git -C "$crlf_repo" -c init.defaultBranch=main init -q
+gitc "$crlf_repo" add -A
+gitc "$crlf_repo" commit -q -m "base: CRLF corpus"
+# Task 1 has merged evidence, so ONLY the reference bullet can keep the bundle
+# off Done: if the CRLF section heading were missed, the bundle would derive Done.
+gitc "$crlf_repo" commit -q --allow-empty \
+  -m "feat: task 1
+
+Planwright-Task: corpus/1"
+crlf_out=$("$STATUS" "$crlf_repo/specs/corpus" 2>"$tmp/crlf.err") \
+  || fail "spec-status.sh failed on the CRLF corpus: $(cat "$tmp/crlf.err")"
+printf '%s\n' "$crlf_out" | grep -q '^task 1 awaiting-input ' \
+  || fail "CRLF checkout lost the Awaiting-input park (REQ-C1.3): $crlf_out"
+refute "$crlf_out" 'bundle status: Done' \
+  "a live Awaiting-input bullet failed to block derived Done on a CRLF checkout (REQ-C1.3): $crlf_out"
+echo "ok: a CRLF checkout keeps a live Awaiting-input bullet blocking derived Done (REQ-C1.3)"
+
+# ---------------------------------------------------------------------------
+# Property 4: a column-0 BODY `**Format-version:**` literal is inert and no
+# longer masks a MISSING header declaration (REQ-A1.3).
+# ---------------------------------------------------------------------------
+# write_bad_version <spec-dir> <mode> — a bundle whose version declaration is
+# defective. mode=body: no header declaration, a column-0 body literal instead.
+# mode=dup-fv / mode=dup-status: a duplicate in-header declaration.
+write_bad_version() {
+  wbv_dir="$1"
+  wbv_mode="$2"
+  mkdir -p "$wbv_dir"
+  for wbv_f in requirements.md design.md test-spec.md tasks.md; do
+    {
+      printf '# Bad — %s\n\n' "$wbv_f"
+      case $wbv_mode in
+        body)
+          printf '**Status:** Ready\n'
+          printf '**Execution:** derived — see the status render\n\n'
+          printf '## Body\n\n'
+          printf '**Format-version:** 2\n'
+          ;;
+        dup-fv)
+          printf '**Status:** Ready\n'
+          printf '**Format-version:** 2\n'
+          printf '**Format-version:** 1\n'
+          printf '**Execution:** derived — see the status render\n'
+          ;;
+        dup-status)
+          printf '**Status:** Ready\n'
+          printf '**Status:** Draft\n'
+          printf '**Format-version:** 2\n'
+          printf '**Execution:** derived — see the status render\n'
+          ;;
+      esac
+    } >"$wbv_dir/$wbv_f"
+  done
+  {
+    printf '\n## Tasks\n\n'
+    task_block 1 none
+  } >>"$wbv_dir/tasks.md"
+}
+
+# assert_version_keyed_fail_closed <label> <spec-dir> — every version-keyed
+# consumer must refuse the bundle rather than fall open to a version's rules.
+# spec-graph.sh is deliberately absent: it keeps no private version parse, so
+# it inherits the refusal through orchestrate-select.sh and spec-model.sh.
+assert_version_keyed_fail_closed() {
+  av_label="$1"
+  av_dir="$2"
+  av_root=$(dirname "$av_dir")
+
+  if "$STATUS" "$av_dir" >/dev/null 2>&1; then
+    fail "$av_label: spec-status.sh did not fail closed"
+  fi
+  if "$SELECT" "$av_dir" >/dev/null 2>&1; then
+    fail "$av_label: orchestrate-select.sh did not fail closed"
+  fi
+  if "$LEDGER" "$av_dir/tasks.md" >/dev/null 2>&1; then
+    fail "$av_label: check-ledger.sh did not fail closed"
+  fi
+  if "$SYNC" reconcile-status "$av_dir" >/dev/null 2>&1; then
+    fail "$av_label: tasks-pr-sync.sh reconcile-status did not fail closed"
+  fi
+  if "$MIGRATE" "$av_dir" >/dev/null 2>&1; then
+    fail "$av_label: migrate-format-version.sh did not fail closed"
+  fi
+  # drain-gates completes the sweep by contract; the refusal is a per-spec
+  # report error, never a silent evaluation.
+  av_drain=$("$DRAIN" --today 2026-07-24 "$av_root" 2>/dev/null) \
+    || fail "$av_label: drain-gates.sh aborted instead of reporting"
+  printf '%s\n' "$av_drain" | grep -qi 'error:.*not evaluated' \
+    || fail "$av_label: drain-gates.sh evaluated gates under a guessed format: $av_drain"
+  # spec-validate reports a hard finding (an error at every status).
+  if av_val=$("$VALIDATE" "$av_dir" 2>&1); then
+    fail "$av_label: spec-validate.sh reported no error"
+  fi
+  printf '%s\n' "$av_val" | grep -q 'spec-validate: ERROR' \
+    || fail "$av_label: spec-validate.sh error is not an ERROR-severity finding: $av_val"
+}
+
+body_repo="$tmp/body-repo"
+mkdir -p "$body_repo/specs"
+write_bad_version "$body_repo/specs/bad" body
+git -C "$body_repo" -c init.defaultBranch=main init -q
+gitc "$body_repo" add -A
+gitc "$body_repo" commit -q -m "base: body-literal bundle"
+assert_version_keyed_fail_closed "body-literal version" "$body_repo/specs/bad"
+echo "ok: a body-line Format-version: literal no longer masks a missing header declaration (REQ-A1.3)"
+
+# ---------------------------------------------------------------------------
+# Property 5: a duplicate in-header declaration of either load-bearing key
+# fails closed in every consumer keyed on it (REQ-A1.2, REQ-D1.9, D-6).
+# ---------------------------------------------------------------------------
+dupfv_repo="$tmp/dupfv-repo"
+mkdir -p "$dupfv_repo/specs"
+write_bad_version "$dupfv_repo/specs/bad" dup-fv
+git -C "$dupfv_repo" -c init.defaultBranch=main init -q
+gitc "$dupfv_repo" add -A
+gitc "$dupfv_repo" commit -q -m "base: duplicate Format-version bundle"
+assert_version_keyed_fail_closed "duplicate Format-version" "$dupfv_repo/specs/bad"
+echo "ok: a duplicate in-header Format-version: fails closed in every version-keyed consumer (REQ-D1.9)"
+
+# A duplicate in-header `Status:` fails closed in every consumer keyed on the
+# stored status. check-ledger.sh and migrate-format-version.sh key on the
+# version, not the status, so they are not part of this set; spec-status.sh,
+# spec-validate.sh, and tasks-pr-sync.sh are.
+dupst_repo="$tmp/dupst-repo"
+mkdir -p "$dupst_repo/specs"
+write_bad_version "$dupst_repo/specs/bad" dup-status
+git -C "$dupst_repo" -c init.defaultBranch=main init -q
+gitc "$dupst_repo" add -A
+gitc "$dupst_repo" commit -q -m "base: duplicate Status bundle"
+if "$STATUS" "$dupst_repo/specs/bad" >/dev/null 2>&1; then
+  fail "duplicate Status: spec-status.sh did not fail closed"
+fi
+if dupst_val=$("$VALIDATE" "$dupst_repo/specs/bad" 2>&1); then
+  fail "duplicate Status: spec-validate.sh reported no error"
+fi
+printf '%s\n' "$dupst_val" | grep -q 'spec-validate: ERROR' \
+  || fail "duplicate Status: spec-validate.sh error is not ERROR severity: $dupst_val"
+dupst_drain=$("$DRAIN" --today 2026-07-24 "$dupst_repo/specs" 2>/dev/null) \
+  || fail "duplicate Status: drain-gates.sh aborted instead of reporting"
+printf '%s\n' "$dupst_drain" | grep -qi 'status' \
+  || fail "duplicate Status: drain-gates.sh reported nothing about the status: $dupst_drain"
+echo "ok: a duplicate in-header Status: fails closed in every status-keyed consumer (REQ-D1.9)"
+
+# ---------------------------------------------------------------------------
+# Property 6: no consumer retains a private copy of a landed grammar.
+#
+# The sweep is deliberately literal about the two shapes the private copies
+# took: an awk arm matching the bolded header declaration, and an awk arm
+# matching a `- **Task ` reference bullet. The lib is the one file allowed to
+# carry either. Writers are exempt by name: migrate-format-version.sh's
+# transform_header REWRITES the declaration (it is not a reader), and
+# tasks-pr-sync.sh emits the `- **Status:**` v1 annotation bullet, a different
+# grammar from the header declaration.
+# ---------------------------------------------------------------------------
+sweep_files=$(find "$scripts_dir" -name '*.sh' -type f | sort)
+[ -n "$sweep_files" ] || fail "the grep sweep found no scripts to sweep"
+
+private_hdr=""
+private_ref=""
+for f in $sweep_files; do
+  base=$(basename "$f")
+  if [ "$base" = spec-parse.sh ]; then
+    continue
+  fi
+  # A private header-declaration parse: an awk arm anchored on the bolded
+  # `**Format-version:**` / `**Status:**` header literal that EXTRACTS a value
+  # (a sub()/substr() of the same line), rather than rewriting or emitting it.
+  if awk '
+    /\*\*(Format-version|Status):\*\*/ && /sub\(\/\^\\\*\\\*(Format-version|Status)/ { found = 1 }
+    /awk .\/\^\\\*\\\*(Format-version|Status):\\\*\\\*\// { found = 1 }
+    END { exit !found }
+  ' "$f"; then
+    private_hdr="$private_hdr $base"
+  fi
+  # A private reference-bullet parse: an awk arm anchored on `^- \*\*Task `.
+  if grep -q '\^- \\\*\\\*Task ' "$f"; then
+    private_ref="$private_ref $base"
+  fi
+done
+
+case $private_hdr in
+  '' | ' migrate-format-version.sh') ;;
+  *) fail "private header-declaration parse(s) remain outside the lib:$private_hdr" ;;
+esac
+[ -z "$private_ref" ] \
+  || fail "private reference-bullet parse(s) remain outside the lib:$private_ref"
+echo "ok: no consumer retains a private header-declaration or reference-bullet parse (REQ-B1.1)"
+
+echo "PASS: test-spec-parse-corpus.sh"
