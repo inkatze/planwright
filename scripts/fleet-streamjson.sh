@@ -236,8 +236,9 @@ worker_dir() {
 # Alpine/busybox, `unbound variable` under macOS sh) — a silent Linux-red
 # failure the BSD-green floor platform never showed. Shape-validating each
 # candidate rather than trusting its exit status makes the probe
-# order-independent and immune to that class. Mirrors fleet-pane-detect.sh's
-# stat_uid, which fixed the same defect on the same reasoning.
+# order-independent and immune to that class. Mirrors the owner probe landing
+# in execution-backends task 3, which fixes the same defect on the same
+# reasoning.
 # Returns non-zero when neither flavor yields an integer, so callers fail safe
 # rather than computing an age from garbage.
 stat_mtime() {
@@ -324,9 +325,13 @@ journal_oldest_pending() {
 # control byte is dropped, never smuggled, and never emitted raw, which would
 # make the frame invalid JSON the worker's parser rejects).
 # Bytes >= 0x80 are kept, so raw UTF-8 (accents, em-dash, CJK, emoji) reaches
-# the worker intact — JSON strings carry UTF-8 verbatim. Under the pinned
-# LC_ALL=C the class below is a byte-range strip, so it removes only C0/DEL,
-# not the UTF-8 continuation/lead bytes a `[^[:print:]]` strip would delete.
+# the worker intact — JSON strings carry UTF-8 verbatim; the class below is
+# chosen over `[^[:print:]]`, which would delete UTF-8 lead/continuation
+# bytes. NOTE the strip is GNU-only in practice: BSD awk (macOS) does not
+# honour `[\000-\037\177]` as a byte range and strips nothing, so on the
+# bash-3.2 floor C0/DEL survive this escaper (tests/test-fleet-streamjson.sh
+# c17 documents the same asymmetry). TAB and CR use explicit gsub above and
+# are portable everywhere.
 # Every string body the supervisor emits goes through this one escaper, so the
 # prompt path and the deny-message path cannot drift apart.
 json_escape() {
