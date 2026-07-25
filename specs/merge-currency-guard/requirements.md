@@ -28,7 +28,8 @@ enforces the invariant at the flip point with a deterministic, deny-emitting
 `ready-guard` PreToolUse hook that refuses a ready-flip unless the PR is
 provably current with its base branch and mergeable. The guard is unbypassable by
 construction, matching planwright's existing guard philosophy (the sibling
-`worker-command-guard.sh` / `tower-command-guard.sh` deny surface). The
+`worker-command-guard.sh` / `tower-command-guard.sh` guard family, which this
+guard joins by inverting their allow-only modality — D-2, REQ-C1.2). The
 hard invariant both mechanisms carry is stated once as **REQ-A1.1** — its
 single home — and cited from every record that depends on it. The
 deliverable's altitude split — one carried hard-invariant statement on top of
