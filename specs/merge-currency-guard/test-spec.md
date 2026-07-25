@@ -22,10 +22,14 @@ capability-vs-policy boundary (REQ-A1.4).
 ### REQ-A1.1 — Invariant stated once and cited [design-level]
 
 Review confirms the hard-invariant statement ("a PR is flipped ready only on a
-head current with its base branch, and mergeable") exists in the bundle, is
-cited from the Goal,
-and is referenced by the guard (REQ-C) and loop-sync (REQ-B) deliverables. Run
-under Task 1 review and kickoff.
+head current with its base branch, and mergeable, having been
+CI-and-review-verified there") exists in the bundle, is cited from the Goal, and
+is referenced by the guard (REQ-C) and loop-sync (REQ-B) deliverables. To match
+Task 1's `Done when:` the review additionally confirms REQ-A1.1 is the **sole
+normative** statement (other records summarize and cite; none restates it in
+SHALL form) and that it cites the bootstrap invariant family it joins —
+REQ-J1.1 (never auto-merge) and REQ-J1.4 (never force-push/amend/squash/rebase).
+Run under Task 1 review and kickoff.
 
 ### REQ-A1.2 — Enforced by construction, not prose [test]
 

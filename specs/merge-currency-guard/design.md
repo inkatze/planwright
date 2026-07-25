@@ -187,9 +187,11 @@ the `DRAFT`/`HAS_HOOKS`-state handling entirely.)*
 
 **Decision:** `/execute-task` merges `origin/main` into the worker branch at the
 top of each `review_sequence` convergence iteration, so the verified head stays
-current and, for the `main`-based branches this sync targets, REQ-A1.1's
-currency clause is discharged by ordinary operation rather than by the guard
-having to refuse a flip. The mechanism lives
+current so that, for the `main`-based branches this sync targets, REQ-A1.1's
+currency clause is ordinarily satisfied by routine operation rather than by the
+guard having to refuse a flip — currency as of the fetch, not a guarantee
+against a later `origin/main` advance (the accepted TOCTOU residual). The
+mechanism lives
 in a dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
 main` then `git merge FETCH_HEAD`; `/execute-task` invokes it in a single line.
 It never runs `git pull` (a global `branch.autosetuprebase=always` silently
