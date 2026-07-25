@@ -29,7 +29,11 @@ Task 1's `Done when:` the review additionally confirms REQ-A1.1 is the **sole
 normative** statement (other records summarize and cite; none restates it in
 SHALL form) and that it cites the bootstrap invariant family it joins —
 REQ-J1.1 (never auto-merge) and REQ-J1.4 (never force-push/amend/squash/rebase).
-Run under Task 1 review and kickoff.
+Because no linter verifies intra-bundle citation claims, the review also spot-
+checks that each reference set the bundle *claims* is real: the Goal's and D-1's
+carrying-record lists (REQ-B, REQ-C, D-1 through D-4, D-9) and Task 2's and
+Task 3's `Citations:`. A claim naming a record that does not cite REQ-A1.1
+fails this entry. Run under Task 1 review and kickoff.
 
 ### REQ-A1.2 — Enforced by construction, not prose [test]
 

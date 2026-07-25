@@ -394,10 +394,13 @@ ready PR means what the fleet and the human both assume it means.
 
 - 2026-07-24 — Task 1 execution: invariant cross-reference pass
   (expression-only, no meaning change). REQ-A1.1 was already the invariant's
-  single home and already cited bootstrap's never-merge/force-push/amend
-  family, and Task 1's own block already cited it, but none of the records that
-  *carry* the invariant pointed back at it, so the "stated once and cited"
-  discipline was unenforced where it matters. Added the missing
+  single home, and Task 1's own block and D-1 already referenced it, but its
+  bootstrap-family citation named only REQ-J1.4 (force-push/amend) and omitted
+  REQ-J1.1 (never auto-merge), and most of the records that *carry* the
+  invariant — REQ-B, REQ-C, D-2, D-3, D-4, D-9, the Goal — did not point back
+  at it, so the "stated once and cited" discipline was unenforced where it
+  matters. Completed the bootstrap family citation (REQ-J1.1 + REQ-J1.4) and
+  added the missing
   cross-references: the `### In scope` bullet now names REQ-A1.1 as the sole
   normative home; REQ-B1.1 and REQ-C1.1 cite REQ-A1.1 in body and `Cites:` line
   (the sync and guard deliverables); the `## Goal` names it; `tasks.md` Task 2
