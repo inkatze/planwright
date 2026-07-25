@@ -148,9 +148,12 @@ ready PR means what the fleet and the human both assume it means.
   iteration and `/execute-task`'s CI + review verification runs later within the
   same iteration, the final iteration's verification lands on the post-sync
   (`main`-current) head; no separate post-merge CI re-run is introduced. This
-  sync is how the REQ-A1.1 invariant's currency clause is satisfied in normal
-  operation: it keeps the verified head current so a conforming flip is the
-  ordinary outcome rather than one the guard has to refuse.
+  sync is how the REQ-A1.1 invariant's currency clause is discharged for the
+  `main`-based worker branches this sync targets: it keeps the verified head
+  current so a conforming flip is the ordinary outcome rather than one the
+  guard has to refuse. It is not a general discharge of that clause — a PR on a
+  non-`main` base is covered by the guard alone, which reads each PR's real
+  base (D-3).
   *(Cites: REQ-A1.1 · obs:921b93c9 · kickoff §4 lens (2026-07-22).)*
 - **REQ-B1.2** The sync in REQ-B1.1 SHALL use an explicit fetch followed by a
   merge (`git fetch origin main` then `git merge --no-edit FETCH_HEAD`); it
