@@ -47,9 +47,11 @@ ready PR means what the fleet and the human both assume it means.
   CI-and-review-verified on a head that is current with its base branch (in the
   fleet's normal case, `origin/main`) and is mergeable, and that invariant is
   enforced by a deterministic guard rather than by skill prose or reviewer
-  vigilance. Every other record in this bundle — the guard deliverable (REQ-C),
-  the loop-sync deliverable (REQ-B), and the design decisions that carry them
-  (D-1 through D-4) — cites REQ-A1.1 rather than restating it.
+  vigilance. This bullet is a scope summary; the invariant's one **normative**
+  statement lives in REQ-A1.1 alone, and the records that carry it — the guard
+  deliverable (REQ-C), the loop-sync deliverable (REQ-B), and the design
+  decisions behind them (D-1 through D-4) — cite REQ-A1.1 rather than restating
+  it normatively.
 - `/execute-task` syncing `origin/main` into the worker branch at the top of
   each `review_sequence` convergence iteration, via an explicit fetch + merge
   (never `pull`, never rebase), so the final CI + review verification runs on a
