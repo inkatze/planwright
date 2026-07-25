@@ -119,7 +119,7 @@ ready PR means what the fleet and the human both assume it means.
   the single stated home of the invariant (this bullet); it joins bootstrap's
   never-merge/force-push/amend hard-invariant family by citation, not by
   duplication.
-  *(Cites: obs:921b93c9 · `bootstrap` REQ-J1.4 invariant family · kickoff §4 lens (2026-07-22).)*
+  *(Cites: obs:921b93c9 · `bootstrap` REQ-J1.1 (never auto-merge) and REQ-J1.4 (never force-push/amend/squash/rebase) — the invariant family this joins · kickoff §4 lens (2026-07-22).)*
 - **REQ-A1.2** The invariant's currency and mergeability clauses SHALL be
   enforced by construction — a deterministic guard that refuses a
   non-conforming flip — not by skill prose, a checklist, or reviewer
