@@ -64,9 +64,12 @@ this bundle actually exhibited.
 
 ### D-2: Enforce at the flip point with a deny-emitting PreToolUse guard (N)
 
-**Decision:** The invariant (REQ-A1.1) is enforced by a deterministic
-`ready-guard` PreToolUse hook that intercepts a draft→ready transition and emits
-a DENY decision when the invariant is unmet. This is a new guard *modality* for
+**Decision:** The invariant's guard-enforced clauses — currency and
+mergeability, the split REQ-A1.2 draws across REQ-A1.1 — are enforced by a
+deterministic `ready-guard` PreToolUse hook that intercepts a draft→ready
+transition and emits a DENY decision when either is unmet. (The
+CI-and-review-verified clause stays attested by the flipping party; the guard
+reads no check or review state.) This is a new guard *modality* for
 planwright: the shipped `worker-command-guard.sh` and `tower-command-guard.sh`
 are allow-only (they emit `allow` or nothing, never deny), because their job is
 to un-block routine commands, not to block dangerous ones. The ready-guard
@@ -357,8 +360,10 @@ preserves conforming MCP readies, matching the Bash surface's behavior.
 
 ### D-9: The guard is core and flipper-agnostic; who-flips stays a preference (N, `customization-boundary`)
 
-**Decision:** The currency-at-ready *capability* — enforce that any ready-flip
-lands on a current, mergeable head (REQ-A1.1) — is core and flipper-agnostic. The *policy*
+**Decision:** The currency-at-ready *capability* — enforce that any **in-session**
+ready-flip lands on a current, mergeable head (REQ-A1.1; the out-of-session and
+indirect-form residuals stay as D-7 and REQ-C1.10 state them) — is core and
+flipper-agnostic. The *policy*
 of who may flip ready and whether the flip is automatic (human-only in core;
 worker/gauntlet/tower-autonomous under an adopter overlay) stays in the
 settings/overlay layer, unchanged by this bundle. The guard does not mandate
