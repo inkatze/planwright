@@ -357,7 +357,7 @@ preserves conforming MCP readies, matching the Bash surface's behavior.
 ### D-9: The guard is core and flipper-agnostic; who-flips stays a preference (N, `customization-boundary`)
 
 **Decision:** The currency-at-ready *capability* — enforce that any ready-flip
-lands on a current, mergeable head — is core and flipper-agnostic. The *policy*
+lands on a current, mergeable head (REQ-A1.1) — is core and flipper-agnostic. The *policy*
 of who may flip ready and whether the flip is automatic (human-only in core;
 worker/gauntlet/tower-autonomous under an adopter overlay) stays in the
 settings/overlay layer, unchanged by this bundle. The guard does not mandate
