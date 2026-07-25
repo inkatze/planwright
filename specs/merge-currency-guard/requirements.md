@@ -26,7 +26,7 @@ the top of each convergence iteration, so the final CI + review verification
 always runs on a `main`-current head and merge drift stays tiny — and it
 enforces the invariant at the flip point with a deterministic, deny-emitting
 `ready-guard` PreToolUse hook that refuses a ready-flip unless the PR is
-provably current-with-`main` and mergeable. The guard is unbypassable by
+provably current with its base branch and mergeable. The guard is unbypassable by
 construction, matching planwright's existing guard philosophy (the sibling
 `worker-command-guard.sh` / `tower-command-guard.sh` deny surface). The
 hard invariant both mechanisms carry is stated once as **REQ-A1.1** — its

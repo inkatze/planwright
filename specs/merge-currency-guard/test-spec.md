@@ -22,7 +22,8 @@ capability-vs-policy boundary (REQ-A1.4).
 ### REQ-A1.1 — Invariant stated once and cited [design-level]
 
 Review confirms the hard-invariant statement ("a PR is flipped ready only on a
-`main`-current, mergeable head") exists in the bundle, is cited from the Goal,
+head current with its base branch, and mergeable") exists in the bundle, is
+cited from the Goal,
 and is referenced by the guard (REQ-C) and loop-sync (REQ-B) deliverables. Run
 under Task 1 review and kickoff.
 
