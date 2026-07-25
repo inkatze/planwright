@@ -389,17 +389,21 @@ ready PR means what the fleet and the human both assume it means.
 - 2026-07-24 — Task 1 execution: invariant cross-reference pass
   (expression-only, no meaning change). REQ-A1.1 was already the invariant's
   single home and already cited bootstrap's never-merge/force-push/amend
-  family, but nothing pointed *back* at it, so the "stated once and cited"
-  discipline was unenforced in the records that carry the invariant. Added the
-  missing cross-references: the `### In scope` bullet now names REQ-A1.1 as the
-  single home; REQ-B1.1 and REQ-C1.1 cite REQ-A1.1 in body and `Cites:` line
-  (the sync and guard deliverables); `tasks.md` Task 2 and Task 3 `Citations:`
-  gained REQ-A1.1; `design.md`'s preamble, D-1, D-2, and D-4 cite it rather
-  than restating it. Also aligned D-1's and the design preamble's
-  `main`-current shorthand to REQ-A1.1's base-general wording (D-3's predicate
-  is computed against each PR's real base, not `main`) — an internal-consistency
-  fix within the altitude record, no predicate change. No REQ or D-ID minted,
-  no accepted decision contradicted, no executable behavior introduced.
+  family, and Task 1's own block already cited it, but none of the records that
+  *carry* the invariant pointed back at it, so the "stated once and cited"
+  discipline was unenforced where it matters. Added the missing
+  cross-references: the `### In scope` bullet now names REQ-A1.1 as the sole
+  normative home; REQ-B1.1 and REQ-C1.1 cite REQ-A1.1 in body and `Cites:` line
+  (the sync and guard deliverables); the `## Goal` names it; `tasks.md` Task 2
+  and Task 3 `Citations:` gained REQ-A1.1; `design.md`'s preamble and D-1, D-2,
+  D-3, D-4 and D-9 cite it rather than restating it normatively. Also aligned
+  the `main`-current shorthand to REQ-A1.1's base-general wording wherever the
+  text describes the **guard** or the **invariant** (the Goal, D-1, the design
+  preamble, the In-scope bullet, the `test-spec.md` REQ-A1.1 paraphrase), since
+  D-3's predicate is computed against each PR's real base, not `main`; the
+  **sync**-related uses stay `main`-specific, which is what `converge-sync-main`
+  actually targets (D-4). No predicate change. No REQ or D-ID minted, no
+  accepted decision contradicted, no executable behavior introduced.
 
 ## Sources
 
