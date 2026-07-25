@@ -1,7 +1,7 @@
 # Merge Currency Guard — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-22
+**Last reviewed:** 2026-07-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
