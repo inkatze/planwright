@@ -19,7 +19,8 @@ home), and the decisions that carry it (D-1 through D-4) cite it rather than
 restating it normatively. Two mechanisms carry it —
 one that keeps the verified head current (D-4), and one that refuses a flip
 that violates the invariant (D-2, D-3). The guard is the enforcement floor; the
-in-loop sync is what keeps that floor from ever being hit in normal operation.
+in-loop sync is what keeps that floor from being hit in routine operation,
+short of a fresh `origin/main` advance inside the post-fetch window.
 
 ## Decision log
 
@@ -34,7 +35,7 @@ enforced by construction (REQ-A1.2). The invariant statement is the altitude
 decision this bundle records per the autopilot-reflex altitude gate, cited from
 the Goal. Every deliverable that carries the invariant — the guard (D-2, D-3,
 REQ-C) and the loop-sync (D-4, REQ-B) — cross-references REQ-A1.1; none
-restates it. *(Amended at Task 1 execution 2026-07-24: the `main`-current
+restates it normatively. *(Amended at Task 1 execution 2026-07-24: the `main`-current
 shorthand aligned to REQ-A1.1's base-general wording, since D-3's predicate is
 computed against each PR's real base, not `main`; cross-reference discipline
 made explicit.)*

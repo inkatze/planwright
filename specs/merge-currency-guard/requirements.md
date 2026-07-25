@@ -23,11 +23,14 @@ ready flag can fire on a stale, DIRTY head, so the trustworthiness of the
 This bundle makes the ready signal trustworthy by construction. It keeps the
 verified head current — `/execute-task` merges `origin/main` into the branch at
 the top of each convergence iteration, so the final CI + review verification
-always runs on a `main`-current head and merge drift stays tiny — and it
-enforces the invariant at the flip point with a deterministic, deny-emitting
-`ready-guard` PreToolUse hook that refuses a ready-flip unless the PR is
-provably current with its base branch and mergeable. The guard is unbypassable by
-construction, matching planwright's existing guard philosophy (the sibling
+runs on a head that was `main`-current as of that iteration's fetch and merge
+drift stays tiny — and it enforces the invariant's currency and mergeability
+clauses at the flip point with a deterministic, deny-emitting `ready-guard`
+PreToolUse hook that refuses a ready-flip unless the PR is provably current
+with its base branch and mergeable. Within a Claude Code session the guard is
+unbypassable by construction (the out-of-session and indirect-form residuals
+stay as D-7 and REQ-C1.10 state them), matching planwright's existing guard
+philosophy (the sibling
 `worker-command-guard.sh` / `tower-command-guard.sh` guard family, which this
 guard joins by inverting their allow-only modality — D-2, REQ-C1.2). The
 hard invariant both mechanisms carry is stated normatively once, as
@@ -48,8 +51,9 @@ ready PR means what the fleet and the human both assume it means.
   home**; this bullet only summarizes it: a PR is flipped from draft to ready
   only when it has been CI-and-review-verified on a head that is current with
   its base branch (in the fleet's normal case, `origin/main`) and is mergeable,
-  with that invariant enforced by a deterministic guard rather than by skill
-  prose or reviewer vigilance. The records that carry the invariant — the guard
+  with the currency and mergeability clauses enforced by a deterministic guard
+  rather than by skill prose or reviewer vigilance (the CI-and-review clause
+  stays party-attested — REQ-A1.2). The records that carry the invariant — the guard
   deliverable (REQ-C), the loop-sync deliverable (REQ-B), and the design
   decisions behind them (D-1 through D-4) — cite REQ-A1.1 rather than restating
   it normatively.
