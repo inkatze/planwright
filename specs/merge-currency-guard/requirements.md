@@ -30,8 +30,9 @@ provably current with its base branch and mergeable. The guard is unbypassable b
 construction, matching planwright's existing guard philosophy (the sibling
 `worker-command-guard.sh` / `tower-command-guard.sh` guard family, which this
 guard joins by inverting their allow-only modality — D-2, REQ-C1.2). The
-hard invariant both mechanisms carry is stated once as **REQ-A1.1** — its
-single home — and cited from every record that depends on it. The
+hard invariant both mechanisms carry is stated normatively once, as
+**REQ-A1.1** — its single home — and cited from the records that carry it
+(REQ-B, REQ-C, D-1 through D-4, D-9). The
 deliverable's altitude split — one carried hard-invariant statement on top of
 two mechanisms — is recorded in D-1 (cites the pinned seed claim in Sources).
 
@@ -43,13 +44,12 @@ ready PR means what the fleet and the human both assume it means.
 
 ### In scope
 
-- A hard invariant, stated once and cited — **REQ-A1.1 is its single home**: a
-  PR SHALL be flipped from draft to ready only when it has been
-  CI-and-review-verified on a head that is current with its base branch (in the
-  fleet's normal case, `origin/main`) and is mergeable, and that invariant is
-  enforced by a deterministic guard rather than by skill prose or reviewer
-  vigilance. This bullet is a scope summary; the invariant's one **normative**
-  statement lives in REQ-A1.1 alone, and the records that carry it — the guard
+- A hard invariant, stated once and cited. **REQ-A1.1 is its single normative
+  home**; this bullet only summarizes it: a PR is flipped from draft to ready
+  only when it has been CI-and-review-verified on a head that is current with
+  its base branch (in the fleet's normal case, `origin/main`) and is mergeable,
+  with that invariant enforced by a deterministic guard rather than by skill
+  prose or reviewer vigilance. The records that carry the invariant — the guard
   deliverable (REQ-C), the loop-sync deliverable (REQ-B), and the design
   decisions behind them (D-1 through D-4) — cite REQ-A1.1 rather than restating
   it normatively.

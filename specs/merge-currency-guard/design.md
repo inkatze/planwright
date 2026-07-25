@@ -13,9 +13,10 @@ instantiates.
 
 The design leads with the invariant it exists to protect: **a PR flipped ready
 must have been CI-and-review-verified on a head that is current with its base
-branch, and be mergeable.** That invariant is stated once, in `requirements.md`
-as **REQ-A1.1** (its single home); the decisions that carry it (D-1 through
-D-4) cite it rather than restating it normatively. Two mechanisms carry it —
+branch, and be mergeable.** The paragraph above is narrative; the invariant is
+stated **normatively** once, in `requirements.md` as **REQ-A1.1** (its single
+home), and the decisions that carry it (D-1 through D-4) cite it rather than
+restating it normatively. Two mechanisms carry it —
 one that keeps the verified head current (D-4), and one that refuses a flip
 that violates the invariant (D-2, D-3). The guard is the enforcement floor; the
 in-loop sync is what keeps that floor from ever being hit in normal operation.
