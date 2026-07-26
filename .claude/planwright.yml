@@ -35,6 +35,17 @@ require_signed_tags: require
 # malformed value in this repo-tracked layer HARD-FAILS (exit 4) rather than
 # degrading. Until planwright can admit an external nestable review skill, the
 # panel pass runs as a separate tower-level step per unit, not through this knob.
+#
+# The by-layer contrast matters if you are tempted to try it locally instead: a
+# malformed review_sequence in the ADOPTER or MACHINE-LOCAL layer warn+degrades
+# (exit 0) to the CORE DEFAULT — today [polish] — not to the value pinned here.
+# So a machine-local [self-review, panel-review] discards this repo's own policy
+# and converges through /polish instead. That degrade is loud, not silent (the
+# resolver names the offending layer and the fallback on stderr), but it exits 0,
+# so nothing downstream refuses to proceed. Both resolvers degrade to the core
+# default rather than the next-lower layer because config-get exposes only the
+# merged winning value; see the by-layer policy comments in
+# scripts/resolve-review-sequence.sh and scripts/resolve-dispatch-isolation.sh.
 review_sequence: [self-review]
 
 # Pinned, not inherited: the review sequence above depends on it. `per-step` runs
