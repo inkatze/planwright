@@ -139,8 +139,12 @@ What the page adds over the table is glance ergonomics:
 - **Attention first.** Workers are grouped **Needs you** / **Active** /
   **Finished**, in that order. A worker lands in *Needs you* when it is
   `awaiting-input` or `hung`, when the oracle reports it `waiting`, or when it
-  has a pending stream-json request. A banner at the top states the count, so
-  the answer to "does anything want me?" is the first thing on screen.
+  has a pending stream-json request. *Finished* takes the terminal states —
+  `pr-ready`, `merged`, `done`, `ended` — and *Active* takes everything left,
+  so a worker with no attention state yet (one known only from its dispatch
+  record) sorts as active rather than disappearing. A banner at the top states
+  the count, so the answer to "does anything want me?" is the first thing on
+  screen.
 - **A freshness stamp.** Every page carries the UTC instant it was generated
   and refreshes itself on the same interval `watch` uses. A page whose writer
   loop died reads as stale instead of quietly showing old state. (`--interval`
