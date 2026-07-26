@@ -425,6 +425,45 @@ residue=$(find "$tmp/sig" -name '.planwright-dash*' | wc -l | tr -d ' ')
   || fail "signal-cleanup: TERM mid-render left $residue temp file(s) beside the target"
 reset_shim
 
+# A merge failure MID-LOOP stops `watch` instead of looping blind: a loop that
+# keeps running while writing nothing is worse than one that stops, because the
+# page's generated-at stamp is what tells an away operator it went stale. The
+# last good page survives the failed iteration untouched.
+reset_shim
+full_fixture
+ftarget="$tmp/out/failwatch.html"
+"$DASHC" watch --out "$ftarget" --interval 1 >/dev/null 2>&1 &
+fpid=$!
+waited=0
+while [ "$waited" -lt 100 ]; do
+  [ -f "$ftarget" ] && break
+  sleep 0.1 2>/dev/null || sleep 1
+  waited=$((waited + 1))
+done
+[ -f "$ftarget" ] || fail "watch-fail-closed: the first page was never written"
+echo 2 >"$shim_rc"
+# A watchdog bounds the wait, so a watch that keeps looping fails the assertion
+# instead of hanging the suite. Its firing IS the failure signal.
+fired="$tmp/watchdog.fired"
+(
+  sleep 20
+  kill -TERM "$fpid" 2>/dev/null && : >"$fired"
+) &
+kpid=$!
+set +e
+wait "$fpid"
+fwrc=$?
+set -e
+kill "$kpid" 2>/dev/null || true
+wait "$kpid" 2>/dev/null || true
+[ -f "$fired" ] \
+  && fail "watch-fail-closed: watch kept looping after the merge started failing"
+[ "$fwrc" -eq 2 ] || fail "watch-fail-closed: expected exit 2, got $fwrc"
+assert_has 'w-alpha' 'watch-fail-closed' "$(cat "$ftarget")"
+residue=$(find "$tmp/out" -name '.planwright-dash*' | wc -l | tr -d ' ')
+[ "$residue" = 0 ] || fail "watch-fail-closed: left $residue temp file(s)"
+reset_shim
+
 # ===========================================================================
 # 13. Usage errors fail closed with exit 2.
 # ===========================================================================
@@ -451,6 +490,15 @@ usage_case render --interval
 usage_case render --interval abc
 usage_case render --interval 0
 usage_case render --interval -5
+# A leading zero would read as octal in the range arithmetic, so it is refused
+# outright rather than silently reinterpreted.
+usage_case render --interval 01
+# The upper bound is closed at 86400: one second past it is a usage error, the
+# bound itself is accepted.
+usage_case render --interval 86401
+reset_shim
+"$DASHC" render --interval 86400 >/dev/null \
+  || fail "interval-bound: --interval 86400 (the bound itself) was refused"
 # `render` writes stdout, so --out is meaningless there and is refused
 # rather than silently ignored (which would look like a file was written).
 usage_case render --out "$tmp/out/never.html"
