@@ -56,12 +56,23 @@
 #   (f) check every lib call's exit status — a truncated stream consumed
 #       with an unchecked exit is the named fail-open. Capture via command
 #       substitution under `set -e`, or guard with `|| ...` explicitly.
-#   (g) a `-` source argument reads the CALLER's snapshot from stdin, for
-#       consumers whose single-snapshot property forbids a second read of
-#       the file (orchestrate-select.sh). The lib cannot re-read stdin, so
-#       the caller owns the NUL screen for that path — both in-repo snapshot
-#       consumers screen the file before snapshotting it, which is strictly
-#       tighter than the path form (screen and parse see the same bytes).
+#   (g) a `-` source argument reads the CALLER's snapshot from stdin. The lib
+#       cannot re-read stdin, so it runs NO NUL screen on that path and the
+#       caller owns it. Two in-repo reasons to take it, with different
+#       postures:
+#         * a single-snapshot property that forbids a second read of the file
+#           (orchestrate-select.sh). It screens the file, then snapshots it, so
+#           screen and parse see the same bytes — tighter than the path form on
+#           the TOCTOU window, though the screen itself is the caller's own
+#           inline form, not this lib's fail-closed one.
+#         * no file to hand at all: a git blob (spec-validate.sh's baseline
+#           `Status:` read). Nothing is screened there, and the shell's command
+#           substitution has already dropped any NUL from the blob, so a
+#           NUL-bearing baseline parses spliced rather than refused. Accepted:
+#           the only consumer is the baseline terminal-transition check, whose
+#           failure mode is a check that silently does not run, and the current
+#           file's own declaration carries its own finding either way. A new
+#           `-` caller with a stake above that must screen before snapshotting.
 #
 # Sanitization boundary (REQ-B1.6c): the emitted stream is raw bytes —
 # anchor stability forbids lib-side mutation — and echo discipline remains
