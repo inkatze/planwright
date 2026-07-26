@@ -209,13 +209,42 @@ emit_error() {
 # finding — an error at EVERY status per D-9's fail-closed exception to the D-25
 # severity model — and leaves an empty stream, so the bundle then follows the
 # existing missing-declaration path instead of a guessed one.
+#
+# $hb_path memoizes the last loaded path, so the two-to-three declarations a
+# single visit reads really do cost one lib call. It is a single slot on purpose:
+# validate_bundle walks the sibling files in two separate loops (Status /
+# Format-version mirrors, then the **Execution:** pointer), so a per-file cache
+# would buy one avoided call per file at the cost of carrying four streams.
+#
+# The FAILURE report is memoized separately, by path, because that interleaving
+# does defeat the single slot: a file whose header block cannot be read is
+# revisited by the second loop and would otherwise land the SAME `hard` finding
+# twice, reporting one root cause as two errors and inflating the bundle's error
+# total. validate_bundle resets both memos per bundle.
+#
+# The lib's own stderr is captured and folded into the finding rather than left to
+# print raw, matching how the parked-map call site below handles its diagnostic
+# and how the other consumers (drain-gates.sh, check-ledger.sh, tasks-pr-sync.sh)
+# keep their report the single output surface.
+hb_path=
+hb_stream=
+hb_failed=
 hb_load() {
-  if hb_stream=$(spec_parse_header_block "$1"); then
+  if [ "$hb_path" = "$1" ]; then
     return 0
   fi
-  printf 'hard\t%s: could not read the header block (unreadable or NUL-bearing file; fail closed)\n' \
-    "$2" >>"$fnd"
+  hb_path=$1
+  if hb_stream=$(spec_parse_header_block "$1" 2>"$gtmp/hb.err"); then
+    return 0
+  fi
   hb_stream=
+  if set_in "$1" "$hb_failed"; then
+    return 0
+  fi
+  hb_failed="$hb_failed$1
+"
+  printf 'hard\t%s: could not read the header block (unreadable or NUL-bearing file; fail closed): %s\n' \
+    "$2" "$(sanitize_printable "$(cat "$gtmp/hb.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
   return 0
 }
 
@@ -634,6 +663,10 @@ validate_bundle() {
   bname=$2
   fnd="$gtmp/findings"
   : >"$fnd"
+  # The hb_load memos are per bundle: $fnd is truncated here, so a failure
+  # report suppressed across bundles would go missing rather than de-duplicate.
+  hb_path=
+  hb_failed=
 
   for bf in requirements.md design.md tasks.md test-spec.md; do
     [ -f "$bdir/$bf" ] || printf 'gap\tmissing file: %s\n' "$bf" >>"$fnd"
