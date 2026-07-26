@@ -9,8 +9,16 @@
 # Opt-in only, so a routine test-touching PR pays nothing:
 #   - add the `measure-test-time` label to a PR to measure that branch;
 #   - or run it from the Actions tab (workflow_dispatch) once it is on main.
-# For a same-repo PR the workflow definition comes from the head ref, so a
+# For a same-repo PR the workflow definition is read from the PR's merge ref
+# (head merged into base), which already contains the head branch's edits — so a
 # branch that introduces or edits this file can label its own PR to measure.
+#
+# Only `labeled` is subscribed, never `synchronize`: pushing new commits to an
+# already-labelled PR does NOT re-measure, and the newest report stays pinned to
+# the commit that was current when the label went on. That is deliberate — an
+# opt-in instrument should not silently re-spend hours on every push — but it
+# means a re-measure after pushing is a manual step: remove the label and add it
+# back. Check the run's commit SHA before budgeting from a report.
 #
 # "on" is quoted so yamllint's truthy rule (which this repo runs on
 # .github/) does not flag the key.

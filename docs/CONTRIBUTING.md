@@ -93,7 +93,10 @@ It is an instrument, **not** a gate: never add it to `mise run check`. A serial
 best-of-N pass over the whole suite far exceeds the gate's 15-minute budget, and
 re-measuring inside a saturated job would perturb the numbers being measured.
 On CI it runs as the separate opt-in `test-timing` workflow — add the
-`measure-test-time` label to a PR, or dispatch it from the Actions tab.
+`measure-test-time` label to a PR, or dispatch it from the Actions tab. Only the
+labelling re-triggers it: pushing further commits to an already-labelled PR does
+not re-measure, so remove and re-add the label when you want a number for the
+new head.
 
 ### The git hook backstop
 
