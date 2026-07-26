@@ -510,6 +510,14 @@ echo "ok: a duplicate in-header Status: fails closed in every status-keyed consu
 # reviewable act with a stated reason, whereas a silently-narrowed pattern is
 # not. The lib is the one file allowed to carry either shape.
 #
+# The header signature is the line-anchored escaped declaration itself, not the
+# awk `sub()` that one shape of private copy happened to use: anchored on `sub(`
+# the sweep matched exactly ONE file in scripts/ — migrate-format-version.sh, the
+# file on the exemption list — so `private_hdr` could never be non-empty and the
+# sweep verified nothing. Anchoring on the declaration pattern catches the sed
+# and bare-`/match/` shapes too, at the cost of the fuller exemption table below,
+# which is the trade the bluntness argument above already asked for.
+#
 # Exempt, by name and reason:
 #   migrate-format-version.sh  transform_header REWRITES the declaration (a
 #                              writer, not a reader), and restructure_tasks
@@ -517,8 +525,23 @@ echo "ok: a duplicate in-header Status: fails closed in every status-keyed consu
 #                              part-converted payload content verbatim through
 #                              the v1 to v2 transform — it extracts no task id
 #                              and classifies no section.
+#   tasks-pr-sync.sh           write_status_header REWRITES the declaration (a
+#                              writer, same class as above); the value it reads
+#                              first comes from the lib.
+#   check-memory-links.sh      bundle_status() reads the bundle `Status:` header
+#                              with a private sed filter, and
+#   migrate-status-lifecycle.sh  status_of() with a private awk `$2` read plus a
+#                              grep presence probe. Both sit outside REQ-B1.3's
+#                              named consumer set and neither is status-keyed for
+#                              an execution decision, so leaving them was the
+#                              scoped call recorded in specs/_observations
+#                              (status-parse-stragglers, 2026-07-24). Named here
+#                              so the gap is visible where the sweep is defined
+#                              rather than only in the accumulator; a re-point
+#                              removes the name and the stale-exemption guard
+#                              below then demands it.
 # ---------------------------------------------------------------------------
-HDR_EXEMPT=" migrate-format-version.sh "
+HDR_EXEMPT=" migrate-format-version.sh tasks-pr-sync.sh check-memory-links.sh migrate-status-lifecycle.sh "
 REF_EXEMPT=" migrate-format-version.sh "
 
 sweep_files=$(find "$scripts_dir" -name '*.sh' -type f | sort)
@@ -540,10 +563,10 @@ for f in $sweep_files; do
     continue
   fi
   swept=$((swept + 1))
-  # A private header-declaration parse: an awk sub() that strips the bolded
-  # `**Format-version:**` / `**Status:**` prefix off the line to extract its
-  # value.
-  if grep -q 'sub(/\^\\\*\\\*\(Format-version\|Status\):' "$f"; then
+  # A private header-declaration parse: any line-anchored match on the bolded
+  # `**Format-version:**` / `**Status:**` declaration, whichever tool carries it
+  # (awk sub(), awk /match/, sed s///, grep -q).
+  if grep -q '\^\\\*\\\*\(Format-version\|Status\):\\\*\\\*' "$f"; then
     exempt "$HDR_EXEMPT" "$base" || private_hdr="$private_hdr $base"
   fi
   # A private reference-bullet parse: an awk arm anchored on `^- \*\*Task `.
@@ -557,14 +580,16 @@ done
   || fail "private header-declaration parse(s) remain outside the lib:$private_hdr"
 [ -z "$private_ref" ] \
   || fail "private reference-bullet parse(s) remain outside the lib:$private_ref"
-echo "ok: no consumer retains a private header-declaration or reference-bullet parse (REQ-B1.1)"
+echo "ok: every private header-declaration / reference-bullet parse outside the lib is a named, reasoned exemption (REQ-B1.1)"
 
 # The exemptions are asserted to still MATCH, so a name whose reason has gone
-# away (the writer was removed or re-pointed) surfaces as a stale exemption
-# instead of quietly weakening the sweep.
-if ! grep -q 'sub(/\^\\\*\\\*Status:' "$scripts_dir/migrate-format-version.sh"; then
-  fail "stale HDR exemption: migrate-format-version.sh no longer carries the header rewrite it is exempted for"
-fi
+# away (the writer was removed, the reader re-pointed) surfaces as a stale
+# exemption instead of quietly weakening the sweep.
+for hx in migrate-format-version.sh tasks-pr-sync.sh check-memory-links.sh migrate-status-lifecycle.sh; do
+  if ! grep -q '\^\\\*\\\*\(Format-version\|Status\):\\\*\\\*' "$scripts_dir/$hx"; then
+    fail "stale HDR exemption: $hx no longer carries the header parse it is exempted for"
+  fi
+done
 if ! grep -q '\^- \\\*\\\*Task ' "$scripts_dir/migrate-format-version.sh"; then
   fail "stale REF exemption: migrate-format-version.sh no longer carries the bullet-shape probe it is exempted for"
 fi
