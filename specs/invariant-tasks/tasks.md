@@ -234,8 +234,10 @@ the guard that protects their output exists.
   not `GATE(when:)`: the first clause needs negation over a repo-wide
   quantifier, which the condition grammar has no form for. Its three atoms are
   `task <id> completed`, `spec <name> <status>`, and `after <YYYY-MM-DD>`,
-  joined by ` and ` only. Should a deprecation date get picked, that second
-  clause alone becomes expressible as `after <date>`.)
+  joined by ` and ` only; the status literals it whitelists are draft, active,
+  done, retired, and superseded, notably not ready. Should a deprecation
+  window be released with a fixed end date, that second clause alone becomes
+  expressible as `after <date>`.)
   Citations: D-7.
 
 ## Out of scope
