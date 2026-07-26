@@ -195,6 +195,40 @@ case "$brk_err" in
   *) bad "progress line for broken.sh lacks FAILED (got: $brk_err)" ;;
 esac
 
+# The diagnostic block must carry the output of the repeat that ACTUALLY failed.
+# Under best-of-N a file can fail one repeat and pass the next, and the whole
+# point of the block is to say why the run is not a valid baseline — printing a
+# later clean repeat's output there reports a failure with no evidence of it.
+flk="$tmp/flaky"
+mkdir -p "$flk"
+cat >"$flk/flaky.sh" <<'EOF'
+#!/bin/sh
+n=$(cat "$MEASURE_FIXTURE_STATE" 2>/dev/null || echo 0)
+n=$((n + 1))
+echo "$n" >"$MEASURE_FIXTURE_STATE"
+if [ "$n" -eq 1 ]; then
+  echo "MARKER-FAILING-REPEAT" >&2
+  exit 1
+fi
+echo "ok: MARKER-CLEAN-REPEAT"
+exit 0
+EOF
+MEASURE_FIXTURE_STATE="$tmp/flaky-state"
+export MEASURE_FIXTURE_STATE
+out=$("$MEASURE" --repeats 2 "$flk" 2>/dev/null)
+rc=$?
+assert_exit "a file failing only its first repeat still fails the run" 1 "$rc"
+assert_contains "the diagnostic block carries the failing repeat's output" \
+  "MARKER-FAILING-REPEAT" "$out"
+case "$out" in
+  *MARKER-CLEAN-REPEAT*)
+    bad "the diagnostic block substituted a later clean repeat's output"
+    printf '%s\n%s\n%s\n' "----- output -----" "$out" "------------------" >&2
+    ;;
+  *) ok "the diagnostic block does not substitute a clean repeat's output" ;;
+esac
+unset MEASURE_FIXTURE_STATE
+
 # Usage contract.
 rc=0
 "$MEASURE" --nope "$suite" >/dev/null 2>&1 || rc=$?

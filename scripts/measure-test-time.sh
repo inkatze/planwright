@@ -176,7 +176,17 @@ for t in "${files[@]}"; do
   while [ "$r" -lt "$repeats" ]; do
     r=$((r + 1))
     start="$(now_ms)"
-    /bin/bash "$t" >"$work/out" 2>"$work/err" || failed=1
+    if ! /bin/bash "$t" >"$work/out" 2>"$work/err"; then
+      # Preserve the FIRST failing repeat's streams. Under best-of-N a file can
+      # fail one repeat and pass the next, and $work/out is reused every repeat,
+      # so the diagnostic block below would otherwise report a failure while
+      # printing a later clean run's output — a failure with no evidence of it.
+      if [ "$failed" -eq 0 ]; then
+        cp "$work/out" "$work/fail-out" 2>/dev/null
+        cp "$work/err" "$work/fail-err" 2>/dev/null
+      fi
+      failed=1
+    fi
     end="$(now_ms)"
     elapsed=$((end - start))
     [ "$elapsed" -ge 0 ] || elapsed=0
@@ -194,9 +204,11 @@ for t in "${files[@]}"; do
     printf '%s %s verdicts=%s FAILED\n' "$best_ms" "$name" "$verdicts" >>"$rows"
     {
       echo "=== FAILED: $name ==="
-      cat "$work/out" 2>/dev/null
-      cat "$work/err" 2>/dev/null
+      cat "$work/fail-out" 2>/dev/null
+      cat "$work/fail-err" 2>/dev/null
     } >>"$work/failures"
+    # Cleared per file so a later file's block can never inherit this one's.
+    rm -f "$work/fail-out" "$work/fail-err"
   else
     printf '%s %s verdicts=%s\n' "$best_ms" "$name" "$verdicts" >>"$rows"
   fi
