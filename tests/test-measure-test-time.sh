@@ -253,6 +253,22 @@ assert_exit "an out-of-integer-range --repeats exits 2" 2 "$rc"
 rc=0
 "$MEASURE" --repeats 100000 "$suite" >/dev/null 2>&1 || rc=$?
 assert_exit "an absurd --repeats work factor exits 2" 2 "$rc"
+# The bound is guarded by string length before any arithmetic, so pin the exact
+# edge: 99 is the last accepted value and 100 the first refused one.
+rc=0
+"$MEASURE" --repeats 99 "$suite" >/dev/null 2>&1 || rc=$?
+assert_exit "--repeats 99 is accepted" 0 "$rc"
+rc=0
+"$MEASURE" --repeats 100 "$suite" >/dev/null 2>&1 || rc=$?
+assert_exit "--repeats 100 exits 2" 2 "$rc"
+# A zero-padded value is in range and must not be refused for its width; `[`
+# parses base 10, so 007 means seven, not an octal surprise.
+rc=0
+"$MEASURE" --repeats 007 "$suite" >/dev/null 2>&1 || rc=$?
+assert_exit "a zero-padded in-range --repeats is accepted" 0 "$rc"
+rc=0
+"$MEASURE" --repeats 00 "$suite" >/dev/null 2>&1 || rc=$?
+assert_exit "an all-zero --repeats exits 2" 2 "$rc"
 rc=0
 "$MEASURE" --repeats 1 "$tmp/no-such-dir" >/dev/null 2>&1 || rc=$?
 assert_exit "a missing suite directory exits 2" 2 "$rc"

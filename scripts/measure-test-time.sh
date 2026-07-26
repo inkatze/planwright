@@ -94,6 +94,19 @@ case "$repeats" in
     exit 2
     ;;
 esac
+# Normalize leading zeros first, so the width check below judges the value and
+# not its padding: `007` is an ordinary 7 and must not be refused for being
+# three characters wide. Stripping is safe because `[` parses base 10 (unlike
+# `$(( ))`, which would read a leading zero as octal), so the stripped string
+# means exactly what the padded one did. `0?*` never matches a bare `0`, which
+# leaves an all-zero value as `0` for the `< 1` check to reject.
+while :; do
+  case "$repeats" in
+    0?*) repeats="${repeats#0}" ;;
+    *) break ;;
+  esac
+done
+
 # Digit-only is not yet safe: a value past the shell's signed-integer range
 # makes every `[ -lt ]` below error out, and an errored test reads as FALSE.
 # Unguarded, `--repeats 9223372036854775808` would clear the `< 1` check, then
