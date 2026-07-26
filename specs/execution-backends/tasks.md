@@ -150,26 +150,33 @@ critical path is 2 → 4 → 7 → 8 (derived from the `Dependencies:` lines; re
 
 ## Awaiting input
 
-- **Task 8** — the work is complete, converged, and green on the full check
-  suite, but it **cannot be pushed**: `origin/planwright/execution-backends/task-8`
-  already carries an earlier, diverged run of this same task (`58d06e0` core,
-  `5ce0c47` observation, `eca3f04` park) that stopped and escalated the
-  serving/exposure fork instead of deciding it. My commits branch from
-  `afe68ea` independently, so the push is a non-fast-forward and the only
-  remedies (force-push, reset, rebase) are all forbidden invariants. No PR
-  exists for either line of work. Two decisions are needed. **(1) The serving
-  decision.** The brief's §3 records it as Task 8 design freedom ("the
-  selection criterion is the best and most useful surface, not the simplest"),
-  which is how this run read it: the dashboard binds no socket at all, writes
-  an owner-only file, and delegates phone access to a channel the operator
-  already authenticates (`file://`, tailnet, `ssh -L`, synced path). The
-  earlier run read the same fork as operator-reserved. Confirm this shape or
-  name another. **(2) Branch reconciliation.** Recommended: merge
-  `origin/planwright/execution-backends/task-8` into this branch (a new
-  commit, so no invariant is broken) resolving in favour of this run's
-  superset — it also carries `watch`, the freshness stamp, and the signal-safe
-  atomic write — then push and open the draft PR. Alternatives are a
-  force-push or landing this run on a fresh branch, both human calls.
+- **Task 8** — the work is complete and converged, and it is pushed and under
+  review as draft **PR #320** on `planwright/execution-backends/task-8-rerun`.
+  Both forks this entry originally parked on have since been decided by the
+  operator. **(1) The serving decision** resolved as this run read it: the
+  brief's §3 records the serving/refresh mechanism as Task 8 design freedom
+  ("the selection criterion is the best and most useful surface, not the
+  simplest"), and the dashboard binds no socket at all, writes an owner-only
+  file, and delegates phone access to a channel the operator already
+  authenticates (`file://`, tailnet, `ssh -L`, synced path). **(2) Branch
+  reconciliation** resolved by landing this run on a new branch:
+  `origin/planwright/execution-backends/task-8` still carries the earlier,
+  diverged run of this same task (`58d06e0` core, `5ce0c47` observation,
+  `eca3f04` park), which forked from `afe68ea` independently and so can never
+  fast-forward onto this line. It was left untouched rather than force-pushed,
+  reset, or rebased. Nothing unique is stranded there — this run is a strict
+  superset, also carrying `watch`, the freshness stamp, and the signal-safe
+  atomic write — and the park recorded in `cefc2b2` is superseded by that same
+  operator decision, left in history rather than reverted. **What keeps this
+  parked:** the stale `origin/planwright/execution-backends/task-8` branch is
+  the operator's to delete or archive, and PR #320 is an unmerged draft (merge
+  is always a human act). Lift this park once the stale branch is dealt with;
+  the task then derives its state from PR #320 like every other task in this
+  bundle. **Verification:** the dashboard suite and `mise run check` are green;
+  one unrelated pre-existing failure (`tests/test-fleet-throttle.sh` case 33, a
+  3-second wall-clock anchor that misses under parallel load) is untouched by
+  this branch, passes in isolation, and is recorded as an observation in this
+  same change.
 
 ## Deferred
 
