@@ -94,8 +94,8 @@ renders it on demand.
   extension/override knob is deferred. Confidence: high.
   **Gate:** recurring drain-loop observations show multiple contexts need to
   extend the worker allowlist, per the customization-boundary graduation rule.
-  (Free-text, not `GATE(when:)`: "recurring observations show" is a human
-  judgement the condition grammar cannot express.) Citations: D-8;
+  (Free-text, not `GATE(when:)`: "recurring drain-loop observations show" is a
+  human judgement the condition grammar cannot express.) Citations: D-8;
   `doctrine/customization-boundary.md`.
 
 - **Runtime audit log of hook allow decisions.** The auto-approve hook is a
