@@ -253,10 +253,21 @@ assert_exit "an out-of-integer-range --repeats exits 2" 2 "$rc"
 rc=0
 "$MEASURE" --repeats 100000 "$suite" >/dev/null 2>&1 || rc=$?
 assert_exit "an absurd --repeats work factor exits 2" 2 "$rc"
+# Accept-path cases actually execute the suite N times, so they run against a
+# single no-sleep file rather than $suite — whose b-slow.sh sleeps 1s and would
+# make `--repeats 99` alone cost 99 seconds. A straggler-reduction change must
+# not hand the suite back a two-minute test file.
+fastsuite="$tmp/fast"
+mkdir -p "$fastsuite"
+cat >"$fastsuite/f-instant.sh" <<'EOF'
+#!/bin/sh
+echo "ok: instant verdict"
+EOF
 # The bound is guarded by string length before any arithmetic, so pin the exact
-# edge: 99 is the last accepted value and 100 the first refused one.
+# edge: 99 is the last accepted value and 100 the first refused one. The refusal
+# side exits before running anything, so it can keep using $suite.
 rc=0
-"$MEASURE" --repeats 99 "$suite" >/dev/null 2>&1 || rc=$?
+"$MEASURE" --repeats 99 "$fastsuite" >/dev/null 2>&1 || rc=$?
 assert_exit "--repeats 99 is accepted" 0 "$rc"
 rc=0
 "$MEASURE" --repeats 100 "$suite" >/dev/null 2>&1 || rc=$?
@@ -264,7 +275,7 @@ assert_exit "--repeats 100 exits 2" 2 "$rc"
 # A zero-padded value is in range and must not be refused for its width; `[`
 # parses base 10, so 007 means seven, not an octal surprise.
 rc=0
-"$MEASURE" --repeats 007 "$suite" >/dev/null 2>&1 || rc=$?
+"$MEASURE" --repeats 007 "$fastsuite" >/dev/null 2>&1 || rc=$?
 assert_exit "a zero-padded in-range --repeats is accepted" 0 "$rc"
 rc=0
 "$MEASURE" --repeats 00 "$suite" >/dev/null 2>&1 || rc=$?
