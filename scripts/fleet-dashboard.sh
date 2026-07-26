@@ -56,8 +56,11 @@
 # will keep reloading state nothing is updating.
 #
 # Exit codes: 0 success; 2 usage error, a merge failure, or a filesystem
-#   failure (fail closed — a failed render never emits a partial page and
-#   never replaces a previously written one).
+#   failure (fail closed — a failed merge emits nothing at all, and under
+#   `write`/`watch` a failed render never replaces a previously written page,
+#   because the page is built in a temp file the failure discards. Streaming
+#   `render` is the one path that can have already put bytes on stdout when a
+#   later stage fails; nothing durable is touched there).
 #
 # `watch` stops on such a failure rather than looping blind. The ORDINARY
 # degrade path never gets here: an unreadable store or a failed oracle probe
@@ -456,6 +459,15 @@ esac
 case $INTERVAL in
   0?*) die "$CMD: --interval must not carry a leading zero" ;;
 esac
+# An all-digit value wider than shell arithmetic makes the range test below
+# ERROR on both comparisons rather than compare false, so the bound would fail
+# OPEN and accept the value — and under `watch` it reaches a `sleep` that
+# cannot parse it either, spinning the loop at full render speed. The length
+# cap has to come first. Same 15-digit overflow guard fleet-throttle.sh's
+# `--until` and fleet-audit.sh's time bounds carry.
+if [ "${#INTERVAL}" -gt 15 ]; then
+  die "$CMD: --interval has more than 15 digits (overflow guard)"
+fi
 if [ "$INTERVAL" -lt 1 ] || [ "$INTERVAL" -gt 86400 ]; then
   die "$CMD: --interval must be between 1 and 86400 seconds"
 fi
@@ -488,7 +500,12 @@ case $CMD in
   watch)
     while :; do
       write_page "$OUT" || exit 2
-      sleep "$INTERVAL"
+      # The pacing sleep is status-checked for the same reason the render is:
+      # a loop that cannot pace itself must stop, not spin. Unchecked, any
+      # sleep failure turns the interval into a busy loop paying a full merge
+      # per iteration. INT/TERM never arrive here as a failed sleep — their
+      # traps exit first — so this fires only on a genuine sleep failure.
+      sleep "$INTERVAL" || exit 2
     done
     ;;
 esac

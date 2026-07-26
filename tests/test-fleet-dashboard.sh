@@ -496,6 +496,13 @@ usage_case render --interval 01
 # The upper bound is closed at 86400: one second past it is a usage error, the
 # bound itself is accepted.
 usage_case render --interval 86401
+# An all-digit value too long for shell arithmetic has to be refused by a
+# length cap BEFORE it reaches `-lt`/`-gt`: both comparisons ERROR on an
+# oversized operand (they do not simply compare false), so the range check
+# fails open and the value is accepted. Under `watch` that lands in `sleep`,
+# which cannot parse it either, and the loop spins at full render speed. Same
+# 15-digit overflow guard fleet-throttle.sh and fleet-audit.sh carry.
+usage_case render --interval 999999999999999999999
 reset_shim
 "$DASHC" render --interval 86400 >/dev/null \
   || fail "interval-bound: --interval 86400 (the bound itself) was refused"
