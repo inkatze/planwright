@@ -391,8 +391,8 @@ render() {
 # otherwise abandon the temp beside the operator's target — one more file per
 # stop, forever.
 PENDING_TMP=""
-# SLEEP_PID does the same job for the pacing sleep: the traps kill it so the
-# child never outlives the loop it was pacing. Both start empty because
+# SLEEP_PID does the same job for the pacing sleep: the traps kill it, so a
+# stop does not leave the child pacing nothing. Both start empty because
 # `cleanup` runs under `set -u` on any exit path, including one taken before
 # either has been assigned.
 SLEEP_PID=""
@@ -513,18 +513,27 @@ case $CMD in
       # stopping the loop by PID, rather than a terminal's process-group
       # Ctrl-C, which reaches the child too) would wait out the rest of the
       # interval first — up to the 86400 maximum. `wait` is interruptible, and
-      # the traps kill SLEEP_PID so the child never outlives us. Same shape the
-      # sibling child-waiting loops use (fleet-dispatch-headless.sh,
-      # fleet-liveness.sh).
+      # the traps kill SLEEP_PID. Same shape the sibling child-waiting loops
+      # use (fleet-dispatch-headless.sh, fleet-liveness.sh). One assignment
+      # wide of that is not covered: a signal landing between `&` and the
+      # `SLEEP_PID=$!` below leaves the child untracked, and it then runs out
+      # its own interval unparented. Nothing durable is at stake there, and
+      # closing it would need signal blocking POSIX sh does not offer.
       #
-      # The status check is the other half of the fail-closed contract: a loop
+      # The status is captured and SLEEP_PID cleared BEFORE it is tested, so the
+      # failure path cannot leave a reaped PID published to the traps for
+      # `cleanup` to signal (a PID the OS may by then have reused).
+      #
+      # The check itself is the other half of the fail-closed contract: a loop
       # that cannot pace itself must stop, not spin. Unchecked, a sleep that
       # will not run turns the interval into a busy loop paying a full merge
       # per iteration.
       sleep "$INTERVAL" &
       SLEEP_PID=$!
-      wait "$SLEEP_PID" || exit 2
+      wait "$SLEEP_PID"
+      sleep_rc=$?
       SLEEP_PID=""
+      [ "$sleep_rc" -eq 0 ] || exit 2
     done
     ;;
 esac

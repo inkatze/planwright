@@ -482,6 +482,21 @@ while [ "$waited" -lt 100 ]; do
   waited=$((waited + 1))
 done
 [ -f "$ptarget" ] || fail "watch-prompt-stop: the first page was never written"
+# Synchronise on the pacing child EXISTING, not merely on the page appearing.
+# The signal has to land while the loop is parked on it; a TERM that arrives
+# between the render and the sleep would be handled promptly by a foreground
+# implementation too, and this case would pass by luck. Its PID is recorded
+# here, while the parent is still alive, because it is the only way to check
+# for an orphan afterwards (see below).
+waited=0
+pchild=""
+while [ "$waited" -lt 100 ]; do
+  pchild=$(pgrep -P "$ppid" 2>/dev/null | head -1)
+  [ -n "$pchild" ] && break
+  sleep 0.1 2>/dev/null || sleep 1
+  waited=$((waited + 1))
+done
+[ -n "$pchild" ] || fail "watch-prompt-stop: the pacing sleep child never appeared"
 pfired="$tmp/prompt-watchdog.fired"
 (
   sleep 15
@@ -498,10 +513,14 @@ wait "$pkpid" 2>/dev/null || true
 [ -f "$pfired" ] \
   && fail "watch-prompt-stop: TERM did not stop the loop; it sat out the 300s interval"
 [ "$prc" -eq 143 ] || fail "watch-prompt-stop: expected exit 143 on TERM, got $prc"
-# The pacing child must not outlive the loop it was pacing.
+# The pacing child must not outlive the loop it was pacing — checked by the PID
+# recorded above, not by `pgrep -P`. Once the parent exits, a surviving child is
+# reparented, so a parent-PID query comes back empty whether or not the child
+# lived: that assertion would always have passed.
 sleep 1
-if pgrep -P "$ppid" >/dev/null 2>&1; then
-  fail "watch-prompt-stop: left a pacing sleep child behind"
+if kill -0 "$pchild" 2>/dev/null; then
+  kill "$pchild" 2>/dev/null || true
+  fail "watch-prompt-stop: the pacing sleep child outlived the loop"
 fi
 reset_shim
 
