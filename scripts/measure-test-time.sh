@@ -47,7 +47,7 @@ Measures each <suite-dir>/*.sh test file's wall-clock time serially,
 best-of-N, and reports it alongside the file's emitted verdict count.
 An instrument, not a gate: never wire this into `mise run check`.
 
-  --repeats N   runs per file, minimum reported (default 3, must be >= 1)
+  --repeats N   runs per file, minimum reported (default 3, range 1-99)
   -h, --help    this message
 
 Report: one row per file, ranked slowest-first, as
@@ -87,14 +87,31 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+repeats_max=99
 case "$repeats" in
   '' | *[!0-9]*)
     echo "measure-test-time: --repeats must be a positive integer (got: $repeats)" >&2
     exit 2
     ;;
 esac
-if [ "$repeats" -lt 1 ]; then
-  echo "measure-test-time: --repeats must be >= 1 (got: $repeats)" >&2
+# Digit-only is not yet safe: a value past the shell's signed-integer range
+# makes every `[ -lt ]` below error out, and an errored test reads as FALSE.
+# Unguarded, `--repeats 9223372036854775808` would clear the `< 1` check, then
+# fail the loop's own bound the same way, run zero repeats, and print an
+# all-zero report while exiting 0 — a silently invalid baseline, the one
+# outcome an instrument feeding Task 7's budgets must never produce. So the
+# length is checked BEFORE any arithmetic touches the value. run-tests.sh dodges
+# this by falling back to a safe default (`[ "$jobs" -ge 1 ] || jobs=1`); here a
+# wrong N must be refused rather than silently substituted, because the caller
+# asked for a specific measurement.
+#
+# The same guard caps the work factor. This runs serially, so cost is N x a full
+# serial suite pass — already hours at the default N=3. Nothing needs more than
+# a couple of dozen repeats to bound noise, and an in-range typo like 100000
+# would otherwise burn the job's whole 330-minute budget and produce nothing.
+if [ "${#repeats}" -gt "${#repeats_max}" ] \
+  || [ "$repeats" -lt 1 ] || [ "$repeats" -gt "$repeats_max" ]; then
+  echo "measure-test-time: --repeats must be between 1 and $repeats_max (got: $repeats)" >&2
   exit 2
 fi
 

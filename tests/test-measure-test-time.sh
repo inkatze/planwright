@@ -242,6 +242,17 @@ assert_exit "--repeats 0 exits 2" 2 "$rc"
 rc=0
 "$MEASURE" --repeats abc "$suite" >/dev/null 2>&1 || rc=$?
 assert_exit "a non-numeric --repeats exits 2" 2 "$rc"
+# A digit-only value past the shell's integer range is the dangerous one: every
+# `[ -lt ]` against it errors and reads as FALSE, so an unbounded script runs
+# the repeat loop zero times and reports an all-zero baseline while exiting 0.
+# A silently invalid measurement is the one outcome this instrument must never
+# produce, so the oversized value has to be rejected, not survived.
+rc=0
+"$MEASURE" --repeats 9223372036854775808 "$suite" >/dev/null 2>&1 || rc=$?
+assert_exit "an out-of-integer-range --repeats exits 2" 2 "$rc"
+rc=0
+"$MEASURE" --repeats 100000 "$suite" >/dev/null 2>&1 || rc=$?
+assert_exit "an absurd --repeats work factor exits 2" 2 "$rc"
 rc=0
 "$MEASURE" --repeats 1 "$tmp/no-such-dir" >/dev/null 2>&1 || rc=$?
 assert_exit "a missing suite directory exits 2" 2 "$rc"
