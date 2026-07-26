@@ -107,8 +107,8 @@ renders it on demand.
   adversarial suite are the shipped controls. Confidence: medium.
   **Gate:** first field evidence of a hook false-allow, OR recurring drain-loop
   demand for runtime auditability of auto-approve decisions. (Free-text, not
-  `GATE(when:)`: the grammar joins atoms with ` and ` only — there is no `OR`
-  form — and both clauses are human judgements besides.)
+  `GATE(when:)`: the grammar joins atoms with ` and ` only, with no `OR` form,
+  and both clauses are human judgements besides.)
   Citations: kickoff §7 (2026-07-18); REQ-B1.4;
   `doctrine/decision-domains.md` (observability).
 
