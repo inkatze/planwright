@@ -579,12 +579,39 @@ echo "ok: tasks-pr-sync.sh CLI fails closed when the lib is missing (REQ-B1.6a)"
 
 # tasks-pr-sync.sh, HOOK arm: fail-SOFT (exit 0) but writes nothing — the
 # PostToolUse contract. The diagnostic still names the lib.
-cp "$tmp/nolib-root/corpus/tasks.md" "$tmp/nolib-pristine.md"
-if ! printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr create --draft"},"tool_response":{"stdout":"https://github.com/o/r/pull/1","stderr":""}}' \
-  | sh "$tmp/scripts-nolib2/tasks-pr-sync.sh" >/dev/null 2>"$tmp/nolib-hook.err"; then
+#
+# Unlike the CLI arm above, the hook arm takes NO spec argument: it derives the
+# spec id from `git rev-parse --abbrev-ref HEAD` in the ambient checkout and
+# writes under that checkout's primary specs/. So it must run against a
+# purpose-built fixture repo with a `planwright/<spec>/task-<n>` branch checked
+# out, never against whatever branch happens to be current. Two ways the
+# ambient form was wrong: on a detached HEAD (what actions/checkout leaves for
+# a `pull_request` event) `--abbrev-ref` yields the literal `HEAD`, the
+# convention-branch guard misses, and the hook no-ops with an empty stderr
+# before ever reaching the require_spec_parse gate this pins; and where the
+# branch DID match, the spec dir resolved into the real repo's specs/, so the
+# no-write assertion compared a file the hook never targeted. The fixture
+# mirrors make_repo / run_hook in tests/test-tasks-pr-sync.sh.
+nolib_repo=$tmp/nolib-repo
+mkdir -p "$nolib_repo/specs/corpus"
+cp "$tmp/nolib-root/corpus/"*.md "$nolib_repo/specs/corpus/"
+git -C "$nolib_repo" init -q -b main
+git -C "$nolib_repo" config user.email test@example.com
+git -C "$nolib_repo" config user.name test
+git -C "$nolib_repo" config commit.gpgsign false
+git -C "$nolib_repo" add -A
+git -C "$nolib_repo" commit -qm "chore: fixture"
+git -C "$nolib_repo" checkout -q -b planwright/corpus/task-1
+
+cp "$nolib_repo/specs/corpus/tasks.md" "$tmp/nolib-pristine.md"
+if ! (
+  cd "$nolib_repo" \
+    && printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr create --draft"},"tool_response":{"stdout":"https://github.com/o/r/pull/1","stderr":""}}' \
+    | sh "$tmp/scripts-nolib2/tasks-pr-sync.sh"
+) >/dev/null 2>"$tmp/nolib-hook.err"; then
   fail "tasks-pr-sync.sh hook arm exited non-zero without the lib (the hook contract is fail-soft)"
 fi
-cmp -s "$tmp/nolib-pristine.md" "$tmp/nolib-root/corpus/tasks.md" \
+cmp -s "$tmp/nolib-pristine.md" "$nolib_repo/specs/corpus/tasks.md" \
   || fail "tasks-pr-sync.sh hook arm wrote without the lib (fail-open, REQ-B1.6a)"
 # The diagnostic must name the LIB, not a downstream symptom. Without the
 # explicit require_spec_parse gate the write is still refused (the version gate
