@@ -483,14 +483,22 @@ reference_bullet_findings() {
   # bundle can legitimately define zero task blocks, and with an EMPTY first
   # file FNR == NR is true for the second file's first record, silently eating
   # the first reference bullet (the classic empty-first-file gotcha).
-  awk -F"$tab" -v idsfile="$1" '
+  #
+  # Compared against ARGV[1] rather than a `-v idsfile=` copy of the same path:
+  # awk escape-processes a -v assignment's VALUE, so a $gtmp path carrying a
+  # backslash escape (GNU mktemp -d honours TMPDIR) would reach the program with
+  # `\t` rewritten to a tab, never match FILENAME, leave ids[] empty, and report
+  # every reference bullet as naming an unknown task id. ARGV holds the operand
+  # verbatim. The sibling multi-file readers avoid -v for this too
+  # (fleet-status.sh matches FILENAME against a suffix pattern).
+  awk -F"$tab" '
     function label(c) {
       if (c == "awaiting-input") return "Awaiting input"
       if (c == "deferred") return "Deferred"
       if (c == "out-of-scope") return "Out of scope"
       return c
     }
-    FILENAME == idsfile { if ($1 == "TID") ids[$2] = 1; next }
+    FILENAME == ARGV[1] { if ($1 == "TID") ids[$2] = 1; next }
     $1 == "refbad" { printf "RB\t%s\t%s\n", $4, $2; next }
     $1 == "ref" {
       rid = $2
