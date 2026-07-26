@@ -391,6 +391,11 @@ render() {
 # otherwise abandon the temp beside the operator's target — one more file per
 # stop, forever.
 PENDING_TMP=""
+# SLEEP_PID does the same job for the pacing sleep: the traps kill it so the
+# child never outlives the loop it was pacing. Both start empty because
+# `cleanup` runs under `set -u` on any exit path, including one taken before
+# either has been assigned.
+SLEEP_PID=""
 
 write_page() {
   wp_out=$1
@@ -487,6 +492,7 @@ fi
 WS=$(mktemp -d "${TMPDIR:-/tmp}/planwright-dash.XXXXXX") || exit 2
 
 cleanup() {
+  [ -z "$SLEEP_PID" ] || kill "$SLEEP_PID" 2>/dev/null
   rm -rf "$WS"
   [ -z "$PENDING_TMP" ] || rm -f "$PENDING_TMP"
 }
@@ -501,15 +507,24 @@ case $CMD in
   watch)
     while :; do
       write_page "$OUT" || exit 2
-      # The pacing sleep is status-checked for the same reason the render is:
-      # a loop that cannot pace itself must stop, not spin. Unchecked, any
-      # sleep failure turns the interval into a busy loop paying a full merge
-      # per iteration. An INT/TERM delivered to this shell (the ordinary way
-      # `watch` is stopped, including a process-group signal) runs the trap and
-      # exits 130/143 without reaching this check; a signal delivered to the
-      # sleep child alone lands here instead and stops the loop with exit 2,
-      # which is the same fail-closed answer.
-      sleep "$INTERVAL" || exit 2
+      # The pacing sleep runs in the BACKGROUND and is awaited, so a signal can
+      # stop the loop at once. A foreground `sleep` defers a trapped signal
+      # until the child finishes: TERM to this shell alone (a supervisor
+      # stopping the loop by PID, rather than a terminal's process-group
+      # Ctrl-C, which reaches the child too) would wait out the rest of the
+      # interval first — up to the 86400 maximum. `wait` is interruptible, and
+      # the traps kill SLEEP_PID so the child never outlives us. Same shape the
+      # sibling child-waiting loops use (fleet-dispatch-headless.sh,
+      # fleet-liveness.sh).
+      #
+      # The status check is the other half of the fail-closed contract: a loop
+      # that cannot pace itself must stop, not spin. Unchecked, a sleep that
+      # will not run turns the interval into a busy loop paying a full merge
+      # per iteration.
+      sleep "$INTERVAL" &
+      SLEEP_PID=$!
+      wait "$SLEEP_PID" || exit 2
+      SLEEP_PID=""
     done
     ;;
 esac

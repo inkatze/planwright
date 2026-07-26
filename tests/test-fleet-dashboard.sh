@@ -464,6 +464,47 @@ residue=$(find "$tmp/out" -name '.planwright-dash*' | wc -l | tr -d ' ')
 [ "$residue" = 0 ] || fail "watch-fail-closed: left $residue temp file(s)"
 reset_shim
 
+# A TERM stops the loop AT ONCE, even mid-interval. The pacing sleep runs in
+# the background and is awaited precisely so a trapped signal is not deferred
+# until the child finishes: with a foreground sleep, a supervisor stopping the
+# loop by PID (no process group involved, so the child never sees the signal)
+# waits out the rest of the interval — up to 86400s. Interval 1 cannot see this
+# defect at all, which is why this case uses a long one and bounds the stop.
+reset_shim
+full_fixture
+ptarget="$tmp/out/prompt.html"
+"$DASHC" watch --out "$ptarget" --interval 300 >/dev/null 2>&1 &
+ppid=$!
+waited=0
+while [ "$waited" -lt 100 ]; do
+  [ -f "$ptarget" ] && break
+  sleep 0.1 2>/dev/null || sleep 1
+  waited=$((waited + 1))
+done
+[ -f "$ptarget" ] || fail "watch-prompt-stop: the first page was never written"
+pfired="$tmp/prompt-watchdog.fired"
+(
+  sleep 15
+  kill -KILL "$ppid" 2>/dev/null && : >"$pfired"
+) &
+pkpid=$!
+kill -TERM "$ppid" 2>/dev/null || true
+set +e
+wait "$ppid"
+prc=$?
+set -e
+kill "$pkpid" 2>/dev/null || true
+wait "$pkpid" 2>/dev/null || true
+[ -f "$pfired" ] \
+  && fail "watch-prompt-stop: TERM did not stop the loop; it sat out the 300s interval"
+[ "$prc" -eq 143 ] || fail "watch-prompt-stop: expected exit 143 on TERM, got $prc"
+# The pacing child must not outlive the loop it was pacing.
+sleep 1
+if pgrep -P "$ppid" >/dev/null 2>&1; then
+  fail "watch-prompt-stop: left a pacing sleep child behind"
+fi
+reset_shim
+
 # A pacing `sleep` that will not run stops the loop too — the other half of the
 # fail-closed watch contract. Unchecked, the loop would keep re-rendering with
 # no pacing at all, paying a full merge (an uncached oracle probe plus a
