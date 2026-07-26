@@ -464,6 +464,45 @@ residue=$(find "$tmp/out" -name '.planwright-dash*' | wc -l | tr -d ' ')
 [ "$residue" = 0 ] || fail "watch-fail-closed: left $residue temp file(s)"
 reset_shim
 
+# A pacing `sleep` that will not run stops the loop too — the other half of the
+# fail-closed watch contract. Unchecked, the loop would keep re-rendering with
+# no pacing at all, paying a full merge (an uncached oracle probe plus a
+# per-worker stream-json fan-out) per iteration. `sleep` is shimmed on PATH
+# because a validated --interval can no longer make the real one fail: the
+# digit cap closed the route that used to get here.
+reset_shim
+full_fixture
+mkdir -p "$tmp/nosleep"
+printf '%s\n' '#!/bin/sh' 'exit 1' >"$tmp/nosleep/sleep"
+chmod +x "$tmp/nosleep/sleep"
+sltarget="$tmp/out/sleepfail.html"
+PATH="$tmp/nosleep:$PATH" "$DASHC" watch --out "$sltarget" --interval 1 >/dev/null 2>&1 &
+slpid=$!
+# Same watchdog discipline as above: a spinning loop must fail the assertion,
+# never hang the suite.
+slfired="$tmp/sleep-watchdog.fired"
+(
+  sleep 20
+  kill -TERM "$slpid" 2>/dev/null && : >"$slfired"
+) &
+slkpid=$!
+set +e
+wait "$slpid"
+slrc=$?
+set -e
+kill "$slkpid" 2>/dev/null || true
+wait "$slkpid" 2>/dev/null || true
+[ -f "$slfired" ] \
+  && fail "watch-sleep-fail: watch kept looping after the pacing sleep failed"
+[ "$slrc" -eq 2 ] || fail "watch-sleep-fail: expected exit 2, got $slrc"
+# One render, then the stop: proof it did not spin before exiting.
+sln=$(wc -l <"$shimlog" | tr -d ' ')
+[ "$sln" -eq 1 ] || fail "watch-sleep-fail: expected 1 render before the stop, saw $sln"
+[ -f "$sltarget" ] || fail "watch-sleep-fail: the first page was never written"
+residue=$(find "$tmp/out" -name '.planwright-dash*' | wc -l | tr -d ' ')
+[ "$residue" = 0 ] || fail "watch-sleep-fail: left $residue temp file(s)"
+reset_shim
+
 # ===========================================================================
 # 13. Usage errors fail closed with exit 2.
 # ===========================================================================
@@ -503,6 +542,17 @@ usage_case render --interval 86401
 # which cannot parse it either, and the loop spins at full render speed. Same
 # 15-digit overflow guard fleet-throttle.sh and fleet-audit.sh carry.
 usage_case render --interval 999999999999999999999
+# ...and refused BY THE CAP, not incidentally by the range test. A 21-digit
+# value would exit 2 either way once the hole is closed, so the diagnostic is
+# what pins which guard fired: without the cap the range test errors out and
+# the value is ACCEPTED, so this assertion is the one with teeth.
+set +e
+ovf=$("$DASHC" render --interval 999999999999999999999 2>&1 >/dev/null)
+set -e
+case $ovf in
+  *"overflow guard"*) ;;
+  *) fail "interval-overflow: refused, but not by the overflow guard: $ovf" ;;
+esac
 reset_shim
 "$DASHC" render --interval 86400 >/dev/null \
   || fail "interval-bound: --interval 86400 (the bound itself) was refused"

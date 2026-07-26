@@ -162,11 +162,13 @@ critical path is 2 → 4 → 7 → 8 (derived from the `Dependencies:` lines; re
   reconciliation** resolved by landing this run on a new branch:
   `origin/planwright/execution-backends/task-8` still carries the earlier,
   diverged run of this same task (`58d06e0` core, `5ce0c47` observation,
-  `eca3f04` park), which forked from `afe68ea` independently and so can never
-  fast-forward onto this line. It was left untouched rather than force-pushed,
-  reset, or rebased. Nothing unique is stranded there — this run is a strict
-  superset, also carrying `watch`, the freshness stamp, and the signal-safe
-  atomic write — and the park recorded in `cefc2b2` is superseded by that same
+  `eca3f04` park), which forked from `afe68ea` independently, so as the two
+  tips stand neither can fast-forward onto the other. It was left untouched
+  rather than force-pushed, reset, or rebased. Nothing unique is stranded there
+  — in content this run is a strict superset (its commits are not ancestors of
+  this line, but everything they do is done here), also carrying `watch`, the
+  freshness stamp, and the signal-safe atomic write — and the park recorded in
+  `cefc2b2` is superseded by that same
   operator decision, left in history rather than reverted. **What keeps this
   parked:** the stale `origin/planwright/execution-backends/task-8` branch is
   the operator's to delete or archive, and PR #320 is an unmerged draft (merge

@@ -55,8 +55,9 @@
 # cadence alone — set it to match whatever re-renders the file, or the page
 # will keep reloading state nothing is updating.
 #
-# Exit codes: 0 success; 2 usage error, a merge failure, or a filesystem
-#   failure (fail closed — a failed merge emits nothing at all, and under
+# Exit codes: 0 success; 2 usage error, a merge failure, a filesystem failure,
+#   or (under `watch`) a pacing sleep that will not run
+#   (fail closed — a failed merge emits nothing at all, and under
 #   `write`/`watch` a failed render never replaces a previously written page,
 #   because the page is built in a temp file the failure discards. Streaming
 #   `render` is the one path that can have already put bytes on stdout when a
@@ -503,8 +504,11 @@ case $CMD in
       # The pacing sleep is status-checked for the same reason the render is:
       # a loop that cannot pace itself must stop, not spin. Unchecked, any
       # sleep failure turns the interval into a busy loop paying a full merge
-      # per iteration. INT/TERM never arrive here as a failed sleep — their
-      # traps exit first — so this fires only on a genuine sleep failure.
+      # per iteration. An INT/TERM delivered to this shell (the ordinary way
+      # `watch` is stopped, including a process-group signal) runs the trap and
+      # exits 130/143 without reaching this check; a signal delivered to the
+      # sleep child alone lands here instead and stops the loop with exit 2,
+      # which is the same fail-closed answer.
       sleep "$INTERVAL" || exit 2
     done
     ;;
