@@ -575,8 +575,8 @@ removed with it.
    1. `$PLANWRIGHT_ROOT/scripts/` — explicit override (tests, adopters);
    2. `$CLAUDE_PLUGIN_ROOT/scripts/` — plugin delivery, set by Claude Code;
    3. `<claude-dir>/planwright/scripts/` — writer delivery, where
-      `<claude-dir>` is `$CLAUDE_DIR` when set, else `~/.claude`; this arm is
-      skipped when neither is set;
+      `<claude-dir>` is `$CLAUDE_DIR` when set, else `~/.claude`; the arm is
+      skipped when neither `CLAUDE_DIR` nor `HOME` is set;
    4. `<script-dir>/../scripts/` — self-location beside the resolving script,
       the final fallback.
 
