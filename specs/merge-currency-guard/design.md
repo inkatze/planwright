@@ -1,7 +1,7 @@
 # Merge Currency Guard — Design
 
 **Status:** Ready
-**Last reviewed:** 2026-07-22
+**Last reviewed:** 2026-07-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -12,11 +12,15 @@ kind (as D-9's `customization-boundary` does), naming the doctrine the decision
 instantiates.
 
 The design leads with the invariant it exists to protect: **a PR flipped ready
-must have been CI-and-review-verified on a head that includes current `main`,
-and be mergeable.** Two mechanisms carry it — one that keeps the verified head
-current (D-4), and one that refuses a flip that violates the invariant (D-2,
-D-3). The guard is the enforcement floor; the in-loop sync is what keeps that
-floor from ever being hit in normal operation.
+must have been CI-and-review-verified on a head that is current with its base
+branch, and be mergeable.** The paragraph above is narrative; the invariant is
+stated **normatively** once, in `requirements.md` as **REQ-A1.1** (its single
+home), and the decisions that carry it (D-1 through D-4) cite it rather than
+restating it normatively. Two mechanisms carry it —
+one that keeps the verified head current (D-4), and one that refuses a flip
+that violates the invariant (D-2, D-3). The guard is the enforcement floor; the
+in-loop sync is what keeps that floor from being hit in routine operation,
+short of a fresh `origin/main` advance inside the post-fetch window.
 
 ## Decision log
 
@@ -24,10 +28,17 @@ floor from ever being hit in normal operation.
 
 **Decision:** This bundle is two concrete mechanisms — an `/execute-task`
 convergence-loop `main`-sync (D-4) and a deny-emitting `ready-guard` PreToolUse
-hook (D-2, D-3) — plus exactly one carried hard-invariant statement (REQ-A1.1):
-a PR is flipped ready only on a `main`-current, mergeable head, enforced by
-construction (REQ-A1.2). The invariant statement is the altitude decision this
-bundle records per the autopilot-reflex altitude gate, cited from the Goal.
+hook (D-2, D-3) — plus exactly one carried hard-invariant statement, whose
+single home is **REQ-A1.1**: a PR is flipped ready only on a head current with
+its base branch (`origin/main` in the fleet's normal case) and mergeable,
+enforced by construction (REQ-A1.2). The invariant statement is the altitude
+decision this bundle records per the autopilot-reflex altitude gate, cited from
+the Goal. Every deliverable that carries the invariant — the guard (D-2, D-3,
+REQ-C) and the loop-sync (D-4, REQ-B) — cross-references REQ-A1.1; none
+restates it normatively. *(Amended at Task 1 execution 2026-07-24: the `main`-current
+shorthand aligned to REQ-A1.1's base-general wording, since D-3's predicate is
+computed against each PR's real base, not `main`; cross-reference discipline
+made explicit.)*
 
 **Alternatives considered:**
 
@@ -54,9 +65,12 @@ this bundle actually exhibited.
 
 ### D-2: Enforce at the flip point with a deny-emitting PreToolUse guard (N)
 
-**Decision:** The invariant is enforced by a deterministic `ready-guard`
-PreToolUse hook that intercepts a draft→ready transition and emits a DENY
-decision when the invariant is unmet. This is a new guard *modality* for
+**Decision:** The invariant's guard-enforced clauses — currency and
+mergeability, the split REQ-A1.2 draws across REQ-A1.1 — are enforced by a
+deterministic `ready-guard` PreToolUse hook that intercepts a draft→ready
+transition and emits a DENY decision when either is unmet. (The
+CI-and-review-verified clause stays attested by the flipping party; the guard
+reads no check or review state.) This is a new guard *modality* for
 planwright: the shipped `worker-command-guard.sh` and `tower-command-guard.sh`
 are allow-only (they emit `allow` or nothing, never deny), because their job is
 to un-block routine commands, not to block dangerous ones. The ready-guard
@@ -88,7 +102,9 @@ auditable inversion of a pattern the codebase already trusts.
 
 ### D-3: Guard predicate — server-side currency (`compare.behind_by`) + `mergeable`; no `mergeStateStatus`, no branch-protection dependence (N)
 
-**Decision:** The guard resolves the target PR from the intercepted call's own
+**Decision:** This predicate is the machine-checkable form of the REQ-A1.1
+invariant's currency and mergeability clauses (REQ-C1.1 states it normatively).
+The guard resolves the target PR from the intercepted call's own
 validated selector (REQ-C1.9: the Bash positional PR argument, or the current
 branch's PR when the command is bare; the MCP `owner`/`repo`/`pullNumber`
 fields), each validated against its grammar — a PR number is digits, an
@@ -171,8 +187,13 @@ the `DRAFT`/`HAS_HOOKS`-state handling entirely.)*
 ### D-4: In-loop `main`-sync via fetch + merge, offloaded to a script (N)
 
 **Decision:** `/execute-task` merges `origin/main` into the worker branch at the
-top of each `review_sequence` convergence iteration. The mechanism lives in a
-dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
+top of each `review_sequence` convergence iteration, so the verified head stays
+current so that, for the `main`-based branches this sync targets, REQ-A1.1's
+currency clause is ordinarily satisfied by routine operation rather than by the
+guard having to refuse a flip — currency as of the fetch, not a guarantee
+against a later `origin/main` advance (the accepted TOCTOU residual). The
+mechanism lives
+in a dedicated script (`scripts/converge-sync-main.sh`) that runs `git fetch origin
 main` then `git merge FETCH_HEAD`; `/execute-task` invokes it in a single line.
 It never runs `git pull` (a global `branch.autosetuprebase=always` silently
 rewrites `pull` into a forbidden rebase) and never rebases, amends, squashes, or
@@ -342,8 +363,10 @@ preserves conforming MCP readies, matching the Bash surface's behavior.
 
 ### D-9: The guard is core and flipper-agnostic; who-flips stays a preference (N, `customization-boundary`)
 
-**Decision:** The currency-at-ready *capability* — enforce that any ready-flip
-lands on a current, mergeable head — is core and flipper-agnostic. The *policy*
+**Decision:** The currency-at-ready *capability* — enforce that any **in-session**
+ready-flip lands on a current, mergeable head (REQ-A1.1; the out-of-session and
+indirect-form residuals stay as D-7 and REQ-C1.10 state them) — is core and
+flipper-agnostic. The *policy*
 of who may flip ready and whether the flip is automatic (human-only in core;
 worker/gauntlet/tower-autonomous under an adopter overlay) stays in the
 settings/overlay layer, unchanged by this bundle. The guard does not mandate

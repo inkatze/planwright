@@ -333,3 +333,37 @@ Anchor: `fe28fb81a1ac6c66c3fb163e4a8bca5b8739ce7a` — computed as
 `scripts/spec-anchor.sh specs/merge-currency-guard`
 
 Signed off: 2026-07-22
+
+### Amendment 2 — Task 1 execution self-re-anchor (2026-07-24)
+
+Machine-written re-anchor after Task 1's cross-reference pass, which edited all
+four spec files and therefore staled the Amendment 1 anchor. Without this entry
+Tasks 2, 3 and 4 would halt their `/execute-task` freshness gate.
+
+**Delta (expression-only).** The invariant cross-reference pass recorded in the
+`requirements.md` `## Changelog` entry dated **2026-07-24** ("Task 1 execution:
+invariant cross-reference pass"), plus the corrections its two review passes
+surfaced. No REQ or D-ID was minted, no accepted decision contradicted, and no
+predicate changed; REQ-A1.1's normative text is untouched. In summary: the
+records that carry the invariant (REQ-B1.1, REQ-C1.1, the Goal, D-1 through
+D-4, D-9, Task 2/3 `Citations:`) now cite REQ-A1.1; the bootstrap-family
+citation was completed with REQ-J1.1 (never auto-merge) beside the existing
+REQ-J1.4; `main`-shorthand was aligned to base-general wording wherever the
+text describes the guard or the invariant, while the `origin/main`-specific
+sync language was deliberately left alone; and a family of unscoped absolutes
+was bounded to what the bundle actually delivers (in-session enforcement per
+D-7/REQ-C1.10, the currency+mergeability split per REQ-A1.2, the post-fetch
+TOCTOU residual per kickoff §7 row 2).
+
+Review passes: `/self-review --nested` (Claude lens; 4 findings) then
+`/panel-review --nested` (codex backend; 4 iterations, 13 findings applied,
+1 refuted, converged clean on iteration 4). Both are recorded in the task PR
+body. `spec-validate` 0/0; `mise run check` green.
+
+Class: expression-only
+Anchor: `dea482f102506bd6953e521596389a0b29ca4809` — computed as
+`scripts/spec-anchor.sh specs/merge-currency-guard`
+
+Signed off: 2026-07-24 (machine-written; expression-only self-re-anchor per
+`spec-format` — no human re-sign-off required, auditable and one revert from
+undone)

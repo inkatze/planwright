@@ -1,7 +1,7 @@
 # Merge Currency Guard — Requirements
 
 **Status:** Ready
-**Last reviewed:** 2026-07-22
+**Last reviewed:** 2026-07-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -23,12 +23,19 @@ ready flag can fire on a stale, DIRTY head, so the trustworthiness of the
 This bundle makes the ready signal trustworthy by construction. It keeps the
 verified head current — `/execute-task` merges `origin/main` into the branch at
 the top of each convergence iteration, so the final CI + review verification
-always runs on a `main`-current head and merge drift stays tiny — and it
-enforces the invariant at the flip point with a deterministic, deny-emitting
-`ready-guard` PreToolUse hook that refuses a ready-flip unless the PR is
-provably current-with-`main` and mergeable. The guard is unbypassable by
-construction, matching planwright's existing guard philosophy (the sibling
-`worker-command-guard.sh` / `tower-command-guard.sh` deny surface). The
+runs on a head that was `main`-current as of that iteration's fetch and merge
+drift stays tiny — and it enforces the invariant's currency and mergeability
+clauses at the flip point with a deterministic, deny-emitting `ready-guard`
+PreToolUse hook that refuses a ready-flip unless the PR is provably current
+with its base branch and mergeable. Within a Claude Code session the guard is
+unbypassable by construction (the out-of-session and indirect-form residuals
+stay as D-7 and REQ-C1.10 state them), matching planwright's existing guard
+philosophy (the sibling
+`worker-command-guard.sh` / `tower-command-guard.sh` guard family, which this
+guard joins by inverting their allow-only modality — D-2, REQ-C1.2). The
+hard invariant both mechanisms carry is stated normatively once, as
+**REQ-A1.1** — its single home — and cited from the records that carry it
+(REQ-B, REQ-C, D-1 through D-4, D-9). The
 deliverable's altitude split — one carried hard-invariant statement on top of
 two mechanisms — is recorded in D-1 (cites the pinned seed claim in Sources).
 
@@ -40,10 +47,16 @@ ready PR means what the fleet and the human both assume it means.
 
 ### In scope
 
-- A hard invariant, stated once and cited: a PR SHALL be flipped from draft to
-  ready only when it has been CI-and-review-verified on a head that includes
-  current `origin/main` and is mergeable, and that invariant is enforced by a
-  deterministic guard rather than by skill prose or reviewer vigilance.
+- A hard invariant, stated once and cited. **REQ-A1.1 is its single normative
+  home**; this bullet only summarizes it: a PR is flipped from draft to ready
+  only when it has been CI-and-review-verified on a head that is current with
+  its base branch (in the fleet's normal case, `origin/main`) and is mergeable,
+  with the currency and mergeability clauses enforced by a deterministic guard
+  rather than by skill prose or reviewer vigilance (the CI-and-review clause
+  stays party-attested — REQ-A1.2). The records that carry the invariant — the guard
+  deliverable (REQ-C), the loop-sync deliverable (REQ-B), and the design
+  decisions behind them (D-1 through D-4) — cite REQ-A1.1 rather than restating
+  it normatively.
 - `/execute-task` syncing `origin/main` into the worker branch at the top of
   each `review_sequence` convergence iteration, via an explicit fetch + merge
   (never `pull`, never rebase), so the final CI + review verification runs on a
@@ -111,7 +124,7 @@ ready PR means what the fleet and the human both assume it means.
   the single stated home of the invariant (this bullet); it joins bootstrap's
   never-merge/force-push/amend hard-invariant family by citation, not by
   duplication.
-  *(Cites: obs:921b93c9 · `bootstrap` REQ-J1.4 invariant family · kickoff §4 lens (2026-07-22).)*
+  *(Cites: obs:921b93c9 · `bootstrap` REQ-J1.1 (never auto-merge) and REQ-J1.4 (never force-push/amend/squash/rebase) — the invariant family this joins · kickoff §4 lens (2026-07-22).)*
 - **REQ-A1.2** The invariant's currency and mergeability clauses SHALL be
   enforced by construction — a deterministic guard that refuses a
   non-conforming flip — not by skill prose, a checklist, or reviewer
@@ -139,8 +152,15 @@ ready PR means what the fleet and the human both assume it means.
   runs on a `main`-current head. Because the sync runs at the *top* of the
   iteration and `/execute-task`'s CI + review verification runs later within the
   same iteration, the final iteration's verification lands on the post-sync
-  (`main`-current) head; no separate post-merge CI re-run is introduced.
-  *(Cites: obs:921b93c9 · kickoff §4 lens (2026-07-22).)*
+  (`main`-current) head; no separate post-merge CI re-run is introduced. This
+  sync is what keeps REQ-A1.1's currency clause ordinarily satisfied for the
+  `main`-based worker branches it targets, so a conforming flip is the common
+  outcome rather than one the guard has to refuse. It is not a guarantee: it
+  establishes currency as of the fetch, and `origin/main` can advance again
+  before the flip (the accepted TOCTOU residual, kickoff §7 row 2). Nor is it
+  general — a PR on a non-`main` base is covered by the guard alone, which
+  reads each PR's real base (D-3).
+  *(Cites: REQ-A1.1 · obs:921b93c9 · kickoff §4 lens (2026-07-22).)*
 - **REQ-B1.2** The sync in REQ-B1.1 SHALL use an explicit fetch followed by a
   merge (`git fetch origin main` then `git merge --no-edit FETCH_HEAD`); it
   SHALL NOT use `git pull` (which a global `branch.autosetuprebase=always`
@@ -189,7 +209,10 @@ ready PR means what the fleet and the human both assume it means.
   `is-ancestor` result and SHALL run no `git fetch`, so the decision is identical
   for every flipper and every base branch. `mergeable` reported `UNKNOWN`, or a
   compare/query failure, SHALL resolve to DENY naming a wait-and-retry remedy.
-  *(Cites: obs:921b93c9 · kickoff §4 (2026-07-21) · kickoff §4 panel (2026-07-22).)*
+  This predicate is the machine-checkable form of the REQ-A1.1 invariant's
+  currency and mergeability clauses; the guard is that invariant's enforcement
+  floor (REQ-A1.2) and reads no check or review state.
+  *(Cites: REQ-A1.1 · obs:921b93c9 · kickoff §4 (2026-07-21) · kickoff §4 panel (2026-07-22).)*
 - **REQ-C1.2** The guard SHALL be deny-emitting — a new modality relative to the
   allow-only `worker-command-guard.sh` / `tower-command-guard.sh` — with no LLM
   in the decision path and purely deterministic shell logic.
@@ -368,6 +391,28 @@ ready PR means what the fleet and the human both assume it means.
   `gh api graphql markPullRequestReadyForReview` surface demoted to a documented
   residual (G3: opaque node-ID selector, unresolvable under REQ-C1.9). The Bash
   `isDraft` gate made symmetric with the MCP matcher (G4; REQ-C1.8, D-8).
+
+- 2026-07-24 — Task 1 execution: invariant cross-reference pass
+  (expression-only, no meaning change). REQ-A1.1 was already the invariant's
+  single home, and Task 1's own block and D-1 already referenced it, but its
+  bootstrap-family citation named only REQ-J1.4 (force-push/amend) and omitted
+  REQ-J1.1 (never auto-merge), and most of the records that *carry* the
+  invariant — REQ-B, REQ-C, D-2, D-3, D-4, D-9, the Goal — did not point back
+  at it, so the "stated once and cited" discipline was unenforced where it
+  matters. Completed the bootstrap family citation (REQ-J1.1 + REQ-J1.4) and
+  added the missing
+  cross-references: the `### In scope` bullet now names REQ-A1.1 as the sole
+  normative home; REQ-B1.1 and REQ-C1.1 cite REQ-A1.1 in body and `Cites:` line
+  (the sync and guard deliverables); the `## Goal` names it; `tasks.md` Task 2
+  and Task 3 `Citations:` gained REQ-A1.1; `design.md`'s preamble and D-1, D-2,
+  D-3, D-4 and D-9 cite it rather than restating it normatively. Also aligned
+  the `main`-current shorthand to REQ-A1.1's base-general wording wherever the
+  text describes the **guard** or the **invariant** (the Goal, D-1, the design
+  preamble, the In-scope bullet, the `test-spec.md` REQ-A1.1 paraphrase), since
+  D-3's predicate is computed against each PR's real base, not `main`; the
+  **sync**-related uses stay `main`-specific, which is what `converge-sync-main`
+  actually targets (D-4). No predicate change. No REQ or D-ID minted, no
+  accepted decision contradicted, no executable behavior introduced.
 
 ## Sources
 
