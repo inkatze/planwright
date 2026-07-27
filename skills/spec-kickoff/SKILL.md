@@ -348,8 +348,9 @@ most recent anchor entry never describes spec content that was not walked.
    with `scripts/spec-anchor.sh specs/<spec>` after every spec-file edit of this
    run (flip, `Last reviewed:`, applied findings) is on disk; it fails closed on
    a defective bundle — surface its stderr and stop with no anchor line, never
-   hand-roll it, and reach for the sanctioned interim whole-file form only when
-   the script is absent (recording that exact command). This flow is the only
+   hand-roll it. Where the repo has no `scripts/spec-anchor.sh`, fall back down
+   `spec-format`'s sanctioned-form list (the resolution-aware logical form
+   before the interim whole-file form), recording that exact command. This flow is the only
    writer of a meaning-class entry; it writes an expression-only entry (no lens
    pass, citing the changelog line) only when the human classified the entire
    delta expression-only.
