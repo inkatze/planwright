@@ -202,12 +202,7 @@ parked in `## Awaiting input` on the instruction-headroom condition
 
 ## Awaiting input
 
-- **Task 5** Blocked on instruction-headroom relief: the orchestrate
-  reachable-closure budget stands at 19,997/20,000 words and
-  `doctrine/spec-format.md` plus `doctrine/accumulator-taxonomy.md` growth
-  fails `scripts/check-instructions.sh` today. Unpark when the sibling
-  instruction-headroom work lands enough relief that the closure check
-  passes with this task's amendments applied (REQ-G1.1, D-16).
+(none yet)
 
 ## Deferred
 
