@@ -182,8 +182,8 @@ law is `orchestration-concurrency` (read here). Ordered steps:
      backs merge detection (`orchestrate-state.sh`'s union scan, REQ-D1.2), so a
      task merged on `origin` but not local `main` isn't re-dispatched.
    - **Validate the entry** (brief's most recent, from the resolved ref; formats:
-     `spec-format`): a **sanctioned command form** (any form on that doc's
-     *Sanctioned command forms* list), a **sanctioned writer** (a
+     `spec-format`): a **sanctioned command form** (any on that doc's
+     sanctioned list), a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
      — meaning-class — a dispositioned `Lens-pass:`.
    - **Compare** against `dispatch-fetch.sh`'s anchor. **Match** → proceed.
