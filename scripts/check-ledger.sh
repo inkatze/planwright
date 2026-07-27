@@ -44,7 +44,9 @@
 #   specs/ directory (skipping `_`-prefixed accumulator dirs, which are not task
 #   bundles). The no-arg form is the CI / local-check entry point (REQ-E1.3).
 #
-# Exit codes: 0 clean, 1 corruption found, 2 usage error.
+# Exit codes: 0 clean, 1 corruption found, 2 usage error or a broken install
+# (a missing or unreadable scripts/spec-parse.sh, the shared grammar lib the
+# version keying reads the declaration through).
 #
 # Portable bash 3.2 / BSD tooling; POSIX awk, no gawk-only constructs, no eval;
 # all input treated as data (REQ-K1.5, framework-script safety).
@@ -60,6 +62,19 @@ export LC_ALL
 unset CDPATH
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+script_dir="$(cd "$(dirname "$0")" && pwd -P)"
+
+# The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3): the
+# Format-version declaration below is read through it, so this guard's version
+# keying cannot re-diverge from its sibling consumers'. Sourced, never executed;
+# fail closed when it is missing or unreadable (REQ-B1.6a).
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  echo "check-ledger: required helper $spec_parse_sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
 
 # Resolve the file list. Explicit arguments win; otherwise default to every
 # bundle's tasks.md (the CI / local-check entry point).
@@ -90,21 +105,26 @@ for f in "${files[@]}"; do
 
   # Version keying (invariant-tasks Task 4; REQ-C1.4, REQ-C1.8, D-7). The
   # guard's rule set is selected by the file's own `**Format-version:**`
-  # declaration (first header line wins; trailing whitespace/CR trimmed so a
-  # Markdown hard-break or CRLF checkout cannot make a valid value
-  # unrecognizable). v1 keeps every check below; v2 is reduced to the
+  # declaration, read through the shared lib's header-block-scoped parse
+  # (REQ-B1.3, REQ-A1.3): only the header block counts, so a column-0 body
+  # literal is inert and cannot mask a MISSING declaration, and a DUPLICATE
+  # in-header declaration is unparseable rather than won by position (REQ-A1.2,
+  # D-6). v1 keeps every check below; v2 is reduced to the
   # structural checks (heading form, duplicate ids, orphan blocks — with
   # `## Tasks` recognized) because no derived state is committed there:
   # placement/annotation coherence has nothing legitimate to check, and a
   # banned section or annotation is the validator's finding, not this guard's.
   # A missing or unparseable declaration fails closed: the rules to apply
   # cannot be selected, so the file is reported rather than silently checked
-  # under either version's rules. Echo discipline (REQ-C1.9): the declared
-  # value is untrusted file content — control bytes are stripped before it
-  # reaches the diagnostic, C0 + DEL + the C1 range alike (the
-  # sanitize_printable posture, scripts/echo-safety.sh: a raw C1 byte such as
-  # CSI 0x9B drives the terminal exactly like ESC-[).
-  fver=$(awk '/^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }' "$f")
+  # under either version's rules — which is why the lib's exit status is
+  # checked (REQ-B1.6f) and folded into the same refusal. Echo discipline
+  # (REQ-C1.9): the declared value is untrusted file content — control bytes
+  # are stripped before it reaches the diagnostic, C0 + DEL + the C1 range
+  # alike (the sanitize_printable posture, scripts/echo-safety.sh: a raw C1
+  # byte such as CSI 0x9B drives the terminal exactly like ESC-[).
+  if ! fver=$(spec_parse_header_value "$f" Format-version 2>/dev/null); then
+    fver='duplicate or unreadable declaration'
+  fi
   case "$fver" in
     1 | 2) ;;
     *)

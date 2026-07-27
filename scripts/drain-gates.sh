@@ -43,7 +43,9 @@
 # grammar-validated before use and a violating id is rejected with a note
 # (REQ-C1.9). A missing or unparseable `Format-version:` fails closed as a
 # per-spec report error — the spec's gates are not evaluated under guessed
-# rules (REQ-C1.8). On a transient evidence failure (the engine's `degraded`
+# rules (REQ-C1.8); unparseable includes a DUPLICATE in-header declaration
+# (REQ-A1.2), and so does a parked map the grammar lib refused (a NUL byte, or
+# end-of-file inside an open column-0 fence). On a transient evidence failure (the engine's `degraded`
 # record: remote configured but the fetch failed) or an engine failure, v2
 # task atoms resolve as UNRESOLVED (REQ-B1.5): never satisfied from partial
 # evidence, surfaced and counted as a report error, the sweep still completes.
@@ -63,7 +65,9 @@
 # or mid-sweep-changed swept files are report content, not failures),
 # 1 unusable specs root (missing, unreadable, or non-searchable), 2 usage
 # error or a broken install (the script's own directory unresolvable, so the
-# sibling derivation engine cannot be located); any other status means the
+# sibling derivation engine cannot be located; or a missing/unreadable
+# scripts/spec-parse.sh, the shared grammar lib the version, status, and
+# parked-map parses read through); any other status means the
 # sweep aborted mid-run (internal failure) without emitting a report.
 #
 # Security (REQ-H1.3): gate content is data only. The parse is pattern
@@ -92,6 +96,20 @@ TAB=$(printf '\t')
 # caller's working directory.
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 state_engine="$script_dir/orchestrate-state.sh"
+
+# The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3,
+# REQ-B1.4): the Status / Format-version header-declaration parses and the v2
+# parked map below come from it, so this sweep cannot re-diverge from its three
+# sibling v2 parsers. Sourced, never executed; fail closed when it is missing or
+# unreadable (REQ-B1.6a) — a bare POSIX `.` of a missing file would continue
+# fail-open.
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  printf '%s\n' "drain-gates: required helper $spec_parse_sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
 
 usage() {
   echo "usage: drain-gates.sh [--today YYYY-MM-DD] <specs-root>" >&2
@@ -273,7 +291,17 @@ for name in $specs; do
     notes="${notes}note: spec $name: requirements.md unreadable; status atoms referencing it will not evaluate
 "
   else
-    st=$(awk '/^\*\*Status:\*\*/ { print tolower($2); exit }' "$req") || st=""
+    # The stored status comes from the shared lib's header-block-scoped parse
+    # (REQ-B1.3, REQ-A1.3): only the header block counts, and a DUPLICATE
+    # in-header `Status:` declaration is unparseable rather than won by
+    # position (REQ-A1.2, D-6). The lib's exit status is checked (REQ-B1.6f) —
+    # an unchecked capture would read the refusal as an absent header and
+    # silently drop the spec's status atoms with no note.
+    if st=$(spec_parse_header_value "$req" Status 2>/dev/null); then
+      st=$(printf '%s' "$st" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz')
+    else
+      st=unparseable
+    fi
     case $st in
       draft | active | done | retired | superseded)
         statuses="$statuses $name=$st"
@@ -343,20 +371,25 @@ report() {
     # (v1 section membership vs v2 derivation, see the header), so the version
     # must parse before the spec's gates are evaluated. Missing or unparseable
     # fails closed as a per-spec report error — never a guess, never a silent
-    # skip; the sweep completes. Trailing trim: a Markdown hard-break or CRLF
-    # checkout must not make a valid value unrecognizable. Column-0 fences are
-    # illustration: a fenced example header line must not shadow the real
-    # declaration (the trim mirrors spec-status.sh; its fence-awareness
-    # alignment is tracked as an observation). A read failure is reported as
-    # its own error, not misattributed to the format.
-    if ! fv=$(awk '
-      /^```/ { fence = !fence; next }
-      fence { next }
-      /^\*\*Format-version:\*\*/ { sub(/^\*\*Format-version:\*\*[ \t]*/, ""); sub(/[ \t\r]+$/, ""); print; exit }
-    ' "$tasks" 2>/dev/null); then
+    # skip; the sweep completes.
+    #
+    # The parse is the shared lib's header-block-scoped one (REQ-B1.3,
+    # REQ-A1.3): only the header block counts, so neither a fenced example nor
+    # a column-0 body literal can shadow the real declaration or mask a missing
+    # one, and a DUPLICATE in-header declaration is unparseable rather than won
+    # by position (REQ-A1.2, D-6). The exit status is checked and split
+    # (REQ-B1.6f) so a vanished/NUL-bearing file keeps its own report error
+    # instead of being misattributed to the format; the lib's stderr is
+    # suppressed so the report stays the sweep's single output surface.
+    fv_rc=0
+    fv=$(spec_parse_header_value "$tasks" Format-version 2>/dev/null) || fv_rc=$?
+    if [ "$fv_rc" -eq 1 ]; then
       printf 'error: tasks.md became unreadable during the sweep\n'
       n_err=$((n_err + 1))
       continue
+    fi
+    if [ "$fv_rc" -ne 0 ]; then
+      fv=unparseable
     fi
     case "$fv" in
       1 | 2) ;;
@@ -375,80 +408,54 @@ report() {
     v2comp=" "
     v2evfail=0
     if [ "$fv" = 2 ]; then
-      # One pre-parse pass: the parked map (live reference bullets under the
-      # three human-payload sections), the unfenced task count, and whether any
-      # unfenced gate marker exists. Column-0 fences are illustration here as
-      # in the gate parse. Bullet task ids are grammar-validated; a violating
-      # id is rejected with a note and never used (REQ-C1.9; the final report
-      # strip sanitizes it), while a lead with inner whitespace is a plain
-      # prose bullet the format allows in Deferred / Out of scope — silently
-      # skipped, matching the validator's rule. A sibling of the
-      # spec-status.sh (Task 3) parked-map parse; its fence/prose alignment is
-      # tracked as an observation. A failed pre-parse fails CLOSED (the parked
-      # map is the input that vetoes evidence; an empty default would silently
-      # un-park tasks).
-      if ! v2pre=$(awk '
-        function classof(sec) {
-          if (sec == "Awaiting input") return "awaiting-input"
-          if (sec == "Deferred") return "deferred"
-          if (sec == "Out of scope") return "out-of-scope"
-          return ""
-        }
-        { sub(/\r$/, "") }
-        /^```/ { fence = !fence; next }
-        fence { next }
-        /^## / { sec = substr($0, 4); sub(/[ \t]+$/, "", sec); next }
-        /^### Task / { if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) ntasks++ }
-        index($0, "**Gate:**") > 0 { hasgate = 1 }
-        /^- \*\*Task / && classof(sec) != "" {
-          line = $0
-          sub(/^- \*\*Task /, "", line)
-          i = index(line, "**")
-          if (i == 0) next # no closing bold: not a reference bullet
-          id = substr(line, 1, i - 1)
-          if (id ~ /[ \t]/) {
-            # Inner whitespace is usually a plain prose bullet (validator
-            # parity) — but a NEAR-MISS reference (whitespace-trimmed
-            # remainder is a valid id, or only digits/dots/whitespace) is a
-            # failed park a human meant, rejected loudly below.
-            probe = id
-            sub(/^[ \t]+/, "", probe)
-            sub(/[ \t]+$/, "", probe)
-            if (probe !~ /^[0-9]+(\.[0-9]+)?$/ && id !~ /^[0-9. \t]+$/) next
-          }
-          if (id !~ /^[0-9]+(\.[0-9]+)?$/) {
-            gsub(/\t/, " ", id) # tabs would corrupt the record split
-            print "rejected\t" id
-            next
-          }
-          if (id in seen) next
-          seen[id] = 1
-          print "parked\t" id
-          next
-        }
-        END { print "meta\t" ntasks + 0 "\t" hasgate + 0 }
-      ' "$tasks" 2>/dev/null); then
+      # The parked map (live reference bullets under the three human-payload
+      # sections) comes from the shared lib (REQ-B1.4, REQ-C1.1) — the single
+      # v2 posture all four v2 parsers now consume, so it cannot re-diverge:
+      # column-0 fences are illustration (format-grammar D-5, the interim
+      # provenance Task 5's amendment flips to the meta-spec) as in the gate
+      # parse, section
+      # headings are matched CRLF-tolerantly, a lead with inner whitespace is a
+      # plain prose bullet the format allows in Deferred / Out of scope and is
+      # tolerated, and a near-miss lead is rejected loudly. A violating token is
+      # noted and never used (REQ-C1.9; the final report strip sanitizes it).
+      # A failed parse fails CLOSED (the parked map is the input that vetoes
+      # evidence; an empty default would silently un-park tasks), and its exit
+      # status is checked rather than consumed as an empty stream (REQ-B1.6f).
+      if ! v2pre=$(spec_parse_parked_map "$tasks" 2>/dev/null); then
         printf 'error: could not read the v2 parked map - gates not evaluated (fail closed)\n'
         n_err=$((n_err + 1))
         continue
       fi
-      # Pre-parse record shapes: `rejected<TAB><raw-id>`, `parked<TAB><id>`,
-      # and exactly one `meta<TAB><ntasks><TAB><hasgate>` (from END).
+      # The unfenced task count and gate-marker probe stay local: they are not
+      # the parked-map family, and both gate whether the derivation engine is
+      # worth consulting at all. Both reads sit inside the digest bracket, so a
+      # concurrent rewrite between them is still flagged as torn.
+      if ! v2meta=$(awk '
+        { sub(/\r$/, "") }
+        /^```/ { fence = !fence; next }
+        fence { next }
+        /^### Task / { if ($3 ~ /^[0-9]+(\.[0-9]+)?$/) ntasks++ }
+        index($0, "**Gate:**") > 0 { hasgate = 1 }
+        END { print ntasks + 0 "\t" hasgate + 0 }
+      ' "$tasks" 2>/dev/null); then
+        printf 'error: could not read the v2 task/gate counts - gates not evaluated (fail closed)\n'
+        n_err=$((n_err + 1))
+        continue
+      fi
+      # Lib record shapes (scripts/spec-parse.sh): `refbad<TAB><raw-token>...`
+      # and `ref<TAB><id><TAB><class>...`. Only membership matters here, so the
+      # lib's deliberate non-de-duplication is harmless.
       v2parked=" "
-      v2ntasks=0
-      v2hasgate=0
-      while IFS="$TAB" read -r pm_tag pm_a pm_b; do
+      v2ntasks=${v2meta%%"$TAB"*}
+      v2hasgate=${v2meta#*"$TAB"}
+      while IFS="$TAB" read -r pm_tag pm_a _; do
         [ -n "$pm_tag" ] || continue
         case "$pm_tag" in
-          rejected)
+          refbad)
             printf 'note: reference bullet rejected - task id %s violates the task-id grammar\n' "'$pm_a'"
             ;;
-          parked)
+          ref)
             v2parked="$v2parked$pm_a "
-            ;;
-          meta)
-            v2ntasks=$pm_a
-            v2hasgate=$pm_b
             ;;
         esac
       done <<EOF

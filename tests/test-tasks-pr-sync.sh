@@ -588,6 +588,10 @@ git -C "$repo" checkout -q planwright/demo/task-2
 nolockdir=$tmp/nolock
 mkdir -p "$nolockdir"
 cp "$SYNC" "$nolockdir/tasks-pr-sync.sh"
+# The sourced grammar lib travels with the copy: this fixture isolates the LOCK
+# primitive, not scripts/spec-parse.sh, whose absence is its own fail-soft
+# broken-install case (REQ-B1.6a, covered in test-spec-parse.sh).
+cp "$(dirname "$SYNC")/spec-parse.sh" "$nolockdir/spec-parse.sh"
 chmod +x "$nolockdir/tasks-pr-sync.sh"
 err=$(
   cd "$repo" \

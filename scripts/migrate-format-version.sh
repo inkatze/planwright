@@ -196,19 +196,24 @@ refuse() {
   refused=$((refused + 1))
 }
 
-# header_value <file> <key> — first "**<key>:** value" line's value, with
-# non-printables stripped (the value is compared and echoed; hostile bytes
-# must reach neither the logic nor the terminal raw).
+# header_value <file> <key> — the header-block `**<key>:** value` declaration's
+# value, from the shared lib's header-block-scoped parse (REQ-B1.3, REQ-A1.3):
+# only the leading header block counts, so a column-0 body literal is inert and
+# cannot mask a MISSING declaration, and a DUPLICATE in-header
+# `Format-version:`/`Status:` declaration is unparseable rather than won by
+# position (REQ-A1.2, D-6). The lib's non-zero exit propagates, and every caller
+# already checks it (REQ-B1.6f) — an unparseable declaration refuses the bundle
+# with no write, which is exactly the migration's mechanical-or-refuse contract
+# (D-10).
+#
+# Non-printables are stripped HERE, not in the lib: the lib emits raw bytes
+# because anchor stability forbids lib-side mutation (REQ-B1.6c), and the value
+# is compared and echoed here, so hostile bytes must reach neither the logic nor
+# the terminal raw. The trailing trim repeats after the strip so a value whose
+# trailing bytes were non-printable still trims, as the pre-lib parse did.
 header_value() {
-  awk -v key="$2" '
-    index($0, "**" key ":**") == 1 {
-      sub(/^\*\*[^*]*:\*\*[ \t]*/, "")
-      gsub(/[^[:print:]]/, "")
-      sub(/[ \t]+$/, "")
-      print
-      exit
-    }
-  ' "$1"
+  hv_raw=$(spec_parse_header_value "$1" "$2") || return $?
+  printf '%s' "$hv_raw" | awk '{ gsub(/[^[:print:]]/, ""); sub(/[ \t]+$/, ""); print }'
 }
 
 # restructure_tasks <tasks.md> — emit the v2 body: head (title, header
@@ -399,10 +404,14 @@ transform_header() {
   th_ptr=0
   grep -qxF '**Execution:** derived — see the status render' "$1" && th_ptr=1
   awk -v haveptr="$th_ptr" '
-    # Parse the value exactly as header_value does (zero-or-more separator
+    # Parse the value the way header_value does (zero-or-more separator
     # whitespace, non-printables stripped, trailing whitespace trimmed) so
     # a non-canonically spaced header cannot evade the restriction, and
-    # emit the canonical spaced form.
+    # emit the canonical spaced form. This is a WRITER, so it deliberately
+    # rewrites the FIRST matching line instead of applying the header-block
+    # scope header_value uses: process_bundle has already refused the bundle
+    # unless exactly one in-header declaration parsed (REQ-A1.2), so the
+    # first match IS the header-block one.
     !done_status && index($0, "**Status:**") == 1 {
       v = $0
       sub(/^\*\*Status:\*\*[ \t]*/, "", v)
@@ -504,7 +513,7 @@ process_bundle_locked() {
   # isolation contract).
   if ! fver=$(header_value "$gtmp/req.in" Format-version) \
     || ! status=$(header_value "$gtmp/req.in" Status); then
-    refuse "$bname" "header parse failed on requirements.md; nothing written"
+    refuse "$bname" "header parse failed on requirements.md (unreadable, NUL-bearing, or a duplicate in-header Format-version:/Status: declaration); nothing written"
     return 0
   fi
   brief="$bdir/kickoff-brief.md"
@@ -594,7 +603,7 @@ process_bundle_locked() {
     # already at the restricted value is the torn state an interrupted run
     # leaves behind and is accepted, so the D-10 re-run can complete it.
     if ! mst=$(header_value "$bdir/$bf" Status); then
-      refuse "$bname" "unreadable spec file: $bf"
+      refuse "$bname" "header parse failed on $bf (unreadable, NUL-bearing, or a duplicate in-header Status: declaration)"
       return 0
     fi
     if [ "$mst" != "$status" ] && [ "$mst" != "$restricted" ]; then
@@ -609,7 +618,7 @@ process_bundle_locked() {
     # state an interrupted run leaves behind and is accepted, so the D-10
     # re-run can complete it.
     if ! mfv=$(header_value "$bdir/$bf" Format-version); then
-      refuse "$bname" "unreadable spec file: $bf"
+      refuse "$bname" "header parse failed on $bf (unreadable, NUL-bearing, or a duplicate in-header Format-version: declaration)"
       return 0
     fi
     case $mfv in
