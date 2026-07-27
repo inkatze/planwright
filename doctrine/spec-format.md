@@ -539,7 +539,8 @@ body prose or inside a fence is ordinary anchored content: edit it and the
 anchor moves. The exclusion is anchored to that one leading block and fails
 closed — a malformed, duplicated, or unterminated header block yields a
 non-zero exit and no anchor rather than silently falling back to hashing the
-whole file. The rest of the header block stays anchored: `Format-version:` and
+whole file; the note below fixes what each of those means until REQ-A1.3 lands.
+The rest of the header block stays anchored: `Format-version:` and
 `Superseded-by:` are meaning-bearing, so a migration or a supersession must
 never slip past the gate, and `Last reviewed:` moves only in the same rituals
 that re-anchor anyway.
@@ -553,10 +554,10 @@ line that is not such a key line. The bound is **positional**: a file has at
 most one header block, the one opening its content, so a key-line run appearing
 later — in body prose or inside a fence — is not a header block at all and
 triggers none of the rules here. Fail closed on a malformed block: no such run,
-or a run reaching end of file with no body content after it. Fail closed on a
-duplicated declaration: a second `**Status:**` line inside the run. A run
-carrying no `**Status:**` line excludes nothing and hashes the whole file,
-matching the validator's warn-and-default posture on a missing `Status:`;
+or a run reaching end of file with no body content (any non-blank line) after it.
+Fail closed on a duplicated declaration: a second `**Status:**` line inside the
+run. A run carrying no `**Status:**` line excludes nothing and hashes the whole
+file, matching the validator's warn-and-default posture on a missing `Status:`;
 duplicates of the other header keys are format-grammar REQ-A1.2's rule, not this
 amendment's. When REQ-A1.3's extent definition lands, it supersedes this bound
 and this note is removed with it.
@@ -584,13 +585,16 @@ and this note is removed with it.
    1. `$PLANWRIGHT_ROOT/scripts/` — explicit override (tests, adopters);
    2. `$CLAUDE_PLUGIN_ROOT/scripts/` — plugin delivery, set by Claude Code;
    3. `<claude-dir>/planwright/scripts/` — writer delivery, where
-      `<claude-dir>` is `$CLAUDE_DIR` when set, else `~/.claude`; the arm is
-      skipped when neither `CLAUDE_DIR` nor `HOME` is set;
+      `<claude-dir>` is `$CLAUDE_DIR` when set, else `~/.claude`;
    4. `<script-dir>/../scripts/` — self-location beside the resolving script,
       the final fallback.
 
-   An arm **hits** when an executable regular `spec-anchor.sh` sits at that
-   path. This is the core-layer chain `scripts/resolve-rule-doc.sh` already
+   An arm whose root is unset or empty is **skipped**, never expanded into a
+   bare `/scripts/…` path — so an environment with none of these variables set
+   reaches the self-located arm, and a sanitized one resolves nothing at all
+   rather than something surprising. An arm **hits** when an executable regular
+   `spec-anchor.sh` sits at the resolved path. This is the core-layer chain
+   `scripts/resolve-rule-doc.sh` already
    documents, so recomputability becomes a property of the delivery mode
    rather than of one repo's layout: an adopter repo that consumes planwright
    as a plugin and has no repo-root `scripts/` records this form. A gate
@@ -653,19 +657,26 @@ closed to Awaiting input, naming the remedy:
   canonical script or by setting a root the chain reads (the arms are listed
   under *Sanctioned command forms* above).
 
-**Resolving the recorded command.** Consumers resolve the tool from the
-checked tree's `scripts/spec-anchor.sh` where it is present and fall back to
-the core root chain only where it is absent, so the checked tree's own script
-always wins over an ambient root. All sanctioned forms are accepted; the form
-recorded in the entry is the one recomputed with, never a consumer's preferred
-substitute.
+**Resolving the recorded command.** All sanctioned forms are accepted, and the
+form recorded in the entry is the one recomputed with — a consumer never
+substitutes a different form for the one on record. For the two script-based
+forms (the interim form invokes `git` directly and needs no resolution),
+locating that one reference implementation runs the checked tree's
+`scripts/spec-anchor.sh` where it is present and falls back to the core root
+chain only where it is absent, so the checked tree's own script always wins over
+an ambient root. Resolution finds the same tool; it never rewrites the recorded
+form.
 
 **Reference frame (version 1 bundles).** The comparison is framed on a single
 pinned commit of the main view (anchor-integrity D-4, REQ-B1.1). Where the
 checkout the gate reads diverges from that pinned view within anchored content
 only by header `**Status:**` lines carrying sanctioned status values, across any
 subset of the four files — the shape the single-writer derived mirror produces —
-the gate compares against the pinned committed view instead of halting. The gate
+the gate compares against the pinned committed view instead of halting. The
+tolerated shape is a **value substitution** in a declaration present on both
+sides: the mirror rewrites a Status value and never adds or removes the
+declaration, so an inserted or deleted Status line is another divergence, not
+this one. The gate
 accepts that **shape**, not a writer's identity: it cannot attribute a
 divergence to a writer. Any other divergence, committed or not, halts exactly as
 above, so an uncommitted meaning edit in the working tree still halts. The frame
@@ -853,4 +864,7 @@ bundle would have to migrate to:
   truth depends on a surface outside the bundle; unavoidable enumerations
   follow cite-don't-copy or carry their own cross-check, and `/spec-draft` and
   `/spec-kickoff` run the cross-check at drafting and sign-off (*Decided rules
-  over enumerated claims*). *(anchor-integrity D-8 · REQ-E1.1, REQ-E1.2.)*
+  over enumerated claims*). As with the anchor-scope entry above, this is the
+  doctrine half: the two skills gain the cross-check step as their own task, so
+  the rule states the standard before the skill prose instantiates it.
+  *(anchor-integrity D-8 · REQ-E1.1, REQ-E1.2.)*
