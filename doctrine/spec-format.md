@@ -67,6 +67,25 @@ Documentation and skill prose write path and identifier placeholders in
 angle brackets: `<spec>`, `<id>`, `<branch-suffix>`, `<date>`. A placeholder
 stands for exactly one segment; literal text outside the brackets is literal.
 
+## Decided rules over enumerated claims
+
+Anchored deliverable prose — REQ bodies, decision text, task fields,
+test-spec entries — states **decided rules**, not enumerated counts or corpus
+lists whose truth depends on a surface outside the bundle (anchor-integrity
+D-8, REQ-E1.1). Write "every doctrine-relative link of this class is a
+violation", not "the sole real violation is `X`"; write "the fixture corpus is
+whatever the sweep's baseline froze", not "the corpus is these N fixtures". A
+decided rule ages with the decision it records. An enumeration goes stale the
+moment the surface it counted changes, and it goes stale silently, inside
+content the anchor has already frozen and a reader is entitled to trust.
+
+Where an enumeration is genuinely unavoidable, it follows the cite-don't-copy
+convention (cite the surface rather than transcribing it) or carries its own
+cross-check naming what must be re-verified and when. `/spec-draft` at
+drafting and `/spec-kickoff` at sign-off run the enumeration cross-check,
+verifying each enumeration against the surface it enumerates or converting it
+to a decided rule (REQ-E1.2).
+
 ## `requirements.md`
 
 Required sections, in order: the header block, `## Goal`, `## Scope` (with
@@ -487,13 +506,61 @@ observations) and never produce anchor entries.
 ### The content anchor
 
 The anchor (REQ-F1.9, D-45) is the hash of the per-file digest list: each
-file hashed with `git hash-object`, the four digests in canonical order
+file's digest taken in turn, the four digests in canonical order
 (requirements, design, tasks, test-spec) hashed as a stream. Manifest-style
 hashing is boundary-safe, unlike hashing a bare concatenation.
 
-`tasks.md` contributes its **task-definition content only**, per the
-canonical extraction below, so `/orchestrate`'s own state moves never trip
-the freshness gate while meaning edits always do.
+The digest is narrower than the files' bytes, so that the routine writes named
+below never trip the freshness gate while meaning edits always do:
+
+- `tasks.md` contributes its **task-definition content only**, per the
+  canonical extraction below, so `/orchestrate`'s own state moves never trip
+  the gate.
+- `requirements.md`, `design.md`, and `test-spec.md` each contribute their
+  content minus exactly one line — the header-block `**Status:**`
+  declaration, removed together with its line terminator so the bytes around
+  it join unchanged — hashed with `git hash-object` over that reduced content
+  (anchor-integrity D-2, REQ-A1.1). Neither the stored Draft→Ready flip nor
+  the derived Ready↔Active flip changes a bundle's anchor, and neither do the
+  header mirrors those flips write into the other three files. An entry
+  recorded with the interim whole-file form below is the exception: its digest
+  still carries the Status line, so a flip stales it.
+
+**The Status exclusion is universal.** It is defined here once, in the
+version-1 body, and inherited unchanged by every later format version, so the
+tool applies it without parsing `Format-version:` at all: version 1's stored
+lifecycle flips are the motivating failure, and version 2's restricted stored
+set is covered by the same rule. `tasks.md` needs no such carve-out — its
+header block is already outside the canonical extraction.
+
+**The exclusion is bounded to the header block.** Only the `**Status:**` line
+inside the single leading header block is excluded. A `**Status:**` line in
+body prose or inside a fence is ordinary anchored content: edit it and the
+anchor moves. The exclusion is anchored to that one leading block and fails
+closed — a malformed, duplicated, or unterminated header block yields a
+non-zero exit and no anchor rather than silently falling back to hashing the
+whole file; the note below fixes what each of those means until REQ-A1.3 lands.
+The rest of the header block stays anchored: `Format-version:` and
+`Superseded-by:` are meaning-bearing, so a migration or a supersession must
+never slip past the gate, and `Last reviewed:` moves only in the same rituals
+that re-anchor anyway.
+
+*Reconcile note (removed when superseded).* The header block's normative extent
+is format-grammar's REQ-A1.3, landing with that bundle's Task 5 doctrine
+amendment; until it lands here, the bound is the contiguous run of
+`**<Key>:** <value>` lines opening the file's content after its H1 title line
+(a single blank line may separate the title from the run), ending at the first
+line that is not such a key line. The bound is **positional**: a file has at
+most one header block, the one opening its content, so a key-line run appearing
+later — in body prose or inside a fence — is not a header block at all and
+triggers none of the rules here. Fail closed on a malformed block: no such run,
+or a run reaching end of file with no body content (any non-blank line) after it.
+Fail closed on a duplicated declaration: a second `**Status:**` line inside the
+run. A run carrying no `**Status:**` line excludes nothing and hashes the whole
+file, matching the validator's warn-and-default posture on a missing `Status:`;
+duplicates of the other header keys are format-grammar REQ-A1.2's rule, not this
+amendment's. When REQ-A1.3's extent definition lands, it supersedes this bound
+and this note is removed with it.
 
 **Sanctioned command forms** (anything else in an `Anchor:` line is invalid):
 
@@ -509,7 +576,38 @@ the freshness gate while meaning edits always do.
    — the pre-extraction form. Remains sanctioned (existing entries stay
    parseable; an environment without the script can still anchor), with the
    documented consequence that `tasks.md` state moves stale it and force an
-   expression-only re-anchor.
+   expression-only re-anchor. It also hashes the header `**Status:**` line the
+   canonical form excludes, so a lifecycle flip stales it too.
+3. **Resolution-aware logical form:** `spec-anchor.sh <spec-dir>` — the same
+   reference implementation named without a repo-relative path, resolved
+   through the documented core root chain, first hit winning
+   (anchor-integrity D-7, REQ-F1.1):
+   1. `$PLANWRIGHT_ROOT/scripts/` — explicit override (tests, adopters);
+   2. `$CLAUDE_PLUGIN_ROOT/scripts/` — plugin delivery, set by Claude Code;
+   3. `<claude-dir>/planwright/scripts/` — writer delivery, where
+      `<claude-dir>` is `$CLAUDE_DIR` when set, else `~/.claude`;
+   4. `<script-dir>/../scripts/` — self-location beside the resolving script,
+      the final fallback.
+
+   An arm whose root is unset or empty is **skipped**, never expanded into a
+   bare `/scripts/…` path — so an environment with none of these variables set
+   reaches the self-located arm, and a sanitized one resolves nothing at all
+   rather than something surprising. An arm **hits** when an executable regular
+   `spec-anchor.sh` sits at the resolved path. This is the core-layer chain
+   `scripts/resolve-rule-doc.sh` already
+   documents, so recomputability becomes a property of the delivery mode
+   rather than of one repo's layout: an adopter repo that consumes planwright
+   as a plugin and has no repo-root `scripts/` records this form. A gate
+   consumer prepends the checked tree's own script to this chain (see
+   *Execution validity*); where `scripts/spec-anchor.sh` exists in the checked
+   tree the canonical form also stays preferred for new entries, and adding
+   this form invalidates no existing entry. Recording an env-literal path
+   (`"$PLANWRIGHT_ROOT/…"`) is **not** sanctioned: a stale or unset variable
+   makes the recorded command resolve silently to the wrong version or to
+   nothing. The chain's env roots are operator-owned trust inputs — whoever
+   sets them chooses the program that computes the hash — which is the other
+   reason a consumer prefers the checked tree's script; D-7 records that
+   residual as accepted.
 
 ### Canonical `tasks.md` definition-content extraction
 
@@ -551,6 +649,39 @@ closed to Awaiting input, naming the remedy:
 - **No anchor entry / unparseable entry / non-sanctioned command form /
   entry from a non-sanctioned writer** → remedy: complete or repair the
   sign-off record per REQ-F1.10.
+- **A sanctioned form that resolves to nothing** in the current environment —
+  no `scripts/spec-anchor.sh` in the checked tree and no hit on any core
+  root-chain arm — is treated as **absent-anchor-class**: the gate halts and
+  never reads an unresolved command as a match (anchor-integrity REQ-F1.1).
+  Remedy: make the tool resolvable, either by supplying the checked tree's
+  canonical script or by setting a root the chain reads (the arms are listed
+  under *Sanctioned command forms* above).
+
+**Resolving the recorded command.** All sanctioned forms are accepted, and the
+form recorded in the entry is the one recomputed with — a consumer never
+substitutes a different form for the one on record. For the two script-based
+forms (the interim form invokes `git` directly and needs no resolution),
+locating that one reference implementation runs the checked tree's
+`scripts/spec-anchor.sh` where it is present and falls back to the core root
+chain only where it is absent, so the checked tree's own script always wins over
+an ambient root. Resolution finds the same tool; it never rewrites the recorded
+form.
+
+**Reference frame (version 1 bundles).** The comparison is framed on a single
+pinned commit of the main view (anchor-integrity D-4, REQ-B1.1). Where the
+checkout the gate reads diverges from that pinned view within anchored content
+only by header `**Status:**` lines carrying sanctioned status values, across any
+subset of the four files — the shape the single-writer derived mirror produces —
+the gate compares against the pinned committed view instead of halting. The
+tolerated shape is a **value substitution** in a declaration present on both
+sides: the mirror rewrites a Status value and never adds or removes the
+declaration, so an inserted or deleted Status line is another divergence, not
+this one. The gate
+accepts that **shape**, not a writer's identity: it cannot attribute a
+divergence to a writer. Any other divergence, committed or not, halts exactly as
+above, so an uncommitted meaning edit in the working tree still halts. The frame
+stays load-bearing after the Status exclusion above, because an entry recorded
+with the interim whole-file form has the Status line inside its digest.
 
 There is no bypass flag (same class as the non-Active refusal). A
 meaning-class entry is **execution-valid** only if it parses, uses a
@@ -682,9 +813,13 @@ bundle untouched.
   (invariant-tasks D-11): under version 2, completion is derived render
   content.
 
-Guidance refinements that do not change a format version's rules are
+Amendments that leave every format version's authoring rules intact are
 recorded here without a version bump — a bundle authored to the affected
-version stays conformant:
+version stays conformant. Guidance refinements qualify; so does a change to a
+mechanism this format defines *around* bundles rather than *inside* them (the
+anchor computation, the sanctioned command forms), which by design applies to
+bundles at every version at once and so must not be gated behind a version a
+bundle would have to migrate to:
 
 - 2026-07-10 — Derived-content authoring guidance. The `tasks.md` guidance no
   longer suggests a hand-drawn dependency graph in intro prose (`Dependencies:`
@@ -695,3 +830,41 @@ version stays conformant:
   from illustrative to normative, with its single degraded form
   `Completed · merged <YYYY-MM-DD>` and the unstamped fallback pinned.
   *(Scoped to format-version 1 bundles by the 2026-07-14 entry.)*
+- 2026-07-26 — Anchor-scope exclusion. The per-file digests for
+  `requirements.md`, `design.md`, and `test-spec.md` exclude the header-block
+  `**Status:**` line, bounded to the single leading header block and failing
+  closed on a malformed, duplicated, or unterminated one, defined once in the
+  version-1 body and inherited by every later version (*The content anchor*).
+  Both the stored Draft→Ready flip and the derived Ready↔Active flip become
+  anchor-invariant, so a lifecycle write can no longer false-halt the
+  execution freshness gate. The tool-side change and the coordinated
+  re-anchor sweep it requires land as their own tasks; this entry is the
+  doctrine half. The interim whole-file form keeps the Status line inside its
+  digest and is unaffected. *(anchor-integrity D-2, D-3 · REQ-A1.1, REQ-A1.2;
+  header-block extent carries a reconcile note pending format-grammar
+  REQ-A1.3.)*
+- 2026-07-26 — Gate reference frame stated. The version-1 execution-validity
+  prose states the pinned committed-main frame and the one divergence shape it
+  tolerates — header `**Status:**` lines carrying sanctioned values, across
+  any subset of the four files — accepted by shape, since the gate cannot
+  attribute a divergence to a writer (*Execution validity*). Records a
+  resolution twice derived under dispatch pressure; changes no halt outcome
+  for any other divergence. *(anchor-integrity D-4 · REQ-B1.1.)*
+- 2026-07-26 — Third sanctioned command form. The resolution-aware logical
+  `spec-anchor.sh <spec-dir>`, resolved through the documented core root
+  chain, joins the sanctioned forms, with the consumer resolution order
+  (checked-tree script first, chain only where absent) and the fail-closed
+  absent-anchor-class halt for a form that resolves to nothing (*Sanctioned
+  command forms*, *Execution validity*). Makes a recorded anchor recomputable
+  in a plugin-consuming adopter repo with no `scripts/` directory; no existing
+  entry is invalidated, and env-literal paths stay unsanctioned.
+  *(anchor-integrity D-7 · REQ-F1.1.)*
+- 2026-07-26 — Decided-rule authoring guidance. Anchored deliverable prose
+  states decided rules rather than enumerated counts or corpus claims whose
+  truth depends on a surface outside the bundle; unavoidable enumerations
+  follow cite-don't-copy or carry their own cross-check, and `/spec-draft` and
+  `/spec-kickoff` run the cross-check at drafting and sign-off (*Decided rules
+  over enumerated claims*). As with the anchor-scope entry above, this is the
+  doctrine half: the two skills gain the cross-check step as their own task, so
+  the rule states the standard before the skill prose instantiates it.
+  *(anchor-integrity D-8 · REQ-E1.1, REQ-E1.2.)*

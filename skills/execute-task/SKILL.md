@@ -105,8 +105,8 @@ wait instead.
      (`no-remote`, offline) → gate vs local `main`; **4** (`stale-transient`) or
      any other nonzero → do not silently proceed: park to Awaiting input.
    - **Validate the entry** (brief's most recent, from the resolved ref): it
-     parses, uses a **sanctioned command form** (`scripts/spec-anchor.sh
-     <spec-dir>` or the interim whole-file form), a **sanctioned writer** (a
+     parses, uses a **sanctioned command form** (any form on `spec-format`'s
+     *Sanctioned command forms* list), a **sanctioned writer** (a
      `/spec-kickoff` sign-off or the marked `Class: expression-only` ritual), and
      — meaning-class — a dispositioned `Lens-pass:`.
    - **Compare** the recorded anchor against the one `dispatch-fetch.sh`
