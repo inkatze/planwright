@@ -518,10 +518,13 @@ below never trip the freshness gate while meaning edits always do:
   the gate.
 - `requirements.md`, `design.md`, and `test-spec.md` each contribute their
   content minus exactly one line — the header-block `**Status:**`
-  declaration — hashed with `git hash-object` after that line is removed
+  declaration, removed together with its line terminator so the bytes around
+  it join unchanged — hashed with `git hash-object` over that reduced content
   (anchor-integrity D-2, REQ-A1.1). Neither the stored Draft→Ready flip nor
   the derived Ready↔Active flip changes a bundle's anchor, and neither do the
-  header mirrors those flips write into the other three files.
+  header mirrors those flips write into the other three files. An entry
+  recorded with the interim whole-file form below is the exception: its digest
+  still carries the Status line, so a flip stales it.
 
 **The Status exclusion is universal.** It is defined here once, in the
 version-1 body, and inherited unchanged by every later format version, so the
@@ -541,16 +544,22 @@ whole file. The rest of the header block stays anchored: `Format-version:` and
 never slip past the gate, and `Last reviewed:` moves only in the same rituals
 that re-anchor anyway.
 
-*Reconcile note (removed when superseded).* The header block's normative
-extent is format-grammar's REQ-A1.3, landing with that bundle's doctrine
-amendment task; until it lands here, the bound is the contiguous run of
+*Reconcile note (removed when superseded).* The header block's normative extent
+is format-grammar's REQ-A1.3, landing with that bundle's Task 5 doctrine
+amendment; until it lands here, the bound is the contiguous run of
 `**<Key>:** <value>` lines opening the file's content after its H1 title line
 (a single blank line may separate the title from the run), ending at the first
-line that is not such a key line. Malformed: no such run, or a run reaching
-end of file with no body content after it. Duplicated: a second `**Status:**`
-declaration inside the run, or a second such run later in the file. When
-REQ-A1.3's extent definition lands, it supersedes this bound and this note is
-removed with it.
+line that is not such a key line. The bound is **positional**: a file has at
+most one header block, the one opening its content, so a key-line run appearing
+later — in body prose or inside a fence — is not a header block at all and
+triggers none of the rules here. Fail closed on a malformed block: no such run,
+or a run reaching end of file with no body content after it. Fail closed on a
+duplicated declaration: a second `**Status:**` line inside the run. A run
+carrying no `**Status:**` line excludes nothing and hashes the whole file,
+matching the validator's warn-and-default posture on a missing `Status:`;
+duplicates of the other header keys are format-grammar REQ-A1.2's rule, not this
+amendment's. When REQ-A1.3's extent definition lands, it supersedes this bound
+and this note is removed with it.
 
 **Sanctioned command forms** (anything else in an `Anchor:` line is invalid):
 
@@ -580,15 +589,21 @@ removed with it.
    4. `<script-dir>/../scripts/` — self-location beside the resolving script,
       the final fallback.
 
-   This is the core-layer chain `scripts/resolve-rule-doc.sh` already
+   An arm **hits** when an executable regular `spec-anchor.sh` sits at that
+   path. This is the core-layer chain `scripts/resolve-rule-doc.sh` already
    documents, so recomputability becomes a property of the delivery mode
    rather than of one repo's layout: an adopter repo that consumes planwright
-   as a plugin and has no repo-root `scripts/` records this form. Where
-   `scripts/spec-anchor.sh` exists in the checked tree the canonical form
-   stays preferred for new entries, and adding this form invalidates no
-   existing entry. Recording an env-literal path (`"$PLANWRIGHT_ROOT/…"`) is
-   **not** sanctioned: a stale or unset variable makes the recorded command
-   resolve silently to the wrong version or to nothing.
+   as a plugin and has no repo-root `scripts/` records this form. A gate
+   consumer prepends the checked tree's own script to this chain (see
+   *Execution validity*); where `scripts/spec-anchor.sh` exists in the checked
+   tree the canonical form also stays preferred for new entries, and adding
+   this form invalidates no existing entry. Recording an env-literal path
+   (`"$PLANWRIGHT_ROOT/…"`) is **not** sanctioned: a stale or unset variable
+   makes the recorded command resolve silently to the wrong version or to
+   nothing. The chain's env roots are operator-owned trust inputs — whoever
+   sets them chooses the program that computes the hash — which is the other
+   reason a consumer prefers the checked tree's script; D-7 records that
+   residual as accepted.
 
 ### Canonical `tasks.md` definition-content extraction
 
@@ -645,18 +660,17 @@ always wins over an ambient root. All sanctioned forms are accepted; the form
 recorded in the entry is the one recomputed with, never a consumer's preferred
 substitute.
 
-**Reference frame (version 1 bundles).** Both reads — the entry's recorded
-anchor and the recompute — are taken against a single pinned commit of the
-main view (anchor-integrity D-4, REQ-B1.1). When the recompute's only
-divergence from that pinned view within anchored content is confined to header
-`**Status:**` lines carrying sanctioned status values, across any subset of
-the four files — the shape the single-writer derived mirror produces — the
-gate compares against the pinned committed view. The gate accepts that
-**shape**, not a writer's identity: it cannot attribute a divergence to a
-writer. Any other divergence, committed or not, halts exactly as above; an
-uncommitted meaning edit in the working tree still halts. The frame stays
-load-bearing after the Status exclusion above, because an entry recorded with
-the interim whole-file form has the Status line inside its digest.
+**Reference frame (version 1 bundles).** The comparison is framed on a single
+pinned commit of the main view (anchor-integrity D-4, REQ-B1.1). Where the
+checkout the gate reads diverges from that pinned view within anchored content
+only by header `**Status:**` lines carrying sanctioned status values, across any
+subset of the four files — the shape the single-writer derived mirror produces —
+the gate compares against the pinned committed view instead of halting. The gate
+accepts that **shape**, not a writer's identity: it cannot attribute a
+divergence to a writer. Any other divergence, committed or not, halts exactly as
+above, so an uncommitted meaning edit in the working tree still halts. The frame
+stays load-bearing after the Status exclusion above, because an entry recorded
+with the interim whole-file form has the Status line inside its digest.
 
 There is no bypass flag (same class as the non-Active refusal). A
 meaning-class entry is **execution-valid** only if it parses, uses a

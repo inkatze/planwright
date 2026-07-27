@@ -349,7 +349,7 @@ most recent anchor entry never describes spec content that was not walked.
    run (flip, `Last reviewed:`, applied findings) is on disk; it fails closed on
    a defective bundle — surface its stderr and stop with no anchor line, never
    hand-roll it. Absent that script, descend `spec-format`'s sanctioned-form
-   list (logical form before interim whole-file), recording that command. This flow is the only
+   list (logical before interim whole-file), recording the exact command used. This flow is the only
    writer of a meaning-class entry; it writes an expression-only entry (no lens
    pass, citing the changelog line) only when the human classified the entire
    delta expression-only.
