@@ -16,7 +16,8 @@
 #       to be, the caller's own hosting session/worktree) — the #29787 block
 #   4 = refused: the fleet_daemon_pause kill-switch is set
 #   5 = refused: no positive evidence the target is reclaimable (a live pane /
-#       an unpushed-or-dirty worktree — acting would kill live work)
+#       a dirty worktree / one whose commits are not provably safe — acting
+#       would kill live work)
 #
 # What is covered:
 #   - the self-targeting guard refuses (exit 3) and kills nothing when the
@@ -29,6 +30,12 @@
 #   - self-identity that cannot be resolved fails closed (exit 3);
 #   - a stale, clean, non-self worktree is removed (exit 0, audited);
 #   - a worktree with uncommitted OR unpushed work is refused (exit 5);
+#   - the --merged-pr evidence path: a clean worktree whose named PR is verified
+#     MERGED at exactly this HEAD is reclaimed (the post-merge shape where the
+#     forge auto-deleted the branch, so no upstream can ever exist), while a
+#     non-MERGED PR, an oid mismatch, and an unusable `gh` each refuse (exit 5),
+#     a malformed --merged-pr value or unknown flag is usage (exit 2), and the
+#     no-upstream-no-flag default is still refused (the regression guard);
 #   - the caller's own worktree is refused by the self-guard (exit 3);
 #   - hostile tmux/path tokens are refused (exit 2);
 #   - every reclaim and every self-block writes a fleet-audit row.
