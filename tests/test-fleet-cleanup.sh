@@ -119,6 +119,16 @@ esac
 EOF
 chmod +x "$fakebin/tmux"
 
+# A fake `gh` for the --merged-pr evidence path. FAKE_GH_STATE / FAKE_GH_OID
+# drive the reported PR; FAKE_GH_FAIL makes the query fail (an unauthenticated
+# or offline gh), and FAKE_GH_ABSENT is handled by removing the stub instead.
+cat >"$fakebin/gh" <<'EOF'
+#!/bin/sh
+[ -n "${FAKE_GH_FAIL:-}" ] && exit 1
+printf '%s %s\n' "${FAKE_GH_STATE:-MERGED}" "${FAKE_GH_OID:-}"
+EOF
+chmod +x "$fakebin/gh"
+
 killed="$tmp/killed"
 
 # run_window <self> <panes> <session> <window> ... — invoke the window cleanup
@@ -302,6 +312,9 @@ run_worktree() {
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
+    FAKE_GH_STATE="${FAKE_GH_STATE:-}" \
+    FAKE_GH_OID="${FAKE_GH_OID:-}" \
+    FAKE_GH_FAIL="${FAKE_GH_FAIL:-}" \
     sh -c 'cd "$1" && shift && exec /bin/bash "$0" "$@"' "$FC" "$_cwd" worktree "$@"
 }
 
@@ -344,6 +357,105 @@ run_worktree "$main_repo" "$wt_unpushed" "candidate" "checking unpushed" \
 [ "$rc" = 5 ] || fail "unpushed worktree: exit $rc, expected 5"
 [ -d "$wt_unpushed" ] || fail "unpushed worktree: removed despite unpushed commits"
 echo "ok: a worktree with unpushed commits is refused (exit 5)"
+
+# --- 9c-9h. The --merged-pr evidence path: the post-merge shape where the forge
+# auto-deleted the remote branch, so no upstream exists and upstream parity can
+# never hold, although the commits are provably merged.
+#
+# make_merged_wt <name> — a clean worktree pushed and then severed from its
+# upstream (remote branch deleted), exactly as a merged-and-auto-deleted PR
+# leaves it. Echoes the worktree path.
+make_merged_wt() {
+  _n=$1
+  _p="$tmp/$_n"
+  (cd "$main_repo" && git_env git worktree add -q -b "$_n" "$_p" >/dev/null 2>&1)
+  (cd "$_p" && git_env git push -q -u origin "$_n" >/dev/null 2>&1)
+  # The forge deletes the merged branch: the upstream ref goes away.
+  (cd "$main_repo" && git_env git push -q origin --delete "$_n" >/dev/null 2>&1)
+  (cd "$_p" && git_env git fetch -q --prune origin >/dev/null 2>&1)
+  printf '%s\n' "$_p"
+}
+
+# 9c. Verified MERGED PR whose head oid IS this worktree's HEAD -> reclaimed.
+wt_merged=$(make_merged_wt wt-merged)
+# Assert the fixture really models the shape, resolving the upstream exactly as
+# the script does. NOTE the `|| up=""`: on failure `rev-parse --abbrev-ref` still
+# echoes the literal "@{upstream}" on stdout, so only the EXIT CODE distinguishes
+# "no upstream" from a branch literally named that. Testing stdout alone silently
+# passes a fixture that does not model the shape.
+up=$(cd "$wt_merged" && git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || up=""
+[ -z "$up" ] || fail "merged-pr fixture: upstream still resolves ('$up'), fixture does not model the shape"
+rm -rf "$fleet_home"
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_merged" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_merged" "merged-pr-leftover" "pr merged, branch auto-deleted" \
+  --merged-pr 320 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "merged-pr worktree: exit $rc, expected 0 (reclaimed)"
+[ ! -d "$wt_merged" ] || fail "merged-pr worktree: directory still present after remove"
+rows=$(audit_rows --mechanism worktree-cleanup)
+case $rows in
+  *cleanup*) ;;
+  *) fail "merged-pr worktree: no cleanup audit row (got: '$rows')" ;;
+esac
+echo "ok: a clean worktree with a verified merged PR is removed and audited"
+
+# 9d. The same worktree, but the PR is still OPEN -> refused.
+wt_open=$(make_merged_wt wt-open)
+rc=0
+FAKE_GH_STATE=OPEN FAKE_GH_OID=$(cd "$wt_open" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_open" "candidate" "pr not merged" \
+  --merged-pr 321 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "open-pr worktree: exit $rc, expected 5"
+[ -d "$wt_open" ] || fail "open-pr worktree: removed despite an unmerged PR"
+echo "ok: --merged-pr naming a non-MERGED PR is refused (exit 5)"
+
+# 9e. MERGED, but the PR's head oid is NOT this worktree's HEAD -> refused. This
+# is the worktree that carries commits the PR never took.
+wt_diverged=$(make_merged_wt wt-diverged)
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=0000000000000000000000000000000000000000 \
+  run_worktree "$main_repo" "$wt_diverged" "candidate" "oid mismatch" \
+  --merged-pr 322 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "oid-mismatch worktree: exit $rc, expected 5"
+[ -d "$wt_diverged" ] || fail "oid-mismatch worktree: removed despite an oid mismatch"
+echo "ok: --merged-pr whose head oid differs from HEAD is refused (exit 5)"
+
+# 9f. gh cannot answer (offline / unauthenticated) -> fail closed, refused.
+wt_ghfail=$(make_merged_wt wt-ghfail)
+rc=0
+FAKE_GH_FAIL=1 \
+  run_worktree "$main_repo" "$wt_ghfail" "candidate" "gh unavailable" \
+  --merged-pr 323 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "gh-failure worktree: exit $rc, expected 5"
+[ -d "$wt_ghfail" ] || fail "gh-failure worktree: removed although gh could not verify"
+echo "ok: --merged-pr with an unusable gh fails closed (exit 5)"
+
+# 9g. REGRESSION GUARD: the default is unchanged. No upstream and no
+# --merged-pr is still refused — the new flag widens the evidence class only
+# when the caller explicitly supplies and the script verifies it.
+wt_noev=$(make_merged_wt wt-noev)
+rc=0
+run_worktree "$main_repo" "$wt_noev" "candidate" "no evidence offered" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "no-evidence worktree: exit $rc, expected 5"
+[ -d "$wt_noev" ] || fail "no-evidence worktree: removed with no evidence at all"
+echo "ok: no upstream and no --merged-pr is still refused (exit 5)"
+
+# 9h. A malformed --merged-pr value is a usage refusal (exit 2), never a query.
+wt_bad=$(make_merged_wt wt-bad)
+for bad in "not-a-number" "-5" "0" "12x" "1234567890123" "" "\$(id)"; do
+  rc=0
+  run_worktree "$main_repo" "$wt_bad" "candidate" "hostile pr token" \
+    --merged-pr "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "malformed --merged-pr '$bad': exit $rc, expected 2"
+done
+[ -d "$wt_bad" ] || fail "malformed --merged-pr: worktree was removed"
+# An unknown flag in the fourth slot is also a usage error.
+rc=0
+run_worktree "$main_repo" "$wt_bad" "candidate" "unknown flag" \
+  --bogus 320 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unknown worktree flag: exit $rc, expected 2"
+echo "ok: a malformed --merged-pr value or unknown flag is a usage refusal (exit 2)"
 
 # 10. The caller's own worktree is refused by the self-guard.
 wt_self="$tmp/wt-self"

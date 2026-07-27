@@ -14,10 +14,11 @@
 # POSITIVE EVIDENCE ONLY (D-5). A resource is reclaimed only on positive,
 # deterministic evidence that reclaiming it loses nothing — a tmux window whose
 # panes are all dead (`#{pane_dead}` = 1, the worker process exited), or a git
-# worktree that is clean AND fully pushed. Silence, a timeout, or a "probably
-# stale" guess is never admissible: the same discipline
+# worktree that is clean AND whose commits provably survive its removal (either
+# upstream parity or a verified merged PR; see the `worktree` usage). Silence, a
+# timeout, or a "probably stale" guess is never admissible: the same discipline
 # scripts/fleet-death-evidence.sh encodes, applied to reclamation. A live pane or
-# an unpushed/dirty worktree is refused, never reclaimed.
+# an unproven/dirty worktree is refused, never reclaimed.
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). Every invocation gates through
 # scripts/fleet-daemon-gate.sh BEFORE acting (a set `fleet_daemon_pause` pauses
@@ -30,10 +31,17 @@
 #       <window> matches either #{window_id} (@N) or #{window_name}. The self
 #       identity is resolved from the caller's own pane ($TMUX_PANE via
 #       `tmux display-message`); it is refused if it resolves to that window.
-#   fleet-cleanup.sh worktree <path> <trigger> <reasoning>
-#       Remove a clean, fully-pushed git worktree (git worktree remove). Refused
-#       if <path> is (or contains) the caller's own worktree, or if it carries
-#       uncommitted or unpushed work.
+#   fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]
+#       Remove a clean, provably-reclaimable git worktree (git worktree remove).
+#       Refused if <path> is (or contains) the caller's own worktree, or if it
+#       carries uncommitted work, or if neither evidence path below holds:
+#         A. upstream parity — a configured upstream, zero commits ahead;
+#         B. --merged-pr <n> — this script verifies via `gh` that PR <n> is
+#            MERGED and that its head oid IS this worktree's HEAD. For the
+#            post-merge shape where the forge auto-deleted the remote branch, so
+#            the upstream is gone and A can never hold although the commits are
+#            provably merged. Verified, never trusted: no `gh`, an unreadable
+#            field, a non-MERGED state, or an oid mismatch all refuse.
 #
 # <trigger>/<reasoning> are free-text audit fields (the caller's determination of
 # WHY the target is stale) under fleet-audit's control-free text grammar.
@@ -78,7 +86,7 @@ warn() { printf 'fleet-cleanup: %s\n' "$*" >&2; }
 
 usage() {
   echo "usage: fleet-cleanup.sh window <session> <window> <trigger> <reasoning>" >&2
-  echo "       fleet-cleanup.sh worktree <path> <trigger> <reasoning>" >&2
+  echo "       fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]" >&2
 }
 
 # The tmux handle grammar (fleet-death-evidence.sh's conservative single-token
@@ -232,13 +240,34 @@ case "$cmd" in
     ;;
 
   worktree)
-    if [ "$#" -ne 3 ]; then
+    if [ "$#" -ne 3 ] && [ "$#" -ne 5 ]; then
       usage
       exit 2
     fi
     path=$1
     trigger=$2
     reasoning=$3
+    # Optional second evidence path (see the evidence block below). The number is
+    # DATA: digit-only, unbounded-length-refused, no leading zero, and never
+    # interpolated into a shell string — it is passed to `gh` as ARGV.
+    merged_pr=""
+    if [ "$#" -eq 5 ]; then
+      if [ "$4" != "--merged-pr" ]; then
+        usage
+        exit 2
+      fi
+      merged_pr=$5
+      case $merged_pr in
+        "" | *[!0-9]* | 0*)
+          warn "refusing a --merged-pr value that is not a positive decimal PR number"
+          exit 2
+          ;;
+      esac
+      if [ "${#merged_pr}" -gt 9 ]; then
+        warn "refusing an over-length --merged-pr number"
+        exit 2
+      fi
+    fi
     case $path in
       "" | -*)
         warn "refusing malformed worktree path (empty or leading dash)"
@@ -323,20 +352,85 @@ case "$cmd" in
       warn "'$path' has uncommitted changes — refusing to remove (would lose work)"
       exit 5
     fi
+    # TWO INDEPENDENT SUFFICIENT EVIDENCE PATHS. Either proves the worktree's
+    # commits survive its removal; the clean check above is required for both.
+    #
+    #   A. UPSTREAM PARITY — a configured upstream with zero commits ahead.
+    #
+    #   B. MERGED-PR IDENTITY — the caller names a PR and this script VERIFIES
+    #      (never trusts) that it is MERGED and that its head oid is exactly this
+    #      worktree's HEAD. This is the post-merge shape a forge's branch
+    #      auto-delete leaves behind: the remote branch is gone, so the upstream
+    #      is unset and path A can NEVER be satisfied, yet the content is
+    #      provably merged. Without B the commonest reclaimable worktree of all —
+    #      "its PR merged" — is unreclaimable, which is what stalls a fleet on
+    #      the deterministic `task-<id>` worktree suffixes.
+    #
+    # B is a WIDER EVIDENCE CLASS, not a looser bar: an oid match against a
+    # MERGED pr is strictly stronger than upstream parity (which only proves the
+    # commits left this machine, not that anyone took them). Any doubt — no `gh`,
+    # an unreadable field, a non-MERGED state, an oid mismatch — refuses.
+    evidence=""
     upstream=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || upstream=""
-    if [ -z "$upstream" ]; then
-      warn "'$path' has no upstream configured — cannot prove it is pushed, refusing"
-      exit 5
-    fi
-    ahead=$(git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
-    case $ahead in
-      "" | *[!0-9]*)
-        warn "'$path' unpushed-commit count is unreadable — refusing (fail closed)"
+    if [ -n "$upstream" ]; then
+      ahead=$(git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
+      case $ahead in
+        "" | *[!0-9]*)
+          warn "'$path' unpushed-commit count is unreadable — refusing (fail closed)"
+          exit 5
+          ;;
+      esac
+      if [ "$ahead" = 0 ]; then
+        evidence='upstream-parity'
+      elif [ -z "$merged_pr" ]; then
+        warn "'$path' has $ahead unpushed commit(s) — refusing to remove (would lose work)"
         exit 5
-        ;;
-    esac
-    if [ "$ahead" != 0 ]; then
-      warn "'$path' has $ahead unpushed commit(s) — refusing to remove (would lose work)"
+      fi
+    fi
+
+    if [ -z "$evidence" ] && [ -n "$merged_pr" ]; then
+      if ! command -v gh >/dev/null 2>&1; then
+        warn "--merged-pr given but no gh binary on PATH — cannot verify the merge, refusing (fail closed)"
+        exit 5
+      fi
+      head_oid=$(git -C "$path" rev-parse HEAD 2>/dev/null) || head_oid=""
+      case $head_oid in
+        "" | *[!0-9a-f]*)
+          warn "'$path' HEAD oid is unreadable — refusing (fail closed)"
+          exit 5
+          ;;
+      esac
+      # Read state and head oid in ONE query, as a space-separated pair, using
+      # gh's built-in Go template (never the jq binary — REQ-K1.5). The response
+      # is DATA: parsed by prefix/suffix expansion and re-validated below.
+      pr_pair=$(cd "$path" 2>/dev/null && gh pr view "$merged_pr" \
+        --json state,headRefOid \
+        --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_pair=""
+      pr_state=${pr_pair%% *}
+      pr_oid=${pr_pair##* }
+      if [ -z "$pr_pair" ] || [ "$pr_state" = "$pr_pair" ]; then
+        warn "--merged-pr $merged_pr: could not read the PR's state and head oid — refusing (fail closed)"
+        exit 5
+      fi
+      case $pr_oid in
+        "" | *[!0-9a-f]*)
+          warn "--merged-pr $merged_pr: head oid is not a plain hex oid — refusing (fail closed)"
+          exit 5
+          ;;
+      esac
+      if [ "$pr_state" != MERGED ]; then
+        warn "--merged-pr $merged_pr is $pr_state, not MERGED — refusing (its commits may exist nowhere else)"
+        exit 5
+      fi
+      if [ "$pr_oid" != "$head_oid" ]; then
+        warn "--merged-pr $merged_pr merged $pr_oid but '$path' is at $head_oid — refusing (this worktree holds commits that PR did not carry)"
+        exit 5
+      fi
+      evidence='merged-pr'
+    fi
+
+    if [ -z "$evidence" ]; then
+      warn "'$path' has no upstream configured and no verified --merged-pr evidence — cannot prove it is pushed, refusing"
       exit 5
     fi
 
