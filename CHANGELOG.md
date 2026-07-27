@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.0](https://github.com/inkatze/planwright/compare/v0.31.0...v0.32.0) (2026-07-27)
+
+
+### Features
+
+* **fleet:** rendered status dashboard (execution-backends task 8) ([#320](https://github.com/inkatze/planwright/issues/320)) ([7a9ae12](https://github.com/inkatze/planwright/commit/7a9ae123e61d791da53dd0356be2819e15efe90e))
+* **spec-parse:** parked-map and Format-version parses into the shared lib ([#322](https://github.com/inkatze/planwright/issues/322)) ([7e7628f](https://github.com/inkatze/planwright/commit/7e7628f2bdbc2777379c3f71556287fcc6764519))
+
 ## [0.31.0](https://github.com/inkatze/planwright/compare/v0.30.0...v0.31.0) (2026-07-24)
 
 
