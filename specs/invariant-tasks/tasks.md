@@ -229,9 +229,15 @@ the guard that protects their output exists.
   v1 arms (`tasks-pr-sync.sh` reconcile, ledger coherence checks, the
   status-lifecycle migration) stay functional while any live v1 bundle can
   exist. Retirement is a deletion pass, not a redesign. Confidence: high.
-  **Gate:** GATE(when: planwright's own repo carries no non-terminal v1
-  bundle and a released deprecation window for adopter v1 bundles has
-  passed).
+  **Gate:** planwright's own repo carries no non-terminal v1 bundle, and a
+  released deprecation window for adopter v1 bundles has passed. (Free-text,
+  not `GATE(when:)`: the first clause needs negation over a repo-wide
+  quantifier, which the condition grammar has no form for. Its three atoms are
+  `task <id> completed`, `spec <name> <status>`, and `after <YYYY-MM-DD>`,
+  joined by ` and ` only; the status literals it whitelists are draft, active,
+  done, retired, and superseded, notably not ready. Should a deprecation
+  window be released with a fixed end date, that second clause alone becomes
+  expressible as `after <date>`.)
   Citations: D-7.
 
 ## Out of scope
