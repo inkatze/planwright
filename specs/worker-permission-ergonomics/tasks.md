@@ -92,9 +92,11 @@ renders it on demand.
 - **Operator-configurable allowlist knob.** The known-safe allowlist ships as a
   fixed conservative core policy (D-8); exposing an operator-configurable
   extension/override knob is deferred. Confidence: high.
-  **Gate:** GATE(when: recurring drain-loop observations show multiple contexts
-  need to extend the worker allowlist, per the customization-boundary
-  graduation rule). Citations: D-8; `doctrine/customization-boundary.md`.
+  **Gate:** recurring drain-loop observations show multiple contexts need to
+  extend the worker allowlist, per the customization-boundary graduation rule.
+  (Free-text, not `GATE(when:)`: "recurring drain-loop observations show" is a
+  human judgement the condition grammar cannot express.) Citations: D-8;
+  `doctrine/customization-boundary.md`.
 
 - **Runtime audit log of hook allow decisions.** The auto-approve hook is a
   silent permissions-upgrade emitting only a fixed reason string (REQ-B1.4), so
@@ -103,8 +105,10 @@ renders it on demand.
   decisions is deferred: the conservative allow-only design, the deny-precedence
   guarantee (a hook allow can never un-block a denied command), and the
   adversarial suite are the shipped controls. Confidence: medium.
-  **Gate:** GATE(when: first field evidence of a hook false-allow, OR recurring
-  drain-loop demand for runtime auditability of auto-approve decisions).
+  **Gate:** first field evidence of a hook false-allow, OR recurring drain-loop
+  demand for runtime auditability of auto-approve decisions. (Free-text, not
+  `GATE(when:)`: the grammar joins atoms with ` and ` only, with no `OR` form,
+  and both clauses are human judgements besides.)
   Citations: kickoff §7 (2026-07-18); REQ-B1.4;
   `doctrine/decision-domains.md` (observability).
 

@@ -73,6 +73,31 @@ runs the same
 gate on every pull request. This is dev tooling only — planwright's **runtime**
 scripts stay plain portable bash with no mise dependency.
 
+### Test timing, measured out of gate
+
+`mise run test` runs the suite N files at a time, so its per-file numbers
+measure contention rather than each file's own cost. When you need the honest
+per-file figure — sizing a `check:test-time` budget, or deciding whether a file
+has grown into a straggler — use the instrument instead:
+
+```bash
+scripts/measure-test-time.sh              # whole suite, serial, best of 3
+scripts/measure-test-time.sh --repeats 1  # one pass, when you just want a ranking
+```
+
+It runs each `tests/*.sh` file on its own and reports the **minimum** of N runs
+(the noise floor: jitter and neighbour load only push a sample up) alongside
+that file's emitted verdict count. Ranked slowest-first, with suite totals.
+
+It is an instrument, **not** a gate: never add it to `mise run check`. A serial
+best-of-N pass over the whole suite far exceeds the gate's 15-minute budget, and
+re-measuring inside a saturated job would perturb the numbers being measured.
+On CI it runs as the separate opt-in `test-timing` workflow — add the
+`measure-test-time` label to a PR, or dispatch it from the Actions tab. Only the
+labelling re-triggers it: pushing further commits to an already-labelled PR does
+not re-measure, so remove and re-add the label when you want a number for the
+new head.
+
 ### The git hook backstop
 
 The hard history invariants (never push `main`, never amend, squash, fixup,

@@ -18,9 +18,10 @@
 #               never a silent omission (REQ-D1.1)
 #
 # TWO LAYERS, ONE SOURCE-READING IMPLEMENTATION (D-10). `merge` is the
-# source-merging layer: a machine-readable tab-separated stream the planned
-# Task 8 dashboard reuses instead of reading sources a second time. `render`
-# is the human table over that same stream. Nothing else reads the sources.
+# source-merging layer: a machine-readable tab-separated stream the
+# fleet-dashboard.sh renderer reuses instead of reading sources a second
+# time. `render` is the human table over that same stream. Nothing else
+# reads the sources.
 #
 # GRACEFUL PER-SOURCE DEGRADE (REQ-D1.1). Every merge emission starts with
 # one `source` line per source — ok, absent (the surface has nothing to
@@ -37,7 +38,7 @@
 # broken install). Both are unavailable, but the detail is the diagnostic, so
 # the two causes the taxonomy names separately stay distinguishable.
 #
-# MERGE STREAM (tab-separated; the Task 8 contract):
+# MERGE STREAM (tab-separated; the fleet-dashboard.sh contract):
 #   source <name> <ok|absent|unavailable> <detail>
 #   worker <handle> <scope> <origins> <attn-state> <attn-age> <sj-status>
 #          <sj-pending> <oracle-status>
@@ -319,7 +320,7 @@ read_registry() {
   fi
 }
 
-# --- the merge (the D-10 seam Task 8 reuses) --------------------------------
+# --- the merge (the D-10 seam the dashboard reuses) -------------------------
 
 emit_merge() {
   : >"$WS/sources"

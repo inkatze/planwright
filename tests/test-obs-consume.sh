@@ -1,8 +1,15 @@
 #!/bin/sh
-# Unit test for scripts/obs-consume.sh — the observation consumption + archival
-# helper (observation-recording Task 4, REQ-A1.5, REQ-B1.2, REQ-C1.2, REQ-D1.1,
-# REQ-D1.3; D-3, D-7). Consumption semantics are normative in
-# specs/observation-recording/{requirements,design}.md.
+# Unit test for scripts/obs-consume.sh — the FRAGMENT arm of the observation
+# consumption + archival helper (observation-recording Task 4, REQ-A1.5,
+# REQ-C1.2, REQ-D1.1, REQ-D1.3; D-3, D-7). Consumption semantics are normative
+# in specs/observation-recording/{requirements,design}.md.
+#
+# Split into three files (guard-coverage Task 6, REQ-E1.2, D-9): this file was a
+# wall-clock straggler, so its three cohesive arms now run as three files that
+# the runner's tests/*.sh discovery picks up in parallel. The frozen-log arm
+# (sections 12–12g) lives in tests/test-obs-consume-legacy.sh and the
+# git-integration, usage-contract, and cross-guard cases (sections 13–15) in
+# tests/test-obs-consume-git.sh. No assertion changed in the split.
 #
 # Properties verified (numbered to match the body's check sections):
 #   1. Happy path (REQ-B1.2, REQ-C1.2): a live fragment consumed by UID lands in
@@ -33,23 +40,11 @@
 #  11. Hostile fragment content is data (REQ-D1.3): a fragment whose entry text
 #      carries shell metacharacters and control bytes is moved verbatim with no
 #      expansion side effect.
-#  12. Legacy in-place annotation (REQ-C1.2): consuming a frozen-log line appends
-#      `— consumed-by: specs/<spec> (<date>)` to exactly that line, reorders
-#      nothing, and moves no file; a byte-identical duplicate line is
-#      independently consumable (first consume annotates the first match, a
-#      second consume the next).
-#  13. Two-branch conflict-freedom (REQ-B1.2): one branch adds a fragment, another
-#      consumes a *different* fragment — git merge is clean, the consumed fragment
-#      exists only in archive/ (same filename), and the consume commit touched no
-#      unrelated file; a same-fragment double-consume produces a conflict confined
-#      to that one fragment.
-#  14. Usage / exit-code contract: missing/empty required flags, an unknown flag,
-#      a flag without its value, arm-mismatch (--uid with --legacy, --legacy
-#      without --line), and a trailing token exit 2; -h/--help exits 0.
 #
 # Exit codes asserted throughout: 1 refusal (grammar/containment/content/symlink/
-# fs), 2 usage, 3 not found (unknown UID / no matching legacy line), 4 ambiguous
-# (duplicate UID) — the header contract of scripts/obs-consume.sh.
+# fs), 3 not found (unknown UID), 4 ambiguous (duplicate UID) — the header
+# contract of scripts/obs-consume.sh. The usage arm (exit 2) is asserted in
+# tests/test-obs-consume-git.sh.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor) and /bin/sh.
 set -eu
@@ -107,30 +102,6 @@ EOF
   chmod +x "$_d/od"
 }
 
-# make_awk_stub <dir> <code1> [<code2> ...] — an `awk` on PATH that exits with
-# the given codes in call order (the last code repeats for further calls), used
-# to fault-inject an awk runtime error (exit >1) into the legacy arm's two awk
-# passes. It ignores the program and file arguments and produces no output — the
-# script must not publish on an error exit, so the empty temp is discarded.
-make_awk_stub() {
-  _d=$1
-  shift
-  mkdir -p "$_d"
-  : >"$_d/codes"
-  for _c in "$@"; do printf '%s\n' "$_c" >>"$_d/codes"; done
-  printf '0\n' >"$_d/an"
-  cat >"$_d/awk" <<EOF
-#!/bin/sh
-n=\$(cat "$_d/an" 2>/dev/null || echo 0)
-n=\$((n + 1))
-echo "\$n" >"$_d/an"
-code=\$(sed -n "\${n}p" "$_d/codes")
-[ -n "\$code" ] || code=\$(tail -n 1 "$_d/codes")
-exit "\$code"
-EOF
-  chmod +x "$_d/awk"
-}
-
 # record <obs> <uid> <slug> <text> — record one fragment with a deterministic
 # UID and a fixed date, echoing the created fragment's basename.
 record() {
@@ -161,14 +132,6 @@ frag_count() {
 consumed_count() {
   _n=$(grep -c '^Consumed-by: ' "$1" 2>/dev/null) || _n=0
   printf '%s' "$_n"
-}
-
-# gitc <repo> <args...> — git with fixture identity, no signing, main default.
-gitc() {
-  _r=$1
-  shift
-  git -C "$_r" -c user.name=test -c user.email=test@example.invalid \
-    -c commit.gpgsign=false -c init.defaultBranch=main "$@"
 }
 
 # --- 1. Happy path -------------------------------------------------------
@@ -522,318 +485,4 @@ grep -Fxq 'Consumed-by: specs/spec-two (2026-07-10)' "$o/archive/$frag" \
 [ "$(consumed_count "$o/archive/$frag")" -eq 2 ] \
   || fail "11c: re-run duplicated the spec-two citation"
 echo "ok 11c: an archived fragment consumed by a new spec unions the citation, idempotent"
-
-# --- 12. Legacy in-place annotation --------------------------------------
-
-o=$(new_obs "$tmp/o12")
-LINE1='- 2026-06-10 [planwright] a unique legacy observation'
-DUP='- 2026-06-11 [planwright] a duplicated legacy line'
-cat >"$o/opportunities.md" <<EOF
-# Observations — frozen legacy log
-
-$LINE1
-$DUP
-- 2026-06-12 [planwright] another line
-$DUP
-EOF
-before_count=$(wc -l <"$o/opportunities.md")
-"$CONSUME" --obs-dir "$o" --legacy --line "$LINE1" --spec my-spec --today 2026-07-10 \
-  || fail "12: legacy consume exited non-zero"
-grep -Fxq -e "$LINE1 — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md" \
-  || fail "12: legacy line not annotated in place"
-[ "$(wc -l <"$o/opportunities.md")" -eq "$before_count" ] \
-  || fail "12: legacy annotation changed the line count (reordered/added lines)"
-[ "$(frag_count "$o/entries")" -eq 0 ] && [ "$(frag_count "$o/archive")" -eq 0 ] \
-  || fail "12: legacy consume created a fragment"
-# Duplicate-identical line: first consume annotates one, second the other.
-"$CONSUME" --obs-dir "$o" --legacy --line "$DUP" --spec my-spec --today 2026-07-10 \
-  || fail "12: first duplicate-line consume exited non-zero"
-"$CONSUME" --obs-dir "$o" --legacy --line "$DUP" --spec my-spec --today 2026-07-10 \
-  || fail "12: second duplicate-line consume exited non-zero"
-n=$(grep -Fc -e "$DUP — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md")
-[ "$n" -eq 2 ] || fail "12: expected 2 annotated duplicates, got $n"
-# A third consume with both already annotated is a clean no-op.
-"$CONSUME" --obs-dir "$o" --legacy --line "$DUP" --spec my-spec --today 2026-07-10 \
-  || fail "12: exhausted duplicate-line consume must be a clean no-op"
-n=$(grep -Fc -e "$DUP — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md")
-[ "$n" -eq 2 ] || fail "12: no-op re-run annotated a third time (got $n)"
-# A same-spec re-run on a LATER date is a clean no-op too (date-insensitive,
-# mirroring the fragment arm) — not a spurious not-found.
-"$CONSUME" --obs-dir "$o" --legacy --line "$LINE1" --spec my-spec --today 2026-08-01 \
-  || fail "12: same-spec cross-date re-run must be a clean no-op (exit 0)"
-[ "$(grep -Fc -e "$LINE1 — consumed-by:" "$o/opportunities.md")" -eq 1 ] \
-  || fail "12: cross-date re-run added a second annotation"
-echo "ok 12: legacy lines annotate in place, duplicates independently consumable"
-
-# --- 12b. Legacy line content is data (metacharacters matched literally) ---
-
-o=$(new_obs "$tmp/o12b")
-# shellcheck disable=SC2016 # the metacharacters are literal legacy-line data, must NOT expand
-META='- 2026-06-13 [planwright] awk & regex .* [x] %s `id` $(touch z) end'
-cat >"$o/opportunities.md" <<EOF
-# frozen
-
-$META
-- 2026-06-14 [planwright] untouched neighbor
-EOF
-"$CONSUME" --obs-dir "$o" --legacy --line "$META" --spec my-spec --today 2026-07-10 \
-  || fail "12b: legacy consume of a metacharacter line exited non-zero"
-grep -Fxq -e "$META — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md" \
-  || fail "12b: metacharacter line not matched/annotated literally"
-grep -Fxq -e '- 2026-06-14 [planwright] untouched neighbor' "$o/opportunities.md" \
-  || fail "12b: a neighbor line was altered (content used as a pattern?)"
-echo "ok 12b: legacy --line content is matched as fixed-string data, not a pattern"
-
-# --- 12c. Legacy not-found refusals (exit 3) ------------------------------
-
-o=$(new_obs "$tmp/o12c")
-rc=0
-"$CONSUME" --obs-dir "$o" --legacy --line 'anything' --spec my-spec --today 2026-07-10 \
-  >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 3 ] || fail "12c: absent frozen file expected exit 3, got $rc"
-printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] present' >"$o/opportunities.md"
-rc=0
-"$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] ABSENT' \
-  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 3 ] || fail "12c: an absent legacy line expected exit 3, got $rc"
-# An empty --line is refused, never allowed to annotate the blank header line.
-rc=0
-"$CONSUME" --obs-dir "$o" --legacy --line '' --spec my-spec --today 2026-07-10 \
-  >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 1 ] || fail "12c: an empty --line expected refusal exit 1, got $rc"
-# Nothing was annotated (the blank header line in particular is untouched).
-if grep -q 'consumed-by' "$o/opportunities.md"; then
-  fail "12c: an empty --line annotated a line"
-fi
-echo "ok 12c: legacy not-found / empty-line inputs refuse cleanly"
-
-# --- 12d. CRLF frozen log: a present line stays consumable -----------------
-# A frozen legacy file saved with CRLF endings (a merge/editor artifact — the
-# exact case check-obs.sh / check-ledger.sh / drain-gates.sh strip `\r$` for)
-# must still match by content: the comparison is CR-insensitive, so the line is
-# consumed, not misreported as absent. The annotation lands LF-terminated and
-# untouched neighbor lines keep their bytes (CR included).
-
-o=$(new_obs "$tmp/o12d")
-cr=$(printf '\r')
-CRLINE='- 2026-06-10 [planwright] crlf saved line'
-NEIGH='- 2026-06-11 [planwright] crlf neighbor'
-printf '# frozen\r\n\r\n%s\r\n%s\r\n' "$CRLINE" "$NEIGH" >"$o/opportunities.md"
-"$CONSUME" --obs-dir "$o" --legacy --line "$CRLINE" --spec my-spec --today 2026-07-10 \
-  || fail "12d: a CRLF-saved legacy line must stay consumable (not exit 3)"
-# The annotation lands LF-terminated (no stray CR carried into the consumed line).
-grep -Fxq -e "$CRLINE — consumed-by: specs/my-spec (2026-07-10)" "$o/opportunities.md" \
-  || fail "12d: the CRLF line was not annotated (or the annotation kept a CR)"
-# The untouched neighbor keeps its original trailing CR (pass-through is verbatim).
-grep -Fxq -e "$NEIGH$cr" "$o/opportunities.md" \
-  || fail "12d: a neighbor line lost its CR (pass-through lines must stay verbatim)"
-echo "ok 12d: a CRLF-saved legacy line stays consumable, neighbors verbatim"
-
-# --- 12e. Legacy line already consumed by another spec → not found (exit 3) -
-# Pins the accepted fragment/legacy asymmetry recorded in this spec's
-# opportunities.md observation: a frozen line carries no bare copy once
-# annotated, so a *different* spec consuming it exits 3 (not-found) rather than
-# unioning a second `— consumed-by:` citation the way the fragment arm does for
-# an already-archived fragment (§11c). Locks the behavior against silent drift.
-
-o=$(new_obs "$tmp/o12e")
-BASE='- 2026-06-10 [planwright] a cross-spec legacy line'
-printf '%s\n' '# frozen' '' "$BASE — consumed-by: specs/spec-one (2026-07-09)" \
-  >"$o/opportunities.md"
-before=$(cat "$o/opportunities.md")
-rc=0
-"$CONSUME" --obs-dir "$o" --legacy --line "$BASE" --spec spec-two --today 2026-07-10 \
-  >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 3 ] || fail "12e: a line consumed by another spec expected exit 3, got $rc"
-[ "$(cat "$o/opportunities.md")" = "$before" ] \
-  || fail "12e: the cross-spec refusal mutated the frozen log"
-echo "ok 12e: a legacy line consumed by another spec is a not-found refusal (exit 3)"
-
-# --- 12f. A legacy-arm awk runtime error is a filesystem refusal (exit 1) --
-# The two awk passes exit 0 (matched), 1 (no match), or >1 (runtime/read error).
-# An error exit must map to the header's filesystem-error refusal (exit 1), not
-# be misread as not-found (exit 3). Fault-inject via an `awk` PATH stub.
-
-o=$(new_obs "$tmp/o12f")
-printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] present' >"$o/opportunities.md"
-
-# (a) The rewrite awk errors (exit 2) → exit 1, not 3.
-stub="$tmp/awkstub-a"
-make_awk_stub "$stub" 2
-rc=0
-PATH="$stub:$PATH" "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] present' \
-  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 1 ] || fail "12f: a rewrite-awk runtime error expected exit 1, got $rc"
-
-# (b) The rewrite awk reports no match (exit 1) but the no-op probe awk errors
-# (exit 2) → exit 1, not 3.
-stub="$tmp/awkstub-b"
-make_awk_stub "$stub" 1 2
-rc=0
-PATH="$stub:$PATH" "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] present' \
-  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 1 ] || fail "12f: a probe-awk runtime error expected exit 1, got $rc"
-echo "ok 12f: a legacy-arm awk runtime error is a filesystem refusal (exit 1)"
-
-# --- 12g. A symlinked frozen legacy file is a symlink refusal (exit 1) -----
-# The frozen `opportunities.md` is a containment surface like the fragment dirs:
-# a symlinked frozen file must refuse (exit 1), never be followed. A *dangling*
-# symlink must not slip through the existence probe as a benign "no frozen file"
-# (exit 3) — the symlink check has to precede `[ -e ]`, mirroring the obs-dir
-# root guard.
-
-o=$(new_obs "$tmp/o12g")
-ln -s "$tmp/o12g-frozen-nonexistent" "$o/opportunities.md"
-rc=0
-"$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] x' \
-  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 1 ] || fail "12g: a dangling-symlink frozen file expected exit 1, got $rc"
-
-# A live symlink to a real frozen file is refused too, and the target is never
-# annotated through the link.
-real="$tmp/o12g-real-frozen"
-printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] present' >"$real"
-before=$(cat "$real")
-rm -f "$o/opportunities.md"
-ln -s "$real" "$o/opportunities.md"
-rc=0
-"$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] present' \
-  --spec my-spec --today 2026-07-10 >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 1 ] || fail "12g: a live-symlink frozen file expected exit 1, got $rc"
-[ "$(cat "$real")" = "$before" ] \
-  || fail "12g: the frozen symlink target was annotated through the link"
-echo "ok 12g: a symlinked frozen legacy file refuses (exit 1), target untouched"
-
-# --- 13. Two-branch conflict-freedom -------------------------------------
-
-repo="$tmp/repo13"
-mkdir -p "$repo"
-gitc "$repo" init -q
-o="$repo/specs/_observations"
-mkdir -p "$o/entries" "$o/archive"
-# Two live fragments on the base commit.
-fa=$(record "$o" 1111aaaa alpha 'fragment A')
-fb=$(record "$o" 2222bbbb beta 'fragment B')
-printf '# base\n' >"$repo/README.md"
-gitc "$repo" add -A
-gitc "$repo" commit -q -m base
-
-# Branch b1 adds a *new* fragment.
-gitc "$repo" checkout -q -b b1
-fc=$(record "$o" 3333cccc gamma 'fragment C added on b1')
-gitc "$repo" add -A
-gitc "$repo" commit -q -m add-C
-
-# Branch b2 (from base) consumes a *different* fragment (A).
-gitc "$repo" checkout -q main
-gitc "$repo" checkout -q -b b2
-"$CONSUME" --obs-dir "$o" --uid 1111aaaa --spec my-spec --today 2026-07-10 \
-  || fail "13: consume on b2 failed"
-gitc "$repo" add -A
-gitc "$repo" commit -q -m consume-A
-# The consume commit touched only fragment A's two paths, nothing unrelated.
-changed=$(gitc "$repo" show --name-only --pretty=format: HEAD | sed '/^$/d' | sort)
-expected=$(printf '%s\n%s\n' \
-  "specs/_observations/archive/$fa" "specs/_observations/entries/$fa" | sort)
-[ "$changed" = "$expected" ] \
-  || fail "13: consume commit touched unexpected files:
-$changed"
-
-# Merge b2 into b1: add-vs-consume-different-fragment merges clean.
-gitc "$repo" checkout -q b1
-gitc "$repo" merge -q --no-edit b2 \
-  || fail "13: add + consume-different merged with a conflict"
-[ -f "$o/archive/$fa" ] || fail "13: consumed A missing from archive/ after merge"
-[ ! -e "$o/entries/$fa" ] || fail "13: consumed A still in entries/ after merge"
-[ -f "$o/entries/$fb" ] || fail "13: untouched B missing after merge"
-[ -f "$o/entries/$fc" ] || fail "13: added C missing after merge"
-echo "ok 13a: add + consume-different-fragment merges clean"
-
-# Same-fragment double-consume: both branches consume B → conflict on that one.
-repo="$tmp/repo13b"
-mkdir -p "$repo"
-gitc "$repo" init -q
-o="$repo/specs/_observations"
-mkdir -p "$o/entries" "$o/archive"
-fb=$(record "$o" 4444dddd beta 'contested fragment')
-gitc "$repo" add -A
-gitc "$repo" commit -q -m base
-gitc "$repo" checkout -q -b c1
-"$CONSUME" --obs-dir "$o" --uid 4444dddd --spec spec-one --today 2026-07-10 >/dev/null
-gitc "$repo" add -A
-gitc "$repo" commit -q -m consume-c1
-gitc "$repo" checkout -q main
-gitc "$repo" checkout -q -b c2
-"$CONSUME" --obs-dir "$o" --uid 4444dddd --spec spec-two --today 2026-07-11 >/dev/null
-gitc "$repo" add -A
-gitc "$repo" commit -q -m consume-c2
-gitc "$repo" checkout -q c1
-rc=0
-gitc "$repo" merge -q --no-edit c2 >/dev/null 2>&1 || rc=$?
-[ "$rc" -ne 0 ] || fail "13b: same-fragment double-consume merged without conflict"
-# The conflict is confined to that one fragment: every conflicted path must be
-# that fragment's, and there must be at least one (REQ-B1.2 "confined to that
-# one fragment").
-conflicted=$(gitc "$repo" diff --name-only --diff-filter=U | sort)
-[ -n "$conflicted" ] || fail "13b: no conflicted path reported"
-outside=$(printf '%s\n' "$conflicted" | grep -v "/$fb\$" || :)
-[ -z "$outside" ] \
-  || fail "13b: conflict not confined to the contested fragment; also: $outside"
-gitc "$repo" merge --abort 2>/dev/null || :
-echo "ok 13b: same-fragment double-consume conflicts on that one fragment only"
-
-# --- 14. Usage / exit-code contract --------------------------------------
-
-o=$(new_obs "$tmp/o14")
-
-usage_err() {
-  _label=$1
-  shift
-  _rc=0
-  "$CONSUME" "$@" >/dev/null 2>&1 && fail "14: [$_label] expected exit 2" || _rc=$?
-  [ "$_rc" -eq 2 ] || fail "14: [$_label] expected exit 2, got $_rc"
-}
-usage_err "no args"
-usage_err "uid without spec" --obs-dir "$o" --uid aaaa1111
-usage_err "spec without arm" --obs-dir "$o" --spec my-spec
-usage_err "uid missing value" --obs-dir "$o" --uid --spec my-spec
-usage_err "spec missing value" --obs-dir "$o" --uid aaaa1111 --spec
-usage_err "unknown flag" --obs-dir "$o" --uid aaaa1111 --spec my-spec --bogus
-usage_err "trailing token" --obs-dir "$o" --uid aaaa1111 --spec my-spec extra
-usage_err "uid with legacy" --obs-dir "$o" --legacy --uid aaaa1111 --spec my-spec --line x
-usage_err "legacy without line" --obs-dir "$o" --legacy --spec my-spec
-usage_err "line without legacy" --obs-dir "$o" --line x --spec my-spec
-
-"$CONSUME" -h >/dev/null 2>&1 || fail "14: -h must exit 0"
-"$CONSUME" --help >/dev/null 2>&1 || fail "14: --help must exit 0"
-echo "ok 14: usage / exit-code contract holds"
-
-# --- 15. A consumed fragment passes the check:obs CI guard ----------------
-# Cross-script contract: the annotation obs-consume writes must satisfy the
-# metadata whitelist check-obs.sh enforces, so a consumed/archived fragment
-# never fails CI. Also asserts no `.obs-consume.*` temp residue is left behind
-# (the cleanup trap).
-
-GUARD="$here/../scripts/check-obs.sh"
-if [ -x "$GUARD" ]; then
-  o=$(new_obs "$tmp/o15")
-  frag=$(record "$o" ba5eba11 topic 'guard me')
-  "$CONSUME" --obs-dir "$o" --uid ba5eba11 --spec my-spec --today 2026-07-10 \
-    || fail "15: consume exited non-zero"
-  # Seed a consumed legacy line too, so the guard sees both frozen files present.
-  printf '%s\n' '# frozen' '' '- 2026-06-10 [planwright] legacy line' \
-    >"$o/opportunities.md"
-  : >"$o/archive.md"
-  "$CONSUME" --obs-dir "$o" --legacy --line '- 2026-06-10 [planwright] legacy line' \
-    --spec my-spec --today 2026-07-10 || fail "15: legacy consume exited non-zero"
-  /bin/bash "$GUARD" --obs-dir "$o" \
-    || fail "15: check-obs rejected a consumed/archived fragment (format drift)"
-  # No temp residue anywhere under the observations dir.
-  resid=$(find "$o" -name '.obs-consume.*' 2>/dev/null)
-  [ -z "$resid" ] || fail "15: obs-consume left a temp file: $resid"
-  echo "ok 15: a consumed fragment passes check:obs; no temp residue"
-else
-  echo "note 15: scripts/check-obs.sh absent; skipping the cross-guard check"
-fi
-
-echo "PASS: all obs-consume checks"
+echo "PASS: all obs-consume fragment-arm checks"
