@@ -422,6 +422,24 @@ assert_defer "sed literal [ in replacement hiding an e flag" "sed 's/a/[/e]/' f"
 assert_defer "sed backslash inside bracket (GNU vs BSD divergence)" "sed 's/[\\]]/x/' f"
 assert_defer "sed unterminated bracket expression" "sed 's/[0-9/x/' f"
 assert_defer "sed unterminated POSIX class" "sed 's/[[:alpha/x/' f"
+# A TERMINATED but INVALID class / collating element / equivalence class is not a
+# bracket expression at all (real BSD and GNU sed both reject every form below),
+# so its extent is not something the scanner may assume: it defers rather than
+# skipping it as if it were valid. Panel finding (codex backend).
+assert_defer "sed unknown POSIX class name" "sed 's/[[:bogus:]]/x/' f"
+assert_defer "sed POSIX class names are case-sensitive" "sed 's/[[:Alpha:]]/x/' f"
+assert_defer "sed empty POSIX class name" "sed 's/[[:]]/x/' f"
+assert_defer "sed multi-char collating element" "sed 's/[[.bogus.]]/x/' f"
+assert_defer "sed multi-char equivalence class" "sed 's/[[=ab=]]/x/' f"
+assert_defer "sed invalid class cannot hide a w command" "sed '/[[:bogus:]]/w out' f"
+assert_defer "sed invalid class cannot hide an e command" "sed '/[[.bogus.]]/e id' f"
+# …and every VALID form stays allowed (the 12 POSIX classes, single-character
+# collating and equivalence elements, negation, and two classes in one bracket).
+assert_allow "sed POSIX class alpha" "sed 's/[[:alpha:]]/x/' f"
+assert_allow "sed POSIX class xdigit" "sed 's/[[:xdigit:]]/x/' f"
+assert_allow "sed negated POSIX class" "sed 's/[^[:digit:]]//g' f"
+assert_allow "sed two POSIX classes in one bracket" "sed 's/[[:upper:][:digit:]]//g' f"
+assert_allow "sed single-char collating element" "sed 's/[[.a.]]/x/' f"
 assert_defer "sed bracket-opening delimiter is unplaceable" "sed 's[a[b[' f"
 assert_defer "sed bracket at command position" "sed '[abc]p' f"
 assert_defer "sed custom-delimiter address with [ delimiter" "sed '\\[a[p' f"

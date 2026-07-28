@@ -464,7 +464,7 @@ is_planwright_script() {
 #
 # sed_bracket_end: `i` points at the opening `[`; advance past the matching `]`.
 sed_bracket_end() {
-  local j=$((i + 1)) c nc k
+  local j=$((i + 1)) c nc k cn
   [ "${s:j:1}" = '^' ] && j=$((j + 1)) # negation, then …
   [ "${s:j:1}" = ']' ] && j=$((j + 1)) # … a LEADING `]` is a literal member
   while [ "$j" -lt "$n" ]; do
@@ -478,16 +478,39 @@ sed_bracket_end() {
       '[')
         nc=${s:j+1:1}
         case $nc in
-          ':' | '.' | '=')
-            # `[:class:]` / `[.coll.]` / `[=equiv=]`: a sub-bracket whose `]`
-            # does not close the enclosing expression. Scan to its own `<x>]`.
+          ':')
+            # `[:class:]`: a sub-bracket whose `]` does not close the enclosing
+            # expression. The class name is the closed POSIX set (case-sensitive:
+            # real sed rejects `[[:Alpha:]]`), so an unknown or malformed name is
+            # not a bracket expression at all and DEFERS rather than being
+            # skipped as if it were one.
             k=$((j + 2))
+            cn=''
             while [ "$k" -lt "$n" ]; do
-              [ "${s:k:1}" = "$nc" ] && [ "${s:k+1:1}" = ']' ] && break
-              k=$((k + 1))
+              case ${s:k:1} in
+                [a-z])
+                  cn="$cn${s:k:1}"
+                  k=$((k + 1))
+                  ;;
+                *) break ;;
+              esac
             done
-            [ "$k" -lt "$n" ] || return 1 # unterminated class/collating element
+            [ "${s:k:1}" = ':' ] && [ "${s:k+1:1}" = ']' ] || return 1
+            case $cn in
+              alnum | alpha | blank | cntrl | digit | graph | lower | print | punct | space | upper | xdigit) ;;
+              *) return 1 ;; # not a POSIX character class
+            esac
             j=$((k + 2))
+            ;;
+          '.' | '=')
+            # `[.coll.]` / `[=equiv=]`: SINGLE-character content only. A
+            # multi-character collating-element or equivalence-class name is
+            # locale-dependent (and rejected outright in the C locale), so its
+            # validity — and therefore its extent — is not something this scanner
+            # can place: defer.
+            [ -n "${s:j+2:1}" ] || return 1
+            [ "${s:j+3:1}" = "$nc" ] && [ "${s:j+4:1}" = ']' ] || return 1
+            j=$((j + 5))
             ;;
           *) j=$((j + 1)) ;; # a plain `[` member
         esac

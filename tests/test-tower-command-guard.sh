@@ -239,6 +239,15 @@ assert_defer "sed bracket hides write (delimiter desync)" "sed '/[/]/w victim.tx
 assert_defer "sed literal [ in replacement hiding a w flag" "sed 's/a/[/w x]/' file"
 assert_defer "sed backslash inside bracket (GNU vs BSD divergence)" "sed 's/[\\]]/x/' file"
 assert_defer "sed unterminated bracket expression" "sed 's/[0-9/x/' file"
+# A TERMINATED but INVALID class / collating element is not a bracket expression
+# at all (both BSD and GNU sed reject these), so its extent is not something the
+# scanner may assume. Panel finding (codex backend); mirrored from the worker suite.
+assert_defer "sed unknown POSIX class name" "sed 's/[[:bogus:]]/x/' file"
+assert_defer "sed POSIX class names are case-sensitive" "sed 's/[[:Alpha:]]/x/' file"
+assert_defer "sed multi-char collating element" "sed 's/[[.bogus.]]/x/' file"
+assert_defer "sed invalid class cannot hide a w command" "sed '/[[:bogus:]]/w out' file"
+assert_allow "sed POSIX class alpha still allows" "sed 's/[[:alpha:]]/x/' file"
+assert_allow "sed negated POSIX class still allows" "sed 's/[^[:digit:]]//g' file"
 assert_defer "sed bracket at command position" "sed '[abc]p' file"
 
 echo "### Narrowed screen — awk read-only filter forms (paired positives/negatives)"
