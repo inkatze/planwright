@@ -635,6 +635,28 @@ malformed_run '{"tool_name":"Bash","tool_input":{"command":""}}'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty-string command defers"; else fail "empty command — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{"command":["not","a","string"]}}'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "non-string command defers"; else fail "non-string command — expected defer exit 0 (got $CODE)"; fi
+# `cwd` carries the same type discipline as `command`: a PRESENT non-string value
+# is a payload that does not match the PreToolUse contract and defers, rather than
+# being containment-checked against whatever `jq -r` renders it as. ABSENT and
+# null keep their documented $PWD fallback. Panel finding (codex backend, lens 10:
+# a sibling consumed field lacking the guard its neighbour has).
+for bad_cwd in '{"a":1}' '["/tmp"]' '5' 'true'; do
+  malformed_run "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"},\"cwd\":$bad_cwd}"
+  if [ "$CODE" -eq 0 ] && is_empty; then
+    pass "non-string cwd ($bad_cwd) defers"
+  else
+    if is_allow; then
+      fail "non-string cwd ($bad_cwd) — FALSE-ALLOW: approved on a malformed payload"
+      false_allows=$((false_allows + 1))
+    else
+      fail "non-string cwd ($bad_cwd) — expected defer exit 0 (got $CODE)"
+    fi
+  fi
+done
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":null}'
+if [ "$CODE" -eq 0 ] && is_allow; then pass "null cwd keeps the \$PWD fallback"; else fail "null cwd — expected the \$PWD fallback to still allow (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status"}}'
+if [ "$CODE" -eq 0 ] && is_allow; then pass "absent cwd keeps the \$PWD fallback"; else fail "absent cwd — expected the \$PWD fallback to still allow (got $CODE)"; fi
 
 echo "### REQ-B1.1 — inert-data probe: analysis never executes the command"
 MARKER="$SANDBOX/MARKER_SHOULD_NOT_EXIST"

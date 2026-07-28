@@ -503,6 +503,24 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON fails closed (defer)"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+# `cwd` carries the same type discipline as `command`: a PRESENT non-string value
+# is a payload outside the PreToolUse contract and defers; absent/null keep the
+# documented $PWD fallback. Panel finding (codex backend).
+for bad_cwd in '{"a":1}' '["/tmp"]' '5'; do
+  malformed_run "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"},\"cwd\":$bad_cwd}"
+  if [ "$CODE" -eq 0 ] && is_empty; then
+    pass "non-string cwd ($bad_cwd) fails closed (defer)"
+  else
+    if is_allow; then
+      fail "non-string cwd ($bad_cwd) — FALSE-ALLOW: approved on a malformed payload"
+      false_allows=$((false_allows + 1))
+    else
+      fail "non-string cwd ($bad_cwd) — expected defer exit 0 (got $CODE)"
+    fi
+  fi
+done
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":null}'
+if [ "$CODE" -eq 0 ] && is_allow; then pass "null cwd keeps the \$PWD fallback"; else fail "null cwd — expected the \$PWD fallback to still allow (got $CODE)"; fi
 malformed_run ''
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty stdin fails closed (defer)"; else fail "empty stdin — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{}}'

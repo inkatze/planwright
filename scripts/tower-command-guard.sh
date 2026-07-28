@@ -1379,8 +1379,19 @@ main() {
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
-  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null) || cwd=''
-  [ -n "$cwd" ] || cwd=$PWD
+  # `cwd` gets the same type discipline as `command` (REQ-C1.3): ABSENT (or null)
+  # is a supported shape and falls back to $PWD, but a PRESENT non-string value
+  # (object, array, number, boolean) means the payload does not match the
+  # documented PreToolUse contract, so the whole analysis defers rather than
+  # containment-checking against whatever `jq -r` renders such a value as.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+    absent) cwd=$PWD ;;
+    string)
+      cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
+      [ -n "$cwd" ] || cwd=$PWD
+      ;;
+    *) return 0 ;; # present but not a string: defer
+  esac
   local HOOK_CWD=$cwd
 
   analyze_command "$cmd" 0 || return 0
