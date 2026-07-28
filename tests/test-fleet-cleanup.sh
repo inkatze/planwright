@@ -36,6 +36,8 @@
 #     non-MERGED PR, an oid mismatch, and an unusable `gh` each refuse (exit 5),
 #     a malformed --merged-pr value or unknown flag is usage (exit 2), and the
 #     no-upstream-no-flag default is still refused (the regression guard);
+#   - the gh QUERY SHAPE itself: the PR number the caller named is what reached
+#     gh, both --json fields are asked for in one query, template intact;
 #   - the caller's own worktree is refused by the self-guard (exit 3);
 #   - hostile tmux/path tokens are refused (exit 2);
 #   - every reclaim and every self-block writes a fleet-audit row.
@@ -128,11 +130,20 @@ chmod +x "$fakebin/tmux"
 
 # A fake `gh` for the --merged-pr evidence path. FAKE_GH_STATE / FAKE_GH_OID
 # drive the reported PR; FAKE_GH_FAIL makes the query fail (an unauthenticated
-# or offline gh), and FAKE_GH_ABSENT is handled by removing the stub instead.
-cat >"$fakebin/gh" <<'EOF'
+# or offline gh). gh being ABSENT is exercised by the no-gh PATH mirror at 9i,
+# not by a knob — removing this stub alone would only expose the host's REAL gh.
+#
+# Every invocation appends its argv, one word per line, to $tmp/gh-args (the
+# fake-binary call-recording pattern the sibling fleet suites use), so a test can
+# assert the QUERY SHAPE and not merely the answer: which PR number reached gh,
+# that both --json fields were asked for, and that the template is intact.
+# Without that, a regression asking about a DIFFERENT PR — or dropping a field —
+# passes the whole suite, because the stub answers the same either way.
+cat >"$fakebin/gh" <<EOF
 #!/bin/sh
-[ -n "${FAKE_GH_FAIL:-}" ] && exit 1
-printf '%s %s\n' "${FAKE_GH_STATE:-MERGED}" "${FAKE_GH_OID:-}"
+for a in "\$@"; do printf '%s\n' "\$a" >>"$tmp/gh-args"; done
+[ -n "\${FAKE_GH_FAIL:-}" ] && exit 1
+printf '%s %s\n' "\${FAKE_GH_STATE:-MERGED}" "\${FAKE_GH_OID:-}"
 EOF
 chmod +x "$fakebin/gh"
 
@@ -393,6 +404,7 @@ wt_merged=$(make_merged_wt wt-merged)
 up=$(cd "$wt_merged" && git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || up=""
 [ -z "$up" ] || fail "merged-pr fixture: upstream still resolves ('$up'), fixture does not model the shape"
 rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
 rc=0
 FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_merged" && git rev-parse HEAD) \
   run_worktree "$main_repo" "$wt_merged" "merged-pr-leftover" "pr merged, branch auto-deleted" \
@@ -404,7 +416,19 @@ case $rows in
   *cleanup*) ;;
   *) fail "merged-pr worktree: no cleanup audit row (got: '$rows')" ;;
 esac
+# The QUERY SHAPE, not just its answer. `gh` must have been asked about the PR
+# number the CALLER named (320) — a script that verified a different PR would be
+# checking evidence for the wrong thing — and asked for both fields in one query
+# with the template intact. Each arg is its own line, so -Fx matches exactly.
+[ -f "$tmp/gh-args" ] || fail "merged-pr worktree: gh was never invoked at all"
+grep -Fxq -- '320' "$tmp/gh-args" \
+  || fail "merged-pr worktree: gh was not asked about the caller's PR 320 (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
+grep -Fxq -- 'state,headRefOid' "$tmp/gh-args" \
+  || fail "merged-pr worktree: gh was not asked for both state and headRefOid"
+grep -Fxq -- '{{.state}} {{.headRefOid}}' "$tmp/gh-args" \
+  || fail "merged-pr worktree: the state/oid pair template is not intact"
 echo "ok: a clean worktree with a verified merged PR is removed and audited"
+echo "ok: the gh query names the caller's PR and asks for both fields at once"
 
 # 9d. The same worktree, but the PR is still OPEN -> refused.
 wt_open=$(make_merged_wt wt-open)
