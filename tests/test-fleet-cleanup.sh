@@ -16,7 +16,8 @@
 #       to be, the caller's own hosting session/worktree) — the #29787 block
 #   4 = refused: the fleet_daemon_pause kill-switch is set
 #   5 = refused: no positive evidence the target is reclaimable (a live pane /
-#       an unpushed-or-dirty worktree — acting would kill live work)
+#       a dirty worktree / one whose commits are not provably safe — acting
+#       would kill live work)
 #
 # What is covered:
 #   - the self-targeting guard refuses (exit 3) and kills nothing when the
@@ -29,6 +30,26 @@
 #   - self-identity that cannot be resolved fails closed (exit 3);
 #   - a stale, clean, non-self worktree is removed (exit 0, audited);
 #   - a worktree with uncommitted OR unpushed work is refused (exit 5);
+#   - the --merged-pr evidence path: a clean worktree whose named PR is verified
+#     MERGED at exactly this HEAD is reclaimed (the post-merge shape where the
+#     forge auto-deleted the branch, so no upstream can ever exist), while a
+#     non-MERGED PR, an oid mismatch, and an unusable `gh` each refuse (exit 5),
+#     a malformed --merged-pr value or unknown flag is usage (exit 2), and the
+#     no-upstream-no-flag default is still refused (the regression guard);
+#   - the gh QUERY SHAPE itself: the PR number the caller named is what reached
+#     gh, both --json fields are asked for in one query, template intact;
+#   - the evidence path's remaining fail-closed branches: gh ABSENT (a PATH
+#     mirrored without it, so the host's real gh is not reached), a non-hex head
+#     oid, and a gh reply with no separator to split all refuse (exit 5);
+#   - PRECEDENCE, both directions: upstream parity alone still reclaims with
+#     --merged-pr also passed and gh broken (gh never consulted), and a verified
+#     merged PR reclaims a worktree that is AHEAD of its upstream, which path A
+#     refuses on its own;
+#   - the clean check is a prerequisite of BOTH paths: a dirty worktree with a
+#     perfect merged-PR proof is still refused, before gh is consulted at all;
+#   - the gh query is BOUNDED: a stalled gh refuses on the wall-clock bound
+#     rather than hanging the sweep, and a PATH with no `timeout` binary refuses
+#     the evidence path outright instead of making an unbounded network call;
 #   - the caller's own worktree is refused by the self-guard (exit 3);
 #   - hostile tmux/path tokens are refused (exit 2);
 #   - every reclaim and every self-block writes a fleet-audit row.
@@ -118,6 +139,36 @@ case "$sub" in
 esac
 EOF
 chmod +x "$fakebin/tmux"
+
+# A fake `gh` for the --merged-pr evidence path. FAKE_GH_STATE / FAKE_GH_OID
+# drive the reported PR; FAKE_GH_FAIL makes the query fail (an unauthenticated
+# or offline gh). gh being ABSENT is exercised by the no-gh PATH mirror at 9i,
+# not by a knob — removing this stub alone would only expose the host's REAL gh.
+#
+# Every invocation appends its argv, one word per line, to $tmp/gh-args (the
+# fake-binary call-recording pattern the sibling fleet suites use), so a test can
+# assert the QUERY SHAPE and not merely the answer: which PR number reached gh,
+# that both --json fields were asked for, and that the template is intact.
+# Without that, a regression asking about a DIFFERENT PR — or dropping a field —
+# passes the whole suite, because the stub answers the same either way.
+#
+# FAKE_GH_RAW replaces the whole reply with a verbatim string, for the shapes the
+# state/oid pair cannot express: a malformed answer with no separator at all.
+#
+# FAKE_GH_SLEEP stalls the reply, standing in for a wedged forge, DNS lookup, or
+# credential helper — the shape the query's wall-clock bound exists to survive.
+cat >"$fakebin/gh" <<EOF
+#!/bin/sh
+for a in "\$@"; do printf '%s\n' "\$a" >>"$tmp/gh-args"; done
+[ -n "\${FAKE_GH_SLEEP:-}" ] && sleep "\${FAKE_GH_SLEEP}"
+[ -n "\${FAKE_GH_FAIL:-}" ] && exit 1
+if [ -n "\${FAKE_GH_RAW:-}" ]; then
+  printf '%s\n' "\${FAKE_GH_RAW}"
+  exit 0
+fi
+printf '%s %s\n' "\${FAKE_GH_STATE:-MERGED}" "\${FAKE_GH_OID:-}"
+EOF
+chmod +x "$fakebin/gh"
 
 killed="$tmp/killed"
 
@@ -296,12 +347,20 @@ run_worktree() {
   _cwd=$1
   shift
   : >"$killed"
-  PATH="$fakebin:$PATH" \
+  # WT_PATH lets a case substitute the whole PATH (9i's no-gh mirror); every
+  # other case gets the normal fake-bins-ahead-of-the-host arrangement.
+  PATH="${WT_PATH:-$fakebin:$PATH}" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_REPO_ROOT="$repo" \
     PLANWRIGHT_ADOPTER_OVERLAY="$tmp/adopter" \
     PLANWRIGHT_LOCAL_CONFIG="" \
+    FAKE_GH_STATE="${FAKE_GH_STATE:-}" \
+    FAKE_GH_OID="${FAKE_GH_OID:-}" \
+    FAKE_GH_FAIL="${FAKE_GH_FAIL:-}" \
+    FAKE_GH_RAW="${FAKE_GH_RAW:-}" \
+    FAKE_GH_SLEEP="${FAKE_GH_SLEEP:-}" \
+    PLANWRIGHT_CLEANUP_GH_TIMEOUT="${PLANWRIGHT_CLEANUP_GH_TIMEOUT:-}" \
     sh -c 'cd "$1" && shift && exec /bin/bash "$0" "$@"' "$FC" "$_cwd" worktree "$@"
 }
 
@@ -344,6 +403,362 @@ run_worktree "$main_repo" "$wt_unpushed" "candidate" "checking unpushed" \
 [ "$rc" = 5 ] || fail "unpushed worktree: exit $rc, expected 5"
 [ -d "$wt_unpushed" ] || fail "unpushed worktree: removed despite unpushed commits"
 echo "ok: a worktree with unpushed commits is refused (exit 5)"
+
+# --- 9c-9h. The --merged-pr evidence path: the post-merge shape where the forge
+# auto-deleted the remote branch, so no upstream exists and upstream parity can
+# never hold, although the commits are provably merged.
+#
+# make_merged_wt <name> — a clean worktree pushed and then severed from its
+# upstream (remote branch deleted), exactly as a merged-and-auto-deleted PR
+# leaves it. Echoes the worktree path.
+make_merged_wt() {
+  _n=$1
+  _p="$tmp/$_n"
+  (cd "$main_repo" && git_env git worktree add -q -b "$_n" "$_p" >/dev/null 2>&1)
+  (cd "$_p" && git_env git push -q -u origin "$_n" >/dev/null 2>&1)
+  # The forge deletes the merged branch: the upstream ref goes away.
+  (cd "$main_repo" && git_env git push -q origin --delete "$_n" >/dev/null 2>&1)
+  (cd "$_p" && git_env git fetch -q --prune origin >/dev/null 2>&1)
+  printf '%s\n' "$_p"
+}
+
+# 9c. Verified MERGED PR whose head oid IS this worktree's HEAD -> reclaimed.
+wt_merged=$(make_merged_wt wt-merged)
+# Assert the fixture really models the shape, resolving the upstream exactly as
+# the script does. NOTE the `|| up=""`: on failure `rev-parse --abbrev-ref` still
+# echoes the literal "@{upstream}" on stdout, so only the EXIT CODE distinguishes
+# "no upstream" from a branch literally named that. Testing stdout alone silently
+# passes a fixture that does not model the shape.
+up=$(cd "$wt_merged" && git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || up=""
+[ -z "$up" ] || fail "merged-pr fixture: upstream still resolves ('$up'), fixture does not model the shape"
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_merged" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_merged" "merged-pr-leftover" "pr merged, branch auto-deleted" \
+  --merged-pr 320 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "merged-pr worktree: exit $rc, expected 0 (reclaimed)"
+[ ! -d "$wt_merged" ] || fail "merged-pr worktree: directory still present after remove"
+rows=$(audit_rows --mechanism worktree-cleanup)
+case $rows in
+  *cleanup*) ;;
+  *) fail "merged-pr worktree: no cleanup audit row (got: '$rows')" ;;
+esac
+# The QUERY SHAPE, not just its answer: the EXACT argv, in order, one arg per
+# recorded line. Asserting the whole sequence rather than searching for the
+# values independently is what pins the contract — the subcommand (`pr view`, not
+# some other gh command), the PR number the CALLER named (a script verifying a
+# different PR would be checking evidence for the wrong thing), both fields in
+# ONE query, and the template that makes the reply the two-field pair the parser
+# requires. Independent per-value searches would pass for any invocation that
+# merely mentioned these strings somewhere in its arguments.
+[ -f "$tmp/gh-args" ] || fail "merged-pr worktree: gh was never invoked at all"
+expected_argv='pr
+view
+320
+--json
+state,headRefOid
+--template
+{{.state}} {{.headRefOid}}'
+actual_argv=$(cat "$tmp/gh-args")
+[ "$actual_argv" = "$expected_argv" ] || fail "merged-pr worktree: gh argv is not the exact query contract.
+expected:
+$expected_argv
+actual:
+$actual_argv"
+echo "ok: a clean worktree with a verified merged PR is removed and audited"
+echo "ok: the gh query names the caller's PR and asks for both fields at once"
+
+# 9d. The same worktree, but the PR is still OPEN -> refused.
+wt_open=$(make_merged_wt wt-open)
+rc=0
+FAKE_GH_STATE=OPEN FAKE_GH_OID=$(cd "$wt_open" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_open" "candidate" "pr not merged" \
+  --merged-pr 321 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "open-pr worktree: exit $rc, expected 5"
+[ -d "$wt_open" ] || fail "open-pr worktree: removed despite an unmerged PR"
+echo "ok: --merged-pr naming a non-MERGED PR is refused (exit 5)"
+
+# 9e. MERGED, but the PR's head oid is NOT this worktree's HEAD -> refused. This
+# is the worktree that carries commits the PR never took.
+wt_diverged=$(make_merged_wt wt-diverged)
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=0000000000000000000000000000000000000000 \
+  run_worktree "$main_repo" "$wt_diverged" "candidate" "oid mismatch" \
+  --merged-pr 322 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "oid-mismatch worktree: exit $rc, expected 5"
+[ -d "$wt_diverged" ] || fail "oid-mismatch worktree: removed despite an oid mismatch"
+echo "ok: --merged-pr whose head oid differs from HEAD is refused (exit 5)"
+
+# 9f. gh cannot answer (offline / unauthenticated) -> fail closed, refused.
+wt_ghfail=$(make_merged_wt wt-ghfail)
+rc=0
+FAKE_GH_FAIL=1 \
+  run_worktree "$main_repo" "$wt_ghfail" "candidate" "gh unavailable" \
+  --merged-pr 323 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "gh-failure worktree: exit $rc, expected 5"
+[ -d "$wt_ghfail" ] || fail "gh-failure worktree: removed although gh could not verify"
+echo "ok: --merged-pr with an unusable gh fails closed (exit 5)"
+
+# 9g. REGRESSION GUARD: the default is unchanged. No upstream and no
+# --merged-pr is still refused — the new flag widens the evidence class only
+# when the caller explicitly supplies and the script verifies it.
+wt_noev=$(make_merged_wt wt-noev)
+rc=0
+run_worktree "$main_repo" "$wt_noev" "candidate" "no evidence offered" \
+  >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "no-evidence worktree: exit $rc, expected 5"
+[ -d "$wt_noev" ] || fail "no-evidence worktree: removed with no evidence at all"
+echo "ok: no upstream and no --merged-pr is still refused (exit 5)"
+
+# 9h. A malformed --merged-pr value is a usage refusal (exit 2), NEVER a query —
+# and the "never a query" half is asserted, not merely asserted in a comment:
+# gh-args must still be absent afterwards. That is what proves validation runs
+# strictly BEFORE the network call, so a hostile token is never handed to a
+# subprocess at all; an exit-2 check alone would also pass if the script queried
+# gh first and rejected the value afterwards.
+wt_bad=$(make_merged_wt wt-bad)
+rm -f "$tmp/gh-args"
+for bad in "not-a-number" "-5" "0" "12x" "1234567890123" "" "\$(id)"; do
+  rc=0
+  run_worktree "$main_repo" "$wt_bad" "candidate" "hostile pr token" \
+    --merged-pr "$bad" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "malformed --merged-pr '$bad': exit $rc, expected 2"
+  [ ! -f "$tmp/gh-args" ] \
+    || fail "malformed --merged-pr '$bad': gh was invoked before the value was rejected (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
+done
+[ -d "$wt_bad" ] || fail "malformed --merged-pr: worktree was removed"
+# An unknown flag in the fourth slot is also a usage error.
+rc=0
+run_worktree "$main_repo" "$wt_bad" "candidate" "unknown flag" \
+  --bogus 320 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 2 ] || fail "unknown worktree flag: exit $rc, expected 2"
+[ ! -f "$tmp/gh-args" ] || fail "unknown worktree flag: gh was invoked despite a usage error"
+echo "ok: a malformed --merged-pr value or unknown flag is a usage refusal (exit 2)"
+echo "ok: a refused --merged-pr value never reaches gh at all"
+
+# --- 9i-9l. The remaining fail-closed branches of the evidence path, plus the
+# precedence between the two paths. Each of these was reachable only in
+# principle: deleting the gh-absent guard, or the non-hex-oid guard, from the
+# script left the suite fully green, so nothing observed them.
+
+# make_toolpath <dir> <omit> — build a PATH directory of symlinks holding the
+# tools the worktree arm and its helpers need, MINUS <omit>, so a case can prove
+# what the script does when exactly one tool is missing. Deleting a stub is not
+# enough for that: PATH still carries the host's real binary behind it (a real gh
+# would be queried against real GitHub), and shadowing with a non-executable
+# stub does not work either, since `command -v` skips it and keeps looking.
+#
+# The list is deliberately curated rather than a mirror of the whole PATH: that
+# is 3500-odd symlinks on a developer machine and cost this suite ~2 minutes.
+# Under-provisioning cannot produce a false pass, because each case asserts the
+# specific guard's own message, reachable only after the gate, the git probes,
+# the self-guard and the clean check have all succeeded — a missing tool fails
+# the case loudly instead of quietly refusing for the wrong reason.
+make_toolpath() {
+  mt_dir=$1
+  mt_omit=$2
+  mkdir -p "$mt_dir"
+  for mt_n in sh bash env git awk sed grep tr cat cut head tail wc sort uniq date \
+    mktemp mkdir rmdir mv cp rm ln ls id uname expr basename dirname find touch \
+    stat sleep printf timeout tmux gh; do
+    [ "$mt_n" = "$mt_omit" ] && continue
+    mt_b=$(PATH="$fakebin:$PATH" command -v "$mt_n" 2>/dev/null) || continue
+    [ -n "$mt_b" ] && [ -e "$mt_dir/$mt_n" ] || ln -s "$mt_b" "$mt_dir/$mt_n" 2>/dev/null || :
+  done
+}
+
+# 9i. `gh` ABSENT entirely, not merely failing: the `command -v gh` guard must
+# fail closed.
+nogh="$tmp/nogh"
+make_toolpath "$nogh" gh
+PATH="$nogh" command -v gh >/dev/null 2>&1 \
+  && fail "no-gh PATH: gh still resolves, the fixture is wrong"
+PATH="$nogh" command -v git >/dev/null 2>&1 \
+  || fail "no-gh PATH: git does not resolve, the fixture is unusable"
+# Each of 9i-9k asserts the RESPONSIBLE guard by its message, not just the exit
+# code (the stderr-assertion pattern test-fleet-death-evidence.sh uses). These
+# three guards are deliberately defence-in-depth: a downstream check refuses the
+# same case anyway, so an exit-code-only assertion passes even with the guard
+# deleted and would not hold it in place. Short message fragments, to pin the
+# guard without coupling to a whole sentence.
+wt_ghgone=$(make_merged_wt wt-ghgone)
+rc=0
+err=$(WT_PATH="$nogh" \
+  run_worktree "$main_repo" "$wt_ghgone" "candidate" "no gh binary at all" \
+  --merged-pr 324 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "gh-absent worktree: exit $rc, expected 5"
+[ -d "$wt_ghgone" ] || fail "gh-absent worktree: removed although gh was absent"
+case $err in
+  *"no gh binary on PATH"*) ;;
+  *) fail "gh-absent worktree: the gh-absent guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr with no gh binary at all fails closed (exit 5)"
+
+# 9j. gh answers, MERGED, but the head oid is not a plain hex oid -> refused
+# before any comparison. The fixture is an UPPERCASE oid: a single token (so the
+# shape check passes and this case reaches the hex guard it is here to pin) and a
+# realistic drift, since git oids are lowercase and the byte class is matched
+# under the pinned C locale. gh's `<no value>` placeholder for a field it cannot
+# render is NOT used here — it contains a space, so the shape check catches it
+# first; that shape is 9k/9k2's business.
+wt_badoid=$(make_merged_wt wt-badoid)
+rc=0
+err=$(FAKE_GH_STATE=MERGED FAKE_GH_OID='FD581EFA99A3F52ADEC94CF1CEBBB35DEECDB66A' \
+  run_worktree "$main_repo" "$wt_badoid" "candidate" "uppercase oid, not plain hex" \
+  --merged-pr 325 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "non-hex-oid worktree: exit $rc, expected 5"
+[ -d "$wt_badoid" ] || fail "non-hex-oid worktree: removed on a non-hex head oid"
+case $err in
+  *"not a plain hex oid"*) ;;
+  *) fail "non-hex-oid worktree: the hex-oid guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr whose head oid is not plain hex fails closed (exit 5)"
+
+# 9k. gh exits 0 but its answer carries no separator at all, so the state/oid
+# pair cannot be split -> refused, rather than misparsed into a bogus pair.
+wt_nopair=$(make_merged_wt wt-nopair)
+rc=0
+err=$(FAKE_GH_RAW='MERGEDwithoutanyseparator' \
+  run_worktree "$main_repo" "$wt_nopair" "candidate" "unsplittable reply" \
+  --merged-pr 326 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "unsplittable-reply worktree: exit $rc, expected 5"
+[ -d "$wt_nopair" ] || fail "unsplittable-reply worktree: removed on an unparseable gh reply"
+case $err in
+  *"could not read the PR's state and head oid"*) ;;
+  *) fail "unsplittable-reply worktree: the pair-split guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr with an unsplittable gh reply fails closed (exit 5)"
+
+# 9k2. The OTHER malformed shape: a reply with EXTRA tokens between the two
+# fields. Prefix/suffix expansion reads only the first and last word, so
+# `MERGED <junk> <matching-oid>` yields exactly the state and oid the reclaim
+# wants while silently discarding the middle — the one malformed shape that
+# fails OPEN rather than closed. The script asks for a two-field template, so
+# it must require exactly two fields and refuse anything else.
+wt_extra=$(make_merged_wt wt-extra)
+rc=0
+err=$(FAKE_GH_RAW="MERGED ignored $(cd "$wt_extra" && git rev-parse HEAD)" \
+  run_worktree "$main_repo" "$wt_extra" "candidate" "extra tokens in the reply" \
+  --merged-pr 329 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "extra-token-reply worktree: exit $rc, expected 5 (a 3-field reply is not the 2-field contract)"
+[ -d "$wt_extra" ] || fail "extra-token-reply worktree: REMOVED on a malformed reply whose middle field was discarded"
+case $err in
+  *"could not read the PR's state and head oid"*) ;;
+  *) fail "extra-token-reply worktree: the pair-split guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr with extra tokens in the gh reply fails closed (exit 5)"
+
+# 9l. PRECEDENCE: the two evidence paths are independent and either suffices, so
+# upstream parity alone reclaims even when --merged-pr is also passed AND gh is
+# broken. gh must never be consulted once path A is satisfied — a reclaim that
+# needed a working gh to clear an already-provable worktree would make the new
+# flag a new dependency rather than a wider evidence class.
+wt_both="$tmp/wt-both"
+(cd "$main_repo" && git_env git worktree add -q -b feat-both "$wt_both" >/dev/null 2>&1)
+(cd "$wt_both" && git_env git push -q -u origin feat-both)
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_FAIL=1 \
+  run_worktree "$main_repo" "$wt_both" "merged branch" "parity plus a redundant flag" \
+  --merged-pr 327 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "parity-wins worktree: exit $rc, expected 0 (upstream parity alone suffices)"
+[ ! -d "$wt_both" ] || fail "parity-wins worktree: directory still present after remove"
+[ ! -f "$tmp/gh-args" ] \
+  || fail "parity-wins worktree: gh was consulted although upstream parity already held"
+echo "ok: upstream parity alone reclaims and never consults gh (exit 0)"
+
+# 9m. The other precedence direction: path B carrying a worktree path A REFUSES.
+# The upstream exists and is AHEAD (unpushed commits — path A's own refusal), yet
+# a verified merged PR at exactly this HEAD reclaims it. This is the shape a
+# squash-merge leaves when the local tip is not what the upstream ref remembers:
+# the oid match proves those commits are in the merged PR, so a stale upstream
+# count does not veto the stronger proof. Untested until now, and it is the
+# RECLAIM direction, so it needs pinning most.
+wt_ahead="$tmp/wt-ahead"
+(cd "$main_repo" && git_env git worktree add -q -b feat-ahead "$wt_ahead" >/dev/null 2>&1)
+(cd "$wt_ahead" && git_env git push -q -u origin feat-ahead >/dev/null 2>&1)
+(cd "$wt_ahead" && echo local >>f && git_env git add f && git_env git commit -qm "ahead of upstream")
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_ahead" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_ahead" "merged-pr-leftover" "local tip ahead of a stale upstream" \
+  --merged-pr 330 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "ahead-with-merged-pr worktree: exit $rc, expected 0 (path B rescues an ahead worktree)"
+[ ! -d "$wt_ahead" ] || fail "ahead-with-merged-pr worktree: directory still present after remove"
+[ -f "$tmp/gh-args" ] || fail "ahead-with-merged-pr worktree: gh was never consulted, so path B did not run"
+echo "ok: a verified merged PR reclaims a worktree ahead of its upstream (exit 0)"
+
+# 9n. The clean check is a shared prerequisite of BOTH paths, not merely path A's.
+# A DIRTY worktree with an otherwise perfect merged-PR proof is still refused --
+# and gh is never consulted at all, because the clean check runs first. That
+# ordering is the assertion: evidence, however strong, never buys a reclaim that
+# would discard uncommitted work.
+wt_dirtypr="$tmp/wt-dirtypr"
+(cd "$main_repo" && git_env git worktree add -q -b feat-dirtypr "$wt_dirtypr" >/dev/null 2>&1)
+(cd "$wt_dirtypr" && echo scratch >uncommitted.txt)
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_dirtypr" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_dirtypr" "candidate" "dirty despite a merged pr" \
+  --merged-pr 331 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "dirty-with-merged-pr worktree: exit $rc, expected 5 (clean is required for both paths)"
+[ -d "$wt_dirtypr" ] || fail "dirty-with-merged-pr worktree: removed despite uncommitted work"
+[ ! -f "$tmp/gh-args" ] \
+  || fail "dirty-with-merged-pr worktree: gh was consulted before the clean check refused it"
+echo "ok: a dirty worktree is refused even with a verified merged PR (exit 5)"
+
+# 9o. The query is BOUNDED. A gh that stalls past the wall-clock bound refuses
+# (exit 5) instead of hanging the sweep. Before the bound existed this case did
+# not fail, it never returned: an external `timeout 12` had to kill the actuator,
+# which is the whole reason the bound is here. A 1s bound against a 5s stall
+# keeps the case fast while still crossing it decisively.
+wt_slow=$(make_merged_wt wt-slow)
+rc=0
+err=$(FAKE_GH_SLEEP=5 PLANWRIGHT_CLEANUP_GH_TIMEOUT=1 \
+  FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_slow" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_slow" "candidate" "forge stalled mid-query" \
+  --merged-pr 332 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "stalled-gh worktree: exit $rc, expected 5"
+[ -d "$wt_slow" ] || fail "stalled-gh worktree: removed although the query never answered"
+case $err in
+  *"did not finish within 1s"*) ;;
+  *) fail "stalled-gh worktree: the query bound did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: a gh query that outruns its wall-clock bound fails closed (exit 5)"
+
+# 9p. The DEGRADE when no `timeout` binary exists. `timeout` is GNU coreutils and
+# absent from stock macOS, which this script's support bar includes, so the
+# no-timeout path is a real deployment and not a hypothetical. Absence must NOT
+# silently mean "run unbounded": it refuses the evidence path, before gh is
+# consulted at all. The gh-args assertion is what pins that ordering — the point
+# is that no unbounded network call is ever issued, not merely that the exit code
+# happens to be 5.
+notimeout="$tmp/notimeout"
+make_toolpath "$notimeout" timeout
+PATH="$notimeout" command -v timeout >/dev/null 2>&1 \
+  && fail "no-timeout PATH: timeout still resolves, the fixture is wrong"
+PATH="$notimeout" command -v gh >/dev/null 2>&1 \
+  || fail "no-timeout PATH: gh does not resolve, so this would not test the timeout guard"
+wt_notmo=$(make_merged_wt wt-notmo)
+rm -f "$tmp/gh-args"
+rc=0
+err=$(WT_PATH="$notimeout" FAKE_GH_STATE=MERGED \
+  FAKE_GH_OID=$(cd "$wt_notmo" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_notmo" "candidate" "no timeout binary available" \
+  --merged-pr 333 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "no-timeout worktree: exit $rc, expected 5 (refuse rather than run unbounded)"
+[ -d "$wt_notmo" ] || fail "no-timeout worktree: removed with no way to bound the query"
+[ ! -f "$tmp/gh-args" ] \
+  || fail "no-timeout worktree: gh was invoked unbounded despite no timeout binary (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
+case $err in
+  *"no timeout binary on PATH"*) ;;
+  *) fail "no-timeout worktree: the timeout-absent guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: no timeout binary refuses the evidence path instead of running unbounded (exit 5)"
 
 # 10. The caller's own worktree is refused by the self-guard.
 wt_self="$tmp/wt-self"

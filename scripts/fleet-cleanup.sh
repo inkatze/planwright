@@ -14,10 +14,11 @@
 # POSITIVE EVIDENCE ONLY (D-5). A resource is reclaimed only on positive,
 # deterministic evidence that reclaiming it loses nothing — a tmux window whose
 # panes are all dead (`#{pane_dead}` = 1, the worker process exited), or a git
-# worktree that is clean AND fully pushed. Silence, a timeout, or a "probably
-# stale" guess is never admissible: the same discipline
+# worktree that is clean AND whose commits provably survive its removal (either
+# upstream parity or a verified merged PR; see the `worktree` usage). Silence, a
+# timeout, or a "probably stale" guess is never admissible: the same discipline
 # scripts/fleet-death-evidence.sh encodes, applied to reclamation. A live pane or
-# an unpushed/dirty worktree is refused, never reclaimed.
+# an unproven/dirty worktree is refused, never reclaimed.
 #
 # KILL-SWITCH + AUDIT (D-15, D-16). Every invocation gates through
 # scripts/fleet-daemon-gate.sh BEFORE acting (a set `fleet_daemon_pause` pauses
@@ -30,10 +31,20 @@
 #       <window> matches either #{window_id} (@N) or #{window_name}. The self
 #       identity is resolved from the caller's own pane ($TMUX_PANE via
 #       `tmux display-message`); it is refused if it resolves to that window.
-#   fleet-cleanup.sh worktree <path> <trigger> <reasoning>
-#       Remove a clean, fully-pushed git worktree (git worktree remove). Refused
-#       if <path> is (or contains) the caller's own worktree, or if it carries
-#       uncommitted or unpushed work.
+#   fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]
+#       Remove a clean, provably-reclaimable git worktree (git worktree remove).
+#       Refused if <path> is (or contains) the caller's own worktree, or if it
+#       carries uncommitted work, or if neither evidence path below holds:
+#         A. upstream parity — a configured upstream, zero commits ahead;
+#         B. --merged-pr <n> — this script verifies via `gh` that PR <n> is
+#            MERGED and that its head oid IS this worktree's HEAD. This covers
+#            the post-merge shape where the forge auto-deleted the remote branch:
+#            the upstream is gone, so A can never hold, even though the commits
+#            are provably merged. Verified, never trusted — no `gh`, no `timeout`
+#            to bound the query, a query that exceeds that bound, a reply that is
+#            not exactly the two fields asked for, an unreadable field, a
+#            non-MERGED state, or an oid mismatch all refuse.
+#            PLANWRIGHT_CLEANUP_GH_TIMEOUT bounds the query (default 20s).
 #
 # <trigger>/<reasoning> are free-text audit fields (the caller's determination of
 # WHY the target is stale) under fleet-audit's control-free text grammar.
@@ -49,8 +60,10 @@
 #   4  refused: the fleet_daemon_pause kill-switch is set (or the gate could not
 #      resolve its own switch — fail closed, degrade capability never safety)
 #   5  refused: no positive evidence the target is reclaimable (a live pane, a
-#      dirty/unpushed worktree, or lost observability — a tmux server unreachable
-#      mid-probe is not proof of absence), or the reclaim command itself failed
+#      dirty worktree, one whose commits are not provably safe — no upstream
+#      parity and no verified --merged-pr — or lost observability: neither a tmux
+#      server unreachable mid-probe nor an unusable `gh` is proof of absence),
+#      or the reclaim command itself failed
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened"
@@ -78,7 +91,7 @@ warn() { printf 'fleet-cleanup: %s\n' "$*" >&2; }
 
 usage() {
   echo "usage: fleet-cleanup.sh window <session> <window> <trigger> <reasoning>" >&2
-  echo "       fleet-cleanup.sh worktree <path> <trigger> <reasoning>" >&2
+  echo "       fleet-cleanup.sh worktree <path> <trigger> <reasoning> [--merged-pr <n>]" >&2
 }
 
 # The tmux handle grammar (fleet-death-evidence.sh's conservative single-token
@@ -100,6 +113,21 @@ valid_text() {
   [ -n "$vt_v" ] || return 1
   [ "${#vt_v}" -le 512 ] || return 1
   [ "$(sanitize_printable "$vt_v")" = "$vt_v" ]
+}
+
+# gh_timeout — the wall-clock bound on the merged-PR evidence query, in seconds.
+# PLANWRIGHT_CLEANUP_GH_TIMEOUT overrides the default 20; a malformed, zero, or
+# absurdly long value falls back to it (a zero bound would kill every query and
+# read as a permanently unreachable forge). Validation shape is deliberately
+# byte-for-byte fleet-liveness.sh's oracle_timeout, this tree's sibling
+# wall-clock bound, so the two behave identically on malformed input.
+gh_timeout() {
+  gt_v="${PLANWRIGHT_CLEANUP_GH_TIMEOUT:-20}"
+  case $gt_v in
+    "" | *[!0-9]* | 0 | 0?*) gt_v=20 ;;
+  esac
+  [ "${#gt_v}" -le 4 ] || gt_v=20
+  printf '%s' "$gt_v"
 }
 
 # gate <mechanism> — fail-closed kill-switch check. Returns 0 to proceed; prints
@@ -232,13 +260,34 @@ case "$cmd" in
     ;;
 
   worktree)
-    if [ "$#" -ne 3 ]; then
+    if [ "$#" -ne 3 ] && [ "$#" -ne 5 ]; then
       usage
       exit 2
     fi
     path=$1
     trigger=$2
     reasoning=$3
+    # Optional second evidence path (see the evidence block below). The number is
+    # DATA: digit-only, no leading zero, length-bounded, and never interpolated
+    # into a shell string — it is passed to `gh` as ARGV.
+    merged_pr=""
+    if [ "$#" -eq 5 ]; then
+      if [ "$4" != "--merged-pr" ]; then
+        usage
+        exit 2
+      fi
+      merged_pr=$5
+      case $merged_pr in
+        "" | *[!0-9]* | 0*)
+          warn "refusing a --merged-pr value that is not a positive decimal PR number"
+          exit 2
+          ;;
+      esac
+      if [ "${#merged_pr}" -gt 9 ]; then
+        warn "refusing an over-length --merged-pr number"
+        exit 2
+      fi
+    fi
     case $path in
       "" | -*)
         warn "refusing malformed worktree path (empty or leading dash)"
@@ -306,9 +355,9 @@ case "$cmd" in
     esac
 
     # Positive evidence the worktree is reclaimable: a git worktree whose root
-    # is exactly this path, clean (no uncommitted changes), and fully pushed (no
-    # commits ahead of a configured upstream). Any missing piece is refused —
-    # reclaiming would lose work.
+    # is exactly this path, clean (no uncommitted changes), and carrying commits
+    # that provably survive its removal — either evidence path in the block
+    # below. Any missing piece is refused — reclaiming would lose work.
     top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null) || top=""
     if [ -z "$top" ]; then
       warn "'$path' is not a git worktree — refusing to remove an unknown directory"
@@ -323,20 +372,128 @@ case "$cmd" in
       warn "'$path' has uncommitted changes — refusing to remove (would lose work)"
       exit 5
     fi
+    # TWO INDEPENDENT SUFFICIENT EVIDENCE PATHS. Either proves the worktree's
+    # commits survive its removal; the clean check above is required for both.
+    #
+    #   A. UPSTREAM PARITY — a configured upstream with zero commits ahead.
+    #
+    #   B. MERGED-PR IDENTITY — the caller names a PR and this script VERIFIES
+    #      (never trusts) that it is MERGED and that its head oid is exactly this
+    #      worktree's HEAD. This is the post-merge shape a forge's branch
+    #      auto-delete leaves behind: the remote branch is gone, so the upstream
+    #      is unset and path A can NEVER be satisfied, yet the content is
+    #      provably merged. Without B the commonest reclaimable worktree of all —
+    #      "its PR merged" — is unreclaimable, which is what stalls a fleet on
+    #      the deterministic `task-<id>` worktree suffixes.
+    #
+    # B is a WIDER EVIDENCE CLASS, not a looser bar: an oid match against a
+    # MERGED pr is strictly stronger than upstream parity (which only proves the
+    # commits left this machine, not that anyone took them). Any doubt — no `gh`,
+    # no `timeout` to bound the query, a query that outruns that bound, an
+    # unreadable field, a non-MERGED state, an oid mismatch — refuses.
+    evidence=""
     upstream=$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null) || upstream=""
-    if [ -z "$upstream" ]; then
-      warn "'$path' has no upstream configured — cannot prove it is pushed, refusing"
-      exit 5
-    fi
-    ahead=$(git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
-    case $ahead in
-      "" | *[!0-9]*)
-        warn "'$path' unpushed-commit count is unreadable — refusing (fail closed)"
+    if [ -n "$upstream" ]; then
+      ahead=$(git -C "$path" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
+      case $ahead in
+        "" | *[!0-9]*)
+          warn "'$path' unpushed-commit count is unreadable — refusing (fail closed)"
+          exit 5
+          ;;
+      esac
+      if [ "$ahead" = 0 ]; then
+        evidence='upstream-parity'
+      elif [ -z "$merged_pr" ]; then
+        warn "'$path' has $ahead unpushed commit(s) — refusing to remove (would lose work)"
         exit 5
-        ;;
-    esac
-    if [ "$ahead" != 0 ]; then
-      warn "'$path' has $ahead unpushed commit(s) — refusing to remove (would lose work)"
+      fi
+    fi
+
+    if [ -z "$evidence" ] && [ -n "$merged_pr" ]; then
+      if ! command -v gh >/dev/null 2>&1; then
+        warn "--merged-pr given but no gh binary on PATH — cannot verify the merge, refusing (fail closed)"
+        exit 5
+      fi
+      # The query below is the ONLY network call in this actuator, and so the
+      # only step that can hang without bound: a stalled forge, a wedged DNS
+      # lookup, or a credential helper waiting on input would otherwise pin a
+      # cleanup sweep open indefinitely. `timeout` is this tree's established
+      # bound (fleet-liveness.sh, fleet-attention-watch.sh, release-arm.sh), but
+      # it is GNU coreutils and is NOT on stock macOS, which this script's
+      # support bar includes — so its ABSENCE must refuse rather than silently
+      # fall back to running unbounded. An unbounded network call in the decision
+      # path of a destructive actuator is exactly what "fail closed on any doubt"
+      # forbids; reclaiming a worktree is a capability, whereas not wedging the
+      # sweep that reclaims it is a safety property, and the capability yields.
+      #
+      # release-arm.sh's poll budget is NOT the model here: it bounds how many
+      # times a query is retried, not how long one call may hang, so a single
+      # wedged `gh` still hangs it. fleet-liveness.sh's oracle_fetch does bound a
+      # single call portably, but with ~70 lines of supervisor/pid/TERM-KILL
+      # choreography; putting that inside this decision path would add more
+      # failure surface than the bound removes.
+      if ! command -v timeout >/dev/null 2>&1; then
+        warn "--merged-pr given but no timeout binary on PATH — refusing rather than making an unbounded network call (fail closed)"
+        exit 5
+      fi
+      head_oid=$(git -C "$path" rev-parse HEAD 2>/dev/null) || head_oid=""
+      case $head_oid in
+        "" | *[!0-9a-f]*)
+          warn "'$path' HEAD oid is unreadable — refusing (fail closed)"
+          exit 5
+          ;;
+      esac
+      # Read state and head oid in ONE query, as a space-separated pair, using
+      # gh's built-in Go template (never the jq binary — REQ-K1.5). The response
+      # is DATA: parsed by prefix/suffix expansion and re-validated below.
+      gh_t=$(gh_timeout)
+      pr_rc=0
+      pr_pair=$(cd "$path" 2>/dev/null && timeout "$gh_t" gh pr view "$merged_pr" \
+        --json state,headRefOid \
+        --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_rc=$?
+      [ "$pr_rc" = 0 ] || pr_pair=""
+      # 124 is timeout's own "the command did not finish" status. Distinguishing
+      # it matters operationally: a stalled forge should read as a stall an
+      # operator can act on, not as an unreadable answer that looks like a
+      # malformed reply. Either way it refuses — this only sharpens the message.
+      if [ "$pr_rc" = 124 ]; then
+        warn "--merged-pr $merged_pr: the gh query did not finish within ${gh_t}s — refusing (fail closed)"
+        exit 5
+      fi
+      pr_state=${pr_pair%% *}
+      pr_oid=${pr_pair##* }
+      # EXACTLY the two fields the template asks for, joined by exactly one
+      # space. Reconstructing the pair and requiring it to equal the reply is
+      # what makes this shape check exact: prefix/suffix expansion alone reads
+      # only the FIRST and LAST word, so a reply carrying extra tokens between
+      # them (`MERGED <junk> <oid>`) would otherwise hand back a usable state and
+      # a usable oid while silently discarding the middle — the one malformed
+      # shape that fails OPEN instead of closed. The reconstruction also subsumes
+      # the no-separator case: state and oid both collapse to the whole reply,
+      # which cannot then reconstruct to it.
+      if [ -z "$pr_pair" ] || [ "$pr_state $pr_oid" != "$pr_pair" ]; then
+        warn "--merged-pr $merged_pr: could not read the PR's state and head oid — refusing (fail closed)"
+        exit 5
+      fi
+      case $pr_oid in
+        "" | *[!0-9a-f]*)
+          warn "--merged-pr $merged_pr: head oid is not a plain hex oid — refusing (fail closed)"
+          exit 5
+          ;;
+      esac
+      if [ "$pr_state" != MERGED ]; then
+        warn "--merged-pr $merged_pr is $pr_state, not MERGED — refusing (its commits may exist nowhere else)"
+        exit 5
+      fi
+      if [ "$pr_oid" != "$head_oid" ]; then
+        warn "--merged-pr $merged_pr merged $pr_oid but '$path' is at $head_oid — refusing (this worktree holds commits that PR did not carry)"
+        exit 5
+      fi
+      evidence='merged-pr'
+    fi
+
+    if [ -z "$evidence" ]; then
+      warn "'$path' has no upstream configured and no verified --merged-pr evidence — cannot prove it is pushed, refusing"
       exit 5
     fi
 
