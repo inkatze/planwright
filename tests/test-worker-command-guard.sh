@@ -60,6 +60,30 @@ mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests" "$SANDBOX/sub"
 ln -sf /etc/hosts "$SANDBOX/scripts/evillink.sh"
 ln -sf /etc/hosts "$SANDBOX/tests/evillink.bats"
 
+# A simulated INSTALLED planwright root (is_planwright_script's allowance) plus
+# the two decoys its containment check must reject: a sibling directory that
+# merely shares the root's name PREFIX, and a symlinked leaf pointing outside
+# the root. `PLUGIN_CWD` is a separate repo checkout, so a plugin-root path can
+# only ever pass via the plugin arm, never via repo containment.
+PLUGIN_ROOT="$SANDBOX/install/planwright"
+PLUGIN_DECOY="$SANDBOX/install/planwright-evil"
+PLUGIN_CWD="$SANDBOX/install/checkout"
+mkdir -p "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/tests" "$PLUGIN_DECOY/scripts" \
+  "$PLUGIN_CWD" "$SANDBOX/install/outside"
+: >"$PLUGIN_CWD/.git"
+: >"$PLUGIN_ROOT/scripts/plug.sh"
+: >"$PLUGIN_ROOT/scripts/plug.py"
+: >"$PLUGIN_ROOT/tests/plug.sh"
+: >"$PLUGIN_ROOT/notscripts.sh"
+: >"$PLUGIN_DECOY/scripts/plug.sh"
+: >"$SANDBOX/install/outside/evil.sh"
+ln -sf "$SANDBOX/install/outside/evil.sh" "$PLUGIN_ROOT/scripts/evillink.sh"
+
+# Extra environment applied to the hook by run_hook. Used only by the
+# root-resolution fixtures (PLANWRIGHT_ROOT / CLAUDE_PLUGIN_ROOT / CLAUDE_DIR);
+# reset to empty after each so no other fixture inherits it.
+HOOK_ENV=()
+
 # run_hook <command> [tool_name] [cwd] -> sets OUT and CODE
 run_hook() {
   local cmd="$1"
@@ -68,7 +92,7 @@ run_hook() {
   local payload
   payload="$(jq -n --arg c "$cmd" --arg t "$tool" --arg w "$cwd" \
     '{tool_name:$t, tool_input:{command:$c}, cwd:$w}')"
-  OUT="$(printf '%s' "$payload" | /bin/bash "$HOOK" 2>/dev/null)"
+  OUT="$(printf '%s' "$payload" | env ${HOOK_ENV[@]+"${HOOK_ENV[@]}"} /bin/bash "$HOOK" 2>/dev/null)"
   CODE=$?
 }
 
@@ -293,7 +317,6 @@ assert_defer "writer ln" "ln -s a b"
 assert_defer "writer touch" "touch file"
 assert_defer "sed write command w file" "sed 'w evil' file"
 assert_defer "sed s///w write flag" "sed 's/a/b/w evil' file"
-assert_defer "awk deferred wholesale" "awk '{print}' file"
 assert_defer "awk print to file" "awk 'BEGIN{print > \"f\"}'"
 assert_defer "awk system exec" "awk 'BEGIN{system(\"rm -rf x\")}'"
 
@@ -343,7 +366,10 @@ assert_defer "sed a append text-region" "sed '1a\\ hello'"
 assert_allow "sed -n -e separate expression allows" "sed -n -e 's/a/b/' file"
 assert_allow "sed y transliterate allows" "sed 'y/abc/xyz/' file"
 # sed bracket-expression delimiter desync (second red-team): [/] hides the
-# delimiter and smuggles w/e. Any '[' in a sed script defers.
+# delimiter and smuggles w/e. The scanner is bracket-AWARE (sed_bracket_end), so
+# a bracket expression no longer bails the whole script — it is scanned, and the
+# w/r/e screen behind it is what decides. Every desync vector below still defers,
+# now for the right reason (the write/exec command, not the mere `[`).
 assert_defer "sed bracket hides exec" "echo / | sed '/[/]/e touch pwned'"
 assert_defer "sed bracket hides write" "sed '/[/]/w victim.txt' f"
 assert_defer "sed bracket in s-pattern" "sed 's/[/]x/g'"
@@ -357,6 +383,168 @@ assert_defer "git reflog expire destroys" "git reflog expire --expire=now --all"
 assert_defer "git reflog delete destroys" "git reflog delete HEAD@{0}"
 assert_allow "git reflog show reads" "git reflog show"
 assert_allow "git reflog bare reads" "git reflog"
+
+echo "### Narrowed screen 1 — sed bracket expressions are read-only (paired positives/negatives)"
+# POSITIVES: a bracket expression is read-only however it parses, so the screen
+# is on sed's write/read-file/exec commands, not on the `[` character.
+assert_allow "sed bracket digit class in s-pattern" "sed -E 's/[0-9]//' f"
+assert_allow "sed bracket in address" "sed -n '/[0-9]/p' f"
+assert_allow "sed POSIX character class" "sed -n '/[[:space:]]/p' f"
+assert_allow "sed negated bracket" "sed -E 's/[^0-9]//g' f"
+assert_allow "sed leading-] bracket member" "sed 's/[]a]/x/' f"
+assert_allow "sed bracket with equivalence class" "sed 's/[[=a=]]/x/' f"
+assert_allow "sed bracket plus interval and escape" "sed -E 's/-[0-9a-f]{8}\\.md\$//' f"
+assert_allow "sed multiple bracket expressions in one script" "sed -E 's/[0-9]//; s/[a-z]//' f"
+assert_allow "sed y after a bracket address" "sed '/[0-9]/y/abc/xyz/' f"
+# THE REAL-WORLD CASE (planwright's standing observation-backlog runbook grep):
+# the shipped guard could not approve the command planwright's own instructions
+# require, because the command carries a bracket expression.
+assert_allow "runbook observation-backlog grep (the reported defect)" \
+  "ls specs/_observations/entries/ | sed -E 's/^[0-9-]{11}//; s/-[0-9a-f]{8}\\.md\$//'"
+# NEGATIVES: the dangerous neighbours of every positive above.
+assert_defer "sed w command with a bracket in the FILENAME" "sed '/a/w [x]out.txt' f"
+assert_defer "sed bare w command with bracket filename" "sed 'w [x].txt' f"
+assert_defer "sed r command with a bracket in the path" "sed '1r /etc/[p]asswd'"
+assert_defer "sed e exec after a bracket address" "sed '/[0-9]/e id' f"
+assert_defer "sed W write after a bracket address" "sed '/[0-9]/W out' f"
+assert_defer "sed R read-file after a bracket address" "sed '/[0-9]/R /etc/passwd' f"
+assert_defer "sed s///w write flag after a bracket pattern" "sed 's/[0-9]/x/w out.txt' f"
+assert_defer "sed s///e exec flag after a bracket pattern" "sed 's/[0-9]/id/e' f"
+assert_defer "sed -i in-place with a bracket pattern" "sed -i 's/[0-9]//' f"
+assert_defer "sed -f external script (bracket irrelevant)" "sed -f attacker.sed f"
+# A literal `[` in an s/// REPLACEMENT is NOT a bracket expression. Scanning it
+# as one would over-consume `/w x` and skip the flag block entirely — a
+# false-allow of a file write. The replacement is scanned as a literal region.
+assert_defer "sed literal [ in replacement hiding a w flag" "sed 's/a/[/w x]/' f"
+assert_defer "sed literal [ in replacement hiding an e flag" "sed 's/a/[/e]/' f"
+# Constructs whose extent is NOT identical across sed dialects, or that real sed
+# rejects outright: fail closed rather than guess (REQ-B1.3).
+assert_defer "sed backslash inside bracket (GNU vs BSD divergence)" "sed 's/[\\]]/x/' f"
+assert_defer "sed unterminated bracket expression" "sed 's/[0-9/x/' f"
+assert_defer "sed unterminated POSIX class" "sed 's/[[:alpha/x/' f"
+# A TERMINATED but INVALID class / collating element / equivalence class is not a
+# bracket expression at all (real BSD and GNU sed both reject every form below),
+# so its extent is not something the scanner may assume: it defers rather than
+# skipping it as if it were valid. Panel finding (codex backend).
+assert_defer "sed unknown POSIX class name" "sed 's/[[:bogus:]]/x/' f"
+assert_defer "sed POSIX class names are case-sensitive" "sed 's/[[:Alpha:]]/x/' f"
+assert_defer "sed empty POSIX class name" "sed 's/[[:]]/x/' f"
+assert_defer "sed multi-char collating element" "sed 's/[[.bogus.]]/x/' f"
+assert_defer "sed multi-char equivalence class" "sed 's/[[=ab=]]/x/' f"
+assert_defer "sed invalid class cannot hide a w command" "sed '/[[:bogus:]]/w out' f"
+assert_defer "sed invalid class cannot hide an e command" "sed '/[[.bogus.]]/e id' f"
+# …and every VALID form stays allowed (the 12 POSIX classes, single-character
+# collating and equivalence elements, negation, and two classes in one bracket).
+assert_allow "sed POSIX class alpha" "sed 's/[[:alpha:]]/x/' f"
+assert_allow "sed POSIX class xdigit" "sed 's/[[:xdigit:]]/x/' f"
+assert_allow "sed negated POSIX class" "sed 's/[^[:digit:]]//g' f"
+assert_allow "sed two POSIX classes in one bracket" "sed 's/[[:upper:][:digit:]]//g' f"
+assert_allow "sed single-char collating element" "sed 's/[[.a.]]/x/' f"
+assert_defer "sed bracket-opening delimiter is unplaceable" "sed 's[a[b[' f"
+assert_defer "sed bracket at command position" "sed '[abc]p' f"
+assert_defer "sed custom-delimiter address with [ delimiter" "sed '\\[a[p' f"
+assert_defer "sed unterminated s command" "sed 's/[0-9]/x' f"
+
+echo "### Narrowed screen 2 — awk read-only filter forms (paired positives/negatives)"
+# POSITIVES: the ordinary read-only filter shapes. Every one of these deferred
+# before the change (awk was unverified and so wholly absent from the allowlist).
+assert_allow "awk regex filter" "ls | awk '/x/'"
+assert_allow "awk print literal" "ls | awk '{print 1}'"
+assert_allow "awk print field" "awk '{print \$1}' file"
+assert_allow "awk -F attached separator" "awk -F: '{print \$1}' /etc/passwd"
+assert_allow "awk -F space-form separator" "awk -F , '{print \$2}' file"
+assert_allow "awk --field-separator= long form" "awk --field-separator=: '{print \$1}' file"
+assert_allow "awk -v assignment" "awk -v n=3 'NR<=n' file"
+assert_allow "awk -v attached assignment" "awk -vn=3 'NR<=n' file"
+assert_allow "awk NR/NF counting" "awk 'END{print NR}' file"
+assert_allow "awk in a pipeline with sort" "ls | awk '{print \$1}' | sort | uniq -c"
+assert_allow "awk --posix flag" "awk --posix '{print \$2}' file"
+# NEGATIVES: awk's exec and output vectors, and the flags that reach a file.
+assert_defer "awk system() exec" "awk 'BEGIN{system(\"rm -rf x\")}'"
+assert_defer "awk print redirection >" "awk '{print > \"f\"}' file"
+assert_defer "awk print redirection >>" "awk '{print >> \"f\"}' file"
+assert_defer "awk printf redirection" "awk '{printf \"%s\", \$1 > \"f\"}' file"
+assert_defer "awk print pipe to command" "awk '{print | \"sh\"}' file"
+assert_defer "awk command | getline exec" "awk 'BEGIN{\"id\" | getline x; print x}'"
+assert_defer "awk coprocess |& exec" "awk 'BEGIN{print \"x\" |& \"cat\"}'"
+assert_defer "awk close()" "awk 'BEGIN{close(\"f\")}'"
+assert_defer "awk @load extension" "awk '@load \"filefuncs\"; BEGIN{print 1}'"
+assert_defer "awk ENVIRON decants the environment" "awk 'BEGIN{print ENVIRON[\"PATH\"]}'"
+assert_defer "awk -f external program file" "awk -f prog.awk file"
+assert_defer "awk -f attached program file" "awk -fprog.awk file"
+assert_defer "awk --file= external program" "awk --file=prog.awk file"
+assert_defer "awk --source inline (unverified position)" "awk --source '{print}' file"
+assert_defer "awk -p profile writes a file" "awk -p prof.out '{print}' file"
+assert_defer "awk -o pretty-print writes a file" "awk -o out.awk '{print}' file"
+assert_defer "awk -d dump-variables writes a file" "awk -d vars.out '{print}' file"
+assert_defer "awk -l loads a shared library" "awk -l filefuncs '{print}' file"
+assert_defer "awk -i includes a source file" "awk -i inc.awk '{print}' file"
+assert_defer "awk -E terminates option processing with a progfile" "awk -E prog.awk"
+assert_defer "awk with no inline program" "awk -F:"
+assert_defer "awk dangling -v" "awk -v"
+assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
+assert_defer "awk bundled -vF token is not an assignment" "awk -vF '{print}' file"
+assert_defer "awk unknown flag" "awk --frobnicate '{print}' file"
+assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
+# Deliberate over-defer, documented in awk_program_safe: telling a REDIRECTING
+# `>` from a RELATIONAL `>` needs a real awk parser, so any `>` defers. Pinning
+# it keeps the fail-closed direction from being "fixed" into a false-allow.
+assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 5' file"
+# Only `awk` is on the allowlist; the gawk/mawk/nawk spellings stay deferred
+# (no measured need, and each carries its own extension surface).
+assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
+assert_defer "mawk spelling is not allowlisted" "mawk '{print}' file"
+
+# The new screens must hold through every path that reaches them, not just the
+# bare-verb one: the `fish -c` recursor, sed's `-e` / `--expression=` value
+# positions, and inert value positions the screens must NOT read as program text.
+assert_allow "awk via the fish recursor" "fish -c 'awk \"{print 1}\" f'"
+assert_defer "awk system() via the fish recursor" "fish -c 'awk \"BEGIN{system(1)}\" f'"
+assert_defer "awk output redirection via the fish recursor" "fish -c 'awk \"{print > 1}\" f'"
+assert_allow "sed bracket via --expression=" "sed --expression='s/[0-9]//' f"
+assert_defer "sed w flag via --expression=" "sed --expression='s/[0-9]/x/w out' f"
+assert_allow "sed bracket via -e value" "sed -e 's/[0-9]//' -e 's/[a-z]//' f"
+assert_defer "sed w command via the second -e value" "sed -e 's/[0-9]//' -e 'w out' f"
+# A `>` inside an INERT value (a -v assignment, a -F separator) is not program
+# text and must not be screened as redirection; the program is what gets screened.
+assert_allow "awk -v value containing > is inert data" "awk -v x='> f' '{print x}' file"
+assert_allow "awk -F separator containing > is inert data" "awk -F '>' '{print \$2}' file"
+assert_defer "awk -v value is inert but the PROGRAM still screens" "awk -v x=1 '{print x > \"f\"}' file"
+
+echo "### Narrowed screen 3 — installed planwright root's scripts/ (paired positives/negatives)"
+# POSITIVES: a plugin-script path resolves through the guard's OWN root chain, so
+# no per-machine, version-pinned settings allow entry is needed. One fixture per
+# arm of that chain.
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_allow "PLANWRIGHT_ROOT arm — direct script" "$PLUGIN_ROOT/scripts/plug.sh --flag" Bash "$PLUGIN_CWD"
+assert_allow "PLANWRIGHT_ROOT arm — bash <script>" "bash $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_allow "PLANWRIGHT_ROOT arm — in a compound" "$PLUGIN_ROOT/scripts/plug.sh a && $PLUGIN_ROOT/scripts/plug.sh b" Bash "$PLUGIN_CWD"
+HOOK_ENV=("CLAUDE_PLUGIN_ROOT=$PLUGIN_ROOT")
+assert_allow "CLAUDE_PLUGIN_ROOT arm" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=("CLAUDE_DIR=$SANDBOX/install" "HOME=$SANDBOX/install")
+assert_allow "writer-mode <claude-dir>/planwright arm" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+# Self-location arm: with NO root env set at all, the hook still resolves its own
+# sibling root (dirname $0/..), which is what makes a marketplace install whose
+# path carries the plugin version work with zero setup.
+assert_allow "self-location arm — the hook's own sibling scripts/" "$REPO_ROOT/scripts/resolve-rule-doc.sh rigor" Bash "$PLUGIN_CWD"
+# NEGATIVES: every containment escape and near-miss.
+HOOK_ENV=("PLANWRIGHT_ROOT=$PLUGIN_ROOT")
+assert_defer "plugin path with .. escaping the root" "$PLUGIN_ROOT/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
+assert_defer "plugin path via bash with .. escape" "bash $PLUGIN_ROOT/scripts/../../outside/evil.sh" Bash "$PLUGIN_CWD"
+assert_defer "symlinked leaf resolving outside the root" "$PLUGIN_ROOT/scripts/evillink.sh" Bash "$PLUGIN_CWD"
+assert_defer "name-PREFIX sibling of the root is a different directory" "$PLUGIN_DECOY/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "root-level script outside scripts/" "$PLUGIN_ROOT/notscripts.sh" Bash "$PLUGIN_CWD"
+assert_defer "plugin tests/ is not a trusted script dir" "$PLUGIN_ROOT/tests/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "non-.sh under the plugin scripts/" "$PLUGIN_ROOT/scripts/plug.py" Bash "$PLUGIN_CWD"
+assert_defer "bash -c is still not a script invocation" "bash -c '$PLUGIN_ROOT/scripts/plug.sh'" Bash "$PLUGIN_CWD"
+assert_defer "bats on a plugin script stays repo-scoped" "bats $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "env-assignment prefix on a plugin script" "BASH_ENV=/tmp/x $PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+assert_defer "plugin script writing a file still defers" "$PLUGIN_ROOT/scripts/plug.sh > out.txt" Bash "$PLUGIN_CWD"
+HOOK_ENV=("PLANWRIGHT_ROOT=$SANDBOX/install/does-not-exist")
+assert_defer "unresolvable root arm allows nothing" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
+HOOK_ENV=()
+assert_defer "plugin path with no root arm resolving to it" "$PLUGIN_ROOT/scripts/plug.sh" Bash "$PLUGIN_CWD"
 
 echo "### REQ-A1.9 — grammar-conservative deferral"
 assert_defer "env-assignment prefix BASH_ENV" "BASH_ENV=/tmp/x bash scripts/ok.sh"
@@ -447,6 +635,28 @@ malformed_run '{"tool_name":"Bash","tool_input":{"command":""}}'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty-string command defers"; else fail "empty command — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{"command":["not","a","string"]}}'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "non-string command defers"; else fail "non-string command — expected defer exit 0 (got $CODE)"; fi
+# `cwd` carries the same type discipline as `command`: a PRESENT non-string value
+# is a payload that does not match the PreToolUse contract and defers, rather than
+# being containment-checked against whatever `jq -r` renders it as. ABSENT and
+# null keep their documented $PWD fallback. Panel finding (codex backend, lens 10:
+# a sibling consumed field lacking the guard its neighbour has).
+for bad_cwd in '{"a":1}' '["/tmp"]' '5' 'true'; do
+  malformed_run "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"},\"cwd\":$bad_cwd}"
+  if [ "$CODE" -eq 0 ] && is_empty; then
+    pass "non-string cwd ($bad_cwd) defers"
+  else
+    if is_allow; then
+      fail "non-string cwd ($bad_cwd) — FALSE-ALLOW: approved on a malformed payload"
+      false_allows=$((false_allows + 1))
+    else
+      fail "non-string cwd ($bad_cwd) — expected defer exit 0 (got $CODE)"
+    fi
+  fi
+done
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":null}'
+if [ "$CODE" -eq 0 ] && is_allow; then pass "null cwd keeps the \$PWD fallback"; else fail "null cwd — expected the \$PWD fallback to still allow (got $CODE)"; fi
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status"}}'
+if [ "$CODE" -eq 0 ] && is_allow; then pass "absent cwd keeps the \$PWD fallback"; else fail "absent cwd — expected the \$PWD fallback to still allow (got $CODE)"; fi
 
 echo "### REQ-B1.1 — inert-data probe: analysis never executes the command"
 MARKER="$SANDBOX/MARKER_SHOULD_NOT_EXIST"

@@ -214,6 +214,69 @@ assert_allow "sed read-only" "sed -n '1,5p' file"
 assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b && tmux paste-buffer -t fleet:0"
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
 
+echo "### Narrowed screen — sed bracket expressions are read-only (paired positives/negatives)"
+# The engine's sed screen is on what makes a sed script DANGEROUS (the w/W write,
+# r/R read-file and e exec commands, the w/W/e substitution flags, and -i), not on
+# the `[` character: a bracket expression is read-only however it parses. Ported
+# from the worker guard, which carries the same engine (obs
+# command-guard-engine-dup: the tokenizer is duplicated across both files, so a
+# fix must be applied and pinned twice until a shared library is extracted).
+assert_allow "sed bracket digit class in s-pattern" "sed -E 's/[0-9]//' file"
+assert_allow "sed bracket in address" "sed -n '/[0-9]/p' file"
+assert_allow "sed POSIX character class" "sed -n '/[[:space:]]/p' file"
+assert_allow "sed negated bracket" "sed -E 's/[^0-9]//g' file"
+assert_allow "sed leading-] bracket member" "sed 's/[]a]/x/' file"
+assert_allow "runbook observation-backlog grep (the reported defect)" \
+  "ls specs/_observations/entries/ | sed -E 's/^[0-9-]{11}//; s/-[0-9a-f]{8}\\.md\$//'"
+assert_defer "sed w command with a bracket in the FILENAME" "sed '/a/w [x]out.txt' file"
+assert_defer "sed r command with a bracket in the path" "sed '1r /etc/[p]asswd'"
+assert_defer "sed e exec after a bracket address" "sed '/[0-9]/e id' file"
+assert_defer "sed s///w write flag after a bracket pattern" "sed 's/[0-9]/x/w out.txt' file"
+assert_defer "sed s///e exec flag after a bracket pattern" "sed 's/[0-9]/id/e' file"
+assert_defer "sed -i in-place with a bracket pattern" "sed -i 's/[0-9]//' file"
+assert_defer "sed bracket hides exec (delimiter desync)" "sed '/[/]/e touch pwned' file"
+assert_defer "sed bracket hides write (delimiter desync)" "sed '/[/]/w victim.txt' file"
+assert_defer "sed literal [ in replacement hiding a w flag" "sed 's/a/[/w x]/' file"
+assert_defer "sed backslash inside bracket (GNU vs BSD divergence)" "sed 's/[\\]]/x/' file"
+assert_defer "sed unterminated bracket expression" "sed 's/[0-9/x/' file"
+# A TERMINATED but INVALID class / collating element is not a bracket expression
+# at all (both BSD and GNU sed reject these), so its extent is not something the
+# scanner may assume. Panel finding (codex backend); mirrored from the worker suite.
+assert_defer "sed unknown POSIX class name" "sed 's/[[:bogus:]]/x/' file"
+assert_defer "sed POSIX class names are case-sensitive" "sed 's/[[:Alpha:]]/x/' file"
+assert_defer "sed multi-char collating element" "sed 's/[[.bogus.]]/x/' file"
+assert_defer "sed invalid class cannot hide a w command" "sed '/[[:bogus:]]/w out' file"
+assert_allow "sed POSIX class alpha still allows" "sed 's/[[:alpha:]]/x/' file"
+assert_allow "sed negated POSIX class still allows" "sed 's/[^[:digit:]]//g' file"
+assert_defer "sed bracket at command position" "sed '[abc]p' file"
+
+echo "### Narrowed screen — awk read-only filter forms (paired positives/negatives)"
+# awk was entirely unverified (every invocation deferred). The screen allows the
+# ordinary read-only filter forms and defers awk's exec vectors (system(), either
+# direction of a command pipe, @load) and every output vector (`>` / `>>` / `|`
+# redirection, close(), and the flags that write or load a file).
+assert_allow "awk regex filter" "ls | awk '/x/'"
+assert_allow "awk print field" "awk '{print \$1}' file"
+assert_allow "awk -F attached separator" "awk -F: '{print \$1}' file"
+assert_allow "awk -v assignment" "awk -v n=3 'NR<=n' file"
+assert_allow "awk in an observe pipeline" "tmux capture-pane -p -t fleet:0 | awk '{print \$1}'"
+assert_defer "awk system() exec" "awk 'BEGIN{system(\"rm -rf x\")}'"
+assert_defer "awk print redirection >" "awk '{print > \"f\"}' file"
+assert_defer "awk print redirection >>" "awk '{print >> \"f\"}' file"
+assert_defer "awk print pipe to command" "awk '{print | \"sh\"}' file"
+assert_defer "awk command | getline exec" "awk 'BEGIN{\"id\" | getline x; print x}'"
+assert_defer "awk close()" "awk 'BEGIN{close(\"f\")}'"
+assert_defer "awk @load extension" "awk '@load \"filefuncs\"; BEGIN{print 1}'"
+assert_defer "awk ENVIRON decants the environment" "awk 'BEGIN{print ENVIRON[\"PATH\"]}'"
+assert_defer "awk -f external program file" "awk -f prog.awk file"
+assert_defer "awk -p profile writes a file" "awk -p prof.out '{print}' file"
+assert_defer "awk with no inline program" "awk -F:"
+assert_defer "awk dangling -v" "awk -v"
+assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
+assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 5' file"
+assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
+assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
+
 echo "### REQ-C1.2/C1.3 — tmux escalation shapes DEFER (never send-keys / kill)"
 assert_defer "tmux send-keys DEFER" "tmux send-keys -t fleet:0 'rm -rf x' Enter"
 assert_defer "tmux send-keys C-m DEFER" "tmux send-keys -t fleet:0 C-m"
@@ -357,6 +420,47 @@ else
   fail "distinctness — bats: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
 fi
 
+echo "### Shared-engine parity — the duplicated sed/awk screens must agree in BOTH guards"
+# obs command-guard-engine-dup: the ~600-line tokenizer/verify engine (including
+# sed_script_safe, its bracket scanners, and guard_awk) is DUPLICATED across
+# scripts/worker-command-guard.sh and scripts/tower-command-guard.sh, so an engine
+# fix must be applied twice. Nothing pinned that today: a fix landing in one file
+# only would pass both suites. These fixtures cross-run the SHARED surface (sed and
+# awk, which are deliberately identical in both safe sets — unlike bats / fish -c /
+# tmux / claude, which are deliberately distinct and are covered above) and fail
+# when the two guards disagree, so a one-sided engine edit is caught here.
+parity() {
+  local label="$1" cmd="$2" t w
+  run_hook "$cmd"
+  check_invariants "$label" || return
+  run_worker_hook "$cmd"
+  is_allow && t=allow || t=defer
+  worker_is_allow && w=allow || w=defer
+  if [ "$t" = "$w" ]; then
+    pass "$label (both $t)"
+  else
+    fail "$label — shared-engine DRIFT: tower=$t worker=$w (an engine fix landed in one guard only)"
+  fi
+}
+parity "parity: sed bracket class allows" "sed -E 's/[0-9]//' file"
+parity "parity: sed POSIX class allows" "sed -n '/[[:space:]]/p' file"
+parity "parity: sed leading-] member allows" "sed 's/[]a]/x/' file"
+parity "parity: sed runbook backlog grep allows" \
+  "ls specs/_observations/entries/ | sed -E 's/^[0-9-]{11}//; s/-[0-9a-f]{8}\\.md\$//'"
+parity "parity: sed w after bracket address defers" "sed '/[/]/w v.txt' file"
+parity "parity: sed e after bracket address defers" "sed '/[0-9]/e id' file"
+parity "parity: sed -i defers" "sed -i 's/[0-9]//' file"
+parity "parity: sed literal [ in replacement + w flag defers" "sed 's/a/[/w x]/' file"
+parity "parity: sed backslash-in-bracket defers" "sed 's/[\\]]/x/' file"
+parity "parity: sed [ at command position defers" "sed '[abc]p' file"
+parity "parity: awk read-only filter allows" "awk '{print \$1}' file"
+parity "parity: awk -F allows" "awk -F: '{print \$1}' file"
+parity "parity: awk -v allows" "awk -v n=3 'NR<=n' file"
+parity "parity: awk system() defers" "awk 'BEGIN{system(\"id\")}'"
+parity "parity: awk output redirection defers" "awk '{print > \"f\"}' file"
+parity "parity: awk -f progfile defers" "awk -f p.awk file"
+parity "parity: awk relational > defers" "awk '\$1 > 5' file"
+
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:
 # the guard never auto-approves a deny-listed command, so the safety property
@@ -399,6 +503,24 @@ malformed_run() {
 }
 malformed_run '{ this is not json'
 if [ "$CODE" -eq 0 ] && is_empty; then pass "malformed JSON fails closed (defer)"; else fail "malformed JSON — expected defer exit 0 (got $CODE)"; fi
+# `cwd` carries the same type discipline as `command`: a PRESENT non-string value
+# is a payload outside the PreToolUse contract and defers; absent/null keep the
+# documented $PWD fallback. Panel finding (codex backend).
+for bad_cwd in '{"a":1}' '["/tmp"]' '5'; do
+  malformed_run "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git status\"},\"cwd\":$bad_cwd}"
+  if [ "$CODE" -eq 0 ] && is_empty; then
+    pass "non-string cwd ($bad_cwd) fails closed (defer)"
+  else
+    if is_allow; then
+      fail "non-string cwd ($bad_cwd) — FALSE-ALLOW: approved on a malformed payload"
+      false_allows=$((false_allows + 1))
+    else
+      fail "non-string cwd ($bad_cwd) — expected defer exit 0 (got $CODE)"
+    fi
+  fi
+done
+malformed_run '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":null}'
+if [ "$CODE" -eq 0 ] && is_allow; then pass "null cwd keeps the \$PWD fallback"; else fail "null cwd — expected the \$PWD fallback to still allow (got $CODE)"; fi
 malformed_run ''
 if [ "$CODE" -eq 0 ] && is_empty; then pass "empty stdin fails closed (defer)"; else fail "empty stdin — expected defer exit 0 (got $CODE)"; fi
 malformed_run '{"tool_name":"Bash","tool_input":{}}'

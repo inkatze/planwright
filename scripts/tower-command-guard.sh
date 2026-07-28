@@ -448,26 +448,162 @@ is_planwright_script() {
 # caller's `cw` array (index 0 = verb) and `cwn` count via dynamic scope, plus
 # `HOOK_CWD`. Every guard's default/fallthrough is DEFER.
 
-# sed_script_safe <script>: 0 only when a sed script is provably read-only —
-# no write (`w`/`W`), exec (`e`), or arbitrary-file-read (`r`/`R`) command, and
-# no `s///` substitution whose flag block carries `w`/`W`/`e`. Inert, never
-# eval-ed, deferring on ANY doubt (bare/malformed command, text-region commands
-# `a`/`i`/`c`, or a `[` bracket expression that could desync the delimiter
-# scan).
-sed_script_safe() {
-  local s=$1
-  local n=${#s} i=0 c d seen
-  case $s in
-    *'['*) return 1 ;;
-  esac
+# sed_bracket_end / sed_scan_regex / sed_scan_literal: the delimiter-aware
+# region scanners sed_script_safe walks its script with. All three read and
+# advance the caller's `s` (script), `n` (length), `i` (cursor) and `d`
+# (delimiter) via dynamic scope, and every one of them returns non-zero (DEFER)
+# rather than guess when a region's extent is not identical across sed dialects.
+#
+# Why they exist: a POSIX bracket expression `[...]` makes the delimiter char
+# LITERAL, so a `/` inside `[...]` does NOT close a `/regex/` or an `s///`
+# pattern. A scanner blind to brackets desyncs from real sed on `/[/]/w f` and
+# lets a write/exec command hide behind the desync; a scanner that instead bails
+# on every `[` cannot approve the read-only bracket forms that dominate real
+# usage (`s/^[0-9-]{11}//`). These scan brackets explicitly and defer only on the
+# constructs whose extent genuinely differs between dialects.
+#
+# sed_bracket_end: `i` points at the opening `[`; advance past the matching `]`.
+sed_bracket_end() {
+  local j=$((i + 1)) c nc k cn
+  [ "${s:j:1}" = '^' ] && j=$((j + 1)) # negation, then …
+  [ "${s:j:1}" = ']' ] && j=$((j + 1)) # … a LEADING `]` is a literal member
+  while [ "$j" -lt "$n" ]; do
+    c=${s:j:1}
+    case $c in
+      # GNU sed honors backslash escapes INSIDE a bracket expression (`[\]]`,
+      # `[\n]`); POSIX and BSD sed treat the backslash as an ordinary member, so
+      # the bracket ENDS at a different offset under the two dialects. That is
+      # exactly the desync this scanner must not guess at: defer.
+      \\) return 1 ;;
+      '[')
+        nc=${s:j+1:1}
+        case $nc in
+          ':')
+            # `[:class:]`: a sub-bracket whose `]` does not close the enclosing
+            # expression. The class name is the closed POSIX set (case-sensitive:
+            # real sed rejects `[[:Alpha:]]`), so an unknown or malformed name is
+            # not a bracket expression at all and DEFERS rather than being
+            # skipped as if it were one.
+            k=$((j + 2))
+            cn=''
+            while [ "$k" -lt "$n" ]; do
+              case ${s:k:1} in
+                [a-z])
+                  cn="$cn${s:k:1}"
+                  k=$((k + 1))
+                  ;;
+                *) break ;;
+              esac
+            done
+            [ "${s:k:1}" = ':' ] && [ "${s:k+1:1}" = ']' ] || return 1
+            case $cn in
+              alnum | alpha | blank | cntrl | digit | graph | lower | print | punct | space | upper | xdigit) ;;
+              *) return 1 ;; # not a POSIX character class
+            esac
+            j=$((k + 2))
+            ;;
+          '.' | '=')
+            # `[.coll.]` / `[=equiv=]`: SINGLE-character content only. A
+            # multi-character collating-element or equivalence-class name is
+            # locale-dependent (and rejected outright in the C locale), so its
+            # validity — and therefore its extent — is not something this scanner
+            # can place: defer.
+            [ -n "${s:j+2:1}" ] || return 1
+            [ "${s:j+3:1}" = "$nc" ] && [ "${s:j+4:1}" = ']' ] || return 1
+            j=$((j + 5))
+            ;;
+          *) j=$((j + 1)) ;; # a plain `[` member
+        esac
+        ;;
+      ']')
+        i=$((j + 1))
+        return 0
+        ;;
+      *) j=$((j + 1)) ;;
+    esac
+  done
+  return 1 # unterminated bracket expression (real sed errors out)
+}
+
+# sed_scan_regex: `i` sits just past a region's opening delimiter `d`; advance
+# past its closing delimiter, treating the region as a REGULAR EXPRESSION (so
+# `[...]` hides the delimiter). Used for addresses and an `s` command's pattern.
+sed_scan_regex() {
+  local c
   while [ "$i" -lt "$n" ]; do
     c=${s:i:1}
+    # The delimiter is tested FIRST: a script may choose any delimiter, and a
+    # delimiter that also opens a bracket is rejected by the caller.
+    if [ "$c" = "$d" ]; then
+      i=$((i + 1))
+      return 0
+    fi
+    case $c in
+      \\) i=$((i + 2)) ;; # an escaped char (including an escaped delimiter)
+      '[') sed_bracket_end || return 1 ;;
+      *) i=$((i + 1)) ;;
+    esac
+  done
+  return 1 # unterminated region
+}
+
+# sed_scan_literal: same, for a region that is NOT a regular expression — an `s`
+# command's REPLACEMENT and both halves of `y`. Brackets carry no meaning there
+# (`s/a/[/w f` writes a file), so treating them as bracket expressions would
+# over-consume and skip the flag block: scan delimiters and escapes only.
+sed_scan_literal() {
+  local c
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    if [ "$c" = "$d" ]; then
+      i=$((i + 1))
+      return 0
+    fi
+    case $c in
+      \\) i=$((i + 2)) ;;
+      *) i=$((i + 1)) ;;
+    esac
+  done
+  return 1 # unterminated region
+}
+
+# sed_delim_ok <char>: 0 only for a delimiter this scanner can place. sed forbids
+# a backslash or newline delimiter outright; `[` and `]` are rejected here
+# because a bracket-opening delimiter makes "is this `[` a delimiter or a bracket
+# expression" genuinely ambiguous across dialects (REQ-C1.3 fail-closed).
+sed_delim_ok() {
+  case $1 in
+    '' | \\ | '[' | ']' | "$NL") return 1 ;;
+  esac
+  return 0
+}
+
+# sed_script_safe <script>: 0 only when a sed script is provably read-only —
+# it contains no write (`w`/`W`), exec (`e`), or arbitrary-file-read (`r`/`R`)
+# command, and no `s///` substitution whose flag block carries `w`/`W`/`e`. It
+# is a small, inert delimiter-aware scanner (never eval-ed), deferring on ANY
+# doubt: a bare/malformed command, the text-region commands `a`/`i`/`c` (their
+# multi-line text region is not soundly segmentable here), and anything it
+# cannot place — an unplaceable delimiter (sed_delim_ok), an unterminated region,
+# a dialect-divergent bracket expression (sed_bracket_end), or a `[` at command
+# position. This is the fix for the whitespace-optional flag forms (`s/.*/x/e`,
+# `s/a/b/wFILE`) a naive `[wWe][[:space:]]` heuristic misses. It screens what
+# makes a sed script dangerous — the `w`/`W` (write), `r`/`R` (read-file) and `e`
+# (exec) commands, and the `w`/`W`/`e` substitution flags — NOT the mere presence
+# of a bracket expression, which is read-only however it parses.
+sed_script_safe() {
+  local s=$1
+  local n=${#s} i=0 c d
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    # Command separators / block braces reset to command position.
     case $c in
       ' ' | "$TAB" | ';' | "$NL" | '{' | '}' | '!')
         i=$((i + 1))
         continue
         ;;
     esac
+    # Addresses at command position are skipped as inert.
     case $c in
       [0-9])
         while [ "$i" -lt "$n" ]; do
@@ -483,56 +619,43 @@ sed_script_safe() {
         continue
         ;;
       '/')
+        d='/'
         i=$((i + 1))
-        while [ "$i" -lt "$n" ]; do
-          case ${s:i:1} in
-            \\) i=$((i + 2)) ;;
-            '/')
-              i=$((i + 1))
-              break
-              ;;
-            *) i=$((i + 1)) ;;
-          esac
-        done
+        sed_scan_regex || return 1
         continue
         ;;
       \\)
+        # `\cREc`: a custom-delimiter address regex.
         d=${s:i+1:1}
-        [ -n "$d" ] || return 1
+        sed_delim_ok "$d" || return 1
         i=$((i + 2))
-        while [ "$i" -lt "$n" ]; do
-          case ${s:i:1} in
-            \\) i=$((i + 2)) ;;
-            "$d")
-              i=$((i + 1))
-              break
-              ;;
-            *) i=$((i + 1)) ;;
-          esac
-        done
+        sed_scan_regex || return 1
         continue
         ;;
+      '[')
+        # A `[` at COMMAND position is not a sed address or command at all (real
+        # sed errors out). Never silently skip it: defer (REQ-C1.3 fail-closed).
+        return 1
+        ;;
     esac
+    # A command letter.
     case $c in
       w | W | r | R | e) return 1 ;; # write / read-file / exec commands
       a | i | c) return 1 ;;         # text-region commands: defer (unparsed here)
       s | y)
         d=${s:i+1:1}
-        [ -n "$d" ] || return 1
+        sed_delim_ok "$d" || return 1
         i=$((i + 2))
-        seen=0
-        while [ "$i" -lt "$n" ] && [ "$seen" -lt 2 ]; do
-          case ${s:i:1} in
-            \\) i=$((i + 2)) ;;
-            "$d")
-              seen=$((seen + 1))
-              i=$((i + 1))
-              ;;
-            *) i=$((i + 1)) ;;
-          esac
-        done
-        [ "$seen" -lt 2 ] && return 1 # unterminated s/y command
+        # `s` takes a REGEX then a literal replacement; `y` takes two literal
+        # character lists (no bracket expression in either half).
         if [ "$c" = s ]; then
+          sed_scan_regex || return 1
+        else
+          sed_scan_literal || return 1
+        fi
+        sed_scan_literal || return 1
+        if [ "$c" = s ]; then
+          # Flag block: reject a w/W/e substitution flag (write/exec).
           while [ "$i" -lt "$n" ]; do
             case ${s:i:1} in
               w | W | e) return 1 ;;
@@ -575,6 +698,86 @@ guard_sed() {
     esac
   done
   [ "$expect_e" = 1 ] && return 1
+  return 0
+}
+
+# awk_program_safe <program>: 0 only when an awk program text is provably
+# read-only. awk's dangerous surface is (a) EXEC — `system(…)`, either direction
+# of a command pipe (`print | "cmd"`, `"cmd" | getline`, gawk's `|&` coprocess),
+# and gawk's `@load` / `@include` / indirect `@fn` calls — and (b) OUTPUT — a
+# `print`/`printf` redirected with `>` / `>>` to a file (or to gawk's
+# `/dev/stdout`-style special files).
+#
+# Telling a REDIRECTING `>` from a RELATIONAL `>` requires a real awk parser: the
+# character is identical and only its grammar position separates `print > "f"`
+# from `$1 > 5`. This screen does not attempt that. ANY `>` defers, as does any
+# `|`, `@`, `system`, or `close`. That over-defers the read-only comparison forms
+# — which is the fail-closed direction, and no worse for them than today, where
+# every awk invocation defers. It also defers `ENVIRON` (a program that decants
+# the session environment into the transcript is not the read-only filter shape
+# this widening is for).
+awk_program_safe() {
+  case $1 in
+    *'>'* | *'|'* | *'@'* | *system* | *close* | *ENVIRON*) return 1 ;;
+  esac
+  return 0
+}
+
+# awk_assignment_ok <text>: 0 only when <text> is a placeable `name=value`
+# variable assignment (a valid awk identifier left of the first `=`). A `-v`
+# operand this cannot place means the guard's arg model has diverged from awk's,
+# so the caller defers rather than assume the token is inert data.
+awk_assignment_ok() {
+  case $1 in
+    [A-Za-z_]*=*) ;;
+    *) return 1 ;;
+  esac
+  case ${1%%=*} in
+    *[!A-Za-z0-9_]*) return 1 ;;
+  esac
+  return 0
+}
+
+# guard_awk: strict flag allowlist (REQ-C1.2) plus the read-only program check.
+# Only the inline-program form is verifiable, so `-f`/--file` (an external
+# program file), gawk's file-writing/loading flags (`-p`/--profile`, `-o`,
+# `-d`/--dump-variables`, `-l`/--load`, `-i`/--include`, `-E`, `--source`), any
+# bundled short-flag token, and any unrecognized flag all defer. The first
+# non-flag operand is the program (screened); later operands are input files and
+# `var=value` assignments, which awk only ever READS.
+guard_awk() {
+  local i a expect=none prog_taken=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $expect in
+      fs) # the value of a space-form -F: an inert field-separator regex
+        expect=none
+        continue
+        ;;
+      assign)
+        awk_assignment_ok "$a" || return 1
+        expect=none
+        continue
+        ;;
+    esac
+    case $a in
+      -F | --field-separator) expect=fs ;;
+      -F?* | --field-separator=*) ;; # attached value: inert
+      -v | --assign) expect=assign ;;
+      -v?*) awk_assignment_ok "${a#-v}" || return 1 ;;
+      --assign=*) awk_assignment_ok "${a#--assign=}" || return 1 ;;
+      --posix | --traditional | -c | --compat | -b | --characters-as-bytes | --re-interval | -S | --sandbox | --help | --usage | --version | -V | --) ;;
+      -*) return 1 ;; # -f / -p / -o / -d / -l / -i / -E / bundled / unknown: defer
+      *)
+        if [ "$prog_taken" = 0 ]; then
+          awk_program_safe "$a" || return 1
+          prog_taken=1
+        fi
+        ;;
+    esac
+  done
+  [ "$expect" = none ] || return 1  # a dangling value-flag with no value: defer
+  [ "$prog_taken" = 1 ] || return 1 # no inline program (the -f form): defer
   return 0
 }
 
@@ -954,6 +1157,7 @@ classify_verb() {
     file) guard_file ;;
     find) guard_find ;;
     sed) guard_sed ;;
+    awk) guard_awk ;;
     # markdownlint / markdownlint-cli2 are deliberately ABSENT from the tower
     # safe set: their --config/-c and -r/--rules flags load an arbitrary file as
     # an executable module (a code-exec vector a denylist leaks), and the tower
@@ -1175,8 +1379,19 @@ main() {
       2>/dev/null) || return 0
   [ -n "$cmd" ] || return 0
 
-  cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null) || cwd=''
-  [ -n "$cwd" ] || cwd=$PWD
+  # `cwd` gets the same type discipline as `command` (REQ-C1.3): ABSENT (or null)
+  # is a supported shape and falls back to $PWD, but a PRESENT non-string value
+  # (object, array, number, boolean) means the payload does not match the
+  # documented PreToolUse contract, so the whole analysis defers rather than
+  # containment-checking against whatever `jq -r` renders such a value as.
+  case $(printf '%s' "$input" | jq -r 'if has("cwd") and .cwd != null then (.cwd | type) else "absent" end' 2>/dev/null) in
+    absent) cwd=$PWD ;;
+    string)
+      cwd=$(printf '%s' "$input" | jq -r '.cwd' 2>/dev/null) || return 0
+      [ -n "$cwd" ] || cwd=$PWD
+      ;;
+    *) return 0 ;; # present but not a string: defer
+  esac
   local HOOK_CWD=$cwd
 
   analyze_command "$cmd" 0 || return 0
