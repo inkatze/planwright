@@ -41,8 +41,12 @@
 #   - the evidence path's remaining fail-closed branches: gh ABSENT (a PATH
 #     mirrored without it, so the host's real gh is not reached), a non-hex head
 #     oid, and a gh reply with no separator to split all refuse (exit 5);
-#   - PRECEDENCE: upstream parity alone still reclaims with --merged-pr also
-#     passed and gh broken, and gh is never consulted in that case;
+#   - PRECEDENCE, both directions: upstream parity alone still reclaims with
+#     --merged-pr also passed and gh broken (gh never consulted), and a verified
+#     merged PR reclaims a worktree that is AHEAD of its upstream, which path A
+#     refuses on its own;
+#   - the clean check is a prerequisite of BOTH paths: a dirty worktree with a
+#     perfect merged-PR proof is still refused, before gh is consulted at all;
 #   - the caller's own worktree is refused by the self-guard (exit 3);
 #   - hostile tmux/path tokens are refused (exit 2);
 #   - every reclaim and every self-block writes a fleet-audit row.
@@ -636,6 +640,48 @@ FAKE_GH_FAIL=1 \
 [ ! -f "$tmp/gh-args" ] \
   || fail "parity-wins worktree: gh was consulted although upstream parity already held"
 echo "ok: upstream parity alone reclaims and never consults gh (exit 0)"
+
+# 9m. The other precedence direction: path B carrying a worktree path A REFUSES.
+# The upstream exists and is AHEAD (unpushed commits — path A's own refusal), yet
+# a verified merged PR at exactly this HEAD reclaims it. This is the shape a
+# squash-merge leaves when the local tip is not what the upstream ref remembers:
+# the oid match proves those commits are in the merged PR, so a stale upstream
+# count does not veto the stronger proof. Untested until now, and it is the
+# RECLAIM direction, so it needs pinning most.
+wt_ahead="$tmp/wt-ahead"
+(cd "$main_repo" && git_env git worktree add -q -b feat-ahead "$wt_ahead" >/dev/null 2>&1)
+(cd "$wt_ahead" && git_env git push -q -u origin feat-ahead >/dev/null 2>&1)
+(cd "$wt_ahead" && echo local >>f && git_env git add f && git_env git commit -qm "ahead of upstream")
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_ahead" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_ahead" "merged-pr-leftover" "local tip ahead of a stale upstream" \
+  --merged-pr 330 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "ahead-with-merged-pr worktree: exit $rc, expected 0 (path B rescues an ahead worktree)"
+[ ! -d "$wt_ahead" ] || fail "ahead-with-merged-pr worktree: directory still present after remove"
+[ -f "$tmp/gh-args" ] || fail "ahead-with-merged-pr worktree: gh was never consulted, so path B did not run"
+echo "ok: a verified merged PR reclaims a worktree ahead of its upstream (exit 0)"
+
+# 9n. The clean check is a shared prerequisite of BOTH paths, not merely path A's.
+# A DIRTY worktree with an otherwise perfect merged-PR proof is still refused --
+# and gh is never consulted at all, because the clean check runs first. That
+# ordering is the assertion: evidence, however strong, never buys a reclaim that
+# would discard uncommitted work.
+wt_dirtypr="$tmp/wt-dirtypr"
+(cd "$main_repo" && git_env git worktree add -q -b feat-dirtypr "$wt_dirtypr" >/dev/null 2>&1)
+(cd "$wt_dirtypr" && echo scratch >uncommitted.txt)
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_dirtypr" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_dirtypr" "candidate" "dirty despite a merged pr" \
+  --merged-pr 331 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 5 ] || fail "dirty-with-merged-pr worktree: exit $rc, expected 5 (clean is required for both paths)"
+[ -d "$wt_dirtypr" ] || fail "dirty-with-merged-pr worktree: removed despite uncommitted work"
+[ ! -f "$tmp/gh-args" ] \
+  || fail "dirty-with-merged-pr worktree: gh was consulted before the clean check refused it"
+echo "ok: a dirty worktree is refused even with a verified merged PR (exit 5)"
 
 # 10. The caller's own worktree is refused by the self-guard.
 wt_self="$tmp/wt-self"
