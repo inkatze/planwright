@@ -37,11 +37,12 @@
 #       carries uncommitted work, or if neither evidence path below holds:
 #         A. upstream parity — a configured upstream, zero commits ahead;
 #         B. --merged-pr <n> — this script verifies via `gh` that PR <n> is
-#            MERGED and that its head oid IS this worktree's HEAD. For the
-#            post-merge shape where the forge auto-deleted the remote branch, so
-#            the upstream is gone and A can never hold although the commits are
-#            provably merged. Verified, never trusted: no `gh`, an unreadable
-#            field, a non-MERGED state, or an oid mismatch all refuse.
+#            MERGED and that its head oid IS this worktree's HEAD. This covers
+#            the post-merge shape where the forge auto-deleted the remote branch:
+#            the upstream is gone, so A can never hold, even though the commits
+#            are provably merged. Verified, never trusted — no `gh`, a reply that
+#            is not exactly the two fields asked for, an unreadable field, a
+#            non-MERGED state, or an oid mismatch all refuse.
 #
 # <trigger>/<reasoning> are free-text audit fields (the caller's determination of
 # WHY the target is stale) under fleet-audit's control-free text grammar.
@@ -250,8 +251,8 @@ case "$cmd" in
     trigger=$2
     reasoning=$3
     # Optional second evidence path (see the evidence block below). The number is
-    # DATA: digit-only, unbounded-length-refused, no leading zero, and never
-    # interpolated into a shell string — it is passed to `gh` as ARGV.
+    # DATA: digit-only, no leading zero, length-bounded, and never interpolated
+    # into a shell string — it is passed to `gh` as ARGV.
     merged_pr=""
     if [ "$#" -eq 5 ]; then
       if [ "$4" != "--merged-pr" ]; then
@@ -337,9 +338,9 @@ case "$cmd" in
     esac
 
     # Positive evidence the worktree is reclaimable: a git worktree whose root
-    # is exactly this path, clean (no uncommitted changes), and fully pushed (no
-    # commits ahead of a configured upstream). Any missing piece is refused —
-    # reclaiming would lose work.
+    # is exactly this path, clean (no uncommitted changes), and carrying commits
+    # that provably survive its removal — either evidence path in the block
+    # below. Any missing piece is refused — reclaiming would lose work.
     top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null) || top=""
     if [ -z "$top" ]; then
       warn "'$path' is not a git worktree — refusing to remove an unknown directory"
