@@ -38,6 +38,11 @@
 #     no-upstream-no-flag default is still refused (the regression guard);
 #   - the gh QUERY SHAPE itself: the PR number the caller named is what reached
 #     gh, both --json fields are asked for in one query, template intact;
+#   - the evidence path's remaining fail-closed branches: gh ABSENT (a PATH
+#     mirrored without it, so the host's real gh is not reached), a non-hex head
+#     oid, and a gh reply with no separator to split all refuse (exit 5);
+#   - PRECEDENCE: upstream parity alone still reclaims with --merged-pr also
+#     passed and gh broken, and gh is never consulted in that case;
 #   - the caller's own worktree is refused by the self-guard (exit 3);
 #   - hostile tmux/path tokens are refused (exit 2);
 #   - every reclaim and every self-block writes a fleet-audit row.
@@ -139,10 +144,17 @@ chmod +x "$fakebin/tmux"
 # that both --json fields were asked for, and that the template is intact.
 # Without that, a regression asking about a DIFFERENT PR — or dropping a field —
 # passes the whole suite, because the stub answers the same either way.
+#
+# FAKE_GH_RAW replaces the whole reply with a verbatim string, for the shapes the
+# state/oid pair cannot express: a malformed answer with no separator at all.
 cat >"$fakebin/gh" <<EOF
 #!/bin/sh
 for a in "\$@"; do printf '%s\n' "\$a" >>"$tmp/gh-args"; done
 [ -n "\${FAKE_GH_FAIL:-}" ] && exit 1
+if [ -n "\${FAKE_GH_RAW:-}" ]; then
+  printf '%s\n' "\${FAKE_GH_RAW}"
+  exit 0
+fi
 printf '%s %s\n' "\${FAKE_GH_STATE:-MERGED}" "\${FAKE_GH_OID:-}"
 EOF
 chmod +x "$fakebin/gh"
@@ -324,7 +336,9 @@ run_worktree() {
   _cwd=$1
   shift
   : >"$killed"
-  PATH="$fakebin:$PATH" \
+  # WT_PATH lets a case substitute the whole PATH (9i's no-gh mirror); every
+  # other case gets the normal fake-bins-ahead-of-the-host arrangement.
+  PATH="${WT_PATH:-$fakebin:$PATH}" \
     PLANWRIGHT_FLEET_STATE_DIR="$fleet_home" \
     PLANWRIGHT_CONFIG_DEFAULTS="$core_cfg" \
     PLANWRIGHT_REPO_ROOT="$repo" \
@@ -333,6 +347,7 @@ run_worktree() {
     FAKE_GH_STATE="${FAKE_GH_STATE:-}" \
     FAKE_GH_OID="${FAKE_GH_OID:-}" \
     FAKE_GH_FAIL="${FAKE_GH_FAIL:-}" \
+    FAKE_GH_RAW="${FAKE_GH_RAW:-}" \
     sh -c 'cd "$1" && shift && exec /bin/bash "$0" "$@"' "$FC" "$_cwd" worktree "$@"
 }
 
@@ -487,6 +502,106 @@ run_worktree "$main_repo" "$wt_bad" "candidate" "unknown flag" \
   --bogus 320 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "unknown worktree flag: exit $rc, expected 2"
 echo "ok: a malformed --merged-pr value or unknown flag is a usage refusal (exit 2)"
+
+# --- 9i-9l. The remaining fail-closed branches of the evidence path, plus the
+# precedence between the two paths. Each of these was reachable only in
+# principle: deleting the gh-absent guard, or the non-hex-oid guard, from the
+# script left the suite fully green, so nothing observed them.
+
+# 9i. `gh` ABSENT entirely, not merely failing: the `command -v gh` guard must
+# fail closed. Deleting the stub is NOT enough — PATH still carries the host's
+# real gh behind it, which would then be queried against real GitHub. Shadowing
+# with a non-executable stub is no good either; `command -v` skips it and keeps
+# looking. So PATH is replaced by a directory of symlinks holding the tools the
+# worktree arm and its helpers need and NO gh.
+#
+# The list is deliberately curated rather than a mirror of the whole PATH: that
+# is 3500-odd symlinks on a developer machine and cost this suite ~2 minutes.
+# Under-provisioning it cannot produce a false pass — the case asserts the
+# gh-absent guard's own message, which the script only reaches after the gate,
+# the git probes, the self-guard and the clean check have all succeeded, so a
+# missing tool fails the case loudly instead of quietly refusing for the wrong
+# reason.
+nogh="$tmp/nogh"
+mkdir -p "$nogh"
+for _n in sh bash env git awk sed grep tr cat cut head tail wc sort uniq date \
+  mktemp mkdir rmdir mv cp rm ln ls id uname expr basename dirname find touch \
+  stat sleep printf tmux; do
+  _b=$(PATH="$fakebin:$PATH" command -v "$_n" 2>/dev/null) || continue
+  [ -n "$_b" ] && [ -e "$nogh/$_n" ] || ln -s "$_b" "$nogh/$_n" 2>/dev/null || :
+done
+PATH="$nogh" command -v gh >/dev/null 2>&1 \
+  && fail "no-gh PATH: gh still resolves, the fixture is wrong"
+PATH="$nogh" command -v git >/dev/null 2>&1 \
+  || fail "no-gh PATH: git does not resolve, the fixture is unusable"
+# Each of 9i-9k asserts the RESPONSIBLE guard by its message, not just the exit
+# code (the stderr-assertion pattern test-fleet-death-evidence.sh uses). These
+# three guards are deliberately defence-in-depth: a downstream check refuses the
+# same case anyway, so an exit-code-only assertion passes even with the guard
+# deleted and would not hold it in place. Short message fragments, to pin the
+# guard without coupling to a whole sentence.
+wt_ghgone=$(make_merged_wt wt-ghgone)
+rc=0
+err=$(WT_PATH="$nogh" \
+  run_worktree "$main_repo" "$wt_ghgone" "candidate" "no gh binary at all" \
+  --merged-pr 324 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "gh-absent worktree: exit $rc, expected 5"
+[ -d "$wt_ghgone" ] || fail "gh-absent worktree: removed although gh was absent"
+case $err in
+  *"no gh binary on PATH"*) ;;
+  *) fail "gh-absent worktree: the gh-absent guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr with no gh binary at all fails closed (exit 5)"
+
+# 9j. gh answers, MERGED, but the head oid is not a plain hex oid (a `<no value>`
+# from a field gh could not render, say) -> refused before any comparison.
+wt_badoid=$(make_merged_wt wt-badoid)
+rc=0
+err=$(FAKE_GH_STATE=MERGED FAKE_GH_OID='<no value>' \
+  run_worktree "$main_repo" "$wt_badoid" "candidate" "unreadable oid field" \
+  --merged-pr 325 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "non-hex-oid worktree: exit $rc, expected 5"
+[ -d "$wt_badoid" ] || fail "non-hex-oid worktree: removed on a non-hex head oid"
+case $err in
+  *"not a plain hex oid"*) ;;
+  *) fail "non-hex-oid worktree: the hex-oid guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr whose head oid is not plain hex fails closed (exit 5)"
+
+# 9k. gh exits 0 but its answer carries no separator at all, so the state/oid
+# pair cannot be split -> refused, rather than misparsed into a bogus pair.
+wt_nopair=$(make_merged_wt wt-nopair)
+rc=0
+err=$(FAKE_GH_RAW='MERGEDwithoutanyseparator' \
+  run_worktree "$main_repo" "$wt_nopair" "candidate" "unsplittable reply" \
+  --merged-pr 326 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "unsplittable-reply worktree: exit $rc, expected 5"
+[ -d "$wt_nopair" ] || fail "unsplittable-reply worktree: removed on an unparseable gh reply"
+case $err in
+  *"could not read the PR's state and head oid"*) ;;
+  *) fail "unsplittable-reply worktree: the pair-split guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr with an unsplittable gh reply fails closed (exit 5)"
+
+# 9l. PRECEDENCE: the two evidence paths are independent and either suffices, so
+# upstream parity alone reclaims even when --merged-pr is also passed AND gh is
+# broken. gh must never be consulted once path A is satisfied — a reclaim that
+# needed a working gh to clear an already-provable worktree would make the new
+# flag a new dependency rather than a wider evidence class.
+wt_both="$tmp/wt-both"
+(cd "$main_repo" && git_env git worktree add -q -b feat-both "$wt_both" >/dev/null 2>&1)
+(cd "$wt_both" && git_env git push -q -u origin feat-both)
+rm -rf "$fleet_home"
+rm -f "$tmp/gh-args"
+rc=0
+FAKE_GH_FAIL=1 \
+  run_worktree "$main_repo" "$wt_both" "merged branch" "parity plus a redundant flag" \
+  --merged-pr 327 >/dev/null 2>&1 || rc=$?
+[ "$rc" = 0 ] || fail "parity-wins worktree: exit $rc, expected 0 (upstream parity alone suffices)"
+[ ! -d "$wt_both" ] || fail "parity-wins worktree: directory still present after remove"
+[ ! -f "$tmp/gh-args" ] \
+  || fail "parity-wins worktree: gh was consulted although upstream parity already held"
+echo "ok: upstream parity alone reclaims and never consults gh (exit 0)"
 
 # 10. The caller's own worktree is refused by the self-guard.
 wt_self="$tmp/wt-self"
