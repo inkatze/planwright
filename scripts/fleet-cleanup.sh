@@ -57,8 +57,10 @@
 #   4  refused: the fleet_daemon_pause kill-switch is set (or the gate could not
 #      resolve its own switch — fail closed, degrade capability never safety)
 #   5  refused: no positive evidence the target is reclaimable (a live pane, a
-#      dirty/unpushed worktree, or lost observability — a tmux server unreachable
-#      mid-probe is not proof of absence), or the reclaim command itself failed
+#      dirty worktree, one whose commits are not provably safe — no upstream
+#      parity and no verified --merged-pr — or lost observability: neither a tmux
+#      server unreachable mid-probe nor an unusable `gh` is proof of absence),
+#      or the reclaim command itself failed
 #   6  acted (resource WAS reclaimed) but the audit-trail write failed — the
 #      action happened and is unrecorded; distinct from 2 so a caller never reads
 #      an unlogged reclaim as "nothing happened"
