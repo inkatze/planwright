@@ -214,6 +214,60 @@ assert_allow "sed read-only" "sed -n '1,5p' file"
 assert_allow "safe compound && (relay then observe)" "tmux load-buffer /tmp/b && tmux paste-buffer -t fleet:0"
 assert_allow "safe pipe observe" "tmux capture-pane -p -t fleet:0 | grep -c esc"
 
+echo "### Narrowed screen — sed bracket expressions are read-only (paired positives/negatives)"
+# The engine's sed screen is on what makes a sed script DANGEROUS (the w/W write,
+# r/R read-file and e exec commands, the w/W/e substitution flags, and -i), not on
+# the `[` character: a bracket expression is read-only however it parses. Ported
+# from the worker guard, which carries the same engine (obs
+# command-guard-engine-dup: the tokenizer is duplicated across both files, so a
+# fix must be applied and pinned twice until a shared library is extracted).
+assert_allow "sed bracket digit class in s-pattern" "sed -E 's/[0-9]//' file"
+assert_allow "sed bracket in address" "sed -n '/[0-9]/p' file"
+assert_allow "sed POSIX character class" "sed -n '/[[:space:]]/p' file"
+assert_allow "sed negated bracket" "sed -E 's/[^0-9]//g' file"
+assert_allow "sed leading-] bracket member" "sed 's/[]a]/x/' file"
+assert_allow "runbook observation-backlog grep (the reported defect)" \
+  "ls specs/_observations/entries/ | sed -E 's/^[0-9-]{11}//; s/-[0-9a-f]{8}\\.md\$//'"
+assert_defer "sed w command with a bracket in the FILENAME" "sed '/a/w [x]out.txt' file"
+assert_defer "sed r command with a bracket in the path" "sed '1r /etc/[p]asswd'"
+assert_defer "sed e exec after a bracket address" "sed '/[0-9]/e id' file"
+assert_defer "sed s///w write flag after a bracket pattern" "sed 's/[0-9]/x/w out.txt' file"
+assert_defer "sed s///e exec flag after a bracket pattern" "sed 's/[0-9]/id/e' file"
+assert_defer "sed -i in-place with a bracket pattern" "sed -i 's/[0-9]//' file"
+assert_defer "sed bracket hides exec (delimiter desync)" "sed '/[/]/e touch pwned' file"
+assert_defer "sed bracket hides write (delimiter desync)" "sed '/[/]/w victim.txt' file"
+assert_defer "sed literal [ in replacement hiding a w flag" "sed 's/a/[/w x]/' file"
+assert_defer "sed backslash inside bracket (GNU vs BSD divergence)" "sed 's/[\\]]/x/' file"
+assert_defer "sed unterminated bracket expression" "sed 's/[0-9/x/' file"
+assert_defer "sed bracket at command position" "sed '[abc]p' file"
+
+echo "### Narrowed screen — awk read-only filter forms (paired positives/negatives)"
+# awk was entirely unverified (every invocation deferred). The screen allows the
+# ordinary read-only filter forms and defers awk's exec vectors (system(), either
+# direction of a command pipe, @load) and every output vector (`>` / `>>` / `|`
+# redirection, close(), and the flags that write or load a file).
+assert_allow "awk regex filter" "ls | awk '/x/'"
+assert_allow "awk print field" "awk '{print \$1}' file"
+assert_allow "awk -F attached separator" "awk -F: '{print \$1}' file"
+assert_allow "awk -v assignment" "awk -v n=3 'NR<=n' file"
+assert_allow "awk in an observe pipeline" "tmux capture-pane -p -t fleet:0 | awk '{print \$1}'"
+assert_defer "awk system() exec" "awk 'BEGIN{system(\"rm -rf x\")}'"
+assert_defer "awk print redirection >" "awk '{print > \"f\"}' file"
+assert_defer "awk print redirection >>" "awk '{print >> \"f\"}' file"
+assert_defer "awk print pipe to command" "awk '{print | \"sh\"}' file"
+assert_defer "awk command | getline exec" "awk 'BEGIN{\"id\" | getline x; print x}'"
+assert_defer "awk close()" "awk 'BEGIN{close(\"f\")}'"
+assert_defer "awk @load extension" "awk '@load \"filefuncs\"; BEGIN{print 1}'"
+assert_defer "awk ENVIRON decants the environment" "awk 'BEGIN{print ENVIRON[\"PATH\"]}'"
+assert_defer "awk -f external program file" "awk -f prog.awk file"
+assert_defer "awk -p profile writes a file" "awk -p prof.out '{print}' file"
+assert_defer "awk with no inline program" "awk -F:"
+assert_defer "awk dangling -v" "awk -v"
+assert_defer "awk unplaceable -v assignment" "awk -v '1x=2' '{print}' file"
+assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 5' file"
+assert_defer "awk shell redirect to a file" "awk '{print}' file > out.txt"
+assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
+
 echo "### REQ-C1.2/C1.3 — tmux escalation shapes DEFER (never send-keys / kill)"
 assert_defer "tmux send-keys DEFER" "tmux send-keys -t fleet:0 'rm -rf x' Enter"
 assert_defer "tmux send-keys C-m DEFER" "tmux send-keys -t fleet:0 C-m"

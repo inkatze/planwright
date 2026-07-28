@@ -37,8 +37,11 @@
 # or brace grouping, env-assignment prefixes, path-prefixed verbs, escaped
 # operators, ANSI-C quoting — all of which defer (REQ-A1.9). Repo `scripts/*.sh`
 # / `tests/*.sh` and `bats <file>` are trusted repo code but only after their
-# path canonicalizes INSIDE the repository (REQ-A1.10). `fish -c "<inner>"`
-# recurses the same analysis on the inner string within a bounded depth.
+# path canonicalizes INSIDE the repository, and an INSTALLED planwright root's
+# `scripts/*.sh` is trusted after canonicalizing inside a root the hook resolves
+# for itself (REQ-A1.10; see is_planwright_script — the reason this needs no
+# per-machine, version-pinned allow entry). `fish -c "<inner>"` recurses the same
+# analysis on the inner string within a bounded depth.
 #
 # Portable bash (3.2 floor / BSD compatible), no dependency on python, fish,
 # mise, tmux, or Ansible; the security-critical analysis is pure shell. jq is
@@ -370,12 +373,16 @@ repo_root_of() {
   return 1
 }
 
-# canon_contained <path> <cwd>: prints the canonical path and returns 0 only
-# when it resolves inside the repo root; returns non-zero (DEFER) otherwise —
-# including when the repo root or the path's directory cannot be resolved.
-canon_contained() {
-  local p=$1 cwd=$2 root d b cd
-  root=$(repo_root_of "$cwd") || return 1
+# canon_under <path> <cwd> <base>: prints the canonical absolute path of <path>
+# (resolved relative to <cwd>) and returns 0 only when it resolves inside <base>,
+# an ALREADY-CANONICAL root; returns non-zero (DEFER) otherwise — including when
+# <base> is empty or the path's directory cannot be resolved. Both sides of the
+# containment compare are canonical, so a `..` segment cannot escape and a
+# sibling directory that merely shares the root's name PREFIX
+# (`/x/planwright-evil` against `/x/planwright`) does not match.
+canon_under() {
+  local p=$1 cwd=$2 base=$3 d b cd
+  [ -n "$base" ] || return 1
   case $p in
     /*) ;;
     *) p="$cwd/$p" ;;
@@ -391,12 +398,21 @@ canon_contained() {
   # in-repo location (a symlinked script travels through a normal git checkout).
   [ -L "$full" ] && return 1
   case $full in
-    "$root"/*)
+    "$base"/*)
       printf '%s' "$full"
       return 0
       ;;
     *) return 1 ;;
   esac
+}
+
+# canon_contained <path> <cwd>: canon_under against the repo root — prints the
+# canonical path and returns 0 only when it resolves inside the repository;
+# non-zero (DEFER) otherwise, including when the repo root cannot be resolved.
+canon_contained() {
+  local root
+  root=$(repo_root_of "$2") || return 1
+  canon_under "$1" "$2" "$root"
 }
 
 # is_repo_script <path> <cwd>: 0 when <path> is a `.sh` under a scripts/ or
@@ -416,8 +432,70 @@ is_repo_script() {
   esac
 }
 
+# is_planwright_script <path> <cwd>: 0 when <path> is a `.sh` under the
+# `scripts/` directory of a RESOLVED planwright installation root (REQ-A1.5,
+# REQ-A1.10). This is the installed-plugin twin of is_repo_script: a dispatched
+# worker runs planwright's OWN scripts from wherever the plugin is installed,
+# which is outside the repo checkout and so can never satisfy repo containment.
+#
+# The root chain is the one every other planwright script resolves its own root
+# with (scripts/resolve-rule-doc.sh, config-get.sh, resolve-review-sequence.sh,
+# resolve-overlay-root.sh), highest precedence first:
+#
+#   1. $PLANWRIGHT_ROOT            explicit override (tests, adopters)
+#   2. $CLAUDE_PLUGIN_ROOT         plugin delivery, when Claude Code exports it
+#   3. <claude-dir>/planwright     writer delivery ($CLAUDE_DIR else $HOME/.claude)
+#   4. $HOOK_SELF_ROOT             this hook's own sibling root (`dirname $0`/..)
+#
+# Arm 4 is what makes this allowance need NO per-machine, version-pinned settings
+# entry: the guard ships at <root>/scripts/worker-command-guard.sh, so it can
+# always locate its own root — including under a marketplace install whose root
+# carries the plugin VERSION in its path (so nothing breaks on the next plugin
+# update), and including the real-world case where CLAUDE_PLUGIN_ROOT is not
+# exported into a hook's environment. Trusting the guard's own siblings is the
+# same trust boundary as trusting the guard itself: every root comes from the
+# session environment or the hook's own location, NEVER from the analyzed command
+# (which stays inert data, REQ-B1.1).
+#
+# Each root is canonicalized (`cd … && pwd -P`, resolving `..` segments and
+# symlinked components) BEFORE the compare and skipped when it does not resolve;
+# containment then goes through canon_under, so a `..` segment in the path, a
+# symlinked leaf, or a sibling directory that merely shares the root's name
+# PREFIX never passes. `tests/` is deliberately NOT trusted here (an install
+# ships no tests/), keeping this addition strictly narrower than the repo case.
+is_planwright_script() {
+  local p=$1 cwd=$2 claude_dir='' r root full rel
+  case $p in
+    *.sh) ;;
+    *) return 1 ;;
+  esac
+  if [ -n "${CLAUDE_DIR:-}" ]; then
+    claude_dir=$CLAUDE_DIR
+  elif [ -n "${HOME:-}" ]; then
+    claude_dir="$HOME/.claude"
+  fi
+  for r in "${PLANWRIGHT_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}" \
+    "${claude_dir:+$claude_dir/planwright}" "${HOOK_SELF_ROOT:-}"; do
+    [ -n "$r" ] || continue
+    root=$(cd "$r" 2>/dev/null && pwd -P) || continue
+    full=$(canon_under "$p" "$cwd" "$root") || continue
+    rel=${full#"$root"/}
+    case $rel in
+      scripts/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# is_trusted_script <path> <cwd>: the trusted-script union — repo checkout code
+# (scripts/ or tests/) or an installed planwright root's scripts/.
+is_trusted_script() {
+  is_repo_script "$1" "$2" || is_planwright_script "$1" "$2"
+}
+
 # is_contained_file <path> <cwd>: 0 when <path> canonicalizes inside the repo
-# (used for `bats <file>`, which need not sit under scripts/ or tests/).
+# (used for `bats <file>`, which need not sit under scripts/ or tests/, and which
+# stays REPO-scoped — an install ships no test files to run).
 is_contained_file() {
   canon_contained "$1" "$2" >/dev/null
 }
@@ -427,26 +505,129 @@ is_contained_file() {
 # caller's `cw` array (index 0 = verb) and `cwn` count via dynamic scope, plus
 # `HOOK_CWD` and `HOOK_DEPTH`. Every guard's default/fallthrough is DEFER.
 
+# sed_bracket_end / sed_scan_regex / sed_scan_literal: the delimiter-aware
+# region scanners sed_script_safe walks its script with. All three read and
+# advance the caller's `s` (script), `n` (length), `i` (cursor) and `d`
+# (delimiter) via dynamic scope, and every one of them returns non-zero (DEFER)
+# rather than guess when a region's extent is not identical across sed dialects.
+#
+# Why they exist: a POSIX bracket expression `[...]` makes the delimiter char
+# LITERAL, so a `/` inside `[...]` does NOT close a `/regex/` or an `s///`
+# pattern. A scanner blind to brackets desyncs from real sed on `/[/]/w f` and
+# lets a write/exec command hide behind the desync; a scanner that instead bails
+# on every `[` cannot approve the read-only bracket forms that dominate real
+# usage (`s/^[0-9-]{11}//`). These scan brackets explicitly and defer only on the
+# constructs whose extent genuinely differs between dialects.
+#
+# sed_bracket_end: `i` points at the opening `[`; advance past the matching `]`.
+sed_bracket_end() {
+  local j=$((i + 1)) c nc k
+  [ "${s:j:1}" = '^' ] && j=$((j + 1)) # negation, then …
+  [ "${s:j:1}" = ']' ] && j=$((j + 1)) # … a LEADING `]` is a literal member
+  while [ "$j" -lt "$n" ]; do
+    c=${s:j:1}
+    case $c in
+      # GNU sed honors backslash escapes INSIDE a bracket expression (`[\]]`,
+      # `[\n]`); POSIX and BSD sed treat the backslash as an ordinary member, so
+      # the bracket ENDS at a different offset under the two dialects. That is
+      # exactly the desync this scanner must not guess at: defer.
+      \\) return 1 ;;
+      '[')
+        nc=${s:j+1:1}
+        case $nc in
+          ':' | '.' | '=')
+            # `[:class:]` / `[.coll.]` / `[=equiv=]`: a sub-bracket whose `]`
+            # does not close the enclosing expression. Scan to its own `<x>]`.
+            k=$((j + 2))
+            while [ "$k" -lt "$n" ]; do
+              [ "${s:k:1}" = "$nc" ] && [ "${s:k+1:1}" = ']' ] && break
+              k=$((k + 1))
+            done
+            [ "$k" -lt "$n" ] || return 1 # unterminated class/collating element
+            j=$((k + 2))
+            ;;
+          *) j=$((j + 1)) ;; # a plain `[` member
+        esac
+        ;;
+      ']')
+        i=$((j + 1))
+        return 0
+        ;;
+      *) j=$((j + 1)) ;;
+    esac
+  done
+  return 1 # unterminated bracket expression (real sed errors out)
+}
+
+# sed_scan_regex: `i` sits just past a region's opening delimiter `d`; advance
+# past its closing delimiter, treating the region as a REGULAR EXPRESSION (so
+# `[...]` hides the delimiter). Used for addresses and an `s` command's pattern.
+sed_scan_regex() {
+  local c
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    # The delimiter is tested FIRST: a script may choose any delimiter, and a
+    # delimiter that also opens a bracket is rejected by the caller.
+    if [ "$c" = "$d" ]; then
+      i=$((i + 1))
+      return 0
+    fi
+    case $c in
+      \\) i=$((i + 2)) ;; # an escaped char (including an escaped delimiter)
+      '[') sed_bracket_end || return 1 ;;
+      *) i=$((i + 1)) ;;
+    esac
+  done
+  return 1 # unterminated region
+}
+
+# sed_scan_literal: same, for a region that is NOT a regular expression — an `s`
+# command's REPLACEMENT and both halves of `y`. Brackets carry no meaning there
+# (`s/a/[/w f` writes a file), so treating them as bracket expressions would
+# over-consume and skip the flag block: scan delimiters and escapes only.
+sed_scan_literal() {
+  local c
+  while [ "$i" -lt "$n" ]; do
+    c=${s:i:1}
+    if [ "$c" = "$d" ]; then
+      i=$((i + 1))
+      return 0
+    fi
+    case $c in
+      \\) i=$((i + 2)) ;;
+      *) i=$((i + 1)) ;;
+    esac
+  done
+  return 1 # unterminated region
+}
+
+# sed_delim_ok <char>: 0 only for a delimiter this scanner can place. sed forbids
+# a backslash or newline delimiter outright; `[` and `]` are rejected here
+# because a bracket-opening delimiter makes "is this `[` a delimiter or a bracket
+# expression" genuinely ambiguous across dialects (REQ-B1.3 fail-closed).
+sed_delim_ok() {
+  case $1 in
+    '' | \\ | '[' | ']' | "$NL") return 1 ;;
+  esac
+  return 0
+}
+
 # sed_script_safe <script>: 0 only when a sed script is provably read-only —
 # it contains no write (`w`/`W`), exec (`e`), or arbitrary-file-read (`r`/`R`)
 # command, and no `s///` substitution whose flag block carries `w`/`W`/`e`. It
 # is a small, inert delimiter-aware scanner (never eval-ed), deferring on ANY
 # doubt: a bare/malformed command, the text-region commands `a`/`i`/`c` (their
 # multi-line text region is not soundly segmentable here), and anything it
-# cannot place. This is the fix for the whitespace-optional flag forms
-# (`s/.*/x/e`, `s/a/b/wFILE`) a naive `[wWe][[:space:]]` heuristic misses.
+# cannot place — an unplaceable delimiter (sed_delim_ok), an unterminated region,
+# a dialect-divergent bracket expression (sed_bracket_end), or a `[` at command
+# position. This is the fix for the whitespace-optional flag forms (`s/.*/x/e`,
+# `s/a/b/wFILE`) a naive `[wWe][[:space:]]` heuristic misses. It screens what
+# makes a sed script dangerous — the `w`/`W` (write), `r`/`R` (read-file) and `e`
+# (exec) commands, and the `w`/`W`/`e` substitution flags — NOT the mere presence
+# of a bracket expression, which is read-only however it parses.
 sed_script_safe() {
   local s=$1
-  local n=${#s} i=0 c d seen
-  # A POSIX bracket expression `[...]` makes the delimiter char literal, so a
-  # `/` (or custom delimiter) inside `[...]` would close a `/regex/` or `s///`
-  # section EARLY and desync this scanner from real sed — reopening the
-  # write/exec smuggling this guard closes. Modeling bracket expressions
-  # soundly across sed dialects (leading `]`, `[:class:]`, GNU vs BSD escaping)
-  # is error-prone, so any script containing `[` defers wholesale.
-  case $s in
-    *'['*) return 1 ;;
-  esac
+  local n=${#s} i=0 c d
   while [ "$i" -lt "$n" ]; do
     c=${s:i:1}
     # Command separators / block braces reset to command position.
@@ -472,34 +653,23 @@ sed_script_safe() {
         continue
         ;;
       '/')
+        d='/'
         i=$((i + 1))
-        while [ "$i" -lt "$n" ]; do
-          case ${s:i:1} in
-            \\) i=$((i + 2)) ;;
-            '/')
-              i=$((i + 1))
-              break
-              ;;
-            *) i=$((i + 1)) ;;
-          esac
-        done
+        sed_scan_regex || return 1
         continue
         ;;
       \\)
+        # `\cREc`: a custom-delimiter address regex.
         d=${s:i+1:1}
-        [ -n "$d" ] || return 1
+        sed_delim_ok "$d" || return 1
         i=$((i + 2))
-        while [ "$i" -lt "$n" ]; do
-          case ${s:i:1} in
-            \\) i=$((i + 2)) ;;
-            "$d")
-              i=$((i + 1))
-              break
-              ;;
-            *) i=$((i + 1)) ;;
-          esac
-        done
+        sed_scan_regex || return 1
         continue
+        ;;
+      '[')
+        # A `[` at COMMAND position is not a sed address or command at all (real
+        # sed errors out). Never silently skip it: defer (REQ-B1.3 fail-closed).
+        return 1
         ;;
     esac
     # A command letter.
@@ -508,20 +678,16 @@ sed_script_safe() {
       a | i | c) return 1 ;;         # text-region commands: defer (unparsed here)
       s | y)
         d=${s:i+1:1}
-        [ -n "$d" ] || return 1
+        sed_delim_ok "$d" || return 1
         i=$((i + 2))
-        seen=0
-        while [ "$i" -lt "$n" ] && [ "$seen" -lt 2 ]; do
-          case ${s:i:1} in
-            \\) i=$((i + 2)) ;;
-            "$d")
-              seen=$((seen + 1))
-              i=$((i + 1))
-              ;;
-            *) i=$((i + 1)) ;;
-          esac
-        done
-        [ "$seen" -lt 2 ] && return 1 # unterminated s/y command
+        # `s` takes a REGEX then a literal replacement; `y` takes two literal
+        # character lists (no bracket expression in either half).
+        if [ "$c" = s ]; then
+          sed_scan_regex || return 1
+        else
+          sed_scan_literal || return 1
+        fi
+        sed_scan_literal || return 1
         if [ "$c" = s ]; then
           # Flag block: reject a w/W/e substitution flag (write/exec).
           while [ "$i" -lt "$n" ]; do
@@ -571,6 +737,86 @@ guard_sed() {
     esac
   done
   [ "$expect_e" = 1 ] && return 1
+  return 0
+}
+
+# awk_program_safe <program>: 0 only when an awk program text is provably
+# read-only. awk's dangerous surface is (a) EXEC — `system(…)`, either direction
+# of a command pipe (`print | "cmd"`, `"cmd" | getline`, gawk's `|&` coprocess),
+# and gawk's `@load` / `@include` / indirect `@fn` calls — and (b) OUTPUT — a
+# `print`/`printf` redirected with `>` / `>>` to a file (or to gawk's
+# `/dev/stdout`-style special files).
+#
+# Telling a REDIRECTING `>` from a RELATIONAL `>` requires a real awk parser: the
+# character is identical and only its grammar position separates `print > "f"`
+# from `$1 > 5`. This screen does not attempt that. ANY `>` defers, as does any
+# `|`, `@`, `system`, or `close`. That over-defers the read-only comparison forms
+# — which is the fail-closed direction, and no worse for them than today, where
+# every awk invocation defers. It also defers `ENVIRON` (a program that decants
+# the session environment into the transcript is not the read-only filter shape
+# this widening is for).
+awk_program_safe() {
+  case $1 in
+    *'>'* | *'|'* | *'@'* | *system* | *close* | *ENVIRON*) return 1 ;;
+  esac
+  return 0
+}
+
+# awk_assignment_ok <text>: 0 only when <text> is a placeable `name=value`
+# variable assignment (a valid awk identifier left of the first `=`). A `-v`
+# operand this cannot place means the guard's arg model has diverged from awk's,
+# so the caller defers rather than assume the token is inert data.
+awk_assignment_ok() {
+  case $1 in
+    [A-Za-z_]*=*) ;;
+    *) return 1 ;;
+  esac
+  case ${1%%=*} in
+    *[!A-Za-z0-9_]*) return 1 ;;
+  esac
+  return 0
+}
+
+# guard_awk: strict flag allowlist (REQ-A1.8) plus the read-only program check.
+# Only the inline-program form is verifiable, so `-f`/--file` (an external
+# program file), gawk's file-writing/loading flags (`-p`/--profile`, `-o`,
+# `-d`/--dump-variables`, `-l`/--load`, `-i`/--include`, `-E`, `--source`), any
+# bundled short-flag token, and any unrecognized flag all defer. The first
+# non-flag operand is the program (screened); later operands are input files and
+# `var=value` assignments, which awk only ever READS.
+guard_awk() {
+  local i a expect=none prog_taken=0
+  for ((i = 1; i < cwn; i++)); do
+    a=${cw[i]}
+    case $expect in
+      fs) # the value of a space-form -F: an inert field-separator regex
+        expect=none
+        continue
+        ;;
+      assign)
+        awk_assignment_ok "$a" || return 1
+        expect=none
+        continue
+        ;;
+    esac
+    case $a in
+      -F | --field-separator) expect=fs ;;
+      -F?* | --field-separator=*) ;; # attached value: inert
+      -v | --assign) expect=assign ;;
+      -v?*) awk_assignment_ok "${a#-v}" || return 1 ;;
+      --assign=*) awk_assignment_ok "${a#--assign=}" || return 1 ;;
+      --posix | --traditional | -c | --compat | -b | --characters-as-bytes | --re-interval | -S | --sandbox | --help | --usage | --version | -V | --) ;;
+      -*) return 1 ;; # -f / -p / -o / -d / -l / -i / -E / bundled / unknown: defer
+      *)
+        if [ "$prog_taken" = 0 ]; then
+          awk_program_safe "$a" || return 1
+          prog_taken=1
+        fi
+        ;;
+    esac
+  done
+  [ "$expect" = none ] || return 1  # a dangling value-flag with no value: defer
+  [ "$prog_taken" = 1 ] || return 1 # no inline program (the -f form): defer
   return 0
 }
 
@@ -650,13 +896,14 @@ guard_mdlint() {
 }
 
 guard_bashsh() {
-  # Only `bash <repo-script> [args]` / `sh <repo-script> [args]`; any option
-  # (notably -c / -ec) defers (REQ-A1.5, REQ-A1.9).
+  # Only `bash <trusted-script> [args]` / `sh <trusted-script> [args]` — repo
+  # code or an installed planwright root's scripts/; any option (notably -c /
+  # -ec) defers (REQ-A1.5, REQ-A1.9).
   [ "$cwn" -ge 2 ] || return 1
   case ${cw[1]} in
     -*) return 1 ;;
   esac
-  is_repo_script "${cw[1]}" "$HOOK_CWD"
+  is_trusted_script "${cw[1]}" "$HOOK_CWD"
 }
 
 guard_fish() {
@@ -917,6 +1164,7 @@ classify_verb() {
     file) guard_file ;;
     find) guard_find ;;
     sed) guard_sed ;;
+    awk) guard_awk ;;
     markdownlint | markdownlint-cli2) guard_mdlint ;;
     # Enumerated read-only subcommand tools.
     git) guard_git ;;
@@ -958,11 +1206,12 @@ verify_simple() {
       esac
       ;;
   esac
-  # A verb given as a path containing '/' is only the enumerated repo-script
-  # case; every other path-prefixed verb defers (REQ-A1.9, REQ-A1.10).
+  # A verb given as a path containing '/' is only the enumerated trusted-script
+  # case (repo code, or an installed planwright root's scripts/); every other
+  # path-prefixed verb defers (REQ-A1.9, REQ-A1.10).
   case $verb in
     */*)
-      is_repo_script "$verb" "$HOOK_CWD" && return 0
+      is_trusted_script "$verb" "$HOOK_CWD" && return 0
       return 1
       ;;
   esac
@@ -1175,6 +1424,12 @@ main() {
 # themselves, which cannot carry a literal newline portably).
 NL=$'\n'
 TAB=$'\t'
+
+# The hook's own sibling root — the final, delivery-mode-agnostic arm of
+# is_planwright_script's root chain (see there). Resolved ONCE at load, before
+# any payload is read, and left empty when it cannot be resolved (in which case
+# that arm simply never fires). Never derived from the analyzed command.
+HOOK_SELF_ROOT=$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P) || HOOK_SELF_ROOT=''
 
 # Fail safe on any unexpected signal: empty stdout, exit 0 (REQ-B1.7). The hook
 # never blocks a worker's tool call.
