@@ -487,13 +487,21 @@ run_worktree "$main_repo" "$wt_noev" "candidate" "no evidence offered" \
 [ -d "$wt_noev" ] || fail "no-evidence worktree: removed with no evidence at all"
 echo "ok: no upstream and no --merged-pr is still refused (exit 5)"
 
-# 9h. A malformed --merged-pr value is a usage refusal (exit 2), never a query.
+# 9h. A malformed --merged-pr value is a usage refusal (exit 2), NEVER a query —
+# and the "never a query" half is asserted, not merely asserted in a comment:
+# gh-args must still be absent afterwards. That is what proves validation runs
+# strictly BEFORE the network call, so a hostile token is never handed to a
+# subprocess at all; an exit-2 check alone would also pass if the script queried
+# gh first and rejected the value afterwards.
 wt_bad=$(make_merged_wt wt-bad)
+rm -f "$tmp/gh-args"
 for bad in "not-a-number" "-5" "0" "12x" "1234567890123" "" "\$(id)"; do
   rc=0
   run_worktree "$main_repo" "$wt_bad" "candidate" "hostile pr token" \
     --merged-pr "$bad" >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || fail "malformed --merged-pr '$bad': exit $rc, expected 2"
+  [ ! -f "$tmp/gh-args" ] \
+    || fail "malformed --merged-pr '$bad': gh was invoked before the value was rejected (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
 done
 [ -d "$wt_bad" ] || fail "malformed --merged-pr: worktree was removed"
 # An unknown flag in the fourth slot is also a usage error.
@@ -501,7 +509,9 @@ rc=0
 run_worktree "$main_repo" "$wt_bad" "candidate" "unknown flag" \
   --bogus 320 >/dev/null 2>&1 || rc=$?
 [ "$rc" = 2 ] || fail "unknown worktree flag: exit $rc, expected 2"
+[ ! -f "$tmp/gh-args" ] || fail "unknown worktree flag: gh was invoked despite a usage error"
 echo "ok: a malformed --merged-pr value or unknown flag is a usage refusal (exit 2)"
+echo "ok: a refused --merged-pr value never reaches gh at all"
 
 # --- 9i-9l. The remaining fail-closed branches of the evidence path, plus the
 # precedence between the two paths. Each of these was reachable only in
