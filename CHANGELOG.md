@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.32.1](https://github.com/inkatze/planwright/compare/v0.32.0...v0.32.1) (2026-07-28)
+
+
+### Bug Fixes
+
+* **command-guard:** narrow three over-broad screens that defer read-only pre-flight ([#330](https://github.com/inkatze/planwright/issues/330)) ([260b3dd](https://github.com/inkatze/planwright/commit/260b3dd7ffce72c4d2eb90236d69179b89ddd532))
+* **fleet:** admit a verified merged PR as worktree-reclaim evidence ([#328](https://github.com/inkatze/planwright/issues/328)) ([c64ce20](https://github.com/inkatze/planwright/commit/c64ce203e9a6004b69b6ad39e9e84f8720c5310a))
+
 ## [0.32.0](https://github.com/inkatze/planwright/compare/v0.31.0...v0.32.0) (2026-07-27)
 
 
