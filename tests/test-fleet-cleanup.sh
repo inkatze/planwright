@@ -435,17 +435,28 @@ case $rows in
   *cleanup*) ;;
   *) fail "merged-pr worktree: no cleanup audit row (got: '$rows')" ;;
 esac
-# The QUERY SHAPE, not just its answer. `gh` must have been asked about the PR
-# number the CALLER named (320) — a script that verified a different PR would be
-# checking evidence for the wrong thing — and asked for both fields in one query
-# with the template intact. Each arg is its own line, so -Fx matches exactly.
+# The QUERY SHAPE, not just its answer: the EXACT argv, in order, one arg per
+# recorded line. Asserting the whole sequence rather than searching for the
+# values independently is what pins the contract — the subcommand (`pr view`, not
+# some other gh command), the PR number the CALLER named (a script verifying a
+# different PR would be checking evidence for the wrong thing), both fields in
+# ONE query, and the template that makes the reply the two-field pair the parser
+# requires. Independent per-value searches would pass for any invocation that
+# merely mentioned these strings somewhere in its arguments.
 [ -f "$tmp/gh-args" ] || fail "merged-pr worktree: gh was never invoked at all"
-grep -Fxq -- '320' "$tmp/gh-args" \
-  || fail "merged-pr worktree: gh was not asked about the caller's PR 320 (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
-grep -Fxq -- 'state,headRefOid' "$tmp/gh-args" \
-  || fail "merged-pr worktree: gh was not asked for both state and headRefOid"
-grep -Fxq -- '{{.state}} {{.headRefOid}}' "$tmp/gh-args" \
-  || fail "merged-pr worktree: the state/oid pair template is not intact"
+expected_argv='pr
+view
+320
+--json
+state,headRefOid
+--template
+{{.state}} {{.headRefOid}}'
+actual_argv=$(cat "$tmp/gh-args")
+[ "$actual_argv" = "$expected_argv" ] || fail "merged-pr worktree: gh argv is not the exact query contract.
+expected:
+$expected_argv
+actual:
+$actual_argv"
 echo "ok: a clean worktree with a verified merged PR is removed and audited"
 echo "ok: the gh query names the caller's PR and asks for both fields at once"
 
