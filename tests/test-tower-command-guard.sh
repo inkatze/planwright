@@ -411,6 +411,47 @@ else
   fail "distinctness — bats: tower=$(is_allow && echo allow || echo defer) worker=$(worker_is_allow && echo allow || echo defer)"
 fi
 
+echo "### Shared-engine parity — the duplicated sed/awk screens must agree in BOTH guards"
+# obs command-guard-engine-dup: the ~600-line tokenizer/verify engine (including
+# sed_script_safe, its bracket scanners, and guard_awk) is DUPLICATED across
+# scripts/worker-command-guard.sh and scripts/tower-command-guard.sh, so an engine
+# fix must be applied twice. Nothing pinned that today: a fix landing in one file
+# only would pass both suites. These fixtures cross-run the SHARED surface (sed and
+# awk, which are deliberately identical in both safe sets — unlike bats / fish -c /
+# tmux / claude, which are deliberately distinct and are covered above) and fail
+# when the two guards disagree, so a one-sided engine edit is caught here.
+parity() {
+  local label="$1" cmd="$2" t w
+  run_hook "$cmd"
+  check_invariants "$label" || return
+  run_worker_hook "$cmd"
+  is_allow && t=allow || t=defer
+  worker_is_allow && w=allow || w=defer
+  if [ "$t" = "$w" ]; then
+    pass "$label (both $t)"
+  else
+    fail "$label — shared-engine DRIFT: tower=$t worker=$w (an engine fix landed in one guard only)"
+  fi
+}
+parity "parity: sed bracket class allows" "sed -E 's/[0-9]//' file"
+parity "parity: sed POSIX class allows" "sed -n '/[[:space:]]/p' file"
+parity "parity: sed leading-] member allows" "sed 's/[]a]/x/' file"
+parity "parity: sed runbook backlog grep allows" \
+  "ls specs/_observations/entries/ | sed -E 's/^[0-9-]{11}//; s/-[0-9a-f]{8}\\.md\$//'"
+parity "parity: sed w after bracket address defers" "sed '/[/]/w v.txt' file"
+parity "parity: sed e after bracket address defers" "sed '/[0-9]/e id' file"
+parity "parity: sed -i defers" "sed -i 's/[0-9]//' file"
+parity "parity: sed literal [ in replacement + w flag defers" "sed 's/a/[/w x]/' file"
+parity "parity: sed backslash-in-bracket defers" "sed 's/[\\]]/x/' file"
+parity "parity: sed [ at command position defers" "sed '[abc]p' file"
+parity "parity: awk read-only filter allows" "awk '{print \$1}' file"
+parity "parity: awk -F allows" "awk -F: '{print \$1}' file"
+parity "parity: awk -v allows" "awk -v n=3 'NR<=n' file"
+parity "parity: awk system() defers" "awk 'BEGIN{system(\"id\")}'"
+parity "parity: awk output redirection defers" "awk '{print > \"f\"}' file"
+parity "parity: awk -f progfile defers" "awk -f p.awk file"
+parity "parity: awk relational > defers" "awk '\$1 > 5' file"
+
 echo "### REQ-C1.3 — deny-precedence OUTCOME (derived from tower-settings deny block)"
 # Every command drawn from config/tower-settings.json's deny block MUST defer:
 # the guard never auto-approves a deny-listed command, so the safety property
