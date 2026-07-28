@@ -553,12 +553,17 @@ case $err in
 esac
 echo "ok: --merged-pr with no gh binary at all fails closed (exit 5)"
 
-# 9j. gh answers, MERGED, but the head oid is not a plain hex oid (a `<no value>`
-# from a field gh could not render, say) -> refused before any comparison.
+# 9j. gh answers, MERGED, but the head oid is not a plain hex oid -> refused
+# before any comparison. The fixture is an UPPERCASE oid: a single token (so the
+# shape check passes and this case reaches the hex guard it is here to pin) and a
+# realistic drift, since git oids are lowercase and the byte class is matched
+# under the pinned C locale. gh's `<no value>` placeholder for a field it cannot
+# render is NOT used here — it contains a space, so the shape check catches it
+# first; that shape is 9k/9k2's business.
 wt_badoid=$(make_merged_wt wt-badoid)
 rc=0
-err=$(FAKE_GH_STATE=MERGED FAKE_GH_OID='<no value>' \
-  run_worktree "$main_repo" "$wt_badoid" "candidate" "unreadable oid field" \
+err=$(FAKE_GH_STATE=MERGED FAKE_GH_OID='FD581EFA99A3F52ADEC94CF1CEBBB35DEECDB66A' \
+  run_worktree "$main_repo" "$wt_badoid" "candidate" "uppercase oid, not plain hex" \
   --merged-pr 325 2>&1 >/dev/null) || rc=$?
 [ "$rc" = 5 ] || fail "non-hex-oid worktree: exit $rc, expected 5"
 [ -d "$wt_badoid" ] || fail "non-hex-oid worktree: removed on a non-hex head oid"
@@ -582,6 +587,25 @@ case $err in
   *) fail "unsplittable-reply worktree: the pair-split guard did not refuse it (stderr: $err)" ;;
 esac
 echo "ok: --merged-pr with an unsplittable gh reply fails closed (exit 5)"
+
+# 9k2. The OTHER malformed shape: a reply with EXTRA tokens between the two
+# fields. Prefix/suffix expansion reads only the first and last word, so
+# `MERGED <junk> <matching-oid>` yields exactly the state and oid the reclaim
+# wants while silently discarding the middle — the one malformed shape that
+# fails OPEN rather than closed. The script asks for a two-field template, so
+# it must require exactly two fields and refuse anything else.
+wt_extra=$(make_merged_wt wt-extra)
+rc=0
+err=$(FAKE_GH_RAW="MERGED ignored $(cd "$wt_extra" && git rev-parse HEAD)" \
+  run_worktree "$main_repo" "$wt_extra" "candidate" "extra tokens in the reply" \
+  --merged-pr 329 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "extra-token-reply worktree: exit $rc, expected 5 (a 3-field reply is not the 2-field contract)"
+[ -d "$wt_extra" ] || fail "extra-token-reply worktree: REMOVED on a malformed reply whose middle field was discarded"
+case $err in
+  *"could not read the PR's state and head oid"*) ;;
+  *) fail "extra-token-reply worktree: the pair-split guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: --merged-pr with extra tokens in the gh reply fails closed (exit 5)"
 
 # 9l. PRECEDENCE: the two evidence paths are independent and either suffices, so
 # upstream parity alone reclaims even when --merged-pr is also passed AND gh is

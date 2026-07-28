@@ -410,7 +410,16 @@ case "$cmd" in
         --template '{{.state}} {{.headRefOid}}' 2>/dev/null) || pr_pair=""
       pr_state=${pr_pair%% *}
       pr_oid=${pr_pair##* }
-      if [ -z "$pr_pair" ] || [ "$pr_state" = "$pr_pair" ]; then
+      # EXACTLY the two fields the template asks for, joined by exactly one
+      # space. Reconstructing the pair and requiring it to equal the reply is
+      # what makes this shape check exact: prefix/suffix expansion alone reads
+      # only the FIRST and LAST word, so a reply carrying extra tokens between
+      # them (`MERGED <junk> <oid>`) would otherwise hand back a usable state and
+      # a usable oid while silently discarding the middle — the one malformed
+      # shape that fails OPEN instead of closed. The reconstruction also subsumes
+      # the no-separator case: state and oid both collapse to the whole reply,
+      # which cannot then reconstruct to it.
+      if [ -z "$pr_pair" ] || [ "$pr_state $pr_oid" != "$pr_pair" ]; then
         warn "--merged-pr $merged_pr: could not read the PR's state and head oid — refusing (fail closed)"
         exit 5
       fi
