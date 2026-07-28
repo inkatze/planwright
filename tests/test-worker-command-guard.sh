@@ -477,6 +477,22 @@ assert_defer "awk relational > over-defers (fail-closed by design)" "awk '\$1 > 
 assert_defer "gawk spelling is not allowlisted" "gawk '{print}' file"
 assert_defer "mawk spelling is not allowlisted" "mawk '{print}' file"
 
+# The new screens must hold through every path that reaches them, not just the
+# bare-verb one: the `fish -c` recursor, sed's `-e` / `--expression=` value
+# positions, and inert value positions the screens must NOT read as program text.
+assert_allow "awk via the fish recursor" "fish -c 'awk \"{print 1}\" f'"
+assert_defer "awk system() via the fish recursor" "fish -c 'awk \"BEGIN{system(1)}\" f'"
+assert_defer "awk output redirection via the fish recursor" "fish -c 'awk \"{print > 1}\" f'"
+assert_allow "sed bracket via --expression=" "sed --expression='s/[0-9]//' f"
+assert_defer "sed w flag via --expression=" "sed --expression='s/[0-9]/x/w out' f"
+assert_allow "sed bracket via -e value" "sed -e 's/[0-9]//' -e 's/[a-z]//' f"
+assert_defer "sed w command via the second -e value" "sed -e 's/[0-9]//' -e 'w out' f"
+# A `>` inside an INERT value (a -v assignment, a -F separator) is not program
+# text and must not be screened as redirection; the program is what gets screened.
+assert_allow "awk -v value containing > is inert data" "awk -v x='> f' '{print x}' file"
+assert_allow "awk -F separator containing > is inert data" "awk -F '>' '{print \$2}' file"
+assert_defer "awk -v value is inert but the PROGRAM still screens" "awk -v x=1 '{print x > \"f\"}' file"
+
 echo "### Narrowed screen 3 — installed planwright root's scripts/ (paired positives/negatives)"
 # POSITIVES: a plugin-script path resolves through the guard's OWN root chain, so
 # no per-machine, version-pinned settings allow entry is needed. One fixture per
