@@ -47,6 +47,9 @@
 #     refuses on its own;
 #   - the clean check is a prerequisite of BOTH paths: a dirty worktree with a
 #     perfect merged-PR proof is still refused, before gh is consulted at all;
+#   - the gh query is BOUNDED: a stalled gh refuses on the wall-clock bound
+#     rather than hanging the sweep, and a PATH with no `timeout` binary refuses
+#     the evidence path outright instead of making an unbounded network call;
 #   - the caller's own worktree is refused by the self-guard (exit 3);
 #   - hostile tmux/path tokens are refused (exit 2);
 #   - every reclaim and every self-block writes a fleet-audit row.
@@ -151,9 +154,13 @@ chmod +x "$fakebin/tmux"
 #
 # FAKE_GH_RAW replaces the whole reply with a verbatim string, for the shapes the
 # state/oid pair cannot express: a malformed answer with no separator at all.
+#
+# FAKE_GH_SLEEP stalls the reply, standing in for a wedged forge, DNS lookup, or
+# credential helper — the shape the query's wall-clock bound exists to survive.
 cat >"$fakebin/gh" <<EOF
 #!/bin/sh
 for a in "\$@"; do printf '%s\n' "\$a" >>"$tmp/gh-args"; done
+[ -n "\${FAKE_GH_SLEEP:-}" ] && sleep "\${FAKE_GH_SLEEP}"
 [ -n "\${FAKE_GH_FAIL:-}" ] && exit 1
 if [ -n "\${FAKE_GH_RAW:-}" ]; then
   printf '%s\n' "\${FAKE_GH_RAW}"
@@ -352,6 +359,8 @@ run_worktree() {
     FAKE_GH_OID="${FAKE_GH_OID:-}" \
     FAKE_GH_FAIL="${FAKE_GH_FAIL:-}" \
     FAKE_GH_RAW="${FAKE_GH_RAW:-}" \
+    FAKE_GH_SLEEP="${FAKE_GH_SLEEP:-}" \
+    PLANWRIGHT_CLEANUP_GH_TIMEOUT="${PLANWRIGHT_CLEANUP_GH_TIMEOUT:-}" \
     sh -c 'cd "$1" && shift && exec /bin/bash "$0" "$@"' "$FC" "$_cwd" worktree "$@"
 }
 
@@ -533,28 +542,36 @@ echo "ok: a refused --merged-pr value never reaches gh at all"
 # principle: deleting the gh-absent guard, or the non-hex-oid guard, from the
 # script left the suite fully green, so nothing observed them.
 
-# 9i. `gh` ABSENT entirely, not merely failing: the `command -v gh` guard must
-# fail closed. Deleting the stub is NOT enough — PATH still carries the host's
-# real gh behind it, which would then be queried against real GitHub. Shadowing
-# with a non-executable stub is no good either; `command -v` skips it and keeps
-# looking. So PATH is replaced by a directory of symlinks holding the tools the
-# worktree arm and its helpers need and NO gh.
+# make_toolpath <dir> <omit> — build a PATH directory of symlinks holding the
+# tools the worktree arm and its helpers need, MINUS <omit>, so a case can prove
+# what the script does when exactly one tool is missing. Deleting a stub is not
+# enough for that: PATH still carries the host's real binary behind it (a real gh
+# would be queried against real GitHub), and shadowing with a non-executable
+# stub does not work either, since `command -v` skips it and keeps looking.
 #
 # The list is deliberately curated rather than a mirror of the whole PATH: that
 # is 3500-odd symlinks on a developer machine and cost this suite ~2 minutes.
-# Under-provisioning it cannot produce a false pass — the case asserts the
-# gh-absent guard's own message, which the script only reaches after the gate,
-# the git probes, the self-guard and the clean check have all succeeded, so a
-# missing tool fails the case loudly instead of quietly refusing for the wrong
-# reason.
+# Under-provisioning cannot produce a false pass, because each case asserts the
+# specific guard's own message, reachable only after the gate, the git probes,
+# the self-guard and the clean check have all succeeded — a missing tool fails
+# the case loudly instead of quietly refusing for the wrong reason.
+make_toolpath() {
+  mt_dir=$1
+  mt_omit=$2
+  mkdir -p "$mt_dir"
+  for mt_n in sh bash env git awk sed grep tr cat cut head tail wc sort uniq date \
+    mktemp mkdir rmdir mv cp rm ln ls id uname expr basename dirname find touch \
+    stat sleep printf timeout tmux gh; do
+    [ "$mt_n" = "$mt_omit" ] && continue
+    mt_b=$(PATH="$fakebin:$PATH" command -v "$mt_n" 2>/dev/null) || continue
+    [ -n "$mt_b" ] && [ -e "$mt_dir/$mt_n" ] || ln -s "$mt_b" "$mt_dir/$mt_n" 2>/dev/null || :
+  done
+}
+
+# 9i. `gh` ABSENT entirely, not merely failing: the `command -v gh` guard must
+# fail closed.
 nogh="$tmp/nogh"
-mkdir -p "$nogh"
-for _n in sh bash env git awk sed grep tr cat cut head tail wc sort uniq date \
-  mktemp mkdir rmdir mv cp rm ln ls id uname expr basename dirname find touch \
-  stat sleep printf tmux; do
-  _b=$(PATH="$fakebin:$PATH" command -v "$_n" 2>/dev/null) || continue
-  [ -n "$_b" ] && [ -e "$nogh/$_n" ] || ln -s "$_b" "$nogh/$_n" 2>/dev/null || :
-done
+make_toolpath "$nogh" gh
 PATH="$nogh" command -v gh >/dev/null 2>&1 \
   && fail "no-gh PATH: gh still resolves, the fixture is wrong"
 PATH="$nogh" command -v git >/dev/null 2>&1 \
@@ -693,6 +710,55 @@ FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_dirtypr" && git rev-parse HEAD) \
 [ ! -f "$tmp/gh-args" ] \
   || fail "dirty-with-merged-pr worktree: gh was consulted before the clean check refused it"
 echo "ok: a dirty worktree is refused even with a verified merged PR (exit 5)"
+
+# 9o. The query is BOUNDED. A gh that stalls past the wall-clock bound refuses
+# (exit 5) instead of hanging the sweep. Before the bound existed this case did
+# not fail, it never returned: an external `timeout 12` had to kill the actuator,
+# which is the whole reason the bound is here. A 1s bound against a 5s stall
+# keeps the case fast while still crossing it decisively.
+wt_slow=$(make_merged_wt wt-slow)
+rc=0
+err=$(FAKE_GH_SLEEP=5 PLANWRIGHT_CLEANUP_GH_TIMEOUT=1 \
+  FAKE_GH_STATE=MERGED FAKE_GH_OID=$(cd "$wt_slow" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_slow" "candidate" "forge stalled mid-query" \
+  --merged-pr 332 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "stalled-gh worktree: exit $rc, expected 5"
+[ -d "$wt_slow" ] || fail "stalled-gh worktree: removed although the query never answered"
+case $err in
+  *"did not finish within 1s"*) ;;
+  *) fail "stalled-gh worktree: the query bound did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: a gh query that outruns its wall-clock bound fails closed (exit 5)"
+
+# 9p. The DEGRADE when no `timeout` binary exists. `timeout` is GNU coreutils and
+# absent from stock macOS, which this script's support bar includes, so the
+# no-timeout path is a real deployment and not a hypothetical. Absence must NOT
+# silently mean "run unbounded": it refuses the evidence path, before gh is
+# consulted at all. The gh-args assertion is what pins that ordering — the point
+# is that no unbounded network call is ever issued, not merely that the exit code
+# happens to be 5.
+notimeout="$tmp/notimeout"
+make_toolpath "$notimeout" timeout
+PATH="$notimeout" command -v timeout >/dev/null 2>&1 \
+  && fail "no-timeout PATH: timeout still resolves, the fixture is wrong"
+PATH="$notimeout" command -v gh >/dev/null 2>&1 \
+  || fail "no-timeout PATH: gh does not resolve, so this would not test the timeout guard"
+wt_notmo=$(make_merged_wt wt-notmo)
+rm -f "$tmp/gh-args"
+rc=0
+err=$(WT_PATH="$notimeout" FAKE_GH_STATE=MERGED \
+  FAKE_GH_OID=$(cd "$wt_notmo" && git rev-parse HEAD) \
+  run_worktree "$main_repo" "$wt_notmo" "candidate" "no timeout binary available" \
+  --merged-pr 333 2>&1 >/dev/null) || rc=$?
+[ "$rc" = 5 ] || fail "no-timeout worktree: exit $rc, expected 5 (refuse rather than run unbounded)"
+[ -d "$wt_notmo" ] || fail "no-timeout worktree: removed with no way to bound the query"
+[ ! -f "$tmp/gh-args" ] \
+  || fail "no-timeout worktree: gh was invoked unbounded despite no timeout binary (argv: $(tr '\n' ' ' <"$tmp/gh-args"))"
+case $err in
+  *"no timeout binary on PATH"*) ;;
+  *) fail "no-timeout worktree: the timeout-absent guard did not refuse it (stderr: $err)" ;;
+esac
+echo "ok: no timeout binary refuses the evidence path instead of running unbounded (exit 5)"
 
 # 10. The caller's own worktree is refused by the self-guard.
 wt_self="$tmp/wt-self"
