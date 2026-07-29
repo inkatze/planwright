@@ -646,8 +646,19 @@ parse_ready_flags() {
   # before every other check so no other refusal can pre-empt that guarantee,
   # and it steps over a --repo value so `--repo --undo` (where --undo is the
   # repo, not the flag) is not misread as a re-draft.
+  local skip_next=0
   for a in "$@"; do
-    [ "$a" != --undo ] || return 1
+    if [ "$skip_next" = 1 ]; then
+      skip_next=0
+      continue
+    fi
+    case $a in
+      -R | --repo)
+        skip_next=1
+        continue
+        ;;
+      --undo) return 1 ;;
+    esac
   done
 
   while [ "$#" -gt 0 ]; do

@@ -613,6 +613,11 @@ assert_defer "an fd-redirect prefix on an unrelated command still defers"
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
+run_hook "$(bash_payload 'gh pr ready --repo --undo')"
+assert_deny "--undo consumed as a --repo VALUE is not mistaken for a re-draft"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
 # shellcheck disable=SC2016  # literal, unexpanded by design: that is the assertion
 run_hook "$(bash_payload 'echo "$(gh pr ready 42)"')"
 assert_deny "a command-substitution form the tokenizer will not analyze denies (fail closed)"
