@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh bash"
           }
         ]
       },
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh mcp"
           }
         ]
       }
