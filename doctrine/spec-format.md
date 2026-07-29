@@ -45,15 +45,18 @@ is per-file and is bumped whenever that file is materially reviewed or
 edited. A `Superseded` bundle additionally carries a mandatory
 `**Superseded-by:** specs/<spec>/` pointer line in the header block.
 
-**Header-block extent.** The header block is the contiguous run of
-`**<Key>:** <value>` lines opening the file's content after its H1 title line
-(a single blank line may separate the title from the run), ending at the first
-line that is neither such a key line nor blank. The extent is **positional**: a
-file has at most one header block, the one opening its content, so a key-line
-run appearing anywhere later — in body prose or inside a fence — is not a header
-block at all. `Format-version:` and `Status:` are recognized only inside the
-block; a body line carrying either literal is inert content, and it never
-shadows the real declaration nor masks a missing one.
+**Header-block extent.** The header block is the leading region of the file made
+up of nothing but the H1 title line, `**<Key>:** <value>` lines, and blank lines;
+it ends at the first line that is none of those. Blank lines between or among the
+key lines do not end it. The extent is **positional**: a file has at most one
+header block, the one opening its content, so a key-line run appearing anywhere
+later — in body prose or inside a fence — is not a header block at all.
+`Format-version:` and `Status:` are recognized only inside the block; a body line
+carrying either literal is inert content, and it never shadows the real
+declaration nor masks a missing one. A block is **malformed** when there is no
+such region at all, or when it reaches end of file with no body content after it;
+what a consumer does with a malformed block is that consumer's rule (the content
+anchor's is stated with the `Status` exclusion below).
 
 **A duplicate declaration of either load-bearing key is unparseable.** More than
 one `Format-version:` or `Status:` line inside the header block makes that
@@ -61,8 +64,9 @@ declaration unparseable: every parser keyed on it fails closed (never a
 positional winner, never a fall-open to the version-1 write path), and the
 validator reports an error at every status, Draft included. Two contradictory
 declarations mean the value is unknown, and no position — first or last — is an
-honest way to pick one. A malformed block fails closed the same way: no such run
-at all, or a run reaching end of file with no body content after it.
+honest way to pick one. `scripts/spec-parse.sh` is where the format's parsers get
+this: its header parse is strict for exactly these two keys and refuses on a
+duplicate, and non-load-bearing keys keep first-match-wins.
 
 ## Spec identifiers
 
@@ -88,17 +92,22 @@ stands for exactly one segment; literal text outside the brackets is literal.
 
 ## Fenced illustration
 
-A column-0 code-fence line toggles illustration mode, and **no line inside a
-fence parses as any element of this format, in any parser of spec bundles**.
-Headings, requirement bullets, reference bullets, gate entries, header-block key
-lines, task-definition field bullets, and `Dependencies:`/`Citations:` tokens are
-the illustrative cases; the rule is universal rather than an enumeration,
-because a fenced line is example text and a format that lists its exceptions
-grows a new one with every parser. This is the single normative definition:
-fence-aware parsers cite it instead of each re-deriving the rule, which is how
-the shipped divergence arose. Only column-0 fences toggle: an indented fence is
-ordinary content, which is how a fence can be shown as an example without
-opening one.
+A code-fence line toggles illustration mode, and **no line inside a fence parses
+as any element of this format, in any parser of spec bundles**. Headings,
+requirement bullets, reference bullets, gate entries, header-block key lines,
+task-definition field bullets, and `Dependencies:`/`Citations:` tokens are the
+illustrative cases; the rule is universal rather than an enumeration, because a
+fenced line is example text and a format that lists its exceptions grows a new
+one with every parser. This is the single normative definition: fence-aware
+parsers cite it instead of each re-deriving the rule, which is how the shipped
+divergence arose.
+
+**The marker is pinned to what the parsers lex:** a line beginning, at column 0,
+with three or more backticks. Indentation matters — an indented fence is ordinary
+content, which is how a fence can be shown as an example without opening one. A
+tilde fence (`~~~`) is deliberately *not* a toggle: the parsers are line-oriented
+awk and one marker keeps the lexer trivial, so bundles write their fences with
+backticks and a tilde fence protects nothing inside it.
 
 An unbalanced column-0 fence count is a **malformation, never a silent
 illustration-to-end-of-file**. The validator flags the file, and the shared parse
