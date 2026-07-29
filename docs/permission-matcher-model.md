@@ -90,11 +90,16 @@ which in a headless worker means a stall, not a pass.
 ## Modeling boundaries
 
 These are behaviors the real matcher has that the model deliberately does not
-implement. Each entry states the **direction of the resulting error**, because a
-model that errs toward "allow" is safe for a guard (it under-claims protection
-and never invents it), while one that errs toward "deny" would let a fixture
-table advertise coverage that does not exist. Every boundary below errs toward
-allow.
+implement. Each entry states the **direction of the resulting error**. Two
+directions matter, and they are not symmetric:
+
+- *Under-predicting deny on a command the real matcher denies* is conservatism:
+  the model under-claims protection, an expected-deny fixture row fails loudly,
+  and no reader is told they are covered when they are not. MB-1 through MB-6 are
+  all this kind.
+- *Reporting allow for a command that really executes something dangerous* is a
+  hole, not conservatism. **MB-7 is the only entry of this kind**, and it is
+  flagged as such rather than filed alongside the others.
 
 **MB-1 — wrapper stripping.** Claude Code strips a fixed set of leading
 wrappers (`timeout`, `time`, `nice`, `nohup`, `stdbuf`, the `command` and
@@ -135,6 +140,24 @@ deny.
 **MB-6 — tool-name globs, non-Bash tools, and settings precedence.** Out of
 scope. The fixture table asserts one settings fragment in isolation.
 
+**MB-7 — command and process substitution.** M6 splits on the operators the
+documentation enumerates. It does **not** reach into `$(...)`, backticks, or
+`<(...)`, so a command nested inside one is invisible to the model:
+`git status "$(git push origin main)"` reports `allow`, because the outer
+read-only command matches an allow rule and the nested push matches nothing.
+Direction: this is the one boundary that errs toward **allow on a command that
+really executes**, so it is the boundary to treat as a hole rather than as
+conservatism. Two things are unknown and neither can be settled from the
+documentation: whether the real matcher extracts substitutions (its separator
+list does not mention them, but it is shell-aware and may), and whether it
+instead classifies such a command as unparseable and prompts. The fixture table
+carries the case as a `residual` row recording the model's outcome and this
+uncertainty. What does stop it today is the enforcement layer, not the glob
+layer: `githooks/pre-push` rejects a `refs/heads/main` update however the push
+was spelled. Re-check against the real matcher on a Claude Code upgrade; the
+worker-settings `_about` prose formerly asserted subshell coverage flatly, which
+this entry corrects.
+
 ## Unsettled assumptions
 
 Unlike the boundaries above, these are places where the documentation does not
@@ -166,13 +189,18 @@ test's `REDUNDANT_BY_DESIGN` table rather than left to be discovered.
 
 **MA-2 — case sensitivity.** The documentation states that PowerShell rule
 matching is case-insensitive and says nothing about Bash, which implies
-case-sensitive. The model matches case-sensitively. This one is **load-bearing
-and adverse**: git config keys are case-insensitive (verified below), so
-`git -c Core.HooksPath=/dev/null commit` disables the hook layer while the
-literal glob misses it. The deny list carries the canonical and all-lowercase
-spellings; arbitrary casings remain an accepted residual, recorded as such in the
-fixture table. If Bash matching turns out to be case-insensitive, the residual
-closes on its own and the lowercase rules become redundant.
+case-sensitive. The model matches case-sensitively, and git config keys are
+case-insensitive (verified below), so an arbitrary casing such as
+`Core.HooksPath` slips past a literal `core.hooksPath` glob. The deny list
+carries the canonical and all-lowercase spellings, and the global-option-prefix
+rules (see "How the deny list is shaped") close the casing gap for every
+invariant-bearing subcommand regardless of spelling, because they key on the
+leading `git -` rather than on the config key. What remains is the **persistent**
+form: `git config Core.HooksPath /dev/null` starts with `git config`, so no
+global-option rule sees it, and the case-sensitive config globs miss the casing.
+No glob and no hook reaches that one; it is an accepted residual, carried as a
+`residual` fixture row. If Bash matching turns out to be case-insensitive, the
+residual closes on its own and the lowercase rules become redundant.
 
 ## Verified against real git
 
@@ -216,6 +244,30 @@ Two idioms, chosen deliberately, and the distinction matters:
   names commonly *extend* `main` (`main-fix`, `maintenance`), and the boundary
   form is what keeps them pushable. `Bash(git push * main*)` would deny them.
   Fixture rows pin both directions.
+
+And one rule shape that exists for a reason worth stating, because it is not
+obvious from reading the rule:
+
+- **Global-option prefixes get their own family** (`Bash(git -* push*)`,
+  and the same for `commit`, `merge`, `rebase`, `reset`, `filter-branch`,
+  `filter-repo`). Every other rule anchors on `git push` or `git commit` at the
+  start of the command, so *any* git global option in front of the subcommand
+  slipped past all of them: `git -C . push --force origin topic` and
+  `git -c a=b rebase -i HEAD~2` matched nothing. git has a long and growing list
+  of global options (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`,
+  `--exec-path`, `--no-pager`, `--bare`, `--literal-pathspecs`, …), so
+  enumerating them would be a treadmill. Keying on the leading `git -` covers
+  the whole class in one rule per subcommand, and it cannot be triggered by
+  message content, because the pattern is anchored at position 0 and a normal
+  `git commit -m "…"` does not start with `git -`. Accepted cost: a *read-only*
+  global-option-prefixed command that happens to contain a later space-prefixed `push` or
+  `commit` token (`git -C /other log -- commit.md`) is denied. Fail-safe, rare,
+  and recorded rather than narrowed.
+
+A caveat on the deny list as a whole: it is **best-effort defense-in-depth**, and
+`doctrine`-level enforcement of the never-push-main and never-amend invariants is
+the `githooks/` backstop (guard-coverage D-2), not these globs. Where the fixture
+table records a `residual`, that is the layer doing the work.
 
 ## Changing any of this
 
