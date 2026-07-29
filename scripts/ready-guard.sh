@@ -111,10 +111,20 @@ fi
 # fragment already folded into <reason> cannot break out of the string, and
 # sanitize_printable has stripped its control bytes at the interpolation site.
 emit_deny() {
-  local reason
+  local reason out
   reason="$REASON_PREFIX$(sanitize_printable "$1" 'refusing an unconfirmable draft->ready flip')"
-  jq -nc --arg r "$reason" \
-    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+  out=$(jq -nc --arg r "$reason" \
+    '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}' 2>/dev/null) \
+    || out=''
+  # A jq that is ON PATH but broken (non-zero exit, empty output) would
+  # otherwise make EVERY denial silent: no output plus exit 0 reads to Claude
+  # Code as "no decision", which is a fail-OPEN, the one outcome this guard may
+  # never have. The constant fallback guarantees a decision is always emitted;
+  # it loses the specific reason, so it names that.
+  if [ -z "$out" ]; then
+    emit_deny_constant
+  fi
+  printf '%s\n' "$out"
   exit 0
 }
 
@@ -123,6 +133,14 @@ emit_deny() {
 # the JSON here is safe in a way a general emitter would not be.
 emit_deny_nojq() {
   printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: jq is not on PATH, so this draft->ready flip could not be checked for base-branch currency and mergeability - refusing (fail closed). Install jq, or flip the PR ready outside a Claude Code session if you have verified it yourself."}}'
+  exit 0
+}
+
+# emit_deny_constant — the decision of last resort, for when jq is present but
+# not working. Hand-rolled from a compile-time constant with no untrusted
+# content, so it cannot be what a broken jq breaks.
+emit_deny_constant() {
+  printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"planwright ready-guard: jq is on PATH but did not run, so this draft->ready flip could not be checked for base-branch currency and mergeability - refusing (fail closed). Repair the jq install and retry."}}'
   exit 0
 }
 
@@ -177,7 +195,7 @@ valid_owner_repo() {
 # rather than being percent-encoded on a guess.
 valid_ref_name() {
   case ${1:-} in
-    "" | *[!A-Za-z0-9._/-]* | -* | */ | /* | *..*) return 1 ;;
+    "" | *[!A-Za-z0-9._/+@-]* | -* | */ | /* | *..*) return 1 ;;
   esac
   [ "${#1}" -le 255 ]
 }
@@ -309,6 +327,7 @@ tokenize_segments() {
   local c nc cur='' have=0 cur_quoted=0
   local -a words=()
   SEGS=()
+  SEG_TERM=()
 
   flush_word() {
     if [ "$have" = 1 ]; then
@@ -326,6 +345,7 @@ tokenize_segments() {
         joined="$joined$w$NL"
       done
       SEGS[${#SEGS[@]}]=$joined
+      SEG_TERM[${#SEG_TERM[@]}]=${1:-}
     fi
     words=()
   }
@@ -379,7 +399,15 @@ tokenize_segments() {
         ;;
       "\\")
         nc=${s:i+1:1}
-        [ -n "$nc" ] || return 1 # trailing backslash / line continuation
+        [ -n "$nc" ] || return 1 # trailing backslash
+        if [ "$nc" = "$NL" ]; then
+          # Line continuation: bash removes the pair BEFORE word splitting, so
+          # `gh pr rea\<newline>dy` is the single word `ready`. Appending the
+          # newline instead broke the word in two downstream and let that
+          # spelling slip the gate entirely.
+          i=$((i + 2))
+          continue
+        fi
         cur="$cur$nc"
         have=1
         cur_quoted=1
@@ -418,20 +446,39 @@ tokenize_segments() {
         [ "${s:i:1}" != '>' ] || i=$((i + 1)) # `>>`
         [ "${s:i:1}" != '&' ] || i=$((i + 1)) # `>&`
         while [ "$i" -lt "$n" ] && [ "${s:i:1}" = ' ' ]; do i=$((i + 1)); done
+        # Skip the redirect TARGET. The scan must honor quoting: an unquoted one
+        # stopped at the space inside `>"ready output.log"` and left a dangling
+        # quote, so a CONFORMING flip became unanalyzable and was falsely denied.
         while [ "$i" -lt "$n" ]; do
           case ${s:i:1} in
-            ' ' | "$TAB" | "$NL" | ';' | '&' | '|') break ;;
+            ' ' | "$TAB" | "$NL" | ';' | '&' | '|' | '<' | '>') break ;;
+            "'")
+              i=$((i + 1))
+              while [ "$i" -lt "$n" ] && [ "${s:i:1}" != "'" ]; do i=$((i + 1)); done
+              [ "$i" -lt "$n" ] || return 1 # unbalanced quote in the target
+              ;;
+            '"')
+              i=$((i + 1))
+              while [ "$i" -lt "$n" ] && [ "${s:i:1}" != '"' ]; do
+                [ "${s:i:1}" != "\\" ] || i=$((i + 1))
+                i=$((i + 1))
+              done
+              [ "$i" -lt "$n" ] || return 1 # unbalanced quote in the target
+              ;;
+            "\\") i=$((i + 1)) ;;
           esac
           i=$((i + 1))
         done
         ;;
       ';' | '&' | '|')
         nc=${s:i+1:1}
-        flush_seg
+        local term=$c
         i=$((i + 1))
         if { [ "$c" = '&' ] || [ "$c" = '|' ]; } && [ "$nc" = "$c" ]; then
+          term="$c$c"
           i=$((i + 1))
         fi
+        flush_seg "$term"
         ;;
       ' ' | "$TAB" | "$NL")
         flush_word
@@ -448,7 +495,7 @@ tokenize_segments() {
         ;;
     esac
   done
-  flush_seg
+  flush_seg ''
   return 0
 }
 
@@ -457,14 +504,34 @@ tokenize_segments() {
 
 main() {
   local input read_ok=1 tool
+  # The wiring passes which matcher fired (see hooks/hooks.json). It is the only
+  # way the script can know: the two matchers share one command, and a payload
+  # that has lost its tool_name carries no other clue. Without it, a malformed
+  # MCP payload fell through the Bash-surface raw-evidence screen (whose text
+  # patterns it does not match) and DEFERRED, contradicting the whole point of
+  # establishing MCP jurisdiction by tool name. An absent or unknown value falls
+  # back to inferring the surface from the payload, so older wiring still works.
+  local surface=${1:-infer}
+  case $surface in
+    bash | mcp | infer) ;;
+    *) surface=infer ;;
+  esac
 
-  input=$(head -c "$MAX_PAYLOAD_BYTES" 2>/dev/null) || read_ok=0
+  # Read ONE byte past the cap so truncation is detectable. head -c exits 0
+  # when it truncates, so a payload over the cap previously arrived as
+  # malformed JSON whose surviving prefix carried no flip evidence, and the
+  # guard deferred: a flip appended past byte 2000000 slipped entirely.
+  input=$(head -c "$((MAX_PAYLOAD_BYTES + 1))" 2>/dev/null) || read_ok=0
 
   # The stdin read itself failing (no `head` on PATH, a closed descriptor) is
   # NOT the same as an empty payload: it carries no evidence about what the
   # intercepted call was, and denying on it would refuse every tool call in the
   # session on a missing coreutil. Defer.
   [ "$read_ok" = 1 ] || return 0
+
+  if [ "${#input}" -gt "$MAX_PAYLOAD_BYTES" ]; then
+    emit_deny 'the PreToolUse payload is larger than this guard will read, so it could not be checked for a draft->ready flip - refusing (fail closed). Issue the command on its own.'
+  fi
 
   if ! command -v jq >/dev/null 2>&1; then
     # jq absent (REQ-C1.3). Deny only what still evidences a flip; a payload
@@ -483,8 +550,12 @@ main() {
 
   tool=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || tool=''
   if [ -z "$tool" ]; then
-    # Unparseable as JSON, or no tool_name. Same jurisdiction rule as the
-    # jq-absent path: raw evidence decides.
+    # Unparseable as JSON, or no tool_name. On the MCP matcher that is already
+    # inside jurisdiction and denies outright; on the Bash matcher (or an
+    # unknown surface) raw evidence decides, because denying every unparseable
+    # Bash payload would refuse unrelated work.
+    [ "$surface" != mcp ] \
+      || emit_deny 'this update_pull_request payload could not be parsed, so the guard cannot tell whether it flips a PR from draft to ready - refusing (fail closed).'
     raw_evidences_ready_flip "$input" \
       && emit_deny 'the PreToolUse payload could not be parsed, and its raw content looks like a draft->ready flip - refusing (fail closed). Retry, or flip the PR ready outside a Claude Code session if you have verified its currency yourself.'
     return 0
@@ -503,7 +574,7 @@ main() {
 
 handle_bash() {
   local input=$1 cmd cwd_type cwd
-  local -a SEGS=()
+  local -a SEGS=() SEG_TERM=()
 
   # `command` gets strict type discipline. A present non-string is a payload
   # that does not match the documented contract; raw evidence then decides.
@@ -560,7 +631,7 @@ analyze_segments() {
   local seg w
   local cand_idx=-1 cand_count=0 idx=0
   local -a cand_words=()
-  local cd_path='' cd_count=0
+  local cd_path='' shell_cd_count=0 cd_idx=-1
 
   for seg in "${SEGS[@]}"; do
     local -a words=()
@@ -579,16 +650,71 @@ EOF
       continue
     }
 
-    if [ "${words[0]}" = cd ] && [ "${#words[@]}" = 2 ]; then
-      cd_path=${words[1]}
-      cd_count=$((cd_count + 1))
+    # Step over a simple-command PREFIX before reading the verb: `VAR=value`
+    # assignments and a leading `command`/`exec`. All three run gh the ordinary
+    # way, so `X=1 gh pr ready 42` and `command gh pr ready 42` are real flips;
+    # matching on words[0] alone let both slip the gate. (`env gh ...` stays the
+    # documented REQ-C1.10 residual: env's own option grammar is what that
+    # requirement declines to parse.)
+    local first=0
+    while [ "$first" -lt "${#words[@]}" ]; do
+      case ${words[$first]} in
+        command | exec) first=$((first + 1)) ;;
+        [A-Za-z_]*=*)
+          case ${words[$first]%%=*} in
+            *[!A-Za-z0-9_]*) break ;;
+          esac
+          first=$((first + 1))
+          ;;
+        *) break ;;
+      esac
+    done
+    if [ "$first" -ge "${#words[@]}" ]; then
+      idx=$((idx + 1))
+      continue
     fi
 
-    if [ "${words[0]}" = gh ] && [ "${#words[@]}" -ge 3 ] \
-      && [ "${words[1]}" = pr ] && [ "${words[2]}" = ready ]; then
-      cand_count=$((cand_count + 1))
-      cand_idx=$idx
-      cand_words=("${words[@]}")
+    if [ "${words[$first]}" = cd ] \
+      && [ "$((${#words[@]} - first))" = 2 ]; then
+      case ${SEG_TERM[$idx]:-} in
+        '&&' | ';' | '')
+          cd_path=${words[$((first + 1))]}
+          cd_idx=$idx
+          shell_cd_count=$((shell_cd_count + 1))
+          ;;
+      esac
+    fi
+
+    if [ "${words[$first]}" = gh ]; then
+      # Global flags may precede the subcommand: `gh -R owner/repo pr ready 42`
+      # is accepted by gh (verified against the installed CLI) and is a real
+      # flip, so requiring `pr ready` at the next two words exactly let it slip.
+      # Walk the leading global flag/value pairs, then require `pr ready`.
+      local k=$((first + 1))
+      local -a globals=()
+      while [ "$k" -lt "${#words[@]}" ]; do
+        case ${words[$k]} in
+          -R | --repo)
+            globals[${#globals[@]}]=${words[$k]}
+            globals[${#globals[@]}]=${words[$((k + 1))]:-}
+            k=$((k + 2))
+            ;;
+          --repo=* | -R?*)
+            globals[${#globals[@]}]=${words[$k]}
+            k=$((k + 1))
+            ;;
+          # An unrecognized global flag: the guard cannot tell whether it takes
+          # a value, so the argv shape is unknown. Stop; the check below then
+          # fails and handle_bash's raw-evidence screen decides.
+          *) break ;;
+        esac
+      done
+      if [ "$((k + 1))" -lt "${#words[@]}" ] \
+        && [ "${words[$k]}" = pr ] && [ "${words[$((k + 1))]}" = ready ]; then
+        cand_count=$((cand_count + 1))
+        cand_idx=$idx
+        cand_words=(${globals[@]+"${globals[@]}"} "${words[@]:$((k + 2))}")
+      fi
     fi
     idx=$((idx + 1))
   done
@@ -601,7 +727,7 @@ EOF
   [ "$cand_count" = 1 ] \
     || emit_deny 'this command issues more than one gh pr ready - refusing (fail closed), because the guard cannot attribute a currency check to each. Issue them as separate commands.'
 
-  parse_ready_flags "${cand_words[@]}" || return 0 # '--undo': never gated
+  parse_ready_flags ${cand_words[@]+"${cand_words[@]}"} || return 0 # never gated
 
   # Resolve the cwd the gh query must run from. It matters whenever the
   # selector is not fully self-describing: a bare command needs the branch's
@@ -612,14 +738,24 @@ EOF
     # the payload cwd is no longer the flip's cwd. The one supported form is
     # REQ-C1.10's `cd <path> && gh pr ready ...`: exactly two segments, the cd
     # first, an absolute existing path used as inert argv to `cd --`.
-    if [ "$cd_count" = 1 ] && [ "${#SEGS[@]}" = 2 ] && [ "$cand_idx" = 1 ] \
-      && valid_dir_path "$cd_path"; then
+    # The TERMINATOR matters, which is why SEG_TERM is recorded. Only `&&` and
+    # `;` run the cd in the CURRENT shell. In `cd A | gh pr ready` and
+    # `cd A & gh pr ready` the cd runs in a SUBSHELL, so gh keeps the payload
+    # cwd; in `cd A || gh pr ready` gh runs only when the cd FAILED, so the cwd
+    # is likewise unchanged. Honoring the cd for those operators made the guard
+    # query the WRONG repository -- it could certify a conforming PR in A while
+    # the command flipped a stale PR in B.
+    if [ "$shell_cd_count" = 1 ] && [ "${#SEGS[@]}" = 2 ] && [ "$cand_idx" = 1 ] \
+      && [ "$cd_idx" = 0 ] && valid_dir_path "$cd_path"; then
       query_cwd=$cd_path
+    elif [ "$shell_cd_count" = 0 ]; then
+      # Nothing moved the current shell's cwd, so the payload cwd is gh's cwd.
+      query_cwd=$payload_cwd
     elif [ -n "$RG_REPO" ] && [ -n "$RG_PR" ]; then
       # Fully self-describing selector: cwd is irrelevant.
       query_cwd=$payload_cwd
     else
-      emit_deny "this gh pr ready runs after other commands that may change directory, and its selector does not name both the repo and the PR number - refusing (fail closed), because the guard cannot tell which PR would be flipped. Re-issue it as gh pr ready <number> --repo <owner>/<repo>, or on its own."
+      emit_deny "this gh pr ready runs after a directory change the guard cannot resolve, and its selector does not name both the repo and the PR number - refusing (fail closed), because the guard cannot tell which PR would be flipped. Re-issue it as gh pr ready <number> --repo <owner>/<repo>, or on its own."
     fi
   fi
 
@@ -636,13 +772,13 @@ EOF
 # takes only --undo and the global `-R/--repo`, so an unknown flag either
 # redirects the target or is not the command the guard thinks it is.
 parse_ready_flags() {
-  shift 3 # gh `pr` `ready`
   RG_PR=''
   RG_REPO=''
   local a val positional=0 endopts=0
 
-  # --undo in a FLAG position means this is a ready->draft transition, never
-  # gated (REQ-C1.8), regardless of currency or mergeability. The scan runs
+  # --undo and --help mutate nothing, so neither is ever gated (REQ-C1.8):
+  # --undo is a ready->draft transition, and --help just prints usage (verified
+  # against the installed CLI -- it exits before touching the PR). The scan runs
   # before every other check so no other refusal can pre-empt that guarantee,
   # and it steps over a --repo value so `--repo --undo` (where --undo is the
   # repo, not the flag) is not misread as a re-draft.
@@ -657,7 +793,7 @@ parse_ready_flags() {
         skip_next=1
         continue
         ;;
-      --undo) return 1 ;;
+      --undo | --help | -h) return 1 ;;
     esac
   done
 
@@ -687,7 +823,7 @@ parse_ready_flags() {
           continue
           ;;
         -*)
-          emit_deny "this gh pr ready carries an option the guard does not recognize ($(sanitize_printable "$a" 'an unprintable option')) - refusing (fail closed), because an unrecognized option could redirect the flip to another PR. gh pr ready accepts only \`--undo\` and \`--repo\`."
+          emit_deny "this gh pr ready carries an option the guard does not recognize ($(sanitize_printable "$a" 'an unprintable option')) - refusing (fail closed), because an unrecognized option could redirect the flip to another PR. gh pr ready accepts only --undo, --help and --repo."
           ;;
       esac
     fi
@@ -883,7 +1019,13 @@ evaluate_predicate() {
 #
 # Returns 1 (defer, not a transition) when the PR is already ready.
 read_view_fields() {
-  is_draft=$(json_field "$GH_VIEW_OUT" isDraft)
+  # Read isDraft with TYPE discipline, not through json_field: json_field
+  # tostring's every scalar, so the JSON string "false" and the JSON boolean
+  # false became indistinguishable and a malformed answer read as an
+  # already-ready PR, which DEFERS. Only a real boolean may decide that.
+  is_draft=$(printf '%s' "$GH_VIEW_OUT" | jq -r '
+    if type == "object" and ((.isDraft | type) == "boolean")
+    then (.isDraft | tostring) else empty end' 2>/dev/null) || is_draft=''
   case $is_draft in
     true) ;;
     false) return 1 ;;
@@ -933,6 +1075,12 @@ parse_owner_repo_from_url() {
   tail_n=${u##*/pull/}
   valid_pr_number "$tail_n" \
     || emit_deny 'the pull-request URL GitHub returned does not end in a pull-request number - refusing (fail closed).'
+  # When the call named a PR number, the answer must be about THAT PR. Validating
+  # the URL's number and then discarding it left the guard able to certify one PR
+  # while the command flipped another.
+  if [ -n "$RG_PR" ] && [ "$tail_n" != "$RG_PR" ]; then
+    emit_deny 'the pull request GitHub resolved is not the one this call named - refusing (fail closed).'
+  fi
   rest=${u%/pull/*}
   RG_URL_REPO=${rest##*/}
   rest=${rest%/*}
@@ -963,5 +1111,5 @@ GH_VIEW_RC=0
 # not by this trap.
 trap 'exit 0' HUP INT TERM PIPE
 
-main
+main "$@"
 exit 0

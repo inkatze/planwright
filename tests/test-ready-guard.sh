@@ -95,9 +95,14 @@ cat >"$BIN/gh" <<'GHSTUB'
   printf 'CALL'
   for a in "$@"; do printf '\t%s' "$a"; done
   printf '\n'
+  printf 'CWD\t%s\n' "$PWD"
 } >>"$GH_ARGV_LOG"
 case "${1:-}" in
   pr)
+    if [ -f "$PWD/view.json" ]; then
+      cat "$PWD/view.json"
+      exit 0
+    fi
     n=0
     [ ! -f "$GH_STATE/viewcount" ] || read -r n <"$GH_STATE/viewcount"
     n=$((n + 1))
@@ -113,6 +118,10 @@ case "${1:-}" in
     fi
     ;;
   api)
+    if [ -f "$PWD/behind" ]; then
+      cat "$PWD/behind"
+      exit 0
+    fi
     rc=${STUB_COMPARE_RC:-0}
     [ "$rc" = 0 ] || exit "$rc"
     printf '%s\n' "${STUB_COMPARE_OUT:-0}"
@@ -169,7 +178,7 @@ run_hook() {
       STUB_VIEW_JSON="${STUB_VIEW_JSON:-}" STUB_VIEW_JSON2="${STUB_VIEW_JSON2:-}" \
       STUB_VIEW_RC="${STUB_VIEW_RC:-0}" STUB_VIEW_RC2="${STUB_VIEW_RC2:-}" \
       STUB_COMPARE_OUT="${STUB_COMPARE_OUT:-0}" STUB_COMPARE_RC="${STUB_COMPARE_RC:-0}" \
-      /bin/bash "$HOOK" 2>/dev/null)"
+      /bin/bash "$HOOK" "${RG_SURFACE:-bash}" 2>/dev/null)"
   CODE=$?
   # Restore anything an absence fixture removed.
   for removed in "$@"; do
@@ -190,6 +199,11 @@ restore_gh_stub() {
   chmod +x "$BIN/gh"
 }
 cp "$BIN/gh" "$SANDBOX/gh.orig"
+
+# A second cwd for the P1 wrong-repo fixtures: CONF answers conforming, STALE
+# answers behind. The gh stub picks its answer from the directory it is invoked
+# in, so a fixture can assert WHICH repo the guard queried, not just the verdict.
+mkdir -p "$SANDBOX/conf" "$SANDBOX/stale"
 
 bash_payload() {
   jq -n --arg c "$1" --arg w "${2:-$WORK}" \
@@ -285,6 +299,17 @@ assert_reason_lacks() {
     fail "$label: reason should not mention /$re/ — got: $(reason)"
   else
     pass "$label"
+  fi
+}
+
+assert_queried_in() {
+  local label=$1 dir=$2
+  local got
+  got=$(grep -m1 '^CWD' "$STATE/argv.log" 2>/dev/null | cut -f2)
+  if [ "$got" = "$dir" ]; then
+    pass "$label"
+  else
+    fail "$label: the guard queried '$got', expected '$dir'"
   fi
 }
 
@@ -884,6 +909,212 @@ reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=9
 run_hook "$(jq -n '{tool_name:"Bash", tool_input:{command:"ls -la"}, cwd:{"path":"/tmp"}}')"
 assert_defer "a malformed cwd with no flip evidence defers"
+
+echo "### Panel-pass regressions — bash-word-splitting divergences are bypasses"
+# Root cause shared by these: the guard re-implements bash word splitting, so
+# every divergence from bash's real behaviour is a BYPASS, not a cosmetic bug.
+# Each fixture below is reason- or argv-pinned, never a bare deny, so the
+# specific branch cannot be deleted with the suite still green.
+
+# P3 — backslash-newline is a line continuation: bash joins `rea\<nl>dy` into
+# the single word `ready` before word splitting.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload "$(printf 'gh pr rea\\\ndy 42')")"
+assert_deny_because "a backslash-newline continuation inside the verb does not slip the gate" 'commit\(s\) behind'
+if grep -q $'\tpr\tview\t42\t' "$STATE/argv.log"; then
+  pass "the continuation rejoined into $(ready) and PR 42 was queried"
+else
+  fail "continuation not rejoined: argv was $(cat "$STATE/argv.log")"
+fi
+
+# P4 — simple-command prefixes and pre-subcommand global flags.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'X=1 gh pr ready 42')"
+assert_deny_because "an assignment prefix (X=1 gh pr ready) does not slip the gate" 'commit\(s\) behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'command gh pr ready 42')"
+assert_deny_because "a command prefix does not slip the gate" 'commit\(s\) behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'exec gh pr ready 42')"
+assert_deny_because "an exec prefix does not slip the gate" 'commit\(s\) behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'gh -R acme/widgets pr ready 42')"
+assert_deny_because "a global -R before the subcommand does not slip the gate" 'commit\(s\) behind'
+if grep -q $'\tpr\tview\t42\t--repo\tacme/widgets\t' "$STATE/argv.log"; then
+  pass "the pre-subcommand --repo was carried into the query argv"
+else
+  fail "pre-subcommand --repo lost: argv was $(cat "$STATE/argv.log")"
+fi
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'gh --repo=acme/widgets pr ready 42')"
+assert_deny_because "a global --repo= before the subcommand does not slip the gate" 'commit\(s\) behind'
+
+# A word that merely LOOKS like an assignment must stay an argument.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=9
+run_hook "$(bash_payload 'grep a=b file')"
+assert_defer "an assignment-shaped argument to another verb still defers"
+
+# P1 — a cd prefix may only move the query cwd for operators that run it in the
+# CURRENT shell. The two directories are distinguished by their `gh pr view`
+# answer, not by behind_by: the compare call is repo-absolute and correctly runs
+# without a cwd, so it cannot carry the signal.
+#   conf/  -> isDraft false (already ready)  => DEFER if queried
+#   stale/ -> isDraft true + behind          => DENY  if queried
+# Each fixture also asserts the queried cwd directly, so a future change that
+# gets the right verdict for the wrong reason still fails.
+printf '%s' "$VIEW_ALREADY_READY" >"$SANDBOX/conf/view.json"
+printf '%s' "$VIEW_BEHIND" >"$SANDBOX/stale/view.json"
+
+reset_stub_env
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload "cd $SANDBOX/conf && gh pr ready" "$SANDBOX/stale")"
+assert_defer "cd A && gh pr ready resolves to A (the cd really moves the cwd)"
+assert_queried_in "cd A && gh pr ready queried A" "$SANDBOX/conf"
+
+reset_stub_env
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload "cd $SANDBOX/conf ; gh pr ready" "$SANDBOX/stale")"
+assert_defer "cd A ; gh pr ready resolves to A"
+assert_queried_in "cd A ; gh pr ready queried A" "$SANDBOX/conf"
+
+reset_stub_env
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload "cd $SANDBOX/conf | gh pr ready" "$SANDBOX/stale")"
+assert_deny_because "cd A | gh pr ready does not inherit A (the cd ran in a subshell)" 'commit\(s\) behind'
+assert_queried_in "cd A | gh pr ready queried the payload cwd, not A" "$SANDBOX/stale"
+
+reset_stub_env
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload "cd $SANDBOX/conf & gh pr ready" "$SANDBOX/stale")"
+assert_deny_because "cd A & gh pr ready does not inherit A (the cd ran in a subshell)" 'commit\(s\) behind'
+assert_queried_in "cd A & gh pr ready queried the payload cwd, not A" "$SANDBOX/stale"
+
+reset_stub_env
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload "cd $SANDBOX/conf || gh pr ready" "$SANDBOX/stale")"
+assert_deny_because "cd A || gh pr ready does not inherit A (gh runs only if the cd failed)" 'commit\(s\) behind'
+assert_queried_in "cd A || gh pr ready queried the payload cwd, not A" "$SANDBOX/stale"
+
+# P12 — a quoted redirect target must not make a conforming flip unanalyzable.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42 >"ready output.log"')"
+assert_defer "a quoted redirect target does not falsely deny a conforming flip"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
+run_hook "$(bash_payload "gh pr ready 42 >'single quoted.log'")"
+assert_defer "a single-quoted redirect target does not falsely deny a conforming flip"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'gh pr ready 42 >"ready output.log"')"
+assert_deny_because "a quoted redirect target still does not slip a stale flip" 'commit\(s\) behind'
+
+# P11 — --help and -h mutate nothing.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=9
+run_hook "$(bash_payload 'gh pr ready --help')"
+assert_defer "gh pr ready --help defers (it prints usage, it does not flip)"
+if [ "$(gh_calls)" = 0 ]; then
+  pass "--help issues no network call"
+else
+  fail "--help issued $(gh_calls) network call(s)"
+fi
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=9
+run_hook "$(bash_payload 'gh pr ready -h')"
+assert_defer "gh pr ready -h defers"
+
+# P6 — a jq that is ON PATH but broken must still produce a decision.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=6
+rm -f "$BIN/jq"
+printf '#!/bin/sh\nexit 1\n' >"$BIN/jq"
+chmod +x "$BIN/jq"
+OUT="$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh pr ready 42"},"cwd":"/tmp"}' \
+  | env -i PATH="$BIN" HOME="$SANDBOX" /bin/bash "$HOOK" bash 2>/dev/null)"
+CODE=$?
+assert_deny "a present-but-broken jq still emits a decision (never a silent fail-open)"
+assert_reason_matches "the broken-jq denial names the jq failure" 'did not run'
+rm -f "$BIN/jq"
+ln -sf "$(command -v jq)" "$BIN/jq"
+
+# P5 — head -c exits 0 when it TRUNCATES, so an over-cap payload must deny.
+reset_stub_env
+OUT="$({
+  printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"},"cwd":"/tmp","pad":"'
+  /bin/bash -c 'printf "%0.sx" $(seq 1 2000050)'
+  printf '%s' '"}'
+} | env -i PATH="$BIN" HOME="$SANDBOX" /bin/bash "$HOOK" bash 2>/dev/null)"
+CODE=$?
+assert_deny "a payload larger than the read cap denies (truncation is detected)"
+assert_reason_matches "the over-cap denial names the size" 'larger than'
+
+# P7 — MCP jurisdiction is the MATCHER, which only the wiring knows.
+reset_stub_env
+RG_SURFACE=mcp run_hook "$(jq -n '{tool_input:{owner:"acme",repo:"widgets",pullNumber:42,draft:false}}')"
+assert_deny_because "a tool_name-less payload on the MCP matcher denies" 'could not be parsed'
+
+reset_stub_env
+RG_SURFACE=bash run_hook "$(jq -n '{tool_input:{owner:"acme",repo:"widgets",pullNumber:42,draft:false}}')"
+assert_defer "the same payload on the Bash matcher defers (no flip evidence in its text)"
+
+# P8 — isDraft must be a JSON boolean, not any scalar that renders as "false".
+reset_stub_env
+STUB_VIEW_JSON='{"baseRefName":"main","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","isDraft":"false","mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "isDraft as the STRING false denies (only a real boolean defers)" 'draft state is missing or malformed'
+
+reset_stub_env
+STUB_VIEW_JSON='{"baseRefName":"main","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","isDraft":1,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_COMPARE_OUT=6
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "isDraft as a NUMBER denies" 'draft state is missing or malformed'
+
+# P9 — the answer must be about the PR the call named.
+reset_stub_env
+STUB_VIEW_JSON='{"baseRefName":"main","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/43"}'
+STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_deny_because "a conforming answer about a DIFFERENT PR number denies" 'not the one this call named'
+
+# P13 — + and @ are valid in git ref names and unambiguous in a URL path.
+reset_stub_env
+STUB_VIEW_JSON='{"baseRefName":"release+hotfix","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "a conforming PR on a base branch containing + is not falsely denied"
+
+reset_stub_env
+STUB_VIEW_JSON='{"baseRefName":"team@release","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "a conforming PR on a base branch containing @ is not falsely denied"
+
+reset_stub_env
+STUB_VIEW_JSON='{"baseRefName":"release/2.0","headRefOid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","isDraft":true,"mergeable":"MERGEABLE","url":"https://github.com/acme/widgets/pull/42"}'
+STUB_COMPARE_OUT=0
+run_hook "$(bash_payload 'gh pr ready 42')"
+assert_defer "a conforming PR on a slashed base branch is not falsely denied"
+if grep -q $'compare/release/2\.0\.\.\.' "$STATE/argv.log"; then
+  pass "the slashed base ref reaches the compare path as-is (GitHub accepts it)"
+else
+  fail "slashed base ref not in the compare argv: $(cat "$STATE/argv.log")"
+fi
 
 echo "### REQ-C1.7 — global wiring in hooks/hooks.json"
 
