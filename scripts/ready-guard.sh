@@ -306,7 +306,7 @@ tokenize_segments() {
   local s=$1
   local n=${#s}
   local i=0
-  local c nc cur='' have=0
+  local c nc cur='' have=0 cur_quoted=0
   local -a words=()
   SEGS=()
 
@@ -316,6 +316,7 @@ tokenize_segments() {
       cur=''
       have=0
     fi
+    cur_quoted=0
   }
   flush_seg() {
     flush_word
@@ -342,6 +343,7 @@ tokenize_segments() {
         [ "$j" -lt "$n" ] || return 1 # unbalanced quote
         cur="$cur$lit"
         have=1
+        cur_quoted=1
         i=$((j + 1))
         ;;
       '"')
@@ -372,6 +374,7 @@ tokenize_segments() {
         [ "$j" -lt "$n" ] || return 1 # unbalanced quote
         cur="$cur$lit"
         have=1
+        cur_quoted=1
         i=$((j + 1))
         ;;
       "\\")
@@ -379,6 +382,7 @@ tokenize_segments() {
         [ -n "$nc" ] || return 1 # trailing backslash / line continuation
         cur="$cur$nc"
         have=1
+        cur_quoted=1
         i=$((i + 2))
         ;;
       '`')
@@ -398,6 +402,17 @@ tokenize_segments() {
         # its target word.
         nc=${s:i+1:1}
         [ "$nc" != '(' ] || return 1
+        # An UNQUOTED all-digit word immediately before the operator is an fd
+        # designator (`2>`), not an argument: bash does not pass it to the
+        # command, so neither may the tokenizer. Flushing it as a word is what
+        # let `2>/dev/null gh pr ready 42` land "2" at words[0] and slip the
+        # gate entirely. A QUOTED `"2"` really is an argument in bash, so
+        # cur_quoted keeps it one.
+        if [ "$have" = 1 ] && [ "$cur_quoted" = 0 ] \
+          && [ -n "$cur" ] && [ -z "${cur//[0-9]/}" ]; then
+          cur=''
+          have=0
+        fi
         flush_word
         i=$((i + 1))
         [ "${s:i:1}" != '>' ] || i=$((i + 1)) # `>>`
@@ -626,8 +641,11 @@ parse_ready_flags() {
   RG_REPO=''
   local a val positional=0 endopts=0
 
-  # --undo anywhere means this is a ready->draft transition, never gated
-  # (REQ-C1.8), regardless of currency or mergeability.
+  # --undo in a FLAG position means this is a ready->draft transition, never
+  # gated (REQ-C1.8), regardless of currency or mergeability. The scan runs
+  # before every other check so no other refusal can pre-empt that guarantee,
+  # and it steps over a --repo value so `--repo --undo` (where --undo is the
+  # repo, not the flag) is not misread as a re-draft.
   for a in "$@"; do
     [ "$a" != --undo ] || return 1
   done

@@ -580,6 +580,39 @@ assert_deny "a redirect does not slip the gate"
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
+run_hook "$(bash_payload '2>/dev/null gh pr ready 42')"
+assert_deny_because "a leading fd-redirect prefix (2>/dev/null) does not slip the gate" 'commit\(s\) behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
+run_hook "$(bash_payload '>/dev/null 2>&1 gh pr ready 42')"
+assert_deny_because "a stacked prefix redirect does not slip the gate" 'commit\(s\) behind'
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
+run_hook "$(bash_payload "cd $WORK && 2>/dev/null gh pr ready 42")"
+assert_deny_because "an fd-redirect prefix behind a cd does not slip the gate" 'commit\(s\) behind'
+
+# A QUOTED all-digit word is a real argument in bash, not an fd designator.
+# Reason alone cannot pin this (dropping "42" leaves a bare flip that also
+# denies as behind), so the ARGV is what proves the selector survived.
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
+run_hook "$(bash_payload 'gh pr ready "42" >/dev/null')"
+assert_deny_because "a quoted all-digit selector stays an argument" 'commit\(s\) behind'
+if grep -q $'\tpr\tview\t42\t' "$STATE/argv.log"; then
+  pass "the quoted selector still reached gh as the PR number, not dropped as an fd designator"
+else
+  fail "the quoted selector was dropped: argv was $(cat "$STATE/argv.log")"
+fi
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=9
+run_hook "$(bash_payload '2>/dev/null ls -la')"
+assert_defer "an fd-redirect prefix on an unrelated command still defers"
+
+reset_stub_env
+STUB_VIEW_JSON=$VIEW_BEHIND STUB_COMPARE_OUT=2
 # shellcheck disable=SC2016  # literal, unexpanded by design: that is the assertion
 run_hook "$(bash_payload 'echo "$(gh pr ready 42)"')"
 assert_deny "a command-substitution form the tokenizer will not analyze denies (fail closed)"
