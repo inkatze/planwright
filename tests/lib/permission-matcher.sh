@@ -82,8 +82,18 @@ pm_compile_pattern() {
 }
 
 # pm_rule_pattern <rule> — print the inner pattern of a `Bash(...)` rule.
-# Exit 1 for any other rule shape (a tool-name rule, a Read()/Edit() path rule):
-# those never match a Bash command, so the command matcher ignores them.
+#
+# Three outcomes, because "not a Bash command rule" and "a broken Bash command
+# rule" must not be conflated:
+#   0  a well-formed `Bash(<pattern>)` rule; the pattern is printed
+#   1  a rule that is not a Bash command rule at all (`Read(...)`, `Edit`, a
+#      non-Bash tool name) — it can never match a command, so the caller
+#      ignores it
+#   3  a rule that names the Bash tool but is not a usable command pattern: a
+#      truncated `Bash(...` missing its close paren, or a bare `Bash`
+#      tool-name rule whose semantics this model does not implement. Either
+#      one, silently skipped, would shrink the rule set the fixture table
+#      believes it is asserting against, so the caller fails closed instead.
 pm_rule_pattern() {
   local rule="$1" inner
   case "$rule" in
@@ -92,6 +102,7 @@ pm_rule_pattern() {
       printf '%s' "${inner%)}"
       return 0
       ;;
+    'Bash' | 'Bash'*) return 3 ;;
   esac
   return 1
 }
@@ -205,12 +216,17 @@ PM_ASK_RE=()
 PM_ALLOW_RE=()
 
 # pm_load_rules <deny-lines> <ask-lines> <allow-lines> — compile three
-# newline-separated rule lists. Exit 2 when the deny list yields no usable Bash
-# rule: a vacuous deny set must fail closed, never silently pass a fixture table
-# whose every expected-deny row would then read as "allowed" (REQ-A1.1,
-# REQ-H1.3).
+# newline-separated rule lists.
+#
+# Fails closed in two ways, because a rule set quietly smaller than the config
+# ships would let the fixture table read every expected-deny row as "allowed":
+#   2  the deny list yields no usable Bash rule (a vacuous deny set)
+#   3  any list contains a rule that names the Bash tool but is not a usable
+#      command pattern (pm_rule_pattern's exit 3)
+# Non-Bash rules are still skipped silently: they cannot match a command.
 pm_load_rules() {
-  local deny="$1" ask="$2" allow="$3" rule pat
+  local deny="$1" ask="$2" allow="$3" rule pat rc malformed=0
+
   PM_DENY_N=0
   PM_ASK_N=0
   PM_ALLOW_N=0
@@ -221,7 +237,13 @@ pm_load_rules() {
 
   while IFS= read -r rule; do
     [ -n "$rule" ] || continue
-    pat="$(pm_rule_pattern "$rule")" || continue
+    pat="$(pm_rule_pattern "$rule")"
+    rc=$?
+    [ "$rc" -ne 3 ] || {
+      malformed=1
+      continue
+    }
+    [ "$rc" -eq 0 ] || continue
     PM_DENY_RULE[PM_DENY_N]="$rule"
     PM_DENY_RE[PM_DENY_N]="$(pm_compile_pattern "$pat")"
     PM_DENY_N=$((PM_DENY_N + 1))
@@ -231,7 +253,13 @@ EOF
 
   while IFS= read -r rule; do
     [ -n "$rule" ] || continue
-    pat="$(pm_rule_pattern "$rule")" || continue
+    pat="$(pm_rule_pattern "$rule")"
+    rc=$?
+    [ "$rc" -ne 3 ] || {
+      malformed=1
+      continue
+    }
+    [ "$rc" -eq 0 ] || continue
     PM_ASK_RE[PM_ASK_N]="$(pm_compile_pattern "$pat")"
     PM_ASK_N=$((PM_ASK_N + 1))
   done <<EOF
@@ -240,13 +268,20 @@ EOF
 
   while IFS= read -r rule; do
     [ -n "$rule" ] || continue
-    pat="$(pm_rule_pattern "$rule")" || continue
+    pat="$(pm_rule_pattern "$rule")"
+    rc=$?
+    [ "$rc" -ne 3 ] || {
+      malformed=1
+      continue
+    }
+    [ "$rc" -eq 0 ] || continue
     PM_ALLOW_RE[PM_ALLOW_N]="$(pm_compile_pattern "$pat")"
     PM_ALLOW_N=$((PM_ALLOW_N + 1))
   done <<EOF
 $allow
 EOF
 
+  [ "$malformed" -eq 0 ] || return 3
   [ "$PM_DENY_N" -gt 0 ] || return 2
   return 0
 }
@@ -284,6 +319,10 @@ EOF
 }
 
 # pm_decide <command> — print deny | ask | allow | prompt.
+#
+# Deny is swept across EVERY subcommand before ask is considered at all. Doing
+# both in one per-subcommand pass would let an earlier subcommand's ask match
+# outrank a later subcommand's deny match, which inverts M8's global ordering.
 pm_decide() {
   local sub stripped i subs matched any
   subs="$(pm_split_command "$1")"
@@ -300,6 +339,14 @@ pm_decide() {
       fi
       i=$((i + 1))
     done
+  done <<EOF
+$subs
+EOF
+
+  while IFS= read -r sub; do
+    sub="$(pm_trim "$sub")"
+    [ -n "$sub" ] || continue
+    stripped="$(pm_strip_leading_assignments "$sub")"
     i=0
     while [ "$i" -lt "$PM_ASK_N" ]; do
       if [[ $stripped =~ ${PM_ASK_RE[$i]} ]]; then
