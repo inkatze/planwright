@@ -697,7 +697,10 @@ assert_deny "a non-numeric positional selector denies (grammar: a PR is digits)"
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
 run_hook "$(bash_payload 'gh pr ready 42 43')"
-assert_deny "two positional targets deny (ambiguous)"
+# Reason-pinned: the P9 URL cross-check would also deny this fixture (the stub
+# answers about PR 42 while the second positional makes the selector 43), so a
+# bare deny let the multiple-target refusal be deleted with the suite green.
+assert_deny_because "two positional targets deny (ambiguous)" 'more than one target'
 
 reset_stub_env
 STUB_VIEW_JSON=$VIEW_CONFORMING STUB_COMPARE_OUT=0
