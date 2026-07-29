@@ -143,11 +143,12 @@ malformed, not ignored. Whitespace around the condition is insignificant
 *reached* on or after the named day, inclusive.
 
 A condition that cannot be said in this grammar is written as a **free-text
-gate**: plain prose directly after `**Gate:**`, with **no `GATE(` wrapper** —
-the wrapper declares the structured form, so prose inside one is a malformed
-structured gate, not a free-text one. Free-text gates are surfaced verbatim and
-never evaluated (the same posture as date gates — the machine reports it; a
-human judges it). One gate per deferral entry.
+gate**: plain prose directly after `**Gate:**`, never wrapped in `GATE(`. The
+evaluator keys the structured form on the exact `GATE(when:` prefix, so a wrapped
+prose condition is read as structured and reported malformed — or, without that
+prefix, surfaced as free text wearing a structured mask. Free-text gates are
+surfaced verbatim and never evaluated (the machine reports it; a human judges
+it). One gate per deferral entry.
 
 ### Lanes and evaluation semantics
 
@@ -184,8 +185,8 @@ is unavailable — engine failure, or a transient remote failure leaving the rec
 Its gate stays out of the satisfied and surfaced lanes: the row reports PENDING
 (or DORMANT, with a date atom present) carrying an
 `unresolved (completion evidence unavailable):` clause naming the affected atoms,
-and the sweep counts a report error and completes. An annotation on the existing
-lanes, not a seventh lane — no report key is added.
+and the sweep counts a report error and completes. It annotates the existing
+lanes; no report key is added.
 
 ### Confidence levels
 

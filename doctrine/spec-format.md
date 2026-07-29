@@ -48,7 +48,11 @@ edited. A `Superseded` bundle additionally carries a mandatory
 **Header-block extent.** The header block is the leading region of the file made
 up of nothing but the H1 title line, `**<Key>:** <value>` lines, and blank lines;
 it ends at the first line that is none of those. Blank lines between or among the
-key lines do not end it. The extent is **positional**: a file has at most one
+key lines do not end it, and a column-0 fence line does end it (a fence is none
+of the three). A conforming file opens with its H1, but the H1 is not what
+*constitutes* the block: parsers accept a file that opens with the key lines
+themselves, so partial files and fixtures parse rather than failing closed for a
+reason the format does not care about. The extent is **positional**: a file has at most one
 header block, the one opening its content, so a key-line run appearing anywhere
 later — in body prose or inside a fence — is not a header block at all.
 `Format-version:` and `Status:` are recognized only inside the block; a body line
@@ -288,15 +292,17 @@ the PR; the block stays the durable definition record.
 
 **Superseded and retired tasks keep their block.** Work that is abandoned or
 replaced is represented, not deleted. In version 1 the whole block stays in the
-state section it already sits in, gaining a supersession or retirement annotation
-that names the successor task or the reason; it does not move to `## Deferred` or
-`## Out of scope`, which hold bullets rather than blocks. In version 2 the block
-stays in `## Tasks` and a reference bullet parks it under `## Out of scope` (a
-permanent retirement) or `## Deferred` (one that may return), the bullet's free
-text carrying that same annotation. Where a block genuinely must leave the file,
-a dated `## Changelog` entry naming the retired id authorizes the removal — the
-escape REQ supersession already has, and the only one the stable-ID check
-accepts; an unnamed removal stays a renumbered-or-removed error. When a whole REQ
+state section it already sits in, gaining the annotation as `Status:` phase text
+(`superseded by Task <id>` or `retired — <reason>`); it does not move to
+`## Deferred` or `## Out of scope`, which hold bullets rather than blocks. In
+version 2 the block stays in `## Tasks` and a reference bullet parks it under
+`## Out of scope` (a permanent retirement) or `## Deferred` (one that may
+return), the bullet's free text carrying that same annotation. Where a block
+genuinely must leave the file, a dated `## Changelog` entry naming the retired id
+authorizes the removal — the escape REQ supersession already has, and the only
+one the stable-ID check accepts. The named token is a task id in the task-id
+grammar, and it must be the id of the block that actually left: an unnamed
+removal, or one naming a different id, stays a renumbered-or-removed error. When a whole REQ
 group is superseded, its `test-spec.md` entries are removed rather than left as
 orphans pointing at retired IDs, with the tombstone recorded in the same dated
 changelog entry, so REQ↔test-spec coverage stays exact in both directions.
@@ -350,9 +356,11 @@ The gate grammar itself is defined in the accumulator-taxonomy doctrine
 After the header block and an intro stating the coverage mix, entries are grouped
 under the same `## REQ-<Group> — <theme>` H2 headings `requirements.md` declares,
 and every REQ is pinned to at least one verification path as an H3 entry beneath
-its group's heading. The grouping is required, not decorative: an H3 sitting
-directly under the H1 skips a heading level and trips the MD001
-heading-increment lint `mise run lint:md` runs.
+its group's heading. Two separate points: an H2 layer is *mechanically* required,
+because an H3 sitting directly under the H1 skips a heading level and trips the
+MD001 heading-increment lint `mise run lint:md` runs; that the H2 must be the
+matching group heading is this format's rule, which no lint checks — MD001 is
+satisfied by any H2 at all.
 
 ```markdown
 ## REQ-<Group> — <theme>
@@ -485,9 +493,11 @@ extraction selects `### Task` blocks wherever they sit — and with no
 derived writes, no orchestration or execution act moves the anchor.
 
 **Validation.** The validator enforces these invariants as errors on
-non-Draft v2 bundles and warnings on Draft; a missing or unparseable
-`Format-version:` errors at every status, and every version-keyed script
-fails closed on it, never falling open to the v1 write path.
+non-Draft v2 bundles and warnings on Draft. Two carve-outs error at *every*
+status, Draft included: a missing or unparseable `Format-version:` — and every
+version-keyed script fails closed on it, never falling open to the v1 write path
+— and a duplicate in-header declaration of either load-bearing key
+(*Header-block extent*), which is unparseable by the same reasoning.
 
 ## Stable IDs and supersession
 
@@ -587,11 +597,12 @@ Anchor: `<hash>` — computed as
   than to the general lens list, both under the cross-file-consistency lens:
   - **Qualified cross-spec citations.** Read every namespace-qualified foreign
     citation and confirm it resolves to the record the sentence relies on. The
-    validator checks only that *unqualified* tokens fall inside the bundle's own
-    ID ranges; whether `bootstrap D-25` is the decision being leaned on is a
-    judgment no structural check can make, and a keyword heuristic would
-    false-positive on legitimate cites while lulling readers on subtle ones. A
-    misattributed qualified citation is therefore invisible to tooling, and this
+    division of labour is deliberate: mechanical range and qualifier checking of
+    *unqualified* tokens is the validator's (a hardening rule, not yet landed),
+    while whether `bootstrap D-25` is the decision being leaned on is a judgment
+    no structural check can make — a keyword heuristic would false-positive on
+    legitimate cites while lulling readers on subtle ones. A misattributed
+    qualified citation is therefore invisible to tooling at every stage, and this
     item is its only guard.
   - **Requirement/test-spec pairing.** A disposition that adds a requirement or
     extends an existing one carries the paired `test-spec.md` edit in the same
@@ -982,14 +993,22 @@ bundle would have to migrate to:
   disagreement it accepts (*Format-version 2*). The kickoff `Lens-pass:`
   definition gains the two checklist items this format needs a human for —
   qualified-cross-spec-citation review and requirement/test-spec pairing
-  (*Sign-off records and content anchors*). **No version bump:** every rule
-  either ratifies shipped behavior or relaxes an unenforced one, and every
-  in-repo bundle at both versions already conforms, so no bundle migrates.
-  `spec-validate.sh` enforcement of the unbalanced-fence error, the
-  duplicate-declaration error, the deviant-heading flag (`check-ledger.sh`
-  already flags it), and the changelog-named retirement escape lands as its own
-  tasks; as with the two 2026-07-26 doctrine-half entries above, the rule is
-  stated before that tool enforces it.
+  (*Sign-off records and content anchors*). **No version bump:** no rule makes a
+  conforming bundle nonconforming — every in-repo bundle at both versions already
+  satisfies all of them, verified before landing — so no bundle migrates.
+  **Enforcement is deliberately behind the rule.** The fence rule generalizes
+  what the version-2 parked-map family (`spec-parse.sh`, and through it
+  `drain-gates.sh`, `spec-status.sh`, `orchestrate-select.sh`, `spec-validate.sh`)
+  already implements and tests; the remaining parses — the canonical `tasks.md`
+  extraction, and `spec-validate.sh`'s requirement, decision, and task-heading
+  grammars — are *not* fence-aware yet and become so in lockstep as their own
+  task, which is also where the unbalanced-fence validator flag lands. The
+  duplicate-declaration error, the deviant-heading validator flag
+  (`check-ledger.sh` already flags it; `spec-validate.sh` does not), the
+  unqualified-citation range warning, and the changelog-named retirement escape
+  are likewise their own tasks. As with the two 2026-07-26 doctrine-half entries
+  above, the rule is stated before the tooling catches up; what is not claimed is
+  that the tooling has already caught up.
   *(format-grammar D-1, D-5, D-6, D-7, D-10, D-11, D-12, D-13, D-14 · REQ-A1.1,
   REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8,
   REQ-A1.10, REQ-D1.4, REQ-D1.8.)*
