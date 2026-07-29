@@ -407,10 +407,10 @@ spec_parse_header_block() {
 # re-diverge:
 #
 #   * a column-0 code-fence line toggles illustration mode, and no fenced line
-#     parses as anything — heading, bullet, or otherwise (format-grammar D-5 is
-#     the interim provenance; REQ-A1.1's meta-spec amendment in Task 5 replaces
-#     it, and Task 6 flips these citations). End-of-file inside an open
-#     fence is MALFORMED input, not illustration-to-end-of-file: an
+#     parses as anything — heading, bullet, or otherwise. The normative rule is
+#     doctrine/spec-format.md, *Fenced illustration*, which this parse
+#     implements. End-of-file inside an open fence is MALFORMED input, not
+#     illustration-to-end-of-file: an
 #     unterminated fence would otherwise swallow the rest of a bundle from
 #     every parser with no signal, so the parse fails closed.
 #   * every line is CRLF-trimmed before matching, so a CRLF checkout cannot

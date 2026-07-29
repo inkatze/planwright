@@ -207,9 +207,9 @@ inprogress=" "
 #
 # The parse is the shared lib's (REQ-B1.4, REQ-C1.1) — the single v2 posture
 # all four v2 parsers now consume, so it cannot re-diverge: column-0 fences are
-# illustration (format-grammar D-5, the interim provenance Task 5's amendment
-# flips to the meta-spec), section headings are matched CRLF-tolerantly, a lead with
-# inner whitespace ("**Task force assembled.**") is a plain prose bullet the
+# illustration (doctrine/spec-format.md, *Fenced illustration* — the one
+# normative definition), section headings are matched CRLF-tolerantly, a lead
+# with inner whitespace ("**Task force assembled.**") is a plain prose bullet the
 # format allows in Deferred / Out of scope and is tolerated, and a near-miss
 # lead is rejected loudly rather than silently skipped. Fed the same snapshot
 # as the version parse above, and its exit status checked (REQ-B1.6f): an

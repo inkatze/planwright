@@ -130,7 +130,7 @@ task-id     = 1*DIGIT ["." 1*DIGIT]           ; by its stable id
 status-atom = "spec " spec-id " " status      ; a bundle's status,
 spec-id     = lowercase / digit, then         ; identifier per REQ-A1.8
               lowercase / digit / "-", max 64
-status      = "draft" / "active" / "done" / "retired" / "superseded"
+status      = "draft" / "ready" / "active" / "done" / "retired" / "superseded"
 
 date-atom   = "after " full-date              ; full-date = YYYY-MM-DD
 ```
@@ -140,11 +140,14 @@ grouping, and no other atom form. The grammar ends at the closing
 parenthesis: apart from a final period, trailing content after it is
 malformed, not ignored. Whitespace around the condition is insignificant
 (the space after `when:` is conventional, not load-bearing). A date atom is
-*reached* on or after the named day, inclusive. A condition that cannot be
-said in this grammar is written as a **free-text gate** instead: plain
-prose after `**Gate:**`, surfaced verbatim and never evaluated (the same
-posture as date gates — the machine reports it; a human judges it). One
-gate per deferral entry.
+*reached* on or after the named day, inclusive.
+
+A condition that cannot be said in this grammar is written as a **free-text
+gate**: plain prose directly after `**Gate:**`, with **no `GATE(` wrapper** —
+the wrapper declares the structured form, so prose inside one is a malformed
+structured gate, not a free-text one. Free-text gates are surfaced verbatim and
+never evaluated (the same posture as date gates — the machine reports it; a
+human judges it). One gate per deferral entry.
 
 ### Lanes and evaluation semantics
 
@@ -174,6 +177,15 @@ The evaluator sorts every gate into exactly one lane:
   errors**: reported as errors (every defective atom named), never
   evaluated, never silently skipped — and the pass completes; nothing
   blocks (REQ-H1.3).
+
+**The `unresolved` annotation.** A version-2 task atom whose completion evidence
+is unavailable — engine failure, or a transient remote failure leaving the record
+`degraded` — resolves as **unresolved**, never satisfied from partial evidence.
+Its gate stays out of the satisfied and surfaced lanes: the row reports PENDING
+(or DORMANT, with a date atom present) carrying an
+`unresolved (completion evidence unavailable):` clause naming the affected atoms,
+and the sweep counts a report error and completes. An annotation on the existing
+lanes, not a seventh lane — no report key is added.
 
 ### Confidence levels
 
@@ -240,12 +252,13 @@ the entry title, and its confidence, so both a human and a calling skill
 can act on the report without re-parsing gates. A complete report always
 ends with the `== summary ==` section; a sweep that cannot complete exits
 non-zero instead of emitting a partial report, so a report missing its
-summary is a bug, not a result. The evaluator parses each swept file in a
-single pass (one awk read, so no two parse phases can see different file
-versions), preceded by a NUL screen and bracketed by digest checks that
-flag a file whose content differs between the start and end of the parse
-as a report-level error rather than trusting possibly torn rows (a rewrite
-restoring identical bytes within the window is below the check's
-resolution; the writer-side lock is the orchestration layer's concern, not
-the read-only evaluator's). Spec-status atoms evaluate against a snapshot
-taken at sweep start.
+summary is a bug, not a result. Evaluating one swept file spans **several
+reads** — the `Format-version:` read, the v2 parked-map pre-parse, the engine's
+read, and the main gate parse — so consistency is **detected, not prevented**: a
+NUL screen precedes them and one widened digest bracket spans them all, flagging
+a file whose content differs between the start and end of evaluation as a
+report-level error rather than trusting possibly torn rows (a rewrite restoring
+identical bytes inside the window is below the check's resolution; the
+writer-side lock is the orchestration layer's concern, not the read-only
+evaluator's). Spec-status atoms evaluate against a snapshot taken at sweep
+start.

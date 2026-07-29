@@ -7,11 +7,9 @@
 #
 #   - the placement sections (## Forward plan / ## In progress /
 #     ## Completed) collapse into a single `## Tasks` section, task blocks
-#     sorted by task id (numeric, component-wise; D-10's id-sorted collapse.
-#     doctrine/spec-format.md currently words the v2 `## Tasks` order as
-#     "dependency order" — a known, unenforced wording divergence recorded
-#     in the 2026-07-16-spec-format-tasks-ordering-wording observation,
-#     deferred to a doctrine word-budget pass rather than reconciled here);
+#     sorted by task id (numeric, component-wise; D-10's id-sorted collapse,
+#     which doctrine/spec-format.md names conformant: v2 `## Tasks` block order
+#     carries no meaning, so this output needs no topological rework);
 #   - the state annotation bullets (Status, Last activity, Dispatch) are
 #     stripped, with task definition lines preserved byte-for-byte, so the
 #     canonical tasks.md extraction digest — and therefore that file's
