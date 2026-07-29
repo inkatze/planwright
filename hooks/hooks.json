@@ -1,5 +1,25 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__github__update_pull_request",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/ready-guard.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash",
