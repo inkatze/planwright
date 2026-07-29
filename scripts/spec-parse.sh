@@ -232,20 +232,20 @@ spec_parse_extract_tasks() {
 # --- Header-block declaration parse (Task 2; REQ-B1.3, REQ-A1.2, REQ-A1.3,
 # --- REQ-D1.9 · D-6, D-7) ----------------------------------------------------
 #
-# The header block's extent, as this lib implements it until the REQ-A1.3
-# meta-spec amendment lands (format-grammar Task 5): the file's LEADING
+# The header block's extent, per doctrine/spec-format.md *Header-block extent*
+# (the REQ-A1.3 amendment has landed and defines this): the file's LEADING
 # region, made up of the H1, blank lines, and bolded `**Key:** value` header
 # lines, ending at the first line that is none of those. `Format-version:` and
 # `Status:` are recognized only inside it, so a column-0 BODY line carrying the
 # same literal is inert content and can no longer mask a MISSING header
 # declaration (obs:89cf2853, the latent bug D-7 closes).
 #
-# The H1 is optional here. D-7 describes the block as running "from the H1",
-# but partial files and fixture bundles legitimately open with the header
-# lines themselves, and requiring an H1 would fail those closed for a reason
-# the format does not care about. An H1 is accepted, never required.
+# The H1 is optional here, as the meta-spec's extent definition now states
+# explicitly: a conforming file opens with its H1, but partial files and fixture
+# bundles legitimately open with the header lines themselves, and requiring an H1
+# would fail those closed for a reason the format does not care about.
 #
-# Fences (D-5) need no separate guard: a column-0 fence line is neither blank,
+# Fences need no separate guard: a column-0 fence line is neither blank,
 # an H1, nor a header line, so it ENDS the header block — a fenced example
 # declaration is already outside every recognized block, whether it sits above
 # or below the real one. A CR-only line on a CRLF checkout is normalized to
@@ -401,16 +401,16 @@ spec_parse_header_block() {
 }
 
 # --- Parked-map / reference-bullet parse (Task 2; REQ-B1.4, REQ-C1.1,
-# --- REQ-C1.3 · D-5, D-8) ----------------------------------------------------
+# --- REQ-C1.3 · D-8, and doctrine/spec-format.md *Fenced illustration*) -------
 #
 # The single v2 posture (D-8), the one all four v2 parsers consume so it cannot
 # re-diverge:
 #
 #   * a column-0 code-fence line toggles illustration mode, and no fenced line
-#     parses as anything — heading, bullet, or otherwise (format-grammar D-5 is
-#     the interim provenance; REQ-A1.1's meta-spec amendment in Task 5 replaces
-#     it, and Task 6 flips these citations). End-of-file inside an open
-#     fence is MALFORMED input, not illustration-to-end-of-file: an
+#     parses as anything — heading, bullet, or otherwise. The normative rule is
+#     doctrine/spec-format.md, *Fenced illustration*, which this parse
+#     implements. End-of-file inside an open fence is MALFORMED input, not
+#     illustration-to-end-of-file: an
 #     unterminated fence would otherwise swallow the rest of a bundle from
 #     every parser with no signal, so the parse fails closed.
 #   * every line is CRLF-trimmed before matching, so a CRLF checkout cannot
