@@ -411,10 +411,9 @@ report() {
       # The parked map (live reference bullets under the three human-payload
       # sections) comes from the shared lib (REQ-B1.4, REQ-C1.1) — the single
       # v2 posture all four v2 parsers now consume, so it cannot re-diverge:
-      # column-0 fences are illustration (format-grammar D-5, the interim
-      # provenance Task 5's amendment flips to the meta-spec) as in the gate
-      # parse, section
-      # headings are matched CRLF-tolerantly, a lead with inner whitespace is a
+      # column-0 fences are illustration (doctrine/spec-format.md, *Fenced
+      # illustration*) as in the gate parse, section headings are matched
+      # CRLF-tolerantly, a lead with inner whitespace is a
       # plain prose bullet the format allows in Deferred / Out of scope and is
       # tolerated, and a near-miss lead is rejected loudly. A violating token is
       # noted and never used (REQ-C1.9; the final report strip sanitizes it).
