@@ -32,7 +32,8 @@
 #      record — never a positional-winner value a consumer could read.
 #   7. spec_parse_parked_map implements the parked-map/reference-bullet parse
 #      in the single v2 posture (REQ-B1.4, REQ-C1.1, D-8): column-0 fences
-#      are illustration (D-5), section headings are matched CRLF-tolerantly,
+#      are illustration (doctrine/spec-format.md, *Fenced illustration*),
+#      section headings are matched CRLF-tolerantly,
 #      a reference is a complete `**Task <token>**` lead with a
 #      whitespace-free token, plain prose bullets are tolerated, near-miss
 #      leads are rejected loudly, and end-of-file inside an open fence is
@@ -782,7 +783,8 @@ got=$(hv "$tmp/hdr-after-prose.md" Format-version) || fail "post-prose fixture f
 echo "ok: prose closes the header block (D-7)"
 
 # A column-0 fence closes the block too, so a fenced example declaration is
-# already outside every recognized block (D-5 needs no separate guard here).
+# already outside every recognized block (the fence rule needs no separate
+# guard here).
 {
   printf '# Fixture — Requirements\n\n'
   printf '```\n'
@@ -792,8 +794,8 @@ echo "ok: prose closes the header block (D-7)"
 } >"$tmp/hdr-fenced.md"
 got=$(hv "$tmp/hdr-fenced.md" Format-version) || fail "fenced-example fixture failed"
 [ -z "$got" ] \
-  || fail "a fenced example declaration was parsed as the header declaration (got '$got'; D-5)"
-echo "ok: a column-0 fence closes the header block, so fenced examples are inert (D-5)"
+  || fail "a fenced example declaration was parsed as the header declaration (got '$got')"
+echo "ok: a column-0 fence closes the header block, so fenced examples are inert"
 
 # 6g. The H1 is optional: header-only fixtures and partial files legitimately
 # open with the declarations.
@@ -928,7 +930,8 @@ echo "ok: the batched header parse fails closed on NUL input and reads stdin"
 
 # ---------------------------------------------------------------------------
 # Property 7: spec_parse_parked_map — the parked-map/reference-bullet parse
-# in the single v2 posture (REQ-B1.4, REQ-C1.1 · D-5, D-8).
+# in the single v2 posture (REQ-B1.4, REQ-C1.1 · D-8, and the meta-spec's
+# *Fenced illustration* rule).
 #
 # Record framing (fixed-position fields, variable-length payload last):
 #   ref<TAB><id><TAB><class><TAB><line><TAB><payload>
@@ -991,7 +994,8 @@ echo "ok: the parked-map stream matches the golden posture corpus (REQ-B1.4, REQ
   || fail "the parked map de-duplicated a task named by two reference bullets"
 echo "ok: duplicate reference bullets are both emitted, not de-duplicated"
 
-# 7b. Column-0 fences are illustration (D-5): neither a fenced section
+# 7b. Column-0 fences are illustration (meta-spec *Fenced illustration*):
+# neither a fenced section
 # heading nor a fenced reference bullet parses as anything.
 cat >"$tmp/parked-fence.md" <<'EOF'
 # Fixture — Tasks
@@ -1017,7 +1021,7 @@ spec_parse_parked_map "$tmp/parked-fence.md" >"$tmp/parked-fence.out" \
 printf 'ref\t1\tdeferred\t7\tA real park.\n' >"$tmp/parked-fence.golden"
 cmp -s "$tmp/parked-fence.golden" "$tmp/parked-fence.out" \
   || fail "fenced lines leaked into the parked map: $(cat "$tmp/parked-fence.out")"
-echo "ok: fenced section headings and reference bullets parse as illustration (D-5)"
+echo "ok: fenced section headings and reference bullets parse as illustration"
 
 # An INDENTED fence does not toggle illustration mode (only column-0 does).
 cat >"$tmp/parked-indented-fence.md" <<'EOF'
