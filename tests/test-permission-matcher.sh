@@ -154,11 +154,44 @@ if [ "$(pm_decide 'safe-cmd one && never-run two')" = "deny" ]; then
 else
   fail "compound: a denied subcommand must deny the whole compound call"
 fi
-# A deny rule matches past any leading environment assignment.
-if [ "$(pm_decide 'FOO=bar never-run x')" = "deny" ]; then
-  ok "deny matches past a leading environment assignment"
+# A deny rule matches past any leading environment assignment, in every spelling
+# a shell accepts: bare, quoted (double and single), backslash-escaped,
+# tab-separated, and several stacked. A naive split on the first space mangles
+# the quoted and tab forms and leaves a remainder no deny pattern can match.
+tab_ch="$(printf '\t')"
+for assigned in \
+  'FOO=bar never-run x' \
+  'FOO="a b" never-run x' \
+  "FOO='a b' never-run x" \
+  'FOO=a\ b never-run x' \
+  "FOO=bar${tab_ch}never-run x" \
+  'A=1 B="x y" C=3 never-run x' \
+  'FOO= never-run x'; do
+  if [ "$(pm_decide "$assigned")" = "deny" ]; then
+    ok "deny matches past a leading assignment: ${assigned%% never-run*} …"
+  else
+    fail "deny must match past the leading assignment in: $assigned"
+  fi
+done
+# An unterminated quote is not a strippable assignment: the command is
+# unparseable, and an unparseable command falls through to the prompt rather
+# than being silently reshaped into something that matches nothing.
+if [ "$(pm_decide 'FOO="unterminated never-run x')" = "prompt" ]; then
+  ok "an unterminated quoted assignment falls through to the prompt"
 else
-  fail "deny should match past a leading environment assignment"
+  fail "an unterminated quoted assignment must not be stripped into a bogus command"
+fi
+# A bare assignment with no command after it is not a leading assignment.
+if [ "$(pm_decide 'FOO=bar')" = "prompt" ]; then
+  ok "a bare VAR=value with no command reports prompt"
+else
+  fail "a bare VAR=value must not be treated as a stripped command"
+fi
+# A first token that merely contains '=' is not an assignment.
+if [ "$(pm_decide './configure --prefix=/usr never-run')" = "prompt" ]; then
+  ok "a non-NAME first token containing '=' is not stripped as an assignment"
+else
+  fail "'./configure --prefix=/usr' must not be stripped as a leading assignment"
 fi
 # Deny precedes ask ACROSS subcommands, not just within one (doc rule M8: the
 # whole rule set is evaluated deny-first; specificity and position never
@@ -369,6 +402,19 @@ deny|load-bearing|git config --global core.hookspath /dev/null|persistent hook d
 deny|load-bearing|git --config-env=core.hooksPath=HP commit -m "wip"|hooksPath injection via --config-env (a real git 2.55 spelling)
 deny|load-bearing|git -c user.name=x --config-env=core.hooksPath=HP commit -m "wip"|--config-env behind another global option
 deny|load-bearing|git commit --hooks-path=/dev/null -m "wip"|categorical --hooks-path deny; git 2.55 has no such flag (verified) so this is forward-compat only
+deny|load-bearing|git -C . push --force origin feature/topic|GLOBAL-OPTION PREFIX: -C is a real git global option, so the anchored git-push rules never see this force push
+deny|load-bearing|git -C . commit --amend --no-edit|global-option prefix in front of an amend
+deny|load-bearing|git --git-dir=.git reset --hard origin/main|--git-dir prefix in front of a destructive reset
+deny|load-bearing|git -c a=b merge origin/main|-c prefix in front of a merge
+deny|load-bearing|git -c a=b rebase -i HEAD~2|-c prefix in front of a rebase
+deny|load-bearing|git -C . filter-branch --tree-filter true HEAD|global-option prefix in front of a history rewrite
+deny|load-bearing|git -C . filter-repo --path x|global-option prefix in front of a history rewrite
+deny|load-bearing|git -c core.hooksPath=/dev/null status|hooksPath injection in front of a read-only subcommand: the -c rules must catch it on their own
+deny|load-bearing|git -c core.hookspath=/dev/null status|lowercase hooksPath injection, read-only subcommand
+deny|load-bearing|git -c a=b -c core.hooksPath=/dev/null status|hooksPath behind another -c, read-only subcommand
+deny|load-bearing|git -c a=b -c core.hookspath=/dev/null status|lowercase hooksPath behind another -c, read-only subcommand
+deny|load-bearing|git --config-env=core.hooksPath=HP status|--config-env injection, read-only subcommand
+deny|load-bearing|git -c a=b --config-env=core.hooksPath=HP status|--config-env behind another global option, read-only subcommand
 deny|load-bearing|git rebase --autosquash origin/main|rebase is a hard invariant
 deny|load-bearing|git rebase -i HEAD~3|interactive rebase
 deny|load-bearing|git merge main|merge is a reserved human action
@@ -399,8 +445,11 @@ allow|legit|mise run check|the full CI gate
 allow|residual|git push origin "main"|quoted destination; the glob layer is literal so it misses this — githooks/pre-push rejects the refspec
 prompt|residual|git push|no destination in the text at all; on a branch whose upstream is main this pushes main — githooks/pre-push is the enforcement layer
 allow|residual|git push origin HEAD|destination depends on the checked-out branch, which the glob layer cannot see — githooks/pre-push covers it
-prompt|residual|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case config key: git accepts it, the literal glob does not match, and the hook layer is exactly what it disabled — accepted residual, no backstop
+deny|load-bearing|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case config key (git config keys are case-insensitive) evades the case-sensitive hooksPath globs, but the global-option-prefix rule catches it regardless of casing
+prompt|residual|git config Core.HooksPath /dev/null|the mixed-case residual that genuinely remains: a PERSISTENT hook disable, missed by the case-sensitive git-config globs and outside the global-option-prefix rules since the command does not start with git -. No glob and no hook reaches it — accepted residual (model doc MA-2)
 prompt|residual|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m "wip"|config injection through environment variables rather than argv; deny rules match past leading assignments so the hooksPath text is never in the matched string — accepted residual
+allow|residual|git status "$(git push origin main)"|COMMAND SUBSTITUTION: the model splits only on the documented shell operators, so the nested push is invisible to it and the outer read-only command is allowed. Whether the real matcher extracts $() is undocumented and unverified (model doc MB-7) — githooks/pre-push is the layer that actually stops this one
+deny|overblock|git push origin feature/c++|a + anywhere in a push command is denied by the pre-existing +refspec rule, so a branch whose name legitimately contains + (a valid git ref name, verified with git check-ref-format) is not pushable; fail-safe, and narrowing the rule is a queued judgment fork
 allow|residual|git commit -a --amen|a mistyped flag git itself rejects; recorded so the amend coverage is not read as prefix-based
 deny|overblock|git commit -m "docs: describe the -n flag in the guide"|a commit message containing " -n " is denied; fail-safe, rephrase the message
 deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit message naming --no-verify is denied; fail-safe
@@ -488,8 +537,8 @@ EOF
 # tripping pass D. So the floor is `>=` the exact current count: adding rows is
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
-ROW_FLOOR=95
-DENY_ROW_FLOOR=74
+ROW_FLOOR=111
+DENY_ROW_FLOOR=89
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else

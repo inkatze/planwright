@@ -177,19 +177,54 @@ pm_trim() {
 # allow rule only strips a known-safe set, which this model does not enumerate,
 # so allow matching runs against the unstripped command — the conservative
 # direction (the model under-predicts allow, never over-predicts it).
+# The value scan is quote- and tab-aware. A naive split on the first space
+# mangles both `FOO="a b" git push …` (splitting inside the quoted value) and
+# `FOO=bar<TAB>git push …` (swallowing the command name into the assignment
+# token), leaving a remainder no deny pattern can match. An assignment whose
+# quote never closes is left unstripped: an unparseable command falls through to
+# the prompt, which is what the real matcher does with input it cannot parse.
 pm_strip_leading_assignments() {
-  local s="$1" head rest
+  local s="$1" name value rest i n c q tab
+  tab="$(printf '\t')"
   while :; do
-    head="${s%% *}"
-    rest="${s#* }"
-    case "$head" in
-      [A-Za-z_]*=*) ;;
-      *) break ;;
+    # A leading assignment is a bare shell NAME, then `=`, then a value.
+    name="${s%%=*}"
+    [ "$name" != "$s" ] || break
+    case "$name" in
+      '' | *[!A-Za-z0-9_]* | [0-9]*) break ;;
     esac
-    # A bare `VAR=value` with no command after it is not a leading assignment.
-    [ "$head" != "$s" ] || break
-    s="$(pm_trim "$rest")"
-    [ -n "$s" ] || break
+    value="${s#"$name"=}"
+
+    # Consume the value: quoted runs to their closing quote, a backslash escapes
+    # the next character, and an unquoted space or tab ends it.
+    i=0
+    n=${#value}
+    q=''
+    while [ "$i" -lt "$n" ]; do
+      c="${value:$i:1}"
+      if [ -n "$q" ]; then
+        [ "$c" != "$q" ] || q=''
+        i=$((i + 1))
+        continue
+      fi
+      case "$c" in
+        '"' | "'")
+          q="$c"
+          i=$((i + 1))
+          ;;
+        ' ' | "$tab") break ;;
+        \\) i=$((i + 2)) ;;
+        *) i=$((i + 1)) ;;
+      esac
+    done
+
+    # Ran off the end: either a bare `VAR=value` with no command after it, or an
+    # unterminated quote. Neither is a leading assignment in front of a command,
+    # so leave the string as it stands.
+    [ "$i" -lt "$n" ] || break
+    rest="$(pm_trim "${value:$i}")"
+    [ -n "$rest" ] || break
+    s="$rest"
   done
   printf '%s' "$s"
 }
