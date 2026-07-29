@@ -238,6 +238,20 @@ read_rules() {
   jq -e -r --arg k "$2" '.permissions[$k] // [] | .[]' "$1" 2>/dev/null
 }
 
+# pm_matching_deny_rule backs the unexpected-deny diagnostic in pass B; cover it
+# here so the diagnostic itself cannot rot into printing nothing.
+pm_load_rules 'Bash(never-run *)' '' '' >/dev/null 2>&1
+if [ "$(pm_matching_deny_rule 'safe-cmd x && never-run y')" = 'Bash(never-run *)' ]; then
+  ok "pm_matching_deny_rule names the rule that fired"
+else
+  fail "pm_matching_deny_rule must name the matching deny rule as written"
+fi
+if pm_matching_deny_rule 'safe-cmd x' >/dev/null; then
+  fail "pm_matching_deny_rule must exit non-zero when no deny rule matches"
+else
+  ok "pm_matching_deny_rule exits non-zero when no deny rule matches"
+fi
+
 if pm_load_rules '' '' 'Bash(git status:*)'; then
   fail "an empty deny set must fail closed (REQ-A1.1, REQ-H1.3)"
 else
@@ -451,6 +465,10 @@ while IFS='|' read -r expected class command note; do
   got="$(pm_decide "$command")"
   if [ "$got" = "$expected" ]; then
     ok "[$class] $expected: $command"
+  elif [ "$got" = "deny" ]; then
+    # The confusing failure to debug is an unexpected deny: name the rule that
+    # fired so the reader does not have to bisect 49 globs by hand.
+    fail "[$class] expected $expected, got deny (rule: $(pm_matching_deny_rule "$command")): $command  ($note)"
   else
     fail "[$class] expected $expected, got $got: $command  ($note)"
   fi
