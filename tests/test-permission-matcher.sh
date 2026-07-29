@@ -160,6 +160,73 @@ if [ "$(pm_decide 'FOO=bar never-run x')" = "deny" ]; then
 else
   fail "deny should match past a leading environment assignment"
 fi
+# Deny precedes ask ACROSS subcommands, not just within one (doc rule M8: the
+# whole rule set is evaluated deny-first; specificity and position never
+# reorder it). Unreachable with the shipped config, which ships no ask array,
+# but the model claims to implement M8 and an adopter overlay may add one.
+pm_load_rules 'Bash(never-run *)' 'Bash(safe-cmd *)' '' || {
+  echo "FAIL: pm_load_rules rejected the deny-before-ask probe set" >&2
+  exit 1
+}
+if [ "$(pm_decide 'safe-cmd x && never-run y')" = "deny" ]; then
+  ok "deny precedes ask across subcommands (doc rule M8)"
+else
+  fail "a later subcommand matching deny must outrank an earlier ask match (doc rule M8)"
+fi
+if [ "$(pm_decide 'safe-cmd x && safe-cmd y')" = "ask" ]; then
+  ok "ask still wins when no subcommand matches a deny rule"
+else
+  fail "an ask match with no deny match must report ask"
+fi
+
+# A rule that LOOKS like a Bash rule but does not parse must fail closed rather
+# than being silently skipped: a deny rule lost to a typo would leave the
+# fixture table asserting against a smaller rule set than the config ships.
+if pm_load_rules 'Bash(git push --force:*)
+Bash(git push origin' '' ''; then
+  fail "a malformed Bash(... deny rule must fail closed, not be skipped (REQ-H1.3)"
+else
+  ok "a malformed Bash(... deny rule fails closed (REQ-H1.3)"
+fi
+if pm_load_rules 'Bash(git push --force:*)
+Bash' '' ''; then
+  fail "a bare tool-name Bash deny rule must fail closed rather than be ignored (REQ-H1.3)"
+else
+  ok "a bare tool-name Bash deny rule fails closed (REQ-H1.3)"
+fi
+# Non-Bash rules are still ignored silently — they cannot match a command.
+if pm_load_rules 'Bash(git push --force:*)
+Read(./.env)
+Edit' '' ''; then
+  ok "non-Bash rules are ignored without failing the load"
+else
+  fail "non-Bash rules must be ignored, not treated as malformed"
+fi
+
+# --- the model doc is tethered to the model ---------------------------------
+# The library and this test both cite docs/permission-matcher-model.md as the
+# arbiter of the modeled semantics and both restate the modeled Claude Code
+# version in their headers. Nothing would otherwise notice the doc being
+# renamed, deleted, or version-bumped out from under them.
+MODEL_DOC="$REPO_ROOT/docs/permission-matcher-model.md"
+if [ -f "$MODEL_DOC" ]; then
+  ok "the matcher model doc exists at docs/permission-matcher-model.md (D-4)"
+  doc_version="$(sed -n 's/^| Claude Code CLI | \*\*\([0-9.]*\)\*\*.*/\1/p' "$MODEL_DOC" | head -1)"
+  if [ -n "$doc_version" ]; then
+    ok "the model doc declares a modeled Claude Code version ($doc_version)"
+    for f in "$MODEL" "$0"; do
+      if grep -Fq "Modeled behavior version: Claude Code CLI $doc_version" "$f"; then
+        ok "${f##*/} header restates the doc's modeled version ($doc_version)"
+      else
+        fail "${f##*/} header does not restate the model doc's modeled version ($doc_version) — bump both together (D-4)"
+      fi
+    done
+  else
+    fail "the model doc has no parseable '| Claude Code CLI | **<version>**' row (D-4)"
+  fi
+else
+  fail "docs/permission-matcher-model.md is missing: the model has no documented contract (D-4)"
+fi
 
 # ---------------------------------------------------------------------------
 # Pass C (part 1) — fail closed before the table is trusted.
