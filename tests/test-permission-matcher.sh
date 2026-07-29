@@ -449,7 +449,7 @@ deny|load-bearing|git -c Core.HooksPath=/dev/null commit -m "wip"|mixed-case con
 prompt|residual|git config Core.HooksPath /dev/null|the mixed-case residual that genuinely remains: a PERSISTENT hook disable, missed by the case-sensitive git-config globs and outside the global-option-prefix rules since the command does not start with git -. No glob and no hook reaches it — accepted residual (model doc MA-2)
 prompt|residual|GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m "wip"|config injection through environment variables rather than argv; deny rules match past leading assignments so the hooksPath text is never in the matched string — accepted residual
 allow|residual|git status "$(git push origin main)"|COMMAND SUBSTITUTION: the model splits only on the documented shell operators, so the nested push is invisible to it and the outer read-only command is allowed. Whether the real matcher extracts $() is undocumented and unverified (model doc MB-7) — githooks/pre-push is the layer that actually stops this one
-deny|overblock|git push origin feature/c++|a + anywhere in a push command is denied by the pre-existing +refspec rule, so a branch whose name legitimately contains + (a valid git ref name, verified with git check-ref-format) is not pushable; fail-safe, and narrowing the rule is a queued judgment fork
+allow|legit|git push origin feature/c++|a branch name containing + stays pushable: the +refspec deny requires a space before the plus (narrowed 2026-07-29 on operator decision). git check-ref-format confirms the ref is valid
 allow|residual|git commit -a --amen|a mistyped flag git itself rejects; recorded so the amend coverage is not read as prefix-based
 deny|overblock|git commit -m "docs: describe the -n flag in the guide"|a commit message containing " -n " is denied; fail-safe, rephrase the message
 deny|overblock|git commit -m "fix: handle --no-verify in the wrapper"|a commit message naming --no-verify is denied; fail-safe
@@ -538,7 +538,7 @@ EOF
 # always fine, deleting any row fails and has to be argued for. Raise these two
 # numbers in the same commit that adds rows (REQ-H1.3).
 ROW_FLOOR=111
-DENY_ROW_FLOOR=89
+DENY_ROW_FLOOR=88
 if [ "$row_total" -ge "$ROW_FLOOR" ] && [ "$row_deny_total" -ge "$DENY_ROW_FLOOR" ]; then
   ok "the fixture table is non-vacuous: $row_total rows, $row_deny_total load-bearing (REQ-H1.3)"
 else
