@@ -195,6 +195,61 @@ above as explicit accepted risks.
 
 Signed off: 2026-07-17
 
+### Research record — matcher model (Task 1, D-4, risk row 1)
+
+Appended 2026-07-29 during Task 1 execution. D-4 requires the modeled
+matcher semantics to be verified against current Claude Code
+documentation and the sources recorded here.
+
+**Version modeled:** Claude Code CLI 2.1.220; documentation snapshot
+2026-07-29. Reference git for the argv-spelling checks: 2.55.0.
+
+**Sources consulted.** `code.claude.com/docs/en/permissions`
+("Configure permissions") for evaluation order (deny → ask → allow,
+first match wins, specificity irrelevant), whole-command glob matching,
+wildcards at any position, the trailing-space word-boundary form, the
+`:*` end-only suffix equivalence, the compound-command separator set,
+wrapper stripping, and leading-environment-assignment handling;
+`code.claude.com/docs/en/settings` for settings precedence and the
+merge-not-override behavior of permission rules. The full rule set,
+modeling boundaries, and the two unsettled assumptions are written up in
+`docs/permission-matcher-model.md`, which the model library and the
+fixture test both cite.
+
+**Differential findings against real git 2.55.0** (each changed a deny
+rule): `core.hooksPath` config keys are case-insensitive, so a
+case-sensitive glob is evadable by casing — canonical and all-lowercase
+spellings are denied and arbitrary casings are a recorded residual;
+`git --config-env=<name>=<envvar>` is a real hooksPath-injection
+spelling and is denied categorically; `--hooks-path` does not exist on
+`git commit`, `git push`, or `git config`, so that categorical deny is
+forward-compatibility only and the fixture row says so; `-n` is
+`--no-verify` for `git commit` but `--dry-run` for `git push`, so the
+short-flag denies are commit-scoped; `--fixup`/`--squash` accept
+`=`-suffixed arguments that a `:*` rule cannot reach.
+
+**Tradeoff accepted.** Flag denies match a flag name appearing inside a
+quoted commit message (`git commit -m "docs: use --amend carefully"` is
+denied). Fail-safe and recorded as `overblock` fixture rows rather than
+narrowed, because narrowing them re-opens the flag-after-argument
+evasions.
+
+**Two additions beyond REQ-A1.1's enumerated spellings,** both inside
+the class REQ-A1.2 names ("the hook-bypass spellings … so a worker
+cannot bypass the hook layer with a spelling the glob layer never
+sees"), surfaced for review rather than absorbed silently: the
+`git commit -n` short form of `--no-verify`, and `git --config-env`.
+Both are hook bypasses with no hook-layer backstop (they disable the
+hook layer itself), which is why they were closed rather than recorded
+as residuals.
+
+**Ergonomics finding, deliberately not fixed here.** The shipped allow
+list does not cover `git push -u origin <branch>` — the `-u` sits before
+the remote, so `Bash(git push origin:*)` does not match and the first
+push of a task branch falls through to the permission prompt. Recorded
+as a fixture row, not fixed: widening an allow list is a permissions
+widening that needs sign-off, and it is not a Task 1 deliverable.
+
 ## 8. Sign-off — lens review pass
 
 **Scope:** full bundle (first activation). **Method:** parallel fan-out,

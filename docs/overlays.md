@@ -372,6 +372,15 @@ any shipped `Bash(<path>/:*)` directory-scoped rule as a likely
 never-match footgun, and confirms this guidance stays cross-referenced from the
 launch-time and tower guards (D-6, REQ-B1.3).
 
+The `:*` boundary rule is one of several matcher semantics an allow or deny rule
+depends on. The full set — whole-command glob matching, wildcards at any
+position, the `:*` end-only equivalence, compound-command splitting, and
+evaluation order — is written up with the Claude Code version modeled and the
+sources consulted in
+[`docs/permission-matcher-model.md`](permission-matcher-model.md), which
+`tests/test-permission-matcher.sh` asserts the shipped worker deny list against.
+Read it before writing a rule whose correctness turns on where a wildcard sits.
+
 ## 10. Where to go next
 
 - [`docs/getting-started.md`](getting-started.md) — installing planwright and
