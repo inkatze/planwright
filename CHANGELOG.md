@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/inkatze/planwright/compare/v0.32.1...v0.33.0) (2026-07-30)
+
+
+### Features
+
+* **ready-guard:** deny-emitting PreToolUse guard on the draft-&gt;ready flip ([#336](https://github.com/inkatze/planwright/issues/336)) ([5f2818d](https://github.com/inkatze/planwright/commit/5f2818de57281555fb66774fe541531a67eec0da))
+
 ## [0.32.1](https://github.com/inkatze/planwright/compare/v0.32.0...v0.32.1) (2026-07-28)
 
 
