@@ -221,4 +221,3 @@ The verified behaviour of release-please 17.6.0 with `bootstrap-sha` absent is
 recorded in the bundle changelog, together with the evidence that established
 it. Satisfied by the record existing and being sourced; removal of the key is
 explicitly not required by this REQ.
-
