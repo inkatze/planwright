@@ -45,7 +45,12 @@
 # keys, and flow mappings as the value of a structural key are NOT modeled and
 # are reported as parse failures rather than half-read. Job-level keys are read
 # only at the job's own body indent, so a step's `uses:` is never mistaken for
-# a reusable-workflow call.
+# a reusable-workflow call. Block-scalar bodies are skipped for STRUCTURE (a
+# `- run: |` script is text, and a line reading `name: &anchor` in it is shell)
+# but still scanned as TEXT for secret and artifact references. Full-line
+# comments are skipped by both; a trailing comment is scanned, so a comment
+# mentioning `secrets.FOO` over-blocks — the fail-loud direction, and cheaper
+# than deciding whether a `#` sits inside a quoted string.
 #
 # Remote reusable workflows (`owner/repo/.github/workflows/x.yml@ref`) are not
 # fetched, and do not need to be: GitHub scopes a called workflow's
@@ -237,8 +242,16 @@ BEGIN {
     sub(/[ \t]+#.*$/, "", val)
     val = trim(val)
   }
-  # A key whose value opens a block scalar (`|`, `>`, `|-`, `>2`, …).
-  if (haskey && val ~ /^[|>][0-9]*[+-]?$/) { bs = 1; bs_indent = indent; next }
+  # A value that opens a block scalar (`|`, `>`, `|-`, `>2`, …). The sequence
+  # forms (`- run: |`, `- |`) matter as much as the mapping form: a step script
+  # is TEXT, and a body line reading `name: &anchor` or `<<: merge` is shell,
+  # not YAML structure. Without this the body would reach the structural
+  # screening below and be rejected as an anchor or a merge key.
+  if ((haskey && val ~ /^[|>][0-9]*[+-]?$/) ||
+      (isseq && rest ~ /:[ \t]*[|>][0-9]*[+-]?[ \t]*$/) ||
+      (isseq && rest ~ /^-[ \t]+[|>][0-9]*[+-]?[ \t]*$/)) {
+    bs = 1; bs_indent = indent; next
+  }
 
   if (indent == 0) {
     if (!haskey) { err("unparsed top-level line"); fatal = 1; next }
@@ -379,18 +392,13 @@ if [ "$parse_failed" -eq 0 ]; then
       while IFS=$'\t' read -r _ job kind target; do
         [ "${kind:-}" = "local" ] || continue
         base="${target##*/}"
-        found=0
         for ((j = 0; j < nfiles; j++)); do
           [ "${files[j]##*/}" = "$base" ] || continue
-          found=1
           if [ "${reach[j]}" -eq 0 ]; then
             reach[j]=1
             changed=1
           fi
         done
-        if [ "$found" -eq 0 ]; then
-          fail "${files[i]}: job '$job' calls local reusable workflow '$target', which is not in the scanned set — its reachable surface is unknown (failing closed)"
-        fi
       done < <(fact "$i" U)
     done
   done
@@ -434,6 +442,19 @@ if [ "$parse_failed" -eq 0 ]; then
         [ -n "${job:-}" ] || continue
         fail "$file: job '$job' passes \`secrets: inherit\` on a path reachable from \`pull_request\`, handing every stored secret to the called workflow"
       done < <(fact "$i" S)
+
+      # A local `uses:` the closure above could not resolve. Reported here,
+      # once per edge, rather than inside the closure loop, which revisits
+      # every reachable file on each iteration.
+      while IFS=$'\t' read -r _ job kind target; do
+        [ "${kind:-}" = "local" ] || continue
+        base="${target##*/}"
+        found=0
+        for ((j = 0; j < nfiles; j++)); do
+          [ "${files[j]##*/}" = "$base" ] && found=1
+        done
+        [ "$found" -eq 1 ] || fail "$file: job '$job' calls local reusable workflow '$target', which is not in the scanned set — its reachable surface is unknown (failing closed)"
+      done < <(fact "$i" U)
     fi
 
     # 4. workflow_run: privileged runs must stay pinned to the base branch and

@@ -512,6 +512,148 @@ assert_exit "dangling local reusable-workflow call fails closed" 1 $?
 assert_contains "the missing callee is named" "missing.yml" "$out"
 
 # ---------------------------------------------------------------------------
+# Matching discipline — the shapes a naive matcher lets through or trips on.
+# ---------------------------------------------------------------------------
+
+# A step script is text, not YAML structure: a `- run: |` body that happens to
+# contain `key: &word` must not be read as a YAML anchor. The mapping form
+# (`run: |`) already skipped its body; the sequence form must too.
+d="$(mkdir_case pass-seq-block-scalar)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          grep 'name: &anchor' file.txt
+          printf 'ref: *glob\n'
+          echo '<<: merge'
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a step script containing YAML-ish text is not a parse failure" 0 $?
+
+# …but the text scans still see block-scalar bodies: a secret referenced
+# inside a `- run: |` script is as reachable as one in a structured value.
+d="$(mkdir_case fail-secret-in-seq-block)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "publishing"
+          ./publish.sh --token '${{ secrets.NPM_TOKEN }}'
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a secret inside a step script is still caught" 1 $?
+assert_contains "the in-script secret is named" "NPM_TOKEN" "$out"
+
+# `branches-ignore` is not a positive base-branch filter — it allows every
+# branch it does not name — so it does not satisfy assertion 4.
+d="$(mkdir_case fail-workflow-run-branches-ignore)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    branches-ignore: [dependabot/**]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "branches-ignore does not satisfy the base-branch filter" 1 $?
+
+# Artifact consumption via the gh CLI, not just the action.
+d="$(mkdir_case fail-workflow-run-gh-download)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh run download "$RUN_ID" --name pr-report
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "gh run download counts as consuming a PR artifact" 1 $?
+
+# An unrecognized permission level proves nothing about the token, so it is
+# treated exactly like write (REQ-H1.3).
+d="$(mkdir_case fail-perms-unrecognized)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: reed
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an unrecognized permission level fails closed" 1 $?
+assert_contains "the unrecognized level is described" "unrecognized" "$out"
+
+# A dangling local `uses:` reached only through a multi-hop closure must be
+# reported once, not once per closure iteration.
+d="$(mkdir_case fail-dangling-uses-multihop)"
+cat >"$d/a.yml" <<'EOF'
+---
+name: a
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  j:
+    uses: ./.github/workflows/b.yml
+EOF
+cat >"$d/b.yml" <<'EOF'
+---
+name: b
+"on":
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  j:
+    uses: ./.github/workflows/nope.yml
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a multi-hop dangling uses fails closed" 1 $?
+n="$(printf '%s\n' "$out" | grep -c "nope.yml" || true)"
+assert_exit "the dangling edge is reported exactly once" 1 "$n"
+
+# ---------------------------------------------------------------------------
 # Usage and the real tree.
 # ---------------------------------------------------------------------------
 
