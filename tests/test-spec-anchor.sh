@@ -503,6 +503,45 @@ a_added=$("$anchor" "$flip") || fail "anchor failed after adding the header Stat
   || fail "adding a header **Status:** line to a block that declared none moved the anchor (REQ-A1.2)"
 echo "ok: a block declaring no **Status:** excludes nothing, from both sides (REQ-A1.2)"
 
+# 8c-bis. The three byte-level shapes the digest's "byte-exact by construction"
+# claim rests on: a declaration on line 1 (the H1-less block the extent
+# definition admits, and the only input with no preceding lines to keep), a
+# CRLF checkout, and a file with no final newline.
+#
+# Each is pinned by the same equality, which needs no second implementation of
+# the manifest: hashing a file WITH a header `**Status:**` line must equal
+# hashing the hand-written file with that line already gone — a file whose
+# block declares no Status, so it takes the exclude-nothing path and is hashed
+# whole. Any byte the slice adds, drops, or rewrites (a normalized CRLF, an
+# appended final newline) breaks the equality; a self-consistent regression in
+# both paths cannot hide, because only one of them slices.
+exact="$tmp/exact"
+byte_exact() { # <label> <file-with-status> <file-without-status>
+  write_bundle "$exact" 1 Ready
+  cp "$3" "$exact/requirements.md"
+  be_without=$("$anchor" "$exact") || fail "$1: anchor failed on the hand-reduced fixture"
+  cp "$2" "$exact/requirements.md"
+  be_with=$("$anchor" "$exact") || fail "$1: anchor failed on the fixture"
+  [ "$be_with" = "$be_without" ] \
+    || fail "$1: the slice is not byte-exact ($be_with != the hand-reduced $be_without)"
+}
+
+# The variants are written with printf, never through a variable: command
+# substitution strips trailing newlines, which is exactly the byte these cases
+# are here to pin.
+printf '**Status:** Ready\n**Format-version:** 1\n\n## Goal\n\nBody.\n' >"$tmp/x-line1-with"
+printf '**Format-version:** 1\n\n## Goal\n\nBody.\n' >"$tmp/x-line1-without"
+byte_exact "Status on line 1 (no H1)" "$tmp/x-line1-with" "$tmp/x-line1-without"
+
+printf '# R\r\n\r\n**Status:** Ready\r\n\r\n## Goal\r\n\r\nBody.\r\n' >"$tmp/x-crlf-with"
+printf '# R\r\n\r\n\r\n## Goal\r\n\r\nBody.\r\n' >"$tmp/x-crlf-without"
+byte_exact "CRLF line endings" "$tmp/x-crlf-with" "$tmp/x-crlf-without"
+
+printf '# R\n\n**Status:** Ready\n\n## Goal\n\nNo trailing newline.' >"$tmp/x-nonl-with"
+printf '# R\n\n\n## Goal\n\nNo trailing newline.' >"$tmp/x-nonl-without"
+byte_exact "no final newline" "$tmp/x-nonl-with" "$tmp/x-nonl-without"
+echo "ok: the slice is byte-exact on a line-1 declaration, CRLF, and a missing final newline (REQ-A1.1)"
+
 # 8d. Malformed, unterminated, and duplicate-Status header blocks fail closed:
 # non-zero exit, nothing on stdout, a clear stderr message. Never a silent
 # fallback to hashing the whole file.
