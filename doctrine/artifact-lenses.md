@@ -78,7 +78,9 @@ For the **spec**, **inception**, and **human-facing** classes:
   no execution path, no shared state, and no partial-failure semantics.
   Marking them `n/a` with that one-line reason is conforming. Running them
   anyway is what produces the out-of-threat-model findings this rule exists to
-  stop.
+  stop. The human-facing set's *failure rendering* lens is not this lens
+  returning: it asks what the **reader** sees when data is missing or
+  oversized, which is a presentation question, not a program-failure one.
 - **Security** is *reframed*, not dropped. The code-shaped questions
   (injection, auth, untrusted input) do not apply to prose nothing parses. The
   questions that do apply: what is this artifact rendered into, and by what;
