@@ -98,6 +98,15 @@ for id in data-storage caching queues-async api-surface auth secrets-config \
   assert_contains "core seed: pre-existing $id survives" "id: $id" "$out"
 done
 
+# The prose doc is the catalog's normative home and the yaml its machine view;
+# nothing derives one from the other, so an entry added to one and forgotten in
+# the other drifts silently. Pin the counts to each other (the ids are not
+# mechanically derivable from the headings, so parity is the checkable part).
+prose_entries="$(grep -cE '^### [0-9]+\. ' "$REPO_ROOT/doctrine/decision-domains.md")"
+yaml_entries="$(grep -cE '^  - id: ' "$REPO_ROOT/config/decision-domains.yaml")"
+assert_eq "catalog: prose entry count matches the yaml machine view" \
+  "$prose_entries" "$yaml_entries"
+
 # ---------------------------------------------------------------------------
 # 2. REQ-I1.2 — an overlay fixture carrying a company discipline merges onto
 #    the extended seed: the company domain appears, the inception domains
@@ -138,6 +147,10 @@ domains_doc="$(base PLANWRIGHT_ROOT="$REPO_ROOT" /bin/bash "$RULEDOC" decision-d
 assert "decision-domains doc resolves" 0 $?
 seam_entry="$(awk '/^### .*[Ss]eam[ -]reuse/{f=1} f&&/^### /&&!/[Ss]eam[ -]reuse/{exit} f' \
   "$domains_doc")"
+if [ -z "$seam_entry" ]; then
+  echo "FAIL: seam-reuse entry not found in $domains_doc" >&2
+  failures=$((failures + 1))
+fi
 for seam in "overlay" "config" "catalog" "rule-doc" "backend" "notification" \
   "accumulator"; do
   assert_contains "seam-reuse entry names the $seam seam" "$seam" "$seam_entry"
@@ -162,8 +175,12 @@ assert_contains "artifact-lenses: selection is by artifact class" \
   "artifact class" "$lenses"
 assert_contains "artifact-lenses: states when code lenses do not apply" \
   "do not apply" "$lenses"
+# Matched against the class table's own row marker, not the bare word: "code"
+# and "spec" occur throughout the doc's prose, so a substring test on the name
+# alone would pass against a doc that never defines the class.
 for class in "code" "spec" "inception" "human-facing"; do
-  assert_contains "artifact-lenses: names the $class artifact class" "$class" "$lenses"
+  assert_contains "artifact-lenses: defines the $class artifact class" \
+    "| **$class** |" "$lenses"
 done
 assert_contains "discovery-rigor cites the lens-selection rule" \
   "artifact-lenses.md" "$(cat "$REPO_ROOT/doctrine/discovery-rigor.md")"
