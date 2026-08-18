@@ -701,6 +701,96 @@ n="$(printf '%s\n' "$out" | grep -c "nope.yml" || true)"
 assert_exit "the dangling edge is reported exactly once" 1 "$n"
 
 # ---------------------------------------------------------------------------
+# Parser robustness — shapes common in the wild that the parser derives rather
+# than hardcodes. Each plants the SAME violation (a write-permission
+# escalation reachable from pull_request), so a regression that quietly stops
+# parsing one of these shapes shows up as a missed violation, not a pass.
+# ---------------------------------------------------------------------------
+
+# probe_shape <name> <file-content> — assert the planted violation is caught.
+probe_shape() {
+  d="$TMP/$1"
+  mkdir -p "$d"
+  # %b, not %s: the CRLF shape below carries literal \r escapes.
+  printf '%b' "$2" >"$d/x.yml"
+  out="$("$GUARD" "$d" 2>&1)"
+  assert_exit "$1: the planted write escalation is caught" 1 $?
+  assert_contains "$1: the job is named" "job 'x'" "$out"
+}
+
+# `on:` unquoted. YAML 1.1 reads a bare `on` as the boolean true; GitHub
+# accepts it and it is the most common spelling in the wild.
+probe_shape shape-unquoted-on 'name: x
+on:
+  pull_request:
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+'
+
+# Four-space indentation throughout: the structural indents are derived from
+# the first child of each block, never assumed to be 2.
+probe_shape shape-four-space '---
+name: x
+"on":
+    pull_request:
+permissions:
+    contents: write
+jobs:
+    x:
+        runs-on: ubuntu-latest
+        steps:
+            - run: echo x
+'
+
+# Top-level keys out of order: `permissions:` after `jobs:` must still apply
+# to every job (mapping order carries no meaning in YAML).
+probe_shape shape-perms-after-jobs '---
+name: x
+"on":
+  pull_request:
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+permissions:
+  contents: write
+'
+
+# CRLF line endings must not leave a stray \r on parsed values (which would
+# make `write` compare unequal to `write` and read as unrecognized instead).
+probe_shape shape-crlf '---\r
+name: x\r
+"on":\r
+  pull_request:\r
+permissions:\r
+  contents: write\r
+jobs:\r
+  x:\r
+    runs-on: ubuntu-latest\r
+    steps:\r
+      - run: echo x\r
+'
+
+# A workflow file the parser cannot READ is not a clean tree. Skipped under
+# root, where mode 000 does not deny a read and the case cannot be staged.
+if [ "$(id -u)" -ne 0 ]; then
+  d="$(mkdir_case fail-unreadable)"
+  printf 'name: x\n' >"$d/x.yml"
+  chmod 000 "$d/x.yml"
+  out="$("$GUARD" "$d" 2>&1)"
+  assert_exit "an unreadable workflow file fails closed" 1 $?
+  chmod 644 "$d/x.yml"
+else
+  echo "ok: an unreadable workflow file fails closed (skipped: running as root)"
+fi
+
+# ---------------------------------------------------------------------------
 # Usage and the real tree.
 # ---------------------------------------------------------------------------
 
