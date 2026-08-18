@@ -285,10 +285,10 @@ above pure reasoning — which is not citable evidence; an entry backed only by
 reasoning carries `Evidence: none` — and below a real human's stated opinion
 (REQ-I1.4). At the gate, a `synthetic`-graded entry cannot count as `pass`
 toward a `Graduate` outcome on a value- or usability-tagged (desirability)
-assumption. Grading semantics — what earns each grade — are governed by the
-evidence-quality doctrine (a planned planwright rule doc; until it lands,
-these tokens, this ordering, and that exclusion are the whole normative
-surface).
+assumption. Grading semantics — what earns each grade, what makes a
+`Threshold:` real, and how the `Statement:` skeleton is read — are governed by
+[evidence-quality.md](evidence-quality.md). This doc owns the fields and the
+tokens; that one owns their meaning.
 
 ## `decisions.md`
 
