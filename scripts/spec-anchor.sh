@@ -48,8 +48,10 @@
 # and silently hashing the whole file would make the anchor depend on how badly
 # a header was written.
 #
-# Portable: POSIX sh + awk + git, plus tr + wc via the sourced lib
-# (bash 3.2 / BSD compatible, no eval, input treated as data only).
+# Portable: POSIX sh + awk + git + head + tail, plus tr + wc via the sourced
+# lib (bash 3.2 / BSD compatible, no eval, input treated as data only). head
+# and tail are the digest's line slice; both are given only a numeric -n and
+# read through a redirection, never a path operand.
 set -eu
 
 # Pin the C locale: range patterns are collation-dependent under UTF-8
