@@ -64,9 +64,13 @@ The grading question is always the same: **what did the source give up to
 produce this signal?** Not how confident it sounded, and not how much of it
 there was.
 
+The table below adds one row *below* the ladder: `none` is the absence of
+evidence, not a sixth grade token. Only the five tokens above are writable in
+an `Evidence:` field's grade position; `none` is the whole field value.
+
 | Grade | What earns it |
 | --- | --- |
-| *(none)* | Reasoning, desk analysis, or a model's assertion about the world. Not citable evidence; an entry backed only by reasoning carries `Evidence: none`. |
+| `none` (not a grade) | Reasoning, desk analysis, or a model's assertion about the world. Not citable evidence; an entry backed only by reasoning carries `Evidence: none`. |
 | `synthetic` | Simulated evidence: persona-panel output, an LLM standing in for a user, a scenario walked by a model rather than a person. |
 | `opinion` | A real person said something, at no cost to themselves. |
 | `stated-intent` | A real person committed to a future action: "I would buy this", a waitlist signup, a stated adoption plan. Costs a little reputation, nothing else. |
