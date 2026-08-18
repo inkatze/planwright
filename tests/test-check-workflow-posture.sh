@@ -515,6 +515,53 @@ assert_contains "the missing callee is named" "missing.yml" "$out"
 # Matching discipline — the shapes a naive matcher lets through or trips on.
 # ---------------------------------------------------------------------------
 
+# GitHub expression contexts and secret names are case-insensitive
+# (`${{ SECRETS.foo }}`, `${{ SeCRetS.Baz }}` all resolve), so a
+# case-SENSITIVE scan is evadable by casing alone.
+d="$(mkdir_case fail-secret-casing)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./publish.sh
+        env:
+          A: ${{ SECRETS.NPM_TOKEN }}
+          B: ${{ SeCRetS['OTHER_KEY'] }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "case-varied SECRETS spellings fail" 1 $?
+assert_contains "the upper-cased spelling is caught" "NPM_TOKEN" "$out"
+assert_contains "the mixed-case index spelling is caught" "OTHER_KEY" "$out"
+
+# The exemption is case-insensitive in the same way, so a lower-cased
+# GITHUB_TOKEN reference is not mistaken for a stored secret. GitHub reserves
+# the `GITHUB_` prefix for secret names, so no stored secret can claim it.
+d="$(mkdir_case pass-github-token-casing)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.github_token }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "lower-cased github_token stays exempt" 0 $?
+
 # A step script is text, not YAML structure: a `- run: |` body that happens to
 # contain `key: &word` must not be read as a YAML anchor. The mapping form
 # (`run: |`) already skipped its body; the sequence form must too.

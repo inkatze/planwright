@@ -17,9 +17,14 @@
 #      job-level override silently escalates under a read-only top level.
 #   3. No stored secret is reachable from `pull_request`: no `secrets.NAME`,
 #      no `secrets['NAME']`/`secrets["NAME"]` index spelling, and no
-#      `secrets: inherit`. The workflow's own `secrets.GITHUB_TOKEN` is exempt
-#      — it is not a stored secret, and its privilege is governed by assertion
-#      2. Reachability follows local reusable-workflow `uses:` edges.
+#      `secrets: inherit`. Matching is case-INSENSITIVE, because GitHub's
+#      expression contexts and secret names are (`${{ SECRETS.foo }}` and
+#      `${{ SeCRetS.Baz }}` both resolve), so a case-sensitive scan would be
+#      evadable by casing alone. The workflow's own `secrets.GITHUB_TOKEN` is
+#      exempt in any casing — it is not a stored secret, GitHub reserves the
+#      `GITHUB_` prefix so none can impersonate it, and its privilege is
+#      governed by assertion 2. Reachability follows local reusable-workflow
+#      `uses:` edges.
 #   4. Any `workflow_run` workflow holding write permissions or secrets keeps a
 #      base-branch filter and consumes no PR-produced artifact. A `workflow_run`
 #      fired by a fork PR's workflow runs with the base repo's secrets and write
@@ -200,16 +205,23 @@ BEGIN {
 
   # Text scans run on every content line, block-scalar bodies included: a
   # `run: |` script can reference a secret or download an artifact just as a
-  # structured value can.
-  s = rest
-  while (match(s, /secrets[ \t]*(\.[A-Za-z_][A-Za-z0-9_]*|\[[ \t]*["'][A-Za-z_][A-Za-z0-9_]*["'][ \t]*\])/)) {
+  # structured value can. Matched against a lower-cased copy because GitHub
+  # expression contexts AND secret names are case-insensitive — `${{ SECRETS.foo
+  # }}` and `${{ SeCRetS.Baz }}` both resolve — so a case-sensitive scan would
+  # be evadable by casing alone. The exemption is case-insensitive for the same
+  # reason, which is safe: GitHub reserves the `GITHUB_` prefix, so no stored
+  # secret can be named `github_token` in any casing. Names are reported
+  # upper-cased, the form GitHub stores them in.
+  low = tolower(rest)
+  s = low
+  while (match(s, /secrets[ \t]*(\.[a-z_][a-z0-9_]*|\[[ \t]*["'][a-z_][a-z0-9_]*["'][ \t]*\])/)) {
     tok = substr(s, RSTART, RLENGTH)
     s = substr(s, RSTART + RLENGTH)
     sub(/^secrets[ \t]*/, "", tok)
-    gsub(/[^A-Za-z0-9_]/, "", tok)
-    if (tok != "GITHUB_TOKEN") printf "R\t%d\t%s\n", NR, tok
+    gsub(/[^a-z0-9_]/, "", tok)
+    if (tok != "github_token") printf "R\t%d\t%s\n", NR, toupper(tok)
   }
-  if (rest ~ /download-artifact/ || rest ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", NR
+  if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", NR
 
   # Block-scalar bodies carry no structure for this parser.
   if (bs) {
