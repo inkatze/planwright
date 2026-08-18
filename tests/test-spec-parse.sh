@@ -1154,4 +1154,81 @@ grep -q '^refbad	' "$tmp/pe.out" \
   || fail "a hostile token was not classified as a rejected reference: $(cat "$tmp/pe.out")"
 echo "ok: the lib emits raw bytes and classifies a hostile token as rejected (REQ-B1.6c)"
 
+# ---------------------------------------------------------------------------
+# Property 8: spec_parse_header_status_line — the header-block `**Status:**`
+# line locator the content anchor's exclusion is computed from
+# (anchor-integrity REQ-A1.1, REQ-A1.2 · D-2).
+# ---------------------------------------------------------------------------
+command -v spec_parse_header_status_line >/dev/null 2>&1 \
+  || fail "spec_parse_header_status_line entry point missing after sourcing (REQ-A1.1)"
+
+hsl() { spec_parse_header_status_line "$@"; }
+
+# 8a. The canonical block: the declaration's own 1-based line number, and it
+# agrees with what the value parse read on the same fixture.
+got=$(hsl "$tmp/hdr-ok.md") || fail "status-line locator failed on the canonical block"
+[ "$got" = 3 ] || fail "status line located at '$got', want '3'"
+[ "$(hv "$tmp/hdr-ok.md" Status)" = "$(sed -n '3s/^\*\*Status:\*\* //p' "$tmp/hdr-ok.md")" ] \
+  || fail "the located line is not the line the value parse read (the two forms disagree)"
+echo "ok: the status-line locator returns the header declaration's line number (REQ-A1.1)"
+
+# 8b. The bound is the header block, exactly as the value parse scopes it: a
+# body-prose or fenced `**Status:**` is never located, so the anchor leaves it
+# as ordinary content (REQ-A1.2).
+cat >"$tmp/hsl-bounded.md" <<'EOF'
+# Fixture — Requirements
+
+**Format-version:** 1
+
+## Body
+
+**Status:** Done
+
+```markdown
+**Status:** Retired
+```
+EOF
+got=$(hsl "$tmp/hsl-bounded.md") || fail "status-line locator failed on the bounded fixture"
+[ "$got" = 0 ] \
+  || fail "a body-prose or fenced **Status:** line was located as the header declaration (got '$got'; REQ-A1.2)"
+echo "ok: only the header-block declaration is located; body and fenced ones are not (REQ-A1.2)"
+
+# 8c. Malformed blocks fail closed with nothing on stdout. The exit codes are
+# distinct so a consumer can tell a duplicate from an absent block, and neither
+# can be mistaken for the benign `0`.
+hsl_closed() { # <label> <fixture> <expected-exit> <stderr-substring>
+  if hc_out=$(hsl "$2" 2>"$tmp/hsl.err"); then
+    fail "$1: locator exited 0 (printed '$hc_out') where it must fail closed"
+  else
+    hc_rc=$?
+  fi
+  [ "$hc_rc" = "$3" ] || fail "$1: locator exited $hc_rc, want $3"
+  [ -z "$hc_out" ] || fail "$1: locator printed '$hc_out' on a fail-closed path"
+  grep -qF "$4" "$tmp/hsl.err" || fail "$1: stderr lacks '$4': $(cat "$tmp/hsl.err")"
+}
+
+printf '**Status:** Ready\n**Status:** Active\n\n## Body\n\nProse.\n' >"$tmp/hsl-dup.md"
+hsl_closed "duplicate in-header Status" "$tmp/hsl-dup.md" 3 "Status: declarations"
+
+printf '# Fixture\n\n**Status:** Ready\n**Format-version:** 1\n' >"$tmp/hsl-nobody.md"
+hsl_closed "block running to end of file" "$tmp/hsl-nobody.md" 4 "no body content"
+
+printf 'Prose first.\n\n**Status:** Ready\n\nMore prose.\n' >"$tmp/hsl-nohead.md"
+hsl_closed "no leading header block" "$tmp/hsl-nohead.md" 4 "no leading header block"
+
+: >"$tmp/hsl-empty.md"
+hsl_closed "empty file" "$tmp/hsl-empty.md" 4 "no leading header block"
+echo "ok: malformed, unterminated, and duplicate-Status blocks fail closed with distinct codes (REQ-A1.2)"
+
+# 8d. Usage and read failures keep the header family's postures, and the stdin
+# form parses a caller snapshot.
+if hsl "$tmp/hdr-ok.md" extra >/dev/null 2>&1; then
+  fail "the locator accepted two arguments"
+fi
+hsl "$tmp/nonexistent-locator.md" >/dev/null 2>&1 \
+  && fail "the locator succeeded on a missing file"
+got=$(hsl - <"$tmp/hdr-ok.md") || fail "stdin status-line locator failed"
+[ "$got" = 3 ] || fail "stdin locator returned '$got', want '3'"
+echo "ok: the status-line locator fails closed on usage and read errors, and reads stdin"
+
 echo "PASS: test-spec-parse.sh"

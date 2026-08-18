@@ -1,16 +1,34 @@
 #!/bin/sh
 # spec-anchor.sh — compute the planwright content anchor for a spec bundle.
 #
-# Canonical form (format-version 1), as defined in doctrine/spec-format.md
-# (REQ-F1.9): the anchor is the git hash of the per-file digest list, in
-# canonical order (requirements, design, tasks, test-spec), where tasks.md
-# contributes its task-definition content only — task headings plus the
-# Deliverables / Done when / Dependencies / Citations / Estimated effort
-# field bullets (with their continuation lines), task records sorted by
-# task id. Orchestration-state placement (which section a block sits in)
-# and the Status / Last activity / Dispatch annotations are excluded, so
-# /orchestrate state moves never change the anchor while meaning edits
-# always do.
+# Canonical form, as defined in doctrine/spec-format.md (REQ-F1.9;
+# anchor-integrity REQ-A1.1, REQ-A1.2, REQ-A1.3): the anchor is the git hash
+# of the per-file digest list, in canonical order (requirements, design,
+# tasks, test-spec), where
+#
+#   * requirements.md, design.md, and test-spec.md each contribute their whole
+#     content minus exactly one line — the `**Status:**` declaration inside the
+#     single leading header block, dropped together with its line terminator so
+#     the bytes around it join unchanged. Nothing else is excluded from them:
+#     `Format-version:`, `Superseded-by:`, `Last reviewed:` and every body line
+#     stay anchored, and a `**Status:**` line in body prose or inside a
+#     column-0 fence is not a header declaration at all, so it stays anchored
+#     too. A well-formed block that declares no `**Status:**` excludes nothing
+#     and hashes whole. The exclusion is universal — the meta-spec defines it
+#     once in the version-1 body and every later format version inherits it, so
+#     this script parses no `Format-version:` at all.
+#   * tasks.md contributes its task-definition content only — task headings
+#     plus the Deliverables / Done when / Dependencies / Citations / Estimated
+#     effort field bullets (with their continuation lines), task records sorted
+#     by task id. Orchestration-state placement (which section a block sits in)
+#     and the Status / Last activity / Dispatch annotations are outside that
+#     extraction already, and so is its header block, so tasks.md needs no
+#     separate Status carve-out.
+#
+# Together: /orchestrate's state moves and the bundle's lifecycle Status flips
+# (stored Draft->Ready, derived Ready<->Active, and the header mirrors those
+# flips write into the other three files) never change the anchor, while
+# meaning edits always do.
 #
 # Sanctioned command form recorded in anchor entries:
 #   scripts/spec-anchor.sh <spec-dir>
@@ -18,12 +36,17 @@
 # Fails closed (non-zero exit, message on stderr, no anchor printed) on a
 # missing or unreadable spec file, a failed extraction, duplicate task ids,
 # a missing/unreadable/syntax-erroring scripts/spec-parse.sh (the extraction
-# lib this script sources, exit 2), or NUL-bearing tasks.md content; a
-# successful exit is the only state that yields an anchor (REQ-F1.9).
+# lib this script sources, exit 2), NUL-bearing content in any of the four
+# files, or a malformed, unterminated, or duplicate-`**Status:**` header block
+# in one of the three whole-content files; a successful exit is the only state
+# that yields an anchor (REQ-F1.9, REQ-A1.2).
 # The NUL refusal is a deliberate behavior change from the pre-lib
 # revisions, which silently computed an anchor over an awk-NUL-truncated
 # stream (REQ-B1.6d); such an anchor was wrong and can no longer be
-# reproduced.
+# reproduced. The header-block refusals are likewise deliberate: a block the
+# meta-spec's extent definition calls malformed leaves the exclusion undefined,
+# and silently hashing the whole file would make the anchor depend on how badly
+# a header was written.
 #
 # Portable: POSIX sh + awk + git, plus tr + wc via the sourced lib
 # (bash 3.2 / BSD compatible, no eval, input treated as data only).
@@ -73,8 +96,54 @@ for f in requirements.md design.md tasks.md test-spec.md; do
   fi
 done
 
-req_hash=$(git hash-object "$dir/requirements.md")
-des_hash=$(git hash-object "$dir/design.md")
+# spec_anchor__digest <file> — the per-file digest for the three whole-content
+# files: the file's bytes minus its header-block `**Status:**` line, hashed with
+# git hash-object (anchor-integrity D-2, REQ-A1.1, REQ-A1.2).
+#
+# Byte-exact by construction. The kept lines are sliced out with head/tail
+# rather than re-emitted through awk, so every remaining byte — a CRLF ending, a
+# missing final newline — reaches git untouched, and `--stdin` is used even on
+# the exclude-nothing path so a single hashing route serves all three cases and
+# no .gitattributes input filter can make them disagree.
+#
+# The locator's captured assignment is the REQ-B1.6f exit-status check: under
+# `set -e` a malformed, unterminated, or duplicate-Status block aborts the run
+# before anything is hashed, so a refused block never degrades into an anchor
+# over the whole file.
+#
+# Known bound: head/tail re-read the file after the locator read it, so a
+# concurrent rewrite between the two can slice against a line number that no
+# longer holds. Same shape as the lib's own screen-then-parse window, and no
+# in-repo writer rewrites a spec file underneath a running anchor computation.
+spec_anchor__digest() {
+  sa_line=$(spec_parse_header_status_line "$1")
+  # Belt-and-braces: the locator either fails closed (caught by the assignment
+  # above under `set -e`) or prints a number, so this refuses a lib that has
+  # started returning something else rather than feeding it to arithmetic. The
+  # path is deliberately not echoed — the lib already named it through its own
+  # sanitizer, and re-echoing raw path bytes here is the REQ-B1.6c hazard.
+  case $sa_line in
+    '' | *[!0-9]*)
+      printf '%s\n' "spec-anchor: header-block Status locator returned no line number" >&2
+      exit 2
+      ;;
+  esac
+  if [ "$sa_line" -eq 0 ]; then
+    git hash-object --stdin <"$1"
+  elif [ "$sa_line" -eq 1 ]; then
+    # `head -n 0` is unspecified in POSIX; the Status line opening the file has
+    # no preceding lines to keep, so the head slice is simply skipped.
+    tail -n "+2" <"$1" | git hash-object --stdin
+  else
+    {
+      head -n "$((sa_line - 1))" <"$1"
+      tail -n "+$((sa_line + 1))" <"$1"
+    } | git hash-object --stdin
+  fi
+}
+
+req_hash=$(spec_anchor__digest "$dir/requirements.md")
+des_hash=$(spec_anchor__digest "$dir/design.md")
 # Capture the extraction (the lib's canonical definition-content stream)
 # first so a parse failure aborts under set -e (a failure inside
 # `extract | git hash-object` would otherwise be masked by the pipeline's
@@ -88,7 +157,7 @@ if [ -n "$extracted" ]; then
 else
   tsk_hash=$(printf '' | git hash-object --stdin)
 fi
-tst_hash=$(git hash-object "$dir/test-spec.md")
+tst_hash=$(spec_anchor__digest "$dir/test-spec.md")
 
 # Capture before printing: git hash-object ignores a failed write to an
 # unwritable stdout (still exits 0), but printf's own failure is caught by

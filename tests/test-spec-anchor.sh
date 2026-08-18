@@ -13,6 +13,14 @@
 #   5. A non-task H3 section never leaks into the preceding task's record.
 #   6. Failure modes fail closed with a clear stderr message: missing or
 #      unreadable file, duplicate task ids, unemittable output.
+#   7. The header-block `**Status:**` line is excluded from the
+#      requirements / design / test-spec digests, so every sanctioned
+#      lifecycle flip is anchor-invariant across all four files' mirrors, on
+#      both format versions (anchor-integrity REQ-A1.1).
+#   8. That exclusion is bounded to the single leading header block: a
+#      `**Status:**` line in body prose or inside a fence stays anchored, and a
+#      malformed, unterminated, or duplicate-Status header block fails closed
+#      (anchor-integrity REQ-A1.2).
 #
 # Runs standalone: ./tests/test-spec-anchor.sh
 # (Joins the Task 2 shell test runner's suite when that lands.)
@@ -49,9 +57,13 @@ trap 'rm -rf "$tmp"' EXIT
 spec="$tmp/spec"
 mkdir "$spec"
 
-printf '%s\n' '# Fixture — Requirements' '' '**Status:** Active' >"$spec/requirements.md"
-printf '%s\n' '# Fixture — Design' >"$spec/design.md"
-printf '%s\n' '# Fixture — Test Spec' >"$spec/test-spec.md"
+# Every one of the three whole-content files carries a header block AND body
+# content: a header block that runs to end of file with no body after it is
+# malformed input the anchor now refuses (REQ-A1.2), so a header-only stub is
+# not a usable fixture.
+printf '%s\n' '# Fixture — Requirements' '' '**Status:** Active' '' '## Goal' '' 'A requirement body.' >"$spec/requirements.md"
+printf '%s\n' '# Fixture — Design' '' '**Status:** Active' '' '## D-1' '' 'A design body.' >"$spec/design.md"
+printf '%s\n' '# Fixture — Test Spec' '' '**Status:** Active' '' '## REQ-X1.1' '' 'A test-spec body.' >"$spec/test-spec.md"
 
 # Baseline: four tasks in Forward plan, with a dotted id, an id >= 10, and a
 # wrapped continuation line.
@@ -144,11 +156,18 @@ cat >"$tmp/expected-extraction" <<'EOF'
 - **Citations:** D-4 · REQ-X1.4
 - **Estimated effort:** 1 day
 EOF
+# The three whole-content files each contribute their content MINUS the
+# header-block **Status:** line, dropped with its line terminator so the bytes
+# around it join unchanged (REQ-A1.1). Written out by hand here, independently
+# of the script, so the golden manifest pins the reduced scope too.
+printf '%s\n' '# Fixture — Requirements' '' '' '## Goal' '' 'A requirement body.' >"$tmp/expected-requirements"
+printf '%s\n' '# Fixture — Design' '' '' '## D-1' '' 'A design body.' >"$tmp/expected-design"
+printf '%s\n' '# Fixture — Test Spec' '' '' '## REQ-X1.1' '' 'A test-spec body.' >"$tmp/expected-test-spec"
 exp_anchor=$(printf '%s\n%s\n%s\n%s\n' \
-  "$(git hash-object "$spec/requirements.md")" \
-  "$(git hash-object "$spec/design.md")" \
+  "$(git hash-object "$tmp/expected-requirements")" \
+  "$(git hash-object "$tmp/expected-design")" \
   "$(git hash-object "$tmp/expected-extraction")" \
-  "$(git hash-object "$spec/test-spec.md")" | git hash-object --stdin)
+  "$(git hash-object "$tmp/expected-test-spec")" | git hash-object --stdin)
 [ "$a_base" = "$exp_anchor" ] \
   || fail "anchor deviates from the independently computed golden manifest: $a_base vs $exp_anchor"
 
@@ -222,7 +241,7 @@ a_edited=$("$anchor" "$spec") || fail "anchor computation failed after Done-when
 [ "$a_base" != "$a_edited" ] || fail "Done-when edit did not change the anchor"
 
 # --- Property 2b: an edit to a non-tasks file changes the anchor ---
-printf '%s\n' '# Fixture — Design' 'New decision text.' >"$spec/design.md"
+printf '%s\n' '# Fixture — Design' '' '**Status:** Active' '' '## D-1' '' 'New decision text.' >"$spec/design.md"
 a_design=$("$anchor" "$spec")
 [ "$a_edited" != "$a_design" ] || fail "design.md edit did not change the anchor"
 
@@ -330,5 +349,191 @@ case $err in
   *"missing or unreadable"*) ;;
   *) fail "missing-file failure lacks a clear message: $err" ;;
 esac
+
+# ---------------------------------------------------------------------------
+# Property 7: the header-block **Status:** line is excluded from the
+# requirements / design / test-spec digests, so every sanctioned lifecycle
+# flip is anchor-invariant (anchor-integrity REQ-A1.1, D-2).
+# ---------------------------------------------------------------------------
+
+# write_bundle <dir> <format-version> <status> — a complete four-file bundle
+# whose ONLY variable is the header `**Status:**` value, mirrored across all
+# four files exactly as a real flip writes it. `Last reviewed:` is deliberately
+# held constant: it is anchored content that moves in the same rituals that
+# re-anchor anyway, so letting it vary here would confound the property.
+write_bundle() {
+  wb_dir=$1
+  wb_ver=$2
+  wb_status=$3
+  mkdir -p "$wb_dir"
+
+  printf '%s\n' '# Flip Fixture — Requirements' '' \
+    "**Status:** $wb_status" '**Last reviewed:** 2026-07-17' \
+    "**Format-version:** $wb_ver" '' \
+    '## Goal' '' '- **REQ-X1.1** The bundle SHALL exist.' >"$wb_dir/requirements.md"
+
+  printf '%s\n' '# Flip Fixture — Design' '' \
+    "**Status:** $wb_status" '**Last reviewed:** 2026-07-17' \
+    "**Format-version:** $wb_ver" '' \
+    '### D-1: A decision  (N)' '' '**Decision:** The bundle exists.' >"$wb_dir/design.md"
+
+  printf '%s\n' '# Flip Fixture — Test Spec' '' \
+    "**Status:** $wb_status" '**Last reviewed:** 2026-07-17' \
+    "**Format-version:** $wb_ver" '' \
+    '### REQ-X1.1 — existence [test]' '' 'Verified by this suite.' >"$wb_dir/test-spec.md"
+
+  if [ "$wb_ver" -eq 2 ]; then
+    printf '%s\n' '# Flip Fixture — Tasks' '' \
+      "**Status:** $wb_status" '**Last reviewed:** 2026-07-17' \
+      '**Format-version:** 2' '**Execution:** derived — see the status render' '' \
+      '## Tasks' '' '### Task 1 — Exist' '' \
+      '- **Deliverables:** A bundle.' \
+      '- **Done when:** It exists.' \
+      '- **Dependencies:** none' \
+      '- **Citations:** D-1 · REQ-X1.1' \
+      '- **Estimated effort:** half day' >"$wb_dir/tasks.md"
+  else
+    printf '%s\n' '# Flip Fixture — Tasks' '' \
+      "**Status:** $wb_status" '**Last reviewed:** 2026-07-17' \
+      '**Format-version:** 1' '' \
+      '## Forward plan' '' '### Task 1 — Exist' '' \
+      '- **Deliverables:** A bundle.' \
+      '- **Done when:** It exists.' \
+      '- **Dependencies:** none' \
+      '- **Citations:** D-1 · REQ-X1.1' \
+      '- **Estimated effort:** half day' >"$wb_dir/tasks.md"
+  fi
+}
+
+# 7a. format-version 1: the full stored lifecycle set, terminal values
+# included, plus the derived Ready<->Active flip the sync hook mirrors.
+flip="$tmp/flip"
+write_bundle "$flip" 1 Draft
+a_flip=$("$anchor" "$flip") || fail "anchor failed on the v1 flip fixture (Draft)"
+for st in Ready Active Done Retired Superseded Draft; do
+  write_bundle "$flip" 1 "$st"
+  a_st=$("$anchor" "$flip") || fail "anchor failed on the v1 flip fixture ($st)"
+  [ "$a_flip" = "$a_st" ] \
+    || fail "v1 header Status flip to $st moved the anchor ($a_flip -> $a_st; REQ-A1.1)"
+done
+echo "ok: v1 lifecycle Status flips are anchor-invariant across all four mirrors (REQ-A1.1)"
+
+# 7b. The exclusion is universal, not version-keyed: format-version 2's
+# restricted stored set (Draft<->Ready) is invariant under the same rule.
+flip2="$tmp/flip2"
+write_bundle "$flip2" 2 Draft
+a_flip2=$("$anchor" "$flip2") || fail "anchor failed on the v2 flip fixture (Draft)"
+for st in Ready Draft; do
+  write_bundle "$flip2" 2 "$st"
+  a_st=$("$anchor" "$flip2") || fail "anchor failed on the v2 flip fixture ($st)"
+  [ "$a_flip2" = "$a_st" ] \
+    || fail "v2 header Status flip to $st moved the anchor ($a_flip2 -> $a_st; REQ-A1.1)"
+done
+echo "ok: the exclusion is universal — v2's stored set flips are anchor-invariant too (REQ-A1.1)"
+
+# 7c. Nothing beyond that one line is excluded: a REQ body edit and a header
+# `Format-version:` bump both still move the anchor (REQ-A1.3's "no exclusion
+# is performed that the documentation does not state", pinned as behavior).
+write_bundle "$flip" 1 Ready
+a_ready=$("$anchor" "$flip") || fail "anchor failed on the v1 flip fixture (Ready)"
+
+sed 's/The bundle SHALL exist./The bundle SHALL exist and be documented./' \
+  "$flip/requirements.md" >"$flip/requirements.md.new"
+mv "$flip/requirements.md.new" "$flip/requirements.md"
+a_meaning=$("$anchor" "$flip") || fail "anchor failed after a REQ body edit"
+[ "$a_ready" != "$a_meaning" ] || fail "a REQ body edit did not change the anchor"
+
+write_bundle "$flip" 1 Ready
+sed 's/^\*\*Format-version:\*\* 1$/**Format-version:** 2/' \
+  "$flip/requirements.md" >"$flip/requirements.md.new"
+mv "$flip/requirements.md.new" "$flip/requirements.md"
+a_ver=$("$anchor" "$flip") || fail "anchor failed after a Format-version bump"
+[ "$a_ready" != "$a_ver" ] \
+  || fail "a header Format-version bump did not change the anchor (only Status: is excluded; REQ-A1.1)"
+echo "ok: meaning edits and the rest of the header block stay anchored (REQ-A1.1, REQ-A1.3)"
+
+# ---------------------------------------------------------------------------
+# Property 8: the exclusion is bounded to the single leading header block, and
+# a block the extent definition calls malformed fails closed (REQ-A1.2, D-2).
+# ---------------------------------------------------------------------------
+
+# 8a. A `**Status:**` line in BODY prose is ordinary anchored content.
+write_bundle "$flip" 1 Ready
+a_plain=$("$anchor" "$flip") || fail "anchor failed on the bounding baseline"
+{ cat "$flip/design.md" && printf '%s\n' '' '**Status:** Draft'; } >"$flip/design.md.new"
+mv "$flip/design.md.new" "$flip/design.md"
+a_body1=$("$anchor" "$flip") || fail "anchor failed with a body-prose Status line"
+[ "$a_plain" != "$a_body1" ] \
+  || fail "a body-prose **Status:** line was excluded from the anchor (REQ-A1.2)"
+sed 's/^\*\*Status:\*\* Draft$/**Status:** Done/' "$flip/design.md" >"$flip/design.md.new"
+mv "$flip/design.md.new" "$flip/design.md"
+a_body2=$("$anchor" "$flip") || fail "anchor failed after editing the body-prose Status line"
+[ "$a_body1" != "$a_body2" ] \
+  || fail "editing a body-prose **Status:** line did not move the anchor (REQ-A1.2)"
+echo "ok: a body-prose **Status:** line stays anchored (REQ-A1.2)"
+
+# 8b. Same for a FENCED one: a column-0 fence is outside every header block.
+write_bundle "$flip" 1 Ready
+{ cat "$flip/test-spec.md" && printf '%s\n' '' '```markdown' '**Status:** Draft' '```'; } \
+  >"$flip/test-spec.md.new"
+mv "$flip/test-spec.md.new" "$flip/test-spec.md"
+a_fence1=$("$anchor" "$flip") || fail "anchor failed with a fenced Status line"
+sed 's/^\*\*Status:\*\* Draft$/**Status:** Done/' "$flip/test-spec.md" >"$flip/test-spec.md.new"
+mv "$flip/test-spec.md.new" "$flip/test-spec.md"
+a_fence2=$("$anchor" "$flip") || fail "anchor failed after editing the fenced Status line"
+[ "$a_fence1" != "$a_fence2" ] \
+  || fail "editing a fenced **Status:** line did not move the anchor (REQ-A1.2)"
+echo "ok: a fenced **Status:** line stays anchored (REQ-A1.2)"
+
+# 8c. The one benign case: a well-formed block declaring no `**Status:**`
+# excludes nothing and hashes the whole file. Pinned from both sides — adding
+# the declaration to such a block must leave the anchor where it was.
+write_bundle "$flip" 1 Ready
+printf '%s\n' '# Flip Fixture — Design' '' \
+  '**Last reviewed:** 2026-07-17' '**Format-version:** 1' '' \
+  '### D-1: A decision  (N)' '' '**Decision:** The bundle exists.' >"$flip/design.md"
+a_nostatus=$("$anchor" "$flip") \
+  || fail "a header block declaring no **Status:** must not fail closed (REQ-A1.2)"
+is_hex40 "$a_nostatus" || fail "no-Status anchor is not a 40-hex digest: $a_nostatus"
+printf '%s\n' '# Flip Fixture — Design' '' \
+  '**Status:** Ready' '**Last reviewed:** 2026-07-17' '**Format-version:** 1' '' \
+  '### D-1: A decision  (N)' '' '**Decision:** The bundle exists.' >"$flip/design.md"
+a_added=$("$anchor" "$flip") || fail "anchor failed after adding the header Status declaration"
+[ "$a_nostatus" = "$a_added" ] \
+  || fail "adding a header **Status:** line to a block that declared none moved the anchor (REQ-A1.2)"
+echo "ok: a block declaring no **Status:** excludes nothing, from both sides (REQ-A1.2)"
+
+# 8d. Malformed, unterminated, and duplicate-Status header blocks fail closed:
+# non-zero exit, nothing on stdout, a clear stderr message. Never a silent
+# fallback to hashing the whole file.
+expect_fail_closed() {
+  # <label> <bundle-dir> <stderr-substring>
+  if ef_out=$("$anchor" "$2" 2>"$tmp/anchor.err"); then
+    fail "$1: anchor exited 0 (printed '$ef_out') where it must fail closed (REQ-A1.2)"
+  fi
+  [ -z "$ef_out" ] || fail "$1: anchor printed '$ef_out' on a fail-closed path (REQ-A1.2)"
+  grep -qF "$3" "$tmp/anchor.err" \
+    || fail "$1: stderr lacks '$3': $(cat "$tmp/anchor.err")"
+}
+
+broken="$tmp/broken"
+
+write_bundle "$broken" 1 Ready
+printf '%s\n' '# Flip Fixture — Requirements' '' \
+  '**Status:** Ready' '**Status:** Active' '' \
+  '## Goal' '' '- **REQ-X1.1** The bundle SHALL exist.' >"$broken/requirements.md"
+expect_fail_closed "duplicate in-header Status" "$broken" "Status: declarations"
+
+write_bundle "$broken" 1 Ready
+printf '%s\n' '# Flip Fixture — Requirements' '' \
+  '**Status:** Ready' '**Format-version:** 1' >"$broken/requirements.md"
+expect_fail_closed "header block with no body content" "$broken" "no body content"
+
+write_bundle "$broken" 1 Ready
+printf '%s\n' 'Prose before anything else.' '' \
+  '**Status:** Ready' '' '### D-1: A decision  (N)' >"$broken/design.md"
+expect_fail_closed "no leading header block" "$broken" "no leading header block"
+
+echo "ok: malformed, unterminated, and duplicate-Status header blocks fail closed (REQ-A1.2)"
 
 echo "PASS: test-spec-anchor"

@@ -16,6 +16,10 @@
 #   spec_parse_parked_map       the parked-map/reference-bullet parse in the
 #                               single v2 posture (Task 2; REQ-B1.4,
 #                               REQ-C1.1, REQ-C1.3)
+#   spec_parse_header_status_line
+#                               the header-block `**Status:**` line locator the
+#                               content anchor's exclusion is computed from
+#                               (anchor-integrity Task 2; REQ-A1.1, REQ-A1.2)
 #
 # v1 fence-awareness of the canonical extraction and the line-80 surfaces
 # (REQ bullets, D-headings, `Dependencies:`/`Citations:` tokens) follow as
@@ -251,13 +255,24 @@ spec_parse_extract_tasks() {
 # or below the real one. A CR-only line on a CRLF checkout is normalized to
 # blank first, so line endings alone cannot close the block early.
 #
-# One awk program serves both entry points, in two modes: with `key` set it
-# prints that one declaration's value (spec_parse_header_value); with `key`
-# EMPTY it emits the whole block as a record stream (spec_parse_header_block).
-# One implementation, so the batched and single-key forms cannot disagree about
-# the grammar — which is the whole point of the lib. It is held in a variable
-# rather than inlined because the file and stdin forms differ only in the
-# redirection.
+# One awk program serves all three entry points. `mode` selects the family:
+# unset (the default the two original entry points leave it at) is the
+# declaration parse, where `key` set prints that one declaration's value
+# (spec_parse_header_value) and `key` empty emits the whole block as a record
+# stream (spec_parse_header_block); `mode=statusline` prints the `**Status:**`
+# line NUMBER instead (spec_parse_header_status_line). One implementation, so
+# the forms cannot disagree about where the header block starts and ends —
+# which is the whole point of the lib, and load-bearing for the content anchor,
+# whose exclusion must land on exactly the line the value parse reads. It is
+# held in a variable rather than inlined because the file and stdin forms
+# differ only in the redirection.
+#
+# The block's positional extent is tracked by two flags the declaration modes
+# ignore: `hdrlines` counts the lines the leading region actually consumed (0
+# means there is no such region — the file opens with body content), and `body`
+# records that at least one line followed it. The meta-spec calls a block with
+# neither a leading region at all, nor any body content after it, MALFORMED;
+# `mode=statusline` is the consumer that fails closed on it.
 #
 # Keys are extracted at the first `:**` and screened against the header-key
 # grammar `^[A-Za-z][A-Za-z-]*$`, so a malformed key emits no record and cannot
@@ -278,6 +293,7 @@ spec_parse__header_awk='
   { sub(/\r$/, "") }
   !past {
     if (/^[ \t]*$/ || /^# / || /^\*\*[^*]+:\*\*/) {
+      hdrlines++
       if (/^\*\*[^*]+:\*\*/) {
         p = index($0, ":**")
         if (p > 3) {
@@ -290,6 +306,7 @@ spec_parse__header_awk='
               sub(/[ \t\r]+$/, "", v)
               val[k] = v
               ord[++nk] = k
+              if (k == "Status") statusnr = NR
             }
           }
         }
@@ -298,7 +315,24 @@ spec_parse__header_awk='
     }
     past = 1
   }
+  { body = 1 }
   END {
+    if (mode == "statusline") {
+      if (hdrlines == 0) {
+        print "spec-parse: no leading header block (malformed; fail closed)" > "/dev/stderr"
+        exit 4
+      }
+      if (!body) {
+        print "spec-parse: header block reaches end of file with no body content (malformed; fail closed)" > "/dev/stderr"
+        exit 4
+      }
+      if (n["Status"] > 1) {
+        printf "spec-parse: %d in-header Status: declarations (a contradictory duplicate has no honest positional winner; fail closed)\n", n["Status"] > "/dev/stderr"
+        exit 3
+      }
+      print statusnr + 0
+      exit 0
+    }
     if (key != "") {
       if (strict && n[key] > 1) {
         printf "spec-parse: %d in-header %s: declarations (a contradictory duplicate has no honest positional winner; fail closed)\n", n[key], key > "/dev/stderr"
@@ -398,6 +432,47 @@ spec_parse_header_block() {
   spec_parse__readable "$1" || return 1
   spec_parse__nul_screen "$1" || return 1
   LC_ALL=C awk -v key="" -v strict=0 "$spec_parse__header_awk" <"$1"
+}
+
+# spec_parse_header_status_line <file|-> — print the 1-based line number of the
+# `**Status:**` declaration inside the source's single leading header block, or
+# `0` when a well-formed block declares none. The content anchor's Status
+# exclusion is computed from this number (anchor-integrity D-2, REQ-A1.1,
+# REQ-A1.2): the caller drops exactly that line, so the grammar decision (which
+# line, if any, is the header declaration) stays here with the rest of the
+# header family and the byte surgery stays at the caller.
+#
+# A line number rather than a reduced stream on purpose: the anchor's input must
+# be byte-exact, and a stream captured through command substitution loses a
+# missing final newline. A small integer survives the round trip intact.
+#
+# The bounding rules are the header family's, unchanged: a `**Status:**` line in
+# body prose or inside a column-0 fence is outside every header block and is
+# never reported, so it stays anchored content.
+#
+# Exit status:
+#   0  the line number on stdout (`0` when the block declares no `**Status:**` —
+#      the benign case the anchor treats as "exclude nothing")
+#   1  the source could not be read, or is NUL-bearing (REQ-B1.6d)
+#   2  usage: wrong argument count
+#   3  a duplicate in-header `**Status:**` declaration (fail closed, matching
+#      spec_parse_header_value's posture on the load-bearing keys)
+#   4  a malformed header block: no leading header region at all, or one that
+#      reaches end of file with no body content after it (doctrine's
+#      *Header-block extent*). Fail closed — never a silent fallback to
+#      hashing the whole file.
+spec_parse_header_status_line() {
+  if [ "$#" -ne 1 ]; then
+    printf '%s\n' "spec-parse: usage: spec_parse_header_status_line <file|->" >&2
+    return 2
+  fi
+  if [ "$1" = - ]; then
+    LC_ALL=C awk -v key="" -v strict=0 -v mode=statusline "$spec_parse__header_awk"
+    return $?
+  fi
+  spec_parse__readable "$1" || return 1
+  spec_parse__nul_screen "$1" || return 1
+  LC_ALL=C awk -v key="" -v strict=0 -v mode=statusline "$spec_parse__header_awk" <"$1"
 }
 
 # --- Parked-map / reference-bullet parse (Task 2; REQ-B1.4, REQ-C1.1,

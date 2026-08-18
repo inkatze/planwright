@@ -79,9 +79,12 @@ chmod +x "$stub/gh"
 # is exercised elsewhere) so "no data loss" is meaningful.
 write_spec() { # $1 = spec dir
   mkdir -p "$1"
-  printf '%s\n' '# Demo — Requirements' '' '**Status:** Active' >"$1/requirements.md"
-  printf '%s\n' '# Demo — Design' >"$1/design.md"
-  printf '%s\n' '# Demo — Test Spec' >"$1/test-spec.md"
+  # Body content after the header block is load-bearing for the anchor
+  # assertions below: a header block that runs to end of file is malformed
+  # input the content anchor refuses (anchor-integrity REQ-A1.2).
+  printf '%s\n' '# Demo — Requirements' '' '**Status:** Active' '' '## Goal' '' 'Demo.' >"$1/requirements.md"
+  printf '%s\n' '# Demo — Design' '' '## Decisions' '' 'Demo.' >"$1/design.md"
+  printf '%s\n' '# Demo — Test Spec' '' '## Coverage' '' 'Demo.' >"$1/test-spec.md"
   cat >"$1/tasks.md" <<'EOF'
 # Demo — Tasks
 
@@ -955,9 +958,12 @@ k6_init() {
 # bundle Status mirrored across all three. tasks.md is written per-scenario.
 k6_heads() {
   mkdir -p "$1"
-  printf '%s\n' '# K6 — Requirements' '' "**Status:** $2" '**Format-version:** 1' >"$1/requirements.md"
-  printf '%s\n' '# K6 — Design' '' "**Status:** $2" '**Format-version:** 1' >"$1/design.md"
-  printf '%s\n' '# K6 — Test Spec' '' "**Status:** $2" '**Format-version:** 1' >"$1/test-spec.md"
+  # Each file carries body content after the header block: a block running to
+  # end of file is malformed input the content anchor refuses
+  # (anchor-integrity REQ-A1.2), and these bundles get anchored downstream.
+  printf '%s\n' '# K6 — Requirements' '' "**Status:** $2" '**Format-version:** 1' '' '## Goal' '' 'K6.' >"$1/requirements.md"
+  printf '%s\n' '# K6 — Design' '' "**Status:** $2" '**Format-version:** 1' '' '## Decisions' '' 'K6.' >"$1/design.md"
+  printf '%s\n' '# K6 — Test Spec' '' "**Status:** $2" '**Format-version:** 1' '' '## Coverage' '' 'K6.' >"$1/test-spec.md"
 }
 k6_status_of() { awk '/^\*\*Status:\*\* / { print $2; exit }' "$1"; }
 k6_assert_all() { # <spec-dir> <expected> <label>
@@ -1608,9 +1614,11 @@ t7_init() { # $1 = repo dir
 }
 t7_heads() { # $1 = spec dir
   mkdir -p "$1"
-  printf '%s\n' '# T7 — Requirements' '' '**Status:** Active' >"$1/requirements.md"
-  printf '%s\n' '# T7 — Design' >"$1/design.md"
-  printf '%s\n' '# T7 — Test Spec' >"$1/test-spec.md"
+  # Body content after the header block: see write_spec (anchor-integrity
+  # REQ-A1.2 makes a header-only file malformed input for the anchor).
+  printf '%s\n' '# T7 — Requirements' '' '**Status:** Active' '' '## Goal' '' 'T7.' >"$1/requirements.md"
+  printf '%s\n' '# T7 — Design' '' '## Decisions' '' 'T7.' >"$1/design.md"
+  printf '%s\n' '# T7 — Test Spec' '' '## Coverage' '' 'T7.' >"$1/test-spec.md"
 }
 
 # --- T7-A: canonical PR stamp from the merged-PR evidence batch. Task 1 is
