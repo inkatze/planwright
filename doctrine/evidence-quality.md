@@ -105,7 +105,12 @@ because both are claims about what a human will actually do.
 
 **A `synthetic`-graded entry cannot count as a passing test toward a
 `Graduate` outcome on a desirability-tagged assumption.** The gate reads the
-tag and the grade together and refuses the graduation, naming the assumption.
+tag and the grade together: the entry cannot mark that assumption's threshold
+`pass`. Where it is the only evidence, the assumption stays unresolved, and a
+blocking unresolved assumption is what refuses the `Graduate` (REQ-E1.1).
+Higher-graded evidence on the same assumption is unaffected — the bar is on
+what `synthetic` can carry, not on the assumption having any synthetic
+evidence at all.
 
 The exclusion is scoped deliberately:
 
