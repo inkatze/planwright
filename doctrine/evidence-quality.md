@@ -140,7 +140,9 @@ proceed on `opinion` with the grade recorded. A one-way door — a published
 price, a positioning claim, a graduation — is the case the ladder exists for.
 Recording a low grade honestly is always conforming; inflating one never is.
 
-**Lineage.** The four-part statement is the test-card format from the
+## Lineage
+
+The four-part statement is the test-card format from the
 lean-startup and Strategyzer lineage; the commitment weighting follows the
 Mom Test's currencies (time, reputation, money) and pretotyping's
 skin-in-the-game weighting; the fail-condition framing is standard
