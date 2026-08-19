@@ -350,6 +350,13 @@ for id in data-storage caching queues-async api-surface auth secrets-config \
   assert_contains "real decision-domains: $id present" "id: $id" "$out"
 done
 seed_count="$(grep -c '^  - id: ' "$REPO_ROOT/config/decision-domains.yaml")"
+# Deriving the expected count is what keeps growing the catalog a data-only
+# change, but it also means a pattern that stops matching compares zero against
+# a resolver that emitted nothing, and passes. Pin the floor first.
+if [ "${seed_count:-0}" -lt 1 ]; then
+  echo "FAIL: real decision-domains: the seed-count pattern matched nothing" >&2
+  failures=$((failures + 1))
+fi
 exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
   /bin/bash "$RESOLVER" decision-domains --explain 2>/dev/null | grep -c '	core$')"
 assert_eq "real decision-domains: every seed entry attributed to core via --explain" \

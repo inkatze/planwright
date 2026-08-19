@@ -104,6 +104,13 @@ done
 # mechanically derivable from the headings, so parity is the checkable part).
 prose_entries="$(grep -cE '^### [0-9]+\. ' "$REPO_ROOT/doctrine/decision-domains.md")"
 yaml_entries="$(grep -cE '^  - id: ' "$REPO_ROOT/config/decision-domains.yaml")"
+# Both sides are derived, so a pattern that stops matching sends both to zero
+# and the comparison below passes against two empty catalogs. Pin the floor.
+if [ "${prose_entries:-0}" -lt 1 ] || [ "${yaml_entries:-0}" -lt 1 ]; then
+  echo "FAIL: catalog: an entry-count pattern matched nothing" \
+    "(prose=$prose_entries, yaml=$yaml_entries)" >&2
+  failures=$((failures + 1))
+fi
 assert_eq "catalog: prose entry count matches the yaml machine view" \
   "$prose_entries" "$yaml_entries"
 
@@ -145,7 +152,11 @@ assert_contains "overlay merge: --explain attributes an inception domain to core
 # ---------------------------------------------------------------------------
 domains_doc="$(base PLANWRIGHT_ROOT="$REPO_ROOT" /bin/bash "$RULEDOC" decision-domains)"
 assert "decision-domains doc resolves" 0 $?
-seam_entry="$(awk '/^### .*[Ss]eam[ -]reuse/{f=1} f&&/^### /&&!/[Ss]eam[ -]reuse/{exit} f' \
+# Bounded by the next heading at any level, not just the next H3: the entry is
+# currently the doc's last, so an H2 trailer added later would otherwise leak
+# the rest of the file in, and the seam words are generic enough that they
+# would then match against prose outside the entry.
+seam_entry="$(awk '/^### .*[Ss]eam[ -]reuse/{f=1} f&&/^#+ /&&!/[Ss]eam[ -]reuse/{exit} f' \
   "$domains_doc")"
 if [ -z "$seam_entry" ]; then
   echo "FAIL: seam-reuse entry not found in $domains_doc" >&2
@@ -155,6 +166,11 @@ for seam in "overlay" "config" "catalog" "rule-doc" "backend" "notification" \
   "accumulator"; do
   assert_contains "seam-reuse entry names the $seam seam" "$seam" "$seam_entry"
 done
+# The eighth seam, asserted on its address rather than its name: the prose
+# wraps "machine-local state home" across a line break, so the name is not a
+# contiguous substring.
+assert_contains "seam-reuse entry names the machine-local state home seam" \
+  "CLAUDE_PLUGIN_DATA" "$seam_entry"
 
 # ---------------------------------------------------------------------------
 # 4. Task Done-when — each doc this task lands resolves via the rule-doc chain.
