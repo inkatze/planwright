@@ -545,14 +545,19 @@ echo "ok: the slice is byte-exact on a line-1 declaration, CRLF, and a missing f
 # 8d. Malformed, unterminated, and duplicate-Status header blocks fail closed:
 # non-zero exit, nothing on stdout, a clear stderr message. Never a silent
 # fallback to hashing the whole file.
+# The refusal must also NAME the offending file: three files run through the
+# same digest helper, so a message that only states the grammar fault leaves the
+# operator to bisect the bundle by hand.
 expect_fail_closed() {
-  # <label> <bundle-dir> <stderr-substring>
+  # <label> <bundle-dir> <stderr-substring> <offending-file>
   if ef_out=$("$anchor" "$2" 2>"$tmp/anchor.err"); then
     fail "$1: anchor exited 0 (printed '$ef_out') where it must fail closed (REQ-A1.2)"
   fi
   [ -z "$ef_out" ] || fail "$1: anchor printed '$ef_out' on a fail-closed path (REQ-A1.2)"
   grep -qF "$3" "$tmp/anchor.err" \
     || fail "$1: stderr lacks '$3': $(cat "$tmp/anchor.err")"
+  grep -qF "$4" "$tmp/anchor.err" \
+    || fail "$1: stderr does not name the offending file '$4': $(cat "$tmp/anchor.err")"
 }
 
 broken="$tmp/broken"
@@ -561,18 +566,18 @@ write_bundle "$broken" 1 Ready
 printf '%s\n' '# Flip Fixture — Requirements' '' \
   '**Status:** Ready' '**Status:** Active' '' \
   '## Goal' '' '- **REQ-X1.1** The bundle SHALL exist.' >"$broken/requirements.md"
-expect_fail_closed "duplicate in-header Status" "$broken" "Status: declarations"
+expect_fail_closed "duplicate in-header Status" "$broken" "Status: declarations" "requirements.md"
 
 write_bundle "$broken" 1 Ready
 printf '%s\n' '# Flip Fixture — Requirements' '' \
   '**Status:** Ready' '**Format-version:** 1' >"$broken/requirements.md"
-expect_fail_closed "header block with no body content" "$broken" "no body content"
+expect_fail_closed "header block with no body content" "$broken" "no body content" "requirements.md"
 
 write_bundle "$broken" 1 Ready
 printf '%s\n' 'Prose before anything else.' '' \
   '**Status:** Ready' '' '### D-1: A decision  (N)' >"$broken/design.md"
-expect_fail_closed "no leading header block" "$broken" "no leading header block"
+expect_fail_closed "no leading header block" "$broken" "no leading header block" "design.md"
 
-echo "ok: malformed, unterminated, and duplicate-Status header blocks fail closed (REQ-A1.2)"
+echo "ok: malformed, unterminated, and duplicate-Status header blocks fail closed, naming the file (REQ-A1.2)"
 
 echo "PASS: test-spec-anchor"

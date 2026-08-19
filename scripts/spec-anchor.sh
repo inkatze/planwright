@@ -117,13 +117,31 @@ done
 # concurrent rewrite between the two can slice against a line number that no
 # longer holds. Same shape as the lib's own screen-then-parse window, and no
 # in-repo writer rewrites a spec file underneath a running anchor computation.
+#
+# Known bound: the slice reaches git through a pipeline, so a head or tail that
+# fails mid-read has its status masked by `git hash-object`, which would hash
+# the short stream and exit 0. The remedy the tasks.md extraction below uses —
+# capture first, hash second — is unavailable here: command substitution strips
+# trailing newlines, and the byte-exactness above is the whole point of the
+# head/tail route. Accepted rather than staged through a temp file: the inputs
+# are small regular files read from local disk, where a partial read that still
+# exits non-zero is disk-failure territory.
 spec_anchor__digest() {
-  sa_line=$(spec_parse_header_status_line "$1")
-  # Belt-and-braces: the locator either fails closed (caught by the assignment
-  # above under `set -e`) or prints a number, so this refuses a lib that has
-  # started returning something else rather than feeding it to arithmetic. The
-  # path is deliberately not echoed — the lib already named it through its own
-  # sanitizer, and re-echoing raw path bytes here is the REQ-B1.6c hazard.
+  # The locator's status is captured rather than left to `set -e` so a refusal
+  # can name the file first: three files run through this helper, and the lib's
+  # own message states the grammar fault without saying which one carried it.
+  # `spec_parse__printable` is the lib's internal sanitizer, reached across that
+  # boundary deliberately — echoing raw path bytes here is the REQ-B1.6c hazard,
+  # and duplicating the byte range would be a second copy to keep in step.
+  sa_rc=0
+  sa_line=$(spec_parse_header_status_line "$1") || sa_rc=$?
+  if [ "$sa_rc" -ne 0 ]; then
+    printf '%s\n' "spec-anchor: header-block parse failed for $(spec_parse__printable "$1")" >&2
+    exit "$sa_rc"
+  fi
+  # Belt-and-braces: the locator either fails closed (caught above) or prints a
+  # number, so this refuses a lib that has started returning something else
+  # rather than feeding it to arithmetic.
   case $sa_line in
     '' | *[!0-9]*)
       printf '%s\n' "spec-anchor: header-block Status locator returned no line number" >&2
