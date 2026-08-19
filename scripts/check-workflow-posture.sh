@@ -55,7 +55,19 @@
 # but still scanned as TEXT for secret and artifact references. Full-line
 # comments are skipped by both; a trailing comment is scanned, so a comment
 # mentioning `secrets.FOO` over-blocks — the fail-loud direction, and cheaper
-# than deciding whether a `#` sits inside a quoted string.
+# than deciding whether a `#` sits inside a quoted string. Physical lines are
+# joined on a trailing backslash before scanning, so a shell command split
+# across lines is read as the one command it is.
+#
+# That text scan is a heuristic, and assertion 4's artifact half is where that
+# matters: it recognizes `download-artifact` and `gh run download`, which covers
+# how an artifact is fetched in practice and any honest formatting of it, but
+# not every way one could be. The artifacts REST API reached by `curl`, an
+# action name assembled from a matrix variable, or a renamed `gh` all pass it.
+# Closing that class needs expression evaluation this parser deliberately does
+# not do, so it is an accepted residual on the same footing as the cache
+# posture above — assertion 4 raises the cost of the artifact-poisoning path
+# rather than proving it shut.
 #
 # Remote reusable workflows (`owner/repo/.github/workflows/x.yml@ref`) are not
 # fetched, and do not need to be: GitHub scopes a called workflow's
@@ -168,10 +180,16 @@ function record_trigger(t) {
   ntrig++
   cur_trigger = t
 }
-# `on: push`, `on: [push, pull_request]`. A flow MAPPING is not modeled.
+# `on: push`, `on: [push, pull_request]`. A flow MAPPING is not modeled, and
+# neither is a flow SEQUENCE that opens here without closing on the same line:
+# both must fail closed rather than fall through to record_trigger, which would
+# file the raw `[` as the trigger name and lose every real trigger with it. A
+# lost `pull_request` is the worst direction to be wrong in — it reads as "not
+# reachable" and switches off assertions 2 and 3 for the whole file.
 function inline_triggers(v,   inner, n, parts, i) {
   if (v ~ /^\{/) { err("flow-mapping `on:` value is outside the parsed subset"); return }
-  if (v ~ /^\[.*\]$/) {
+  if (v ~ /^\[/) {
+    if (v !~ /\]$/) { err("multi-line flow-sequence `on:` value is outside the parsed subset"); return }
     inner = substr(v, 2, length(v) - 2)
     n = split(inner, parts, ",")
     for (i = 1; i <= n; i++) record_trigger(parts[i])
@@ -179,12 +197,33 @@ function inline_triggers(v,   inner, n, parts, i) {
   }
   record_trigger(v)
 }
+# The secret and artifact scans, run over one LOGICAL line (see the joining
+# below) and reporting at the line it starts on. Matched against a lower-cased
+# copy because GitHub expression contexts AND secret names are case-insensitive
+# — `${{ SECRETS.foo }}` and `${{ SeCRetS.Baz }}` both resolve — so a
+# case-sensitive scan would be evadable by casing alone. The exemption is
+# case-insensitive for the same reason, which is safe: GitHub reserves the
+# `GITHUB_` prefix, so no stored secret can be named `github_token` in any
+# casing. Names are reported upper-cased, the form GitHub stores them in.
+function scan_refs(t, nr,   low, s, tok) {
+  low = tolower(t)
+  s = low
+  while (match(s, /secrets[ \t]*(\.[a-z_][a-z0-9_]*|\[[ \t]*["'][a-z_][a-z0-9_]*["'][ \t]*\])/)) {
+    tok = substr(s, RSTART, RLENGTH)
+    s = substr(s, RSTART + RLENGTH)
+    sub(/^secrets[ \t]*/, "", tok)
+    gsub(/[^a-z0-9_]/, "", tok)
+    if (tok != "github_token") printf "R\t%d\t%s\n", nr, toupper(tok)
+  }
+  if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", nr
+}
 BEGIN {
   section = ""; on_child = -1; perm_child = -1; jobs_child = -1
   job_body = -1; jperm_child = -1; in_jperm = 0
   top_perm = "absent"; top_perm_n = 0
   cur_job = ""; njobs = 0; ntrig = 0; errs = 0; fatal = 0
   bs = 0; bs_indent = -1; ndocs = 0; seen_content = 0
+  cont = 0; logical = ""; logical_nr = 0
 }
 {
   if (fatal) next
@@ -205,23 +244,25 @@ BEGIN {
 
   # Text scans run on every content line, block-scalar bodies included: a
   # `run: |` script can reference a secret or download an artifact just as a
-  # structured value can. Matched against a lower-cased copy because GitHub
-  # expression contexts AND secret names are case-insensitive — `${{ SECRETS.foo
-  # }}` and `${{ SeCRetS.Baz }}` both resolve — so a case-sensitive scan would
-  # be evadable by casing alone. The exemption is case-insensitive for the same
-  # reason, which is safe: GitHub reserves the `GITHUB_` prefix, so no stored
-  # secret can be named `github_token` in any casing. Names are reported
-  # upper-cased, the form GitHub stores them in.
-  low = tolower(rest)
-  s = low
-  while (match(s, /secrets[ \t]*(\.[a-z_][a-z0-9_]*|\[[ \t]*["'][a-z_][a-z0-9_]*["'][ \t]*\])/)) {
-    tok = substr(s, RSTART, RLENGTH)
-    s = substr(s, RSTART + RLENGTH)
-    sub(/^secrets[ \t]*/, "", tok)
-    gsub(/[^a-z0-9_]/, "", tok)
-    if (tok != "github_token") printf "R\t%d\t%s\n", NR, toupper(tok)
+  # structured value can. Physical lines are first joined into LOGICAL ones on
+  # a trailing backslash, because a `run:` body may split one shell command
+  # across several lines — ordinary formatting for a long command, not only an
+  # evasion — and a physical-line-at-a-time scan would read `gh run \` and
+  # `download …` as two commands and match neither. Only the scans see the
+  # joined text; the structural parsing below stays line-at-a-time.
+  if (cont) {
+    logical = logical " " rest
+  } else {
+    logical = rest
+    logical_nr = NR
   }
-  if (low ~ /download-artifact/ || low ~ /gh[ \t]+run[ \t]+download/) printf "A\t%d\n", NR
+  if (logical ~ /\\[ \t]*$/) {
+    sub(/\\[ \t]*$/, "", logical)
+    cont = 1
+  } else {
+    cont = 0
+    scan_refs(logical, logical_nr)
+  }
 
   # Block-scalar bodies carry no structure for this parser.
   if (bs) {
@@ -327,7 +368,7 @@ BEGIN {
       } else if (key == "uses") {
         u = unquote(val)
         printf "U\t%s\t%s\t%s\n", cur_job, (u ~ /^\.\//) ? "local" : "remote", u
-      } else if (key == "secrets" && val == "inherit") {
+      } else if (key == "secrets" && unquote(val) == "inherit") {
         printf "S\t%s\tinherit\n", cur_job
       }
       next
@@ -343,6 +384,8 @@ BEGIN {
   }
 }
 END {
+  # A backslash left dangling at EOF never reached the join's else branch.
+  if (cont) scan_refs(logical, logical_nr)
   if (errs > 0) exit 0
   if (ntrig == 0) { printf "E\t0\t%s\n", "workflow declares no triggers"; exit 0 }
   if (njobs == 0) { printf "E\t0\t%s\n", "workflow declares no jobs"; exit 0 }

@@ -50,7 +50,7 @@ if [ ! -f "$GUARD" ]; then
   exit 1
 fi
 
-TMP="$(mktemp -d)"
+TMP="$(mktemp -d)" || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
 # mkdir_case <name> — a fresh, empty fixture workflow directory.
@@ -699,6 +699,124 @@ out="$("$GUARD" "$d" 2>&1)"
 assert_exit "a multi-hop dangling uses fails closed" 1 $?
 n="$(printf '%s\n' "$out" | grep -c "nope.yml" || true)"
 assert_exit "the dangling edge is reported exactly once" 1 "$n"
+
+# A flow sequence the `on:` value opens but does not close on the same line.
+# The parser models flow sequences as LEAF values only, so this is outside the
+# subset and must fail closed rather than be half-read: recording the bare `[`
+# as the trigger name loses every real trigger, and a lost `pull_request`
+# silently disables assertions 2 and 3 on the whole file.
+d="$(mkdir_case fail-multiline-flow-on)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on": [
+  pull_request
+  ]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ secrets.NPM_TOKEN }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a multiline flow-sequence \`on:\` fails closed" 1 $?
+assert_contains "the flow-sequence parse failure is stated" "parse" "$out"
+
+# The same hole reached by an unterminated single-line flow sequence.
+d="$(mkdir_case fail-unterminated-flow-on)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on": [pull_request
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "an unterminated flow-sequence \`on:\` fails closed" 1 $?
+
+# Assertion 1 is reached through the same value, so the ban on
+# `pull_request_target` must not be evadable by the spelling of `on:` either.
+d="$(mkdir_case fail-multiline-flow-on-pr-target)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on": [
+  pull_request_target
+  ]
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "pull_request_target behind a multiline flow-sequence fails closed" 1 $?
+
+# `secrets: inherit` written as a quoted scalar. Quoting is transparent to
+# GitHub's parser — this suite's own `"on":` spelling relies on that — so the
+# quoted form hands over exactly the same secrets and must be caught the same.
+d="$(mkdir_case fail-secrets-inherit-quoted)"
+cat >"$d/caller.yml" <<'EOF'
+---
+name: caller
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  call:
+    uses: ./.github/workflows/reusable.yml
+    secrets: "inherit"
+EOF
+cat >"$d/reusable.yml" <<'EOF'
+---
+name: reusable
+"on":
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo work
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "quoted secrets: \"inherit\" fails the same as the bare spelling" 1 $?
+assert_contains "the quoted inherit is named" "inherit" "$out"
+
+# A `gh run download` split across a shell line-continuation. Splitting a long
+# command is ordinary formatting, so a line-at-a-time text scan would miss a
+# genuine artifact consumer, not merely a deliberately obfuscated one.
+d="$(mkdir_case fail-workflow-run-gh-download-continued)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  workflow_run:
+    workflows: [ci]
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          gh run \
+            download "$RUN_ID" --name pr-report
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a continued gh run download counts as consuming a PR artifact" 1 $?
 
 # ---------------------------------------------------------------------------
 # Parser robustness — shapes common in the wild that the parser derives rather
