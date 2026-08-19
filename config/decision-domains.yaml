@@ -64,7 +64,7 @@ domains:
     disposition: "SemVer if compat-bearing, CalVer if shipped, else unversioned; switch escalates"
   - id: product-strategy
     trigger: "Naming a segment, wedge, positioning claim, ship sequence, or steering success metric"
-    considerations: "Segment pain, today's alternative, falsifiable premise, non-goals, doors"
+    considerations: "Segment pain, today's alternative, falsifiable premise, non-goals, metric"
     disposition: "Escalate: the agent frames options and evidence, the human picks the identity"
   - id: packaging-pricing
     trigger: "Tiers, entitlements, quotas, metering basis, free/trial boundary, or the price metric"
@@ -92,5 +92,5 @@ domains:
     disposition: "By convention proceeds; a novel human-read surface escalates and researches first"
   - id: existing-seam-reuse
     trigger: "Minting a new mechanism for something a core planwright seam already covers"
-    considerations: "Nearest seam: overlay, config knob, catalog, rule-doc, backend, accumulator"
+    considerations: "Nearest core seam (the prose entry names them all), what it lacks, mint cost"
     disposition: "Reuse by default; minting needs a note naming the seam and why it misfits"
