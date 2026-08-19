@@ -1,13 +1,20 @@
 # Fleet lifecycle closure — Tasks
 
-**Status:** Draft
-**Last reviewed:** 2026-08-18
+**Status:** Ready
+**Last reviewed:** 2026-08-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Task blocks are listed in dependency order as authoring guidance; the
 `Dependencies:` field is the sole source of the task graph. Render it with
 `scripts/spec-graph.sh`.
+
+**Dispatch gate.** No task here can be dispatched until the out-of-band
+`WorktreeCreate` chore fix D-11 names has landed: `hooks/hooks.json` registers
+the event and `scripts/fleet-worktree-track.sh hook-create` reads the wrong
+key, so the harness refuses worktree creation on every installed machine, and
+dispatch routes worktree creation through the harness. Verified still
+outstanding at kickoff (kickoff brief, Finding 3.2).
 
 ## Tasks
 
@@ -18,17 +25,22 @@ Task blocks are listed in dependency order as authoring guidance; the
   what it means in practice, in the same shape as the four floors it joins;
   the explicit statement that reaping releases processes and never units,
   cross-referenced to `concurrent-orchestrator-coordination`'s
-  never-auto-reclaim rule so the two cannot be collapsed; a per-backend table
-  naming each rung's open, close, and detector, including the trivial cases
-  (`subagent`, `in-session`) and the deferred one (`print`), so no rung is
-  silently exempt and a new backend must declare all three; the D-1 altitude
+  never-auto-reclaim rule so the two cannot be collapsed; a table over
+  **resource classes** (process tree, tmux window, locks, scratch temp,
+  attention record) naming each class's open, close, and detector, crossed
+  with the rungs that acquire it, including the trivial cases (`subagent`,
+  `in-session`) and the deferred one (`print`), so no class and no rung is
+  silently exempt, an empty cell reads as a visible gap rather than an
+  omission, and a new backend must declare all three for every class it
+  acquires; the D-1 altitude
   record and D-2 verified present and consistent in `design.md`; the citation
   wiring from this bundle's REQ-A group. No executable behaviour in this
   task.
 - **Done when:** the floor is present in `doctrine/fleet-coordination-floor.md`
   and cited by REQ-A1.1–A1.5; the reaping-is-not-reclaiming boundary is stated
-  in the doctrine with its cross-reference; the per-backend table covers every
-  rung in the capability contract with no omissions; `scripts/spec-validate.sh`
+  in the doctrine with its cross-reference; the resource-class table covers every
+  class in the release set crossed with every rung in the capability contract,
+  with no omissions and every declared gap marked as such; `scripts/spec-validate.sh`
   and `mise run check` pass over the bundle;
   `scripts/check-doctrine-manifest.sh`
   and the doc-link check pass; no script under `scripts/` is modified.
@@ -98,8 +110,10 @@ Task blocks are listed in dependency order as authoring guidance; the
 - **Done when:** `stop` terminates a live worker and its children and leaves
   no process referencing the state directory; a stop against an operator
   session whose command merely resembles a worker's is refused by the
-  state-dir match, asserted by fixture; a second `stop` returns already-closed
-  with exit 0; a `recover.lock` left behind by a killed recovery is broken on
+  state-dir match, asserted by fixture; a second `stop` against a worker with nothing
+  still held returns already-closed with exit 0, while a second `stop` after a
+  partial close retries only the classes still held and does not report
+  already-closed; a `recover.lock` left behind by a killed recovery is broken on
   the documented stale age and recovery succeeds; two concurrent `launch`
   calls for one worker leave exactly one supervisor and one pid file;
   `mise run check` passes.
@@ -135,14 +149,18 @@ Task blocks are listed in dependency order as authoring guidance; the
   refusal to act on a `print`-backend unit, which has no process to terminate;
   preservation of any surfaced strand entry when the worker's attention record
   is cleared; an explicit statement in the subcommand's contract that it
-  releases the process only and touches no fence, branch, or worktree.
+  releases the process only and touches no fence, branch, or worktree;
+  delegation to the rungs' `stop` for the termination and release itself, so
+  the fleet has exactly one kill path rather than a second implementation of
+  the state-dir match, the signal escalation, and the release set.
 - **Done when:** `process` reclaims a leaked worker process and writes its
   audit record; it refuses on an unknown liveness verdict, on a live-peer
   fence, on a `print`-backend unit, and on a self-target, each with a distinct
   exit and message; the kill-switch pauses it; a fixture asserts no fence,
   branch, or worktree is modified on any path, and that a surfaced strand
-  entry survives the reap; `mise run check` passes.
-- **Dependencies:** 1, 3
+  entry survives the reap; a source audit confirms the termination path is
+  the rungs' `stop` and not a second implementation; `mise run check` passes.
+- **Dependencies:** 1, 3, 4, 5
 - **Citations:** REQ-B1.5 · REQ-D1.2 · REQ-D1.3 · REQ-D1.4 · REQ-D1.8 ·
   REQ-D1.9 · REQ-F1.2 · REQ-K1.1 · D-2 · D-3 · obs:b63a8778 · obs:ef2cfd5a
 - **Estimated effort:** 2 days
@@ -155,7 +173,8 @@ Task blocks are listed in dependency order as authoring guidance; the
   `waiting-on-a-human` established by a hook push or a positively matched
   prompt signature rather than elapsed time; the unlanded-work check that
   prevents a self-reported completion from classifying as finished while its
-  work is uncommitted, unpushed, or PR-less; the owner-attribution axis
+  work is uncommitted or unpushed (locally observable git state only — the
+  detector performs no per-worker forge query); the owner-attribution axis
   resolved from the presence surface; a work-progress signal derived from the
   event stream; a stable, script-parseable output surface; wiring into the
   existing attention store with no second store.
@@ -183,17 +202,25 @@ Task blocks are listed in dependency order as authoring guidance; the
   holds without a manual invocation; trap-owned temp cleanup across
   INT/TERM/HUP at every `mktemp`-beside-target site the sweep touches; the
   scheduling knob resolved through the four overlay layers and documented in
-  the options reference.
+  the options reference; an **observing-only default** in which the sweep
+  selects candidates and writes the audit record it would have written but
+  terminates nothing, with autonomous termination enabled only by an explicit,
+  reversible per-machine knob, and a dry-run record distinguishable from a
+  record of an actual termination.
 - **Done when:** the sweep fires on schedule with no threshold precondition
   and reaps a leaked process left by a dead owner; each termination has a
   matching audit record naming its evidence class; a sweep that declines every
   candidate reports why rather than printing nothing; the worktree scan runs
   as part of the cycle and reconciles a registry gap; a SIGTERM mid-sweep
-  leaves no temp artifact behind, asserted by fixture; the knob has a row in
+  leaves no temp artifact behind, asserted by fixture; both knobs have rows in
   `docs/options-reference.md` and `scripts/check-options-reference.sh` passes;
+  a sweep at the default terminates nothing while still writing its would-have
+  record, and flipping the knob is what makes it kill; a dry-run record cannot
+  be mistaken for a termination record, asserted by fixture;
   `mise run check` passes.
 - **Dependencies:** 4, 5, 6, 7
 - **Citations:** REQ-F1.1 · REQ-F1.2 · REQ-F1.3 · REQ-F1.4 · REQ-F1.5 ·
+  REQ-F1.6 · D-14 ·
   REQ-B1.6 · REQ-E1.3 · REQ-K1.6 · D-5 · obs:b63a8778 · obs:15ac3bc6 ·
   obs:16170b3f · obs:f669d96c · obs:162f7106 · obs:1fc61ad9 · obs:49b457dc
 - **Estimated effort:** 2.5 days
@@ -268,6 +295,34 @@ Task blocks are listed in dependency order as authoring guidance; the
   obs:ce589542 · obs:ef2cfd5a
 - **Estimated effort:** 2.5 days
 
+### Task 12 — The deliberate-wedge lifecycle rehearsal
+
+- **Deliverables:** a throwaway spec bundle used solely as rehearsal input,
+  carrying no real work; a rehearsal harness that dispatches a real worker
+  against it on each session-grade rung, deliberately wedges the worker at a
+  permission prompt, and drives the full lifecycle from there; assertions that
+  the detector classifies the wedged worker `waiting-on-a-human` rather than
+  `working`, that `stop` closes it, and that every resource class in the
+  release set is empty afterwards; coverage of **both sweep modes**, so the observing-only
+  path that ships by default is exercised rather than left to rot until
+  promotion; an opt-in entry point outside ordinary CI,
+  documented alongside the other opt-in suites, so no unrelated change pays
+  for a live session; a visible skip, never a silent pass, where the live
+  session cannot be established.
+- **Done when:** the rehearsal runs on both session-grade rungs and passes;
+  the wedged worker classifies `waiting-on-a-human`, asserted against the
+  running CLI rather than a captured fixture; a post-close sweep of the
+  release set finds nothing held; the rehearsal is absent from the default
+  `mise run check` path and present as its own opt-in task; an environment
+  without a live session reports a skip with its reason rather than a pass;
+  the throwaway bundle is inert with respect to the pipeline (never dispatched
+  by `/orchestrate`, never counted in a status render).
+- **Dependencies:** 4, 5, 7, 8
+- **Citations:** REQ-A1.6 · REQ-F1.7 · REQ-B1.1 · REQ-B1.4 · REQ-C1.2 ·
+  REQ-C1.8 ·
+  REQ-K1.7 · D-13 · obs:b63a8778 · obs:4c25e743
+- **Estimated effort:** 2.5 days
+
 ## Awaiting input
 
 (none yet)
@@ -289,6 +344,18 @@ Task blocks are listed in dependency order as authoring guidance; the
   `worker-permission-ergonomics` amendment may surface as a prerequisite if
   its screen changes prove unmaintainable across the duplicate engines.
   Citations: obs:30159d5c · obs:92809aad · obs:026930ca.
+- **The dispatch reservation-slot leak.** A tower crashing between
+  `fleet-state.sh bound-incr` and `bound-decr` leaks its reservation slot, so
+  the fleet's same-instant reservation drifts upward and admission tightens
+  against a bound that no longer reflects reality. This is a lifecycle open
+  with no crash-surviving close, so the REQ-A1.1 floor names it in principle;
+  it is out of scope by the D-10 rule, since it disables no verb this bundle
+  defines, and the authoritative in-flight count is the live git derivation
+  rather than this counter. Confidence: high — the leak and its redesign are
+  already recorded in `scripts/fleet-state.sh`'s own header.
+  **Gate:** the tracked `fleet-bound-slot-leak` redesign is drafted, or the
+  leak is observed firing in a live run.
+  Citations: REQ-A1.1 · D-10.
 - **Worker scratch isolation via a per-worker `TMPDIR`.** Concurrently
   dispatched workers collide on identical `/tmp` filenames because they follow
   the same skill instructions and pick the same obvious names; the durable fix

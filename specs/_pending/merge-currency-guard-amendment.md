@@ -31,8 +31,9 @@ is doctrine, not inference.
 
 "PR verified-ready-for-the-human's-merge" has **no deterministic push path**.
 It reaches the human only via an LLM tower polling GitHub and calling a
-notification by hand — brittle by design, and it failed live: ready PRs
-#282/#283/#284/#285 went un-pushed, #277/#281 were missed proactively.
+notification by hand — brittle by design, and it failed live: ready
+PRs #282/#283/#284/#285 went un-pushed, and #277/#281 were missed
+proactively.
 
 The infrastructure is half-built already, which is what makes this a small
 delta rather than a new mechanism:

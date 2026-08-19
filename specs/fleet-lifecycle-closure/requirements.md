@@ -1,7 +1,7 @@
 # Fleet lifecycle closure — Requirements
 
-**Status:** Draft
-**Last reviewed:** 2026-08-18
+**Status:** Ready
+**Last reviewed:** 2026-08-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -31,7 +31,8 @@ worker, because the line was stable *precisely because* it was stuck
 (obs:50eac4ac). Meanwhile `status` can report `completed result=success` over
 work that never landed (obs:cc13d432).
 
-This bundle gives every worker lifecycle phase three deterministic things: an
+This bundle gives every worker lifecycle phase — every resource class a
+worker acquires — three deterministic things: an
 **open** that starts the phase and records that it started, a **close** that
 ends it and releases its resources, and a **stuck-detector** that positively
 separates working / waiting-on-a-human / finished-but-unreaped / dead. All
@@ -51,7 +52,8 @@ releasing a process must never be confused with reclaiming a unit of work
 ### In scope
 
 - The lifecycle-closure floor as doctrine: open, close, and stuck-detector
-  for every worker lifecycle phase, each deterministic script logic.
+  for every worker lifecycle phase — every resource class a worker acquires —
+  each deterministic script logic.
 - A symmetric `stop` verb on both session-grade rungs, terminating the
   supervisor and its children and releasing the runtime resource set
   (process, tmux window, locks, scratch temp, attention record).
@@ -64,7 +66,10 @@ releasing a process must never be confused with reclaiming a unit of work
 - A live writer for the worker registry at every dispatch seam, and an owner
   token on the dispatch record.
 - Periodic sweeping on a schedule, replacing threshold-triggered sweeping,
-  with a `fleet-audit` record for every autonomous termination.
+  with a `fleet-audit` record for every autonomous termination, shipping
+  observing-only and promoted to terminating by an explicit per-machine knob.
+- A repeatable, opt-in deliberate-wedge rehearsal that proves the floor
+  end-to-end against a real worker rather than a fixture.
 - A supervisor-native `steer` subcommand for `stream-json-persistent`, with
   newline framing asserted at the write.
 - Cross-session messaging as an availability-probed steer transport for the
@@ -106,19 +111,44 @@ releasing a process must never be confused with reclaiming a unit of work
 - **Cross-machine or containerised peer awareness.** Single-host scope,
   inherited from the presence surface.
 
+## Vocabulary
+
+Three terms name the ending of a worker and are not interchangeable:
+
+- **Close** — the contract concept: the floor's second part, the obligation
+  every lifecycle phase owes. Requirements state obligations in terms of a
+  close.
+- **Stop** — the named subcommand (REQ-B1.1) closing a worker this tower owns
+  or an operator names. It needs no death evidence, because the caller is
+  asserting the intent directly.
+- **Reap** — the autonomous close of a worker whose owner is dead or unknown,
+  performed by the sweep or `fleet-cleanup.sh process`. This is the only one
+  gated on positive death evidence for **both** the owning tower and the worker
+  session (REQ-D1.4), and the only one to which "reaping is not reclaiming"
+  (D-2, REQ-D1.3) and the live-peer refusal (REQ-D1.2) attach.
+
+A reap performs a close; it is not a second mechanism (REQ-B1.5's cleanup class
+delegates to the rungs' `stop`). The distinction is about who authorized the
+ending and what evidence that authorization required.
+
 ## REQ-A — The lifecycle-closure contract
 
 - **REQ-A1.1** Every worker lifecycle phase SHALL have a deterministic open
   that starts the phase and records that it started, a deterministic close
   that ends it and releases its resources, and a script-readable
-  stuck-detector. A phase missing any of the three is a defect, not a gap for
-  operator vigilance to cover.
+  stuck-detector. A **lifecycle phase** is one **resource class** a worker
+  acquires — its process tree, its tmux window, the locks it holds, its
+  scratch temp, its attention record — each acquired and released
+  independently, so each owes the three parts in its own right. A phase
+  missing any of the three is a defect, not a gap for operator vigilance to
+  cover.
   *(Cites: D-1; the drafting brief (Sources); obs:b63a8778.)*
 - **REQ-A1.5** The floor SHALL apply to every backend that hosts a **separate
   worker**. A rung with no separate process satisfies the close trivially and
   SHALL say so explicitly rather than being silently exempt; a rung whose
   worker exists only after a human acts SHALL declare which of the three parts
   it defers and to whom. A new backend SHALL declare all three at adoption.
+  A backend SHALL declare all three **for every resource class it acquires**.
   *(Cites: D-1; backend-capability-contract (Sources).)*
 - **REQ-A1.2** All three SHALL be deterministic script logic over structured
   signals — files, process ids, git state, positively matched known text. No
@@ -133,6 +163,16 @@ releasing a process must never be confused with reclaiming a unit of work
   `doctrine/fleet-coordination-floor.md`, as a floor alongside the four it
   already carries — not as prose inside a script header.
   *(Cites: D-1.)*
+
+- **REQ-A1.6** The floor's instantiation SHALL be proven end-to-end by a
+  repeatable **deliberate-wedge rehearsal**: a real worker dispatched against a
+  throwaway spec bundle, wedged on purpose, then detected, closed, and
+  confirmed to have released every resource class. Fixture coverage alone
+  SHALL NOT be treated as discharging the floor, because the leak this bundle
+  exists to close is invisible on the path a passing fixture exercises. The
+  rehearsal SHALL be opt-in rather than gating ordinary CI, since it consumes
+  a live session.
+  *(Cites: D-13; the Goal's path-dependence argument; obs:b63a8778.)*
 
 ## REQ-B — Deterministic close
 
@@ -158,13 +198,20 @@ releasing a process must never be confused with reclaiming a unit of work
   kill-switch gating as its existing classes.
   *(Cites: D-3; obs:b63a8778; obs:ef2cfd5a.)*
 - **REQ-B1.6** The tower SHALL invoke the close verb when a unit completes,
-  and the periodic sweep SHALL close what the tower did not, so the leak's
-  path-dependence is covered from both ends.
-  *(Cites: D-5; obs:b63a8778.)*
-- **REQ-B1.7** A close SHALL be idempotent: a second stop against an
-  already-stopped worker SHALL succeed with a distinct already-closed result,
-  never an error and never a second kill.
-  *(Cites: D-3.)*
+  and the periodic sweep SHALL be **capable** of closing what the tower did
+  not, so the leak's path-dependence is covered from both ends. This states the
+  required capability; whether the sweep exercises it autonomously is gated by
+  REQ-F1.6's promotion knob, and a sweep in observing-only mode satisfies this
+  requirement by identifying and recording what it would have closed.
+  *(Cites: D-5; D-14; obs:b63a8778.)*
+- **REQ-B1.7** A close SHALL be idempotent: a second stop against a worker
+  with nothing still held SHALL succeed with a distinct already-closed result,
+  never an error and never a second kill. Idempotence is defined over the
+  **release set, not the invocation**: where a prior close was partial
+  (REQ-A1.3), a second stop SHALL retry exactly the classes still held and
+  SHALL NOT report already-closed while any remain. A retry SHALL send no
+  signal to a process tree already gone.
+  *(Cites: D-3; REQ-A1.3.)*
 
 ## REQ-C — The stuck-detector
 
@@ -199,7 +246,8 @@ releasing a process must never be confused with reclaiming a unit of work
   owns the worker.
   *(Cites: D-2; D-12; obs:10407a5e.)*
 - **REQ-C1.7** The detector SHALL surface work-progress alongside liveness:
-  which phase of its unit a worker is in, derived cheaply from the event
+  which **stage** of its unit a worker is in (named `stage` to keep `phase`
+  reserved for REQ-A1.1's resource-class sense), derived cheaply from the event
   stream (recent tool-use, task subtypes, commit count on the unit branch).
   *(Cites: obs:22b2475d.)*
 - **REQ-C1.8** Detector output SHALL be consumable by a script — a stable,
@@ -285,6 +333,19 @@ releasing a process must never be confused with reclaiming a unit of work
 - **REQ-F1.5** Sweep temp artifacts SHALL be trap-owned across INT/TERM/HUP,
   since a watch loop stopped by signal is the normal way it ends.
   *(Cites: obs:16170b3f; obs:f669d96c; obs:162f7106.)*
+
+- **REQ-F1.6** The sweep SHALL ship **observing-only**: it identifies
+  candidates and writes the full `fleet-audit` record it would have written,
+  and terminates nothing. Autonomous termination SHALL be enabled only by an
+  explicit, per-machine knob, resolved through the four overlay layers, and
+  the knob SHALL be reversible without a release. The dry-run record SHALL be
+  distinguishable from a record of an actual termination, so the audit trail
+  can never be read as evidence of a kill that did not happen.
+  *(Cites: D-14; decision-domains `deploy-migration` (Sources).)*
+- **REQ-F1.7** Both sweep modes SHALL be exercised by the REQ-A1.6 rehearsal,
+  so the observing-only path cannot rot unexercised while the fleet waits for
+  promotion.
+  *(Cites: D-14; REQ-A1.6.)*
 
 ## REQ-G — Steer
 
@@ -408,6 +469,23 @@ releasing a process must never be confused with reclaiming a unit of work
   obligation; and moved obs:efe0b752 from consumed to residue, having been
   listed as consumed without being resolved by any requirement.
 
+- **2026-08-18** — Kickoff walkthrough (`kickoff-brief.md`). Defined the
+  floor's quantifier as one resource class a worker acquires, which had been
+  load-bearing and undefined (REQ-A1.1, D-1, Task 1, and their test-spec
+  entries); renamed REQ-C1.7's colliding second sense of "phase" to "stage".
+  Dropped "or PR-less" from Task 7, which contradicted REQ-C1.4's deliberate
+  narrowing to locally observable git state. Added REQ-A1.6 and D-13, the
+  deliberate-wedge rehearsal, after the operator observed the bundle verified
+  almost entirely through fixtures that cannot falsify its own
+  path-dependence claim. Added REQ-F1.6, REQ-F1.7, and D-14 — the sweep ships
+  observing-only, promoted by an explicit knob — closing the
+  `deploy-migration` gap the decision-domains check found. Added a Task 6
+  dependency on both `stop` tasks so the fleet has one kill path rather than
+  two. Recorded the dispatch reservation-slot leak as a gated Deferred entry
+  after inspection showed it is a reservation primitive, not a capacity
+  ledger, with the authoritative in-flight count already deriving from git.
+  Recorded the unshipped `WorktreeCreate` chore fix as a dispatch gate.
+
 ## Sources
 
 - **The drafting brief (2026-08-18).** The operator's framing of the
@@ -434,6 +512,8 @@ releasing a process must never be confused with reclaiming a unit of work
 - **`specs/concurrent-orchestrator-coordination`** — the origin fence as sole
   exclusion object, presence as attribution-only, and the explicit
   out-of-scope status of auto-reclaiming a dead tower's unit.
+- **`doctrine/decision-domains.md`** — the catalogued decision domains; the
+  kickoff gap check against it surfaced the sweep's undecided rollout (D-14).
 - **`doctrine/autonomous-safe-decision.md`**, **`doctrine/security-posture.md`**,
   **`doctrine/attention-notification-capability.md`**,
   **`doctrine/orchestration-concurrency.md`**,

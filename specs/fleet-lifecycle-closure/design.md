@@ -1,21 +1,23 @@
 # Fleet lifecycle closure — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-08-18
+**Status:** Ready
+**Last reviewed:** 2026-08-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Origin-tag legend: `N` new in this bundle; `C` carried from a named source;
-`O` resolved from a recorded observation; `B` decided in the drafting brief
-or the elicitation session that produced this bundle.
+`O` resolved from a recorded observation; `B` decided in the drafting brief,
+the elicitation session that produced this bundle, or the kickoff walkthrough
+that signed it off.
 
 ## Decision log
 
 ### D-1: Altitude — a doctrine floor first, capability and mechanism beneath  (B, altitude trigger)
 
 **Decision:** The primary deliverable is a **doctrine floor**: every worker
-lifecycle phase has a deterministic open, a deterministic close, and a
-script-readable stuck-detector, recorded in
+lifecycle phase — one **resource class** a worker acquires, each acquired and
+released independently — has a deterministic open, a deterministic close, and
+a script-readable stuck-detector, recorded in
 `doctrine/fleet-coordination-floor.md` alongside the four floors it already
 carries. The verbs (`stop`, `reap`, `steer`), the detector, and the sweep are
 the capability and mechanism layers beneath it, and each is justified by the
@@ -361,3 +363,62 @@ seam.
 **Chosen because:** a destructive verb needs attributable ownership as an
 input, and reading it from the record is direct where deriving it is
 inferential. It also removes a known dispatch race as a side effect.
+
+### D-13: The floor is proven by a deliberate-wedge rehearsal, not by fixtures alone  (B, kickoff 2026-08-18)
+
+**Decision:** The bundle adds a repeatable, opt-in end-to-end rehearsal: a real
+worker dispatched against a throwaway spec bundle, deliberately wedged at a
+permission prompt, then asserted to classify `waiting-on-a-human`, to close on
+`stop`, and to leave every resource class empty afterwards.
+
+**Alternatives considered:**
+- Rely on the fixture suite and the three `[manual]` entries. Rejected
+  because: the bundle's own Goal argues the leak is invisible *because* the
+  common path looks tidy, and a fixture exercises the path its author
+  imagined. A suite that never wedges a real worker cannot falsify the
+  bundle's central claim.
+- Use this bundle's own Task 1 as a one-shot live canary. Rejected as the
+  verification of record because: it runs the clean path, so it proves
+  dispatch works and nothing about wedging, and being one-shot it catches no
+  later regression. It remains available as an informal first dispatch.
+- Gate ordinary CI on the rehearsal. Rejected because: it consumes a live
+  session and model budget per run, which would make every unrelated PR pay
+  for it and would couple CI to a platform surface CI cannot pin.
+
+**Chosen because:** the floor claims a worker can always be detected and
+closed. The only evidence that discharges that claim is a worker that was
+actually stuck and was actually closed. Making the rehearsal repeatable turns
+a one-time demonstration into a regression gate, and making it opt-in keeps
+its cost off every unrelated change.
+
+### D-14: The sweep ships observing-only, promoted by an explicit knob  (B, kickoff 2026-08-18)
+
+**Decision:** The periodic sweep ships in an observing-only mode: it selects
+candidates and writes the full audit record it would have written, and kills
+nothing. Autonomous termination is enabled per machine by an explicit,
+reversible knob. Both modes are exercised by the D-13 rehearsal.
+
+The kickoff gap check against `decision-domains` surfaced this: the bundle
+touches the `deploy-migration` domain — a scheduled autonomous process-killer
+is a fleet-wide behaviour change that cannot roll back atomically, and a reap
+already performed cannot be undone by pausing future ones — while deciding
+only the pause switch and the schedule knob, never the rollout itself.
+
+**Alternatives considered:**
+- Ship terminating from the first run, relying on the existing kill-switch as
+  the undo. Rejected because: the first autonomous kill would land on real
+  workers with no accumulated evidence that the four-state detector classifies
+  correctly outside its fixtures, and the kill-switch stops only future reaps.
+  The bundle's own history is a platform surface diverging silently from its
+  recorded contract (D-11); the detector reads platform surfaces too.
+- Scope live termination to the evidence classes the rehearsal has exercised.
+  Rejected because: it couples the reaper's destructive scope to test coverage,
+  so a coverage regression silently narrows or widens what may be killed, and
+  the expected-cell manifest becomes load-bearing for safety rather than for
+  completeness.
+
+**Chosen because:** the dry-run's audit trail is exactly the evidence the
+promotion decision needs, and it is collected on real fleets rather than
+fixtures. The cost — a second path that could rot unexercised — is answered by
+REQ-F1.7 rather than accepted, so the mode that ships is the mode that is
+tested.

@@ -1,17 +1,19 @@
 # Fleet lifecycle closure — Test spec
 
-**Status:** Draft
-**Last reviewed:** 2026-08-18
+**Status:** Ready
+**Last reviewed:** 2026-08-19
 **Format-version:** 2
 **Execution:** derived — see the status render
 
 Coverage mix: this bundle is overwhelmingly shell mechanism over structured
 signals, so most requirements verify as `[test]` in the project's shell suite.
 The doctrine group verifies `[design-level]` — a floor's verification is that
-it is recorded and cited, not that it executes. Three requirements depend on a
-host capability or a live session that CI cannot reproduce (messaging
-delivery, an attributed steer consumed by a busy worker, a real permission
-prompt), and those carry `[manual]` alongside their automated half.
+it is recorded and cited, not that it executes. Requirements that depend on a host
+capability or a live session CI cannot reproduce (messaging delivery, an
+attributed steer consumed by a busy worker, a real permission prompt) carry
+`[manual]` alongside their automated half. One requirement verifies as
+`[rehearsal]`: an opt-in end-to-end run against a live session, repeatable but
+outside ordinary CI.
 
 Every destructive verb additionally appears in the Task 11 adversarial matrix,
 whose completeness is mechanically enforced by an expected-cell manifest;
@@ -23,9 +25,11 @@ entries below name the matrix where it is the verification of record.
 
 The floor is recorded in `doctrine/fleet-coordination-floor.md` and cited by
 this bundle's REQ-A group. Verification is the artifact plus its coverage: for
-each lifecycle phase the bundle touches, the doctrine names its open, its
-close, and its detector, and each names the mechanism that provides it. A
-phase listed with fewer than three is the failure the review looks for.
+each lifecycle phase — that is, each resource class a worker acquires — the
+doctrine names its open, its close, and its detector, and each names the
+mechanism that provides it. A phase listed with fewer than three is the
+failure the review looks for; an empty cell is a declared gap, which is
+different from an absent row.
 
 ### REQ-A1.2 — Deterministic mechanics only [test + design-level]
 
@@ -50,12 +54,24 @@ verification is existence and citation, not behaviour.
 
 ### REQ-A1.5 — Every separate-worker backend declares all three [design-level]
 
-A per-backend table in the doctrine names each rung's open, close, and
-detector, including the trivial and deferred cases: `subagent` and
+The doctrine's resource-class table, crossed with the rungs, names each
+rung's open, close, and detector for every class it acquires, including the
+trivial and deferred cases: `subagent` and
 `in-session` state why the close is trivial, `print` states which parts it
 defers and to whom. The review assertion is that no rung is absent from the
 table and none is silently exempt — an omission is what this requirement
 exists to make visible when a backend is added.
+
+### REQ-A1.6 — The deliberate-wedge rehearsal [rehearsal]
+
+A real worker is dispatched against the throwaway rehearsal bundle on each
+session-grade rung and deliberately wedged at a permission prompt. Asserts the
+detector classifies it `waiting-on-a-human` and not `working`; that `stop`
+closes it; and that every class in the release set is empty afterwards. The
+governing negative: a run where the live session cannot be established reports
+a visible skip, never a pass, so an unavailable rehearsal can never be mistaken
+for a discharged floor. This is the only entry that exercises the untidy path
+end to end, which is the path the Goal argues the leak hides on.
 
 ## REQ-B — Deterministic close
 
@@ -99,13 +115,21 @@ record.
 Two fixtures: a unit completing normally, where the tower's close fires; and a
 unit whose tower disappears mid-flight, where the periodic sweep performs the
 close instead. Together they cover the path-dependence that made the leak
-invisible.
+invisible. Both run with the REQ-F1.6 knob promoted, since the requirement is
+about the capability; the observing-only default is asserted separately, so a
+sweep that merely records what it would have closed cannot be mistaken for
+discharging this entry.
 
 ### REQ-B1.7 — Idempotent close [test]
 
-A second `stop` against an already-stopped worker returns the distinct
+A second `stop` against a worker with nothing still held returns the distinct
 already-closed result with exit 0, sends no signal, and writes no second audit
-record.
+record. Paired with the partial-close fixture from REQ-A1.3: after a close that
+released the process but not the attention record, a second `stop` retries the
+attention record only, reports partial-then-complete rather than
+already-closed, and sends no signal to the process tree already gone. The
+governing negative: no fixture in which a class is left held while the call
+reports already-closed.
 
 ## REQ-C — The stuck-detector
 
@@ -152,7 +176,7 @@ this-tower's.
 
 ### REQ-C1.7 — Work-progress alongside liveness [test]
 
-Asserts the detector reports a unit phase derived from the event stream for a
+Asserts the detector reports a unit stage derived from the event stream for a
 worker mid-unit, and degrades to liveness-only, visibly, where the event
 stream is unavailable.
 
@@ -274,6 +298,20 @@ is the confusion obs:1fc61ad9 and obs:49b457dc record.
 
 A SIGTERM delivered mid-sweep at each `mktemp`-beside-target site leaves no
 artifact behind; asserted per site rather than once.
+
+### REQ-F1.6 — Observing-only by default [test]
+
+Asserts a sweep at the shipped default identifies candidates and writes the
+full would-have audit record while terminating nothing, and that flipping the
+per-machine knob is what makes it kill. A dry-run record and a termination
+record are asserted distinguishable, so the trail can never be read as evidence
+of a kill that did not happen. The knob is asserted reversible without a
+release.
+
+### REQ-F1.7 — Both sweep modes rehearsed [rehearsal]
+
+The REQ-A1.6 rehearsal runs the sweep in both modes, so the observing-only path
+that ships by default is exercised rather than left to rot until promotion.
 
 ## REQ-G — Steer
 
