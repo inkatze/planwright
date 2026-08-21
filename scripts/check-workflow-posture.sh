@@ -47,17 +47,24 @@
 # subset is modeled: 2-or-more-space indentation, `key: value` mappings, `- `
 # sequence items, block scalars (`|`, `>`), and flow scalars/sequences as leaf
 # VALUES. Tabs in indentation, multiple documents, anchors, aliases, merge
-# keys, and flow mappings as the value of a structural key are NOT modeled and
-# are reported as parse failures rather than half-read. Job-level keys are read
-# only at the job's own body indent, so a step's `uses:` is never mistaken for
-# a reusable-workflow call. Block-scalar bodies are skipped for STRUCTURE (a
-# `- run: |` script is text, and a line reading `name: &anchor` in it is shell)
-# but still scanned as TEXT for secret and artifact references. Full-line
-# comments are skipped by both; a trailing comment is scanned, so a comment
-# mentioning `secrets.FOO` over-blocks — the fail-loud direction, and cheaper
-# than deciding whether a `#` sits inside a quoted string. Physical lines are
-# joined on a trailing backslash before scanning, so a shell command split
-# across lines is read as the one command it is.
+# keys, and flow mappings as the value of `on:` or `jobs:` are NOT modeled and
+# are reported as parse failures rather than half-read. A flow mapping under
+# `permissions:` is read rather than rejected, in both its top-level and
+# job-level spellings: `{}` reads as read-only (GitHub's documented spelling
+# for "no permissions at all"), and any other flow mapping reads as an
+# unrecognized level, which the driver treats exactly like `write`. Both are
+# verdicts rather than half-reads, and stopping short of a parse failure keeps
+# the guard from failing a push-only workflow over a `permissions:` shape it
+# never judges. Job-level keys are read only at the job's own body indent, so a
+# step's `uses:` is never mistaken for a reusable-workflow call. Block-scalar
+# bodies are skipped for STRUCTURE (a `- run: |` script is text, and a line
+# reading `name: &anchor` in it is shell) but still scanned as TEXT for secret
+# and artifact references. Full-line comments are skipped by both; a trailing
+# comment is scanned, so a comment mentioning `secrets.FOO` over-blocks — the
+# fail-loud direction, and cheaper than deciding whether a `#` sits inside a
+# quoted string. Physical lines are joined on a trailing backslash before
+# scanning, so a shell command split across lines is read as the one command it
+# is.
 #
 # That text scan is a heuristic, and assertion 4's artifact half is where that
 # matters: it recognizes `download-artifact` and `gh run download`, which covers

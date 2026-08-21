@@ -967,6 +967,67 @@ EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "a quoted read-all is read as the scalar it is" 0 $?
 
+# `permissions:` is the parse boundary's one flow-mapping exception, so pin
+# what that exception actually does. `{}` reading as read-only is covered
+# above; a NON-empty flow mapping is read as an unrecognized level, which
+# disqualifies the job exactly like `write` rather than being waved through.
+d="$(mkdir_case fail-flow-mapping-permissions)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions: {contents: read}
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a non-empty flow-mapping permissions value cannot be proven read-only" 1 $?
+assert_contains "the unrecognized level is named" "unrecognized" "$out"
+
+# The job-level spelling takes the same path — a flow mapping there is not a
+# way to escape the effective-permissions computation.
+d="$(mkdir_case fail-flow-mapping-job-permissions)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a job-level flow-mapping permissions value is disqualifying too" 1 $?
+assert_contains "the job is named" "job 'x'" "$out"
+
+# The other direction, and the reason this is a verdict rather than a parse
+# failure: a workflow the guard never judges on permissions grounds must not
+# fail over the SHAPE of a key that is out of its scope.
+d="$(mkdir_case pass-flow-mapping-push-only)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  push:
+permissions: {contents: write}
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a flow-mapping permissions value in a push-only workflow is out of scope" 0 $?
+
 # ---------------------------------------------------------------------------
 # Parser robustness — shapes common in the wild that the parser derives rather
 # than hardcodes. Each plants the SAME violation (a write-permission
