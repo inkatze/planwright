@@ -20,6 +20,11 @@
 #                               the header-block `**Status:**` line locator the
 #                               content anchor's exclusion is computed from
 #                               (anchor-integrity Task 2; REQ-A1.1, REQ-A1.2)
+#   spec_parse_printable        the stderr path sanitizer the lib's own
+#                               diagnostics use, exported so a caller adding
+#                               context to a refusal reuses this byte range
+#                               instead of copying it (anchor-integrity Task 2;
+#                               REQ-B1.6c)
 #
 # v1 fence-awareness of the canonical extraction and the line-80 surfaces
 # (REQ bullets, D-headings, `Dependencies:`/`Citations:` tokens) follow as
@@ -91,12 +96,18 @@
 # supported awk (one-true-awk, gawk, mawk, busybox) though not literally
 # POSIX. Matches and emitted bytes do not vary by the caller's host locale.
 
-# spec_parse__printable <value> — internal: strip C0 + DEL + C1 bytes
-# (echo-safety.sh's canonical range) for the lib's own stderr diagnostics.
-# The lib cannot source echo-safety.sh itself (a sourced POSIX-sh file
-# cannot portably locate its siblings), so this is a deliberate inline copy
-# of the sanitize_printable byte range, spawned only on error paths.
-spec_parse__printable() {
+# spec_parse_printable <value> — strip C0 + DEL + C1 bytes (echo-safety.sh's
+# canonical range) so a path is safe to echo on stderr, falling back to
+# `(unprintable path)` when nothing printable survives. The lib cannot source
+# echo-safety.sh itself (a sourced POSIX-sh file cannot portably locate its
+# siblings), so this is a deliberate inline copy of the sanitize_printable byte
+# range, spawned only on error paths.
+#
+# Exported rather than lib-internal because a caller that adds context to a
+# refusal needs the same byte range: spec-anchor.sh names which of the three
+# files carried a malformed header block, and a second copy of the range there
+# would be one more thing to keep in step (REQ-B1.6c).
+spec_parse_printable() {
   spec_parse__p=$(printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177\200-\237')
   [ -n "$spec_parse__p" ] || spec_parse__p='(unprintable path)'
   printf '%s' "$spec_parse__p"
@@ -107,7 +118,7 @@ spec_parse__printable() {
 # refusal wording is identical across families.
 spec_parse__readable() {
   if [ ! -f "$1" ] || [ ! -r "$1" ]; then
-    printf '%s\n' "spec-parse: missing or unreadable: $(spec_parse__printable "$1")" >&2
+    printf '%s\n' "spec-parse: missing or unreadable: $(spec_parse_printable "$1")" >&2
     return 1
   fi
   return 0
@@ -134,11 +145,11 @@ spec_parse__nul_screen() {
   spec_parse__total=$(wc -c <"$1") || spec_parse__total=
   spec_parse__kept=$(LC_ALL=C tr -d '\000' <"$1" | wc -c) || spec_parse__kept=
   if [ -z "$spec_parse__total" ] || [ -z "$spec_parse__kept" ]; then
-    printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse__printable "$1") (fail closed)" >&2
+    printf '%s\n' "spec-parse: NUL screen could not read $(spec_parse_printable "$1") (fail closed)" >&2
     return 1
   fi
   if [ "$spec_parse__total" -ne "$spec_parse__kept" ]; then
-    printf '%s\n' "spec-parse: NUL byte in $(spec_parse__printable "$1") (malformed input; fail closed)" >&2
+    printf '%s\n' "spec-parse: NUL byte in $(spec_parse_printable "$1") (malformed input; fail closed)" >&2
     return 1
   fi
   return 0
@@ -379,7 +390,7 @@ spec_parse_header_value() {
   spec_parse__hk="$2"
   case "$spec_parse__hk" in
     '' | *[!A-Za-z-]* | [!A-Za-z]*)
-      printf '%s\n' "spec-parse: invalid header key '$(spec_parse__printable "$spec_parse__hk")' (must match ^[A-Za-z][A-Za-z-]*\$)" >&2
+      printf '%s\n' "spec-parse: invalid header key '$(spec_parse_printable "$spec_parse__hk")' (must match ^[A-Za-z][A-Za-z-]*\$)" >&2
       return 2
       ;;
   esac

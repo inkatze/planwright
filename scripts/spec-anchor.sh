@@ -130,13 +130,13 @@ spec_anchor__digest() {
   # The locator's status is captured rather than left to `set -e` so a refusal
   # can name the file first: three files run through this helper, and the lib's
   # own message states the grammar fault without saying which one carried it.
-  # `spec_parse__printable` is the lib's internal sanitizer, reached across that
-  # boundary deliberately — echoing raw path bytes here is the REQ-B1.6c hazard,
-  # and duplicating the byte range would be a second copy to keep in step.
+  # `spec_parse_printable` is the lib's exported sanitizer — echoing raw path
+  # bytes here is the REQ-B1.6c hazard, and duplicating the byte range would be
+  # a second copy to keep in step.
   sa_rc=0
   sa_line=$(spec_parse_header_status_line "$1") || sa_rc=$?
   if [ "$sa_rc" -ne 0 ]; then
-    printf '%s\n' "spec-anchor: header-block parse failed for $(spec_parse__printable "$1")" >&2
+    printf '%s\n' "spec-anchor: header-block parse failed for $(spec_parse_printable "$1")" >&2
     exit "$sa_rc"
   fi
   # Belt-and-braces: the locator either fails closed (caught above) or prints a

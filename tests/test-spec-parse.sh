@@ -202,8 +202,9 @@ echo "ok: an =-bearing filename is read as a file, not an awk assignment"
 # the sourcing consumer's global scope: generic names would silently
 # clobber consumer state on every call. Sentinels are checked after both a
 # success path and an error path (the error path is what exercises
-# spec_parse__printable), called directly — not inside a command
-# substitution, whose subshell would hide the clobber.
+# spec_parse_printable, whose own working variable stays `spec_parse__p`),
+# called directly — not inside a command substitution, whose subshell would
+# hide the clobber.
 # ---------------------------------------------------------------------------
 sp_total='caller-total'
 sp_kept='caller-kept'
@@ -218,6 +219,30 @@ fi
 [ "$sp_p" = 'caller-p' ] || fail "lib clobbered the caller variable sp_p"
 unset sp_total sp_kept sp_p
 echo "ok: lib working variables stay in the spec_parse__ namespace"
+
+# ---------------------------------------------------------------------------
+# Property 2c: spec_parse_printable is an exported entry point, not a lib
+# internal — spec-anchor.sh calls it to name which spec file carried a
+# malformed header block. Pinned directly because it is now surface: it strips
+# the echo-safety C0 + DEL + C1 range, keeps every other byte, and falls back
+# to a fixed label when nothing printable survives (REQ-B1.6c).
+# ---------------------------------------------------------------------------
+sp_out=$(spec_parse_printable "$(printf 'spec\033[31m/req\007.md')") \
+  || fail "spec_parse_printable failed on a control-byte-bearing path"
+[ "$sp_out" = 'spec[31m/req.md' ] \
+  || fail "spec_parse_printable did not strip the control bytes: '$sp_out'"
+
+sp_out=$(spec_parse_printable 'plain/requirements.md') \
+  || fail "spec_parse_printable failed on a plain path"
+[ "$sp_out" = 'plain/requirements.md' ] \
+  || fail "spec_parse_printable altered a printable path: '$sp_out'"
+
+sp_out=$(spec_parse_printable "$(printf '\001\002\177')") \
+  || fail "spec_parse_printable failed on an all-control path"
+[ "$sp_out" = '(unprintable path)' ] \
+  || fail "spec_parse_printable lost its fallback label: '$sp_out'"
+unset sp_out
+echo "ok: spec_parse_printable strips control bytes and falls back when empty"
 
 # ---------------------------------------------------------------------------
 # Property 3: zero task blocks emit an empty stream, exit 0.
