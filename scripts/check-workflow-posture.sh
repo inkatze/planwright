@@ -155,6 +155,7 @@ function err(msg) { printf "E\t%d\t%s\n", NR, msg; errs++ }
 # else (including a bare `permissions:` with no entries) is unknown, and the
 # driver treats unknown exactly like write.
 function scalar_perm(v) {
+  v = unquote(v)
   if (v == "read-all") return "read"
   if (v == "write-all") return "write"
   if (v == "{}") return "read"
@@ -171,6 +172,21 @@ function merge_perm(cur, add) {
   if (cur == "write" || add == "write") return "write"
   if (cur == "unknown" || add == "unknown") return "unknown"
   return "read"
+}
+# Whether the key on the current line is one the parser derives a verdict
+# from, rather than leaf content. Mirrors the section dispatch below, and is
+# read BEFORE that dispatch updates the level variables, so a `*_child` still
+# at -1 means this line is about to become that level and counts as structural.
+function structural_key() {
+  if (indent == 0) return (key == "on" || key == "permissions" || key == "jobs")
+  if (section == "on") return (on_child < 0 || indent == on_child)
+  if (section == "permissions") return (perm_child < 0 || indent == perm_child)
+  if (section == "jobs") {
+    if (jobs_child < 0 || indent == jobs_child) return 1
+    if (job_body < 0 || indent == job_body) return (key == "permissions" || key == "uses" || key == "secrets")
+    if (in_jperm && (jperm_child < 0 || indent == jperm_child)) return 1
+  }
+  return 0
 }
 function record_trigger(t) {
   t = unquote(trim(t))
@@ -250,8 +266,14 @@ BEGIN {
   # evasion — and a physical-line-at-a-time scan would read `gh run \` and
   # `download …` as two commands and match neither. Only the scans see the
   # joined text; the structural parsing below stays line-at-a-time.
+  # Concatenated with NO separator, which is what both spellings that reach
+  # here mean. YAML's double-quoted escaped line break removes the break
+  # entirely, so `"${{ sec\` + `rets.FOO }}"` IS `${{ secrets.FOO }}` to GitHub
+  # and a space inserted here would hide it. A shell continuation keeps the
+  # space that precedes its backslash, so `gh run \` + `download …` still joins
+  # to a matchable `gh run download …`.
   if (cont) {
-    logical = logical " " rest
+    logical = logical rest
   } else {
     logical = rest
     logical_nr = NR
@@ -300,8 +322,21 @@ BEGIN {
   # is TEXT, and a body line reading `name: &anchor` or `<<: merge` is shell,
   # not YAML structure. Without this the body would reach the structural
   # screening below and be rejected as an anchor or a merge key.
-  if ((haskey && val ~ /^[|>][0-9]*[+-]?$/) ||
-      (isseq && rest ~ /:[ \t]*[|>][0-9]*[+-]?[ \t]*$/) ||
+  # …but only where the value really is leaf content. On a key the parser
+  # derives a verdict from, skipping the body drops the key itself, and YAML
+  # resolves each of these to exactly the plain string GitHub's schema accepts:
+  # `permissions: |-` over `write-all` runs write-all, `uses: |-` over a path
+  # calls that workflow. Silently dropping either reads as the safe verdict, so
+  # a structural key opening a block scalar fails closed instead.
+  if (haskey && val ~ /^[|>][0-9]*[+-]?$/) {
+    if (structural_key()) {
+      err("block scalar as the value of the structural key `" key ":` is outside the parsed subset")
+      fatal = 1
+      next
+    }
+    bs = 1; bs_indent = indent; next
+  }
+  if ((isseq && rest ~ /:[ \t]*[|>][0-9]*[+-]?[ \t]*$/) ||
       (isseq && rest ~ /^-[ \t]+[|>][0-9]*[+-]?[ \t]*$/)) {
     bs = 1; bs_indent = indent; next
   }
@@ -368,7 +403,7 @@ BEGIN {
       } else if (key == "uses") {
         u = unquote(val)
         printf "U\t%s\t%s\t%s\n", cur_job, (u ~ /^\.\//) ? "local" : "remote", u
-      } else if (key == "secrets" && unquote(val) == "inherit") {
+      } else if (key == "secrets" && tolower(unquote(val)) == "inherit") {
         printf "S\t%s\tinherit\n", cur_job
       }
       next

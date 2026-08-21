@@ -818,6 +818,155 @@ EOF
 out="$("$GUARD" "$d" 2>&1)"
 assert_exit "a continued gh run download counts as consuming a PR artifact" 1 $?
 
+# A secret split across a YAML double-quoted escaped line break. YAML drops the
+# break AND joins with no space, so GitHub resolves the secret while a scanner
+# that joins with one reads `sec rets.NPM_TOKEN` and matches nothing.
+d="$(mkdir_case fail-secret-split-escaped-newline)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo ${{ sec\
+          rets.NPM_TOKEN }}"
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a secret split across an escaped line break is caught" 1 $?
+assert_contains "the split secret is named" "NPM_TOKEN" "$out"
+
+# Block scalars as the value of a STRUCTURAL key. The skip exists so a `run: |`
+# step script is read as text, not structure; applied to a key the parser
+# derives its verdict from it silently drops that key instead. YAML resolves
+# each of these to the plain string GitHub's schema accepts, so the workflow
+# runs with the posture the guard failed to see.
+d="$(mkdir_case fail-block-scalar-job-permissions)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  x:
+    permissions: |-
+      write-all
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a block-scalar job permissions fails closed" 1 $?
+assert_contains "the block-scalar parse failure is stated" "parse" "$out"
+
+# The reusable-workflow edge: dropping this `uses:` leaves the callee outside
+# the reachable set, so the secret it references is never scanned.
+d="$(mkdir_case fail-block-scalar-uses)"
+cat >"$d/a.yml" <<'EOF'
+---
+name: a
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  j:
+    uses: |-
+      ./.github/workflows/b.yml
+EOF
+cat >"$d/b.yml" <<'EOF'
+---
+name: b
+"on":
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ secrets.NPM_TOKEN }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a block-scalar uses: fails closed" 1 $?
+
+# A trigger key: dropping it loses reachability without tripping the
+# no-triggers fail-closed check, because the sibling trigger still counts.
+d="$(mkdir_case fail-block-scalar-trigger)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  push:
+    branches: [main]
+  pull_request: |-
+permissions:
+  contents: write
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ secrets.NPM_TOKEN }}
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a block-scalar trigger key fails closed" 1 $?
+
+# `secrets: inherit` in a casing GitHub may or may not accept. Unlike
+# `permissions:`, an unrecognized spelling here failed OPEN, so it is
+# normalized: the worst case is over-blocking a workflow GitHub already rejects.
+d="$(mkdir_case fail-secrets-inherit-casing)"
+cat >"$d/caller.yml" <<'EOF'
+---
+name: caller
+"on":
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  call:
+    uses: ./.github/workflows/reusable.yml
+    secrets: Inherit
+EOF
+cat >"$d/reusable.yml" <<'EOF'
+---
+name: reusable
+"on":
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  work:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo work
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "case-varied secrets: inherit fails the same as the bare spelling" 1 $?
+
+# The opposite direction: `read-all` quoted is the same value to GitHub as
+# unquoted, so rejecting it as unrecognized is a false positive on valid input.
+d="$(mkdir_case pass-quoted-scalar-permissions)"
+cat >"$d/x.yml" <<'EOF'
+---
+name: x
+"on":
+  pull_request:
+permissions: "read-all"
+jobs:
+  x:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo x
+EOF
+out="$("$GUARD" "$d" 2>&1)"
+assert_exit "a quoted read-all is read as the scalar it is" 0 $?
+
 # ---------------------------------------------------------------------------
 # Parser robustness — shapes common in the wild that the parser derives rather
 # than hardcodes. Each plants the SAME violation (a write-permission
