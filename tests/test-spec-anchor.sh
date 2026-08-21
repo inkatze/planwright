@@ -548,9 +548,17 @@ echo "ok: the slice is byte-exact on a line-1 declaration, CRLF, and a missing f
 # The refusal must also NAME the offending file: three files run through the
 # same digest helper, so a message that only states the grammar fault leaves the
 # operator to bisect the bundle by hand.
+# The refusal must also carry the lib's DISTINCT exit code out to the caller.
+# The digest helper runs inside a command substitution, so its `exit` leaves a
+# subshell and reaches the script through the assignment's status under
+# `set -e`; a later refactor to `return`, or a call site moved out of the
+# substitution, would collapse every refusal to a single generic status with
+# the substring assertions above still green.
 expect_fail_closed() {
-  # <label> <bundle-dir> <stderr-substring> <offending-file>
-  if ef_out=$("$anchor" "$2" 2>"$tmp/anchor.err"); then
+  # <label> <bundle-dir> <stderr-substring> <offending-file> <expected-exit-code>
+  ef_rc=0
+  ef_out=$("$anchor" "$2" 2>"$tmp/anchor.err") || ef_rc=$?
+  if [ "$ef_rc" -eq 0 ]; then
     fail "$1: anchor exited 0 (printed '$ef_out') where it must fail closed (REQ-A1.2)"
   fi
   [ -z "$ef_out" ] || fail "$1: anchor printed '$ef_out' on a fail-closed path (REQ-A1.2)"
@@ -558,6 +566,8 @@ expect_fail_closed() {
     || fail "$1: stderr lacks '$3': $(cat "$tmp/anchor.err")"
   grep -qF "$4" "$tmp/anchor.err" \
     || fail "$1: stderr does not name the offending file '$4': $(cat "$tmp/anchor.err")"
+  [ "$ef_rc" -eq "$5" ] \
+    || fail "$1: anchor exited $ef_rc, expected the lib's $5 (REQ-A1.2)"
 }
 
 broken="$tmp/broken"
@@ -566,18 +576,18 @@ write_bundle "$broken" 1 Ready
 printf '%s\n' '# Flip Fixture — Requirements' '' \
   '**Status:** Ready' '**Status:** Active' '' \
   '## Goal' '' '- **REQ-X1.1** The bundle SHALL exist.' >"$broken/requirements.md"
-expect_fail_closed "duplicate in-header Status" "$broken" "Status: declarations" "requirements.md"
+expect_fail_closed "duplicate in-header Status" "$broken" "Status: declarations" "requirements.md" 3
 
 write_bundle "$broken" 1 Ready
 printf '%s\n' '# Flip Fixture — Requirements' '' \
   '**Status:** Ready' '**Format-version:** 1' >"$broken/requirements.md"
-expect_fail_closed "header block with no body content" "$broken" "no body content" "requirements.md"
+expect_fail_closed "header block with no body content" "$broken" "no body content" "requirements.md" 4
 
 write_bundle "$broken" 1 Ready
 printf '%s\n' 'Prose before anything else.' '' \
   '**Status:** Ready' '' '### D-1: A decision  (N)' >"$broken/design.md"
-expect_fail_closed "no leading header block" "$broken" "no leading header block" "design.md"
+expect_fail_closed "no leading header block" "$broken" "no leading header block" "design.md" 4
 
-echo "ok: malformed, unterminated, and duplicate-Status header blocks fail closed, naming the file (REQ-A1.2)"
+echo "ok: malformed, unterminated, and duplicate-Status header blocks fail closed, naming the file and its exit code (REQ-A1.2)"
 
 echo "PASS: test-spec-anchor"
