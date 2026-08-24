@@ -339,3 +339,25 @@ commit. No accepted decision changed.
 Class: expression-only
 Anchor: `261f6f5cdb091b3c2622ac1159a49ea62b0be441` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`5953cd2`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `aa241eaa6838840d98284d74bc1b387c1dff23e1` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`

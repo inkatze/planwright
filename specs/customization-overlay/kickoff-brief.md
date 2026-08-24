@@ -550,3 +550,25 @@ Anchor: `69b89ff1f4119d9e5b08b79c7f1a6edd088c4e02` — computed as
 `scripts/spec-anchor.sh specs/customization-overlay`
 
 Signed off: 2026-06-16
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`00ff1f8`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `af0fa46512baf5d7958ffcde3397c020076cf405` — computed as
+`scripts/spec-anchor.sh specs/customization-overlay`

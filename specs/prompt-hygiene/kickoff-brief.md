@@ -458,3 +458,30 @@ The Task 7 PR's stage-2 `/self-review` pass surfaced four findings; the human ap
 Class: expression-only
 Anchor: `f4d428a915ff8778041240ed7374a77e9a134f4f` — computed as
 `scripts/spec-anchor.sh specs/prompt-hygiene`
+
+## 9. Amendment log
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** two deltas, both expression-only. The hash
+scope changed — the per-file digests for `requirements.md`, `design.md`,
+and `test-spec.md` now drop the header-block `**Status:**` line — and the
+anchored `Last reviewed:` header line on those three files was bumped by a
+later ritual that did not re-anchor. Verified by isolation: recomputing under
+the amended semantics over this bundle as it stood at the prior entry's commit
+(`99f3e08`) yields `d6984dff09e899925e62ea3fd72e37cd19155011`, and the only
+difference between that anchored content and today's is the `Last reviewed:`
+date. No requirement, design decision, task definition, or test semantics
+changed.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `84a79294ebc1896dde6e40ae5c7a8f76d706d456` — computed as
+`scripts/spec-anchor.sh specs/prompt-hygiene`
