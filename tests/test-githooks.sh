@@ -30,6 +30,11 @@
 #   - hooks no-op cleanly on a wired clone whose checkout lacks githooks/
 #     (the clone-global blast-radius arm of D-3).
 #
+# Task 3 gave commit-msg a second screen (purged identifiers), which fails
+# closed without its scanner and seed file; the fixture below carries both so
+# these scenarios still exercise the hook as it actually ships. That screen's
+# own contract lives in tests/test-check-purged-identifiers.sh.
+#
 # Every expected rejection asserts the hook's own "planwright githooks" stderr
 # marker, so a failure for an unrelated fixture reason cannot masquerade as a
 # hook rejection (fails-for-the-right-reason discipline).
@@ -119,6 +124,21 @@ gitc "$r" push -q origin main
 # assesses a freshly created script inode on its first execve (tens of
 # seconds under load), and links share the already-assessed inodes so the
 # suite does not stall once per copy. cp is the cross-volume fallback.
+#
+# commit-msg additionally screens the message against the purged-identifier
+# seed list (Task 3), and fails closed when the scanner or the seed file is
+# unreachable — so a fixture that wants normal commits to succeed has to carry
+# both. The seed holds one test-only token, planted in this fixture alone and
+# named in none of the messages below; the screen's own behaviour is covered by
+# tests/test-check-purged-identifiers.sh.
+mkdir -p "$r/scripts" "$r/config"
+ln "$repo_root/scripts/check-purged-identifiers.sh" "$r/scripts/check-purged-identifiers.sh" 2>/dev/null \
+  || { cp "$repo_root/scripts/check-purged-identifiers.sh" "$r/scripts/" && chmod +x "$r/scripts/check-purged-identifiers.sh"; } \
+  || fail "could not install the purged-identifier scanner into the fixture"
+printf 'zzq-githooks-fixture-token\n' \
+  | (cd "$r" && /bin/sh "$repo_root/scripts/seed-purged-identifiers.sh" >/dev/null) \
+  || fail "could not provision the fixture seed file"
+
 mkdir "$r/githooks"
 for h in $HOOK_NAMES; do
   # chmod only the cp fallback: a chmod on a hard link would mutate the
@@ -135,7 +155,7 @@ done
 (cd "$r" && ./githooks/prepare-commit-msg /dev/null message >/dev/null 2>&1) || :
 echo warm >"$tmp/warm.msg"
 (cd "$r" && ./githooks/commit-msg "$tmp/warm.msg" >/dev/null 2>&1) || :
-gitc "$r" add githooks
+gitc "$r" add githooks scripts config
 gitc "$r" commit -qm "chore: track hooks"
 (cd "$r" && /bin/sh "$WIRE" >/dev/null) || fail "wire step failed on the fixture clone"
 [ "$(gitc "$r" config --get core.hooksPath)" = "githooks" ] \
