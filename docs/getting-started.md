@@ -111,8 +111,8 @@ it were the scope change. For each halting bundle:
 2. **Nothing but excluded content, or an expression-only edit** (a typo, a
    rewrap, a changelog line): append the machine `Class: expression-only`
    re-anchor entry to the brief's amendment log, citing the changelog line for
-   the delta that actually moved the anchor. `specs/*/kickoff-brief.md` in this
-   repo carries two dozen worked examples.
+   the delta that actually moved the anchor. The amendment logs under
+   `specs/*/kickoff-brief.md` in this repo are worked examples of the format.
 3. **A meaning edit, or a delta you cannot confidently classify:** re-review
    instead. Run a `/spec-kickoff` delta re-walkthrough for a `Ready` or
    `Active` bundle; use the reopen cycle for a `Done` one. The gate stays

@@ -49,6 +49,13 @@ fail() {
 
 [ -x "$anchor" ] || fail "scripts/spec-anchor.sh missing or not executable"
 
+# The header-block Status parse is normative (doctrine/spec-format.md,
+# *Header-block extent*) and the lib is its one implementation: it bounds the
+# read to the leading header block and fails closed on a duplicate declaration.
+# A second grammar here would be a second thing to keep in step.
+# shellcheck source=scripts/spec-parse.sh
+. "$repo/scripts/spec-parse.sh"
+
 # --- the walk -----------------------------------------------------------
 #
 # proof_walk <specs-root>
@@ -72,7 +79,15 @@ proof_walk() {
     esac
     [ -f "$pw_dir/requirements.md" ] || continue
 
-    pw_status=$(header_status "$pw_dir/requirements.md")
+    # A status that will not parse (unreadable file, duplicate declaration) is
+    # a fact about the bundle, not a reason to abandon the walk: record it and
+    # keep going, so one broken bundle never hides the rest of the table.
+    pw_status=$(spec_parse_header_value "$pw_dir/requirements.md" Status 2>/dev/null) || pw_status=""
+    if [ -z "$pw_status" ]; then
+      printf 'error\t%s\tno parseable header-block Status declaration\n' "$pw_name"
+      pw_rc=1
+      continue
+    fi
     case $pw_status in
       Draft)
         printf 'notice\t%s\tDraft — skipped\n' "$pw_name"
@@ -143,11 +158,6 @@ report() {
   fi
 }
 
-# header_status <file> — the header block's Status value, or the empty string.
-header_status() {
-  sed -n 's/^\*\*Status:\*\* *//p' "$1" | head -n 1
-}
-
 # parked_marker <tasks.md> — succeeds when a live `anchor re-review pending`
 # bullet sits in the `## Awaiting input` section.
 parked_marker() {
@@ -209,10 +219,20 @@ recompute() {
     "scripts/spec-anchor.sh $rc_arg" | "spec-anchor.sh $rc_arg") ;;
     *) return 1 ;;
   esac
+  # The argument must be a plain `specs/<identifier>` (REQ-A1.8) before it is
+  # read any further. It reaches a case pattern below, where an unvalidated
+  # glob byte would widen the containment check instead of being compared by it.
+  case $rc_arg in
+    specs/*) rc_name=${rc_arg#specs/} ;;
+    *) return 1 ;;
+  esac
+  case $rc_name in
+    '' | */* | *[!a-z0-9-]* | [!a-z0-9]*) return 1 ;;
+  esac
   # The recorded argument must name the bundle being checked; a mismatch means
   # the entry was copied from another bundle, which is not a recompute at all.
   case $rc_dir in
-    *"/${rc_arg#specs/}/") ;;
+    *"/$rc_name/") ;;
     *) return 1 ;;
   esac
   "$anchor" "$rc_dir"
@@ -314,6 +334,21 @@ case $out in
   *"notice	stale	known-parked (anchor re-review pending)"*) ;;
   *) fail "parked fixture: expected a known-parked notice, got: $out" ;;
 esac
+
+# The park is scoped to `## Awaiting input`. The same words anywhere else in
+# tasks.md are prose, not a park, and must leave the bundle failing.
+make_bundle "$fixture" mislabelled Ready 'Prose mentioning anchor re-review pending.'
+write_entry "$fixture" mislabelled 1111111111111111111111111111111111111111
+printf '\n## Deferred\n\n- anchor re-review pending (a note, in the wrong section)\n' \
+  >>"$fixture/mislabelled/tasks.md"
+if out=$(proof_walk "$fixture"); then
+  fail "a park marker outside '## Awaiting input' must not exempt a bundle: $out"
+fi
+case $out in
+  *"error	mislabelled	recorded 1111111111"*) ;;
+  *) fail "mislabelled fixture: expected an error record, got: $out" ;;
+esac
+rm -rf "$fixture/mislabelled"
 
 # An entry recorded with a non-sanctioned command form is an error, not a
 # silent pass: the gate never reads an unresolved command as a match.
