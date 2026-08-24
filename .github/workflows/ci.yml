@@ -89,6 +89,18 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: /bin/bash scripts/check-commit-msgs.sh "origin/${BASE_REF}..HEAD"
 
+      # Screen the same PR range for purged identifiers, the content half of
+      # the commit-message vector (guard-coverage REQ-B1.1, D-5). githooks/
+      # already screens at write time, but only in a wired clone: this step is
+      # what covers an unwired clone, a --no-verify commit, and a fork PR whose
+      # author never wired anything. A match reports its location only, so the
+      # identifier never lands in this log. base_ref is passed via env per
+      # script-injection hardening practice, as the step above does.
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: /bin/sh scripts/check-purged-identifiers.sh --commit-range "origin/${BASE_REF}..HEAD"
+
       # Length is enforced on the PR title instead: it becomes the
       # squash-merge subject and, unlike a pushed commit, stays editable.
       # --marker title additionally rejects a [pending-sign-off] marker in the
