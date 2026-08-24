@@ -1,7 +1,7 @@
 # Operator dialogue — Test spec
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-08-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -309,3 +309,166 @@ preserving REQ-G1.4 independence.
 The novice/expert persona eval (REQ-G1.2) is the acceptance path for REQ-B1.3:
 it asserts a divergence in explanation depth (test) that a manual read confirms
 is appropriate to each persona.
+
+## REQ-I — The turn/artifact arbitration
+
+### REQ-I1.1 — Arbitration stated [design-level]
+
+`doctrine/interaction-style.md` states the arbitration (completeness governs
+artifacts, disclosure governs the turn, withholding-while-recording is not
+pruning) and the colliding docs cite it at their emit mandates. The doctrine
+statements are the verification.
+
+### REQ-I1.2 — Bounded actionable projection [test + manual]
+
+An assertion over an attended eval run confirms turn-side emissions carry a
+projection (counts and actionable items, no full audit tables) and that the
+full record exists in the governing artifact or is produced on a follow-up
+request. (On-demand behavioral lane.) A manual read confirms the projection
+was sufficient to act on.
+
+### REQ-I1.3 — Actionability ordering [test]
+
+An assertion over an attended eval run confirms decisions and questions
+precede supporting state and bookkeeping in turn-side output. (On-demand
+behavioral lane.)
+
+### REQ-I1.4 — Sidedness declared [test]
+
+The advisory sidedness check (REQ-M1.3) reports emit mandates lacking a
+declared destination side; the touched docs and skills report clean at
+landing. Advisory: the check informs, and this entry's `[test]` claim is the
+check running and reporting, not a CI gate.
+
+### REQ-I1.5 — Self-containment as floor, bounded density [test + manual]
+
+An assertion over an attended eval run bounds selector identifier density
+(numeric bound in the eval fixture, not doctrine) and confirms options carry
+action and consequence; a manual read confirms plain language led and
+identifiers appeared only where traceability needed them. (On-demand
+behavioral lane.)
+
+## REQ-J — Wall repairs
+
+### REQ-J1.1 — Every turn-side mandate conforms; instance set repaired [test + design-level]
+
+The turn-shape invariants run against the repaired surfaces at the acceptance
+join (test; on-demand behavioral lane). A design-level review confirms each
+sweep-recorded instance was repaired or carries a recorded disposition —
+none silently exempted.
+
+### REQ-J1.2 — Loop-end handoff family projected [test]
+
+An assertion over a review-loop eval run confirms no four-table dump in
+turn-side output while the PR body (or, for `/polish`, the worktree-local
+cache file) carries the full record; a `/polish` standalone fixture run
+produces the cache file. (On-demand behavioral lane.)
+
+### REQ-J1.3 — No monotonic accumulator [test]
+
+An assertion over a multi-phase eval run confirms successive running
+summaries do not grow monotonically (delta-plus-open form) and a resumed
+kickoff confirms signed sections at one line each. (On-demand behavioral
+lane.)
+
+### REQ-J1.4 — Question-first read-only surfaces [test + manual]
+
+An assertion over `/resume` and `/drain` fixture runs confirms the question
+or actionable lanes lead and detail arrives only on request; a manual read
+confirms the lead was sufficient to decide next steps. (On-demand behavioral
+lane.)
+
+### REQ-J1.5 — Unbounded payloads excerpted [test]
+
+An assertion over an attended CI-failure fixture confirms the turn carries a
+bounded excerpt plus an artifact pointer, never the full output. (On-demand
+behavioral lane.)
+
+## REQ-K — Execution-surface pass
+
+### REQ-K1.1 — Four surfaces instantiate and cite [test]
+
+A check greps the four execution-side skills' doctrine manifests for the
+`interaction-style` citation (the REQ-A1.3 check's surface list widened to
+include them) and fails if one omits it.
+
+### REQ-K1.2 — Step report defined with slots [design-level + test]
+
+`/orchestrate`'s prose defines the step report's state / reasoning / requests
+slots (design-level); an assertion over an orchestrate eval run confirms the
+emitted report carries the slot structure and that decision-shaped content
+appears as captured items, not prose. (On-demand behavioral lane.)
+
+### REQ-K1.3 — Orchestrate instances conform [test]
+
+A unit test at the script level asserts the fleet/watch surface skips
+re-render when nothing changed (or renders a bounded delta); an assertion
+over an orchestrate eval fixture with multiple simultaneous halts confirms
+the batch is bounded and actionability-ordered. (Unit slice CI-run; behavioral
+slice on-demand.)
+
+## REQ-L — Capture at birth
+
+### REQ-L1.1 — Capture at birth [test]
+
+An assertion over an attended eval run with a planted action item (the
+persona names a follow-up mid-dialogue) confirms the item exists in tracked
+state — a task block, an Awaiting-input or gated Deferred entry, or an
+observation fragment — by run end, not only in transcript prose. (On-demand
+behavioral lane.)
+
+### REQ-L1.2 — Tracked-state targets [design-level]
+
+The doctrine names the tracked-state target set and the ledger interface with
+its degradation path. The statement is the verification; the companion
+bundle's test-spec owns the ledger's own behavior.
+
+### REQ-L1.3 — Skill proposes the tracked form [test + manual]
+
+The planted-action-item assertion additionally confirms the skill proposed
+the tracked form (the transcript shows a proposal turn preceding the
+operator's confirmation); a manual read confirms the operator was not made to
+transcribe. (On-demand behavioral lane.)
+
+### REQ-L1.4 — Ship-gate for out-of-band fixes [design-level + manual]
+
+The ship-gate rule is a kickoff lens-pass checklist item (design-level); the
+human verifies at sign-off that any out-of-band fix named in the walked
+bundle carries a task, gated deferral, or dispatch-gate record (manual, same
+class as the existing pairing checks).
+
+### REQ-L1.5 — Session-visible ledger [test + manual]
+
+An assertion over a multi-phase eval run confirms a ledger of open captured
+items appears at phase boundaries; a manual read confirms it answered "what
+is still owed" without prompting. (On-demand behavioral lane.)
+
+## REQ-M — Output-side enforcement
+
+### REQ-M1.1 — Turn-shape invariants exist and run [test]
+
+The harness runs the named invariants (no multi-table dump, projection
+present, decisions-first, no monotonic growth, bounded density, capture)
+against fixtures where a known wall fails and a known projection passes.
+(On-demand behavioral lane.)
+
+### REQ-M1.2 — Conformance pinned [test], not design-level [design-level]
+
+This file's REQ-I/J/K/L entries carry `[test]` verification through the eval
+for the behavioral half, with design-level reserved for doctrine statements
+and manual for experiential residue; the file itself is the verification that
+the split holds.
+
+### REQ-M1.3 — Advisory sidedness check [test]
+
+The check runs over skill and doctrine prose, reports mandates lacking a
+declared side, and exits without gating; a fixture with a deliberately
+side-less mandate is reported, and the check's advisory wiring is confirmed
+by `mise run check` remaining green with the fixture present. (CI-run
+structural lane for the check's own behavior; its findings never gate.)
+
+### REQ-M1.4 — On-demand only, never CI [test]
+
+`scripts/check-no-ci-evals.sh` passes with the turn-shape extensions in
+place; the extended invariants are registered under the `eval:` namespace the
+guard covers.

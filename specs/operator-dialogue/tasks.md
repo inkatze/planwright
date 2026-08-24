@@ -1,7 +1,7 @@
 # Operator dialogue — Tasks
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-08-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -134,6 +134,129 @@ join, needing the instantiated kickoff, the calibration, and the harness.
 - **Citations:** D-11 · REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-G1.2, REQ-A1.3, REQ-C1.1, REQ-C1.2, REQ-C1.5, REQ-F1.2
 - **Estimated effort:** 2 days
 
+### Task 7 — Arbitration and projection rules in doctrine
+
+- **Deliverables:** The turn/artifact arbitration landed in doctrine:
+  `interaction-style` gains the arbitration statement, the bounded-projection
+  shape (decisions first, counts over tables, full record one request away),
+  the qualitative density bound (one decision cluster per turn, identifiers
+  only where traceability needs them), the no-monotonic-accumulator rule
+  (running summaries become delta-plus-open), and the self-containment-as-floor
+  clarification; the colliding sentences in `discovery-rigor` (lens table and
+  no-silent-pruning scoped to artifacts), `finding-categorization` (the
+  "present the four tables" sidedness ambiguity resolved), and `gate-wiring`
+  (the loop-end handoff's turn-side half declared and bounded) are amended to
+  cite the arbitration; every emit mandate touched declares its destination
+  side.
+- **Done when:** the arbitration, projection, density, and accumulator rules
+  are stated in `doctrine/interaction-style.md`; the three colliding docs
+  declare sidedness at their emit mandates and cite the arbitration;
+  `check:instructions` passes on every skill front-loading the touched docs;
+  `mise run check` is green.
+- **Dependencies:** none
+- **Citations:** D-14, D-15, D-20, D-21 · REQ-I1.1, REQ-I1.2, REQ-I1.3, REQ-I1.4, REQ-I1.5, REQ-J1.3
+- **Estimated effort:** 1 day
+
+### Task 8 — Capture-at-birth in doctrine
+
+- **Deliverables:** The capture rule landed in doctrine: an attended skill
+  records dialogue-born action items in tracked state at birth (task block,
+  Awaiting-input, gated Deferred, or observation fragment; the companion
+  bundle's ledger once it ships), proposes the tracked form itself, keeps a
+  session-visible ledger shown at natural pauses, and out-of-band fixes always
+  carry a ship-gate record; the ship-gate rule added to the kickoff lens-pass
+  checklist items.
+- **Done when:** the capture rules are stated in doctrine with the
+  tracked-state target list and the ledger-interface note; the kickoff
+  checklist carries the ship-gate item; `check:instructions` and
+  `mise run check` are green.
+- **Dependencies:** 7
+- **Citations:** D-18 · REQ-L1.1, REQ-L1.2, REQ-L1.3, REQ-L1.4, REQ-L1.5
+- **Estimated effort:** half day
+
+### Task 9 — Repair the review-loop handoff family
+
+- **Deliverables:** The gate-wiring loop-end handoff's turn-side emission
+  reworked to the projection (counts plus pending sign-offs and open forks;
+  the four tables, declined log, and checklist stay artifact-side in full);
+  `/self-review`, `/execute-task` (including the attended CI-failure surface,
+  which becomes excerpt-plus-pointer), and `/builder` conform; `/polish`
+  writes its accumulated audit record to the worktree-local cache file beside
+  the handover brief and projects turn-side, including at safety stops.
+- **Done when:** the four skills and `gate-wiring` emit turn-side only the
+  projection while their artifacts carry the full record; `/polish` produces
+  the cache file on a standalone run; `check:instructions` passes on every
+  touched surface; `mise run check` is green.
+- **Dependencies:** 7
+- **Citations:** D-15, D-16 · REQ-J1.1, REQ-J1.2, REQ-J1.5
+- **Estimated effort:** 2 days
+
+### Task 10 — Repair the authoring surfaces
+
+- **Deliverables:** `/spec-draft`'s running summary converted to
+  delta-plus-open and its phase-6 read-through converted to a projection
+  (bounded excerpt plus the bundle as the artifact; self-critique dispositions
+  as counts plus open questions); `/spec-kickoff`'s resume path confirms
+  signed sections at one line each, its lens-coverage table emission declares
+  the artifact side (recorded in the brief section, projected in the turn),
+  and its nine-item handoff report becomes a projection.
+- **Done when:** both skills' prose states the bounded forms and cites the
+  arbitration; `check:instructions` passes on both; `mise run check` is green.
+- **Dependencies:** 7
+- **Citations:** D-15, D-21 · REQ-J1.1, REQ-J1.3, REQ-J1.5
+- **Estimated effort:** 1 day
+
+### Task 11 — Execution-surface instantiation pass
+
+- **Deliverables:** The disciplines and the arbitration instantiated at the
+  four execution-side surfaces, each gaining its `interaction-style` manifest
+  citation: `/orchestrate` gets the defined step report (state / reasoning /
+  requests slots, decision-shaped content routed through capture), bounded
+  actionability-ordered batched halts, and render-on-change (or bounded-delta)
+  for the fleet/watch surface; `/resume` leads with its question plus a
+  compact status line, the seven context elements on request; `/drain`
+  reports counts per lane with detail on request, generalizing its existing
+  single-lane pattern.
+- **Done when:** the four skills instantiate the disciplines and cite the
+  doctrine in their manifests; the step report's slot structure is stated in
+  `/orchestrate`'s prose; `check:instructions` passes on all four;
+  `mise run check` is green.
+- **Dependencies:** 7, 8
+- **Citations:** D-13, D-17, D-15 · REQ-K1.1, REQ-K1.2, REQ-K1.3, REQ-J1.4, REQ-L1.3
+- **Estimated effort:** 2 days
+
+### Task 12 — Turn-shape enforcement: eval invariants and the sidedness check
+
+- **Deliverables:** The behavioral eval harness extended with turn-shape
+  invariants graded from the structured decision/transcript log: no turn-side
+  multi-table dump, projection present, decisions-first ordering, no
+  monotonic summary growth, bounded selector identifier density (numeric
+  values in fixtures, not doctrine), and the capture-at-birth assertion (a
+  planted action item exists in tracked state by run end); plus the static
+  advisory sidedness check flagging emit mandates with no declared destination
+  side, wired informational-only.
+- **Done when:** the invariants run against an eval fixture and pass/fail
+  correctly (a fixture wall fails, a fixture projection passes); the sidedness
+  check runs and reports without gating; `check-no-ci-evals.sh` still passes
+  with the extensions covered; `mise run check` is green.
+- **Dependencies:** 7, 8
+- **Citations:** D-19 · REQ-M1.1, REQ-M1.3, REQ-M1.4
+- **Estimated effort:** 2 days
+
+### Task 13 — Acceptance join: invariants against the repaired surfaces
+
+- **Deliverables:** The turn-shape invariants run against the repaired
+  surfaces (a kickoff run and at least one execution-side surface run),
+  reusing the base bundle's novice/expert personas; the test-spec entries for
+  the extension flipped from planned to verified paths; any repair the
+  invariants catch out is fixed in the same task.
+- **Done when:** the eval passes against the repaired surfaces under both
+  personas; the experiential rubric pass is documented as run with the human
+  as final rater; `mise run check` is green.
+- **Dependencies:** 9, 10, 11, 12
+- **Citations:** D-19, D-11 · REQ-M1.1, REQ-M1.2, REQ-J1.1
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)
@@ -148,13 +271,6 @@ join, needing the instantiated kickoff, the calibration, and the harness.
   (Tasks 3–4) has proven out, so the in-band model is validated before the
   walkthrough is re-decided against it. Citations: D-2, D-9; the spec-walkthrough
   failure (Sources).
-- **Execution-side handoffs pass.** Extending the doctrine's instantiation to
-  `/orchestrate`, `/execute-task`, `/resume`, and `/drain` (their handoffs,
-  reports, and disposition prompts). This pass also adds the `interaction-style`
-  manifest citation to those four surfaces (REQ-A1.3), deferred with the behavior
-  it promises rather than cited ahead of it. Confidence: high. **Gate:** after
-  the kickoff instantiation proves the doctrine and the eval loop on one surface.
-  Citations: D-9.
 
 ## Out of scope
 

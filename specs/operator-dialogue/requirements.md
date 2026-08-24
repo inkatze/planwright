@@ -1,7 +1,7 @@
 # Operator dialogue — Requirements
 
-**Status:** Ready
-**Last reviewed:** 2026-07-17
+**Status:** Draft
+**Last reviewed:** 2026-08-24
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -35,6 +35,20 @@ fixes the self-contained-confirmation problem the operator hits at every
 picker, and is anchored by an on-demand behavioral eval harness so "guides the
 operator well" becomes measured rather than a matter of taste.
 
+**Extension (2026-08-24).** The disciplines shipped and derive Done, yet the
+walls returned within a month. The cause is structural, not behavioral:
+completeness rules written for artifacts execute unarbitrated at the
+conversational turn; skill prose mandates cumulative summaries and multi-table
+dumps at the operator by construction; and nothing measures what a skill
+emits, so a violation costs nothing. This extension adds the missing
+arbitration — completeness is an artifact property; the attended turn is a
+bounded, actionable projection of it, with the full record one request away —
+repairs every prose mandate that manufactures walls, extends the disciplines
+to the execution-side surfaces (`/orchestrate`, `/execute-task`, `/resume`,
+`/drain`), adds capture-at-birth for dialogue-born action items, and points
+the behavioral eval at the output side so a wall fails a test instead of a
+vibe. The altitude call for the delta is recorded as D-13, cited here.
+
 ## Scope
 
 ### In scope
@@ -58,6 +72,21 @@ operator well" becomes measured rather than a matter of taste.
   experiential quality scored against named rubrics and pilots.
 - Instruction-budget compliance (`check:instructions`) for every doctrine and
   skill-prose change this spec makes.
+- *(Extension, 2026-08-24.)* The turn/artifact arbitration rule and the
+  bounded-projection discipline for every turn-side emission, as doctrine.
+- *(Extension, 2026-08-24.)* Repair of every prose mandate that forces dense
+  single-turn output at an attended surface — a decided rule over the whole
+  prose corpus, with the wall-manufacturer sweep (Sources) as the evidenced
+  instance set.
+- *(Extension, 2026-08-24.)* The execution-side instantiation pass
+  (`/orchestrate`, `/execute-task`, `/resume`, `/drain`), consuming the
+  deferral the first pass recorded, including defining `/orchestrate`'s
+  operator-facing step report.
+- *(Extension, 2026-08-24.)* Capture-at-birth for dialogue-born action items:
+  the capture rule and its tracked-state interface (the downstream tracking
+  mechanism is the companion bundle's).
+- *(Extension, 2026-08-24.)* Output-side enforcement: turn-shape invariants in
+  the behavioral eval, plus a static advisory sidedness check.
 
 ### Out of scope
 
@@ -67,6 +96,20 @@ operator well" becomes measured rather than a matter of taste.
   on-demand-only, and went unused; see Sources). Seeded for a fast-follow.
 - The execution-side handoffs (`/orchestrate`, `/execute-task`, `/resume`,
   `/drain`). A second pass, once the pattern proves on kickoff.
+  *(Amended at extension 2026-08-24: the second pass is now in scope as REQ-K;
+  the deferral gate was resolved on evidence — the kickoff instantiation
+  shipped but did not hold without the arbitration and enforcement this
+  extension adds.)*
+- *(Extension, 2026-08-24.)* The action-item tracking mechanism downstream of
+  capture — the ledger, roadmap updates, closure. Owned by the companion
+  bundle; this spec defines only the capture rule and its tracked-state
+  interface.
+- *(Extension, 2026-08-24.)* Input-side instruction budgets: how much prose a
+  skill loads is `instruction-headroom`'s domain; this spec governs what a
+  skill emits and inherits the budget only as a constraint.
+- *(Extension, 2026-08-24.)* Any weakening of artifact completeness: the
+  arbitration changes what a turn shows, never what the bundle, PR body, or
+  audit record contains. Nothing is silently pruned from artifacts. Permanent.
 - Any weakening of the reserved human controls: never-auto-merge, never
   auto-chain, draft-PR-only, the two-key launch, and the machine-checkable
   sign-off record and content anchor.
@@ -310,6 +353,132 @@ unconditional rule REQ-D1.4 states.
   pitched differently and appropriately to a novice versus an expert operator.
   *(Cites: D-11; REQ-B1.3, REQ-G1.2.)*
 
+## REQ-I — The turn/artifact arbitration
+
+- **REQ-I1.1** Doctrine SHALL state the arbitration between the completeness
+  rules and progressive disclosure: completeness and no-silent-pruning govern
+  artifacts (bundles, PR bodies, audit records); progressive disclosure
+  governs the attended turn; and withholding detail from a turn while
+  recording it in the governing artifact SHALL NOT be classed as pruning.
+  *(Cites: D-14; obs:a873da06.)*
+- **REQ-I1.2** Every turn-side emission at an attended surface SHALL be a
+  bounded, actionable projection of its underlying record: it leads with what
+  the operator must decide or know now, and the full record SHALL be reachable
+  in one request or already present in an artifact.
+  *(Cites: D-15; obs:1055b259; the wall-manufacturer sweep (Sources).)*
+- **REQ-I1.3** Projections SHALL be actionability-ordered: decisions and
+  questions first, supporting state second, bookkeeping last — or omitted
+  turn-side entirely when an artifact carries it.
+  *(Cites: D-15; the wall-manufacturer sweep (Sources).)*
+- **REQ-I1.4** Every emit mandate in doctrine or skill prose SHALL declare its
+  destination side — artifact or turn; a mandate whose side is ambiguous is a
+  defect, not a latitude.
+  *(Cites: D-14; the wall-manufacturer sweep (Sources).)*
+- **REQ-I1.5** Selector self-containment SHALL be read as a floor — the
+  decision plus each option's action and consequence — never as a license for
+  unbounded density: comparative or long content goes to option previews or an
+  offered in-band layer, and identifiers appear only where traceability needs
+  them.
+  *(Cites: D-20; obs:c67835a9.)*
+
+## REQ-J — Wall repairs
+
+- **REQ-J1.1** Every turn-side emit mandate in planwright's skill and doctrine
+  prose SHALL conform to the projection rule (REQ-I1.2–I1.4); the
+  wall-manufacturer sweep's recorded findings are the evidenced instance set,
+  and each named instance SHALL be repaired — none survives unrepaired or
+  silently exempted.
+  *(Cites: D-14, D-15; the wall-manufacturer sweep (Sources).)*
+- **REQ-J1.2** The loop-end handoff family (the gate-wiring handoff as
+  inherited by `/self-review`, `/polish`, `/execute-task`, and `/builder`)
+  SHALL keep its full audit record artifact-side and SHALL emit turn-side only
+  counts plus the actionable residue (pending sign-offs and open forks);
+  `/polish` SHALL gain a worktree-local cache artifact for its full record.
+  *(Cites: D-15, D-16.)*
+- **REQ-J1.3** No monotonically growing accumulator SHALL reach a turn: a
+  repeated running summary SHALL present the delta since the previous summary
+  plus what remains open, and `/spec-kickoff`'s resume path SHALL confirm
+  already-signed sections at one line each rather than replaying them.
+  *(Cites: D-21; obs:a873da06.)*
+- **REQ-J1.4** The read-only surfaces `/resume` and `/drain` SHALL lead with
+  the question or the actionable lanes and SHALL offer the remaining detail on
+  request rather than by default.
+  *(Cites: D-15; the wall-manufacturer sweep (Sources).)*
+- **REQ-J1.5** An unbounded payload — full CI output, an assembled bundle, an
+  accumulated audit history — SHALL NOT be emitted turn-side; the turn carries
+  a bounded excerpt plus a pointer to the artifact holding the whole.
+  *(Cites: D-15; the wall-manufacturer sweep (Sources).)*
+
+## REQ-K — Execution-surface pass
+
+- **REQ-K1.1** The three disciplines and the arbitration rule SHALL be
+  instantiated at `/orchestrate`, `/execute-task`, `/resume`, and `/drain`,
+  each surface gaining its `interaction-style` manifest citation at
+  instantiation, completing REQ-A1.3's deferred growth.
+  *(Cites: D-13, D-9; drafting-session decision (2026-08-24).)*
+- **REQ-K1.2** `/orchestrate` SHALL define its operator-facing step report as
+  a bounded structure with named slots separating state (what happened),
+  reasoning (brief, or absent), and requests (what the operator is asked);
+  decision-shaped content SHALL route through the capture rule (REQ-L) rather
+  than remaining prose.
+  *(Cites: D-17; the operator report (Sources).)*
+- **REQ-K1.3** `/orchestrate`'s turn-side instances SHALL conform to the
+  projection rule: batched pre-flight halts are bounded and
+  actionability-ordered, and the fleet/watch surface SHALL NOT unconditionally
+  re-render in full on every iteration — it renders on change, or renders a
+  bounded delta.
+  *(Cites: D-15; the wall-manufacturer sweep (Sources).)*
+
+## REQ-L — Capture at birth
+
+- **REQ-L1.1** An attended skill that births an action item — an out-of-band
+  fix, a deferred item, a follow-up named mid-dialogue, a decision owed by the
+  operator — SHALL record it in tracked state at birth; prose SHALL NOT be its
+  only record, and the operator's memory SHALL never be the tracking
+  mechanism.
+  *(Cites: D-18; obs:e78dd05a; the operator report (Sources).)*
+- **REQ-L1.2** Tracked state SHALL mean a surface with a named reader and a
+  drain ritual — a task block, an Awaiting-input or gated Deferred entry, or
+  an observation fragment — and SHALL target the action-item ledger once its
+  owning bundle ships it; the capture interface is defined here so capture
+  never blocks on that bundle.
+  *(Cites: D-18.)*
+- **REQ-L1.3** Capture SHALL be the skill's clerical weight: the skill
+  proposes the tracked form in the same turn the item is born; the operator
+  confirms, and SHALL NOT be made to transcribe.
+  *(Cites: D-18; REQ-C1.4.)*
+- **REQ-L1.4** A fix or follow-up named to ship out of band SHALL carry a
+  ship-gate record (a task, a gated deferral, or a dispatch-gate record);
+  prose in a design decision or a rejected-alternatives paragraph is not a
+  ship mechanism.
+  *(Cites: D-18; obs:e78dd05a.)*
+- **REQ-L1.5** During an attended run the skill SHALL maintain a
+  session-visible ledger of the open items it has captured and SHALL show it
+  at natural pauses, so the open set is always answerable without the operator
+  asking.
+  *(Cites: D-18; the operator report (Sources).)*
+
+## REQ-M — Output-side enforcement
+
+- **REQ-M1.1** The behavioral eval SHALL grade turn shape at attended
+  surfaces, with assertable invariants covering at minimum: no turn-side
+  multi-table audit dump, a projection present, decisions-first ordering, no
+  monotonic summary growth, bounded selector identifier density, and
+  capture-at-birth — an action item visible in the run's transcript exists in
+  tracked state by run end.
+  *(Cites: D-19, D-8.)*
+- **REQ-M1.2** Turn-shape conformance SHALL be pinned `[test]` through the
+  eval rather than verified design-level; only the genuinely experiential
+  residue stays rubric-scored with the human as final rater.
+  *(Cites: D-19; obs:1055b259.)*
+- **REQ-M1.3** A static advisory check SHALL flag emit mandates in skill or
+  doctrine prose that lack a declared destination side; the check informs and
+  SHALL NOT gate.
+  *(Cites: D-19; drafting-session decision (2026-08-24).)*
+- **REQ-M1.4** Turn-shape evals SHALL remain on-demand only and SHALL NOT be
+  wired into CI; `check-no-ci-evals.sh` continues to cover the harness.
+  *(Cites: D-19; REQ-G1.5.)*
+
 ## Changelog
 
 - 2026-07-17: Bundle drafted at Status Draft via `/spec-draft`. Spun as a new
@@ -364,6 +533,20 @@ unconditional rule REQ-D1.4 states.
   h1→h2→h3 (MD001/heading-increment; the drafted bundle skipped them and first
   hit `lint:md` on PR #225). No verification content changed; re-anchored via the
   kickoff-brief §9 amendment-log entry.
+- 2026-08-24: Extension drafted via `/spec-draft` (reopen cycle: the bundle
+  derived Done; the stored status flips Ready→Draft on all four headers for
+  the delta's scoped kickoff). Trigger: the walls returned within a month of
+  the first pass shipping — the operator report (Sources) plus three fresh
+  observations. Adds REQ-I–REQ-M (turn/artifact arbitration, wall repairs,
+  execution-surface pass, capture-at-birth, output-side enforcement), D-13
+  through D-21, and Tasks 7–13. Resolves the "Execution-side handoffs pass"
+  deferral on evidence (its gate asked that the kickoff instantiation prove
+  the doctrine first; it shipped but did not hold without arbitration and
+  enforcement, which is this delta's thesis) — the deferral bullet leaves
+  `tasks.md`, consumed by Task 11. The `/spec-walkthrough` revisit deferral
+  stays. Scope and Goal amended with dated extension markers; the base
+  out-of-scope entry for the execution-side handoffs carries the amendment
+  annotation. Consumes obs:1055b259, obs:a873da06, obs:c67835a9, obs:e78dd05a.
 
 ## Sources
 
@@ -450,3 +633,54 @@ unconditional rule REQ-D1.4 states.
   D-ID: the spec identifier `operator-dialogue`, the approval-surfaces-first
   scope centered on `/spec-kickoff`, and the deferral of `/spec-walkthrough` and
   the execution-side handoffs.
+- **the operator report (2026-08-21)** — the extension's pinned altitude
+  claims, from the operator's invocation and mid-session report: the spec
+  skills "haven't been didactic at all... they just paste walls of text
+  assuming I process information like an LLM"; the orchestrator mixes
+  information, thoughts, and requests in a single wall and "expects me to keep
+  track of everything including action items instead of doing that for me and
+  fixing and updating the roadmap as we progress"; and action items born
+  mid-dialogue go untracked until nudged, observed live in the extension's own
+  drafting session and in the fleet-lifecycle-closure kickoff. Resolved as
+  D-13.
+- **the wall-manufacturer sweep (2026-08-21)** — a drafting-session sweep of
+  the skill and doctrine prose for mandates that force dense single-turn
+  output at attended surfaces or offload tracking onto the operator. Its
+  findings are recorded in `design.md`'s Cross-cutting concerns as the
+  evidenced instance set behind REQ-J1.1; the decided rule governs the corpus,
+  the recorded instances are the evidence, and repairs verify against the
+  surfaces rather than against the frozen list.
+- **obs:1055b259** — the attended-surface-unmeasured observation (2026-08-18):
+  every input surface is budgeted and measured while the output surface — what
+  the operator receives per turn — is verified design-level only; a live
+  `/spec-draft` run emitted ~25 requirements in one turn and the operator
+  disengaged. Frames REQ-I1.2 and REQ-M1.2.
+- **obs:a873da06** — the rigor-vs-disclosure-unarbitrated observation
+  (2026-08-18): `discovery-rigor`'s report-everything and
+  `interaction-style`'s one-layer-at-a-time give opposed instructions for a
+  single turn, nothing arbitrates, and the safety-framed rule wins by default;
+  also names `/spec-draft`'s cumulative running summary as a wall by
+  construction. Frames REQ-I1.1 and REQ-J1.3.
+- **obs:c67835a9** — the kickoff-density-disengagement observation
+  (2026-08-19): a kickoff section walk saturated its selectors with REQ-IDs
+  and D-IDs and the operator checked out; the recovery that worked was one
+  plain-language question per turn with identifiers parked. Frames REQ-I1.5.
+- **obs:e78dd05a** — the out-of-band-fix-no-ship-gate observation
+  (2026-08-19): a design decision named a fix shipping out of band as a chore
+  PR and nothing tracked whether it landed; kickoff later found the hook still
+  broken on every installed machine. Frames REQ-L1.1 and REQ-L1.4.
+- **the decision-queue precedent** —
+  `doctrine/attention-notification-capability.md`: the one shipped surface
+  that bounds operator load by actionability (queue length tracks the
+  Awaiting-input count, never the worker count). The model REQ-I1.2
+  generalizes.
+- **the PR-body collapse discipline** — the gate-wiring rules for draft-PR
+  bodies (summary first, audit collapsed, collapsed is not abridged): proof
+  that completeness and readability reconcile in one artifact. This extension
+  applies the same reconciliation to the attended turn.
+- **drafting-session decision (2026-08-24)** — choices made live in the
+  extension session that minted no D-ID: parallel-repairs task ordering (9–11
+  fan out after the doctrine tasks, acceptance joins at 13); keeping the
+  sidedness check advisory rather than gating; routing the tracking mechanism
+  to the companion action-item bundle; and leaving input-side budgets to
+  `instruction-headroom`.
