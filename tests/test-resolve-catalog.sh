@@ -334,7 +334,10 @@ out="$(rc "$sb" testcat -- 2>/dev/null)"
 assert "trailing bare -- after the name is valid" 0 $?
 
 # ---------------------------------------------------------------------------
-# 11. real decision-domains seed resolves to the eleven domains (smoke)
+# 11. real decision-domains seed resolves to every domain in the shipped seed
+#     (smoke). The expected count is derived from the seed file rather than
+#     transcribed, so growing the catalog stays a data-only change (the
+#     2026-07-12 stale-count observation).
 # ---------------------------------------------------------------------------
 sb="$tmp/realdd"
 mkdir -p "$sb/repo"
@@ -346,9 +349,18 @@ for id in data-storage caching queues-async api-surface auth secrets-config \
   versioning-scheme; do
   assert_contains "real decision-domains: $id present" "id: $id" "$out"
 done
+seed_count="$(grep -c '^  - id: ' "$REPO_ROOT/config/decision-domains.yaml")"
+# Deriving the expected count is what keeps growing the catalog a data-only
+# change, but it also means a pattern that stops matching compares zero against
+# a resolver that emitted nothing, and passes. Pin the floor first.
+if [ "${seed_count:-0}" -lt 1 ]; then
+  echo "FAIL: real decision-domains: the seed-count pattern matched nothing" >&2
+  failures=$((failures + 1))
+fi
 exp="$(base PLANWRIGHT_ROOT="$REPO_ROOT" PLANWRIGHT_REPO_ROOT="$sb/repo" \
   /bin/bash "$RESOLVER" decision-domains --explain 2>/dev/null | grep -c '	core$')"
-assert_eq "real decision-domains: eleven core entries via --explain" "11" "$exp"
+assert_eq "real decision-domains: every seed entry attributed to core via --explain" \
+  "$seed_count" "$exp"
 
 # ---------------------------------------------------------------------------
 # 11b. real guard-catalog seed carries the instruction-hygiene entry

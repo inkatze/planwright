@@ -112,6 +112,10 @@ applies to every fix:
 
 ## Non-testable changes
 
+This section is also what pass 1 reduces to for a non-code artifact class —
+a spec, an inception bundle, or human-facing output has no runtime to
+reproduce against ([artifact-lenses.md](artifact-lenses.md)).
+
 For documentation, comments, formatting, pure renames, and type-only
 adjustments, substitute review angles for the test angles: re-read the diff,
 read it from the perspective of each consumer, and search the repository for

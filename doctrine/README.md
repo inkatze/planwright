@@ -23,7 +23,10 @@ resolution path defined below (REQ-I1.1, D-24).
 | [customization-boundary.md](customization-boundary.md) | The capability-vs-style boundary: when a preference belongs in core (as an opt-in config knob) vs an overlay; decision-time criteria, the default tilt to overlay, two worked examples | customization-overlay REQ-C1.1, customization-overlay REQ-C1.2, customization-overlay REQ-C1.3 · customization-overlay D-10 |
 | [autopilot-reflex.md](autopilot-reflex.md) | The six-step reflex for closing recurring-manual-ceremony gaps; altitude triggers, the phase re-anchor, the trigger-scoped altitude-D-ID rule | autopilot-reflex REQ-A1.1, REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5 · autopilot-reflex D-1, D-2, D-11 |
 | [release-tagging.md](release-tagging.md) | The release-tagging policy (autopilot-reflex instantiation A): the five policy points (detection automated, approval = human merge, publish human-gated + signed per policy, window locked, merge/publish never autonomous) and the capability/mechanism/value altitude split | autopilot-reflex REQ-B1.1, REQ-B1.2 · autopilot-reflex D-2, D-3, D-5, D-7, D-13 |
-| [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, the eleven seed domains | REQ-G1.8, REQ-G1.4 · D-39, D-16 |
+| [decision-domains.md](decision-domains.md) | The decision-domains catalog: entry format (trigger + considerations + disposition), lifecycle wiring, growth mechanics, and the seed domains — engineering plus the non-engineering ones (product strategy, packaging/pricing, domain and knowledge engineering, org design, IP posture, LLM output quality, human comprehension, existing-seam reuse) | REQ-G1.8, REQ-G1.4 · D-39, D-16 · inception REQ-I1.2 · inception D-17 |
+| [artifact-lenses.md](artifact-lenses.md) | Lens selection by artifact class: the code / spec / inception / human-facing classes and their lens sets, when code lenses do not apply, and how the three validation passes generalize off code | inception REQ-I1.3 · inception D-17 |
+| [evidence-quality.md](evidence-quality.md) | What makes a claim citable and how strong it is: the believe/verify/measure/right-if falsifiability format, thresholds as pre-committed fail conditions, the commitment-weighted evidence ladder, and the `synthetic` grade's exclusion from a desirability `Graduate` | inception REQ-I1.4, REQ-C1.3, REQ-E1.1 · inception D-1 |
+| [storage-classes.md](storage-classes.md) | The three storage classes (framework config, framework runtime state, user work products) and their canonical homes, the never-mix rule, the secrets exclusion, and the new-home minting check | inception REQ-I1.5 · inception D-8 |
 | [guard-catalog.md](guard-catalog.md) | The builder's core guard catalog: guard categories, entry format, breadth dimensions, the extension model, the dogfood contract | REQ-G1.2, REQ-G1.5, REQ-G1.7 · D-15, D-16, D-32 |
 | [instruction-hygiene.md](instruction-hygiene.md) | The instruction-layer authoring law: flow in skills / law in rule docs, the doctrine-manifest grammar, the loading convention and its safety floor, the word budgets, the test-and-measure principle, and the kept prompt-eval convention | prompt-hygiene REQ-C1.1, prompt-hygiene REQ-C1.2, prompt-hygiene REQ-C1.3, prompt-hygiene REQ-C1.4, prompt-hygiene REQ-C1.6 · prompt-hygiene D-1, prompt-hygiene D-2, prompt-hygiene D-3, prompt-hygiene D-5, prompt-hygiene D-6, prompt-hygiene D-7, prompt-hygiene D-8, prompt-hygiene D-9, prompt-hygiene D-10, prompt-hygiene D-11 |
 | [accumulator-taxonomy.md](accumulator-taxonomy.md) | The three accumulator classes and their drain rituals, the `GATE(when:)` convention and its closed grammar (normative home), the shared drain pass behind `/drain` and `--bookkeeping` | REQ-H1.1, REQ-H1.2, REQ-H1.3, REQ-H1.4, REQ-H1.5 · D-17, D-18, D-31 |
@@ -77,7 +80,10 @@ Doc names are kebab-case basenames without the `.md` suffix, e.g.
 
 ## How the docs relate
 
-[Discovery Rigor](discovery-rigor.md) produces the finding list.
+[Discovery Rigor](discovery-rigor.md) produces the finding list, and
+[Artifact Lenses](artifact-lenses.md) decides which lenses that walk uses —
+its default list is code-shaped, and a spec, an inception bundle, or output
+written for a human selects a different set.
 [Validation Rigor](validation-rigor.md) confirms each finding and each fix.
 [Finding Categorization](finding-categorization.md) routes confirmed findings
 through the autonomy gate that decides what the agent applies versus what
@@ -118,6 +124,13 @@ produce the specs everything above executes against — and the
 [Customization Boundary](customization-boundary.md) governs a scoping call made
 in those sessions: whether a candidate preference belongs in core (as an opt-in
 config knob) or in an adopter/team overlay.
+[Storage Classes](storage-classes.md) governs the companion question of *where*
+the resulting artifact lives — framework config, framework runtime state, or a
+user work product, each with one canonical home. At venture scope, upstream of
+all of it, [Inception Format](inception-format.md) defines the bundle's fields
+and [Evidence Quality](evidence-quality.md) defines what they mean: how a claim
+is made falsifiable, what makes its threshold real, and how strong the evidence
+cited against it actually is.
 
 ## Adopter extension
 
