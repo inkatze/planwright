@@ -762,6 +762,25 @@ closed to Awaiting input, naming the remedy:
   canonical script or by setting a root the chain reads (the arms are listed
   under *Sanctioned command forms* above).
 
+**Pre-change anchors: the one-time self-re-anchor.** An entry recorded before
+the header-block `**Status:**` exclusion landed (the 2026-07-26 *Anchor-scope
+exclusion* changelog entry), or recorded with the interim whole-file form,
+covers a scope the canonical tool no longer computes — so it halts as a
+mismatch over content nobody edited. planwright's own bundles were swept in the
+change's own PR (anchor-integrity D-3, REQ-A1.4); an adopter bundle at either
+format version carries the same repair, once, and it is the bundle owner's to
+make. It is not a bare re-record: classify the bundle's anchored-content delta
+since the recorded entry first, diffing from the commit that introduced that
+entry's anchor line. A lifecycle-only or expression-only delta takes the
+machine `Class: expression-only` entry, citing the delta that actually moved
+the anchor rather than the scope change by reflex. A meaning-class delta — and
+any delta the classification cannot resolve, which defaults to meaning-class —
+takes the re-review ritual the bundle's status admits instead: a
+`/spec-kickoff` delta re-walkthrough for `Ready` or `Active`, the reopen cycle
+for `Done`. That is what keeps a one-time repair from laundering an unreviewed
+meaning edit. An entry written under the amended semantics never needs the
+remedy again.
+
 **Resolving the recorded command.** All sanctioned forms are accepted, and the
 form recorded in the entry is the one recomputed with — a consumer never
 substitutes a different form for the one on record. For the two script-based
@@ -1012,3 +1031,14 @@ bundle would have to migrate to:
   *(format-grammar D-1, D-5, D-6, D-7, D-10, D-11, D-12, D-13, D-14 · REQ-A1.1,
   REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8,
   REQ-A1.10, REQ-D1.4, REQ-D1.8.)*
+- 2026-08-24 — Pre-change anchor remedy named. The execution-validity halt
+  guidance states the one-time self-re-anchor for an entry recorded before the
+  2026-07-26 anchor-scope exclusion or with the interim whole-file form, and
+  pins the classification that gates it: lifecycle-only or expression-only
+  takes the machine entry citing the delta that actually moved the anchor,
+  while a meaning-class or unresolvable delta takes the status-apt re-review
+  ritual instead (*Execution validity*). The in-repo corpus was swept under
+  that rule in the same PR as the tool-side scope change; this entry names the
+  remedy for bundles the sweep could not reach. **No version bump:** no rule
+  changes — a halt case that already existed gains its remedy in writing.
+  *(anchor-integrity D-3 · REQ-A1.5.)*
