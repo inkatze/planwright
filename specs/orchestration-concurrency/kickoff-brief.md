@@ -505,3 +505,28 @@ Class: meaning
 Lens-pass: recorded in this entry (delta-scoped inline, security lens), findings dispositioned 2026-06-26.
 Anchor: `d8e5f2cb7b5ee341e35fcbe18e89e52c93791d05` — computed as
 `scripts/spec-anchor.sh specs/orchestration-concurrency`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** two deltas, both expression-only. The hash
+scope changed — the per-file digests for `requirements.md`, `design.md`,
+and `test-spec.md` now drop the header-block `**Status:**` line — and the
+anchored `Last reviewed:` header line on those three files was bumped by a
+later ritual that did not re-anchor. Verified by isolation: recomputing under
+the amended semantics over this bundle as it stood at the prior entry's commit
+(`75225bc`) yields `3ce642c0498f46721f4baab02c45633b69277db7`, and the only
+difference between that anchored content and today's is the `Last reviewed:`
+date. No requirement, design decision, task definition, or test semantics
+changed.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `4a2c0486e0d583ee65a797506ff9f17816f1d19d` — computed as
+`scripts/spec-anchor.sh specs/orchestration-concurrency`

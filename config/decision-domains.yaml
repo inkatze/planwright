@@ -2,7 +2,7 @@
 # planwright decision-domains catalog — machine view (Task 5; REQ-B1.3, D-5).
 #
 # doctrine/decision-domains.md is the normative prose home: entry format,
-# lifecycle wiring, the eleven seed domains in full, and the growth model. THIS
+# lifecycle wiring, the seed domains in full, and the growth model. THIS
 # file is its machine view — the core seed scripts/resolve-catalog.sh merges
 # with the adopter / repo-tracked / machine-local overlay catalogs
 # (append/union, supersede-by-id). Adding a domain here, or via an overlay
@@ -62,3 +62,35 @@ domains:
     trigger: "Versioning a shipped artifact: a first release, a version format, or a scheme switch"
     considerations: "Artifact type (compat-signaling lib/plugin vs shipped app); lineage; tooling"
     disposition: "SemVer if compat-bearing, CalVer if shipped, else unversioned; switch escalates"
+  - id: product-strategy
+    trigger: "Naming a segment, wedge, positioning claim, ship sequence, or steering success metric"
+    considerations: "Segment pain, today's alternative, falsifiable premise, non-goals, metric"
+    disposition: "Escalate: the agent frames options and evidence, the human picks the identity"
+  - id: packaging-pricing
+    trigger: "Tiers, entitlements, quotas, metering basis, free/trial boundary, or the price metric"
+    considerations: "Value metric and honest metering, tier fence, WTP evidence grade, migration"
+    disposition: "Always escalated: a published price is a near one-way business commitment"
+  - id: knowledge-engineering
+    trigger: "Encoding domain knowledge: taxonomy, vocabulary, rules engine, canonical entity model"
+    considerations: "Domain authority, ground truth, drift, expert-disputed edges, term versioning"
+    disposition: "Escalate: the model outlives the feature; stored data is written in its terms"
+  - id: org-design
+    trigger: "Who owns a surface, an on-call or escalation path, a handoff, or a required approver"
+    considerations: "Named accountability, org vs system boundary, cost to non-choosers, absence"
+    disposition: "Always escalated, never inferred: assigning work to people is human authority"
+  - id: ip-posture
+    trigger: "Licensing, publishing, ingesting third-party or generated content, naming"
+    considerations: "Input provenance, license composition, what disclosure forecloses, trademark"
+    disposition: "Always escalated: a legal posture, not engineering taste; high rot, re-verify"
+  - id: llm-output-quality
+    trigger: "Making model output load-bearing, or setting/moving its acceptance gate"
+    considerations: "Definition of correct, held-out eval set, pre-committed gate, non-determinism"
+    disposition: "Behind a passing gate proceeds; introducing or moving the gate escalates"
+  - id: human-comprehension
+    trigger: "A generated artifact a human reads, or any new human-facing presentation surface"
+    considerations: "Reader and context, above-the-fold vs disclosure, reader-not-writer format"
+    disposition: "By convention proceeds; a novel human-read surface escalates and researches first"
+  - id: existing-seam-reuse
+    trigger: "Minting a new mechanism for something a core planwright seam already covers"
+    considerations: "Nearest core seam (the prose entry names them all), what it lacks, mint cost"
+    disposition: "Reuse by default; minting needs a note naming the seam and why it misfits"

@@ -5,17 +5,24 @@ failure mode is not ignorance but failing to stop and apply it at the
 moment a decision is being made. This catalog turns that judgment into
 triggers: an extensible, data-driven list of stake-bearing decision
 domains, each entry naming what signals the domain, the questions a
-principal engineer asks before deciding, and what the agent does with the
-answer. It is the trigger list behind the no-flattening rule in
+senior practitioner of that domain asks before deciding, and what the agent
+does with the answer. It is the trigger list behind the no-flattening rule in
 [engineering-decisions.md](engineering-decisions.md).
 
-Citations: REQ-G1.8, REQ-G1.4 · D-39, D-16.
+The catalog spans engineering and non-engineering domains. Engineering
+entries ask what a principal engineer asks; product-strategy, pricing,
+domain-knowledge, org-design, and IP entries ask what a senior practitioner
+of *that* discipline asks, and most of them escalate rather than recommend,
+because the call belongs to a human authority the agent cannot stand in for.
+
+Citations: REQ-G1.8, REQ-G1.4 · D-39, D-16 · inception REQ-I1.2 ·
+inception D-17.
 
 ## Entry format
 
 The prose entries below are the catalog's normative home. Their machine view
 for overlay merging is [`config/decision-domains.yaml`](../config/decision-domains.yaml)
-(the eleven seed domains keyed by stable id), the core seed
+(the seed domains below, keyed by stable id), the core seed
 [`scripts/resolve-catalog.sh`](../scripts/resolve-catalog.sh) unions with
 adopter / team / machine-local overlays — see *Growth and adopter extension*.
 The doc/yaml split mirrors [guard-catalog.md](guard-catalog.md) /
@@ -261,3 +268,148 @@ paths:
   which SemVer signals and CalVer does not — while the author's
   continuously-shipped application repo uses CalVer, the same heuristic
   landing on the opposite answer for the opposite artifact type.
+
+### 12. Product strategy
+
+- **Trigger.** Naming a segment, choosing the problem or wedge to enter on,
+  setting a positioning claim, sequencing what ships first, or declaring the
+  success metric the work is steered by.
+- **Considerations.** Which segment feels this sharply enough to change
+  behavior; what their alternative today (including doing nothing) already
+  gives them; what would have to be true, stated falsifiably per
+  [evidence-quality.md](evidence-quality.md); what is deliberately *not*
+  being built; which metric moves if this is right, and which if it is
+  wrong.
+- **Disposition.** Escalate. The agent frames the options and their
+  evidence; it does not pick the segment, the wedge, or the positioning —
+  those are the venture's identity, not an implementation detail. A brief
+  that already records the call is cited and proceeds.
+
+### 13. Packaging & pricing
+
+- **Trigger.** Introducing or changing how value is packaged and charged
+  for: tiers, entitlements, quotas, seat-versus-usage metering, a free-tier
+  or trial boundary, or the metric the price attaches to.
+- **Considerations.** The value metric (what the customer consumes more of
+  as they get more value) and whether the system can meter it honestly; the
+  fence between tiers and what enforces it in code; the grade of the
+  willingness-to-pay evidence ([evidence-quality.md](evidence-quality.md))
+  versus a number someone liked; grandfathering; the entitlement checks the
+  change silently creates downstream.
+- **Disposition.** Always escalated: a published price is a contractual and
+  reputational commitment close to a one-way door. The agent may model the
+  options and name the metering required; the human sets the number and the
+  fence.
+
+### 14. Domain & knowledge engineering
+
+- **Trigger.** Encoding domain knowledge durably: a taxonomy or ontology, a
+  controlled vocabulary, an eligibility or rules engine, a canonical entity
+  model, a glossary the code and the prose both key on.
+- **Considerations.** Who the domain authority is, and whether they have
+  seen the encoding; where ground truth lives and how the encoding drifts
+  from it; the edges the experts themselves dispute; whether the model is
+  descriptive (records what practitioners do) or prescriptive (tells them
+  what to do), which changes who owns it; what happens to stored data when a
+  term's meaning changes.
+- **Disposition.** Escalate. A domain model outlives the feature that
+  introduced it — the same reason data storage escalates — and downstream
+  data is already written in its terms, so a mis-encoding is expensive to
+  unwind. The agent drafts and names the ambiguities; a domain authority
+  ratifies.
+
+### 15. Organization design
+
+- **Trigger.** Deciding who does the work and how it is divided: which team
+  or role owns a surface, an on-call or escalation path, a cross-discipline
+  handoff, a decision-rights assignment, or a process step that adds a
+  required human.
+- **Considerations.** Who is accountable versus consulted versus informed,
+  named rather than implied; whether the org boundary matches the system
+  boundary (a handoff cutting across a module buys coordination cost
+  forever); what the arrangement costs the people who did not choose it;
+  whether the added step is the smallest one that closes the gap.
+- **Disposition.** Always escalated, never inferred: assigning work to
+  people is human authority no technical justification overrides. The agent
+  may surface a boundary's coordination cost and propose alternatives; it
+  never assigns an owner, an on-call, or an approver.
+
+### 16. IP posture
+
+- **Trigger.** Affecting what is owned, disclosed, or licensed: choosing or
+  changing an outbound license, publishing something previously private,
+  ingesting third-party or model-generated content whose provenance matters,
+  naming or branding an artifact.
+- **Considerations.** Provenance of every input, and whether its license
+  permits this use *and* this distribution; whether the outbound obligations
+  compose with the inbound ones; what disclosure forecloses (publication can
+  bar a patent; a public repo cannot be un-published); confidentiality
+  obligations already in force; trademark collision.
+- **Disposition.** Always escalated: a legal posture, not an engineering
+  preference, and the agent is not a source of legal advice. It gathers the
+  provenance facts and states the question precisely so a human — with
+  counsel where the stake warrants — decides. High rot: re-verify licenses
+  and platform terms against current text, never model memory
+  ([research-rigor.md](research-rigor.md)).
+
+### 17. LLM output quality & evaluation gates
+
+- **Trigger.** Making model output load-bearing: adding a generation,
+  extraction, classification, or judging step something downstream depends
+  on; setting its acceptance bar; or changing a prompt, model, or retrieval
+  path already sitting under one.
+- **Considerations.** What "correct" means here, and whether it is checkable
+  mechanically or only by a human read; the eval set — held-out, versioned,
+  representative, not the examples the prompt was written against; the gate
+  (a scored threshold, a qualified-response set, a criterion-by-criterion
+  read), pre-committed rather than fitted after; non-determinism, and how
+  many samples the number rests on; who re-runs it when the model version
+  moves underneath.
+- **Disposition.** A step behind an existing, passing gate proceeds.
+  Introducing the gate, moving its threshold, or making model output
+  load-bearing where it was not escalates: the acceptance bar is a product
+  judgment about tolerable wrongness, not a tuning constant. A load-bearing
+  LLM step with no eval set is a finding, not a feature.
+
+### 18. Human comprehension & information UX
+
+- **Trigger.** Rendering, presenting, or visualizing information for a human
+  reader: a generated artifact someone reads (a PR body, a report, a
+  rendered view, a status line, a walkthrough), or any new human-facing
+  presentation surface.
+- **Considerations.** Who reads this, with how much context, under what time
+  pressure; what belongs above the fold versus behind progressive
+  disclosure; whether the format serves the reader or the writer (a flat
+  dump, hard-wrapped machine output, or an unsummarized log serves the
+  writer); prior art from fields where a misread is expensive; the
+  comprehension evidence behind the presentation rather than taste;
+  accessibility.
+- **Disposition.** Rendering along an existing convention proceeds. A novel
+  human-read surface — and any surface where the presentation *is* the
+  product — escalates, and researches first per
+  [research-rigor.md](research-rigor.md): the research trigger fires here
+  even when no code-shaped risk does. Reviewing the artifact itself selects
+  lenses by artifact class ([artifact-lenses.md](artifact-lenses.md)).
+
+### 19. Existing-seam reuse
+
+- **Trigger.** Minting a new mechanism — a config path, a state store, an
+  extension point, a dispatch path, a notification channel, a deferral
+  list — for something a core seam already covers.
+- **Considerations.** Which core seam is nearest: the **four-layer overlay**
+  behind config, doctrine, and catalog resolution; the **config-knob seam**
+  (`config/defaults.yml` plus the knob's options-reference row); the
+  **catalog seam** (this catalog and the guard catalog); the **rule-doc
+  seam** (law resolved by basename); the **execution-backend seam**; the
+  **attention / notification seam**; the **accumulator seam** (observation
+  fragments and `GATE(when:)` deferrals); and the **machine-local state
+  home** (`CLAUDE_PLUGIN_DATA`). Each has its own doc in
+  [README.md](README.md). Then: what does that seam not do; is that a
+  missing capability *in* it (extend) or a different concern (mint, and say
+  why); what does a parallel mechanism cost every later change that now has
+  two places to look.
+- **Disposition.** Reuse is the default; extending a seam proceeds. Minting
+  is the exception, and proceeds only with a recorded note naming the
+  nearest seam and why it does not fit — in the spec's design decision, or
+  in the kickoff brief's risk register when it surfaces mid-execution.
+  Minting a parallel seam without that record is a finding.

@@ -393,3 +393,25 @@ Class: meaning
 Lens-pass: panel pass iter 2 (gemini); model confirmed sound, defensive-tail findings validated and dispositioned above
 Anchor: `23c587e30863b4a8614c9ac65745f0143cec4860` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`c6bd51b`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `dfcf35014c58620b9b0a2f954c57bb3a135add0b` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`

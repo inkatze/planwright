@@ -75,14 +75,14 @@
 #     stamp ever changes the anchor.
 #   * Bundle Status reconcile (kickoff-lifecycle Task 6): the bundle `**Status:**`
 #     header (distinct from the task-level `- **Status:**` annotations above) is
-#     derived and rewritten across the four files by do_status. CAVEAT: that
-#     header is NOT yet anchor-excluded (spec-anchor.sh hashes requirements.md /
-#     design.md / test-spec.md whole), so a derived Ready->Active flip DOES change
-#     the anchor today. This is inert until kickoff-lifecycle Task 3 ships the
-#     Draft->Ready producer (no bundle is Ready before then, and a currently-Active
-#     bundle with progress derives Active = a no-op). The required follow-up before
-#     Task 3 — exclude the bundle Status header from the anchor + a re-anchor
-#     migration — is logged in specs/_observations/opportunities.md (2026-06-29).
+#     derived and rewritten across the four files by do_status. That header IS
+#     anchor-excluded: spec-anchor.sh hashes requirements.md / design.md /
+#     test-spec.md minus their header-block `**Status:**` line (anchor-integrity
+#     D-2, REQ-A1.1), and tasks.md's header is outside the canonical extraction
+#     already, so a derived Ready<->Active flip and its three header mirrors
+#     leave the anchor where it was. The earlier caveat here — that the flip
+#     moved the anchor and needed a re-anchor migration before the Draft->Ready
+#     producer shipped — is discharged by that change and its paired sweep.
 #
 # Version keying (invariant-tasks D-7; REQ-C1.1, REQ-C1.8): everything above
 # describes format-version 1 bundles. Before any write, the write path

@@ -287,3 +287,25 @@ Class: expression-only
 Changelog: requirements.md 2026-07-17 "Post-sign-off lint fix (pre-merge, expression-only)" entry
 Anchor: `82446f907709532272d872f1a2cbaeeebd55d398` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`938cf85`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `ab0743353010d2d95755f5180fab02461b2d4128` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`

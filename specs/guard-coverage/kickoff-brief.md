@@ -250,6 +250,108 @@ push of a task branch falls through to the permission prompt. Recorded
 as a fixture row, not fixed: widening an allow list is a permissions
 widening that needs sign-off, and it is not a Task 1 deliverable.
 
+### Audit record — fork-PR isolation (Task 4, REQ-C1.1, D-6, risk row 5)
+
+Appended 2026-08-18 during Task 4 execution. REQ-C1.1 requires the
+`pull_request` execution path to be audited over permissions, secret
+references, cache poisoning, and artifact writes, with the conclusion
+stated against D-6 and a falsifying finding surfaced as a design
+amendment rather than absorbed.
+
+**Surface audited.** Four tracked workflows, at
+`e674424` (`origin/main`). `pull_request`-reachable: `ci.yml`
+(`pull_request` + `push[main]`), `release-window.yml` (`pull_request`
++ `merge_group` + `push[main]`), `test-timing.yml`
+(`pull_request[labeled]` + `workflow_dispatch`). Not reachable from
+`pull_request`: `release-please.yml` (`workflow_run` on `ci`,
+`branches: [main]`). No reusable-workflow `uses:` calls exist, so the
+reachable set is the three files above and nothing else.
+
+**Permissions.** All four declare a top-level `permissions:` block and
+none overrides it at job level. The three `pull_request`-reachable
+workflows are `contents: read` — read-only effective permissions on
+every reachable job. `release-please.yml` alone holds write
+(`contents: write`, `pull-requests: write`), and it is not
+`pull_request`-reachable. No `pull_request_target` anywhere.
+
+**Secret references.** Exactly one secret reference exists in the tree:
+`secrets.GITHUB_TOKEN` in `release-please.yml`, the exempt case (not a
+stored secret; its privilege is bounded by that workflow's declared
+permissions). Zero stored secrets, zero `secrets: inherit`. The
+`ci.yml` `npm install -g @anthropic-ai/claude-code@…` step needs no
+credential — `claude plugin validate` is a purely local schema check.
+
+**Cache poisoning.** No workflow uses `actions/cache` directly;
+`jdx/mise-action` caches the pinned toolchain internally, on `ci.yml`
+and `test-timing.yml` — both `pull_request`-reachable. GitHub's own
+cache scoping bounds this: a PR run (fork PRs included) may READ the
+default/base-branch scope but cannot WRITE into it, so a PR cannot
+plant an entry a later `main` run restores. No standing check, per
+D-6's accepted residual; re-audit if an explicit cache action lands.
+
+**Artifact writes.** `test-timing.yml` uploads `test-timing-report`
+from a `pull_request[labeled]` run — the one PR-produced artifact in
+the tree. No workflow downloads any artifact, so there is no
+PR-artifact → privileged-consumer chain. `check:workflow-posture`
+asserts that half continuously (assertion 4).
+
+**Sharpening, not a falsification — the `workflow_run` base-branch
+filter is necessary but not sufficient on its own.** A `workflow_run`
+`branches:` filter matches the TRIGGERING run's head branch, and for a
+`pull_request` run that is the PR's head ref (verified directly against
+this repo's own `actions/runs` API: every `pull_request` run reports
+`head_branch` as the head ref, never `main`). A fork whose PR head
+branch is literally named `main` therefore satisfies both
+`branches: [main]` and `release-please.yml`'s
+`workflow_run.head_branch == 'main'` guard, and `workflow_run` does
+fire for fork-PR-triggered runs with the base repo's write token.
+Impact here is bounded and does not falsify D-6: the job runs
+`release-please-action` against the API only — no checkout of PR code,
+no artifact download, no PR-derived input — so no PR-authored content
+reaches the privileged context, and the worst case is an idempotent
+early refresh of the standing release PR. D-6's premise (PR-authored
+code never executes with a write token or a stored secret) holds. The
+load-bearing control is the pairing D-6 already specifies: the filter
+AND consuming no PR-produced artifact.
+
+**Recommended hardening, surfaced not applied** (Task 4 ships the audit
+and the check; editing CI config is a hard-disqualifier change and
+`release-please.yml` is out of this task's deliverables): add
+`github.event.workflow_run.head_repository.full_name ==
+github.repository` to `release-please.yml`'s job `if:`, which closes
+the fork-branch-named-`main` path outright. Not added to
+`check:workflow-posture` as a fifth assertion: REQ-C1.2 enumerates
+four, and a fifth would fail the repo's current `main` rather than
+guard it. Recorded as an observation for `/spec-draft`.
+
+**Conclusion against D-6: affirmed.** The audit confirms
+safe-by-construction — read-only tokens and zero stored secrets on
+every `pull_request`-reachable job, no `pull_request_target`, cache
+poisoning bounded by GitHub's branch scoping, and no privileged
+consumer of any PR-produced artifact. No reopening; the
+isolated-runner direction stays out of scope. Risk row 5 resolves as
+non-falsifying, with the caveat above recorded.
+
+**Sources consulted.** `docs.github.com` — "Events that trigger
+workflows" (`workflow_run` semantics: base-repo secrets and write
+token when triggered by a fork PR's workflow; `branches`/
+`branches-ignore` filter on the triggering run's branch; the cache
+poisoning / write-privilege warning; `pull_request_target` base-branch
+context); "Workflow syntax" `jobs.<job_id>.permissions` (the scope
+enum, the `read`/`write`/`none` levels, the `read-all`/`write-all`/
+`{}` shorthands, and that an omitted `permissions:` falls back to
+enterprise/org/repo settings — the basis for failing closed on an
+undeclared declaration); "Reuse workflows" (a called workflow's
+GITHUB_TOKEN permissions are maintained or reduced, never elevated;
+`secrets: inherit` semantics and non-propagation through nested
+chains; local `./…` vs `owner/repo/…@ref` call syntax — the basis for
+not fetching remote callees); "Dependency caching reference" (PR
+branches read the base/default scope but cannot write it). GitHub
+Security Lab, "Preventing pwn requests" (the artifact-handoff pattern
+and why a privileged `workflow_run` must not check out PR code).
+Empirical: this repo's `actions/runs` API for the `head_branch`
+verification above.
+
 ## 8. Sign-off — lens review pass
 
 **Scope:** full bundle (first activation). **Method:** parallel fan-out,
@@ -338,4 +440,26 @@ commit. No accepted decision changed.
 
 Class: expression-only
 Anchor: `261f6f5cdb091b3c2622ac1159a49ea62b0be441` — computed as
+`scripts/spec-anchor.sh specs/guard-coverage`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`5953cd2`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `aa241eaa6838840d98284d74bc1b387c1dff23e1` — computed as
 `scripts/spec-anchor.sh specs/guard-coverage`
