@@ -71,14 +71,19 @@ lacks() {
 
 # write_bundle <dir> [extra-tasks-content] — a minimal four-file bundle. The
 # optional second argument is appended to tasks.md verbatim.
+#
+# Each of the three whole-content files carries body content after its header
+# block: a block that runs to end of file with no body after it is malformed
+# input the anchor refuses (anchor-integrity REQ-A1.2), so a header-only stub
+# is not a usable fixture.
 write_bundle() {
   wb_dir=$1
   mkdir -p "$wb_dir"
-  printf '# Fixture — Requirements\n\n**Status:** Ready\n**Format-version:** 2\n' \
+  printf '# Fixture — Requirements\n\n**Status:** Ready\n**Format-version:** 2\n\n## Goal\n\nA requirement body.\n' \
     >"$wb_dir/requirements.md"
-  printf '# Fixture — Design\n\n**Status:** Ready\n**Format-version:** 2\n' \
+  printf '# Fixture — Design\n\n**Status:** Ready\n**Format-version:** 2\n\n## D-1\n\nA design body.\n' \
     >"$wb_dir/design.md"
-  printf '# Fixture — Test Spec\n\n**Status:** Ready\n**Format-version:** 2\n' \
+  printf '# Fixture — Test Spec\n\n**Status:** Ready\n**Format-version:** 2\n\n## REQ-X1.1\n\nA test-spec body.\n' \
     >"$wb_dir/test-spec.md"
   {
     printf '# Fixture — Tasks\n\n**Status:** Ready\n**Format-version:** 2\n\n'

@@ -90,6 +90,39 @@ core doctrine beside its own script. See
   the `planwright/` namespace is removed, and shipped skills/commands are
   re-copied by the next run.
 
+#### One-time: re-anchor bundles signed before the anchor-scope change
+
+Each spec bundle's kickoff brief records a **content anchor**, and the
+execution freshness gate halts when it no longer recomputes. The anchor's scope
+narrowed once: the per-file digests now exclude the header block's
+`**Status:**` line, so a lifecycle flip stops false-halting the gate. Bundles
+signed off before that change — and any bundle whose entry uses the interim
+whole-file `git hash-object` form — hash a scope the current tool no longer
+computes, so they halt on content nobody edited. planwright's own bundles were
+swept when the change landed; yours need the same repair, once.
+
+It is not a blind re-record, because a bare one would launder a real edit as if
+it were the scope change. For each halting bundle:
+
+1. Find the commit that introduced the brief's most recent `Anchor:` line and
+   diff the bundle's **anchored** content from there to now (header `Status:`
+   lines and `tasks.md` state annotations and block placement are excluded, so
+   a diff confined to those counts as no change at all).
+2. **Nothing but excluded content, or an expression-only edit** (a typo, a
+   rewrap, a changelog line): append the machine `Class: expression-only`
+   re-anchor entry to the brief's amendment log, citing the changelog line for
+   the delta that actually moved the anchor. The amendment logs under
+   `specs/*/kickoff-brief.md` in this repo are worked examples of the format.
+3. **A meaning edit, or a delta you cannot confidently classify:** re-review
+   instead. Run a `/spec-kickoff` delta re-walkthrough for a `Ready` or
+   `Active` bundle; use the reopen cycle for a `Done` one. The gate stays
+   failed closed for that bundle until the re-review signs it off, which is the
+   intended outcome — an unreviewed meaning edit must not ride a mechanical
+   sweep.
+
+The rule and the halt guidance live in
+[`doctrine/spec-format.md`](../doctrine/spec-format.md), *Execution validity*.
+
 ## 2. The GitHub requirement, and what happens without it
 
 v1 targets **GitHub through the `gh` CLI** for pull-request operations (D-35,

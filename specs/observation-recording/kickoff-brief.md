@@ -378,3 +378,25 @@ Lens-pass: recorded in this entry (the two gauntlet passes over this
 delta, all findings dispositioned 2026-07-08).
 Anchor: `b45ea8b01adfec1b983afbb5a62115ce5d49a538` — computed as
 `scripts/spec-anchor.sh specs/observation-recording`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`1af51af`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `41bf136e2db3b9536ed54bf6c0dbd3a87d2cc09b` — computed as
+`scripts/spec-anchor.sh specs/observation-recording`

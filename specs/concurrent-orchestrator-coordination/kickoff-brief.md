@@ -887,3 +887,27 @@ timestamp** and promotes only after ≥ one heartbeat interval. **Iteration 3** 
 lenses `none`, converged. All applied, none deferred, none a safety bug; the origin-fence
 correctness floor was untouched throughout. Fresh anchor supersedes df12da9 as the freshness-gate authority.
 Anchor: 2b74f2628324d895a0726bcb14b6aa0a47bf6374 (`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`)
+
+## 9. Amendment log
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`5140d2a`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `1e39e3a3d4813a6239947fc25c63ebc3ca7d3c36` — computed as
+`scripts/spec-anchor.sh specs/concurrent-orchestrator-coordination`
