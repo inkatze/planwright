@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.34.0](https://github.com/inkatze/planwright/compare/v0.33.0...v0.34.0) (2026-08-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **anchor:** an anchor recorded before this change no longer recomputes. Adopter bundles need the one-time self-re-anchor documented in docs/getting-started.md and doctrine/spec-format.md (Execution validity): classify the anchored-content delta first, then take the machine expression-only entry or, for a meaning-class delta, the re-review ritual the bundle status admits.
+
+### Features
+
+* **anchor:** narrow the content anchor and re-anchor every bundle (anchor-integrity tasks 2+3) ([#344](https://github.com/inkatze/planwright/issues/344)) ([eedad48](https://github.com/inkatze/planwright/commit/eedad48d46ae1999f36cda01e05dbafab6869dd4))
+* **guard:** pin the fork-PR posture with a workflow-posture check ([#346](https://github.com/inkatze/planwright/issues/346)) ([731def5](https://github.com/inkatze/planwright/commit/731def53fa2a4525a957c255f0a518ceae4c5112))
+* **inception:** domain, lens, evidence, and storage-class doctrine (task 3) ([#345](https://github.com/inkatze/planwright/issues/345)) ([b78ea4e](https://github.com/inkatze/planwright/commit/b78ea4ed9ba138b3b25dd66dce7a030c51cc21d2))
+* **spec-parse:** grammar-keyed parser and validator landing (task 6) ([#350](https://github.com/inkatze/planwright/issues/350)) ([1bd20ee](https://github.com/inkatze/planwright/commit/1bd20eeb905bec807c98068ae848faaf488cc23d))
+* **spec:** fleet-lifecycle-closure kickoff sign-off ([#347](https://github.com/inkatze/planwright/issues/347)) ([db55986](https://github.com/inkatze/planwright/commit/db5598686d9a1068b59414239d4a662bf4be9ff4))
+
 ## [0.33.0](https://github.com/inkatze/planwright/compare/v0.32.1...v0.33.0) (2026-07-30)
 
 
