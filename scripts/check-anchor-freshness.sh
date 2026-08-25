@@ -113,9 +113,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$specs_root" ] || specs_root="$repo_root/specs"
+# Keep the value as the caller gave it for diagnostics. The strip below empties
+# a path that is nothing but slashes, and the sanitizer renders an empty string
+# as "(unprintable path)" — which would report a perfectly printable `/` as
+# unprintable and name nothing the caller typed.
+specs_root_given=$specs_root
 while [ "$specs_root" != "${specs_root%/}" ]; do specs_root=${specs_root%/}; done
 if [ ! -d "$specs_root" ]; then
-  printf '%s\n' "check-anchor-freshness: not a directory: $(spec_parse_printable "$specs_root")" >&2
+  printf '%s\n' "check-anchor-freshness: not a directory: $(spec_parse_printable "$specs_root_given")" >&2
   exit 2
 fi
 specs_root=$(cd "$specs_root" && pwd -P) || exit 2
