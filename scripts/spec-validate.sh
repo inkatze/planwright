@@ -483,6 +483,12 @@ parse_tasks() {
       # parenthetical is for — so only what follows the close is a lost local
       # dep. An unclosed qualifier has no interior to protect (the sub finds no
       # close and leaves the tail whole), so everything after the open counts.
+      #
+      # Known bound, deliberate: one step, not a depth scan. A second or nested
+      # qualifier can still put an id in scanning range and draw a spurious
+      # warning. No in-repo bundle carries either shape, and this is a warning
+      # over a line the extraction has already truncated, so the depth counter
+      # that would close the gap costs more than the gap does (pinned below).
       sub(/^[^)]*\)/, "", tail)
       gsub(/[,;]/, " ", tail)
       n = split(tail, a, " ")
@@ -490,7 +496,7 @@ parse_tasks() {
         tok = a[i]
         sub(/\.+$/, "", tok)
         if (spec_parse_is_task_id(tok)) {
-          printf "F\tgap\tTask %s dependency %s at tasks.md:%d is written after a parenthetical and is dropped from the task graph (put the qualifier last)\n", cur, tok, NR
+          printf "F\tgap\tTask %s dependency %s at tasks.md:%d falls after a parenthetical, which swallows the rest of the line: the edge is dropped from the task graph\n", cur, tok, NR
           return
         }
       }

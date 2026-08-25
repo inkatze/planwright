@@ -718,6 +718,25 @@ run_v 0 "$root/fixture"
 has "after a parenthetical"
 has "dependency 2"
 
+# Known bound, pinned rather than fixed: the scan steps past ONE closing paren,
+# so a second or nested qualifier can still put an id in range and draw a
+# spurious warning. No in-repo bundle carries either shape. This test exists to
+# make the bound visible — if it starts failing, the scan learned to count
+# depth and the warning below is no longer expected.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Second qualifier holds a spaced id
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (foo) ( 2 )
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+has "after a parenthetical"
+
 # Duplicate task ids are rejected even on Draft (the anchor extraction
 # fails closed on them too).
 write_bundle "$root/fixture" Draft
