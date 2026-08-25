@@ -467,6 +467,26 @@ for dir in "$specs_root"/*/; do
     continue
   fi
 
+  # Every sanctioned form recomputes over the same four files, so a bundle
+  # missing one cannot be recomputed by any of them. Name that cause here, once
+  # for all forms: the script forms already fail closed, but the interim
+  # whole-file form is a pipeline whose status comes from its last stage, so it
+  # would hash the survivors and report a confident mismatch — blaming the
+  # anchor for a missing file, the misdiagnosis the identifier screen above
+  # exists to prevent.
+  missing_file=
+  for f in requirements.md design.md tasks.md test-spec.md; do
+    [ -f "$dir/$f" ] || {
+      missing_file=$f
+      break
+    }
+  done
+  if [ -n "$missing_file" ]; then
+    say_error "$name" \
+      "the bundle is missing $missing_file, so no recorded command can recompute its anchor — remedy: restore the file"
+    continue
+  fi
+
   parked=no
   parked_marker "$dir/tasks.md" && parked=yes
 

@@ -22,7 +22,9 @@
 #   5. Every sanctioned form accepted (REQ-D1.1, REQ-F1.1): the canonical
 #      repo-relative form, the resolution-aware logical form, and the interim
 #      whole-file form each recompute; a sanctioned form that resolves to
-#      nothing is the fail-closed absent-anchor-class error.
+#      nothing is the fail-closed absent-anchor-class error; and a bundle
+#      missing one of the four files names that cause rather than reporting a
+#      mismatch against an anchor computed over the survivors.
 #   6. Skip semantics (REQ-D1.4): Draft, Retired, and Superseded bundles are
 #      notices and keep the run green; a brief-less Ready bundle is an error
 #      naming the repair remedy.
@@ -338,6 +340,23 @@ OUT=$(PLANWRIGHT_ROOT="$tmp/nowhere" CLAUDE_PLUGIN_ROOT="$tmp/nowhere" CLAUDE_DI
   "$f5b/scripts/check-anchor-freshness.sh" "$f5b/specs" 2>&1) || RC=$?
 assert_rc "an unresolvable sanctioned form fails closed" 1
 assert_has "the unresolvable record names the absent-anchor class" "absent-anchor"
+
+# A bundle missing one of the four files cannot be recomputed by ANY sanctioned
+# form, so the record must name that — not blame the anchor. The script forms
+# already fail closed; the interim whole-file form is a pipeline whose status
+# comes from its last stage, so without a guard it hashes the surviving files
+# and reports a confident mismatch over a bundle that is simply incomplete.
+f5c="$tmp/f5c/specs"
+mkdir -p "$f5c"
+make_bundle "$f5c" incomplete Ready 'A requirement body.'
+incomplete_hash=$(cd "$f5c/incomplete" && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin)
+write_entry "$f5c" incomplete "$incomplete_hash" \
+  "git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin"
+rm -f "$f5c/incomplete/design.md"
+run_guard "$f5c"
+assert_rc "an incomplete bundle fails the guard" 1
+assert_has "the record names the missing file" "design.md"
+assert_lacks "it does not misreport an incomplete bundle as an anchor mismatch" "anchor mismatch"
 
 ########################################################################
 # 6. Skip semantics and the brief-less error
