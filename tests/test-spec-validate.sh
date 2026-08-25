@@ -1735,6 +1735,24 @@ EOF
 run_v 1 --baseline HEAD "$repo6/specs"
 has "Task 7 renumbered or removed"
 
+# A citation split across a hard wrap still authorizes: changelog entries are
+# prose wrapped by hand, so `Task` and its id land on separate lines sooner or
+# later. The escape reads the whole dated entry, not one line of it — otherwise
+# a correctly-written entry is rejected purely for where the author wrapped, and
+# the remedy message names the exact text already sitting in the file.
+retire '- 2026-06-13 — retired as redundant, folded into Task\
+  7 during the cleanup.'
+run_v 0 --baseline HEAD "$repo6/specs"
+has "0 error(s), 0 warning(s)"
+
+# The wrap tolerance does not reach across entries: a dated entry ending in
+# `Task` and a SEPARATE later bullet starting with the id is two records, not a
+# citation, so joining them would invent an authorization nobody wrote.
+retire '- 2026-06-13 — nothing to do with Task\
+- 2026-06-14 — 7 stale references dropped.'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
 # --- 27. Baseline-side fence-awareness (REQ-C1.2) ---
 # The baseline half of the stable-ID check parses the same grammar as the
 # current half. If only one side were fence-aware they would disagree about
@@ -1775,6 +1793,41 @@ lacks "REQ-X9.9 renumbered or removed"
 lacks "D-9 renumbered or removed"
 lacks "Task 9 renumbered or removed"
 has "0 error(s), 0 warning(s)"
+
+# --- 28. An UNBALANCED baseline fence never hides a removal (REQ-C1.2, REQ-D1.11) ---
+# Fence-stripping the baseline (27) must not become the fail-OPEN direction of
+# the same guard. `defence` on an unbalanced source emits only what sits above
+# the open fence, and the REQ-D1.11 flag reads the working tree, not the git
+# object — so an unbalanced BASELINE would drop ids from the comparison with
+# nothing to explain the silence, and a genuinely removed id would pass. The
+# baseline is balance-checked in its own right and falls back to the raw blob.
+repo8="$tmp/repo8"
+mkdir -p "$repo8"
+git -C "$repo8" init -q
+write_bundle "$repo8/specs/myspec" Active
+# The baseline: a fence opened and never closed, with a REAL task below it.
+cat >>"$repo8/specs/myspec/tasks.md" <<'EOF'
+
+Someone opened a fence and forgot to close it:
+
+```
+
+### Task 7 — Build the gadget
+
+- **Deliverables:** A gadget.
+- **Done when:** The gadget exists.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-X1.2
+- **Estimated effort:** half day
+EOF
+git -C "$repo8" add -A
+git -C "$repo8" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+# The current revision closes the fence and drops Task 7 with no retirement
+# entry: a stable-ID violation the fence-stripped baseline would not have seen.
+write_bundle "$repo8/specs/myspec" Active
+run_v 1 --baseline HEAD "$repo8/specs"
+has "Task 7 renumbered or removed"
+has "unclosed column-0 code fence"
 
 # --- usage errors ---
 run_v 2

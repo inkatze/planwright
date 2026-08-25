@@ -316,6 +316,34 @@ defence() {
   fi
 }
 
+# debaseline <blob> <file-label> — the BASELINE half of a stable-ID diff, fence
+# -stripped to match the current half (REQ-C1.2) without inheriting defence's
+# truncation as a fail-open.
+#
+# The safety the comment above rests on is the REQ-D1.11 flag, and that flag
+# reads the working tree — never the git object a baseline comes from. So a
+# baseline whose fence is unbalanced would be stripped down to whatever sat
+# above the fence, silently, and every id below it would read as "never defined
+# at the baseline" rather than as removed. On a guard whose entire job is
+# catching removals that is the fail-open direction, and it is invisible: the
+# current file can be perfectly well-formed while the comparison quietly runs on
+# a fraction of the baseline.
+#
+# So the baseline is balance-checked in its own right, and on imbalance the
+# comparison falls back to the RAW blob. Over-reporting (a fenced mock id read
+# as removed) is the fail-closed error and the accompanying finding names the
+# revision that is actually malformed, so the author is never left guessing
+# which side of the diff to fix.
+debaseline() {
+  if printf '%s\n' "$1" | spec_parse_fence_balance - >/dev/null 2>&1; then
+    printf '%s\n' "$1" | defence -
+    return 0
+  fi
+  printf 'gap\t%s: unclosed column-0 code fence in the %s baseline (its ids are compared unstripped, so a fenced mock id there may read as removed)\n' \
+    "$2" "$baseline" >>"$fnd"
+  printf '%s\n' "$1"
+}
+
 # Parse requirements.md REQ blocks. Tagged tab-separated output:
 #   F <tab> gap|hard <tab> message     — a finding
 #   ALL <tab> id                       — every defined REQ-ID
@@ -579,22 +607,40 @@ set_in() {
 # is part of a dated `- <YYYY-MM-DD> …` bullet (entries span lines and the id
 # often sits on a continuation), tokenizes on non-id characters, and compares
 # exactly, so a sentence-final "Task 7." matches while "Task 70" does not.
+#
+# Where it must NOT mirror the sibling: this citation is two tokens, and the
+# sibling's is one. A REQ id survives any wrap because it is a single word, but
+# `Task <id>` straddles one whenever the wrap lands between them — and changelog
+# prose here is hand-wrapped, so that is a matter of time, not of malice. So the
+# scan runs over the whole dated entry joined into one buffer rather than over
+# each line, and the accumulation stops at the next bullet: joining across
+# entries would let a trailing "Task" in one and a leading id in the next invent
+# an authorization neither records.
 task_retirement_named() {
   printf '%s\n' "$clog" | awk -v id="$1" '
-    /^- / { dated = ($0 ~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/) }
-    dated {
-      line = $0
-      gsub(/[^A-Za-z0-9.]/, " ", line)
-      n = split(line, t, " ")
+    function names_id(buf,   n, t, i, tok) {
+      gsub(/[^A-Za-z0-9.]/, " ", buf)
+      n = split(buf, t, " ")
       for (i = 1; i < n; i++) {
         if (t[i] != "Task") continue
         tok = t[i + 1]
         sub(/\.$/, "", tok)
         if (tok !~ /^[0-9]+(\.[0-9]+)?$/) continue
-        if (tok == id) { found = 1; exit }
+        if (tok == id) return 1
       }
+      return 0
     }
-    END { exit(found ? 0 : 1) }
+    /^- / {
+      if (dated && names_id(entry)) { found = 1; exit }
+      dated = ($0 ~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)
+      entry = dated ? $0 : ""
+      next
+    }
+    dated { entry = entry " " $0 }
+    END {
+      if (!found && dated && names_id(entry)) found = 1
+      exit(found ? 0 : 1)
+    }
   '
 }
 
@@ -668,7 +714,7 @@ baseline_checks() {
     # Fence-stripped before the id sweep (REQ-C1.2): both halves of the
     # stable-ID diff have to parse the same grammar, or a fenced mock id
     # present in BOTH revisions reads as an id that vanished.
-    old_ids=$(printf '%s\n' "$old_req" | defence - \
+    old_ids=$(debaseline "$old_req" requirements.md \
       | grep -oE '^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*' \
       | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
@@ -731,7 +777,7 @@ baseline_checks() {
     fi
   fi
   if [ -n "$old_des" ]; then
-    old_ids=$(printf '%s\n' "$old_des" | defence - \
+    old_ids=$(debaseline "$old_des" design.md \
       | grep -oE '^### D-[0-9]+:' | grep -oE 'D-[0-9]+') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
@@ -741,7 +787,7 @@ baseline_checks() {
     done
   fi
   if [ -n "$old_tsk" ]; then
-    old_ids=$(printf '%s\n' "$old_tsk" | defence - \
+    old_ids=$(debaseline "$old_tsk" tasks.md \
       | awk '/^### Task / && $3 ~ /^[0-9]+(\.[0-9]+)?$/ { print $3 }') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
