@@ -1,7 +1,7 @@
 # Operator dialogue — Test spec
 
-**Status:** Draft
-**Last reviewed:** 2026-08-24
+**Status:** Ready
+**Last reviewed:** 2026-08-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -26,6 +26,14 @@ coverage** — the entry body names which subset it belongs to:
   `[test]` is assertable but is not a CI gate, so no coverage reading may treat
   it as CI-enforced.
 
+*(Extension, 2026-08-24.)* The extension's entries mark their subset
+explicitly — "(On-demand behavioral lane.)" for lane 2, "a unit test at the
+script level" or "a check greps/runs" for lane 1 — and one lane-1 variant is
+new: the **advisory** sidedness check (REQ-M1.3) runs in `mise run check`
+reporting-only and never fails the build; its `[test]` claims cover the
+check's own behavior (unit-tested detection, advisory wiring), never its
+findings.
+
 ## REQ-A — The interaction doctrine
 
 ### REQ-A1.1 — Doctrine governs every attended surface [design-level]
@@ -45,13 +53,15 @@ as tone (no inspectable rule) fails.
 ### REQ-A1.3 — Skills cite the doctrine in their manifest [test]
 
 A check greps the doctrine manifests of the attended surfaces this spec has
-instantiated (`/spec-kickoff` this pass; `/spec-draft` already cites it) for the
-`interaction-style` citation and fails if an instantiated attended surface omits
-it. The deferred execution-side surfaces (`/orchestrate`, `/execute-task`,
-`/resume`, `/drain`) add the citation when their behavior is reworked (see the
-`tasks.md` Deferred entry); the check's surface list widens with each
-instantiation pass rather than demanding a citation ahead of the behavior that
-honors it.
+instantiated (`/spec-kickoff` and `/spec-draft` from the base pass; the four
+execution-side surfaces once Tasks 9 and 11 land their instantiation) for the
+`interaction-style` citation and fails if an instantiated attended surface
+omits it. The check's surface list widens with each instantiation pass rather
+than demanding a citation ahead of the behavior that honors it — the
+extension's widening is Task 11's deliverable, and the REQ-K1.1 entry below
+asserts the widened list. *(Amended at extension kickoff 2026-08-24: the
+execution-side deferral this entry pointed at is consumed; the stale
+Deferred-entry cross-reference removed.)*
 
 ### REQ-A1.4 — Doctrine prose fits the instruction budget [test]
 
@@ -312,6 +322,11 @@ is appropriate to each persona.
 
 ## REQ-I — The turn/artifact arbitration
 
+Shared mechanics for the extension's behavioral-lane entries (REQ-I through
+REQ-L): assertions grade the structured decision/transcript log's **turn
+records** (D-19's additive schema growth; the grader stays artifact-only per
+REQ-G1.3), and every fixture these entries name is Task 12's deliverable.
+
 ### REQ-I1.1 — Arbitration stated [design-level]
 
 `doctrine/interaction-style.md` states the arbitration (completeness governs
@@ -353,18 +368,20 @@ behavioral lane.)
 ### REQ-J1.1 — Every turn-side mandate conforms; instance set repaired [test + design-level]
 
 The turn-shape invariants run against the repaired surfaces at the acceptance
-join (test; on-demand behavioral lane). A design-level review confirms each
-sweep-recorded instance was repaired or carries a recorded disposition —
-none silently exempted.
+join (test; on-demand behavioral lane). A design-level review — the human at
+Task 13's acceptance join, the same rater the rubric pass names — confirms
+each sweep-recorded instance was repaired or carries a recorded disposition,
+the dispositions recorded in the kickoff brief; none silently exempted.
 
 ### REQ-J1.2 — Loop-end handoff family projected [test]
 
 An assertion over a review-loop eval run confirms no four-table dump in
 turn-side output while the PR body (or, for `/polish`, the worktree-local
-cache file) carries the full record; a `/polish` standalone fixture run
-produces the cache file. (On-demand behavioral lane.)
+cache file `.claude/polish-audit.md`, D-16) carries the full record; a
+`/polish` standalone fixture run produces that file. (On-demand behavioral
+lane.)
 
-### REQ-J1.3 — No monotonic accumulator [test]
+### REQ-J1.3 — No monotonic summary [test]
 
 An assertion over a multi-phase eval run confirms successive running
 summaries do not grow monotonically (delta-plus-open form) and a resumed
@@ -401,8 +418,10 @@ appears as captured items, not prose. (On-demand behavioral lane.)
 
 ### REQ-K1.3 — Orchestrate instances conform [test]
 
-A unit test at the script level asserts the fleet/watch surface skips
-re-render when nothing changed (or renders a bounded delta); an assertion
+A unit test at the script level (Task 11's deliverable) asserts the
+watch-loop attention render skips the full re-render when no derived-state
+transition occurred — a bounded delta or a no-op both pass, an unchanged
+full re-render fails; an assertion
 over an orchestrate eval fixture with multiple simultaneous halts confirms
 the batch is bounded and actionability-ordered. (Unit slice CI-run; behavioral
 slice on-demand.)
@@ -412,9 +431,10 @@ slice on-demand.)
 ### REQ-L1.1 — Capture at birth [test]
 
 An assertion over an attended eval run with a planted action item (the
-persona names a follow-up mid-dialogue) confirms the item exists in tracked
-state — a task block, an Awaiting-input or gated Deferred entry, or an
-observation fragment — by run end, not only in transcript prose. (On-demand
+persona names a follow-up mid-dialogue and confirms the proposed form)
+confirms the item exists in tracked state — an Awaiting-input or gated
+Deferred entry, or an observation fragment, mirrored into the run's graded
+artifacts — by run end, not only in transcript prose. (On-demand
 behavioral lane.)
 
 ### REQ-L1.2 — Tracked-state targets [design-level]
@@ -434,14 +454,15 @@ transcribe. (On-demand behavioral lane.)
 
 The ship-gate rule is a kickoff lens-pass checklist item (design-level); the
 human verifies at sign-off that any out-of-band fix named in the walked
-bundle carries a task, gated deferral, or dispatch-gate record (manual, same
+bundle carries a task, gated deferral, or Awaiting-input entry (manual, same
 class as the existing pairing checks).
 
-### REQ-L1.5 — Session-visible ledger [test + manual]
+### REQ-L1.5 — Session-visible open-captures list [test + manual]
 
-An assertion over a multi-phase eval run confirms a ledger of open captured
-items appears at phase boundaries; a manual read confirms it answered "what
-is still owed" without prompting. (On-demand behavioral lane.)
+An assertion over a multi-phase eval run confirms the open-captures list
+appears at phase boundaries in delta-plus-open form; a manual read confirms
+it answered "what is still owed" without prompting. (On-demand behavioral
+lane.)
 
 ## REQ-M — Output-side enforcement
 
@@ -452,20 +473,23 @@ present, decisions-first, no monotonic growth, bounded density, capture)
 against fixtures where a known wall fails and a known projection passes.
 (On-demand behavioral lane.)
 
-### REQ-M1.2 — Conformance pinned [test], not design-level [design-level]
+### REQ-M1.2 — Conformance pinned through the eval, not design-level [design-level]
 
 This file's REQ-I/J/K/L entries carry `[test]` verification through the eval
-for the behavioral half, with design-level reserved for doctrine statements
-and manual for experiential residue; the file itself is the verification that
-the split holds.
+for the behavioral half, with design-level reserved for entries whose
+verification is a statement's existence (doctrine rules, defined structures)
+or a named human review, and manual for experiential residue; the file itself
+is the verification that the split holds.
 
 ### REQ-M1.3 — Advisory sidedness check [test]
 
 The check runs over skill and doctrine prose, reports mandates lacking a
-declared side, and exits without gating; a fixture with a deliberately
-side-less mandate is reported, and the check's advisory wiring is confirmed
-by `mise run check` remaining green with the fixture present. (CI-run
-structural lane for the check's own behavior; its findings never gate.)
+declared side, and exits zero; its unit test (Task 12) plants a deliberately
+side-less mandate in a fixture under `tests/` — outside the scanned corpus,
+so the live run stays clean — and asserts the check reports it, and the
+advisory wiring is confirmed by `mise run check` remaining green while the
+check reports. (CI-run structural lane for the check's own behavior; its
+findings never gate.)
 
 ### REQ-M1.4 — On-demand only, never CI [test]
 

@@ -1,7 +1,7 @@
 # Operator dialogue — Design
 
-**Status:** Draft
-**Last reviewed:** 2026-08-24
+**Status:** Ready
+**Last reviewed:** 2026-08-25
 **Format-version:** 2
 **Execution:** derived — see the status render
 
@@ -197,6 +197,10 @@ how planwright already fences evals.
 `/spec-kickoff`'s guided dialogue and sign-off. `/spec-walkthrough` and the
 execution-side handoffs (`/orchestrate`, `/execute-task`, `/resume`, `/drain`)
 are deferred to later passes.
+*(Amended at extension kickoff 2026-08-24: the execution-side deferral is
+consumed — the 2026-08-24 extension is the later pass this decision
+authorized (REQ-K, Task 11), taken on the evidence the deferral gate named.
+The `/spec-walkthrough` deferral stands.)*
 
 **Alternatives considered:**
 - Revamp all six attended surfaces at once. Rejected because: the pain and the
@@ -331,10 +335,10 @@ proved the two coexist in one place (the PR-body collapse discipline).
 
 **Decision:** A turn-side projection leads with decisions and questions, then
 supporting state, with bookkeeping last or left in the artifact; counts stand
-in for tables; the full record is reachable in one request or already sits in
-an artifact. The shape generalizes the two disciplines the repo has already
-proven: the decision queue's load-bounded-by-actionability rule and the
-PR-body's summary-first / collapsed-is-not-abridged rule.
+in for audit tables; the full record is reachable in one request or already
+sits in an artifact. The shape generalizes the two shipped precedents the
+repo has already proven: the decision queue's load-bounded-by-actionability
+rule and the PR-body's summary-first / collapsed-is-not-abridged rule.
 
 **Alternatives considered:**
 - Fixed turn templates per skill (a rigid schema each surface fills).
@@ -345,17 +349,28 @@ PR-body's summary-first / collapsed-is-not-abridged rule.
   the status quo — the doctrine already said "never paste a wall" and it did
   not hold without a stated, checkable shape.
 
-**Chosen because:** both source disciplines are shipped, observed to work,
+**Chosen because:** both source precedents are shipped, observed to work,
 and cited by the operator's own recovery experience (one question per turn,
 identifiers parked).
 
 ### D-16: `/polish`'s full audit record lives in a worktree-local cache file  (N)
 
-**Decision:** `/polish` writes its accumulated audit record to a
-worktree-local cache file beside the handover brief (uncommitted, in the
-worktree's `.claude/` directory); the turn shows the projection. The record
+**Decision:** `/polish` writes its accumulated audit record to
+`<worktree>/.claude/polish-audit.md`, beside the handover brief (uncommitted;
+the repo's denylist `.gitignore` gains the entry as part of the repair task);
+the turn shows the projection. Lifecycle: overwritten per run, iterations
+appending within a run. Classification (accumulator-taxonomy attributes,
+completing what the first draft left unnamed): class-1 self-draining cache
+with named readers and drains — in nested mode the parent skill reads the
+file and folds the full record into the draft PR body (so the nested
+turn-return is a projection plus the file pointer and gate-wiring's
+collapsed-is-not-abridged contract holds); standalone, `/resume` consumes it
+at next session start, the same ritual as the handover brief. The record
 is cache, not source of truth, matching the two-brief model's class for
 exactly this kind of artifact.
+*(Amended at extension kickoff 2026-08-24: filename, gitignore ownership,
+lifecycle, storage class, readers, and the nested-mode drain specified —
+lens-pass clusters E and G.)*
 
 **Alternatives considered:**
 - Commit the audit record on the feature branch. Rejected because: it adds
@@ -373,10 +388,11 @@ session.
 ### D-17: `/orchestrate`'s step report — named slots, defined at last  (N)
 
 **Decision:** The step report (a term the skill used but nothing defined)
-becomes a bounded, named structure with three slots: **state** (what
-happened, level-triggered), **reasoning** (one or two lines, or absent), and
-**requests** (what the operator is asked, each item decision-shaped).
-Anything decision-shaped routes through the capture rule rather than sitting
+becomes a bounded, named structure with three slots: **state** (the current
+derived picture, not an event stream), **reasoning** (one or two lines, or
+absent), and **requests** (what the operator is asked, each item
+decision-shaped). A request the operator resolves in the same turn is done
+with; anything left open routes through the capture rule rather than sitting
 in prose. Batched halts render inside the same structure.
 
 **Alternatives considered:**
@@ -395,13 +411,21 @@ sweep's "define a bounded report" gap.
 ### D-18: Capture-at-birth with a degradation path; tracking stays downstream  (N)
 
 **Decision:** An attended skill captures every dialogue-born action item into
-tracked state at birth — proposing the tracked form itself (a task block, an
-Awaiting-input or gated Deferred entry, or an observation fragment) so the
-operator confirms rather than transcribes — and maintains a session-visible
-ledger of open items. Out-of-band fixes always get a ship-gate record. The
+tracked state in the birth turn — proposing the tracked form itself so the
+operator confirms rather than transcribes, the confirmed write landing as a
+human-owned payload write in the v2 format's sense (an Awaiting-input or
+gated Deferred reference bullet or an observation fragment, on the session's
+own branch; task blocks only via the amendment ritual; a capture with no
+owning spec targets the observations log) — and maintains a session-visible
+open-captures list. Out-of-band fixes always get a ship-gate record. The
 capture *interface* lives here; the downstream tracking mechanism (ledger,
-roadmap updates, closure) is the companion bundle's, and until it ships,
-captures target the existing accumulator surfaces.
+roadmap updates, closure) is the companion bundle's, which also owns the
+cutover when it ships; until then captures target exactly the surfaces named
+above.
+*(Amended at extension kickoff 2026-08-24: write ordering resolved
+confirm-then-write, the write classed as v2 human-owned payload so the
+single-writer reconcile and per-spec lock are untouched, and the pre-ledger
+target set pinned — lens-pass cluster D.)*
 
 **Alternatives considered:**
 - Own the whole tracking mechanism in this bundle. Rejected because: it
@@ -420,11 +444,26 @@ companion's), and the degradation path means neither blocks the other.
 ### D-19: Enforcement — extend the shipped eval to turn shape; sidedness check stays advisory  (N)
 
 **Decision:** The behavioral eval harness (Task 5's scaffold, shipped) gains
-turn-shape invariants graded from the structured decision/transcript log:
-no turn-side multi-table dump, projection present, decisions-first ordering,
-no monotonic summary growth, bounded identifier density, and the
-capture-at-birth assertion. A separate static check flags emit mandates with
-no declared side — advisory, never a gate. Evals stay on-demand, never CI.
+turn-shape invariants graded from the structured decision/transcript log,
+whose schema grows **turn records** (an additive version bump): each repaired
+surface mirrors its turn-side emission into the log as part of its repair, so
+the grader stays artifact-only and REQ-G1.3 stands unamended; fixtures stay
+deterministic stand-ins emitting the same schema, all authored by the
+enforcement task; pass thresholds live in fixtures (personas × runs, a flake
+is a failure). The accepted residual — the mirror is self-reported, so
+pane-vs-log divergence is the remaining pencil-whip surface — is carried on
+the risk register. Invariants: no turn-side multi-table dump, projection
+present, decisions-first ordering, no monotonic summary growth, bounded
+identifier density, and the capture-at-birth assertion. A separate static
+check flags emit mandates with no declared side — advisory, never a gate,
+wired into `mise run check` reporting-only (nearest-seam note: it joins the
+repo's existing `check-*` prose-scanner family and the guard catalog's
+registration seam rather than minting a new mechanism class; its named reader
+is the human running the repair tasks, its drain the repair-task review).
+Evals stay on-demand, never CI.
+*(Amended at extension kickoff 2026-08-24: turn-record schema growth, fixture
+ownership, thresholds, the self-reported-mirror residual, and the sidedness
+check's seam and reader specified — lens-pass clusters F and G.)*
 
 **Alternatives considered:**
 - A new harness purpose-built for turn grading. Rejected because: the shipped
@@ -442,9 +481,10 @@ its signal is honest.
 ### D-20: The density bound is qualitative in doctrine, numeric only in fixtures  (N)
 
 **Decision:** Doctrine states the bound qualitatively — one decision cluster
-per turn, identifiers only where traceability needs them, plain language
-first — and the eval grades conformance; any concrete numbers live in eval
-fixtures, tunable without touching doctrine.
+per turn (an extension of `interaction-style`'s shipped Small-bites rule,
+not a new mint), identifiers only where traceability needs them, plain
+language first — and the eval grades conformance; any concrete numbers live
+in eval fixtures, tunable without touching doctrine.
 
 **Alternatives considered:**
 - Numeric caps in doctrine. Rejected because: the numbers are arbitrary
@@ -457,12 +497,14 @@ fixtures, tunable without touching doctrine.
 **Chosen because:** the operator chose it on the customization-boundary
 ground; it keeps doctrine durable and the tuning surface cheap.
 
-### D-21: No monotonic accumulator reaches a turn  (N)
+### D-21: No monotonic summary reaches a turn  (N)
 
 **Decision:** Any repeatedly-emitted summary at an attended surface is
 bounded by construction: a running summary presents the delta since the last
 summary plus what remains open; a resume path confirms signed sections at one
 line each. The full cumulative record, where one is needed, is an artifact.
+(This supersedes the "cumulative" wording of `interaction-style`'s shipped
+Running-summary rule; the doctrine edit is Task 7's.)
 
 **Alternatives considered:**
 - Keep cumulative summaries but cap their length. Rejected because: a cap on
@@ -484,12 +526,15 @@ replay).
 set behind REQ-J1.1, recorded at drafting time; repairs verify against the
 surfaces, not against this frozen list. Turn-side mandates found: the
 gate-wiring loop-end handoff (four tables + declined log + checklist + forks
-emitted both to the PR body, collapsed, and at the operator, uncollapsed) as
+mandated into the PR body, with the turn-side half undeclared — surfaces
+emit the full record at the operator by default because nothing states the
+turn side) as
 inherited by `/self-review` (which prepends the lens-coverage table and
 appends a pass summary), `/polish` (accumulated across up to ten iterations,
 with no artifact home), `/execute-task` (whose handoff also nests the
-checklist and forks, and which routes full CI output at the operator on an
-attended halt), and `/builder` (four tables as the standalone product, also
+checklist and forks, and which records full CI output to the Awaiting-input
+artifact on an attended halt with the operator-facing surfacing destination
+unstated), and `/builder` (four tables as the standalone product, also
 composed in-session inside `/spec-draft`'s design phase); `/spec-draft`'s
 phase-6 read-through (assembled bundle + cumulative summary + disposition
 list in one turn) and its monotonic running summary; `/spec-kickoff`'s
@@ -497,12 +542,18 @@ resume-replay of every signed section, its nine-item handoff report, and the
 lens-coverage table emitted mid-dialogue; `/resume`'s seven-element context
 dump with the question last and an explicit include-when-unsure bias;
 `/drain`'s six lanes with per-item detail (exactly one lane already has the
-counts-with-detail-on-request form); the fleet/watch mode's unconditional
-full re-render each iteration; `/orchestrate`'s batched-halts mandate with no
+counts-with-detail-on-request form); the watch loop's unconditional
+attention render each iteration (the `orchestration-modes` mandate — at
+extension kickoff the scripts were re-checked: `fleet-attention-watch.sh` is
+already change-driven and `fleet-dashboard.sh watch` writes a file artifact,
+so the mandate, not the scripts, is the instance); `/orchestrate`'s
+batched-halts mandate with no
 bound and its nowhere-defined "step report"; the `finding-categorization`
-"present the four tables" sidedness ambiguity; and, inside
+four-tables presentation (the artifact side is declared — "they are not
+prompts" — but the composed in-turn presentation the skills perform is
+undeclared); and, inside
 `interaction-style` itself, the self-containment rule mandating unbounded
 selector density against the same file's no-walls rule, plus the unbounded
-"cumulative" running-summary rule. Two shipped disciplines were found that
+"cumulative" running-summary rule. Two shipped precedents were found that
 already embody the fix and are cited as Sources: the decision queue's
 actionability bound and the PR body's collapse discipline.

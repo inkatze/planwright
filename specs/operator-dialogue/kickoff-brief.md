@@ -287,3 +287,307 @@ Class: expression-only
 Changelog: requirements.md 2026-07-17 "Post-sign-off lint fix (pre-merge, expression-only)" entry
 Anchor: `82446f907709532272d872f1a2cbaeeebd55d398` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
+
+### Delta re-walkthrough — extension kickoff (2026-08-24)
+
+Reopened-bundle scoped kickoff (the reopen cycle, kickoff-lifecycle
+REQ-A1.6: extending a Done bundle reopens it to Draft; on this
+format-version 2 bundle Done was derived, so the stored headers flipped
+Ready→Draft — spec-format's v2 reopen — when `/spec-draft --extend` ran on
+2026-08-24). Walkthrough scope, confirmed with the operator: the extension
+delta only — REQ-I–REQ-M, D-13–D-21, Tasks 7–13, the consumed execution-side
+deferral, and the amended Goal/Scope/Sources — walked in the delta
+re-walkthrough shape; the signed base sections (§§1–8 above) stand and are not
+re-walked. Spec commit at walkthrough start: 968646c. Validator at pre-flight:
+0 errors, 0 warnings. Sign-off flips Draft→Ready again.
+
+**§2 (delta) — Goal & glossary.** Agent restatement of the extension's thesis
+stood uncorrected: the recurrence of walls is structural (two mandatory rule
+sets colliding at the turn with no arbitration, and an unmeasured output
+side), so the delta adds the arbitration (REQ-I), the corpus repair (REQ-J),
+the execution-surface pass consuming the deferral on evidence (REQ-K),
+capture-at-birth with tracking left downstream (REQ-L), and output-side
+enforcement (REQ-M) — without re-litigating D-1 (per D-13). Two implicit
+terms resolved with the operator:
+
+1. *"The companion bundle"* — named once in a new Sources entry
+   (`specs/action-item-ledger`); REQ/D prose keeps the role phrasing, and
+   REQ-L1.2 cites the entry. Chosen over inline naming (rename-fragile) and
+   over leaving it unnamed (undiscoverable).
+2. *"Dispatch-gate record"* (REQ-L1.4's third ship-gate form, defined
+   nowhere) — replaced with "an Awaiting-input entry", aligning REQ-L1.4
+   with REQ-L1.2's tracked-state vocabulary so every ship-gate form has a
+   named reader and drain ritual; the REQ-L1.4 test-spec entry mirrors the
+   same wording. Chosen over minting and defining a new concept and over
+   narrowing to two forms.
+
+Consolidated spec edits so far: requirements.md (REQ-L1.4 vocabulary,
+REQ-L1.2 citation, the companion-bundle Sources entry), test-spec.md
+(REQ-L1.4 entry vocabulary).
+
+Signed off: 2026-08-24
+
+**§3 (delta) — Requirements walkthrough, groups I–M.** Group intents
+restated and confirmed: I (the arbitration and projection shape), J (the
+corpus repair), K (the execution-surface pass), L (capture-at-birth), M
+(output-side enforcement). One fork surfaced and decided: REQ-J1.1's
+repair-only bar contradicted its test-spec entry's
+repair-or-recorded-disposition bar; the operator chose the wider bar —
+REQ-J1.1 now reads "repaired or carry a recorded disposition — none survives
+silently exempted", matching the test-spec and the applied/declined/deferred
+disposition model the lens passes use. No other gap or edge case in the five
+groups required a decision; the L-group vocabulary fix was taken in §2.
+
+Consolidated spec edits after §3: the §2 list plus requirements.md
+(REQ-J1.1 bar widened).
+
+Signed off: 2026-08-24
+
+**§4 (delta) — Design walkthrough, D-13–D-21.** Reconciled ledger, all nine
+**confirmed** with rationale intact; none superseded. *(Corrected at the
+sign-off lens pass: the walk's "no base decision touched, none in
+contradiction" claim missed that D-9's decision text still asserted the
+execution-side deferral REQ-K consumes — D-9 now carries the consumed-
+deferral amendment annotation, and D-16/D-17/D-18/D-19/D-20/D-21 were
+completed or clarified per the lens dispositions below.)* D-13
+records the altitude call that D-1 stands un-relitigated. D-13 extension
+altitude (doctrine/mechanism/values split) · D-14 the arbitration · D-15
+projection shape · D-16 `/polish` worktree-local cache (the two-brief
+model's cache class, the classification REQ-J1.2 leans on) · D-17 step-report
+slots · D-18 capture-at-birth with degradation path · D-19 enforcement via
+the shipped harness, sidedness check advisory · D-20 qualitative density
+bound, numbers in fixtures · D-21 no monotonic summary (retitled at the lens
+pass from "no monotonic accumulator").
+
+Signed off: 2026-08-24
+
+**§5 (delta) — Verification approach.** Coverage mix reviewed: on-demand
+behavioral lane carries most `[test]` claims (eval invariants, fixtures, and
+the Task-13 acceptance join); CI-run slices are K1.3's script-level unit
+test, M1.3's check-behavior test, and M1.4's `check-no-ci-evals` guard;
+`[design-level]` covers statement-existence and named-human-review entries
+(I1.1, L1.2, and the design-level halves of J1.1, K1.2, L1.4, M1.2);
+`[manual]` residue is swept by the human as final rater — at the acceptance
+join, except L1.4's half, which the human verifies at each kickoff sign-off.
+Ownership unchanged from the base bundle's model; REQ-M1.4 keeps the
+harness out of CI. *(Corrected at the sign-off lens pass: the walk's
+"dead-path check: none found" was wrong — the CI-run slices also include
+K1.1's manifest grep and M1.3's check-behavior unit test, and the
+dead-verification lens found the turn-shape assertions unobservable against
+the shipped harness and several fixtures and check-widenings unowned;
+resolved by the cluster F and G dispositions below, which give every named
+verification a runnable home and an owner.)* One finding decided: REQ-M1.2's
+test-spec heading used two bracket groups with prose between (out of tag
+grammar, sweep-miscount risk) and claimed `[test]` while its body describes
+the file itself as the verification; retagged to a single conforming
+`[design-level]` group with the heading reworded. Chosen over a mixed
+`[test + design-level]` retag (no test of its own to claim) and over leaving
+it as written.
+
+Consolidated spec edits after §5: the §3 list plus test-spec.md (REQ-M1.2
+heading retag).
+
+Signed off: 2026-08-24
+
+**§6 (delta) — Task graph, Tasks 7–13.** Graph reconstructed from the
+`Dependencies:` lines (authoritative; effort figures cite the task blocks):
+7 roots the delta; 8 follows 7; 9 and 10 fan out on 7 alone; 11 and 12 fan
+out on 7+8; 13 joins 9–12. Effort-weighted critical path 7 → 8 → 11-or-12 →
+13; widest concurrent window runs the 9/10/(11|12) lanes together.
+Deliberate non-edges recorded so nobody "fixes" them later: 9/10/11 carry no
+edges among themselves (largely disjoint surface sets, drafting-session
+decision); 12 does not depend on 9–11 (invariants build against fixtures;
+surfaces meet invariants only at 13); no edge 12→base-Task-5 or
+13→base-Task-4/5 (the harness and personas they reuse are Completed,
+dependencies trivially satisfied). *(Added at the sign-off lens pass: Tasks
+8 and 10 both edit `skills/spec-kickoff/SKILL.md` with no edge between them
+— either order works, so no dependency is added, but they should not run
+concurrently; the orchestrator serializes or bundles them.)* One ownership gap decided: authoring-surface capture (which Task
+13's kickoff-run assertion exercises) lives **doctrine-only via Task 8** —
+the capture rules land in doctrine the authoring surfaces already load at
+run-start, per the base D-1 altitude bet (doctrine over per-skill patching);
+no task edit, this reading recorded instead. Chosen over extending Task 10
+(couples the repair lane to capture) and over minting a new task.
+
+Signed off: 2026-08-24
+
+**§7 (delta) — Risk register.** Decision-domains gap check run against the
+merged catalog (`scripts/resolve-catalog.sh decision-domains`): domains the
+delta touches and already decides — data-storage/caching (D-16 cache file),
+observability (D-19 advisory check), existing-seam-reuse (harness, two-brief
+model, accumulator targets; reuse notes present), human-comprehension (the
+spec's subject), llm-output-quality (rows 2 and 6 below). No catalogued
+domain is touched-but-undecided after row 6's acceptance. Delta rows,
+appended to the base register (numbering continues from base row 5):
+
+| # | Risk | Mitigation / early signal |
+| --- | --- | --- |
+| 6 | **Ledger-cutover semantics** — REQ-L1.2 targets the companion ledger "once it ships"; the cutover (re-pointing the doctrine target list, migrating pre-ledger captures) is defined in neither bundle. | Accepted as an interface expectation, decided with the operator: **the companion bundle owns the cutover** (it ships the mechanism, so it ships the re-point; its kickoff should carry the item). Early signal: the ledger ships while capture doctrine still names only the accumulator surfaces. |
+| 7 | **Turn-shape invariant brittleness** — LLM-driven eval runs are non-deterministic; invariants assert over transcripts. | Fixtures pin a known wall failing and a known projection passing (REQ-M1.1); experiential residue stays human-rated (REQ-M1.2). Early signal: the same fixture flapping across runs. |
+| 8 | **Doctrine-only capture delivery** (residual of the §6 decision) — capture rules landing in a doc the authoring surfaces don't load defers the failure to Task 13's kickoff assertion. | Task 8 review checks the authoring surfaces' run-start doctrine covers the capture rules' home. Early signal: a manifest with no path to them. |
+| 9 | **Instruction-budget pressure from the repairs** — Tasks 9–11 add citations and bounded-form prose to skills near budget. | Each task's Done-when requires the instruction-budget check green. Early signal: budget failures forcing prose trade-offs mid-repair. |
+| 10 | **Self-reported turn mirror** (accepted residual of the cluster-F decision) — surfaces mirror their own turn output into the log the eval grades, so pane-vs-log divergence is the remaining pencil-whip surface. | Accepted: the mirror is the same emit path as the turn (divergence takes deliberate forking); REQ-G1.3's artifact-only rule stays intact. Early signal: an eval pass on a surface the operator experiences as walling. |
+
+Operator cold-review additions: none. No open question carried.
+
+Signed off: 2026-08-24
+
+**Sign-off lens review pass (Discovery Rigor, D-45; delta-scoped, meaning-class).**
+Artifact class: **spec** (`artifact-lenses` selection; the spec lens set below).
+Path taken: parallel fan-out, one read-only sub-agent per lens (9 agents) over
+the extension delta plus the walk edits, after tool-grounded discovery
+(`spec-validate` 0/0, `markdownlint` 0 errors). Validation scoping, declared:
+full three-pass on findings recommended for immediate spec edits (sub-agent
+file-grounded quote → independent grep spot-check → cross-lens convergence),
+adversarial re-validation over that same recommend-set (two findings
+downgraded: the Scope in/out double-listing already carries the conforming
+amendment annotation; the "opposite deferral-gate dispositions" dissolve —
+the two gates test different premises and the changelog states the adverse
+resolution explicitly); soft-floor spot-check on findings routed to operator
+judgment, which the operator finishes at disposition.
+
+**Altitude check (REQ-H1.3 / `autopilot-reflex`):** triggered bundle (the
+operator report's seed claims). D-13 exists, is cited from the Goal's
+extension paragraph, and the decomposition matches its three-altitude split
+(doctrine Tasks 7–8 root the graph; mechanism in Task 12; numbers in
+fixtures). No finding.
+
+**Canonical lens-coverage table (spec lens set; pre-disposition):**
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Contract correctness / internal consistency | 14 (16 raw, 2 refuted) | Stale base surfaces the delta reverses (D-9, REQ-A1.3, tasks.md intro, base-brief assumes clause); L1.1 record-at-birth vs L1.3 confirm-first; J1.5/J1.2 absolutes vs D1.3 escape valve; I1.5 vs E1.1/E1.4; M-group vs G1.3 artifact-only grading; M1.2 vs its own entries; J1.1 corpus bar vs untouched surfaces |
+| Ambiguity / interpretation forks | 82 raw → ~14 root forks | Undefined load-bearers: attended surface/turn, wall, bounded, emit mandate, governing artifact, one-request; instance-set granularity; residue bounding; capture ordering/boundary; ledger cadence; M1.1 floor; sidedness declaration form; K1.3 change semantics |
+| Citation / coverage integrity | 8 | Dangling test-spec A1.3 pointer; 2 orphan Sources entries; I1.5 missing sweep cite; K1.1 token content mismatch; Task 11 missing REQ-A1.3/D-9 cites; brief REQ-A1.6 unqualified + reopen-flip frame; walk-edit changelog pending |
+| Dead verification paths | 15 | Most eval-`[test]` claims unobservable against the shipped harness (grades sign-off.json + decision-log.jsonl only, no turn record; fixtures are deterministic stand-ins; personas stub-bound); check-doctrine-manifest widening, fleet/watch unit test, sidedness fixture unowned |
+| Decision-domain gaps | 12 | Capture write path into tasks.md vs single-writer reconcile/lock/guard; cache-file storage class + lifecycle; decision-log schema growth vs G1.3; nested handoff contract; watch-silence liveness; sidedness-check seam + reader; corpus-repair rollout window; eval gate thresholds/cadence |
+| Testability of Done-when | ~25 | Per-skill `check:instructions` scoping does not exist; content-bearing clauses judge-only; Task 11 needs Task 9's `/execute-task` work; Task 12 fixture authorship; Task 13 scope/flip mechanic/rubric artifact unbounded or undefined |
+| Cross-file consistency | 30 | §A both walk edits landed cleanly, headers mirrored, changelog-vs-diff exact; stale-base items above; 8 test-spec assertions with no authoring task; taxonomy/preamble drift; sweep-record misdescriptions (gate-wiring dual emission, /execute-task CI routing, fleet/watch referent); D-16 vs accumulator-taxonomy/gitignore; brief §4/§5/§6 delta-section errors |
+| Documentation / glossary drift | 19 | "projection" vs derived projection; "accumulator" second sense; "ledger" three referents; "tracked state" vs accumulator; disciplines population; gate compounds; level-triggered; capture vs capture-pane; lane; minor: invariant, observations-log name, log-name truncation |
+| Rendered-content safety | none | Fences balanced, parse patterns confined, byte hygiene clean, no secrets |
+
+**Merged disposition clusters (deduped across lenses; dispositions recorded
+per cluster below as decided):**
+
+- **A. Stale-base reconciliation** — annotate D-9 (deferral consumed for the
+  four execution surfaces; `/spec-walkthrough` deferral stands), annotate
+  REQ-A1.3 (three stale spots incl. requirements.md line-496 area), rewrite
+  the test-spec REQ-A1.3 entry (dangling Deferred pointer), extend the
+  tasks.md intro narrative to the 7→13 lane, note the base-brief §2 assumes
+  clause superseded in this entry.
+- **B. Citation & Sources hygiene** — cite or fold the two orphan Sources
+  entries; add the sweep cite to REQ-I1.5; ground REQ-K1.1's
+  drafting-session token (or widen that Sources entry's text); add
+  REQ-A1.3/D-9 to Task 11's citations; qualify the brief's REQ-A1.6 cite and
+  state the reopen flip in both frames (derived Done; stored Ready→Draft);
+  changelog entry covering all walk and lens edits.
+- **C. Sweep-record evidence corrections** — gate-wiring loop-end handoff
+  records artifact-side destination only (turn-side half is undeclared, not
+  dual-mandated); `/execute-task` routes full CI output to Awaiting input
+  (artifact), not at the operator; fleet/watch: the render mandate lives in
+  `orchestration-modes.md` (the attention surface), `fleet-attention-watch.sh`
+  is already change-driven and `fleet-dashboard.sh watch` writes a file
+  artifact — retarget REQ-K1.3/Task 11/sweep instance accordingly;
+  `finding-categorization` already declares the four tables artifact-side
+  ("they are not prompts") — the recorded instance retargets to composed
+  in-turn presentation or is dropped; reconcile D-20/Task 7's "density bound"
+  with the existing Small-bites rule (extension, not new mint).
+- **D. Capture write path** (decision fork) — who writes/commits captures
+  into `tasks.md`, on which branch, under what lock/reconcile interaction,
+  the guard/gate shape of captured entries, homeless-skill captures,
+  propose-confirm vs write-then-confirm ordering (L1.1 vs L1.3), action-item
+  boundary, whether the L1.2 target list is exhaustive.
+- **E. `/polish` cache file** (decision fork) — storage class, named
+  reader/drain ritual, gitignore entry ownership, filename, overwrite/append
+  lifecycle, nested-mode contract (projection return vs gate-wiring's
+  collapsed-is-not-abridged PR body).
+- **F. Eval observability** (decision fork) — how turn shape becomes
+  gradeable given REQ-G1.3's artifact-only rule (log schema growth + emitter
+  ownership vs pane exception vs narrowed invariants), fixture ownership for
+  the eight orphan test-spec assertions, M1.1 floor-vs-full-set, M1.2
+  residue wording, pass thresholds and post-Task-13 cadence.
+- **G. Check-ownership task edits** — check-doctrine-manifest widening
+  owner; fleet/watch unit-test owner and referent; sidedness-check wiring
+  reading (M1.4 vs its test-spec entry) and fixture home; `/execute-task`
+  manifest-citation owner (Task 9 vs 11); Task 12 fixture authorship; Task
+  13 "flipped to verified" mechanic and rubric-record home; replace
+  non-existent per-skill `check:instructions` phrasing in Done-whens.
+- **H. Terminology repairs** — disambiguate or rename: turn projection (vs
+  derived projection), the J1.3 accumulator sense, the three ledger
+  referents, tracked state vs accumulator, the disciplines population,
+  ship-gate registration, D-17 level-triggered wording, capture vs
+  capture-pane note, lane senses; define attended surface/turn in the
+  bundle.
+- **I. Residual REQ-level forks** (decision) — governed attended-surface set
+  (incl. `/spec-walkthrough`, `/offload` exemption or inclusion); wall
+  definition for fixtures; emit-mandate definition + sidedness declaration
+  form; one-request meaning; J1.2 residue bounding; J1.5 vs D1.3 precedence
+  (operator-requested detail); L1.1 owed-decision vs C1.1 no-open-questions;
+  L1.5 ledger cadence vs J1.3; I1.5 vs E1.1/E1.4 layer rule; K1.3
+  change/render semantics vs D-17.
+
+Self-critique pass: under-represented areas re-scanned (obs-fragment framing
+vs REQ framing; `/orchestrate` emits no structured log today — folded into
+cluster F; `/offload` governed-set membership — folded into cluster I; effort
+totals sane). Nothing further added.
+
+**Dispositions (clustered-decision mode, operator-chosen; every cluster
+decided 2026-08-25, all findings applied, declined-with-rationale, or
+deferred-named — none silently exempted):**
+
+- **A — applied** (5 of 6; one member dissolved on validation: the third
+  "stale deferral" hit was a frozen 2026-07-17 Changelog entry, historical
+  record, no edit). D-9, REQ-A1.3, and the test-spec A1.3 entry annotated or
+  rewritten; tasks.md intro extended; the base-brief §2 assumes clause is
+  hereby noted superseded on the execution-side half (its `/spec-walkthrough`
+  half stands).
+- **B — applied** (all 6): Sources tokens, cites, Task 11 citations, the
+  qualified reopen frame above, and the 2026-08-25 Changelog entry.
+- **C — applied** (all 5): sweep record corrected against the live surfaces;
+  REQ-K1.3/Task 7/Task 11 retargeted.
+- **D — decided: confirm-then-write as v2 human-owned payload** (REQ-L1.1/
+  L1.2 and D-18 amended; pre-ledger target set pinned; capture-not-a-bypass
+  clause added).
+- **E — decided: full class-1 specification of the /polish cache** (D-16
+  amended: `.claude/polish-audit.md`, gitignore entry via Task 9,
+  overwrite-per-run, nested drain = parent folds full record into the PR
+  body; standalone drain = `/resume`).
+- **F — decided: additive turn-record schema growth** (D-19 and REQ-M1.1
+  amended; Tasks 9–11 gain the mirror obligation, Task 12 owns every
+  fixture and the thresholds; standing-cadence Deferred entry added; risk
+  row 10 records the self-reported-mirror residual).
+- **G — applied** (all 7): ownership assigned in Tasks 9/11/12/13; Done-when
+  clauses made agent-evaluable.
+- **H — applied** (all 9): definitions added to REQ-I's intro; renames
+  landed (turn projection, monotonic summary, open-captures list, D-21
+  retitle, D-17 state slot, ship-gate definition, capture disambiguation).
+- **I — applied** (all 10): resolutions landed in the REQ texts (governed
+  set with explicit `/spec-walkthrough`/`/offload` deferral, structural wall
+  definition, emit-mandate definition and heuristic sidedness form,
+  one-request meaning, projected residue, requested-detail precedence,
+  capture-not-a-bypass, open-captures cadence, preview alignment with
+  REQ-E1.1/E1.4, K1.3 transition semantics).
+
+Also two refuted findings (adversarial pass, recorded as declined): the
+Scope in/out double-listing (the out-of-scope bullet already carries the
+conforming amendment annotation) and the "opposite deferral-gate
+dispositions" (the two gates test different premises; the changelog states
+the adverse resolution explicitly).
+
+**Sign-off (2026-08-25).** Delta re-walkthrough complete, all seven delta
+sections signed, no inconsistency halt, no carried open question, every lens
+finding dispositioned (clusters A–I above). Pre-flip gates: `lint:md` 0
+errors; `spec-validate` 0 errors, 0 warnings at Ready; `mise run check` exit
+0; recorded claims re-derived (the qualified `kickoff-lifecycle REQ-A1.6`
+citation against its source; the four consumed observation fragments on
+disk; REQ↔test-spec coverage via the validator). Stored status flipped
+Draft→Ready on all four files, `Last reviewed:` 2026-08-25; changelog entry
+2026-08-25 records every walk and lens edit. Operator approved via the
+shared-understanding summary; merge of the spec PR remains the second key.
+
+Class: meaning
+Lens-pass: this delta re-walkthrough entry's sign-off lens review pass
+(spec-set fan-out, coverage table, and cluster dispositions above), all
+findings dispositioned
+Anchor: `8456e842144aa29693219837b9b69d2b6523ab12` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`
