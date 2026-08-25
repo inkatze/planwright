@@ -788,7 +788,7 @@ validate_bundle() {
   for bf in requirements.md design.md tasks.md test-spec.md; do
     [ -f "$bdir/$bf" ] || continue
     fbrc=0
-    fbline=$(spec_parse_fence_balance "$bdir/$bf" 2>/dev/null) || fbrc=$?
+    fbline=$(spec_parse_fence_balance "$bdir/$bf" 2>"$gtmp/fence.err") || fbrc=$?
     case $fbrc in
       0) ;;
       3)
@@ -797,8 +797,11 @@ validate_bundle() {
           "$bf" "$fbline" >>"$fnd"
         ;;
       *)
-        printf 'hard\t%s: the fence-balance probe could not read the file, so fenced illustration cannot be told from content (fail closed)\n' \
-          "$bf" >>"$fnd"
+        # Carry the lib's own reason (a NUL byte reads very differently from a
+        # permission problem), sanitized at this output site like every other
+        # echoed diagnostic — the sibling parked-map refusal does the same.
+        printf 'hard\t%s: the fence-balance probe refused the file, so fenced illustration cannot be told from content (fail closed): %s\n' \
+          "$bf" "$(sanitize_printable "$(cat "$gtmp/fence.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
         ;;
     esac
   done

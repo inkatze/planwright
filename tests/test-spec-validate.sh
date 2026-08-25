@@ -1559,6 +1559,29 @@ EOF
 run_v 1 "$root/fixture"
 has "REQ-X1.2 has no test-spec entry"
 
+# The v2 invariant-ledger scan takes the same lexer: a v2 bundle documenting
+# what version 1 looked like is showing an example, not reintroducing the
+# placement sections and state annotations version 2 banned.
+write_bundle_v2 "$root/fixture" Ready
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+## Notes
+
+Version 1 kept execution state in the file:
+
+```markdown
+## Forward plan
+
+### Task 1 — Build the widget
+
+- **Status:** implementing
+- **Last activity:** 2026-06-12
+- **Dispatch:** backend=tmux
+```
+EOF
+run_v 0 "$root/fixture"
+lacks "does not exist in format-version 2"
+
 # The v2 pointer line is a header line, so a fenced copy of it does not satisfy
 # the check either.
 write_bundle_v2 "$root/fixture" Ready
@@ -1605,6 +1628,18 @@ printf '\n```\nbalanced\n```\n' >>"$root/fixture/test-spec.md"
 run_v 0 "$root/fixture"
 lacks "unclosed column-0 code fence"
 has "0 error(s), 0 warning(s)"
+
+# A file the probe cannot lex at all (NUL-bearing: awk truncates records at
+# NUL, so fenced illustration could not be told from content) fails closed AND
+# carries the reason, rather than a generic "could not read" that sends the
+# reader looking at file permissions.
+write_bundle "$root/fixture" Active
+printf 'x\000y\n' >>"$root/fixture/design.md"
+run_v 1 "$root/fixture"
+# Asserted as one span, not two `has` calls: the sibling header-block check
+# reports "NUL byte" too, so a split assertion would pass on its finding while
+# this one still said nothing useful.
+has "cannot be told from content (fail closed): spec-parse: NUL byte"
 
 # --- 26. Changelog-named task-retirement escape (REQ-D1.6, D-12) ---
 # The escape REQ supersession already has, extended to task blocks: where a
@@ -1673,6 +1708,17 @@ has "Task 7 renumbered or removed"
 # escape: an unqualified digit is indistinguishable from a date component or
 # any other number in prose, so the escape reads the `Task <id>` citation form.
 retire '- 2026-06-13 — dropped 7 stale references.'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# A dotted id retires the same way, and the trailing-period form counts: the
+# escape matches the id as a whole token, not as a prefix.
+retire '- 2026-06-13 — Task 7 retired, folded into Task 1.'
+run_v 0 --baseline HEAD "$repo6/specs"
+has "0 error(s), 0 warning(s)"
+
+# ...but a longer id it only prefixes does not match.
+retire '- 2026-06-13 — Task 70 retired: folded into Task 1.'
 run_v 1 --baseline HEAD "$repo6/specs"
 has "Task 7 renumbered or removed"
 

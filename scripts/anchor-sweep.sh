@@ -117,7 +117,13 @@ recompute() {
 
 sweep_bundle() {
   sb_dir=$1
-  sb_name=$(basename "$sb_dir")
+  # A directory name is repo-controlled input on its way to a terminal: strip
+  # non-printables before it is ever echoed (doctrine/security-posture.md, the
+  # same posture spec-validate.sh applies to ids and header values). Sanitized
+  # once here rather than at each of the five output sites, because a name is
+  # only ever printed, never compared or used to build a path — $sb_dir carries
+  # the real path.
+  sb_name=$(sanitize_printable "$(basename "$sb_dir")" "(unprintable bundle name)")
   sb_brief="$sb_dir/kickoff-brief.md"
 
   if [ ! -f "$sb_brief" ] || [ ! -r "$sb_brief" ]; then

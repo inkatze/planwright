@@ -21,6 +21,8 @@
 #      anchor does not resurrect a bundle a later re-anchor already settled.
 #   6. Fail-closed: an anchor-tool error and an unparseable anchor entry both
 #      exit non-zero rather than reporting a bundle clean by omission.
+#   7. Echo discipline: escape bytes in a bundle directory name never reach
+#      the output raw (doctrine/security-posture.md).
 #
 # Runs standalone: ./tests/test-anchor-sweep.sh
 set -eu
@@ -256,6 +258,19 @@ rm -rf "$root/unparseable"
 
 # A clean root is still clean afterwards.
 run_s 0 "$root"
+
+# ---------------------------------------------------------------------------
+# 7. Echo discipline (doctrine/security-posture.md). A bundle directory name is
+# repo-controlled input that reaches the terminal, so escape bytes in one must
+# not drive the operator's terminal — the same posture spec-validate.sh applies
+# to reference-bullet ids and header values.
+# ---------------------------------------------------------------------------
+esc=$(printf '\033')
+write_bundle "$root/ev${esc}[31mil"
+run_s 0 "$root"
+lacks "$esc"
+has "unanchored"
+rm -rf "$root/ev${esc}[31mil"
 
 # ---------------------------------------------------------------------------
 # Usage errors.
