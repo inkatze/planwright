@@ -408,7 +408,7 @@ for dir in "$specs_root"/*/; do
   case $name in
     '' | *[!a-z0-9-]* | [!a-z0-9]*)
       say_error "$name" \
-        "not a valid spec identifier (^[a-z0-9][a-z0-9-]\$); the bundle cannot be checked — remedy: rename it per the validator's rule"
+        "not a valid spec identifier (^[a-z0-9][a-z0-9-]*\$); the bundle cannot be checked — remedy: rename it per the validator's rule"
       continue
       ;;
   esac
@@ -424,13 +424,22 @@ for dir in "$specs_root"/*/; do
     say_error "$name" "no parseable header-block Status declaration in requirements.md"
     continue
   fi
+  # The lib returns declaration values RAW (its own header says so), and the
+  # in-scope arm below echoes the status back — an arbitrary parsed string, not
+  # one of the matched literals. Sanitize once here so every diagnostic that
+  # quotes it is covered (REQ-D1.5 echo discipline).
+  # (The lib's own no-printable-bytes fallback reads "(unprintable path)". Odd
+  # wording for a status, but a status of nothing but control bytes is
+  # pathological, and copying the byte range here to reword it is the
+  # duplication the exported sanitizer exists to prevent.)
+  status_disp=$(spec_parse_printable "$status")
   case $status in
     Draft)
       say_notice "$name" "Draft — skipped (unsigned; briefs grow no machine entries yet)"
       continue
       ;;
     Retired | Superseded)
-      say_notice "$name" "terminal ($status) — skipped (frozen history)"
+      say_notice "$name" "terminal ($status_disp) — skipped (frozen history)"
       continue
       ;;
   esac
@@ -438,7 +447,7 @@ for dir in "$specs_root"/*/; do
   brief="$dir/kickoff-brief.md"
   if [ ! -f "$brief" ]; then
     say_error "$name" \
-      "non-Draft, non-terminal ($status) with no kickoff-brief.md — remedy: complete or repair the sign-off record via /spec-kickoff (a removed brief must not disable this check)"
+      "non-Draft, non-terminal ($status_disp) with no kickoff-brief.md — remedy: complete or repair the sign-off record via /spec-kickoff (a removed brief must not disable this check)"
     continue
   fi
 

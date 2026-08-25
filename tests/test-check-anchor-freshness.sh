@@ -451,6 +451,7 @@ write_entry "$f7c" 'Bad_Name' "$("$ANCHOR" "$f7c/Bad_Name")" "scripts/spec-ancho
 run_guard "$f7c"
 assert_rc "an off-grammar bundle directory fails closed" 1
 assert_has "the off-grammar error names the identifier rule, not the brief" "not a valid spec identifier"
+assert_has "the quoted rule is the real one, not a two-character pattern" '^[a-z0-9][a-z0-9-]*$'
 assert_lacks "it does not misreport as a non-sanctioned form" "non-sanctioned command form"
 
 ########################################################################
@@ -466,7 +467,25 @@ write_entry "$f10" bytes "$("$ANCHOR" "$f10/bytes")" "scripts/spec-anchor.sh spe
 run_guard "$f10"
 assert_rc "a control-byte command is refused" 1
 case $OUT in
-  *"$esc"*) fail "the diagnostic echoed a raw ESC byte" ;;
+  *"$esc"*) fail "the diagnostic echoed a raw ESC byte from the recorded command" ;;
+  *) ;;
+esac
+
+# The other parsed value that reaches a diagnostic is the header Status: the
+# grammar lib returns declaration values RAW, and an in-scope status (anything
+# outside the Draft/Retired/Superseded literals) is echoed back in the
+# brief-less error. It must go through the sanitizer too.
+f10b="$tmp/f10b/specs"
+mkdir -p "$f10b"
+make_bundle "$f10b" statusbytes Ready 'A requirement body.'
+sed "s/^\*\*Status:\*\* Ready$/**Status:** Ready${esc}[31mX/" "$f10b/statusbytes/requirements.md" \
+  >"$f10b/statusbytes/requirements.md.new"
+mv "$f10b/statusbytes/requirements.md.new" "$f10b/statusbytes/requirements.md"
+rm -f "$f10b/statusbytes/kickoff-brief.md"
+run_guard "$f10b"
+assert_rc "a brief-less bundle with a control-byte status is an error" 1
+case $OUT in
+  *"$esc"*) fail "the diagnostic echoed a raw ESC byte from the parsed Status" ;;
   *) ;;
 esac
 
