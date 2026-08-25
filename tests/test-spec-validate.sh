@@ -59,6 +59,20 @@
 #       version stays a hard error.
 #   23. v2 echo discipline (REQ-C1.9): escape bytes in reference-bullet ids
 #       and header values never reach the output raw.
+#   24. Fenced illustration (REQ-C1.2, D-5): fenced mock REQ bullets, D-ID
+#       headings, and task blocks are documentation, not content — and the
+#       rule does not fail open either (a fenced test-spec entry does not
+#       satisfy coverage, a fenced pointer line does not satisfy the v2
+#       header check).
+#   25. Unbalanced column-0 fence (REQ-D1.11): flagged status-scoped; an
+#       unclosed INDENTED fence is ordinary content and is not flagged.
+#   26. Changelog-named task-retirement escape (REQ-D1.6, D-12): a dated
+#       entry naming the retired id authorizes the removal; an unnamed one,
+#       a different id, a grammar-failing token, an undated entry, a bare
+#       number, and a fenced entry all leave the removal an error.
+#   27. Baseline-side fence-awareness (REQ-C1.2): both halves of the
+#       stable-ID diff parse the same grammar, so a fenced mock id present
+#       in both revisions is not read as an id that vanished.
 #
 # Runs standalone: ./tests/test-spec-validate.sh
 set -eu
@@ -1455,6 +1469,266 @@ write_bundle_v2 "$root/fixture" "Ban${esc}ana"
 run_v 1 "$root/fixture"
 has "unknown status"
 lacks "$esc"
+
+# --- 24. Fenced illustration (REQ-C1.2, D-5) ---
+# doctrine/spec-format.md, *Fenced illustration*: no line inside a column-0
+# fence parses as any element of the format. The validator is a parser of spec
+# bundles like any other, so a bundle that documents its own conventions in a
+# fence must not have that documentation validated as content.
+write_bundle "$root/fixture" Active
+
+# The reproduced defect: a fenced mock REQ bullet read as a real one, colliding
+# with the id it illustrates and firing a false duplicate-REQ error. The fence
+# sits INSIDE the REQ group, where the requirements parse is actually looking.
+cat >"$root/fixture/requirements.md" <<'EOF'
+# Fixture — Requirements
+
+**Status:** Active
+**Last reviewed:** 2026-06-12
+**Format-version:** 1
+
+## Goal
+
+A fixture bundle.
+
+## REQ-X — fixture group
+
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X1.2** The gadget SHALL exist.
+  *(Cites: D-1.)*
+
+A requirement bullet is written like this:
+
+```markdown
+- **REQ-X1.1** The widget SHALL exist.
+  *(Cites: D-1.)*
+- **REQ-X9.9** A prose-only bullet with no citation at all
+```
+
+## Changelog
+
+- 2026-06-12 — created.
+
+## Sources
+
+- the fixture seed.
+EOF
+run_v 0 "$root/fixture"
+lacks "duplicate REQ-ID"
+has "0 error(s), 0 warning(s)"
+
+# The same for a fenced decision heading and a fenced task block: neither
+# duplicates the real record it illustrates, and the fenced task's ABSENT
+# definition fields raise no missing-field gaps.
+write_bundle "$root/fixture" Active
+cat >>"$root/fixture/design.md" <<'EOF'
+
+## Conventions
+
+```markdown
+### D-1: Widgets are good  (N)
+```
+EOF
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+## Notes
+
+```markdown
+### Task 1 — Build the widget
+```
+EOF
+run_v 0 "$root/fixture"
+lacks "duplicate D-ID"
+lacks "duplicate task id"
+lacks "missing field"
+
+# Fence-awareness must not become a fail-OPEN either: a fenced test-spec entry
+# is illustration, so it cannot satisfy REQ↔test-spec coverage for a REQ that
+# has no real entry.
+write_bundle "$root/fixture" Active
+edit "$root/fixture/test-spec.md" 's/^### REQ-X1.2 — gadget exists \[manual\]$/### REQ-X9.9 — unrelated [manual]/'
+cat >>"$root/fixture/test-spec.md" <<'EOF'
+
+## Conventions
+
+```markdown
+### REQ-X1.2 — gadget exists [manual]
+```
+EOF
+run_v 1 "$root/fixture"
+has "REQ-X1.2 has no test-spec entry"
+
+# The v2 pointer line is a header line, so a fenced copy of it does not satisfy
+# the check either.
+write_bundle_v2 "$root/fixture" Ready
+edit "$root/fixture/design.md" \
+  's/^\*\*Execution:\*\* derived — see the status render$//'
+cat >>"$root/fixture/design.md" <<'EOF'
+
+## Conventions
+
+```markdown
+**Execution:** derived — see the status render
+```
+EOF
+run_v 1 "$root/fixture"
+has "design.md: missing **Execution:** pointer line"
+
+# --- 25. Unbalanced column-0 fence flagged (REQ-D1.11, D-5) ---
+# An unterminated fence would otherwise silently swallow the remainder of the
+# file as illustration, dropping content from every parser with no signal.
+write_bundle "$root/fixture" Active
+printf '\n```\nan unterminated fence\n' >>"$root/fixture/requirements.md"
+run_v 1 "$root/fixture"
+has "unclosed column-0 code fence"
+has "requirements.md"
+
+# Status-scoped like the rest of the D-25 severity model: a warning on Draft.
+write_bundle "$root/fixture" Draft
+printf '\n```\nan unterminated fence\n' >>"$root/fixture/tasks.md"
+run_v 0 "$root/fixture"
+has "WARN"
+has "unclosed column-0 code fence"
+
+# An unclosed INDENTED fence is ordinary content, not a toggle, so it is not
+# flagged: only column-0 fences open illustration mode.
+write_bundle "$root/fixture" Active
+printf '\n    ```\nan indented fence that never closes\n' >>"$root/fixture/design.md"
+run_v 0 "$root/fixture"
+lacks "unclosed column-0 code fence"
+
+# A balanced fence passes untouched.
+write_bundle "$root/fixture" Active
+# shellcheck disable=SC2016 # a literal fence pair, never expanded
+printf '\n```\nbalanced\n```\n' >>"$root/fixture/test-spec.md"
+run_v 0 "$root/fixture"
+lacks "unclosed column-0 code fence"
+has "0 error(s), 0 warning(s)"
+
+# --- 26. Changelog-named task-retirement escape (REQ-D1.6, D-12) ---
+# The escape REQ supersession already has, extended to task blocks: where a
+# block genuinely must leave the file, a dated Changelog entry naming the
+# retired id authorizes the removal, and nothing else does.
+repo6="$tmp/repo6"
+mkdir -p "$repo6"
+git -C "$repo6" init -q
+write_bundle "$repo6/specs/myspec" Active
+# A second task, so the baseline has an id that can be retired without
+# emptying the file.
+cat >>"$repo6/specs/myspec/tasks.md" <<'EOF'
+
+### Task 7 — Build the gadget
+
+- **Deliverables:** A gadget.
+- **Done when:** The gadget exists.
+- **Dependencies:** none
+- **Citations:** D-1 · REQ-X1.2
+- **Estimated effort:** half day
+EOF
+git -C "$repo6" add -A
+git -C "$repo6" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+
+# retire <changelog-line> — drop Task 7's block and append the given line
+# (empty for none) to the Changelog.
+retire() {
+  awk '/^### Task 7 — /{ skip = 1 } /^## /{ skip = 0 } !skip' \
+    "$repo6/specs/myspec/tasks.md.orig" >"$repo6/specs/myspec/tasks.md"
+  cp "$repo6/specs/myspec/requirements.md.orig" "$repo6/specs/myspec/requirements.md"
+  [ -z "$1" ] || edit "$repo6/specs/myspec/requirements.md" \
+    "s|^- 2026-06-12 — created\\.\$|- 2026-06-12 — created.\\
+$1|"
+}
+cp "$repo6/specs/myspec/tasks.md" "$repo6/specs/myspec/tasks.md.orig"
+cp "$repo6/specs/myspec/requirements.md" "$repo6/specs/myspec/requirements.md.orig"
+
+# An unnamed removal errors.
+retire ''
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# A dated entry naming the retired id authorizes it.
+retire '- 2026-06-13 — Task 7 retired: folded into Task 1.'
+run_v 0 --baseline HEAD "$repo6/specs"
+has "0 error(s), 0 warning(s)"
+
+# A token that fails the task-id grammar does not activate the escape.
+retire '- 2026-06-13 — Task 7a retired: folded into Task 1.'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# A valid but DIFFERENT id does not activate it either: the escape matches the
+# id that actually left, not any named id.
+retire '- 2026-06-13 — Task 8 retired: folded into Task 1.'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# An UNDATED entry naming the retired id does not activate it: the dated form
+# is what makes the removal auditable.
+retire '- Task 7 retired: folded into Task 1.'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# A bare number that happens to match the retired id does not activate the
+# escape: an unqualified digit is indistinguishable from a date component or
+# any other number in prose, so the escape reads the `Task <id>` citation form.
+retire '- 2026-06-13 — dropped 7 stale references.'
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# A fenced changelog entry is illustration, not an authorization.
+retire ''
+cat >>"$repo6/specs/myspec/requirements.md" <<'EOF'
+
+## Conventions
+
+```markdown
+- 2026-06-13 — Task 7 retired: folded into Task 1.
+```
+EOF
+run_v 1 --baseline HEAD "$repo6/specs"
+has "Task 7 renumbered or removed"
+
+# --- 27. Baseline-side fence-awareness (REQ-C1.2) ---
+# The baseline half of the stable-ID check parses the same grammar as the
+# current half. If only one side were fence-aware they would disagree about
+# what the baseline defined, and a fenced mock id present in BOTH revisions
+# would read as an id that vanished.
+repo7="$tmp/repo7"
+mkdir -p "$repo7"
+git -C "$repo7" init -q
+write_bundle "$repo7/specs/myspec" Active
+cat >>"$repo7/specs/myspec/requirements.md" <<'EOF'
+
+## Conventions
+
+```markdown
+- **REQ-X9.9** A mock requirement that is documentation, not a requirement.
+```
+EOF
+cat >>"$repo7/specs/myspec/design.md" <<'EOF'
+
+## Conventions
+
+```markdown
+### D-9: A mock decision
+```
+EOF
+cat >>"$repo7/specs/myspec/tasks.md" <<'EOF'
+
+## Notes
+
+```markdown
+### Task 9 — A mock task
+```
+EOF
+git -C "$repo7" add -A
+git -C "$repo7" -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -qm base
+run_v 0 --baseline HEAD "$repo7/specs"
+lacks "REQ-X9.9 renumbered or removed"
+lacks "D-9 renumbered or removed"
+lacks "Task 9 renumbered or removed"
+has "0 error(s), 0 warning(s)"
 
 # --- usage errors ---
 run_v 2

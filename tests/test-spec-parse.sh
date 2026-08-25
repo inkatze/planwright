@@ -1154,4 +1154,138 @@ grep -q '^refbad	' "$tmp/pe.out" \
   || fail "a hostile token was not classified as a rejected reference: $(cat "$tmp/pe.out")"
 echo "ok: the lib emits raw bytes and classifies a hostile token as rejected (REQ-B1.6c)"
 
+# ---------------------------------------------------------------------------
+# Property 8: the canonical extraction is fence-aware (format-grammar Task 6;
+# REQ-C1.2 · D-5, and doctrine/spec-format.md *Fenced illustration*). A fenced
+# column-0 task heading or definition bullet is example text: it contributes
+# nothing to the stream, so it cannot conjure a phantom task record or slip a
+# line into a real one. End of file inside an open fence is malformed input
+# and fails closed, the parked map's posture.
+# ---------------------------------------------------------------------------
+
+# 8a. A fenced mock task block is illustration: no phantom record.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n\n'
+  printf '## Notes\n\nThe block format:\n\n'
+  printf '```markdown\n'
+  printf '### Task 9 — A mock block that must parse as illustration\n\n'
+  printf -- '- **Deliverables:** Nothing real.\n'
+  printf -- '- **Done when:** Never.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-9\n'
+  printf -- '- **Estimated effort:** 1 day\n'
+  printf '```\n'
+} >"$tmp/fence-mock.md"
+spec_parse_extract_tasks "$tmp/fence-mock.md" >"$tmp/fm.out" \
+  || fail "the extraction refused a bundle carrying a fenced mock task block"
+grep -q '^### Task 1 — Real$' "$tmp/fm.out" \
+  || fail "the real task block vanished from the extraction: $(cat "$tmp/fm.out")"
+if grep -q 'Task 9' "$tmp/fm.out"; then
+  fail "a fenced mock task heading produced a phantom record (REQ-C1.2): $(cat "$tmp/fm.out")"
+fi
+echo "ok: a fenced mock task block contributes nothing to the extraction (REQ-C1.2)"
+
+# 8b. A fence INSIDE a real block: the fenced definition bullet is illustration,
+# the real ones survive, and the fence does not truncate the block.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n\n'
+  printf 'The field looks like this:\n\n'
+  printf '```markdown\n'
+  printf -- '- **Done when:** A fenced example that must not be kept.\n'
+  printf '```\n\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n'
+} >"$tmp/fence-inner.md"
+spec_parse_extract_tasks "$tmp/fence-inner.md" >"$tmp/fi.out" \
+  || fail "the extraction refused a block carrying an inner fence"
+if grep -q 'A fenced example that must not be kept' "$tmp/fi.out"; then
+  fail "a fenced definition bullet reached the extraction stream (REQ-C1.2): $(cat "$tmp/fi.out")"
+fi
+grep -q '^- \*\*Done when:\*\* It exists\.$' "$tmp/fi.out" \
+  || fail "the real Done when bullet was lost past an inner fence: $(cat "$tmp/fi.out")"
+grep -q '^- \*\*Estimated effort:\*\* half day$' "$tmp/fi.out" \
+  || fail "the block was truncated at an inner fence: $(cat "$tmp/fi.out")"
+echo "ok: an inner fence hides only the fenced lines, never the block's real fields"
+
+# 8c. An indented fence is ordinary content, not a toggle: the doctrine pins the
+# marker to column 0 precisely so a fence can be SHOWN without opening one.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n'
+  printf '    ```\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n'
+} >"$tmp/fence-indented.md"
+spec_parse_extract_tasks "$tmp/fence-indented.md" >"$tmp/fx.out" \
+  || fail "an indented fence was treated as an unterminated column-0 fence"
+grep -q '^- \*\*Estimated effort:\*\* half day$' "$tmp/fx.out" \
+  || fail "an indented fence swallowed the rest of the block: $(cat "$tmp/fx.out")"
+echo "ok: an indented fence is ordinary content, never a toggle"
+
+# 8d. End of file inside an open fence fails closed, with no partial stream.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n\n'
+  printf '```\n'
+  printf 'an unterminated fence\n'
+} >"$tmp/fence-open.md"
+rc=0
+spec_parse_extract_tasks "$tmp/fence-open.md" >"$tmp/fo.out" 2>"$tmp/fo.err" || rc=$?
+[ "$rc" -eq 3 ] \
+  || fail "end of file inside an open fence returned $rc, expected 3 (fail closed)"
+[ ! -s "$tmp/fo.out" ] \
+  || fail "the fail-closed extraction emitted a partial stream: $(cat "$tmp/fo.out")"
+case $(cat "$tmp/fo.err") in
+  *"open column-0 code fence"*) ;;
+  *) fail "the open-fence refusal lacks a clear message: $(cat "$tmp/fo.err")" ;;
+esac
+echo "ok: end of file inside an open fence fails closed with no partial stream"
+
+# ---------------------------------------------------------------------------
+# Property 9: spec_parse_fence_balance is the shared fence-imbalance probe the
+# validator's REQ-D1.11 flag reads. It reports the line the unclosed fence
+# opened on, so the finding can point at it.
+# ---------------------------------------------------------------------------
+command -v spec_parse_fence_balance >/dev/null 2>&1 \
+  || fail "spec_parse_fence_balance entry point missing after sourcing (REQ-D1.11)"
+
+spec_parse_fence_balance "$tmp/fence-mock.md" >"$tmp/fb.out" \
+  || fail "a balanced-fence file was reported unbalanced"
+[ ! -s "$tmp/fb.out" ] || fail "a balanced file printed output: $(cat "$tmp/fb.out")"
+
+rc=0
+spec_parse_fence_balance "$tmp/fence-open.md" >"$tmp/fb2.out" || rc=$?
+[ "$rc" -eq 3 ] || fail "an unclosed fence returned $rc, expected 3"
+[ "$(cat "$tmp/fb2.out")" = "13" ] \
+  || fail "the unclosed fence's opening line was misreported: $(cat "$tmp/fb2.out")"
+
+spec_parse_fence_balance "$tmp/fence-indented.md" >/dev/null \
+  || fail "an indented fence was counted as an unbalanced column-0 fence"
+
+rc=0
+spec_parse_fence_balance "$tmp/no-such-file.md" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "a missing file returned $rc, expected 1"
+
+spec_parse_fence_balance - <"$tmp/fence-mock.md" >/dev/null \
+  || fail "the stdin form rejected a balanced file"
+echo "ok: spec_parse_fence_balance reports imbalance, the opening line, and reads stdin (REQ-D1.11)"
+
 echo "PASS: test-spec-parse.sh"

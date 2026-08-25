@@ -301,7 +301,10 @@ return), the bullet's free text carrying that same annotation. Where a block
 genuinely must leave the file, a dated `## Changelog` entry naming the retired id
 authorizes the removal — the escape REQ supersession already has, and the only
 one the stable-ID check accepts. The named token is a task id in the task-id
-grammar, and it must be the id of the block that actually left: an unnamed
+grammar, written in the `Task <id>` citation form this format already defines for
+task references, because an unqualified number is indistinguishable from a date
+component or any other digit in the prose; and it must be the id of the block
+that actually left: an unnamed
 removal, or one naming a different id, stays a renumbered-or-removed error. When a whole REQ
 group is superseded, its `test-spec.md` entries are removed rather than left as
 orphans pointing at retired IDs, with the tombstone recorded in the same dated

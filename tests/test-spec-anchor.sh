@@ -13,6 +13,10 @@
 #   5. A non-task H3 section never leaks into the preceding task's record.
 #   6. Failure modes fail closed with a clear stderr message: missing or
 #      unreadable file, duplicate task ids, unemittable output.
+#   7. Fenced illustration contributes nothing (format-grammar Task 6,
+#      REQ-C1.2): documenting the task-block format inside a fence does not
+#      move the anchor, and an unclosed fence fails closed rather than
+#      anchoring over a silently truncated extraction.
 #
 # Runs standalone: ./tests/test-spec-anchor.sh
 # (Joins the Task 2 shell test runner's suite when that lands.)
@@ -313,6 +317,47 @@ if [ "$(id -u)" -ne 0 ]; then
     *) fail "unreadable-file failure lacks a clear message: $err" ;;
   esac
 fi
+
+# --- 7. Fenced illustration does not move the anchor (REQ-C1.2) ---
+# A bundle that documents the task-block format in a fence is anchoring on its
+# real blocks alone: the fenced mock heading and its mock definition fields are
+# example text, so appending them leaves the anchor exactly where it was.
+fspec="$tmp/fenced"
+mkdir "$fspec"
+for f in requirements.md design.md tasks.md test-spec.md; do
+  cp "$spec/$f" "$fspec/$f"
+done
+before=$("$anchor" "$fspec") || fail "anchoring the fenced fixture's baseline failed"
+cat >>"$fspec/tasks.md" <<'EOF'
+
+## Notes
+
+A task block is written like this:
+
+```markdown
+### Task 99 — A mock block that is documentation, not a task
+
+- **Deliverables:** Nothing real.
+- **Done when:** Never.
+- **Dependencies:** none
+- **Citations:** D-99
+- **Estimated effort:** 1 day
+```
+EOF
+after=$("$anchor" "$fspec") || fail "anchoring the fenced fixture failed"
+[ "$before" = "$after" ] \
+  || fail "a fenced mock task block moved the anchor (REQ-C1.2): $before -> $after"
+
+# An unclosed column-0 fence is malformed input: the anchor tool refuses rather
+# than anchoring over an extraction the fence silently truncated.
+printf '\n```\nan unterminated fence\n' >>"$fspec/tasks.md"
+if err=$("$anchor" "$fspec" 2>&1 >/dev/null); then
+  fail "an unclosed fence still produced an anchor"
+fi
+case $err in
+  *"open column-0 code fence"*) ;;
+  *) fail "the unclosed-fence refusal lacks a clear message: $err" ;;
+esac
 
 # --- Unwritable stdout fails closed ---
 # git hash-object ignores a failed write to a closed stdout and still exits 0;
