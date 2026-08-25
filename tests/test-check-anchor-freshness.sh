@@ -383,6 +383,29 @@ write_entry "$r8/specs" paired "$("$ANCHOR" "$r8/specs/paired")"
 run_guard "$r8/specs" --baseline "$base"
 assert_rc "an anchored edit paired with a Changelog entry passes" 0
 
+# 8b-ii. The Changelog may live in any of the bundle's four files, not only
+#        requirements.md: design.md and test-spec.md carry one in this repo's
+#        own corpus, so an edit paired there must count too.
+r8e="$tmp/r8e"
+mkrepo "$r8e"
+mkdir -p "$r8e/specs"
+make_bundle "$r8e/specs" designlog Ready 'A requirement body.'
+printf '%s\n' '' '## Changelog' '' '- 2026-01-01 — Initial draft.' >>"$r8e/specs/designlog/design.md"
+write_entry "$r8e/specs" designlog "$("$ANCHOR" "$r8e/specs/designlog")"
+commit_all "$r8e" "seed"
+basee=$(git -C "$r8e" rev-parse HEAD)
+
+printf '\nAn out-of-flow meaning edit.\n' >>"$r8e/specs/designlog/test-spec.md"
+write_entry "$r8e/specs" designlog "$("$ANCHOR" "$r8e/specs/designlog")"
+run_guard "$r8e/specs" --baseline "$basee"
+assert_rc "the unpaired edit is caught when no file gained an entry" 1
+
+printf '%s\n' '- 2026-02-02 — The out-of-flow edit, recorded in design.md.' \
+  >>"$r8e/specs/designlog/design.md"
+write_entry "$r8e/specs" designlog "$("$ANCHOR" "$r8e/specs/designlog")"
+run_guard "$r8e/specs" --baseline "$basee"
+assert_rc "a Changelog entry in design.md pairs the edit just as one in requirements.md would" 0
+
 # 8c. False-positive direction: edits confined to EXCLUDED content need no
 #     entry — a header Status flip, a tasks.md annotation, and a block move.
 r8c="$tmp/r8c"
