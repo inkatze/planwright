@@ -354,6 +354,10 @@ elif ! git -C "$tree_root" rev-parse --verify --quiet "$baseline^{commit}" >/dev
   pairing_note="baseline ref $baseline does not resolve"
 fi
 base_commit=$baseline
+# What the pairing finding should name. The merge base is what gets compared
+# whenever it resolves, and saying "since <ref>" there would describe a
+# comparison this check deliberately does not make.
+base_desc=$baseline
 if [ "$pairing" = on ]; then
   git_top=$(cd "$git_top" && pwd -P) || exit 2
   # Compare against the MERGE BASE, not the ref tip. The question this check
@@ -365,6 +369,7 @@ if [ "$pairing" = on ]; then
   # An unrelated or missing HEAD leaves the ref itself as the baseline.
   if mb=$(git -C "$git_top" merge-base "$baseline" HEAD 2>/dev/null) && [ -n "$mb" ]; then
     base_commit=$mb
+    base_desc="the merge base with $baseline"
   fi
   if [ -z "$anchor_tool" ]; then
     # The pairing check detects edits through the CANONICAL extraction, so it
@@ -572,7 +577,7 @@ for dir in "$specs_root"/*/; do
     continue
   fi
   say_error "$name" \
-    "anchored content changed since $baseline with no new dated Changelog entry in the bundle — remedy: record the edit as a dated \`## Changelog\` entry (an expression-only edit also carries the marked self-re-anchor citing it)"
+    "anchored content changed since $base_desc with no new dated Changelog entry in the bundle — remedy: record the edit as a dated \`## Changelog\` entry (an expression-only edit also carries the marked self-re-anchor citing it)"
 done
 
 if [ "$seen" -eq 0 ]; then
