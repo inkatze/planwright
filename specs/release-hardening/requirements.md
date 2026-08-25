@@ -16,7 +16,12 @@ triage (10-agent verification against v0.14.1) confirmed a backlog of
 correctness, fail-closed, and coverage gaps that were surfaced-and-recorded
 during that spec's execution but landed outside its task scope. This bundle
 closes that backlog as a focused hardening pass over the same five scripts,
-citing `autopilot-reflex` as its Source rather than reopening it (D-1).
+citing `autopilot-reflex` as its Source rather than reopening it (D-1). REQ-H,
+added later, is the one extension past those five: the 2026-07-30 bootstrap
+race (obs:fd6c2f4f) is the same fail-closed defect at the pipeline's proposal
+end, so it lands here rather than as a bundle of its own.
+*(Amended at the 2026-08-25 bootstrap-race amendment: REQ-H's surface recorded
+in the framing.)*
 
 The theme is **fail closed and stay honest**: a control that cannot determine
 its state must refuse rather than pass; a gate must scope its carve-outs so a
@@ -49,6 +54,13 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   (pending→tagged relabel obligation; strict null-CI publish prerequisite),
   a default-preserving `require_ci` core knob, and the verified item-9
   required-check caveat (REQ-G).
+- Release-proposal integrity: gating `.github/workflows/release-please.yml` on
+  the existing untagged-window check, a cause-agnostic check on the proposal
+  artifact itself, and the recorded `bootstrap-sha` finding against
+  `release-please-config.json` (REQ-H). This is the one part of the pass that
+  reaches past the five scripts, onto the proposal end of the same pipeline.
+  *(Amended at the 2026-08-25 bootstrap-race amendment: bullet added with
+  REQ-H.)*
 
 ### Out of scope
 
@@ -286,8 +298,55 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   release-please's own `token:` input.
   *(Cites: D-11; legacy line 194 (Sources).)*
 
+## REQ-H — release-proposal integrity
+
+- **REQ-H1.1** The `release-please` workflow SHALL NOT propose a release while
+  an untagged release window is open — that is, while the version source of
+  truth is ahead of the latest release tag. The gate SHALL reuse
+  `scripts/release-window-check.sh` rather than introduce a second definition
+  of the window, and SHALL honour that script's tri-state exit rather than
+  read "non-zero" as the window: exit 0 proceeds, exit 1 (window open) SKIPS
+  the job, and exit 2 (usage error, or a state the comparator could not
+  determine) FAILS it. Folding exit 2 into the skip would convert this
+  bundle's own fail-closed status (REQ-A1.3, D-2) back into a silent pass on
+  an unreadable state.
+  *(Cites: D-13; REQ-A1.3; obs:fd6c2f4f.)*
+
+- **REQ-H1.2** A release proposal whose changelog adds entries at or below the
+  latest release tag SHALL fail CI. The comparison SHALL be by SemVer
+  precedence through the shared comparator (`rl_latest_release_tag` /
+  `rl_version_gt`, the one definition `autopilot-reflex` REQ-D1.8 owns), not
+  by entry date, which a regenerated changelog restamps. This check SHALL be
+  cause-agnostic: it judges the proposal itself, not the conditions that
+  produced it, so it holds for any reason release-please fails to see the
+  latest release.
+  *(Cites: D-14; obs:fd6c2f4f.)*
+
+- **REQ-H1.3** The bundle SHALL record whether `bootstrap-sha` can be removed
+  from `release-please-config.json` now that the repository is many releases
+  past its first, and SHALL state the verified behaviour of release-please
+  with the key absent. Removal is NOT required by this requirement; the
+  obligation is to establish and record the fact, because the current
+  bootstrap fallback converts any transient inability to see the latest
+  release into a plausible-looking merge-ready proposal.
+  *(Cites: D-14; obs:fd6c2f4f.)*
+
 ## Changelog
 
+- 2026-08-25 — Pre-merge amendment on the spec PR (#353), meaning-class: new
+  **REQ-H** (release-proposal integrity) with **D-13**/**D-14** and Tasks 9-10,
+  covering the release-please bootstrap race recorded as obs:fd6c2f4f — the
+  proposal workflow fires in exactly the window where the signed tag does not
+  exist yet, and release-please regenerates from `bootstrapSha` instead of
+  failing loudly whenever it cannot see the latest release. The delta-scoped
+  lens pass corrected it before sign-off: REQ-H1.1 honours
+  `release-window-check.sh`'s tri-state exit (skip on 1, fail on 2) instead of
+  reading any non-zero as the window; REQ-H1.2 compares by SemVer precedence
+  through the shared comparator rather than by entry date; Task 9 names the
+  default-branch checkout and tag fetch the guard needs, and pins that it must
+  never check out the triggering run's head in a write-privileged job. Goal,
+  Scope, Sources, `design.md`'s shared-file note, and `test-spec.md`'s group
+  structure updated to match. See brief §9 Amendment 3.
 - 2026-07-17 — Kickoff (first activation), panel pass iter 2 (meaning-class):
   confirmation pass validated the corrected `auto`-trust model sound (security +
   cross-file lenses clean) and drained the defensive tail: REQ-B1.1 force-updates
@@ -369,6 +428,17 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   exit 0") in `release-pending.sh` and `release-window-check.sh`; a fail-closed
   control should distinguish comparator-error from not-pending. Consumed into
   REQ-A / D-2.
+- **obs:fd6c2f4f** — the release-please bootstrap race: minutes after v0.33.0
+  was published, PR #339 proposed a bogus bump with 124 changelog entries
+  re-listing already-released commits. Two defects — the `workflow_run` trigger
+  fires in the window where the tag deliberately does not exist yet, and
+  release-please falls back to `bootstrapSha` instead of failing loudly
+  whenever it cannot see the latest release. Consumed into REQ-H / D-13, D-14.
+- **obs:131af768** — the `release-please` workflow's privileged `workflow_run`
+  job gates on `head_branch == 'main'`, which a fork PR whose head branch is
+  literally named `main` satisfies. `guard-coverage` D-6 accepted the residual
+  because the job checks out no PR code; Task 9 adds a checkout, so the
+  default-branch pin is what keeps that acceptance true.
 - **obs:86525b9e** — `templates/release-please/README.md` omits the
   bring-your-own-publish adopter's `autorelease: pending` → `tagged` relabel
   obligation (issue #173 class). Consumed into REQ-G1.1 / D-10.

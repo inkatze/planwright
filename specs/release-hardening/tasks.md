@@ -230,6 +230,57 @@ and knob changes that share the file.
   legacy line 181 (Sources), legacy line 194 (Sources)
 - **Estimated effort:** 0.5 day
 
+### Task 9 — Gate release-please on the untagged window
+
+- **Deliverables:** A guard in `.github/workflows/release-please.yml` that runs
+  `scripts/release-window-check.sh --ref origin/main` before the release-please
+  step and skips the job (not fails it) on exit 1 — an open window — so a
+  pending publish never produces a proposal, while exit 2 fails the job, since
+  a state the comparator could not read is not a window. The guard needs a
+  checkout the workflow does not have today: add `actions/checkout` at
+  `fetch-depth: 0` plus the explicit
+  `git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main`
+  that `release-window.yml` already proves out, because
+  `rl_latest_release_tag` reads local tags and a tagless checkout reads "no
+  releases yet, window open" and skips every run. Check out the repository's
+  own default branch, never `github.event.workflow_run.head_sha`: the job
+  holds `contents: write`. The workflow header comment updated to state the
+  race and why the guard exists. Cases in `tests/test-release-please.sh`
+  asserting the guard is present, precedes the release-please step, skips on
+  exit 1, fails on exit 2, and checks out no PR-controlled ref.
+- **Done when:** the guard is wired and ordered before the proposal step, over
+  a checkout that carries the tags and `origin/main`; tests pin its presence,
+  its position, skip-on-1 / fail-on-2, and the default-branch checkout; a
+  release cycle run end to end produces no bootstrapped proposal between merge
+  of the version PR and publication of the signed tag; `mise run check` is
+  green.
+- **Dependencies:** none
+- **Citations:** D-13 · REQ-H1.1, REQ-A1.3 · obs:fd6c2f4f, obs:131af768
+- **Estimated effort:** 0.5 day
+
+### Task 10 — Cause-agnostic release-proposal sanity check
+
+- **Deliverables:** A check that fails when a release proposal's `CHANGELOG.md`
+  diff adds entries at or below the latest release tag, compared by SemVer
+  precedence through `rl_latest_release_tag` / `rl_version_gt` rather than by
+  the entries' dates, wired into `mise run check` and therefore into CI. It
+  SHALL judge the proposal artifact alone, with no dependence on why
+  release-please misread the history. Plus the
+  REQ-H1.3 finding: verify what release-please 17.6.0 does when
+  `bootstrap-sha` is absent from `release-please-config.json`, and record the
+  verified behaviour in the bundle changelog — removal is out of scope for this
+  task unless the finding shows it is safe, in which case propose it as its own
+  task rather than folding it in here.
+- **Done when:** a bootstrapped proposal (the #339 shape — changelog entries
+  re-listing already-released commits) fails the check, and a legitimate
+  proposal covering only commits since the latest tag passes; both directions
+  are pinned by tests, and the negative case is confirmed to fail for the
+  stated reason rather than incidentally; the `bootstrap-sha` finding is
+  recorded with the evidence that established it; `mise run check` is green.
+- **Dependencies:** none
+- **Citations:** D-14 · REQ-H1.2, REQ-H1.3 · obs:fd6c2f4f
+- **Estimated effort:** 1 day
+
 ## Awaiting input
 
 (none yet)
