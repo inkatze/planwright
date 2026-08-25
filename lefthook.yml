@@ -1,0 +1,34 @@
+---
+# planwright pre-commit mirror (anchor-integrity Task 4; REQ-D1.3, D-6).
+#
+# The NORMATIVE anchor-freshness gate is `mise run check`, which runs the same
+# script whole-corpus in CI. This file is the convenience half: it tells the
+# author about anchor drift at commit time instead of one push later. It is
+# best-effort by construction — a contributor without lefthook still commits,
+# and every bypass a git hook has applies.
+#
+# lefthook is NOT this repo's hooks manager. guard-coverage D-2 chose four
+# tracked scripts under githooks/, wired once per clone by
+# scripts/wire-githooks.sh, and explicitly rejected adopting a hooks manager;
+# that decision stands. lefthook is only the runner for the job below, reached
+# through githooks/pre-commit, so the install step stays the one already
+# documented in docs/CONTRIBUTING.md and no second wiring mechanism exists.
+#
+# That is also why auto-install is off: `lefthook install` writes hook files
+# into whatever core.hooksPath names, which here is the TRACKED githooks/
+# directory. Letting it do that would have lefthook overwrite the very hooks
+# guard-coverage ships.
+no_auto_install: true
+assert_lefthook_installed: false
+
+pre-commit:
+  jobs:
+    # Scoped to commits that stage spec content: the guard reads the whole
+    # corpus (a bundle's anchor can be staled by an edit in any of its four
+    # files), but a commit touching no spec cannot have staled one, and D-6
+    # accepted the measured full-corpus cost only on that condition. lefthook
+    # skips a job whose glob matches nothing staged, so a non-spec commit pays
+    # no guard latency.
+    - name: anchor-freshness
+      glob: "specs/**"
+      run: /bin/sh scripts/check-anchor-freshness.sh
