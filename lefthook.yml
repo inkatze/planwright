@@ -7,6 +7,15 @@
 # best-effort by construction — a contributor without lefthook still commits,
 # and every bypass a git hook has applies.
 #
+# One more limit worth naming, because it is the one that can read GREEN and
+# still fail CI: the guard reads the WORKING TREE, not the staged index. Stage
+# an anchored edit while leaving its `## Changelog` entry unstaged and this
+# mirror sees the paired pair and passes, while CI judges the committed tree
+# and fails. Deliberate: judging the index means materializing it (a stash or a
+# temp checkout), and that failure surface costs more than it buys in a hook
+# whose whole contract is "best-effort, CI is normative". Commit whole bundles
+# and the two views agree.
+#
 # lefthook is NOT this repo's hooks manager. guard-coverage D-2 chose four
 # tracked scripts under githooks/, wired once per clone by
 # scripts/wire-githooks.sh, and explicitly rejected adopting a hooks manager;

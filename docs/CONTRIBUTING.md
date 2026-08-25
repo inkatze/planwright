@@ -144,6 +144,11 @@ there is **no separate install step**: `scripts/wire-githooks.sh` plus
 best-effort — without lefthook on `PATH` the hook is a clean no-op and your
 commit proceeds.
 
+The mirror reads your **working tree**, not the staged index. So it can pass at
+commit time and still fail in CI if you stage an anchored edit but leave its
+`## Changelog` entry unstaged — CI judges the committed tree. Commit spec
+bundles whole and the two agree; `mise run check` is the answer either way.
+
 If the guard reports an anchor mismatch on a bundle you edited, the remedy
 depends on the edit: an expression-only one takes the dated `## Changelog`
 entry plus a marked `Class: expression-only` self-re-anchor entry in the same
