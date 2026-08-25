@@ -632,6 +632,49 @@ EOF
 run_v 0 "$root/fixture"
 has "malformed task id"
 
+# A dependency sitting AFTER a parenthetical is named. The shared extraction
+# discards the parenthetical and everything after it (so a trailing cross-spec
+# clause cannot contribute a phantom edge), which silently costs a real dep
+# written past it — the validator says so rather than letting the edge vanish.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Dep written after a parenthetical
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (blocked on review), Task 2
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+has "after a parenthetical"
+has "dependency 2"
+
+# The forms the in-repo bundles actually use put the parenthetical LAST, where
+# nothing is lost — those must stay quiet, or the check is unusable noise.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Parenthetical last
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (REQ-A1.8 / D-9 — the producer is elsewhere)
+- **Citations:** D-1
+- **Estimated effort:** half day
+
+### Task 5 — Cross-spec clause last
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1; plus cross-spec (hard): orchestration-concurrency
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+lacks "after a parenthetical"
+
 # Duplicate task ids are rejected even on Draft (the anchor extraction
 # fails closed on them too).
 write_bundle "$root/fixture" Draft

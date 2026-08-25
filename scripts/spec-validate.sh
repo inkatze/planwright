@@ -467,6 +467,28 @@ parse_tasks() {
       if (!feff) printf "F\tgap\tTask %s missing field: Estimated effort\n", cur
       cur = ""
     }
+    # Name a dependency written PAST a parenthetical. The shared extraction
+    # drops the parenthetical and everything after it — deliberately, so a
+    # trailing cross-spec clause cannot contribute a phantom edge — which
+    # silently costs a real dep authored past it, and a lost edge makes an
+    # unready task look ready. Applies the same tokenize-then-validate-whole
+    # rule the extraction uses to the discarded tail, so the shapes the in-repo
+    # bundles use (a qualifier or cross-spec clause LAST, naming only REQ- and
+    # D- ids) stay quiet: none of those tokens passes the task-id grammar.
+    function dep_after_paren(s,   tail, n, a, i, tok) {
+      tail = s
+      if (!sub(/^[^(]*\(/, "", tail)) return
+      gsub(/[,;]/, " ", tail)
+      n = split(tail, a, " ")
+      for (i = 1; i <= n; i++) {
+        tok = a[i]
+        sub(/\.+$/, "", tok)
+        if (spec_parse_is_task_id(tok)) {
+          printf "F\tgap\tTask %s dependency %s at tasks.md:%d is written after a parenthetical and is dropped from the task graph (put the qualifier last)\n", cur, tok, NR
+          return
+        }
+      }
+    }
     /^## / { flush(); next }
     spec_parse_is_task_heading($0) {
       flush()
@@ -488,7 +510,7 @@ parse_tasks() {
       fld = spec_parse_task_field($0)
       if (fld == "deliverables") fdel = 1
       else if (fld == "donewhen") fdw = 1
-      else if (fld == "dependencies") fdep = 1
+      else if (fld == "dependencies") { fdep = 1; dep_after_paren($0) }
       else if (fld == "citations") fcit = 1
       else if (fld == "effort") feff = 1
     }
