@@ -1015,3 +1015,18 @@ bundle would have to migrate to:
   *(format-grammar D-1, D-5, D-6, D-7, D-10, D-11, D-12, D-13, D-14 · REQ-A1.1,
   REQ-A1.2, REQ-A1.3, REQ-A1.4, REQ-A1.5, REQ-A1.6, REQ-A1.7, REQ-A1.8,
   REQ-A1.10, REQ-D1.4, REQ-D1.8.)*
+- 2026-08-24 — Fence enforcement caught up, and the retirement escape's form
+  pinned. The 2026-07-29 entry above stated the fence rule while naming the
+  parses that were not yet fence-aware; they now are. The canonical `tasks.md`
+  extraction and `spec-validate.sh`'s requirement, decision, task-heading, and
+  version-2 ledger grammars all read through one shared lexer in
+  `scripts/spec-parse.sh`, so fenced illustration neither raises findings of its
+  own nor satisfies a check a real record would; the unbalanced-fence flag and
+  the changelog-named retirement escape ship with them. **No version bump:** no
+  rule makes a conforming bundle nonconforming, and no in-repo bundle's content
+  anchor moves (verified by a recompute over every bundle, before and after).
+  The one authoring clarification: the retirement escape names its id in the
+  `Task <id>` citation form this format already defines, because an unqualified
+  number cannot be told apart from a date component or any other digit in the
+  entry's prose (*`tasks.md`*, superseded and retired tasks).
+  *(format-grammar D-5, D-9, D-12 · REQ-C1.2, REQ-C1.4, REQ-D1.6, REQ-D1.11.)*
