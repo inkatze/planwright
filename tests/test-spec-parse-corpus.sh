@@ -334,6 +334,21 @@ fi
 if "$SELECT" "$fence_repo/specs/corpus" >/dev/null 2>&1; then
   fail "unbalanced fence: orchestrate-select.sh did not fail closed"
 fi
+# --critical-path reaches the fence through the TASK GRAPH rather than the
+# parked map: the map is a select-mode, v2-only read, so the mode above proves
+# nothing about the graph parse. A truncated graph is the dangerous silence —
+# a hidden dependency edge makes an unready task look ready — so it fails
+# closed on 2 (the lib signals the imbalance with 3, which this script already
+# spends on "transient evidence failure").
+fence_path_rc=0
+fence_path_out=$("$SELECT" --critical-path "$fence_repo/specs/corpus" 2>"$tmp/fence-path.err") \
+  || fence_path_rc=$?
+[ "$fence_path_rc" -eq 2 ] \
+  || fail "unbalanced fence: --critical-path exited $fence_path_rc (want 2), printing [$fence_path_out]"
+[ -z "$fence_path_out" ] \
+  || fail "unbalanced fence: --critical-path emitted a truncated path: [$fence_path_out]"
+grep -q 'open column-0 code fence' "$tmp/fence-path.err" \
+  || fail "unbalanced fence: --critical-path does not name the fence: $(cat "$tmp/fence-path.err")"
 if fence_val=$("$VALIDATE" "$fence_repo/specs/corpus" 2>&1); then
   fail "unbalanced fence: spec-validate.sh reported no error: $fence_val"
 fi
