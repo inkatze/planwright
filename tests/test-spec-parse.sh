@@ -202,8 +202,9 @@ echo "ok: an =-bearing filename is read as a file, not an awk assignment"
 # the sourcing consumer's global scope: generic names would silently
 # clobber consumer state on every call. Sentinels are checked after both a
 # success path and an error path (the error path is what exercises
-# spec_parse__printable), called directly — not inside a command
-# substitution, whose subshell would hide the clobber.
+# spec_parse_printable, whose own working variable stays `spec_parse__p`),
+# called directly — not inside a command substitution, whose subshell would
+# hide the clobber.
 # ---------------------------------------------------------------------------
 sp_total='caller-total'
 sp_kept='caller-kept'
@@ -218,6 +219,30 @@ fi
 [ "$sp_p" = 'caller-p' ] || fail "lib clobbered the caller variable sp_p"
 unset sp_total sp_kept sp_p
 echo "ok: lib working variables stay in the spec_parse__ namespace"
+
+# ---------------------------------------------------------------------------
+# Property 2c: spec_parse_printable is an exported entry point, not a lib
+# internal — spec-anchor.sh calls it to name which spec file carried a
+# malformed header block. Pinned directly because it is now surface: it strips
+# the echo-safety C0 + DEL + C1 range, keeps every other byte, and falls back
+# to a fixed label when nothing printable survives (REQ-B1.6c).
+# ---------------------------------------------------------------------------
+sp_out=$(spec_parse_printable "$(printf 'spec\033[31m/req\007.md')") \
+  || fail "spec_parse_printable failed on a control-byte-bearing path"
+[ "$sp_out" = 'spec[31m/req.md' ] \
+  || fail "spec_parse_printable did not strip the control bytes: '$sp_out'"
+
+sp_out=$(spec_parse_printable 'plain/requirements.md') \
+  || fail "spec_parse_printable failed on a plain path"
+[ "$sp_out" = 'plain/requirements.md' ] \
+  || fail "spec_parse_printable altered a printable path: '$sp_out'"
+
+sp_out=$(spec_parse_printable "$(printf '\001\002\177')") \
+  || fail "spec_parse_printable failed on an all-control path"
+[ "$sp_out" = '(unprintable path)' ] \
+  || fail "spec_parse_printable lost its fallback label: '$sp_out'"
+unset sp_out
+echo "ok: spec_parse_printable strips control bytes and falls back when empty"
 
 # ---------------------------------------------------------------------------
 # Property 3: zero task blocks emit an empty stream, exit 0.
@@ -1153,5 +1178,216 @@ LC_ALL=C grep -q "$(printf '\033')" "$tmp/pe.out" \
 grep -q '^refbad	' "$tmp/pe.out" \
   || fail "a hostile token was not classified as a rejected reference: $(cat "$tmp/pe.out")"
 echo "ok: the lib emits raw bytes and classifies a hostile token as rejected (REQ-B1.6c)"
+
+# ---------------------------------------------------------------------------
+# Property 8: the canonical extraction is fence-aware (format-grammar Task 6;
+# REQ-C1.2 · D-5, and doctrine/spec-format.md *Fenced illustration*). A fenced
+# column-0 task heading or definition bullet is example text: it contributes
+# nothing to the stream, so it cannot conjure a phantom task record or slip a
+# line into a real one. End of file inside an open fence is malformed input
+# and fails closed, the parked map's posture.
+# ---------------------------------------------------------------------------
+
+# 8a. A fenced mock task block is illustration: no phantom record.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n\n'
+  printf '## Notes\n\nThe block format:\n\n'
+  printf '```markdown\n'
+  printf '### Task 9 — A mock block that must parse as illustration\n\n'
+  printf -- '- **Deliverables:** Nothing real.\n'
+  printf -- '- **Done when:** Never.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-9\n'
+  printf -- '- **Estimated effort:** 1 day\n'
+  printf '```\n'
+} >"$tmp/fence-mock.md"
+spec_parse_extract_tasks "$tmp/fence-mock.md" >"$tmp/fm.out" \
+  || fail "the extraction refused a bundle carrying a fenced mock task block"
+grep -q '^### Task 1 — Real$' "$tmp/fm.out" \
+  || fail "the real task block vanished from the extraction: $(cat "$tmp/fm.out")"
+if grep -q 'Task 9' "$tmp/fm.out"; then
+  fail "a fenced mock task heading produced a phantom record (REQ-C1.2): $(cat "$tmp/fm.out")"
+fi
+echo "ok: a fenced mock task block contributes nothing to the extraction (REQ-C1.2)"
+
+# 8b. A fence INSIDE a real block: the fenced definition bullet is illustration,
+# the real ones survive, and the fence does not truncate the block.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n\n'
+  printf 'The field looks like this:\n\n'
+  printf '```markdown\n'
+  printf -- '- **Done when:** A fenced example that must not be kept.\n'
+  printf '```\n\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n'
+} >"$tmp/fence-inner.md"
+spec_parse_extract_tasks "$tmp/fence-inner.md" >"$tmp/fi.out" \
+  || fail "the extraction refused a block carrying an inner fence"
+if grep -q 'A fenced example that must not be kept' "$tmp/fi.out"; then
+  fail "a fenced definition bullet reached the extraction stream (REQ-C1.2): $(cat "$tmp/fi.out")"
+fi
+grep -q '^- \*\*Done when:\*\* It exists\.$' "$tmp/fi.out" \
+  || fail "the real Done when bullet was lost past an inner fence: $(cat "$tmp/fi.out")"
+grep -q '^- \*\*Estimated effort:\*\* half day$' "$tmp/fi.out" \
+  || fail "the block was truncated at an inner fence: $(cat "$tmp/fi.out")"
+echo "ok: an inner fence hides only the fenced lines, never the block's real fields"
+
+# 8c. An indented fence is ordinary content, not a toggle: the doctrine pins the
+# marker to column 0 precisely so a fence can be SHOWN without opening one.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n'
+  printf '    ```\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n'
+} >"$tmp/fence-indented.md"
+spec_parse_extract_tasks "$tmp/fence-indented.md" >"$tmp/fx.out" \
+  || fail "an indented fence was treated as an unterminated column-0 fence"
+grep -q '^- \*\*Estimated effort:\*\* half day$' "$tmp/fx.out" \
+  || fail "an indented fence swallowed the rest of the block: $(cat "$tmp/fx.out")"
+echo "ok: an indented fence is ordinary content, never a toggle"
+
+# 8d. End of file inside an open fence fails closed, with no partial stream.
+{
+  printf '# Fixture — Tasks\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n\n'
+  printf -- '- **Deliverables:** A widget.\n'
+  printf -- '- **Done when:** It exists.\n'
+  printf -- '- **Dependencies:** none\n'
+  printf -- '- **Citations:** D-1\n'
+  printf -- '- **Estimated effort:** half day\n\n'
+  printf '```\n'
+  printf 'an unterminated fence\n'
+} >"$tmp/fence-open.md"
+rc=0
+spec_parse_extract_tasks "$tmp/fence-open.md" >"$tmp/fo.out" 2>"$tmp/fo.err" || rc=$?
+[ "$rc" -eq 3 ] \
+  || fail "end of file inside an open fence returned $rc, expected 3 (fail closed)"
+[ ! -s "$tmp/fo.out" ] \
+  || fail "the fail-closed extraction emitted a partial stream: $(cat "$tmp/fo.out")"
+case $(cat "$tmp/fo.err") in
+  *"open column-0 code fence"*) ;;
+  *) fail "the open-fence refusal lacks a clear message: $(cat "$tmp/fo.err")" ;;
+esac
+echo "ok: end of file inside an open fence fails closed with no partial stream"
+
+# ---------------------------------------------------------------------------
+# Property 9: spec_parse_fence_balance is the shared fence-imbalance probe the
+# validator's REQ-D1.11 flag reads. It reports the line the unclosed fence
+# opened on, so the finding can point at it.
+# ---------------------------------------------------------------------------
+command -v spec_parse_fence_balance >/dev/null 2>&1 \
+  || fail "spec_parse_fence_balance entry point missing after sourcing (REQ-D1.11)"
+
+spec_parse_fence_balance "$tmp/fence-mock.md" >"$tmp/fb.out" \
+  || fail "a balanced-fence file was reported unbalanced"
+[ ! -s "$tmp/fb.out" ] || fail "a balanced file printed output: $(cat "$tmp/fb.out")"
+
+rc=0
+spec_parse_fence_balance "$tmp/fence-open.md" >"$tmp/fb2.out" || rc=$?
+[ "$rc" -eq 3 ] || fail "an unclosed fence returned $rc, expected 3"
+[ "$(cat "$tmp/fb2.out")" = "13" ] \
+  || fail "the unclosed fence's opening line was misreported: $(cat "$tmp/fb2.out")"
+
+spec_parse_fence_balance "$tmp/fence-indented.md" >/dev/null \
+  || fail "an indented fence was counted as an unbalanced column-0 fence"
+
+rc=0
+spec_parse_fence_balance "$tmp/no-such-file.md" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 1 ] || fail "a missing file returned $rc, expected 1"
+
+spec_parse_fence_balance - <"$tmp/fence-mock.md" >/dev/null \
+  || fail "the stdin form rejected a balanced file"
+echo "ok: spec_parse_fence_balance reports imbalance, the opening line, and reads stdin (REQ-D1.11)"
+
+# ---------------------------------------------------------------------------
+# Property 10: spec_parse_header_status_line — the header-block `**Status:**`
+# line locator the content anchor's exclusion is computed from
+# (anchor-integrity REQ-A1.1, REQ-A1.2 · D-2).
+# ---------------------------------------------------------------------------
+command -v spec_parse_header_status_line >/dev/null 2>&1 \
+  || fail "spec_parse_header_status_line entry point missing after sourcing (REQ-A1.1)"
+
+hsl() { spec_parse_header_status_line "$@"; }
+
+# 10a. The canonical block: the declaration's own 1-based line number, and it
+# agrees with what the value parse read on the same fixture.
+got=$(hsl "$tmp/hdr-ok.md") || fail "status-line locator failed on the canonical block"
+[ "$got" = 3 ] || fail "status line located at '$got', want '3'"
+[ "$(hv "$tmp/hdr-ok.md" Status)" = "$(sed -n '3s/^\*\*Status:\*\* //p' "$tmp/hdr-ok.md")" ] \
+  || fail "the located line is not the line the value parse read (the two forms disagree)"
+echo "ok: the status-line locator returns the header declaration's line number (REQ-A1.1)"
+
+# 10b. The bound is the header block, exactly as the value parse scopes it: a
+# body-prose or fenced `**Status:**` is never located, so the anchor leaves it
+# as ordinary content (REQ-A1.2).
+cat >"$tmp/hsl-bounded.md" <<'EOF'
+# Fixture — Requirements
+
+**Format-version:** 1
+
+## Body
+
+**Status:** Done
+
+```markdown
+**Status:** Retired
+```
+EOF
+got=$(hsl "$tmp/hsl-bounded.md") || fail "status-line locator failed on the bounded fixture"
+[ "$got" = 0 ] \
+  || fail "a body-prose or fenced **Status:** line was located as the header declaration (got '$got'; REQ-A1.2)"
+echo "ok: only the header-block declaration is located; body and fenced ones are not (REQ-A1.2)"
+
+# 10c. Malformed blocks fail closed with nothing on stdout. The exit codes are
+# distinct so a consumer can tell a duplicate from an absent block, and neither
+# can be mistaken for the benign `0`.
+hsl_closed() { # <label> <fixture> <expected-exit> <stderr-substring>
+  if hc_out=$(hsl "$2" 2>"$tmp/hsl.err"); then
+    fail "$1: locator exited 0 (printed '$hc_out') where it must fail closed"
+  else
+    hc_rc=$?
+  fi
+  [ "$hc_rc" = "$3" ] || fail "$1: locator exited $hc_rc, want $3"
+  [ -z "$hc_out" ] || fail "$1: locator printed '$hc_out' on a fail-closed path"
+  grep -qF "$4" "$tmp/hsl.err" || fail "$1: stderr lacks '$4': $(cat "$tmp/hsl.err")"
+}
+
+printf '**Status:** Ready\n**Status:** Active\n\n## Body\n\nProse.\n' >"$tmp/hsl-dup.md"
+hsl_closed "duplicate in-header Status" "$tmp/hsl-dup.md" 3 "Status: declarations"
+
+printf '# Fixture\n\n**Status:** Ready\n**Format-version:** 1\n' >"$tmp/hsl-nobody.md"
+hsl_closed "block running to end of file" "$tmp/hsl-nobody.md" 4 "no body content"
+
+printf 'Prose first.\n\n**Status:** Ready\n\nMore prose.\n' >"$tmp/hsl-nohead.md"
+hsl_closed "no leading header block" "$tmp/hsl-nohead.md" 4 "no leading header block"
+
+: >"$tmp/hsl-empty.md"
+hsl_closed "empty file" "$tmp/hsl-empty.md" 4 "no leading header block"
+echo "ok: malformed, unterminated, and duplicate-Status blocks fail closed with distinct codes (REQ-A1.2)"
+
+# 10d. Usage and read failures keep the header family's postures, and the stdin
+# form parses a caller snapshot.
+if hsl "$tmp/hdr-ok.md" extra >/dev/null 2>&1; then
+  fail "the locator accepted two arguments"
+fi
+hsl "$tmp/nonexistent-locator.md" >/dev/null 2>&1 \
+  && fail "the locator succeeded on a missing file"
+got=$(hsl - <"$tmp/hdr-ok.md") || fail "stdin status-line locator failed"
+[ "$got" = 3 ] || fail "stdin locator returned '$got', want '3'"
+echo "ok: the status-line locator fails closed on usage and read errors, and reads stdin"
 
 echo "PASS: test-spec-parse.sh"

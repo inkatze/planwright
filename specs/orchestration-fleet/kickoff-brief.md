@@ -742,3 +742,25 @@ Class: expression-only
 Anchor: `13496b67e5302666a64a2fb8276fabadacafae49` — computed as
 `scripts/spec-anchor.sh specs/orchestration-fleet`
 (prior: `83c83cfad287bd5f6dcc0dffd32123300b98f0d3`).
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`a4c433b`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `557f32fbd66778cd94a4ea76c0fbff02aaf77633` — computed as
+`scripts/spec-anchor.sh specs/orchestration-fleet`
