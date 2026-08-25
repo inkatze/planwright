@@ -183,8 +183,12 @@ write_entry "$f1" green "$("$ANCHOR" "$f1/green")"
 
 run_guard "$f1"
 assert_rc "green corpus exits 0" 0
-assert_has "green corpus reports an ok record" "ok"
-assert_has "green corpus names the bundle" "green"
+# Assert the record itself, not the bare word "ok": that substring also appears
+# in the summary line, so a looser check would pass on a corpus that reported
+# nothing at all.
+assert_has "green corpus reports an ok record for the bundle" \
+  "ok     green — anchor $("$ANCHOR" "$f1/green")"
+assert_has "the summary counts exactly one ok and no errors" "1 ok, 0 notice(s), 0 error(s)"
 
 ########################################################################
 # 2. Stale anchor
