@@ -675,6 +675,49 @@ EOF
 run_v 0 "$root/fixture"
 lacks "after a parenthetical"
 
+# An id INSIDE the qualifier is dropped on purpose — naming a cross-spec
+# reference there is what the parenthetical is for — so it must stay quiet
+# whether or not a comma puts it on its own token boundary. Both spellings
+# below flagged before the scan learned to step past the closing paren.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Id inside the qualifier, comma-separated
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (waiting on 2, pending)
+- **Citations:** D-1
+- **Estimated effort:** half day
+
+### Task 5 — Id inside the qualifier, at the close
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (blocked by 2)
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+lacks "after a parenthetical"
+
+# An UNCLOSED qualifier has no interior to protect: everything past the open
+# paren is discarded prose, so a dep written there is still named.
+write_bundle "$root/fixture" Draft
+cat >>"$root/fixture/tasks.md" <<'EOF'
+
+### Task 4 — Unclosed qualifier
+
+- **Deliverables:** Nothing.
+- **Done when:** Never.
+- **Dependencies:** Task 1 (blocked, Task 2
+- **Citations:** D-1
+- **Estimated effort:** half day
+EOF
+run_v 0 "$root/fixture"
+has "after a parenthetical"
+has "dependency 2"
+
 # Duplicate task ids are rejected even on Draft (the anchor extraction
 # fails closed on them too).
 write_bundle "$root/fixture" Draft

@@ -478,6 +478,12 @@ parse_tasks() {
     function dep_after_paren(s,   tail, n, a, i, tok) {
       tail = s
       if (!sub(/^[^(]*\(/, "", tail)) return
+      # Step past the qualifier before scanning. An id INSIDE it is dropped on
+      # purpose — carrying a cross-spec reference there is what the
+      # parenthetical is for — so only what follows the close is a lost local
+      # dep. An unclosed qualifier has no interior to protect (the sub finds no
+      # close and leaves the tail whole), so everything after the open counts.
+      sub(/^[^)]*\)/, "", tail)
       gsub(/[,;]/, " ", tail)
       n = split(tail, a, " ")
       for (i = 1; i <= n; i++) {
