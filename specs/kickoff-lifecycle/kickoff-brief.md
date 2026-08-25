@@ -407,3 +407,25 @@ implementation (migration sweep + docs + changelog reconcile)".
 Class: expression-only
 Anchor: `e16fc708fe613aba985d8d0dbf6ab794d452126a` — computed as
 `scripts/spec-anchor.sh specs/kickoff-lifecycle`
+
+### Re-anchor — anchor-scope exclusion sweep (2026-08-24)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*), recorded by the coordinated sweep
+that lands with the hash-scope change (anchor-integrity D-3, REQ-A1.4).
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content. The per-file digests for `requirements.md`, `design.md`, and
+`test-spec.md` now drop the header-block `**Status:**` line, so every
+bundle carrying one recomputes to a new value. Verified by isolation:
+recomputing under the amended semantics over this bundle as it stood at the
+prior entry's commit (`c0ae1e6`) yields the same hash recorded below, so no
+anchored byte has changed since that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion"), the doctrine half of
+the change this entry re-anchors against.
+
+Class: expression-only
+Anchor: `0381b9505630abb647fa3ac83d864bd5555ad49f` — computed as
+`scripts/spec-anchor.sh specs/kickoff-lifecycle`
