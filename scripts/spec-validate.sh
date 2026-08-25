@@ -334,13 +334,29 @@ defence() {
 # as removed) is the fail-closed error and the accompanying finding names the
 # revision that is actually malformed, so the author is never left guessing
 # which side of the diff to fix.
+#
+# The probe's status is read for what it says rather than for truthiness: 3 is
+# the imbalance, and anything else non-zero means the fence state could not be
+# established at all. Both fall back to the raw blob, so the posture does not
+# turn on the distinction — the message does, and a confident "unclosed fence"
+# printed against a file that has none would send the author to the wrong file.
 debaseline() {
-  if printf '%s\n' "$1" | spec_parse_fence_balance - >/dev/null 2>&1; then
-    printf '%s\n' "$1" | defence -
-    return 0
-  fi
-  printf 'gap\t%s: unclosed column-0 code fence in the %s baseline (its ids are compared unstripped, so a fenced mock id there may read as removed)\n' \
-    "$2" "$baseline" >>"$fnd"
+  dbl_rc=0
+  printf '%s\n' "$1" | spec_parse_fence_balance - >/dev/null 2>&1 || dbl_rc=$?
+  case $dbl_rc in
+    0)
+      printf '%s\n' "$1" | defence -
+      return 0
+      ;;
+    3)
+      printf 'gap\t%s: unclosed column-0 code fence in the %s baseline (its ids are compared unstripped, so a fenced mock id there may read as removed)\n' \
+        "$2" "$baseline" >>"$fnd"
+      ;;
+    *)
+      printf 'gap\t%s: could not establish the fence state of the %s baseline (probe exit %s; its ids are compared unstripped)\n' \
+        "$2" "$baseline" "$dbl_rc" >>"$fnd"
+      ;;
+  esac
   printf '%s\n' "$1"
 }
 
