@@ -609,6 +609,16 @@ case $OUT in
   *) ;;
 esac
 
+# A specs root of nothing but slashes strips to the empty string, which is not
+# a directory — so the root, which IS one, would be reported as missing. The
+# guard has to get past the screen and fail on the real ground (no bundle
+# under it), naming a cause the caller can act on.
+for slashy in / ////; do
+  run_guard "$slashy"
+  assert_lacks "a specs root of '$slashy' is not called a non-directory" "not a directory"
+  assert_has "a specs root of '$slashy' reports the real cause" "no spec bundle found under"
+done
+
 ########################################################################
 # 12. Wiring: the CI aggregate and the lefthook pre-commit mirror
 ########################################################################

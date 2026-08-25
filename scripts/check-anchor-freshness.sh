@@ -119,6 +119,11 @@ done
 # unprintable and name nothing the caller typed.
 specs_root_given=$specs_root
 while [ "$specs_root" != "${specs_root%/}" ]; do specs_root=${specs_root%/}; done
+# Those slashes WERE the path when there is nothing else left: the strip has
+# turned the root into the empty string, which is not a directory and would
+# have the guard report `/` as missing. Put it back and let the walk fail on
+# whatever it really finds there.
+[ -n "$specs_root" ] || specs_root=/
 if [ ! -d "$specs_root" ]; then
   printf '%s\n' "check-anchor-freshness: not a directory: $(spec_parse_printable "$specs_root_given")" >&2
   exit 2
