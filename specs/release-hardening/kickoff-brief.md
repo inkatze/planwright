@@ -415,3 +415,125 @@ the change this entry re-anchors against.
 Class: expression-only
 Anchor: `dfcf35014c58620b9b0a2f954c57bb3a135add0b` — computed as
 `scripts/spec-anchor.sh specs/release-hardening`
+
+### Amendment 3 — release-please bootstrap race (2026-08-25)
+
+The bundle grows a fourth surface. On 2026-07-30, minutes after v0.33.0 was
+published, release-please opened PR #339 proposing a bogus bump whose diff
+re-listed 124 already-released commits; the run log shows it looking for the
+v0.33.0 tag three seconds before the signed tag existed, then falling back to
+`bootstrapSha` and regenerating from near the start of history. Two defects,
+recorded as obs:fd6c2f4f: the workflow fires on `ci` completing on main, which
+for a release commit is exactly the interval where the tag deliberately does
+not exist yet — so every release passes through it — and release-please
+bootstraps rather than failing loudly whenever it cannot see the latest
+release, so any cause of that (API blip, rate limit, permissions change,
+deleted tag) yields the same plausible merge-ready proposal.
+
+This delta was first written as PR #340 and recut here onto its own spec branch
+as PR #353. It adds **REQ-H** (release-proposal integrity), **D-13** (gate the
+workflow on the existing window check) and **D-14** (judge the proposal, not
+only the trigger), and **Tasks 9-10**. Meaning-class by the REQ-A3.3 axis:
+new REQs and new D-IDs. Pre-merge amendment — nothing signed has shipped, so
+the records are amended in place per the meta-spec's scope rule and PR #353 is
+the review surface.
+
+**Lens review pass (Discovery-Rigor), delta-scoped.** Walked inline over the
+143-line delta against `origin/main` (four files, one new REQ group, two
+decisions, two tasks), not a full-bundle re-walkthrough. Findings validated
+three-pass before reporting: read against the actual scripts and workflows,
+cross-checked from the callers and the sibling `release-window.yml`, and
+grounded outside the diff in the observation store and the shipped exit-status
+contracts. `spec-validate` 0/0 and `markdownlint-cli2` clean both before and
+after the rework.
+
+| Lens | Findings | Notes |
+| --- | --- | --- |
+| Correctness, logic, edge cases | 2 | REQ-H1.1/D-13 read the window check's *non-zero* exit as "window open", but 1 is the window and 2 is fail-closed-could-not-tell; Task 9 omitted the checkout the guard needs, and a tagless one reads "no releases yet, window open" and skips every run |
+| Security | 1 | the checkout Task 9 needs lands in a `contents: write` `workflow_run` job whose branch filter a fork PR can satisfy (obs:131af768) |
+| Error handling & failure modes | 1 | same as correctness item 1, from the other side: folding exit 2 into the skip re-opens the fail-open REQ-A/D-2 exist to close |
+| Performance | none | one added script invocation in a CI job that already runs for minutes |
+| Concurrency / state | 1 + 1 PASS | `mise.toml` overlap is now {7, 8, 10}, recorded in `design.md`; D-13's "self-clears" claim verified sound — the `release-window` lock holds merges shut for the whole span the guard skips, so no proposal is dropped |
+| Naming, readability, structure | 1 | the REQ-H group theme named the untagged window, under-describing the deliberately cause-agnostic REQ-H1.2/H1.3 |
+| Documentation | 3 | no `## Scope` bullet for REQ-H and a Goal that still framed the pass as five scripts; no `## Changelog` entry; no `## Sources` entry for obs:fd6c2f4f |
+| Tests / verification | 2 | `test-spec.md` REQ-H entries carried no `## REQ-H` group heading and sat under REQ-G; Task 9 said "the workflow test family" where every sibling task names its file |
+| Cross-file consistency | 2 | REQ-H1.2 said "older than" where D-14, Task 10, and the test-spec said "at or older", and the basis (SemVer precedence vs entry date) was never pinned; `design.md`'s altitude note cites a foreign `REQ-H1.1` that now collides with this bundle's own |
+| Artifact data-hygiene (`security-posture`) | none | obs UIDs, PR numbers, version strings only; no secrets, tokens, or hostnames |
+
+**Dispositions.** All applied on the branch; none deferred, none dropped.
+
+- **The tri-state exit (correctness + error handling, applied).** REQ-H1.1 and
+  D-13 now split `release-window-check.sh`'s three statuses instead of testing
+  non-zero: 0 proceeds, 1 skips the job, 2 fails it. The script's own header
+  documents 2 as "usage error, or the comparator failed (FAIL CLOSED)", and
+  REQ-A1.3 in this very bundle exists to mint that distinct status — a guard
+  that skipped on both would launder an unreadable state into a green no-op.
+- **The missing checkout (correctness, applied).** `release-please.yml` has no
+  `actions/checkout` today, and `rl_latest_release_tag` reads local
+  `git tag -l`. Task 9 now carries the checkout and the explicit
+  `git fetch --force --tags origin +refs/heads/main:refs/remotes/origin/main`
+  that `release-window.yml` already proves out, with the failure mode named:
+  a tagless checkout reports "no release tags yet, window open" and skips the
+  job forever, silently.
+- **The privileged checkout (security, applied).** That job holds
+  `contents: write` and `pull-requests: write`. obs:131af768 records that its
+  `head_branch == 'main'` filter is satisfiable by a fork PR whose head branch
+  is named `main`, and that `guard-coverage` D-6 accepted the residual
+  *because* the job checks out no PR code — a premise Task 9 would otherwise
+  remove. D-13 and Task 9 now pin the checkout to the repository's own default
+  branch and forbid `github.event.workflow_run.head_sha`. The adjacent
+  `head_repository.full_name == github.repository` clause the observation
+  proposes stays out of scope: it belongs to `guard-coverage` D-6, and the
+  default-branch pin is sufficient here (see the human note below).
+- **The comparison basis (cross-file consistency, applied).** REQ-H1.2's
+  "older than" is now "at or below the latest release tag" everywhere, and all
+  four files pin the comparison to SemVer precedence through
+  `rl_latest_release_tag` / `rl_version_gt` — the one definition
+  `autopilot-reflex` REQ-D1.8 owns — rather than to the entries' dates, which
+  a regenerated changelog restamps. `test-spec.md` gains a third fixture
+  (fresh dates, already-released versions) so a date-based implementation
+  cannot pass the suite.
+- **Bundle framing (documentation, applied).** REQ-H is the one part of this
+  pass that reaches past the five scripts it was scoped to, onto the proposal
+  end of the same pipeline. `## Scope` gains its bullet, the Goal records the
+  extension, `## Sources` gains obs:fd6c2f4f and obs:131af768, and the
+  `## Changelog` gains the dated meaning-class entry this ritual requires.
+- **Structure and naming (applied).** `test-spec.md` gains the `## REQ-H`
+  group heading its entries were missing (they sat under REQ-G); the group is
+  retitled "release-proposal integrity", dropping the untagged-window
+  qualifier that under-described REQ-H1.2/H1.3; the test-spec intro drops its
+  "the two non-executable requirements" count, now three; Task 9 names
+  `tests/test-release-please.sh` instead of "the workflow test family";
+  `design.md`'s Shared-file coordination note adds Task 10 to the `mise.toml`
+  overlap.
+- **The REQ-H1.1 collision (cross-file consistency, applied where editable).**
+  `design.md`'s altitude note cites `autopilot-reflex` REQ-H1.1, which this
+  delta gives a local namesake; the note now qualifies the namespace on both
+  IDs. §8's "Kickoff altitude check (REQ-H1.3)" above has the same collision
+  and is deliberately left alone: everything above this log is append-only
+  after sign-off. Read it as `autopilot-reflex` REQ-H1.3, per the meta-spec's
+  rule that foreign IDs are always namespace-qualified.
+
+**For the human, not decided here.** Whether `guard-coverage`'s accepted
+residual (obs:131af768's `head_repository` clause) should now be closed rather
+than left accepted, given that Task 9 makes this job check code out for the
+first time. The default-branch pin makes the residual no worse than it is
+today, so nothing here blocks; the question is whether the observation should
+be re-mined into `guard-coverage` rather than staying accepted.
+
+**Human classification and sign-off is the merge of PR #353.** This is a
+pre-merge amendment, so the PR is the review surface: approving and merging it
+is the human act that classifies this delta as meaning-class and signs the
+record, exactly as the scope rule prescribes for corrections on a spec's own
+PR.
+
+Files touched: `requirements.md` (Goal, Scope, REQ-H1.1, REQ-H1.2, Changelog,
+Sources), `design.md` (altitude note, D-13, D-14, Cross-cutting concerns),
+`tasks.md` (Task 9, Task 10), `test-spec.md` (intro, REQ-H group heading,
+REQ-H1.1, REQ-H1.2). `spec-validate` 0/0; `markdownlint-cli2` clean.
+
+Class: meaning
+Lens-pass: §9 "Amendment 3" — the delta-scoped lens review above, canonical
+table and all dispositions recorded in this section
+Anchor: `c8502e7ece784bcde91f69dec9d9a09b2bd5f8f5` — computed as
+`scripts/spec-anchor.sh specs/release-hardening`
