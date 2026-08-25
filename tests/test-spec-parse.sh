@@ -1390,4 +1390,145 @@ got=$(hsl - <"$tmp/hdr-ok.md") || fail "stdin status-line locator failed"
 [ "$got" = 3 ] || fail "stdin locator returned '$got', want '3'"
 echo "ok: the status-line locator fails closed on usage and read errors, and reads stdin"
 
+# ---------------------------------------------------------------------------
+# Property 11: the line-80 grammar families (format-grammar Task 8; REQ-B1.5 ·
+# D-4). REQ bullets, D-ID headings, task headings, the five task definition
+# fields, and the `Dependencies:` / `Citations:` token extractions ship as awk
+# SOURCE the consumers prepend, the $spec_parse_awk_fence precedent: the
+# validator, the selector, and the bundle reader each drive their own awk
+# program, so a filter process would cost them the line numbers their findings
+# cite and the single exit status REQ-B1.6f asks for.
+#
+# The token extractions are the one place the three consumers had genuinely
+# diverged, so the cases below pin the UNIFIED behavior against the real forms
+# in-repo bundles use — bare ids, prose ids, semicolon lists, a parenthetical
+# cross-spec carry clause, and sentence-final periods.
+# ---------------------------------------------------------------------------
+[ -n "${spec_parse_awk_grammar:-}" ] \
+  || fail "\$spec_parse_awk_grammar missing after sourcing (the line-80 families, REQ-B1.5)"
+
+# gval <awk-expression> <line> — evaluate one grammar function against one
+# line, which the expression names `L`. Binding the line to a variable rather
+# than letting the call sites write `$0` keeps every assertion below free of
+# shell-looking `$` tokens.
+# shellcheck disable=SC2016 # awk source, not a shell expansion
+gval() {
+  printf '%s\n' "$2" | LC_ALL=C awk "$spec_parse_awk_grammar"'{ L = $0; print '"$1"' }'
+}
+
+eq() { # <label> <want> <got>
+  [ "$3" = "$2" ] || fail "$1: got '$3', want '$2'"
+}
+
+# 11a. Requirement bullets: the bolded id lead at column 0, and nothing else.
+eq "REQ bullet id" "REQ-B1.5" \
+  "$(gval 'spec_parse_req_bullet_id(L)' '- **REQ-B1.5** The line-80 surfaces SHALL migrate.')"
+eq "REQ bullet with a longer id suffix" "" \
+  "$(gval 'spec_parse_req_bullet_id(L)' '- **REQ-B1.5b** Not the id grammar.')"
+eq "prose bullet in a REQ group" "" \
+  "$(gval 'spec_parse_req_bullet_id(L)' '- A prose bullet with no id.')"
+eq "indented REQ bullet" "" \
+  "$(gval 'spec_parse_req_bullet_id(L)' '  - **REQ-B1.5** Indented, so not a definition.')"
+eq "REQ id token" "REQ-A1.1" \
+  "$(gval 'spec_parse_req_token(L)' '### REQ-A1.1 — Fence grammar [design-level + test]')"
+eq "every REQ id token on the line" " REQ-A1.1 REQ-B2.3 " \
+  "$(gval 'spec_parse_req_tokens(L)' '### REQ-A1.1 and REQ-B2.3 — a shared entry')"
+eq "no REQ id token" "" "$(gval 'spec_parse_req_token(L)' '### Some other heading')"
+echo "ok: the requirement-bullet and REQ-id token grammars parse as the consumers need them"
+
+# 11b. Decision headings: the conforming `### D-<n>:` form carries the id, and a
+# `### D-` line that misses the shape is an ATTEMPT — the distinction the
+# validator's malformed-heading finding rests on.
+eq "D heading id" "D-4" "$(gval 'spec_parse_dec_id(L)' '### D-4: Lib reach  (H)')"
+eq "D heading title" "Lib reach  (H)" \
+  "$(gval 'spec_parse_dec_title(L)' '### D-4: Lib reach  (H)   ')"
+eq "D heading without the colon" "" "$(gval 'spec_parse_dec_id(L)' '### D-4 Lib reach')"
+eq "D heading without the colon is an attempt" "1" \
+  "$(gval 'spec_parse_dec_attempt(L)' '### D-4 Lib reach')"
+eq "non-numeric D heading is an attempt" "1" \
+  "$(gval 'spec_parse_dec_attempt(L)' '### D-four: Lib reach')"
+eq "ordinary H3 is no attempt" "0" \
+  "$(gval 'spec_parse_dec_attempt(L)' '### Design notes')"
+echo "ok: the decision-heading grammar separates a conforming id from a malformed attempt"
+
+# 11c. Task headings: the id is the third whitespace field, grammar-validated
+# before it is a record, and the title is what follows it past the em dash.
+eq "task heading id" "8" "$(gval 'spec_parse_task_id(L)' '### Task 8 — Line-80 grammar migration')"
+eq "dotted task heading id" "2.5" "$(gval 'spec_parse_task_id(L)' '### Task 2.5 — A split task')"
+eq "non-numeric task heading id" "" "$(gval 'spec_parse_task_id(L)' '### Task A — Not an id')"
+eq "task heading with no id at all" "" "$(gval 'spec_parse_task_id(L)' '### Task')"
+eq "task heading is recognized" "1" \
+  "$(gval 'spec_parse_is_task_heading(L)' '### Task A — Not an id')"
+eq "task title" "Line-80 grammar migration" \
+  "$(gval 'spec_parse_task_title(L)' '### Task 8 — Line-80 grammar migration')"
+echo "ok: the task-heading grammar validates the id before it becomes a record"
+
+# 11d. The five definition fields, and the payload after the bolded lead. A
+# state-annotation bullet is not a definition field.
+eq "Deliverables field" "deliverables" \
+  "$(gval 'spec_parse_task_field(L)' '- **Deliverables:** A widget.')"
+eq "Done when field" "donewhen" \
+  "$(gval 'spec_parse_task_field(L)' '- **Done when:** It exists.')"
+eq "Dependencies field" "dependencies" \
+  "$(gval 'spec_parse_task_field(L)' '- **Dependencies:** 2, 5')"
+eq "Citations field" "citations" \
+  "$(gval 'spec_parse_task_field(L)' '- **Citations:** D-4')"
+eq "Estimated effort field" "effort" \
+  "$(gval 'spec_parse_task_field(L)' '- **Estimated effort:** 3 days')"
+eq "state annotation is no definition field" "" \
+  "$(gval 'spec_parse_task_field(L)' '- **Last activity:** 2026-08-25')"
+eq "field payload" " It exists." \
+  "$(gval 'spec_parse_task_field_value(L)' '- **Done when:** It exists.')"
+echo "ok: the definition-field grammar names the five fields and yields their payload"
+
+# 11e. Dependency tokens — the unified extraction, over the forms in-repo
+# bundles actually use.
+dep() { gval 'spec_parse_dep_ids(L)' "$1"; }
+eq "bare id list" " 2 5 " "$(dep '- **Dependencies:** 2, 5')"
+eq "no dependencies" " " "$(dep '- **Dependencies:** none')"
+eq "prose ids" " 1 2 " "$(dep '- **Dependencies:** Task 1, Task 2')"
+eq "sentence-final period" " 2 4 6 " "$(dep '- **Dependencies:** Task 2, Task 4, Task 6.')"
+eq "semicolon separator" " 1 6 " "$(dep '- **Dependencies:** Task 1; Task 6')"
+eq "parenthetical carry clause dropped" " 1 6 " \
+  "$(dep '- **Dependencies:** Task 1; Task 6 (REQ-A1.8 / D-9 — the producer is elsewhere)')"
+eq "cross-spec clause dropped" " 5 " \
+  "$(dep '- **Dependencies:** Task 5; plus cross-spec (hard): orchestration-concurrency')"
+eq "prose run of ids" " 7 8 12 9 10 11 " \
+  "$(dep '- **Dependencies:** 7, 8, 12 to start; its criteria additionally exercise 9, 10, 11 as')"
+# The unified extraction tokenizes and grammar-validates rather than scraping
+# digits out of whatever is left, so an unqualified identifier outside a
+# parenthetical contributes no phantom edge.
+eq "a bare identifier is not digit-scraped" " 5 " "$(dep '- **Dependencies:** 5; plus D-9')"
+echo "ok: the dependency extraction yields the same ids the three consumers each derived (REQ-B1.5)"
+
+# 11f. Citation tokens: D-ids and REQ-ids, in line order, with the owner's own
+# id skipped so an inline `*(Cites: …)*` on a requirement bullet never
+# self-cites.
+eq "task citation line" " D-4 REQ-B1.5 REQ-B1.6 " \
+  "$(gval 'spec_parse_cite_ids(L, "")' '- **Citations:** D-4 · REQ-B1.5, REQ-B1.6')"
+eq "owner id skipped" " D-1 REQ-A1.3 " \
+  "$(gval 'spec_parse_cite_ids(L, "REQ-A1.2")' '- **REQ-A1.2** Text. *(Cites: D-1, REQ-A1.2, REQ-A1.3.)*')"
+eq "no citation tokens" " " \
+  "$(gval 'spec_parse_cite_ids(L, "")' '- **Citations:** none recorded')"
+echo "ok: the citation extraction yields the D-id and REQ-id edges, owner excluded (REQ-B1.5)"
+
+# 11g. The grammar source composes with the fence lexer: prepending both keeps
+# the fence rules first, so a fenced line reaches no grammar rule at all.
+{
+  printf '# Fixture\n\n## Tasks\n\n'
+  printf '### Task 1 — Real\n'
+  printf -- '- **Dependencies:** 2\n\n'
+  printf '```markdown\n'
+  printf '### Task 9 — Illustration\n'
+  printf -- '- **Dependencies:** 7\n'
+  printf '```\n'
+} >"$tmp/g-fence.md"
+# shellcheck disable=SC2016 # awk source, not a shell expansion
+got=$(LC_ALL=C awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
+  spec_parse_is_task_heading($0) { printf "T%s ", spec_parse_task_id($0) }
+  spec_parse_task_field($0) == "dependencies" { printf "D%s", spec_parse_dep_ids($0) }
+' <"$tmp/g-fence.md")
+eq "fenced line-80 content" "T1 D 2 " "$got"
+echo "ok: the line-80 grammar composes with the fence lexer, fence rules first (REQ-C1.2)"
+
 echo "PASS: test-spec-parse.sh"

@@ -29,12 +29,13 @@
 # is advisory and is NOT consulted.
 #
 # Dependency-line parsing: the `**Dependencies:**` bullet is read in prose or
-# bare-id form. The local dep ids are the numeric (or dotted) tokens BEFORE any
-# parenthetical; a trailing period is tolerated ("Task 1." is dep 1), and a
-# parenthetical qualifier together with any trailing cross-spec clause (which
-# may itself name id-shaped tokens) is dropped, so only this bundle's deps are
-# extracted. Only the first line of the bullet is read — a wrapped continuation
-# line is not parsed (both limitations are pinned in the test suite).
+# bare-id form, through the shared grammar lib (format-grammar Task 8;
+# REQ-B1.5), so the selector graph and the bundle reader's graph come from one
+# tokenizer. A parenthetical qualifier together with any trailing cross-spec
+# clause (which may itself name id-shaped tokens) is dropped, commas and
+# semicolons separate, tokens are grammar-validated whole, and a trailing period
+# is tolerated ("Task 1." is dep 1). Only the first line of the bullet is read —
+# a wrapped continuation line is not parsed (pinned in the test suite).
 #
 # Usage:
 #   orchestrate-select.sh <spec-dir>
@@ -55,8 +56,9 @@
 # task records, or has a missing/unparseable `Format-version:` line (REQ-C1.8 — the
 # candidacy rules cannot be known without a parsed version; both modes refuse
 # rather than guess; unparseable includes a DUPLICATE in-header declaration,
-# REQ-A1.2), or the parked map the shared grammar lib refused (end-of-file
-# inside an open column-0 fence), or a sourced helper is missing —
+# REQ-A1.2), or a parse the shared grammar lib refused — the parked map or the
+# task graph, either of which fails closed on end-of-file inside an open
+# column-0 fence — or a sourced helper is missing —
 # echo-safety.sh or spec-parse.sh (broken install, both modes) —, or
 # (selection only) the derivation engine is missing /
 # not executable or its derivation fails (no git work tree, invalid spec id) —
@@ -98,9 +100,10 @@ fi
 . "$echo_safety"
 
 # The shared spec-parse grammar lib (format-grammar D-3, D-4; REQ-B1.3,
-# REQ-B1.4): the Format-version and parked-map parses below come from it, so
-# this selector cannot re-diverge from its three sibling v2 parsers. Sourced,
-# never executed; fail closed when it is missing or unreadable (REQ-B1.6a).
+# REQ-B1.4, REQ-B1.5): the Format-version, parked-map, fence, and task-graph
+# parses below all come from it, so this selector cannot re-diverge from its
+# sibling parsers. Sourced, never executed; fail closed when it is missing or
+# unreadable (REQ-B1.6a).
 spec_parse_sh="$script_dir/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
   printf '%s\n' "orchestrate-select: required helper $spec_parse_sh missing or not readable" >&2
@@ -293,13 +296,26 @@ if [ "$mode" = select ]; then
     | awk -F"$TAB" '$1=="degraded" || $1=="contradiction"' >&2
 fi
 
+# The selection graph. Its grammar — the fence lexer, the task heading, and the
+# Dependencies / Estimated effort bullets — is the shared lib's (format-grammar
+# Task 8; REQ-B1.5 · D-4), so the selector graph and the bundle reader graph are
+# parsed by one tokenizer and cannot disagree about an edge.
+#
+# The output is captured rather than streamed so the lib's fence refusal can be
+# translated into this script's own exit vocabulary: the lexer signals
+# end-of-file-inside-an-open-fence with exit 3, which here already means
+# "transient evidence failure". A truncated graph must fail closed (a hidden
+# dependency could make an unready task look ready), so it maps to 2.
+#
 # The path travels via ENVIRON, not -v: awk -v performs C-escape processing,
 # which would synthesize control bytes from a path carrying literal backslash
 # sequences (the drain-gates statuses-whitelist rationale).
-printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
+sel_rc=0
+sel_out=$(printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
   awk -v mode="$mode" -v fv="$fv" \
   -v completed="$completed" -v inprogress="$inprogress" \
-  -v parked="$parked_any" -v parked_oos="$parked_oos" '
+  -v parked="$parked_any" -v parked_oos="$parked_oos" \
+  "$spec_parse_awk_fence$spec_parse_awk_grammar"'
   function weight(s) {
     # Effort string -> a numeric weight. "half day" is 0.5; otherwise the
     # leading number ("1", "1.5", "2", "3"); an unrecognized form is 1.
@@ -323,64 +339,38 @@ printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
     memo[t] = weight(effort[t]) + best
     return memo[t]
   }
-  # Column-0 fences are illustration (matching the FV and parked-map parses
-  # above): a fenced example task heading is never a graph node, and a fenced
-  # section heading never relabels the real section around it.
-  /^```/ { fence = !fence; next }
-  fence { next }
   # Section headings: track the current ## section. The H2 text is the
   # canonical state label for every task block that follows.
   /^## / { section = substr($0, 4); sub(/[[:space:]]+$/, "", section); next }
-  # Task headings: "### Task <id> — ...". id is the third field; validate it
-  # against the task-id grammar before recording the record.
-  /^### Task / {
-    id = $3
-    if (id ~ /^[0-9]+(\.[0-9]+)?$/) {
-      cur = id
+  # Task headings: "### Task <id> — ...". The id is grammar-validated before
+  # the record exists (the shared grammar, REQ-B1.5).
+  spec_parse_is_task_heading($0) {
+    cur = spec_parse_task_id($0)
+    if (cur != "") {
       ntasks++
-      sec[id] = section
-      order[id] = NR
-      effort[id] = ""
-      raw_deps[id] = ""
-    } else {
-      cur = ""
+      sec[cur] = section
+      order[cur] = NR
+      effort[cur] = ""
+      deps[cur] = " "
     }
     next
   }
   # Definition bullets within the current task block.
-  cur != "" && /\*\*Dependencies:\*\*/ {
-    s = $0
-    sub(/.*\*\*Dependencies:\*\*/, "", s)
-    sub(/\(.*/, "", s)    # drop parenthetical qualifiers (and any cross-spec
-                          # clause they introduce) before id extraction
-    gsub(/[^0-9.]+/, " ", s)               # keep only id-shaped tokens
-    raw_deps[cur] = s
+  cur != "" && spec_parse_task_field($0) == "dependencies" {
+    deps[cur] = spec_parse_dep_ids($0)
     next
   }
-  cur != "" && /\*\*Estimated effort:\*\*/ {
-    e = $0
-    sub(/.*\*\*Estimated effort:\*\*[[:space:]]*/, "", e)
-    effort[cur] = e
+  cur != "" && spec_parse_task_field($0) == "effort" {
+    effort[cur] = spec_parse_task_field_value($0)
     next
   }
   END {
+    spec_parse__fence_eof()
     if (ntasks == 0) {
       # Fail closed with a diagnostic, matching the shell-level missing-file
       # message above (a present-but-taskless tasks.md is still malformed).
       print "orchestrate-select: no task records in " ENVIRON["ORCHESTRATE_SELECT_TASKS_MD"] > "/dev/stderr"
       exit 2
-    }
-
-    # Normalize dependency lists (drop bare "." or empty tokens, keep ids).
-    for (t in sec) {
-      m = split(raw_deps[t], a, " ")
-      list = ""
-      for (i = 1; i <= m; i++) {
-        tok = a[i]
-        sub(/\.$/, "", tok)    # tolerate prose trailing period: "Task 1." -> 1
-        if (tok ~ /^[0-9]+(\.[0-9]+)?$/) list = list tok " "
-      }
-      deps[t] = list
     }
 
     # Reverse edges: a task t extends the chain of each dep it declares. In
@@ -469,4 +459,16 @@ printf '%s\n' "$tasks_content" | ORCHESTRATE_SELECT_TASKS_MD="$tasks_md" \
     if (best_id == "") exit 1
     print best_id
   }
-'
+') || sel_rc=$?
+
+case $sel_rc in
+  0)
+    [ -z "$sel_out" ] || printf '%s\n' "$sel_out"
+    exit 0
+    ;;
+  3)
+    printf '%s\n' "orchestrate-select: end of file inside an open column-0 code fence in $tasks_md; the task graph would be truncated (fail closed)" >&2
+    exit 2
+    ;;
+  *) exit "$sel_rc" ;;
+esac

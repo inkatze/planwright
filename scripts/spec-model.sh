@@ -21,11 +21,12 @@
 # writes nothing.
 #
 # The format grammar (the REQ-ID bullet shape, the `### D-<n>:` decision
-# heading, the `### Task <id> —` task heading, the Dependencies token
-# extraction) mirrors the canonical parsers in scripts/spec-validate.sh and
-# scripts/orchestrate-select.sh, reimplemented here rather than shared via a
-# library so this task does not restructure those load-bearing scripts; the
-# duplication is recorded as a drain-loop observation.
+# heading, the `### Task <id> —` task heading, the definition fields, and the
+# Dependencies / Citations token extraction) comes from the shared grammar lib,
+# scripts/spec-parse.sh (format-grammar Task 8; REQ-B1.5 · D-4). It used to be
+# reimplemented here, which is the divergence legacy line 80 recorded: the
+# reader, the validator, and the selector now answer "what is a task heading"
+# from one definition.
 #
 # Record vocabulary (tag in column 1, tab-separated, emitted in source order):
 #   BUNDLE     <spec>  <status>
@@ -47,9 +48,11 @@
 #      an absent — or present-but-unreadable — file is marked FILE ... absent
 #      and its records are skipped, degrading the same as absence rather than
 #      halting opaquely — graceful degradation, REQ-A1.5).
-#   2  usage or environment error: no argument, or the spec directory itself is
+#   2  usage or environment error: no argument, the spec directory itself is
 #      absent or unreadable (fail closed — a model over a non-bundle must not
-#      silently report an empty model). An unreadable individual bundle file is
+#      silently report an empty model), or the shared grammar lib is missing or
+#      unreadable (REQ-B1.6a: a broken install refuses rather than falling back
+#      to a private grammar copy). An unreadable individual bundle file is
 #      not an error: it degrades like absence (exit 0) per the line above.
 #
 # Portable: /bin/sh + awk as shipped on macOS (bash 3.2, BSD userland) and
@@ -64,6 +67,19 @@ set -eu
 LC_ALL=C
 export LC_ALL
 unset CDPATH
+
+# The shared spec-parse grammar lib (D-3, D-4; REQ-B1.5): sourced, never
+# executed. Fail closed when it is missing or unreadable rather than falling
+# back to a private grammar copy (REQ-B1.6a) — a reader that silently parsed by
+# its own rules is exactly the divergence the lib exists to end.
+script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
+spec_parse_sh="$script_dir/spec-parse.sh"
+if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
+  echo "spec-model: required helper $spec_parse_sh missing or not readable" >&2
+  exit 2
+fi
+# shellcheck source=scripts/spec-parse.sh
+. "$spec_parse_sh" || exit 2
 
 spec_dir="${1:-}"
 if [ -z "$spec_dir" ]; then
@@ -141,22 +157,13 @@ awk_clean='
     sub(/ +$/, "", s)
     return s
   }
-  function emit_cites(owner, tag, line,    i, n, t, tok) {
-    # Extract every D-id and REQ-id token from a Cites/Citations annotation and
-    # emit one edge per token. A consumer scopes to the bundle by intersecting
-    # with the emitted id set; cross-spec carry references are recorded, not
-    # silently dropped (losslessness, D-2). The owners own id is skipped: a
-    # requirement bullet carries its id on the same line as an inline citation,
-    # and an element never cites itself.
-    gsub(/[^A-Za-z0-9.-]+/, " ", line)
-    n = split(line, t, " ")
-    for (i = 1; i <= n; i++) {
-      tok = t[i]
-      sub(/\.$/, "", tok)
-      if (tok == owner) continue
-      if (tok ~ /^D-[0-9]+$/ || tok ~ /^REQ-[A-Z][0-9]+\.[0-9]+$/)
-        printf "%s\t%s\t%s\n", tag, owner, tok
-    }
+  function emit_cites(owner, tag, line,    i, n, t) {
+    # One edge per D-id / REQ-id token the shared grammar extracts from a
+    # Cites/Citations annotation, the owner id already excluded. A consumer
+    # scopes to the bundle by intersecting with the emitted id set; cross-spec
+    # carry references are recorded, not silently dropped (losslessness, D-2).
+    n = split(spec_parse_cite_ids(line, owner), t, " ")
+    for (i = 1; i <= n; i++) printf "%s\t%s\t%s\n", tag, owner, t[i]
   }
 '
 
@@ -166,7 +173,7 @@ awk_clean='
 # annotation are kept out of the text column so the plain text stays free of
 # internal vocabulary (REQ-C1.1) and the back-pointer is separable (REQ-D1.3).
 parse_requirements() {
-  awk "$awk_clean"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar$awk_clean"'
     # Drop the trailing `*(Cites: ...)*` annotation (always the final element of
     # a requirement, by convention) and any `**Superseded-by: ...**` marker from
     # the plain text: the citation tokens and the superseded state are carried as
@@ -189,11 +196,12 @@ parse_requirements() {
     !ingroup { next }
     /^- / {
       flush()
-      if (match($0, /^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*/)) {
-        cur = substr($0, 5, RLENGTH - 6)
+      cur = spec_parse_req_bullet_id($0)
+      if (cur != "") {
         sup = ($0 ~ /\*\*Superseded-by: REQ-/) ? 1 : 0
         if ($0 ~ /\(Cites:/) emit_cites(cur, "REQCITE", $0)
-        text = strip_annot(substr($0, RLENGTH + 1))
+        # The bolded lead is `- **` <id> `**`, so the text starts past it.
+        text = strip_annot(substr($0, length(cur) + 7))
         next
       }
       # A non-REQ bullet inside a REQ group ends any open record; its prose is
@@ -216,7 +224,7 @@ parse_requirements() {
 # heading. Only the conforming `### D-<n>:` heading is a decision (the
 # spec-validate / spec-walkthrough discipline: the colon is required).
 parse_design() {
-  awk "$awk_clean"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar$awk_clean"'
     function flush_field() {
       if (cur != "" && fld != "") printf "DECFIELD\t%s\t%s\t%s\n", cur, fld, clean(fbuf)
       fld = ""
@@ -226,13 +234,13 @@ parse_design() {
       flush_field()
       cur = ""
     }
-    /^### D-[0-9]+:/ {
+    spec_parse_dec_attempt($0) {
       flush_dec()
-      match($0, /^### D-[0-9]+/)
-      cur = substr($0, 5, RLENGTH - 4)
-      line = substr($0, RLENGTH + 1)
-      sub(/^:[ \t]*/, "", line)
-      sub(/[ \t]+$/, "", line)
+      cur = spec_parse_dec_id($0)
+      # A malformed attempt ("### D-four: …") is not a decision; it ends the
+      # open one and is otherwise ordinary prose, as an ordinary H3 would be.
+      if (cur == "") next
+      line = spec_parse_dec_title($0)
       origin = ""
       if (match(line, /\([^()]*\)$/)) {
         origin = substr(line, RSTART + 1, RLENGTH - 2)
@@ -265,7 +273,7 @@ parse_design() {
 # (the orchestrate-select discipline). Dependency and citation lines are edges,
 # not fields, so they are not emitted as TASKFIELD.
 parse_tasks() {
-  awk "$awk_clean"'
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar$awk_clean"'
     function flush_field() {
       if (cur != "" && fld != "") printf "TASKFIELD\t%s\t%s\t%s\n", cur, fld, clean(fbuf)
       fld = ""
@@ -281,85 +289,55 @@ parse_tasks() {
       sub(/[[:space:]]+$/, "", section)
       next
     }
-    /^### Task / {
+    spec_parse_is_task_heading($0) {
       flush_task()
-      id = $3
-      if (id ~ /^[0-9]+(\.[0-9]+)?$/) {
-        cur = id
-        title = $0
-        sub(/^### Task [0-9]+(\.[0-9]+)?[[:space:]]*/, "", title)
-        sub(/^—[[:space:]]*/, "", title)
-        printf "TASK\t%s\t%s\t%s\n", cur, clean(section), clean(title)
-      } else {
-        cur = ""
-      }
+      cur = spec_parse_task_id($0)
+      if (cur != "")
+        printf "TASK\t%s\t%s\t%s\n", cur, clean(section), clean(spec_parse_task_title($0))
       next
     }
     /^### / { flush_task(); next }
     cur == "" { next }
-    /^- \*\*Deliverables:\*\*/ {
-      flush_field(); fld = "deliverables"; fbuf = substr($0, length("- **Deliverables:**") + 1); next
-    }
-    /^- \*\*Done when:\*\*/ {
-      flush_field(); fld = "donewhen"; fbuf = substr($0, length("- **Done when:**") + 1); next
-    }
-    /^- \*\*Estimated effort:\*\*/ {
-      flush_field(); fld = "effort"; fbuf = substr($0, length("- **Estimated effort:**") + 1); next
-    }
-    /^- \*\*Dependencies:\*\*/ {
-      flush_field()
-      s = $0
-      sub(/.*\*\*Dependencies:\*\*/, "", s)
-      # Whitespace-tokenize then grammar-validate. The tokenize-then-validate
-      # approach and the trailing-period handling mirror the derivation engine
-      # (scripts/orchestrate-state.sh); the semicolon split below intentionally
-      # DIVERGES from the engine (which is comma-only) to match the selector
-      # instead (see the semicolon note). Splitting on commas and whitespace
-      # keeps a non-id token whole ("REQ-A1.8", "Task") so it fails the id
-      # grammar and is dropped, rather than being digit-scraped into a phantom
-      # edge from a parenthetical carry clause ("(REQ-A1.8 / D-9 …)"). A
-      # trailing run of sentence periods is stripped per token so a prose entry
-      # ("Task 1.", "1.", "2.1.") still yields its edge — a task id always ends
-      # in a digit, so this only ever removes punctuation. The model has no
-      # malformed-deps channel, so a non-conforming token is silently not
-      # emitted as an edge (opportunities.md 2026-06-28 / 2026-07-01; parity
-      # with PR #103 / #104). Semicolons separate deps in a prose list
-      # ("Task 5; plus cross-spec", "Task 1; Task 6") exactly as commas do, so
-      # they are split on too: this matches the SELECTOR (which treats a
-      # semicolon as a separator), NOT the comma-only engine — a deliberate
-      # divergence, because the drawn graph highlights the selector critical
-      # path per D-6 and must not lose an edge that path crosses (REQ-C1.3).
-      # (No apostrophes in this awk program: it is single-quoted in the shell.)
-      gsub(/[,;]/, " ", s)
-      n = split(s, a, " ")
-      for (i = 1; i <= n; i++) {
-        tok = a[i]
-        sub(/\.+$/, "", tok)
-        if (tok ~ /^[0-9]+(\.[0-9]+)?$/) printf "TASKDEP\t%s\t%s\n", cur, tok
+    # The definition fields, named by the shared grammar. Dependencies and
+    # Citations become EDGES rather than fields; the other three carry their
+    # payload into a TASKFIELD record. Any other bolded bullet (Status, Last
+    # activity, Dispatch, …) ends the open field and is not modelled.
+    #
+    # The dependency ids are the shared extraction (Task 8; REQ-B1.5): the
+    # model graph and the selector graph now come from one tokenizer, so the
+    # drawn graph cannot lose (or invent) an edge the critical path crosses
+    # (REQ-C1.3, D-6). The model has no malformed-deps channel, so a
+    # non-conforming token is simply not emitted as an edge.
+    /^- \*\*/ {
+      field = spec_parse_task_field($0)
+      if (field == "dependencies") {
+        flush_field()
+        n = split(spec_parse_dep_ids($0), a, " ")
+        for (i = 1; i <= n; i++) printf "TASKDEP\t%s\t%s\n", cur, a[i]
+        next
       }
-      next
-    }
-    /^- \*\*Citations:\*\*/ {
+      if (field == "citations") {
+        flush_field()
+        emit_cites(cur, "TASKCITE", $0)
+        next
+      }
       flush_field()
-      emit_cites(cur, "TASKCITE", $0)
+      if (field != "") { fld = field; fbuf = spec_parse_task_field_value($0) }
       next
     }
-    # Any other bullet field (Status, Last activity, Dispatch, …) ends the open
-    # field and is not modelled.
-    /^- \*\*/ { flush_field(); next }
     fld != "" { fbuf = fbuf " " $0 }
     END { flush_task() }
   ' "$1"
 }
 
 # Test-spec: one TEST record per REQ with a verification path (an H3 entry
-# heading naming a REQ-id). Exact-id extraction (the spec-validate coverage
-# discipline).
+# heading naming a REQ-id). Exact-id extraction through the shared grammar
+# (the spec-validate coverage discipline).
 parse_test_spec() {
-  awk '
+  awk "$spec_parse_awk_fence$spec_parse_awk_grammar"'
     /^### / {
-      if (match($0, /REQ-[A-Z][0-9]+\.[0-9]+/))
-        printf "TEST\t%s\n", substr($0, RSTART, RLENGTH)
+      id = spec_parse_req_token($0)
+      if (id != "") printf "TEST\t%s\n", id
     }
   ' "$1"
 }
