@@ -16,7 +16,9 @@
 #      execution side effect; a brief whose entry carries no anchor line at all
 #      is an error.
 #   4. Most-recent-entry selection (REQ-D1.1): with an older fresh entry and a
-#      newer stale one, the newer is the one checked (and vice versa).
+#      newer stale one, the newer is the one checked (and vice versa) — including
+#      when the entries sit on physically adjacent lines, where a parser that
+#      reads ahead can swallow one and anchor on the older hash.
 #   5. Every sanctioned form accepted (REQ-D1.1, REQ-F1.1): the canonical
 #      repo-relative form, the resolution-aware logical form, and the interim
 #      whole-file form each recompute; a sanctioned form that resolves to
@@ -161,6 +163,18 @@ Anchor: \`$3\` — computed as
 EOF
 }
 
+# append_inline_entry <specs-root> <name> <hash> — a later entry in the
+# single-line parenthesized layout, appended with no blank line, so two
+# `Anchor:` lines land physically adjacent. That adjacency is what a parser
+# reading the following line can silently swallow.
+append_inline_entry() {
+  # SC2016: the backticks are Markdown, not command substitution, and the
+  # single quotes keep them literal in the printf format.
+  # shellcheck disable=SC2016
+  printf 'Anchor: `%s` (`scripts/spec-anchor.sh specs/%s`)\n' "$3" "$2" \
+    >>"$1/$2/kickoff-brief.md"
+}
+
 # park <specs-root> <name> — write the live park marker into Awaiting input.
 park() {
   awk '
@@ -255,6 +269,33 @@ write_entry "$f4b" newerfresh "$stale"
 append_entry "$f4b" newerfresh "$("$ANCHOR" "$f4b/newerfresh")"
 run_guard "$f4b"
 assert_rc "an older-stale/newer-fresh pair passes on the newer entry" 0
+
+# Adjacency: two single-line entries on consecutive lines, the newer one stale.
+# Nothing separates them, so a parser that reads ahead to find the command can
+# consume the second entry as the first one's continuation and check the older
+# hash — reporting green over a stale anchor, the one failure this guard exists
+# to prevent.
+f4c="$tmp/f4c/specs"
+mkdir -p "$f4c"
+make_bundle "$f4c" adjacent Ready 'A requirement body.'
+write_entry "$f4c" adjacent "$("$ANCHOR" "$f4c/adjacent")"
+append_inline_entry "$f4c" adjacent "$("$ANCHOR" "$f4c/adjacent")"
+append_inline_entry "$f4c" adjacent "$stale"
+run_guard "$f4c"
+assert_rc "an entry adjacent to the previous one is still the one checked" 1
+assert_has "the adjacent-entry failure names the newer (stale) hash" "$stale"
+
+# The mirror image, and the reason an off-by-one here is not self-announcing:
+# with the fresh entry last, skipping it lands on the older stale one and the
+# guard goes red on a bundle that is in fact current.
+f4d="$tmp/f4d/specs"
+mkdir -p "$f4d"
+make_bundle "$f4d" adjacentfresh Ready 'A requirement body.'
+write_entry "$f4d" adjacentfresh "$stale"
+append_inline_entry "$f4d" adjacentfresh "$stale"
+append_inline_entry "$f4d" adjacentfresh "$("$ANCHOR" "$f4d/adjacentfresh")"
+run_guard "$f4d"
+assert_rc "an adjacent newer-fresh entry is honoured, not skipped" 0
 
 ########################################################################
 # 5. Every sanctioned form; and a form that resolves to nothing

@@ -255,12 +255,19 @@ parked_marker() {
 # latest_anchor_entry <brief> — print `<hash><TAB><command>` for the brief's
 # most recent (last-appended) anchor entry. Both recorded layouts are read: the
 # canonical two-line form, and the single-line parenthesized variant.
+#
+# An `Anchor:` line is held PENDING and resolved when the following record
+# arrives, rather than pulled in with `getline`. The distinction matters where
+# the two layouts meet: a `getline` consumes the next line unconditionally, so
+# a single-line entry immediately followed by another `Anchor:` line swallows
+# that neighbour and the walk reads every other entry — silently anchoring on
+# an older hash. Holding the line instead lets an adjacent `Anchor:` both close
+# the pending entry and open its own.
 latest_anchor_entry() {
   awk '
-    /^Anchor:/ {
-      line = $0
-      nextline = ""
-      if ((getline nl) > 0) { nextline = nl }
+    # resolve <line> <nextline> — record the entry if both halves parsed. The
+    # trailing parameters are awk local scratch, not arguments.
+    function resolve(line, nextline,   hash, scratch, n, tok, i, cmd) {
       # Blank out every non-hex byte and take the one 40-char run: an interval
       # expression would say this in one pattern, but old BSD awks do not read
       # them, and a bare /[0-9a-f]+/ matches the "c" in "Anchor" first.
@@ -281,7 +288,16 @@ latest_anchor_entry() {
       }
       if (hash != "" && cmd != "") { best_hash = hash; best_cmd = cmd }
     }
+    # Order is load-bearing: a pending entry closes against this record BEFORE
+    # the record is itself considered as a new entry, so an adjacent pair does
+    # both in one pass.
+    pending != "" { resolve(pending, $0); pending = "" }
+    /^Anchor:/ { pending = $0 }
     END {
+      # A brief ending on its anchor line has no following record; the
+      # parenthesized layout still carries the command, the canonical one does
+      # not and stays unparsed.
+      if (pending != "") { resolve(pending, "") }
       if (best_hash == "") { exit 1 }
       printf "%s\t%s\n", best_hash, best_cmd
     }
