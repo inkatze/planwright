@@ -301,6 +301,28 @@ append_inline_entry "$f4d" adjacentfresh "$("$ANCHOR" "$f4d/adjacentfresh")"
 run_guard "$f4d"
 assert_rc "an adjacent newer-fresh entry is honoured, not skipped" 0
 
+# A most-recent entry that exists but does NOT parse (its command line was
+# never written) must fail closed. Falling back to the last entry that happens
+# to parse would report green off a superseded record — the same
+# anchoring-on-an-older-hash failure the pending-line walk exists to prevent,
+# reached by a different door.
+f4e="$tmp/f4e/specs"
+mkdir -p "$f4e"
+make_bundle "$f4e" halfwritten Ready 'A requirement body.'
+write_entry "$f4e" halfwritten "$("$ANCHOR" "$f4e/halfwritten")"
+cat >>"$f4e/halfwritten/kickoff-brief.md" <<EOF
+
+### A later amendment whose command line never got written
+
+Class: expression-only
+Anchor: \`$stale\` — computed as
+EOF
+run_guard "$f4e"
+assert_rc "a malformed most-recent entry fails closed" 1
+assert_has "the record names the most-recent entry as the unparseable one" \
+  "most recent anchor entry does not parse"
+assert_lacks "it does not report green off the older entry" "ok     halfwritten"
+
 ########################################################################
 # 5. Every sanctioned form; and a form that resolves to nothing
 ########################################################################

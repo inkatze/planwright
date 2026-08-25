@@ -275,7 +275,12 @@ parked_marker() {
 #
 # latest_anchor_entry <brief> — print `<hash><TAB><command>` for the brief's
 # most recent (last-appended) anchor entry. Both recorded layouts are read: the
-# canonical two-line form, and the single-line parenthesized variant.
+# canonical two-line form, and the single-line parenthesized variant. Exit
+# status:
+#   0  the entry on stdout
+#   1  the brief carries no parseable anchor entry at all
+#   2  the most recent entry does not parse — fail closed rather than answer
+#      with the older entry it supersedes
 #
 # An `Anchor:` line is held PENDING and resolved when the following record
 # arrives, rather than pulled in with `getline`. The distinction matters where
@@ -307,7 +312,17 @@ latest_anchor_entry() {
       } else if (match(nextline, /^`[^`]+`$/)) {
         cmd = substr(nextline, 2, length(nextline) - 2)
       }
-      if (hash != "" && cmd != "") { best_hash = hash; best_cmd = cmd }
+      # last_ok tracks THIS entry, not the best one seen: an entry that fails
+      # to parse has to be able to clear it. Keeping only the last parseable
+      # entry would answer a malformed newest record with an older hash, which
+      # is the superseded-anchor read this walk exists to refuse.
+      if (hash != "" && cmd != "") {
+        best_hash = hash
+        best_cmd = cmd
+        last_ok = 1
+      } else {
+        last_ok = 0
+      }
     }
     # Order is load-bearing: a pending entry closes against this record BEFORE
     # the record is itself considered as a new entry, so an adjacent pair does
@@ -320,6 +335,10 @@ latest_anchor_entry() {
       # not and stays unparsed.
       if (pending != "") { resolve(pending, "") }
       if (best_hash == "") { exit 1 }
+      # An entry the walk could not resolve is the most recent one on record.
+      # Distinct status: the caller tells "no entry at all" from "the newest
+      # one is half-written", which are different repairs.
+      if (!last_ok) { exit 2 }
       printf "%s\t%s\n", best_hash, best_cmd
     }
   ' "$1"
@@ -328,7 +347,7 @@ latest_anchor_entry() {
 # --- dated changelog entries --------------------------------------------
 #
 # changelog_entries <dir> <out-file> — collect the bundle's dated `## Changelog`
-# bullets, one `<file>|<line>` record apiece, sorted. The file prefix keeps two
+# bullets, one `<file>|<bullet>` record apiece, sorted. The file prefix keeps two
 # bundles' identically-worded entries apart across the four files. Section
 # scoped: a dated bullet elsewhere in a spec file is not a changelog entry.
 changelog_entries() {
@@ -526,8 +545,12 @@ for dir in "$specs_root"/*/; do
   parked=no
   parked_marker "$dir/tasks.md" && parked=yes
 
-  entry=$(latest_anchor_entry "$brief" 2>/dev/null) || entry=""
-  if [ -z "$entry" ]; then
+  entry_rc=0
+  entry=$(latest_anchor_entry "$brief" 2>/dev/null) || entry_rc=$?
+  if [ "$entry_rc" -eq 2 ]; then
+    report_recompute "$name" "$parked" \
+      "the brief's most recent anchor entry does not parse — remedy: complete that entry's recorded command line (an older entry is never read in its place)"
+  elif [ -z "$entry" ]; then
     report_recompute "$name" "$parked" \
       "no parseable anchor entry in the brief — remedy: repair the sign-off record per the meta-spec's execution-validity rules"
   else
