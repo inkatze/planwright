@@ -196,3 +196,28 @@ required status check on the release PR, checked via `gh api`) and by the
 README caveat (including its PAT/App-token remedy); a `[manual]` review confirms
 the caveat text. The finding itself is a point-in-time external-state
 verification, not a repeatable test.
+
+### REQ-H1.1 — release-please skips while an untagged window is open [test]
+
+`.github/workflows/release-please.yml` carries a guard invoking
+`scripts/release-window-check.sh` before the release-please step. A workflow
+test asserts the guard exists, precedes the proposal step, and uses skip
+semantics rather than failure (a pending publish is a normal state, not a
+broken build). Verified end to end by a release cycle producing no proposal
+between version-PR merge and signed-tag publication.
+
+### REQ-H1.2 — a backdated release proposal fails CI [test]
+
+Two fixtures, both required. Negative: a proposal whose `CHANGELOG.md` diff adds
+entries at or older than the latest release tag — the #339 shape — fails the
+check, and is confirmed to fail for that reason rather than incidentally.
+Positive: a proposal covering only commits since the latest tag passes. The
+check reads the proposal artifact only, so neither fixture may depend on how
+release-please was induced to misread history.
+
+### REQ-H1.3 — bootstrap-sha behaviour established and recorded [manual + design-level]
+
+The verified behaviour of release-please 17.6.0 with `bootstrap-sha` absent is
+recorded in the bundle changelog, together with the evidence that established
+it. Satisfied by the record existing and being sourced; removal of the key is
+explicitly not required by this REQ.

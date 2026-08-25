@@ -340,6 +340,61 @@ exact interaction between REQ-B (resume) and REQ-G1.1 (relabel) that this bundle
 owns, with a bounded idempotent-relabel change on the already-published resume
 path.
 
+### D-13: Gate release-please on the existing window check  (N)
+
+**Decision:** The `release-please` workflow gains a guard step that runs
+`scripts/release-window-check.sh --ref origin/main` before the proposal step and
+SKIPS the job when an untagged window is open. The window keeps exactly one
+definition, owned by that script (REQ-H1.1).
+
+**Alternatives considered:**
+- Publish the signed tag earlier, before `ci` completes on the release commit.
+  Rejected because: it would tag a commit whose CI is unverified, weakening the
+  very gate the pipeline exists to enforce, and autopilot-reflex REQ-C1.3
+  deliberately keeps tagging out of CI.
+- Add a retry or sleep so release-please waits for the tag. Rejected because:
+  it patches a race with timing, and fails again whenever a human publishes
+  late — which is the normal case, since publication is human-gated and may sit
+  overnight.
+- Give release-please its own notion of "release pending". Rejected because:
+  `release-window-check.sh` already owns that state, and two definitions of one
+  condition drift apart.
+
+**Chosen because:** the script already exits non-zero exactly when the version
+of truth is ahead of the latest tag, and already tells the reader "no further
+merge should land until the signed tag is published." Reusing it as a job guard
+introduces no new concept, keeps a single definition of the window, makes the
+skip legible in the workflow file, and self-clears: once the tag is published
+the check passes and release-please resumes normally.
+
+### D-14: Judge the proposal, not only the trigger  (N)
+
+**Decision:** Add a cause-agnostic check that fails when a release proposal's
+`CHANGELOG.md` diff adds entries at or older than the latest release tag
+(REQ-H1.2), and separately establish and record what release-please 17.6.0 does
+when `bootstrap-sha` is absent (REQ-H1.3), without removing the key as part of
+this work.
+
+**Alternatives considered:**
+- Rely on D-13 alone. Rejected because: it closes the one known trigger while
+  leaving the dangerous state reachable. When release-please cannot see the
+  latest release it regenerates from `bootstrapSha` rather than failing loudly,
+  so an API blip, a rate limit, a permissions change, or a deleted tag all still
+  produce a merge-ready proposal.
+- Remove `bootstrap-sha` outright in this change. Rejected as a deliverable
+  because: release-please 17.6.0's behaviour with the key absent is unverified,
+  and swapping a known-bad fallback for an unknown one is not an improvement.
+  The obligation is therefore to establish the fact first.
+- Rely on human review of each release PR. Rejected because: the failure mode is
+  precisely that a bootstrapped diff looks plausible — #339 was 124 entries of
+  real, correctly-formatted, already-released history.
+
+**Chosen because:** a check on the artifact holds regardless of cause. A
+proposal that adds changelog entries older than the latest tag is wrong however
+it was produced. This mirrors the fixture-count floors in
+`tests/test-permission-matcher.sh`: an assertion on the shape of the output
+catches regressions that the generating logic can otherwise hide.
+
 ## Cross-cutting concerns
 
 - **Shared-file coordination.** REQ-C (rl_ci_state → publish + arm), REQ-B

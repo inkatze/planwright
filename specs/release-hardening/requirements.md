@@ -286,6 +286,31 @@ remains local and human-invoked, and never-auto-merge is not in scope here.
   release-please's own `token:` input.
   *(Cites: D-11; legacy line 194 (Sources).)*
 
+## REQ-H — release-proposal integrity across the untagged window
+
+- **REQ-H1.1** The `release-please` workflow SHALL NOT run while an untagged
+  release window is open — that is, while the version source of truth is ahead
+  of the latest release tag. The gate SHALL reuse
+  `scripts/release-window-check.sh`, whose non-zero exit already denotes
+  exactly that state, rather than introducing a second definition of the
+  window.
+  *(Cites: D-13; obs:fd6c2f4f.)*
+
+- **REQ-H1.2** A release proposal whose changelog adds entries older than the
+  latest release tag SHALL fail CI. This check SHALL be cause-agnostic: it
+  judges the proposal itself, not the conditions that produced it, so it holds
+  for any reason release-please fails to see the latest release.
+  *(Cites: D-14; obs:fd6c2f4f.)*
+
+- **REQ-H1.3** The bundle SHALL record whether `bootstrap-sha` can be removed
+  from `release-please-config.json` now that the repository is many releases
+  past its first, and SHALL state the verified behaviour of release-please
+  with the key absent. Removal is NOT required by this requirement; the
+  obligation is to establish and record the fact, because the current
+  bootstrap fallback converts any transient inability to see the latest
+  release into a plausible-looking merge-ready proposal.
+  *(Cites: D-14; obs:fd6c2f4f.)*
+
 ## Changelog
 
 - 2026-07-17 — Kickoff (first activation), panel pass iter 2 (meaning-class):
