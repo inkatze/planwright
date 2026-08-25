@@ -41,9 +41,11 @@
 #      degrades the pairing check to a skip-with-notice; an explicit
 #      `--baseline` that cannot be used is fatal; a baseline value outside the
 #      ref grammar is rejected before any git invocation.
-#  10. Diagnostics are sanitized (REQ-D1.5): control bytes in parsed content do
+#  10. Bundle-identifier grammar (REQ-A1.8): a bundle directory whose name is
+#      off-grammar fails closed naming the identifier rule, not the brief.
+#  11. Diagnostics are sanitized (REQ-D1.5): control bytes in parsed content do
 #      not reach the output raw.
-#  11. Wiring (REQ-D1.3): `mise.toml` runs the guard in the `check` aggregate,
+#  12. Wiring (REQ-D1.3): `mise.toml` runs the guard in the `check` aggregate,
 #      and `lefthook.yml` mirrors it on pre-commit scoped to staged `specs/**`.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor) and /bin/sh.
@@ -528,6 +530,9 @@ assert_has "the fatal baseline names the failure" "baseline"
 run_guard "$r8/specs" --baseline '--upload-pack=touch /tmp/x'
 assert_rc "an out-of-grammar baseline value is rejected" 2
 
+########################################################################
+# 10. Bundle-identifier grammar
+########################################################################
 # A bundle directory whose name is not a valid spec identifier cannot be
 # checked at all: fail closed naming that cause, rather than blaming the
 # brief's entry for the directory's fault.
@@ -542,7 +547,7 @@ assert_has "the quoted rule is the real one, not a two-character pattern" '^[a-z
 assert_lacks "it does not misreport as a non-sanctioned form" "non-sanctioned command form"
 
 ########################################################################
-# 10. Diagnostics are sanitized
+# 11. Diagnostics are sanitized
 ########################################################################
 f10="$tmp/f10/specs"
 mkdir -p "$f10"
@@ -577,7 +582,7 @@ case $OUT in
 esac
 
 ########################################################################
-# 11. Wiring: the CI aggregate and the lefthook pre-commit mirror
+# 12. Wiring: the CI aggregate and the lefthook pre-commit mirror
 ########################################################################
 grep -q 'check:anchor-freshness' "$repo/mise.toml" \
   || fail "mise.toml has no check:anchor-freshness task"
