@@ -25,10 +25,13 @@
 #                               context to a refusal reuses this byte range
 #                               instead of copying it (anchor-integrity Task 2;
 #                               REQ-B1.6c)
+#   $spec_parse_awk_fence       the fence lexer, as awk source every parser of
+#                               spec bundles prepends (Task 6; REQ-C1.2)
+#   spec_parse_fence_balance    the fence-imbalance probe behind the
+#                               validator's REQ-D1.11 flag (Task 6)
 #
-# v1 fence-awareness of the canonical extraction and the line-80 surfaces
-# (REQ bullets, D-headings, `Dependencies:`/`Citations:` tokens) follow as
-# their tasks land.
+# The line-80 surfaces (REQ bullets, D-headings, `Dependencies:`/`Citations:`
+# tokens) follow as their tasks land.
 #
 # Surface: internal-only (format-grammar kickoff brief, risk register row 6).
 # In-repo scripts are the only supported consumers; no adopter stability
@@ -155,6 +158,89 @@ spec_parse__nul_screen() {
   return 0
 }
 
+# --- The fence lexer (Task 6; REQ-C1.2, REQ-D1.11 · D-5) ---------------------
+#
+# doctrine/spec-format.md, *Fenced illustration*, states the rule universally:
+# no line inside a fence parses as any element of this format, in ANY parser of
+# spec bundles. A rule that broad has to have one implementation, or every
+# parser re-derives it and the divergence this lib exists to end simply grows a
+# new copy — so the lexer ships as awk SOURCE that each program prepends,
+# rather than as a filter process each program pipes through. Prepending keeps
+# NR the source line number, which the findings that cite `tasks.md:<n>` need,
+# and keeps the parse a single process with a single exit status (REQ-B1.6f).
+#
+# Usage: put it FIRST in the program text — awk runs pattern-action rules in
+# order, so the toggle and the skip have to precede the consumer's own rules —
+# and call spec_parse__fence_eof() at the top of the consumer's END block when
+# the consumer's contract is to fail closed on malformed input:
+#
+#   LC_ALL=C awk "$spec_parse_awk_fence"'
+#     /^### / { ... }
+#     END { spec_parse__fence_eof(); ... }
+#   ' <"$file"
+#
+# The marker is the doctrine's: three or more backticks at column 0. The match
+# is prefix-anchored, so a CRLF checkout's trailing CR is irrelevant and the
+# lexer needs no CR trim of its own — which matters, because the canonical
+# extraction emits source bytes verbatim and must not gain one (a CR-trimming
+# lexer would silently move the anchor of every CRLF checkout). A tilde fence is
+# deliberately not a toggle, and an INDENTED fence is ordinary content: that is
+# what lets doctrine and bundles show a fence as an example without opening one.
+#
+# `next` rather than blanking: a skipped line reaches no consumer rule at all,
+# so a fenced line cannot be mistaken for a blank one either (some consumers
+# treat a blank line as ending a bullet's continuation).
+#
+# The working variable is `spec_parse__fence`, the lib's internal-name
+# convention: an awk program's variables are global, and a consumer prepending
+# this source would otherwise have to know that a bare `fence` is taken.
+# shellcheck disable=SC2016 # awk source, not a shell expansion
+spec_parse_awk_fence='
+  function spec_parse__fence_eof() {
+    if (spec_parse__fence) {
+      print "spec-parse: end of file inside an open column-0 code fence (malformed input; fail closed)" > "/dev/stderr"
+      exit 3
+    }
+  }
+  /^```/ { spec_parse__fence = !spec_parse__fence; spec_parse__fence_line = NR; next }
+  spec_parse__fence { next }
+'
+
+# spec_parse_fence_balance <file|-> — the fence-imbalance probe behind the
+# validator's REQ-D1.11 flag. An unbalanced column-0 fence count is a
+# malformation, never a silent illustration-to-end-of-file: one stray fence
+# would otherwise swallow the remainder of a bundle from every reader with no
+# signal at all.
+#
+# Separate from the parse entry points because the two callers want opposite
+# things from the same fact. A parse whose output feeds the anchor or the
+# derivation must REFUSE (and does, via spec_parse__fence_eof). The validator
+# must REPORT, naming the file and the line the fence opened on — so it needs
+# the imbalance as data rather than as a refusal.
+#
+# Exit status:
+#   0  balanced; nothing on stdout
+#   1  the source could not be read, or is NUL-bearing (REQ-B1.6d)
+#   2  usage: wrong argument count
+#   3  unbalanced; the opening line number of the unclosed fence on stdout
+spec_parse_fence_balance() {
+  if [ "$#" -ne 1 ]; then
+    printf '%s\n' "spec-parse: usage: spec_parse_fence_balance <file|->" >&2
+    return 2
+  fi
+  if [ "$1" = - ]; then
+    LC_ALL=C awk "$spec_parse_awk_fence"'
+      END { if (spec_parse__fence) { print spec_parse__fence_line; exit 3 } }
+    '
+    return $?
+  fi
+  spec_parse__readable "$1" || return 1
+  spec_parse__nul_screen "$1" || return 1
+  LC_ALL=C awk "$spec_parse_awk_fence"'
+    END { if (spec_parse__fence) { print spec_parse__fence_line; exit 3 } }
+  ' <"$1"
+}
+
 # spec_parse_extract_tasks <tasks.md> — the canonical `tasks.md`
 # definition-content extraction (doctrine/spec-format.md). Emits, for each
 # task block sorted numerically by task id (component-wise: 2 < 2.5 < 10):
@@ -173,12 +259,20 @@ spec_parse__nul_screen() {
 # refused as duplicates; components at or above 10^8 break the numeric
 # ordering. Conforming bundles are unaffected.
 #
+# Fenced illustration is excluded like any other non-definition content
+# (Task 6, REQ-C1.2 — the v1 fence-awareness landing): a fenced column-0 task
+# heading conjures no phantom record, and a fenced definition bullet is not
+# kept. This is the shipped grammar amendment applied to the anchor path, so a
+# bundle that documents the task-block format in a fence anchors on its real
+# blocks alone.
+#
 # Fails closed (non-zero return, message on stderr, no partial stream on
 # stdout) on: a missing, unreadable, or non-regular file path (reported as
 # "missing or unreadable"), NUL-bearing input (REQ-B1.6d, generalizing the
 # drain-gates.sh screen — awk truncates records at NUL, which would
 # silently hide definition lines), a NUL screen whose own tooling failed,
-# or a duplicate task id.
+# end of file inside an open column-0 fence (return 3), or a duplicate task
+# id.
 spec_parse_extract_tasks() {
   spec_parse__readable "$1" || return 1
   spec_parse__nul_screen "$1" || return 1
@@ -186,7 +280,7 @@ spec_parse_extract_tasks() {
   # identifier before `=` would otherwise parse as an awk variable
   # assignment (and `-` as stdin), silently extracting from the wrong
   # stream — an empty-but-successful parse is the named fail-open.
-  LC_ALL=C awk '
+  LC_ALL=C awk "$spec_parse_awk_fence"'
     function sortkey(id,    parts, n, major, minor) {
       # "\\." (ERE literal dot) rather than ".": a single-char separator is
       # already literal in POSIX awk, but the escape says so explicitly.
@@ -232,6 +326,7 @@ spec_parse_extract_tasks() {
     { keep = 0 }                     # blank line or non-bullet prose ends the bullet
     END {
       if (dup) exit 1
+      spec_parse__fence_eof()
       # insertion sort of keys (POSIX awk has no asort)
       for (i = 2; i <= nkeys; i++) {
         v = keys[i]
@@ -544,8 +639,6 @@ spec_parse__parked_awk='
     return ""
   }
   { sub(/\r$/, "") }
-  /^```/ { fence = !fence; next }
-  fence { next }
   /^## / { sec = substr($0, 4); sub(/[ \t]+$/, "", sec); next }
   /^- \*\*Task / {
     cls = classof(sec)
@@ -573,10 +666,7 @@ spec_parse__parked_awk='
     next
   }
   END {
-    if (fence) {
-      print "spec-parse: end of file inside an open column-0 code fence (malformed input; fail closed)" > "/dev/stderr"
-      exit 3
-    }
+    spec_parse__fence_eof()
     printf "%s", out
   }
 '
@@ -593,10 +683,10 @@ spec_parse_parked_map() {
     return 2
   fi
   if [ "$1" = - ]; then
-    LC_ALL=C awk "$spec_parse__parked_awk"
+    LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__parked_awk"
     return $?
   fi
   spec_parse__readable "$1" || return 1
   spec_parse__nul_screen "$1" || return 1
-  LC_ALL=C awk "$spec_parse__parked_awk" <"$1"
+  LC_ALL=C awk "$spec_parse_awk_fence$spec_parse__parked_awk" <"$1"
 }

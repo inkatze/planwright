@@ -26,8 +26,9 @@
 #      closed in every consumer keyed on it (REQ-A1.2, REQ-D1.9, D-6).
 #   6. No consumer retains a private copy of a grammar the lib implements: a
 #      grep sweep finds no remaining private `Format-version:`/`Status:`
-#      header-declaration parse and no private reference-bullet parse
-#      (REQ-B1.1's no-private-copy rule for the families landed so far).
+#      header-declaration parse, no private reference-bullet parse, and no
+#      private fence lexer (REQ-B1.1's no-private-copy rule for the families
+#      landed so far), outside a named and reasoned exemption table.
 #
 # Runs standalone under /bin/bash (the bash 3.2 floor).
 set -eu
@@ -544,6 +545,31 @@ echo "ok: a duplicate in-header Status: fails closed in every status-keyed consu
 HDR_EXEMPT=" migrate-format-version.sh tasks-pr-sync.sh check-memory-links.sh migrate-status-lifecycle.sh "
 REF_EXEMPT=" migrate-format-version.sh "
 
+# The fence lexer became a lib family in Task 6 ($spec_parse_awk_fence), so the
+# sweep grows a third arm: the whole point of a shared lexer is that a second
+# copy cannot quietly reappear, and doctrine/spec-format.md states the fence
+# rule universally, for ANY parser of spec bundles.
+#
+# Exempt, by name and reason:
+#   check-instructions.sh    parses INSTRUCTION files (skills, doctrine), not
+#                            spec bundles. A permanent exemption, not a
+#                            straggler: it is a different document class, and
+#                            it tracks a fence_char to handle tilde fences the
+#                            spec grammar deliberately does not treat as
+#                            toggles.
+#   drain-gates.sh           its GATE-entry parse. Its reference-bullet parse
+#                            already comes from the lib (Task 2); the gate
+#                            grammar is not a lib family yet.
+#   orchestrate-select.sh    its task/dependency parse. Same shape: the
+#                            reference-bullet half is on the lib, and the
+#                            line-80 grammar this fence guards moves onto the
+#                            lib with Task 8.
+#
+# The two spec-bundle exemptions are sequenced, not permanent, and the
+# stale-exemption guard below turns each into a prompt to drop the name once
+# the parse it guards is re-pointed.
+FENCE_EXEMPT=" check-instructions.sh drain-gates.sh orchestrate-select.sh "
+
 sweep_files=$(find "$scripts_dir" -name '*.sh' -type f | sort)
 [ -n "$sweep_files" ] || fail "the grep sweep found no scripts to sweep"
 
@@ -556,6 +582,7 @@ exempt() {
 
 private_hdr=""
 private_ref=""
+private_fence=""
 swept=0
 for f in $sweep_files; do
   base=$(basename "$f")
@@ -573,6 +600,10 @@ for f in $sweep_files; do
   if grep -q '\^- \\\*\\\*Task ' "$f"; then
     exempt "$REF_EXEMPT" "$base" || private_ref="$private_ref $base"
   fi
+  # A private fence lexer: any line-anchored column-0 fence match.
+  if grep -q '\^```' "$f"; then
+    exempt "$FENCE_EXEMPT" "$base" || private_fence="$private_fence $base"
+  fi
 done
 
 [ "$swept" -gt 20 ] || fail "the grep sweep only swept $swept scripts; the glob looks broken"
@@ -580,7 +611,9 @@ done
   || fail "private header-declaration parse(s) remain outside the lib:$private_hdr"
 [ -z "$private_ref" ] \
   || fail "private reference-bullet parse(s) remain outside the lib:$private_ref"
-echo "ok: every private header-declaration / reference-bullet parse outside the lib is a named, reasoned exemption (REQ-B1.1)"
+[ -z "$private_fence" ] \
+  || fail "private fence lexer(s) remain outside the lib:$private_fence"
+echo "ok: every private header-declaration / reference-bullet / fence parse outside the lib is a named, reasoned exemption (REQ-B1.1)"
 
 # The exemptions are asserted to still MATCH, so a name whose reason has gone
 # away (the writer was removed, the reader re-pointed) surfaces as a stale
@@ -593,6 +626,11 @@ done
 if ! grep -q '\^- \\\*\\\*Task ' "$scripts_dir/migrate-format-version.sh"; then
   fail "stale REF exemption: migrate-format-version.sh no longer carries the bullet-shape probe it is exempted for"
 fi
+for fx in check-instructions.sh drain-gates.sh orchestrate-select.sh; do
+  if ! grep -q '\^```' "$scripts_dir/$fx"; then
+    fail "stale FENCE exemption: $fx no longer carries the private fence lexer it is exempted for (drop the name from FENCE_EXEMPT)"
+  fi
+done
 echo "ok: every sweep exemption still matches the shape it was granted for"
 
 echo "PASS: test-spec-parse-corpus.sh"

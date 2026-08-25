@@ -21,24 +21,32 @@
 #   8. Stable-ID discipline: duplicates rejected; against the baseline ref,
 #      a vanished (renumbered/removed) ID is flagged; a supersede passes,
 #      and a supersede newly introduced since the baseline must carry a
-#      dated Changelog entry naming the superseded ID (REQ-A3.3).
+#      dated Changelog entry naming the superseded ID (REQ-A3.3). A removed
+#      TASK block has the mirror-image escape: a dated Changelog entry
+#      naming `Task <id>` authorizes the removal, and nothing else does
+#      (REQ-D1.6, D-12).
 #   9. Terminal-state discipline: no transition out of Retired/Superseded
 #      relative to the baseline ref.
+#  10. Fence balance: an unclosed column-0 code fence is flagged per file
+#      (REQ-D1.11). Every content parse above reads through the shared
+#      grammar lib's fence lexer, so fenced illustration is documentation
+#      rather than content in both directions — it neither raises findings
+#      of its own nor satisfies a check a real record would (REQ-C1.2).
 #
 # Format-version 2 (the invariant ledger; invariant-tasks REQ-C1.5,
 # REQ-C1.8, REQ-C1.9, REQ-D1.1 · D-3, D-5, D-7) adds, for v2 bundles only:
 #
-#   10. No placement sections: `## Forward plan`, `## In progress`, and
+#   11. No placement sections: `## Forward plan`, `## In progress`, and
 #       `## Completed` do not exist (task blocks live in `## Tasks`).
-#   11. No state annotation bullets: `Status`, `Last activity`, and
+#   12. No state annotation bullets: `Status`, `Last activity`, and
 #       `Dispatch` bullets do not exist in task blocks (the three
 #       state-annotation tokens the format defines; other bullets are not
 #       this check's concern).
-#   12. Stored `Status:` restricted to the human-gated set — Draft, Ready,
+#   13. Stored `Status:` restricted to the human-gated set — Draft, Ready,
 #       Retired, Superseded; Active and Done are derived, never stored.
-#   13. The static pointer line `**Execution:** derived — see the status
+#   14. The static pointer line `**Execution:** derived — see the status
 #       render` present in every file's header, in its fixed vocabulary.
-#   14. Reference-bullet integrity in the human-payload sections: every
+#   15. Reference-bullet integrity in the human-payload sections: every
 #       `**Task <id>**` bullet names an existing task id, ids pass the
 #       task-id grammar before any use, and a task is parked by at most
 #       one bullet across all three sections.
@@ -290,12 +298,78 @@ EOF
   printf '%s' "$hbg_val"
 }
 
+# defence <file|-> — emit the source with fenced illustration removed, for the
+# grep-shaped checks below (format-grammar Task 6; REQ-C1.2 · D-5). The awk
+# parses prepend $spec_parse_awk_fence directly instead, which keeps NR the
+# source line number for findings that cite one; a grep has no line number to
+# preserve, so a filter is the simpler form there.
+#
+# An UNCLOSED fence leaves this emitting only the lines before it. That is the
+# lexer's defined behavior and it is safe here because the imbalance carries its
+# own finding (REQ-D1.11) — a reader is told the file is malformed rather than
+# left to wonder why a later check went quiet.
+defence() {
+  if [ "$1" = - ]; then
+    LC_ALL=C awk "$spec_parse_awk_fence"'{ print }'
+  else
+    LC_ALL=C awk "$spec_parse_awk_fence"'{ print }' <"$1"
+  fi
+}
+
+# debaseline <blob> <file-label> — the BASELINE half of a stable-ID diff, fence
+# -stripped to match the current half (REQ-C1.2) without inheriting defence's
+# truncation as a fail-open.
+#
+# The safety the comment above rests on is the REQ-D1.11 flag, and that flag
+# reads the working tree — never the git object a baseline comes from. So a
+# baseline whose fence is unbalanced would be stripped down to whatever sat
+# above the fence, silently, and every id below it would read as "never defined
+# at the baseline" rather than as removed. On a guard whose entire job is
+# catching removals that is the fail-open direction, and it is invisible: the
+# current file can be perfectly well-formed while the comparison quietly runs on
+# a fraction of the baseline.
+#
+# So the baseline is balance-checked in its own right, and on imbalance the
+# comparison falls back to the RAW blob. Over-reporting (a fenced mock id read
+# as removed) is the fail-closed error and the accompanying finding names the
+# revision that is actually malformed, so the author is never left guessing
+# which side of the diff to fix.
+#
+# The probe's status is read for what it says rather than for truthiness: 3 is
+# the imbalance, and anything else non-zero means the fence state could not be
+# established at all. Both fall back to the raw blob, so the posture does not
+# turn on the distinction — the message does, and a confident "unclosed fence"
+# printed against a file that has none would send the author to the wrong file.
+debaseline() {
+  dbl_rc=0
+  printf '%s\n' "$1" | spec_parse_fence_balance - >/dev/null 2>&1 || dbl_rc=$?
+  case $dbl_rc in
+    0)
+      printf '%s\n' "$1" | defence -
+      return 0
+      ;;
+    3)
+      printf 'gap\t%s: unclosed column-0 code fence in the %s baseline (its ids are compared unstripped, so a fenced mock id there may read as removed)\n' \
+        "$2" "$baseline" >>"$fnd"
+      ;;
+    *)
+      printf 'gap\t%s: could not establish the fence state of the %s baseline (probe exit %s; its ids are compared unstripped)\n' \
+        "$2" "$baseline" "$dbl_rc" >>"$fnd"
+      ;;
+  esac
+  printf '%s\n' "$1"
+}
+
 # Parse requirements.md REQ blocks. Tagged tab-separated output:
 #   F <tab> gap|hard <tab> message     — a finding
 #   ALL <tab> id                       — every defined REQ-ID
 #   LIVE <tab> id                      — REQ-IDs not marked Superseded-by
+#
+# Fence-aware via the shared lexer (REQ-C1.2): a bundle that documents the REQ
+# bullet form inside a fence is showing an example, not declaring a second REQ
+# with the id it illustrates — the false duplicate-REQ error this landing fixes.
 parse_requirements() {
-  awk '
+  awk "$spec_parse_awk_fence"'
     function flush() {
       if (cur == "") return
       if (sup) {
@@ -333,9 +407,10 @@ parse_requirements() {
 }
 
 # Parse design.md D-ID sections. Same tagged tab-separated format as
-# parse_requirements: F findings, plus every D-ID tagged ALLD.
+# parse_requirements: F findings, plus every D-ID tagged ALLD. Fence-aware
+# via the shared lexer (REQ-C1.2).
 parse_design() {
-  awk '
+  awk "$spec_parse_awk_fence"'
     function flush() {
       if (cur == "") return
       if (!hd) printf "F\tgap\t%s missing field: Decision\n", cur
@@ -373,8 +448,10 @@ parse_design() {
 
 # Parse tasks.md task blocks. Same tagged tab-separated format as
 # parse_requirements: F findings, plus every well-formed task id tagged ALLT.
+# Fence-aware via the shared lexer (REQ-C1.2): a fenced mock block neither
+# duplicates the id it illustrates nor reports the definition fields it omits.
 parse_tasks() {
-  awk '
+  awk "$spec_parse_awk_fence"'
     function flush() {
       if (cur == "") return
       if (!fdel) printf "F\tgap\tTask %s missing field: Deliverables\n", cur
@@ -423,9 +500,12 @@ parse_tasks() {
 # parked-map parse (scripts/spec-parse.sh, REQ-B1.4), so this validator applies
 # the same single v2 posture as its three sibling parsers — fences as
 # illustration, CRLF-tolerant section headings, prose tolerance, near-miss
-# rejection. reference_bullet_findings() below consumes those records.
+# rejection. reference_bullet_findings() below consumes those records. The
+# banned-heading and banned-annotation scan here takes the same fence lexer, so
+# a fenced example of a version-1 tasks.md is documentation rather than a ban
+# violation (REQ-C1.2).
 parse_tasks_v2() {
-  awk '
+  awk "$spec_parse_awk_fence"'
     # Normalize a trailing CR first: the heading arms below are
     # EOL-anchored, and a CRLF-saved file must not slip a banned heading
     # past the ban (or hide a payload section) on line endings alone.
@@ -522,6 +602,64 @@ set_in() {
   printf '%s\n' "$2" | grep -qxF "$1"
 }
 
+# task_retirement_named <task-id> — the REQ-D1.6 / D-12 retirement escape:
+# does $clog carry a DATED entry naming this task id? Where a task block
+# genuinely must leave the file, that entry authorizes the removal — the escape
+# REQ supersession already has, and the only one the stable-ID check accepts.
+#
+# The recognized form is the meta-spec's own task-reference citation, `Task
+# <id>`, and a bare number does not count. That qualifier is doing real work
+# rather than ceremony: a task id is digits and dots, so an unqualified token
+# cannot be told apart from a date component (any entry dated the 7th would
+# authorize retiring Task 7), an issue number, or any other number in the
+# prose. The REQ-supersede sibling needs no such qualifier because a REQ id
+# carries a letter.
+#
+# The extracted token is validated against the task-id grammar before the
+# comparison (REQ-D1.6), a gate kept distinct from the equality test so a
+# grammar-violating "Task 7a" cannot authorize anything even by accident.
+#
+# The tokenizer mirrors the REQ-supersede matcher: awk tracks whether the line
+# is part of a dated `- <YYYY-MM-DD> …` bullet (entries span lines and the id
+# often sits on a continuation), tokenizes on non-id characters, and compares
+# exactly, so a sentence-final "Task 7." matches while "Task 70" does not.
+#
+# Where it must NOT mirror the sibling: this citation is two tokens, and the
+# sibling's is one. A REQ id survives any wrap because it is a single word, but
+# `Task <id>` straddles one whenever the wrap lands between them — and changelog
+# prose here is hand-wrapped, so that is a matter of time, not of malice. So the
+# scan runs over the whole dated entry joined into one buffer rather than over
+# each line, and the accumulation stops at the next bullet: joining across
+# entries would let a trailing "Task" in one and a leading id in the next invent
+# an authorization neither records.
+task_retirement_named() {
+  printf '%s\n' "$clog" | awk -v id="$1" '
+    function names_id(buf,   n, t, i, tok) {
+      gsub(/[^A-Za-z0-9.]/, " ", buf)
+      n = split(buf, t, " ")
+      for (i = 1; i < n; i++) {
+        if (t[i] != "Task") continue
+        tok = t[i + 1]
+        sub(/\.$/, "", tok)
+        if (tok !~ /^[0-9]+(\.[0-9]+)?$/) continue
+        if (tok == id) return 1
+      }
+      return 0
+    }
+    /^- / {
+      if (dated && names_id(entry)) { found = 1; exit }
+      dated = ($0 ~ /^- [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/)
+      entry = dated ? $0 : ""
+      next
+    }
+    dated { entry = entry " " $0 }
+    END {
+      if (!found && dated && names_id(entry)) found = 1
+      exit(found ? 0 : 1)
+    }
+  '
+}
+
 # Baseline checks for one bundle: terminal-state discipline and the
 # stable-ID never-reused rule, against $baseline. Appends to $fnd. Skipped
 # quietly when the bundle is not in a git work tree or the default baseline
@@ -551,6 +689,21 @@ baseline_checks() {
   old_des=$(git -C "$bdir" show "$baseline:./design.md" 2>/dev/null) || old_des=
   old_tsk=$(git -C "$bdir" show "$baseline:./tasks.md" 2>/dev/null) || old_tsk=
 
+  # The current bundle's `## Changelog` body, loaded once for both escapes that
+  # read it: REQ-A3.3's changelog-on-supersede and REQ-D1.6's task retirement.
+  # Fence-aware (REQ-C1.2) at both ends — a fenced changelog example is
+  # illustration, and a fenced `## ` heading does not close the section early.
+  # Empty when requirements.md is absent, which leaves both escapes inactive;
+  # the missing-file gap already carries that case (REQ-K1.7).
+  clog=
+  if [ -f "$bdir/requirements.md" ]; then
+    clog=$(defence "$bdir/requirements.md" | awk '
+      tolower($0) ~ /^## changelog/ { f = 1; next }
+      /^## / { f = 0 }
+      f
+    ') || clog=
+  fi
+
   if [ -n "$old_req" ]; then
     # The baseline blob's stored status, through the shared lib's
     # header-block-scoped parse (REQ-B1.3) fed from stdin — the blob has no path
@@ -574,7 +727,10 @@ baseline_checks() {
         fi
         ;;
     esac
-    old_ids=$(printf '%s\n' "$old_req" \
+    # Fence-stripped before the id sweep (REQ-C1.2): both halves of the
+    # stable-ID diff have to parse the same grammar, or a fenced mock id
+    # present in BOTH revisions reads as an id that vanished.
+    old_ids=$(debaseline "$old_req" requirements.md \
       | grep -oE '^- \*\*REQ-[A-Z][0-9]+\.[0-9]+\*\*' \
       | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
@@ -599,11 +755,6 @@ baseline_checks() {
       printf '%s\n' "$old_req" >"$gtmp/old_req"
       old_sup=$(parse_requirements "$gtmp/old_req" | awk -F"$tab" '$1 == "SUP" { print $2 }')
       cur_sup=$(parse_requirements "$bdir/requirements.md" | awk -F"$tab" '$1 == "SUP" { print $2 }')
-      clog=$(awk '
-        tolower($0) ~ /^## changelog/ { f = 1; next }
-        /^## / { f = 0 }
-        f
-      ' "$bdir/requirements.md")
       printf '%s\n' "$cur_sup" | while read -r sid; do
         [ -n "$sid" ] || continue
         if set_in "$sid" "$old_sup"; then continue; fi
@@ -642,7 +793,8 @@ baseline_checks() {
     fi
   fi
   if [ -n "$old_des" ]; then
-    old_ids=$(printf '%s\n' "$old_des" | grep -oE '^### D-[0-9]+:' | grep -oE 'D-[0-9]+') || old_ids=
+    old_ids=$(debaseline "$old_des" design.md \
+      | grep -oE '^### D-[0-9]+:' | grep -oE 'D-[0-9]+') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
       set_in "$oid" "$all_d_ids" \
@@ -651,13 +803,22 @@ baseline_checks() {
     done
   fi
   if [ -n "$old_tsk" ]; then
-    old_ids=$(printf '%s\n' "$old_tsk" \
+    old_ids=$(debaseline "$old_tsk" tasks.md \
       | awk '/^### Task / && $3 ~ /^[0-9]+(\.[0-9]+)?$/ { print $3 }') || old_ids=
     printf '%s\n' "$old_ids" | while read -r oid; do
       [ -n "$oid" ] || continue
-      set_in "$oid" "$all_t_ids" \
-        || printf 'gap\tTask %s renumbered or removed since %s (stable IDs are never reused)\n' \
-          "$oid" "$baseline" >>"$fnd"
+      if set_in "$oid" "$all_t_ids"; then
+        continue
+      fi
+      # REQ-D1.6 / D-12: the changelog-named retirement escape, mirroring the
+      # REQ supersession path above. Without it the validator carries the
+      # asymmetry that forced a hand workaround the last time a task had to
+      # leave a bundle: REQs could retire via the changelog and tasks could not.
+      if task_retirement_named "$oid"; then
+        continue
+      fi
+      printf 'gap\tTask %s renumbered or removed since %s (stable IDs are never reused; retire it with a dated Changelog entry naming "Task %s")\n' \
+        "$oid" "$baseline" "$oid" >>"$fnd"
     done
   fi
 }
@@ -678,6 +839,33 @@ validate_bundle() {
 
   for bf in requirements.md design.md tasks.md test-spec.md; do
     [ -f "$bdir/$bf" ] || printf 'gap\tmissing file: %s\n' "$bf" >>"$fnd"
+  done
+
+  # Unbalanced column-0 fence (REQ-D1.11, D-5). Checked before anything reads
+  # the file's content, because this is the finding that explains every other
+  # check's silence: under the fence grammar an unterminated fence turns the
+  # rest of the file into illustration, dropping content from every parser at
+  # once. Status-scoped per the D-9 severity model; the fence-aware parses below
+  # still run, so whatever is visible above the fence is still reported.
+  for bf in requirements.md design.md tasks.md test-spec.md; do
+    [ -f "$bdir/$bf" ] || continue
+    fbrc=0
+    fbline=$(spec_parse_fence_balance "$bdir/$bf" 2>"$gtmp/fence.err") || fbrc=$?
+    case $fbrc in
+      0) ;;
+      3)
+        # $fbline is an awk NR: a bare integer, never parsed content.
+        printf 'gap\t%s: unclosed column-0 code fence opened at line %s (an unbalanced fence silently parses the rest of the file as illustration)\n' \
+          "$bf" "$fbline" >>"$fnd"
+        ;;
+      *)
+        # Carry the lib's own reason (a NUL byte reads very differently from a
+        # permission problem), sanitized at this output site like every other
+        # echoed diagnostic — the sibling parked-map refusal does the same.
+        printf 'hard\t%s: the fence-balance probe refused the file, so fenced illustration cannot be told from content (fail closed): %s\n' \
+          "$bf" "$(sanitize_printable "$(cat "$gtmp/fence.err" 2>/dev/null)" "(no diagnostic)")" >>"$fnd"
+        ;;
+    esac
   done
 
   declared_status=
@@ -736,7 +924,7 @@ validate_bundle() {
     fver=$(hb_get Format-version requirements.md)
 
     if [ "$declared_status" = "Superseded" ]; then
-      grep -q '^\*\*Superseded-by:\*\*' "$bdir/requirements.md" \
+      defence "$bdir/requirements.md" | grep -q '^\*\*Superseded-by:\*\*' \
         || printf 'hard\tSuperseded status requires a **Superseded-by:** pointer\n' >>"$fnd"
     fi
 
@@ -832,9 +1020,13 @@ validate_bundle() {
     exec_canon='**Execution:** derived — see the status render'
     for bf in requirements.md design.md tasks.md test-spec.md; do
       [ -f "$bdir/$bf" ] || continue
-      if grep -qxF "$exec_canon" "$bdir/$bf"; then
+      # Fence-stripped both ways (REQ-C1.2): a fenced copy of the pointer line
+      # is an example of the header block, so it must neither satisfy the check
+      # nor be reported as a non-canonical one.
+      defence "$bdir/$bf" >"$gtmp/exec.scan"
+      if grep -qxF "$exec_canon" "$gtmp/exec.scan"; then
         :
-      elif grep -q '^\*\*Execution:\*\*' "$bdir/$bf"; then
+      elif grep -q '^\*\*Execution:\*\*' "$gtmp/exec.scan"; then
         hb_load "$bdir/$bf" "$bf"
         pv=$(hb_get Execution "$bf")
         printf 'gap\t%s: non-canonical **Execution:** pointer line: %s (fixed vocabulary: derived — see the status render)\n' \
@@ -886,7 +1078,11 @@ validate_bundle() {
   # REQ↔test-spec coverage: every live REQ appears in an H3 entry heading,
   # matched as an exact id (REQ-F1.1 is not covered by REQ-F1.10).
   if [ -f "$bdir/test-spec.md" ] && [ -n "$live_req_ids" ]; then
-    heads=$(grep '^### ' "$bdir/test-spec.md" | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || heads=
+    # Fence-stripped (REQ-C1.2): a fenced entry heading is an example of the
+    # test-spec form, and must not be able to satisfy coverage for a REQ that
+    # has no real entry — the fail-OPEN half of fence-awareness.
+    heads=$(defence "$bdir/test-spec.md" | grep '^### ' \
+      | grep -oE 'REQ-[A-Z][0-9]+\.[0-9]+') || heads=
     printf '%s\n' "$live_req_ids" | while read -r rid; do
       [ -n "$rid" ] || continue
       set_in "$rid" "$heads" \

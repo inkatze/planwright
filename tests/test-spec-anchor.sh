@@ -13,11 +13,15 @@
 #   5. A non-task H3 section never leaks into the preceding task's record.
 #   6. Failure modes fail closed with a clear stderr message: missing or
 #      unreadable file, duplicate task ids, unemittable output.
-#   7. The header-block `**Status:**` line is excluded from the
+#   7. Fenced illustration contributes nothing (format-grammar Task 6,
+#      REQ-C1.2): documenting the task-block format inside a fence does not
+#      move the anchor, and an unclosed fence fails closed rather than
+#      anchoring over a silently truncated extraction.
+#   8. The header-block `**Status:**` line is excluded from the
 #      requirements / design / test-spec digests, so every sanctioned
 #      lifecycle flip is anchor-invariant across all four files' mirrors, on
 #      both format versions (anchor-integrity REQ-A1.1).
-#   8. That exclusion is bounded to the single leading header block: a
+#   9. That exclusion is bounded to the single leading header block: a
 #      `**Status:**` line in body prose or inside a fence stays anchored, and a
 #      malformed, unterminated, or duplicate-Status header block fails closed
 #      (anchor-integrity REQ-A1.2).
@@ -333,6 +337,47 @@ if [ "$(id -u)" -ne 0 ]; then
   esac
 fi
 
+# --- 7. Fenced illustration does not move the anchor (REQ-C1.2) ---
+# A bundle that documents the task-block format in a fence is anchoring on its
+# real blocks alone: the fenced mock heading and its mock definition fields are
+# example text, so appending them leaves the anchor exactly where it was.
+fspec="$tmp/fenced"
+mkdir "$fspec"
+for f in requirements.md design.md tasks.md test-spec.md; do
+  cp "$spec/$f" "$fspec/$f"
+done
+before=$("$anchor" "$fspec") || fail "anchoring the fenced fixture's baseline failed"
+cat >>"$fspec/tasks.md" <<'EOF'
+
+## Notes
+
+A task block is written like this:
+
+```markdown
+### Task 99 — A mock block that is documentation, not a task
+
+- **Deliverables:** Nothing real.
+- **Done when:** Never.
+- **Dependencies:** none
+- **Citations:** D-99
+- **Estimated effort:** 1 day
+```
+EOF
+after=$("$anchor" "$fspec") || fail "anchoring the fenced fixture failed"
+[ "$before" = "$after" ] \
+  || fail "a fenced mock task block moved the anchor (REQ-C1.2): $before -> $after"
+
+# An unclosed column-0 fence is malformed input: the anchor tool refuses rather
+# than anchoring over an extraction the fence silently truncated.
+printf '\n```\nan unterminated fence\n' >>"$fspec/tasks.md"
+if err=$("$anchor" "$fspec" 2>&1 >/dev/null); then
+  fail "an unclosed fence still produced an anchor"
+fi
+case $err in
+  *"open column-0 code fence"*) ;;
+  *) fail "the unclosed-fence refusal lacks a clear message: $err" ;;
+esac
+
 # --- Unwritable stdout fails closed ---
 # git hash-object ignores a failed write to a closed stdout and still exits 0;
 # the script must not report success when it could not emit the anchor.
@@ -351,7 +396,7 @@ case $err in
 esac
 
 # ---------------------------------------------------------------------------
-# Property 7: the header-block **Status:** line is excluded from the
+# Property 8: the header-block **Status:** line is excluded from the
 # requirements / design / test-spec digests, so every sanctioned lifecycle
 # flip is anchor-invariant (anchor-integrity REQ-A1.1, D-2).
 # ---------------------------------------------------------------------------
@@ -405,7 +450,7 @@ write_bundle() {
   fi
 }
 
-# 7a. format-version 1: the full stored lifecycle set, terminal values
+# 8a. format-version 1: the full stored lifecycle set, terminal values
 # included, plus the derived Ready<->Active flip the sync hook mirrors.
 flip="$tmp/flip"
 write_bundle "$flip" 1 Draft
@@ -418,7 +463,7 @@ for st in Ready Active Done Retired Superseded Draft; do
 done
 echo "ok: v1 lifecycle Status flips are anchor-invariant across all four mirrors (REQ-A1.1)"
 
-# 7b. The exclusion is universal, not version-keyed: format-version 2's
+# 8b. The exclusion is universal, not version-keyed: format-version 2's
 # restricted stored set (Draft<->Ready) is invariant under the same rule.
 flip2="$tmp/flip2"
 write_bundle "$flip2" 2 Draft
@@ -431,7 +476,7 @@ for st in Ready Draft; do
 done
 echo "ok: the exclusion is universal — v2's stored set flips are anchor-invariant too (REQ-A1.1)"
 
-# 7c. Nothing beyond that one line is excluded: a REQ body edit and a header
+# 8c. Nothing beyond that one line is excluded: a REQ body edit and a header
 # `Format-version:` bump both still move the anchor (REQ-A1.3's "no exclusion
 # is performed that the documentation does not state", pinned as behavior).
 write_bundle "$flip" 1 Ready
@@ -453,11 +498,11 @@ a_ver=$("$anchor" "$flip") || fail "anchor failed after a Format-version bump"
 echo "ok: meaning edits and the rest of the header block stay anchored (REQ-A1.1, REQ-A1.3)"
 
 # ---------------------------------------------------------------------------
-# Property 8: the exclusion is bounded to the single leading header block, and
+# Property 9: the exclusion is bounded to the single leading header block, and
 # a block the extent definition calls malformed fails closed (REQ-A1.2, D-2).
 # ---------------------------------------------------------------------------
 
-# 8a. A `**Status:**` line in BODY prose is ordinary anchored content.
+# 9a. A `**Status:**` line in BODY prose is ordinary anchored content.
 write_bundle "$flip" 1 Ready
 a_plain=$("$anchor" "$flip") || fail "anchor failed on the bounding baseline"
 { cat "$flip/design.md" && printf '%s\n' '' '**Status:** Draft'; } >"$flip/design.md.new"
@@ -472,7 +517,7 @@ a_body2=$("$anchor" "$flip") || fail "anchor failed after editing the body-prose
   || fail "editing a body-prose **Status:** line did not move the anchor (REQ-A1.2)"
 echo "ok: a body-prose **Status:** line stays anchored (REQ-A1.2)"
 
-# 8b. Same for a FENCED one: a column-0 fence is outside every header block.
+# 9b. Same for a FENCED one: a column-0 fence is outside every header block.
 write_bundle "$flip" 1 Ready
 { cat "$flip/test-spec.md" && printf '%s\n' '' '```markdown' '**Status:** Draft' '```'; } \
   >"$flip/test-spec.md.new"
@@ -485,7 +530,7 @@ a_fence2=$("$anchor" "$flip") || fail "anchor failed after editing the fenced St
   || fail "editing a fenced **Status:** line did not move the anchor (REQ-A1.2)"
 echo "ok: a fenced **Status:** line stays anchored (REQ-A1.2)"
 
-# 8c. The one benign case: a well-formed block declaring no `**Status:**`
+# 9c. The one benign case: a well-formed block declaring no `**Status:**`
 # excludes nothing and hashes the whole file. Pinned from both sides — adding
 # the declaration to such a block must leave the anchor where it was.
 write_bundle "$flip" 1 Ready

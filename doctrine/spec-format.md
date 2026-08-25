@@ -301,7 +301,10 @@ return), the bullet's free text carrying that same annotation. Where a block
 genuinely must leave the file, a dated `## Changelog` entry naming the retired id
 authorizes the removal — the escape REQ supersession already has, and the only
 one the stable-ID check accepts. The named token is a task id in the task-id
-grammar, and it must be the id of the block that actually left: an unnamed
+grammar, written in the `Task <id>` citation form this format already defines for
+task references, because an unqualified number is indistinguishable from a date
+component or any other digit in the prose; and it must be the id of the block
+that actually left: an unnamed
 removal, or one naming a different id, stays a renumbered-or-removed error. When a whole REQ
 group is superseded, its `test-spec.md` entries are removed rather than left as
 orphans pointing at retired IDs, with the tombstone recorded in the same dated
@@ -1042,3 +1045,18 @@ bundle would have to migrate to:
   remedy for bundles the sweep could not reach. **No version bump:** no rule
   changes — a halt case that already existed gains its remedy in writing.
   *(anchor-integrity D-3 · REQ-A1.5.)*
+- 2026-08-24 — Fence enforcement caught up, and the retirement escape's form
+  pinned. The 2026-07-29 entry above stated the fence rule while naming the
+  parses that were not yet fence-aware; they now are. The canonical `tasks.md`
+  extraction and `spec-validate.sh`'s requirement, decision, task-heading, and
+  version-2 ledger grammars all read through one shared lexer in
+  `scripts/spec-parse.sh`, so fenced illustration neither raises findings of its
+  own nor satisfies a check a real record would; the unbalanced-fence flag and
+  the changelog-named retirement escape ship with them. **No version bump:** no
+  rule makes a conforming bundle nonconforming, and no in-repo bundle's content
+  anchor moves (verified by a recompute over every bundle, before and after).
+  The one authoring clarification: the retirement escape names its id in the
+  `Task <id>` citation form this format already defines, because an unqualified
+  number cannot be told apart from a date component or any other digit in the
+  entry's prose (*`tasks.md`*, superseded and retired tasks).
+  *(format-grammar D-5, D-9, D-12 · REQ-C1.2, REQ-C1.4, REQ-D1.6, REQ-D1.11.)*
