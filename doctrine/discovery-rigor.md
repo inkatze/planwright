@@ -14,6 +14,15 @@ Citations: REQ-D1.1.
 
 ## Lens checklist, no silent pruning
 
+The list below is the **code** artifact class's lens set, and it is the
+default. Before walking it, name the class of the artifact under review: a
+spec, an inception bundle, or output written for a human selects a different
+set, because several lenses below describe a threat model those artifacts do
+not have. [artifact-lenses.md](artifact-lenses.md) is the selection rule and
+holds the non-code sets; everything else in this doc — the coverage table, the
+no-pruning discipline, the fan-out, the self-critique pass — applies unchanged
+to whichever set is selected.
+
 Walk every lens below, in order, before producing the finding list.
 Severity-based self-pruning ("a bug was already found, the documentation nit
 is not worth mentioning") is the exact failure mode to avoid: report findings
@@ -52,6 +61,9 @@ this is what makes silent pruning visible.
 | Documentation | ... | ... |
 | Tests / verification | ... | ... |
 | Cross-file consistency | ... | ... |
+
+The table's rows are the rows of the *selected* lens set; caption it with the
+artifact class when the set is not the code default.
 
 A lens may be marked `n/a` instead of `none` when it is genuinely
 inapplicable to the change (the concurrency lens on a documentation-only

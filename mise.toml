@@ -117,6 +117,10 @@ run = "/bin/bash scripts/check-instructions.sh --closeout"
 description = "standing CI-exclusion guard: fail if a kept-eval task (the eval: namespace) is wired into any .github/workflows file, so evals never run in CI (prompt-hygiene Task 4, REQ-C1.6, D-8)"
 run = "/bin/sh scripts/check-no-ci-evals.sh"
 
+[tasks."check:workflow-posture"]
+description = "fork-PR posture guard: no pull_request_target; read-only EFFECTIVE per-job permissions and zero stored secrets (secrets.GITHUB_TOKEN exempt) on everything reachable from pull_request, followed through local reusable-workflow uses:; privileged workflow_run keeps its base-branch filter and consumes no PR artifact; fails closed on a workflow it cannot parse (guard-coverage Task 4, REQ-C1.2, REQ-H1.3, D-6)"
+run = "/bin/bash scripts/check-workflow-posture.sh"
+
 [tasks."check:githooks"]
 description = "hook-backstop wiring detection: fail on an unwired or half-wired clone (core.hooksPath not 'githooks', or a hook file missing/non-executable); detects only, never wires — remedy is scripts/wire-githooks.sh (guard-coverage Task 2, REQ-A1.3, D-2, D-3)"
 run = "/bin/sh scripts/check-githooks.sh"
@@ -160,6 +164,7 @@ depends = [
   "check:obs",
   "check:instructions",
   "check:no-ci-evals",
+  "check:workflow-posture",
   "check:githooks",
   "check:doctrine-manifest",
   "check:specs",
