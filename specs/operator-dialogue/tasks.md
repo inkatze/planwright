@@ -314,12 +314,7 @@ Tasks 11–12 on 7+8, and Task 13 (acceptance) is that lane's join over 9–12.
 
 ## Awaiting input
 
-- **Pending spec-PR ready-flip** (extension kickoff, 2026-08-25): the
-  sign-off recorded cleanly but the terminal ready-flip's CI gate expired
-  with an empty rollup — no check reported on the spec PR's head commit
-  within the bounded wait. The PR remains draft. Re-entry: verify CI on the
-  head SHA and, on a genuine pass while still draft, run the ready-flip;
-  the recorded sign-off stands either way.
+(none yet)
 
 ## Deferred
 
