@@ -286,3 +286,24 @@ All spec edits from the dispositions are on disk; the validator passes (0 errors
 0 warnings) and the post-lens stale-reference sweep over the bundle and earlier brief
 sections is complete (minted IDs REQ-C1.7, REQ-F1.3, D-13 referenced and covered; the
 adjustment-cap rename swept; affected earlier sections carry amendment notes).
+
+**Pre-flip verification:** repository lint over the brief and all four spec files
+clean (`mise run lint:md`, plus `check:ledger`, `check:memory-links`, and the
+repo-wide `check:specs` after merging origin/main into the branch); recorded claims
+re-derived (section 6's effort-weighted critical path from the task blocks; the
+domain tally from the resolved catalog; minted-ID coverage by mechanical grep; one
+copied figure caught and replaced by a table citation). Validator re-run clean at
+Ready under the merged (post-`eedad48`) validator; the anchor below is computed with
+the merged anchor script so the freshness gate recomputes with the same
+implementation.
+
+**Sign-off (first activation).** All seven sections signed; the lens pass above fully
+dispositioned; no inconsistency halt, no carried open question. Approved by the
+operator 2026-08-25; Status flipped Draft→Ready and `Last reviewed:` bumped on all
+four files.
+
+Class: meaning
+Lens-pass: the terminal lens review recorded in this section (coverage table,
+validation statement, and clustered dispositions above)
+Anchor: `371e1d46cafbddc33abe3bf902dc8e1dc1b4f54e` — computed as
+`scripts/spec-anchor.sh specs/model-allocation`
