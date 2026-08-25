@@ -72,6 +72,16 @@ unset CDPATH
 # executed. Fail closed when it is missing or unreadable rather than falling
 # back to a private grammar copy (REQ-B1.6a) — a reader that silently parsed by
 # its own rules is exactly the divergence the lib exists to end.
+#
+# The parses below prepend the lib's fence lexer, so fenced illustration is
+# documentation rather than content. They deliberately do NOT call its
+# end-of-file-inside-an-open-fence refusal: this reader degrades rather than
+# refuses (REQ-A1.5), so an unbalanced fence leaves the model holding only what
+# sat above it, exactly as an unreadable file leaves it holding nothing. The
+# malformation itself is reported where reporting belongs — spec-validate.sh
+# flags an unbalanced fence per file (REQ-D1.11) — so the truncation is never
+# the only signal a reader gets. The parsers that ACT on their parse
+# (orchestrate-select.sh, spec-anchor.sh) take the refusal instead.
 script_dir=$(cd "$(dirname "$0")" && pwd) || exit 2
 spec_parse_sh="$script_dir/spec-parse.sh"
 if [ ! -f "$spec_parse_sh" ] || [ ! -r "$spec_parse_sh" ]; then
