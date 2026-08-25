@@ -204,12 +204,23 @@ recompute() {
   # The interim whole-file form is a fixed literal that invokes git directly
   # and needs no resolution. Matching the literal IS the validation; the
   # pipeline below is this script's own, not the recorded string run.
+  #
+  # The two stages run apart rather than piped, because a pipeline's status is
+  # its LAST stage: piped, a first stage that fails part-way still hands its
+  # survivors to a `--stdin` hash that succeeds, and the form returns 0 with a
+  # confident wrong answer — a mismatch blamed on the anchor for what is
+  # really a tool failure. Splitting them is what lets the first stage's status
+  # be read. `pipefail` would say this in one line but is not POSIX enough for
+  # the shells this script otherwise stays inside.
   if [ "$rc_cmd" = "git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin" ]; then
-    (
+    # Command substitution strips trailing newlines and `printf '%s\n'` puts
+    # exactly one back, so the bytes reaching `--stdin` are the ones the pipe
+    # delivered and the recorded hash stays reproducible.
+    rc_blobs=$(
       cd "$rc_dir" || exit 4
-      git hash-object requirements.md design.md tasks.md test-spec.md \
-        | git hash-object --stdin
+      git hash-object requirements.md design.md tasks.md test-spec.md
     ) || return 4
+    printf '%s\n' "$rc_blobs" | git hash-object --stdin || return 4
     return 0
   fi
 
@@ -478,22 +489,32 @@ for dir in "$specs_root"/*/; do
   fi
 
   # Every sanctioned form recomputes over the same four files, so a bundle
-  # missing one cannot be recomputed by any of them. Name that cause here, once
-  # for all forms: the script forms already fail closed, but the interim
-  # whole-file form is a pipeline whose status comes from its last stage, so it
-  # would hash the survivors and report a confident mismatch — blaming the
-  # anchor for a missing file, the misdiagnosis the identifier screen above
-  # exists to prevent.
+  # whose file is absent — or present but unreadable — cannot be recomputed by
+  # any of them. Name that cause here, once for all forms, so the record points
+  # at the file rather than blaming the anchor. Every form now fails closed on
+  # its own too, so this screen is about naming the cause, not about catching
+  # it; a file that turns unreadable after this point is still reported as a
+  # tool failure rather than a mismatch.
   missing_file=
+  unreadable_file=
   for f in requirements.md design.md tasks.md test-spec.md; do
-    [ -f "$dir/$f" ] || {
+    if [ ! -f "$dir/$f" ]; then
       missing_file=$f
       break
-    }
+    fi
+    if [ ! -r "$dir/$f" ]; then
+      unreadable_file=$f
+      break
+    fi
   done
   if [ -n "$missing_file" ]; then
     say_error "$name" \
       "the bundle is missing $missing_file, so no recorded command can recompute its anchor — remedy: restore the file"
+    continue
+  fi
+  if [ -n "$unreadable_file" ]; then
+    say_error "$name" \
+      "the bundle's $unreadable_file cannot be read, so no recorded command can recompute its anchor — remedy: restore read permission on the file"
     continue
   fi
 

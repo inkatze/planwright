@@ -360,6 +360,34 @@ assert_rc "an incomplete bundle fails the guard" 1
 assert_has "the record names the missing file" "design.md"
 assert_lacks "it does not misreport an incomplete bundle as an anchor mismatch" "anchor mismatch"
 
+# The same misdiagnosis has a second door. A file that EXISTS but cannot be
+# read passes the completeness screen, and the interim form's first stage then
+# fails while the second hashes the survivors and succeeds — so the pipeline
+# returns 0 with a confident wrong hash. An unreadable file is a tool failure,
+# not a stale anchor, and the record has to say so.
+f5d="$tmp/f5d/specs"
+mkdir -p "$f5d"
+make_bundle "$f5d" unreadable Ready 'A requirement body.'
+unreadable_hash=$(cd "$f5d/unreadable" && git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin)
+write_entry "$f5d" unreadable "$unreadable_hash" \
+  "git hash-object requirements.md design.md tasks.md test-spec.md | git hash-object --stdin"
+chmod 000 "$f5d/unreadable/design.md"
+# As root, or on a mount that ignores the mode, the file stays readable and the
+# case would assert nothing. Probe rather than assume, so a vacuous pass is
+# reported as the skip it is.
+if cat "$f5d/unreadable/design.md" >/dev/null 2>&1; then
+  echo "skip: chmod 000 left design.md readable, so the unreadable-file case did not run" >&2
+else
+  run_guard "$f5d"
+  assert_rc "an unreadable bundle file fails the guard" 1
+  # Match the guard's own wording, not the bare filename: git's "could not
+  # open 'design.md'" reaches the captured output too, so a filename-only
+  # assertion would pass without the guard saying anything.
+  assert_has "the record names the unreadable file" "design.md cannot be read"
+  assert_lacks "it does not misreport an unreadable file as an anchor mismatch" "anchor mismatch"
+fi
+chmod 644 "$f5d/unreadable/design.md"
+
 ########################################################################
 # 6. Skip semantics and the brief-less error
 ########################################################################
