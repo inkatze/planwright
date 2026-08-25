@@ -618,3 +618,26 @@ Lens-pass: this delta re-walkthrough entry's sign-off lens review pass
 findings dispositioned
 Anchor: `8456e842144aa29693219837b9b69d2b6523ab12` — computed as
 `scripts/spec-anchor.sh specs/operator-dialogue`
+
+### Re-anchor — anchor-scope exclusion reaches this branch (2026-08-25)
+
+Machine-written entry per the meta-spec's expression-only lane
+(`doctrine/spec-format.md`, *Writers*). The merge of `main` into this spec
+branch brought the narrowed anchor tool (anchor-integrity tasks 2+3) into
+the checked tree, so the recorded command now computes under the amended
+semantics.
+
+**Why the anchor moved:** the hash scope changed, not this bundle's
+content — the same event the sweep entry above records for the
+pre-extension bundle, now reaching the extension sign-off's entry. Verified
+by isolation: recomputing with the pre-merge script over the bundle as it
+stands yields `8456e842144aa29693219837b9b69d2b6523ab12`, exactly the
+extension sign-off's recorded anchor, so no anchored byte has changed since
+that entry was written.
+
+**Cites the changelog line:** the 2026-07-26 `## Changelog` entry in
+`doctrine/spec-format.md` ("Anchor-scope exclusion").
+
+Class: expression-only
+Anchor: `3fca16386e6edbd08a6d4c03d38959815a0f777d` — computed as
+`scripts/spec-anchor.sh specs/operator-dialogue`
