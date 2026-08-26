@@ -170,6 +170,11 @@ CI). See [Customizing with overlays](docs/overlays.md) for the full model.
   command, the decision queue, the persona-to-seams mapping, and the
   execution-backend seam (autodetect, the degradation ladder, plugging in
   your own backend) — no multiplexer knowledge required.
+- [Per-tower checkouts](docs/per-tower-checkouts.md) — running several towers
+  on one repository without them racing over a shared local `main`: the
+  one-clone-per-tower topology, the reachable-`origin` precondition, the
+  fast-forward-only `main`-currency sync, the migration path, and the
+  sanctioned single-checkout fallback.
 - [Options reference](docs/options-reference.md) — every configuration option.
 - [Doctrine](doctrine/README.md) — the framework's rule docs: validation and
   discovery rigor, finding categorization, engineering decisions, security
