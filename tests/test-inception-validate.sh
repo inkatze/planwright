@@ -667,6 +667,42 @@ out="$("$VALIDATE" --baseline HEAD "$b" 2>&1)"
 rc=$?
 assert_eq "baseline outside a work tree: exit 2" "2" "$rc"
 
+# The BSD half of the declared bash-3.2/BSD floor. BSD mktemp supplies no
+# default template, so a bare `mktemp -d` is a usage error there and the
+# validator would exit 2 on every run — on a Mac, before reading a single line
+# of the bundle. The stub reproduces that rule without needing a BSD host.
+mkstub="$tmp/bsdstub"
+mkdir -p "$mkstub" || exit 1
+cat >"$mkstub/mktemp" <<'MKTEMP'
+#!/bin/sh
+# BSD mktemp: a template argument (or -t prefix) is required.
+have_tmpl=0
+want_t=0
+for a in "$@"; do
+  case $a in
+    -t) want_t=1 ;;
+    -*) ;;
+    *) have_tmpl=1 ;;
+  esac
+done
+if [ "$have_tmpl" -eq 0 ] && [ "$want_t" -eq 0 ]; then
+  echo "usage: mktemp [-d] [-q] [-t prefix] [-u] template ..." >&2
+  exit 1
+fi
+exec /usr/bin/mktemp "$@"
+MKTEMP
+chmod +x "$mkstub/mktemp" || exit 1
+if [ -x /usr/bin/mktemp ]; then
+  b="$(fresh)"
+  out="$(PATH="$mkstub:$PATH" "$VALIDATE" "$b" 2>&1)"
+  rc=$?
+  assert_eq "BSD mktemp: the validator still runs" "0" "$rc"
+  assert_not_contains "BSD mktemp: no usage error from mktemp" "too few templates" "$out"
+  assert_not_contains "BSD mktemp: no usage error from mktemp" "usage: mktemp" "$out"
+else
+  echo "ok: BSD mktemp stub skipped (no /usr/bin/mktemp to delegate to)"
+fi
+
 # ---------------------------------------------------------------------------
 # 12. Coverage: the advertised rule set and the exercised rule set agree.
 #     This is the task's "each enforced rule has a seeded-violation fixture"

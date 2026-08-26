@@ -268,6 +268,28 @@ rc=$?
 assert_eq "hook: a render failure does not block the commit" "0" "$rc"
 assert_contains "hook: it says the export was not regenerated" "export" "$out"
 
+# A staging failure is the other half of step 3, and the one that used to pass
+# in silence: the render succeeds, so the operator is told nothing, but the
+# export never joins the commit and the published HTML starts drifting from the
+# bundle. An ignored `exports/` is the cheapest way to make `git add` refuse.
+staged_v="$(mktemp -d "$tmp/ignored-exports.XXXXXX")" || exit 1
+inception_fixture_write "$staged_v" >/dev/null 2>&1 || exit 1
+(
+  cd "$staged_v" || exit 1
+  git init -q .
+  git config user.email fixture@example.invalid
+  git config user.name Fixture
+  git config commit.gpgsign false
+) >/dev/null 2>&1 || exit 1
+"$SCAFFOLD" --rung local --wire "$staged_v" >/dev/null 2>&1
+printf 'exports/\n' >>"$staged_v/.gitignore"
+out="$(cd "$staged_v" && git add -A && git commit -qm "bundle with exports ignored" 2>&1)"
+rc=$?
+assert_eq "hook: a staging failure does not block the commit" "0" "$rc"
+assert_contains "hook: a staging failure is reported, not swallowed" \
+  "could not be staged" "$out"
+assert_file "hook: the export was still rendered on disk" "$staged_v/exports/venture.html"
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-scaffold: $failures assertion(s) failed" >&2
   exit 1

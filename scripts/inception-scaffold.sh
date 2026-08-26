@@ -164,8 +164,9 @@ cat >"$stage" <<'HOOK'
 #      disables. Set PLANWRIGHT_VENTURE_STRICT=1 to make findings block; on a
 #      repo with a remote, CI blocks regardless.
 #   3. Export regeneration, staged into this same commit so the published HTML
-#      never lags the bundle. Warns and lets the commit through when the RENDER
-#      fails (REQ-A1.9): a broken render must never dead-end a commit. The
+#      never lags the bundle. Warns and lets the commit through when the render
+#      or the staging fails (REQ-A1.9): neither may dead-end a commit, and
+#      neither may fail in silence, or the export drifts unnoticed. The
 #      export is screened before it is staged, though, and that screen blocks:
 #      it is rendered from the working tree, so it can carry bundle text step 1
 #      never saw.
@@ -243,7 +244,16 @@ if "$pw/scripts/inception-render.sh" "$top" >/dev/null 2>&1; then
       exit 1
     fi
   fi
-  git add "$top/exports/venture.html" 2>/dev/null || true
+  # Staging failure warns, like a failed render: step 3 never dead-ends a commit.
+  # It must not be SILENT, though. The contract this step exists to keep is that
+  # the export rides the same commit, and a swallowed `git add` (an ignored
+  # exports/, a locked index) breaks that contract while the commit still reads
+  # as clean. git's own message goes to stderr unredirected, so the reason is
+  # visible without this hook re-echoing repo-controlled text.
+  if ! git add "$top/exports/venture.html"; then
+    echo "venture pre-commit: the regenerated export could not be staged, so this commit carries a stale or absent export." >&2
+    echo "venture pre-commit: committing anyway — see git's message above." >&2
+  fi
 else
   echo "venture pre-commit: the export was not regenerated; it may now lag the bundle." >&2
   echo "venture pre-commit: committing anyway — a broken render never blocks a commit." >&2
@@ -365,8 +375,10 @@ this venture repo runs it once.
      every half-finished elicitation is a hook you would turn off. Set
      \`PLANWRIGHT_VENTURE_STRICT=1\` to make findings block.
   3. **Export regeneration**, staged into the same commit, so the HTML stakeholders read never
-     lags the bundle. **Warns and lets the commit through** if the render fails — a broken export
-     must never dead-end a commit. The regenerated export is screened for secrets before it is
+     lags the bundle. **Warns and lets the commit through** if the render fails, or if the export
+     cannot be staged — neither may dead-end a commit, and you are told either way, because a
+     silent staging failure is how a published export starts drifting from the bundle without
+     anyone noticing. The regenerated export is screened for secrets before it is
      staged, and *that* **blocks**: it is rendered from your working tree, so it can carry bundle
      text step 1 never looked at (an edit you had not staged).
 $rung_ci

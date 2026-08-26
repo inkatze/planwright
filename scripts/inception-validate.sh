@@ -16,7 +16,7 @@
 #      runs, because the rules to apply cannot be known — a bundle from a
 #      future plugin is refused, never misparsed.
 #   2. Header block: title role token, lifecycle status and its mirrors,
-#      `Last reviewed:` as an ISO date.
+#      `Last reviewed:` as a real calendar date.
 #   3. ID grammar (`A-`, `DEC-`, `T-`, `KC-` plus a positive integer),
 #      uniqueness across live and superseded entries, and supersession
 #      pointers that resolve to a same-type id.
@@ -126,7 +126,7 @@ FENCE-UNBALANCED a column-0 code fence is left open at end of file
 HDR-ROLE the title line does not carry the role token of its file
 HDR-STATUS the lifecycle status is absent or off the enum
 HDR-STATUS-MIRROR a file status does not mirror brief.md
-HDR-REVIEWED Last reviewed is absent or not an ISO date
+HDR-REVIEWED Last reviewed is absent or is not a real calendar date
 ID-GRAMMAR a register entry id is off the typed-integer grammar
 ID-DUPLICATE two entries of a type share a number
 ID-SUPERSEDE-TARGET a supersession pointer names no same-type entry
@@ -176,7 +176,7 @@ GATE-OUTCOME the gate outcome is off the four-outcome enum
 GATE-DECIDER the record decider is not the venture gate decider
 GATE-EVIDENCE-FORM a gate evidence item is off the A-n (grade) form
 GATE-THRESHOLD-TOKEN a threshold verdict is off the enum
-GATE-THRESHOLD-COVERAGE a live blocking assumption is missing from Thresholds
+GATE-THRESHOLD-COVERAGE a live blocking assumption, or one the record cites as evidence, is missing from Thresholds
 GATE-KC-TOKEN a kill-criterion state is off the enum
 GATE-KC-COVERAGE a live kill criterion is missing from Kill-criteria
 GATE-TRACKS-PRESENCE the Tracks line is present in an untracked venture or absent in a tracked one
@@ -229,7 +229,10 @@ if [ ! -d "$target" ]; then
   exit 2
 fi
 
-work=$(mktemp -d) || exit 2
+# Explicit template (the house pattern, see scripts/builder-guards.sh): a bare
+# `mktemp -d` relies on a default template BSD mktemp does not supply, so it
+# fails outright on the macOS/BSD half of the floor this file's header claims.
+work=$(mktemp -d "${TMPDIR:-/tmp}/inception-validate.XXXXXX") || exit 2
 trap 'rm -rf "$work"' EXIT
 
 err=0
