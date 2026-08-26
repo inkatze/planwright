@@ -346,6 +346,15 @@ this venture repo runs it once.
      must never dead-end a commit.
 $rung_ci
 
+## One thing that looks wrong and is not
+
+After a **partial** commit — \`git commit <path>\` or \`git commit --only <path>\`, where you name
+the files instead of staging them — \`git status\` shows \`exports/venture.html\` as modified. The
+export did make it into the commit. Git builds a temporary index for a partial commit and restores
+your real one afterwards, and the hook's staging of the regenerated export lives in the temporary
+one. The next \`git add\` clears it. Staging your changes first (\`git add\` then \`git commit\`)
+avoids it entirely.
+
 ## Where planwright comes from
 
 The hook resolves planwright at run time: \`PLANWRIGHT_ROOT\`, then \`CLAUDE_PLUGIN_ROOT\`, then

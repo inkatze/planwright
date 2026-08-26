@@ -218,6 +218,12 @@ b="$(fresh)"
 sed_i "$b/plan.md" 's|^\*\*Last reviewed:\*\* 2026-08-20$|**Last reviewed:** Aug 20|'
 expect "last-reviewed is not an ISO date" HDR-REVIEWED 1 "$b"
 
+# ISO SHAPE is not the same as a date that exists. A day that never happened
+# reaches the renderer, which turns it into a kill-criterion state.
+b="$(fresh)"
+sed_i "$b/plan.md" 's|^\*\*Last reviewed:\*\* 2026-08-20$|**Last reviewed:** 2026-02-30|'
+expect "last-reviewed is a day that does not exist" HDR-REVIEWED 1 "$b"
+
 # ---------------------------------------------------------------------------
 # 3. ID grammar, uniqueness, supersession.
 # ---------------------------------------------------------------------------
@@ -374,6 +380,10 @@ sed_i "$b/brief.md" 's|^- \*\*KC-2:\*\* the handover-time measurement pipeline r
 expect "kill criterion carries no date" KC-FORM 1 "$b"
 
 b="$(fresh)"
+sed_i "$b/brief.md" 's|^- \*\*KC-2:\*\* the handover-time measurement pipeline reports weekly — by 2026-09-15$|- **KC-2:** the handover-time measurement pipeline reports weekly — by 2026-02-30|'
+expect "kill-criterion date is a day that does not exist" KC-FORM 1 "$b"
+
+b="$(fresh)"
 del_line "$b/brief.md" '^\*\*Gate decider:\*\* Dana Reyes$'
 expect "no gate decider is named" KC-DECIDER-MISSING 1 "$b"
 
@@ -433,6 +443,11 @@ sed_i "$b/brief.md" 's|^### Gate 1 — 2026-08-18$|### Gate one — 2026-08-18|'
 expect "gate heading off the grammar" GATE-HEADING 1 "$b"
 
 b="$(fresh)"
+sed_i "$b/brief.md" 's|^### Gate 1 — 2026-08-18$|### Gate 1 — 2026-02-30|'
+sed_i "$b/brief.md" 's|^Date: 2026-08-18$|Date: 2026-02-30|'
+expect "gate is dated a day that does not exist" GATE-HEADING 1 "$b"
+
+b="$(fresh)"
 printf '%s\n' '' '### Gate 3 — 2026-08-20' '' 'Outcome: Recycle' 'Date: 2026-08-20' \
   'Decider: Dana Reyes' 'Evidence: none' 'Thresholds: A-1 open, A-2 open' \
   'Kill-criteria: KC-1 clear, KC-2 clear' 'Rationale: still waiting.' >"$tmp/ins"
@@ -466,6 +481,12 @@ expect "threshold verdict off the enum" GATE-THRESHOLD-TOKEN 1 "$b"
 b="$(fresh)"
 sed_i "$b/brief.md" 's|^Thresholds: A-1 open, A-2 open$|Thresholds: A-1 open|'
 expect "a live blocking assumption is missing from Thresholds" GATE-THRESHOLD-COVERAGE 1 "$b"
+
+# The coverage rule has two halves: every live blocking assumption, PLUS any
+# other assumption the same record cites as evidence.
+b="$(fresh)"
+sed_i "$b/brief.md" 's|^Evidence: A-1 (stated-intent)$|Evidence: A-1 (stated-intent), A-4 (opinion)|'
+expect "an assumption cited as evidence is missing from Thresholds" GATE-THRESHOLD-COVERAGE 1 "$b"
 
 b="$(fresh)"
 sed_i "$b/brief.md" 's|^Kill-criteria: KC-1 clear, KC-2 clear$|Kill-criteria: KC-1 fine, KC-2 clear|'

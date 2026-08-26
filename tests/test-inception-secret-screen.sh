@@ -135,6 +135,36 @@ out="$(cd "$tmp" && "$SCREEN" --staged 2>&1)"
 rc=$?
 assert_eq "--staged outside a work tree: exit 2" "2" "$rc"
 
+# The gitleaks arm is the PREFERRED path, so it gets exercised wherever the
+# tool is present rather than left to the fallback's coverage. Skipped cleanly
+# where it is not: a venture host without gitleaks is the supported case, not a
+# broken one.
+if command -v gitleaks >/dev/null 2>&1; then
+  # A key block, not one of the token fixtures above: gitleaks ships an
+  # allowlist for documentation placeholders, so the canonical AWS example key
+  # is deliberately NOT a leak to it. Asserting on a shape it does flag is what
+  # makes these assertions about our invocation rather than about its ruleset.
+  keybody="MIIEowIBAAKCAQEA7Zx2Lm9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq"
+  printf -- '-----BEGIN RSA PRIVATE KEY-----\n%s\n-----END RSA PRIVATE KEY-----\n' "$keybody" >"$tmp/key.pem"
+
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/clean.md" 2>&1)"
+  rc=$?
+  assert_eq "gitleaks arm: clean file exits 0" "0" "$rc"
+
+  out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/key.pem" 2>&1)"
+  rc=$?
+  assert_eq "gitleaks arm: a leak exits 1" "1" "$rc"
+  assert_not_contains "gitleaks arm: the matched value is redacted" "$keybody" "$out"
+
+  (cd "$repo" && cp "$tmp/key.pem" key.pem && git add key.pem) >/dev/null 2>&1
+  out="$(cd "$repo" && PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged 2>&1)"
+  rc=$?
+  assert_eq "gitleaks arm: a staged leak exits 1" "1" "$rc"
+  assert_not_contains "gitleaks arm: the staged value is redacted" "$keybody" "$out"
+else
+  echo "ok: gitleaks arm: gitleaks absent, preferred-path checks skipped"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "test-inception-secret-screen: $failures assertion(s) failed" >&2
   exit 1

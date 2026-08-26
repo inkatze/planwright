@@ -355,6 +355,19 @@ function has(a, k) { return (k in a) }
 function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
 function id_ok(prefix, id) { return id ~ ("^" prefix "-[1-9][0-9]*$") }
 
+# A date that exists, not merely one shaped like a date. The ISO shape alone
+# would let 2026-02-30 through to the renderer, which turns a bundle date into
+# a kill-criterion state, so shape is checked here against the calendar.
+function date_ok(d,   y, m, dd, dim) {
+  if (d !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) return 0
+  y = substr(d, 1, 4) + 0; m = substr(d, 6, 2) + 0; dd = substr(d, 9, 2) + 0
+  if (m < 1 || m > 12 || dd < 1) return 0
+  dim = 31
+  if (m == 4 || m == 6 || m == 9 || m == 11) dim = 30
+  else if (m == 2) dim = ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0) ? 29 : 28
+  return (dd <= dim)
+}
+
 function flush_field(   key) {
   if (cur_kind == "" || cur_field == "") { cur_field = ""; return }
   key = cur_kind SUBSEP cur_id SUBSEP cur_field
@@ -387,6 +400,8 @@ function start_gate(head,   num, d) {
   }
   num = head; sub(/^Gate /, "", num); sub(/ —.*$/, "", num)
   d = head; sub(/^.* — /, "", d)
+  if (!date_ok(d))
+    emit("GATE-HEADING", "brief.md", "gate-log heading \"" head "\" is dated " d ", which is not a real calendar date")
   cur_id = num
   GATEN[++gaten] = num
   GATEDATE[num] = d
@@ -414,6 +429,11 @@ function kc_bullet(line,   id, rest, sup) {
   }
   if (rest !~ / — by [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/)
     emit("KC-FORM", "brief.md", id " is not a state-plus-date pair (`<state> — by <YYYY-MM-DD>`)")
+  else {
+    kcd = rest; sub(/^.* — by /, "", kcd)
+    if (!date_ok(kcd))
+      emit("KC-FORM", "brief.md", id " is dated " kcd ", which is not a real calendar date")
+  }
 }
 
 function track_bullet(line,   label) {
@@ -463,8 +483,6 @@ BEGIN {
   ndec = split("Status|Door|Discipline|Deciders|Options|Outcome|Consequences|Feed-forward", DECF, "|")
   nplan = split("Kind|Tests|Done when|Cap|Status", PLANF, "|")
   ngate = split("Outcome|Date|Decider|Evidence|Thresholds|Kill-criteria|Rationale", GATEF, "|")
-
-  DATE = "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$"
 
   # The status declarations, read through the lib and handed over as raw
   # environment values. `!dup` means the header block declared it more than
@@ -607,8 +625,8 @@ END {
     else if (f != "brief.md" && brief_status != "" && st != brief_status)
       emit("HDR-STATUS-MIRROR", f, "status \"" st "\" does not mirror brief.md (\"" brief_status "\")")
     rv = RV[f]
-    if (rv !~ DATE)
-      emit("HDR-REVIEWED", f, "Last reviewed must be a YYYY-MM-DD date (found \"" rv "\")")
+    if (!date_ok(rv))
+      emit("HDR-REVIEWED", f, "Last reviewed must be a real YYYY-MM-DD date (found \"" rv "\")")
   }
 
   FILEOF["A"] = "assumptions.md"; FILEOF["DEC"] = "decisions.md"
@@ -812,6 +830,7 @@ END {
     if (has(GFIELD, num SUBSEP "Decider") && GATEDECIDER != "" && dc != GATEDECIDER)
       emit("GATE-DECIDER", "brief.md", "Gate " num " decider \"" dc "\" is not the venture gate decider (\"" GATEDECIDER "\")")
 
+    split("", ECITED, " ")
     ev = GFIELD[num SUBSEP "Evidence"]
     if (ev != "" && ev != "none") {
       m = split(ev, items, /, */)
@@ -821,6 +840,8 @@ END {
         g = it; sub(/^[^(]*\(/, "", g); sub(/\).*$/, "", g)
         if (it !~ /^[A-Z]+-[1-9][0-9]* \(.+\)$/ || !has(IDSEEN, "A" SUBSEP aid) || !(g in GRADE))
           emit("GATE-EVIDENCE-FORM", "brief.md", "Gate " num " evidence item \"" it "\" is not `A-<n> (<grade>)` naming an existing assumption and a ladder grade")
+        else
+          ECITED[aid] = 1
       }
     }
 
@@ -844,6 +865,11 @@ END {
       else if (oc == "Graduate" && TSEEN[a] == "open")
         emit("GATE-GRADUATE-OPEN", "brief.md", "Gate " num " records Graduate while blocking assumption " a " is unevaluated")
     }
+    # The other half of the coverage rule: an assumption this record cites as
+    # evidence is one it evaluated, so it owes a threshold verdict too.
+    for (a in ECITED)
+      if (!(a in TSEEN))
+        emit("GATE-THRESHOLD-COVERAGE", "brief.md", "Gate " num " cites " a " as evidence, so Thresholds must carry its verdict")
     if (oc == "Graduate")
       for (a in TSEEN)
         if (TSEEN[a] == "pass" && AGRADE[a] == "synthetic" && (RTAG[a] == "value" || RTAG[a] == "usability"))

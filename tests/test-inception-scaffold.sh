@@ -113,6 +113,10 @@ notes="$(cat "$v/hygiene-wiring.md")"
 assert_contains "notes: name the rung" "local" "$notes"
 assert_contains "notes: give the wiring command" "core.hooksPath githooks" "$notes"
 assert_contains "notes: name the bypass" "--no-verify" "$notes"
+# The hook stages the export it regenerates, which git's partial-commit path
+# leaves showing as modified afterwards. Surprising, harmless, and worth saying
+# once in the notes rather than letting every operator rediscover it.
+assert_contains "notes: explain the post-partial-commit status" "git commit <path>" "$notes"
 
 # ---------------------------------------------------------------------------
 # 2. The remote rung adds the CI guard (REQ-A1.9, REQ-G1.5).
