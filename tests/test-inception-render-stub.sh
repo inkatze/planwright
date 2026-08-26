@@ -166,6 +166,34 @@ else
   failures=$((failures + 1))
 fi
 
+# Structural completeness and a tripped criterion are different facts, and the
+# page says both rather than folding them into one ready/not-ready line: a
+# venture can carry every piece a gate needs and still be one the gate kills.
+v="$(fresh)"
+sed_i "$v/assumptions.md" 's|^- \*\*Blocking:\*\* yes$|- **Blocking:** no|'
+sed_i "$v/decisions.md" 's|^- \*\*Status:\*\* open$|- **Status:** decided|'
+sed_i "$v/decisions.md" 's|^- \*\*Status:\*\* deferred$|- **Status:** decided|'
+PLANWRIGHT_INCEPTION_TODAY=2099-01-01 "$RENDER" "$v" >/dev/null 2>&1
+html="$(cat "$v/exports/venture.html")"
+assert_contains "readiness: structural completeness is still reported" \
+  "Minimum core is structurally met" "$html"
+assert_contains "readiness: the trip is named as its own outcome" \
+  "a kill criterion has tripped" "$html"
+assert_not_contains "readiness: blockers are not equated with incompleteness" \
+  "Not ready: see the blockers below" "$html"
+
+# The validator fails closed for three different reasons and the renderer sees
+# only one exit code, so it must not name a cause it has not established. A
+# missing file is not a version problem, and saying it is sends the operator
+# looking for a `Format-version:` line that is fine.
+v="$(fresh)"
+rm -f "$v/plan.md"
+out="$("$RENDER" "$v" 2>&1)"
+rc=$?
+assert_eq "fail-closed for a missing file: exit 3" "3" "$rc"
+assert_not_contains "fail-closed for a missing file: does not blame the version" \
+  "inception-render: refusing to render this bundle (see the unsupported format-version" "$out"
+
 # A bundle with ordinary findings still renders: the hook regenerates the export
 # on every bundle-changing commit, and only an unparseable version stops it.
 v="$(fresh)"
@@ -173,6 +201,32 @@ sed_i "$v/plan.md" 's|^- \*\*Kind:\*\* spike$|- **Kind:** vibes|'
 "$RENDER" "$v" >/dev/null 2>&1
 rc=$?
 assert_eq "bundle with findings still renders: exit 0" "0" "$rc"
+
+# ...but "still renders" must not mean "renders anything". The renderer only
+# version-checks, so a bundle the validator would reject on KC-FORM reaches it
+# intact, and a kill criterion missing its date tail would otherwise feed the
+# criterion's own prose to the date arithmetic. That silently classifies it —
+# and "tripped" is the state that tells a venture to kill or re-scope itself.
+v="$(fresh)"
+sed_i "$v/brief.md" 's|^\(- \*\*KC-1:\*\* .*\) — by .*$|\1|'
+out="$("$RENDER" "$v" 2>&1)"
+rc=$?
+assert_eq "unreadable kill date: still renders" "0" "$rc"
+html="$(cat "$v/exports/venture.html")"
+assert_not_contains "unreadable kill date: is not classified as tripped" "KC-1</span> — tripped" "$html"
+assert_contains "unreadable kill date: says the date is unreadable" "KC-1</span> — date unreadable" "$html"
+assert_contains "unreadable kill date: is surfaced as a blocker" "KC-1</span> has no readable date" "$html"
+
+# The export is what stakeholders read off the forge, so it carries the same
+# explicit mode the scaffolded files do rather than whatever the temp file was
+# created with.
+v="$(fresh)"
+"$RENDER" "$v" >/dev/null 2>&1
+# `find -perm -044` rather than parsing `ls` or reaching for `stat`, whose flags
+# differ between GNU and BSD (REQ-K1.5). The property under test is that the
+# export is readable beyond its owner, not its exact octal mode.
+readable="$(find "$v/exports" -name venture.html -perm -044 2>/dev/null)"
+assert_eq "export: is group- and world-readable" "$v/exports/venture.html" "$readable"
 
 # A missing bundle is an environment error.
 out="$("$RENDER" "$tmp/nope" 2>&1)"

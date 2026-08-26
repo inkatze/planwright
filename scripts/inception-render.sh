@@ -24,8 +24,9 @@
 # Usage:
 #   inception-render.sh [--output <file>] <venture-dir>
 #
-# Exit: 0 rendered · 2 usage or environment error · 3 the bundle declares a
-#   format-version this plugin does not support (the validator refusal, passed
+# Exit: 0 rendered · 2 usage or environment error · 3 the validator failed
+#   closed and the bundle was not validated at all (a missing file, an
+#   unbalanced fence, or an unsupported format-version — its refusal, passed
 #   through unchanged).
 #
 # Environment:
@@ -95,7 +96,11 @@ validator="$script_dir/inception-validate.sh"
 vrc=0
 "$validator" --version-check "$target" || vrc=$?
 if [ "$vrc" -eq 3 ]; then
-  echo "inception-render: refusing to render this bundle (see the unsupported format-version above)" >&2
+  # The validator fails closed for a missing file, an unbalanced fence, OR an
+  # unsupported version, and hands all three back as exit 3. Point at its output
+  # rather than naming one of the three: telling an operator their version is
+  # unsupported when a file is simply absent sends them to the wrong line.
+  echo "inception-render: refusing to render this bundle; the validator failed closed above and the export is unchanged" >&2
   exit 3
 elif [ "$vrc" -ne 0 ]; then
   exit 2
@@ -114,7 +119,13 @@ case $today in
     ;;
 esac
 
-tmpout=$(mktemp) || exit 2
+# Beside the destination, not in $TMPDIR: the rename below is only atomic
+# within one filesystem, and /tmp is routinely a separate one (tmpfs), which
+# turns the "never leave a truncated export" guarantee into a copy. Landing the
+# temp file in $outdir also keeps mktemp's 0600 from becoming the mode of the
+# published export — stakeholders read this file, so it gets the same explicit
+# mode the scaffolded files get.
+tmpout=$(mktemp "$outdir/.venture.html.XXXXXX") || exit 2
 trap 'rm -f "$tmpout"' EXIT
 
 # The status declaration comes from the lib and reaches awk through the
@@ -240,9 +251,21 @@ END {
   print "</ul>"
 
   print "<h2>Kill criteria</h2><ul>"
-  ntripped = 0; napproaching = 0
+  ntripped = 0; napproaching = 0; nundated = 0
   for (i = 1; i <= nk; i++) {
     k = KCN[i]
+    # Only version-gating happens before this point, so a bundle the validator
+    # would reject on KC-FORM still arrives intact. Date arithmetic over the
+    # prose of a criterion produces a state rather than an error, and "tripped"
+    # is the state that tells a venture to kill or re-scope itself — so an
+    # unreadable date is said out loud, never computed on. Shape only: the
+    # calendar check belongs to the validator.
+    if (KCDATE[k] !~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/) {
+      state = "date unreadable"; nundated++; UNDATED[nundated] = k
+      print "<li><span class=\"tag\">" esc(k) "</span> — " state \
+        " — " esc(KCTEXT[k]) "</li>"
+      continue
+    }
     delta = days(KCDATE[k]) - days(today)
     if (delta < 0) { state = "tripped"; ntripped++; TRIP[ntripped] = k }
     else if (delta <= 30) { state = "approaching"; napproaching++ }
@@ -268,9 +291,16 @@ END {
   print "</ul>"
 
   print "<h2>Gate readiness</h2>"
+  # Two separate facts, said separately. Minimum core is structural: whether the
+  # bundle carries the pieces a gate needs. A tripped criterion is an OUTCOME
+  # the gate will reach, not a piece that is missing — a venture can be complete
+  # and still be one the gate kills. Collapsing them into one ready/not-ready
+  # line made the page assert readiness while listing blockers underneath it.
   ready = (nunresolved == 0 && nopen == 0 && nk > 0 && METRIC != "")
   print "<p>" (ready ? "Minimum core is structurally met; the gate decider judges completeness." \
-    : "Not ready: see the blockers below.") "</p>"
+    : "Minimum core is not met yet; see the blockers below.") "</p>"
+  if (ntripped > 0)
+    print "<p>Separately, a kill criterion has tripped: the gate prompts kill-or-re-scope regardless of the core.</p>"
 
   print "<h2>Blockers</h2><ul>"
   nb = 0
@@ -281,6 +311,10 @@ END {
   for (i = 1; i <= ntripped; i++) {
     nb++
     print "<li><span class=\"tag\">" esc(TRIP[i]) "</span> kill criterion is tripped; the gate prompts kill-or-re-scope</li>"
+  }
+  for (i = 1; i <= nundated; i++) {
+    nb++
+    print "<li><span class=\"tag\">" esc(UNDATED[i]) "</span> has no readable date, so it cannot be classified; the validator names the format</li>"
   }
   if (nopen > 0) { nb++; print "<li>" nopen " open fork(s) still to decide</li>" }
   if (nk == 0) { nb++; print "<li>no kill criterion is set (minimum core)</li>" }
@@ -296,6 +330,7 @@ END {
 
 # Write through a temp file so a mid-render failure never leaves a truncated
 # export where a whole one used to be.
+chmod 644 "$tmpout" || exit 2
 mv "$tmpout" "$output" || exit 2
 trap - EXIT
 printf 'inception-render: wrote %s\n' "$output"
