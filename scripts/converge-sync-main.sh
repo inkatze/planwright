@@ -68,6 +68,16 @@ unset CDPATH
 GIT_TERMINAL_PROMPT=0
 export GIT_TERMINAL_PROMPT
 
+# ssh prompts on its own channel, which `GIT_TERMINAL_PROMPT` does not reach:
+# an unverified host key or a passphrase-protected key would block the fetch
+# just as hard as a credential prompt. `BatchMode=yes` turns both into a
+# fetch-failed exit the caller can act on. The cost is deliberate and worth
+# naming: first contact with a host absent from `known_hosts` now fails instead
+# of asking, making that a setup step rather than something the sync completes.
+# An agent-held key is unaffected, which is the fleet's normal case.
+GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes"
+export GIT_SSH_COMMAND
+
 # die <exit-code> <reason> <message> — the single failure surface. The reason
 # token is what the caller greps for and what keeps the causes distinct
 # (REQ-B1.6); the message is what a human reads (REQ-K1.1).
@@ -80,38 +90,42 @@ die() {
 
 # scrub — strip control bytes from anything git or the filesystem hands back
 # before it reaches a terminal, so a hostile branch name or path cannot smuggle
-# escape sequences into the caller's output.
+# escape sequences into the caller's output. TAB and LF are the only C0 bytes
+# kept, because the output format is built from them; every other one goes,
+# carriage return included — it needs no escape byte to overwrite the rendered
+# line and forge a different message on top of a real one.
 scrub() {
-  tr -d '\000-\010\013\014\016-\037\177'
+  tr -d '\000-\010\013-\037\177'
 }
 
 if [ "$#" -gt 1 ]; then
-  echo "usage: converge-sync-main.sh [<repo-dir>]" >&2
-  exit 2
+  die 2 usage "too many arguments; usage: converge-sync-main.sh [<repo-dir>]"
 fi
 
 # Probe the binaries before anything reads git state. Without this an absent
 # `git` surfaces through the work-tree check below as "not a git work tree",
 # which sends the human to inspect a directory that is fine; and an absent `tr`
 # empties `scrub`'s output, dropping the path out of the very message meant to
-# identify the problem. Raw printf here, deliberately: `die` routes through
-# `scrub`, which is one of the things being checked for.
+# identify the problem. `die` is safe to use even here: it is printf and exit,
+# and reaches for neither of the binaries being probed.
 for bin in git tr; do
-  command -v "$bin" >/dev/null 2>&1 || {
-    printf 'converge-sync-main: environment: %s is not on PATH; the sync cannot run\n' "$bin" >&2
-    exit 2
-  }
+  command -v "$bin" >/dev/null 2>&1 \
+    || die 2 environment "$bin is not on PATH; the sync cannot run"
 done
 
+# The target is echoed back in two failure messages, so it gets the same
+# newline collapse the git-stderr paths below use: a message a human reads on a
+# halt is one line, whatever the path it names contains.
 repo="${1:-.}"
-[ -d "$repo" ] || die 2 usage "target directory not found: $(printf '%s' "$repo" | scrub)"
+repo_shown=$(printf '%s' "$repo" | tr '\n' ' ' | scrub)
+[ -d "$repo" ] || die 2 usage "target directory not found: $repo_shown"
 
 # `--is-inside-work-tree` prints `false` inside a bare repo's git dir, where
 # there is nothing to merge into, so the value is checked rather than just the
 # exit status.
 inside=$(git -C "$repo" rev-parse --is-inside-work-tree 2>/dev/null || true)
 [ "$inside" = true ] \
-  || die 2 usage "not a git work tree: $(printf '%s' "$repo" | scrub)"
+  || die 2 usage "not a git work tree: $repo_shown"
 
 # --- pre-flight: the tree must be clean BEFORE the network -------------------
 #

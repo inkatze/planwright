@@ -344,7 +344,15 @@ c9() {
     || fail "c9: the script does not merge FETCH_HEAD"
   printf '%s\n' "$code" | grep -Eq 'merge[[:space:]]+--abort' \
     || fail "c9: the script never runs 'git merge --abort' (REQ-B1.3)"
-  echo "ok c9: source assertions — fetch + merge FETCH_HEAD, no pull, no rebase, no force/amend"
+
+  # Headless-hang guards. GIT_TERMINAL_PROMPT covers git's own credential
+  # prompt; ssh's host-key and passphrase prompts are a separate channel that
+  # would block the fetch just as hard, so both must be pinned.
+  printf '%s\n' "$code" | grep -Eq 'export[[:space:]]+GIT_TERMINAL_PROMPT|GIT_TERMINAL_PROMPT=0' \
+    || fail "c9: the script does not disable git's interactive terminal prompt"
+  printf '%s\n' "$code" | grep -Eq 'GIT_SSH_COMMAND=.*BatchMode=yes' \
+    || fail "c9: the script does not force ssh BatchMode, so an unknown host key can hang a headless fetch"
+  echo "ok c9: source assertions — fetch + merge FETCH_HEAD, no pull/rebase/force/amend, no interactive prompt"
 }
 
 # ---------------------------------------------------------------------------
@@ -392,9 +400,16 @@ c11() {
   [ "$rc" -eq 2 ] || fail "c11: expected exit 2 on a missing directory, got $rc"
 
   rc=0
-  "$SYNC" a b >/dev/null 2>&1 || rc=$?
+  err=$("$SYNC" a b 2>&1 >/dev/null) || rc=$?
   [ "$rc" -eq 2 ] || fail "c11: expected exit 2 on too many arguments, got $rc"
-  echo "ok c11: a non-git, missing, or over-argumented target fails closed with usage"
+  # The arity refusal is a failure like any other, so it carries the same
+  # tagged prefix and reason token the caller greps for. Asserting only the
+  # exit code here is what let an untagged raw `usage:` line survive.
+  case "$err" in
+    'converge-sync-main: '*': '*) ;;
+    *) fail "c11: the arity refusal is not in the tagged 'converge-sync-main: <reason>: <message>' form: $err" ;;
+  esac
+  echo "ok c11: a non-git, missing, or over-argumented target fails closed with a tagged usage reason"
 }
 
 # ---------------------------------------------------------------------------
@@ -462,6 +477,99 @@ c13() {
 }
 
 # ---------------------------------------------------------------------------
+# Case 14 — an operation already in progress is refused BEFORE the merge, and
+# says which one. c7 covers the other exit-3 message (uncommitted tracked
+# changes); this covers the branch REQ-B1.3's no-wedging clause rests on: a
+# lingering MERGE_HEAD (or CHERRY_PICK_HEAD) must halt on its own reason rather
+# than be trampled by a second merge.
+# ---------------------------------------------------------------------------
+c14() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c14.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+
+  # A real conflicted merge, left unaborted — the exact state a crashed or
+  # interrupted earlier sync would leave behind.
+  printf 'worker side\n' >"$tmp/worker/shared.txt"
+  gitc "$tmp/worker" add -A
+  gitc "$tmp/worker" commit -q -m "worker edits shared.txt"
+  advance_main "$tmp" shared.txt "main side"
+  gitc "$tmp/worker" fetch -q origin main
+  gitc "$tmp/worker" merge --no-edit FETCH_HEAD >/dev/null 2>&1 \
+    && fail "c14: the fixture merge was expected to conflict"
+  [ -f "$tmp/worker/.git/MERGE_HEAD" ] \
+    || fail "c14: the fixture did not leave a MERGE_HEAD to detect"
+
+  rc=0
+  err=$("$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+
+  [ "$rc" -eq 3 ] || fail "c14: expected exit 3 on an in-progress merge, got $rc"
+  case "$err" in
+    *dirty-tree*) ;;
+    *) fail "c14: an in-progress merge did not report the dirty-tree reason: $err" ;;
+  esac
+  case "$err" in
+    *MERGE_HEAD*) ;;
+    *) fail "c14: the refusal does not name which operation is in progress: $err" ;;
+  esac
+  case "$err" in
+    *"uncommitted tracked change"*)
+      fail "c14: an in-progress merge was reported as plain uncommitted changes: $err"
+      ;;
+    *) ;;
+  esac
+  # The pre-flight must refuse before the merge, so the interrupted state is
+  # left exactly as found for the human to finish or abort.
+  [ -f "$tmp/worker/.git/MERGE_HEAD" ] \
+    || fail "c14: the sync disturbed the in-progress merge it was supposed to refuse"
+
+  # The same branch, reached through a different state token.
+  new_clone "$tmp" worker2
+  printf 'w2 side\n' >"$tmp/worker2/shared.txt"
+  gitc "$tmp/worker2" add -A
+  gitc "$tmp/worker2" commit -q -m "worker2 edits shared.txt"
+  gitc "$tmp/worker2" fetch -q origin main
+  head_main=$(gitc "$tmp/worker2" rev-parse FETCH_HEAD)
+  gitc "$tmp/worker2" cherry-pick "$head_main" >/dev/null 2>&1 \
+    && fail "c14: the fixture cherry-pick was expected to conflict"
+
+  rc=0
+  err=$("$SYNC" "$tmp/worker2" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 3 ] || fail "c14: expected exit 3 on an in-progress cherry-pick, got $rc"
+  case "$err" in
+    *CHERRY_PICK_HEAD*) ;;
+    *) fail "c14: an in-progress cherry-pick is not named in the refusal: $err" ;;
+  esac
+  echo "ok c14: an operation already in progress halts on its own reason, naming which one"
+}
+
+# ---------------------------------------------------------------------------
+# Case 15 — failure messages stay one scrubbed line. The reason a human reads
+# is the whole interface on a halt, so a hostile path must not be able to
+# rewrite it: a carriage return overwrites the rendered line on a terminal, and
+# an embedded newline splits one message into two.
+# ---------------------------------------------------------------------------
+c15() {
+  cr=$(printf '\r')
+
+  rc=0
+  err=$("$SYNC" "$(printf 'evil\rconverge-sync-main: sync ok')" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] || fail "c15: expected exit 2 on a missing directory, got $rc"
+  case "$err" in
+    *"$cr"*) fail "c15: a carriage return survived into the failure message" ;;
+    *) ;;
+  esac
+
+  rc=0
+  err=$("$SYNC" "$(printf 'foo\nbar')" 2>&1 >/dev/null) || rc=$?
+  [ "$rc" -eq 2 ] || fail "c15: expected exit 2 on a missing directory, got $rc"
+  [ "$(printf '%s\n' "$err" | grep -c '')" -eq 1 ] \
+    || fail "c15: a newline in the target split the failure into more than one line: $err"
+  echo "ok c15: failure messages survive a hostile path as a single scrubbed line"
+}
+
+# ---------------------------------------------------------------------------
 # Wiring 1 — `/execute-task` invokes the sync ONCE, at the top of the
 # convergence sequence: before the line that runs the review skills, so the
 # final iteration's CI + review verification lands on the post-sync head
@@ -515,6 +623,8 @@ c10
 c11
 c12
 c13
+c14
+c15
 w1
 w2
 
