@@ -426,6 +426,42 @@ c12() {
 }
 
 # ---------------------------------------------------------------------------
+# Case 13 — a merge refused for a NON-conflict reason gets its own exit and
+# reason. c8 lets untracked files through on purpose, so the case they do block
+# a merge — an incoming path colliding with an untracked file — is the one that
+# has to stay distinguishable from a real conflict (REQ-B1.6, REQ-K1.1).
+# ---------------------------------------------------------------------------
+c13() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c13.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+  new_origin "$tmp"
+  new_clone "$tmp" worker
+  advance_main "$tmp" newfile.txt "from main"
+  printf 'squatting\n' >"$tmp/worker/newfile.txt"
+  before=$(gitc "$tmp/worker" rev-parse HEAD)
+
+  rc=0
+  err=$("$SYNC" "$tmp/worker" 2>&1 >/dev/null) || rc=$?
+
+  [ "$rc" -eq 6 ] || fail "c13: expected exit 6 (merge-failed), got $rc"
+  case "$err" in
+    *merge-failed*) ;;
+    *) fail "c13: the non-conflict refusal did not name the merge-failed reason: $err" ;;
+  esac
+  case "$err" in
+    *merge-conflict*)
+      fail "c13: a blocking untracked file was misreported as a merge conflict: $err"
+      ;;
+    *) ;;
+  esac
+  [ "$(gitc "$tmp/worker" rev-parse HEAD)" = "$before" ] \
+    || fail "c13: the branch head moved despite the refused merge"
+  [ ! -f "$tmp/worker/.git/MERGE_HEAD" ] \
+    || fail "c13: MERGE_HEAD survived a refused merge"
+  echo "ok c13: an untracked file blocking the merge exits 6, not as a conflict"
+}
+
+# ---------------------------------------------------------------------------
 # Wiring 1 — `/execute-task` invokes the sync ONCE, at the top of the
 # convergence sequence: before the line that runs the review skills, so the
 # final iteration's CI + review verification lands on the post-sync head
@@ -478,6 +514,7 @@ c9
 c10
 c11
 c12
+c13
 w1
 w2
 
