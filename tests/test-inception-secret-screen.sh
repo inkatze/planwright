@@ -69,13 +69,15 @@ out="$("$SCREEN" "$tmp/clean.md" 2>&1)"
 rc=$?
 assert_eq "clean file: exit 0" "0" "$rc"
 
-# Each seeded credential is assembled at run time so this test file itself
-# carries no token-shaped literal for a scanner to trip over.
+# Every seeded credential is assembled at run time from split literals, so this
+# file carries no complete credential shape for a scanner to trip over — the
+# repo's own `scan:secrets` reads it too, and a fixture that fails the guard it
+# was written to exercise is a poor fixture.
 mk() { printf '%s\n' "$2" >"$tmp/$1.md"; }
 mk aws "aws_key = AKIA""IOSFODNN7EXAMPLE"
 mk github "token: ghp_""0123456789abcdefghijklmnopqrstuvwxyz"
 mk slack "hook = xoxb-""1234567890-abcdefghijklmno"
-mk pem "-----BEGIN RSA PRIVATE KEY-----"
+mk pem "-----BEGIN RSA PRIVATE KEY""-----"
 mk generic "api_key = ""s3cr3tVALUE0123456789abcdefXYZ"
 
 for case in aws github slack pem generic; do
@@ -156,8 +158,14 @@ if command -v gitleaks >/dev/null 2>&1; then
   # allowlist for documentation placeholders, so the canonical AWS example key
   # is deliberately NOT a leak to it. Asserting on a shape it does flag is what
   # makes these assertions about our invocation rather than about its ruleset.
-  keybody="MIIEowIBAAKCAQEA7Zx2Lm9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq"
-  printf -- '-----BEGIN RSA PRIVATE KEY-----\n%s\n-----END RSA PRIVATE KEY-----\n' "$keybody" >"$tmp/key.pem"
+  # Split literals again, for the same reason as the fixtures above.
+  pk_begin="-----BEGIN RSA PRIVATE KEY""-----"
+  pk_end="-----END RSA PRIVATE KEY""-----"
+  # Named pk_body, not keybody: gitleaks generic-api-key rule fires on a
+  # high-entropy value assigned to a key-shaped name, and this file is inside
+  # the repo it is scanning.
+  pk_body="MIIEowIBAAKCAQEA7Zx2Lm""9Rt4Wb8Nc1Yv6Ha3Pd5Sj0Ug2EfKq"
+  printf -- '%s\n%s\n%s\n' "$pk_begin" "$pk_body" "$pk_end" >"$tmp/key.pem"
 
   out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/clean.md" 2>&1)"
   rc=$?
@@ -166,7 +174,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   out="$(PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" "$tmp/key.pem" 2>&1)"
   rc=$?
   assert_eq "gitleaks arm: a leak exits 1" "1" "$rc"
-  assert_not_contains "gitleaks arm: the matched value is redacted" "$keybody" "$out"
+  assert_not_contains "gitleaks arm: the matched value is redacted" "$pk_body" "$out"
 
   # Each path reports its own result. A shared status would make every clean
   # path after the first hit re-print the previous path's captured output, so
@@ -184,7 +192,7 @@ if command -v gitleaks >/dev/null 2>&1; then
   out="$(cd "$repo" && PLANWRIGHT_SECRET_SCREEN_TOOL=gitleaks "$SCREEN" --staged 2>&1)"
   rc=$?
   assert_eq "gitleaks arm: a staged leak exits 1" "1" "$rc"
-  assert_not_contains "gitleaks arm: the staged value is redacted" "$keybody" "$out"
+  assert_not_contains "gitleaks arm: the staged value is redacted" "$pk_body" "$out"
 else
   echo "ok: gitleaks arm: gitleaks absent, preferred-path checks skipped"
 fi
