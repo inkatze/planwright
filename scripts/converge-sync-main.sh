@@ -40,7 +40,8 @@
 #
 # Exit codes:
 #   0  synced (already current, fast-forwarded, or merged)
-#   2  usage — bad argument count, or a target that is not a git work tree
+#   2  usage — bad argument count, a target that is not a git work tree, or a
+#      missing `git`/`tr` (reason `environment`)
 #   3  dirty-tree — tracked-file changes, or a merge/rebase/cherry-pick already
 #      in progress; no fetch is attempted
 #   4  fetch-failed — `git fetch origin main` failed (unreachable remote, no
@@ -88,6 +89,19 @@ if [ "$#" -gt 1 ]; then
   echo "usage: converge-sync-main.sh [<repo-dir>]" >&2
   exit 2
 fi
+
+# Probe the binaries before anything reads git state. Without this an absent
+# `git` surfaces through the work-tree check below as "not a git work tree",
+# which sends the human to inspect a directory that is fine; and an absent `tr`
+# empties `scrub`'s output, dropping the path out of the very message meant to
+# identify the problem. Raw printf here, deliberately: `die` routes through
+# `scrub`, which is one of the things being checked for.
+for bin in git tr; do
+  command -v "$bin" >/dev/null 2>&1 || {
+    printf 'converge-sync-main: environment: %s is not on PATH; the sync cannot run\n' "$bin" >&2
+    exit 2
+  }
+done
 
 repo="${1:-.}"
 [ -d "$repo" ] || die 2 usage "target directory not found: $(printf '%s' "$repo" | scrub)"

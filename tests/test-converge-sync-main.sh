@@ -398,6 +398,34 @@ c11() {
 }
 
 # ---------------------------------------------------------------------------
+# Case 12 — a missing binary is named for what it is. Without this probe the
+# `git` absence surfaces through the work-tree check as "not a git work tree",
+# sending the human to inspect a directory that is fine, and `scrub`'s own
+# missing `tr` empties the path out of the message on top of it (REQ-K1.1: the
+# reason names what could not be confirmed).
+# ---------------------------------------------------------------------------
+c12() {
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/converge-sync.c12.XXXXXX")
+  trap 'rm -rf "$tmp"' RETURN
+
+  rc=0
+  err=$(env -i PATH=/nonexistent-for-this-test /bin/bash "$SYNC" "$tmp" 2>&1 >/dev/null) || rc=$?
+
+  [ "$rc" -eq 2 ] || fail "c12: expected exit 2 on a missing git, got $rc"
+  case "$err" in
+    *git*) ;;
+    *) fail "c12: the missing-binary message never names git: $err" ;;
+  esac
+  case "$err" in
+    *"not a git work tree"*)
+      fail "c12: a missing git was misreported as a bad work tree: $err"
+      ;;
+    *) ;;
+  esac
+  echo "ok c12: a missing git is named as such, not misreported as a bad work tree"
+}
+
+# ---------------------------------------------------------------------------
 # Wiring 1 — `/execute-task` invokes the sync ONCE, at the top of the
 # convergence sequence: before the line that runs the review skills, so the
 # final iteration's CI + review verification lands on the post-sync head
@@ -449,6 +477,7 @@ c8
 c9
 c10
 c11
+c12
 w1
 w2
 
