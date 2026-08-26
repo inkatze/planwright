@@ -42,6 +42,15 @@ rather than one checkout addressed twice.
   stayed at `3324c25` — no foreign commit was dragged onto the worker branch.
 - Neither tower's `main` reflog contains a `rebase` or `reset` entry.
 
+**Sequencing, stated precisely.** The two towers were both live with work in
+flight (B held an uncommitted worker branch across A's sync), but the two syncs
+were run in sequence, not simultaneously. That is sufficient for what REQ-B1.1
+asks: the isolation being verified is *topological* — A's `main` and B's `main`
+are different refs in different clones — so simultaneity cannot strengthen it,
+and the observation that matters (A moving `main` is invisible to B) is exactly
+what the sequenced run shows. Recorded rather than left implicit, since the
+requirement's wording says "concurrently".
+
 Reproduction: `tests/test-main-currency.sh` covers the same paths as fixtures;
 this entry records the two-checkout run those fixtures stand in for.
 
