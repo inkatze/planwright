@@ -211,10 +211,12 @@ not a second specification of them.
 
 Every rung in `backend-capability-contract.md` against every class above. A
 cell is that rung's instance of the class's three parts: **per contract** means
-the class row applies unchanged, **—** means the rung structurally does not
-acquire the class, and a cell reading `gap:` is a declared gap rather than an
-oversight. A rung present in the capability contract and absent here is the
-omission REQ-A1.5 exists to catch.
+the class row applies unchanged, and **—** means the rung structurally does not
+acquire the class. No cell is ever left blank: a class a rung acquires without
+one of the three parts is written `gap: <what is missing>`, so a gap is
+declared where the reader looks for it and never inferred from white space. A
+rung present in the capability contract and absent here is the omission
+REQ-A1.5 exists to catch.
 
 | Rung | Process tree | tmux window | Locks | Scratch temp | Attention record |
 | --- | --- | --- | --- | --- | --- |
