@@ -249,6 +249,18 @@ case $err in
 esac
 echo "ok: unknown/hostile task types are refused with sanitized diagnostics"
 
+# 8b. The fleet CLI's vocabulary stays FLEET-scoped. The generalized table this
+#     script now delegates to also carries the non-fleet surface keys, so the
+#     task-type allowlist here is the only thing stopping `select offload` from
+#     resolving a row the fleet has no use for. Without this assertion the
+#     allowlist could drift out of step with the delegate's key set silently.
+for k in offload orchestrate_dispatch execute_step; do
+  rc=0
+  run select "$k" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || fail "non-fleet selection key '$k' must be refused here: exit $rc, expected 2"
+done
+echo "ok: non-fleet selection keys are refused by the fleet entry point"
+
 # 9. Usage errors: no subcommand / unknown subcommand / missing type.
 for args in "" "bogus" "select"; do
   rc=0
