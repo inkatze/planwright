@@ -183,7 +183,10 @@ function accept(b) {
 # rather than silently parsing a neighbouring table.
 # ---------------------------------------------------------------------------
 contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
-  BEGIN { split(fields, want, " ") }
+  BEGIN {
+    nf = split(fields, want, " ")
+    for (w = 1; w <= nf; w++) iswant[want[w]] = 1
+  }
   {
     line = $0; sub(/^[ \t]+/, "", line)
     if (line !~ /^\|/) { intbl = 0; next }
@@ -209,6 +212,18 @@ contract_facts="$(awk -v fields="$FIELDS" "$awk_lib"'
     b = token(c[2])
     if (b == "") next
     if (!accept(b)) next
+    # Row arity, the prose-side mirror of the caps_for() field-count check
+    # below. A row short of a contract column emits no fact for it, and the
+    # comparison loop has nothing to compare — so a truncated row would read
+    # as agreement rather than as the partial parse it is. Only cells mapping
+    # to a contract field are counted, so a table carrying an extra
+    # non-contract column stays readable.
+    got = 0
+    for (i = 3; i < n; i++) if (colname[i] in iswant) got++
+    if (got != nf) {
+      err("prose row " b " carries " got " contract cells, expected " nf)
+      next
+    }
     for (i = 3; i < n; i++) {
       if (colname[i] == "") continue
       emit(b, colname[i], nfield(colname[i], c[i]))
@@ -368,25 +383,31 @@ report() {
   status=1
 }
 
+# Basenames for the divergence messages below. Sanitized like the safe_* paths
+# above: these come from argv, so a caller-supplied path is caller-controlled
+# content reaching a terminal.
+safe_registry_base="$(sanitize_printable "${registry##*/}" "(unprintable filename)")"
+safe_fleet_base="$(sanitize_printable "${fleet##*/}" "(unprintable filename)")"
+
 # Backend sets: prose vs registry, both directions.
 for b in $contract_backends; do
   printf '%s\n' "$registry_backends" | grep -qxF -- "$b" \
-    || report "the prose contract defines backend '$b', which caps_for() in ${registry##*/} does not"
+    || report "the prose contract defines backend '$b', which caps_for() in $safe_registry_base does not"
 done
 for b in $registry_backends; do
   printf '%s\n' "$contract_backends" | grep -qxF -- "$b" \
-    || report "caps_for() in ${registry##*/} defines backend '$b', which the prose contract does not (the prose table is the direction of truth: edit it first)"
+    || report "caps_for() in $safe_registry_base defines backend '$b', which the prose contract does not (the prose table is the direction of truth: edit it first)"
 done
 
 # Backend sets: prose vs the fleet table, both directions (semantic rows are
 # already excluded by the fleet parser).
 for b in $contract_backends; do
   printf '%s\n' "$fleet_backends" | grep -qxF -- "$b" \
-    || report "the prose contract defines backend '$b', which the ${fleet##*/} backend table does not document"
+    || report "the prose contract defines backend '$b', which the $safe_fleet_base backend table does not document"
 done
 for b in $fleet_backends; do
   printf '%s\n' "$contract_backends" | grep -qxF -- "$b" \
-    || report "the ${fleet##*/} backend table documents '$b', which the prose contract does not define (add it to the contract, or declare it a semantic row)"
+    || report "the $safe_fleet_base backend table documents '$b', which the prose contract does not define (add it to the contract, or declare it a semantic row)"
 done
 
 # Field-by-field agreement for backends every surface carries.
@@ -399,7 +420,7 @@ for b in $contract_backends; do
     fi
     if fv="$(fact "$fleet_facts" "$b" "$f")"; then
       [ "$cv" = "$fv" ] \
-        || report "$b.$f: the prose contract says '$cv', the ${fleet##*/} backend table says '$fv'"
+        || report "$b.$f: the prose contract says '$cv', the $safe_fleet_base backend table says '$fv'"
     fi
   done
 done
@@ -409,6 +430,6 @@ if [ "$status" -eq 0 ]; then
   for b in $contract_backends; do
     count=$((count + 1))
   done
-  echo "check-backend-capability-drift: $count backends agree across the prose contract, caps_for(), and the ${fleet##*/} backend table"
+  echo "check-backend-capability-drift: $count backends agree across the prose contract, caps_for(), and the $safe_fleet_base backend table"
 fi
 exit "$status"

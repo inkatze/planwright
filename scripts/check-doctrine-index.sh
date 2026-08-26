@@ -133,7 +133,12 @@ while IFS= read -r row; do
   [ -n "$row" ] || continue
   cell="${row#|}"
   cell="${cell%%|*}"
-  target="$(printf '%s' "$cell" | sed -n 's/.*\[[^]]*\](\([^)]*\)).*/\1/p')"
+  # Leftmost link, not rightmost: `[^[]*` cannot cross a `[`, so the match is
+  # pinned to the cell's first link. A greedy `.*` here read the LAST link
+  # instead, so a stale row that cross-referenced a live doc was attributed to
+  # the doc it merely mentioned — the row for the deleted doc then satisfied
+  # direction two and the broken index passed.
+  target="$(printf '%s' "$cell" | sed -n 's/^[^[]*\[[^]]*\](\([^)]*\)).*/\1/p')"
   [ -n "$target" ] \
     || fail_closed "index row has no markdown link in its first cell: $(sanitize_printable "$row" "(unprintable row)")"
   case "$target" in

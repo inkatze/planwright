@@ -105,6 +105,26 @@ assert_contains "the rename reports the stale row" "$out" "beta.md"
 assert_contains "the rename reports the unindexed doc" "$out" "beta-renamed.md"
 
 # ---------------------------------------------------------------------------
+# 4c. A stale row that also cross-references a live doc must still be caught.
+#     The first cell's link is read leftmost, so the row is attributed to the
+#     doc it *names*; reading it rightmost instead attributed the row to the
+#     doc it merely mentions, which let a row for a deleted doc pass as that
+#     doc's index entry — direction two silently satisfied by the wrong row.
+# ---------------------------------------------------------------------------
+mkdir -p "$tmp/absorbed"
+: >"$tmp/absorbed/alpha.md"
+cat >"$tmp/absorbed/README.md" <<'EOF'
+# Fixture Doctrine
+
+| Doc | Covers | Primary citations |
+| --- | --- | --- |
+| [beta.md](beta.md) — folded into [alpha.md](alpha.md) | Something | REQ-X1.1 |
+EOF
+out="$(/bin/bash "$CHECKER" "$tmp/absorbed" 2>&1)"
+assert "a stale row cross-referencing a live doc still fails" 1 $?
+assert_contains "the absorbed-row failure names the deleted doc" "$out" "beta.md"
+
+# ---------------------------------------------------------------------------
 # 5. A duplicate index row for one doc breaks the bijection.
 # ---------------------------------------------------------------------------
 make_fixture "$tmp/dupe" alpha beta

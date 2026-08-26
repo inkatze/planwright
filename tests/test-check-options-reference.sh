@@ -356,8 +356,11 @@ assert_contains "the skipped fleet arm is announced" "$err" "fleet-knob tether s
 mkdir -p "$tmp/readonly-tmp"
 chmod 500 "$tmp/readonly-tmp"
 if [ -w "$tmp/readonly-tmp" ]; then
-  echo "FAIL: could not make an unwritable TMPDIR fixture (running as root?)" >&2
-  failures=$((failures + 1))
+  # Root writes through mode 500, so the fixture cannot be built and the
+  # failure mode is unobservable. Skip rather than fail, matching the
+  # convention the sibling suites already use for permission fixtures
+  # (test-config-get.sh, test-install-writer.sh, test-check-workflow-posture.sh).
+  echo "skip: unwritable-TMPDIR case (running as root)"
 else
   out="$(TMPDIR="$tmp/readonly-tmp" /bin/bash "$CHECKER" \
     "$tmp/fleet-config.yml" "$tmp/fleet-reference.md" "$tmp/fleet-unpaired.md" 2>&1)"

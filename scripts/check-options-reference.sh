@@ -54,6 +54,27 @@ export LC_ALL
 unset CDPATH
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd -P)"
+
+# Display sanitizer for parsed content (echo discipline,
+# doctrine/security-posture.md). The fleet tether below echoes knob names,
+# values, and malformed-row text lifted straight out of a markdown table, so
+# an escape sequence embedded in the doc would otherwise drive the terminal of
+# whoever runs the gate. A byte-identical inline fallback is defined first so a
+# diagnostic is never unable to strip control bytes; the canonical shared
+# helper overrides it when the sibling resolves. Mirrors the two sibling
+# tethers this check ships alongside.
+sanitize_printable() {
+  _sp=$(printf '%s' "$1" | tr -d '\000-\037\177\200-\237' 2>/dev/null) || _sp=''
+  if [ -z "$_sp" ] && [ $# -ge 2 ]; then
+    _sp=$2
+  fi
+  printf '%s' "$_sp"
+}
+if [ -r "$repo_root/scripts/echo-safety.sh" ]; then
+  # shellcheck source=scripts/echo-safety.sh
+  . "$repo_root/scripts/echo-safety.sh"
+fi
+
 config="${1:-$repo_root/config/defaults.yml}"
 reference="${2:-$repo_root/docs/options-reference.md}"
 # The fleet tether engages on the CI form, or whenever a caller names the doc.
@@ -124,6 +145,8 @@ done
 # ---------------------------------------------------------------------------
 fleet_knob_count=0
 if [ -n "$fleet" ]; then
+  safe_fleet="$(sanitize_printable "$fleet" "(unprintable path)")"
+  safe_config="$(sanitize_printable "$config" "(unprintable path)")"
   # Config values, keyed by option name. Trailing comments and surrounding
   # quotes are stripped so the comparison is on the value, not its spelling.
   config_values="$(awk '
@@ -201,24 +224,24 @@ if [ -n "$fleet" ]; then
     }
   ' "$fleet")"
   fleet_status=$?
-  fleet_err="$(printf '%s\n' "$fleet_pairs" | sed -n 's/^#ERR[[:space:]]*//p' | tr '\n' ';')"
+  fleet_err="$(sanitize_printable "$(printf '%s\n' "$fleet_pairs" | sed -n 's/^#ERR[[:space:]]*//p' | tr '\n' ';')" "(unprintable diagnostic)")"
   fleet_pairs="$(printf '%s\n' "$fleet_pairs" | grep -v '^#ERR' || true)"
   case "$fleet_status" in
     3)
-      echo "check-options-reference: could not parse the knobs table in $fleet (no header row whose first cell is 'Knob' with a 'Default…' column)" >&2
+      echo "check-options-reference: could not parse the knobs table in $safe_fleet (no header row whose first cell is 'Knob' with a 'Default…' column)" >&2
       exit 2
       ;;
     4)
-      echo "check-options-reference: the knobs table in $fleet parsed to zero rows" >&2
+      echo "check-options-reference: the knobs table in $safe_fleet parsed to zero rows" >&2
       exit 2
       ;;
     5)
-      echo "check-options-reference: malformed knobs table in $fleet: $fleet_err" >&2
+      echo "check-options-reference: malformed knobs table in $safe_fleet: $fleet_err" >&2
       exit 2
       ;;
     0) ;;
     *)
-      echo "check-options-reference: failed to parse the knobs table in $fleet" >&2
+      echo "check-options-reference: failed to parse the knobs table in $safe_fleet" >&2
       exit 2
       ;;
   esac
@@ -226,13 +249,14 @@ if [ -n "$fleet" ]; then
   while IFS="$(printf '\t')" read -r knob documented; do
     [ -n "$knob" ] || continue
     fleet_knob_count=$((fleet_knob_count + 1))
+    safe_knob="$(sanitize_printable "$knob" "(unprintable knob)")"
     actual="$(printf '%s\n' "$config_values" | awk -F'\t' -v k="$knob" '$1 == k { print $2; found = 1 } END { if (!found) exit 1 }')" || {
-      echo "check-options-reference: '$knob' is documented in $fleet but absent from $config" >&2
+      echo "check-options-reference: '$safe_knob' is documented in $safe_fleet but absent from $safe_config" >&2
       status=1
       continue
     }
     if [ "$documented" != "$actual" ]; then
-      echo "check-options-reference: '$knob' default drift: $fleet says '$documented', $config says '$actual'" >&2
+      echo "check-options-reference: '$safe_knob' default drift: $safe_fleet says '$(sanitize_printable "$documented" "(unprintable value)")', $safe_config says '$(sanitize_printable "$actual" "(unprintable value)")'" >&2
       status=1
     fi
   done <<EOF

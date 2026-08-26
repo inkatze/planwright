@@ -381,6 +381,25 @@ out="$(run_trio "$tmp/short-arm")"
 assert "a short caps_for() arm fails closed" 2 $?
 assert_contains "the short-arm diagnostic names the backend" "$out" "alpha"
 
+# 10b-i. The same arity guard on the prose side. A row missing a trailing
+#        column used to emit only the fields it carried, and the comparison
+#        loop skips a field the contract has no fact for — so a truncated row
+#        in the surface the contract calls the direction of truth read as
+#        agreement and exited 0. The registry arm above has always been held
+#        to its field count; the prose table now is too.
+make_trio "$tmp/short-row"
+write_contract "$tmp/short-row" <<'EOF'
+# Fixture Backend Capability Contract
+
+| Backend | `interactive` | `can_observe` | `can_steer_inflight` | `provides_attention_surface` | `supports_parallel` | Session-grade | `overhead` | `hook_registration` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `alpha` | true | true | true | false | true | yes | `full-session` |
+| `beta` | false | false | false | false | n/a | deferred | `none` | false |
+EOF
+out="$(run_trio "$tmp/short-row")"
+assert "a short prose contract row fails closed" 2 $?
+assert_contains "the short-row diagnostic names the backend" "$out" "alpha"
+
 # 10c. A backend name outside the identifier grammar `caps_for()`'s own
 #      valid_name() enforces is a parse error. Left unvalidated, a name
 #      carrying a regex metacharacter would also make the set comparison match
@@ -438,8 +457,11 @@ assert_contains "the duplicate-row diagnostic names the backend" "$out" "alpha"
 mkdir -p "$tmp/readonly-tmp"
 chmod 500 "$tmp/readonly-tmp"
 if [ -w "$tmp/readonly-tmp" ]; then
-  echo "FAIL: could not make an unwritable TMPDIR fixture (running as root?)" >&2
-  failures=$((failures + 1))
+  # Root writes through mode 500, so the fixture cannot be built and the
+  # failure mode is unobservable. Skip rather than fail, matching the
+  # convention the sibling suites already use for permission fixtures
+  # (test-config-get.sh, test-install-writer.sh, test-check-workflow-posture.sh).
+  echo "skip: unwritable-TMPDIR case (running as root)"
 else
   out="$(TMPDIR="$tmp/readonly-tmp" run_trio "$tmp/short-arm")"
   assert "an unwritable TMPDIR does not degrade the diagnostic" 2 $?
