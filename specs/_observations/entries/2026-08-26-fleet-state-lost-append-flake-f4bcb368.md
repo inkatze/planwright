@@ -1,0 +1,1 @@
+- 2026-08-26 [planwright] tests/test-fleet-state.sh registry-race assertion fails ~2 of 3 runs even in ISOLATION on this machine (18-19 of 20 records), not only under parallel load as previously characterised. Unrelated to the diff observing it; worth a lost-append fix rather than a load-shedding one.
